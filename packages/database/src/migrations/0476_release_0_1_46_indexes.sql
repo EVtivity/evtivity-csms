@@ -177,3 +177,22 @@ CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_guest_sessions_charging_sessio
 --> statement-breakpoint
 DROP INDEX CONCURRENTLY IF EXISTS idx_guest_sessions_charging_session;
 -- end beta.8 sessions
+--> statement-breakpoint
+-- meter_values: deleting an EVSE (a station delete cascades to its EVSEs)
+-- checks the evse_id foreign key, which scanned the whole table without an
+-- index on it. The end-of-run delete of conformance test stations took
+-- minutes, and longer on a large table.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+    WHERE indexrelid = to_regclass('idx_meter_values_evse_id') AND NOT indisvalid
+  ) THEN
+    DROP INDEX idx_meter_values_evse_id;
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_meter_values_evse_id
+  ON meter_values (evse_id)
+  WHERE evse_id IS NOT NULL;
+-- end conformance stations

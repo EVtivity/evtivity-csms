@@ -14,7 +14,10 @@ vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return { ...actual, api: { post: postMock } };
 });
-vi.mock('@/lib/auth', () => ({ useHasPermission: () => true }));
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: () => true,
+  useHasCompanyWidePermission: () => true,
+}));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 
 import { SessionPaymentTab, type PaymentRecord } from '../session/SessionPaymentTab';

@@ -72,7 +72,8 @@ function fakeTable(name: string): { id: unknown; createdAt: unknown } {
   };
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   db: { select: vi.fn(() => makeChain()) },
   sites: fakeTable('sites'),
   chargingStations: { ...fakeTable('charging_stations'), siteId: { name: 'site_id' } },

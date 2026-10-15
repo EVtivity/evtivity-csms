@@ -3,7 +3,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ilike, desc, sql, isNotNull, inArray } from 'drizzle-orm';
+import { eq, and, or, ilike, desc, sql, isNotNull, inArray, type SQL } from 'drizzle-orm';
 import { db, SESSION_END_FAILED_REASON, writeAudit } from '@evtivity/database';
 import {
   chargingSessions,
@@ -22,6 +22,7 @@ import {
   sessionStatusEnum,
   SESSION_REBILL_STATUSES,
   getCompanyCurrency,
+  inOperatorStation,
   sessionAuditLog,
 } from '@evtivity/database';
 import { sessionCostMissing } from '@evtivity/services/electricity-cost.service';
@@ -36,6 +37,8 @@ import { getUserSiteIds } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { containsPattern } from '../lib/like-pattern.js';
 import { pendingOperationSchema, providerRefundsSchema } from '../lib/payment-provider-schemas.js';
+import { activePaymentProvider } from '../lib/payments.js';
+import { NO_PAYMENT_REASONS, noPaymentReason } from '../lib/session-no-payment-reason.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -390,6 +393,12 @@ const sessionDetail = z
     paymentRecord: paymentRecordItem
       .nullable()
       .describe('Linked payment record, null when no payment was taken'),
+    noPaymentReason: z
+      .enum(NO_PAYMENT_REASONS)
+      .nullable()
+      .describe(
+        'Why the session has no payment record, null when it has one: free_vend (free vend), roaming (billed by the eMSP through OCPI), account_credit_limit (fleet credit limit refused the start), account_billed (fleet or member invoice), guest (paid through the guest session), anonymous (no driver or guest checkout), no_payment_method and payment_failed (stopped by the payment check), pending (still running), no_cost (nothing to charge), payments_off (no payment provider active now), prepaid_not_debited (prepaid balance debit not recorded), not_held (no hold was placed at the start)',
+      ),
     guestSession: z
       .object({
         sessionToken: z
@@ -563,8 +572,9 @@ export function sessionRoutes(app: FastifyInstance): void {
       // Sessions are scoped and filtered by the site they happened at
       // (charging_sessions.site_id), not the station's current site: a station
       // moved to another site leaves its earlier sessions at the old site. A
-      // session without a site is visible to all-site users only.
-      const conditions = [];
+      // session without a site is visible to all-site users only. Sessions of
+      // conformance (OCTT) stations are never listed.
+      const conditions: (SQL | undefined)[] = [inOperatorStation(chargingSessions.stationId)];
       if (accessibleSiteIds != null) {
         conditions.push(inArray(chargingSessions.siteId, accessibleSiteIds));
       }
@@ -606,7 +616,7 @@ export function sessionRoutes(app: FastifyInstance): void {
         conditions.push(sessionCostMissing(await getCompanyCurrency()));
       }
 
-      const where = conditions.length > 0 ? and(...conditions) : undefined;
+      const where = and(...conditions);
 
       // The total comes from its own count query: a count(*) OVER() on the
       // page query has no row to read it from past the last page (total 0),
@@ -751,6 +761,8 @@ export function sessionRoutes(app: FastifyInstance): void {
           tokenId: driverTokens.id,
           tokenIdToken: driverTokens.idToken,
           tokenType: driverTokens.tokenType,
+          tokenPrepaid: sql<boolean>`${driverTokens.prepaidBalanceCents} IS NOT NULL`,
+          isRoaming: chargingSessions.isRoaming,
           vehicleId: vehicles.id,
           vehicleMake: vehicles.make,
           vehicleModel: vehicles.model,
@@ -830,6 +842,8 @@ export function sessionRoutes(app: FastifyInstance): void {
         tokenId,
         tokenIdToken,
         tokenType,
+        tokenPrepaid,
+        isRoaming,
         vehicleId,
         vehicleMake,
         vehicleModel,
@@ -841,6 +855,32 @@ export function sessionRoutes(app: FastifyInstance): void {
         vehicleIdSource,
         ...session
       } = row;
+
+      const reason = await noPaymentReason(
+        {
+          hasPaymentRecord: paymentId != null,
+          status: session.status,
+          freeVend: session.freeVend,
+          isRoaming,
+          billingMode: session.billingMode,
+          stoppedReason: session.stoppedReason,
+          guestSession: guestSessionToken != null,
+          driverId: session.driverId,
+          prepaidToken: tokenPrepaid,
+          finalCostCents: session.finalCostCents,
+          currentCostCents: session.currentCostCents,
+        },
+        async () => {
+          try {
+            return (await activePaymentProvider(request.log)) == null;
+          } catch (err) {
+            // fail-open: the reason is informational; an unreadable payment
+            // setting must not fail the session page.
+            request.log.warn({ err, sessionId: id }, 'Payment provider check failed');
+            return false;
+          }
+        },
+      );
 
       // A Plug and Charge session: the contract whose eMAID authorized it.
       const [pncContract] =
@@ -892,6 +932,7 @@ export function sessionRoutes(app: FastifyInstance): void {
                 providerRefunds: providerRefunds ?? [],
               }
             : null,
+        noPaymentReason: reason,
         guestSession:
           guestSessionToken != null
             ? {

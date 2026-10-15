@@ -3,7 +3,10 @@
 
 import { describe, it, expect } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { paymentRecordsAtSites } from '../lib/payment-site-scope.js';
+import {
+  paymentRecordsAtSites,
+  paymentRecordsOfOperatorStations,
+} from '../lib/payment-site-scope.js';
 
 // Building the condition runs no query: the subqueries are rendered to SQL here
 // and checked for the joins and site filters that scope payment records.
@@ -26,5 +29,18 @@ describe('paymentRecordsAtSites', () => {
   it('binds a single site once per branch', () => {
     const { params } = render(['sit_only']);
     expect(params).toEqual(['sit_only', 'sit_only']);
+  });
+});
+
+describe('paymentRecordsOfOperatorStations', () => {
+  it('leaves out records whose session or reservation station is a conformance station', () => {
+    const { sql } = new PgDialect().sqlToQuery(paymentRecordsOfOperatorStations());
+    const normalized = sql.replace(/\s+/g, ' ');
+    expect(normalized).toContain(
+      'NOT EXISTS (SELECT 1 FROM charging_stations conf_st WHERE conf_st.id = (SELECT "charging_sessions"."station_id" FROM "charging_sessions" WHERE "charging_sessions"."id" = "payment_records"."session_id") AND conf_st.is_conformance)',
+    );
+    expect(normalized).toContain(
+      'NOT EXISTS (SELECT 1 FROM charging_stations conf_st WHERE conf_st.id = (SELECT "reservations"."station_id" FROM "reservations" WHERE "reservations"."id" = "payment_records"."reservation_id") AND conf_st.is_conformance)',
+    );
   });
 });

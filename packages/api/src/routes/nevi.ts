@@ -4,7 +4,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, gte, lte, desc, count, sql, inArray } from 'drizzle-orm';
-import { db, neviStationData, neviExcludedDowntime, chargingStations } from '@evtivity/database';
+import {
+  db,
+  neviStationData,
+  neviExcludedDowntime,
+  chargingStations,
+  isOperatorStation,
+} from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -178,7 +184,8 @@ export function neviRoutes(app: FastifyInstance): void {
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null && siteIds.length === 0) return { data: [] };
 
-      const conditions = [];
+      // Conformance test stations are never in a NEVI report.
+      const conditions = [isOperatorStation()];
       if (siteIds != null) {
         conditions.push(inArray(chargingStations.siteId, siteIds));
       }
@@ -326,7 +333,8 @@ export function neviRoutes(app: FastifyInstance): void {
       const { page, limit, stationId, from, to } = query;
       const offset = (page - 1) * limit;
 
-      const conditions = [];
+      // Conformance test stations are never in a NEVI report.
+      const conditions = [isOperatorStation()];
       if (stationId) {
         conditions.push(eq(neviExcludedDowntime.stationId, stationId));
       }

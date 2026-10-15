@@ -68,13 +68,29 @@ vi.mock('@/components/charts/PaymentBreakdownChart', () => ({
 }));
 vi.mock('@/components/charts/Sparkline', () => ({ Sparkline: () => null }));
 vi.mock('@/components/SessionsTable', () => ({
-  SessionsTable: (props: { isLoading?: boolean; sessions?: unknown[]; emptyMessage?: string }) => (
+  SessionsTable: (props: {
+    isLoading?: boolean;
+    sessions?: unknown[];
+    emptyMessage?: string;
+    page: number;
+    totalPages: number;
+    onPageChange: (page: number) => void;
+  }) => (
     <div
       data-testid="sessions-table"
       data-loading={String(props.isLoading === true)}
       data-rows={String(props.sessions?.length ?? -1)}
       data-empty={props.emptyMessage}
-    />
+      data-total-pages={String(props.totalPages)}
+    >
+      <button
+        type="button"
+        data-testid="sessions-table-next"
+        onClick={() => {
+          props.onPageChange(props.page + 1);
+        }}
+      />
+    </div>
   ),
 }));
 
@@ -261,10 +277,27 @@ describe('Dashboard states and permissions', () => {
     const table = screen.getByTestId('sessions-table');
     expect(table.getAttribute('data-loading')).toBe('true');
     expect(table.getAttribute('data-empty')).toBe('charts.noActiveSessions');
-    expect(requested).toContain('/v1/sessions?limit=20&status=active');
+    expect(requested).toContain('/v1/sessions?page=1&limit=20&status=active');
     resolve({ data: [{ id: 'ses_1' }], total: 1 });
     await waitFor(() => {
       expect(screen.getByTestId('sessions-table').getAttribute('data-rows')).toBe('1');
+    });
+  });
+
+  it('pages the Active Sessions card 20 at a time', async () => {
+    answers.set('/v1/sessions', () =>
+      Promise.resolve({
+        data: Array.from({ length: 20 }, (_, i) => ({ id: `ses_${String(i)}` })),
+        total: 45,
+      }),
+    );
+    renderDashboard('admin', ['dashboard:read', 'sessions:read']);
+    await waitFor(() => {
+      expect(screen.getByTestId('sessions-table').getAttribute('data-total-pages')).toBe('3');
+    });
+    fireEvent.click(screen.getByTestId('sessions-table-next'));
+    await waitFor(() => {
+      expect(requested).toContain('/v1/sessions?page=2&limit=20&status=active');
     });
   });
 

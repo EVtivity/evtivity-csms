@@ -6,9 +6,16 @@
  * per-site metrics for the last 24 hours against the daily average of the 7
  * days before, and the candidate actions the worker may propose. The model
  * only writes the narrative over these numbers; it never computes them.
+ *
+ * Conformance test stations and their rows never count.
  */
 
-import { client, stationInsightsSuppressedSql, toDate } from '@evtivity/database';
+import {
+  client,
+  operatorStationSql,
+  stationInsightsSuppressedSql,
+  toDate,
+} from '@evtivity/database';
 import type { RawTimestamp } from '@evtivity/database';
 
 /** A station faulted for longer than this is a soft reset candidate. */
@@ -89,30 +96,30 @@ export async function siteHealthMetrics(input: {
         ${now}::timestamptz - interval '8 days' AS prior_start
     )
     SELECT s.id AS site_id, s.name AS site_name,
-      (SELECT count(*)::int FROM charging_stations cs WHERE cs.site_id = s.id) AS stations,
-      (SELECT count(*)::int FROM charging_stations cs WHERE cs.site_id = s.id AND cs.is_online) AS online,
-      (SELECT count(*)::int FROM charging_stations cs WHERE cs.site_id = s.id AND NOT cs.is_online) AS offline,
-      (SELECT count(*)::int FROM charging_stations cs WHERE cs.site_id = s.id AND cs.availability = 'faulted') AS faulted,
+      (SELECT count(*)::int FROM charging_stations cs WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))}) AS stations,
+      (SELECT count(*)::int FROM charging_stations cs WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND cs.is_online) AS online,
+      (SELECT count(*)::int FROM charging_stations cs WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND NOT cs.is_online) AS offline,
+      (SELECT count(*)::int FROM charging_stations cs WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND cs.availability = 'faulted') AS faulted,
       (SELECT count(*)::int FROM charging_sessions x JOIN charging_stations cs ON cs.id = x.station_id
-        WHERE cs.site_id = s.id AND x.started_at >= b.day_start AND x.started_at < b.now_at) AS sessions_24h,
+        WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND x.started_at >= b.day_start AND x.started_at < b.now_at) AS sessions_24h,
       (SELECT count(*)::int FROM charging_sessions x JOIN charging_stations cs ON cs.id = x.station_id
-        WHERE cs.site_id = s.id AND x.status IN ('failed', 'faulted')
+        WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND x.status IN ('failed', 'faulted')
           AND x.started_at >= b.day_start AND x.started_at < b.now_at) AS failed_24h,
-      (SELECT count(*)::int FROM authorize_attempts a JOIN charging_stations cs ON cs.id = a.station_id
-        WHERE cs.site_id = s.id AND a.outcome NOT IN ('accepted', 'db_error')
+      (SELECT count(*)::int FROM authorize_attempts a JOIN charging_stations cs ON cs.station_id = a.station_id
+        WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND a.outcome NOT IN ('accepted', 'db_error')
           AND a.created_at >= b.day_start AND a.created_at < b.now_at) AS refused_24h,
       (SELECT count(*)::int FROM event_alerts e JOIN charging_stations cs ON cs.id = e.station_id
-        WHERE cs.site_id = s.id AND e.created_at >= b.day_start AND e.created_at < b.now_at) AS alerts_24h,
+        WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND e.created_at >= b.day_start AND e.created_at < b.now_at) AS alerts_24h,
       (SELECT count(*)::int FROM charging_sessions x JOIN charging_stations cs ON cs.id = x.station_id
-        WHERE cs.site_id = s.id AND x.started_at >= b.prior_start AND x.started_at < b.day_start) AS sessions_prior,
+        WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND x.started_at >= b.prior_start AND x.started_at < b.day_start) AS sessions_prior,
       (SELECT count(*)::int FROM charging_sessions x JOIN charging_stations cs ON cs.id = x.station_id
-        WHERE cs.site_id = s.id AND x.status IN ('failed', 'faulted')
+        WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND x.status IN ('failed', 'faulted')
           AND x.started_at >= b.prior_start AND x.started_at < b.day_start) AS failed_prior,
-      (SELECT count(*)::int FROM authorize_attempts a JOIN charging_stations cs ON cs.id = a.station_id
-        WHERE cs.site_id = s.id AND a.outcome NOT IN ('accepted', 'db_error')
+      (SELECT count(*)::int FROM authorize_attempts a JOIN charging_stations cs ON cs.station_id = a.station_id
+        WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND a.outcome NOT IN ('accepted', 'db_error')
           AND a.created_at >= b.prior_start AND a.created_at < b.day_start) AS refused_prior,
       (SELECT count(*)::int FROM event_alerts e JOIN charging_stations cs ON cs.id = e.station_id
-        WHERE cs.site_id = s.id AND e.created_at >= b.prior_start AND e.created_at < b.day_start) AS alerts_prior
+        WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND e.created_at >= b.prior_start AND e.created_at < b.day_start) AS alerts_prior
     FROM sites s CROSS JOIN bounds b
     WHERE ${siteFilter}
     ORDER BY s.name, s.id
@@ -165,6 +172,7 @@ export async function longFaultedStations(input: {
       ) AS faulted_since
     FROM charging_stations cs
     WHERE cs.site_id = ${input.siteId} AND cs.is_online AND cs.availability = 'faulted'
+      AND ${client.unsafe(operatorStationSql('cs'))}
       AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
       AND NOT EXISTS (
         SELECT 1 FROM port_status_log p

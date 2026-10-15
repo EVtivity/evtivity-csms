@@ -143,7 +143,6 @@ export function ConfigTemplates({ embedded }: { embedded?: boolean } = {}): Reac
                         >
                           <RemoveIconButton
                             title={t('common.delete')}
-                            size="sm"
                             onClick={() => {
                               setDeleteTarget(template);
                             }}

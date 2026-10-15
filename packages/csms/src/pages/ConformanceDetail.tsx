@@ -315,7 +315,7 @@ export function ConformanceDetail(): React.JSX.Element {
                 <div className="hidden md:flex md:flex-wrap md:items-center md:gap-2">
                   <Select
                     aria-label={t('common.filterByModule')}
-                    className="h-9 w-[180px]"
+                    className="w-[180px]"
                     value={moduleFilter}
                     onChange={(e) => {
                       setModuleFilter(e.target.value);
@@ -330,7 +330,7 @@ export function ConformanceDetail(): React.JSX.Element {
                   </Select>
                   <Select
                     aria-label={t('common.filterByStatus')}
-                    className="h-9 w-[140px]"
+                    className="w-[140px]"
                     value={statusFilter}
                     onChange={(e) => {
                       setStatusFilter(e.target.value);

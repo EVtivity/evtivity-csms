@@ -10,13 +10,12 @@ interface SearchInputProps {
   value: string;
   onDebouncedChange: (value: string) => void;
   placeholder?: string;
-  size?: 'default' | 'sm';
   className?: string;
   id?: string;
 }
 
 export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(function SearchInput(
-  { value, onDebouncedChange, placeholder = 'Search...', size = 'default', className, id },
+  { value, onDebouncedChange, placeholder = 'Search...', className, id },
   ref,
 ) {
   const [input, setInput] = useState(value);
@@ -52,7 +51,7 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(functi
           setInput(e.target.value);
         }}
         placeholder={placeholder}
-        className={cn('pl-9 pr-9', size === 'sm' && 'h-8')}
+        className="pl-9 pr-9"
       />
       {input !== '' && (
         <button

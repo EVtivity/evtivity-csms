@@ -80,7 +80,8 @@ vi.mock('../lib/ocpi-location-push.js', () => ({
   publishOcpiStationSiteMove: mockSiteMove,
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   client: {},
   recomputeStationAvailability: mockRecompute,
   setStationDisabled: mockSetDisabled,
@@ -214,6 +215,15 @@ describe('exportSitesCsv', () => {
     expect(strings).toContain("= 'operator' THEN 'unavailable'");
     expect(strings).toContain("ELSE 'available'");
     expect(selection['stationStatus']?.args).toContain('disabledReason');
+  });
+
+  it('leaves conformance test stations out of the export', async () => {
+    setupDbResults([]);
+    vi.mocked(databaseModule.isOperatorStation).mockClear();
+
+    await exportSitesCsv();
+
+    expect(vi.mocked(databaseModule.isOperatorStation)).toHaveBeenCalledTimes(1);
   });
 
   it('applies search filter', async () => {

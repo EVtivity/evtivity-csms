@@ -168,7 +168,6 @@ export function StationCertificates({ stationId }: StationCertificatesProps): Re
                   onChange={(e) => {
                     setInstallCertType(e.target.value);
                   }}
-                  className="h-9"
                 >
                   <option value="V2GRootCertificate">V2G Root Certificate</option>
                   <option value="MORootCertificate">MO Root Certificate</option>

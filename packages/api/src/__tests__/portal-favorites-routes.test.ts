@@ -54,7 +54,8 @@ const { mockAvailableEvseCountSql, mockSqlRaw } = vi.hoisted(() => ({
   mockSqlRaw: vi.fn((text: string) => ({ raw: text })),
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   availableEvseCountSql: mockAvailableEvseCountSql,
   db: {
     select: vi.fn(() => makeChain()),
@@ -135,6 +136,19 @@ describe('Portal favorite routes', () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body).toEqual([]);
+    });
+
+    it('never lists a conformance station', async () => {
+      const database = await import('@evtivity/database');
+      vi.mocked(database.isOperatorStation).mockClear();
+      setupDbResults([]);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/favorites',
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(vi.mocked(database.isOperatorStation)).toHaveBeenCalled();
     });
 
     it('returns favorites with station data', async () => {

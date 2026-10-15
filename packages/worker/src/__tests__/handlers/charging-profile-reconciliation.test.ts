@@ -54,6 +54,7 @@ vi.mock('@evtivity/database', () => ({
     siteId: 'chargingStations.siteId',
     ocppProtocol: 'chargingStations.ocppProtocol',
   },
+  inOperatorStation: (column: unknown) => ({ operatorStation: column }),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -92,6 +93,18 @@ describe('chargingProfileReconciliationHandler', () => {
 
     expect(mockGetPubSub).not.toHaveBeenCalled();
     expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it('reads only the profiles of operator stations, never conformance test stations', async () => {
+    setupQueries([]);
+    const { and } = await import('drizzle-orm');
+    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
+
+    await chargingProfileReconciliationHandler(makeLog());
+
+    expect(vi.mocked(and).mock.calls[0]).toContainEqual({
+      operatorStation: 'chargingProfiles.stationId',
+    });
   });
 
   it('publishes a profileMismatch event when the station never reported a matching profile', async () => {

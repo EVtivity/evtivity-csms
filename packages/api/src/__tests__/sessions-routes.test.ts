@@ -77,6 +77,14 @@ const sessionEnd = vi.hoisted(() => ({
   writeAudit: vi.fn(),
 }));
 
+const payments = vi.hoisted(() => ({
+  activePaymentProvider: vi.fn(),
+}));
+
+vi.mock('../lib/payments.js', () => ({
+  activePaymentProvider: payments.activePaymentProvider,
+}));
+
 vi.mock('../lib/session-end.js', () => ({
   requestSessionEnd: sessionEnd.requestSessionEnd,
 }));
@@ -98,7 +106,8 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
@@ -259,6 +268,19 @@ describe('Session routes', () => {
       expect(body.data[0].siteName).toBe('Site A');
       expect(body.data[0].transactionId).toBe('txn-001');
       expect(body.data[0].status).toBe('active');
+    });
+
+    it('never lists a session at a conformance station', async () => {
+      const database = await import('@evtivity/database');
+      vi.mocked(database.inOperatorStation).mockClear();
+      setupDbResults([], [{ count: 0 }]);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/sessions',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(vi.mocked(database.inOperatorStation)).toHaveBeenCalled();
     });
 
     it('returns empty list when no sessions exist', async () => {
@@ -645,9 +667,144 @@ describe('Session routes', () => {
       expect(body.stationCostDifferenceCents).toBe(10);
       expect(body.currency).toBe('USD');
       expect(body.paymentRecord).toBeNull();
+      // No driver and no guest checkout.
+      expect(body.noPaymentReason).toBe('anonymous');
       expect(body.rebillable).toBe(false);
       expect(body.rebillBlockedReason).toBe('status');
       expect(rebill.getSessionRebillState).not.toHaveBeenCalled();
+    });
+
+    /** A completed session row of the detail query without a payment record. */
+    const detailRow = {
+      id: VALID_SESSION_ID,
+      stationId: VALID_STATION_ID,
+      stationName: 'Station-01',
+      evseId: 1,
+      stationOnline: true,
+      siteName: 'Site A',
+      siteId: null,
+      driverId: null,
+      driverName: null,
+      transactionId: 'txn-001',
+      status: 'completed',
+      startedAt: '2024-06-01T10:00:00Z',
+      endedAt: '2024-06-01T11:00:00Z',
+      idleStartedAt: null,
+      energyDeliveredWh: '20000',
+      currentCostCents: null,
+      finalCostCents: 1000,
+      currency: 'USD',
+      stoppedReason: null,
+      reservationId: null,
+      freeVend: false,
+      vehicleIdValue: null,
+      vehicleIdType: null,
+      vehicleIdSource: null,
+      autocharge: false,
+      billingMode: null,
+      billingFleetId: null,
+      billingFleetName: null,
+      invoiceId: null,
+      invoiceStatus: null,
+      rebillStatus: null,
+      rebillClaimedAt: null,
+      stationTariffId: 'evt-1',
+      stationCostCents: 1010,
+      stationCostDifferenceCents: 10,
+      co2AvoidedKg: null,
+      electricityCostCents: null,
+      metadata: null,
+      tokenId: null,
+      tokenIdToken: null,
+      tokenType: null,
+      vehicleId: null,
+      vehicleMake: null,
+      vehicleModel: null,
+      vehicleYear: null,
+      paymentId: null,
+      paymentStatus: null,
+      paymentSource: null,
+      paymentCurrency: null,
+      preAuthAmountCents: null,
+      capturedAmountCents: null,
+      refundedAmountCents: null,
+      failureReason: null,
+      guestSessionToken: null,
+      guestEmail: null,
+      guestStatus: null,
+      guestPreAuthAmountCents: null,
+      guestProvider: null,
+      guestProviderPaymentId: null,
+      guestExpiresAt: null,
+      guestCreatedAt: null,
+    };
+
+    it('explains a card session without a payment record when payments are off', async () => {
+      payments.activePaymentProvider.mockResolvedValueOnce(null);
+      setupDbResults([
+        {
+          ...detailRow,
+          driverId: 'drv_000000000001',
+          status: 'completed',
+          finalCostCents: 359,
+          currentCostCents: 359,
+          currency: 'USD',
+          stoppedReason: 'EVDisconnected',
+          freeVend: false,
+          isRoaming: false,
+          billingMode: 'card',
+          tokenPrepaid: false,
+          paymentId: null,
+          guestSessionToken: null,
+        },
+      ]);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/sessions/${VALID_SESSION_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.paymentRecord).toBeNull();
+      expect(body.noPaymentReason).toBe('payments_off');
+      expect(payments.activePaymentProvider).toHaveBeenCalledOnce();
+    });
+
+    it('returns a null reason and skips the provider check when a payment record exists', async () => {
+      payments.activePaymentProvider.mockClear();
+      setupDbResults([
+        {
+          ...detailRow,
+          driverId: 'drv_000000000001',
+          status: 'completed',
+          finalCostCents: 359,
+          currentCostCents: 359,
+          currency: 'USD',
+          freeVend: false,
+          isRoaming: false,
+          tokenPrepaid: false,
+          paymentId: 7,
+          paymentStatus: 'captured',
+          paymentSource: 'web_portal',
+          paymentCurrency: 'USD',
+          refundedAmountCents: 0,
+          guestSessionToken: null,
+        },
+      ]);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/sessions/${VALID_SESSION_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.paymentRecord.id).toBe('7');
+      expect(body.noPaymentReason).toBeNull();
+      expect(payments.activePaymentProvider).not.toHaveBeenCalled();
     });
 
     it('returns the billing stamp, billing fleet and invoice of an account session', async () => {

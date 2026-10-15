@@ -19,7 +19,10 @@ const { apiMock, perms, paymentTab, toastMock } = vi.hoisted(() => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
 }));
-vi.mock('@/lib/auth', () => ({ useHasPermission: (p: string) => perms.has(p) }));
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: (p: string) => perms.has(p),
+  useHasCompanyWidePermission: (p: string) => perms.has(p),
+}));
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return { ...actual, api: apiMock };
@@ -135,6 +138,20 @@ describe('SessionDetail refund', () => {
       expect(paymentTab).toHaveBeenCalled();
     });
     expect(paymentTab.mock.lastCall?.[0].canRefund).toBe(true);
+  });
+});
+
+describe('SessionDetail header', () => {
+  it('puts Stop, Prev and Next in their own row, right-aligned from sm', async () => {
+    perms.add('stations:write');
+    renderPage();
+    await screen.findByRole('button', { name: 'sessions.stopSession' });
+    const actions = screen.getByTestId('session-header-actions');
+    const header = actions.parentElement;
+    expect(header?.className).toContain('sm:justify-between');
+    expect(header?.className).toContain('sm:flex-row');
+    // The title and badges sit in a sibling group, not in the actions row.
+    expect(actions.contains(screen.getByText('sessions.title'))).toBe(false);
   });
 });
 

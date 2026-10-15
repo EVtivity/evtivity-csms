@@ -86,12 +86,13 @@ vi.mock('../lib/site-access.js', () => ({
   ),
 }));
 
-vi.mock('@evtivity/database', () => {
+vi.mock('@evtivity/database', async () => {
   const fakeTable = (name: string) => {
     const table = { _name: name };
     return { id: { name: 'id', table }, createdAt: { name: 'created_at', table } };
   };
   return {
+    ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     db: { select: vi.fn(() => makeChain()) },
     sites: fakeTable('sites'),
     chargingStations: { ...fakeTable('charging_stations'), siteId: { name: 'site_id' } },
@@ -264,10 +265,27 @@ describe('entity neighbor site scoping (cov2)', () => {
     const scope = currentScope() as { inArray: [unknown, unknown] };
     expect(scope.inArray[0]).toBe(chargingSessions.siteId);
     expect(inArrayMock).toHaveBeenCalledWith(chargingSessions.siteId, ['sit_a', 'sit_b']);
-    // Prev and next queries carry the same scope.
+    // Prev and next queries carry the same scope, and skip the sessions of
+    // conformance test stations as the list does.
+    const siblings = {
+      and: [
+        scope,
+        { conformancePredicate: 'inOperatorStation', column: chargingSessions.stationId },
+      ],
+    };
     expect(mainWheres()).toHaveLength(3);
-    expect(mainWheres()[1]?.and[1]).toBe(scope);
-    expect(mainWheres()[2]?.and[1]).toBe(scope);
+    expect(mainWheres()[1]?.and[1]).toEqual(siblings);
+    expect(mainWheres()[2]?.and[1]).toEqual(siblings);
+  });
+
+  it('skips conformance test stations when paging stations', async () => {
+    setupDbResults([{ id: 'sta_1' }], [], []);
+    const res = await get('/stations/sta_1/neighbors');
+    expect(res.statusCode).toBe(200);
+    const scope = currentScope();
+    expect(mainWheres()[1]?.and[1]).toEqual({
+      and: [scope, { conformancePredicate: 'isOperatorStation' }],
+    });
   });
 
   it('limits reservations to stations at the allowed sites', async () => {
@@ -278,6 +296,9 @@ describe('entity neighbor site scoping (cov2)', () => {
     const scope = currentScope() as { inArray: [unknown, unknown] };
     expect(scope.inArray[0]).toBe(reservations.stationId);
     expect(inArrayMock).toHaveBeenCalledWith(chargingStations.siteId, ['sit_a', 'sit_b']);
+    expect(mainWheres()[1]?.and[1]).toEqual({
+      and: [scope, { conformancePredicate: 'inOperatorStation', column: reservations.stationId }],
+    });
   });
 
   it('pages support cases with the case list visibility (supportCaseSiteCondition)', async () => {

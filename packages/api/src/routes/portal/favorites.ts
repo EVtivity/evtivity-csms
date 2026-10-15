@@ -5,7 +5,13 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, sql, inArray, isNull } from 'drizzle-orm';
 import { db, availableEvseCountSql } from '@evtivity/database';
-import { driverFavoriteStations, chargingStations, sites, evses } from '@evtivity/database';
+import {
+  driverFavoriteStations,
+  chargingStations,
+  sites,
+  evses,
+  isOperatorStation,
+} from '@evtivity/database';
 import { publicStationListed } from '../../lib/public-station.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import {
@@ -83,7 +89,8 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
         .from(driverFavoriteStations)
         .innerJoin(chargingStations, eq(driverFavoriteStations.stationId, chargingStations.id))
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(eq(driverFavoriteStations.driverId, driverId))
+        // A conformance (OCTT) station is never listed to a driver.
+        .where(and(eq(driverFavoriteStations.driverId, driverId), isOperatorStation()))
         .orderBy(desc(driverFavoriteStations.createdAt), desc(driverFavoriteStations.id));
 
       // Batch fetch EVSE counts

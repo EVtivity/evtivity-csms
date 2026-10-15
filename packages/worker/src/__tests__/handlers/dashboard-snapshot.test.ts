@@ -161,6 +161,8 @@ vi.mock('@evtivity/database', () => ({
   },
   sites: { id: 'sites.id', timezone: 'sites.timezone' },
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+  operatorStationSql: (alias: string) => `OPERATOR_STATION(${alias})`,
+  operatorStationIdSql: (column: string) => `OPERATOR_STATION_ID(${column})`,
 }));
 
 // Revenue comes from the shared definition (session-revenue.ts); its SQL is
@@ -261,6 +263,21 @@ describe('dashboardSnapshotHandler', () => {
     // Revenue up to the end of the day.
     const where = mockQueryRevenue.mock.calls[0]?.[0].where ?? [];
     expect(where[1]?.values).toContain('2026-06-04T07:00:00.000Z');
+  });
+
+  it('leaves conformance test stations and their sessions out of every count', async () => {
+    setSites([{ id: 'sit_1', timezone: 'UTC' }]);
+    const { dashboardSnapshotHandler } = mod;
+    await dashboardSnapshotHandler(makeLog());
+
+    const valuesOf = (kind: string) =>
+      mockExecute.mock.calls
+        .map(([arg]) => arg as { strings: readonly string[]; values: unknown[] })
+        .filter((q) => classify(q.strings) === kind)
+        .flatMap((q) => q.values);
+    expect(valuesOf('stations')).toContainEqual({ raw: 'OPERATOR_STATION(cs)' });
+    expect(valuesOf('uptime')).toContainEqual({ raw: 'OPERATOR_STATION(cs)' });
+    expect(valuesOf('sessions')).toContainEqual({ raw: 'OPERATOR_STATION_ID(cs2.station_id)' });
   });
 
   it('backfills the earlier days without a snapshot and never replaces them', async () => {

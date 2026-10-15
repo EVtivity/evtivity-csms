@@ -61,8 +61,7 @@ export function StoredSecretInput({
           <Button
             type="button"
             variant="link"
-            size="sm"
-            className="h-auto p-0 text-xs"
+            size="inline"
             onClick={() => {
               onRemovingChange(false);
             }}
@@ -77,8 +76,7 @@ export function StoredSecretInput({
             <Button
               type="button"
               variant="link"
-              size="sm"
-              className="h-auto p-0 text-xs"
+              size="inline"
               onClick={() => {
                 onChange('');
                 onRemovingChange(true);

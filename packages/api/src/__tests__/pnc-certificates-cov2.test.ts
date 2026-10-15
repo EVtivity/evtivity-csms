@@ -53,7 +53,8 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   db: {
     insert: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
@@ -102,7 +103,7 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { pncCertificateRoutes } from '../routes/pnc-certificates.js';
-import { db } from '@evtivity/database';
+import { db, inOperatorStation } from '@evtivity/database';
 
 // Static EC P-256 test CA certificate ("OCTT Test SubCA", self-signed).
 const CA_PEM =
@@ -195,6 +196,7 @@ describe('PnC certificate routes under /v1', () => {
     publishMock.mockResolvedValue(undefined);
     getUserSiteIdsMock.mockResolvedValue(null);
     checkStationSiteAccessMock.mockResolvedValue(true);
+    vi.mocked(inOperatorStation).mockClear();
   });
 
   function call(method: 'GET' | 'POST', url: string, payload?: Record<string, unknown>) {
@@ -302,12 +304,16 @@ describe('PnC certificate routes under /v1', () => {
       expect(res.json()).toEqual({ data: [csrRow], total: 1 });
       expect(eqMock).toHaveBeenCalledWith('csr.status', 'pending');
       expect(eqMock).toHaveBeenCalledWith('csr.stationId', STATION_ID);
+      // A list for one station (the conformance runner's lookup) keeps it.
+      expect(vi.mocked(inOperatorStation)).not.toHaveBeenCalled();
     });
 
     it('returns total 0 without filters when no count row', async () => {
       dbResults = [[], []];
       const res = await call('GET', '/v1/pnc/csr-requests');
       expect(res.json()).toEqual({ data: [], total: 0 });
+      // The fleet list leaves out conformance test stations.
+      expect(vi.mocked(inOperatorStation)).toHaveBeenCalledWith('csr.stationId');
     });
   });
 
@@ -445,12 +451,14 @@ describe('PnC certificate routes under /v1', () => {
       expect(res.json()).toEqual({ data: [stationCertRow], total: 1 });
       expect(eqMock).toHaveBeenCalledWith('sc.stationId', STATION_ID);
       expect(eqMock).toHaveBeenCalledWith('sc.status', 'active');
+      expect(vi.mocked(inOperatorStation)).not.toHaveBeenCalled();
     });
 
     it('returns total 0 without filters when no count row', async () => {
       dbResults = [[], []];
       const res = await call('GET', '/v1/pnc/station-certificates');
       expect(res.json()).toEqual({ data: [], total: 0 });
+      expect(vi.mocked(inOperatorStation)).toHaveBeenCalledWith('sc.stationId');
     });
   });
 

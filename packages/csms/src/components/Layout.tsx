@@ -50,8 +50,8 @@ function SidebarContent({
           {!collapsed && onToggleCollapse != null && (
             <Button
               variant="ghost"
-              size="icon"
-              className="ml-auto h-7 w-7 shrink-0"
+              size="icon-sm"
+              className="ml-auto shrink-0"
               onClick={onToggleCollapse}
               aria-label={t('nav.collapseSidebar')}
             >
@@ -65,8 +65,8 @@ function SidebarContent({
         {collapsed && onToggleCollapse != null && (
           <Button
             variant="ghost"
-            size="icon"
-            className="mt-2 mx-auto h-7 w-7"
+            size="icon-sm"
+            className="mt-2 mx-auto"
             onClick={onToggleCollapse}
             aria-label={t('nav.expandSidebar')}
           >

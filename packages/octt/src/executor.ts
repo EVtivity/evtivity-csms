@@ -44,6 +44,8 @@ export async function executeTest(
             }
           : {}),
         availability: 'available',
+        // Kept out of every operator list, count and aggregate.
+        isConformance: true,
         onboardingStatus: testCase.onboardingStatus ?? 'accepted',
       })
       .onConflictDoNothing({ target: chargingStations.stationId });

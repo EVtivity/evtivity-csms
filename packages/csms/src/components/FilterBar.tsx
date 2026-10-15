@@ -60,7 +60,7 @@ export function FilterPopover({
         onClick={() => {
           setOpen((v) => !v);
         }}
-        className={cn('relative h-10 w-10', showBadge && 'border-primary text-link')}
+        className={cn('relative', showBadge && 'border-primary text-link')}
       >
         <Filter className="h-4 w-4" />
         {showBadge && (

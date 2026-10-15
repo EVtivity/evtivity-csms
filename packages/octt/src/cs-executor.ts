@@ -217,7 +217,7 @@ export async function executeCsTest(
     await sql`
       INSERT INTO charging_stations (
         id, station_id, model, serial_number, firmware_version,
-        ocpp_protocol, security_profile, is_simulator, onboarding_status
+        ocpp_protocol, security_profile, is_simulator, is_conformance, onboarding_status
       ) VALUES (
         ${chargingStationDbId},
         ${stationId},
@@ -226,6 +226,7 @@ export async function executeCsTest(
         ${simulatorConfig.firmwareVersion},
         ${simulatorConfig.ocppProtocol},
         ${simulatorConfig.securityProfile},
+        ${true},
         ${true},
         ${'accepted'}
       )

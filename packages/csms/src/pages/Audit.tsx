@@ -104,7 +104,6 @@ export function Audit(): React.JSX.Element {
         <Label className="leading-6">{t('audit.entityType', 'Entity type')}</Label>
         <Select
           aria-label={t('audit.entityType', 'Entity type')}
-          className="h-10"
           value={entityType}
           onChange={(e) => {
             setEntityType(e.target.value);
@@ -123,7 +122,6 @@ export function Audit(): React.JSX.Element {
         <Label className="leading-6">{t('audit.actor', 'Actor')}</Label>
         <Select
           aria-label={t('audit.actor', 'Actor')}
-          className="h-10"
           value={actor}
           onChange={(e) => {
             setActor(e.target.value);
@@ -142,7 +140,6 @@ export function Audit(): React.JSX.Element {
         <Label className="leading-6">{t('audit.action', 'Action')}</Label>
         <Select
           aria-label={t('audit.action', 'Action')}
-          className="h-10"
           value={action}
           onChange={(e) => {
             setAction(e.target.value);

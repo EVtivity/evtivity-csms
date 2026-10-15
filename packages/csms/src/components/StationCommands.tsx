@@ -378,7 +378,6 @@ function QuickActionForm({
             onChange={(e) => {
               onChange({ resetType: e.target.value });
             }}
-            className="h-9"
           >
             {RESET_TYPES.map((rt) => (
               <option key={rt} value={rt}>
@@ -401,7 +400,6 @@ function QuickActionForm({
               onChange={(e) => {
                 onChange({ operationalStatus: e.target.value });
               }}
-              className="h-9"
             >
               <option value="Operative">{t('commands.operative')}</option>
               <option value="Inoperative">{t('commands.inoperative')}</option>
@@ -479,7 +477,6 @@ function QuickActionForm({
               onChange={(e) => {
                 onChange({ idTokenType: e.target.value });
               }}
-              className="h-9"
             >
               {ID_TOKEN_TYPES.map((tt) => (
                 <option key={tt} value={tt}>
@@ -531,7 +528,6 @@ function QuickActionForm({
               onChange={(e) => {
                 onChange({ triggerMessage: e.target.value });
               }}
-              className="h-9"
             >
               {TRIGGER_MESSAGE_TYPES.map((tm) => (
                 <option key={tm} value={tm}>
@@ -573,7 +569,6 @@ function QuickActionForm({
               onChange={(e) => {
                 onChange({ componentName: e.target.value, variableName: '' });
               }}
-              className="h-9"
             >
               <option value="">{t('common.select')}</option>
               {OCPP_COMPONENTS.map((c) => (
@@ -593,7 +588,6 @@ function QuickActionForm({
               onChange={(e) => {
                 onChange({ variableName: e.target.value });
               }}
-              className="h-9"
             >
               <option value="">{t('common.select')}</option>
               {getVarOptions.map((v) => (
@@ -613,7 +607,6 @@ function QuickActionForm({
               onChange={(e) => {
                 onChange({ attributeType: e.target.value });
               }}
-              className="h-9"
             >
               {ATTRIBUTE_TYPES.map((a) => (
                 <option key={a} value={a}>
@@ -657,7 +650,6 @@ function QuickActionForm({
               onChange={(e) => {
                 onChange({ componentName: e.target.value, variableName: '' });
               }}
-              className="h-9"
             >
               <option value="">{t('common.select')}</option>
               {OCPP_COMPONENTS.map((c) => (
@@ -677,7 +669,6 @@ function QuickActionForm({
               onChange={(e) => {
                 onChange({ variableName: e.target.value });
               }}
-              className="h-9"
             >
               <option value="">{t('common.select')}</option>
               {setVarOptions.map((v) => (
@@ -697,7 +688,6 @@ function QuickActionForm({
               onChange={(e) => {
                 onChange({ attributeType: e.target.value });
               }}
-              className="h-9"
             >
               {ATTRIBUTE_TYPES.map((a) => (
                 <option key={a} value={a}>
@@ -808,7 +798,6 @@ function QuickActionForm16({
             onChange={(e) => {
               onChange({ resetType: e.target.value });
             }}
-            className="h-9"
           >
             {RESET_TYPES_16.map((rt) => (
               <option key={rt} value={rt}>
@@ -845,7 +834,6 @@ function QuickActionForm16({
               onChange={(e) => {
                 onChange({ operationalStatus: e.target.value });
               }}
-              className="h-9"
             >
               <option value="Operative">{t('commands.operative')}</option>
               <option value="Inoperative">{t('commands.inoperative')}</option>
@@ -928,7 +916,6 @@ function QuickActionForm16({
               onChange={(e) => {
                 onChange({ triggerMessage: e.target.value });
               }}
-              className="h-9"
             >
               {TRIGGER_MESSAGE_TYPES_16.map((tm) => (
                 <option key={tm} value={tm}>
@@ -1361,7 +1348,6 @@ export function StationCommands({
                 setRawMode(false);
                 setAdvancedResult(null);
               }}
-              className="h-9"
             >
               <option value="">{t('common.select')}</option>
               {csmsActions.map((a) => (

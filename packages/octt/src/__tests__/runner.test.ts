@@ -52,6 +52,15 @@ vi.mock('@evtivity/database', () => {
     pricingGroupDrivers: { id: 'id' },
     OCTT_API_KEY_NAME: 'OCTT conformance run',
     PNC_SETTINGS_CACHE_TTL_MS: 60_000,
+    deleteConformanceStations: vi.fn(() => Promise.resolve(0)),
+    deleteConformanceTestDriver: vi.fn(() =>
+      Promise.resolve({
+        driverDeleted: true,
+        pricingGroupsDeleted: 1,
+        pricingGroupsKept: 0,
+        detachedRows: 0,
+      }),
+    ),
   };
 });
 
@@ -148,8 +157,13 @@ vi.mock('../api-client.js', () => ({
   })),
 }));
 
-import { eq, notLike } from 'drizzle-orm';
-import { db, PNC_SETTINGS_CACHE_TTL_MS } from '@evtivity/database';
+import { eq } from 'drizzle-orm';
+import {
+  db,
+  PNC_SETTINGS_CACHE_TTL_MS,
+  deleteConformanceStations,
+  deleteConformanceTestDriver,
+} from '@evtivity/database';
 import { runTests } from '../runner.js';
 import { executeTest } from '../executor.js';
 import { getRegistry } from '../registry.js';
@@ -304,8 +318,10 @@ describe('runTests', () => {
       expect(vi.mocked(executeTest)).toHaveBeenCalledTimes(3);
     });
 
-    it('leaves the stations of a running CS conformance run when it clears OCTT stations', async () => {
+    it('deletes the run data at run start and end, never the CS runner stations', async () => {
       vi.useFakeTimers();
+      vi.mocked(deleteConformanceStations).mockClear();
+      vi.mocked(deleteConformanceTestDriver).mockClear();
       settingsSelect([
         { key: 'pnc.enabled', value: true },
         { key: 'pnc.provider', value: 'local' },
@@ -317,15 +333,31 @@ describe('runTests', () => {
       await vi.advanceTimersByTimeAsync(0);
       await run;
 
-      const wipes = vi
+      // A CS run may be going next to this one and deletes its own stations.
+      expect(vi.mocked(deleteConformanceStations).mock.calls).toEqual([
+        [{ includeCs: false }],
+        [{ includeCs: false }],
+      ]);
+      expect(vi.mocked(deleteConformanceTestDriver)).toHaveBeenCalledTimes(2);
+    });
+
+    it('deletes the run data and restores the settings when a test throws', async () => {
+      vi.useFakeTimers();
+      vi.mocked(deleteConformanceStations).mockClear();
+      settingsSelect([{ key: 'pnc.enabled', value: false }]);
+      vi.mocked(executeTest).mockRejectedValueOnce(new Error('database gone'));
+
+      const run = runTests({ ...config, provisionStations: true }, vi.fn());
+      const outcome = expect(run).rejects.toThrow('database gone');
+      await vi.advanceTimersByTimeAsync(PNC_SETTINGS_CACHE_TTL_MS + 1_000);
+      await outcome;
+
+      expect(vi.mocked(deleteConformanceStations)).toHaveBeenCalledTimes(2);
+      const restores = vi
         .mocked(db.execute)
-        .mock.calls.map((call) => (call[0] as unknown as Query).text)
-        .filter((text) => text.includes("LIKE 'OCTT-%'"));
-      // Run start and run end each clear tariff segments, CSRs, authorize attempts and events.
-      expect(wipes).toHaveLength(8);
-      for (const text of wipes) expect(text).toContain("NOT LIKE 'OCTT-CS-%'");
-      expect(vi.mocked(notLike)).toHaveBeenCalledWith('station_id', 'OCTT-CS-%');
-      expect(vi.mocked(notLike)).toHaveBeenCalledTimes(2);
+        .mock.calls.map((call) => call[0] as unknown as Query)
+        .filter((q) => q.text.includes('UPDATE settings'));
+      expect(restores.map((q) => [q.values[1], q.values[0]])).toEqual([['pnc.enabled', 'false']]);
     });
 
     it('does not wait when the settings already have the run values', async () => {
@@ -378,23 +410,14 @@ describe('runTests', () => {
       ]);
     });
 
-    it('restores the settings when the cleanup cannot delete the test tariff', async () => {
-      // A session outside the run (the chaos simulator) kept the run's tariff
-      // referenced: the DELETE fails with a foreign key violation. The run
-      // used to stop there and leave PnC enabled with the local provider.
+    it('deletes the test driver and restores the settings when the station delete fails', async () => {
+      // A failed station delete used to skip the driver and tariff cleanup.
       vi.useFakeTimers();
-      vi.mocked(db.execute).mockImplementation(((query: Query) => {
-        if (query.text.includes('DELETE FROM tariffs')) {
-          return Promise.reject(
-            Object.assign(new Error('violates foreign key constraint'), { code: '23503' }),
-          );
-        }
-        return Promise.resolve(
-          query.text.includes('SELECT key, value FROM settings')
-            ? [{ key: 'pnc.enabled', value: false }]
-            : [],
-        );
-      }) as never);
+      vi.mocked(deleteConformanceTestDriver).mockClear();
+      vi.mocked(deleteConformanceStations).mockRejectedValue(
+        Object.assign(new Error('violates foreign key constraint'), { code: '23503' }),
+      );
+      settingsSelect([{ key: 'pnc.enabled', value: false }]);
 
       const run = runTests({ ...config, provisionStations: true }, vi.fn());
       await vi.advanceTimersByTimeAsync(PNC_SETTINGS_CACHE_TTL_MS + 1_000);
@@ -406,6 +429,8 @@ describe('runTests', () => {
         .mock.calls.map((call) => call[0] as unknown as Query)
         .filter((q) => q.text.includes('UPDATE settings'));
       expect(restores.map((q) => [q.values[1], q.values[0]])).toEqual([['pnc.enabled', 'false']]);
+      expect(vi.mocked(deleteConformanceTestDriver)).toHaveBeenCalledTimes(2);
+      vi.mocked(deleteConformanceStations).mockResolvedValue(0);
     });
 
     it('sets the local provider and the test eMAID prefix when none is set, and restores them', async () => {

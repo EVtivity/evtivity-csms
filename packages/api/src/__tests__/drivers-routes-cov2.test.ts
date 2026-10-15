@@ -55,7 +55,8 @@ function pgError(code: string): Error {
   return Object.assign(new Error('pg error'), { cause: { code } });
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   db: {
     select: vi.fn(() => makeChain('select')),
@@ -188,7 +189,7 @@ vi.mock('../services/driver-status.service.js', () => ({
   revokeDriverEmailLinks: revokeDriverEmailLinksMock,
 }));
 
-import { writeAudit } from '@evtivity/database';
+import { inOperatorStation, writeAudit } from '@evtivity/database';
 import { resetSiteAccessMock, setMockUserSiteIds } from './helpers/site-access-mock.js';
 import { registerAuth } from '../plugins/auth.js';
 import { driverRoutes } from '../routes/drivers.js';
@@ -963,6 +964,7 @@ describe('Driver routes (operator), uncovered paths', () => {
         currency: 'EUR',
       };
       setupDbResults([{ id: DRIVER_ID }], [session], [{ count: 31 }]);
+      vi.mocked(inOperatorStation).mockClear();
       const res = await app.inject({
         method: 'GET',
         url: `/drivers/${DRIVER_ID}/sessions?page=2&limit=10`,
@@ -974,6 +976,8 @@ describe('Driver routes (operator), uncovered paths', () => {
       const dataChain = chains.filter((c) => c.kind === 'select')[1]?.chain;
       expect(dataChain?.['offset']).toHaveBeenCalledWith(10);
       expect(dataChain?.['limit']).toHaveBeenCalledWith(10);
+      // Sessions of conformance test stations are never listed.
+      expect(vi.mocked(inOperatorStation)).toHaveBeenCalledTimes(1);
     });
 
     it('returns total 0 when the count row is missing', async () => {
@@ -1018,6 +1022,7 @@ describe('Driver routes (operator), uncovered paths', () => {
         cancellationFeeCents: 0,
       };
       setupDbResults([{ id: DRIVER_ID }], [row], [{ count: 1 }]);
+      vi.mocked(inOperatorStation).mockClear();
       const res = await app.inject({
         method: 'GET',
         url: `/drivers/${DRIVER_ID}/reservations`,
@@ -1026,6 +1031,8 @@ describe('Driver routes (operator), uncovered paths', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().total).toBe(1);
       expect(res.json().data[0]).toMatchObject({ reservationId: 42, cancelNote: 'site closed' });
+      // Reservations of conformance test stations are never listed.
+      expect(vi.mocked(inOperatorStation)).toHaveBeenCalledTimes(1);
     });
 
     it('returns total 0 when the count row is missing', async () => {

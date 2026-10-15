@@ -8,6 +8,7 @@
 // inside the catch block.
 
 import { noRawClipboard } from './no-raw-clipboard.js';
+import { noControlHeightClass } from './no-control-height-class.js';
 import { noRawSwitch } from './no-raw-switch.js';
 
 const MARKER = /^\s*fail-open:(.*)$/;
@@ -75,6 +76,7 @@ export const evtivityPlugin = {
   meta: { name: 'evtivity' },
   rules: {
     'handle-caught-error': handleCaughtError,
+    'no-control-height-class': noControlHeightClass,
     'no-raw-clipboard': noRawClipboard,
     'no-raw-switch': noRawSwitch,
   },

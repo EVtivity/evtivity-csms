@@ -2,7 +2,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql } from 'drizzle-orm';
-import { client, db, sites, getCompanyCurrency, getOcppFleetHealth } from '@evtivity/database';
+import {
+  client,
+  db,
+  sites,
+  getCompanyCurrency,
+  getOcppFleetHealth,
+  operatorStationIdSql,
+  operatorStationSql,
+} from '@evtivity/database';
 import {
   queryRevenue,
   revenueItem,
@@ -119,6 +127,11 @@ export async function snapshotSite(
   const sessionBilled = sql`UPPER(cs2.currency) = ${companyCurrency}`;
   const inDay = sql`cs2.started_at >= ${dayStartIso}::timestamptz AND cs2.started_at < ${dayEndIso}::timestamptz`;
 
+  // Conformance test stations and their sessions never count (revenue leaves
+  // them out in session-revenue.ts).
+  const operatorStation = sql.raw(operatorStationSql('cs'));
+  const operatorSession = sql.raw(operatorStationIdSql('cs2.station_id'));
+
   // The four read blocks (station counts, uptime, sessions+energy, revenue)
   // are all independent of each other. The only cross-block dependency is
   // the upsert at the end. Fire them in parallel to collapse 4 sequential
@@ -129,9 +142,9 @@ export async function snapshotSite(
     db.execute(sql`
       SELECT
         COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE is_online = true) AS online
-      FROM charging_stations
-      WHERE site_id = ${siteId} AND onboarding_status = 'accepted'
+        COUNT(*) FILTER (WHERE cs.is_online = true) AS online
+      FROM charging_stations cs
+      WHERE cs.site_id = ${siteId} AND cs.onboarding_status = 'accepted' AND ${operatorStation}
     `),
 
     // 2. Uptime CTE (midnight to midnight in site timezone)
@@ -140,7 +153,7 @@ export async function snapshotSite(
       SELECT DISTINCT e.station_id, e.evse_id
       FROM evses e
       INNER JOIN charging_stations cs ON cs.id = e.station_id
-      WHERE cs.site_id = ${siteId} AND e.retired_at IS NULL
+      WHERE cs.site_id = ${siteId} AND e.retired_at IS NULL AND ${operatorStation}
     ),
     pre_period_status AS (
       SELECT DISTINCT ON (psl.station_id, psl.evse_id)
@@ -218,6 +231,7 @@ export async function snapshotSite(
       FROM charging_sessions cs2
       WHERE cs2.site_id = ${siteId}
         AND cs2.started_at < ${dayEndIso}::timestamptz
+        AND ${operatorSession}
     `),
 
     // 4. Revenue (session-revenue.ts, the definition every revenue view

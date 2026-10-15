@@ -13,6 +13,7 @@ import { MeterValuesTable } from '@/components/MeterValuesTable';
 import { SessionDetailsTab } from '@/components/session/SessionDetailsTab';
 import { SessionGuestTab } from '@/components/session/SessionGuestTab';
 import { SessionPaymentTab, type PaymentRecord } from '@/components/session/SessionPaymentTab';
+import type { NoPaymentReason } from '@/components/session/SessionNoPaymentReason';
 import {
   SessionRebillCard,
   type RebillBlockedReason,
@@ -75,6 +76,7 @@ interface SessionDetailData {
   billingFleetName?: string | null;
   /** Billed on the driver's own member invoice (a fleet that invoices each driver). */
   memberBilled?: boolean;
+  invoiceId?: string | null;
   invoiceStatus?: string | null;
   rebillStatus?: RebillStatus | null;
   rebillClaimedAt?: string | null;
@@ -82,6 +84,8 @@ interface SessionDetailData {
   rebillBlockedReason: RebillBlockedReason | null;
   co2AvoidedKg: number | null;
   paymentRecord: PaymentRecord | null;
+  /** Why there is no payment record, null when there is one. */
+  noPaymentReason?: NoPaymentReason | null;
   guestSession: GuestSessionInfo | null;
   token: {
     id: string;
@@ -223,49 +227,51 @@ export function SessionDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <BackButton to="/sessions" />
-        <div className="min-w-0">
-          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{t('sessions.title')}</h1>
-          <CopyableId id={id ?? ''} />
-        </div>
-        <Badge
-          variant={sessionStatusVariant(
-            session.status,
-            session.status === 'active' && session.idleStartedAt != null,
+      <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+          <BackButton to="/sessions" />
+          <div className="min-w-0">
+            <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{t('sessions.title')}</h1>
+            <CopyableId id={id ?? ''} />
+          </div>
+          <Badge
+            variant={sessionStatusVariant(
+              session.status,
+              session.status === 'active' && session.idleStartedAt != null,
+            )}
+          >
+            {session.status === 'active' && session.idleStartedAt != null
+              ? t('status.idle')
+              : t(`status.${session.status}`, { defaultValue: session.status })}
+          </Badge>
+          {session.rebillStatus === 'manual' && (
+            <Badge variant="warning">{t('sessions.manualBilling')}</Badge>
           )}
-        >
-          {session.status === 'active' && session.idleStartedAt != null
-            ? t('status.idle')
-            : t(`status.${session.status}`, { defaultValue: session.status })}
-        </Badge>
-        {session.rebillStatus === 'manual' && (
-          <Badge variant="warning">{t('sessions.manualBilling')}</Badge>
-        )}
-        {isBilledOnAccount(session) && (
-          <Badge
-            variant="info"
-            className="max-w-full whitespace-normal"
-            data-testid="session-billing-badge"
-          >
-            {t(session.memberBilled === true ? 'sessions.billedToMember' : 'sessions.billedTo', {
-              fleet: session.billingFleetName ?? '',
-            })}
-            {' · '}
-            {t(`sessions.billingState.${accountBillingState(session.invoiceStatus)}`)}
-          </Badge>
-        )}
-        {tokenMismatch != null && (
-          <Badge
-            variant="warning"
-            className="max-w-full whitespace-normal"
-            title={t('sessions.reservationTokenMismatchTooltip')}
-          >
-            {t('sessions.reservationTokenMismatch')}
-          </Badge>
-        )}
-        {(session.status === 'failed' || session.status === 'faulted') &&
-          explainContext != null && <ExplainButton context={explainContext} />}
+          {isBilledOnAccount(session) && (
+            <Badge
+              variant="info"
+              className="max-w-full whitespace-normal"
+              data-testid="session-billing-badge"
+            >
+              {t(session.memberBilled === true ? 'sessions.billedToMember' : 'sessions.billedTo', {
+                fleet: session.billingFleetName ?? '',
+              })}
+              {' · '}
+              {t(`sessions.billingState.${accountBillingState(session.invoiceStatus)}`)}
+            </Badge>
+          )}
+          {tokenMismatch != null && (
+            <Badge
+              variant="warning"
+              className="max-w-full whitespace-normal"
+              title={t('sessions.reservationTokenMismatchTooltip')}
+            >
+              {t('sessions.reservationTokenMismatch')}
+            </Badge>
+          )}
+          {(session.status === 'failed' || session.status === 'faulted') &&
+            explainContext != null && <ExplainButton context={explainContext} />}
+        </div>
         {/* items-start: the buttons line up with the Prev and Next buttons, not their labels. */}
         <div className="flex flex-wrap items-start gap-2" data-testid="session-header-actions">
           {canStop && (
@@ -383,6 +389,19 @@ export function SessionDetail(): React.JSX.Element {
             canRefund={canRefund}
             formatCents={formatCents}
             timezone={timezone}
+            noPaymentReason={
+              session.noPaymentReason != null
+                ? {
+                    reason: session.noPaymentReason,
+                    fleetName: session.billingFleetName ?? null,
+                    memberBilled: session.memberBilled === true,
+                    invoiceId: session.invoiceId ?? null,
+                    onOpenGuestTab: () => {
+                      setTab('guest');
+                    },
+                  }
+                : null
+            }
           />
         </TabsContent>
 

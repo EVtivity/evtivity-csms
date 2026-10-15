@@ -112,7 +112,7 @@ function BrowserLogTab(): React.JSX.Element {
             value={search}
             onDebouncedChange={setSearch}
             placeholder={t('logs.searchPlaceholder')}
-            className="h-10 w-full sm:max-w-half-vw"
+            className="w-full sm:max-w-half-vw"
           />
         </CardContent>
       </Card>
@@ -197,7 +197,7 @@ function PortalLogTab(): React.JSX.Element {
             value={search}
             onDebouncedChange={setSearch}
             placeholder={t('logs.searchPlaceholder')}
-            className="h-10 w-full sm:max-w-half-vw"
+            className="w-full sm:max-w-half-vw"
           />
         </CardContent>
       </Card>
@@ -296,7 +296,7 @@ function ApiLogTab(): React.JSX.Element {
       value={search}
       onDebouncedChange={setSearch}
       placeholder={t('logs.searchPlaceholder')}
-      className="h-10 w-full"
+      className="w-full"
     />
   );
 
@@ -306,7 +306,6 @@ function ApiLogTab(): React.JSX.Element {
         <Label className="leading-6">{t('logs.method')}</Label>
         <Select
           aria-label={t('logs.method')}
-          className="h-10"
           value={filterMethod}
           onChange={(e) => {
             setFilterMethod(e.target.value);
@@ -325,7 +324,6 @@ function ApiLogTab(): React.JSX.Element {
         <Label className="leading-6">{t('logs.status')}</Label>
         <Select
           aria-label={t('logs.status')}
-          className="h-10"
           value={filterStatus}
           onChange={(e) => {
             setFilterStatus(e.target.value);
@@ -483,7 +481,7 @@ function WorkerLogTab(): React.JSX.Element {
       value={search}
       onDebouncedChange={setSearch}
       placeholder={t('logs.searchPlaceholder')}
-      className="h-10 w-full"
+      className="w-full"
     />
   );
 
@@ -493,7 +491,6 @@ function WorkerLogTab(): React.JSX.Element {
         <Label className="leading-6">{t('logs.queue')}</Label>
         <Select
           aria-label={t('logs.queue')}
-          className="h-10"
           value={filterQueue}
           onChange={(e) => {
             setFilterQueue(e.target.value);
@@ -510,7 +507,6 @@ function WorkerLogTab(): React.JSX.Element {
         <Label className="leading-6">{t('logs.status')}</Label>
         <Select
           aria-label={t('logs.status')}
-          className="h-10"
           value={filterStatus}
           onChange={(e) => {
             setFilterStatus(e.target.value);

@@ -8191,6 +8191,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'licensePlate',
       'make',
       'model',
+      'noPaymentReason',
       'paymentId',
       'paymentSource',
       'pcid',
@@ -9523,7 +9524,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/stations/{id}/security-logs',
     pathParams: ['id'],
-    queryParams: ['page', 'limit', 'event', 'source', 'from', 'to'],
+    queryParams: ['page', 'limit', 'event', 'source', 'severity', 'from', 'to'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -9540,6 +9541,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['connection', 'security', null],
           description: 'Restrict to a single source table',
         },
+        severity: {
+          type: ['string', 'null'],
+          enum: ['critical', 'high', 'medium', 'low', 'info', null],
+          description:
+            'Filter by severity level. Only security source rows carry a severity, so this returns security rows only',
+        },
         from: {
           type: ['string', 'null'],
           description: 'Lower bound (inclusive) for event timestamp',
@@ -9550,7 +9557,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
       },
-      required: ['page', 'limit', 'event', 'source', 'from', 'to', 'id'],
+      required: ['page', 'limit', 'event', 'source', 'severity', 'from', 'to', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -9568,6 +9575,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           enum: ['connection', 'security'],
           description: 'Restrict to a single source table',
+        },
+        severity: {
+          type: 'string',
+          enum: ['critical', 'high', 'medium', 'low', 'info'],
+          description:
+            'Filter by severity level. Only security source rows carry a severity, so this returns security rows only',
         },
         from: {
           type: 'string',

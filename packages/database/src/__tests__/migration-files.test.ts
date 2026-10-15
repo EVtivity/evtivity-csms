@@ -176,6 +176,7 @@ describe('0476_release_0_1_46_indexes.sql', () => {
       'uq_ocpi_roaming_sessions_received',
       'idx_sessions_driver_created',
       'uq_guest_sessions_charging_session',
+      'idx_meter_values_evse_id',
     ]);
   });
 

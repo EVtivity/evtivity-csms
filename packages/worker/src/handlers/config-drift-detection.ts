@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq, and, inArray } from 'drizzle-orm';
-import { db, chargingStations, configTemplates, stationConfigurations } from '@evtivity/database';
+import {
+  db,
+  chargingStations,
+  configTemplates,
+  isOperatorStation,
+  stationConfigurations,
+} from '@evtivity/database';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { findTemplateTargetConfiguration, configTemplateTarget } from '@evtivity/lib';
@@ -21,10 +27,12 @@ export async function configDriftDetectionHandler(log: Logger): Promise<void> {
     }>;
     if (variables.length === 0) continue;
 
-    // A template bound to a station targets that station only.
+    // A template bound to a station targets that station only. Any other
+    // template never targets a conformance test station.
     const target = configTemplateTarget(template);
     const conditions = [eq(chargingStations.isOnline, true)];
     if (target.stationId != null) conditions.push(eq(chargingStations.id, target.stationId));
+    else conditions.push(isOperatorStation());
     if (target.siteId != null) conditions.push(eq(chargingStations.siteId, target.siteId));
     if (target.vendorId != null) conditions.push(eq(chargingStations.vendorId, target.vendorId));
     if (target.model != null) conditions.push(eq(chargingStations.model, target.model));

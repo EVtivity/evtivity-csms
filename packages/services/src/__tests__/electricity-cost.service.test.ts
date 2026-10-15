@@ -84,6 +84,8 @@ describe('sessionCostMissing', () => {
     expect(text).toContain('coalesce("charging_sessions"."energy_delivered_wh", 0) > 0');
     expect(text).toContain('upper("charging_sessions"."currency") = $1');
     expect(text).toContain("IS NOT DISTINCT FROM 'account'");
+    // Sessions of conformance test stations are left out (inOperatorStation).
+    expect(text).toContain('conf_st.id = "charging_sessions"."station_id"');
     expect(params).toEqual(['EUR']);
   });
 });

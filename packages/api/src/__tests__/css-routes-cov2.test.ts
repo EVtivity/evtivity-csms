@@ -58,7 +58,7 @@ const { mockAuditStationChange } = vi.hoisted(() => ({
 }));
 vi.mock('../lib/station-audit.js', () => ({ auditStationChange: mockAuditStationChange }));
 
-vi.mock('@evtivity/database', () => {
+vi.mock('@evtivity/database', async () => {
   const dbMock: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -68,6 +68,7 @@ vi.mock('@evtivity/database', () => {
   };
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
   return {
+    ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     db: dbMock,
     cssStations: { __t: 'cssStations' },
     cssEvses: { __t: 'cssEvses' },
@@ -195,7 +196,7 @@ import { registerAuth } from '../plugins/auth.js';
 import { cssRoutes } from '../routes/css.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { db } from '@evtivity/database';
-import { inArray } from 'drizzle-orm';
+import { inArray, or } from 'drizzle-orm';
 import {
   changeSecurityProfile,
   changeStationPassword,
@@ -373,6 +374,12 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
       expect(chain.offset).toHaveBeenCalledWith(5);
       expect(chain.where).toHaveBeenCalledWith(undefined);
       expect(inArray).not.toHaveBeenCalled();
+      // The simulators of conformance test stations are never listed; one
+      // without a station row stays.
+      expect(or).toHaveBeenCalledWith(
+        { isNull: true },
+        { conformancePredicate: 'isOperatorStation' },
+      );
     });
 
     it('returns an empty page without querying when the user has no sites', async () => {

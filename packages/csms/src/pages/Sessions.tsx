@@ -152,7 +152,7 @@ export function Sessions(): React.JSX.Element {
             value={search}
             onDebouncedChange={setSearch}
             placeholder={t('sessions.searchPlaceholder')}
-            className="h-10 w-full"
+            className="w-full"
           />
         );
         const filters = (
@@ -161,7 +161,6 @@ export function Sessions(): React.JSX.Element {
               <Label className="leading-6">{t('sites.title')}</Label>
               <Select
                 aria-label={t('sites.title')}
-                className="h-10"
                 value={filterSiteId}
                 onChange={(e) => {
                   setFilters({ siteId: e.target.value, stationId: '' });
@@ -179,7 +178,6 @@ export function Sessions(): React.JSX.Element {
               <Label className="leading-6">{t('stations.title')}</Label>
               <Select
                 aria-label={t('stations.title')}
-                className="h-10"
                 value={filterStationId}
                 onChange={(e) => {
                   setFilters({ stationId: e.target.value });
@@ -197,7 +195,6 @@ export function Sessions(): React.JSX.Element {
               <Label className="leading-6">{t('common.status')}</Label>
               <Select
                 aria-label={t('common.status')}
-                className="h-10"
                 value={filterStatus}
                 onChange={(e) => {
                   setFilters({ status: e.target.value });
@@ -216,7 +213,6 @@ export function Sessions(): React.JSX.Element {
               <Label className="leading-6">{t('sessions.electricityCost')}</Label>
               <Select
                 aria-label={t('sessions.electricityCost')}
-                className="h-10"
                 value={filterCostMissing ? 'missing' : ''}
                 onChange={(e) => {
                   setFilters({ costMissing: e.target.value === 'missing' ? 'true' : '' });

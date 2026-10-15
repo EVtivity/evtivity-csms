@@ -715,7 +715,6 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                       onChange={(e) => {
                         setPncProvider(e.target.value);
                       }}
-                      className="h-9"
                     >
                       <option value="manual">{t('settings.pncProviderManual')}</option>
                       <option value="hubject">{t('settings.pncProviderHubject')}</option>

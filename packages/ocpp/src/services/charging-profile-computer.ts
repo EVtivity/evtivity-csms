@@ -4,7 +4,7 @@
 import type { Sql } from 'postgres';
 import type { PubSubClient } from '@evtivity/lib';
 import { publishOcppCommand } from '@evtivity/lib';
-import { getDefaultMaxPowerW } from '@evtivity/database';
+import { getDefaultMaxPowerW, operatorStationSql } from '@evtivity/database';
 import type { ChargingNeedsProfilePayload, StoredChargingNeedsProfile } from './charging-needs.js';
 
 interface ChargingNeedsInput {
@@ -155,6 +155,7 @@ export async function computeAndSendChargingProfile(
 
   // Site headroom when the site has an enabled power limit: the limit minus
   // the latest power reading of every other active session at the same site.
+  // Sessions at conformance test stations do not count against the limit.
   let siteAvailableW: number | null = null;
   const siteRows = await sql`
     SELECT spl.max_power_kw, cs.site_id
@@ -176,6 +177,7 @@ export async function computeAndSendChargingProfile(
         JOIN charging_stations st ON st.id = s.station_id
         WHERE st.site_id = ${siteId}
           AND s.station_id <> ${stationUuid}
+          AND ${sql.unsafe(operatorStationSql('st'))}
           AND s.status = 'active'
           AND mv.measurand = 'Power.Active.Import'
           AND mv.phase IS NULL

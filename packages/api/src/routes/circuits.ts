@@ -4,7 +4,16 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, sql, inArray } from 'drizzle-orm';
-import { db, panels, circuits, chargingStations, connectors, evses } from '@evtivity/database';
+import {
+  db,
+  panels,
+  circuits,
+  chargingStations,
+  connectors,
+  evses,
+  isOperatorStation,
+  operatorStationSql,
+} from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -267,7 +276,7 @@ export function circuitRoutes(app: FastifyInstance): void {
           // Only stations of this site count: a station keeps no circuit of
           // another site (cleared on a site change), and the count never
           // reads another site's rows.
-          stationCount: sql<number>`(SELECT count(*)::int FROM charging_stations WHERE charging_stations.circuit_id = ${circuits.id} AND charging_stations.site_id = ${siteId})`,
+          stationCount: sql<number>`(SELECT count(*)::int FROM charging_stations WHERE charging_stations.circuit_id = ${circuits.id} AND charging_stations.site_id = ${siteId} AND ${sql.raw(operatorStationSql('charging_stations'))})`,
         })
         .from(circuits)
         .innerJoin(panels, eq(circuits.panelId, panels.id))
@@ -391,7 +400,13 @@ export function circuitRoutes(app: FastifyInstance): void {
       const stationCount = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(chargingStations)
-        .where(and(eq(chargingStations.circuitId, circuitId), eq(chargingStations.siteId, siteId)));
+        .where(
+          and(
+            eq(chargingStations.circuitId, circuitId),
+            eq(chargingStations.siteId, siteId),
+            isOperatorStation(),
+          ),
+        );
 
       return {
         ...updated,
@@ -562,6 +577,8 @@ export function circuitRoutes(app: FastifyInstance): void {
               ? and(
                   inArray(chargingStations.circuitId, panelCircuitIds),
                   eq(chargingStations.siteId, siteId),
+                  // Conformance test stations draw nothing load management counts.
+                  isOperatorStation(),
                 )
               : sql`false`,
           );

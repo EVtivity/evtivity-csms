@@ -995,3 +995,22 @@ ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "ai_insights_suppressed
 --> statement-breakpoint
 ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "ai_insights_suppressed_reason" varchar(500);
 -- end beta.10
+--> statement-breakpoint
+-- 9. Conformance test stations (OCTT): the runners mark every station they
+--    create, and operator lists, counts, aggregates and targets leave them
+--    out. The backfill marks stations a run created before the column existed
+--    and only writes rows still unmarked, so a rerun changes nothing.
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "is_conformance" boolean DEFAULT false NOT NULL;
+--> statement-breakpoint
+UPDATE "charging_stations" SET "is_conformance" = true
+WHERE "station_id" LIKE 'OCTT-%' AND NOT "is_conformance";
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_charging_stations_is_conformance" ON "charging_stations" ("id") WHERE "is_conformance";
+--> statement-breakpoint
+-- Cron that removes what crashed or killed conformance runs left: idle test
+-- stations and the test driver (handlers/conformance-station-sweep.ts),
+-- every 10 minutes.
+INSERT INTO cronjobs (name, schedule, status, next_run_at)
+SELECT 'conformance-station-sweep', '*/10 * * * *', 'pending', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM cronjobs WHERE name = 'conformance-station-sweep');
+-- end conformance stations

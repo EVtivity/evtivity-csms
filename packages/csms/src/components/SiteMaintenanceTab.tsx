@@ -1248,7 +1248,7 @@ function MaintenanceStationFilterToolbar({
         aria-label={placeholder}
       />
       <Select
-        className="h-9 w-auto"
+        className="w-auto"
         aria-label={t('maintenance.stationFilterLabel')}
         value={filter}
         onChange={(e) => {

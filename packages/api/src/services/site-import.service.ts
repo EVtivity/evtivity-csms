@@ -3,7 +3,13 @@
 
 import type { FastifyBaseLogger } from 'fastify';
 import { eq, or, ilike, and, asc, inArray, sql } from 'drizzle-orm';
-import { db, client, recomputeStationAvailability, setStationDisabled } from '@evtivity/database';
+import {
+  db,
+  client,
+  recomputeStationAvailability,
+  setStationDisabled,
+  isOperatorStation,
+} from '@evtivity/database';
 import { siteNameEq } from '../lib/site-lookup.js';
 import {
   sites,
@@ -137,7 +143,8 @@ export async function exportSitesCsv(
       vendorName: vendors.name,
     })
     .from(sites)
-    .leftJoin(chargingStations, eq(chargingStations.siteId, sites.id))
+    // Conformance test stations are never exported.
+    .leftJoin(chargingStations, and(eq(chargingStations.siteId, sites.id), isOperatorStation()))
     .leftJoin(vendors, eq(vendors.id, chargingStations.vendorId))
     .leftJoin(evses, eq(evses.stationId, chargingStations.id))
     .leftJoin(connectors, eq(connectors.evseId, evses.id))

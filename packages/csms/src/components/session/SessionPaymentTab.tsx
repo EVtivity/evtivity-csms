@@ -17,6 +17,7 @@ import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 import { paymentStatusVariant } from '@/lib/status-variants';
+import { SessionNoPaymentReason, type NoPaymentReasonContext } from './SessionNoPaymentReason';
 
 /** One entry of the refund ledger (payment_records.provider_refunds). */
 export interface ProviderRefund {
@@ -109,6 +110,8 @@ export interface SessionPaymentTabProps {
   refundPath?: string;
   invalidateKey?: readonly unknown[];
   showPreAuth?: boolean;
+  /** Why the session has no payment record, shown under the empty state. */
+  noPaymentReason?: NoPaymentReasonContext | null;
 }
 
 export function SessionPaymentTab({
@@ -121,6 +124,7 @@ export function SessionPaymentTab({
   refundPath,
   invalidateKey,
   showPreAuth = true,
+  noPaymentReason,
 }: SessionPaymentTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -178,7 +182,10 @@ export function SessionPaymentTab({
         </CardHeader>
         <CardContent>
           {payment == null ? (
-            <p className="text-center text-sm text-muted-foreground">{t('sessions.noPayment')}</p>
+            <div className="space-y-4">
+              <p className="text-center text-sm text-muted-foreground">{t('sessions.noPayment')}</p>
+              {noPaymentReason != null && <SessionNoPaymentReason {...noPaymentReason} />}
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

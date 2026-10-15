@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql, type SQL } from 'drizzle-orm';
-import { db, paymentRecords } from '@evtivity/database';
+import { db, paymentRecords, operatorStationIdSql } from '@evtivity/database';
 import { revenueFromGrossGroups } from '@evtivity/lib';
 import type { TaxTotals } from '@evtivity/lib';
 import { inCompanyCurrency } from './company-currency.js';
@@ -55,6 +55,9 @@ export function paymentsKeptCentsSql(companyCurrency: string): SQL {
  * counted in revenue as usual, and in costMissing* so profit can leave it out
  * (profitCents). A session without energy costs nothing, so it is never cost
  * missing. Fees have no electricity cost.
+ *
+ * Sessions and reservation fees of conformance test stations are never
+ * revenue: every caller aggregates, so the items leave them out.
  */
 function sessionItemsSql(companyCurrency: string, extraWhere: SQL): SQL {
   return sql`
@@ -80,6 +83,7 @@ function sessionItemsSql(companyCurrency: string, extraWhere: SQL): SQL {
     LEFT JOIN invoices inv ON inv.id = cs.invoice_id
     WHERE cs.final_cost_cents IS NOT NULL
       AND upper(cs.currency) = ${companyCurrency}
+      AND ${sql.raw(operatorStationIdSql('cs.station_id'))}
       ${extraWhere}
   `;
 }
@@ -124,6 +128,7 @@ function revenueItemsSql(companyCurrency: string, occurredSince?: Date): SQL {
     WHERE pr.charge_type <> 'session'
       AND pr.status IN ('captured', 'partially_refunded', 'refunded')
       AND upper(pr.currency) = ${companyCurrency}
+      AND ${sql.raw(operatorStationIdSql('r.station_id'))}
       ${since == null ? sql`` : sql`AND pr.created_at >= ${since}::timestamptz`}
   `;
 }

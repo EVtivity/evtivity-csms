@@ -102,7 +102,7 @@ export function GeneratedReportsTab(): React.JSX.Element {
         <div className="flex justify-end">
           <Select
             aria-label={t('common.filterByReportType')}
-            className="hidden h-9 w-auto md:block"
+            className="hidden w-auto md:block"
             value={typeFilter}
             onChange={(e) => {
               setTypeFilter(e.target.value);
@@ -119,7 +119,6 @@ export function GeneratedReportsTab(): React.JSX.Element {
           <FilterPopover className="md:hidden" activeCount={typeFilter ? 1 : 0}>
             <Select
               aria-label={t('common.filterByReportType')}
-              className="h-9"
               value={typeFilter}
               onChange={(e) => {
                 setTypeFilter(e.target.value);

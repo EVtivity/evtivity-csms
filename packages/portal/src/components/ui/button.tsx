@@ -28,6 +28,8 @@ const buttonVariants = cva(
         sm: 'h-9 rounded-md px-3',
         lg: 'h-11 rounded-md px-8',
         icon: 'h-10 w-10',
+        // Full-width option that wraps its text (a choice card, a connector row).
+        row: 'h-auto min-h-12 w-full gap-2 whitespace-normal px-4 py-3',
       },
     },
     defaultVariants: {

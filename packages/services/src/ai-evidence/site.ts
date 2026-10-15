@@ -5,11 +5,12 @@
  * Site incident evidence: the member stations (state, vendor, model,
  * firmware, heartbeat) and the latest connection events at the site. Only
  * the site's own stations are read, so a pack never holds another site's
- * data. Every column is listed by name.
+ * data, and never a conformance test station. Every column is listed by name.
  */
 
 import {
   client,
+  operatorStationSql,
   stationAvailabilitySql,
   stationStatusReasonSql,
   toIsoOrNull,
@@ -115,7 +116,7 @@ export async function loadSiteEvidenceRows(
         cs.last_heartbeat, cs.id = ANY(${members}::text[]) AS member
       FROM charging_stations cs
       LEFT JOIN vendors v ON v.id = cs.vendor_id
-      WHERE cs.site_id = ${siteId}
+      WHERE cs.site_id = ${siteId} AND ${client.unsafe(operatorStationSql('cs'))}
       ORDER BY (cs.id = ANY(${members}::text[])) DESC, cs.station_id
       LIMIT ${SITE_STATION_LIMIT}
     `,
@@ -123,7 +124,7 @@ export async function loadSiteEvidenceRows(
       SELECT l.id, cs.station_id, l.event, l.metadata ->> 'reason' AS reason, l.created_at
       FROM connection_logs l
       JOIN charging_stations cs ON cs.id = l.station_id
-      WHERE cs.site_id = ${siteId}
+      WHERE cs.site_id = ${siteId} AND ${client.unsafe(operatorStationSql('cs'))}
       ORDER BY l.created_at DESC, l.id DESC LIMIT ${SITE_CONNECTION_LIMIT}
     `,
   ]);

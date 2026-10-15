@@ -4,23 +4,31 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { inlinePushSink } from './helpers/inline-push-sink.js';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 
 // Each awaited query chain resolves to the next queued result.
 let dbResults: unknown[][] = [];
+// The where and orderBy arguments of every query, rendered as SQL text.
+const queryParts: string[] = [];
+const dialect = new PgDialect();
+function capture(...args: unknown[]): void {
+  for (const a of args) {
+    if (a != null && typeof a === 'object' && 'queryChunks' in a) {
+      queryParts.push(dialect.sqlToQuery(a as SQL).sql);
+    }
+  }
+}
 function makeChain(): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const m of [
-    'select',
-    'from',
-    'where',
-    'limit',
-    'innerJoin',
-    'leftJoin',
-    'orderBy',
-    'offset',
-    'values',
-  ]) {
+  for (const m of ['select', 'from', 'limit', 'innerJoin', 'leftJoin', 'offset', 'values']) {
     chain[m] = vi.fn(() => chain);
+  }
+  for (const m of ['where', 'orderBy']) {
+    chain[m] = vi.fn((...args: unknown[]) => {
+      capture(...args);
+      return chain;
+    });
   }
   chain['then'] = (resolve: (v: unknown) => unknown) =>
     Promise.resolve(dbResults.shift() ?? []).then(resolve);
@@ -149,6 +157,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   dbResults = [];
+  queryParts.length = 0;
   mockFindEvseByUid.mockReset();
   putMock.mockClear();
   patchMock.mockClear();
@@ -232,6 +241,12 @@ describe('GET /cpo/locations', () => {
     ]);
     expect(evses?.[0]?.connectors[0]).not.toHaveProperty('tariff_ids');
     expect(evses?.[1]?.connectors[0]?.tariff_ids).toEqual(['T-GROUP']);
+    // Conformance test stations are never published, nor do they move the
+    // location's last_updated.
+    expect(queryParts.some((q) => q.includes('"charging_stations"."is_conformance" = '))).toBe(
+      true,
+    );
+    expect(queryParts.some((q) => q.includes('cs.is_conformance = false'))).toBe(true);
   });
 });
 
@@ -445,6 +460,10 @@ describe('location push', () => {
           expect.objectContaining({ uid: 'evs_c', status: 'UNKNOWN' }),
         ],
       }),
+    );
+    // Conformance test stations are never pushed.
+    expect(queryParts.some((q) => q.includes('"charging_stations"."is_conformance" = '))).toBe(
+      true,
     );
   });
 

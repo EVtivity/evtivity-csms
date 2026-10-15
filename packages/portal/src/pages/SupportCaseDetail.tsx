@@ -253,11 +253,7 @@ export function SupportCaseDetail(): React.JSX.Element {
             placeholder={t('supportCases.messagePlaceholder')}
             className="flex-1"
           />
-          <Button
-            type="submit"
-            className="h-12"
-            disabled={messageMutation.isPending || messageBody.trim() === ''}
-          >
+          <Button type="submit" disabled={messageMutation.isPending || messageBody.trim() === ''}>
             {t('supportCases.sendMessage')}
           </Button>
         </form>

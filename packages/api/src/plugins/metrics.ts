@@ -78,7 +78,7 @@ export const driversActive = new Gauge({
 
 export const stationsTotal = new Gauge({
   name: 'stations_total',
-  help: 'Total charging stations',
+  help: 'Total charging stations, conformance test stations excluded',
   labelNames: ['is_online'] as const,
   registers: [register],
 });

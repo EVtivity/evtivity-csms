@@ -56,7 +56,8 @@ interface ClientCall {
 const clientCalls: ClientCall[] = [];
 let clientResponder: (text: string, values: unknown[]) => unknown[] = () => [];
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   db: { select: vi.fn(() => makeChain()) },
   client: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?');

@@ -9,7 +9,6 @@ interface StopIconButtonProps {
   title: string;
   disabled?: boolean;
   isPending?: boolean;
-  size?: 'sm' | 'md';
 }
 
 export function StopIconButton({
@@ -17,16 +16,14 @@ export function StopIconButton({
   title,
   disabled,
   isPending,
-  size = 'md',
 }: StopIconButtonProps): React.JSX.Element {
-  const sizeClass = size === 'sm' ? 'h-9 w-9' : 'h-10 w-10';
   const iconClass = `h-4 w-4 ${isPending === true ? 'animate-pulse' : ''}`;
   return (
     <span className="group relative inline-flex">
       <Button
         variant="secondary"
         size="icon"
-        className={`${sizeClass} text-destructive hover:bg-destructive/10`}
+        className="text-destructive hover:bg-destructive/10"
         onClick={onClick}
         disabled={disabled === true || isPending === true}
         aria-label={title}

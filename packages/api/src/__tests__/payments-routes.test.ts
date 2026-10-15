@@ -81,7 +81,7 @@ vi.mock('../middleware/rbac.js', () => ({
   requestHasPermission: mockRequestHasPermission,
 }));
 
-vi.mock('@evtivity/database', () => {
+vi.mock('@evtivity/database', async () => {
   const dbMock: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -91,6 +91,7 @@ vi.mock('@evtivity/database', () => {
     transaction: vi.fn(async (cb: (tx: unknown) => Promise<unknown>) => cb(dbMock)),
   };
   return {
+    ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     db: dbMock,
     client: {},
     sitePaymentConfigs: {},
@@ -251,6 +252,7 @@ vi.mock('../lib/site-access.js', async () =>
 // The site filter is SQL over the mocked tables: the database mock answers the rows.
 vi.mock('../lib/payment-site-scope.js', () => ({
   paymentRecordsAtSites: vi.fn(() => undefined),
+  paymentRecordsOfOperatorStations: vi.fn(() => ({ paymentsOfOperatorStations: true })),
 }));
 
 const { mockHoldFeeCheck } = vi.hoisted(() => ({

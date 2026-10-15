@@ -71,7 +71,7 @@ export function MatchingStationsCard({
         <div className="flex items-center justify-end">
           <Select
             aria-label={t('common.status')}
-            className="h-9 w-auto"
+            className="w-auto"
             value={statusFilter}
             onChange={(e) => {
               changeFilter(e.target.value as StatusFilter);

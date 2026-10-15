@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
 import { ChartBody, type QueryState } from './ChartBody';
-import { formatNumberUpTo } from '@/lib/formatting';
+import { formatUtilizationPercent, relativeBarLengths } from './utilization-format';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
 
@@ -55,23 +55,21 @@ export function UtilizationChart({
         // back to numeric row indexes for the category labels.
         type: 'category',
         categories: data.map((d) => d.site),
-        labels: {
-          formatter: (val: string) => `${formatNumberUpTo(Number(val), 1)}%`,
-        },
+        // Bars are relative to the busiest site, so the axis has no percent scale.
+        max: 100,
+        labels: { show: false },
       },
       yaxis: {
         labels: {
           maxWidth: 150,
         },
       },
-      dataLabels: {
-        enabled: true,
-        formatter: (val: number) => `${formatNumberUpTo(val, 1)}%`,
-        style: { fontSize: '12px', fontWeight: 600 },
-      },
+      dataLabels: { enabled: false },
       tooltip: {
         y: {
-          formatter: (val: number) => `${formatNumberUpTo(val, 1)}%`,
+          // The real utilization of the site, not the relative bar length.
+          formatter: (_val: number, opts?: { dataPointIndex?: number }) =>
+            formatUtilizationPercent(data[opts?.dataPointIndex ?? -1]?.utilization ?? 0),
         },
       },
       colors: [CHART_COLORS.violet],
@@ -91,7 +89,7 @@ export function UtilizationChart({
     () => [
       {
         name: t('charts.utilization'),
-        data: data.map((d) => d.utilization),
+        data: relativeBarLengths(data.map((d) => d.utilization)),
       },
     ],
     [t, data],

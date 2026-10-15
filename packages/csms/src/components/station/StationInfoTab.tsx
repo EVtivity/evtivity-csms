@@ -238,7 +238,6 @@ export function StationInfoTab({
                   onChange={(e) => {
                     setSiteId(e.target.value);
                   }}
-                  className="h-9"
                 >
                   <option value="">{t('common.noSite')}</option>
                   {sites?.map((s) => (

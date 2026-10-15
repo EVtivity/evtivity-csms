@@ -127,7 +127,7 @@ export function Reservations(): React.JSX.Element {
             value={search}
             onDebouncedChange={setSearch}
             placeholder={t('reservations.searchPlaceholder')}
-            className="h-10 w-full"
+            className="w-full"
           />
         );
         const filters = (
@@ -136,7 +136,6 @@ export function Reservations(): React.JSX.Element {
               <Label className="leading-6">{t('sites.title')}</Label>
               <Select
                 aria-label={t('sites.title')}
-                className="h-10"
                 value={siteFilter}
                 onChange={(e) => {
                   setSiteFilter(e.target.value);
@@ -155,7 +154,6 @@ export function Reservations(): React.JSX.Element {
               <Label className="leading-6">{t('stations.title')}</Label>
               <Select
                 aria-label={t('stations.title')}
-                className="h-10"
                 value={stationFilter}
                 onChange={(e) => {
                   setStationFilter(e.target.value);
@@ -174,7 +172,6 @@ export function Reservations(): React.JSX.Element {
               <Label className="leading-6">{t('common.status')}</Label>
               <Select
                 aria-label={t('common.status')}
-                className="h-10"
                 value={statusFilter}
                 onChange={(e) => {
                   setStatusFilter(e.target.value);

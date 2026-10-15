@@ -139,7 +139,7 @@ export function AuthorizeLogView({
                 value={idToken}
                 onDebouncedChange={setIdToken}
                 placeholder={t('tokens.filterIdToken')}
-                className="h-9 max-w-none"
+                className="max-w-none"
               />
             </div>
           )}
@@ -149,7 +149,6 @@ export function AuthorizeLogView({
             </Label>
             <Select
               id="authorize-log-outcome"
-              className="h-9"
               value={outcome}
               onChange={(e) => {
                 setOutcome(e.target.value);

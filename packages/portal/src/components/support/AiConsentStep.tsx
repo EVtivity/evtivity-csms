@@ -70,7 +70,7 @@ export function AiConsentStep({ noticeVersion, onChoose }: AiConsentStepProps): 
         <Button
           type="button"
           variant="outline"
-          className="h-auto min-h-12 whitespace-normal py-3"
+          size="row"
           onClick={() => {
             onChoose('granted');
           }}
@@ -81,7 +81,7 @@ export function AiConsentStep({ noticeVersion, onChoose }: AiConsentStepProps): 
         <Button
           type="button"
           variant="outline"
-          className="h-auto min-h-12 whitespace-normal py-3"
+          size="row"
           onClick={() => {
             onChoose('declined');
           }}

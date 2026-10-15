@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { and, asc, count, eq, gt, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
-import { db, chargingSessions, loadElectricityRatePeriodsForSite, sites } from '@evtivity/database';
+import {
+  db,
+  chargingSessions,
+  inOperatorStation,
+  loadElectricityRatePeriodsForSite,
+  sites,
+} from '@evtivity/database';
 import { computeSessionElectricityCost } from '@evtivity/lib';
 import { inCompanyCurrency } from './company-currency.js';
 
@@ -26,7 +32,8 @@ export const RECALCULATE_MAX_UPDATES = 5000;
  * the company currency, not an account session still unpaid, that delivered
  * energy and has no electricity cost. The dashboard notice counts these, the
  * sessions list filter (`costMissing=true`) shows them and the recalculation
- * fills them, so the three agree.
+ * fills them, so the three agree. Sessions of conformance test stations are
+ * not revenue, so never cost missing.
  */
 export function sessionCostMissing(companyCurrency: string): SQL {
   return and(
@@ -34,6 +41,7 @@ export function sessionCostMissing(companyCurrency: string): SQL {
     inCompanyCurrency(chargingSessions.currency, companyCurrency),
     isNull(chargingSessions.electricityCostCents),
     sql`coalesce(${chargingSessions.energyDeliveredWh}, 0) > 0`,
+    inOperatorStation(chargingSessions.stationId),
     // Billed on account and not paid yet: not revenue, so not cost missing.
     sql`NOT (${chargingSessions.billingMode} IS NOT DISTINCT FROM 'account'
       AND ${chargingSessions.finalCostCents} > 0

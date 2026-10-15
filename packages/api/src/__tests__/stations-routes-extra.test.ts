@@ -179,6 +179,7 @@ vi.mock('@evtivity/database', async () => {
   };
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
   return {
+    ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     db: dbMock,
     client: {},
     ...tables,
@@ -445,6 +446,8 @@ describe('Station routes - extra coverage', () => {
       expect(where.op).toBe('and');
       expect(where.conds).toEqual(
         expect.arrayContaining([
+          // Conformance test stations are never listed.
+          { conformancePredicate: 'isOperatorStation' },
           // Unsited stations are hidden from a site-restricted user.
           { op: 'inArray', col: 'chargingStations.siteId', val: [SITE_A] },
           { op: 'eq', col: 'chargingStations.siteId', val: SITE_A },
@@ -462,7 +465,7 @@ describe('Station routes - extra coverage', () => {
         ]),
       );
       // status filter is a derived-status SQL comparison against the value
-      expect(where.conds).toHaveLength(7);
+      expect(where.conds).toHaveLength(8);
       expect(mocks.sqlCalls.some((args) => args.slice(1).includes('faulted'))).toBe(true);
       expect(argsOf(listChain, 'limit')).toEqual([5]);
       expect(argsOf(listChain, 'offset')).toEqual([5]);
@@ -470,12 +473,14 @@ describe('Station routes - extra coverage', () => {
       expect(argsOf(chainsOf('select')[1], 'where')?.[0]).toBe(where);
     });
 
-    it('sends no where clause when no filter applies', async () => {
+    it('leaves out conformance test stations when no filter applies', async () => {
       queue([], [{ count: 3 }]);
       const res = await inject('GET', '/stations');
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ data: [], total: 3 });
-      expect(argsOf(chainsOf('select')[0], 'where')).toEqual([undefined]);
+      expect(argsOf(chainsOf('select')[0], 'where')).toEqual([
+        { op: 'and', conds: [{ conformancePredicate: 'isOperatorStation' }] },
+      ]);
     });
   });
 

@@ -240,7 +240,6 @@ export function ConfigTemplateCreate(): React.JSX.Element {
                       />
                       <RemoveIconButton
                         title={t('common.delete')}
-                        size="sm"
                         onClick={() => {
                           removeVariable(i);
                         }}
@@ -287,7 +286,6 @@ export function ConfigTemplateCreate(): React.JSX.Element {
                       />
                       <RemoveIconButton
                         title={t('common.delete')}
-                        size="sm"
                         onClick={() => {
                           removeVariable(i);
                         }}

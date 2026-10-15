@@ -102,7 +102,7 @@ export function UsersPage(): React.JSX.Element {
             value={search}
             onDebouncedChange={setSearch}
             placeholder={t('users.searchPlaceholder')}
-            className="h-10 w-full"
+            className="w-full"
           />
         );
         const filters = (
@@ -111,7 +111,6 @@ export function UsersPage(): React.JSX.Element {
               <Label className="leading-6">{t('users.role')}</Label>
               <Select
                 aria-label={t('users.role')}
-                className="h-10"
                 value={filterRoleId}
                 onChange={(e) => {
                   setFilterRoleId(e.target.value);
@@ -129,7 +128,6 @@ export function UsersPage(): React.JSX.Element {
               <Label className="leading-6">{t('common.status')}</Label>
               <Select
                 aria-label={t('common.status')}
-                className="h-10"
                 value={filterStatus}
                 onChange={(e) => {
                   setFilterStatus(e.target.value);

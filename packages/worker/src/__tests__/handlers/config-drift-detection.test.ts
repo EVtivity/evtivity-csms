@@ -46,6 +46,7 @@ vi.mock('@evtivity/database', () => ({
     model: 'chargingStations.model',
   },
   configTemplates: {},
+  isOperatorStation: () => 'OPERATOR_STATION',
   stationConfigurations: {
     stationId: 'stationConfigurations.stationId',
   },
@@ -135,6 +136,24 @@ describe('configDriftDetectionHandler', () => {
     await configDriftDetectionHandler(log);
 
     expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it('never targets conformance test stations unless the template is bound to one station', async () => {
+    const variables = [{ component: 'AuthCtrlr', variable: 'Enabled', value: 'true' }];
+    const { configDriftDetectionHandler } = mod;
+
+    setupDbResults(
+      [{ id: 'tpl_1', variables, stationId: null, targetFilter: { siteId: 'site_x' } }],
+      [],
+    );
+    mockAnd.mockClear();
+    await configDriftDetectionHandler(log);
+    expect(mockAnd.mock.calls[0]).toContain('OPERATOR_STATION');
+
+    setupDbResults([{ id: 'tpl_2', variables, stationId: 'sta_1', targetFilter: null }], []);
+    mockAnd.mockClear();
+    await configDriftDetectionHandler(log);
+    expect(mockAnd.mock.calls[0]).not.toContain('OPERATOR_STATION');
   });
 
   it('emits config.driftDetected when a station value differs from the template', async () => {

@@ -408,7 +408,6 @@ export function SchedulesTab(): React.JSX.Element {
                     </Label>
                     <Select
                       id="schedule-type"
-                      className="h-9"
                       value={selectedType}
                       onChange={(e) => {
                         setReportType(e.target.value);
@@ -428,7 +427,6 @@ export function SchedulesTab(): React.JSX.Element {
                     </Label>
                     <Select
                       id="schedule-format"
-                      className="h-9"
                       value={selectedFormat}
                       onChange={(e) => {
                         setFormat(e.target.value);
@@ -451,7 +449,6 @@ export function SchedulesTab(): React.JSX.Element {
                   </Label>
                   <Select
                     id="schedule-frequency"
-                    className="h-9"
                     value={frequency}
                     onChange={(e) => {
                       setFrequency(e.target.value);
@@ -472,7 +469,6 @@ export function SchedulesTab(): React.JSX.Element {
                     </Label>
                     <Select
                       id="schedule-dow"
-                      className="h-9"
                       value={dayOfWeek}
                       onChange={(e) => {
                         setDayOfWeek(Number(e.target.value));

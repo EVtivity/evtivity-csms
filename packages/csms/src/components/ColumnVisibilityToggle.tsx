@@ -70,7 +70,6 @@ export function ColumnVisibilityToggle({
         onClick={() => {
           setOpen((v) => !v);
         }}
-        className="h-10 w-10"
       >
         <Columns3 className="h-4 w-4" />
       </Button>

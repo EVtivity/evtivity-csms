@@ -5,8 +5,10 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { Play } from 'lucide-react';
+import { AlertTriangle, Play } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -61,6 +63,17 @@ function passRate(run: OcttRun): string {
   return `${formatNumber((run.passed / applicable) * 100, 1)}%`;
 }
 
+/** A run creates temporary stations, a test driver and tokens, and changes settings. */
+function EnvironmentWarning(): React.JSX.Element {
+  const { t } = useTranslation();
+  return (
+    <Alert variant="warning" data-testid="conformance-environment-warning">
+      <AlertTriangle />
+      <AlertDescription>{t('conformance.environmentWarning')}</AlertDescription>
+    </Alert>
+  );
+}
+
 function formatDuration(ms: number | null): string {
   if (ms == null) return 'n/a';
   if (ms < 1000) return `${String(ms)}ms`;
@@ -80,6 +93,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
   // Starting a run is company-wide: the API answers 404 to a site-restricted user.
   const canRun = useHasCompanyWidePermission('conformance:write');
   const [selectedVersion, setSelectedVersion] = useState('all');
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ['octt-runs'],
@@ -136,7 +150,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
             <Button
               disabled={hasRunningRun === true || triggerRun.isPending}
               onClick={() => {
-                triggerRun.mutate({ ocppVersion: selectedVersion, sutType: 'csms' });
+                setConfirmOpen(true);
               }}
               className="relative"
             >
@@ -159,6 +173,23 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
           </div>
         )}
       </div>
+
+      <EnvironmentWarning />
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={t('conformance.startRunTitle')}
+        description={t('conformance.startRunDescription')}
+        confirmLabel={t('conformance.runTests')}
+        confirmIcon={<Play className="h-4 w-4" />}
+        variant="default"
+        onConfirm={() => {
+          triggerRun.mutate({ ocppVersion: selectedVersion, sutType: 'csms' });
+        }}
+      >
+        <EnvironmentWarning />
+      </ConfirmDialog>
 
       <Card>
         <CardContent className="overflow-x-auto p-0">

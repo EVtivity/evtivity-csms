@@ -40,6 +40,7 @@ import {
   ocpiPartnerEndpoints,
   ocpiPartners,
   ocpiRoamingSessions,
+  inOperatorStation,
 } from '@evtivity/database';
 import { createBullMQConnection, createLogger, logBullMQErrors } from '@evtivity/lib';
 import { issueSessionCdr, pushCdr } from './cdr.service.js';
@@ -220,6 +221,8 @@ export async function runCdrBackfillStep(queue: Queue): Promise<void> {
     .where(
       and(
         eq(chargingSessions.status, 'completed'),
+        // A conformance test station's session gets no CDR (cpoSessionLink).
+        inOperatorStation(chargingSessions.stationId),
         gte(chargingSessions.endedAt, from),
         lt(chargingSessions.endedAt, state.cutoffAt),
         cursor,
@@ -273,6 +276,9 @@ export async function runCdrSweep(queue: Queue, now: Date = new Date()): Promise
     .where(
       and(
         eq(chargingSessions.status, 'completed'),
+        // A conformance test station's session gets no CDR (cpoSessionLink),
+        // so the sweep would schedule it again on every run.
+        inOperatorStation(chargingSessions.stationId),
         lt(chargingSessions.endedAt, new Date(now.getTime() - SWEEP_MIN_AGE_MS)),
         sql`(${chargingSessions.endedAt} > ${new Date(now.getTime() - SWEEP_MAX_AGE_MS)} OR ${generation} > 0)`,
         sql`NOT EXISTS (

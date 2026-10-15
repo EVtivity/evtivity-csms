@@ -184,7 +184,6 @@ export function AccountVehicles(): React.JSX.Element {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-12 w-12"
                       onClick={() => {
                         setPendingDeleteId(v.id);
                       }}

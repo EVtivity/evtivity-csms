@@ -486,6 +486,7 @@ function ModeToggle({
 }
 
 const REFETCH_INTERVAL = 60_000;
+const ACTIVE_SESSIONS_PAGE_SIZE = 20;
 
 const MONEY_PLACEHOLDER = '-';
 
@@ -596,13 +597,28 @@ function DashboardBody({
     refetchInterval: REFETCH_INTERVAL,
   });
 
+  const [activeSessionsPage, setActiveSessionsPage] = useState(1);
   const activeSessions = useQuery({
-    queryKey: ['sessions', 'active'],
+    queryKey: ['sessions', 'active', activeSessionsPage],
     queryFn: () =>
-      api.get<{ data: Session[]; total: number }>('/v1/sessions?limit=20&status=active'),
+      api.get<{ data: Session[]; total: number }>(
+        `/v1/sessions?page=${String(activeSessionsPage)}&limit=${String(ACTIVE_SESSIONS_PAGE_SIZE)}&status=active`,
+      ),
     refetchInterval: 30_000,
     enabled: canSeeSessions,
+    // Keeps the current rows on screen while the next page loads.
+    placeholderData: (previous) => previous,
   });
+  const activeSessionsTotalPages = Math.max(
+    1,
+    Math.ceil((activeSessions.data?.total ?? 0) / ACTIVE_SESSIONS_PAGE_SIZE),
+  );
+  // Sessions end while the card is open: step back when the page runs past the end.
+  useEffect(() => {
+    if (activeSessionsPage > activeSessionsTotalPages) {
+      setActiveSessionsPage(activeSessionsTotalPages);
+    }
+  }, [activeSessionsPage, activeSessionsTotalPages]);
 
   const { yd, db, dayDelta, deltaLabel } = useDayDeltaContext();
 
@@ -1234,9 +1250,9 @@ function DashboardBody({
             ) : (
               <SessionsTable
                 sessions={activeSessions.data?.data}
-                page={1}
-                totalPages={1}
-                onPageChange={() => {}}
+                page={activeSessionsPage}
+                totalPages={activeSessionsTotalPages}
+                onPageChange={setActiveSessionsPage}
                 timezone={timezone}
                 isLoading={activeSessions.isLoading}
                 emptyMessage={t('charts.noActiveSessions')}

@@ -64,7 +64,7 @@ export function Fleets(): React.JSX.Element {
             value={search}
             onDebouncedChange={setSearch}
             placeholder={t('fleets.searchPlaceholder')}
-            className="h-10 w-full sm:max-w-half-vw"
+            className="w-full sm:max-w-half-vw"
           />
         </CardContent>
       </Card>

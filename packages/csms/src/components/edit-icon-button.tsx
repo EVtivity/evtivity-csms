@@ -8,23 +8,19 @@ interface EditIconButtonProps {
   onClick: () => void;
   title: string;
   disabled?: boolean;
-  size?: 'sm' | 'md';
 }
 
 export function EditIconButton({
   onClick,
   title,
   disabled,
-  size = 'md',
 }: EditIconButtonProps): React.JSX.Element {
-  const sizeClass = size === 'sm' ? 'h-9 w-9' : 'h-10 w-10';
   const iconClass = 'h-4 w-4';
   return (
     <span className="group relative inline-flex">
       <Button
         variant="secondary"
         size="icon"
-        className={sizeClass}
         onClick={onClick}
         disabled={disabled}
         aria-label={title}

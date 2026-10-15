@@ -9,7 +9,6 @@ interface UnplugIconButtonProps {
   title: string;
   disabled?: boolean;
   isPending?: boolean;
-  size?: 'sm' | 'md';
 }
 
 export function UnplugIconButton({
@@ -17,16 +16,13 @@ export function UnplugIconButton({
   title,
   disabled,
   isPending,
-  size = 'md',
 }: UnplugIconButtonProps): React.JSX.Element {
-  const sizeClass = size === 'sm' ? 'h-9 w-9' : 'h-10 w-10';
   const iconClass = `h-4 w-4 ${isPending === true ? 'animate-pulse' : ''}`;
   return (
     <span className="group relative inline-flex">
       <Button
         variant="secondary"
         size="icon"
-        className={sizeClass}
         onClick={onClick}
         disabled={disabled === true || isPending === true}
         aria-label={title}

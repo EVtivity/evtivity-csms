@@ -2,15 +2,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq, and, inArray, sql } from 'drizzle-orm';
-import { db, chargingProfiles, chargingStations } from '@evtivity/database';
+import { db, chargingProfiles, chargingStations, inOperatorStation } from '@evtivity/database';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 export async function chargingProfileReconciliationHandler(log: Logger): Promise<void> {
+  // Conformance test stations raise no mismatch for operators.
   const stationsWithProfiles = await db
     .selectDistinct({ stationId: chargingProfiles.stationId })
     .from(chargingProfiles)
-    .where(eq(chargingProfiles.source, 'csms_set'));
+    .where(
+      and(eq(chargingProfiles.source, 'csms_set'), inOperatorStation(chargingProfiles.stationId)),
+    );
 
   if (stationsWithProfiles.length === 0) return;
 

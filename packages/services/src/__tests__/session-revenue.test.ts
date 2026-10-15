@@ -4,7 +4,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockExecute = vi.fn();
-vi.mock('@evtivity/database', () => ({ db: { execute: (q: unknown) => mockExecute(q) } }));
+vi.mock('@evtivity/database', () => ({
+  db: { execute: (q: unknown) => mockExecute(q) },
+  operatorStationIdSql: (column: string) => `OPERATOR_STATION(${column})`,
+}));
 
 import {
   aggregateRevenueRows,
@@ -320,6 +323,14 @@ describe('queryRevenue', () => {
     // Dated by the collection date once paid; a zero-cost one is not billed on account.
     expect(text).toContain('THEN coalesce(inv.paid_at, cs.started_at) ELSE cs.started_at END');
     expect(text).toContain('cs.final_cost_cents > 0');
+  });
+
+  it('leaves sessions and reservation fees of conformance test stations out', async () => {
+    mockExecute.mockResolvedValueOnce([]);
+    await queryRevenue({ companyCurrency: 'EUR' });
+    const text = JSON.stringify(mockExecute.mock.calls[0]?.[0]);
+    expect(text).toContain('OPERATOR_STATION(cs.station_id)');
+    expect(text).toContain('OPERATOR_STATION(r.station_id)');
   });
 
   it('gives an empty total without revenue', async () => {

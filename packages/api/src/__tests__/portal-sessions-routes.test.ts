@@ -51,7 +51,8 @@ function makeChain() {
 
 vi.mock('../lib/session-limit.js', () => ({ sessionLimitReached: vi.fn(async () => null) }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
@@ -267,6 +268,19 @@ describe('Portal sessions routes - handler logic', () => {
       const body = response.json();
       expect(body.data).toHaveLength(0);
       expect(body.total).toBe(0);
+    });
+
+    it('never lists a session at a conformance station', async () => {
+      const database = await import('@evtivity/database');
+      vi.mocked(database.inOperatorStation).mockClear();
+      setupDbResults([], [{ count: 0 }]);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/sessions',
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(vi.mocked(database.inOperatorStation)).toHaveBeenCalled();
     });
 
     it('uses default pagination when no query params', async () => {

@@ -59,7 +59,8 @@ const { mockEvseAvailableSql, mockEvseOpenToDriversSql, mockSqlRaw } = vi.hoiste
   mockSqlRaw: vi.fn((text: string) => ({ raw: text })),
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   evseAvailableSql: mockEvseAvailableSql,
   evseOpenToDriversSql: mockEvseOpenToDriversSql,

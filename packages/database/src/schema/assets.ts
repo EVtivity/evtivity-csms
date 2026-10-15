@@ -143,6 +143,10 @@ export const chargingStations = pgTable(
     lastHeartbeat: timestamp('last_heartbeat', { withTimezone: true }),
     isOnline: boolean('is_online').notNull().default(false),
     isSimulator: boolean('is_simulator').notNull().default(false),
+    // A conformance test station (OCTT). The conformance runners set it when
+    // they create the station; every operator list, count, aggregate and
+    // target leaves it out (lib/conformance-stations.ts).
+    isConformance: boolean('is_conformance').notNull().default(false),
     // Last connection to this simulator-flagged station that the OCPP server
     // could not attribute to the simulator. The station page asks the
     // operator to confirm a real station. Cleared with the flag.
@@ -176,6 +180,9 @@ export const chargingStations = pgTable(
     index('idx_charging_stations_onboarding_status').on(table.onboardingStatus),
     index('idx_charging_stations_is_online').on(table.isOnline),
     index('idx_charging_stations_is_simulator').on(table.isSimulator),
+    index('idx_charging_stations_is_conformance')
+      .on(table.id)
+      .where(sql`is_conformance`),
     index('idx_charging_stations_site_id').on(table.siteId),
     index('idx_charging_stations_vendor_id').on(table.vendorId),
   ],

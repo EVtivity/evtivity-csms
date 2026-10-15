@@ -60,7 +60,8 @@ const { mockWriteAudit } = vi.hoisted(() => ({
   mockWriteAudit: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   writeAudit: mockWriteAudit,
   stationAuditLog: { name: 'station_audit_log' },
   db: {
@@ -184,7 +185,12 @@ describe('NEVI routes site access (cov2)', () => {
       setupDbResults([]);
       const res = await app.inject({ method: 'GET', url: '/nevi/station-data', headers: auth });
       expect(res.statusCode).toBe(200);
-      expect(rec.where[0]).toEqual({ and: [{ inArray: ['st.site_id', ['sit_a']] }] });
+      expect(rec.where[0]).toEqual({
+        and: [
+          { conformancePredicate: 'isOperatorStation' },
+          { inArray: ['st.site_id', ['sit_a']] },
+        ],
+      });
     });
   });
 
@@ -226,6 +232,7 @@ describe('NEVI routes site access (cov2)', () => {
       expect(res.json()).toMatchObject({ total: 1, data: [{ id: 1, reason: 'vandalism' }] });
       expect(rec.where[0]).toEqual({
         and: [
+          { conformancePredicate: 'isOperatorStation' },
           { eq: ['ned.station_id', STATION_ID] },
           { gte: ['ned.started_at', new Date('2026-01-01T00:00:00Z')] },
           { lte: ['ned.started_at', new Date('2026-02-01T00:00:00Z')] },

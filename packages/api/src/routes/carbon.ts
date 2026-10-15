@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, sql, asc } from 'drizzle-orm';
-import { db, carbonIntensityFactors } from '@evtivity/database';
+import { db, carbonIntensityFactors, operatorStationIdSql } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { arrayResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -105,7 +105,11 @@ function buildCarbonWhereClause(opts: {
   siteId?: string | undefined;
   userSiteIds: string[] | null;
 }): ReturnType<typeof sql.join> {
-  const fragments = [sql`cs.status = 'completed' AND cs.co2_avoided_kg IS NOT NULL`];
+  // Sessions of conformance (OCTT) stations are never counted.
+  const fragments = [
+    sql`cs.status = 'completed' AND cs.co2_avoided_kg IS NOT NULL`,
+    sql.raw(operatorStationIdSql('cs.station_id')),
+  ];
   if (opts.from != null) {
     fragments.push(sql`cs.ended_at >= ${opts.from}::timestamptz`);
   }

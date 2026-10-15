@@ -64,6 +64,7 @@ const {
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   writeAudit: vi.fn(() => Promise.resolve()),
   sessionSiteIdSql: vi.fn(() => 'site-of-station'),
   userAuditLog: { _table: 'user_audit_log' },

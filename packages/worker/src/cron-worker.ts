@@ -34,6 +34,7 @@ import { driverTokenExpiryHandler } from './handlers/driver-token-expiry.js';
 import { payoutAccountSyncHandler } from './handlers/payout-account-sync.js';
 import { processVersionWatchHandler } from './handlers/process-version-watch.js';
 import { stationOfflineSweepHandler } from './handlers/station-offline-sweep.js';
+import { conformanceStationSweepHandler } from './handlers/conformance-station-sweep.js';
 import { fleetInvoiceRunHandler } from './handlers/fleet-invoice-run.js';
 import { aiRetentionPruneHandler } from './handlers/ai-retention-prune.js';
 import { aiNetworkSummaryHandler } from './handlers/ai-network-summary.js';
@@ -76,6 +77,7 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['payout-account-sync', payoutAccountSyncHandler],
   ['process-version-watch', processVersionWatchHandler],
   ['station-offline-sweep', stationOfflineSweepHandler],
+  ['conformance-station-sweep', conformanceStationSweepHandler],
   ['fleet-invoice-run', fleetInvoiceRunHandler],
   ['ai-retention-prune', aiRetentionPruneHandler],
   // Background AI workers (off by default) and the insight action upkeep.

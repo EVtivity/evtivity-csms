@@ -10,7 +10,8 @@ const { executeMock, getUserSiteIdsMock } = vi.hoisted(() => ({
   getUserSiteIdsMock: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   db: { execute: executeMock },
   carbonIntensityFactors: {},
 }));
@@ -31,7 +32,7 @@ vi.mock('drizzle-orm', () => {
     }),
     {
       join: (join: Frag[], sep: Frag): Frag => ({ join, sep }),
-      raw: vi.fn(),
+      raw: (text: string): Frag => ({ strings: [text], values: [] }),
     },
   );
   return { eq: vi.fn(), and: vi.fn(), asc: vi.fn(), sql };
@@ -128,6 +129,8 @@ describe('carbon routes (cov2)', () => {
     expect(where).toContain('cs.ended_at <= [2026-02-28T23:59:59.999Z]::timestamptz');
     expect(where).toContain('cs.site_id = [sit_a]');
     expect(where).toContain('cs.site_id IN ([sit_a], [sit_b])');
+    // Sessions of conformance (OCTT) stations are never counted.
+    expect(where).toContain('OPERATOR_STATION_ID(cs.station_id)');
     // Both aggregations share one predicate.
     expect(whereOf(1)).toBe(where);
 

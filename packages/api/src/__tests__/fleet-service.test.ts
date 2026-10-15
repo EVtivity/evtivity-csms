@@ -77,6 +77,8 @@ vi.mock('@evtivity/services/fleet-billing-notice', () => ({
 
 vi.mock('@evtivity/database', () => ({
   client: 'client',
+  isOperatorStation: () => ({ conformancePredicate: 'isOperatorStation' }),
+  inOperatorStation: () => ({ conformancePredicate: 'inOperatorStation' }),
   writeAudit: mockWriteAudit,
   releaseUpgradePending: mockReleaseUpgradePending,
   ACCOUNT_BILLING_MIN_VERSION: '0.1.41',

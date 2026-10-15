@@ -17,6 +17,7 @@ import {
   evChargingNeeds,
   stationConfigurations,
   chargingProfiles,
+  isOperatorStation,
 } from '@evtivity/database';
 import type { LoadAllocationStrategy, ServiceLogger } from '@evtivity/lib';
 import type { OcppCommand, PubSubClient } from '@evtivity/lib';
@@ -212,7 +213,8 @@ export async function getSitePowerStatus(siteId: string): Promise<{
 }> {
   const since = new Date(Date.now() - 60_000);
 
-  // Get all stations at the site with their priority and online status
+  // Get all stations at the site with their priority and online status.
+  // Conformance test stations are never load managed.
   const stationRows = await db
     .select({
       id: chargingStations.id,
@@ -223,7 +225,7 @@ export async function getSitePowerStatus(siteId: string): Promise<{
       circuitId: chargingStations.circuitId,
     })
     .from(chargingStations)
-    .where(eq(chargingStations.siteId, siteId));
+    .where(and(eq(chargingStations.siteId, siteId), isOperatorStation()));
 
   if (stationRows.length === 0) {
     return { totalDrawKw: 0, stations: [] };

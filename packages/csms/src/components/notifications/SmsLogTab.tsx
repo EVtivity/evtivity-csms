@@ -76,7 +76,7 @@ export function SmsLogTab(): React.JSX.Element {
             setEventCategory(e.target.value);
             setEventType('');
           }}
-          className="hidden h-9 w-auto md:block"
+          className="hidden w-auto md:block"
         >
           <option value="">{t('notifications.allCategories')}</option>
           <option value="driver">{t('notifications.driverEvents')}</option>
@@ -90,7 +90,7 @@ export function SmsLogTab(): React.JSX.Element {
             onChange={(e) => {
               setEventType(e.target.value);
             }}
-            className="hidden h-9 w-auto md:block"
+            className="hidden w-auto md:block"
           >
             <option value="">{t('notifications.allEvents')}</option>
             {eventNames.map((et) => (
@@ -106,7 +106,7 @@ export function SmsLogTab(): React.JSX.Element {
           onChange={(e) => {
             setStatusFilter(e.target.value);
           }}
-          className="hidden h-9 w-auto md:block"
+          className="hidden w-auto md:block"
         >
           <option value="">{t('notifications.allStatuses')}</option>
           <option value="sent">Sent</option>
@@ -120,7 +120,7 @@ export function SmsLogTab(): React.JSX.Element {
               setEventCategory(e.target.value);
               setEventType('');
             }}
-            className="h-9 w-auto"
+            className="w-auto"
           >
             <option value="">{t('notifications.allCategories')}</option>
             <option value="driver">{t('notifications.driverEvents')}</option>
@@ -134,7 +134,7 @@ export function SmsLogTab(): React.JSX.Element {
               onChange={(e) => {
                 setEventType(e.target.value);
               }}
-              className="h-9 w-auto"
+              className="w-auto"
             >
               <option value="">{t('notifications.allEvents')}</option>
               {eventNames.map((et) => (
@@ -150,7 +150,7 @@ export function SmsLogTab(): React.JSX.Element {
             onChange={(e) => {
               setStatusFilter(e.target.value);
             }}
-            className="h-9 w-auto"
+            className="w-auto"
           >
             <option value="">{t('notifications.allStatuses')}</option>
             <option value="sent">Sent</option>

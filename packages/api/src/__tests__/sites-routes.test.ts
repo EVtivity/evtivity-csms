@@ -83,7 +83,8 @@ vi.mock('@evtivity/services/station-derived-status', () => ({
   buildStatusReasonSubquery: vi.fn(() => null),
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
@@ -356,6 +357,8 @@ describe('Site routes - handler logic', () => {
       expect(body).toHaveProperty('total');
       expect(body.data).toHaveLength(1);
       expect(body.data[0].name).toBe('Test Site');
+      // Conformance test stations do not count at a site.
+      expect(databaseModule.isOperatorStation).toHaveBeenCalled();
     });
 
     it('returns empty when no sites', async () => {
@@ -1044,6 +1047,8 @@ describe('Site routes - handler logic', () => {
       expect(body).toHaveProperty('total');
       expect(body.data).toHaveLength(1);
       expect(body.data[0].ocppProtocol).toBe('ocpp2.1');
+      // Conformance test stations are never listed at a site.
+      expect(databaseModule.isOperatorStation).toHaveBeenCalled();
     });
 
     it('returns 404 when site not found', async () => {
@@ -1178,6 +1183,10 @@ describe('Site routes - handler logic', () => {
       const body = response.json();
       expect(body).toHaveProperty('data');
       expect(body).toHaveProperty('total');
+      // Sessions of conformance test stations are never listed.
+      expect(databaseModule.inOperatorStation).toHaveBeenCalledWith(
+        databaseModule.chargingSessions.stationId,
+      );
     });
   });
 
@@ -1227,6 +1236,12 @@ describe('Site routes - handler logic', () => {
       expect(body).toHaveProperty('periodMonths');
       expect(body).toHaveProperty('costMissingSessionCount', 0);
       expect(body).toHaveProperty('currency', 'EUR');
+      // Conformance test stations and their sessions stay out of the metrics.
+      expect(databaseModule.inOperatorStation).toHaveBeenCalledWith(
+        databaseModule.chargingSessions.stationId,
+      );
+      expect(databaseModule.operatorStationSql).toHaveBeenCalledWith('charging_stations');
+      expect(databaseModule.operatorStationSql).toHaveBeenCalledWith('cs');
     });
 
     it('leaves sessions without an electricity cost out of profit and reports them', async () => {

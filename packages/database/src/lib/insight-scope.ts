@@ -5,12 +5,14 @@
  * The site counts of an automatic insight's scope, computed in SQL and never
  * by the model. The one query for these counts: the insight analysis
  * (`computeInsightScope` in `@evtivity/services`) and the demo seed call it.
+ * Conformance test stations and their rows never count.
  */
 
 import type postgres from 'postgres';
 import type { InsightScope, InsightScopeCounts } from '@evtivity/lib/ai-insights';
 import { client } from '../config.js';
 import { stationAvailabilitySql } from './station-status.js';
+import { operatorStationSql } from './conformance-stations.js';
 
 export interface InsightScopeInput {
   siteId: string | null;
@@ -43,7 +45,7 @@ export async function insightSiteScopeCounts(
       SELECT cs.id, cs.station_id, cs.is_online,
         ${sql.unsafe(stationAvailabilitySql('cs'))} AS availability
       FROM charging_stations cs
-      WHERE cs.site_id = ${siteId}
+      WHERE cs.site_id = ${siteId} AND ${sql.unsafe(operatorStationSql('cs'))}
     )
     SELECT
       (SELECT count(*)::int FROM st) AS stations,

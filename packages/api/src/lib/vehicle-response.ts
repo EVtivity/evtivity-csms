@@ -4,7 +4,13 @@
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
-import { db, chargingSessions, chargingStations, sites } from '@evtivity/database';
+import {
+  db,
+  chargingSessions,
+  chargingStations,
+  sites,
+  isOperatorStation,
+} from '@evtivity/database';
 import { VEHICLE_ID_SOURCES, VEHICLE_ID_TYPES } from '@evtivity/lib/vehicle-id';
 import { ID_PARAMS } from './id-validation.js';
 import { sessionsAtSites } from './session-site-scope.js';
@@ -123,6 +129,8 @@ export async function vehicleLastSeen(
         inArray(chargingSessions.vehicleId, vehicleIds),
         isNotNull(chargingSessions.vehicleIdValue),
         siteIds != null ? sessionsAtSites(siteIds) : undefined,
+        // A session at a conformance test station is not where a vehicle was seen.
+        isOperatorStation(),
       ),
     )
     .orderBy(

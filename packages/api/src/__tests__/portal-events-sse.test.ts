@@ -17,12 +17,13 @@ const { subscribe, handlers, stationRows } = vi.hoisted(() => {
   return { subscribe, handlers, stationRows: { value: [] as unknown[] } };
 });
 
-vi.mock('@evtivity/database', () => {
+vi.mock('@evtivity/database', async () => {
   const chain: Record<string, unknown> = {};
   for (const m of ['select', 'from', 'where', 'limit']) chain[m] = vi.fn(() => chain);
   chain['then'] = (resolve: (v: unknown) => unknown) =>
     Promise.resolve(stationRows.value).then(resolve);
   return {
+    ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     db: chain,
     client: {},
     refreshTokens: {},

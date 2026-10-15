@@ -49,6 +49,10 @@ vi.mock('@evtivity/database', () => {
         if (prop === 'client') return target.client;
         if (prop === 'getSystemTimezone') return () => Promise.resolve('UTC');
         if (prop === 'getCompanyCurrency') return () => Promise.resolve('EUR');
+        // Raw SQL text helpers: the report embeds their string.
+        if (prop === 'operatorStationSql' || prop === 'operatorStationIdSql') {
+          return (name: string) => `operator(${name})`;
+        }
         if (prop === 'then' || typeof prop === 'symbol') return undefined;
         return anything();
       },

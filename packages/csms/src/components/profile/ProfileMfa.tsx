@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -146,9 +147,8 @@ export function ProfileMfa(): React.JSX.Element {
               <Label htmlFor="mfa-method-select" className="leading-6">
                 {t('profile.mfaSelectMethod')}
               </Label>
-              <select
+              <Select
                 id="mfa-method-select"
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 value={mfaMethod}
                 onChange={(e) => {
                   setMfaMethod(e.target.value);
@@ -160,7 +160,7 @@ export function ProfileMfa(): React.JSX.Element {
                     {t((MFA_METHOD_LABELS[m] ?? m) as never)}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
             <Button
               disabled={mfaMethod === '' || mfaSetupMutation.isPending}

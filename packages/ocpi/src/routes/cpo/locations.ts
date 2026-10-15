@@ -14,6 +14,7 @@ import {
   maintenanceEvents,
   isStationLevelUnavailable,
   removedOcpiEvses,
+  isOperatorStation,
 } from '@evtivity/database';
 import { inArray } from 'drizzle-orm';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
@@ -309,7 +310,8 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
     }
 
     // Get stations for these sites. A pending station is not onboarded:
-    // never published (a blocked one, deleted, stays as REMOVED).
+    // never published (a blocked one, deleted, stays as REMOVED). A
+    // conformance test station is never published.
     const siteIds = siteRows.map((r) => r.site.id);
     const stationRows = await db
       .select()
@@ -318,6 +320,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         and(
           sql`${chargingStations.siteId} IN ${siteIds}`,
           ne(chargingStations.onboardingStatus, 'pending'),
+          isOperatorStation(),
         ),
       );
 
@@ -425,7 +428,11 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
       .select()
       .from(chargingStations)
       .where(
-        and(eq(chargingStations.siteId, siteId), ne(chargingStations.onboardingStatus, 'pending')),
+        and(
+          eq(chargingStations.siteId, siteId),
+          ne(chargingStations.onboardingStatus, 'pending'),
+          isOperatorStation(),
+        ),
       );
     const [publish] = await db
       .select({ updatedAt: ocpiLocationPublish.updatedAt })

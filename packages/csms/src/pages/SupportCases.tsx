@@ -135,7 +135,7 @@ export function SupportCases(): React.JSX.Element {
               value={search}
               onDebouncedChange={setSearch}
               placeholder={t('supportCases.searchPlaceholder')}
-              className="h-9 max-w-none"
+              className="max-w-none"
             />
           </div>
           <div className="space-y-2">
@@ -144,7 +144,6 @@ export function SupportCases(): React.JSX.Element {
             </Label>
             <Select
               id="cases-status"
-              className="h-9"
               value={statusFilter}
               onChange={(e) => {
                 setStatusFilter(e.target.value);
@@ -165,7 +164,6 @@ export function SupportCases(): React.JSX.Element {
             </Label>
             <Select
               id="cases-category"
-              className="h-9"
               value={categoryFilter}
               onChange={(e) => {
                 setCategoryFilter(e.target.value);
@@ -186,7 +184,6 @@ export function SupportCases(): React.JSX.Element {
             </Label>
             <Select
               id="cases-priority"
-              className="h-9"
               value={priorityFilter}
               onChange={(e) => {
                 setPriorityFilter(e.target.value);
@@ -207,7 +204,6 @@ export function SupportCases(): React.JSX.Element {
             </Label>
             <Select
               id="cases-assignee"
-              className="h-9"
               value={assignedToFilter}
               onChange={(e) => {
                 setAssignedToFilter(e.target.value);
@@ -228,7 +224,6 @@ export function SupportCases(): React.JSX.Element {
             </Label>
             <Select
               id="cases-ai-state"
-              className="h-9"
               value={aiStateFilter}
               onChange={(e) => {
                 setAiStateFilter(e.target.value);
@@ -249,7 +244,6 @@ export function SupportCases(): React.JSX.Element {
             </Label>
             <Select
               id="cases-resolved-by"
-              className="h-9"
               value={resolvedByFilter}
               onChange={(e) => {
                 setResolvedByFilter(e.target.value);

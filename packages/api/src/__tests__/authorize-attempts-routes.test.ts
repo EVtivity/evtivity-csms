@@ -40,7 +40,8 @@ function makeChain() {
   return chain;
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   db: {
     select: vi.fn(() => makeChain()),
   },
@@ -81,6 +82,8 @@ vi.mock('drizzle-orm', () => {
     gte: vi.fn(),
     lte: vi.fn(),
     inArray: vi.fn(),
+    or: vi.fn((...conds: unknown[]) => ({ or: conds })),
+    isNull: vi.fn((col: unknown) => ({ isNull: col })),
     sql: sqlTag,
   };
 });
@@ -204,6 +207,24 @@ describe('Authorize attempts route', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(inArray).not.toHaveBeenCalled();
+    });
+
+    it('leaves out attempts at conformance test stations, keeping unknown stations', async () => {
+      const { or, isNull } = drizzleOrmModule;
+      const { isOperatorStation } = await import('@evtivity/database');
+      setupDbResults([], [{ count: 0 }]);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/authorize-attempts',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(isOperatorStation).toHaveBeenCalled();
+      expect(isNull).toHaveBeenCalledWith('id');
+      expect(or).toHaveBeenCalledWith(
+        { isNull: 'id' },
+        { conformancePredicate: 'isOperatorStation' },
+      );
     });
 
     it('filters a site-restricted user to stations of its sites', async () => {

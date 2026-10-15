@@ -21,7 +21,8 @@ const EMPTY_FLEET = {
   instances: [],
 };
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   client: {},
   db: { execute: mockExecute },
   getCompanyCurrency: mockGetCompanyCurrency,
@@ -29,7 +30,14 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 vi.mock('drizzle-orm', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
+    { raw: (text: string) => ({ raw: text }) },
+  ),
+}));
+
+vi.mock('../lib/payment-site-scope.js', () => ({
+  paymentRecordsOfOperatorStations: () => ({ raw: 'PAYMENTS_OF_OPERATOR_STATIONS' }),
 }));
 
 vi.mock('@evtivity/lib', () => ({
@@ -128,6 +136,33 @@ describe('collectBusinessMetrics gauges', () => {
     mockGetOcppFleetHealth.mockReset().mockResolvedValue(EMPTY_FLEET);
     mockGetCompanyCurrency.mockReset().mockResolvedValue('USD');
     mockQueryRevenueTotal.mockReset().mockResolvedValue({ grossCents: 500 });
+  });
+
+  it('leaves conformance stations and their rows out of every station and session query', async () => {
+    queueResults();
+    await collectBusinessMetrics();
+
+    const texts = mockExecute.mock.calls.map((call) => {
+      const q = call[0] as { strings: string[]; values: unknown[] };
+      return q.strings
+        .map((s, i) => {
+          const v = q.values[i] as { raw?: string } | undefined;
+          return s + (v?.raw ?? '');
+        })
+        .join('');
+    });
+    // Drivers, support cases, sites, fleets and tariffs are not station rows.
+    const unfiltered = new Set([0, 9, 10, 11, 12]);
+    texts.forEach((text, i) => {
+      if (unfiltered.has(i)) {
+        expect(text).not.toMatch(/OPERATOR_STATION/);
+      } else {
+        expect(text).toMatch(/OPERATOR_STATION|PAYMENTS_OF_OPERATOR_STATIONS/);
+      }
+    });
+    expect(texts[2]).toContain('OPERATOR_STATION(charging_stations)');
+    expect(texts[3]).toContain('OPERATOR_STATION(st)');
+    expect(texts[4]).toContain('OPERATOR_STATION_ID(charging_sessions.station_id)');
   });
 
   it('sets every gauge from the query rows', async () => {

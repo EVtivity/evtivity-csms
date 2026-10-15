@@ -93,6 +93,7 @@ vi.mock('@evtivity/database', async () => {
     delete: vi.fn(() => makeChain()),
   };
   return {
+    ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     ...rawTimestamp,
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
     db: {

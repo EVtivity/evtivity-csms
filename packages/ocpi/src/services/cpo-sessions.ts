@@ -23,6 +23,7 @@ import {
   ocpiPartners,
   ocpiRoamingSessions,
   sites,
+  inOperatorStation,
 } from '@evtivity/database';
 import { config } from '../lib/config.js';
 import { priceExclTax } from '../lib/ocpi-price.js';
@@ -248,12 +249,22 @@ const linkColumns = {
   authorizationReference: ocpiRoamingSessions.authorizationReference,
 };
 
-/** The CPO session link of a charging session, if a partner's token started it. */
+/**
+ * The CPO session link of a charging session, if a partner's token started
+ * it. A session at a conformance test station has none: it is never pushed to
+ * a partner and never gets a CDR.
+ */
 export async function cpoSessionLink(chargingSessionId: string): Promise<CpoSessionLink | null> {
   const [row] = await db
     .select(linkColumns)
     .from(ocpiRoamingSessions)
-    .where(eq(ocpiRoamingSessions.chargingSessionId, chargingSessionId))
+    .innerJoin(chargingSessions, eq(chargingSessions.id, ocpiRoamingSessions.chargingSessionId))
+    .where(
+      and(
+        eq(ocpiRoamingSessions.chargingSessionId, chargingSessionId),
+        inOperatorStation(chargingSessions.stationId),
+      ),
+    )
     .limit(1);
   if (row?.chargingSessionId == null) return null;
   return { ...row, chargingSessionId: row.chargingSessionId };
@@ -274,6 +285,7 @@ export async function listPartnerCpoSessions(
   const conditions = [
     eq(ocpiRoamingSessions.partnerId, partnerId),
     isNotNull(ocpiRoamingSessions.chargingSessionId),
+    inOperatorStation(chargingSessions.stationId),
   ];
   if (page.dateFrom != null) conditions.push(gte(chargingSessions.updatedAt, page.dateFrom));
   if (page.dateTo != null) conditions.push(lt(chargingSessions.updatedAt, page.dateTo));

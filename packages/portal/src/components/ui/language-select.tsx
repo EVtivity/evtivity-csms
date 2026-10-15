@@ -4,7 +4,6 @@
 import { useTranslation } from 'react-i18next';
 import { Select } from '@/components/ui/select';
 import { loadLanguage } from '@/i18n/index';
-import { cn } from '@/lib/utils';
 
 const LANGUAGES = [
   { code: 'en', label: 'English' },
@@ -34,7 +33,7 @@ export function LanguageSelect({ className }: LanguageSelectProps): React.JSX.El
           localStorage.setItem('portal_language', e.target.value);
           void loadLanguage(e.target.value);
         }}
-        className={cn('h-auto px-1.5 py-1 pr-7', className)}
+        className={className}
       >
         {LANGUAGES.map((lang) => (
           <option key={lang.code} value={lang.code}>

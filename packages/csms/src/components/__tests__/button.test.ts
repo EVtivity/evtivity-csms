@@ -27,6 +27,9 @@ describe('buttonVariants disabled styles', () => {
 describe('buttonVariants sizes', () => {
   it.each([
     ['header', ['h-11', 'grow', 'sm:h-10', 'sm:grow-0']],
+    ['icon-header', ['h-11', 'w-11', 'sm:h-10', 'sm:w-10']],
+    ['inline', ['h-auto', 'p-0', 'text-xs']],
+    ['sm', ['h-10', 'px-3']],
     ['xs', ['h-7', 'text-xs']],
     ['icon-sm', ['h-8', 'w-8']],
     ['icon-xs', ['h-6', 'w-6']],

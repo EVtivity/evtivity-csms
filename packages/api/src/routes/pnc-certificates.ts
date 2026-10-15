@@ -15,6 +15,7 @@ import {
   certificateAuditLog,
   isPncEnabled,
   chargingStations,
+  inOperatorStation,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -496,9 +497,13 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
       }
       if (query.stationId != null) {
         conditions.push(eq(pkiCsrRequests.stationId, query.stationId));
+      } else {
+        // The fleet list leaves out conformance test stations. A list for
+        // one station (the conformance runner's lookup) names it.
+        conditions.push(inOperatorStation(pkiCsrRequests.stationId));
       }
 
-      const where = conditions.length > 0 ? and(...conditions) : undefined;
+      const where = and(...conditions);
 
       const [rows, [countResult]] = await Promise.all([
         db
@@ -720,12 +725,16 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
       }
       if (query.stationId != null) {
         conditions.push(eq(stationCertificates.stationId, query.stationId));
+      } else {
+        // The fleet list leaves out conformance test stations; a list for
+        // one station names it.
+        conditions.push(inOperatorStation(stationCertificates.stationId));
       }
       if (query.status != null) {
         conditions.push(eq(stationCertificates.status, query.status));
       }
 
-      const where = conditions.length > 0 ? and(...conditions) : undefined;
+      const where = and(...conditions);
 
       const [rows, [countResult]] = await Promise.all([
         db

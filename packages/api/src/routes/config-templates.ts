@@ -15,6 +15,7 @@ import {
   vendors,
   writeAudit,
   configTemplateAuditLog,
+  isOperatorStation,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -242,7 +243,8 @@ function templateTargetConditions(template: {
   targetFilter: unknown;
 }): SQL[] {
   const target = configTemplateTarget(template);
-  const conds: SQL[] = [];
+  // Conformance test stations are never a template target.
+  const conds: SQL[] = [isOperatorStation()];
   if (target.stationId != null) conds.push(eq(chargingStations.id, target.stationId));
   if (target.siteId != null) conds.push(eq(chargingStations.siteId, target.siteId));
   if (target.vendorId != null) conds.push(eq(chargingStations.vendorId, target.vendorId));
@@ -283,14 +285,15 @@ export function configTemplateRoutes(app: FastifyInstance): void {
             accessibleSiteIds != null
               ? and(
                   isNotNull(chargingStations.model),
+                  isOperatorStation(),
                   inArray(chargingStations.siteId, accessibleSiteIds),
                 )
-              : isNotNull(chargingStations.model),
+              : and(isNotNull(chargingStations.model), isOperatorStation()),
           )
           .orderBy(asc(chargingStations.model)),
       ]);
 
-      const stationConds = [];
+      const stationConds = [isOperatorStation()];
       if (query.siteId) stationConds.push(eq(chargingStations.siteId, query.siteId));
       if (query.vendorId) stationConds.push(eq(chargingStations.vendorId, query.vendorId));
       if (query.model) stationConds.push(eq(chargingStations.model, query.model));
@@ -304,7 +307,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           : await db
               .select({ id: chargingStations.id, stationId: chargingStations.stationId })
               .from(chargingStations)
-              .where(stationConds.length > 0 ? and(...stationConds) : undefined)
+              .where(and(...stationConds))
               .orderBy(asc(chargingStations.stationId))
               .limit(500);
 

@@ -3,7 +3,13 @@
 
 import crypto from 'node:crypto';
 import pino from 'pino';
-import { db, chargingStations, drivers, driverTokens } from '@evtivity/database';
+import {
+  db,
+  drivers,
+  driverTokens,
+  deleteConformanceStations,
+  deleteConformanceTestDriver,
+} from '@evtivity/database';
 import {
   refreshTokens,
   roles,
@@ -13,7 +19,7 @@ import {
 } from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
 import { OCTT_TEST_DRIVER_EMAIL } from '@evtivity/lib';
-import { and, asc, like, notLike, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 
 import type {
   RunConfig,
@@ -44,122 +50,9 @@ export async function runTests(
 
   const provisionStations = config.provisionStations ?? true;
   if (provisionStations) {
-    // Remove any OCTT artifacts left over from a previous crashed run.
-    await deleteOcttStationsAndArtifacts();
+    // Remove the stations, test driver and pricing group a crashed run left.
+    await deleteRunData(logger);
     logger.info('Stations will be auto-provisioned per test');
-  }
-
-  // Provision the test driver that owns the per-test tokens (see executeTest)
-  let testDriverId = createId('driver');
-  let octtPricingGroupId: string | null = null;
-  let octtTariffId: string | null = null;
-  let settingsChanges: SettingChange[] = [];
-  // Each CSMS process caches the pnc.* settings for PNC_SETTINGS_CACHE_TTL_MS,
-  // so a changed value takes effect only after that (see waitForSettings).
-  let settingsEffectiveAt = 0;
-  if (provisionStations) {
-    testDriverId = await provisionTestDriver(testDriverId);
-    logger.info('Test driver provisioned');
-
-    // Provision a test pricing group and tariff for TC_I_109 (driver tariff in AuthorizeResponse)
-    const ids = await provisionTestTariff(testDriverId);
-    octtPricingGroupId = ids.pricingGroupId;
-    octtTariffId = ids.tariffId;
-    logger.info('Test pricing group and tariff provisioned');
-
-    // PnC on with the local provider (it queues CSRs for signing like the
-    // manual provider and issues ISO 15118 contract certificates: TC_M_26,
-    // TC_M_28, TC_M_100), the test eMAID prefix unless the operator set one,
-    // and the Test System OCSP responder host allowed (TC_C_50/51/52, TC_M_24).
-    settingsChanges = await applyRunSettings(config.ocspResponderUrl);
-    if (settingsChanges.length > 0) {
-      settingsEffectiveAt = Date.now() + PNC_SETTINGS_CACHE_TTL_MS + SETTINGS_CACHE_MARGIN_MS;
-    }
-    logger.info(
-      { changed: settingsChanges.map((c) => c.key) },
-      'PnC settings set for certificate management tests',
-    );
-  }
-
-  // Create a temporary API key for triggering CSMS-initiated commands
-  let triggerCommand: TriggerCommandFn | undefined;
-  let callApi: CallApiFn | undefined;
-  let apiKeyId: number | undefined;
-  let adminUserId: string | undefined;
-  let priorAdminAllSiteAccess = false;
-  if (config.apiUrl != null) {
-    try {
-      // Find the first active admin user with all-site access
-      const [admin] = await db
-        .select({ id: users.id, hasAllSiteAccess: users.hasAllSiteAccess })
-        .from(users)
-        .innerJoin(roles, eq(roles.id, users.roleId))
-        .where(and(eq(users.isActive, true), eq(roles.name, 'admin')))
-        .orderBy(asc(users.createdAt))
-        .limit(1);
-      if (admin != null) {
-        // Grant all-site access for OCTT commands, remembering the prior value so
-        // it can be restored after the run.
-        adminUserId = admin.id;
-        priorAdminAllSiteAccess = admin.hasAllSiteAccess;
-        await db.update(users).set({ hasAllSiteAccess: true }).where(eq(users.id, admin.id));
-        // Create a temporary API key
-        const raw = crypto.randomBytes(32).toString('hex');
-        const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
-        const [row] = await db
-          .insert(refreshTokens)
-          .values({
-            userId: admin.id,
-            tokenHash,
-            type: 'api_key' as const,
-            name: OCTT_API_KEY_NAME,
-          })
-          .returning({ id: refreshTokens.id });
-        if (row != null) {
-          apiKeyId = row.id;
-          const apiClient = await createApiClient(config.apiUrl, raw, logger);
-          // Verify the API key works by hitting an authenticated endpoint
-          const testRes = await fetch(`${config.apiUrl}/v1/settings/system.timezone`, {
-            headers: { Authorization: `Bearer ${raw}` },
-          });
-          if (!testRes.ok) {
-            throw new Error(`API key verification failed (${String(testRes.status)})`);
-          }
-          triggerCommand = apiClient.triggerCommand;
-          callApi = apiClient.callApi;
-          logger.info(
-            'API key created and verified - CSMS-initiated commands will be triggered via REST API',
-          );
-        }
-      }
-    } catch (err) {
-      logger.warn(
-        { error: err instanceof Error ? err.message : String(err) },
-        'API client setup failed - CSMS-initiated tests will timeout',
-      );
-    }
-  }
-
-  // Tests and the MO root upload below need the CSMS to see the settings.
-  await waitForSettings(settingsEffectiveAt, logger);
-
-  // The local contract CA the contract certificate tests need. Created through
-  // the operator route when the CSMS has none; the run end restores the
-  // previous setting, which removes it again.
-  if (callApi != null && provisionStations) {
-    const caChange = await ensureLocalContractCa(callApi, logger);
-    if (caChange != null) settingsChanges.push(caChange);
-  }
-
-  // The Test System OCSP service: a test PKI whose certificates name this
-  // responder, for the OCSP-backed certificate tests (TC_C_50/51, TC_M_24).
-  let ocsp: OcspTestService | undefined;
-  if (config.ocspResponderUrl != null) {
-    ocsp = await startOcspTestService(config.ocspResponderUrl);
-    logger.info({ url: config.ocspResponderUrl }, 'OCSP test responder started');
-    if (callApi != null) {
-      ocsp.installedMoRootId = await installMoRoot(callApi, ocsp, logger);
-    }
   }
 
   const tests = allTests.filter((tc) => {
@@ -180,92 +73,230 @@ export async function runTests(
     durationMs: 0,
   };
 
-  const start = Date.now();
+  // Everything the run changes, undone in the finally block below whatever
+  // happens during the run.
+  let testDriverId = createId('driver');
+  let settingsChanges: SettingChange[] = [];
+  let triggerCommand: TriggerCommandFn | undefined;
+  let callApi: CallApiFn | undefined;
+  let apiKeyId: number | undefined;
+  let adminUserId: string | undefined;
+  let priorAdminAllSiteAccess = false;
+  let ocsp: OcspTestService | undefined;
 
-  // Process tests with controlled concurrency
-  const queue = [...tests];
-  const running: Promise<void>[] = [];
+  try {
+    // Each CSMS process caches the pnc.* settings for PNC_SETTINGS_CACHE_TTL_MS,
+    // so a changed value takes effect only after that (see waitForSettings).
+    let settingsEffectiveAt = 0;
+    if (provisionStations) {
+      // The test driver that owns the per-test tokens (see executeTest)
+      testDriverId = await provisionTestDriver(testDriverId);
+      logger.info('Test driver provisioned');
 
-  while (queue.length > 0 || running.length > 0) {
-    while (running.length < concurrency && queue.length > 0) {
-      const testCase = queue.shift();
-      if (testCase == null) break;
-      const promise = processTest(
-        testCase,
-        config,
-        logger,
-        summary,
-        onResult,
-        triggerCommand,
-        callApi,
-        provisionStations ? testDriverId : undefined,
-        ocsp,
-      ).then(() => {
-        const idx = running.indexOf(promise);
-        if (idx !== -1) void running.splice(idx, 1);
-      });
-      running.push(promise);
-    }
-    if (running.length > 0) {
-      await Promise.race(running);
-    }
-  }
+      // A test pricing group and tariff for TC_I_109 (driver tariff in AuthorizeResponse)
+      await provisionTestTariff(testDriverId);
+      logger.info('Test pricing group and tariff provisioned');
 
-  summary.durationMs = Date.now() - start;
-
-  if (ocsp?.installedMoRootId != null && callApi != null) {
-    const res = await callApi('DELETE', `/pnc/ca-certificates/${String(ocsp.installedMoRootId)}`);
-    if (res.status >= 300) {
-      logger.warn({ status: res.status }, 'Failed to remove the OCTT MO root certificate');
-    }
-  }
-  await ocsp?.responder.stop();
-
-  // Remove the temporary API key and restore the admin's prior site access.
-  if (apiKeyId != null) {
-    await db.delete(refreshTokens).where(eq(refreshTokens.id, apiKeyId));
-    logger.info('Temporary API key removed');
-  }
-  if (adminUserId != null && !priorAdminAllSiteAccess) {
-    await db.update(users).set({ hasAllSiteAccess: false }).where(eq(users.id, adminUserId));
-  }
-
-  // Clean up test driver and tokens (FK is ON DELETE SET NULL, so delete tokens first for clarity)
-  if (provisionStations) {
-    // A row the cleanup cannot delete (a session elsewhere that still
-    // references the test driver or tariff) must not leave the CSMS with the
-    // run's PnC settings: the settings are restored either way, and the next
-    // run removes the leftover stations and reuses the test driver.
-    try {
-      // Deferred to run end (not per-test) so the OCPP server's async projections
-      // finish before the rows are deleted. Removes OCTT stations plus the artifacts
-      // that do not cascade from them (CSRs, tariff segments, domain/authorize logs).
-      await deleteOcttStationsAndArtifacts();
-      logger.info('OCTT test stations cleaned up');
-
-      // Clean up tariff and pricing group (cascade deletes handle child records)
-      if (octtTariffId != null) {
-        await db.execute(sql`DELETE FROM tariffs WHERE id = ${octtTariffId}`);
+      // PnC on with the local provider (it queues CSRs for signing like the
+      // manual provider and issues ISO 15118 contract certificates: TC_M_26,
+      // TC_M_28, TC_M_100), the test eMAID prefix unless the operator set one,
+      // and the Test System OCSP responder host allowed (TC_C_50/51/52, TC_M_24).
+      settingsChanges = await applyRunSettings(config.ocspResponderUrl);
+      if (settingsChanges.length > 0) {
+        settingsEffectiveAt = Date.now() + PNC_SETTINGS_CACHE_TTL_MS + SETTINGS_CACHE_MARGIN_MS;
       }
-      if (octtPricingGroupId != null) {
-        await db.execute(sql`DELETE FROM pricing_groups WHERE id = ${octtPricingGroupId}`);
-      }
-      await db.delete(driverTokens).where(eq(driverTokens.driverId, testDriverId));
-      await db.delete(drivers).where(eq(drivers.id, testDriverId));
-      logger.info('Test driver, tokens, and tariff cleaned up');
-    } catch (err) {
-      logger.error(
-        { err, testDriverId, octtTariffId, octtPricingGroupId },
-        'OCTT cleanup failed; the test rows stay until the next run',
+      logger.info(
+        { changed: settingsChanges.map((c) => c.key) },
+        'PnC settings set for certificate management tests',
       );
     }
 
-    // Restore the settings the run changed.
-    await restoreRunSettings(settingsChanges);
-    logger.info('PnC settings restored');
+    // Create a temporary API key for triggering CSMS-initiated commands
+    if (config.apiUrl != null) {
+      try {
+        // Find the first active admin user with all-site access
+        const [admin] = await db
+          .select({ id: users.id, hasAllSiteAccess: users.hasAllSiteAccess })
+          .from(users)
+          .innerJoin(roles, eq(roles.id, users.roleId))
+          .where(and(eq(users.isActive, true), eq(roles.name, 'admin')))
+          .orderBy(asc(users.createdAt))
+          .limit(1);
+        if (admin != null) {
+          // Grant all-site access for OCTT commands, remembering the prior value so
+          // it can be restored after the run.
+          adminUserId = admin.id;
+          priorAdminAllSiteAccess = admin.hasAllSiteAccess;
+          await db.update(users).set({ hasAllSiteAccess: true }).where(eq(users.id, admin.id));
+          // Create a temporary API key
+          const raw = crypto.randomBytes(32).toString('hex');
+          const tokenHash = crypto.createHash('sha256').update(raw).digest('hex');
+          const [row] = await db
+            .insert(refreshTokens)
+            .values({
+              userId: admin.id,
+              tokenHash,
+              type: 'api_key' as const,
+              name: OCTT_API_KEY_NAME,
+            })
+            .returning({ id: refreshTokens.id });
+          if (row != null) {
+            apiKeyId = row.id;
+            const apiClient = await createApiClient(config.apiUrl, raw, logger);
+            // Verify the API key works by hitting an authenticated endpoint
+            const testRes = await fetch(`${config.apiUrl}/v1/settings/system.timezone`, {
+              headers: { Authorization: `Bearer ${raw}` },
+            });
+            if (!testRes.ok) {
+              throw new Error(`API key verification failed (${String(testRes.status)})`);
+            }
+            triggerCommand = apiClient.triggerCommand;
+            callApi = apiClient.callApi;
+            logger.info(
+              'API key created and verified - CSMS-initiated commands will be triggered via REST API',
+            );
+          }
+        }
+      } catch (err) {
+        logger.warn(
+          { error: err instanceof Error ? err.message : String(err) },
+          'API client setup failed - CSMS-initiated tests will timeout',
+        );
+      }
+    }
+
+    // Tests and the MO root upload below need the CSMS to see the settings.
+    await waitForSettings(settingsEffectiveAt, logger);
+
+    // The local contract CA the contract certificate tests need. Created through
+    // the operator route when the CSMS has none; the run end restores the
+    // previous setting, which removes it again.
+    if (callApi != null && provisionStations) {
+      const caChange = await ensureLocalContractCa(callApi, logger);
+      if (caChange != null) settingsChanges.push(caChange);
+    }
+
+    // The Test System OCSP service: a test PKI whose certificates name this
+    // responder, for the OCSP-backed certificate tests (TC_C_50/51, TC_M_24).
+    if (config.ocspResponderUrl != null) {
+      ocsp = await startOcspTestService(config.ocspResponderUrl);
+      logger.info({ url: config.ocspResponderUrl }, 'OCSP test responder started');
+      if (callApi != null) {
+        ocsp.installedMoRootId = await installMoRoot(callApi, ocsp, logger);
+      }
+    }
+
+    const start = Date.now();
+
+    // Process tests with controlled concurrency
+    const queue = [...tests];
+    const running: Promise<void>[] = [];
+
+    while (queue.length > 0 || running.length > 0) {
+      while (running.length < concurrency && queue.length > 0) {
+        const testCase = queue.shift();
+        if (testCase == null) break;
+        const promise = processTest(
+          testCase,
+          config,
+          logger,
+          summary,
+          onResult,
+          triggerCommand,
+          callApi,
+          provisionStations ? testDriverId : undefined,
+          ocsp,
+        ).then(() => {
+          const idx = running.indexOf(promise);
+          if (idx !== -1) void running.splice(idx, 1);
+        });
+        running.push(promise);
+      }
+      if (running.length > 0) {
+        await Promise.race(running);
+      }
+    }
+
+    summary.durationMs = Date.now() - start;
+  } finally {
+    // Each step on its own, so a failed one (the CSMS API unreachable at the
+    // end) never leaves the test stations, the driver or the settings behind.
+    const moRootId = ocsp?.installedMoRootId;
+    const api = callApi;
+    if (moRootId != null && api != null) {
+      await bestEffort(logger, 'Failed to remove the OCTT MO root certificate', async () => {
+        const res = await api('DELETE', `/pnc/ca-certificates/${String(moRootId)}`);
+        if (res.status >= 300) throw new Error(`status ${String(res.status)}`);
+      });
+    }
+    const responder = ocsp?.responder;
+    if (responder != null) {
+      await bestEffort(logger, 'Failed to stop the OCSP test responder', () => responder.stop());
+    }
+
+    // Remove the temporary API key and restore the admin's prior site access.
+    const keyId = apiKeyId;
+    if (keyId != null) {
+      await bestEffort(logger, 'Failed to remove the temporary API key', async () => {
+        await db.delete(refreshTokens).where(eq(refreshTokens.id, keyId));
+        logger.info('Temporary API key removed');
+      });
+    }
+    const adminId = adminUserId;
+    if (adminId != null && !priorAdminAllSiteAccess) {
+      await bestEffort(logger, 'Failed to restore the admin site access', async () => {
+        await db.update(users).set({ hasAllSiteAccess: false }).where(eq(users.id, adminId));
+      });
+    }
+
+    if (provisionStations) {
+      // Deferred to run end (not per-test) so the OCPP server's async
+      // projections finish before the rows are deleted. A step that fails is
+      // retried by the worker sweep (`conformance-station-sweep`).
+      await deleteRunData(logger);
+      await bestEffort(logger, 'Failed to restore the PnC settings', async () => {
+        await restoreRunSettings(settingsChanges);
+        logger.info('PnC settings restored');
+      });
+    }
   }
 
   return summary;
+}
+
+/** Runs a teardown step, logging a failure at error instead of throwing. */
+async function bestEffort(
+  logger: pino.Logger,
+  message: string,
+  step: () => Promise<unknown>,
+): Promise<void> {
+  try {
+    await step();
+  } catch (err) {
+    logger.error({ err }, message);
+  }
+}
+
+/**
+ * Deletes the CSMS run's test stations (not the CS runner's `OCTT-CS-*`
+ * stations: a CS run may be going next to this one and deletes its own),
+ * then the test driver, its tokens and its pricing group. Runs at run start
+ * (leftovers of a crashed run) and at run end.
+ */
+async function deleteRunData(logger: pino.Logger): Promise<void> {
+  await bestEffort(logger, 'OCTT station cleanup failed', async () => {
+    const started = Date.now();
+    const stations = await deleteConformanceStations({ includeCs: false });
+    logger.info({ stations, durationMs: Date.now() - started }, 'OCTT test stations deleted');
+  });
+  await bestEffort(logger, 'OCTT test driver cleanup failed', async () => {
+    const result = await deleteConformanceTestDriver();
+    if (result.detachedRows > 0 || result.pricingGroupsKept > 0) {
+      logger.warn(result, 'OCTT test driver deleted; rows outside the run referenced it');
+    } else {
+      logger.info(result, 'OCTT test driver, tokens and pricing group deleted');
+    }
+  });
 }
 
 /** Subject CN of the Test System MO root (see OcttTestPki). */
@@ -332,46 +363,6 @@ async function installMoRoot(
   }
   logger.warn({ status: res.status, body: res.body }, 'Could not install the OCTT MO root');
   return null;
-}
-
-// CS conformance stations (OCTT-CS-*) belong to a CS run that may still be going;
-// that runner removes its own stations.
-async function deleteOcttStationsAndArtifacts(): Promise<void> {
-  // Rows that do not cascade from the station must be removed first, while the
-  // station and session rows still exist to identify them: session_tariff_segments
-  // has no session FK, and pki_csr_requests is ON DELETE SET NULL.
-  await db.execute(sql`
-    DELETE FROM session_tariff_segments
-    WHERE session_id IN (
-      SELECT cs.id FROM charging_sessions cs
-      JOIN charging_stations st ON st.id = cs.station_id
-      WHERE st.station_id LIKE 'OCTT-%' AND st.station_id NOT LIKE 'OCTT-CS-%'
-    )
-  `);
-  await db.execute(sql`
-    DELETE FROM pki_csr_requests
-    WHERE station_id IN (
-      SELECT id FROM charging_stations
-      WHERE station_id LIKE 'OCTT-%' AND station_id NOT LIKE 'OCTT-CS-%'
-    )
-  `);
-  // Keyed by the OCPP station id string / aggregate id (no FK), removable directly.
-  await db.execute(
-    sql`DELETE FROM authorize_attempts WHERE station_id LIKE 'OCTT-%' AND station_id NOT LIKE 'OCTT-CS-%'`,
-  );
-  await db.execute(
-    sql`DELETE FROM domain_events WHERE aggregate_id LIKE 'OCTT-%' AND aggregate_id NOT LIKE 'OCTT-CS-%'`,
-  );
-  // Cascade clears evses, connectors, sessions, projection rows, station certs, and
-  // queued offline commands.
-  await db
-    .delete(chargingStations)
-    .where(
-      and(
-        like(chargingStations.stationId, 'OCTT-%'),
-        notLike(chargingStations.stationId, 'OCTT-CS-%'),
-      ),
-    );
 }
 
 const OCTT_EMAID_COUNTRY = 'US';

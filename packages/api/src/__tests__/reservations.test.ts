@@ -66,6 +66,7 @@ vi.mock('../middleware/rbac.js', () => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   isStationLevelUnavailable: (
     await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
       '../../../database/src/lib/station-status.js',
@@ -207,6 +208,7 @@ import {
   getReservationSettings,
   resolveReservationFeeTerms,
   writeReservationAudit,
+  isOperatorStation,
 } from '@evtivity/database';
 
 const VALID_RESERVATION_ID = 'rsv_000000000001';
@@ -327,6 +329,7 @@ describe('Reservation routes', () => {
       const items = [makeReservation()];
       // First db call: data query, second db call: count query
       setupDbResults(items, [{ count: 1 }]);
+      vi.mocked(isOperatorStation).mockClear();
 
       const res = await app.inject({
         method: 'GET',
@@ -337,6 +340,8 @@ describe('Reservation routes', () => {
       const body = res.json();
       expect(body.data).toHaveLength(1);
       expect(body.total).toBe(1);
+      // Reservations of conformance test stations are never listed.
+      expect(vi.mocked(isOperatorStation)).toHaveBeenCalledTimes(1);
     });
 
     it('returns 200 with status filter', async () => {

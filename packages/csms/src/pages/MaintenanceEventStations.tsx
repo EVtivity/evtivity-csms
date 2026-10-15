@@ -142,7 +142,7 @@ export function MaintenanceEventStations(): React.JSX.Element {
           <CardTitle>{t('maintenance.stationResults')}</CardTitle>
           <Select
             aria-label={t('maintenance.filterByPhase')}
-            className="h-9 w-auto"
+            className="w-auto"
             value={phaseFilter}
             onChange={(ev) => {
               setPhaseFilter(ev.target.value);

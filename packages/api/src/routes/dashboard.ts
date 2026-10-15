@@ -10,6 +10,10 @@ import {
   getSystemTimezone,
   getCompanyCurrency,
   getOcppFleetHealth,
+  inOperatorStation,
+  isOperatorStation,
+  operatorStationIdSql,
+  operatorStationSql,
 } from '@evtivity/database';
 import {
   chargingStations,
@@ -22,7 +26,10 @@ import {
 import { ValidationError } from '@evtivity/lib';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { inCompanyCurrency } from '@evtivity/services/company-currency';
-import { paymentRecordsAtSites } from '../lib/payment-site-scope.js';
+import {
+  paymentRecordsAtSites,
+  paymentRecordsOfOperatorStations,
+} from '../lib/payment-site-scope.js';
 import {
   queryRevenue,
   queryRevenueTotal,
@@ -143,7 +150,7 @@ const utilizationItem = z
       .min(0)
       .max(100)
       .describe(
-        'Utilization percentage (0-100): charging hours of the sessions at the site, clipped to the period, over the port-hours of its EVSEs in service (not retired) for the period so far',
+        'Utilization percentage (0-100, not rounded): charging hours of the sessions at the site, clipped to the period, over the port-hours of its EVSEs in service (not retired) for the period so far',
       ),
   })
   .passthrough();
@@ -600,11 +607,15 @@ export function dashboardRoutes(app: FastifyInstance): void {
         return emptyStats;
       }
 
-      const stationConditions = [];
+      // Conformance (OCTT) stations and their sessions are never counted.
+      const stationConditions = [isOperatorStation()];
       if (siteIds != null) {
         stationConditions.push(inArray(chargingStations.siteId, siteIds));
       }
-      const sessionScope = siteIds != null ? inArray(chargingSessions.siteId, siteIds) : undefined;
+      const sessionScope = and(
+        inOperatorStation(chargingSessions.stationId),
+        siteIds != null ? inArray(chargingSessions.siteId, siteIds) : undefined,
+      );
 
       // All-time session totals: the sessions started before today from the
       // shared one-minute cache, plus today's read live through the start
@@ -656,7 +667,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
             count: count(),
           })
           .from(chargingStations)
-          .where(stationConditions.length > 0 ? and(...stationConditions) : undefined)
+          .where(and(...stationConditions))
           .groupBy(
             chargingStations.availability,
             chargingStations.onboardingStatus,
@@ -729,6 +740,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const conditions = [
         gte(chargingSessions.startedAt, range.since),
         lt(chargingSessions.startedAt, range.until),
+        inOperatorStation(chargingSessions.stationId),
       ];
       if (siteIds != null) {
         // The sessions that happened at the user's sites (site_id).
@@ -782,6 +794,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const conditions = [
         gte(chargingSessions.startedAt, range.since),
         lt(chargingSessions.startedAt, range.until),
+        inOperatorStation(chargingSessions.stationId),
       ];
       if (siteIds != null) {
         // The sessions that happened at the user's sites (site_id).
@@ -821,7 +834,12 @@ export function dashboardRoutes(app: FastifyInstance): void {
 
       // Connectors in service only: a retired connector, or one on a retired
       // EVSE, keeps its last status but is no longer a port.
-      const conditions = [isNull(connectors.retiredAt), isNull(evses.retiredAt)];
+      // Conformance (OCTT) stations are not ports of the operator.
+      const conditions = [
+        isNull(connectors.retiredAt),
+        isNull(evses.retiredAt),
+        isOperatorStation(),
+      ];
       if (siteIds != null) conditions.push(inArray(chargingStations.siteId, siteIds));
 
       return db
@@ -892,6 +910,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
           FROM evses e
           INNER JOIN charging_stations st ON st.id = e.station_id
           WHERE st.site_id = s.id AND e.retired_at IS NULL
+            AND ${sql.raw(operatorStationSql('st'))}
         ) p
         CROSS JOIN LATERAL (
           SELECT coalesce(sum(extract(epoch from (
@@ -904,19 +923,24 @@ export function dashboardRoutes(app: FastifyInstance): void {
             AND (cs.started_at >= ${sinceIso}::timestamptz - interval '${sql.raw(String(UTILIZATION_LOOKBACK_DAYS))} days'
                  OR cs.status = 'active')
             AND coalesce(cs.ended_at, now()) > ${sinceIso}::timestamptz
+            AND ${sql.raw(operatorStationIdSql('cs.station_id'))}
         ) h
         ${siteFilter}
       `);
 
-      return rows
-        .map((r) => {
-          const capacity = Number(r.ports) * periodHours;
-          const ratio = capacity > 0 ? Number(r.session_hours) / capacity : 0;
-          return { site: r.site_name, ratio };
-        })
-        .sort((a, b) => b.ratio - a.ratio || (a.site ?? '').localeCompare(b.site ?? ''))
-        .slice(0, 10)
-        .map((r) => ({ site: r.site, utilization: Math.min(Math.round(r.ratio * 100), 100) }));
+      return (
+        rows
+          .map((r) => {
+            const capacity = Number(r.ports) * periodHours;
+            const ratio = capacity > 0 ? Number(r.session_hours) / capacity : 0;
+            return { site: r.site_name, ratio };
+          })
+          .sort((a, b) => b.ratio - a.ratio || (a.site ?? '').localeCompare(b.site ?? ''))
+          .slice(0, 10)
+          // Not rounded: a large, lightly used network sits well under 1%, and the
+          // chart bars must stay proportional however small; the labels round.
+          .map((r) => ({ site: r.site, utilization: Math.min(r.ratio * 100, 100) }))
+      );
     },
   );
 
@@ -951,6 +975,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const conditions = [
         gte(chargingSessions.startedAt, range.since),
         lt(chargingSessions.startedAt, range.until),
+        inOperatorStation(chargingSessions.stationId),
       ];
       if (siteIds != null) {
         // The sessions that happened at the user's sites (site_id).
@@ -1024,7 +1049,12 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const tz = await getSystemTimezone();
       const billed = inCompanyCurrency(chargingSessions.currency, currency);
       const today = calendarDayBounds(calendarDateIn(new Date(), tz), tz);
-      const sessionScope = siteIds != null ? inArray(chargingSessions.siteId, siteIds) : undefined;
+      // Conformance (OCTT) stations and their sessions are never counted.
+      const sessionScope = and(
+        inOperatorStation(chargingSessions.stationId),
+        siteIds != null ? inArray(chargingSessions.siteId, siteIds) : undefined,
+      );
+      // Revenue items leave conformance stations out themselves (session-revenue).
       const revenueScope = siteIds != null ? [revenueAtSites(siteIds)] : [];
 
       // All-time totals (session-revenue.ts definition): the items before today
@@ -1182,7 +1212,12 @@ export function dashboardRoutes(app: FastifyInstance): void {
           totalCents: sql<number>`${paymentsKeptCentsSql(currency)}`,
         })
         .from(paymentRecords)
-        .where(siteIds != null ? paymentRecordsAtSites(siteIds) : undefined)
+        .where(
+          and(
+            paymentRecordsOfOperatorStations(),
+            siteIds != null ? paymentRecordsAtSites(siteIds) : undefined,
+          ),
+        )
         .groupBy(paymentRecords.status);
 
       return rows.map((r) => ({
@@ -1247,6 +1282,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
           SELECT DISTINCT e.station_id, e.evse_id
           FROM evses e
           INNER JOIN charging_stations cs ON cs.id = e.station_id AND e.retired_at IS NULL
+            AND ${sql.raw(operatorStationSql('cs'))}
           ${siteFilter}
         ),
         pre_period_status AS (
@@ -1360,7 +1396,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
 
       if (siteIds != null && siteIds.length === 0) return emptyHealth;
 
-      const connectedConditions = [eq(chargingStations.isOnline, true)];
+      const connectedConditions = [eq(chargingStations.isOnline, true), isOperatorStation()];
       if (siteIds != null) {
         connectedConditions.push(inArray(chargingStations.siteId, siteIds));
       }
@@ -1438,7 +1474,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
           longitude: sites.longitude,
           // "sites"."id" written out: a single-table select renders the column
           // unqualified, which inside the subquery names charging_stations.id.
-          stationCount: sql<number>`(SELECT count(*)::int FROM charging_stations WHERE charging_stations.site_id = "sites"."id")`,
+          stationCount: sql<number>`(SELECT count(*)::int FROM charging_stations WHERE charging_stations.site_id = "sites"."id" AND ${sql.raw(operatorStationSql('charging_stations'))})`,
         })
         .from(sites)
         .where(and(...conditions));
@@ -1658,6 +1694,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const conditions = [
         eq(chargingSessions.status, 'completed'),
         sql`${chargingSessions.co2AvoidedKg} IS NOT NULL`,
+        inOperatorStation(chargingSessions.stationId),
       ];
       // Compare endedAt projected into the system timezone so YYYY-MM-DD
       // filters mean "the operator's local day", not UTC midnight.

@@ -17,6 +17,8 @@ import {
   releaseUpgradePending,
   fleetCreditLevel,
   loadFleetCreditExposure,
+  isOperatorStation,
+  inOperatorStation,
 } from '@evtivity/database';
 import type {
   AccountInvoiceRecipient,
@@ -761,6 +763,7 @@ export async function getFleetStations(fleetId: string, siteIds: string[] | null
     .where(
       and(
         eq(fleetStations.fleetId, fleetId),
+        isOperatorStation(),
         siteIds != null ? inArray(chargingStations.siteId, siteIds) : undefined,
       ),
     )
@@ -861,6 +864,7 @@ export async function searchAvailableVehicles(fleetId: string, search: string, l
 function fleetSessionFilter(fleetId: string, siteIds: string[] | null) {
   return and(
     sql`${chargingSessions.driverId} IN (select driver_id from fleet_drivers where fleet_id = ${fleetId})`,
+    inOperatorStation(chargingSessions.stationId),
     siteIds != null ? sessionsAtSites(siteIds) : undefined,
   );
 }

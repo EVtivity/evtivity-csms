@@ -8,6 +8,7 @@ import {
   configTemplatePushes,
   configTemplatePushStations,
   chargingStations,
+  isOperatorStation,
 } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
@@ -256,6 +257,8 @@ export async function pushTemplateToSiteStations(
         eq(chargingStations.isOnline, true),
         eq(chargingStations.ocppProtocol, expectedProtocol),
         eq(chargingStations.siteId, siteId),
+        // Conformance test stations are never a push target.
+        isOperatorStation(),
       ),
     );
 

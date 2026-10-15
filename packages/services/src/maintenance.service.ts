@@ -16,6 +16,7 @@ import {
   reservations,
   writeAudit,
   alertStationWatchersIfAvailable,
+  isOperatorStation,
 } from '@evtivity/database';
 import {
   createLogger,
@@ -391,7 +392,8 @@ interface FanoutStation {
 }
 
 async function loadSiteStations(siteId: string, filter: string[] | null): Promise<FanoutStation[]> {
-  const conditions = [eq(chargingStations.siteId, siteId)];
+  // A conformance test station never takes part in a site's maintenance.
+  const conditions = [eq(chargingStations.siteId, siteId), isOperatorStation()];
   if (filter != null && filter.length > 0) {
     conditions.push(inArray(chargingStations.id, filter));
   }

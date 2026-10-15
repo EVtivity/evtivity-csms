@@ -30,7 +30,8 @@
  * members (`superseded`, no model call of their own). Pending insights older
  * than the debounce plus 10 minutes are queued again (a lost job). Active
  * station insights whose condition cleared, and incidents whose stations all
- * recovered, end `resolved`.
+ * recovered, end `resolved`. Conformance test stations, their sessions and
+ * reservations raise no insight.
  *
  * Watermarks: serial sources read ids up to the highest id older than 10
  * seconds, at most 2000 ids per run; sessions read `(updated_at, id)` the
@@ -43,6 +44,7 @@ import {
   getInsightAiSettings,
   stationAvailabilitySql,
   stationInsightsSuppressedSql,
+  operatorStationSql,
 } from '@evtivity/database';
 import type { Logger, PubSubClient } from '@evtivity/lib';
 import type { AiSettings } from '@evtivity/lib/ai-config';
@@ -181,6 +183,7 @@ async function offlineCandidates(
           AND (l.metadata ->> 'reason') IS DISTINCT FROM ${SERVER_SHUTDOWN_DISCONNECT_REASON}
           AND (s.id IS NULL OR s.ai_insights_enabled)
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
+          AND ${client.unsafe(operatorStationSql('cs'))}
         ORDER BY l.id
       `
     : [];
@@ -217,6 +220,7 @@ async function faultedCandidates(
           WHERE p.id > ${window.last} AND p.id <= ${window.upper} AND p.new_status = 'faulted'
             AND (s.id IS NULL OR s.ai_insights_enabled)
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
+          AND ${client.unsafe(operatorStationSql('cs'))}
           ORDER BY p.id
         `
       : [];
@@ -249,6 +253,7 @@ async function faultedCandidates(
     LEFT JOIN sites s ON s.id = cs.site_id
     WHERE cs.reported_status = 'faulted' AND (s.id IS NULL OR s.ai_insights_enabled)
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
+          AND ${client.unsafe(operatorStationSql('cs'))}
       AND NOT EXISTS (
         SELECT 1 FROM ai_insights i
         WHERE i.station_id = cs.id AND i.kind = 'station_faulted'
@@ -285,6 +290,7 @@ async function alertCandidates(language: string, on: boolean, marks: Marks): Pro
         WHERE a.id > ${window.last} AND a.id <= ${window.upper}
           AND (s.id IS NULL OR s.ai_insights_enabled)
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
+          AND ${client.unsafe(operatorStationSql('cs'))}
         ORDER BY a.id
       `
     : [];
@@ -331,6 +337,7 @@ async function authorizationCandidates(
         WHERE a.id > ${window.last} AND a.id <= ${window.upper} AND a.outcome <> 'accepted'
           AND (s.id IS NULL OR s.ai_insights_enabled)
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
+          AND ${client.unsafe(operatorStationSql('cs'))}
         ORDER BY a.id
       `
     : [];
@@ -383,6 +390,7 @@ async function sessionCandidates(
     FROM charging_sessions s
     JOIN charging_stations cs ON cs.id = s.station_id
     WHERE s.status IN ('failed', 'faulted')
+      AND ${client.unsafe(operatorStationSql('cs'))}
       AND (s.updated_at, s.id) > (${mark.lastAt}::timestamptz, ${mark.lastKey ?? ''})
       AND s.updated_at <= now() - make_interval(secs => ${COMMIT_LAG_SECONDS})
     ORDER BY s.updated_at, s.id
@@ -453,6 +461,7 @@ async function reservationCandidates(
           AND a.action::text = ANY(${RESERVATION_TRIGGER_ACTIONS}::text[])
           AND (s.id IS NULL OR s.ai_insights_enabled)
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
+          AND ${client.unsafe(operatorStationSql('cs'))}
         ORDER BY a.id
       `
     : [];

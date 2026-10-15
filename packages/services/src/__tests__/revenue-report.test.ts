@@ -3,18 +3,23 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { selectResults, queryRevenue } = vi.hoisted(() => ({
+const { selectResults, queryRevenue, whereArgs } = vi.hoisted(() => ({
   selectResults: [] as unknown[][],
   queryRevenue: vi.fn(),
+  whereArgs: [] as unknown[],
 }));
 
 /** A select chain that resolves to the next queued result whatever it is joined or filtered by. */
 function chain(): unknown {
   const result = Promise.resolve(selectResults.shift() ?? []);
   const proxy: Record<string, unknown> = {};
-  for (const method of ['from', 'innerJoin', 'leftJoin', 'where', 'groupBy']) {
+  for (const method of ['from', 'innerJoin', 'leftJoin', 'groupBy']) {
     proxy[method] = () => proxy;
   }
+  proxy['where'] = (arg: unknown) => {
+    whereArgs.push(arg);
+    return proxy;
+  };
   proxy['then'] = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
     result.then(resolve, reject);
   return proxy;
@@ -28,6 +33,7 @@ vi.mock('@evtivity/database', () => ({
   paymentRecords: { sessionId: 'session_id', status: 'status' },
   getSystemTimezone: vi.fn(() => Promise.resolve('UTC')),
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+  inOperatorStation: vi.fn((column: unknown) => ({ operatorStation: column })),
 }));
 
 vi.mock('../company-currency.js', () => ({ inCompanyCurrency: vi.fn() }));
@@ -58,6 +64,7 @@ const { EMPTY_REVENUE } = await import('../session-revenue.js');
 
 beforeEach(() => {
   selectResults.length = 0;
+  whereArgs.length = 0;
   queryRevenue.mockReset();
 });
 
@@ -130,5 +137,16 @@ describe('generateRevenueReport', () => {
       .mockResolvedValueOnce(new Map([['sit_1', revenue]]));
     const pdf = await generateRevenueReport({}, 'pdf', 'en', null);
     expect(pdf.data.length).toBeGreaterThan(0);
+  });
+
+  it('leaves sessions of conformance test stations out of every session query', async () => {
+    selectResults.push([], [], []);
+    queryRevenue.mockResolvedValue(new Map());
+    await generateRevenueReport({}, 'csv', 'en', null);
+    // Day costs, site rows and payment breakdown each filter on an operator station.
+    expect(whereArgs).toHaveLength(3);
+    for (const arg of whereArgs) {
+      expect(JSON.stringify(arg)).toContain('"operatorStation":"station_id"');
+    }
   });
 });

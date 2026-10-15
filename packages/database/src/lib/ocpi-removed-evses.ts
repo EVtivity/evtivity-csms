@@ -12,6 +12,7 @@
 import { and, gte, inArray, lt, sql } from 'drizzle-orm';
 import { db } from '../config.js';
 import { ocpiRemovedEvses } from '../schema/ocpi.js';
+import { operatorStationSql } from './conformance-stations.js';
 
 /** How long a removed EVSE is still served as REMOVED. */
 export const OCPI_REMOVED_EVSE_RETENTION_DAYS = 90;
@@ -69,6 +70,8 @@ export async function recordRemovedOcpiEvses(
     FROM evses e
     JOIN charging_stations cs ON cs.id = e.station_id
     WHERE e.id IN ${[...evseIds]}
+      -- A conformance station was never published, so it is never removed.
+      AND ${sql.raw(operatorStationSql('cs'))}
     ON CONFLICT (evse_uid, site_id) DO UPDATE SET
       station_ocpp_id = EXCLUDED.station_ocpp_id,
       evse_number = EXCLUDED.evse_number,

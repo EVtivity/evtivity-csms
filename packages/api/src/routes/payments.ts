@@ -73,7 +73,10 @@ import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { JwtPayload } from '../plugins/auth.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getUserSiteIds, requireAllSiteAccess, userCanAccessSite } from '../lib/site-access.js';
-import { paymentRecordsAtSites } from '../lib/payment-site-scope.js';
+import {
+  paymentRecordsAtSites,
+  paymentRecordsOfOperatorStations,
+} from '../lib/payment-site-scope.js';
 import { revokePayoutInvites } from '../services/payout-onboarding.service.js';
 import { config as apiConfig } from '../lib/config.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -2397,7 +2400,11 @@ export function paymentRoutes(app: FastifyInstance): void {
         >;
       }
 
-      const whereClause = siteIds != null ? paymentRecordsAtSites(siteIds) : undefined;
+      // Records of conformance (OCTT) stations are left out.
+      const whereClause = and(
+        paymentRecordsOfOperatorStations(),
+        siteIds != null ? paymentRecordsAtSites(siteIds) : undefined,
+      );
 
       const [data, countRows] = await Promise.all([
         db

@@ -320,7 +320,6 @@ export function SupportCaseDetail(): React.JSX.Element {
                   </span>
                   <AddIconButton
                     title={t('supportCases.addSession')}
-                    size="sm"
                     onClick={() => {
                       setShowSessionSearch(true);
                     }}
@@ -474,7 +473,6 @@ export function SupportCaseDetail(): React.JSX.Element {
                                   )}
                                   <RemoveIconButton
                                     title={t('common.remove')}
-                                    size="sm"
                                     onClick={() => {
                                       setRemoveSessionId(session.id);
                                     }}

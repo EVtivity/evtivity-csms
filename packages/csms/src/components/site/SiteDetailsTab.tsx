@@ -339,7 +339,6 @@ export function SiteDetailsTab({
                   onChange={(e) => {
                     setEditTimezone(e.target.value);
                   }}
-                  className="h-9"
                 >
                   {TIMEZONE_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -524,7 +523,7 @@ export function SiteDetailsTab({
                   carbonRegionMutation.mutate(val === '' ? null : val);
                 }}
                 disabled={!canWrite || carbonRegionMutation.isPending}
-                className="h-9 max-w-sm"
+                className="max-w-sm"
               >
                 <option value="">{t('sites.noCarbonRegion')}</option>
                 {(() => {
@@ -580,7 +579,7 @@ export function SiteDetailsTab({
                 stationMessageLanguageMutation.mutate(val === '' ? null : val);
               }}
               disabled={!canWrite || stationMessageLanguageMutation.isPending}
-              className="h-9 max-w-sm"
+              className="max-w-sm"
             >
               <option value="">{t('sites.stationMessageLanguageDefault')}</option>
               {LANGUAGES.map((lang) => (
@@ -612,7 +611,7 @@ export function SiteDetailsTab({
                 autochargeMutation.mutate(val === '' ? null : val === 'on');
               }}
               disabled={autochargeMutation.isPending}
-              className="h-9 max-w-sm"
+              className="max-w-sm"
             >
               <option value="">{t('sites.autochargeDefault')}</option>
               <option value="on">{t('vehicles.autochargeOn')}</option>

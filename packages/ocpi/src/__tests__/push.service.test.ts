@@ -30,27 +30,33 @@ const mocks = vi.hoisted(() => ({
   syncCpoSessionRow: vi.fn(),
   loadSiteLocation: vi.fn(),
   connectorTariffIds: vi.fn(),
+  isOperatorStation: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
-  db: {
-    select: vi.fn(() => makeChain()),
-    selectDistinct: vi.fn(() => makeChain()),
-    insert: vi.fn(() => makeInsertChain()),
-  },
-  sites: {},
-  chargingStations: {},
-  chargingSessions: { id: {} },
-  evses: {},
-  connectors: {},
-  ocpiPartners: { id: {}, status: {} },
-  ocpiPartnerEndpoints: {},
-  ocpiLocationPublish: {},
-  ocpiLocationPublishPartners: {},
-  ocpiSyncLog: {},
-  maintenanceEvents: {},
-  isStationLevelUnavailable: vi.fn(),
-}));
+vi.mock('@evtivity/database', async () => {
+  const { sql } = await import('drizzle-orm');
+  mocks.isOperatorStation.mockImplementation(() => sql`true`);
+  return {
+    db: {
+      select: vi.fn(() => makeChain()),
+      selectDistinct: vi.fn(() => makeChain()),
+      insert: vi.fn(() => makeInsertChain()),
+    },
+    sites: {},
+    chargingStations: {},
+    chargingSessions: { id: {} },
+    evses: {},
+    connectors: {},
+    ocpiPartners: { id: {}, status: {} },
+    ocpiPartnerEndpoints: {},
+    ocpiLocationPublish: {},
+    ocpiLocationPublishPartners: {},
+    ocpiSyncLog: {},
+    maintenanceEvents: {},
+    isStationLevelUnavailable: vi.fn(),
+    isOperatorStation: mocks.isOperatorStation,
+  };
+});
 vi.mock('../lib/ocpi-client.js', () => ({
   OcpiClient: vi.fn(function OcpiClient() {
     return mocks.client;
@@ -295,6 +301,8 @@ describe('pushLegacyEvseRemoval', () => {
     ];
 
     expect(await pushLegacyEvseRemoval('opr_1')).toBe(3);
+    // Conformance test stations were never published: no legacy uids for them.
+    expect(mocks.isOperatorStation).toHaveBeenCalled();
 
     expect(mocks.client.put.mock.calls.map((c: unknown[]) => c[0])).toEqual([
       `${LOCATIONS}/US/EVT/LOC-1`,

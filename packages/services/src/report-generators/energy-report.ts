@@ -8,6 +8,7 @@ import {
   chargingStations,
   sites,
   getSystemTimezone,
+  inOperatorStation,
 } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
@@ -46,7 +47,8 @@ function stationConditions(filters: Filters): SQL[] {
 }
 
 function buildDateConditions(filters: Filters): SQL[] {
-  const conditions: SQL[] = [];
+  // Sessions of conformance test stations are never reported.
+  const conditions: SQL[] = [inOperatorStation(chargingSessions.stationId)];
   if (filters.dateFrom) {
     conditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
   }

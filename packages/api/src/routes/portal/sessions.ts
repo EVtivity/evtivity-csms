@@ -8,6 +8,7 @@ import type { SQL } from 'drizzle-orm';
 import {
   db,
   getCompanyCurrency,
+  inOperatorStation,
   isAutochargeEnabledForStation,
   writeAudit,
   sessionAuditLog,
@@ -394,10 +395,11 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       const { page, limit, month } = query;
       const offset = (page - 1) * limit;
 
-      let whereClause = sql`${chargingSessions.driverId} = ${driverId}`;
+      // Sessions at conformance (OCTT) stations are never listed.
+      let whereClause = sql`${chargingSessions.driverId} = ${driverId} AND ${inOperatorStation(chargingSessions.stationId)}`;
       if (month != null) {
         const timezone = await driverTimezone(driverId);
-        whereClause = sql`${chargingSessions.driverId} = ${driverId} AND ${startedInMonth(month, timezone)}`;
+        whereClause = sql`${whereClause} AND ${startedInMonth(month, timezone)}`;
       }
 
       const [data, countRows] = await Promise.all([
@@ -471,7 +473,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         })
         .from(chargingSessions)
         .where(
-          sql`${chargingSessions.driverId} = ${driverId} AND ${chargingSessions.status} = 'completed' AND ${startedInMonth(month, timezone)}`,
+          sql`${chargingSessions.driverId} = ${driverId} AND ${chargingSessions.status} = 'completed' AND ${startedInMonth(month, timezone)} AND ${inOperatorStation(chargingSessions.stationId)}`,
         );
 
       return {
@@ -531,7 +533,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .leftJoin(sites, sessionSiteJoin)
         .where(
-          sql`${chargingSessions.driverId} = ${driverId} AND ${chargingSessions.status} = 'completed' AND ${startedInMonth(month, timezone)}`,
+          sql`${chargingSessions.driverId} = ${driverId} AND ${chargingSessions.status} = 'completed' AND ${startedInMonth(month, timezone)} AND ${inOperatorStation(chargingSessions.stationId)}`,
         )
         .orderBy(desc(chargingSessions.startedAt), desc(chargingSessions.id));
 

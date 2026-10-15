@@ -12,6 +12,7 @@ import {
   PG_FOREIGN_KEY_VIOLATION,
   resolveAccountBilling,
   resolveDriverPricingSource,
+  inOperatorStation,
 } from '@evtivity/database';
 import {
   ACCOUNT_INVOICE_RECIPIENTS,
@@ -1448,6 +1449,8 @@ export function driverRoutes(app: FastifyInstance): void {
       const where = and(
         eq(chargingSessions.driverId, id),
         siteIds != null ? sessionsAtSites(siteIds) : undefined,
+        // Sessions of conformance test stations are never listed.
+        inOperatorStation(chargingSessions.stationId),
       );
 
       // Run the existence check in parallel with the data + count queries.
@@ -1530,6 +1533,8 @@ export function driverRoutes(app: FastifyInstance): void {
       const where = and(
         eq(reservations.driverId, id),
         siteIds != null ? reservationsAtSites(siteIds) : undefined,
+        // Reservations of conformance test stations are never listed.
+        inOperatorStation(reservations.stationId),
       );
       // Existence check runs in parallel with data + count.
       const [driverRows, data, countRows] = await Promise.all([

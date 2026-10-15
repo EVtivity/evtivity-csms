@@ -1,9 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import { chargingStations, sites } from '@evtivity/database';
+import { chargingStations, isOperatorStation, sites } from '@evtivity/database';
 
 /**
  * The stations the public portal serves: only stations an operator accepted.
@@ -13,9 +13,11 @@ import { chargingStations, sites } from '@evtivity/database';
  * serve one. The listings join sites, so they also leave out unsited stations.
  * The pages reached by OCPP id keep an accepted unsited station: QR and guest
  * starts do not require a site (features/site-access-control.md).
+ * Conformance (OCTT) stations are never served: a driver cannot find one in
+ * a listing, a map, a search or by its OCPP id.
  */
 export function publicStationListed(): SQL {
-  return eq(chargingStations.onboardingStatus, 'accepted');
+  return and(eq(chargingStations.onboardingStatus, 'accepted'), isOperatorStation()) as SQL;
 }
 
 /**

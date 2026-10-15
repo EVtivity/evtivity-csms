@@ -57,7 +57,8 @@ function auditRows(): Array<Record<string, unknown>> {
   return mockWriteAudit.mock.calls.map((c) => (c as unknown[])[1] as Record<string, unknown>);
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   writeAudit: mockWriteAudit,
   stationAuditLog: stationAuditLogTable,
   db: {

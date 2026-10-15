@@ -101,7 +101,7 @@ export function Stations(): React.JSX.Element {
             value={search}
             onDebouncedChange={setSearch}
             placeholder={t('stations.searchPlaceholder')}
-            className="h-10 w-full"
+            className="w-full"
           />
         );
         const filters = (
@@ -110,7 +110,6 @@ export function Stations(): React.JSX.Element {
               <Label className="leading-6">{t('sites.title')}</Label>
               <Select
                 aria-label={t('sites.title')}
-                className="h-10"
                 value={filterSiteId}
                 onChange={(e) => {
                   setFilterSiteId(e.target.value);
@@ -128,7 +127,6 @@ export function Stations(): React.JSX.Element {
               <Label className="leading-6">{t('common.status')}</Label>
               <Select
                 aria-label={t('common.status')}
-                className="h-10"
                 value={filterStatus}
                 onChange={(e) => {
                   setFilterStatus(e.target.value);
@@ -146,7 +144,6 @@ export function Stations(): React.JSX.Element {
               <Label className="leading-6">{t('stations.connectivity')}</Label>
               <Select
                 aria-label={t('stations.connectivity')}
-                className="h-10"
                 value={filterOnline}
                 onChange={(e) => {
                   setFilterOnline(e.target.value);
@@ -161,7 +158,6 @@ export function Stations(): React.JSX.Element {
               <Label className="leading-6">{t('stations.onboardingStatus')}</Label>
               <Select
                 aria-label={t('stations.onboardingStatus')}
-                className="h-10"
                 value={filterOnboardingStatus}
                 onChange={(e) => {
                   setFilterOnboardingStatus(e.target.value);
@@ -177,7 +173,6 @@ export function Stations(): React.JSX.Element {
               <Label className="leading-6">{t('stations.type')}</Label>
               <Select
                 aria-label={t('stations.type')}
-                className="h-10"
                 value={filterSimulator}
                 onChange={(e) => {
                   setFilterSimulator(e.target.value);
@@ -192,7 +187,6 @@ export function Stations(): React.JSX.Element {
               <Label className="leading-6">{t('stations.aiInsights.label')}</Label>
               <Select
                 aria-label={t('stations.aiInsights.label')}
-                className="h-10"
                 value={filterAiInsights}
                 onChange={(e) => {
                   setFilterAiInsights(e.target.value);

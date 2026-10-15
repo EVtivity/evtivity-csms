@@ -5,7 +5,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const { patchMock, postMock, toastMock } = vi.hoisted(() => {
+const { getMock, patchMock, postMock, toastMock } = vi.hoisted(() => {
   // The auth store reads the color scheme when it loads.
   Object.defineProperty(window, 'matchMedia', {
     value: () => ({
@@ -15,6 +15,7 @@ const { patchMock, postMock, toastMock } = vi.hoisted(() => {
     }),
   });
   return {
+    getMock: vi.fn<(url: string) => Promise<unknown>>(),
     patchMock: vi.fn(),
     postMock: vi.fn(),
     toastMock: vi.fn(),
@@ -31,7 +32,7 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@/lib/api', () => ({
   api: {
-    get: vi.fn().mockResolvedValue({ data: [], total: 0 }),
+    get: getMock,
     patch: patchMock,
     post: postMock,
   },
@@ -68,6 +69,7 @@ const optionValues = (): { value: string; disabled: boolean }[] =>
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  getMock.mockResolvedValue({ data: [], total: 0 });
 });
 
 describe('StationSecurity', () => {
@@ -124,5 +126,73 @@ describe('StationSecurity', () => {
     fireEvent.click(screen.getByText('stations.rotateCredentials'));
     const value = screen.getByLabelText<HTMLInputElement>('stations.newPassword').value;
     expect(value).toMatch(/^[a-zA-Z0-9]{20}$/);
+  });
+
+  it('filters the security event log by severity', async () => {
+    renderSecurity();
+    const severity = screen.getByLabelText<HTMLSelectElement>('common.severity');
+    expect(Array.from(severity.options).map((o) => o.value)).toEqual([
+      '',
+      'critical',
+      'high',
+      'medium',
+      'low',
+      'info',
+    ]);
+
+    fireEvent.change(severity, { target: { value: 'critical' } });
+    await waitFor(() => {
+      expect(getMock.mock.calls.some(([url]) => url.includes('severity=critical'))).toBe(true);
+    });
+
+    // Connection rows have no severity: picking that source clears and disables the filter.
+    fireEvent.change(screen.getByLabelText('stations.securityLogSource'), {
+      target: { value: 'connection' },
+    });
+    expect(severity.value).toBe('');
+    expect(severity.disabled).toBe(true);
+  });
+
+  it('expands a log row to formatted JSON and collapses it again', async () => {
+    const metadata = { techInfo: 'lid sensor tripped' };
+    getMock.mockResolvedValue({
+      data: [
+        {
+          id: 'security:5',
+          source: 'security',
+          event: 'TamperDetectionActivated',
+          severity: 'critical',
+          remoteAddress: null,
+          metadata,
+          createdAt: '2026-10-15T10:00:00Z',
+        },
+        {
+          id: 'connection:1',
+          source: 'connection',
+          event: 'connected',
+          severity: null,
+          remoteAddress: null,
+          metadata: null,
+          createdAt: '2026-10-15T09:00:00Z',
+        },
+      ],
+      total: 2,
+    });
+    renderSecurity();
+
+    const toggle = await screen.findByRole('button', { name: JSON.stringify(metadata) });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    // A row without details has no toggle.
+    expect(screen.getByTestId('security-log-row-connection:1').querySelector('button')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('security-log-row-security:5'));
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const detail = screen.getByTestId('json-detail');
+    expect(detail.querySelector('code')?.textContent).toBe(JSON.stringify(metadata, null, 2));
+    expect(detail.querySelector('[data-testid="copy-button"]')).not.toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByTestId('json-detail')).toBeNull();
   });
 });

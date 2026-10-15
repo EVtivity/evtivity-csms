@@ -67,7 +67,7 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => {
+vi.mock('@evtivity/database', async () => {
   // The transaction runs on the same mocked db, so firstChainArg also sees
   // the writes the token service makes inside a transaction.
   const db: Record<string, unknown> = {
@@ -79,6 +79,7 @@ vi.mock('@evtivity/database', () => {
   };
   db['transaction'] = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(db));
   return {
+    ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
     currentAuditViaAi: () => undefined,
     db,
@@ -137,7 +138,7 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   setPubSub: vi.fn(),
 }));
 
-import { db } from '@evtivity/database';
+import { db, inOperatorStation } from '@evtivity/database';
 import { registerAuth } from '../plugins/auth.js';
 import { tokenRoutes } from '../routes/tokens.js';
 
@@ -475,6 +476,7 @@ describe('Token routes - handler logic', () => {
       // First DB call: getToken (service)
       // Second and third: session data + count in Promise.all
       setupDbResults([tokenData], sessions, [{ count: 1 }]);
+      vi.mocked(inOperatorStation).mockClear();
       const response = await app.inject({
         method: 'GET',
         url: `/tokens/${VALID_TOKEN_ID}/sessions?page=1&limit=10`,
@@ -486,6 +488,8 @@ describe('Token routes - handler logic', () => {
       expect(body.total).toBe(1);
       expect(body.data[0].transactionId).toBe('TX-001');
       expect(body.data[0].status).toBe('completed');
+      // Sessions of conformance test stations are never listed.
+      expect(vi.mocked(inOperatorStation)).toHaveBeenCalledTimes(1);
     });
 
     it('returns total 0 when count row is empty', async () => {

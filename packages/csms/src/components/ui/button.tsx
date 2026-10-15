@@ -27,11 +27,16 @@ const buttonVariants = cva(
       },
       size: {
         default: 'h-10 px-4 py-2',
-        sm: 'h-9 rounded-md px-3',
+        // Narrower padding at the same 40 px height (every CSMS control is 40 px).
+        sm: 'h-10 rounded-md px-3',
         lg: 'h-11 rounded-md px-8',
         icon: 'h-10 w-10',
         // Detail page header actions: 44 px and sharing the row on phones, own width from sm.
         header: 'h-11 grow px-4 py-2 sm:h-10 sm:grow-0',
+        // Detail page header icon buttons (Back, Prev, Next): 44 px on phones, 40 px from sm.
+        'icon-header': 'h-11 w-11 shrink-0 sm:h-10 sm:w-10',
+        // Text link inside a line of text (Remove, Undo under a field): no box of its own.
+        inline: 'h-auto p-0 text-xs',
         // Compact text button inside dense cards (copy, show original).
         xs: 'h-7 gap-1 rounded-md px-2 text-xs',
         // Compact icon button for card and row actions.

@@ -18,6 +18,7 @@ import {
   ocpiLocationAudience,
   clearIdlingSettingCache,
   clearSystemSettingsCache,
+  isOperatorStation,
 } from '@evtivity/database';
 import { createInFlightTracker, createLogger, tryParseJson } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
@@ -448,6 +449,7 @@ export async function pushLegacyEvseRemoval(partnerId: string): Promise<number |
       and(
         eq(ocpiLocationPublish.isPublished, true),
         sql`(${ocpiLocationPublish.publishToAll} = true OR ${ocpiLocationPublishPartners.partnerId} IS NOT NULL)`,
+        isOperatorStation(),
       ),
     );
 

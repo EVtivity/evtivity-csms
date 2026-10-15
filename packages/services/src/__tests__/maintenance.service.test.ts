@@ -175,6 +175,7 @@ vi.mock('@evtivity/database', () => {
   return {
     db,
     client: { __client: true },
+    isOperatorStation: () => ({ conformancePredicate: 'isOperatorStation' }),
     maintenanceEvents: h.table('maintenanceEvents'),
     maintenanceEventAuditLog: h.table('maintenanceEventAuditLog'),
     chargingStations: h.table('chargingStations'),

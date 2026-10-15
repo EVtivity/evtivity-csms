@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql, eq, type SQL } from 'drizzle-orm';
-import { db, settings } from '@evtivity/database';
+import { db, settings, operatorStationSql } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
@@ -31,11 +31,14 @@ function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Fil
 }
 
 /**
- * `AND ...` conditions on the station alias `cs`: the site filter and the
- * report's site scope.
+ * `AND ...` conditions on the station alias `cs`: an operator station (never a
+ * conformance test station), the site filter and the report's site scope.
  */
 function stationSiteCondition(filters: Filters): SQL {
-  const siteFilter = filters.siteId ? sql`AND cs.site_id = ${filters.siteId}` : sql``;
+  const operator = sql.raw(`AND ${operatorStationSql('cs')}`);
+  const siteFilter = filters.siteId
+    ? sql`${operator} AND cs.site_id = ${filters.siteId}`
+    : operator;
   const inScope = stationSiteInScope(sql.raw('cs.site_id'), filters.scope);
   return inScope != null ? sql`${siteFilter} AND ${inScope}` : siteFilter;
 }

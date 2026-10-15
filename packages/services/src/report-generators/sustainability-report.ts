@@ -9,6 +9,7 @@ import {
   sites,
   settings,
   getSystemTimezone,
+  inOperatorStation,
 } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
@@ -100,7 +101,8 @@ interface EnergyByDay {
 }
 
 function buildDateConditions(filters: Filters, tz: string): SQL[] {
-  const conditions: SQL[] = [];
+  // Sessions of conformance test stations are never reported.
+  const conditions: SQL[] = [inOperatorStation(chargingSessions.stationId)];
   // Compare startedAt projected into the system timezone so YYYY-MM-DD
   // filters mean "the operator's local day" instead of UTC midnight.
   if (filters.dateFrom != null) {

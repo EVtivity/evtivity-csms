@@ -150,6 +150,7 @@ vi.mock('@evtivity/database', async () => {
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
   const suppression = await import('@evtivity/database/src/lib/ai-insight-suppression.js');
   return {
+    ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     ...rawTimestamp,
     ...suppression,
     db: dbMock,
@@ -1948,6 +1949,44 @@ describe('Station routes - handler logic', () => {
       expect(body.data[1].source).toBe('security');
       expect(body.data[1].severity).toBe('critical');
       expect(body.data[0].createdAt).toBe('2026-10-10T10:49:38.215Z');
+    });
+
+    it('accepts a severity filter', async () => {
+      const { db } = (await import('@evtivity/database')) as unknown as {
+        db: { execute: ReturnType<typeof vi.fn> };
+      };
+      db.execute
+        .mockResolvedValueOnce([
+          {
+            id: 'security:5',
+            source: 'security',
+            event: 'TamperDetectionActivated',
+            severity: 'critical',
+            remote_address: null,
+            metadata: null,
+            created_at: new Date(),
+          },
+        ])
+        .mockResolvedValueOnce([{ count: 1 }]);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/stations/${VALID_STATION_ID}/security-logs?severity=critical`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().data[0].severity).toBe('critical');
+    });
+
+    it('rejects an unknown severity', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/stations/${VALID_STATION_ID}/security-logs?severity=urgent`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(400);
     });
   });
 

@@ -54,7 +54,8 @@ function makeChain(): Record<string, unknown> {
   return chain;
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -292,6 +293,9 @@ describe('Load management site scope', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual([]);
       expect(scopedToSite('sit_a')).toBe(true);
+      // The station count leaves out conformance test stations.
+      const { operatorStationSql } = await import('@evtivity/database');
+      expect(vi.mocked(operatorStationSql)).toHaveBeenCalledWith('charging_stations');
     });
   });
 });

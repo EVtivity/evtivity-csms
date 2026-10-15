@@ -16,6 +16,7 @@ import {
   isStationLevelUnavailable,
   removedOcpiEvses,
   ocpiLocationPublish,
+  isOperatorStation,
 } from '@evtivity/database';
 import type { RemovedOcpiEvse } from '@evtivity/database';
 import { config } from '../lib/config.js';
@@ -66,12 +67,16 @@ export async function loadSiteLocation(
   if (site.latitude == null || site.longitude == null) return null;
 
   // A pending station is not onboarded yet: never published. A blocked one
-  // (deleted) stays, as REMOVED.
+  // (deleted) stays, as REMOVED. A conformance test station is never published.
   const stationRows = await db
     .select()
     .from(chargingStations)
     .where(
-      and(eq(chargingStations.siteId, siteId), ne(chargingStations.onboardingStatus, 'pending')),
+      and(
+        eq(chargingStations.siteId, siteId),
+        ne(chargingStations.onboardingStatus, 'pending'),
+        isOperatorStation(),
+      ),
     );
   const removed = await removedOcpiEvses([siteId]);
   if (stationRows.length === 0 && removed.length === 0) return null;

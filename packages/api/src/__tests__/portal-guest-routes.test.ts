@@ -50,6 +50,7 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   getGuestVelocityLimits: vi.fn(async () => ({ startsPerIpPerHour: 30, declinesPerIpPerHour: 5 })),
   writeAudit: vi.fn(() => Promise.resolve()),
   userAuditLog: { _table: 'user_audit_log' },

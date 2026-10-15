@@ -8,23 +8,15 @@ interface LinkIconButtonProps {
   href: string;
   title: string;
   disabled?: boolean;
-  size?: 'sm' | 'md';
 }
 
-export function LinkIconButton({
-  href,
-  title,
-  disabled,
-  size = 'md',
-}: LinkIconButtonProps): React.JSX.Element {
-  const sizeClass = size === 'sm' ? 'h-9 w-9' : 'h-10 w-10';
+export function LinkIconButton({ href, title, disabled }: LinkIconButtonProps): React.JSX.Element {
   const iconClass = 'h-4 w-4';
   return (
     <span className="group relative inline-flex">
       <Button
         variant="secondary"
         size="icon"
-        className={sizeClass}
         disabled={disabled}
         aria-label={title}
         onClick={() => {

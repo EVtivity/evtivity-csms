@@ -58,7 +58,7 @@ export function Drivers(): React.JSX.Element {
             value={search}
             onDebouncedChange={setSearch}
             placeholder={t('drivers.searchPlaceholder')}
-            className="h-10 w-full"
+            className="w-full"
           />
         );
         const filters = (
@@ -66,7 +66,6 @@ export function Drivers(): React.JSX.Element {
             <Label className="leading-6">{t('common.status')}</Label>
             <Select
               aria-label={t('common.status')}
-              className="h-10"
               value={filterStatus}
               onChange={(e) => {
                 setFilterStatus(e.target.value);

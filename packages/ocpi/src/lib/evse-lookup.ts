@@ -1,8 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq } from 'drizzle-orm';
-import { db, evses, chargingStations } from '@evtivity/database';
+import { and, eq } from 'drizzle-orm';
+import { db, evses, chargingStations, isOperatorStation } from '@evtivity/database';
 import type { StationLevelState } from '@evtivity/database';
 
 // Resolves an OCPI EVSE uid (see evse-uid.ts) to the EVSE and its station.
@@ -49,7 +49,9 @@ export async function findEvseByUid(uid: string): Promise<EvseByUid | null> {
     })
     .from(evses)
     .innerJoin(chargingStations, eq(chargingStations.id, evses.stationId))
-    .where(eq(evses.id, uid))
+    // A conformance test station is never published: partners cannot find
+    // or command its EVSEs.
+    .where(and(eq(evses.id, uid), isOperatorStation()))
     .limit(1);
   if (row == null) return null;
   const {

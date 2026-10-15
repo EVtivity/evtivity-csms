@@ -92,7 +92,7 @@ function FieldRenderer({
             onChange={(e) => {
               onChange(e.target.value);
             }}
-            className={`h-9 ${errorClass}`}
+            className={errorClass}
           >
             <option value="">{t('common.select')}</option>
             {field.enumValues?.map((v) => (
@@ -344,8 +344,7 @@ function ArrayFieldRenderer({
             <Button
               type="button"
               variant="outline"
-              size="sm"
-              className="h-6 px-2"
+              size="xs"
               onClick={() => {
                 removeItem(index);
               }}

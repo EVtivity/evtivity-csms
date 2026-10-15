@@ -310,7 +310,6 @@ export function StationDisplayMessages({
                   onChange={(e) => {
                     setPriority(e.target.value);
                   }}
-                  className="h-9"
                 >
                   {PRIORITIES.map((p) => (
                     <option key={p} value={p}>
@@ -329,7 +328,6 @@ export function StationDisplayMessages({
                   onChange={(e) => {
                     setFormat(e.target.value);
                   }}
-                  className="h-9"
                 >
                   {FORMATS.map((f) => (
                     <option key={f} value={f}>
@@ -382,7 +380,6 @@ export function StationDisplayMessages({
                   onChange={(e) => {
                     setState(e.target.value);
                   }}
-                  className="h-9"
                 >
                   <option value="">-</option>
                   {STATES.map((s) => (

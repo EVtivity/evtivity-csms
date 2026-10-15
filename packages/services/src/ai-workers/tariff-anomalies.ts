@@ -14,9 +14,11 @@
  *   `PRICE_OUTLIER_FACTOR` times the site's median of the last 30 days.
  * - `inactive_tariff` (started in the window): a session priced with a tariff
  *   that was already deactivated when the session started.
+ *
+ * Sessions of conformance test stations are never findings.
  */
 
-import { client } from '@evtivity/database';
+import { client, operatorStationSql } from '@evtivity/database';
 
 export const STATION_COST_TOLERANCE_CENTS = 50;
 export const PRICE_OUTLIER_FACTOR = 3;
@@ -57,7 +59,7 @@ export async function tariffAnomalies(input: {
           AND s.ended_at < ${input.now}::timestamptz AS ended_in_window
       FROM charging_sessions s
       JOIN charging_stations cs ON cs.id = s.station_id
-      WHERE cs.site_id = ${input.siteId}
+      WHERE cs.site_id = ${input.siteId} AND ${client.unsafe(operatorStationSql('cs'))}
         AND (
           (s.started_at >= ${input.now}::timestamptz - interval '24 hours'
             AND s.started_at < ${input.now}::timestamptz)
@@ -68,7 +70,7 @@ export async function tariffAnomalies(input: {
     site_median AS (
       SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY s.tariff_price_per_kwh::numeric) AS median
       FROM charging_sessions s JOIN charging_stations cs ON cs.id = s.station_id
-      WHERE cs.site_id = ${input.siteId}
+      WHERE cs.site_id = ${input.siteId} AND ${client.unsafe(operatorStationSql('cs'))}
         AND s.tariff_price_per_kwh::numeric > 0
         AND s.started_at >= ${input.now}::timestamptz - interval '30 days'
     ),

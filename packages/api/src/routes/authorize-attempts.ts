@@ -3,8 +3,14 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, ilike, sql, desc, gte, lte, inArray } from 'drizzle-orm';
-import { db, authorizeAttempts, chargingStations, chargingSessions } from '@evtivity/database';
+import { eq, and, or, ilike, sql, desc, gte, lte, inArray, isNull } from 'drizzle-orm';
+import {
+  db,
+  authorizeAttempts,
+  chargingStations,
+  chargingSessions,
+  isOperatorStation,
+} from '@evtivity/database';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { paginatedResponse } from '../lib/response-schemas.js';
@@ -118,7 +124,9 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
       // visible to all-site users only.
       if (siteIds != null && siteIds.length === 0) return { data: [], total: 0 };
 
-      const conditions = [];
+      // Attempts at a conformance test station are never listed (an attempt
+      // from an unknown station has no station row and stays).
+      const conditions = [or(isNull(chargingStations.id), isOperatorStation())];
       if (siteIds != null) conditions.push(inArray(chargingStations.siteId, siteIds));
       if (stationId != null) conditions.push(eq(authorizeAttempts.stationId, stationId));
       if (idToken != null && idToken.trim() !== '') {
@@ -141,7 +149,7 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
       if (from != null) conditions.push(gte(authorizeAttempts.createdAt, from));
       if (to != null) conditions.push(lte(authorizeAttempts.createdAt, to));
 
-      const where = conditions.length > 0 ? and(...conditions) : undefined;
+      const where = and(...conditions);
 
       // LEFT JOIN charging_stations on the OCPP path id so the UI can link
       // to /stations/:dbId. authorize_attempts.station_id stores the path

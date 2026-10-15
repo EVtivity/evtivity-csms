@@ -8,7 +8,8 @@ import {
   reservationCancellationFeeView,
 } from '../lib/reservation-fee-view.js';
 import { eq, and, or, ilike, desc, sql, count, inArray } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import type { SQL } from 'drizzle-orm';
+import { db, isOperatorStation } from '@evtivity/database';
 import {
   reservations,
   reservationAuditLog,
@@ -392,7 +393,8 @@ export function reservationRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
-      const conditions = [];
+      // Reservations of conformance test stations are never listed.
+      const conditions: (SQL | undefined)[] = [isOperatorStation()];
       if (query.search != null && query.search !== '') {
         const pattern = `%${query.search}%`;
         conditions.push(
@@ -419,7 +421,7 @@ export function reservationRoutes(app: FastifyInstance): void {
       if (siteIds != null && siteIds.length === 0) return { data: [], total: 0 };
       if (siteIds != null) conditions.push(inArray(chargingStations.siteId, siteIds));
 
-      const where = conditions.length > 0 ? and(...conditions) : undefined;
+      const where = and(...conditions);
 
       const [data, totalResult] = await Promise.all([
         db

@@ -1,13 +1,14 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { RotateCcw } from 'lucide-react';
 import { CancelButton } from '@/components/cancel-button';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -18,6 +19,7 @@ import { SecurityProfileBadge } from '@/components/SecurityProfileBadge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Pagination } from '@/components/ui/pagination';
+import { JsonDetailBlock, JsonPreviewToggle } from '@/components/ExpandableJson';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { SEVERITY_VARIANT } from '@/lib/severity';
@@ -62,6 +64,9 @@ const CONNECTION_EVENT_OPTIONS = [
   'connected',
   'disconnected',
 ] as const;
+
+/** Severities of OCPP security events (connection rows have none). */
+const SEVERITY_OPTIONS = ['critical', 'high', 'medium', 'low', 'info'] as const;
 
 function getProfileDescLabel(
   profile: number,
@@ -112,6 +117,8 @@ export function StationSecurity({
   const [logsLimit, setLogsLimit] = useState(50);
   const [logsSource, setLogsSource] = useState<'' | 'connection' | 'security'>('');
   const [logsEvent, setLogsEvent] = useState('');
+  const [logsSeverity, setLogsSeverity] = useState('');
+  const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [logsFrom, setLogsFrom] = useState('');
   const [logsTo, setLogsTo] = useState('');
   const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
@@ -126,6 +133,7 @@ export function StationSecurity({
       logsLimit,
       logsSource,
       logsEvent,
+      logsSeverity,
       logsFrom,
       logsTo,
     ],
@@ -136,6 +144,7 @@ export function StationSecurity({
       });
       if (logsSource !== '') params.set('source', logsSource);
       if (logsEvent !== '') params.set('event', logsEvent);
+      if (logsSeverity !== '') params.set('severity', logsSeverity);
       if (logsFrom !== '') params.set('from', new Date(logsFrom).toISOString());
       if (logsTo !== '') params.set('to', new Date(logsTo).toISOString());
       return api.get<{ data: SecurityLog[]; total: number }>(
@@ -339,7 +348,6 @@ export function StationSecurity({
                   onChange={(e) => {
                     handleProfileSelect(Number(e.target.value));
                   }}
-                  className="h-9"
                   disabled={updateProfileMutation.isPending}
                 >
                   {/* A connected station cannot be moved to a lower profile over OCPP. */}
@@ -579,18 +587,20 @@ export function StationSecurity({
           <CardTitle>{t('stations.securityLog')}</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-5 mb-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 mb-4">
             <div className="space-y-1">
               <Label htmlFor="security-logs-source" className="text-xs leading-6">
                 {t('stations.securityLogSource')}
               </Label>
               <Select
                 id="security-logs-source"
-                className="h-9"
                 value={logsSource}
                 onChange={(e) => {
-                  setLogsSource(e.target.value as '' | 'connection' | 'security');
+                  const source = e.target.value as '' | 'connection' | 'security';
+                  setLogsSource(source);
                   setLogsEvent('');
+                  // Connection rows have no severity.
+                  if (source === 'connection') setLogsSeverity('');
                   setLogsPage(1);
                 }}
               >
@@ -606,7 +616,6 @@ export function StationSecurity({
               {logsSource === 'connection' ? (
                 <Select
                   id="security-logs-event"
-                  className="h-9"
                   value={logsEvent}
                   onChange={(e) => {
                     setLogsEvent(e.target.value);
@@ -621,10 +630,9 @@ export function StationSecurity({
                   ))}
                 </Select>
               ) : (
-                <input
+                <Input
                   id="security-logs-event"
                   type="text"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                   placeholder={t('stations.eventTypePlaceholder')}
                   value={logsEvent}
                   onChange={(e) => {
@@ -635,14 +643,34 @@ export function StationSecurity({
               )}
             </div>
             <div className="space-y-1">
+              <Label htmlFor="security-logs-severity" className="text-xs leading-6">
+                {t('common.severity')}
+              </Label>
+              <Select
+                id="security-logs-severity"
+                value={logsSeverity}
+                disabled={logsSource === 'connection'}
+                onChange={(e) => {
+                  setLogsSeverity(e.target.value);
+                  setLogsPage(1);
+                }}
+              >
+                <option value="">{t('common.all')}</option>
+                {SEVERITY_OPTIONS.map((severity) => (
+                  <option key={severity} value={severity}>
+                    {t(`severity.${severity}`)}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="space-y-1">
               <Label htmlFor="security-logs-from" className="text-xs leading-6">
                 {t('common.from')}
               </Label>
-              <input
+              <Input
                 id="security-logs-from"
                 type="datetime-local"
                 aria-label={t('common.from')}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                 value={logsFrom}
                 onChange={(e) => {
                   setLogsFrom(e.target.value);
@@ -654,11 +682,10 @@ export function StationSecurity({
               <Label htmlFor="security-logs-to" className="text-xs leading-6">
                 {t('common.to')}
               </Label>
-              <input
+              <Input
                 id="security-logs-to"
                 type="datetime-local"
                 aria-label={t('common.to')}
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                 value={logsTo}
                 onChange={(e) => {
                   setLogsTo(e.target.value);
@@ -672,7 +699,6 @@ export function StationSecurity({
               </Label>
               <Select
                 id="security-logs-limit"
-                className="h-9"
                 value={String(logsLimit)}
                 onChange={(e) => {
                   setLogsLimit(Number(e.target.value));
@@ -701,36 +727,66 @@ export function StationSecurity({
                     </tr>
                   </thead>
                   <tbody>
-                    {logsResponse.data.map((log) => (
-                      <tr key={log.id} className="border-b">
-                        <td className="py-2 pr-4 text-muted-foreground whitespace-nowrap">
-                          {formatDateTime(log.createdAt, timezone)}
-                        </td>
-                        <td className="py-2 pr-4">
-                          <Badge variant={log.source === 'security' ? 'info' : 'secondary'}>
-                            {t(
-                              `stations.securityLogSource${log.source === 'security' ? 'Security' : 'Connection'}`,
-                            )}
-                          </Badge>
-                        </td>
-                        <td className="py-2 pr-4">
-                          <Badge variant="outline">{log.event}</Badge>
-                        </td>
-                        <td className="py-2 pr-4">
-                          {log.severity != null ? (
-                            <Badge variant={SEVERITY_VARIANT[log.severity] ?? 'outline'}>
-                              {t(`severity.${log.severity}`, { defaultValue: log.severity })}
-                            </Badge>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">-</span>
+                    {logsResponse.data.map((log) => {
+                      const metadata = log.metadata;
+                      const isExpanded = metadata != null && expandedLogId === log.id;
+                      const toggle = (): void => {
+                        setExpandedLogId(isExpanded ? null : log.id);
+                      };
+                      const detailId = `security-log-${log.id.replace(':', '-')}-details`;
+                      return (
+                        <Fragment key={log.id}>
+                          <tr
+                            className={metadata != null ? 'border-b cursor-pointer' : 'border-b'}
+                            data-testid={`security-log-row-${log.id}`}
+                            onClick={metadata != null ? toggle : undefined}
+                          >
+                            <td className="py-2 pr-4 text-muted-foreground whitespace-nowrap">
+                              {formatDateTime(log.createdAt, timezone)}
+                            </td>
+                            <td className="py-2 pr-4">
+                              <Badge variant={log.source === 'security' ? 'info' : 'secondary'}>
+                                {t(
+                                  `stations.securityLogSource${log.source === 'security' ? 'Security' : 'Connection'}`,
+                                )}
+                              </Badge>
+                            </td>
+                            <td className="py-2 pr-4">
+                              <Badge variant="outline">{log.event}</Badge>
+                            </td>
+                            <td className="py-2 pr-4">
+                              {log.severity != null ? (
+                                <Badge variant={SEVERITY_VARIANT[log.severity] ?? 'outline'}>
+                                  {t(`severity.${log.severity}`, { defaultValue: log.severity })}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">-</span>
+                              )}
+                            </td>
+                            <td className="py-2 pr-4 text-xs">{log.remoteAddress ?? '-'}</td>
+                            <td className="py-2 text-xs text-muted-foreground max-w-md">
+                              {metadata != null ? (
+                                <JsonPreviewToggle
+                                  value={metadata}
+                                  expanded={isExpanded}
+                                  onToggle={toggle}
+                                  controlsId={detailId}
+                                />
+                              ) : (
+                                '-'
+                              )}
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr className="border-b bg-muted/30">
+                              <td colSpan={6} className="p-3">
+                                <JsonDetailBlock id={detailId} value={metadata} />
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                        <td className="py-2 pr-4 text-xs">{log.remoteAddress ?? '-'}</td>
-                        <td className="py-2 text-xs text-muted-foreground max-w-md truncate">
-                          {log.metadata != null ? JSON.stringify(log.metadata) : '-'}
-                        </td>
-                      </tr>
-                    ))}
+                        </Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

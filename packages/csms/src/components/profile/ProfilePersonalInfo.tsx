@@ -10,11 +10,12 @@ import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { formatDateTime, TIMEZONE_OPTIONS } from '@/lib/timezone';
-import { LANGUAGES } from '@/components/ui/language-select';
+import { LANGUAGES, LanguageSelect } from '@/components/ui/language-select';
 import type { UserMe } from '@/pages/Profile';
 
 const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -140,28 +141,18 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
                 <Label htmlFor="edit-language" className="leading-6">
                   {t('profile.language')}
                 </Label>
-                <select
+                <LanguageSelect
                   id="edit-language"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={editLanguage}
-                  onChange={(e) => {
-                    setEditLanguage(e.target.value);
-                  }}
-                >
-                  {LANGUAGES.map((lang) => (
-                    <option key={lang.code} value={lang.code}>
-                      {lang.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setEditLanguage}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-timezone" className="leading-6">
                   {t('profile.timezone')}
                 </Label>
-                <select
+                <Select
                   id="edit-timezone"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   value={editTimezone}
                   onChange={(e) => {
                     setEditTimezone(e.target.value);
@@ -172,7 +163,7 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
                       {opt.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
             </div>
             <div className="flex justify-end gap-2">

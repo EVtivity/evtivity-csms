@@ -348,6 +348,13 @@ export const meterValues = pgTable(
     index('idx_meter_values_station_standalone_ts')
       .on(table.stationId, table.timestamp)
       .where(sql`session_id IS NULL`),
+    // Deleting an EVSE (a station delete cascades to its EVSEs) checks the
+    // evse_id foreign key, a full scan of meter_values without this index:
+    // 355 ms per EVSE at 3.7M rows, so a conformance run's end-of-run delete
+    // of several hundred test stations took minutes, hours on a large table.
+    index('idx_meter_values_evse_id')
+      .on(table.evseId)
+      .where(sql`evse_id IS NOT NULL`),
     // Dedup retransmits: OCPP allows the station to resend a MeterValues batch
     // if the CALLRESULT is lost. Without this, duplicate rows inflate energy
     // sums in dashboards, cost calculations, and OCPI CDRs. The backing

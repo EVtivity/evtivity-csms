@@ -309,7 +309,7 @@ export function SiteDetail(): React.JSX.Element {
                     setSessionsStationId(e.target.value);
                     setSessionsPage(1);
                   }}
-                  className="h-9 sm:w-44"
+                  className="sm:w-44"
                 >
                   <option value="">{t('sessions.allStations')}</option>
                   {siteStationsForFilter?.data.map((s) => (
@@ -325,7 +325,7 @@ export function SiteDetail(): React.JSX.Element {
                     setSessionsStatus(e.target.value);
                     setSessionsPage(1);
                   }}
-                  className="h-9 sm:w-44"
+                  className="sm:w-44"
                 >
                   <option value="">{t('sessions.allStatuses')}</option>
                   <option value="active">{t('status.active')}</option>
@@ -345,7 +345,7 @@ export function SiteDetail(): React.JSX.Element {
                     setSessionsStationId(e.target.value);
                     setSessionsPage(1);
                   }}
-                  className="h-9 sm:w-44"
+                  className="sm:w-44"
                 >
                   <option value="">{t('sessions.allStations')}</option>
                   {siteStationsForFilter?.data.map((s) => (
@@ -361,7 +361,7 @@ export function SiteDetail(): React.JSX.Element {
                     setSessionsStatus(e.target.value);
                     setSessionsPage(1);
                   }}
-                  className="h-9 sm:w-44"
+                  className="sm:w-44"
                 >
                   <option value="">{t('sessions.allStatuses')}</option>
                   <option value="active">{t('status.active')}</option>

@@ -132,7 +132,6 @@ export function AiInsights(): React.JSX.Element {
             </Label>
             <Select
               id="ai-insights-status"
-              className="h-9"
               value={status ?? ''}
               onChange={(e) => {
                 setFilter('status', e.target.value);
@@ -152,7 +151,6 @@ export function AiInsights(): React.JSX.Element {
             </Label>
             <Select
               id="ai-insights-kind"
-              className="h-9"
               value={kind ?? ''}
               onChange={(e) => {
                 setFilter('kind', e.target.value);
@@ -172,7 +170,6 @@ export function AiInsights(): React.JSX.Element {
             </Label>
             <Select
               id="ai-insights-category"
-              className="h-9"
               value={category ?? ''}
               onChange={(e) => {
                 setFilter('category', e.target.value);
@@ -192,7 +189,6 @@ export function AiInsights(): React.JSX.Element {
             </Label>
             <Select
               id="ai-insights-feedback"
-              className="h-9"
               value={feedback ?? ''}
               onChange={(e) => {
                 setFilter('feedback', e.target.value);
@@ -210,7 +206,6 @@ export function AiInsights(): React.JSX.Element {
               </Label>
               <Select
                 id="ai-insights-site"
-                className="h-9"
                 value={siteId}
                 onChange={(e) => {
                   setFilter('siteId', e.target.value);

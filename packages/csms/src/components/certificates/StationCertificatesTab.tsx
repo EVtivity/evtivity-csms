@@ -74,7 +74,7 @@ export function StationCertificatesTab(): React.JSX.Element {
               onChange={(e) => {
                 setStationCertStatusFilter(e.target.value);
               }}
-              className="hidden h-9 w-32 md:block"
+              className="hidden w-32 md:block"
             >
               <option value="">{t('common.all')}</option>
               <option value="active">{t('pnc.active')}</option>
@@ -88,7 +88,7 @@ export function StationCertificatesTab(): React.JSX.Element {
                 onChange={(e) => {
                   setStationCertStatusFilter(e.target.value);
                 }}
-                className="h-9 w-32"
+                className="w-32"
               >
                 <option value="">{t('common.all')}</option>
                 <option value="active">{t('pnc.active')}</option>

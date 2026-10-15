@@ -9,6 +9,7 @@ import type { ApexOptions } from 'apexcharts';
 import { Download, Leaf, Zap, Activity, TreePine } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import {
   Table,
@@ -162,29 +163,29 @@ export function SustainabilityTab(): React.JSX.Element {
     <div className="space-y-6">
       <Card>
         <CardContent className="flex flex-wrap items-center gap-2 pt-6">
-          <input
+          <Input
             type="date"
             aria-label={t('common.startDate')}
             value={fromDate}
             onChange={(e) => {
               setFromDate(e.target.value);
             }}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            className="w-auto"
             max={toDate}
           />
-          <span className="text-sm text-muted-foreground">to</span>
-          <input
+          <span className="text-sm text-muted-foreground">{t('dashboard.to')}</span>
+          <Input
             type="date"
             aria-label={t('common.endDate')}
             value={toDate}
             onChange={(e) => {
               setToDate(e.target.value);
             }}
-            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+            className="w-auto"
             min={fromDate}
             max={today.toISOString().split('T')[0] ?? ''}
           />
-          <Button variant="outline" onClick={handleExportCsv} className="ml-auto gap-1.5">
+          <Button variant="outline" size="sm" onClick={handleExportCsv} className="ml-auto">
             <Download className="h-4 w-4" />
             {t('sustainability.exportCsv')}
           </Button>
@@ -194,7 +195,7 @@ export function SustainabilityTab(): React.JSX.Element {
             onChange={(e) => {
               setSiteId(e.target.value);
             }}
-            className="hidden h-9 w-auto md:block"
+            className="hidden w-auto md:block"
           >
             <option value="">{t('sessions.allSites')}</option>
             {sitesData?.data.map((s) => (
@@ -210,7 +211,7 @@ export function SustainabilityTab(): React.JSX.Element {
               onChange={(e) => {
                 setSiteId(e.target.value);
               }}
-              className="h-9 w-auto"
+              className="w-auto"
             >
               <option value="">{t('sessions.allSites')}</option>
               {sitesData?.data.map((s) => (

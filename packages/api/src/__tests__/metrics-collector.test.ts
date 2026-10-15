@@ -7,7 +7,8 @@ const mockExecute = vi.fn();
 const mockGetCompanyCurrency = vi.fn();
 const mockQueryRevenueTotal = vi.fn();
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   client: {},
   db: { execute: mockExecute },
   getCompanyCurrency: mockGetCompanyCurrency,
@@ -27,7 +28,14 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 vi.mock('drizzle-orm', () => ({
-  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
+  sql: Object.assign(
+    (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
+    { raw: (text: string) => ({ raw: text }) },
+  ),
+}));
+
+vi.mock('../lib/payment-site-scope.js', () => ({
+  paymentRecordsOfOperatorStations: () => ({ raw: 'PAYMENTS_OF_OPERATOR_STATIONS' }),
 }));
 
 vi.mock('@evtivity/lib', () => ({

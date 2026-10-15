@@ -4,7 +4,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, isNotNull } from 'drizzle-orm';
-import { db, siteLoadManagement, chargingStations, loadAllocationLog } from '@evtivity/database';
+import {
+  db,
+  siteLoadManagement,
+  chargingStations,
+  loadAllocationLog,
+  isOperatorStation,
+} from '@evtivity/database';
 import { LOAD_ALLOCATION_STRATEGIES } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
@@ -425,7 +431,14 @@ export function loadManagementRoutes(app: FastifyInstance): void {
           const assigned = await db
             .select({ stationId: chargingStations.stationId })
             .from(chargingStations)
-            .where(and(eq(chargingStations.siteId, id), isNotNull(chargingStations.circuitId)));
+            .where(
+              and(
+                eq(chargingStations.siteId, id),
+                isNotNull(chargingStations.circuitId),
+                // Load management never manages a conformance test station.
+                isOperatorStation(),
+              ),
+            );
           const previous = parseAppliedAllocations(existing.appliedAllocations) ?? [];
           await clearLoadManagementProfiles(
             [...assigned.map((s) => s.stationId), ...previous.map((a) => a.stationId)],

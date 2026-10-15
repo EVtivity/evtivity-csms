@@ -55,6 +55,7 @@ const { mockRecordSessionEndRequest, mockWriteCsmsSessionAudit } = vi.hoisted(()
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   // The shared driver availability rule builds SQL; drizzle is mocked here, so the fragments are stubs.
   availableEvseCountSql: vi.fn(() => 'available_evse_count'),

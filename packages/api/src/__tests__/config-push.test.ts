@@ -23,7 +23,7 @@ let lastInsertedPush: { id: string } | null = null;
 let templateRow: unknown[] = [];
 let targetStationRows: unknown[] = [];
 
-vi.mock('@evtivity/database', () => {
+vi.mock('@evtivity/database', async () => {
   const makeSelectChain = (rows: () => unknown[]): Record<string, unknown> => {
     const chain: Record<string, unknown> = {};
     for (const m of ['from', 'where']) chain[m] = vi.fn(() => chain);
@@ -39,6 +39,7 @@ vi.mock('@evtivity/database', () => {
   };
 
   return {
+    ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     db: {
       select: vi.fn(() => {
         const idx = selectState.idx++;
@@ -111,6 +112,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 import { processConfigPush, pushTemplateToSiteStations } from '../lib/config-push.js';
+import { isOperatorStation } from '@evtivity/database';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -384,5 +386,7 @@ describe('pushTemplateToSiteStations', () => {
 
     const result = await pushTemplateToSiteStations('ctm_1', 'sit_1');
     expect(result).toBe('ctp_1');
+    // Conformance test stations are never a push target.
+    expect(vi.mocked(isOperatorStation)).toHaveBeenCalled();
   });
 });

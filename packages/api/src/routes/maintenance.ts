@@ -14,6 +14,7 @@ import {
   reservations,
   drivers,
   sites,
+  isOperatorStation,
 } from '@evtivity/database';
 import { AppError, ValidationError, compileAllowedTemplate } from '@evtivity/lib';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
@@ -1055,7 +1056,8 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           isOnline: chargingStations.isOnline,
         })
         .from(chargingStations)
-        .where(eq(chargingStations.siteId, siteId));
+        // Maintenance never reaches a conformance test station.
+        .where(and(eq(chargingStations.siteId, siteId), isOperatorStation()));
 
       if (stationRows.length === 0) return [];
       const stationDbIds = stationRows.map((s) => s.id);

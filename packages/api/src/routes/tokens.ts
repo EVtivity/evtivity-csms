@@ -11,6 +11,7 @@ import {
   drivers,
   sites,
   driverTokens,
+  inOperatorStation,
 } from '@evtivity/database';
 import * as tokenService from '../services/token.service.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
@@ -371,6 +372,8 @@ export function tokenRoutes(app: FastifyInstance): void {
       const where = and(
         eq(chargingSessions.tokenId, id),
         siteIds != null ? sessionsAtSites(siteIds) : undefined,
+        // Sessions of conformance test stations are never listed.
+        inOperatorStation(chargingSessions.stationId),
       );
 
       const [data, countRows] = await Promise.all([

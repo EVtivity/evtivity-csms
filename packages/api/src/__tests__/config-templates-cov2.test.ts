@@ -55,7 +55,8 @@ function argsOf(kind: string, method: string): unknown[][] {
     .flatMap((c) => c.calls.filter((x) => x.method === method).map((x) => x.args));
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   db: {
     select: vi.fn(() => makeChain('select')),
     selectDistinct: vi.fn(() => makeChain('select')),
@@ -199,6 +200,7 @@ describe('config template routes, uncovered paths', () => {
       expect(argsOf('select', 'where')[0]?.[0]).toEqual({ inArray: ['s.id', ['sit_1', 'sit_2']] });
       const stationWhere = argsOf('select', 'where')[2]?.[0] as { and: unknown[] };
       expect(stationWhere.and).toEqual([
+        { conformancePredicate: 'isOperatorStation' },
         { eq: ['cs.siteId', 'sit_1'] },
         { eq: ['cs.vendorId', 'ven_1'] },
         { eq: ['cs.model', 'M1'] },
@@ -230,6 +232,7 @@ describe('config template routes, uncovered paths', () => {
       expect(allWheres()).toContainEqual({
         and: [
           { eq: ['cs.ocppProtocol', 'ocpp2.1'] },
+          { conformancePredicate: 'isOperatorStation' },
           { eq: ['cs.id', 'sta_1'] },
           { eq: ['cs.siteId', 'sit_1'] },
           { eq: ['cs.vendorId', 'ven_1'] },
@@ -312,6 +315,7 @@ describe('config template routes, uncovered paths', () => {
       expect(allWheres()).toContainEqual({
         and: [
           { eq: ['cs.ocppProtocol', 'ocpp2.1'] },
+          { conformancePredicate: 'isOperatorStation' },
           { eq: ['cs.id', 'sta_1'] },
           { eq: ['cs.siteId', 'sit_1'] },
           { eq: ['cs.vendorId', 'ven_1'] },
@@ -366,6 +370,7 @@ describe('config template routes, uncovered paths', () => {
         and: [
           { eq: ['cs.isOnline', true] },
           { eq: ['cs.ocppProtocol', 'ocpp1.6'] },
+          { conformancePredicate: 'isOperatorStation' },
           { eq: ['cs.id', 'sta_1'] },
           { eq: ['cs.siteId', 'sit_1'] },
           { eq: ['cs.vendorId', 'ven_1'] },
@@ -427,6 +432,7 @@ describe('config template routes, uncovered paths', () => {
         and: [
           { eq: ['cs.isOnline', true] },
           { eq: ['cs.ocppProtocol', 'ocpp2.1'] },
+          { conformancePredicate: 'isOperatorStation' },
           { eq: ['cs.id', 'sta_1'] },
           { inArray: ['cs.siteId', ['sit_1']] },
         ],

@@ -99,7 +99,6 @@ export function ConversationList({
           value={search}
           onDebouncedChange={setSearch}
           placeholder={t('ai.searchConversations')}
-          size="sm"
           className="max-w-none flex-1"
         />
         {canWrite && (
@@ -152,7 +151,6 @@ export function ConversationList({
                     value={renameValue}
                     maxLength={200}
                     aria-label={t('ai.renameLabel')}
-                    className="h-8"
                     onChange={(e) => {
                       setRenameValue(e.target.value);
                     }}
@@ -166,7 +164,7 @@ export function ConversationList({
                   <Button
                     type="submit"
                     variant="ghost"
-                    size="icon-sm"
+                    size="icon"
                     aria-label={t('common.save')}
                     disabled={rename.isPending || renameValue.trim() === ''}
                   >
@@ -175,7 +173,7 @@ export function ConversationList({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon-sm"
+                    size="icon"
                     aria-label={t('common.cancel')}
                     onClick={() => {
                       setRenamingId(null);

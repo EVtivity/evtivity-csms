@@ -4,8 +4,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PubSubClient } from '@evtivity/lib';
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async (importOriginal) => ({
   getDefaultMaxPowerW: vi.fn(() => Promise.resolve(11000)),
+  operatorStationSql: (await importOriginal<typeof import('@evtivity/database')>())
+    .operatorStationSql,
 }));
 
 import {
@@ -33,7 +35,10 @@ function createSqlMock(...results: unknown[][]): unknown {
     index++;
     return Promise.resolve(result);
   };
-  return Object.assign(fn, { json: (v: unknown) => v });
+  return Object.assign(fn, {
+    json: (v: unknown) => v,
+    unsafe: (text: string) => ({ unsafe: text }),
+  });
 }
 
 const NOW = new Date('2026-10-13T10:00:00.000Z');
@@ -232,6 +237,8 @@ describe('computeAndSendChargingProfile', () => {
     const drawQuery = sqlCalls[2] ?? '';
     expect(drawQuery).toContain('st.site_id = ?');
     expect(drawQuery).toContain('DISTINCT ON (mv.session_id)');
+    // Sessions at conformance test stations do not count against the site limit.
+    expect(sqlValues[2]).toContainEqual({ unsafe: 'st.is_conformance = false' });
   });
 
   it('uses the configured default power for an EV without parameters', async () => {

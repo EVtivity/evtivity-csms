@@ -49,7 +49,8 @@ function makeChain() {
   return chain;
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -146,6 +147,9 @@ describe('Portal vehicle routes', () => {
       expect(body[0].autochargeEnabled).toBe(true);
       expect(body[0].autochargeBlocked).toBe(false);
       expect(body[0].lastSeen).toBeNull();
+      // A session at a conformance test station is not where a vehicle was seen.
+      const { isOperatorStation } = await import('@evtivity/database');
+      expect(vi.mocked(isOperatorStation)).toHaveBeenCalled();
     });
   });
 

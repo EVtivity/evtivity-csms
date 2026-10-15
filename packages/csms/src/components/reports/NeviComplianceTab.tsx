@@ -761,7 +761,6 @@ function ExcludedDowntimeSection(): React.JSX.Element {
                 setStationFilter(e.target.value);
                 setPage(1);
               }}
-              className="h-9"
             >
               <option value="">{t('common.all')}</option>
               {stations.map((s) => (
@@ -896,7 +895,7 @@ function ExcludedDowntimeSection(): React.JSX.Element {
                     updateForm('stationId', e.target.value);
                   }}
                   className={
-                    hasSubmitted && downtimeErrors.stationId ? 'h-9 border-destructive' : 'h-9'
+                    hasSubmitted && downtimeErrors.stationId ? 'border-destructive' : undefined
                   }
                 >
                   <option value="">{t('common.select')}</option>
@@ -937,7 +936,6 @@ function ExcludedDowntimeSection(): React.JSX.Element {
                   onChange={(e) => {
                     updateForm('reason', e.target.value);
                   }}
-                  className="h-9"
                 >
                   {DOWNTIME_REASONS.map((reason) => (
                     <option key={reason} value={reason}>

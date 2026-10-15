@@ -19,6 +19,7 @@ import {
   isNotNull,
   isNull,
 } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import {
   db,
   client,
@@ -35,6 +36,7 @@ import {
   stationInsightsOperatorSuppressedSql,
   stationInsightsSuppressedSql,
   stationUnderActiveMaintenanceSql,
+  isOperatorStation,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { auditStationChange } from '../lib/station-audit.js';
@@ -1021,7 +1023,8 @@ export function stationRoutes(app: FastifyInstance): void {
         return { data: [], total: 0 };
       }
 
-      const conditions = [];
+      // Conformance test stations never appear in the station list.
+      const conditions: (SQL | undefined)[] = [isOperatorStation()];
       if (accessibleSiteIds != null) {
         // Stations without a site are visible to all-site users only.
         conditions.push(inArray(chargingStations.siteId, accessibleSiteIds));
@@ -1058,7 +1061,7 @@ export function stationRoutes(app: FastifyInstance): void {
       if (statusFilter != null) {
         conditions.push(sql`${derivedStatusSubquery} = ${statusFilter}`);
       }
-      const where = conditions.length > 0 ? and(...conditions) : undefined;
+      const where = and(...conditions);
 
       const baseQuery = db
         .select({
@@ -3975,6 +3978,12 @@ export function stationRoutes(app: FastifyInstance): void {
       .enum(['connection', 'security'])
       .optional()
       .describe('Restrict to a single source table'),
+    severity: z
+      .enum(['critical', 'high', 'medium', 'low', 'info'])
+      .optional()
+      .describe(
+        'Filter by severity level. Only security source rows carry a severity, so this returns security rows only',
+      ),
     from: z.coerce.date().optional().describe('Lower bound (inclusive) for event timestamp'),
     to: z.coerce.date().optional().describe('Upper bound (inclusive) for event timestamp'),
   });
@@ -4015,7 +4024,10 @@ export function stationRoutes(app: FastifyInstance): void {
       const fromTs = query.from ?? null;
       const toTs = query.to ?? null;
       const eventFilter = query.event ?? null;
-      const wantConnection = query.source == null || query.source === 'connection';
+      const severityFilter = query.severity ?? null;
+      // Connection rows have no severity, so a severity filter leaves them out.
+      const wantConnection =
+        severityFilter == null && (query.source == null || query.source === 'connection');
       const wantSecurity = query.source == null || query.source === 'security';
 
       const eventList = sql.join(
@@ -4055,6 +4067,7 @@ export function stationRoutes(app: FastifyInstance): void {
           FROM security_events
           WHERE station_id = ${id}
             AND (${eventFilter}::text IS NULL OR type = ${eventFilter})
+            AND (${severityFilter}::text IS NULL OR severity = ${severityFilter})
             AND (${fromTs}::timestamptz IS NULL OR timestamp >= ${fromTs}::timestamptz)
             AND (${toTs}::timestamptz IS NULL OR timestamp <= ${toTs}::timestamptz)
         `);

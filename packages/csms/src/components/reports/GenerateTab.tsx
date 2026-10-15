@@ -123,7 +123,6 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
                 </Label>
                 <Select
                   id="report-type"
-                  className="h-9"
                   value={selectedType}
                   onChange={(e) => {
                     setReportType(e.target.value);
@@ -143,7 +142,6 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
                 </Label>
                 <Select
                   id="report-format"
-                  className="h-9"
                   value={selectedFormat}
                   onChange={(e) => {
                     setFormat(e.target.value);
@@ -189,7 +187,6 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
               </Label>
               <Select
                 id="report-site"
-                className="h-9"
                 value={siteId}
                 onChange={(e) => {
                   setSiteId(e.target.value);
@@ -211,7 +208,6 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
               </Label>
               <Select
                 id="report-station"
-                className="h-9"
                 value={stationId}
                 onChange={(e) => {
                   setStationId(e.target.value);

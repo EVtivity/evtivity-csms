@@ -13,14 +13,20 @@ import {
   paymentRecords,
   neviStationData,
   getSystemTimezone,
+  isOperatorStation,
+  operatorStationSql,
 } from '@evtivity/database';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 
-/** `AND ...` condition on the station alias `cs` for the report's site scope, empty for all sites. */
+/**
+ * `AND ...` conditions on the station alias `cs`: an operator station (never a
+ * conformance test station) in the report's site scope.
+ */
 function csInScope(scope: ReportSiteScope): SQL {
+  const operator = sql.raw(`AND ${operatorStationSql('cs')}`);
   const inScope = stationSiteInScope(sql.raw('cs.site_id'), scope);
-  return inScope != null ? sql`AND ${inScope}` : sql``;
+  return inScope != null ? sql`${operator} AND ${inScope}` : operator;
 }
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -233,7 +239,7 @@ async function buildStationLocationTab(
     .innerJoin(sites, eq(chargingStations.siteId, sites.id))
     .innerJoin(evses, eq(evses.stationId, chargingStations.id))
     .innerJoin(connectors, eq(connectors.evseId, evses.id))
-    .where(stationSiteInScope(chargingStations.siteId, scope));
+    .where(and(isOperatorStation(), stationSiteInScope(chargingStations.siteId, scope)));
 
   const stationMap = new Map<
     string,
@@ -333,6 +339,7 @@ async function buildSessionsTab(
     .where(
       and(
         sql`(${chargingSessions.startedAt} AT TIME ZONE ${tz})::date BETWEEN ${dates.startDate}::date AND ${dates.endDate}::date`,
+        isOperatorStation(),
         stationSiteInScope(chargingStations.siteId, scope),
       ),
     );
@@ -600,7 +607,7 @@ async function buildMaintenanceCostTab(
     })
     .from(neviStationData)
     .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id))
-    .where(stationSiteInScope(chargingStations.siteId, scope));
+    .where(and(isOperatorStation(), stationSiteInScope(chargingStations.siteId, scope)));
 
   for (const row of rows as MaintenanceCostRow[]) {
     sheet.addRow({
@@ -639,7 +646,7 @@ async function buildOperatorIdentityTab(
     })
     .from(neviStationData)
     .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id))
-    .where(stationSiteInScope(chargingStations.siteId, scope));
+    .where(and(isOperatorStation(), stationSiteInScope(chargingStations.siteId, scope)));
 
   for (const row of rows as OperatorIdentityRow[]) {
     sheet.addRow({
@@ -673,7 +680,7 @@ async function buildOperatorProgramsTab(
     })
     .from(neviStationData)
     .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id))
-    .where(stationSiteInScope(chargingStations.siteId, scope));
+    .where(and(isOperatorStation(), stationSiteInScope(chargingStations.siteId, scope)));
 
   for (const row of rows as OperatorProgramsRow[]) {
     let programs = '';
@@ -709,7 +716,7 @@ async function buildDerInfoTab(sheet: ExcelJS.Worksheet, scope: ReportSiteScope)
     })
     .from(neviStationData)
     .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id))
-    .where(stationSiteInScope(chargingStations.siteId, scope));
+    .where(and(isOperatorStation(), stationSiteInScope(chargingStations.siteId, scope)));
 
   for (const row of rows as DerInfoRow[]) {
     sheet.addRow({
@@ -744,7 +751,7 @@ async function buildCapitalCostsTab(
     })
     .from(neviStationData)
     .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id))
-    .where(stationSiteInScope(chargingStations.siteId, scope));
+    .where(and(isOperatorStation(), stationSiteInScope(chargingStations.siteId, scope)));
 
   for (const row of rows as CapitalCostsRow[]) {
     sheet.addRow({

@@ -16,6 +16,9 @@ import {
   PG_FOREIGN_KEY_VIOLATION,
   PG_UNIQUE_VIOLATION,
   toDate,
+  isOperatorStation,
+  operatorStationSql,
+  inOperatorStation,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { changedFields } from '../lib/audit-diff.js';
@@ -404,6 +407,7 @@ const siteSelect = {
       FROM meter_values mv
       INNER JOIN charging_stations cs ON cs.id = mv.station_id
       WHERE cs.site_id = ${sites.id}
+        AND ${sql.raw(operatorStationSql('cs'))}
         AND mv.measurand = 'Power.Active.Import'
         AND mv.timestamp >= now() - interval '60 seconds'
       ORDER BY mv.station_id, mv.timestamp DESC
@@ -863,7 +867,11 @@ export function siteRoutes(app: FastifyInstance): void {
         db
           .select(siteSelect)
           .from(sites)
-          .leftJoin(chargingStations, eq(chargingStations.siteId, sites.id))
+          // Conformance test stations do not count at a site.
+          .leftJoin(
+            chargingStations,
+            and(eq(chargingStations.siteId, sites.id), isOperatorStation()),
+          )
           .leftJoin(siteLoadManagement, eq(siteLoadManagement.siteId, sites.id))
           .where(where)
           .groupBy(sites.id, siteLoadManagement.isEnabled)
@@ -1045,7 +1053,8 @@ export function siteRoutes(app: FastifyInstance): void {
       const [row] = await db
         .select(siteSelect)
         .from(sites)
-        .leftJoin(chargingStations, eq(chargingStations.siteId, sites.id))
+        // Conformance test stations do not count at a site.
+        .leftJoin(chargingStations, and(eq(chargingStations.siteId, sites.id), isOperatorStation()))
         .leftJoin(siteLoadManagement, eq(siteLoadManagement.siteId, sites.id))
         .where(eq(sites.id, id))
         .groupBy(sites.id, siteLoadManagement.isEnabled);
@@ -1418,7 +1427,8 @@ export function siteRoutes(app: FastifyInstance): void {
 
       const uptimeRows = await db.execute(sql`
         WITH site_stations AS (
-          SELECT id AS station_uuid FROM charging_stations WHERE site_id = ${id}
+          SELECT id AS station_uuid FROM charging_stations
+          WHERE site_id = ${id} AND ${sql.raw(operatorStationSql('charging_stations'))}
         ),
         site_ports AS (
           SELECT DISTINCT e.station_id, e.evse_id
@@ -1477,6 +1487,12 @@ export function siteRoutes(app: FastifyInstance): void {
         LEFT JOIN outage_minutes om ON om.station_id = sp.station_id AND om.evse_id = sp.evse_id
       `);
 
+      // Sessions of conformance test stations never count at a site.
+      const siteSessionsSince = and(
+        eq(chargingSessions.siteId, id),
+        gte(chargingSessions.startedAt, since),
+        inOperatorStation(chargingSessions.stationId),
+      );
       const [sessionStats] = await db
         .select({
           totalSessions: count(),
@@ -1486,15 +1502,15 @@ export function siteRoutes(app: FastifyInstance): void {
           avgDurationMinutes: sql<number>`coalesce(avg(extract(epoch from (${chargingSessions.endedAt} - ${chargingSessions.startedAt})) / 60) filter (where ${chargingSessions.endedAt} is not null), 0)`,
         })
         .from(chargingSessions)
-        .where(and(eq(chargingSessions.siteId, id), gte(chargingSessions.startedAt, since)));
+        .where(siteSessionsSince);
 
       const [utilizationStats] = await db
         .select({
           sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
-          portCount: sql<number>`(select count(*) from evses e inner join charging_stations cs on cs.id = e.station_id where cs.site_id = ${id} and e.retired_at is null)`,
+          portCount: sql<number>`(select count(*) from evses e inner join charging_stations cs on cs.id = e.station_id where cs.site_id = ${id} and ${sql.raw(operatorStationSql('cs'))} and e.retired_at is null)`,
         })
         .from(chargingSessions)
-        .where(and(eq(chargingSessions.siteId, id), gte(chargingSessions.startedAt, since)));
+        .where(siteSessionsSince);
 
       const totalPortHours = (utilizationStats?.portCount ?? 1) * (periodMinutes / 60);
       const utilization =
@@ -1513,7 +1529,7 @@ export function siteRoutes(app: FastifyInstance): void {
               ),
           })
           .from(chargingSessions)
-          .where(and(eq(chargingSessions.siteId, id), gte(chargingSessions.startedAt, since))),
+          .where(siteSessionsSince),
         // Revenue (session-revenue.ts): ended sessions and reservation fees,
         // minus refunds.
         queryRevenueTotal({
@@ -1521,6 +1537,7 @@ export function siteRoutes(app: FastifyInstance): void {
           where: [
             sql`${revenueItem.siteId} = ${id}`,
             sql`${revenueItem.occurredAt} >= ${since.toISOString()}::timestamptz`,
+            inOperatorStation(revenueItem.stationId),
           ],
         }),
       ]);
@@ -1539,7 +1556,9 @@ export function siteRoutes(app: FastifyInstance): void {
             LEAD(cl.event) OVER (PARTITION BY cl.station_id ORDER BY cl.created_at) AS next_event
           FROM connection_logs cl
           INNER JOIN charging_stations cs ON cs.id = cl.station_id
-          WHERE cs.site_id = ${id} AND cl.created_at >= ${sinceIso}::timestamptz
+          WHERE cs.site_id = ${id}
+            AND ${sql.raw(operatorStationSql('cs'))}
+            AND cl.created_at >= ${sinceIso}::timestamptz
         )
         SELECT
           count(*) AS disconnect_count,
@@ -1623,7 +1642,7 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const where = eq(chargingStations.siteId, id);
+      const where = and(eq(chargingStations.siteId, id), isOperatorStation());
       const [data, countRows] = await Promise.all([
         db
           .select({
@@ -1713,6 +1732,7 @@ export function siteRoutes(app: FastifyInstance): void {
             eq(chargingSessions.siteId, id),
             gte(chargingSessions.startedAt, since),
             until ? lte(chargingSessions.startedAt, until) : undefined,
+            inOperatorStation(chargingSessions.stationId),
           ),
         )
         .groupBy(sql`1`)
@@ -1762,6 +1782,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const where = [
         sql`${revenueItem.siteId} = ${id}`,
         sql`${revenueItem.occurredAt} >= ${since.toISOString()}::timestamptz`,
+        inOperatorStation(revenueItem.stationId),
       ];
       if (until) where.push(sql`${revenueItem.occurredAt} <= ${until.toISOString()}::timestamptz`);
       const byDay = await queryRevenue({
@@ -1846,7 +1867,13 @@ export function siteRoutes(app: FastifyInstance): void {
           totalSessions: count(),
         })
         .from(chargingSessions)
-        .where(and(eq(chargingSessions.siteId, id), gte(chargingSessions.startedAt, since)))
+        .where(
+          and(
+            eq(chargingSessions.siteId, id),
+            gte(chargingSessions.startedAt, since),
+            inOperatorStation(chargingSessions.stationId),
+          ),
+        )
         .groupBy(sql`1`, sql`2`)
         .orderBy(sql`1`, sql`2`);
 
@@ -1918,6 +1945,7 @@ export function siteRoutes(app: FastifyInstance): void {
           .where(
             and(
               eq(chargingStations.siteId, id),
+              isOperatorStation(),
               eq(meterValues.measurand, measurand),
               gte(meterValues.timestamp, since),
             ),
@@ -1942,7 +1970,13 @@ export function siteRoutes(app: FastifyInstance): void {
         })
         .from(meterValues)
         .innerJoin(chargingStations, eq(meterValues.stationId, chargingStations.id))
-        .where(and(eq(chargingStations.siteId, id), gte(meterValues.timestamp, since)))
+        .where(
+          and(
+            eq(chargingStations.siteId, id),
+            isOperatorStation(),
+            gte(meterValues.timestamp, since),
+          ),
+        )
         .orderBy(meterValues.measurand, meterValues.timestamp);
 
       const grouped = new Map<
@@ -2003,7 +2037,11 @@ export function siteRoutes(app: FastifyInstance): void {
       const { page, limit, status, stationId } = request.query as z.infer<typeof sessionsQuery>;
       const offset = (page - 1) * limit;
       // Sessions that happened at the site, also from a station that moved away.
-      const conditions = [eq(chargingSessions.siteId, id)];
+      // Sessions of conformance test stations are never listed.
+      const conditions = [
+        eq(chargingSessions.siteId, id),
+        inOperatorStation(chargingSessions.stationId),
+      ];
       if (stationId != null) {
         conditions.push(eq(chargingSessions.stationId, stationId));
       }
@@ -2101,7 +2139,7 @@ export function siteRoutes(app: FastifyInstance): void {
         })
         .from(chargingStations)
         .leftJoin(stationLayoutPositions, eq(stationLayoutPositions.stationId, chargingStations.id))
-        .where(eq(chargingStations.siteId, id));
+        .where(and(eq(chargingStations.siteId, id), isOperatorStation()));
 
       if (stationRows.length === 0) return [];
 

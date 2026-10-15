@@ -86,6 +86,16 @@ export default tseslint.config(
       'evtivity/no-raw-switch': 'error',
     },
   },
+  // Inputs, selects and buttons take their height from the shared component
+  // (frontend/ui.md, control heights): no height or vertical padding class
+  // on them outside components/ui.
+  {
+    files: ['packages/csms/src/**/*.tsx', 'packages/portal/src/**/*.tsx'],
+    ignores: ['**/components/ui/**', '**/__tests__/**', '**/*.test.tsx'],
+    rules: {
+      'evtivity/no-control-height-class': 'error',
+    },
+  },
   // Copying goes through the shared copy controls (frontend/ui.md, shared
   // controls): no navigator.clipboard outside components/ui.
   {

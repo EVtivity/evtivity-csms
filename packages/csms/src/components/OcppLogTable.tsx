@@ -107,7 +107,7 @@ export function OcppLogTable({
                 onChange={(e) => {
                   onActionFilterChange(e.target.value);
                 }}
-                className="h-8 px-2 pr-8 text-xs"
+                className="px-2 pr-8 text-xs"
               >
                 <option value="">{t('ocppLogs.allActions')}</option>
                 {actions.map((a) => (

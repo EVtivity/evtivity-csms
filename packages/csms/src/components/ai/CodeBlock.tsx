@@ -7,10 +7,15 @@ import { CopyButton } from '@/components/ui/copy-button';
 interface CodeBlockProps {
   code: string;
   language: string | null;
+  /** Caps the height (`max-h-80`) so a long block scrolls inside itself both ways. */
+  bounded?: boolean;
 }
 
-/** A fenced code block from model output, with the shared copy button. */
-export function CodeBlock({ code, language }: CodeBlockProps): React.JSX.Element {
+/**
+ * A code block with the shared copy button: fenced code from model output,
+ * and formatted JSON under a log table row (`JsonDetailBlock`).
+ */
+export function CodeBlock({ code, language, bounded = false }: CodeBlockProps): React.JSX.Element {
   const { t } = useTranslation();
 
   return (
@@ -19,7 +24,9 @@ export function CodeBlock({ code, language }: CodeBlockProps): React.JSX.Element
         <span className="font-mono">{language ?? t('ai.code')}</span>
         <CopyButton value={code} text={t('common.copy')} label={t('ai.copyCode')} size="xs" />
       </div>
-      <pre className="overflow-x-auto p-3 text-xs leading-relaxed">
+      <pre
+        className={`p-3 text-xs leading-relaxed ${bounded ? 'max-h-80 overflow-auto' : 'overflow-x-auto'}`}
+      >
         <code className="font-mono">{code}</code>
       </pre>
     </div>

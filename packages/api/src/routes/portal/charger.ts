@@ -40,6 +40,7 @@ import {
   failUnstartedRemoteSession,
   REMOTE_START_TIMEOUT_REASON,
   REMOTE_START_REJECTED_REASON,
+  isOperatorStation,
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { publicSiteListed, publicStationListed } from '../../lib/public-station.js';
@@ -1444,10 +1445,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const since = new Date();
       since.setDate(since.getDate() - weeks * 7);
 
+      // Sessions of conformance (OCTT) stations are not counted.
       const stationIds = db
         .select({ id: chargingStations.id })
         .from(chargingStations)
-        .where(eq(chargingStations.siteId, siteId));
+        .where(and(eq(chargingStations.siteId, siteId), isOperatorStation()));
 
       const rows = await db
         .select({
@@ -2552,7 +2554,13 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         })
         .from(chargingSessions)
         .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-        .where(and(eq(chargingSessions.driverId, driverId), eq(chargingSessions.status, 'active')));
+        .where(
+          and(
+            eq(chargingSessions.driverId, driverId),
+            eq(chargingSessions.status, 'active'),
+            isOperatorStation(),
+          ),
+        );
 
       return { data: sessions };
     },
@@ -2717,7 +2725,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         })
         .from(reservations)
         .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
-        .where(eq(reservations.driverId, driverId))
+        .where(and(eq(reservations.driverId, driverId), isOperatorStation()))
         .orderBy(desc(reservations.createdAt), desc(reservations.id))
         .limit(50);
 

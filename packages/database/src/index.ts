@@ -490,6 +490,22 @@ export { getAttestationConfig, clearAttestationConfigCache } from './lib/attesta
 export type { AttestationConfig } from './lib/attestation-settings.js';
 export { getMobileAppConfig, clearMobileAppConfigCache } from './lib/mobile-app-settings.js';
 export {
+  CONFORMANCE_STATION_ID_PREFIX,
+  CONFORMANCE_CS_STATION_ID_PREFIX,
+  operatorStationSql,
+  operatorStationIdSql,
+  isOperatorStation,
+  inOperatorStation,
+  CONFORMANCE_DELETE_BATCH,
+  deleteConformanceStations,
+  deleteConformanceTestDriver,
+  conformanceTestDriverInUse,
+} from './lib/conformance-stations.js';
+export type {
+  ConformanceStationDeleteOptions,
+  ConformanceDriverDeleteResult,
+} from './lib/conformance-stations.js';
+export {
   stationInsightsOperatorSuppressedSql,
   stationInsightsSuppressedSql,
   stationUnderActiveMaintenanceSql,

@@ -142,7 +142,7 @@ export function CaCertificatesTab(): React.JSX.Element {
                   onChange={(e) => {
                     setCaStatusFilter(e.target.value);
                   }}
-                  className="hidden h-9 w-auto md:block"
+                  className="hidden w-auto md:block"
                 >
                   <option value="">{t('common.all')}</option>
                   <option value="active">{t('pnc.active')}</option>
@@ -164,7 +164,6 @@ export function CaCertificatesTab(): React.JSX.Element {
                       onChange={(e) => {
                         setCaStatusFilter(e.target.value);
                       }}
-                      className="h-10"
                     >
                       <option value="">{t('common.all')}</option>
                       <option value="active">{t('pnc.active')}</option>
@@ -264,7 +263,6 @@ export function CaCertificatesTab(): React.JSX.Element {
                 onChange={(e) => {
                   setUploadCertType(e.target.value);
                 }}
-                className="h-9"
               >
                 <option value="V2GRootCertificate">V2G Root Certificate</option>
                 <option value="MORootCertificate">MO Root Certificate</option>

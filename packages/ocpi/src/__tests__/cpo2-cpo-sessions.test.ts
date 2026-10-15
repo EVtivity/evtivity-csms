@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 
 // Each awaited select chain resolves to the next queued result, in the order
 // the service awaits its queries.
@@ -9,12 +11,19 @@ let selectResults: unknown[][] = [];
 const updateSets: Array<Record<string, unknown>> = [];
 const limitArgs: number[] = [];
 const offsetArgs: number[] = [];
+const whereArgs: SQL[] = [];
+const dialect = new PgDialect();
+const whereSql = (i: number): string => dialect.sqlToQuery(whereArgs[i] as SQL).sql;
 
 function makeSelectChain(): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const m of ['from', 'where', 'orderBy', 'innerJoin']) {
+  for (const m of ['from', 'orderBy', 'innerJoin']) {
     chain[m] = vi.fn(() => chain);
   }
+  chain['where'] = vi.fn((w: SQL) => {
+    whereArgs.push(w);
+    return chain;
+  });
   chain['limit'] = vi.fn((n: number) => {
     limitArgs.push(n);
     return chain;
@@ -111,6 +120,7 @@ beforeEach(() => {
   updateSets.length = 0;
   limitArgs.length = 0;
   offsetArgs.length = 0;
+  whereArgs.length = 0;
 });
 
 describe('sessionPlace', () => {
@@ -344,6 +354,12 @@ describe('cpoSessionLink', () => {
     selectResults = [[LINK]];
     expect(await cpoSessionLink('ses_000000000001')).toEqual(LINK);
   });
+
+  it('never links a session at a conformance test station', async () => {
+    selectResults = [[]];
+    await cpoSessionLink('ses_000000000001');
+    expect(whereSql(0)).toContain('conf_st.is_conformance');
+  });
 });
 
 describe('listPartnerCpoSessions', () => {
@@ -367,6 +383,9 @@ describe('listPartnerCpoSessions', () => {
     expect(result.sessions[0]).toMatchObject({ id: 'OCPI-SES-1', location_id: STATION.id });
     expect(limitArgs[0]).toBe(1);
     expect(offsetArgs).toEqual([3]);
+    // Sessions at conformance test stations are never listed, page or total.
+    expect(whereSql(0)).toContain('conf_st.is_conformance');
+    expect(whereSql(1)).toContain('conf_st.is_conformance');
   });
 
   it('drops sessions whose station is gone and defaults a missing count to zero', async () => {

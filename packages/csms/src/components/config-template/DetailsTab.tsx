@@ -405,7 +405,6 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                         />
                         <RemoveIconButton
                           title={t('common.delete')}
-                          size="sm"
                           onClick={() => {
                             removeVariable(i);
                           }}
@@ -452,7 +451,6 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                         />
                         <RemoveIconButton
                           title={t('common.delete')}
-                          size="sm"
                           onClick={() => {
                             removeVariable(i);
                           }}

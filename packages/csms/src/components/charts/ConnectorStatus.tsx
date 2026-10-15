@@ -703,7 +703,6 @@ export function ConnectorStatus({
                           {evse.retiredAt == null &&
                             (conn.retiredAt != null ? (
                               <RestoreIconButton
-                                size="sm"
                                 onClick={() => {
                                   restoreMutation.mutate({
                                     evseId: evse.evseId,
@@ -715,7 +714,6 @@ export function ConnectorStatus({
                               />
                             ) : (
                               <RetireIconButton
-                                size="sm"
                                 disabled={IN_USE_STATUSES.includes(conn.status)}
                                 onClick={() => {
                                   setRetireTarget({
@@ -731,7 +729,6 @@ export function ConnectorStatus({
                               />
                             ))}
                           <RemoveIconButton
-                            size="sm"
                             disabled={IN_USE_STATUSES.includes(conn.status)}
                             onClick={() => {
                               setDeleteConnectorTarget({
@@ -814,7 +811,6 @@ export function ConnectorStatus({
                 onChange={(e) => {
                   setNewEvseConnector((prev) => ({ ...prev, connectorType: e.target.value }));
                 }}
-                className="h-9"
               >
                 <option value="">— Select one —</option>
                 <ConnectorTypeOptions />
@@ -897,7 +893,6 @@ export function ConnectorStatus({
                 onChange={(e) => {
                   setNewConnector((prev) => ({ ...prev, connectorType: e.target.value }));
                 }}
-                className="h-9"
               >
                 <option value="">— Select one —</option>
                 <ConnectorTypeOptions />
@@ -978,7 +973,6 @@ export function ConnectorStatus({
                           ),
                         );
                       }}
-                      className="h-9"
                     >
                       <option value="">— Select one —</option>
                       <ConnectorTypeOptions />

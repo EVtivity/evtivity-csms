@@ -492,8 +492,8 @@ function ToolbarButton({
     <Button
       type="button"
       variant="ghost"
-      size="sm"
-      className={`h-8 w-8 p-0 ${active ? 'bg-accent text-accent-foreground' : ''}`}
+      size="icon-sm"
+      className={active ? 'bg-accent text-accent-foreground' : undefined}
       onClick={onClick}
       title={title}
       aria-label={title}

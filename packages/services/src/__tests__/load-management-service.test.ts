@@ -139,6 +139,7 @@ vi.mock('@evtivity/database', () => ({
   evChargingNeeds: dbState.tables['evChargingNeeds'],
   stationConfigurations: dbState.tables['stationConfigurations'],
   chargingProfiles: dbState.tables['chargingProfiles'],
+  isOperatorStation: vi.fn(() => 'OPERATOR_STATION'),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -1035,6 +1036,18 @@ describe('getSitePowerStatus', () => {
     const result = await getSitePowerStatus('site-empty');
 
     expect(result).toEqual({ totalDrawKw: 0, stations: [] });
+  });
+
+  it('reads only operator stations, never conformance test stations', async () => {
+    setResult('chargingStations', []);
+    const { and } = await import('drizzle-orm');
+    vi.mocked(and).mockClear();
+
+    await getSitePowerStatus('site-empty');
+
+    expect(
+      vi.mocked(and).mock.calls.some((args) => (args as unknown[]).includes('OPERATOR_STATION')),
+    ).toBe(true);
   });
 
   it('aggregates connector max power, recent draw, active sessions and departures', async () => {

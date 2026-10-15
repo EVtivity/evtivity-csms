@@ -65,7 +65,8 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -411,6 +412,9 @@ describe('Load management routes', () => {
       expect.arrayContaining(['STATION-001']),
       expect.anything(),
     );
+    // Load management never manages a conformance test station.
+    const { isOperatorStation } = await import('@evtivity/database');
+    expect(vi.mocked(isOperatorStation)).toHaveBeenCalled();
   });
 
   it('PUT /v1/sites/:id/load-management creates new config when none exists', async () => {

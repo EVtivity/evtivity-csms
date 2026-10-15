@@ -62,7 +62,9 @@ const {
   mockGetStationMessageBrandLine,
   mockPublish,
   mockSubscribe,
+  mockIsOperatorStation,
 } = vi.hoisted(() => ({
+  mockIsOperatorStation: vi.fn(() => 'OPERATOR_STATION'),
   mockGetStationMessageBrandLine: vi.fn(),
   mockIsStationMessageEnabled: vi.fn(),
   mockGetStationMessagePricingFormat: vi.fn(),
@@ -83,6 +85,7 @@ vi.mock('@evtivity/database', () => ({
   getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
   getStationMessageLanguage: mockGetStationMessageLanguage,
   getStationMessageBrandLine: mockGetStationMessageBrandLine,
+  isOperatorStation: mockIsOperatorStation,
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -1364,6 +1367,24 @@ describe('station-message.service', () => {
       await pushAllMessagesToAllStations(mockLogger, { pricingGroupId: 'pg_9' });
       const values = sqlMock.mock.calls.flatMap((c) => c.slice(1));
       expect(values).toContain('pg_9');
+    });
+
+    it('leaves conformance test stations out of a re-push of many stations only', async () => {
+      const andMock = vi.mocked(drizzleOrmModule.and);
+
+      andMock.mockClear();
+      setupDbResults([]);
+      await pushAllMessagesToAllStations(mockLogger, { siteId: 'sit_9' });
+      expect(
+        andMock.mock.calls.some((args) => (args as unknown[]).includes('OPERATOR_STATION')),
+      ).toBe(true);
+
+      andMock.mockClear();
+      setupDbResults([]);
+      await pushAllMessagesToAllStations(mockLogger, { stationId: 'sta_9' });
+      expect(
+        andMock.mock.calls.some((args) => (args as unknown[]).includes('OPERATOR_STATION')),
+      ).toBe(false);
     });
 
     it('runs each station through the given render runner', async () => {

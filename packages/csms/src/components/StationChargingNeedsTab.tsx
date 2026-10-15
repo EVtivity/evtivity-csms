@@ -515,7 +515,6 @@ export function StationChargingNeedsTab({
                   onChange={(e) => {
                     setType(e.target.value);
                   }}
-                  className="h-9"
                 >
                   {MONITOR_TYPES.map((m) => (
                     <option key={m} value={m}>
@@ -551,7 +550,6 @@ export function StationChargingNeedsTab({
                   onChange={(e) => {
                     setSeverity(e.target.value);
                   }}
-                  className="h-9"
                 >
                   {Array.from({ length: 10 }, (_, i) => (
                     <option key={i} value={String(i)}>

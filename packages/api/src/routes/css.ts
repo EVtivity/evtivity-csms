@@ -4,8 +4,8 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, and, count, sql, inArray, desc } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { eq, and, or, count, sql, inArray, desc, isNull } from 'drizzle-orm';
+import { db, isOperatorStation } from '@evtivity/database';
 import {
   cssStations,
   cssEvses,
@@ -1455,8 +1455,11 @@ export function cssRoutes(app: FastifyInstance): void {
       // because some css_stations rows have no charging_stations pair (legacy
       // seeded fixtures). Rows without a pair or with siteId=null are visible
       // to all-site users only, per site-access-control.md.
-      const accessCondition =
-        siteIds == null ? undefined : inArray(chargingStations.siteId, siteIds);
+      // The simulators of conformance test stations are never listed.
+      const accessCondition = and(
+        or(isNull(chargingStations.id), isOperatorStation()),
+        siteIds == null ? undefined : inArray(chargingStations.siteId, siteIds),
+      );
 
       const [data, totalResult] = await Promise.all([
         db

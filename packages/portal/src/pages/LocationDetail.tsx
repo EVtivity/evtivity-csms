@@ -196,10 +196,7 @@ export function LocationDetail(): React.JSX.Element {
                         to={`/charge/${c.stationId}/${String(c.evseId)}`}
                         className="block"
                       >
-                        <Button
-                          variant="outline"
-                          className="w-full justify-between gap-2 h-auto py-3"
-                        >
+                        <Button variant="outline" size="row" className="justify-between">
                           {inner}
                         </Button>
                       </Link>

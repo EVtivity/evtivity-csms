@@ -45,22 +45,26 @@ const mocks = vi.hoisted(() => ({
   loadEmspTombstones: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
-  db: {
-    select: vi.fn(() => makeChain()),
-    selectDistinct: vi.fn(() => makeChain()),
-    insert: vi.fn(() => makeInsertChain()),
-  },
-  chargingStations: {},
-  chargingSessions: { id: {} },
-  evses: {},
-  ocpiPartners: { id: {}, status: {} },
-  ocpiPartnerEndpoints: {},
-  ocpiLocationPublish: {},
-  ocpiLocationPublishPartners: {},
-  ocpiSyncLog: {},
-  ocpiLocationAudience: mocks.ocpiLocationAudience,
-}));
+vi.mock('@evtivity/database', async () => {
+  const { sql } = await import('drizzle-orm');
+  return {
+    db: {
+      select: vi.fn(() => makeChain()),
+      selectDistinct: vi.fn(() => makeChain()),
+      insert: vi.fn(() => makeInsertChain()),
+    },
+    chargingStations: {},
+    chargingSessions: { id: {} },
+    evses: {},
+    ocpiPartners: { id: {}, status: {} },
+    ocpiPartnerEndpoints: {},
+    ocpiLocationPublish: {},
+    ocpiLocationPublishPartners: {},
+    ocpiSyncLog: {},
+    ocpiLocationAudience: mocks.ocpiLocationAudience,
+    isOperatorStation: () => sql`true`,
+  };
+});
 vi.mock('../lib/ocpi-client.js', () => ({
   OcpiClient: vi.fn(function OcpiClient() {
     return mocks.client;

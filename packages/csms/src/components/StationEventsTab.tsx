@@ -1,10 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -14,22 +13,11 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Select } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
-import { FilterPopover } from '@/components/FilterBar';
+import { JsonDetailBlock, JsonPreviewToggle } from '@/components/ExpandableJson';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
-import { SEVERITY_VARIANT } from '@/lib/severity';
 import { LoadingLogo } from '@/components/loading-logo';
-
-interface SecurityEvent {
-  id: number;
-  type: string;
-  severity: string;
-  timestamp: string;
-  techInfo: string | null;
-}
 
 interface NotifyEvent {
   id: number;
@@ -44,117 +32,14 @@ interface Props {
   timezone: string;
 }
 
-function SecurityEventsPanel({ stationId, timezone }: Props): React.JSX.Element {
+/**
+ * The station Events tab: the variable monitoring events the station reports
+ * through NotifyEvent. Security events are on the Security tab's log.
+ */
+export function StationEventsTab({ stationId, timezone }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
-  const [severity, setSeverity] = useState('');
-  const limit = 25;
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['stations', stationId, 'security-events', page, severity],
-    queryFn: () => {
-      const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-      if (severity !== '') params.set('severity', severity);
-      return api.get<{ data: SecurityEvent[]; total: number }>(
-        `/v1/stations/${stationId}/security-events?${params.toString()}`,
-      );
-    },
-  });
-
-  const totalPages = data != null ? Math.ceil(data.total / limit) : 1;
-
-  return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-row items-center justify-between gap-2">
-          <CardTitle>{t('stations.securityEvents')}</CardTitle>
-          <Select
-            aria-label={t('common.filterBySeverity')}
-            value={severity}
-            onChange={(e) => {
-              setSeverity(e.target.value);
-              setPage(1);
-            }}
-            className="hidden h-9 w-auto md:block"
-          >
-            <option value="">{t('common.all')}</option>
-            <option value="critical">{t('severity.critical')}</option>
-            <option value="high">{t('severity.high')}</option>
-            <option value="medium">{t('severity.medium')}</option>
-            <option value="low">{t('severity.low')}</option>
-            <option value="info">{t('severity.info')}</option>
-          </Select>
-          <FilterPopover className="md:hidden" activeCount={severity ? 1 : 0}>
-            <Select
-              aria-label={t('common.filterBySeverity')}
-              value={severity}
-              onChange={(e) => {
-                setSeverity(e.target.value);
-                setPage(1);
-              }}
-              className="h-9 w-auto"
-            >
-              <option value="">{t('common.all')}</option>
-              <option value="critical">{t('severity.critical')}</option>
-              <option value="high">{t('severity.high')}</option>
-              <option value="medium">{t('severity.medium')}</option>
-              <option value="low">{t('severity.low')}</option>
-              <option value="info">{t('severity.info')}</option>
-            </Select>
-          </FilterPopover>
-        </div>
-        <CardDescription>{t('stations.securityEventsDescription')}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <LoadingLogo size="inline" />
-        ) : data == null || data.data.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">
-            {t('stations.noSecurityEvents')}
-          </p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('common.type')}</TableHead>
-                    <TableHead>{t('common.severity')}</TableHead>
-                    <TableHead>{t('common.timestamp')}</TableHead>
-                    <TableHead>{t('stations.techInfo')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.data.map((event) => (
-                    <TableRow key={event.id}>
-                      <TableCell className="text-xs">{event.type}</TableCell>
-                      <TableCell>
-                        <Badge variant={SEVERITY_VARIANT[event.severity] ?? 'outline'}>
-                          {t(`severity.${event.severity}`, { defaultValue: event.severity })}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {formatDateTime(event.timestamp, timezone)}
-                      </TableCell>
-                      <TableCell className="text-xs max-w-xs truncate">
-                        {event.techInfo ?? 'n/a'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function NotifyEventsPanel({ stationId, timezone }: Props): React.JSX.Element {
-  const { t } = useTranslation();
-  const [page, setPage] = useState(1);
+  const [expandedId, setExpandedId] = useState<number | null>(null);
   const limit = 25;
 
   const { data, isLoading } = useQuery({
@@ -185,22 +70,47 @@ function NotifyEventsPanel({ stationId, timezone }: Props): React.JSX.Element {
                 <TableHeader>
                   <TableRow>
                     <TableHead>{t('common.timestamp')}</TableHead>
-                    <TableHead>Seq</TableHead>
+                    <TableHead>{t('stations.seqNo')}</TableHead>
                     <TableHead>{t('common.data')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {data.data.map((event) => (
-                    <TableRow key={event.id}>
-                      <TableCell className="text-xs">
-                        {formatDateTime(event.generatedAt, timezone)}
-                      </TableCell>
-                      <TableCell className="text-xs">{event.seqNo}</TableCell>
-                      <TableCell className="text-xs max-w-md truncate">
-                        {JSON.stringify(event.eventData)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {data.data.map((event) => {
+                    const isExpanded = expandedId === event.id;
+                    const toggle = (): void => {
+                      setExpandedId(isExpanded ? null : event.id);
+                    };
+                    const detailId = `notify-event-${String(event.id)}-data`;
+                    return (
+                      <Fragment key={event.id}>
+                        <TableRow
+                          className="cursor-pointer"
+                          data-testid={`notify-event-row-${String(event.id)}`}
+                          onClick={toggle}
+                        >
+                          <TableCell className="text-xs whitespace-nowrap">
+                            {formatDateTime(event.generatedAt, timezone)}
+                          </TableCell>
+                          <TableCell className="text-xs">{event.seqNo}</TableCell>
+                          <TableCell className="text-xs max-w-md">
+                            <JsonPreviewToggle
+                              value={event.eventData}
+                              expanded={isExpanded}
+                              onToggle={toggle}
+                              controlsId={detailId}
+                            />
+                          </TableCell>
+                        </TableRow>
+                        {isExpanded && (
+                          <TableRow className="bg-muted/30 hover:bg-muted/30">
+                            <TableCell colSpan={3} className="p-3">
+                              <JsonDetailBlock id={detailId} value={event.eventData} />
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -209,27 +119,5 @@ function NotifyEventsPanel({ stationId, timezone }: Props): React.JSX.Element {
         )}
       </CardContent>
     </Card>
-  );
-}
-
-export function StationEventsTab({ stationId, timezone }: Props): React.JSX.Element {
-  const { t } = useTranslation();
-  const [subTab, setSubTab] = useState('security');
-
-  return (
-    <div className="space-y-4">
-      <Tabs value={subTab} onValueChange={setSubTab}>
-        <TabsList>
-          <TabsTrigger value="security">{t('stations.securityEvents')}</TabsTrigger>
-          <TabsTrigger value="notify">{t('stations.notifyEvents')}</TabsTrigger>
-        </TabsList>
-        <TabsContent value="security" className="space-y-6">
-          <SecurityEventsPanel stationId={stationId} timezone={timezone} />
-        </TabsContent>
-        <TabsContent value="notify" className="space-y-6">
-          <NotifyEventsPanel stationId={stationId} timezone={timezone} />
-        </TabsContent>
-      </Tabs>
-    </div>
   );
 }

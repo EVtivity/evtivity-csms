@@ -64,7 +64,8 @@ function makeChain() {
   return chain;
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
@@ -114,6 +115,11 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn(),
   between: vi.fn(),
   isNotNull: vi.fn(),
+}));
+
+vi.mock('../lib/payment-site-scope.js', () => ({
+  paymentRecordsAtSites: vi.fn(() => ({ paymentsAtSites: true })),
+  paymentRecordsOfOperatorStations: vi.fn(() => ({ paymentsOfOperatorStations: true })),
 }));
 
 const { mockDerivedStatus } = vi.hoisted(() => ({
@@ -330,6 +336,22 @@ describe('Dashboard routes', () => {
     expect(body.onlinePercent).toBe(0);
   });
 
+  it('GET /v1/dashboard/stats leaves conformance stations and their sessions out', async () => {
+    const database = await import('@evtivity/database');
+    vi.mocked(database.isOperatorStation).mockClear();
+    vi.mocked(database.inOperatorStation).mockClear();
+    setupDbResults([], [], [], [], []);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/stats',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    // Station counts and faults, then the session totals and active sessions.
+    expect(vi.mocked(database.isOperatorStation)).toHaveBeenCalled();
+    expect(vi.mocked(database.inOperatorStation)).toHaveBeenCalled();
+  });
+
   it('GET /v1/dashboard/energy-history returns energy data per day', async () => {
     // First query: timezone setting
     // Timezone now comes from cached getSystemTimezone (mocked above).
@@ -418,6 +440,26 @@ describe('Dashboard routes', () => {
       { site: 'Two Ports', utilization: 25 },
       { site: 'No Ports', utilization: 0 },
     ]);
+  });
+
+  it('GET /v1/dashboard/utilization keeps tiny values unrounded so the chart scales', async () => {
+    // 200 ports over 72 hours is 14,400 port-hours: 69 charging hours is 0.479...%;
+    // 400 ports and 1 charging hour is 0.00347...%, still above zero.
+    vi.mocked(db.execute).mockResolvedValueOnce([
+      { site_name: 'Large', ports: '200', session_hours: '69' },
+      { site_name: 'Larger', ports: '400', session_hours: '1' },
+    ] as never);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/utilization?from=2025-01-01&to=2025-01-03',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body) as { site: string; utilization: number }[];
+    expect(body.map((r) => r.site)).toEqual(['Large', 'Larger']);
+    expect(body[0]?.utilization).toBeCloseTo((69 / 14_400) * 100, 10);
+    expect(body[1]?.utilization).toBeCloseTo((1 / 28_800) * 100, 10);
+    expect(body[1]?.utilization).toBeGreaterThan(0);
   });
 
   it('GET /v1/dashboard/peak-usage returns 401 without auth', async () => {
@@ -684,6 +726,8 @@ describe('Dashboard routes', () => {
     expect(body[0]).toHaveProperty('status');
     expect(body[0]).toHaveProperty('count');
     expect(body[0]).toHaveProperty('totalCents');
+    const scope = await import('../lib/payment-site-scope.js');
+    expect(vi.mocked(scope.paymentRecordsOfOperatorStations)).toHaveBeenCalled();
   });
 
   it('GET /v1/dashboard/uptime returns uptime data', async () => {

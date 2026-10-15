@@ -4,7 +4,14 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, sql, isNotNull } from 'drizzle-orm';
-import { db, panels, circuits, unmanagedLoads, chargingStations } from '@evtivity/database';
+import {
+  db,
+  panels,
+  circuits,
+  unmanagedLoads,
+  chargingStations,
+  operatorStationSql,
+} from '@evtivity/database';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -433,7 +440,7 @@ export function panelRoutes(app: FastifyInstance): void {
           // "circuits"."id" written out: a single-table select renders
           // the circuits.id column unqualified, which inside the subquery would
           // name charging_stations.id.
-          stationCount: sql<number>`(SELECT count(*)::int FROM charging_stations WHERE charging_stations.circuit_id = "circuits"."id" AND charging_stations.site_id = ${siteId})`,
+          stationCount: sql<number>`(SELECT count(*)::int FROM charging_stations WHERE charging_stations.circuit_id = "circuits"."id" AND charging_stations.site_id = ${siteId} AND ${sql.raw(operatorStationSql('charging_stations'))})`,
         })
         .from(circuits)
         .where(eq(circuits.panelId, panelId))

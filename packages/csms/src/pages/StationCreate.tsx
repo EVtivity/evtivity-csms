@@ -172,7 +172,7 @@ export function StationCreate(): React.JSX.Element {
                 onChange={(e) => {
                   setSiteId(e.target.value);
                 }}
-                className={`h-9 ${hasSubmitted && errors.siteId ? 'border-destructive' : ''}`}
+                className={hasSubmitted && errors.siteId ? 'border-destructive' : undefined}
               >
                 <option value="">{t('common.selectSite')}</option>
                 {siteList?.map((s) => (
@@ -195,7 +195,6 @@ export function StationCreate(): React.JSX.Element {
                 onChange={(e) => {
                   setOcppProtocol(e.target.value as 'ocpp1.6' | 'ocpp2.1');
                 }}
-                className="h-9"
               >
                 <option value="ocpp1.6">OCPP 1.6</option>
                 <option value="ocpp2.1">OCPP 2.1</option>
@@ -211,7 +210,6 @@ export function StationCreate(): React.JSX.Element {
                 onChange={(e) => {
                   setSecurityProfile(e.target.value);
                 }}
-                className="h-9"
               >
                 <option value="0">{t('stations.sp0')}</option>
                 <option value="1">{t('stations.sp1')}</option>

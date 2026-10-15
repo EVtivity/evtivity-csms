@@ -306,7 +306,7 @@ export function Sites(): React.JSX.Element {
             value={search}
             onDebouncedChange={setSearch}
             placeholder={t('sites.searchPlaceholder')}
-            className="h-10 w-full"
+            className="w-full"
           />
         );
         const filters = (
@@ -315,7 +315,6 @@ export function Sites(): React.JSX.Element {
               <Label className="leading-6">{t('sites.location')}</Label>
               <Select
                 aria-label={t('sites.location')}
-                className="h-10"
                 value={locationFilter}
                 onChange={(e) => {
                   setLocationFilter(e.target.value);
@@ -334,7 +333,6 @@ export function Sites(): React.JSX.Element {
               <Label className="leading-6">{t('sites.loadManagementFilter')}</Label>
               <Select
                 aria-label={t('sites.loadManagementFilter')}
-                className="h-10"
                 value={loadManagementFilter}
                 onChange={(e) => {
                   setLoadManagementFilter(e.target.value);

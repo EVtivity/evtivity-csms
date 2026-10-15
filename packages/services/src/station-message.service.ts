@@ -24,6 +24,7 @@ import {
   getCompanyPriceDisplay,
   getCompanyTaxBasis,
   resolveStationTariff,
+  isOperatorStation,
 } from '@evtivity/database';
 import {
   buildStationPriceContext,
@@ -953,7 +954,8 @@ export async function runStationTransaction(
 /**
  * Re-renders the Idle, Faulted and Unavailable screens of every online station
  * (or of one site's stations). The content hash skips stations whose screen
- * did not change.
+ * did not change. A re-push of many stations leaves conformance test stations
+ * out; a re-push of one station by id does not.
  */
 export async function pushAllMessagesToAllStations(
   log: ServiceLogger,
@@ -963,6 +965,7 @@ export async function pushAllMessagesToAllStations(
   const conditions = [eq(chargingStations.isOnline, true)];
   if (options.siteId != null) conditions.push(eq(chargingStations.siteId, options.siteId));
   if (options.stationId != null) conditions.push(eq(chargingStations.id, options.stationId));
+  else conditions.push(isOperatorStation());
   if (options.pricingGroupId != null) {
     conditions.push(sql`(
       EXISTS (

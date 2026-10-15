@@ -3,13 +3,10 @@
 
 import { forwardRef } from 'react';
 import { X } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { Input, type InputProps } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-interface ClearableInputProps extends Omit<
-  React.InputHTMLAttributes<HTMLInputElement>,
-  'onChange'
-> {
+interface ClearableInputProps extends Omit<InputProps, 'onChange'> {
   value: string;
   onChange: (value: string) => void;
   onClear?: () => void;

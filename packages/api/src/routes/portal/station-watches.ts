@@ -5,7 +5,13 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, sql, inArray, isNull } from 'drizzle-orm';
 import { db, availableEvseCountSql } from '@evtivity/database';
-import { stationWatches, chargingStations, sites, evses } from '@evtivity/database';
+import {
+  stationWatches,
+  chargingStations,
+  sites,
+  evses,
+  isOperatorStation,
+} from '@evtivity/database';
 import { publicStationListed } from '../../lib/public-station.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import {
@@ -89,7 +95,8 @@ export function portalStationWatchRoutes(app: FastifyInstance): void {
         .from(stationWatches)
         .innerJoin(chargingStations, eq(stationWatches.stationId, chargingStations.id))
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(eq(stationWatches.driverId, driverId))
+        // A conformance (OCTT) station is never listed to a driver.
+        .where(and(eq(stationWatches.driverId, driverId), isOperatorStation()))
         .orderBy(desc(stationWatches.createdAt), desc(stationWatches.id));
 
       const stationUuids = rows.map((r) => r.stationUuid);

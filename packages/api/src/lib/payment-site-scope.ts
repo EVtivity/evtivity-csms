@@ -1,11 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, inArray, or, type SQL } from 'drizzle-orm';
+import { and, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
   chargingStations,
+  inOperatorStation,
   paymentRecords,
   reservations,
 } from '@evtivity/database';
@@ -33,6 +34,23 @@ export function paymentRecordsAtSites(siteIds: string[]): SQL {
         .from(reservations)
         .innerJoin(chargingStations, eq(chargingStations.id, reservations.stationId))
         .where(inArray(chargingStations.siteId, siteIds)),
+    ),
+  ) as SQL;
+}
+
+/**
+ * Leaves out the payment records of conformance (OCTT) stations: a session
+ * record whose session's station, or a reservation fee record whose
+ * reservation's station, is a conformance station. Records without a session
+ * or reservation pass.
+ */
+export function paymentRecordsOfOperatorStations(): SQL {
+  return and(
+    inOperatorStation(
+      sql`(SELECT ${chargingSessions.stationId} FROM ${chargingSessions} WHERE ${chargingSessions.id} = ${paymentRecords.sessionId})`,
+    ),
+    inOperatorStation(
+      sql`(SELECT ${reservations.stationId} FROM ${reservations} WHERE ${reservations.id} = ${paymentRecords.reservationId})`,
     ),
   ) as SQL;
 }

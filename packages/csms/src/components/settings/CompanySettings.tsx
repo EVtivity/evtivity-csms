@@ -675,7 +675,6 @@ export function CompanySettings({
                 onChange={(e) => {
                   setCompanyCurrency(e.target.value);
                 }}
-                className="h-9"
               >
                 {!isSupportedCurrency(companyCurrency) && (
                   <option value={companyCurrency} disabled>
@@ -705,7 +704,6 @@ export function CompanySettings({
                 onChange={(e) => {
                   if (isPriceDisplay(e.target.value)) setCompanyPriceDisplay(e.target.value);
                 }}
-                className="h-9"
               >
                 <option value="gross">{t('settings.companyPriceDisplayGross')}</option>
                 <option value="net">{t('settings.companyPriceDisplayNet')}</option>
@@ -725,7 +723,6 @@ export function CompanySettings({
                 onChange={(e) => {
                   if (isTaxBasis(e.target.value)) setCompanyTaxBasis(e.target.value);
                 }}
-                className="h-9"
               >
                 <option value="net">{t('settings.companyTaxBasisNet')}</option>
                 <option value="gross">{t('settings.companyTaxBasisGross')}</option>

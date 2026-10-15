@@ -17,6 +17,7 @@ import {
   pgErrorCode,
   pgConstraintName,
   PG_UNIQUE_VIOLATION,
+  isOperatorStation,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
@@ -299,9 +300,11 @@ async function resolveTemplateTargetStations(
   const accessibleSiteIds = await getUserSiteIds(userId);
   if (accessibleSiteIds != null && accessibleSiteIds.length === 0) return [];
 
+  // Conformance test stations are never a template target.
   const conditions = [
     eq(chargingStations.isOnline, true),
     eq(chargingStations.ocppProtocol, expectedProtocol),
+    isOperatorStation(),
   ];
   if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
   if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
@@ -474,9 +477,10 @@ export function smartChargingRoutes(app: FastifyInstance): void {
             accessibleSiteIds != null
               ? and(
                   isNotNull(chargingStations.model),
+                  isOperatorStation(),
                   inArray(chargingStations.siteId, accessibleSiteIds),
                 )
-              : isNotNull(chargingStations.model),
+              : and(isNotNull(chargingStations.model), isOperatorStation()),
           )
           .orderBy(asc(chargingStations.model)),
       ]);
@@ -531,7 +535,10 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       const data = await Promise.all(
         rows.map(async (template) => {
           const filter = template.targetFilter as Record<string, string> | null;
-          const conds = [eq(chargingStations.ocppProtocol, `ocpp${template.ocppVersion}`)];
+          const conds = [
+            eq(chargingStations.ocppProtocol, `ocpp${template.ocppVersion}`),
+            isOperatorStation(),
+          ];
           if (filter?.siteId) conds.push(eq(chargingStations.siteId, filter.siteId));
           if (filter?.vendorId) conds.push(eq(chargingStations.vendorId, filter.vendorId));
           if (filter?.model) conds.push(eq(chargingStations.model, filter.model));
@@ -1038,6 +1045,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       const conditions = [
         eq(chargingStations.isOnline, true),
         eq(chargingStations.ocppProtocol, expectedProtocol),
+        isOperatorStation(),
       ];
       if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
       if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));

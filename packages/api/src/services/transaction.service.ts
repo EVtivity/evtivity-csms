@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq, and, ilike, desc, sql, inArray } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, inOperatorStation } from '@evtivity/database';
 import { transactionEvents, chargingSessions, chargingStations } from '@evtivity/database';
 import type { PaginationParams, PaginatedResponse } from '../lib/pagination.js';
 import { containsPattern } from '../lib/like-pattern.js';
@@ -14,7 +14,8 @@ export async function listTransactionEvents(
   const { page, limit, search } = params;
   const offset = (page - 1) * limit;
 
-  const conditions = [];
+  // Events of sessions at conformance (OCTT) stations are never listed.
+  const conditions = [inOperatorStation(chargingSessions.stationId)];
   if (search) {
     conditions.push(ilike(transactionEvents.triggerReason, containsPattern(search)));
   }
@@ -23,7 +24,7 @@ export async function listTransactionEvents(
     conditions.push(inArray(chargingSessions.siteId, siteIds));
   }
 
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const where = and(...conditions);
 
   const baseQuery = db
     .select({ event: transactionEvents })

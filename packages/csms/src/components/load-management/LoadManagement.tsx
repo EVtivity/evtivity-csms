@@ -219,7 +219,6 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
                 onChange={(e) => {
                   setStrategy(e.target.value as LoadAllocationStrategy);
                 }}
-                className="h-9"
               >
                 <option value="equal_share">{t('loadManagement.equalShare')}</option>
                 <option value="priority_based">{t('loadManagement.priorityBased')}</option>

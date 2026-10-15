@@ -226,7 +226,6 @@ export function SiteCreate(): React.JSX.Element {
                 onChange={(e) => {
                   setTimezone(e.target.value);
                 }}
-                className="h-9"
               >
                 {TIMEZONE_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>

@@ -2,7 +2,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql, and, gte, lte, eq, count, type AnyColumn, type SQL } from 'drizzle-orm';
-import { db, chargingSessions, chargingStations, sites, settings } from '@evtivity/database';
+import {
+  db,
+  chargingSessions,
+  chargingStations,
+  sites,
+  settings,
+  inOperatorStation,
+  isOperatorStation,
+  operatorStationSql,
+} from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
@@ -89,8 +98,12 @@ async function querySiteUtilization(
   noSite: string,
 ): Promise<SiteUtilization[]> {
   // Session hours of the sessions that happened at the site (site_id, kept
-  // when a station moves) over the stations the site has now.
-  const sessionJoinConditions = [eq(chargingSessions.siteId, sites.id)];
+  // when a station moves) over the stations the site has now. Conformance
+  // test stations and their sessions are left out.
+  const sessionJoinConditions = [
+    eq(chargingSessions.siteId, sites.id),
+    inOperatorStation(chargingSessions.stationId),
+  ];
   if (filters.dateFrom) {
     sessionJoinConditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
   }
@@ -103,7 +116,7 @@ async function querySiteUtilization(
   const rows = await db
     .select({
       siteName: sql<string>`coalesce(${sites.name}, ${noSite})`,
-      stationCount: sql<number>`(select count(*)::int from ${chargingStations} st where st.site_id = ${sites.id})`,
+      stationCount: sql<number>`(select count(*)::int from ${chargingStations} st where st.site_id = ${sites.id} and ${sql.raw(operatorStationSql('st'))})`,
       sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
     })
     .from(sites)
@@ -143,12 +156,13 @@ async function queryStationUtilization(
       stationName: sql<string>`coalesce(${chargingStations.stationId}, ${chargingStations.id}::text)`,
       siteName: sql<string>`coalesce(${sites.name}, ${noSite})`,
       sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
-      sessionCount: count(),
+      // count(column): a station without sessions has one joined row of nulls.
+      sessionCount: count(chargingSessions.id),
     })
     .from(chargingStations)
     .leftJoin(sites, eq(chargingStations.siteId, sites.id))
     .leftJoin(chargingSessions, and(...sessionJoinConditions))
-    .where(siteConditions(filters, chargingStations.siteId))
+    .where(and(isOperatorStation(), siteConditions(filters, chargingStations.siteId)))
     .groupBy(chargingStations.id, chargingStations.stationId, sites.name)
     .orderBy(sql`3 desc`);
 
@@ -162,7 +176,8 @@ async function queryStationUtilization(
 }
 
 async function queryPeakUsage(filters: Filters, tz: string): Promise<PeakHour[]> {
-  const conditions: SQL[] = [];
+  // Sessions of conformance test stations are never reported.
+  const conditions: SQL[] = [inOperatorStation(chargingSessions.stationId)];
   if (filters.dateFrom) {
     conditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
   }

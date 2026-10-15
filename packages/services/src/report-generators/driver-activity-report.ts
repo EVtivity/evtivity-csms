@@ -8,6 +8,7 @@ import {
   chargingStations,
   drivers,
   getCompanyCurrency,
+  isOperatorStation,
 } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
@@ -68,6 +69,8 @@ async function queryDriverActivity(filters: Filters, currency: string): Promise<
   const conditions = [
     ...buildDateConditions(filters),
     sql`${chargingSessions.driverId} IS NOT NULL`,
+    // Sessions of conformance test stations are never reported.
+    isOperatorStation(),
   ];
   // Only sessions at stations in the report's site scope count.
   const sessionInScope = stationSiteInScope(chargingSessions.siteId, filters.scope);
