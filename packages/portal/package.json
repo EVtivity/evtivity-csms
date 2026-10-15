@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/portal",
-  "version": "0.1.46-beta.8",
+  "version": "0.1.46-beta.9",
   "private": true,
   "type": "module",
   "scripts": {
