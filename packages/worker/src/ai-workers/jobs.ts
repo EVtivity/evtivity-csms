@@ -38,9 +38,20 @@ import {
   findStuckSessions,
 } from '@evtivity/services/ai-workers/stuck-sessions';
 import { tariffAnomalies } from '@evtivity/services/ai-workers/tariff-anomalies';
-import { softResetProposal, stopSessionProposal } from '@evtivity/services/ai-workers/proposals';
+import {
+  softResetProposal,
+  stuckSessionCase,
+  stuckSessionProposal,
+} from '@evtivity/services/ai-workers/proposals';
+import { insightTriggerExists } from '@evtivity/services/ai-insight.service';
+import {
+  MAX_TRANSACTION_PROBES,
+  probeTransactionOngoing,
+} from '@evtivity/services/ai-workers/transaction-probe';
+import type { ProbeSender } from '@evtivity/services/ai-workers/transaction-probe';
 import { runOpsNarrative } from './ops-model.js';
-import { stuckSessionFacts } from './prompts.js';
+import { stuckSessionActionRule, stuckSessionFacts } from './prompts.js';
+import type { StuckSessionPromptCase } from './prompts.js';
 import type { OpsModelDeps, OpsNarrativeResult } from './ops-model.js';
 
 /** One queued run. `siteId` null with scope `unsited` or `company`. */
@@ -68,6 +79,8 @@ export type AiWorkerInsightWriter = (input: {
 export interface AiWorkerDeps extends OpsModelDeps {
   writeInsight?: AiWorkerInsightWriter;
   now?: () => Date;
+  /** The OCPP command sender of the stuck-session transaction probe (tests). */
+  sendOcppCommand?: ProbeSender;
 }
 
 /** Most soft-reset suggestions one network summary run makes. */
@@ -95,12 +108,14 @@ async function propose(suggestions: WorkerSuggestion[], log: Logger): Promise<nu
   let created = 0;
   for (const suggestion of suggestions) {
     try {
-      if ((await suggestWorkerAction(suggestion, log)) === 'created') created += 1;
+      const outcome = await suggestWorkerAction(suggestion, log);
+      // Advice-only insights carry no action: they are not proposals.
+      if (outcome === 'created' && suggestion.action !== null) created += 1;
     } catch (err) {
       // fail-open: one target that cannot be suggested (station moved, session
       // ended) does not stop the run (P9).
       log.warn(
-        { err, operationId: suggestion.action.operationId },
+        { err, operationId: suggestion.action?.operationId ?? null },
         'AI worker suggestion not created',
       );
     }
@@ -251,23 +266,57 @@ export async function runStuckSessions(
     const inputs: WorkerSuggestion[] = [];
     let budgetSkipped = false;
     let rationales = 0;
+    let probes = 0;
     for (const session of sessions) {
-      const input = stopSessionProposal(session, {
+      // One GetTransactionStatus per stuck session of an online 2.1 station and
+      // run, at most MAX_TRANSACTION_PROBES, never retried. A session with a
+      // pending or rejected action is not found again, so it is not asked again.
+      let transactionOngoing: boolean | null = null;
+      if (
+        session.reason !== 'station_offline' &&
+        session.ocppProtocol === 'ocpp2.1' &&
+        session.ocppEvseId !== null &&
+        probes < MAX_TRANSACTION_PROBES
+      ) {
+        probes += 1;
+        transactionOngoing = await probeTransactionOngoing(session, log, deps.sendOcppCommand);
+      }
+      const offlineEndAfterHours = settings.stuckSessionsOfflineEndAfterHours;
+      const input = stuckSessionProposal(session, {
         idleMinutes,
+        offlineEndAfterHours,
         expiresAt,
         workerRunId: runId,
         period: data.period,
         now,
+        transactionOngoing,
       });
       if (input === null) continue;
+      const which = stuckSessionCase(session, { now, offlineEndAfterHours });
+      const step: StuckSessionPromptCase =
+        which === 'stop' ? { case: 'stop', transactionOngoing } : { case: which };
+      // The advice insight is one per session: a run that finds it written
+      // pays for no second rationale.
+      const known =
+        which === 'offline_advice' &&
+        (await insightTriggerExists({
+          kind: 'stuck_session',
+          subjectType: 'session',
+          subjectId: session.sessionId,
+          triggerKey: input.insight.triggerKey,
+        }));
+      if (known) continue;
       if (settings.stuckSessionsUseModel && !budgetSkipped && rationales < MAX_STUCK_RATIONALES) {
         rationales += 1;
+        // The system decided the step; the model only words why (the coded
+        // rationale stays the fallback when the model is off or fails).
         const narrative = await runOpsNarrative(
           {
             job: 'stuck_sessions',
             siteId: session.siteId,
             workerRunId: runId,
-            facts: stuckSessionFacts(session, { idleMinutes, now }),
+            facts: stuckSessionFacts(session, { idleMinutes, now, step }),
+            actionRule: stuckSessionActionRule(step),
           },
           deps,
         );

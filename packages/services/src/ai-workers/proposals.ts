@@ -25,6 +25,35 @@ export const STUCK_RATIONALE_CODES = {
 } as const;
 
 /**
+ * The locale keys under `aiWorkers.billing.*` of how the action bills the
+ * session. The CSMS end bills it at its last metered energy, once
+ * (`stuckSessionEnd`). The stop depends on the station's answer to
+ * GetTransactionStatus (`transaction-probe.ts`): still running, the station
+ * ends it and it is billed from the final meter reading
+ * (`stuckSessionStopOngoing`); not running, the stop is answered TxNotFound
+ * and the CSMS ends it at its last metered energy
+ * (`stuckSessionStopNotOngoing`); unknown (OCPP 1.6, no answer), both
+ * outcomes are named (`stuckSessionStop`).
+ */
+export const STUCK_BILLING_CODES = [
+  'stuckSessionStop',
+  'stuckSessionStopOngoing',
+  'stuckSessionStopNotOngoing',
+  'stuckSessionEnd',
+] as const;
+export type StuckBillingCode = (typeof STUCK_BILLING_CODES)[number];
+
+export function stuckBillingCode(
+  kind: 'stop_transaction' | 'end_session',
+  transactionOngoing: boolean | null,
+): StuckBillingCode {
+  if (kind === 'end_session') return 'stuckSessionEnd';
+  if (transactionOngoing === true) return 'stuckSessionStopOngoing';
+  if (transactionOngoing === false) return 'stuckSessionStopNotOngoing';
+  return 'stuckSessionStop';
+}
+
+/**
  * The root cause of a stuck session, from the reason the worker found it. An
  * offline station is a fact (connectivity, high). A connector the station
  * reports available under an open session means the station ended the
@@ -40,13 +69,19 @@ export const STUCK_ROOT_CAUSES = {
   { category: RootCauseCategory; confidence: InsightConfidence }
 >;
 
-/** The action of a kind for a station's OCPP version; 2.1 when the station never connected. */
+/**
+ * The action of a kind for a station's OCPP version (2.1 when the station
+ * never connected); an action whose route serves both versions is returned
+ * for either.
+ */
 export function workerAction(
   kind: AiWorkerActionKind,
   ocppProtocol: string | null,
 ): AiWorkerAction {
   const version = ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
-  const action = AI_WORKER_ACTIONS.find((a) => a.kind === kind && a.ocppVersion === version);
+  const action = AI_WORKER_ACTIONS.find(
+    (a) => a.kind === kind && (a.ocppVersion === null || a.ocppVersion === version),
+  );
   if (action === undefined) throw new Error(`No worker action ${kind} for OCPP ${version}`);
   return action;
 }
@@ -54,41 +89,108 @@ export function workerAction(
 const SYSTEM_ACTOR = (job: AiWorkerJob) => ({ actor: 'system' as const, actorLabel: `ai-${job}` });
 
 /**
- * Stop a stuck session: a `stuck_session` insight about the session with the
- * stop action. One insight per session and run period (`triggerKey`); the
- * pending action's dedup key keeps a second one from being suggested while
- * the first waits. Null when the transaction id cannot be sent to a 1.6
- * station (1.6 transaction ids are integers).
+ * What the stuck-session worker suggests for a session:
+ * - `stop`: the station is online; the EVSE stop goes to it (a session the
+ *   station no longer knows is ended and billed by the CSMS).
+ * - `offline_advice`: the station is offline for less than
+ *   `offlineEndAfterHours`; the insight advises restoring the connection (on
+ *   reconnect the station sends its stored transaction messages, so the
+ *   session ends with its real final meter reading) and carries no action.
+ * - `offline_end`: the station is offline for at least that long; the CSMS
+ *   end closes the session at its last metered energy without the station.
  */
-export function stopSessionProposal(
+export type StuckSessionCase = 'stop' | 'offline_advice' | 'offline_end';
+
+/** Whole minutes the station has been offline, null for an online station. */
+export function stationOfflineMinutes(
+  session: Pick<StuckSession, 'stationOfflineSince'>,
+  now: Date,
+): number | null {
+  if (session.stationOfflineSince === null) return null;
+  return Math.max(0, Math.floor((now.getTime() - session.stationOfflineSince.getTime()) / 60_000));
+}
+
+export function stuckSessionCase(
+  session: StuckSession,
+  input: { now: Date; offlineEndAfterHours: number },
+): StuckSessionCase {
+  if (session.reason !== 'station_offline') return 'stop';
+  const minutes = stationOfflineMinutes(session, input.now) ?? 0;
+  return minutes >= input.offlineEndAfterHours * 60 ? 'offline_end' : 'offline_advice';
+}
+
+/** What to check at an offline station, before anything is ended. */
+export const STUCK_OFFLINE_FIXES = [
+  'check_power_supply',
+  'check_network_connection',
+  'contact_site',
+] as const;
+
+/**
+ * A stuck session's insight and the action that fits its station's connection
+ * now (`stuckSessionCase`). An online station gets the EVSE stop
+ * (`stop_transaction`). An offline station first gets advice only, with one
+ * insight per session (trigger `stuck_sessions:<sessionId>:offline`): how
+ * long it is offline (`scope.stationOffline`) and what to check. Once it is
+ * offline for `offlineEndAfterHours`, it gets the CSMS end (`end_session`)
+ * with the same advice first. The precondition records the connection the
+ * action was chosen for (`stationOnline`) and is checked again at confirm: a
+ * station that came back online or went offline since makes the action
+ * stale, and the next run suggests the other one. An action insight is one
+ * per session and run period (`triggerKey`); the pending action's dedup key
+ * keeps a second one from being suggested while the first waits.
+ * `transactionOngoing` is the online station's answer to GetTransactionStatus
+ * (null when not asked or unknown), which picks the billing text. Null for an
+ * online station when the session's EVSE is unknown (the stop route acts on
+ * the EVSE).
+ */
+export function stuckSessionProposal(
   session: StuckSession,
   input: {
     idleMinutes: number;
+    offlineEndAfterHours: number;
     expiresAt: Date;
     workerRunId: number | null;
     period: string;
     now: Date;
+    transactionOngoing?: boolean | null;
   },
 ): WorkerSuggestion | null {
-  const action = workerAction('stop_transaction', session.ocppProtocol);
-  let transactionId: string | number = session.transactionId;
-  if (action.ocppVersion === '1.6') {
-    const n = Number(session.transactionId);
-    if (!Number.isSafeInteger(n)) return null;
-    transactionId = n;
+  const transactionOngoing = input.transactionOngoing ?? null;
+  const which = stuckSessionCase(session, input);
+  const dedupKey = `stuck_sessions:${session.sessionId}`;
+  const offline =
+    session.stationOfflineSince === null
+      ? {}
+      : {
+          fixes: STUCK_OFFLINE_FIXES,
+          scope: { stationOffline: { since: session.stationOfflineSince.toISOString() } },
+        };
+  const insight = {
+    kind: 'stuck_session' as const,
+    siteId: session.siteId,
+    stationId: session.stationId,
+    sessionId: session.sessionId,
+    triggerKey: which === 'offline_advice' ? `${dedupKey}:offline` : `${dedupKey}:${input.period}`,
+    narrative: null,
+    rootCause: STUCK_ROOT_CAUSES[session.reason],
+    ...offline,
+  };
+  if (which === 'offline_advice') return { insight, action: null };
+
+  const kind = which === 'stop' ? 'stop_transaction' : 'end_session';
+  const stationOnline = which === 'stop';
+  const action = workerAction(kind, session.ocppProtocol);
+  let args: Record<string, unknown>;
+  if (stationOnline) {
+    if (session.ocppEvseId === null) return null;
+    args = { id: session.stationId, evseId: session.ocppEvseId, ...action.fixedArgs };
+  } else {
+    args = { id: session.sessionId, ...action.fixedArgs };
   }
   const idleMinutes = Math.floor((input.now.getTime() - session.lastActivityAt.getTime()) / 60_000);
-  const dedupKey = `stuck_sessions:${session.sessionId}`;
   return {
-    insight: {
-      kind: 'stuck_session',
-      siteId: session.siteId,
-      stationId: session.stationId,
-      sessionId: session.sessionId,
-      triggerKey: `${dedupKey}:${input.period}`,
-      narrative: null,
-      rootCause: STUCK_ROOT_CAUSES[session.reason],
-    },
+    insight,
     action: {
       job: 'stuck_sessions',
       workerRunId: input.workerRunId,
@@ -98,9 +200,9 @@ export function stopSessionProposal(
       operationId: action.operationId,
       method: action.method,
       path: action.path,
-      args: { stationId: session.ocppStationId, transactionId, ...action.fixedArgs },
+      args,
       summary: {
-        action: 'stop_transaction',
+        action: kind,
         stationId: session.ocppStationId,
         transactionId: session.transactionId,
         reason: session.reason,
@@ -109,10 +211,23 @@ export function stopSessionProposal(
           params: { minutes: Math.max(idleMinutes, input.idleMinutes) },
         },
         lastActivityAt: session.lastActivityAt.toISOString(),
+        transactionOngoing,
+        billing: {
+          code: stuckBillingCode(kind, transactionOngoing),
+          params: {
+            energyWh: session.energyWh,
+            costCents: session.currentCostCents,
+            currency: session.currency,
+          },
+        },
       },
       precondition: {
         kind: 'session_active',
-        params: { sessionId: session.sessionId, transactionId: session.transactionId },
+        params: {
+          sessionId: session.sessionId,
+          transactionId: session.transactionId,
+          stationOnline,
+        },
       },
       dedupKey,
       expiresAt: input.expiresAt,

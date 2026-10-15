@@ -136,8 +136,15 @@ export const AI_THRESHOLD_SETTINGS = {
   [AI_INSIGHT_SETTING_KEYS.siteIncidentThreshold]: { defaultValue: 3, min: 2, max: 1000 },
   [AI_INSIGHT_SETTING_KEYS.maxPerSitePerDay]: { defaultValue: 50, min: 1, max: 10_000 },
   [AI_INSIGHT_SETTING_KEYS.retentionDays]: { defaultValue: 90, min: 1, max: 3650 },
+  [AI_INSIGHT_SETTING_KEYS.expireAfterDays]: { defaultValue: 7, min: 1, max: 365 },
   // Background workers.
   [AI_WORKER_SETTING_KEYS.stuckSessionsIdleMinutes]: { defaultValue: 90, min: 15, max: 1440 },
+  // Hours a station stays offline before its stuck session gets the CSMS end (30 days at most).
+  [AI_WORKER_SETTING_KEYS.stuckSessionsOfflineEndAfterHours]: {
+    defaultValue: 24,
+    min: 1,
+    max: 720,
+  },
   [AI_WORKER_SETTING_KEYS.proposalTtlHours]: { defaultValue: 24, min: 1, max: 168 },
   // MCP server.
   [AI_MCP_SETTING_KEYS.rateLimitPerMinute]: { defaultValue: 60, min: 1, max: 10_000 },
@@ -413,6 +420,8 @@ export interface AiInsightSettings {
   /** Language of the canonical summary. */
   primaryLanguage: UiLanguage;
   retentionDays: number;
+  /** Days after which an open one-off event insight is closed `expired`. */
+  expireAfterDays: number;
 }
 
 /** Background AI workers (`aiWorkers.*`). Each job also needs `opsAi.enabled`. */
@@ -421,6 +430,12 @@ export interface AiWorkerSettings {
   stuckSessionsEnabled: boolean;
   stuckSessionsIdleMinutes: number;
   stuckSessionsUseModel: boolean;
+  /**
+   * Hours a station must be offline before a stuck session there gets the
+   * CSMS end action; before that its insight only advises restoring the
+   * connection.
+   */
+  stuckSessionsOfflineEndAfterHours: number;
   tariffAnomaliesEnabled: boolean;
   proposalTtlHours: number;
 }
@@ -535,12 +550,17 @@ export function buildAiSettings(rows: { key: string; value: unknown }[]): AiSett
       maxPerSitePerDay: limit(values, AI_INSIGHT_SETTING_KEYS.maxPerSitePerDay),
       primaryLanguage: isUiLanguage(language) ? language : 'en',
       retentionDays: limit(values, AI_INSIGHT_SETTING_KEYS.retentionDays),
+      expireAfterDays: limit(values, AI_INSIGHT_SETTING_KEYS.expireAfterDays),
     },
     workers: {
       networkSummaryEnabled: flag(values, AI_WORKER_SETTING_KEYS.networkSummaryEnabled),
       stuckSessionsEnabled: flag(values, AI_WORKER_SETTING_KEYS.stuckSessionsEnabled),
       stuckSessionsIdleMinutes: limit(values, AI_WORKER_SETTING_KEYS.stuckSessionsIdleMinutes),
       stuckSessionsUseModel: flag(values, AI_WORKER_SETTING_KEYS.stuckSessionsUseModel),
+      stuckSessionsOfflineEndAfterHours: limit(
+        values,
+        AI_WORKER_SETTING_KEYS.stuckSessionsOfflineEndAfterHours,
+      ),
       tariffAnomaliesEnabled: flag(values, AI_WORKER_SETTING_KEYS.tariffAnomaliesEnabled),
       proposalTtlHours: limit(values, AI_WORKER_SETTING_KEYS.proposalTtlHours),
     },

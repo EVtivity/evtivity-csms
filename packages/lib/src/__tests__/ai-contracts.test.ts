@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 import {
   AI_INSIGHT_ERROR_CODES,
   AI_INSIGHT_SETTING_KEYS,
+  AUTHORIZATION_EXPIRE_OUTCOMES,
   FIX_CODES,
+  INSIGHT_EXPIRE_KINDS,
   INSIGHT_KIND_FALLBACKS,
   OPS_AI_SETTING_KEYS,
   WORKER_ACTION_INSIGHT_KINDS,
@@ -139,15 +141,60 @@ describe('insight model output', () => {
   });
 });
 
+describe('insight expiry by age', () => {
+  it('closes only one-off event kinds, never a worker action kind or a watched condition', () => {
+    expect([...INSIGHT_EXPIRE_KINDS].sort()).toEqual(
+      [
+        'reservation_cancel_failed',
+        'reservation_no_show',
+        'reservation_rejected',
+        'session_failed',
+        'tariff_anomaly',
+      ].sort(),
+    );
+    for (const kind of WORKER_ACTION_INSIGHT_KINDS) {
+      expect(INSIGHT_EXPIRE_KINDS as readonly string[]).not.toContain(kind);
+    }
+    expect(INSIGHT_EXPIRE_KINDS as readonly string[]).not.toContain('station_offline');
+    expect(INSIGHT_EXPIRE_KINDS as readonly string[]).not.toContain('station_alert');
+    // Refusals with a clearing condition are never closed by age.
+    expect([...AUTHORIZATION_EXPIRE_OUTCOMES].sort()).toEqual(['db_error', 'invalid', 'no_credit']);
+  });
+});
+
 describe('AI worker actions (TC-AI-WK-05)', () => {
-  it('holds only OCPP stop, soft reset and availability commands, no money operation', () => {
+  it('holds only station commands and the two session ends, no money operation', () => {
+    // The session ends are the operator's EVSE stop and the CSMS end of an
+    // offline station's session; every other action is an OCPP command.
+    const sessionEnds = new Map([
+      ['stopActiveEvseSession', '/v1/stations/{id}/evses/{evseId}/stop-active-session'],
+      ['endSession', '/v1/sessions/{id}/end'],
+    ]);
     for (const action of AI_WORKER_ACTIONS) {
-      expect(action.path).toMatch(/^\/v1\/ocpp\/commands\/v(16|21)\//);
+      const sessionEnd = sessionEnds.get(action.operationId);
+      if (sessionEnd !== undefined) {
+        expect(action.path).toBe(sessionEnd);
+        expect(action.ocppVersion).toBeNull();
+      } else {
+        expect(action.path).toMatch(/^\/v1\/ocpp\/commands\/v(16|21)\//);
+        expect(action.target).toBe('ocpp_station');
+      }
       expect(action.path).not.toMatch(/pay|refund|invoice|tariff|pric|bill|credit|vend/i);
     }
     expect(new Set(AI_WORKER_ACTIONS.map((a) => a.kind))).toEqual(
-      new Set(['stop_transaction', 'soft_reset', 'change_availability']),
+      new Set(['stop_transaction', 'end_session', 'soft_reset', 'change_availability']),
     );
+    expect(findAiWorkerAction('stopActiveEvseSession')).toMatchObject({
+      kind: 'stop_transaction',
+      target: 'station',
+    });
+    expect(findAiWorkerAction('endSession')).toMatchObject({
+      kind: 'end_session',
+      target: 'session',
+    });
+    // The generic OCPP stop does no ghost recovery: it is no longer a worker action.
+    expect(findAiWorkerAction('ocppv21_RequestStopTransaction')).toBeUndefined();
+    expect(findAiWorkerAction('ocppv16_RemoteStopTransaction')).toBeUndefined();
   });
 
   it('pins a soft reset to the idle reset of each OCPP version', () => {
@@ -224,8 +271,9 @@ describe('reserved error codes and setting keys', () => {
       AI_MCP_SETTING_KEYS,
       AI_BUDGET_SETTING_KEYS,
     ].flatMap((group) => Object.values(group) as string[]);
-    // 29 in v0.1.44, plus the reservation insight switch (v0.1.45).
-    expect(keys).toHaveLength(30);
+    // 29 in v0.1.44, plus the reservation insight switch (v0.1.45), the
+    // offline end threshold of stuck sessions and the insight expiry (v0.1.46).
+    expect(keys).toHaveLength(32);
     expect(new Set(keys).size).toBe(keys.length);
     // The v0.1.43 limit keys. AI_LIMIT_SETTINGS now also holds the numeric new keys (R7).
     const existing = [

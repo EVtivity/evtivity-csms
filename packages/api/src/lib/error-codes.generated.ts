@@ -281,6 +281,7 @@ export const ERROR_CODES = {
   SESSION_ALREADY_INVOICED: 'SESSION_ALREADY_INVOICED',
   SESSION_CREATE_FAILED: 'SESSION_CREATE_FAILED',
   SESSION_NO_VEHICLE_ID: 'SESSION_NO_VEHICLE_ID',
+  SESSION_NOT_ACTIVE: 'SESSION_NOT_ACTIVE',
   SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
   SESSION_NOT_LINKED: 'SESSION_NOT_LINKED',
   SESSION_REBILL_IN_PROGRESS: 'SESSION_REBILL_IN_PROGRESS',
@@ -303,6 +304,7 @@ export const ERROR_CODES = {
   STATION_ID_EXISTS: 'STATION_ID_EXISTS',
   STATION_NOT_FOUND: 'STATION_NOT_FOUND',
   STATION_OFFLINE: 'STATION_OFFLINE',
+  STATION_ONLINE: 'STATION_ONLINE',
   STATION_REJECTED: 'STATION_REJECTED',
   STATION_SECURITY_CHANGE_REJECTED: 'STATION_SECURITY_CHANGE_REJECTED',
   STATION_SECURITY_ROUTE_REQUIRED: 'STATION_SECURITY_ROUTE_REQUIRED',
@@ -620,6 +622,7 @@ export type ErrorCode =
   | 'SESSION_ALREADY_INVOICED'
   | 'SESSION_CREATE_FAILED'
   | 'SESSION_NO_VEHICLE_ID'
+  | 'SESSION_NOT_ACTIVE'
   | 'SESSION_NOT_FOUND'
   | 'SESSION_NOT_LINKED'
   | 'SESSION_REBILL_IN_PROGRESS'
@@ -642,6 +645,7 @@ export type ErrorCode =
   | 'STATION_ID_EXISTS'
   | 'STATION_NOT_FOUND'
   | 'STATION_OFFLINE'
+  | 'STATION_ONLINE'
   | 'STATION_REJECTED'
   | 'STATION_SECURITY_CHANGE_REJECTED'
   | 'STATION_SECURITY_ROUTE_REQUIRED'
@@ -994,6 +998,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   SESSION_ALREADY_INVOICED: 'The session is already invoiced',
   SESSION_CREATE_FAILED: 'Failed to create session',
   SESSION_NO_VEHICLE_ID: 'The charger sent no vehicle id for this session.',
+  SESSION_NOT_ACTIVE: 'The session is not active',
   SESSION_NOT_FOUND: 'Session not found',
   SESSION_NOT_LINKED: 'Session not linked to this case',
   SESSION_REBILL_IN_PROGRESS: 'The session is being billed. Try again in a few minutes.',
@@ -1020,6 +1025,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   STATION_ID_EXISTS: 'A station with this ID already exists',
   STATION_NOT_FOUND: 'Station not found',
   STATION_OFFLINE: 'Station is offline',
+  STATION_ONLINE: 'The station is online. Stop the session at the station instead.',
   STATION_REJECTED: 'Station rejected start: ...',
   STATION_SECURITY_CHANGE_REJECTED:
     'The station did not accept the security change; its current settings are unchanged',

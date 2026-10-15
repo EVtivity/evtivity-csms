@@ -176,7 +176,10 @@ export const FIX_CODES = [
   'ask_driver_to_retry',
   'check_vehicle_compatibility',
   'end_concurrent_session',
+  'wait_for_concurrent_session',
+  'check_shared_token',
   'check_csms_status',
+  'contact_site',
   'monitor',
   ...RESERVATION_FIX_CODES,
 ] as const;
@@ -305,6 +308,26 @@ export type InsightScopeCounts = z.infer<typeof insightScopeCountsSchema>;
 /** The counts of the subject's site (none for an unsited subject). */
 export const insightScopeSchema = z.object({
   site: insightScopeCountsSchema.optional(),
+  /**
+   * A stuck session at an offline station: since when the station is offline
+   * (its last disconnect, else its last heartbeat or the session's last
+   * activity), ISO.
+   */
+  stationOffline: z.object({ since: z.string() }).optional(),
+  /**
+   * A token refused because it already runs a session (`concurrent_tx`): that
+   * session, its station and the step for it (`wait` while it is live, else
+   * `stop`, `restore` or `end` as for a stuck session), decided by the server.
+   */
+  concurrentSession: z
+    .object({
+      sessionId: z.string(),
+      stationId: z.string(),
+      station: z.string(),
+      startedAt: z.string().nullable(),
+      step: z.enum(['wait', 'stop', 'restore', 'end']),
+    })
+    .optional(),
 });
 export type InsightScope = z.infer<typeof insightScopeSchema>;
 
@@ -503,7 +526,31 @@ export const AI_INSIGHT_SETTING_KEYS = {
   maxPerSitePerDay: 'aiInsights.maxPerSitePerDay',
   primaryLanguage: 'aiInsights.primaryLanguage',
   retentionDays: 'aiInsights.retentionDays',
+  /** Days after which a one-off event insight still open is closed `expired`. */
+  expireAfterDays: 'aiInsights.expireAfterDays',
 } as const;
+
+/**
+ * One-off event insights: nothing the system watches clears them, so an open
+ * one is closed `expired` after `aiInsights.expireAfterDays` (never one whose
+ * action waits). Every other kind resolves when its condition clears.
+ */
+export const INSIGHT_EXPIRE_KINDS = [
+  'session_failed',
+  'reservation_no_show',
+  'reservation_rejected',
+  'reservation_cancel_failed',
+  'tariff_anomaly',
+] as const satisfies readonly InsightKind[];
+
+/**
+ * Authorization refusals with no clearing condition, closed by age like
+ * `INSIGHT_EXPIRE_KINDS`. The others resolve when the cause is gone: the
+ * concurrent session ended (`concurrent_tx`), the token is usable again
+ * (`blocked`, `expired`) or now exists (`unknown`), or the same token was
+ * later accepted at the same station (any outcome).
+ */
+export const AUTHORIZATION_EXPIRE_OUTCOMES = ['invalid', 'no_credit', 'db_error'] as const;
 
 /** Error codes of the insight and Explain routes, with their HTTP status. */
 export const AI_INSIGHT_ERROR_CODES = {

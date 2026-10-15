@@ -212,6 +212,91 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
     expect(screen.queryByTestId('ai-insight-action-session')).toBeNull();
   });
 
+  it('names the station and transaction of an EVSE stop and says how the stop bills', () => {
+    const stop = (code: string) =>
+      action({
+        operationId: 'stopActiveEvseSession',
+        path: '/v1/stations/{id}/evses/{evseId}/stop-active-session',
+        args: { id: 'st-db-1', evseId: 1 },
+        summary: {
+          action: 'stop_transaction',
+          stationId: 'CS-1',
+          transactionId: 'tx-9',
+          rationale: { code: 'stuckSessionIdle', params: { minutes: 95 } },
+          billing: { code, params: { energyWh: 14_800, costCents: null, currency: 'EUR' } },
+        },
+      });
+    wrap(<InsightActionSection insight={insight({ action: stop('stuckSessionStopOngoing') })} />);
+    expect(screen.getByTestId('ai-insight-action-summary').textContent).toBe(
+      'ai.confirmAction.stop(CS-1,tx-9)',
+    );
+    expect(screen.getByTestId('ai-insight-action').getAttribute('aria-label')).toBe(
+      'aiInsights.action.kind.stop_transaction',
+    );
+    expect(screen.getByTestId('ai-insight-action-billing').textContent).toBe(
+      'aiWorkers.billing.stuckSessionStopOngoing',
+    );
+    cleanup();
+    wrap(
+      <InsightActionSection insight={insight({ action: stop('stuckSessionStopNotOngoing') })} />,
+    );
+    expect(screen.getByTestId('ai-insight-action-billing').textContent).toMatch(
+      /^aiWorkers\.billing\.stuckSessionStopNotOngoing\(14[.,]8 kWh\)$/,
+    );
+    cleanup();
+    wrap(<InsightActionSection insight={insight({ action: stop('stuckSessionStop') })} />);
+    expect(screen.getByTestId('ai-insight-action-billing').textContent).toBe(
+      'aiWorkers.billing.stuckSessionStop',
+    );
+  });
+
+  it('names the CSMS end of an offline station and says it bills the last metered energy once', () => {
+    const end = (costCents: number | null) =>
+      action({
+        operationId: 'endSession',
+        path: '/v1/sessions/{id}/end',
+        args: { id: 'se1' },
+        summary: {
+          action: 'end_session',
+          stationId: 'CS-1',
+          transactionId: 'tx-9',
+          rationale: { code: 'stuckSessionOffline', params: { minutes: 120 } },
+          billing: {
+            code: 'stuckSessionEnd',
+            params: { energyWh: 14_800, costCents, currency: 'EUR' },
+          },
+        },
+      });
+    wrap(<InsightActionSection insight={insight({ action: end(518) })} />);
+    expect(screen.getByTestId('ai-insight-action-summary').textContent).toBe(
+      'ai.confirmAction.endSession(CS-1,tx-9)',
+    );
+    expect(screen.getByTestId('ai-insight-action').getAttribute('aria-label')).toBe(
+      'aiInsights.action.kind.end_session',
+    );
+    const withCost = screen.getByTestId('ai-insight-action-billing').textContent;
+    expect(withCost).toMatch(/^aiWorkers\.billing\.stuckSessionEndWithCost\(14[.,]8 kWh,/);
+    expect(withCost).toContain('5');
+    cleanup();
+    wrap(<InsightActionSection insight={insight({ action: end(null) })} />);
+    expect(screen.getByTestId('ai-insight-action-billing').textContent).toMatch(
+      /^aiWorkers\.billing\.stuckSessionEnd\(14[.,]8 kWh\)$/,
+    );
+  });
+
+  it('shows no billing row for an action without a known billing code', () => {
+    wrap(
+      <InsightActionSection
+        insight={insight({
+          action: action({
+            summary: { action: 'stop_transaction', billing: { code: 'other', params: {} } },
+          }),
+        })}
+      />,
+    );
+    expect(screen.queryByTestId('ai-insight-action-billing')).toBeNull();
+  });
+
   it('a station action has no transaction row', () => {
     wrap(
       <InsightActionSection
@@ -334,6 +419,80 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
     expect(await screen.findByTestId('ai-insight-action')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /aiInsights\.dismiss/ })).toBeNull();
     expect(screen.queryByTestId('ai-insight-regenerate')).toBeNull();
+  });
+
+  it('leads a stuck session at an offline station with getting it back online, without an action', async () => {
+    const since = new Date(Date.now() - 3 * 3_600_000).toISOString();
+    wrap(
+      <InsightCard
+        insight={insight({
+          status: 'open',
+          action: null,
+          category: 'connectivity',
+          fixes: [
+            { code: 'check_power_supply' },
+            { code: 'check_network_connection' },
+            { code: 'contact_site' },
+          ],
+          scope: { stationOffline: { since } },
+        })}
+      />,
+    );
+    const advice = await screen.findByTestId('ai-insight-station-offline');
+    // Station, how long, since when (the key-echo t mock lists the values).
+    expect(advice.textContent).toMatch(/^aiInsights\.stationOffline\.advice\(CS-1,3h/);
+    const link = within(advice).getByTestId('ai-insight-connection-history');
+    expect(link.getAttribute('href')).toBe('/stations/st-db-1?tab=security');
+    expect(screen.getByTestId('ai-insight-fixes').textContent).toContain(
+      'aiInsights.fix.contact_site',
+    );
+    expect(screen.queryByTestId('ai-insight-action')).toBeNull();
+  });
+
+  it.each([
+    ['wait', ['wait_for_concurrent_session', 'check_shared_token']],
+    ['end', ['end_concurrent_session']],
+  ] as const)(
+    'explains the session a refused card already runs (%s) and links it',
+    async (step, fixes) => {
+      wrap(
+        <InsightCard
+          insight={insight({
+            kind: 'authorization_refused',
+            status: 'open',
+            action: null,
+            sessionId: null,
+            category: 'token',
+            fixes: fixes.map((code) => ({ code })),
+            scope: {
+              concurrentSession: {
+                sessionId: 'ses_live',
+                stationId: 'st-db-2',
+                station: 'CS-1853',
+                startedAt: '2026-10-15T12:00:00Z',
+                step,
+              },
+            },
+          })}
+        />,
+      );
+      const block = await screen.findByTestId('ai-insight-concurrent-session');
+      expect(block.textContent).toMatch(
+        new RegExp(`^aiInsights\\.concurrentSession\\.${step}\\(CS-1853,`),
+      );
+      expect(
+        within(block).getByTestId('ai-insight-concurrent-session-link').getAttribute('href'),
+      ).toBe('/sessions/ses_live');
+      const listed = screen.getByTestId('ai-insight-fixes').textContent;
+      for (const code of fixes) expect(listed).toContain(`aiInsights.fix.${code}`);
+      if (step === 'wait') expect(listed).not.toContain('end_concurrent_session');
+    },
+  );
+
+  it('shows no offline advice for an insight without the station offline scope', async () => {
+    wrap(<InsightCard insight={insight()} />);
+    await screen.findByTestId('ai-insight-action');
+    expect(screen.queryByTestId('ai-insight-station-offline')).toBeNull();
   });
 
   it('lists other steps above the action, never under its buttons, and skips the step the action does', async () => {

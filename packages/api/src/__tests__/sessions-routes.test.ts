@@ -72,6 +72,15 @@ vi.mock('../services/session-rebill.service.js', async () => {
   };
 });
 
+const sessionEnd = vi.hoisted(() => ({
+  requestSessionEnd: vi.fn(),
+  writeAudit: vi.fn(),
+}));
+
+vi.mock('../lib/session-end.js', () => ({
+  requestSessionEnd: sessionEnd.requestSessionEnd,
+}));
+
 vi.mock('../middleware/rbac.js', () => ({
   authorize: (...permissions: string[]) => {
     rebill.authorizeCalls.push(permissions);
@@ -127,6 +136,8 @@ vi.mock('@evtivity/database', () => ({
   },
   SESSION_REBILL_STATUSES: ['in_progress', 'billed', 'manual'] as const,
   SESSION_END_FAILED_REASON: 'EndRequestFailed',
+  sessionAuditLog: {},
+  writeAudit: sessionEnd.writeAudit,
 }));
 
 vi.mock('drizzle-orm', () => {
@@ -554,6 +565,7 @@ describe('Session routes', () => {
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
         evseId: 1,
+        stationOnline: true,
         siteName: 'Site A',
         siteId: null,
         driverId: null,
@@ -644,6 +656,7 @@ describe('Session routes', () => {
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
         evseId: 1,
+        stationOnline: true,
         siteName: 'Site A',
         siteId: null,
         driverId: null,
@@ -726,6 +739,7 @@ describe('Session routes', () => {
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
         evseId: 1,
+        stationOnline: true,
         siteName: 'Site A',
         siteId: null,
         driverId: null,
@@ -815,6 +829,7 @@ describe('Session routes', () => {
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
         evseId: 1,
+        stationOnline: true,
         siteName: 'Site A',
         siteId: null,
         driverId: null,
@@ -938,6 +953,7 @@ describe('Session routes', () => {
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
         evseId: 1,
+        stationOnline: true,
         siteName: null,
         siteId: null,
         driverId: null,
@@ -1021,6 +1037,7 @@ describe('Session routes', () => {
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
         evseId: 1,
+        stationOnline: true,
         siteName: null,
         siteId: null,
         driverId: null,
@@ -1166,6 +1183,135 @@ describe('Session routes', () => {
       expect(body.total).toBe(0);
       // eq should be called for both session_id filter and measurand filter
       expect(eq).toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /v1/sessions/:id/end', () => {
+    beforeEach(() => {
+      sessionEnd.requestSessionEnd.mockReset();
+      sessionEnd.requestSessionEnd.mockResolvedValue(true);
+      sessionEnd.writeAudit.mockReset();
+      sessionEnd.writeAudit.mockResolvedValue(undefined);
+    });
+
+    const end = () =>
+      app.inject({
+        method: 'POST',
+        url: `/sessions/${VALID_SESSION_ID}/end`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+    it('requires sessions:write', () => {
+      expect(rebill.authorizeCalls).toContainEqual(['sessions:write']);
+    });
+
+    it('returns 401 without token', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/sessions/${VALID_SESSION_ID}/end`,
+      });
+      expect(response.statusCode).toBe(401);
+      expect(sessionEnd.requestSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it('ends an active session of an offline station without the station, and audits it', async () => {
+      setupDbResults([
+        {
+          siteId: 'sit_000000000001',
+          status: 'active',
+          transactionId: 'tx-1',
+          stationOnline: false,
+        },
+      ]);
+      const response = await end();
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ sessionId: VALID_SESSION_ID, transactionId: 'tx-1' });
+      expect(sessionEnd.requestSessionEnd).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        'OperatorEnded',
+        expect.anything(),
+      );
+      expect(sessionEnd.writeAudit).toHaveBeenCalledTimes(1);
+      expect(sessionEnd.writeAudit.mock.calls[0]?.[1]).toMatchObject({
+        entityId: VALID_SESSION_ID,
+        action: 'stopped_by_csms',
+        actor: 'operator',
+        actorUserId: 'test-id',
+        before: { status: 'active' },
+        after: { action: 'EndSession', endRequestReason: 'OperatorEnded', stationOnline: false },
+      });
+    });
+
+    it('answers 404 for an unknown session', async () => {
+      setupDbResults([]);
+      const response = await end();
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('SESSION_NOT_FOUND');
+      expect(sessionEnd.requestSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it("answers 404 for another site's session", async () => {
+      const { getUserSiteIds } = await import('../lib/site-access.js');
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_000000000002']);
+      setupDbResults([
+        {
+          siteId: 'sit_000000000001',
+          status: 'active',
+          transactionId: 'tx-1',
+          stationOnline: false,
+        },
+      ]);
+      const response = await end();
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('SESSION_NOT_FOUND');
+      expect(sessionEnd.requestSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it('answers 409 SESSION_NOT_ACTIVE for an ended session', async () => {
+      setupDbResults([
+        {
+          siteId: 'sit_000000000001',
+          status: 'completed',
+          transactionId: 'tx-1',
+          stationOnline: false,
+        },
+      ]);
+      const response = await end();
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('SESSION_NOT_ACTIVE');
+      expect(sessionEnd.requestSessionEnd).not.toHaveBeenCalled();
+      expect(sessionEnd.writeAudit).not.toHaveBeenCalled();
+    });
+
+    it('answers 409 STATION_ONLINE when the station is connected', async () => {
+      setupDbResults([
+        {
+          siteId: 'sit_000000000001',
+          status: 'active',
+          transactionId: 'tx-1',
+          stationOnline: true,
+        },
+      ]);
+      const response = await end();
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('STATION_ONLINE');
+      expect(sessionEnd.requestSessionEnd).not.toHaveBeenCalled();
+    });
+
+    it('answers 409 SESSION_NOT_ACTIVE without an audit when the session ended meanwhile (P5)', async () => {
+      sessionEnd.requestSessionEnd.mockResolvedValueOnce(false);
+      setupDbResults([
+        {
+          siteId: 'sit_000000000001',
+          status: 'active',
+          transactionId: 'tx-1',
+          stationOnline: false,
+        },
+      ]);
+      const response = await end();
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('SESSION_NOT_ACTIVE');
+      expect(sessionEnd.writeAudit).not.toHaveBeenCalled();
     });
   });
 

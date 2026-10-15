@@ -157,6 +157,13 @@ export const chargingStations = pgTable(
     pendingSecurityProfile: integer('pending_security_profile'),
     ocppProtocol: varchar('ocpp_protocol', { length: 20 }),
     basicAuthPasswordHash: varchar('basic_auth_password_hash', { length: 512 }),
+    // AI insight suppression set by an operator (station-ai-insights.service.ts
+    // is the only writer): no new insight or worker action for the station
+    // while suppressed_at is set and suppressed_until is null or ahead.
+    aiInsightsSuppressedAt: timestamp('ai_insights_suppressed_at', { withTimezone: true }),
+    aiInsightsSuppressedUntil: timestamp('ai_insights_suppressed_until', { withTimezone: true }),
+    aiInsightsSuppressedBy: text('ai_insights_suppressed_by'),
+    aiInsightsSuppressedReason: varchar('ai_insights_suppressed_reason', { length: 500 }),
     metadata: jsonb('metadata'),
     latitude: varchar('latitude', { length: 20 }),
     longitude: varchar('longitude', { length: 20 }),

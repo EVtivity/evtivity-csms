@@ -97,6 +97,7 @@ export interface Station {
   isSimulator?: boolean;
   siteFreeVendEnabled?: boolean;
   underMaintenance?: boolean;
+  aiInsightsSuppressed?: boolean;
   lastHeartbeat: string | null;
   createdAt: string | null;
 }
@@ -455,6 +456,15 @@ export function StationsTable({
                     {station.underMaintenance === true && (
                       <Badge variant="warning" className="text-[10px] px-1.5 py-0">
                         {t('nav.maintenance')}
+                      </Badge>
+                    )}
+                    {station.aiInsightsSuppressed === true && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] px-1.5 py-0"
+                        data-testid="station-ai-suppressed-badge"
+                      >
+                        {t('stations.aiInsights.listBadge')}
                       </Badge>
                     )}
                   </span>

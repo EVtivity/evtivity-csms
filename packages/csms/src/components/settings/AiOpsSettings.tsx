@@ -372,6 +372,11 @@ const INSIGHT_FIELDS: readonly FieldSpec[] = [
     key: AI_INSIGHT_SETTING_KEYS.retentionDays,
     label: 'settings.aiInsightsSettings.retentionDays',
   },
+  {
+    kind: 'number',
+    key: AI_INSIGHT_SETTING_KEYS.expireAfterDays,
+    label: 'settings.aiInsightsSettings.expireAfterDays',
+  },
 ];
 
 const WORKER_FIELDS: readonly FieldSpec[] = [
@@ -402,6 +407,11 @@ const WORKER_FIELDS: readonly FieldSpec[] = [
     kind: 'number',
     key: AI_WORKER_SETTING_KEYS.stuckSessionsIdleMinutes,
     label: 'aiWorkers.stuckSessions.idleMinutes',
+  },
+  {
+    kind: 'number',
+    key: AI_WORKER_SETTING_KEYS.stuckSessionsOfflineEndAfterHours,
+    label: 'aiWorkers.stuckSessions.offlineEndAfterHours',
   },
   {
     kind: 'number',

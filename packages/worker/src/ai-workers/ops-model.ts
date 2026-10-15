@@ -78,6 +78,8 @@ export async function runOpsNarrative(
     /** The `ai_worker_runs` row the call belongs to (ledger attribution). */
     workerRunId: number;
     facts: unknown;
+    /** The step the text goes with when it differs from the job's default (`stuckSessionActionRule`). */
+    actionRule?: string;
   },
   deps: OpsModelDeps,
 ): Promise<OpsNarrativeResult> {
@@ -109,7 +111,7 @@ export async function runOpsNarrative(
   if (!decision.allowed) return { kind: 'budget', code: decision.code };
 
   const language = promptLanguage(settings.insights.primaryLanguage);
-  const system = opsSystemPrompt(request.job, language, config.systemPrompt);
+  const system = opsSystemPrompt(request.job, language, config.systemPrompt, request.actionRule);
   const create =
     deps.createAdapter ??
     ((p: ProviderId, options: { apiKey: string; baseUrl?: string }) =>

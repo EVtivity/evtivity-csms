@@ -50,9 +50,19 @@ describe('CommandListener', () => {
       close: vi.fn().mockResolvedValue(undefined),
     };
 
+    // Like the real dispatcher, the CALL goes out (onSend) before the response.
+    const sendAndAccept = (
+      _stationId: string,
+      _action: string,
+      _payload: Record<string, unknown>,
+      options?: { onSend?: () => void },
+    ): Promise<Record<string, unknown>> => {
+      options?.onSend?.();
+      return Promise.resolve({ status: 'Accepted' });
+    };
     dispatcher = {
-      sendCommand: vi.fn().mockResolvedValue({ status: 'Accepted' }),
-      sendVersionAwareCommand: vi.fn().mockResolvedValue({ status: 'Accepted' }),
+      sendCommand: vi.fn(sendAndAccept),
+      sendVersionAwareCommand: vi.fn(sendAndAccept),
     };
     eventBus = {
       publish: vi.fn().mockResolvedValue(undefined),
@@ -85,9 +95,12 @@ describe('CommandListener', () => {
     subscribeHandler!(payload);
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(dispatcher.sendVersionAwareCommand).toHaveBeenCalledWith('CS-001', 'Reset', {
-      type: 'Soft',
-    });
+    expect(dispatcher.sendVersionAwareCommand).toHaveBeenCalledWith(
+      'CS-001',
+      'Reset',
+      { type: 'Soft' },
+      { onSend: expect.any(Function) },
+    );
   });
 
   it('remembers the Central idToken of a remote start for Authorize', async () => {
@@ -119,7 +132,12 @@ describe('CommandListener', () => {
     subscribeHandler!(payload);
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(dispatcher.sendCommand).toHaveBeenCalledWith('CS-001', 'Reset', { type: 'Soft' });
+    expect(dispatcher.sendCommand).toHaveBeenCalledWith(
+      'CS-001',
+      'Reset',
+      { type: 'Soft' },
+      { onSend: expect.any(Function) },
+    );
   });
 
   it('publishes outbound CALL message log', async () => {
@@ -144,6 +162,49 @@ describe('CommandListener', () => {
         }) as unknown,
       }),
     );
+  });
+
+  it('logs the outbound CALL when the dispatcher sends it, not when it is received', async () => {
+    let send: (() => void) | undefined;
+    let answer: ((response: Record<string, unknown>) => void) | undefined;
+    dispatcher.sendVersionAwareCommand.mockImplementationOnce(
+      (_s: string, _a: string, _p: unknown, options?: { onSend?: () => void }) => {
+        send = options?.onSend;
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      },
+    );
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({ commandId: 'cmd-q', stationId: 'CS-001', action: 'Reset', payload: {} }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    const callLogs = (): unknown[] =>
+      eventBus.publish.mock.calls.filter(
+        ([e]) =>
+          e.eventType === 'ocpp.MessageLog' &&
+          (e.payload as { messageType?: number }).messageType === 2,
+      );
+    // Still waiting behind the station's outstanding CALL: nothing on the wire yet.
+    expect(callLogs()).toHaveLength(0);
+
+    send?.();
+    expect(callLogs()).toHaveLength(1);
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ocpp.MessageLog',
+        payload: expect.objectContaining({
+          direction: 'outbound',
+          messageType: 2,
+          messageId: 'cmd-q',
+          action: 'Reset',
+        }) as unknown,
+      }),
+    );
+    answer?.({ status: 'Accepted' });
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   it('publishes inbound CALLRESULT on success', async () => {
@@ -546,9 +607,12 @@ describe('CommandListener', () => {
     subscribeHandler!(payload);
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(dispatcher.sendVersionAwareCommand).toHaveBeenCalledWith('CS-001', 'Reset', {
-      type: 'Soft',
-    });
+    expect(dispatcher.sendVersionAwareCommand).toHaveBeenCalledWith(
+      'CS-001',
+      'Reset',
+      { type: 'Soft' },
+      { onSend: expect.any(Function) },
+    );
   });
 
   // ---- No retries ----
@@ -703,9 +767,12 @@ describe('CommandListener', () => {
     );
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(dispatcher.sendVersionAwareCommand).toHaveBeenCalledWith('CS-001', 'Reset', {
-      type: 'Soft',
-    });
+    expect(dispatcher.sendVersionAwareCommand).toHaveBeenCalledWith(
+      'CS-001',
+      'Reset',
+      { type: 'Soft' },
+      { onSend: expect.any(Function) },
+    );
   });
 
   it('publishes pnc.InstallCertificateResult on InstallCertificate success', async () => {

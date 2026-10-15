@@ -3,9 +3,11 @@
 
 /**
  * A background worker suggestion: an automatic insight that carries an
- * action to confirm. The insight is written through the insight service, the
- * action through the action service (P3), in that order: the action names
- * its insight. A suggestion whose action is still pending (same dedup key)
+ * action to confirm, or advice only (a stuck session at a station that has
+ * not been offline long enough for the CSMS end). The insight is written
+ * through the insight service, the action through the action service (P3),
+ * in that order: the action names its insight. A suggestion whose action is
+ * still pending (same dedup key), or whose insight trigger was seen before,
  * makes nothing new (P7).
  */
 
@@ -24,7 +26,8 @@ import type { CreateAiProposalInput } from '../ai-proposal.service.js';
 
 export interface WorkerSuggestion {
   insight: Omit<WorkerActionInsightInput, 'primaryLanguage'>;
-  action: Omit<CreateAiProposalInput, 'insightId'>;
+  /** The action to confirm; null for an insight that carries advice only. */
+  action: Omit<CreateAiProposalInput, 'insightId'> | null;
 }
 
 export type SuggestionOutcome = 'created' | 'duplicate';
@@ -34,13 +37,14 @@ export type SuggestionOutcome = 'created' | 'duplicate';
  * pending from an earlier run or the insight's trigger was seen before. When
  * the action is not created (a concurrent run made it first) or its create
  * throws, the new insight is resolved, so no insight shows an action it
- * does not have; a throw is rethrown.
+ * does not have; a throw is rethrown. An advice-only suggestion writes the
+ * insight alone.
  */
 export async function suggestWorkerAction(
   suggestion: WorkerSuggestion,
   log: ServiceLogger,
 ): Promise<SuggestionOutcome> {
-  const { dedupKey } = suggestion.action;
+  const dedupKey = suggestion.action?.dedupKey;
   if (dedupKey != null && (await hasPendingAiProposal(dedupKey))) return 'duplicate';
   const { primaryLanguage } = await getAiInsightSettings();
   const pubsub = getPubSub();
@@ -49,6 +53,7 @@ export async function suggestWorkerAction(
     pubsub,
   );
   if (insightId === null) return 'duplicate';
+  if (suggestion.action === null) return 'created';
   const withdraw = async (): Promise<void> => {
     await resolveInsights([insightId]);
     const row = await getInsightRow(insightId);

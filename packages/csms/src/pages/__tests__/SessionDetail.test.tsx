@@ -177,3 +177,89 @@ describe('SessionDetail stop', () => {
     });
   });
 });
+
+describe('SessionDetail end without the station', () => {
+  const OFFLINE = { ...SESSION, stationOnline: false };
+
+  it('shows End Session instead of Stop for an active session of an offline station', async () => {
+    perms.add('stations:write');
+    perms.add('sessions:write');
+    renderPage(OFFLINE);
+    expect(await screen.findByRole('button', { name: 'sessions.endSession' })).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'sessions.stopSession' })).toBeNull();
+  });
+
+  it('shows Stop, not End Session, while the station is online', async () => {
+    perms.add('stations:write');
+    perms.add('sessions:write');
+    renderPage({ ...SESSION, stationOnline: true });
+    expect(await screen.findByRole('button', { name: 'sessions.stopSession' })).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'sessions.endSession' })).toBeNull();
+  });
+
+  it('hides End Session without sessions:write and on an ended session', async () => {
+    perms.add('stations:write');
+    renderPage(OFFLINE);
+    await screen.findByText('sessions.title');
+    expect(screen.queryByRole('button', { name: 'sessions.endSession' })).toBeNull();
+    cleanup();
+    perms.add('sessions:write');
+    renderPage({ ...OFFLINE, status: 'completed', endedAt: '2026-10-14T11:00:00.000Z' });
+    await screen.findByText('sessions.title');
+    expect(screen.queryByRole('button', { name: 'sessions.endSession' })).toBeNull();
+  });
+
+  it('ends the session through the CSMS end route after a confirmation that names the billing', async () => {
+    perms.add('sessions:write');
+    apiMock.post.mockResolvedValue({ sessionId: 'ses_1', transactionId: 'tx-1' });
+    renderPage(OFFLINE);
+    fireEvent.click(await screen.findByRole('button', { name: 'sessions.endSession' }));
+    expect(screen.getByText('sessions.endSessionConfirmTitle')).toBeDefined();
+    // The session has a running cost: the dialog names it with the energy.
+    expect(screen.getByText('sessions.endSessionConfirmDescriptionWithCost')).toBeDefined();
+    const confirm = screen
+      .getAllByRole('button', { name: 'sessions.endSession' })
+      .find((b) => b.closest('[role="dialog"]') != null);
+    if (confirm == null) throw new Error('no confirm button');
+    fireEvent.click(confirm);
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenCalledWith('/v1/sessions/ses_1/end', {});
+    });
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith({
+        variant: 'success',
+        title: 'sessions.endSessionRequested',
+      });
+    });
+  });
+
+  it('describes the billing without a cost for an unpriced session', async () => {
+    perms.add('sessions:write');
+    renderPage({ ...OFFLINE, currentCostCents: null });
+    fireEvent.click(await screen.findByRole('button', { name: 'sessions.endSession' }));
+    expect(screen.getByText('sessions.endSessionConfirmDescription')).toBeDefined();
+  });
+
+  // getErrorMessage resolves errors.<code>, then the API text: the key-echo t mock
+  // leaves the code untranslated, so the API text shows instead of the generic failure.
+  it('shows the API error of a refused end, not the generic failure', async () => {
+    perms.add('sessions:write');
+    const { ApiError } = await import('@/lib/api');
+    apiMock.post.mockRejectedValue(
+      new ApiError(409, { error: 'The station is online', code: 'STATION_ONLINE' }),
+    );
+    renderPage(OFFLINE);
+    fireEvent.click(await screen.findByRole('button', { name: 'sessions.endSession' }));
+    const confirm = screen
+      .getAllByRole('button', { name: 'sessions.endSession' })
+      .find((b) => b.closest('[role="dialog"]') != null);
+    if (confirm == null) throw new Error('no confirm button');
+    fireEvent.click(confirm);
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith({
+        variant: 'destructive',
+        title: 'The station is online',
+      });
+    });
+  });
+});

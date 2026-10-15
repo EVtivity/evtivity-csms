@@ -1001,7 +1001,30 @@
     "removeTag": "Tag {{tag}} entfernen",
     "messageCommandQueued": "Station offline. Der Befehl wird in die Warteschlange gestellt und gesendet, sobald die Station wieder verbunden ist.",
     "chargingNeedsTab": "Ladebedarf und Monitore",
-    "localAuthPrepaidHint": "Nur aktive Token, die keine Prepaid-Karten sind, werden aufgeführt. Eine Station prüft das Guthaben einer Prepaid-Karte online, daher kommen Prepaid-Karten nie auf eine lokale Liste."
+    "localAuthPrepaidHint": "Nur aktive Token, die keine Prepaid-Karten sind, werden aufgeführt. Eine Station prüft das Guthaben einer Prepaid-Karte online, daher kommen Prepaid-Karten nie auf eine lokale Liste.",
+    "aiInsights": {
+      "label": "KI-Erkenntnisse",
+      "inScope": "Aktiv",
+      "suppressed": "Unterdrückt",
+      "allScopes": "Alle",
+      "listBadge": "KI-Erkenntnisse Unterdrückt",
+      "suppress": "Unterdrücken",
+      "resume": "Fortsetzen",
+      "until": "Bis {{date}}",
+      "untilResumed": "Bis zur Fortsetzung",
+      "by": "Von {{name}}: {{reason}}",
+      "maintenance": "Unterdrückt, solange ein aktiver Wartungseinsatz die Ladestation umfasst",
+      "suppressTitle": "KI-Erkenntnisse für Diese Ladestation Unterdrücken?",
+      "suppressDescription": "Für diese Ladestation wird bis zum Enddatum oder bis zur Fortsetzung keine neue KI-Erkenntnis und keine vorgeschlagene Aktion erstellt. Ihre offenen Erkenntnisse werden verworfen und ihre wartenden Aktionen laufen ab.",
+      "reason": "Grund",
+      "reasonRequired": "Geben Sie einen Grund ein",
+      "endDate": "Enddatum (Optional)",
+      "resumeTitle": "KI-Erkenntnisse für Diese Ladestation Fortsetzen?",
+      "resumeDescription": "KI-Erkenntnisse überwachen diese Ladestation wieder.",
+      "suppressedToast": "KI-Erkenntnisse unterdrückt",
+      "resumedToast": "KI-Erkenntnisse fortgesetzt",
+      "failed": "KI-Erkenntnisse der Ladestation konnten nicht geändert werden"
+    }
   },
   "eventAlertRules": {
     "title": "Ereigniswarnregeln",
@@ -1166,7 +1189,13 @@
     "eventCount_other": "{{count}} Ereignisse",
     "stopSession": "Sitzung Beenden",
     "stopSessionConfirmTitle": "Diese Sitzung Beenden?",
-    "stopSessionConfirmDescription": "Die Ladestation {{station}} wird aufgefordert, die Transaktion an EVSE {{evseId}} zu beenden. Dem Fahrer wird die bisher gelieferte Energie berechnet."
+    "stopSessionConfirmDescription": "Die Ladestation {{station}} wird aufgefordert, die Transaktion an EVSE {{evseId}} zu beenden. Dem Fahrer wird die bisher gelieferte Energie berechnet.",
+    "endSession": "Sitzung Abschließen",
+    "endSessionConfirmTitle": "Diese Sitzung Ohne die Ladestation Abschließen?",
+    "endSessionConfirmDescription": "Die Ladestation {{station}} ist offline. Das CSMS schließt die Sitzung jetzt ohne die Ladestation ab und berechnet sie zur zuletzt gemessenen Energie, {{energy}}. Eine Stopp- oder Ende-Nachricht, die die Ladestation nach dem erneuten Verbinden sendet, öffnet die Sitzung nicht wieder und berechnet sie nicht erneut.",
+    "endSessionConfirmDescriptionWithCost": "Die Ladestation {{station}} ist offline. Das CSMS schließt die Sitzung jetzt ohne die Ladestation ab und berechnet sie zur zuletzt gemessenen Energie, {{energy}}, bisher {{cost}}. Eine Stopp- oder Ende-Nachricht, die die Ladestation nach dem erneuten Verbinden sendet, öffnet die Sitzung nicht wieder und berechnet sie nicht erneut.",
+    "endSessionRequested": "Abschluss der Sitzung angefordert",
+    "endSessionFailed": "Sitzung konnte nicht abgeschlossen werden"
   },
   "drivers": {
     "title": "Fahrer",
@@ -2729,6 +2758,7 @@
       "maxPerSitePerDay": "Analysen pro Standort und Tag",
       "primaryLanguage": "Sprache der Zusammenfassung",
       "retentionDays": "Analysen aufbewahren (Tage)",
+      "expireAfterDays": "Einmalige Analysen schließen nach (Tage)",
       "reservation": "Reservierungsanalysen",
       "reservationOff": "Reservierungsanalysen sind aus, solange Reservierungen ausgeschaltet sind.",
       "reservationOffLink": "Reservierungen einschalten",
@@ -3328,6 +3358,7 @@
     "SESSION_ALREADY_ACTIVE": "Sie haben bereits einen aktiven Ladevorgang",
     "SESSION_CREATE_FAILED": "Ladevorgang konnte nicht erstellt werden",
     "SESSION_NOT_FOUND": "Ladevorgang nicht gefunden",
+    "SESSION_NOT_ACTIVE": "Der Ladevorgang ist nicht aktiv",
     "SESSION_NOT_LINKED": "Ladevorgang ist nicht mit diesem Fall verknüpft",
     "SESSION_REBILL_IN_PROGRESS": "Der Ladevorgang wird gerade abgerechnet. Versuchen Sie es in einigen Minuten erneut.",
     "SESSION_REBILL_NOT_ELIGIBLE": "Dieser Ladevorgang kann nicht abgerechnet werden",
@@ -3345,6 +3376,7 @@
     "STATION_ID_EXISTS": "Eine Station mit dieser ID existiert bereits",
     "STATION_NOT_FOUND": "Station nicht gefunden",
     "STATION_OFFLINE": "Station ist offline",
+    "STATION_ONLINE": "Die Ladestation ist online. Stoppen Sie den Ladevorgang an der Ladestation.",
     "STATION_REJECTED": "Station hat Start abgelehnt: ...",
     "STATION_TIMEOUT": "Station hat nicht geantwortet",
     "STATION_UNAVAILABLE": "Diese Station ist derzeit nicht verfügbar. Versuchen Sie eine andere Station.",
@@ -4190,6 +4222,7 @@
       "startAt": "Laden an {{target}} der Station {{station}} starten",
       "stop": "Den Ladevorgang an Station {{station}} beenden (OCPP-Transaktion {{transaction}})",
       "stopAny": "Den Ladevorgang an Station {{station}} beenden",
+      "endSession": "Den Ladevorgang an der Offline-Station {{station}} im CSMS abschließen (OCPP-Transaktion {{transaction}}), berechnet zur zuletzt gemessenen Energie",
       "chargingProfile": "Ladeprofil an Station {{station}} setzen",
       "chargingProfileAt": "Ladeprofil an {{target}} der Station {{station}} setzen",
       "ocppCommand": "{{command}} an Station {{station}} senden",
@@ -5062,7 +5095,10 @@
       "ask_driver_to_retry": "Fahrer bitten, es erneut zu versuchen",
       "check_vehicle_compatibility": "Fahrzeugkompatibilität prüfen",
       "end_concurrent_session": "Parallele Sitzung beenden",
+      "wait_for_concurrent_session": "Warten, bis die andere Sitzung der Karte endet",
+      "check_shared_token": "Prüfen, ob die Karte geteilt oder kopiert wird",
       "check_csms_status": "CSMS-Status prüfen",
+      "contact_site": "Standort kontaktieren",
       "monitor": "Weiter beobachten",
       "reservation_check_evse_status": "Status des reservierten EVSE prüfen",
       "reservation_check_station_connectivity": "Verbindung der Station prüfen",
@@ -5175,6 +5211,7 @@
     "action": {
       "kind": {
         "stop_transaction": "Sitzung beenden",
+        "end_session": "Sitzung ohne die Ladestation abschließen",
         "soft_reset": "Station sanft zurücksetzen",
         "change_availability": "Verfügbarkeit der Station ändern"
       },
@@ -5189,6 +5226,7 @@
       "expiresAt": "Läuft ab am {{time}}",
       "expires": "Läuft ab",
       "rationale": "Begründung",
+      "billing": "Abrechnung",
       "executed": "Die Aktion wurde ausgeführt",
       "confirmFailed": "Die Aktion wurde nicht ausgeführt",
       "rejectedToast": "Aktion abgelehnt",
@@ -5220,7 +5258,18 @@
       "expiresInfo": "Eine vorgeschlagene Aktion bleibt bis zur angezeigten Zeit offen, weil sich Station oder Ladevorgang nach der Prüfung ändern können. Danach läuft sie ab, nichts wird ausgeführt, und ein neuer Vorschlag erscheint, wenn das Problem weiter besteht.",
       "apiRequest": "API-Anfrage"
     },
-    "openPanel": "Automatische Analysen öffnen ({{count}})"
+    "openPanel": "Automatische Analysen öffnen ({{count}})",
+    "stationOffline": {
+      "advice": "Die Ladestation {{station}} ist seit {{duration}} offline, seit {{since}}. Bringen Sie sie zuerst wieder online: Prüfen Sie Stromversorgung, Netzwerk oder SIM-Karte und kontaktieren Sie den Standort. Nach dem erneuten Verbinden sendet sie ihre gespeicherten Transaktionsnachrichten, sodass die Sitzung mit dem tatsächlichen letzten Zählerstand und exakter Abrechnung endet.",
+      "connectionHistory": "Verbindungsverlauf"
+    },
+    "concurrentSession": {
+      "wait": "Die Karte wird seit {{since}} in einer laufenden Sitzung an der Ladestation {{station}} verwendet. Sie kann hier starten, sobald diese Sitzung endet. Es muss nichts gestoppt werden.",
+      "stop": "Die Sitzung der Karte an der Ladestation {{station}} scheint zu hängen, während die Station online ist. Der Stopp beendet die Transaktion an der Station und rechnet sie nach dem letzten Zählerstand ab; kennt die Station sie nicht mehr, schließt das CSMS sie zur zuletzt gemessenen Energie ab.",
+      "restore": "Die Sitzung der Karte an der Ladestation {{station}} scheint zu hängen, weil die Station offline ist. Bringen Sie die Station zuerst wieder online: Nach dem erneuten Verbinden sendet sie ihre gespeicherten Transaktionsnachrichten, und die Sitzung endet mit dem tatsächlichen letzten Zählerstand.",
+      "end": "Die Sitzung der Karte an der Ladestation {{station}} scheint zu hängen, und die Station ist seit Langem offline. Schließen Sie sie im CSMS ohne die Station ab: Sie wird zur zuletzt gemessenen Energie abgerechnet, und eine spätere Meldung der Station berechnet sie nicht erneut.",
+      "viewSession": "Sitzung Anzeigen"
+    }
   },
   "aiWorkers": {
     "title": "KI-Hintergrund-Worker",
@@ -5234,6 +5283,7 @@
       "title": "Hängende Sitzungen",
       "description": "Schlägt vor, Sitzungen zu beenden, die keine Daten mehr melden.",
       "idleMinutes": "Leerlaufzeit, ab der eine Sitzung als hängend gilt (Minuten)",
+      "offlineEndAfterHours": "Offline-Zeit, bevor die KI vorschlägt, eine hängende Sitzung im CSMS abzuschließen (Stunden)",
       "useModel": "Begründung mit KI schreiben"
     },
     "tariffAnomalies": {
@@ -5244,6 +5294,13 @@
       "stuckSessionIdle": "Seit {{minutes}} Minuten keine Zählerwerte oder Transaktionsereignisse",
       "stuckSessionOffline": "Die Station ist offline, während die Sitzung aktiv ist",
       "stuckSessionConnectorAvailable": "Der Anschluss meldet Verfügbar, während die Sitzung aktiv ist"
+    },
+    "billing": {
+      "stuckSessionStop": "Der Stopp beendet die Transaktion an der Ladestation, und die Sitzung wird nach ihrem letzten Zählerstand abgerechnet. Kennt die Ladestation die Transaktion nicht mehr, schließt das CSMS die Sitzung ab und berechnet sie zur zuletzt gemessenen Energie.",
+      "stuckSessionStopOngoing": "Die Ladestation meldet, dass die Transaktion noch läuft. Der Stopp beendet sie an der Ladestation, und die Sitzung wird nach ihrem letzten Zählerstand abgerechnet.",
+      "stuckSessionStopNotOngoing": "Die Ladestation meldet, dass sie diese Transaktion nicht mehr ausführt. Der Stopp schließt die Sitzung im CSMS ab und berechnet sie zur zuletzt gemessenen Energie, {{energy}}.",
+      "stuckSessionEnd": "Das CSMS schließt die Sitzung ohne die Ladestation ab und berechnet sie zur zuletzt gemessenen Energie, {{energy}}. Eine spätere Meldung der Ladestation berechnet sie nicht erneut.",
+      "stuckSessionEndWithCost": "Das CSMS schließt die Sitzung ohne die Ladestation ab und berechnet sie zur zuletzt gemessenen Energie, {{energy}}, bisher {{cost}}. Eine spätere Meldung der Ladestation berechnet sie nicht erneut."
     },
     "findings": {
       "zero_cost": "Ladevorgänge ohne Abrechnung trotz kostenpflichtigem Tarif",

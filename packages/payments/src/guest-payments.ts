@@ -708,7 +708,9 @@ export const guestTransactionNotStarted = (): SQL => sql`NOT EXISTS (
  * Links the guest checkout to the charging session of a transaction that
  * carries its token (finding G2): a cleanup that finds the start reported
  * links the guest instead of releasing a hold that pays for a running
- * session. Null when no transaction carries the token.
+ * session. Only a guest not linked yet (`payment_authorized`, no charging
+ * session): a guest the Started projection already linked is skipped, so no
+ * warning is logged for it. Null when no unlinked guest's token is carried.
  */
 export async function linkStartedGuestSession(
   guestSessionId: number,
@@ -727,6 +729,8 @@ export async function linkStartedGuestSession(
     JOIN transaction_events te ON te.session_id = cs.id
       AND te.payload->>'idToken' = guest_sessions.session_token
     WHERE guest_sessions.id = ${guestSessionId}
+      AND guest_sessions.charging_session_id IS NULL
+      AND guest_sessions.status = 'payment_authorized'
     ORDER BY te.id
     LIMIT 1
   `);

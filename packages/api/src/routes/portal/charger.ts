@@ -45,7 +45,7 @@ import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { publicSiteListed, publicStationListed } from '../../lib/public-station.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { optionalDriverId } from '../../lib/optional-driver.js';
-import { requestGhostSessionEnd } from '../../lib/ghost-session-end.js';
+import { requestSessionEnd } from '../../lib/session-end.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -2650,7 +2650,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       if (isGhost) {
         // Ghost session: ended completed and billed by the OCPP server, as on the
         // operator stop (the station has no record of the transaction).
-        await requestGhostSessionEnd(session.id, request.log);
+        await requestSessionEnd(session.id, 'GhostRecovered', request.log);
         request.log.info(
           { sessionId: session.id, transactionId: session.transactionId },
           'Ghost session recovered: station returned TxNotFound, session end requested',

@@ -157,7 +157,7 @@ describe('executeConfirmedToolCall', () => {
     const result = await executeConfirmedToolCall(
       app,
       caller(),
-      call({ args: { stationId: 'CS-1', transactionId: '42' }, allowAction: workerAllowed }),
+      call({ args: { stationId: 'CS-1', transactionId: '42' } }),
       { findStation: station('ocpp1.6') },
     );
     expect(result).toMatchObject({ kind: 'ran', operationId: 'ocppv16_RemoteStopTransaction' });
@@ -165,6 +165,17 @@ describe('executeConfirmedToolCall', () => {
       url: STOP_16,
       body: { stationId: 'CS-1', transactionId: 42 },
     });
+  });
+
+  it('refuses a stored worker stop through the generic OCPP command (no ghost recovery)', async () => {
+    const result = await executeConfirmedToolCall(
+      app,
+      caller(),
+      call({ args: { stationId: 'CS-1', transactionId: '42' }, allowAction: workerAllowed }),
+      { findStation: station('ocpp2.1') },
+    );
+    expect(result).toEqual({ kind: 'refused', reason: 'no_longer_available' });
+    expect(seen).toHaveLength(0);
   });
 
   it('refuses when the station version has no equivalent', async () => {

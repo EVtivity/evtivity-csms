@@ -10,7 +10,13 @@ import {
   SIGNAL_GRACE_MINUTES,
   effectiveIdleMinutes,
 } from '../ai-workers/stuck-sessions.js';
-import { softResetProposal, stopSessionProposal, workerAction } from '../ai-workers/proposals.js';
+import {
+  softResetProposal,
+  stationOfflineMinutes,
+  stuckSessionCase,
+  stuckSessionProposal,
+  workerAction,
+} from '../ai-workers/proposals.js';
 import { dayPeriod, quarterHourPeriod } from '../ai-workers/runs.js';
 
 describe('stuck-session idle time (TC-AI-WK-04)', () => {
@@ -26,54 +32,169 @@ describe('stuck-session idle time (TC-AI-WK-04)', () => {
 });
 
 describe('worker suggestions', () => {
+  const offlineSince = new Date(Date.now() - 30 * 3_600_000);
   const session = {
     sessionId: 'ses_000000000001',
     stationId: 'sta_000000000001',
     ocppStationId: 'CS-1',
     ocppProtocol: 'ocpp1.6',
+    ocppEvseId: 2,
     transactionId: '42',
     siteId: 'sit_000000000001',
     reason: 'station_offline' as const,
+    stationOfflineSince: offlineSince as Date | null,
+    energyWh: 14_800,
+    currentCostCents: 518 as number | null,
+    currency: 'EUR',
     startedAt: new Date(Date.now() - 3 * 3_600_000),
     lastActivityAt: new Date(Date.now() - 2 * 3_600_000),
   };
+  const online = (reason: 'no_activity' | 'connector_available') => ({
+    ...session,
+    reason,
+    stationOfflineSince: null,
+  });
   const opts = {
     idleMinutes: 90,
+    offlineEndAfterHours: 24,
     expiresAt: new Date(Date.now() + 3_600_000),
     workerRunId: 7,
     period: '2026-10-10T10:15',
     now: new Date(),
   };
+  const offlineInsight = {
+    kind: 'stuck_session',
+    siteId: 'sit_000000000001',
+    stationId: 'sta_000000000001',
+    sessionId: 'ses_000000000001',
+    narrative: null,
+    rootCause: { category: 'connectivity', confidence: 'high' },
+    fixes: ['check_power_supply', 'check_network_connection', 'contact_site'],
+    scope: { stationOffline: { since: offlineSince.toISOString() } },
+  };
 
-  it('TC-AI-WK-04 stops a 1.6 session with an integer transaction id, as a stuck session insight', () => {
-    const suggestion = stopSessionProposal(session, opts);
-    expect(suggestion?.action).toMatchObject({
+  it('TC-AI-WK-04 ends the session of a station offline past the setting in the CSMS', () => {
+    const suggestion = stuckSessionProposal(session, opts);
+    expect(suggestion?.action).toEqual({
       job: 'stuck_sessions',
-      operationId: 'ocppv16_RemoteStopTransaction',
-      args: { stationId: 'CS-1', transactionId: 42 },
-      dedupKey: 'stuck_sessions:ses_000000000001',
-      summary: { action: 'stop_transaction', rationale: { code: 'stuckSessionOffline' } },
-    });
-    expect(suggestion?.insight).toEqual({
-      kind: 'stuck_session',
+      workerRunId: 7,
       siteId: 'sit_000000000001',
       stationId: 'sta_000000000001',
       sessionId: 'ses_000000000001',
+      operationId: 'endSession',
+      method: 'POST',
+      path: '/v1/sessions/{id}/end',
+      args: { id: 'ses_000000000001' },
+      summary: {
+        action: 'end_session',
+        stationId: 'CS-1',
+        transactionId: '42',
+        reason: 'station_offline',
+        rationale: { code: 'stuckSessionOffline', params: { minutes: 120 } },
+        lastActivityAt: session.lastActivityAt.toISOString(),
+        transactionOngoing: null,
+        billing: {
+          code: 'stuckSessionEnd',
+          params: { energyWh: 14_800, costCents: 518, currency: 'EUR' },
+        },
+      },
+      precondition: {
+        kind: 'session_active',
+        params: { sessionId: 'ses_000000000001', transactionId: '42', stationOnline: false },
+      },
+      dedupKey: 'stuck_sessions:ses_000000000001',
+      expiresAt: opts.expiresAt,
+      actor: { actor: 'system', actorLabel: 'ai-stuck_sessions' },
+    });
+    // The end insight still leads with getting the station back online.
+    expect(suggestion?.insight).toEqual({
+      ...offlineInsight,
       triggerKey: 'stuck_sessions:ses_000000000001:2026-10-10T10:15',
-      narrative: null,
-      rootCause: { category: 'connectivity', confidence: 'high' },
+    });
+  });
+
+  it('TC-AI-WK-04 advises restoring an offline station before the setting, with no action', () => {
+    const recent = { ...session, stationOfflineSince: new Date(Date.now() - 2 * 3_600_000) };
+    const suggestion = stuckSessionProposal(recent, opts);
+    expect(suggestion?.action).toBeNull();
+    // One advice insight per session, whatever the run period.
+    expect(suggestion?.insight).toEqual({
+      ...offlineInsight,
+      scope: { stationOffline: { since: recent.stationOfflineSince.toISOString() } },
+      triggerKey: 'stuck_sessions:ses_000000000001:offline',
+    });
+    expect(stuckSessionCase(recent, opts)).toBe('offline_advice');
+    expect(stuckSessionCase(recent, { ...opts, offlineEndAfterHours: 1 })).toBe('offline_end');
+    expect(stuckSessionCase(session, opts)).toBe('offline_end');
+    expect(stuckSessionCase(online('no_activity'), opts)).toBe('stop');
+  });
+
+  it('measures how long the station is offline', () => {
+    expect(stationOfflineMinutes(session, opts.now)).toBe(30 * 60);
+    expect(stationOfflineMinutes(online('no_activity'), opts.now)).toBeNull();
+  });
+
+  it.each(['no_activity', 'connector_available'] as const)(
+    'TC-AI-WK-04 stops the session at its online station through the EVSE stop (%s)',
+    (reason) => {
+      const suggestion = stuckSessionProposal(online(reason), opts);
+      expect(suggestion?.action).toMatchObject({
+        operationId: 'stopActiveEvseSession',
+        method: 'POST',
+        path: '/v1/stations/{id}/evses/{evseId}/stop-active-session',
+        // The internal station id and the session's OCPP EVSE number, for 1.6 and 2.1 alike.
+        args: { id: 'sta_000000000001', evseId: 2 },
+        summary: {
+          action: 'stop_transaction',
+          stationId: 'CS-1',
+          transactionId: '42',
+          billing: {
+            code: 'stuckSessionStop',
+            params: { energyWh: 14_800, costCents: 518, currency: 'EUR' },
+          },
+        },
+        precondition: {
+          kind: 'session_active',
+          params: { sessionId: 'ses_000000000001', transactionId: '42', stationOnline: true },
+        },
+      });
+      // No offline advice on an online station.
+      expect(suggestion?.insight).not.toHaveProperty('fixes');
+      expect(suggestion?.insight).not.toHaveProperty('scope');
+    },
+  );
+
+  it('skips the stop of an online station when the session has no known EVSE', () => {
+    expect(stuckSessionProposal({ ...online('no_activity'), ocppEvseId: null }, opts)).toBeNull();
+    // The CSMS end needs no EVSE.
+    expect(stuckSessionProposal({ ...session, ocppEvseId: null }, opts)?.action?.operationId).toBe(
+      'endSession',
+    );
+  });
+
+  it('gives the billing params of an unpriced session a null cost', () => {
+    const suggestion = stuckSessionProposal(
+      { ...session, currentCostCents: null, energyWh: 0 },
+      opts,
+    );
+    expect(suggestion?.action?.summary).toMatchObject({
+      billing: { code: 'stuckSessionEnd', params: { energyWh: 0, costCents: null } },
     });
   });
 
   it('gives a stuck session the root cause of its reason', () => {
-    const rootCause = (reason: 'no_activity' | 'station_offline' | 'connector_available') =>
-      stopSessionProposal({ ...session, reason }, opts)?.insight.rootCause;
-    expect(rootCause('station_offline')).toEqual({ category: 'connectivity', confidence: 'high' });
-    expect(rootCause('connector_available')).toEqual({
+    expect(stuckSessionProposal(session, opts)?.insight.rootCause).toEqual({
+      category: 'connectivity',
+      confidence: 'high',
+    });
+    expect(stuckSessionProposal(online('connector_available'), opts)?.insight.rootCause).toEqual({
       category: 'connectivity',
       confidence: 'medium',
     });
-    expect(rootCause('no_activity')).toEqual({ category: 'unknown', confidence: 'low' });
+    expect(stuckSessionProposal(online('no_activity'), opts)?.insight.rootCause).toEqual({
+      category: 'unknown',
+      confidence: 'low',
+    });
   });
 
   it('suggests a soft reset of a long faulted station as a station insight, one per day', () => {
@@ -101,8 +222,10 @@ describe('worker suggestions', () => {
     });
   });
 
-  it('skips a 1.6 session whose transaction id is not an integer', () => {
-    expect(stopSessionProposal({ ...session, transactionId: 'abc' }, opts)).toBeNull();
+  it('keeps a 1.6 transaction id that is not an integer: the session routes take any id', () => {
+    expect(
+      stuckSessionProposal({ ...session, transactionId: 'abc' }, opts)?.action?.summary,
+    ).toMatchObject({ transactionId: 'abc' });
   });
 
   it('uses the 2.1 action for a station that never connected', () => {
@@ -110,6 +233,13 @@ describe('worker suggestions', () => {
       operationId: 'ocppv21_Reset',
       fixedArgs: { type: 'OnIdle' },
     });
+  });
+
+  it('uses the same session actions for OCPP 1.6 and 2.1', () => {
+    for (const protocol of ['ocpp1.6', 'ocpp2.1', null]) {
+      expect(workerAction('stop_transaction', protocol).operationId).toBe('stopActiveEvseSession');
+      expect(workerAction('end_session', protocol).operationId).toBe('endSession');
+    }
   });
 
   it('names the run periods in UTC', () => {

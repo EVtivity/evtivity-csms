@@ -8,7 +8,7 @@
  * only writes the narrative over these numbers; it never computes them.
  */
 
-import { client, toDate } from '@evtivity/database';
+import { client, stationInsightsSuppressedSql, toDate } from '@evtivity/database';
 import type { RawTimestamp } from '@evtivity/database';
 
 /** A station faulted for longer than this is a soft reset candidate. */
@@ -165,6 +165,7 @@ export async function longFaultedStations(input: {
       ) AS faulted_since
     FROM charging_stations cs
     WHERE cs.site_id = ${input.siteId} AND cs.is_online AND cs.availability = 'faulted'
+      AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
       AND NOT EXISTS (
         SELECT 1 FROM port_status_log p
         WHERE p.station_id = cs.id AND p.new_status <> 'faulted'

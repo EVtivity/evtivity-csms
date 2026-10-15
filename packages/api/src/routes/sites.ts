@@ -56,7 +56,7 @@ import {
   isKnownCountry,
 } from '@evtivity/lib';
 import type { ElectricityRatePeriodRestrictions } from '@evtivity/lib';
-import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, rejectUnknownBodyKeys, zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -1134,9 +1134,18 @@ export function siteRoutes(app: FastifyInstance): void {
     '/sites/:id',
     {
       onRequest: [authorize('sites:write')],
+      // Ajv drops unknown keys, so `freeVendEnabled` here answered 200 and
+      // changed nothing: refuse every key the body does not name.
+      preValidation: [
+        rejectUnknownBodyKeys(updateSiteBody, {
+          freeVendEnabled: 'free vend is set with POST /v1/sites/:id/free-vend',
+        }),
+      ],
       schema: {
         tags: ['Sites'],
         summary: 'Update a site',
+        description:
+          'Updates the given fields. A field the body does not define (such as freeVendEnabled, set with POST /v1/sites/:id/free-vend) answers 400 VALIDATION_ERROR.',
         operationId: 'updateSite',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteParams),

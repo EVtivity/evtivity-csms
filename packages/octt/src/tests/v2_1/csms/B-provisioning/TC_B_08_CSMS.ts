@@ -66,10 +66,10 @@ const EXPECTED_KEYS = VARIABLES.map((v) => variableKey(v.component, v.variable, 
 
 /**
  * Waits until the CSMS has stored the reported DeviceDataCtrlr.ItemsPerMessage
- * value. The CSMS answers NotifyReport before its event projection persists the
- * report, so requesting variables right after NotifyReport races that write.
- * Both reported ItemsPerMessage instances are MAX_ITEMS, so a stored
- * ItemsPerMessage row with that value means the limit is known. Returns false
+ * value of the GetVariables instance, the limit the GetVariables split reads.
+ * The CSMS answers NotifyReport before its event projection persists the
+ * report, so requesting variables right after NotifyReport races that write,
+ * and the GetReport instance can be stored before the GetVariables one. Returns false
  * after the timeout; the scenario then runs anyway and the validations judge it.
  */
 export async function waitForItemsPerMessageStored(
@@ -89,6 +89,7 @@ export async function waitForItemsPerMessageStored(
       (r) =>
         r['component'] === 'DeviceDataCtrlr' &&
         r['variable'] === 'ItemsPerMessage' &&
+        r['variableInstance'] === 'GetVariables' &&
         r['value'] === String(MAX_ITEMS),
     );
     if (stored) return true;

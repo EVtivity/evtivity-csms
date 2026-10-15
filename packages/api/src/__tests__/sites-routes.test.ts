@@ -782,6 +782,37 @@ describe('Site routes - handler logic', () => {
       });
     });
 
+    it('returns 400 for a key the body does not define, naming the free vend route', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { name: 'Site', freeVendEnabled: true },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        message:
+          'Unknown field freeVendEnabled: free vend is set with POST /v1/sites/:id/free-vend',
+      });
+    });
+
+    it('returns 400 for any other unknown key', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { nmae: 'Typo' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        message: 'Unknown field nmae',
+      });
+    });
+
     it('returns 400 for an unknown country', async () => {
       const response = await app.inject({
         method: 'PATCH',

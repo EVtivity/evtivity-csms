@@ -1001,7 +1001,30 @@
     "removeTag": "移除標籤 {{tag}}",
     "messageCommandQueued": "充電站離線。命令已排入佇列，將在充電站重新連線時傳送。",
     "chargingNeedsTab": "充電需求與監視器",
-    "localAuthPrepaidHint": "僅列出非預付卡的啟用權杖。充電站會線上檢查預付卡餘額，因此預付卡不會進入本地列表。"
+    "localAuthPrepaidHint": "僅列出非預付卡的啟用權杖。充電站會線上檢查預付卡餘額，因此預付卡不會進入本地列表。",
+    "aiInsights": {
+      "label": "AI 洞察",
+      "inScope": "已啟用",
+      "suppressed": "已暫停",
+      "allScopes": "全部",
+      "listBadge": "AI 洞察已暫停",
+      "suppress": "暫停",
+      "resume": "恢復",
+      "until": "直到 {{date}}",
+      "untilResumed": "直到恢復",
+      "by": "{{name}}：{{reason}}",
+      "maintenance": "在進行中的維護活動涵蓋該充電站期間暫停",
+      "suppressTitle": "暫停此充電站的 AI 洞察？",
+      "suppressDescription": "在結束日期之前或在您恢復之前，不會為此充電站建立新的 AI 洞察或建議操作。其未關閉的洞察將被忽略，等待中的操作將過期。",
+      "reason": "原因",
+      "reasonRequired": "請輸入原因",
+      "endDate": "結束日期（選填）",
+      "resumeTitle": "恢復此充電站的 AI 洞察？",
+      "resumeDescription": "AI 洞察將重新監測此充電站。",
+      "suppressedToast": "AI 洞察已暫停",
+      "resumedToast": "AI 洞察已恢復",
+      "failed": "無法變更此充電站的 AI 洞察"
+    }
   },
   "eventAlertRules": {
     "title": "事件警示規則",
@@ -1166,7 +1189,13 @@
     "eventCount_other": "{{count}} 個事件",
     "stopSession": "停止工作階段",
     "stopSessionConfirmTitle": "停止此工作階段？",
-    "stopSessionConfirmDescription": "將請求充電站 {{station}} 停止 EVSE {{evseId}} 上的交易。駕駛員將依目前已輸送的電量計費。"
+    "stopSessionConfirmDescription": "將請求充電站 {{station}} 停止 EVSE {{evseId}} 上的交易。駕駛員將依目前已輸送的電量計費。",
+    "endSession": "結束工作階段",
+    "endSessionConfirmTitle": "在沒有充電站的情況下結束此工作階段？",
+    "endSessionConfirmDescription": "充電站 {{station}} 已離線。CSMS 將在沒有充電站的情況下立即結束工作階段，並按其最後計量的電量 {{energy}} 計費。充電站重新連線後傳送的停止或結束訊息不會重新開啟工作階段，也不會再次計費。",
+    "endSessionConfirmDescriptionWithCost": "充電站 {{station}} 已離線。CSMS 將在沒有充電站的情況下立即結束工作階段，並按其最後計量的電量 {{energy}} 計費，目前為 {{cost}}。充電站重新連線後傳送的停止或結束訊息不會重新開啟工作階段，也不會再次計費。",
+    "endSessionRequested": "已要求結束工作階段",
+    "endSessionFailed": "無法結束工作階段"
   },
   "drivers": {
     "title": "駕駛員",
@@ -2729,6 +2758,7 @@
       "maxPerSitePerDay": "每個站點每天的洞察數",
       "primaryLanguage": "摘要語言",
       "retentionDays": "洞察保留天數",
+      "expireAfterDays": "一次性洞察關閉天數",
       "reservation": "預約洞察",
       "reservationOff": "預約功能關閉期間，預約洞察也會關閉。",
       "reservationOffLink": "開啟預約",
@@ -3328,6 +3358,7 @@
     "SESSION_ALREADY_ACTIVE": "您已有進行中的充電工作階段",
     "SESSION_CREATE_FAILED": "建立工作階段失敗",
     "SESSION_NOT_FOUND": "找不到工作階段",
+    "SESSION_NOT_ACTIVE": "工作階段未在進行中",
     "SESSION_NOT_LINKED": "工作階段未關聯至此案件",
     "SESSION_REBILL_IN_PROGRESS": "此工作階段正在計費。請幾分鐘後再試。",
     "SESSION_REBILL_NOT_ELIGIBLE": "無法對此工作階段計費",
@@ -3345,6 +3376,7 @@
     "STATION_ID_EXISTS": "已存在相同 ID 的充電站",
     "STATION_NOT_FOUND": "找不到充電站",
     "STATION_OFFLINE": "充電站已離線",
+    "STATION_ONLINE": "充電站在線上。請改為在充電站停止工作階段。",
     "STATION_REJECTED": "充電站拒絕啟動：...",
     "STATION_TIMEOUT": "充電站未回應",
     "STATION_UNAVAILABLE": "此充電站目前無法使用。請嘗試其他充電站。",
@@ -4190,6 +4222,7 @@
       "startAt": "在充電站 {{station}} 的 {{target}} 開始充電",
       "stop": "停止充電站 {{station}} 的充電工作階段（OCPP 交易 {{transaction}}）",
       "stopAny": "停止充電站 {{station}} 的充電工作階段",
+      "endSession": "在 CSMS 中結束離線充電站 {{station}} 的工作階段（OCPP 交易 {{transaction}}），按最後計量的電量計費",
       "chargingProfile": "為充電站 {{station}} 設定充電設定檔",
       "chargingProfileAt": "為充電站 {{station}} 的 {{target}} 設定充電設定檔",
       "ocppCommand": "向充電站 {{station}} 傳送 {{command}}",
@@ -5062,7 +5095,10 @@
       "ask_driver_to_retry": "請駕駛員重試",
       "check_vehicle_compatibility": "檢查車輛相容性",
       "end_concurrent_session": "結束並行工作階段",
+      "wait_for_concurrent_session": "等待該卡的另一個工作階段結束",
+      "check_shared_token": "檢查該卡是否被共用或複製",
       "check_csms_status": "檢查 CSMS 狀態",
+      "contact_site": "聯絡站點",
       "monitor": "繼續觀察",
       "reservation_check_evse_status": "檢查被預約 EVSE 的狀態",
       "reservation_check_station_connectivity": "檢查充電站的連線",
@@ -5175,6 +5211,7 @@
     "action": {
       "kind": {
         "stop_transaction": "停止工作階段",
+        "end_session": "在沒有充電站的情況下結束工作階段",
         "soft_reset": "軟重新啟動充電站",
         "change_availability": "變更充電站可用性"
       },
@@ -5189,6 +5226,7 @@
       "expiresAt": "{{time}} 過期",
       "expires": "到期時間",
       "rationale": "理由",
+      "billing": "計費",
       "executed": "操作已執行",
       "confirmFailed": "操作未執行",
       "rejectedToast": "已駁回操作",
@@ -5220,7 +5258,18 @@
       "expiresInfo": "建議的操作只在顯示的時間之前有效，因為檢查之後充電站或工作階段可能發生變化。之後它會過期，不會執行任何操作；如果問題仍然存在，會出現新的建議。",
       "apiRequest": "API 請求"
     },
-    "openPanel": "開啟自動洞察（{{count}}）"
+    "openPanel": "開啟自動洞察（{{count}}）",
+    "stationOffline": {
+      "advice": "充電站 {{station}} 自 {{since}} 起已離線 {{duration}}。請先讓它恢復上線：檢查電源、網路或 SIM 卡，並聯絡站點。重新連線後，充電站會傳送其儲存的交易訊息，工作階段將以真實的最終電表讀數和準確的計費結束。",
+      "connectionHistory": "連線歷史"
+    },
+    "concurrentSession": {
+      "wait": "該卡自 {{since}} 起正在充電站 {{station}} 的進行中工作階段使用。該工作階段結束後即可在此開始。無需停止任何項目。",
+      "stop": "該卡在充電站 {{station}} 的工作階段在充電站在線上時看起來卡住了。停止會在充電站結束交易並按最終電表讀數計費；如果充電站已不再知道該交易，CSMS 將按其最後計量的電量結束工作階段。",
+      "restore": "由於充電站離線，該卡在充電站 {{station}} 的工作階段看起來卡住了。請先讓充電站恢復上線：重新連線後它會傳送儲存的交易訊息，工作階段將以真實的最終電表讀數結束。",
+      "end": "該卡在充電站 {{station}} 的工作階段看起來卡住了，且充電站已離線很長時間。請在 CSMS 中在沒有充電站的情況下結束工作階段：按其最後計量的電量計費，充電站之後的回報不會再次計費。",
+      "viewSession": "檢視工作階段"
+    }
   },
   "aiWorkers": {
     "title": "AI 背景工作",
@@ -5234,6 +5283,7 @@
       "title": "卡住的工作階段",
       "description": "建議停止已不再回報資料的工作階段。",
       "idleMinutes": "工作階段被視為卡住前的閒置時間（分鐘）",
+      "offlineEndAfterHours": "AI 建議在 CSMS 中結束卡住的工作階段前的離線時間（小時）",
       "useModel": "用 AI 撰寫理由"
     },
     "tariffAnomalies": {
@@ -5244,6 +5294,13 @@
       "stuckSessionIdle": "{{minutes}} 分鐘內沒有電表讀數或交易事件",
       "stuckSessionOffline": "工作階段仍在進行中，但充電站離線",
       "stuckSessionConnectorAvailable": "工作階段仍在進行中，但充電槍回報為可用"
+    },
+    "billing": {
+      "stuckSessionStop": "停止會在充電站結束交易，工作階段按其最終電表讀數計費。如果充電站已不再知道該交易，CSMS 將結束工作階段並按其最後計量的電量計費。",
+      "stuckSessionStopOngoing": "充電站回報該交易仍在進行。停止會在充電站結束交易，工作階段按其最終電表讀數計費。",
+      "stuckSessionStopNotOngoing": "充電站回報已不再執行此交易。停止會在 CSMS 中結束工作階段，並按其最後計量的電量 {{energy}} 計費。",
+      "stuckSessionEnd": "CSMS 在沒有充電站的情況下關閉工作階段，並按其最後計量的電量 {{energy}} 計費。充電站之後的回報不會再次計費。",
+      "stuckSessionEndWithCost": "CSMS 在沒有充電站的情況下關閉工作階段，並按其最後計量的電量 {{energy}} 計費，目前為 {{cost}}。充電站之後的回報不會再次計費。"
     },
     "findings": {
       "zero_cost": "收費費率下未計費的工作階段",

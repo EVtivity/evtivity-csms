@@ -1001,7 +1001,30 @@
     "removeTag": "Quitar etiqueta {{tag}}",
     "messageCommandQueued": "Estación sin conexión. El comando quedó en cola y se enviará cuando la estación se vuelva a conectar.",
     "chargingNeedsTab": "Necesidades de Carga y Monitores",
-    "localAuthPrepaidHint": "Solo se listan tokens activos que no son tarjetas prepago. Una estación comprueba en línea el saldo de una tarjeta prepago, así que las tarjetas prepago nunca van en una lista local."
+    "localAuthPrepaidHint": "Solo se listan tokens activos que no son tarjetas prepago. Una estación comprueba en línea el saldo de una tarjeta prepago, así que las tarjetas prepago nunca van en una lista local.",
+    "aiInsights": {
+      "label": "Análisis de IA",
+      "inScope": "Incluida",
+      "suppressed": "Suprimidos",
+      "allScopes": "Todos",
+      "listBadge": "Análisis de IA Suprimidos",
+      "suppress": "Suprimir",
+      "resume": "Reanudar",
+      "until": "Hasta {{date}}",
+      "untilResumed": "Hasta reanudar",
+      "by": "Por {{name}}: {{reason}}",
+      "maintenance": "Suprimidos mientras un evento de mantenimiento activo incluye la estación",
+      "suppressTitle": "¿Suprimir los Análisis de IA de Esta Estación?",
+      "suppressDescription": "No se crea ningún análisis de IA ni acción sugerida para esta estación hasta la fecha de fin o hasta que los reanude. Sus análisis abiertos se descartan y sus acciones en espera caducan.",
+      "reason": "Motivo",
+      "reasonRequired": "Indique un motivo",
+      "endDate": "Fecha de Fin (Opcional)",
+      "resumeTitle": "¿Reanudar los Análisis de IA de Esta Estación?",
+      "resumeDescription": "Los análisis de IA vuelven a vigilar esta estación.",
+      "suppressedToast": "Análisis de IA suprimidos",
+      "resumedToast": "Análisis de IA reanudados",
+      "failed": "No se pudieron cambiar los análisis de IA de la estación"
+    }
   },
   "eventAlertRules": {
     "title": "Reglas de Alerta de Eventos",
@@ -1166,7 +1189,13 @@
     "eventCount_other": "{{count}} eventos",
     "stopSession": "Detener Sesión",
     "stopSessionConfirmTitle": "¿Detener Esta Sesión?",
-    "stopSessionConfirmDescription": "Se pide a la estación {{station}} que detenga la transacción en el EVSE {{evseId}}. Al conductor se le cobra la energía entregada hasta ahora."
+    "stopSessionConfirmDescription": "Se pide a la estación {{station}} que detenga la transacción en el EVSE {{evseId}}. Al conductor se le cobra la energía entregada hasta ahora.",
+    "endSession": "Finalizar Sesión",
+    "endSessionConfirmTitle": "¿Finalizar Esta Sesión Sin la Estación?",
+    "endSessionConfirmDescription": "La estación {{station}} está fuera de línea. El CSMS cierra la sesión ahora y la factura según su última energía medida, {{energy}}, sin la estación. Un mensaje de detención o finalización que la estación envíe al reconectarse no reabre la sesión ni la vuelve a facturar.",
+    "endSessionConfirmDescriptionWithCost": "La estación {{station}} está fuera de línea. El CSMS cierra la sesión ahora y la factura según su última energía medida, {{energy}}, por {{cost}} hasta ahora, sin la estación. Un mensaje de detención o finalización que la estación envíe al reconectarse no reabre la sesión ni la vuelve a facturar.",
+    "endSessionRequested": "Finalización de la sesión solicitada",
+    "endSessionFailed": "No se pudo finalizar la sesión"
   },
   "drivers": {
     "title": "Conductores",
@@ -2729,6 +2758,7 @@
       "maxPerSitePerDay": "Análisis por sitio y día",
       "primaryLanguage": "Idioma del resumen",
       "retentionDays": "Conservar análisis (días)",
+      "expireAfterDays": "Cerrar análisis puntuales tras (días)",
       "reservation": "Análisis de reservas",
       "reservationOff": "El análisis de reservas está desactivado mientras las reservas estén desactivadas.",
       "reservationOffLink": "Activar las reservas",
@@ -3328,6 +3358,7 @@
     "SESSION_ALREADY_ACTIVE": "Ya tiene una sesión de carga activa",
     "SESSION_CREATE_FAILED": "Error al crear la sesión",
     "SESSION_NOT_FOUND": "Sesión no encontrada",
+    "SESSION_NOT_ACTIVE": "La sesión no está activa",
     "SESSION_NOT_LINKED": "La sesión no está vinculada a este caso",
     "SESSION_REBILL_IN_PROGRESS": "La sesión se está facturando. Inténtelo de nuevo en unos minutos.",
     "SESSION_REBILL_NOT_ELIGIBLE": "Esta sesión no se puede facturar",
@@ -3345,6 +3376,7 @@
     "STATION_ID_EXISTS": "Ya existe una estación con este ID",
     "STATION_NOT_FOUND": "Estación no encontrada",
     "STATION_OFFLINE": "La estación está fuera de línea",
+    "STATION_ONLINE": "La estación está en línea. Detenga la sesión en la estación.",
     "STATION_REJECTED": "La estación rechazó el inicio: ...",
     "STATION_TIMEOUT": "La estación no respondió",
     "STATION_UNAVAILABLE": "Esta estación no está disponible en este momento. Pruebe otra estación.",
@@ -4190,6 +4222,7 @@
       "startAt": "Iniciar la carga en {{target}} de la estación {{station}}",
       "stop": "Detener la sesión de carga en la estación {{station}} (transacción OCPP {{transaction}})",
       "stopAny": "Detener la sesión de carga en la estación {{station}}",
+      "endSession": "Finalizar en el CSMS la sesión de la estación fuera de línea {{station}} (transacción OCPP {{transaction}}), facturada según su última energía medida",
       "chargingProfile": "Establecer un perfil de carga en la estación {{station}}",
       "chargingProfileAt": "Establecer un perfil de carga en {{target}} de la estación {{station}}",
       "ocppCommand": "Enviar {{command}} a la estación {{station}}",
@@ -5062,7 +5095,10 @@
       "ask_driver_to_retry": "Pedir al conductor que lo intente de nuevo",
       "check_vehicle_compatibility": "Revisar la compatibilidad del vehículo",
       "end_concurrent_session": "Finalizar la sesión simultánea",
+      "wait_for_concurrent_session": "Esperar a que termine la otra sesión de la tarjeta",
+      "check_shared_token": "Comprobar si la tarjeta se comparte o está copiada",
       "check_csms_status": "Revisar el estado del CSMS",
+      "contact_site": "Contactar con el sitio",
       "monitor": "Seguir observando",
       "reservation_check_evse_status": "Revisar el estado del EVSE reservado",
       "reservation_check_station_connectivity": "Revisar la conexión de la estación",
@@ -5175,6 +5211,7 @@
     "action": {
       "kind": {
         "stop_transaction": "Detener la sesión",
+        "end_session": "Finalizar la sesión sin la estación",
         "soft_reset": "Reiniciar la estación en modo suave",
         "change_availability": "Cambiar la disponibilidad de la estación"
       },
@@ -5189,6 +5226,7 @@
       "expiresAt": "Caduca el {{time}}",
       "expires": "Vence",
       "rationale": "Motivo",
+      "billing": "Facturación",
       "executed": "La acción se ejecutó",
       "confirmFailed": "La acción no se ejecutó",
       "rejectedToast": "Acción rechazada",
@@ -5220,7 +5258,18 @@
       "expiresInfo": "Una acción sugerida está abierta hasta la hora indicada, porque la estación o la sesión pueden cambiar después de la comprobación. Después caduca, no se ejecuta nada y aparece una nueva sugerencia si el problema continúa.",
       "apiRequest": "Solicitud de API"
     },
-    "openPanel": "Abrir análisis automáticos ({{count}})"
+    "openPanel": "Abrir análisis automáticos ({{count}})",
+    "stationOffline": {
+      "advice": "La estación {{station}} lleva {{duration}} fuera de línea, desde {{since}}. Primero vuelva a conectarla: compruebe su alimentación, su red o SIM y contacte con el sitio. Al reconectarse envía sus mensajes de transacción almacenados, de modo que la sesión finaliza con su lectura final real del medidor y una facturación exacta.",
+      "connectionHistory": "Historial de Conexión"
+    },
+    "concurrentSession": {
+      "wait": "La tarjeta se está usando en una sesión activa en la estación {{station}} desde {{since}}. Podrá iniciar aquí cuando esa sesión termine. No hay que detener nada.",
+      "stop": "La sesión de la tarjeta en la estación {{station}} parece bloqueada mientras la estación está en línea. Detenerla finaliza la transacción en la estación y la factura según su lectura final del medidor; si la estación ya no la conoce, el CSMS la finaliza según su última energía medida.",
+      "restore": "La sesión de la tarjeta en la estación {{station}} parece bloqueada porque la estación está fuera de línea. Primero vuelva a conectar la estación: al reconectarse envía sus mensajes de transacción almacenados y la sesión finaliza con su lectura final real del medidor.",
+      "end": "La sesión de la tarjeta en la estación {{station}} parece bloqueada y la estación lleva mucho tiempo fuera de línea. Finalícela en el CSMS sin la estación: se factura según su última energía medida y un informe posterior de la estación no la vuelve a facturar.",
+      "viewSession": "Ver Sesión"
+    }
   },
   "aiWorkers": {
     "title": "Procesos de IA en segundo plano",
@@ -5234,6 +5283,7 @@
       "title": "Sesiones bloqueadas",
       "description": "Sugiere detener las sesiones que dejaron de informar.",
       "idleMinutes": "Tiempo inactivo para considerar bloqueada una sesión (minutos)",
+      "offlineEndAfterHours": "Tiempo sin conexión antes de que la IA sugiera finalizar una sesión bloqueada en el CSMS (horas)",
       "useModel": "Redactar el motivo con IA"
     },
     "tariffAnomalies": {
@@ -5244,6 +5294,13 @@
       "stuckSessionIdle": "Sin valores de medidor ni eventos de transacción durante {{minutes}} minutos",
       "stuckSessionOffline": "La estación está desconectada mientras la sesión está activa",
       "stuckSessionConnectorAvailable": "El conector informa Disponible mientras la sesión está activa"
+    },
+    "billing": {
+      "stuckSessionStop": "La detención finaliza la transacción en la estación y la sesión se factura según su última lectura del medidor. Si la estación ya no conoce la transacción, el CSMS finaliza la sesión y la factura según su última energía medida.",
+      "stuckSessionStopOngoing": "La estación informa de que la transacción sigue en curso. La detención la finaliza en la estación y la sesión se factura según su última lectura del medidor.",
+      "stuckSessionStopNotOngoing": "La estación informa de que ya no ejecuta esta transacción. La detención finaliza la sesión en el CSMS y la factura según su última energía medida, {{energy}}.",
+      "stuckSessionEnd": "El CSMS cierra la sesión sin la estación y la factura según su última energía medida, {{energy}}. Un informe posterior de la estación no la vuelve a facturar.",
+      "stuckSessionEndWithCost": "El CSMS cierra la sesión sin la estación y la factura según su última energía medida, {{energy}}, por {{cost}} hasta ahora. Un informe posterior de la estación no la vuelve a facturar."
     },
     "findings": {
       "zero_cost": "Sesiones sin cargo con una tarifa de pago",

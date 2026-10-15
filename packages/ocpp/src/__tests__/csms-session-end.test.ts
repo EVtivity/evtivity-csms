@@ -133,6 +133,22 @@ describe('subscribeSessionEndRequests', () => {
     });
   });
 
+  it('ends a session an operator ended without its offline station', async () => {
+    const { send, bus } = await subscribed([claimedRow]);
+    send(JSON.stringify({ sessionId: 'ses_1', reason: 'OperatorEnded' }));
+    await vi.waitFor(() => {
+      expect(bus.publish).toHaveBeenCalledTimes(1);
+    });
+    expect(bus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          eventType: 'Ended',
+          stoppedReason: 'OperatorEnded',
+        }) as unknown,
+      }),
+    );
+  });
+
   it('logs and ignores a malformed request', async () => {
     const { send, bus, logger } = await subscribed([claimedRow]);
     send(JSON.stringify({ sessionId: 'ses_1', reason: 'StaleSession' }));
@@ -163,15 +179,16 @@ describe('sweepSessionEndRequests', () => {
       [
         { id: 'ses_1', end_request_reason: 'GhostRecovered' },
         { id: 'ses_2', end_request_reason: 'Superseded' },
+        { id: 'ses_3', end_request_reason: 'OperatorEnded' },
       ],
       [claimedRow],
     );
     const bus = makeBus();
-    expect(await sweepSessionEndRequests(sql, bus, makeLogger() as unknown as Logger)).toBe(2);
+    expect(await sweepSessionEndRequests(sql, bus, makeLogger() as unknown as Logger)).toBe(3);
     expect(calls[0]).toContain("status = 'active'");
     expect(calls[0]).toContain('end_request_reason IS NOT NULL');
     expect(calls[0]).toContain('end_claimed_at IS NULL');
-    expect(bus.publish).toHaveBeenCalledTimes(2);
+    expect(bus.publish).toHaveBeenCalledTimes(3);
   });
 
   it('skips an unknown reason and a request another pod claimed', async () => {

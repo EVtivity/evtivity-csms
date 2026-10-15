@@ -38,10 +38,17 @@
  * later id is not seen (a projection commits in milliseconds).
  */
 
-import { client, getInsightAiSettings, stationAvailabilitySql } from '@evtivity/database';
+import {
+  client,
+  getInsightAiSettings,
+  stationAvailabilitySql,
+  stationInsightsSuppressedSql,
+} from '@evtivity/database';
 import type { Logger, PubSubClient } from '@evtivity/lib';
 import type { AiSettings } from '@evtivity/lib/ai-config';
 import {
+  AUTHORIZATION_EXPIRE_OUTCOMES,
+  INSIGHT_EXPIRE_KINDS,
   isReservationInsightKind,
   RESERVATION_INSIGHT_TRIGGERS,
   reservationAuditRaisesInsight,
@@ -52,6 +59,7 @@ import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
   attachToIncident,
   createInsight,
+  expireInsights,
   publishInsightUpdated,
   readScanWatermark,
   resolveInsights,
@@ -92,6 +100,8 @@ export interface AiInsightScanSummary {
   incidents: number;
   requeued: number;
   resolved: number;
+  /** One-off event insights closed by age (`aiInsights.expireAfterDays`). */
+  expired: number;
 }
 
 /**
@@ -170,6 +180,7 @@ async function offlineCandidates(
         WHERE l.id > ${window.last} AND l.id <= ${window.upper} AND l.event = 'disconnected'
           AND (l.metadata ->> 'reason') IS DISTINCT FROM ${SERVER_SHUTDOWN_DISCONNECT_REASON}
           AND (s.id IS NULL OR s.ai_insights_enabled)
+          AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
         ORDER BY l.id
       `
     : [];
@@ -205,6 +216,7 @@ async function faultedCandidates(
           LEFT JOIN sites s ON s.id = cs.site_id
           WHERE p.id > ${window.last} AND p.id <= ${window.upper} AND p.new_status = 'faulted'
             AND (s.id IS NULL OR s.ai_insights_enabled)
+          AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
           ORDER BY p.id
         `
       : [];
@@ -236,6 +248,7 @@ async function faultedCandidates(
     FROM charging_stations cs
     LEFT JOIN sites s ON s.id = cs.site_id
     WHERE cs.reported_status = 'faulted' AND (s.id IS NULL OR s.ai_insights_enabled)
+          AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
       AND NOT EXISTS (
         SELECT 1 FROM ai_insights i
         WHERE i.station_id = cs.id AND i.kind = 'station_faulted'
@@ -271,6 +284,7 @@ async function alertCandidates(language: string, on: boolean, marks: Marks): Pro
         LEFT JOIN sites s ON s.id = cs.site_id
         WHERE a.id > ${window.last} AND a.id <= ${window.upper}
           AND (s.id IS NULL OR s.ai_insights_enabled)
+          AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
         ORDER BY a.id
       `
     : [];
@@ -316,6 +330,7 @@ async function authorizationCandidates(
         LEFT JOIN sites s ON s.id = cs.site_id
         WHERE a.id > ${window.last} AND a.id <= ${window.upper} AND a.outcome <> 'accepted'
           AND (s.id IS NULL OR s.ai_insights_enabled)
+          AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
         ORDER BY a.id
       `
     : [];
@@ -437,6 +452,7 @@ async function reservationCandidates(
         WHERE a.id > ${window.last} AND a.id <= ${window.upper}
           AND a.action::text = ANY(${RESERVATION_TRIGGER_ACTIONS}::text[])
           AND (s.id IS NULL OR s.ai_insights_enabled)
+          AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
         ORDER BY a.id
       `
     : [];
@@ -638,9 +654,13 @@ async function enqueueOrWarn(
 }
 
 /**
- * Open or pending station insights whose condition cleared, recovered incidents, a
- * station fault during a reservation once the station recovered, and a
- * failed reservation fee captured later end resolved.
+ * Insights whose condition cleared end resolved: a station back online or no
+ * longer faulted, recovered incidents, a station fault during a reservation
+ * once the station recovered, a failed reservation fee captured later, a
+ * stuck session that is no longer active (or whose offline advice no longer
+ * applies), a token refusal whose cause is gone (the concurrent session
+ * ended, the token usable again or created, or the same token accepted later
+ * at the same station), and a station alert its station reported cleared.
  */
 async function resolveCleared(deps: AiInsightScanDeps): Promise<number> {
   const cleared = await client<{ id: string }[]>`
@@ -661,6 +681,75 @@ async function resolveCleared(deps: AiInsightScanDeps): Promise<number> {
       AND EXISTS (
         SELECT 1 FROM payment_records p
         WHERE p.reservation_id = i.reservation_id AND p.status = 'captured'
+      )
+    UNION ALL
+    -- A stuck session no longer active, whatever ended it (an insight whose
+    -- action waits is ended by the proposal sweep, which marks it stale);
+    -- and the advice of a stuck session at an offline station (no action),
+    -- once the station is back online or the session got an action insight
+    -- (the CSMS end, or the stop once online).
+    SELECT i.id FROM ai_insights i
+    JOIN charging_sessions s ON s.id = i.session_id
+    JOIN charging_stations cs ON cs.id = s.station_id
+    WHERE i.status = 'open' AND i.kind = 'stuck_session'
+      AND (
+        s.status <> 'active'
+        OR (
+          NOT EXISTS (SELECT 1 FROM ai_proposals p WHERE p.insight_id = i.id)
+          AND (
+            cs.is_online
+            OR EXISTS (
+              SELECT 1 FROM ai_insights a
+              JOIN ai_proposals p ON p.insight_id = a.id
+              WHERE a.session_id = i.session_id AND a.kind = 'stuck_session' AND a.id <> i.id
+            )
+          )
+        )
+      )
+    UNION ALL
+    -- A token refusal whose cause is gone: the session a concurrent_tx refusal
+    -- names ended; a blocked, expired or unknown token is usable again or was
+    -- created after the refusal (the token or its driver changed since); or,
+    -- for any outcome, the same token was accepted later at the same station.
+    SELECT i.id FROM ai_insights i
+    JOIN authorize_attempts a ON a.id = i.authorize_attempt_id
+    WHERE i.status IN ('open', 'pending') AND i.kind = 'authorization_refused'
+      AND (
+        (a.outcome = 'concurrent_tx' AND NOT EXISTS (
+          SELECT 1 FROM charging_sessions s
+          WHERE s.id = substring(a.reason from '^concurrent_session ([^ ]+)$')
+            AND s.status = 'active'
+        ))
+        OR (a.outcome IN ('blocked', 'expired', 'unknown') AND EXISTS (
+          SELECT 1 FROM driver_tokens t
+          LEFT JOIN drivers d ON d.id = t.driver_id
+          WHERE t.id_token = a.id_token AND t.is_active AND t.revoked_at IS NULL
+            AND (t.expires_at IS NULL OR t.expires_at > now())
+            AND (d.id IS NULL OR d.is_active)
+            AND GREATEST(t.created_at, t.updated_at, COALESCE(d.updated_at, t.updated_at))
+              > a.created_at
+        ))
+        OR EXISTS (
+          SELECT 1 FROM authorize_attempts b
+          WHERE b.station_id = a.station_id AND b.id_token = a.id_token
+            AND b.outcome = 'accepted' AND b.id > a.id
+        )
+      )
+    UNION ALL
+    -- A station alert whose station later reported the same component and
+    -- variable cleared (NotifyEvent eventData.cleared). The trigger key ends
+    -- with the event_alerts id.
+    SELECT i.id FROM ai_insights i
+    JOIN event_alerts e
+      ON e.id = substring(i.trigger_key from ':([0-9]+)$')::int AND e.station_id = i.station_id
+    WHERE i.status IN ('open', 'pending') AND i.kind = 'station_alert'
+      AND EXISTS (
+        SELECT 1 FROM station_events se
+        WHERE se.station_id = e.station_id AND se.created_at > e.created_at
+          AND se.event_data @> jsonb_build_array(jsonb_build_object(
+            'cleared', true,
+            'component', jsonb_build_object('name', e.component),
+            'variable', jsonb_build_object('name', e.variable)))
       )
     UNION ALL
     SELECT i.id FROM ai_insights i
@@ -704,6 +793,50 @@ function kindOn(kind: InsightKind, settings: AiSettings): boolean {
   if (kind === 'session_failed') return settings.insights.sessionEnabled;
   if (kind === 'authorization_refused') return settings.insights.authorizationEnabled;
   return settings.insights.stationEnabled;
+}
+
+/**
+ * One-off event insights still open after `aiInsights.expireAfterDays` end
+ * `expired` (`INSIGHT_EXPIRE_KINDS`, and the authorization refusals with no
+ * clearing condition, `AUTHORIZATION_EXPIRE_OUTCOMES`). Only `open`: an
+ * insight whose action waits is never closed this way.
+ */
+async function expireAged(days: number, deps: AiInsightScanDeps): Promise<number> {
+  const aged = await client<{ id: string }[]>`
+    SELECT i.id FROM ai_insights i
+    LEFT JOIN authorize_attempts a ON a.id = i.authorize_attempt_id
+    WHERE i.status = 'open'
+      AND i.created_at < now() - make_interval(days => ${days})
+      AND (
+        i.kind IN ${client([...INSIGHT_EXPIRE_KINDS])}
+        OR (i.kind = 'authorization_refused'
+          AND a.outcome::text IN ${client([...AUTHORIZATION_EXPIRE_OUTCOMES])})
+      )
+    LIMIT 500
+  `;
+  const ids = await expireInsights(aged.map((r) => r.id));
+  if (ids.length > 0) {
+    const rows = await client<
+      {
+        id: string;
+        site_id: string | null;
+        station_id: string | null;
+        session_id: string | null;
+        kind: string;
+      }[]
+    >`SELECT id, site_id, station_id, session_id, kind FROM ai_insights WHERE id = ANY(${ids}::text[])`;
+    for (const r of rows) {
+      await publishInsightUpdated(deps.pubsub, {
+        id: r.id,
+        siteId: r.site_id,
+        stationId: r.station_id,
+        sessionId: r.session_id,
+        kind: r.kind,
+        status: 'expired',
+      });
+    }
+  }
+  return ids.length;
 }
 
 export async function runAiInsightScan(
@@ -762,7 +895,8 @@ export async function runAiInsightScan(
   const incidents = enabled ? await groupIncidents([...incidentSites], settings, deps, log) : 0;
   const requeued = enabled ? await requeueStuck(settings, deps, log) : 0;
   const resolved = await resolveCleared(deps);
-  const summary = { created, incidents, requeued, resolved };
+  const expired = await expireAged(settings.insights.expireAfterDays, deps);
+  const summary = { created, incidents, requeued, resolved, expired };
   if (created + incidents + requeued + resolved > 0) {
     log.info(summary, 'ai-insight-scan: completed');
   }

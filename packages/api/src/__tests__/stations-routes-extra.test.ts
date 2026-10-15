@@ -115,6 +115,7 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
 
 vi.mock('@evtivity/database', async () => {
   const pgErrors = await import('../../../database/src/lib/pg-errors.js');
+  const suppression = await import('../../../database/src/lib/ai-insight-suppression.js');
   const makeChain = (op: string): Record<string, unknown> => {
     const record = { op, calls: [] as Array<[string, unknown[]]> };
     dbState.chains.push(record);
@@ -182,6 +183,7 @@ vi.mock('@evtivity/database', async () => {
     client: {},
     ...tables,
     writeAudit: mocks.writeAudit,
+    ...suppression,
     pgErrorCode: pgErrors.pgErrorCode,
     PG_UNIQUE_VIOLATION: pgErrors.PG_UNIQUE_VIOLATION,
     PG_FOREIGN_KEY_VIOLATION: pgErrors.PG_FOREIGN_KEY_VIOLATION,

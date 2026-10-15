@@ -146,7 +146,8 @@ export const chargingSessions = pgTable(
     completedNotifiedAt: timestamp('completed_notified_at', { withTimezone: true }),
     receiptNotifiedAt: timestamp('receipt_notified_at', { withTimezone: true }),
     // A durable request to end the session the normal way (completed and
-    // billed) because the station will not: 'GhostRecovered' or 'Superseded'.
+    // billed) because the station will not: 'GhostRecovered', 'Superseded' or
+    // 'OperatorEnded'.
     // end_claimed_at is the lease of the OCPP pod processing it (retried by the
     // OCPP sweep). See packages/ocpp/src/server/csms-session-end.ts.
     endRequestReason: varchar('end_request_reason', { length: 32 }),

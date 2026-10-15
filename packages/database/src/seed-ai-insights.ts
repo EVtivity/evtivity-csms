@@ -190,7 +190,9 @@ const TEXT_LANGUAGE = 'en';
 
 function workerAction(kind: AiWorkerActionKind): AiWorkerAction {
   // Every demo station speaks OCPP 2.1.
-  const action = AI_WORKER_ACTIONS.find((a) => a.kind === kind && a.ocppVersion === '2.1');
+  const action = AI_WORKER_ACTIONS.find(
+    (a) => a.kind === kind && (a.ocppVersion === null || a.ocppVersion === '2.1'),
+  );
   if (action === undefined) throw new Error(`No worker action ${kind} for OCPP 2.1`);
   return action;
 }
@@ -931,6 +933,16 @@ const STUCK_ROOT_CAUSE = {
 
 const STUCK_RATIONALE = { station_offline: 'stuckSessionOffline', no_activity: 'stuckSessionIdle' };
 
+/**
+ * The action the stuck-session worker suggests for each reason: the EVSE stop
+ * at an online station, the CSMS end at an offline one (`stuckSessionProposal`),
+ * with its billing code (`STUCK_BILLING_CODES`).
+ */
+const STUCK_ACTION = {
+  station_offline: { kind: 'end_session', billing: 'stuckSessionEnd' },
+  no_activity: { kind: 'stop_transaction', billing: 'stuckSessionStop' },
+} as const;
+
 async function seedStuckSession(ctx: Context, plan: StuckPlan): Promise<void> {
   if (await insightExists(ctx.sql, plan.insightId)) return;
   const decided = plan.status !== 'pending';
@@ -943,8 +955,15 @@ async function seedStuckSession(ctx: Context, plan: StuckPlan): Promise<void> {
     `;
     if (open != null) return;
   }
+  const stationOnline = plan.reason !== 'station_offline';
+  // The EVSE stop acts on the session's EVSE: a station without one gets no stop.
+  if (stationOnline && s.station.evseNumber == null) return;
   await insertSession(ctx, s);
-  const action = workerAction('stop_transaction');
+  const kind = STUCK_ACTION[plan.reason].kind;
+  const action = workerAction(kind);
+  const args: Record<string, unknown> = stationOnline
+    ? { id: s.station.id, evseId: s.station.evseNumber, ...action.fixedArgs }
+    : { id: s.id, ...action.fixedArgs };
   const minutes = Math.max(minutesBetween(s.lastActivityAt, plan.suggestedAt), STUCK_IDLE_MINUTES);
   const decidedAt = decided ? new Date(plan.suggestedAt.getTime() + 25 * MINUTE_MS) : null;
   const rootCause = STUCK_ROOT_CAUSE[plan.reason];
@@ -978,18 +997,22 @@ async function seedStuckSession(ctx: Context, plan: StuckPlan): Promise<void> {
     station: s.station,
     sessionId: s.id,
     action,
-    args: { stationId: s.station.ocppId, transactionId: s.transactionId, ...action.fixedArgs },
+    args,
     summary: {
-      action: 'stop_transaction',
+      action: kind,
       stationId: s.station.ocppId,
       transactionId: s.transactionId,
       reason: plan.reason,
       rationale: { code: STUCK_RATIONALE[plan.reason], params: { minutes } },
       lastActivityAt: s.lastActivityAt.toISOString(),
+      billing: {
+        code: STUCK_ACTION[plan.reason].billing,
+        params: { energyWh: s.energyWh, costCents: null, currency: null },
+      },
     },
     precondition: {
       kind: 'session_active',
-      params: { sessionId: s.id, transactionId: s.transactionId },
+      params: { sessionId: s.id, transactionId: s.transactionId, stationOnline },
     },
     dedupKey,
     status: plan.status === 'done' ? 'executed' : plan.status,
@@ -1003,10 +1026,8 @@ async function seedStuckSession(ctx: Context, plan: StuckPlan): Promise<void> {
         ? {
             httpStatus: 200,
             body: {
-              status: 'accepted',
-              stationId: s.station.ocppId,
-              action: 'RequestStopTransaction',
-              response: { status: 'Accepted' },
+              operationId: action.operationId,
+              response: { sessionId: s.id, transactionId: s.transactionId, ghostRecovered: false },
             },
           }
         : null,
@@ -1042,8 +1063,8 @@ async function seedStuckSessions(
     },
     summary:
       `The station has sent nothing for {minutes} minutes and is offline, so it cannot report ` +
-      'the end of this transaction. Stopping the session closes it in the CSMS and frees the ' +
-      'connector for the next driver.',
+      'the end of this transaction. Ending the session closes it in the CSMS without the ' +
+      'station, bills it at its last metered energy, and frees the connector for the next driver.',
   });
   await seedStuckSession(ctx, {
     insightId: AI_INSIGHT_DEMO_IDS.stuckDone,

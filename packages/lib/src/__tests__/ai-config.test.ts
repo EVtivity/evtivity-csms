@@ -171,7 +171,8 @@ describe('buildAiSettings', () => {
 
 describe('AI roadmap settings (TC-AI-C-11)', () => {
   it('has a default for every setting key of the contracts', () => {
-    expect(CONTRACT_KEYS).toHaveLength(39);
+    // Plus the offline end threshold of stuck sessions and the insight expiry (v0.1.46).
+    expect(CONTRACT_KEYS).toHaveLength(41);
     for (const key of CONTRACT_KEYS) {
       expect(Object.hasOwn(AI_SETTING_DEFAULTS, key), key).toBe(true);
       expect(isAiSettingKey(key), key).toBe(true);
@@ -374,11 +375,13 @@ describe('AI roadmap settings (TC-AI-C-11)', () => {
       maxPerSitePerDay: 50,
       primaryLanguage: 'en',
       retentionDays: 90,
+      expireAfterDays: 7,
     });
     expect(s.workers).toEqual({
       networkSummaryEnabled: false,
       stuckSessionsEnabled: false,
       stuckSessionsIdleMinutes: 90,
+      stuckSessionsOfflineEndAfterHours: 24,
       stuckSessionsUseModel: false,
       tariffAnomaliesEnabled: false,
       proposalTtlHours: 24,

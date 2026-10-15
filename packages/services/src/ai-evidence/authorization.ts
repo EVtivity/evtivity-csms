@@ -14,6 +14,8 @@
 import { client, toIsoOrNull } from '@evtivity/database';
 import type { RawTimestamp } from '@evtivity/database';
 import type { EvidenceItem, EvidencePack } from './pack.js';
+import { concurrentSessionIdOf, loadConcurrentSessionState } from './concurrent-session.js';
+import type { ConcurrentSessionState } from './concurrent-session.js';
 
 export const AUTHORIZATION_ATTEMPT_LIMIT = 10;
 
@@ -50,6 +52,30 @@ export interface AuthorizationEvidenceRows {
   attempts: AuthorizationAttemptRow[];
   token: AuthorizationTokenRow | null;
   localList: AuthorizationLocalListRow | null;
+  /** The session a `concurrent_tx` refusal names, with its state now. */
+  concurrentSession?: ConcurrentSessionState | null;
+}
+
+/** Whole minutes from `from` to `now`, never negative. */
+function minutesSince(from: Date, now: Date): number {
+  return Math.max(0, Math.floor((now.getTime() - from.getTime()) / 60_000));
+}
+
+/**
+ * The concurrent session as facts: whether it is live (`step` `wait`, never
+ * to be ended) or stuck, measured from its own activity.
+ */
+function concurrentSessionFacts(c: ConcurrentSessionState, now: Date): Record<string, unknown> {
+  return {
+    active: c.active,
+    live: c.step === 'wait',
+    stationOnline: c.stationOnline,
+    measuredSilenceMinutes: minutesSince(c.lastActivityAt, now),
+    measuredStationOfflineMinutes:
+      c.stationOfflineSince === null ? null : minutesSince(c.stationOfflineSince, now),
+    connectorStatus: c.connectorStatus,
+    suggestedStep: c.step,
+  };
 }
 
 export function buildAuthorizationEvidence(
@@ -84,6 +110,10 @@ export function buildAuthorizationEvidence(
       fleetCreditLimited: t?.fleet_credit_limited ?? null,
       localListEntry: rows.localList == null ? null : rows.localList.auth_status,
       localListPushed: rows.localList?.pushed ?? null,
+      concurrentSession:
+        rows.concurrentSession == null
+          ? null
+          : concurrentSessionFacts(rows.concurrentSession, new Date()),
     },
     items,
     untrusted: [],
@@ -139,6 +169,10 @@ export async function loadAuthorizationEvidenceRows(
       LIMIT 1
     `,
   ]);
+  // The newest concurrent_tx refusal names the session the token already runs.
+  const concurrentId = concurrentSessionIdOf(
+    attempts.find((a) => a.outcome === 'concurrent_tx')?.reason,
+  );
   return {
     stationDbId: subject.stationDbId,
     siteId: station.site_id,
@@ -146,6 +180,7 @@ export async function loadAuthorizationEvidenceRows(
     attempts,
     token: tokens[0] ?? null,
     localList: localList[0] ?? null,
+    concurrentSession: concurrentId == null ? null : await loadConcurrentSessionState(concurrentId),
   };
 }
 

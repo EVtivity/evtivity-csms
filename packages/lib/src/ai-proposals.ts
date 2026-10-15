@@ -54,14 +54,26 @@ export const AI_PROPOSAL_TERMINAL_STATUSES: readonly AiProposalStatus[] = [
 
 export const AI_WORKER_ACTION_KINDS = [
   'stop_transaction',
+  'end_session',
   'soft_reset',
   'change_availability',
 ] as const;
 export type AiWorkerActionKind = (typeof AI_WORKER_ACTION_KINDS)[number];
 
+/**
+ * The argument that names what an action acts on, from which the proposal's
+ * station, site and session are resolved (never from the caller alone, P11):
+ * - `ocpp_station`: `stationId`, the OCPP identity (OCPP command routes);
+ * - `station`: `id`, the internal station id;
+ * - `session`: `id`, the session id.
+ */
+export type AiWorkerActionTarget = 'ocpp_station' | 'station' | 'session';
+
 export interface AiWorkerAction {
   kind: AiWorkerActionKind;
-  ocppVersion: '1.6' | '2.1';
+  /** The OCPP version of the command route, null for a route that serves both. */
+  ocppVersion: '1.6' | '2.1' | null;
+  target: AiWorkerActionTarget;
   /** The tool policy `write` operation the action runs. */
   operationId: string;
   method: 'POST';
@@ -73,32 +85,39 @@ export interface AiWorkerAction {
 }
 
 /**
- * The closed set of actions a background worker may suggest. Each one maps to
- * an existing OCPP command route of policy `write`. No money, pricing,
- * billing or security operation is in it, and none may be added.
+ * The closed set of actions a background worker may suggest, each an existing
+ * route of policy `write`: station commands, and the end of a stuck session.
+ * A session ends through the routes an operator uses: the EVSE stop at an
+ * online station (which also ends a session the station no longer knows), and
+ * the CSMS end at an offline one. Both end the session with its normal
+ * billing, as the station's own stop would. No payment, refund, pricing,
+ * re-billing or security operation is in it, and none may be added.
  */
 export const AI_WORKER_ACTIONS: readonly AiWorkerAction[] = [
   {
     kind: 'stop_transaction',
-    ocppVersion: '2.1',
-    operationId: 'ocppv21_RequestStopTransaction',
+    ocppVersion: null,
+    target: 'station',
+    operationId: 'stopActiveEvseSession',
     method: 'POST',
-    path: '/v1/ocpp/commands/v21/RequestStopTransaction',
+    path: '/v1/stations/{id}/evses/{evseId}/stop-active-session',
     fixedArgs: {},
     allowedArgs: {},
   },
   {
-    kind: 'stop_transaction',
-    ocppVersion: '1.6',
-    operationId: 'ocppv16_RemoteStopTransaction',
+    kind: 'end_session',
+    ocppVersion: null,
+    target: 'session',
+    operationId: 'endSession',
     method: 'POST',
-    path: '/v1/ocpp/commands/v16/RemoteStopTransaction',
+    path: '/v1/sessions/{id}/end',
     fixedArgs: {},
     allowedArgs: {},
   },
   {
     kind: 'soft_reset',
     ocppVersion: '2.1',
+    target: 'ocpp_station',
     operationId: 'ocppv21_Reset',
     method: 'POST',
     path: '/v1/ocpp/commands/v21/Reset',
@@ -108,6 +127,7 @@ export const AI_WORKER_ACTIONS: readonly AiWorkerAction[] = [
   {
     kind: 'soft_reset',
     ocppVersion: '1.6',
+    target: 'ocpp_station',
     operationId: 'ocppv16_Reset',
     method: 'POST',
     path: '/v1/ocpp/commands/v16/Reset',
@@ -117,6 +137,7 @@ export const AI_WORKER_ACTIONS: readonly AiWorkerAction[] = [
   {
     kind: 'change_availability',
     ocppVersion: '2.1',
+    target: 'ocpp_station',
     operationId: 'ocppv21_ChangeAvailability',
     method: 'POST',
     path: '/v1/ocpp/commands/v21/ChangeAvailability',
@@ -126,6 +147,7 @@ export const AI_WORKER_ACTIONS: readonly AiWorkerAction[] = [
   {
     kind: 'change_availability',
     ocppVersion: '1.6',
+    target: 'ocpp_station',
     operationId: 'ocppv16_ChangeAvailability',
     method: 'POST',
     path: '/v1/ocpp/commands/v16/ChangeAvailability',
@@ -242,6 +264,7 @@ export const AI_WORKER_SETTING_KEYS = {
   stuckSessionsEnabled: 'aiWorkers.stuckSessions.enabled',
   stuckSessionsIdleMinutes: 'aiWorkers.stuckSessions.idleMinutes',
   stuckSessionsUseModel: 'aiWorkers.stuckSessions.useModel',
+  stuckSessionsOfflineEndAfterHours: 'aiWorkers.stuckSessions.offlineEndAfterHours',
   tariffAnomaliesEnabled: 'aiWorkers.tariffAnomalies.enabled',
   proposalTtlHours: 'aiWorkers.proposalTtlHours',
 } as const;

@@ -22,10 +22,19 @@ type IncomingHandler = (
  * GetVariables trigger reads the stored limit at call time and splits the
  * request like the API route does (no limit known: one request).
  */
-function makeCsms(opts: { pollsUntilStored: number; honorLimit?: boolean }) {
+function makeCsms(opts: {
+  pollsUntilStored: number;
+  honorLimit?: boolean;
+  storeInstances?: string[];
+}) {
   let handler: IncomingHandler | null = null;
   let reported: Record<string, unknown>[] = [];
-  let stored: { component: string; variable: string; value: string }[] = [];
+  let stored: {
+    component: string;
+    variable: string;
+    variableInstance: string | null;
+    value: string;
+  }[] = [];
   let polls = 0;
   const events: string[] = [];
 
@@ -46,14 +55,23 @@ function makeCsms(opts: { pollsUntilStored: number; honorLimit?: boolean }) {
       polls++;
       events.push('poll');
       if (polls >= opts.pollsUntilStored && stored.length === 0) {
-        stored = reported.map((r) => {
-          const attrs = r['variableAttribute'] as { value: string }[];
-          return {
-            component: (r['component'] as { name: string }).name,
-            variable: (r['variable'] as { name: string }).name,
-            value: attrs[0]?.value ?? '',
-          };
-        });
+        stored = reported
+          .map((r) => {
+            const attrs = r['variableAttribute'] as { value: string }[];
+            const variable = r['variable'] as { name: string; instance?: string };
+            return {
+              component: (r['component'] as { name: string }).name,
+              variable: variable.name,
+              variableInstance: variable.instance ?? null,
+              value: attrs[0]?.value ?? '',
+            };
+          })
+          .filter(
+            (s) =>
+              opts.storeInstances == null ||
+              s.variableInstance == null ||
+              opts.storeInstances.includes(s.variableInstance),
+          );
         events.push('stored');
       }
       return Promise.resolve({ status: 200, body: { data: stored, total: stored.length } });
@@ -143,11 +161,31 @@ describe('TC_B_08_CSMS', () => {
   });
 });
 
+const ITEMS_PER_MESSAGE_REPORT = ['GetReport', 'GetVariables'].map((instance) => ({
+  component: { name: 'DeviceDataCtrlr' },
+  variable: { name: 'ItemsPerMessage', instance },
+  variableAttribute: [{ type: 'Actual', value: '4' }],
+}));
+
 describe('waitForItemsPerMessageStored', () => {
   it('returns false when the CSMS never stores the limit', async () => {
     const { ctx } = makeCsms({ pollsUntilStored: Number.POSITIVE_INFINITY });
 
     await expect(waitForItemsPerMessageStored(ctx, 30, 5)).resolves.toBe(false);
+  });
+
+  it('keeps waiting while only the GetReport instance is stored', async () => {
+    const { ctx } = makeCsms({ pollsUntilStored: 1, storeInstances: ['GetReport'] });
+    await ctx.client.sendCall('NotifyReport', { reportData: ITEMS_PER_MESSAGE_REPORT });
+
+    await expect(waitForItemsPerMessageStored(ctx, 30, 5)).resolves.toBe(false);
+  });
+
+  it('returns true once the GetVariables instance is stored', async () => {
+    const { ctx } = makeCsms({ pollsUntilStored: 1 });
+    await ctx.client.sendCall('NotifyReport', { reportData: ITEMS_PER_MESSAGE_REPORT });
+
+    await expect(waitForItemsPerMessageStored(ctx, 30, 5)).resolves.toBe(true);
   });
 
   it('returns false without an API client', async () => {

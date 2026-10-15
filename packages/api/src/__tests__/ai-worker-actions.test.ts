@@ -35,18 +35,41 @@ describe('AI worker actions match the tool catalog (TC-AI-WK-05)', () => {
 const MONEY_OR_SECURITY =
   /pay|refund|invoice|tariff|pric|bill|credit|fee|cost|certificate|password|security|firmware|configuration|variable|network/i;
 
-describe('AI worker actions stay station commands (TC-AI-WK-05)', () => {
+/**
+ * The two session ends a stuck-session insight may carry: the operator's EVSE
+ * stop (online station, with ghost recovery) and the CSMS end of an offline
+ * station's session. Each bills the session as the station's own stop would.
+ */
+const SESSION_END_ROUTES = new Map([
+  ['stopActiveEvseSession', '/v1/stations/{id}/evses/{evseId}/stop-active-session'],
+  ['endSession', '/v1/sessions/{id}/end'],
+]);
+
+describe('AI worker actions stay station commands and session ends (TC-AI-WK-05)', () => {
   it('TC-AI-WK-05 no action moves money or changes pricing, billing or security', () => {
     for (const action of AI_WORKER_ACTIONS) {
-      expect(action.path.startsWith('/v1/ocpp/commands/'), action.operationId).toBe(true);
+      const sessionEnd = SESSION_END_ROUTES.get(action.operationId);
+      if (sessionEnd !== undefined) {
+        expect(action.path, action.operationId).toBe(sessionEnd);
+      } else {
+        expect(action.path.startsWith('/v1/ocpp/commands/'), action.operationId).toBe(true);
+      }
       expect(
         MONEY_OR_SECURITY.test(`${action.operationId} ${action.path}`),
         action.operationId,
       ).toBe(false);
     }
     expect(new Set(AI_WORKER_ACTIONS.map((a) => a.kind))).toEqual(
-      new Set(['stop_transaction', 'soft_reset', 'change_availability']),
+      new Set(['stop_transaction', 'end_session', 'soft_reset', 'change_availability']),
     );
+  });
+
+  it('keeps the session ends confirm-gated tools that MCP clients never get', async () => {
+    const { AI_MCP_EXPOSURE } = await import('../services/ai/tools/policy.js');
+    for (const operationId of SESSION_END_ROUTES.keys()) {
+      expect(toolPolicy(operationId).exposure).toBe('write');
+      expect(AI_MCP_EXPOSURE[operationId]).toBe(false);
+    }
   });
 });
 

@@ -148,8 +148,10 @@ vi.mock('@evtivity/database', async () => {
   // db.transaction. Reuse the same mocked db inside the callback so the
   // chained query helpers above continue to drive the test.
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
+  const suppression = await import('@evtivity/database/src/lib/ai-insight-suppression.js');
   return {
     ...rawTimestamp,
+    ...suppression,
     db: dbMock,
     client: {},
     setStationDisabled: mockSetStationDisabled,
@@ -379,6 +381,7 @@ describe('Station routes - handler logic', () => {
         siteName: null,
         siteFreeVendEnabled: false,
         underMaintenance: false,
+        aiInsightsSuppressed: false,
       };
       // First call: data query, second call: count subquery
       setupDbResults([stationRow], [{ count: 1 }]);
@@ -460,6 +463,13 @@ describe('Station routes - handler logic', () => {
         siteTimezone: null,
         siteFreeVendEnabled: false,
         underMaintenance: false,
+        aiInsightsSuppressed: true,
+        aiInsightsSuppressedByMaintenance: false,
+        aiInsightsSuppressedAt: '2024-01-02T00:00:00.000Z',
+        aiInsightsSuppressedUntil: null,
+        aiInsightsSuppressedBy: 'usr_1',
+        aiInsightsSuppressedByName: 'Ada Lovelace',
+        aiInsightsSuppressedReason: 'Site works',
       };
       setupDbResults([station]);
 
@@ -1565,6 +1575,43 @@ describe('Station routes - handler logic', () => {
 
       expect(response.statusCode).toBe(504);
       expect(response.json().code).toBe('STATION_TIMEOUT');
+    });
+
+    it('returns 409 STATION_OFFLINE when the stop is queued for an offline station, audited as queued', async () => {
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'm',
+        error: 'Station offline, command queued',
+        queued: true,
+      });
+      const { writeAudit } = await import('@evtivity/database');
+      vi.mocked(writeAudit).mockClear();
+      mockPublish.mockClear();
+      setupDbResults(
+        [{ stationId: 'CS-001', ocppProtocol: 'ocpp2.1' }],
+        [{ id: 'evs_000000000001' }],
+        [{ id: 'ses_000000000001', transactionId: 'tx-abc' }],
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/evses/1/stop-active-session`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('STATION_OFFLINE');
+      // The station and session audits keep the queued outcome.
+      const audits = vi
+        .mocked(writeAudit)
+        .mock.calls.map((c) => c[1] as { action: string; after: { outcome: string } });
+      expect(audits.map((a) => [a.action, a.after.outcome])).toEqual([
+        ['command_dispatched', 'queued'],
+        ['stopped_by_csms', 'queued'],
+      ]);
+      // No session end: the station still holds the transaction.
+      expect(mockPublish).not.toHaveBeenCalledWith('session_end_requests', expect.anything());
     });
 
     it('returns 404 when station not found', async () => {

@@ -4,9 +4,10 @@
 import type postgres from 'postgres';
 
 /**
- * Pub/sub channel the API publishes on when it ends a session the station no
- * longer reports (a ghost session, `TxNotFound`). The OCPP server ends it
- * through the normal session end: final cost, settlement, receipt.
+ * Pub/sub channel the API publishes on when it ends a session the station will
+ * not end (a ghost session, `TxNotFound`, or an operator end of a session on
+ * an offline station). The OCPP server ends it through the normal session
+ * end: final cost, settlement, receipt.
  */
 export const SESSION_END_REQUEST_CHANNEL = 'session_end_requests';
 
@@ -14,8 +15,10 @@ export const SESSION_END_REQUEST_CHANNEL = 'session_end_requests';
  * Why the CSMS ended an active session the station did not end:
  * - `Superseded`: a new transaction started on the same EVSE.
  * - `GhostRecovered`: the station answered a stop with `TxNotFound`.
+ * - `OperatorEnded`: an operator ended the session of an offline station in
+ *   the CSMS (`POST /v1/sessions/:id/end`).
  */
-export const CSMS_SESSION_END_REASONS = ['Superseded', 'GhostRecovered'] as const;
+export const CSMS_SESSION_END_REASONS = ['Superseded', 'GhostRecovered', 'OperatorEnded'] as const;
 
 /**
  * The stopped reason of a session whose CSMS end failed too often: the OCPP

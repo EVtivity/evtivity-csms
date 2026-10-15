@@ -130,7 +130,11 @@ describe('reservation insight contracts', () => {
 
 describe('insight scope and DTO (TC-AI-IC-04)', () => {
   it('has no network field: a stored network key is dropped on parse', () => {
-    expect(Object.keys(insightScopeSchema.shape)).toEqual(['site']);
+    expect(Object.keys(insightScopeSchema.shape)).toEqual([
+      'site',
+      'stationOffline',
+      'concurrentSession',
+    ]);
     const parsed = insightScopeSchema.parse({ site: { stations: 2 }, network: { stations: 9 } });
     expect(parsed).toEqual({ site: { stations: 2 } });
   });

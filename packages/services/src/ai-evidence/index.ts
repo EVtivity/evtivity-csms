@@ -16,3 +16,4 @@ export * from './scope.js';
 export * from './state.js';
 export * from './driver.js';
 export * from './reservation.js';
+export * from './concurrent-session.js';

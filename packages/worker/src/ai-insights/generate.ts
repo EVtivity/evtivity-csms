@@ -65,6 +65,8 @@ import {
   collectSiteEvidence,
   collectStationEvidence,
   computeInsightScope,
+  CONCURRENT_SESSION_FIXES,
+  concurrentSessionOfAttempt,
   conditionCleared,
   currentFingerprint,
   evidenceIds,
@@ -404,18 +406,36 @@ export async function generateInsight(
 
   const now = deps.now();
   const language = row.primaryLanguage;
-  const rule = isReservationInsightKind(kind)
-    ? await reservationRule(row)
-    : ruleInsightFor(await knownCause(row));
+  const cause = isReservationInsightKind(kind) ? null : await knownCause(row);
+  const rule = isReservationInsightKind(kind) ? await reservationRule(row) : ruleInsightFor(cause);
   if (rule != null) {
     const evidence = await collectInsightEvidence(row, now, deps.subjectSecret);
     if (evidence == null) return skip(deps, row, 'resolved_before_analysis');
+    let fixes = rule.fixes;
+    let scope = evidence.scope;
+    if (cause === 'concurrent_tx' && row.authorizeAttemptId != null) {
+      // The fix follows the session the token already runs: a live charge is
+      // never ended (wait, or a shared card); a stuck one gets the stuck-session step.
+      const concurrent = await concurrentSessionOfAttempt(row.authorizeAttemptId, now);
+      if (concurrent?.step == null) return skip(deps, row, 'resolved_before_analysis');
+      fixes = CONCURRENT_SESSION_FIXES[concurrent.step];
+      scope = {
+        ...scope,
+        concurrentSession: {
+          sessionId: concurrent.sessionId,
+          stationId: concurrent.stationId,
+          station: concurrent.stationOcppId,
+          startedAt: concurrent.startedAt?.toISOString() ?? null,
+          step: concurrent.step,
+        },
+      };
+    }
     const stored = await activateInsight(row.id, {
       category: rule.category,
       confidence: 'high',
-      fixes: rule.fixes.map((code) => ({ code })),
+      fixes: fixes.map((code) => ({ code })),
       evidenceRefs: [],
-      scope: evidence.scope,
+      scope,
       summary: null,
       language,
       generatedBy: 'rule',

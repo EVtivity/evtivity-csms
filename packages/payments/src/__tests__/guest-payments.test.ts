@@ -481,6 +481,15 @@ describe('linkStartedGuestSession (finding G2)', () => {
     expect(await linkStartedGuestSession(21, deps)).toBeNull();
     expect(m.updates).toHaveLength(0);
   });
+
+  it('only looks at a guest that is not linked yet, so a linked one logs no warning', async () => {
+    expect(await linkStartedGuestSession(21, deps)).toBeNull();
+
+    const query = JSON.stringify(m.executed[0]);
+    expect(query).toContain('guest_sessions.charging_session_id IS NULL');
+    expect(query).toContain("guest_sessions.status = 'payment_authorized'");
+    expect(logger.warn).not.toHaveBeenCalled();
+  });
 });
 
 describe('failGuestSessionOfFaultedSession (finding G5)', () => {

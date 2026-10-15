@@ -1022,7 +1022,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'transactionId', description: 'Transaction ID' },
     {
       name: 'endRequestReason',
-      description: 'Why the CSMS ended the session (Superseded, GhostRecovered)',
+      description: 'Why the CSMS ended the session (Superseded, GhostRecovered, OperatorEnded)',
     },
     { name: 'attempts', description: 'Number of failed end attempts' },
     { name: 'startedAt', description: 'Session start time' },

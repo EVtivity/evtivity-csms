@@ -403,6 +403,59 @@ describe('MessageCorrelator', () => {
       await expect(fourth).resolves.toEqual({ status: 'Accepted' });
     });
 
+    it('runs onSend when the CALL is sent, after it waited, and never for an unsent CALL', async () => {
+      correlator = new MessageCorrelator(logger, 1000);
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+      const order: string[] = [];
+      const onSend = (name: string) => ({
+        onSend: () => {
+          order.push(`${name}:${String(vi.mocked(ws.send).mock.calls.length)}`);
+        },
+      });
+
+      const first = correlator.sendCall(ws, session, 'Reset', {}, onSend('first'));
+      const second = correlator.sendCall(ws, session, 'ClearCache', {}, onSend('second'));
+      const secondOutcome = second.catch((error: unknown) => error);
+      const third = correlator.sendCall(ws, session, 'GetLocalListVersion', {}, onSend('third'));
+      const thirdOutcome = third.catch((error: unknown) => error);
+      // Only the first went out, and its hook ran right before the write.
+      expect(order).toEqual(['first:0']);
+
+      correlator.handleResponse(session, [3, sentId(ws, 0), { status: 'Accepted' }]);
+      await first;
+      await vi.waitFor(() => {
+        expect(order).toEqual(['first:0', 'second:1']);
+      });
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await thirdOutcome).toBeInstanceOf(CommandQueueTimeoutError);
+      expect(await secondOutcome).toBeInstanceOf(CommandTimeoutError);
+      // The third was never sent, so its hook never ran.
+      expect(order).toEqual(['first:0', 'second:1']);
+    });
+
+    it('sends the CALL when the onSend hook throws', async () => {
+      correlator = new MessageCorrelator(logger);
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+
+      const call = correlator.sendCall(
+        ws,
+        session,
+        'Reset',
+        {},
+        {
+          onSend: () => {
+            throw new Error('log failed');
+          },
+        },
+      );
+      expect(ws.send).toHaveBeenCalledTimes(1);
+      correlator.handleResponse(session, [3, sentId(ws, 0), { status: 'Accepted' }]);
+      await expect(call).resolves.toEqual({ status: 'Accepted' });
+    });
+
     it('keeps one lane per session', async () => {
       correlator = new MessageCorrelator(logger);
       const wsA = mockWs();

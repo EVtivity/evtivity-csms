@@ -284,8 +284,16 @@ describe('AI data handling: worker surfaces', () => {
             reason: 'no_activity',
             startedAt: new Date('2026-10-11T06:00:00Z'),
             lastActivityAt: new Date('2026-10-11T07:00:00Z'),
+            stationOfflineSince: null,
+            energyWh: 9_500,
+            currentCostCents: 332,
+            currency: 'USD',
           },
-          { idleMinutes: 90, now: new Date('2026-10-11T09:00:00Z') },
+          {
+            idleMinutes: 90,
+            now: new Date('2026-10-11T09:00:00Z'),
+            step: { case: 'stop', transactionOngoing: null },
+          },
         ),
         // Whatever a future job adds to its facts is redacted too.
         extra: seededRecord(),

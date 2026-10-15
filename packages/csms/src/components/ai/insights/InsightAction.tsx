@@ -24,6 +24,7 @@ import {
   actionRan,
   actionSentence,
   actionTransactionId,
+  billingText,
   isActionOpen,
   readActionSummary,
 } from './insight-action';
@@ -165,7 +166,7 @@ export function InsightActionSection({
   if (action == null) return null;
   const ran = actionRan(action);
   const sentence = actionSentence(t, action);
-  const { rationale, measured } = readActionSummary(action.summary);
+  const { rationale, billing, measured } = readActionSummary(action.summary);
   const minutes = rationale?.params['minutes'];
   const transactionId = actionTransactionId(action);
   // An action refused at confirm stores only the reason code (no English text).
@@ -186,6 +187,11 @@ export function InsightActionSection({
             <span data-testid="ai-insight-action-rationale">
               {t(`aiWorkers.rationale.${rationale.code}`, rationale.params)}
             </span>
+          </DescriptionItem>
+        )}
+        {billing != null && (
+          <DescriptionItem label={t('aiInsights.action.billing')}>
+            <span data-testid="ai-insight-action-billing">{billingText(t, billing)}</span>
           </DescriptionItem>
         )}
         {minutes != null && (

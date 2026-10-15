@@ -970,3 +970,28 @@ ON CONFLICT (key) DO NOTHING;
 INSERT INTO settings (key, value) VALUES ('guest.declinesPerIpPerHour', '5'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 -- end beta.9 more
+--> statement-breakpoint
+-- 6. Hours a station stays offline before a stuck session there gets the CSMS
+--    end action (1 to 720); before that its AI insight advises restoring the
+--    connection. An install that ran this file before reads the default (24).
+INSERT INTO settings (key, value) VALUES ('aiWorkers.stuckSessions.offlineEndAfterHours', '24'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+--> statement-breakpoint
+-- 7. Days after which a one-off event insight still open (a failed session,
+--    a reservation problem, a tariff anomaly, an authorization refusal with no
+--    clearing condition) is closed expired (1 to 365). An install that ran
+--    this file before reads the default (7).
+INSERT INTO settings (key, value) VALUES ('aiInsights.expireAfterDays', '7'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+--> statement-breakpoint
+-- 8. Per-station AI insight suppression: while ai_insights_suppressed_at is
+--    set and ai_insights_suppressed_until is null or ahead, the insight scan
+--    and the AI workers create nothing for the station.
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "ai_insights_suppressed_at" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "ai_insights_suppressed_until" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "ai_insights_suppressed_by" text;
+--> statement-breakpoint
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "ai_insights_suppressed_reason" varchar(500);
+-- end beta.10

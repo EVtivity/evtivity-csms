@@ -232,6 +232,32 @@ const insightSchema = z
     scope: z
       .object({
         site: countsSchema.optional().describe('Counts at the subject site'),
+        stationOffline: z
+          .object({
+            since: z
+              .string()
+              .describe(
+                'Since when the station is offline (last disconnect, else last heartbeat or the session activity), ISO',
+              ),
+          })
+          .passthrough()
+          .optional()
+          .describe('A stuck session at an offline station'),
+        concurrentSession: z
+          .object({
+            sessionId: z.string().describe('The session the refused token already runs'),
+            stationId: z.string().describe('Internal id of that session station'),
+            station: z.string().describe('OCPP identity of that session station'),
+            startedAt: z.string().nullable().describe('When that session started, ISO'),
+            step: z
+              .enum(['wait', 'stop', 'restore', 'end'])
+              .describe(
+                'wait (the session is live), stop (stuck at an online station), restore (its station is offline), end (offline past the setting: end it in the CSMS)',
+              ),
+          })
+          .passthrough()
+          .optional()
+          .describe('A token refused because it already runs a session (concurrent_tx)'),
       })
       .passthrough()
       .describe(

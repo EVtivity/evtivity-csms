@@ -32,6 +32,9 @@ import {
   PG_UNIQUE_VIOLATION,
   PG_FOREIGN_KEY_VIOLATION,
   toDate,
+  stationInsightsOperatorSuppressedSql,
+  stationInsightsSuppressedSql,
+  stationUnderActiveMaintenanceSql,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { auditStationChange } from '../lib/station-audit.js';
@@ -41,7 +44,7 @@ import {
   maxExternalConstraintsIds,
 } from '../lib/charging-profile-id.js';
 import { clearProfileSlotBeforePush } from '../lib/charging-profile-push.js';
-import { requestGhostSessionEnd } from '../lib/ghost-session-end.js';
+import { requestSessionEnd } from '../lib/session-end.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import { applyStationSiteMove } from '@evtivity/services/maintenance.service';
@@ -113,6 +116,10 @@ import {
   buildStatusReasonSubquery,
 } from '@evtivity/services/station-derived-status';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
+import {
+  resumeStationAiInsights,
+  suppressStationAiInsights,
+} from '../services/station-ai-insights.service.js';
 import {
   enableCssPair,
   disableCssPair,
@@ -259,6 +266,12 @@ const stationListQuery = paginationQuery.merge(
       .describe('Filter by onboarding status'),
     isOnline: z.enum(['true', 'false']).optional().describe('Filter by online/offline state'),
     isSimulator: z.enum(['true', 'false']).optional().describe('Filter by simulator flag'),
+    aiInsights: z
+      .enum(['in_scope', 'suppressed'])
+      .optional()
+      .describe(
+        'Filter by AI insight scope: suppressed (by an operator, or by an active maintenance event) or in_scope',
+      ),
   }),
 );
 
@@ -449,6 +462,11 @@ const stationItem = z
     underMaintenance: z
       .boolean()
       .describe('Whether an active maintenance event currently covers this station'),
+    aiInsightsSuppressed: z
+      .boolean()
+      .describe(
+        'True while no AI insight is created for the station: an operator suppressed them (until aiInsightsSuppressedUntil, or until resumed), or an active maintenance event covers it',
+      ),
   })
   .passthrough();
 
@@ -575,6 +593,25 @@ const stationDetail = z
     underMaintenance: z
       .boolean()
       .describe('Whether an active maintenance event currently covers this station'),
+    aiInsightsSuppressed: z
+      .boolean()
+      .describe(
+        'True while no AI insight is created for the station: an operator suppressed them (until aiInsightsSuppressedUntil, or until resumed), or an active maintenance event covers it',
+      ),
+    aiInsightsSuppressedByMaintenance: z
+      .boolean()
+      .describe('True while an active maintenance event suppresses the AI insights'),
+    aiInsightsSuppressedAt: z.coerce
+      .date()
+      .nullable()
+      .describe('When an operator suppressed the AI insights, null when in scope'),
+    aiInsightsSuppressedUntil: z.coerce
+      .date()
+      .nullable()
+      .describe('End of the operator suppression, null for until resumed'),
+    aiInsightsSuppressedBy: z.string().nullable().describe('User who suppressed them'),
+    aiInsightsSuppressedByName: z.string().nullable().describe('Name of that user'),
+    aiInsightsSuppressedReason: z.string().nullable().describe('Reason given for the suppression'),
   })
   .passthrough();
 
@@ -973,7 +1010,8 @@ export function stationRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const query = request.query as z.infer<typeof stationListQuery>;
-      const { page, limit, search, siteId, isOnline, isSimulator, onboardingStatus } = query;
+      const { page, limit, search, siteId, isOnline, isSimulator, onboardingStatus, aiInsights } =
+        query;
       const statusFilter = query.status;
       const offset = (page - 1) * limit;
 
@@ -1010,6 +1048,9 @@ export function stationRoutes(app: FastifyInstance): void {
       if (onboardingStatus != null) {
         conditions.push(eq(chargingStations.onboardingStatus, onboardingStatus));
       }
+      const aiSuppressed = sql<boolean>`${sql.raw(stationInsightsSuppressedSql('charging_stations'))}`;
+      if (aiInsights === 'suppressed') conditions.push(aiSuppressed);
+      if (aiInsights === 'in_scope') conditions.push(sql`NOT ${aiSuppressed}`);
 
       // Subquery-based derived status avoids multiplicative JOIN expansion
       const derivedStatusSubquery = buildDerivedStatusSubquery(chargingStations.id);
@@ -1066,6 +1107,7 @@ export function stationRoutes(app: FastifyInstance): void {
             chargingStations.id,
             chargingStations.siteId,
           ),
+          aiInsightsSuppressed: aiSuppressed,
         })
         .from(chargingStations)
         .leftJoin(vendors, eq(vendors.id, chargingStations.vendorId))
@@ -1149,6 +1191,19 @@ export function stationRoutes(app: FastifyInstance): void {
           latitude: chargingStations.latitude,
           longitude: chargingStations.longitude,
           reservationsEnabled: chargingStations.reservationsEnabled,
+          aiInsightsSuppressed: sql<boolean>`${sql.raw(stationInsightsSuppressedSql('charging_stations'))}`,
+          aiInsightsSuppressedByMaintenance: sql<boolean>`${sql.raw(stationUnderActiveMaintenanceSql('charging_stations'))}`,
+          aiInsightsSuppressedAt: sql<Date | null>`CASE WHEN ${sql.raw(stationInsightsOperatorSuppressedSql('charging_stations'))} THEN ${chargingStations.aiInsightsSuppressedAt} END`,
+          aiInsightsSuppressedUntil: sql<Date | null>`CASE WHEN ${sql.raw(stationInsightsOperatorSuppressedSql('charging_stations'))} THEN ${chargingStations.aiInsightsSuppressedUntil} END`,
+          aiInsightsSuppressedBy: sql<
+            string | null
+          >`CASE WHEN ${sql.raw(stationInsightsOperatorSuppressedSql('charging_stations'))} THEN ${chargingStations.aiInsightsSuppressedBy} END`,
+          aiInsightsSuppressedByName: sql<
+            string | null
+          >`CASE WHEN ${sql.raw(stationInsightsOperatorSuppressedSql('charging_stations'))} THEN (SELECT NULLIF(trim(concat_ws(' ', u.first_name, u.last_name)), '') FROM users u WHERE u.id = ${chargingStations.aiInsightsSuppressedBy}) END`,
+          aiInsightsSuppressedReason: sql<
+            string | null
+          >`CASE WHEN ${sql.raw(stationInsightsOperatorSuppressedSql('charging_stations'))} THEN ${chargingStations.aiInsightsSuppressedReason} END`,
         })
         .from(chargingStations)
         .leftJoin(vendors, eq(vendors.id, chargingStations.vendorId))
@@ -1165,6 +1220,137 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       return station;
+    },
+  );
+
+  const aiSuppressBody = z.object({
+    reason: z.string().trim().min(1).max(500).describe('Why the AI insights are suppressed'),
+    until: z
+      .string()
+      .datetime({ offset: true })
+      .optional()
+      .describe('End of the suppression (ISO 8601, in the future); omitted for until resumed'),
+  });
+  const aiSuppressionResponse = z
+    .object({
+      aiInsightsSuppressedAt: z.coerce.date().nullable().describe('When they were suppressed'),
+      aiInsightsSuppressedUntil: z.coerce
+        .date()
+        .nullable()
+        .describe('End of the suppression, null for until resumed'),
+      aiInsightsSuppressedBy: z.string().nullable().describe('User who suppressed them'),
+      aiInsightsSuppressedByName: z.string().nullable().describe('Name of that user'),
+      aiInsightsSuppressedReason: z.string().nullable().describe('Reason of the suppression'),
+      insightsDismissed: z
+        .number()
+        .int()
+        .optional()
+        .describe('Open insights of the station dismissed by the suppression'),
+      actionsExpired: z
+        .number()
+        .int()
+        .optional()
+        .describe('Waiting insight actions of the station expired by the suppression'),
+    })
+    .passthrough();
+
+  // Per-station AI insight suppression (station-ai-insights.service.ts).
+  app.post(
+    '/stations/:id/ai-insights/suppress',
+    {
+      onRequest: [authorize('stations:write')],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Suppress the AI insights of a station',
+        description:
+          'Until `until` (or until resumed), the insight scan and the AI workers create no insight or insight action for the station (station offline, faulted, alert and long faulted, stuck sessions, authorization refusals and reservation problems at the station; site incidents leave it out). The station open insights close dismissed with the reason, and its waiting actions expire. The end date passing resumes the insights with no action. Audited in the station history. 400 VALIDATION_ERROR for an end date that is not in the future.',
+        operationId: 'suppressStationAiInsights',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(stationParams),
+        body: zodSchema(aiSuppressBody),
+        response: {
+          200: itemResponse(aiSuppressionResponse),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+        },
+      },
+      config: { invalidatesCacheTags: ['stations'] },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof stationParams>;
+      const body = parseZodRequest(aiSuppressBody, request.body);
+      const { userId } = request.user as JwtPayload;
+      if (!(await checkStationSiteAccess(id, userId))) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+      const until = body.until == null ? null : new Date(body.until);
+      if (until != null && until.getTime() <= Date.now()) {
+        await reply
+          .status(400)
+          .send({ error: 'The end date must be in the future', code: 'VALIDATION_ERROR' });
+        return;
+      }
+      const result = await suppressStationAiInsights(
+        id,
+        { reason: body.reason, until },
+        getAuditActor(request),
+        request.log,
+      );
+      if (result == null) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+      return {
+        aiInsightsSuppressedAt: result.suppressedAt,
+        aiInsightsSuppressedUntil: result.suppressedUntil,
+        aiInsightsSuppressedBy: result.suppressedBy,
+        aiInsightsSuppressedByName: result.suppressedByName,
+        aiInsightsSuppressedReason: result.reason,
+        insightsDismissed: result.insightsDismissed,
+        actionsExpired: result.actionsExpired,
+      };
+    },
+  );
+
+  app.post(
+    '/stations/:id/ai-insights/resume',
+    {
+      onRequest: [authorize('stations:write')],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Resume the AI insights of a station',
+        description:
+          'Ends an operator suppression of the station AI insights; the insight scan and the AI workers watch the station again (an active maintenance event still suppresses them while it lasts). Audited in the station history.',
+        operationId: 'resumeStationAiInsights',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(stationParams),
+        response: {
+          200: itemResponse(aiSuppressionResponse),
+          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+        },
+      },
+      config: { invalidatesCacheTags: ['stations'] },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof stationParams>;
+      const { userId } = request.user as JwtPayload;
+      if (!(await checkStationSiteAccess(id, userId))) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+      const result = await resumeStationAiInsights(id, getAuditActor(request), request.log);
+      if (result == null) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+      return {
+        aiInsightsSuppressedAt: result.suppressedAt,
+        aiInsightsSuppressedUntil: result.suppressedUntil,
+        aiInsightsSuppressedBy: result.suppressedBy,
+        aiInsightsSuppressedByName: result.suppressedByName,
+        aiInsightsSuppressedReason: result.reason,
+      };
     },
   );
 
@@ -2276,7 +2462,7 @@ export function stationRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Force-stop the active charging session on this EVSE',
         description:
-          'Sends RequestStopTransaction (OCPP 2.1) or RemoteStopTransaction (OCPP 1.6) and waits up to 35s for the station response. If the station rejects with reasonCode=TxNotFound (a "ghost session" where the CSMS thinks a transaction is active but the station has no record), the API asks the OCPP server to end the session the normal way (completed at its last metered energy, final cost, settlement, receipt) and returns ghostRecovered=true. Returns 404 if no active session exists on the EVSE, 504 if the station does not respond within the timeout window.',
+          'Sends RequestStopTransaction (OCPP 2.1) or RemoteStopTransaction (OCPP 1.6) and waits up to 35s for the station response. If the station rejects with reasonCode=TxNotFound (a "ghost session" where the CSMS thinks a transaction is active but the station has no record), the API asks the OCPP server to end the session the normal way (completed at its last metered energy, final cost, settlement, receipt) and returns ghostRecovered=true. Returns 404 if no active session exists on the EVSE, 409 STATION_OFFLINE when the station is not connected (the OCPP server queues the stop and sends it when the station reconnects; the session stays active until then, and POST /v1/sessions/{id}/end ends it without the station), 504 if the station does not respond within the timeout window.',
         operationId: 'stopActiveEvseSession',
         security: [{ bearerAuth: [] }],
         params: zodSchema(evseParams),
@@ -2301,6 +2487,9 @@ export function stationRoutes(app: FastifyInstance): void {
           404: errorWith('Resource not found', [
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
+          ]),
+          409: errorWith('Station offline, the stop is queued for the reconnect', [
+            ERROR_CODES.STATION_OFFLINE,
           ]),
           504: errorWith('Station timeout', [ERROR_CODES.STATION_TIMEOUT]),
         },
@@ -2361,11 +2550,13 @@ export function stationRoutes(app: FastifyInstance): void {
       // Like the generic command routes, the dispatch is audited with its
       // outcome whether the station accepted, refused or never answered.
       const stopOutcome =
-        cmdResult.error != null
-          ? cmdResult.timedOut === true
-            ? 'timeout'
-            : `error: ${cmdResult.error}`
-          : (status ?? 'unknown');
+        cmdResult.queued === true
+          ? 'queued'
+          : cmdResult.error != null
+            ? cmdResult.timedOut === true
+              ? 'timeout'
+              : `error: ${cmdResult.error}`
+            : (status ?? 'unknown');
       await auditStationChange(request, id, 'command_dispatched', {
         after: {
           action: 'RequestStopTransaction',
@@ -2402,6 +2593,17 @@ export function stationRoutes(app: FastifyInstance): void {
         request.log,
       );
 
+      if (cmdResult.queued === true) {
+        // The OCPP server holds the stop in the offline command queue and
+        // sends it when the station reconnects: the session keeps running
+        // until then.
+        await reply.status(409).send({
+          error: 'Station is offline; the stop is sent when it reconnects',
+          code: 'STATION_OFFLINE',
+        });
+        return;
+      }
+
       if (cmdResult.error != null) {
         await reply.status(504).send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });
         return;
@@ -2409,7 +2611,7 @@ export function stationRoutes(app: FastifyInstance): void {
 
       if (isGhost) {
         // Ghost session: ended completed and billed by the OCPP server.
-        await requestGhostSessionEnd(activeSession.id, request.log);
+        await requestSessionEnd(activeSession.id, 'GhostRecovered', request.log);
         request.log.info(
           { sessionId: activeSession.id, transactionId: activeSession.transactionId },
           'Ghost session recovered: station returned TxNotFound, session end requested',

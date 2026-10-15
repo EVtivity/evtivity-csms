@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import type { z, ZodTypeAny } from 'zod';
+import type { AnyZodObject, z, ZodTypeAny } from 'zod';
+import type { FastifyRequest } from 'fastify';
 import { ValidationError } from '@evtivity/lib';
 
 export function zodSchema(schema: ZodTypeAny): Record<string, unknown> {
@@ -51,4 +52,35 @@ export function parseZodRequest<T extends ZodTypeAny>(schema: T, value: unknown)
     throw new ValidationError(issue?.message ?? 'Validation failed', result.error.issues);
   }
   return result.data as z.output<T>;
+}
+
+/**
+ * A preValidation hook that refuses a JSON object body with a key the schema
+ * does not name: 400 VALIDATION_ERROR naming the key. Fastify's Ajv runs with
+ * `removeAdditional`, so without it an unknown key (a misspelled field, or a
+ * setting that has its own route) is dropped and the request answers 200
+ * without doing what the caller asked. `hints` adds a sentence for a key that
+ * belongs to another route.
+ */
+export function rejectUnknownBodyKeys(
+  schema: AnyZodObject,
+  hints: Record<string, string> = {},
+): (request: FastifyRequest) => Promise<void> {
+  const known = new Set(Object.keys(schema.shape as Record<string, unknown>));
+  return (request) => {
+    const body = request.body;
+    if (body == null || typeof body !== 'object' || Array.isArray(body)) {
+      return Promise.resolve();
+    }
+    const unknown = Object.keys(body).filter((key) => !known.has(key));
+    const first = unknown[0];
+    if (first == null) return Promise.resolve();
+    const hint = hints[first];
+    return Promise.reject(
+      new ValidationError(
+        `Unknown field ${first}${hint != null ? `: ${hint}` : ''}`,
+        unknown.map((key) => ({ path: [key], message: 'Unknown field' })),
+      ),
+    );
+  };
 }

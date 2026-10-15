@@ -4,7 +4,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import Fastify from 'fastify';
 import { z } from 'zod';
-import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, rejectUnknownBodyKeys, zodSchema } from '../lib/zod-schema.js';
 
 describe('zodSchema', () => {
   it('adds null to the enum of a nullable enum', () => {
@@ -156,6 +156,62 @@ describe('parseZodRequest', () => {
         code: 'VALIDATION_ERROR',
         message: 'Phases must be 1 or 3',
       });
+    });
+  });
+});
+
+describe('rejectUnknownBodyKeys', () => {
+  const body = z.object({ name: z.string().optional(), size: z.number().optional() });
+  const app = Fastify();
+  app.patch(
+    '/things',
+    {
+      preValidation: [rejectUnknownBodyKeys(body, { color: 'use PUT /things/color' })],
+      schema: { body: zodSchema(body) },
+    },
+    async (request) => ({ keys: Object.keys(request.body as object) }),
+  );
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('shows why it exists: without it Ajv drops an unknown key and answers 200', async () => {
+    const plain = Fastify();
+    plain.patch('/things', { schema: { body: zodSchema(body) } }, async (request) => ({
+      keys: Object.keys(request.body as object),
+    }));
+    const res = await plain.inject({ method: 'PATCH', url: '/things', payload: { colour: 1 } });
+    await plain.close();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ keys: [] });
+  });
+
+  it('accepts a body with known keys only', async () => {
+    const res = await app.inject({ method: 'PATCH', url: '/things', payload: { name: 'a' } });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ keys: ['name'] });
+  });
+
+  it('refuses an unknown key with 400 VALIDATION_ERROR naming it', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/things',
+      payload: { name: 'a', colour: 'red' },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR', message: 'Unknown field colour' });
+  });
+
+  it('adds the hint of a key that belongs to another route', async () => {
+    const res = await app.inject({ method: 'PATCH', url: '/things', payload: { color: 'red' } });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      message: 'Unknown field color: use PUT /things/color',
     });
   });
 });

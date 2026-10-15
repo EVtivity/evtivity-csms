@@ -40,14 +40,18 @@ export interface CommandResult {
  * to the protocol of the connected station (e.g. RequestStopTransaction to
  * RemoteStopTransaction with an integer transactionId for OCPP 1.6). Pass
  * `version` only when `action` and `payload` are already in that version's
- * native format; the command is then sent unchanged.
+ * native format; the command is then sent unchanged. `timeoutMs` shortens the
+ * wait (default 35 s) for a caller that must not hold on a slow station; the
+ * result is then `timedOut` after that time.
  */
 export async function sendOcppCommandAndWait(
   stationOcppId: string,
   action: string,
   payload: Record<string, unknown>,
   version?: string,
+  options: { timeoutMs?: number } = {},
 ): Promise<CommandResult> {
+  const timeoutMs = options.timeoutMs ?? RESPONSE_TIMEOUT_MS;
   const commandId = crypto.randomUUID();
   const pubsub = getPubSub();
 
@@ -55,7 +59,7 @@ export async function sendOcppCommandAndWait(
     const result = await awaitPubSubReply<CommandResult>(pubsub, {
       replyChannel: OCPP_COMMAND_RESULTS_CHANNEL,
       commandId,
-      timeoutMs: RESPONSE_TIMEOUT_MS,
+      timeoutMs,
       send: () =>
         publishOcppCommand(pubsub, {
           commandId,
@@ -65,7 +69,13 @@ export async function sendOcppCommandAndWait(
           version,
         }),
     });
-    return result ?? { commandId, error: 'No response within 35s', timedOut: true };
+    return (
+      result ?? {
+        commandId,
+        error: `No response within ${String(Math.round(timeoutMs / 1000))}s`,
+        timedOut: true,
+      }
+    );
   } catch (err) {
     logger.warn(
       { err, stationId: stationOcppId, action, commandId },

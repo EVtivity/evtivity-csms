@@ -1001,7 +1001,30 @@
     "removeTag": "{{tag}} 태그 제거",
     "messageCommandQueued": "충전소가 오프라인입니다. 명령이 대기열에 추가되었으며 충전소가 다시 연결되면 전송됩니다.",
     "chargingNeedsTab": "충전 요구 및 모니터",
-    "localAuthPrepaidHint": "선불 카드가 아닌 활성 토큰만 표시됩니다. 충전소는 선불 카드 잔액을 온라인으로 확인하므로 선불 카드는 로컬 목록에 들어가지 않습니다."
+    "localAuthPrepaidHint": "선불 카드가 아닌 활성 토큰만 표시됩니다. 충전소는 선불 카드 잔액을 온라인으로 확인하므로 선불 카드는 로컬 목록에 들어가지 않습니다.",
+    "aiInsights": {
+      "label": "AI 인사이트",
+      "inScope": "적용 중",
+      "suppressed": "중지됨",
+      "allScopes": "전체",
+      "listBadge": "AI 인사이트 중지됨",
+      "suppress": "중지",
+      "resume": "재개",
+      "until": "{{date}}까지",
+      "untilResumed": "재개할 때까지",
+      "by": "{{name}}: {{reason}}",
+      "maintenance": "활성 유지보수 이벤트가 충전소를 포함하는 동안 중지됨",
+      "suppressTitle": "이 충전소의 AI 인사이트를 중지하시겠습니까?",
+      "suppressDescription": "종료일까지 또는 재개할 때까지 이 충전소에 대해 새 AI 인사이트나 제안된 작업이 생성되지 않습니다. 열려 있는 인사이트는 해제되고 대기 중인 작업은 만료됩니다.",
+      "reason": "사유",
+      "reasonRequired": "사유를 입력하세요",
+      "endDate": "종료일(선택)",
+      "resumeTitle": "이 충전소의 AI 인사이트를 재개하시겠습니까?",
+      "resumeDescription": "AI 인사이트가 이 충전소를 다시 감시합니다.",
+      "suppressedToast": "AI 인사이트가 중지되었습니다",
+      "resumedToast": "AI 인사이트가 재개되었습니다",
+      "failed": "충전소의 AI 인사이트를 변경하지 못했습니다"
+    }
   },
   "eventAlertRules": {
     "title": "이벤트 알림 규칙",
@@ -1166,7 +1189,13 @@
     "eventCount_other": "이벤트 {{count}}개",
     "stopSession": "세션 중지",
     "stopSessionConfirmTitle": "이 세션을 중지하시겠습니까?",
-    "stopSessionConfirmDescription": "충전소 {{station}}에 EVSE {{evseId}}의 트랜잭션 중지를 요청합니다. 운전자에게는 지금까지 공급된 에너지가 청구됩니다."
+    "stopSessionConfirmDescription": "충전소 {{station}}에 EVSE {{evseId}}의 트랜잭션 중지를 요청합니다. 운전자에게는 지금까지 공급된 에너지가 청구됩니다.",
+    "endSession": "세션 종료",
+    "endSessionConfirmTitle": "충전소 없이 이 세션을 종료하시겠습니까?",
+    "endSessionConfirmDescription": "충전소 {{station}}이(가) 오프라인 상태입니다. CSMS가 충전소 없이 지금 세션을 종료하고 마지막으로 측정된 에너지 {{energy}}로 요금을 청구합니다. 충전소가 다시 연결된 후 보내는 중지 또는 종료 메시지는 세션을 다시 열거나 다시 청구하지 않습니다.",
+    "endSessionConfirmDescriptionWithCost": "충전소 {{station}}이(가) 오프라인 상태입니다. CSMS가 충전소 없이 지금 세션을 종료하고 마지막으로 측정된 에너지 {{energy}}로 청구합니다(현재까지 {{cost}}). 충전소가 다시 연결된 후 보내는 중지 또는 종료 메시지는 세션을 다시 열거나 다시 청구하지 않습니다.",
+    "endSessionRequested": "세션 종료가 요청되었습니다",
+    "endSessionFailed": "세션을 종료하지 못했습니다"
   },
   "drivers": {
     "title": "운전자",
@@ -2729,6 +2758,7 @@
       "maxPerSitePerDay": "사이트별 일일 인사이트 수",
       "primaryLanguage": "요약 언어",
       "retentionDays": "인사이트 보관 기간(일)",
+      "expireAfterDays": "일회성 인사이트 종료 기간(일)",
       "reservation": "예약 인사이트",
       "reservationOff": "예약이 꺼져 있는 동안 예약 인사이트도 꺼져 있습니다.",
       "reservationOffLink": "예약 켜기",
@@ -3328,6 +3358,7 @@
     "SESSION_ALREADY_ACTIVE": "이미 활성 충전 세션이 있습니다",
     "SESSION_CREATE_FAILED": "세션 생성에 실패했습니다",
     "SESSION_NOT_FOUND": "세션을 찾을 수 없습니다",
+    "SESSION_NOT_ACTIVE": "세션이 활성 상태가 아닙니다",
     "SESSION_NOT_LINKED": "세션이 이 문의에 연결되어 있지 않습니다",
     "SESSION_REBILL_IN_PROGRESS": "세션 청구가 진행 중입니다. 몇 분 후에 다시 시도하세요.",
     "SESSION_REBILL_NOT_ELIGIBLE": "이 세션은 청구할 수 없습니다",
@@ -3345,6 +3376,7 @@
     "STATION_ID_EXISTS": "이 ID의 충전소가 이미 존재합니다",
     "STATION_NOT_FOUND": "충전소를 찾을 수 없습니다",
     "STATION_OFFLINE": "충전소가 오프라인 상태입니다",
+    "STATION_ONLINE": "충전소가 온라인 상태입니다. 충전소에서 세션을 중지하세요.",
     "STATION_REJECTED": "충전소가 시작을 거부했습니다: ...",
     "STATION_TIMEOUT": "충전소가 응답하지 않았습니다",
     "STATION_UNAVAILABLE": "현재 이 충전소를 사용할 수 없습니다. 다른 충전소를 이용해 주세요.",
@@ -4190,6 +4222,7 @@
       "startAt": "충전소 {{station}}의 {{target}}에서 충전 시작",
       "stop": "충전소 {{station}}의 충전 세션 중지 (OCPP 트랜잭션 {{transaction}})",
       "stopAny": "충전소 {{station}}의 충전 세션 중지",
+      "endSession": "CSMS에서 오프라인 충전소 {{station}}의 세션 종료 (OCPP 트랜잭션 {{transaction}}), 마지막으로 측정된 에너지로 청구",
       "chargingProfile": "충전소 {{station}}에 충전 프로필 설정",
       "chargingProfileAt": "충전소 {{station}}의 {{target}}에 충전 프로필 설정",
       "ocppCommand": "충전소 {{station}}에 {{command}} 전송",
@@ -5062,7 +5095,10 @@
       "ask_driver_to_retry": "운전자에게 다시 시도 요청",
       "check_vehicle_compatibility": "차량 호환성 확인",
       "end_concurrent_session": "동시 세션 종료",
+      "wait_for_concurrent_session": "카드의 다른 세션이 끝날 때까지 대기",
+      "check_shared_token": "카드가 공유되거나 복제되었는지 확인",
       "check_csms_status": "CSMS 상태 확인",
+      "contact_site": "사이트에 연락",
       "monitor": "계속 모니터링",
       "reservation_check_evse_status": "예약된 EVSE 상태 확인",
       "reservation_check_station_connectivity": "충전소 연결 확인",
@@ -5175,6 +5211,7 @@
     "action": {
       "kind": {
         "stop_transaction": "세션 중지",
+        "end_session": "충전소 없이 세션 종료",
         "soft_reset": "충전소 소프트 리셋",
         "change_availability": "충전소 가용성 변경"
       },
@@ -5189,6 +5226,7 @@
       "expiresAt": "{{time}} 만료",
       "expires": "만료",
       "rationale": "근거",
+      "billing": "청구",
       "executed": "작업이 실행되었습니다",
       "confirmFailed": "작업이 실행되지 않았습니다",
       "rejectedToast": "작업을 거절했습니다",
@@ -5220,7 +5258,18 @@
       "expiresInfo": "제안된 작업은 확인 이후 충전소나 세션이 바뀔 수 있으므로 표시된 시간까지만 열려 있습니다. 그 후에는 만료되어 아무것도 실행되지 않으며, 문제가 계속되면 새 제안이 나타납니다.",
       "apiRequest": "API 요청"
     },
-    "openPanel": "자동 인사이트 열기 ({{count}})"
+    "openPanel": "자동 인사이트 열기 ({{count}})",
+    "stationOffline": {
+      "advice": "충전소 {{station}}이(가) {{since}}부터 {{duration}} 동안 오프라인 상태입니다. 먼저 다시 온라인으로 연결하세요: 전원, 네트워크 또는 SIM을 확인하고 사이트에 연락하세요. 다시 연결되면 저장된 트랜잭션 메시지를 보내므로 세션이 실제 최종 미터 값과 정확한 청구로 종료됩니다.",
+      "connectionHistory": "연결 기록"
+    },
+    "concurrentSession": {
+      "wait": "카드가 {{since}}부터 충전소 {{station}}의 진행 중인 세션에서 사용 중입니다. 그 세션이 끝나면 여기서 시작할 수 있습니다. 중지할 필요가 없습니다.",
+      "stop": "충전소 {{station}}에서 카드의 세션이 충전소가 온라인인 상태에서 멈춘 것으로 보입니다. 중지하면 충전소에서 트랜잭션이 종료되고 최종 미터 값으로 청구됩니다. 충전소가 더 이상 알지 못하면 CSMS가 마지막으로 측정된 에너지로 종료합니다.",
+      "restore": "충전소 {{station}}이(가) 오프라인이라 카드의 세션이 멈춘 것으로 보입니다. 먼저 충전소를 다시 온라인으로 연결하세요: 다시 연결되면 저장된 트랜잭션 메시지를 보내고 세션이 실제 최종 미터 값으로 종료됩니다.",
+      "end": "충전소 {{station}}에서 카드의 세션이 멈춘 것으로 보이며 충전소가 오랫동안 오프라인 상태입니다. 충전소 없이 CSMS에서 종료하세요: 마지막으로 측정된 에너지로 청구되며 이후 충전소의 보고로 다시 청구되지 않습니다.",
+      "viewSession": "세션 보기"
+    }
   },
   "aiWorkers": {
     "title": "AI 백그라운드 작업자",
@@ -5234,6 +5283,7 @@
       "title": "멈춘 세션",
       "description": "보고가 끊긴 세션의 중지를 제안합니다.",
       "idleMinutes": "세션을 멈춘 것으로 보는 유휴 시간(분)",
+      "offlineEndAfterHours": "AI가 CSMS에서 멈춘 세션 종료를 제안하기 전 오프라인 시간(시간)",
       "useModel": "AI로 근거 작성"
     },
     "tariffAnomalies": {
@@ -5244,6 +5294,13 @@
       "stuckSessionIdle": "{{minutes}}분 동안 미터 값이나 트랜잭션 이벤트가 없습니다",
       "stuckSessionOffline": "세션이 활성 상태인데 충전소가 오프라인입니다",
       "stuckSessionConnectorAvailable": "세션이 활성 상태인데 커넥터가 사용 가능으로 보고합니다"
+    },
+    "billing": {
+      "stuckSessionStop": "중지하면 충전소에서 트랜잭션이 종료되고 세션은 최종 미터 값으로 청구됩니다. 충전소가 더 이상 트랜잭션을 알지 못하면 CSMS가 세션을 종료하고 마지막으로 측정된 에너지로 청구합니다.",
+      "stuckSessionStopOngoing": "충전소가 트랜잭션이 아직 진행 중이라고 보고합니다. 중지하면 충전소에서 트랜잭션이 종료되고 세션은 최종 미터 값으로 청구됩니다.",
+      "stuckSessionStopNotOngoing": "충전소가 이 트랜잭션을 더 이상 실행하지 않는다고 보고합니다. 중지하면 CSMS에서 세션이 종료되고 마지막으로 측정된 에너지 {{energy}}로 청구됩니다.",
+      "stuckSessionEnd": "CSMS가 충전소 없이 세션을 종료하고 마지막으로 측정된 에너지 {{energy}}로 청구합니다. 이후 충전소의 보고로 다시 청구되지 않습니다.",
+      "stuckSessionEndWithCost": "CSMS가 충전소 없이 세션을 종료하고 마지막으로 측정된 에너지 {{energy}}로 청구합니다(현재까지 {{cost}}). 이후 충전소의 보고로 다시 청구되지 않습니다."
     },
     "findings": {
       "zero_cost": "유료 요금제인데 청구 금액이 없는 세션",

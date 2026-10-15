@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, ilike, desc, sql, isNotNull, inArray } from 'drizzle-orm';
-import { db, SESSION_END_FAILED_REASON } from '@evtivity/database';
+import { db, SESSION_END_FAILED_REASON, writeAudit } from '@evtivity/database';
 import {
   chargingSessions,
   chargingStations,
@@ -22,6 +22,7 @@ import {
   sessionStatusEnum,
   SESSION_REBILL_STATUSES,
   getCompanyCurrency,
+  sessionAuditLog,
 } from '@evtivity/database';
 import { sessionCostMissing } from '@evtivity/services/electricity-cost.service';
 import { PaymentProviderUnavailableError } from '@evtivity/payments';
@@ -38,6 +39,7 @@ import { pendingOperationSchema, providerRefundsSchema } from '../lib/payment-pr
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { requestSessionEnd } from '../lib/session-end.js';
 import {
   getSessionRebillState,
   rebillSession,
@@ -207,6 +209,11 @@ const sessionDetail = z
       .nullable()
       .describe(
         'OCPP EVSE number of the session (the stop-active-session path), null when unknown',
+      ),
+    stationOnline: z
+      .boolean()
+      .describe(
+        'True when the station is connected now. An active session of an offline station can be ended in the CSMS (POST /v1/sessions/{id}/end)',
       ),
     siteName: z.string().nullable().describe('Site name where the station is located'),
     driverId: z.string().nullable().describe('Driver internal ID, null for guest sessions'),
@@ -704,6 +711,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           evseId: sql<
             number | null
           >`(SELECT e.evse_id FROM evses e WHERE e.id = ${chargingSessions.evseId})`,
+          stationOnline: chargingStations.isOnline,
           // The site the session happened at (charging_sessions.site_id).
           siteName: sites.name,
           siteId: chargingSessions.siteId,
@@ -1130,6 +1138,103 @@ export function sessionRoutes(app: FastifyInstance): void {
       return { data, total: countRows[0]?.count ?? 0 } satisfies PaginatedResponse<
         (typeof data)[number]
       >;
+    },
+  );
+
+  // "End Session" for an active session of an offline station: the CSMS ends
+  // it without the station, through the same end the OCPP server runs for a
+  // ghost session (completed at its last metered energy, final cost,
+  // settlement, receipt). An online station is stopped with the EVSE stop.
+  app.post(
+    '/sessions/:id/end',
+    {
+      onRequest: [authorize('sessions:write')],
+      schema: {
+        tags: ['Sessions'],
+        summary: 'End an active session of an offline station without the station',
+        description:
+          "Ends an active session whose station is offline, without the station: the OCPP server ends it the normal way, as completed at its last metered energy with its final cost, payment settlement and receipt (stopped reason OperatorEnded). The request is recorded on the session first, so it completes even if the OCPP server is restarting. A TransactionEvent Ended the station sends after it reconnects is recorded on the session only: it does not reopen, reprice or bill the session again. Returns 404 SESSION_NOT_FOUND for an unknown session or one at a site outside the caller's access, 409 SESSION_NOT_ACTIVE when the session is not active, and 409 STATION_ONLINE when the station is connected (stop it with POST /v1/stations/{id}/evses/{evseId}/stop-active-session).",
+        operationId: 'endSession',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(sessionParams),
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                sessionId: z.string().describe('Session whose end was requested'),
+                transactionId: z.string().nullable().describe('OCPP transaction id of the session'),
+              })
+              .passthrough(),
+          ),
+          404: errorWith('Session not found', [ERROR_CODES.SESSION_NOT_FOUND]),
+          409: errorWith('Session not active or station online', [
+            ERROR_CODES.SESSION_NOT_ACTIVE,
+            ERROR_CODES.STATION_ONLINE,
+          ]),
+        },
+      },
+      // The end changes the session lists and detail.
+      config: { invalidatesCacheTags: ['sessions'] },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof sessionParams>;
+      const { userId } = request.user as JwtPayload;
+      const [row] = await db
+        .select({
+          siteId: chargingSessions.siteId,
+          status: chargingSessions.status,
+          transactionId: chargingSessions.transactionId,
+          stationOnline: chargingStations.isOnline,
+        })
+        .from(chargingSessions)
+        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+        .where(eq(chargingSessions.id, id));
+      if (row == null || !siteInScope(await getUserSiteIds(userId), row.siteId)) {
+        await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+        return;
+      }
+      if (row.status !== 'active') {
+        await reply
+          .status(409)
+          .send({ error: 'The session is not active', code: 'SESSION_NOT_ACTIVE' });
+        return;
+      }
+      if (row.stationOnline) {
+        await reply.status(409).send({
+          error: 'The station is online; stop the session at the station instead',
+          code: 'STATION_ONLINE',
+        });
+        return;
+      }
+      // Recorded on the session before the publish (P4); only an active
+      // session is requested (P5).
+      const requested = await requestSessionEnd(id, 'OperatorEnded', request.log);
+      if (!requested) {
+        await reply
+          .status(409)
+          .send({ error: 'The session is not active', code: 'SESSION_NOT_ACTIVE' });
+        return;
+      }
+      await writeAudit(
+        { table: sessionAuditLog, idColumn: 'session_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'stopped_by_csms',
+          ...getAuditActor(request),
+          before: { status: 'active' },
+          after: {
+            action: 'EndSession',
+            transactionId: row.transactionId,
+            stationOnline: false,
+            endRequestReason: 'OperatorEnded',
+          },
+          notes: 'Operator ended the session without the offline station',
+        },
+        db,
+        request.log,
+      );
+      return { sessionId: id, transactionId: row.transactionId };
     },
   );
 

@@ -3,6 +3,7 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { MessageSquare, RefreshCw, ThumbsDown, ThumbsUp, X } from 'lucide-react';
 import {
   INSIGHT_FEEDBACK_REASON_MAX_LENGTH,
@@ -22,6 +23,7 @@ import { useHasPermission } from '@/lib/auth';
 import { insightStatusVariant } from '@/lib/status-variants';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { formatDateTime, formatRelativeTime, useUserTimezone } from '@/lib/timezone';
+import { formatDurationMinutes } from '@/lib/formatting';
 import { cn } from '@/lib/utils';
 import { aiRequestErrorText } from '../ai-error-text';
 import { InsightActionSection } from './InsightAction';
@@ -192,6 +194,8 @@ export function InsightCard({
     );
   };
   const steps = stepsBesideAction(insight.fixes, insight.action);
+  const stationOffline = insight.scope.stationOffline ?? null;
+  const concurrent = insight.scope.concurrentSession ?? null;
   // A stored Wrong vote keeps the panel open on a later visit, so Regenerate stays reachable.
   const showWrongPanel =
     canWrite && (wrongOpen || mine === false) && mine !== true && !pending && !brief;
@@ -291,7 +295,7 @@ export function InsightCard({
         </>
       )}
 
-      {!pending && (insight.action != null || steps.length > 0) && (
+      {!pending && (insight.action != null || steps.length > 0 || concurrent != null) && (
         // One Suggested Fix: the executable action first, then the other steps as plain text.
         <section
           aria-label={t('aiInsights.fixesLabel')}
@@ -314,6 +318,51 @@ export function InsightCard({
               </span>
             )}
           </div>
+          {stationOffline != null && insight.stationId != null && (
+            // A stuck session at an offline station leads with getting it back online.
+            <div className="space-y-1" data-testid="ai-insight-station-offline">
+              <p className="wrap-anywhere">
+                {t('aiInsights.stationOffline.advice', {
+                  station: insight.stationName ?? insight.stationId,
+                  duration: formatDurationMinutes(
+                    Math.max(
+                      0,
+                      Math.floor((Date.now() - Date.parse(stationOffline.since)) / 60_000),
+                    ),
+                  ),
+                  since: formatDateTime(stationOffline.since, timezone),
+                })}
+              </p>
+              <Link
+                to={`/stations/${insight.stationId}?tab=security`}
+                className="text-link hover:underline text-sm"
+                data-testid="ai-insight-connection-history"
+              >
+                {t('aiInsights.stationOffline.connectionHistory')}
+              </Link>
+            </div>
+          )}
+          {concurrent != null && (
+            // A token refused for a session it already runs: what to do depends on that session.
+            <div className="space-y-1" data-testid="ai-insight-concurrent-session">
+              <p className="wrap-anywhere">
+                {t(`aiInsights.concurrentSession.${concurrent.step}`, {
+                  station: concurrent.station,
+                  since:
+                    concurrent.startedAt != null
+                      ? formatDateTime(concurrent.startedAt, timezone)
+                      : t('common.na'),
+                })}
+              </p>
+              <Link
+                to={`/sessions/${concurrent.sessionId}`}
+                className="text-link hover:underline text-sm"
+                data-testid="ai-insight-concurrent-session-link"
+              >
+                {t('aiInsights.concurrentSession.viewSession')}
+              </Link>
+            </div>
+          )}
           {steps.length > 0 && (
             <ul className="list-disc space-y-1 pl-5" data-testid="ai-insight-fixes">
               {steps.map((fix) => (

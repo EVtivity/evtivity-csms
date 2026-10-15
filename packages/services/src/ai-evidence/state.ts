@@ -24,6 +24,7 @@ import {
 import type { RawTimestamp } from '@evtivity/database';
 import { isReservationInsightKind } from '@evtivity/lib/ai-insights';
 import type { InsightKind } from '@evtivity/lib/ai-insights';
+import { concurrentSessionOfAttempt } from './concurrent-session.js';
 
 export interface InsightSubjectRef {
   id: string;
@@ -200,5 +201,10 @@ export async function conditionCleared(ref: InsightSubjectRef): Promise<boolean>
     return ref.kind === 'station_offline' ? s.is_online : s.availability !== 'faulted';
   }
   if (ref.kind === 'site_incident') return (await incidentState(ref.id))?.cleared ?? false;
+  if (ref.kind === 'authorization_refused' && ref.authorizeAttemptId != null) {
+    // A token refused for a session it already ran: cleared once that session ended.
+    const concurrent = await concurrentSessionOfAttempt(ref.authorizeAttemptId);
+    return concurrent != null && !concurrent.active;
+  }
   return false;
 }

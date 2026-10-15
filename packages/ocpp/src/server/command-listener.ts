@@ -136,16 +136,21 @@ export class CommandListener {
     // station may present to Authorize (issued-central-tokens.ts).
     rememberIssuedCentralToken(stationId, action, payload);
 
-    // Log outbound CALL to station
+    // Log the outbound CALL when it is sent: a CALL can wait behind the
+    // station's outstanding CALL, so the log follows the wire order.
     const messageId = commandId ?? crypto.randomUUID();
-    publishMessageLog(this.eventBus, {
-      stationId,
-      direction: 'outbound',
-      messageType: MESSAGE_TYPE_CALL,
-      messageId,
-      action,
-      payload,
-    });
+    const sendOptions = {
+      onSend: (): void => {
+        publishMessageLog(this.eventBus, {
+          stationId,
+          direction: 'outbound',
+          messageType: MESSAGE_TYPE_CALL,
+          messageId,
+          action,
+          payload,
+        });
+      },
+    };
 
     try {
       // When version is present, the frontend sent a version-native payload -- dispatch directly.
@@ -155,8 +160,8 @@ export class CommandListener {
       // gave up (a CommandTimeoutError goes back as timedOut).
       const response =
         version != null
-          ? await this.dispatcher.sendCommand(stationId, action, payload)
-          : await this.dispatcher.sendVersionAwareCommand(stationId, action, payload);
+          ? await this.dispatcher.sendCommand(stationId, action, payload, sendOptions)
+          : await this.dispatcher.sendVersionAwareCommand(stationId, action, payload, sendOptions);
       this.logger.info(
         { stationId, action, response: maskStationCredentials(response) },
         'Command completed',

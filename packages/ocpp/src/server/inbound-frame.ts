@@ -21,13 +21,18 @@ import { OcppErrorCode } from '../protocol/error-codes.js';
  * - Message id: a string of 1 to 36 characters (OCPP-J "string[36]").
  * - Action: a string of 1 to `MAX_ACTION_LENGTH` characters.
  *
- * A CALL that fails a check is answered with a CALLERROR when its message id
- * is usable. Everything else is dropped and counted.
+ * A CALL that fails a check is answered with a CALLERROR. A CALL whose message
+ * id cannot be read (not a string of 1 to 36 characters) is answered with
+ * message id "-1" and RpcFrameworkError (OCPP-J 2.1 Part 4 section 4.2.3).
+ * Responses (CALLRESULT, CALLERROR) are never answered: a bad one is dropped
+ * and counted, like every other frame that is not answered.
  */
 
 export const MAX_FRAME_DEPTH = 32;
 export const MAX_MESSAGE_ID_LENGTH = 36;
 export const MAX_ACTION_LENGTH = 100;
+/** Message id of a CALLERROR answering a CALL whose message id cannot be read. */
+export const UNREADABLE_MESSAGE_ID = '-1';
 
 // OCPP 2.1 message types this server never answers: CALLRESULTERROR (5) is a
 // reply to one of its own CALLRESULTs, and SEND (6) is unconfirmed.
@@ -43,7 +48,12 @@ export type DropReason =
   | 'unanswered_type'
   | 'unknown_type';
 
-export type RefuseReason = 'too_deep' | 'malformed_call' | 'invalid_action' | 'unknown_type';
+export type RefuseReason =
+  | 'too_deep'
+  | 'malformed_call'
+  | 'invalid_action'
+  | 'invalid_message_id'
+  | 'unknown_type';
 
 export type InboundFrame =
   | { kind: 'call'; messageId: string; action: string; payload: Record<string, unknown> }
@@ -111,7 +121,14 @@ export function parseInboundFrame(raw: string, protocolVersion: string): Inbound
   }
 
   if (messageType === MESSAGE_TYPE_CALL) {
-    if (messageId == null) return { kind: 'drop', reason: 'invalid_message_id' };
+    if (messageId == null) {
+      return refuse(
+        UNREADABLE_MESSAGE_ID,
+        OcppErrorCode.RpcFrameworkError,
+        `The message id must be a string of 1 to ${String(MAX_MESSAGE_ID_LENGTH)} characters`,
+        'invalid_message_id',
+      );
+    }
     if (exceedsDepth(frame, MAX_FRAME_DEPTH)) {
       return refuse(
         messageId,

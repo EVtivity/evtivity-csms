@@ -1001,7 +1001,30 @@
     "removeTag": "Remove tag {{tag}}",
     "messageCommandQueued": "Station offline. The command is queued and sent when the station reconnects.",
     "chargingNeedsTab": "Charging Needs and Monitors",
-    "localAuthPrepaidHint": "Only active tokens that are not prepaid cards are listed. A station checks a prepaid card's balance online, so prepaid cards never go on a local list."
+    "localAuthPrepaidHint": "Only active tokens that are not prepaid cards are listed. A station checks a prepaid card's balance online, so prepaid cards never go on a local list.",
+    "aiInsights": {
+      "label": "AI Insights",
+      "inScope": "In Scope",
+      "suppressed": "Suppressed",
+      "allScopes": "All",
+      "listBadge": "AI Insights Suppressed",
+      "suppress": "Suppress",
+      "resume": "Resume",
+      "until": "Until {{date}}",
+      "untilResumed": "Until resumed",
+      "by": "By {{name}}: {{reason}}",
+      "maintenance": "Suppressed while an active maintenance event covers the station",
+      "suppressTitle": "Suppress AI Insights for This Station?",
+      "suppressDescription": "No new AI insight or suggested action is created for this station until the end date, or until you resume. Its open insights are dismissed and its waiting actions expire.",
+      "reason": "Reason",
+      "reasonRequired": "Enter a reason",
+      "endDate": "End Date (Optional)",
+      "resumeTitle": "Resume AI Insights for This Station?",
+      "resumeDescription": "AI insights watch this station again.",
+      "suppressedToast": "AI insights suppressed",
+      "resumedToast": "AI insights resumed",
+      "failed": "Failed to change the AI insights of the station"
+    }
   },
   "eventAlertRules": {
     "title": "Event Alert Rules",
@@ -1166,7 +1189,13 @@
     "eventCount_other": "{{count}} events",
     "stopSession": "Stop Session",
     "stopSessionConfirmTitle": "Stop This Session?",
-    "stopSessionConfirmDescription": "This asks station {{station}} to stop the transaction on EVSE {{evseId}}. The driver is billed for the energy delivered so far."
+    "stopSessionConfirmDescription": "This asks station {{station}} to stop the transaction on EVSE {{evseId}}. The driver is billed for the energy delivered so far.",
+    "endSession": "End Session",
+    "endSessionConfirmTitle": "End This Session Without the Station?",
+    "endSessionConfirmDescription": "Station {{station}} is offline. The CSMS closes the session now and bills it at its last metered energy, {{energy}}, without the station. A stop or end message the station sends after it reconnects does not reopen or bill the session again.",
+    "endSessionConfirmDescriptionWithCost": "Station {{station}} is offline. The CSMS closes the session now and bills it at its last metered energy, {{energy}}, for {{cost}} so far, without the station. A stop or end message the station sends after it reconnects does not reopen or bill the session again.",
+    "endSessionRequested": "Session end requested",
+    "endSessionFailed": "Failed to end the session"
   },
   "drivers": {
     "title": "Drivers",
@@ -2729,6 +2758,7 @@
       "maxPerSitePerDay": "Insights per site per day",
       "primaryLanguage": "Summary language",
       "retentionDays": "Keep insights (days)",
+      "expireAfterDays": "Close one-off insights after (days)",
       "reservation": "Reservation insights",
       "reservationOff": "Reservation insights are off while reservations are turned off.",
       "reservationOffLink": "Turn on reservations",
@@ -3328,6 +3358,7 @@
     "SESSION_ALREADY_ACTIVE": "You already have an active charging session",
     "SESSION_CREATE_FAILED": "Failed to create session",
     "SESSION_NOT_FOUND": "Session not found",
+    "SESSION_NOT_ACTIVE": "The session is not active",
     "SESSION_NOT_LINKED": "Session not linked to this case",
     "SESSION_REBILL_IN_PROGRESS": "The session is being billed. Try again in a few minutes.",
     "SESSION_REBILL_NOT_ELIGIBLE": "This session cannot be billed",
@@ -3345,6 +3376,7 @@
     "STATION_ID_EXISTS": "A station with this name already exists. Please choose a different name.",
     "STATION_NOT_FOUND": "Station not found",
     "STATION_OFFLINE": "Station is offline",
+    "STATION_ONLINE": "The station is online. Stop the session at the station instead.",
     "STATION_REJECTED": "Station rejected start: ...",
     "STATION_TIMEOUT": "Station did not respond",
     "STATION_UNAVAILABLE": "This station is unavailable right now. Try another station.",
@@ -4190,6 +4222,7 @@
       "startAt": "Start charging at {{target}} of station {{station}}",
       "stop": "Stop the charging session at station {{station}} (OCPP transaction {{transaction}})",
       "stopAny": "Stop the charging session at station {{station}}",
+      "endSession": "End the session at offline station {{station}} in the CSMS (OCPP transaction {{transaction}}), billed at its last metered energy",
       "chargingProfile": "Set a charging profile on station {{station}}",
       "chargingProfileAt": "Set a charging profile on {{target}} of station {{station}}",
       "ocppCommand": "Send {{command}} to station {{station}}",
@@ -5062,7 +5095,10 @@
       "ask_driver_to_retry": "Ask the driver to try again",
       "check_vehicle_compatibility": "Check vehicle compatibility",
       "end_concurrent_session": "End the concurrent session",
+      "wait_for_concurrent_session": "Wait for the card's other session to end",
+      "check_shared_token": "Check whether the card is shared or copied",
       "check_csms_status": "Check the CSMS status",
+      "contact_site": "Contact the site",
       "monitor": "Keep monitoring",
       "reservation_check_evse_status": "Check the reserved EVSE's status",
       "reservation_check_station_connectivity": "Check the station's connection",
@@ -5175,6 +5211,7 @@
     "action": {
       "kind": {
         "stop_transaction": "Stop the session",
+        "end_session": "End the session without the station",
         "soft_reset": "Soft reset the station",
         "change_availability": "Change the station availability"
       },
@@ -5189,6 +5226,7 @@
       "expiresAt": "Expires on {{time}}",
       "expires": "Expires",
       "rationale": "Rationale",
+      "billing": "Billing",
       "executed": "The action ran",
       "confirmFailed": "The action did not run",
       "rejectedToast": "Action rejected",
@@ -5220,7 +5258,18 @@
       "expiresInfo": "A suggested action stays open until the time shown, because the station or session can change after the check. After that it expires, nothing runs, and a new suggestion appears if the problem is still there.",
       "apiRequest": "API Request"
     },
-    "openPanel": "Open Automatic Insights ({{count}})"
+    "openPanel": "Open Automatic Insights ({{count}})",
+    "stationOffline": {
+      "advice": "Station {{station}} has been offline for {{duration}}, since {{since}}. Get it back online first: check its power, its network or SIM, and contact the site. When it reconnects, it sends its stored transaction messages, so the session ends with its real final meter reading and exact billing.",
+      "connectionHistory": "Connection History"
+    },
+    "concurrentSession": {
+      "wait": "The card is in use in a live session at station {{station}} since {{since}}. It can start here once that session ends. Nothing needs to be stopped.",
+      "stop": "The card's session at station {{station}} looks stuck while the station is online. Stopping it ends the transaction at the station and bills it from its final meter reading; if the station no longer knows it, the CSMS ends it at its last metered energy.",
+      "restore": "The card's session at station {{station}} looks stuck because the station is offline. Get the station back online first: when it reconnects it sends its stored transaction messages, and the session ends with its real final meter reading.",
+      "end": "The card's session at station {{station}} looks stuck and the station has been offline for a long time. End it in the CSMS without the station: it is billed at its last metered energy, and a later report from the station does not bill it again.",
+      "viewSession": "View Session"
+    }
   },
   "aiWorkers": {
     "title": "Background AI Workers",
@@ -5234,6 +5283,7 @@
       "title": "Stuck Sessions",
       "description": "Suggests stopping sessions that stopped reporting.",
       "idleMinutes": "Idle time before a session counts as stuck (minutes)",
+      "offlineEndAfterHours": "Offline time before the AI suggests ending a stuck session in the CSMS (hours)",
       "useModel": "Write the rationale with AI"
     },
     "tariffAnomalies": {
@@ -5244,6 +5294,13 @@
       "stuckSessionIdle": "No meter values or transaction events for {{minutes}} minutes",
       "stuckSessionOffline": "The station is offline while the session is active",
       "stuckSessionConnectorAvailable": "The connector reports Available while the session is active"
+    },
+    "billing": {
+      "stuckSessionStop": "Stopping ends the transaction at the station, and the session is billed from its final meter reading. If the station no longer knows the transaction, the CSMS ends the session and bills it at its last metered energy.",
+      "stuckSessionStopOngoing": "The station reports the transaction is still running. Stopping ends it at the station, and the session is billed from its final meter reading.",
+      "stuckSessionStopNotOngoing": "The station reports it no longer runs this transaction. Stopping ends the session in the CSMS and bills it at its last metered energy, {{energy}}.",
+      "stuckSessionEnd": "The CSMS closes the session without the station and bills it at its last metered energy, {{energy}}. A later report from the station does not bill it again.",
+      "stuckSessionEndWithCost": "The CSMS closes the session without the station and bills it at its last metered energy, {{energy}}, for {{cost}} so far. A later report from the station does not bill it again."
     },
     "findings": {
       "zero_cost": "Sessions billed nothing on a priced tariff",

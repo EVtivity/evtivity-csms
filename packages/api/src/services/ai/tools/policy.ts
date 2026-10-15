@@ -727,6 +727,9 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // Sessions
   // Turns Autocharge on for a vehicle (station security): operator only.
   claimSessionVehicleId: N,
+  // Ends an offline station's session with its normal billing, as the
+  // station's stop would: proposed, runs only after the user confirms.
+  endSession: W,
   // The guest portal's session token is dropped by the redactor.
   getSession: supportRead({ id: 'case.sessionIds' }, { redactedFields: ['sessionToken'] }),
   getSessionNeighbors: N,
@@ -811,6 +814,10 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   updateChargingProfileTemplate: W,
   // Stations
   acknowledgeEventAlert: W,
+  // What the AI watches is the operator's call: suppressing or resuming a
+  // station's AI insights is never an AI tool.
+  suppressStationAiInsights: N,
+  resumeStationAiInsights: N,
   addStationConnector: W,
   addStationEvse: W,
   addStationPricingGroup: N,
@@ -1293,6 +1300,7 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   reassignReservation: false,
   updateReservation: false,
   // Sessions
+  endSession: false,
   getSession: true,
   listSessionMeterValues: true,
   listSessions: true,

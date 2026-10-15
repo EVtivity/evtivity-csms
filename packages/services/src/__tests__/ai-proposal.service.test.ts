@@ -9,9 +9,11 @@ let returning: unknown[] = [];
 const audits: unknown[] = [];
 const publishes: unknown[] = [];
 
-/** What the target lookups return: the station by OCPP id, then the session. */
+/** What the target lookups return: the station (by OCPP id, id or session), then the session. */
 let stationRows: unknown[] = [];
 let sessionRows: unknown[] = [];
+/** What the session_active precondition reads: the session and its station's connection. */
+let preconditionRows: unknown[] = [];
 /** What an update (reject) returns. */
 let updated: unknown[] = [];
 const closed: unknown[] = [];
@@ -33,11 +35,20 @@ vi.mock('@evtivity/database', () => ({
         throw err;
       }
     },
-    select: (fields: Record<string, unknown>) => ({
-      from: () => ({
-        where: () => Promise.resolve('siteId' in fields ? stationRows : sessionRows),
-      }),
-    }),
+    select: (fields: Record<string, unknown>) => {
+      const rows = () =>
+        'siteId' in fields
+          ? stationRows
+          : 'stationOnline' in fields
+            ? preconditionRows
+            : sessionRows;
+      return {
+        from: () => ({
+          where: () => Promise.resolve(rows()),
+          innerJoin: () => ({ where: () => Promise.resolve(rows()) }),
+        }),
+      };
+    },
     update: () => ({
       set: () => ({ where: () => ({ returning: () => Promise.resolve(updated) }) }),
     }),
@@ -58,8 +69,19 @@ vi.mock('@evtivity/database', () => ({
     expiresAt: 'expires_at',
   },
   aiProposalAuditLog: {},
-  chargingSessions: { stationId: 'station_id' },
-  chargingStations: { id: 'id', siteId: 'site_id', stationId: 'station_id' },
+  chargingSessions: {
+    id: 'id',
+    stationId: 'station_id',
+    status: 'status',
+    transactionId: 'transaction_id',
+  },
+  chargingStations: {
+    id: 'id',
+    siteId: 'site_id',
+    stationId: 'station_id',
+    isOnline: 'is_online',
+    availability: 'availability',
+  },
   writeAudit: (_config: unknown, args: unknown) => {
     audits.push(args);
     return Promise.resolve();
@@ -93,8 +115,13 @@ vi.mock('../ai-insight.service.js', () => ({
   },
 }));
 
-const { createAiProposal, rejectAiProposal, toAiProposalDto, AiProposalInputError } =
-  await import('../ai-proposal.service.js');
+const {
+  createAiProposal,
+  rejectAiProposal,
+  toAiProposalDto,
+  aiProposalPreconditionHolds,
+  AiProposalInputError,
+} = await import('../ai-proposal.service.js');
 type Input = Parameters<typeof createAiProposal>[0];
 
 function input(overrides: Partial<Input> = {}): Input {
@@ -104,10 +131,10 @@ function input(overrides: Partial<Input> = {}): Input {
     siteId: 'sit_000000000001',
     stationId: 'sta_000000000001',
     sessionId: 'ses_000000000001',
-    operationId: 'ocppv21_RequestStopTransaction',
+    operationId: 'stopActiveEvseSession',
     method: 'POST',
-    path: '/v1/ocpp/commands/v21/RequestStopTransaction',
-    args: { stationId: 'CS-1', transactionId: 'tx-1' },
+    path: '/v1/stations/{id}/evses/{evseId}/stop-active-session',
+    args: { id: 'sta_000000000001', evseId: 1 },
     expiresAt: new Date(Date.now() + 3_600_000),
     actor: { actor: 'system', actorLabel: 'ai-stuck-sessions' },
     ...overrides,
@@ -123,10 +150,10 @@ function row(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     siteId: 'sit_000000000001',
     stationId: 'sta_000000000001',
     sessionId: 'ses_000000000001',
-    operationId: 'ocppv21_RequestStopTransaction',
+    operationId: 'stopActiveEvseSession',
     method: 'POST',
-    path: '/v1/ocpp/commands/v21/RequestStopTransaction',
-    args: { stationId: 'CS-1', transactionId: 'tx-1' },
+    path: '/v1/stations/{id}/evses/{evseId}/stop-active-session',
+    args: { id: 'sta_000000000001', evseId: 1 },
     argsHash: 'h',
     summary: {},
     precondition: { kind: 'session_active', params: { sessionId: 'ses_000000000001' } },
@@ -156,6 +183,7 @@ beforeEach(() => {
   updated = [];
   stationRows = [{ id: 'sta_000000000001', siteId: 'sit_000000000001' }];
   sessionRows = [{ stationId: 'sta_000000000001' }];
+  preconditionRows = [];
 });
 
 describe('createAiProposal', () => {
@@ -270,6 +298,76 @@ describe('the proposal target comes from the station in the arguments (P11)', ()
     stationRows = [];
     await expect(createAiProposal(input())).rejects.toBeInstanceOf(AiProposalInputError);
     expect(inserted).toHaveLength(0);
+  });
+});
+
+describe('the CSMS end targets the session in its arguments (P11)', () => {
+  const end = (overrides: Partial<Input> = {}) =>
+    input({
+      operationId: 'endSession',
+      path: '/v1/sessions/{id}/end',
+      args: { id: 'ses_000000000001' },
+      ...overrides,
+    });
+
+  it("stores the session and its station's site", async () => {
+    returning = [row()];
+    await createAiProposal(end());
+    expect(inserted[0]).toMatchObject({
+      operationId: 'endSession',
+      siteId: 'sit_000000000001',
+      stationId: 'sta_000000000001',
+      sessionId: 'ses_000000000001',
+    });
+  });
+
+  it('refuses a session or site that does not match the argument', async () => {
+    for (const bad of [
+      end({ sessionId: 'ses_000000000002' }),
+      end({ siteId: 'sit_000000000002' }),
+      end({ stationId: 'sta_000000000002' }),
+    ]) {
+      await expect(createAiProposal(bad)).rejects.toBeInstanceOf(AiProposalInputError);
+    }
+    stationRows = [];
+    await expect(createAiProposal(end())).rejects.toBeInstanceOf(AiProposalInputError);
+    expect(inserted).toHaveLength(0);
+  });
+});
+
+describe('session_active precondition and the station connection', () => {
+  const precondition = (stationOnline?: boolean) => ({
+    kind: 'session_active' as const,
+    params: {
+      sessionId: 'ses_000000000001',
+      transactionId: 'tx-1',
+      ...(stationOnline === undefined ? {} : { stationOnline }),
+    },
+  });
+
+  it('holds while the session is active and the station connection is the one chosen for', async () => {
+    preconditionRows = [{ status: 'active', transactionId: 'tx-1', stationOnline: false }];
+    expect(await aiProposalPreconditionHolds(precondition(false))).toBe(true);
+    preconditionRows = [{ status: 'active', transactionId: 'tx-1', stationOnline: true }];
+    expect(await aiProposalPreconditionHolds(precondition(true))).toBe(true);
+  });
+
+  it('fails a CSMS end whose station came back online, and a stop whose station went offline', async () => {
+    preconditionRows = [{ status: 'active', transactionId: 'tx-1', stationOnline: true }];
+    expect(await aiProposalPreconditionHolds(precondition(false))).toBe(false);
+    preconditionRows = [{ status: 'active', transactionId: 'tx-1', stationOnline: false }];
+    expect(await aiProposalPreconditionHolds(precondition(true))).toBe(false);
+  });
+
+  it('ignores the connection for an action stored without it, and fails an ended session', async () => {
+    preconditionRows = [{ status: 'active', transactionId: 'tx-1', stationOnline: false }];
+    expect(await aiProposalPreconditionHolds(precondition())).toBe(true);
+    preconditionRows = [{ status: 'completed', transactionId: 'tx-1', stationOnline: false }];
+    expect(await aiProposalPreconditionHolds(precondition(false))).toBe(false);
+    preconditionRows = [{ status: 'active', transactionId: 'tx-2', stationOnline: false }];
+    expect(await aiProposalPreconditionHolds(precondition(false))).toBe(false);
+    preconditionRows = [];
+    expect(await aiProposalPreconditionHolds(precondition(false))).toBe(false);
   });
 });
 

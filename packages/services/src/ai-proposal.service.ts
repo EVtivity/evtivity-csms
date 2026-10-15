@@ -26,6 +26,7 @@ import {
   aiProposalAuditLog,
   chargingSessions,
   chargingStations,
+  getAiInsightSettings,
   writeAudit,
 } from '@evtivity/database';
 import type { AuditActor } from '@evtivity/database';
@@ -44,11 +45,15 @@ import type {
   AiProposalPrecondition,
   AiProposalResult,
   AiProposalStatus,
+  AiWorkerActionTarget,
   AiWorkerJob,
 } from '@evtivity/lib/ai-proposals';
+import { AI_THRESHOLD_SETTINGS } from '@evtivity/lib/ai-config';
+import { AI_INSIGHT_SETTING_KEYS } from '@evtivity/lib/ai-insights';
 import {
   AI_INSIGHT_UPDATED_EVENT,
   closeActionInsight,
+  holdInsightCooldown,
   markInsightActionPending,
   publishInsightUpdated,
 } from './ai-insight.service.js';
@@ -209,24 +214,30 @@ interface ProposalTarget {
 }
 
 /**
- * The station, site and session a proposal targets, from the station its
- * arguments name (the OCPP identity the route acts on), never from the
- * caller alone: the read scope trusts `site_id` (P11). A given `siteId`,
- * `stationId` or `sessionId` that does not match that station is refused.
- * A proposal whose arguments name no station keeps the given site.
+ * The station, site and session a proposal targets, from what its arguments
+ * name (`AiWorkerAction.target`: the OCPP identity of a command route, the
+ * internal station id of the EVSE stop, or the session of the CSMS end),
+ * never from the caller alone: the read scope trusts `site_id` (P11). A given
+ * `siteId`, `stationId` or `sessionId` that does not match is refused. A
+ * proposal whose arguments name no station keeps the given site.
  */
 async function resolveTarget(input: CreateAiProposalInput): Promise<ProposalTarget> {
-  const ocppStationId = input.args['stationId'];
-  if (typeof ocppStationId !== 'string') {
+  const target = findAiWorkerAction(input.operationId)?.target ?? 'ocpp_station';
+  const named = input.args[target === 'ocpp_station' ? 'stationId' : 'id'];
+  if (typeof named !== 'string' || named === '') {
     if (input.stationId != null || input.sessionId != null) {
       throw new AiProposalInputError('A proposal for a station names it in its arguments');
     }
     return { siteId: input.siteId, stationId: null, sessionId: null };
   }
-  const [station] = await db
-    .select({ id: chargingStations.id, siteId: chargingStations.siteId })
-    .from(chargingStations)
-    .where(eq(chargingStations.stationId, ocppStationId));
+  let sessionId = input.sessionId ?? null;
+  if (target === 'session') {
+    if (sessionId !== null && sessionId !== named) {
+      throw new AiProposalInputError('The session and arguments do not match');
+    }
+    sessionId = named;
+  }
+  const station = await targetStation(target, named);
   if (station === undefined) throw new AiProposalInputError('Unknown station');
   if (
     (input.stationId != null && input.stationId !== station.id) ||
@@ -234,16 +245,39 @@ async function resolveTarget(input: CreateAiProposalInput): Promise<ProposalTarg
   ) {
     throw new AiProposalInputError('The station, site and arguments do not match');
   }
-  if (input.sessionId != null) {
+  if (sessionId !== null) {
     const [session] = await db
       .select({ stationId: chargingSessions.stationId })
       .from(chargingSessions)
-      .where(eq(chargingSessions.id, input.sessionId));
+      .where(eq(chargingSessions.id, sessionId));
     if (session?.stationId !== station.id) {
       throw new AiProposalInputError('The session is not at the station');
     }
   }
-  return { siteId: station.siteId, stationId: station.id, sessionId: input.sessionId ?? null };
+  return { siteId: station.siteId, stationId: station.id, sessionId };
+}
+
+/** The station an action's target argument names (for a session: the session's station). */
+async function targetStation(
+  target: AiWorkerActionTarget,
+  named: string,
+): Promise<{ id: string; siteId: string | null } | undefined> {
+  const columns = { id: chargingStations.id, siteId: chargingStations.siteId };
+  if (target === 'session') {
+    const [row] = await db
+      .select(columns)
+      .from(chargingSessions)
+      .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+      .where(eq(chargingSessions.id, named));
+    return row;
+  }
+  const [row] = await db
+    .select(columns)
+    .from(chargingStations)
+    .where(
+      target === 'station' ? eq(chargingStations.id, named) : eq(chargingStations.stationId, named),
+    );
+  return row;
 }
 
 /**
@@ -528,9 +562,79 @@ async function expireOne(id: string, log: ServiceLogger): Promise<AiProposalRow 
  * whose process died; whether the route ran is unknown, so it is never
  * retried). Returns the counts.
  */
+/**
+ * Expires the pending, unclaimed actions of a station whose AI insights an
+ * operator suppressed (a running confirm decides its own outcome). Audited
+ * with the reason; each insight closes `expired` with its action. Returns
+ * the number expired.
+ */
+export async function expireStationAiProposals(
+  stationId: string,
+  reason: string,
+  actor: AiProposalActor,
+  log: ServiceLogger = moduleLogger,
+): Promise<number> {
+  const rows = await db
+    .update(aiProposals)
+    .set({ status: 'expired', updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(aiProposals.stationId, stationId),
+        eq(aiProposals.status, 'pending'),
+        isNull(aiProposals.decidedAt),
+      ),
+    )
+    .returning();
+  for (const row of rows) {
+    await audit(
+      row,
+      'expired',
+      actor,
+      { before: PENDING, after: { status: row.status }, notes: reason },
+      log,
+    );
+    await afterEnd(row, actor, log);
+  }
+  return rows.length;
+}
+
+/** The insight cooldown in minutes, its default when settings cannot be read (fail-open, P9). */
+async function insightCooldownMinutes(log: ServiceLogger): Promise<number> {
+  try {
+    return (await getAiInsightSettings()).cooldownMinutes;
+  } catch (err) {
+    log.warn({ err }, 'AI insight settings unreadable; the default cooldown applies');
+    return AI_THRESHOLD_SETTINGS[AI_INSIGHT_SETTING_KEYS.cooldownMinutes].defaultValue;
+  }
+}
+
+/**
+ * A stuck-session action expired undecided: the session gets no new insight
+ * for the insight cooldown (`aiInsights.cooldownMinutes`), so an unattended
+ * session is not suggested again every run. Fail-open (P9).
+ */
+async function holdStuckSessionCooldown(
+  row: AiProposalRow,
+  minutes: number,
+  log: ServiceLogger,
+): Promise<void> {
+  if (row.job !== 'stuck_sessions' || row.sessionId == null) return;
+  try {
+    await holdInsightCooldown({
+      subjectType: 'session',
+      subjectId: row.sessionId,
+      kind: 'stuck_session',
+      minutes,
+      insightId: row.insightId,
+    });
+  } catch (err) {
+    log.warn({ err, proposalId: row.id }, 'Stuck-session cooldown after an expired action failed');
+  }
+}
+
 export async function sweepAiProposals(
   log: ServiceLogger = moduleLogger,
-): Promise<{ expired: number; interrupted: number }> {
+): Promise<{ expired: number; interrupted: number; stale: number }> {
   const expired = await db
     .update(aiProposals)
     .set({ status: 'expired', updatedAt: sql`now()` })
@@ -542,12 +646,40 @@ export async function sweepAiProposals(
       ),
     )
     .returning();
+  const cooldown = expired.length > 0 ? await insightCooldownMinutes(log) : 0;
   for (const row of expired) {
     await audit(
       row,
       'expired',
       SWEEP_ACTOR,
       { before: PENDING, after: { status: row.status } },
+      log,
+    );
+    await afterEnd(row, SWEEP_ACTOR, log);
+    await holdStuckSessionCooldown(row, cooldown, log);
+  }
+  // A stuck-session action whose session ended, whatever ended it, no longer
+  // applies: stale, and its insight resolves (unclaimed only: a running
+  // confirm decides its own outcome).
+  const stale = await db
+    .update(aiProposals)
+    .set({ status: 'stale', updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(aiProposals.status, 'pending'),
+        isNull(aiProposals.decidedAt),
+        eq(aiProposals.job, 'stuck_sessions'),
+        sql`EXISTS (SELECT 1 FROM charging_sessions s
+          WHERE s.id = ${aiProposals.sessionId} AND s.status <> 'active')`,
+      ),
+    )
+    .returning();
+  for (const row of stale) {
+    await audit(
+      row,
+      'stale',
+      SWEEP_ACTOR,
+      { before: PENDING, after: { status: row.status }, notes: 'The session is no longer active' },
       log,
     );
     await afterEnd(row, SWEEP_ACTOR, log);
@@ -576,7 +708,7 @@ export async function sweepAiProposals(
     );
     await afterEnd(row, SWEEP_ACTOR, log);
   }
-  return { expired: expired.length, interrupted: interrupted.length };
+  return { expired: expired.length, interrupted: interrupted.length, stale: stale.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -591,7 +723,9 @@ function param(precondition: AiProposalPrecondition, name: string): string | nul
 /**
  * Whether the state a proposal was made for still holds. Checked at confirm
  * time; false ends the proposal `stale`.
- * - `session_active` `{ sessionId, transactionId? }`: the session is still active (same transaction).
+ * - `session_active` `{ sessionId, transactionId?, stationOnline? }`: the session is still
+ *   active (same transaction) and, with `stationOnline`, its station's connection is the one
+ *   the action was chosen for (a stop needs an online station, the CSMS end an offline one).
  * - `station_faulted` `{ stationId }`: the station's availability is still `faulted`.
  * - `station_availability` `{ stationId, availability }`: the station's availability is unchanged.
  */
@@ -603,14 +737,21 @@ export async function aiProposalPreconditionHolds(
       const sessionId = param(precondition, 'sessionId');
       if (sessionId === null) return false;
       const [session] = await db
-        .select({ status: chargingSessions.status, transactionId: chargingSessions.transactionId })
+        .select({
+          status: chargingSessions.status,
+          transactionId: chargingSessions.transactionId,
+          stationOnline: chargingStations.isOnline,
+        })
         .from(chargingSessions)
+        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .where(eq(chargingSessions.id, sessionId));
       const transactionId = param(precondition, 'transactionId');
+      const stationOnline = precondition.params['stationOnline'];
       return (
         session !== undefined &&
         session.status === 'active' &&
-        (transactionId === null || session.transactionId === transactionId)
+        (transactionId === null || session.transactionId === transactionId) &&
+        (typeof stationOnline !== 'boolean' || session.stationOnline === stationOnline)
       );
     }
     case 'station_faulted':

@@ -3,7 +3,7 @@
 
 import type { Logger } from '@evtivity/lib';
 import type { ConnectionManager } from './connection-manager.js';
-import type { MessageCorrelator } from './message-correlator.js';
+import type { MessageCorrelator, SendCallOptions } from './message-correlator.js';
 import { translateCommand, translateResponse } from './command-translation.js';
 
 export class CommandDispatcher {
@@ -21,6 +21,7 @@ export class CommandDispatcher {
     stationId: string,
     action: string,
     payload: Record<string, unknown>,
+    options?: SendCallOptions,
   ): Promise<Record<string, unknown>> {
     const connection = this.connectionManager.get(stationId);
     if (connection == null) {
@@ -34,6 +35,7 @@ export class CommandDispatcher {
       connection.session,
       action,
       payload,
+      options,
     );
 
     this.logger.info({ stationId, action }, 'Command response received');
@@ -44,6 +46,7 @@ export class CommandDispatcher {
     stationId: string,
     commandName: string,
     payload: Record<string, unknown>,
+    options?: SendCallOptions,
   ): Promise<Record<string, unknown>> {
     const connection = this.connectionManager.get(stationId);
     if (connection == null) {
@@ -76,6 +79,7 @@ export class CommandDispatcher {
       connection.session,
       translated.action,
       translated.payload,
+      options,
     );
 
     return translateResponse(commandName, version, response, payload);

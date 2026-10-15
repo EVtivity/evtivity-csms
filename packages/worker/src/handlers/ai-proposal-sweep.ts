@@ -14,7 +14,7 @@ import { failStaleAiWorkerRuns } from '@evtivity/services/ai-workers/runs';
 export async function aiProposalSweepHandler(log: Logger): Promise<void> {
   const result = await sweepAiProposals(log);
   const staleRuns = await failStaleAiWorkerRuns();
-  if (result.expired > 0 || result.interrupted > 0 || staleRuns > 0) {
+  if (result.expired > 0 || result.interrupted > 0 || result.stale > 0 || staleRuns > 0) {
     log.info({ ...result, staleRuns }, 'AI proposals swept');
   }
 }

@@ -38,7 +38,7 @@ const KIND_TASKS: Record<InsightKind, string> = {
     'A charging station raised a critical event alert. Explain what it most likely means.',
   session_failed: 'A charging session ended failed or faulted. Find the most likely root cause.',
   authorization_refused:
-    'A driver token was refused at a charging station, possibly several times. Find the most likely root cause.',
+    'A driver token was refused at a charging station, possibly several times. Find the most likely root cause. When the facts hold concurrentSession, the token already runs that session at another station: if concurrentSession.live is true it is a healthy charge, so never recommend ending or stopping it (the driver waits for it to end, or the card is shared or copied); recommend ending it only when concurrentSession.live is false, as concurrentSession.suggestedStep says.',
   site_incident:
     'Several charging stations of one site went offline or faulted at about the same time. Find the most likely common root cause.',
   site_summary: 'Summarize the state of one site.',

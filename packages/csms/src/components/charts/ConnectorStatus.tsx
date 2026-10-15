@@ -233,7 +233,11 @@ export function ConnectorStatus({
       if (code === 'NO_ACTIVE_SESSION') {
         toast({ variant: 'warning', title: t('stations.noActiveSession') });
       } else {
-        toast({ variant: 'destructive', title: t('stations.stopSessionFailed') });
+        // STATION_OFFLINE (the stop is queued for the reconnect), STATION_TIMEOUT, ...
+        toast({
+          variant: 'destructive',
+          title: getErrorMessage(err, t, 'stations.stopSessionFailed'),
+        });
       }
     },
     onSettled: () => {

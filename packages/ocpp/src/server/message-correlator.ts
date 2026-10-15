@@ -36,6 +36,17 @@ export class CommandQueueTimeoutError extends Error {
   }
 }
 
+/** Options of one outgoing CALL. */
+export interface SendCallOptions {
+  /**
+   * Runs when the CALL goes out to the station: right before the frame is
+   * written, after any wait behind the station's outstanding CALL. A CALL
+   * that is never sent (queue timeout, closed connection) never runs it.
+   * A throw is logged and the CALL is still sent.
+   */
+  onSend?: () => void;
+}
+
 interface QueuedCall {
   action: string;
   timer: ReturnType<typeof setTimeout>;
@@ -95,13 +106,15 @@ export class MessageCorrelator {
    * waiting after the timeout is rejected with CommandQueueTimeoutError and
    * never sent, so a station that stopped answering cannot receive a stale
    * command long after its caller gave up. Closing the session rejects every
-   * waiting CALL with "Connection closed".
+   * waiting CALL with "Connection closed". `options.onSend` runs when the
+   * CALL is actually sent, so a caller records CALLs in wire order.
    */
   async sendCall(
     ws: WebSocket,
     session: SessionState,
     action: string,
     payload: Record<string, unknown>,
+    options?: SendCallOptions,
   ): Promise<Record<string, unknown>> {
     const lane = this.laneFor(session);
     if (lane.closed) {
@@ -109,7 +122,7 @@ export class MessageCorrelator {
     }
     if (!lane.busy) {
       lane.busy = true;
-      return this.sendAndRelease(ws, session, lane, action, payload);
+      return this.sendAndRelease(ws, session, lane, action, payload, options);
     }
 
     this.logger.debug(
@@ -130,7 +143,7 @@ export class MessageCorrelator {
         }, this.timeoutMs),
         start: () => {
           clearTimeout(entry.timer);
-          this.sendAndRelease(ws, session, lane, action, payload).then(resolve, reject);
+          this.sendAndRelease(ws, session, lane, action, payload, options).then(resolve, reject);
         },
         fail: (error: Error) => {
           clearTimeout(entry.timer);
@@ -158,8 +171,9 @@ export class MessageCorrelator {
     lane: CallLane,
     action: string,
     payload: Record<string, unknown>,
+    options: SendCallOptions | undefined,
   ): Promise<Record<string, unknown>> {
-    const sent = this.sendNow(ws, session, action, payload);
+    const sent = this.sendNow(ws, session, action, payload, options);
     const release = (): void => {
       const next = lane.queue.shift();
       if (next == null) {
@@ -177,6 +191,7 @@ export class MessageCorrelator {
     session: SessionState,
     action: string,
     payload: Record<string, unknown>,
+    options: SendCallOptions | undefined,
   ): Promise<Record<string, unknown>> {
     const messageId = randomUUID();
     const call = createCall(messageId, action, payload);
@@ -199,6 +214,18 @@ export class MessageCorrelator {
         reject,
         timeout,
       });
+
+      if (options?.onSend != null) {
+        try {
+          options.onSend();
+        } catch (err) {
+          // fail-open: the record of the CALL must not stop the CALL itself.
+          this.logger.warn(
+            { stationId: session.stationId, messageId, action, err },
+            'CALL send hook failed',
+          );
+        }
+      }
 
       ws.send(JSON.stringify(call), (err) => {
         if (err != null) {

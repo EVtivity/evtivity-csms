@@ -356,6 +356,7 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'payment',
     service: 'payments/src/payment-records.ts',
   },
+  'POST /sessions/:id/end': { audited: 'session' },
   'POST /sessions/:id/rebill': {
     audited: 'session',
     service: 'api/src/services/session-rebill.service.ts',
@@ -466,6 +467,14 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'api/src/services/station-evse-retire.service.ts',
   },
   'POST /stations/:id/evses/:evseId/stop-active-session': { audited: ['station', 'session'] },
+  'POST /stations/:id/ai-insights/suppress': {
+    audited: ['station', 'ai_insight'],
+    service: 'api/src/services/station-ai-insights.service.ts',
+  },
+  'POST /stations/:id/ai-insights/resume': {
+    audited: 'station',
+    service: 'api/src/services/station-ai-insights.service.ts',
+  },
   'POST /stations/:id/images': { audited: 'station_image' },
   'POST /stations/:id/images/:imageId/set-main': { audited: 'station_image' },
   'POST /stations/:id/images/upload-url': { allow: 'presigned upload URL only' },

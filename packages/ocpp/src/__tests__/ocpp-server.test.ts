@@ -611,17 +611,15 @@ describe('OcppServer integration', () => {
       ws.close();
     });
 
-    it('drops a CALL whose message id is longer than 36 characters', async () => {
+    it('answers a CALL whose message id is longer than 36 characters with id "-1"', async () => {
       const port = getNextPort();
       const srv = await startServer(port);
       const ws = await connectStation(port, 'TEST-LONGID');
       await bootStation(ws);
 
-      const answer = await firstAnswerAfter(
-        ws,
-        JSON.stringify([2, 'x'.repeat(37), 'Heartbeat', {}]),
-      );
-      expect(answer.slice(0, 2)).toEqual([3, 'hb-after']);
+      const answer = waitForMessage(ws);
+      ws.send(JSON.stringify([2, 'x'.repeat(37), 'Heartbeat', {}]));
+      expect((await answer).slice(0, 3)).toEqual([4, '-1', 'RpcFrameworkError']);
       expect(srv.getInboundFrameStats()['invalid_message_id']).toBe(1);
       ws.close();
     });

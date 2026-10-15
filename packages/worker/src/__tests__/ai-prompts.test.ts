@@ -13,11 +13,24 @@ import {
   insightFeedbackBlock,
   insightRepairRequest,
   insightSystemBlocks,
+  insightTask,
   translationSystemBlocks,
 } from '../ai-insights/prompt.js';
-import { opsSystemPrompt, stuckSessionFacts } from '../ai-workers/prompts.js';
+import type { StuckReason } from '@evtivity/services/ai-workers/stuck-sessions';
+import {
+  opsSystemPrompt,
+  stuckSessionActionRule,
+  stuckSessionFacts,
+} from '../ai-workers/prompts.js';
 
 describe('insight prompt', () => {
+  it('never lets a token refusal recommend ending a live concurrent session', () => {
+    const task = insightTask('authorization_refused');
+    expect(task).toContain('concurrentSession');
+    expect(task).toContain('if concurrentSession.live is true it is a healthy charge');
+    expect(task).toContain('never recommend ending or stopping it');
+  });
+
   it('TC-AI-FB-23 frames the regeneration note as untrusted, caps it and tells the model to check it', () => {
     expect(insightFeedbackBlock(null)).toBeNull();
     expect(insightFeedbackBlock('  ')).toBeNull();
@@ -72,34 +85,75 @@ describe('stuck-session rationale prompt', () => {
   const session = {
     ocppStationId: 'CS-0030',
     transactionId: 'tx-1',
-    reason: 'station_offline' as const,
-    startedAt: new Date('2026-10-11T10:30:00Z'),
+    reason: 'station_offline' as StuckReason,
+    startedAt: new Date('2026-10-11T10:30:00Z') as Date | null,
     lastActivityAt: new Date('2026-10-11T11:38:30Z'),
+    stationOfflineSince: new Date('2026-10-10T08:00:00Z') as Date | null,
+    energyWh: 14_800,
+    currentCostCents: 518 as number | null,
+    currency: 'EUR',
   };
+  const end = { case: 'offline_end' as const };
 
-  it('gives the measured silence and session age apart from the configured threshold', () => {
-    expect(stuckSessionFacts(session, { idleMinutes: 90, now })).toEqual({
+  it('gives the measured values, the station state, the energy, the cost and the billing outcome', () => {
+    expect(stuckSessionFacts(session, { idleMinutes: 90, now, step: end })).toEqual({
       stationId: 'CS-0030',
       transactionId: 'tx-1',
       reason: 'station_offline',
       measuredSilenceMinutes: 21,
       measuredSessionAgeMinutes: 90,
+      stationOnline: false,
+      measuredStationOfflineMinutes: 28 * 60,
+      stationTransactionOngoing: null,
+      lastMeteredEnergyWh: 14_800,
+      currentCostCents: 518,
+      currency: 'EUR',
+      suggestedStep: 'end_in_csms',
+      billingOutcome:
+        'Ending in the CSMS bills the session at its last metered energy (lastMeteredEnergyWh). A later report from the station does not bill it again.',
       configuredIdleThresholdMinutes: 90,
     });
     expect(
-      stuckSessionFacts({ ...session, startedAt: null }, { idleMinutes: 90, now })[
+      stuckSessionFacts({ ...session, startedAt: null }, { idleMinutes: 90, now, step: end })[
         'measuredSessionAgeMinutes'
       ],
     ).toBeNull();
+  });
+
+  it('gives each case its step, station answer and billing outcome', () => {
+    const online = { ...session, reason: 'no_activity' as StuckReason, stationOfflineSince: null };
+    const facts = (
+      step: Parameters<typeof stuckSessionFacts>[1]['step'],
+      s: typeof session = online,
+    ) => stuckSessionFacts(s, { idleMinutes: 90, now, step });
+    expect(facts({ case: 'stop', transactionOngoing: true })).toMatchObject({
+      stationOnline: true,
+      measuredStationOfflineMinutes: null,
+      stationTransactionOngoing: true,
+      suggestedStep: 'stop_at_station',
+      billingOutcome: expect.stringContaining('billed from its final meter reading') as unknown,
+    });
+    expect(facts({ case: 'stop', transactionOngoing: false })).toMatchObject({
+      stationTransactionOngoing: false,
+      billingOutcome: expect.stringContaining('the CSMS ends the session') as unknown,
+    });
+    expect(facts({ case: 'stop', transactionOngoing: null })['billingOutcome']).toContain(
+      'If the station still runs the transaction',
+    );
+    expect(facts({ case: 'offline_advice' }, session)).toMatchObject({
+      suggestedStep: 'restore_connection',
+      billingOutcome: expect.stringContaining('Nothing is ended yet') as unknown,
+    });
   });
 
   it('tells the model to cite measured values only, under the operator prompt too', () => {
     for (const custom of ['', 'Operator prompt.']) {
       const prompt = opsSystemPrompt('stuck_sessions', 'en', custom);
       expect(prompt).toContain('measuredSilenceMinutes');
+      expect(prompt).toContain('measuredStationOfflineMinutes');
       expect(prompt).toContain('configuredIdleThresholdMinutes');
       expect(prompt).toContain('Cite only the measured values');
-      expect(prompt).toContain('How long a station has been offline is not measured');
+      expect(prompt).toContain('State billing only as billingOutcome says');
     }
     expect(opsSystemPrompt('stuck_sessions', 'en', 'Operator prompt.')).toMatch(
       /^Operator prompt\./,
@@ -114,5 +168,27 @@ describe('stuck-session rationale prompt', () => {
       expect(prompt).toContain('Never recommend waiting, monitoring or any other action instead');
     }
     expect(opsSystemPrompt('tariff_anomalies', 'en', '')).not.toContain('stop this session');
+  });
+
+  it('gives each case its own action rule, which replaces the default one', () => {
+    const advice = stuckSessionActionRule({ case: 'offline_advice' });
+    expect(advice).toContain('no action is suggested yet');
+    expect(advice).toContain('Never suggest stopping or ending the session');
+    expect(advice).toContain('real final meter reading');
+    const endRule = stuckSessionActionRule(end);
+    expect(endRule).toContain('end this session in the CSMS without the station');
+    expect(endRule).toContain('does not bill it again');
+    expect(stuckSessionActionRule({ case: 'stop', transactionOngoing: true })).toContain(
+      'still runs the transaction',
+    );
+    expect(stuckSessionActionRule({ case: 'stop', transactionOngoing: false })).toContain(
+      'no longer runs this transaction',
+    );
+    expect(stuckSessionActionRule({ case: 'stop', transactionOngoing: null })).toContain(
+      'one suggested action: stop this session',
+    );
+    const prompt = opsSystemPrompt('stuck_sessions', 'en', 'Operator prompt.', advice);
+    expect(prompt).toContain('Never suggest stopping or ending the session');
+    expect(prompt).not.toContain('one suggested action: stop this session');
   });
 });

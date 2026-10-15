@@ -8,7 +8,7 @@ import {
   exceedsDepth,
   parseInboundFrame,
 } from '../server/inbound-frame.js';
-import { errorCodeForProtocol } from '../protocol/error-codes.js';
+import { OcppErrorCode, errorCodeForProtocol } from '../protocol/error-codes.js';
 
 function nestedJson(depth: number): string {
   return '['.repeat(depth) + '{}' + ']'.repeat(depth);
@@ -59,11 +59,25 @@ describe('parseInboundFrame', () => {
     expect(parseInboundFrame('{"a":1}', 'ocpp2.1')).toEqual({ kind: 'drop', reason: 'not_array' });
   });
 
-  it('drops a frame whose message id is missing, not a string, empty or over 36 characters', () => {
+  it('drops a response whose message id is missing, not a string, empty or over 36 characters', () => {
     for (const id of [null, 5, '', 'x'.repeat(37)]) {
-      for (const type of [2, 3, 4]) {
+      for (const type of [3, 4]) {
         expect(parseInboundFrame(JSON.stringify([type, id, 'Heartbeat', {}]), 'ocpp2.1')).toEqual({
           kind: 'drop',
+          reason: 'invalid_message_id',
+        });
+      }
+    }
+  });
+
+  it('refuses a CALL whose message id cannot be read with message id "-1" and RpcFrameworkError', () => {
+    for (const id of [null, 5, '', 'x'.repeat(37)]) {
+      for (const version of ['ocpp2.1', 'ocpp1.6']) {
+        expect(parseInboundFrame(JSON.stringify([2, id, 'Heartbeat', {}]), version)).toEqual({
+          kind: 'refuse',
+          messageId: '-1',
+          errorCode: OcppErrorCode.RpcFrameworkError,
+          description: 'The message id must be a string of 1 to 36 characters',
           reason: 'invalid_message_id',
         });
       }

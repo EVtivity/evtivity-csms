@@ -1001,7 +1001,30 @@
     "removeTag": "移除标签 {{tag}}",
     "messageCommandQueued": "充电站离线。命令已排队，将在充电站重新连接时发送。",
     "chargingNeedsTab": "充电需求与监视器",
-    "localAuthPrepaidHint": "仅列出非预付卡的启用令牌。充电站在线检查预付卡余额，因此预付卡不会进入本地列表。"
+    "localAuthPrepaidHint": "仅列出非预付卡的启用令牌。充电站在线检查预付卡余额，因此预付卡不会进入本地列表。",
+    "aiInsights": {
+      "label": "AI 洞察",
+      "inScope": "已启用",
+      "suppressed": "已暂停",
+      "allScopes": "全部",
+      "listBadge": "AI 洞察已暂停",
+      "suppress": "暂停",
+      "resume": "恢复",
+      "until": "直到 {{date}}",
+      "untilResumed": "直到恢复",
+      "by": "{{name}}：{{reason}}",
+      "maintenance": "在进行中的维护活动覆盖该充电站期间暂停",
+      "suppressTitle": "暂停此充电站的 AI 洞察？",
+      "suppressDescription": "在结束日期之前或在您恢复之前，不会为此充电站创建新的 AI 洞察或建议操作。其未关闭的洞察将被忽略，等待中的操作将过期。",
+      "reason": "原因",
+      "reasonRequired": "请输入原因",
+      "endDate": "结束日期（可选）",
+      "resumeTitle": "恢复此充电站的 AI 洞察？",
+      "resumeDescription": "AI 洞察将重新监测此充电站。",
+      "suppressedToast": "AI 洞察已暂停",
+      "resumedToast": "AI 洞察已恢复",
+      "failed": "无法更改此充电站的 AI 洞察"
+    }
   },
   "eventAlertRules": {
     "title": "事件告警规则",
@@ -1166,7 +1189,13 @@
     "eventCount_other": "{{count}} 个事件",
     "stopSession": "停止会话",
     "stopSessionConfirmTitle": "停止此会话？",
-    "stopSessionConfirmDescription": "将请求充电站 {{station}} 停止 EVSE {{evseId}} 上的交易。驾驶员将按目前已输送的电量计费。"
+    "stopSessionConfirmDescription": "将请求充电站 {{station}} 停止 EVSE {{evseId}} 上的交易。驾驶员将按目前已输送的电量计费。",
+    "endSession": "结束会话",
+    "endSessionConfirmTitle": "在没有充电站的情况下结束此会话？",
+    "endSessionConfirmDescription": "充电站 {{station}} 离线。CSMS 将在没有充电站的情况下立即结束会话，并按其最后计量的电量 {{energy}} 计费。充电站重新连接后发送的停止或结束消息不会重新打开会话，也不会再次计费。",
+    "endSessionConfirmDescriptionWithCost": "充电站 {{station}} 离线。CSMS 将在没有充电站的情况下立即结束会话，并按其最后计量的电量 {{energy}} 计费，目前为 {{cost}}。充电站重新连接后发送的停止或结束消息不会重新打开会话，也不会再次计费。",
+    "endSessionRequested": "已请求结束会话",
+    "endSessionFailed": "无法结束会话"
   },
   "drivers": {
     "title": "驾驶员",
@@ -2729,6 +2758,7 @@
       "maxPerSitePerDay": "每个站点每天的洞察数",
       "primaryLanguage": "摘要语言",
       "retentionDays": "洞察保留天数",
+      "expireAfterDays": "一次性洞察关闭天数",
       "reservation": "预约洞察",
       "reservationOff": "预约功能关闭期间，预约洞察也会关闭。",
       "reservationOffLink": "开启预约",
@@ -3328,6 +3358,7 @@
     "SESSION_ALREADY_ACTIVE": "您已有正在进行的充电会话",
     "SESSION_CREATE_FAILED": "创建会话失败",
     "SESSION_NOT_FOUND": "未找到会话",
+    "SESSION_NOT_ACTIVE": "会话未处于活动状态",
     "SESSION_NOT_LINKED": "会话未关联到该工单",
     "SESSION_REBILL_IN_PROGRESS": "该会话正在计费。请几分钟后重试。",
     "SESSION_REBILL_NOT_ELIGIBLE": "无法对此会话计费",
@@ -3345,6 +3376,7 @@
     "STATION_ID_EXISTS": "已存在具有该 ID 的充电站",
     "STATION_NOT_FOUND": "未找到充电站",
     "STATION_OFFLINE": "充电站离线",
+    "STATION_ONLINE": "充电站在线。请改为在充电站停止会话。",
     "STATION_REJECTED": "充电站拒绝启动：...",
     "STATION_TIMEOUT": "充电站未响应",
     "STATION_UNAVAILABLE": "此充电站当前不可用。请尝试其他充电站。",
@@ -4190,6 +4222,7 @@
       "startAt": "在充电站 {{station}} 的 {{target}} 开始充电",
       "stop": "停止充电站 {{station}} 的充电会话（OCPP 交易 {{transaction}}）",
       "stopAny": "停止充电站 {{station}} 的充电会话",
+      "endSession": "在 CSMS 中结束离线充电站 {{station}} 的会话（OCPP 交易 {{transaction}}），按最后计量的电量计费",
       "chargingProfile": "为充电站 {{station}} 设置充电配置文件",
       "chargingProfileAt": "为充电站 {{station}} 的 {{target}} 设置充电配置文件",
       "ocppCommand": "向充电站 {{station}} 发送 {{command}}",
@@ -5062,7 +5095,10 @@
       "ask_driver_to_retry": "请驾驶员重试",
       "check_vehicle_compatibility": "检查车辆兼容性",
       "end_concurrent_session": "结束并发会话",
+      "wait_for_concurrent_session": "等待该卡的另一个会话结束",
+      "check_shared_token": "检查该卡是否被共用或复制",
       "check_csms_status": "检查 CSMS 状态",
+      "contact_site": "联系站点",
       "monitor": "继续观察",
       "reservation_check_evse_status": "检查被预约 EVSE 的状态",
       "reservation_check_station_connectivity": "检查充电站的连接",
@@ -5175,6 +5211,7 @@
     "action": {
       "kind": {
         "stop_transaction": "停止会话",
+        "end_session": "在没有充电站的情况下结束会话",
         "soft_reset": "软重启充电站",
         "change_availability": "更改充电站可用性"
       },
@@ -5189,6 +5226,7 @@
       "expiresAt": "{{time}} 过期",
       "expires": "过期时间",
       "rationale": "理由",
+      "billing": "计费",
       "executed": "操作已执行",
       "confirmFailed": "操作未执行",
       "rejectedToast": "已驳回操作",
@@ -5220,7 +5258,18 @@
       "expiresInfo": "建议的操作只在显示的时间之前有效，因为检查之后充电站或会话可能发生变化。之后它会过期，不会执行任何操作；如果问题仍然存在，会出现新的建议。",
       "apiRequest": "API 请求"
     },
-    "openPanel": "打开自动洞察（{{count}}）"
+    "openPanel": "打开自动洞察（{{count}}）",
+    "stationOffline": {
+      "advice": "充电站 {{station}} 自 {{since}} 起已离线 {{duration}}。请先让它恢复在线：检查电源、网络或 SIM 卡，并联系站点。重新连接后，充电站会发送其存储的交易消息，会话将以真实的最终电表读数和准确的计费结束。",
+      "connectionHistory": "连接历史"
+    },
+    "concurrentSession": {
+      "wait": "该卡自 {{since}} 起正在充电站 {{station}} 的进行中会话里使用。该会话结束后即可在此处开始。无需停止任何操作。",
+      "stop": "该卡在充电站 {{station}} 的会话在充电站在线时看起来卡住了。停止会在充电站结束交易并按最终电表读数计费；如果充电站已不再知道该交易，CSMS 将按其最后计量的电量结束会话。",
+      "restore": "由于充电站离线，该卡在充电站 {{station}} 的会话看起来卡住了。请先让充电站恢复在线：重新连接后它会发送存储的交易消息，会话将以真实的最终电表读数结束。",
+      "end": "该卡在充电站 {{station}} 的会话看起来卡住了，且充电站已离线很长时间。请在 CSMS 中在没有充电站的情况下结束会话：按其最后计量的电量计费，充电站之后的报告不会再次计费。",
+      "viewSession": "查看会话"
+    }
   },
   "aiWorkers": {
     "title": "AI 后台任务",
@@ -5234,6 +5283,7 @@
       "title": "卡住的会话",
       "description": "建议停止已不再上报数据的会话。",
       "idleMinutes": "会话被视为卡住前的空闲时间（分钟）",
+      "offlineEndAfterHours": "AI 建议在 CSMS 中结束卡住的会话前的离线时间（小时）",
       "useModel": "用 AI 撰写理由"
     },
     "tariffAnomalies": {
@@ -5244,6 +5294,13 @@
       "stuckSessionIdle": "{{minutes}} 分钟内没有电表读数或交易事件",
       "stuckSessionOffline": "会话处于活动状态，但充电站离线",
       "stuckSessionConnectorAvailable": "会话处于活动状态，但充电枪报告为可用"
+    },
+    "billing": {
+      "stuckSessionStop": "停止会在充电站结束交易，会话按其最终电表读数计费。如果充电站已不再知道该交易，CSMS 将结束会话并按其最后计量的电量计费。",
+      "stuckSessionStopOngoing": "充电站报告该交易仍在进行。停止会在充电站结束交易，会话按其最终电表读数计费。",
+      "stuckSessionStopNotOngoing": "充电站报告已不再运行此交易。停止会在 CSMS 中结束会话，并按其最后计量的电量 {{energy}} 计费。",
+      "stuckSessionEnd": "CSMS 在没有充电站的情况下关闭会话，并按其最后计量的电量 {{energy}} 计费。充电站之后的报告不会再次计费。",
+      "stuckSessionEndWithCost": "CSMS 在没有充电站的情况下关闭会话，并按其最后计量的电量 {{energy}} 计费，目前为 {{cost}}。充电站之后的报告不会再次计费。"
     },
     "findings": {
       "zero_cost": "收费费率下未计费的会话",

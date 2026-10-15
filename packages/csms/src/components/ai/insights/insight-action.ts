@@ -4,6 +4,7 @@
 import type { TFunction } from 'i18next';
 import { AI_WORKER_ACTION_KINDS, findAiWorkerAction } from '@evtivity/lib/ai-proposals';
 import type { AiWorkerActionKind } from '@evtivity/lib/ai-proposals';
+import { formatCents, formatEnergy } from '@/lib/formatting';
 import { confirmSummary } from '../confirm-summary';
 import type { AiInsightActionView } from './insight-api';
 
@@ -23,12 +24,36 @@ export const WORKER_RATIONALE_CODES = [
 ] as const;
 type WorkerRationaleCode = (typeof WORKER_RATIONALE_CODES)[number];
 
+/**
+ * The `aiWorkers.billing.*` codes an action's summary can name: how the action
+ * bills the session (`STUCK_BILLING_CODES` in
+ * `@evtivity/services/ai-workers/proposals`).
+ */
+export const WORKER_BILLING_CODES = [
+  'stuckSessionStop',
+  'stuckSessionStopOngoing',
+  'stuckSessionStopNotOngoing',
+  'stuckSessionEnd',
+] as const;
+type WorkerBillingCode = (typeof WORKER_BILLING_CODES)[number];
+
+interface BillingView {
+  code: WorkerBillingCode;
+  /** The session's last metered energy when the action was suggested. */
+  energyWh: number | null;
+  /** The session's running cost then, null when not priced. */
+  costCents: number | null;
+  currency: string | null;
+}
+
 /** The interpolation variables of the `aiWorkers.rationale.*` texts. */
 const RATIONALE_PARAMS = ['minutes'] as const;
 
 interface ActionSummaryView {
   action: AiWorkerActionKind | null;
   rationale: { code: WorkerRationaleCode; params: Record<string, string | number> } | null;
+  /** How the action bills the session, null when it does not say. */
+  billing: BillingView | null;
   /** The values the worker measured, shown next to the rationale. */
   measured: {
     /** Stuck sessions: the last meter value or transaction event (ISO). */
@@ -70,6 +95,7 @@ export function readActionSummary(summary: Record<string, unknown>): ActionSumma
   };
   const transactionId = summary['transactionId'];
   return {
+    billing: readBilling(summary['billing']),
     action: (AI_WORKER_ACTION_KINDS as readonly unknown[]).includes(action)
       ? (action as AiWorkerActionKind)
       : null,
@@ -85,6 +111,47 @@ export function readActionSummary(summary: Record<string, unknown>): ActionSumma
             : null,
     },
   };
+}
+
+function readBilling(value: unknown): BillingView | null {
+  if (value == null || typeof value !== 'object') return null;
+  const code = (value as Record<string, unknown>)['code'];
+  if (!(WORKER_BILLING_CODES as readonly unknown[]).includes(code)) return null;
+  const raw = (value as Record<string, unknown>)['params'];
+  const params = raw != null && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const num = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isFinite(v) ? v : null;
+  const currency = params['currency'];
+  return {
+    code: code as WorkerBillingCode,
+    energyWh: num(params['energyWh']),
+    costCents: num(params['costCents']),
+    currency: typeof currency === 'string' && currency !== '' ? currency : null,
+  };
+}
+
+/**
+ * How the action bills the session, in the user's language: the stop bills
+ * from the station's final meter reading while the station still runs the
+ * transaction, else the CSMS ends it at the last metered energy (both named
+ * when the station was not asked); the CSMS end bills at the last metered
+ * energy (with the cost so far when the session was priced), once.
+ */
+export function billingText(t: TFunction, billing: BillingView): string {
+  const energy = formatEnergy(billing.energyWh ?? 0);
+  if (billing.code === 'stuckSessionStop') return t('aiWorkers.billing.stuckSessionStop');
+  if (billing.code === 'stuckSessionStopOngoing') {
+    return t('aiWorkers.billing.stuckSessionStopOngoing');
+  }
+  if (billing.code === 'stuckSessionStopNotOngoing') {
+    return t('aiWorkers.billing.stuckSessionStopNotOngoing', { energy });
+  }
+  return billing.costCents != null && billing.currency != null
+    ? t('aiWorkers.billing.stuckSessionEndWithCost', {
+        energy,
+        cost: formatCents(billing.costCents, billing.currency),
+      })
+    : t('aiWorkers.billing.stuckSessionEnd', { energy });
 }
 
 /**
@@ -124,8 +191,25 @@ export function stepsBesideAction<T extends { code: string }>(
   return fixes.filter((f) => !done.has(f.code));
 }
 
-/** The localized sentence of what an action runs (`confirm-summary.ts`). */
+/**
+ * The localized sentence of what an action runs (`confirm-summary.ts`). A
+ * session stop or end names the station and transaction from the summary: its
+ * arguments hold internal ids only.
+ */
 export function actionSentence(t: TFunction, action: AiInsightActionView): string {
+  const kind = readActionSummary(action.summary).action;
+  const station = action.summary['stationId'];
+  const transaction = actionTransactionId(action);
+  if (
+    (kind === 'stop_transaction' || kind === 'end_session') &&
+    typeof station === 'string' &&
+    station !== '' &&
+    transaction != null
+  ) {
+    return kind === 'stop_transaction'
+      ? t('ai.confirmAction.stop', { station, transaction })
+      : t('ai.confirmAction.endSession', { station, transaction });
+  }
   return confirmSummary(t, {
     name: actionToolName(action.operationId),
     method: action.method,

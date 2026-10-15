@@ -489,3 +489,8 @@ export type { SsoConfig } from './lib/sso-settings.js';
 export { getAttestationConfig, clearAttestationConfigCache } from './lib/attestation-settings.js';
 export type { AttestationConfig } from './lib/attestation-settings.js';
 export { getMobileAppConfig, clearMobileAppConfigCache } from './lib/mobile-app-settings.js';
+export {
+  stationInsightsOperatorSuppressedSql,
+  stationInsightsSuppressedSql,
+  stationUnderActiveMaintenanceSql,
+} from './lib/ai-insight-suppression.js';

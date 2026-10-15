@@ -2357,6 +2357,18 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   ),
   s(
     'POST',
+    '/sessions/:id/end',
+    'sessions:write',
+    (f) => `/sessions/${f.session}/end`,
+    'SESSION_NOT_FOUND',
+    {
+      unsited: true,
+      body: () => ({}),
+      control: ctl(409, 'SESSION_NOT_ACTIVE', 'the seeded session is not active'),
+    },
+  ),
+  s(
+    'POST',
     '/sessions/:id/rebill',
     'payments:write',
     (f) => `/sessions/${f.session}/rebill`,
@@ -2956,6 +2968,22 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (f) => `${st(f)}/evses/${String(f.evse)}/connectors/${String(f.connector)}`,
     'STATION_NOT_FOUND',
     { unsited: true },
+  ),
+  s(
+    'POST',
+    '/stations/:id/ai-insights/suppress',
+    'stations:write',
+    (f) => `${st(f)}/ai-insights/suppress`,
+    'STATION_NOT_FOUND',
+    { unsited: true, body: () => ({ reason: 'site isolation matrix' }) },
+  ),
+  s(
+    'POST',
+    '/stations/:id/ai-insights/resume',
+    'stations:write',
+    (f) => `${st(f)}/ai-insights/resume`,
+    'STATION_NOT_FOUND',
+    { unsited: true, body: () => ({}) },
   ),
   s(
     'POST',

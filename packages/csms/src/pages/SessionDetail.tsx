@@ -22,7 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { accountBillingState, isBilledOnAccount } from '@/lib/account-billing';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
-import { formatCents, formatDuration } from '@/lib/formatting';
+import { formatCents, formatDuration, formatEnergy } from '@/lib/formatting';
 import { useUserTimezone } from '@/lib/timezone';
 import { sessionStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -54,6 +54,8 @@ interface SessionDetailData {
   stationName: string | null;
   /** OCPP EVSE number of the session, null when unknown. */
   evseId?: number | null;
+  /** The station is connected now. */
+  stationOnline?: boolean;
   siteName: string | null;
   driverId: string | null;
   driverName: string | null;
@@ -109,9 +111,11 @@ export function SessionDetail(): React.JSX.Element {
   const canReadAudit = useHasPermission('audit:read');
   const canRefundPayments = useHasPermission('payments:write');
   const canStopSession = useHasPermission('stations:write');
+  const canEndSession = useHasPermission('sessions:write');
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const [endConfirmOpen, setEndConfirmOpen] = useState(false);
   const { flags } = useFeatureFlags();
   const showInsightsTab = useHasPermission('aiInsights:read') && flags.aiInsightsEnabled;
 
@@ -144,6 +148,25 @@ export function SessionDetail(): React.JSX.Element {
     },
     onSettled: () => {
       setStopConfirmOpen(false);
+    },
+  });
+
+  // Ends the session in the CSMS, without its offline station.
+  const endMutation = useMutation({
+    mutationFn: (sessionId: string) =>
+      api.post<{ sessionId: string; transactionId: string }>(`/v1/sessions/${sessionId}/end`, {}),
+    onSuccess: () => {
+      toast({ variant: 'success', title: t('sessions.endSessionRequested') });
+      void queryClient.invalidateQueries({ queryKey: ['sessions', id] });
+    },
+    onError: (err: unknown) => {
+      toast({
+        variant: 'destructive',
+        title: getErrorMessage(err, t, 'sessions.endSessionFailed'),
+      });
+    },
+    onSettled: () => {
+      setEndConfirmOpen(false);
     },
   });
 
@@ -188,8 +211,13 @@ export function SessionDetail(): React.JSX.Element {
           actual: string | null;
         })
       : null;
-  // An active session with a known EVSE can be stopped by a user who controls stations.
-  const canStop = canStopSession && session.status === 'active' && session.evseId != null;
+  // An active session at an online station with a known EVSE can be stopped by
+  // a user who controls stations. At an offline station, which cannot take a
+  // stop, a user who manages sessions can end it in the CSMS instead.
+  const stationOffline = session.stationOnline === false;
+  const canStop =
+    canStopSession && session.status === 'active' && session.evseId != null && !stationOffline;
+  const canEnd = canEndSession && session.status === 'active' && stationOffline;
   const explainContext =
     id == null ? null : { kind: 'session' as const, id, label: session.stationName };
 
@@ -249,6 +277,15 @@ export function SessionDetail(): React.JSX.Element {
               }}
             />
           )}
+          {canEnd && (
+            <StopButton
+              label={t('sessions.endSession')}
+              size="header"
+              onClick={() => {
+                setEndConfirmOpen(true);
+              }}
+            />
+          )}
           <EntityNavButtons resource="sessions" basePath="/sessions" currentId={id} />
         </div>
       </div>
@@ -267,6 +304,31 @@ export function SessionDetail(): React.JSX.Element {
           onConfirm={() => {
             if (session.evseId == null) return;
             stopMutation.mutate({ stationId: session.stationId, evseId: session.evseId });
+          }}
+        />
+      )}
+
+      {canEnd && id != null && (
+        <ConfirmDialog
+          open={endConfirmOpen}
+          onOpenChange={setEndConfirmOpen}
+          title={t('sessions.endSessionConfirmTitle')}
+          description={
+            session.currentCostCents != null
+              ? t('sessions.endSessionConfirmDescriptionWithCost', {
+                  station: session.stationName ?? '',
+                  energy: formatEnergy(session.energyDeliveredWh ?? 0),
+                  cost: formatCents(session.currentCostCents, session.currency),
+                })
+              : t('sessions.endSessionConfirmDescription', {
+                  station: session.stationName ?? '',
+                  energy: formatEnergy(session.energyDeliveredWh ?? 0),
+                })
+          }
+          confirmLabel={t('sessions.endSession')}
+          isPending={endMutation.isPending}
+          onConfirm={() => {
+            endMutation.mutate(id);
           }}
         />
       )}
