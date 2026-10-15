@@ -93,6 +93,15 @@ const SENSITIVE_AUDIT_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * True for a key the audit must never store: a listed field, or any key that
+ * names an encrypted-at-rest value (`*Enc` / `*_enc`, design principle P12),
+ * such as `partnerRegistrationTokenEnc` or `outbound_token_enc`.
+ */
+export function isSensitiveAuditKey(key: string): boolean {
+  return SENSITIVE_AUDIT_FIELDS.has(key) || key.endsWith('Enc') || key.endsWith('_enc');
+}
+
+/**
  * Returns a redacted copy of `obj` with sensitive fields replaced by the
  * literal string '<redacted>'. Recurses into nested plain objects AND arrays
  * so a sensitive field at any depth is caught (e.g. `before.driver.profile.passwordHash`
@@ -104,7 +113,7 @@ export function redactAuditPayload(obj: unknown): unknown {
   if (Array.isArray(obj)) return obj.map((item) => redactAuditPayload(item));
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-    if (SENSITIVE_AUDIT_FIELDS.has(k)) {
+    if (isSensitiveAuditKey(k)) {
       out[k] = '<redacted>';
     } else {
       out[k] = redactAuditPayload(v);

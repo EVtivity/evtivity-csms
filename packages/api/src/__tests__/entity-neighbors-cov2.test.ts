@@ -95,7 +95,11 @@ vi.mock('@evtivity/database', () => {
     db: { select: vi.fn(() => makeChain()) },
     sites: fakeTable('sites'),
     chargingStations: { ...fakeTable('charging_stations'), siteId: { name: 'site_id' } },
-    chargingSessions: { ...fakeTable('charging_sessions'), stationId: { name: 'station_id' } },
+    chargingSessions: {
+      ...fakeTable('charging_sessions'),
+      stationId: { name: 'station_id' },
+      siteId: { name: 'site_id' },
+    },
     drivers: fakeTable('drivers'),
     fleets: fakeTable('fleets'),
     users: fakeTable('users'),
@@ -252,14 +256,14 @@ describe('entity neighbor site scoping (cov2)', () => {
     expect(currentScope()).toEqual({ inArray: [sites.id, ['sit_a', 'sit_b']] });
   });
 
-  it('limits sessions to stations at the allowed sites', async () => {
+  it('limits sessions to the sites they happened at', async () => {
     setupDbResults([{ id: 'ses_1' }], [], [{ id: 'ses_old' }]);
     const res = await get('/sessions/ses_1/neighbors');
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ prevId: null, nextId: 'ses_old' });
     const scope = currentScope() as { inArray: [unknown, unknown] };
-    expect(scope.inArray[0]).toBe(chargingSessions.stationId);
-    expect(inArrayMock).toHaveBeenCalledWith(chargingStations.siteId, ['sit_a', 'sit_b']);
+    expect(scope.inArray[0]).toBe(chargingSessions.siteId);
+    expect(inArrayMock).toHaveBeenCalledWith(chargingSessions.siteId, ['sit_a', 'sit_b']);
     // Prev and next queries carry the same scope.
     expect(mainWheres()).toHaveLength(3);
     expect(mainWheres()[1]?.and[1]).toBe(scope);

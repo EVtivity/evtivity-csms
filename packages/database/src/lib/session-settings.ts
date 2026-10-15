@@ -8,6 +8,24 @@ import { createLogger } from '@evtivity/lib';
 
 const logger = createLogger('session-settings');
 
+/**
+ * Connector statuses of a transaction still running at the station: the EV
+ * is connected and the station charges, pauses or idles. `preparing` (no
+ * transaction yet) and `finishing` (the transaction ended) are left out. The
+ * stale session cleanup does not fault a session whose online station shows
+ * one of these (or sent a transaction event since the cutoff), and the
+ * stuck-session suggestions keep offering a stop for it.
+ */
+export const STALE_CLEANUP_IN_TRANSACTION_STATUSES = [
+  'occupied',
+  'charging',
+  'ev_connected',
+  'suspended_ev',
+  'suspended_evse',
+  'idle',
+  'discharging',
+] as const;
+
 let cachedValue: number | undefined;
 let cachedAt = 0;
 const TTL_MS = 60_000;

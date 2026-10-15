@@ -3,8 +3,9 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { sql } from 'drizzle-orm';
-import { db, ocpiExternalLocations } from '@evtivity/database';
+import { and, eq, getTableColumns, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import { db, ocpiExternalLocations, ocpiPartners } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { arrayResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
@@ -44,6 +45,33 @@ const searchQuery = z.object({
     .describe('Max results to return (default 20)'),
 });
 
+// OCPI GeoLocation patterns (OCPI 2.3.0 8.4.16). The stored values come from
+// partners; a value that does not match is never cast, so one malformed row
+// cannot fail the geo search.
+const LATITUDE_SQL_PATTERN = '^-?[0-9]{1,2}\\.[0-9]{5,7}$';
+const LONGITUDE_SQL_PATTERN = '^-?[0-9]{1,3}\\.[0-9]{5,7}$';
+
+/** Escape the ILIKE wildcards and the escape character itself (backslash). */
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+// Locations drivers may see: from a connected partner, and not marked
+// publish = false by the CPO (OCPI 8.3.1: such a location is shown only to
+// the drivers of the listed publish_allowed_to tokens, which the portal
+// cannot match).
+const visibleLocation: SQL = and(
+  eq(ocpiPartners.status, 'connected'),
+  sql`(${ocpiExternalLocations.locationData} ->> 'publish') IS DISTINCT FROM 'false'`,
+) as SQL;
+
+function visibleLocations() {
+  return db
+    .select(getTableColumns(ocpiExternalLocations))
+    .from(ocpiExternalLocations)
+    .innerJoin(ocpiPartners, eq(ocpiPartners.id, ocpiExternalLocations.partnerId));
+}
+
 interface RoamingChargerResult {
   id: number;
   partnerId: string;
@@ -81,12 +109,11 @@ export function portalRoamingChargerRoutes(app: FastifyInstance): void {
 
       try {
         if (query.q != null && query.q.length >= 2) {
-          // Text-based search by location name
-          const pattern = `%${query.q}%`;
-          rows = await db
-            .select()
-            .from(ocpiExternalLocations)
-            .where(sql`${ocpiExternalLocations.name} ILIKE ${pattern}`)
+          // Text-based search by location name; the driver's text is matched
+          // literally (% and _ are not wildcards).
+          const pattern = `%${escapeLikePattern(query.q)}%`;
+          rows = await visibleLocations()
+            .where(and(visibleLocation, sql`${ocpiExternalLocations.name} ILIKE ${pattern}`))
             .limit(limit);
         } else if (query.lat != null && query.lng != null) {
           // Geo-based search using approximate distance (Haversine simplified)
@@ -103,21 +130,25 @@ export function portalRoamingChargerRoutes(app: FastifyInstance): void {
           const minLng = lng - lngDelta;
           const maxLng = lng + lngDelta;
 
-          rows = await db
-            .select()
-            .from(ocpiExternalLocations)
+          // CASE casts only values that match the OCPI pattern (PostgreSQL does
+          // not promise to evaluate AND conditions left to right).
+          rows = await visibleLocations()
             .where(
-              sql`${ocpiExternalLocations.latitude} IS NOT NULL
-                AND ${ocpiExternalLocations.longitude} IS NOT NULL
-                AND CAST(${ocpiExternalLocations.latitude} AS double precision) BETWEEN ${minLat} AND ${maxLat}
-                AND CAST(${ocpiExternalLocations.longitude} AS double precision) BETWEEN ${minLng} AND ${maxLng}`,
+              and(
+                visibleLocation,
+                sql`CASE WHEN ${ocpiExternalLocations.latitude} ~ ${LATITUDE_SQL_PATTERN}
+                  THEN CAST(${ocpiExternalLocations.latitude} AS double precision) END
+                  BETWEEN ${minLat} AND ${maxLat}`,
+                sql`CASE WHEN ${ocpiExternalLocations.longitude} ~ ${LONGITUDE_SQL_PATTERN}
+                  THEN CAST(${ocpiExternalLocations.longitude} AS double precision) END
+                  BETWEEN ${minLng} AND ${maxLng}`,
+              ),
             )
             .limit(limit);
         } else {
           // Return recent locations
-          rows = await db
-            .select()
-            .from(ocpiExternalLocations)
+          rows = await visibleLocations()
+            .where(visibleLocation)
             .orderBy(sql`${ocpiExternalLocations.updatedAt} DESC`)
             .limit(limit);
         }

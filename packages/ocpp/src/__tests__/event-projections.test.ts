@@ -26,6 +26,9 @@ function createSqlMock() {
     // The resend check (TransactionProjector.isResentEvent) answers by text,
     // outside the queued results: no event is a resend unless a test says so.
     if (strings.join('?').includes('AND te.seq_no = ?')) return Promise.resolve([]);
+    // The late Ended check (TransactionProjector.recordLateEnded) answers the
+    // same way: no session has ended through another Ended.
+    if (strings.join('?').includes("te.event_type = 'ended'")) return Promise.resolve([]);
     const result = sqlResults[sqlCallIndex] ?? [];
     sqlCallIndex++;
     const failure = sqlFailOn?.(strings.join(''));
@@ -110,6 +113,10 @@ vi.mock('@evtivity/database', async () => ({
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   // The session site sub-select (lib/session-site.ts), a plain value here.
   sessionSiteIdSql: vi.fn(() => 'site-of-station'),
+  // The real OCPI token owner checks (one statement each), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/ocpi-token-startable.js',
+  )),
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
@@ -4645,6 +4652,9 @@ describe('Event projections', () => {
         seqNo: 0,
         triggerReason,
         timestamp: '2024-01-01T00:00:00Z',
+        // F01.FR.25: the first event after a RequestStartTransaction carries
+        // its remoteStartId.
+        ...(triggerReason === 'RemoteStart' ? { remoteStartId: 77 } : {}),
       });
     }
 
@@ -4703,11 +4713,35 @@ describe('Event projections', () => {
       // A transactionId the station already holds links nothing.
       expect(text).toContain('holder.station_id = ?');
       expect(text).toContain('holder.transaction_id = ?');
-      expect(link.values.slice(0, 3)).toEqual([
-        'sta_000000000002',
-        'sta_000000000002',
-        'tx-shared',
-      ]);
+      expect(link.values[0]).toBe('sta_000000000002');
+      expect(link.values).toEqual(expect.arrayContaining(['sta_000000000002', 'tx-shared']));
+      // Only the remote start the event answers (F01.FR.25), never the newest of the station.
+      expect(text).toContain('pending.remote_start_id = ?');
+      expect(link.values).toContain(77);
+    });
+
+    it('links no remote start for a RemoteStart without a remoteStartId or an EVSE', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000002' }], // resolveStationUuid
+        [{ id: 'ses_000000000002' }], // INSERT ... RETURNING id
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-002', {
+          eventType: 'Started',
+          stationId: 'CS-002',
+          transactionId: 'tx-shared',
+          seqNo: 0,
+          triggerReason: 'RemoteStart',
+          timestamp: '2024-01-01T00:00:00Z',
+        }),
+      );
+
+      const texts = sqlCalls.map((c) => c.strings.join(''));
+      expect(texts.some((t) => t.includes('UPDATE charging_sessions cs'))).toBe(false);
+      expect(texts[1]).toContain('INSERT INTO charging_sessions');
     });
 
     it('records a repeated remote-start Started on the session holding its transactionId', async () => {
@@ -4888,9 +4922,9 @@ describe('Event projections', () => {
 
       // Every Ended statement that names the transaction also names the station
       // (the projection by its id, the settlement subscriber by its OCPP id,
-      // the resend check by its id).
+      // the resend and late Ended checks by its id).
       const byTransaction = sqlCalls.filter((c) => c.values.includes('tx-ooo-3'));
-      expect(byTransaction).toHaveLength(6);
+      expect(byTransaction).toHaveLength(7);
       for (const call of byTransaction) {
         expect(call.strings.join('')).toContain('station_id');
         expect(call.values.includes('sta_000000000001') || call.values.includes('CS-001')).toBe(

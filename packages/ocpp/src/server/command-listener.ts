@@ -31,6 +31,8 @@ interface CommandPayload {
   action: string;
   payload: Record<string, unknown>;
   version?: string;
+  /** Never queue for an offline station (publishOcppCommand `noQueue`). */
+  noQueue?: boolean;
 }
 
 export interface CommandListenerOptions {
@@ -108,6 +110,7 @@ export class CommandListener {
     }
 
     const { commandId, stationId, action, payload, version } = command;
+    const noQueue = command.noQueue === true;
     this.logger.info({ commandId, stationId, action }, 'Received command from event source');
 
     // In multi-instance mode, skip commands for stations owned by another instance
@@ -299,6 +302,20 @@ export class CommandListener {
               commandId,
               error: 'Station offline, a station credential change is not queued',
             }),
+          );
+        }
+        return;
+      }
+
+      // A command its caller marked noQueue (an OCPI partner's command) is
+      // answered as failed: run on a later reconnect it would start or unlock
+      // with no one waiting for it.
+      if (errorMessage.includes('is not connected') && noQueue) {
+        this.logger.warn({ stationId, commandId, action }, 'Station offline, command not queued');
+        if (commandId != null) {
+          await this.pubsub.publish(
+            RESULTS_CHANNEL,
+            JSON.stringify({ commandId, error: 'Station offline, command not queued' }),
           );
         }
         return;

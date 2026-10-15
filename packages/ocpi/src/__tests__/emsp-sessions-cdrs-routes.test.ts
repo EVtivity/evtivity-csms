@@ -3,6 +3,8 @@
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { PgDialect } from 'drizzle-orm/pg-core';
+import type { SQL } from 'drizzle-orm';
 import type { OcpiPartnerInfo } from '../middleware/ocpi-auth.js';
 
 // Each awaited select chain resolves to the next queued result. Writes are
@@ -12,6 +14,7 @@ const h = vi.hoisted(() => ({
   updates: [] as Record<string, unknown>[],
   inserts: [] as Record<string, unknown>[],
   returning: [] as unknown[][],
+  wheres: [] as unknown[],
   partner: undefined as OcpiPartnerInfo | undefined,
   sessionChanged: vi.fn(),
   cdrChanged: vi.fn(),
@@ -19,35 +22,53 @@ const h = vi.hoisted(() => ({
 
 function makeSelectChain(): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'where', 'limit']) {
+  for (const m of ['select', 'from', 'limit', 'for']) {
     chain[m] = vi.fn(() => chain);
   }
+  chain['where'] = vi.fn((condition: unknown) => {
+    h.wheres.push(condition);
+    return chain;
+  });
   chain['then'] = (resolve: (v: unknown) => unknown) =>
     Promise.resolve(h.selects.shift() ?? []).then(resolve);
   return chain;
 }
 
-vi.mock('@evtivity/database', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@evtivity/database')>()),
-  db: {
+vi.mock('@evtivity/database', async (importOriginal) => {
+  const db: Record<string, unknown> = {
     select: vi.fn(() => makeSelectChain()),
     update: vi.fn(() => ({
       set: (values: Record<string, unknown>) => {
         h.updates.push(values);
-        return { where: () => Promise.resolve(undefined) };
+        return {
+          where: (condition: unknown) => {
+            h.wheres.push(condition);
+            return Promise.resolve(undefined);
+          },
+        };
       },
     })),
     insert: vi.fn(() => ({
       values: (values: Record<string, unknown>) => {
         h.inserts.push(values);
-        return {
+        const chain: Record<string, unknown> = {
           returning: () => Promise.resolve(h.returning.shift() ?? []),
           then: (resolve: (v: unknown) => unknown) => Promise.resolve(undefined).then(resolve),
         };
+        chain['onConflictDoNothing'] = () => chain;
+        return chain;
       },
     })),
-  },
-}));
+  };
+  // The transaction callback runs against the same recording mock.
+  db['transaction'] = vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn(db));
+  return { ...(await importOriginal<typeof import('@evtivity/database')>()), db };
+});
+
+const dialect = new PgDialect();
+function whereSql(condition: unknown): string {
+  return dialect.sqlToQuery(condition as SQL).sql;
+}
 vi.mock('../middleware/ocpi-auth.js', () => ({
   ocpiAuthenticate: (request: { ocpiPartner?: OcpiPartnerInfo }) => {
     if (h.partner != null) request.ocpiPartner = h.partner;
@@ -118,6 +139,7 @@ beforeEach(() => {
   h.updates = [];
   h.inserts = [];
   h.returning = [];
+  h.wheres = [];
   h.partner = { ...PARTNER };
 });
 
@@ -152,6 +174,7 @@ describe('GET emsp session', () => {
 describe('PUT emsp session', () => {
   it('inserts a new 2.2.1 session with the excl_vat cost', async () => {
     h.selects = [[]];
+    h.returning = [[{ id: 1 }]];
     const res = await app.inject({ method: 'PUT', url: SESSION_URL, payload: SESSION_221 });
     expect(res.statusCode).toBe(200);
     expect(res.json<Body>()).toMatchObject({ status_code: 1000, data: null });
@@ -171,7 +194,7 @@ describe('PUT emsp session', () => {
   });
 
   it('updates an existing 2.3.0 session with the before_taxes cost', async () => {
-    h.selects = [[{ id: 3 }]];
+    h.selects = [[{ id: 3, sessionData: SESSION_221 }]];
     const payload = {
       ...SESSION_221,
       status: 'COMPLETED',
@@ -191,6 +214,7 @@ describe('PUT emsp session', () => {
 
   it('stores a null cost when the session has no total_cost', async () => {
     h.selects = [[]];
+    h.returning = [[{ id: 1 }]];
     const payload: Record<string, unknown> = { ...SESSION_221 };
     delete payload['total_cost'];
     const res = await app.inject({ method: 'PUT', url: SESSION_URL, payload });
@@ -217,6 +241,108 @@ describe('PUT emsp session', () => {
     expect(res.statusCode).toBe(400);
     expect(h.inserts).toHaveLength(0);
     expect(h.sessionChanged).not.toHaveBeenCalled();
+  });
+
+  it('reads and writes received sessions only, never a CPO link row (item 5)', async () => {
+    h.selects = [[{ id: 3, sessionData: SESSION_221 }]];
+    const res = await app.inject({
+      method: 'PUT',
+      url: SESSION_URL,
+      payload: { ...SESSION_221, last_updated: '2026-09-01T10:40:00Z' },
+    });
+    expect(res.statusCode).toBe(200);
+    // The lookup that picks the row to update requires no charging session:
+    // a CPO link row with the same OCPI id is never overwritten.
+    expect(whereSql(h.wheres[0])).toContain('"charging_session_id" is null');
+
+    h.wheres = [];
+    h.selects = [[]];
+    await app.inject({ method: 'GET', url: SESSION_URL });
+    expect(whereSql(h.wheres[0])).toContain('"charging_session_id" is null');
+
+    h.wheres = [];
+    h.selects = [[{ id: 3, sessionData: SESSION_221 }]];
+    await app.inject({ method: 'PATCH', url: SESSION_URL, payload: { kwh: 13 } });
+    expect(whereSql(h.wheres[0])).toContain('"charging_session_id" is null');
+  });
+
+  it('ignores a PUT older than the stored session (last_updated)', async () => {
+    h.selects = [[{ id: 3, sessionData: SESSION_221 }]];
+    const res = await app.inject({
+      method: 'PUT',
+      url: SESSION_URL,
+      payload: { ...SESSION_221, kwh: 1, last_updated: '2026-09-01T10:00:00Z' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<Body>().status_code).toBe(1000);
+    expect(h.updates).toHaveLength(0);
+    expect(h.sessionChanged).not.toHaveBeenCalled();
+  });
+
+  it('never moves a completed session back to ACTIVE', async () => {
+    h.selects = [[{ id: 3, sessionData: { ...SESSION_221, status: 'COMPLETED' } }]];
+    const res = await app.inject({
+      method: 'PUT',
+      url: SESSION_URL,
+      payload: { ...SESSION_221, status: 'ACTIVE', last_updated: '2026-09-01T12:00:00Z' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it('retries as an update when a concurrent PUT inserted the session first', async () => {
+    h.selects = [[], [{ id: 9, sessionData: SESSION_221 }]];
+    h.returning = [[]];
+    const res = await app.inject({
+      method: 'PUT',
+      url: SESSION_URL,
+      payload: { ...SESSION_221, kwh: 14, last_updated: '2026-09-01T10:45:00Z' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(h.inserts).toHaveLength(1);
+    expect(h.updates[0]).toMatchObject({ kwh: '14' });
+  });
+
+  it('refuses a body whose id or party differs from the URL', async () => {
+    for (const [field, value] of [
+      ['id', 'S2'],
+      ['country_code', 'NL'],
+      ['party_id', 'XYZ'],
+    ] as const) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: SESSION_URL,
+        payload: { ...SESSION_221, [field]: value },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json<Body>()).toMatchObject({
+        status_code: 2001,
+        status_message: `Session ${field} does not match the URL`,
+      });
+    }
+    expect(h.inserts).toHaveLength(0);
+  });
+
+  it('answers 2001 for an over-long session id or token uid instead of a 500', async () => {
+    const id = 'S'.repeat(37);
+    let res = await app.inject({
+      method: 'PUT',
+      url: `/ocpi/2.2.1/emsp/sessions/DE/ABC/${id}`,
+      payload: { ...SESSION_221, id },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<Body>()).toMatchObject({
+      status_code: 2001,
+      status_message: 'Invalid session_id',
+    });
+
+    res = await app.inject({
+      method: 'PUT',
+      url: SESSION_URL,
+      payload: { ...SESSION_221, cdr_token: { uid: 'T'.repeat(37), type: 'RFID' } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(h.inserts).toHaveLength(0);
   });
 
   it('rejects a namespace that does not match the credentials', async () => {
@@ -259,6 +385,36 @@ describe('PATCH emsp session', () => {
     expect(res.statusCode).toBe(200);
     const update = h.updates[0] ?? {};
     expect(Object.keys(update).sort()).toEqual(['sessionData', 'updatedAt']);
+  });
+
+  it('ignores a patch older than the stored session and keeps INVALID sticky', async () => {
+    h.selects = [[{ id: 3, sessionData: SESSION_221 }]];
+    let res = await app.inject({
+      method: 'PATCH',
+      url: SESSION_URL,
+      payload: { kwh: 1, last_updated: '2026-09-01T09:00:00Z' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(h.updates).toHaveLength(0);
+
+    h.selects = [[{ id: 3, sessionData: { ...SESSION_221, status: 'INVALID' } }]];
+    res = await app.inject({
+      method: 'PATCH',
+      url: SESSION_URL,
+      payload: { status: 'COMPLETED', last_updated: '2026-09-01T12:00:00Z' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(h.updates).toHaveLength(0);
+    expect(h.sessionChanged).not.toHaveBeenCalled();
+  });
+
+  it('refuses a patch that changes the session id or party', async () => {
+    for (const patch of [{ id: 'S2' }, { country_code: 'NL' }, { party_id: 'XYZ' }]) {
+      const res = await app.inject({ method: 'PATCH', url: SESSION_URL, payload: patch });
+      expect(res.statusCode).toBe(400);
+      expect(res.json<Body>().status_code).toBe(2001);
+    }
+    expect(h.updates).toHaveLength(0);
   });
 
   it('rejects a total_cost that is not a Price of the route version', async () => {
@@ -358,8 +514,8 @@ describe('POST emsp CDR', () => {
     expect(h.inserts[0]).toMatchObject({ totalCost: '-6', isCredit: true });
   });
 
-  it('returns 409 for a duplicate CDR', async () => {
-    h.selects = [[{ id: 11 }]];
+  it('returns 409 for a duplicate CDR (the insert skips the stored id)', async () => {
+    h.returning = [[]];
     const res = await app.inject({
       method: 'POST',
       url: '/ocpi/2.2.1/emsp/cdrs',
@@ -367,24 +523,14 @@ describe('POST emsp CDR', () => {
     });
     expect(res.statusCode).toBe(409);
     expect(res.json<Body>().status_message).toBe('CDR already exists');
-    expect(h.inserts).toHaveLength(0);
+    expect(res.headers['location']).toBeUndefined();
     expect(h.cdrChanged).not.toHaveBeenCalled();
   });
 
-  it('returns 500 when the insert returns no row', async () => {
+  it('serves received CDRs only on GET, not our own CDRs sent to the partner', async () => {
     h.selects = [[]];
-    h.returning = [[]];
-    const res = await app.inject({
-      method: 'POST',
-      url: '/ocpi/2.2.1/emsp/cdrs',
-      payload: CDR_221,
-    });
-    expect(res.statusCode).toBe(500);
-    expect(res.json<Body>()).toMatchObject({
-      status_code: 3000,
-      status_message: 'Failed to store CDR',
-    });
-    expect(h.cdrChanged).not.toHaveBeenCalled();
+    await app.inject({ method: 'GET', url: '/ocpi/2.2.1/emsp/cdrs/CDR1' });
+    expect(whereSql(h.wheres[0])).toContain('"charging_session_id" is null');
   });
 
   it.each([
@@ -392,6 +538,8 @@ describe('POST emsp CDR', () => {
     ['string total_energy', '2.2.1', { ...CDR_221, total_energy: '20' }],
     ['missing end_date_time', '2.2.1', { ...CDR_221, end_date_time: undefined }],
     ['missing total_cost', '2.2.1', { ...CDR_221, total_cost: undefined }],
+    ['over-long id', '2.2.1', { ...CDR_221, id: 'C'.repeat(37) }],
+    ['four-letter currency', '2.2.1', { ...CDR_221, currency: 'EURO' }],
   ])('rejects an invalid CDR: %s', async (_name, version, payload) => {
     const res = await app.inject({
       method: 'POST',

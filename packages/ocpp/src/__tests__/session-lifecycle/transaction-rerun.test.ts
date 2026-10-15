@@ -57,6 +57,9 @@ function route(text: string, values: unknown[]): unknown[] {
   }
   // The resend check of TransactionProjector (event type is its third value).
   // Values: station, transaction, event type, seqNo, timestamp, triggerReason.
+  // The late Ended check (TransactionProjector.recordLateEnded): the session
+  // never ended through another Ended in these runs.
+  if (text.includes("te.event_type = 'ended'")) return [];
   if (text.includes('AND te.seq_no = ?')) {
     const key = eventRowKey(values[2] as string, values[3] as number, values[4] as string);
     return db.eventRows.has(key) ? [{ session_id: 'session-1' }] : [];
@@ -290,6 +293,10 @@ vi.mock('@evtivity/database', async () => ({
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   // The session site sub-select (lib/session-site.ts), a plain value here.
   sessionSiteIdSql: vi.fn(() => 'site-of-station'),
+  // The real OCPI token owner checks (one statement each), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../../database/src/lib/ocpi-token-startable.js',
+  )),
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../../database/src/lib/session-end-request.js',
   )),

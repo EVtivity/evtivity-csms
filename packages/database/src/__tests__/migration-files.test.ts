@@ -172,7 +172,24 @@ describe('0476_release_0_1_46_indexes.sql', () => {
       'meter_values_station_dedup_idx',
       'uq_transaction_events_event',
       'idx_sessions_site_started_at',
+      'uq_ocpi_cdrs_received',
+      'uq_ocpi_roaming_sessions_received',
+      'idx_sessions_driver_created',
+      'uq_guest_sessions_charging_session',
     ]);
+  });
+
+  it('drops the indexes a unique index covers, after the unique one exists', () => {
+    // payment_records_session_id_unique already covers session_id.
+    expect(INDEX_FILE).toMatch(/DROP INDEX CONCURRENTLY IF EXISTS idx_payment_records_session_id;/);
+    const unique = INDEX_FILE.indexOf(
+      'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_guest_sessions',
+    );
+    const drop = INDEX_FILE.indexOf(
+      'DROP INDEX CONCURRENTLY IF EXISTS idx_guest_sessions_charging_session;',
+    );
+    expect(unique).toBeGreaterThan(-1);
+    expect(drop).toBeGreaterThan(unique);
   });
 
   it('drops an INVALID index of the same name before each concurrent build', () => {

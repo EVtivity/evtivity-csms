@@ -90,6 +90,13 @@ vi.mock('../services/cdr.service.js', () => ({
 }));
 vi.mock('../services/push.service.js', () => ({
   pushLegacyEvseRemoval: mocks.pushLegacyEvseRemoval,
+  isPushJobName: (name: string) => name.startsWith('push-'),
+  processPushJob: vi.fn(async () => undefined),
+  pushJobOptions: (id: string) => ({
+    deduplication: { id, keepLastIfActive: true },
+    attempts: 6,
+    removeOnComplete: true,
+  }),
 }));
 
 const { startOcpiCdrJobs, processOcpiCdrJob, OCPI_CDR_QUEUE } =
@@ -124,20 +131,36 @@ describe('startOcpiCdrJobs', () => {
 
     expect(mocks.workers).toHaveLength(1);
     expect(mocks.workers[0]?.name).toBe(OCPI_CDR_QUEUE);
-    expect(mocks.workers[0]?.opts['concurrency']).toBe(5);
+    expect(mocks.workers[0]?.opts['concurrency']).toBe(20);
     // The queue and the worker each get their own Redis connection.
     expect(mocks.createBullMQConnection).toHaveBeenCalledTimes(2);
   });
 
-  it('schedules a session CDR on the created queue with a per-session job id', async () => {
+  it('adds push jobs and CDR jobs on the created queue', async () => {
     const jobs = await startOcpiCdrJobs('redis://localhost:6379');
 
-    await jobs.scheduleSessionCdr('ses_1');
+    await jobs.pushSink.add('push-session', { sessionId: 'ses_1' }, 'ps-ses_1');
+    await jobs.pushSink.scheduleCdr('ses_1', 2);
+    await jobs.pushSink.pushStoredCdr('CDR-1', '1700000000000');
 
+    expect(mocks.queues[0]?.add).toHaveBeenCalledWith(
+      'push-session',
+      { sessionId: 'ses_1' },
+      expect.objectContaining({
+        deduplication: { id: 'ps-ses_1', keepLastIfActive: true },
+        attempts: 6,
+        removeOnComplete: true,
+      }),
+    );
     expect(mocks.queues[0]?.add).toHaveBeenCalledWith(
       'cdr',
       { sessionId: 'ses_1' },
-      expect.objectContaining({ jobId: 'cdr-ses_1' }),
+      expect.objectContaining({ jobId: 'cdr-ses_1-r2' }),
+    );
+    expect(mocks.queues[0]?.add).toHaveBeenCalledWith(
+      'cdr-push',
+      { cdrId: 'CDR-1' },
+      expect.objectContaining({ jobId: 'cdr-push-CDR-1-1700000000000', removeOnComplete: true }),
     );
   });
 

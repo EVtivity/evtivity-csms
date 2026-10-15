@@ -69,6 +69,7 @@ function formatMonthParam(date: Date): string {
 
 // Trailing-trend chart height in px (matches the mobile app's 6-month bars).
 const CHART_HEIGHT = 110;
+const ACTIVITY_PAGE_SIZE = 10;
 
 function shiftMonthParam(date: Date, delta: number): string {
   return formatMonthParam(new Date(date.getFullYear(), date.getMonth() + delta, 1));
@@ -118,12 +119,13 @@ export function Activity(): React.JSX.Element {
     queryKey: ['portal-sessions-month', monthParam],
     queryFn: ({ pageParam }) =>
       api.get<SessionsResponse>(
-        `/v1/portal/sessions?month=${monthParam}&limit=10&offset=${String(pageParam)}`,
+        `/v1/portal/sessions?month=${monthParam}&limit=${String(ACTIVITY_PAGE_SIZE)}&page=${String(pageParam)}`,
       ),
-    initialPageParam: 0,
+    // The API pages by page number from 1 (it reads no offset).
+    initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => {
       const fetched = allPages.reduce((sum, p) => sum + p.data.length, 0);
-      return fetched < lastPage.total ? fetched : undefined;
+      return fetched < lastPage.total && lastPage.data.length > 0 ? allPages.length + 1 : undefined;
     },
   });
 

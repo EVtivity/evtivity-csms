@@ -32,27 +32,40 @@ import {
   encryptString,
   generateTotpSecret,
   generateTotpUri,
-  verifyTotpCode,
+  matchTotpStep,
   createMfaChallenge,
   verifyMfaChallenge,
   redactSensitiveNotificationContent,
   recordNotificationAttempt,
 } from '@evtivity/lib';
 import QRCode from 'qrcode';
-import {
-  setAuthCookies,
-  clearAuthCookies,
-  isSecureRequest,
-  readRefreshCookie,
-} from '../lib/auth-cookies.js';
+import { clearAuthCookies, isSecureRequest, readRefreshCookie } from '../lib/auth-cookies.js';
 import { checkRecaptcha } from '../lib/recaptcha-check.js';
 import {
-  createRefreshToken,
   validateAndRotateRefreshToken,
   revokeRefreshToken,
   revokeAllUserRefreshTokens,
   revokeAllUserSessions,
 } from '../services/refresh-token.service.js';
+import {
+  announceSessionChange,
+  bumpSessionVersion,
+  endUserSessions,
+  issueOperatorSession,
+  passwordAuthBlocked,
+  ssoManagedUser,
+} from '../lib/operator-session.js';
+import { sendPasswordChangedNotice } from '../lib/password-changed-notice.js';
+import { verifyPassword } from '../lib/password-verify.js';
+import {
+  clearSignInFailures,
+  acceptTotpStep,
+  isLocked,
+  mfaResendRetryAfter,
+  recordSignInFailure,
+  secondsUntil,
+} from '../lib/sign-in-backoff.js';
+import { applyUserDeactivation, revokeUserEmailLinks } from '../services/user-status.service.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { emailEquals } from '../lib/email-match.js';
 import { verifyAgainstDummyHash } from '../lib/dummy-password-hash.js';
@@ -71,7 +84,7 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { beginOperatorMfa } from '../lib/operator-mfa.js';
-import { authorize, invalidatePermissionCache } from '../middleware/rbac.js';
+import { authorize, invalidatePermissionCache, selfService } from '../middleware/rbac.js';
 import { invalidateUserActiveCache } from '../lib/user-active.js';
 import { invalidateSiteAccessCache, assertSitesWithinScope } from '../lib/site-access.js';
 import {
@@ -87,11 +100,6 @@ import { validatePasswordComplexity } from '../lib/password-validation.js';
 import { PASSWORD_MIN_LENGTH } from '@evtivity/lib/password-policy';
 import { config as apiConfig } from '../lib/config.js';
 import { recordAuthAudit } from '../lib/auth-audit.js';
-import {
-  isMfaChallengeExhausted,
-  recordMfaChallengeAttempt,
-  clearMfaChallengeAttempts,
-} from '../lib/rate-limiters.js';
 import { storedSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
 import type { AiSurface } from '../services/ai/tools/policy.js';
 
@@ -239,6 +247,9 @@ const userSelect = {
   language: users.language,
   timezone: users.timezone,
   themePreference: users.themePreference,
+  mfaEnabled: users.mfaEnabled,
+  mfaMethod: users.mfaMethod,
+  authSource: users.authSource,
   lastLoginAt: users.lastLoginAt,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
@@ -308,6 +319,16 @@ const userItem = z
     language: z.string().describe('Preferred UI language code'),
     timezone: z.string().describe('IANA timezone identifier'),
     themePreference: z.string().describe('Preferred dashboard theme (light, dark, system)'),
+    mfaEnabled: z.boolean().optional().describe('Whether the user signs in with a second factor'),
+    mfaMethod: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('Second factor method (email, sms, totp), null without MFA'),
+    authSource: z
+      .enum(['password', 'sso'])
+      .optional()
+      .describe('How the account was created: password, or sso (provisioned by an SSO sign-in)'),
     lastLoginAt: z.coerce
       .date()
       .nullable()
@@ -329,6 +350,16 @@ const userWithRole = z
       .describe('Whether the user must reset their password on next login'),
     language: z.string().describe('Preferred UI language code'),
     timezone: z.string().describe('IANA timezone identifier'),
+    mfaEnabled: z.boolean().optional().describe('Whether the user signs in with a second factor'),
+    mfaMethod: z
+      .string()
+      .nullable()
+      .optional()
+      .describe('Second factor method (email, sms, totp), null without MFA'),
+    authSource: z
+      .enum(['password', 'sso'])
+      .optional()
+      .describe('How the account was created: password, or sso (provisioned by an SSO sign-in)'),
     lastLoginAt: z.coerce
       .date()
       .nullable()
@@ -498,7 +529,23 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const valid = await argon2.verify(user.passwordHash, password);
+      // A locked account (sign-in backoff) and an SSO account while SSO is
+      // enabled answer as for a wrong password, after the same time.
+      const locked = isLocked(user.loginLockedUntil);
+      if (locked || (await passwordAuthBlocked(user))) {
+        await verifyAgainstDummyHash(password);
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'password',
+          reason: locked ? 'locked' : 'sso_account',
+        });
+        await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
+        return;
+      }
+
+      const valid = await verifyPassword(user.passwordHash, password, request.log);
       if (!valid) {
         await recordAuthAudit(request, {
           kind: 'user',
@@ -507,9 +554,11 @@ export function userRoutes(app: FastifyInstance): void {
           method: 'password',
           reason: 'bad_password',
         });
+        await recordSignInFailure(request, user.id, 'password');
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
+      await clearSignInFailures(user.id, 'password');
 
       if (!user.isActive) {
         await recordAuthAudit(request, {
@@ -537,9 +586,7 @@ export function userRoutes(app: FastifyInstance): void {
         .from(roles)
         .where(eq(roles.id, user.roleId));
 
-      const token = app.jwt.sign({ userId: user.id, roleId: user.roleId }, { expiresIn: '1h' });
-      const refreshResult = await createRefreshToken({ userId: user.id });
-      setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
+      const token = await issueOperatorSession(app, request, reply, user);
 
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
       await recordAuthAudit(request, {
@@ -582,10 +629,13 @@ export function userRoutes(app: FastifyInstance): void {
       if (refreshCookie.status === 'valid') {
         await revokeRefreshToken(refreshCookie.value);
       }
-      // Clear cached permissions for the logged-out user
-      const jwtUser = request.user as unknown as Record<string, unknown>;
-      if ('userId' in jwtUser && typeof jwtUser['userId'] === 'string') {
-        invalidatePermissionCache(jwtUser['userId']);
+      // Clear cached permissions for the logged-out user, and end the access
+      // tokens issued before (session version). An API key signs nothing out.
+      const jwtUser = request.user as JwtPayload;
+      if (jwtUser.isApiKey !== true) {
+        invalidatePermissionCache(jwtUser.userId);
+        await bumpSessionVersion(jwtUser.userId);
+        announceSessionChange(jwtUser.userId);
       }
       clearAuthCookies('csms', reply, isSecureRequest(request));
       return { success: true };
@@ -640,6 +690,7 @@ export function userRoutes(app: FastifyInstance): void {
           id: users.id,
           roleId: users.roleId,
           isActive: users.isActive,
+          sessionVersion: users.sessionVersion,
         })
         .from(users)
         .where(eq(users.id, result.userId));
@@ -650,12 +701,7 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const accessToken = app.jwt.sign(
-        { userId: user.id, roleId: user.roleId },
-        { expiresIn: '1h' },
-      );
-      const newRefresh = await createRefreshToken({ userId: user.id });
-      setAuthCookies('csms', reply, accessToken, newRefresh.rawToken, isSecureRequest(request));
+      await issueOperatorSession(app, request, reply, user);
 
       return { success: true };
     },
@@ -697,11 +743,15 @@ export function userRoutes(app: FastifyInstance): void {
           firstName: users.firstName,
           lastName: users.lastName,
           language: users.language,
+          isActive: users.isActive,
+          authSource: users.authSource,
         })
         .from(users)
         .where(emailEquals(users.email, email));
 
-      if (user != null) {
+      // An inactive account and an SSO account while SSO is enabled get no
+      // link, with the same answer as an unknown email.
+      if (user != null && user.isActive && !(await passwordAuthBlocked(user))) {
         // Revoke existing password_reset tokens
         await db
           .update(userTokens)
@@ -728,7 +778,9 @@ export function userRoutes(app: FastifyInstance): void {
         const csmsUrl = apiConfig.CSMS_URL;
         const resetUrl = `${csmsUrl}/reset-password?token=${rawToken}`;
 
-        try {
+        // Not awaited: the answer for a known email must not wait for the
+        // mail provider, or its time would tell the email exists.
+        void (async () => {
           const settings = await getNotificationSettings(client);
           if (settings.smtp != null) {
             const companyRows = await client`
@@ -808,13 +860,11 @@ export function userRoutes(app: FastifyInstance): void {
               metadata,
             });
           }
-        } catch (err) {
-          // The response stays the same so it does not reveal whether the user exists.
-          request.log.warn(
-            { err },
-            'Password reset email dispatch failed, answering success anyway',
-          );
-        }
+        })().catch((err: unknown) => {
+          // fail-open: the answer is the same either way, so it does not
+          // reveal whether the user exists (P9).
+          request.log.warn({ err }, 'Password reset email dispatch failed');
+        });
       }
 
       return { success: true };
@@ -851,87 +901,73 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Hash before the lookup: the time does not depend on the link.
+      const passwordHash = await argon2.hash(password);
       const tokenHash = hashUserToken(token);
 
-      const [tokenRow] = await db
-        .select({
-          id: userTokens.id,
-          userId: userTokens.userId,
-          expiresAt: userTokens.expiresAt,
-        })
-        .from(userTokens)
-        .where(
-          and(
-            eq(userTokens.tokenHash, tokenHash),
-            eq(userTokens.type, 'password_reset'),
-            isNull(userTokens.revokedAt),
-          ),
-        );
+      // One transaction: the guarded consume (a link works once, the first of
+      // two parallel requests wins) and the password write. A link of an
+      // inactive user, or of an SSO account while SSO is enabled, stays used
+      // and sets nothing.
+      const outcome = await db.transaction(async (tx) => {
+        const [consumed] = await tx
+          .update(userTokens)
+          .set({ revokedAt: new Date() })
+          .where(
+            and(
+              eq(userTokens.tokenHash, tokenHash),
+              eq(userTokens.type, 'password_reset'),
+              isNull(userTokens.revokedAt),
+              sql`${userTokens.expiresAt} > now()`,
+            ),
+          )
+          .returning({ userId: userTokens.userId });
+        if (consumed?.userId == null) return null;
+        const [user] = await tx
+          .select({ isActive: users.isActive, authSource: users.authSource })
+          .from(users)
+          .where(eq(users.id, consumed.userId));
+        if (user == null || !user.isActive || (await passwordAuthBlocked(user))) return null;
+        const [updated] = await tx
+          .update(users)
+          .set({
+            passwordHash,
+            mustResetPassword: false,
+            failedLoginCount: 0,
+            loginLockedUntil: null,
+            sessionVersion: sql`${users.sessionVersion} + 1`,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(users.id, consumed.userId), eq(users.isActive, true)))
+          .returning({ id: users.id });
+        if (updated == null) return null;
+        // Other open links of the user end with this one.
+        await revokeUserEmailLinks(updated.id, tx);
+        return updated.id;
+      });
 
-      if (tokenRow == null || tokenRow.userId == null || tokenRow.expiresAt < new Date()) {
+      if (outcome == null) {
         await reply
           .status(400)
           .send({ error: 'Invalid or expired reset link', code: 'INVALID_TOKEN' });
         return;
       }
 
-      const passwordHash = await argon2.hash(password);
-
-      await db
-        .update(users)
-        .set({ passwordHash, mustResetPassword: false, updatedAt: new Date() })
-        .where(eq(users.id, tokenRow.userId));
-
-      await db
-        .update(userTokens)
-        .set({ revokedAt: new Date() })
-        .where(eq(userTokens.id, tokenRow.id));
-
       // Forgot-password is the recovery path after credential compromise:
-      // revoke every outstanding refresh token so an attacker holding a
-      // stolen csms_refresh cookie cannot keep using the account after the
-      // legitimate user completes the reset. Mirrors the driver path at
-      // packages/api/src/routes/portal/auth.ts and the operator
-      // force-change-password / admin reset-password paths.
-      await revokeAllUserSessions(tokenRow.userId);
+      // revoke every refresh token and API key, so a stolen session cookie or
+      // key stops working after the legitimate user completes the reset.
+      // The session version moved in the transaction.
+      await revokeAllUserRefreshTokens(outcome);
+      announceSessionChange(outcome);
 
       await recordAuthAudit(request, {
         kind: 'user',
-        accountId: tokenRow.userId,
+        accountId: outcome,
         action: 'password_reset',
         method: 'reset_token',
       });
 
-      const [updatedUser] = await db
-        .select({
-          id: users.id,
-          email: users.email,
-          phone: users.phone,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          language: users.language,
-        })
-        .from(users)
-        .where(eq(users.id, tokenRow.userId));
-
-      if (updatedUser != null) {
-        void dispatchSystemNotification(
-          client,
-          'operator.PasswordChanged',
-          {
-            email: updatedUser.email,
-            phone: updatedUser.phone ?? undefined,
-            userId: updatedUser.id,
-            language: updatedUser.language,
-          },
-          {
-            firstName: updatedUser.firstName ?? '',
-            lastName: updatedUser.lastName ?? '',
-            email: updatedUser.email,
-          },
-          ALL_TEMPLATES_DIRS,
-        );
-      }
+      sendPasswordChangedNotice(outcome, request.log);
 
       return { success: true };
     },
@@ -950,7 +986,6 @@ export function userRoutes(app: FastifyInstance): void {
           200: zodSchema(loginResponse),
           400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD]),
           401: errorWith('Invalid credentials', [ERROR_CODES.INVALID_CREDENTIALS]),
-          403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
         },
       },
       config: {
@@ -967,44 +1002,44 @@ export function userRoutes(app: FastifyInstance): void {
 
       const [user] = await db.select().from(users).where(emailEquals(users.email, email));
 
-      if (user == null) {
-        // Equalize timing with the user-exists branch (see login handler).
-        await verifyAgainstDummyHash(currentPassword);
+      // The password is checked first (against a dummy hash for an unknown
+      // email), and every refusal answers the same 401, so the route tells
+      // nothing about the account: not whether it exists, is active, needs
+      // a reset, is locked or signs in with SSO.
+      const locked = user != null && isLocked(user.loginLockedUntil);
+      const valid =
+        user != null && !locked
+          ? await verifyPassword(user.passwordHash, currentPassword, request.log)
+          : await verifyAgainstDummyHash(currentPassword);
+      const refusal =
+        user == null
+          ? 'unknown'
+          : locked
+            ? 'locked'
+            : !valid
+              ? 'bad_password'
+              : !user.isActive
+                ? 'inactive'
+                : !user.mustResetPassword
+                  ? 'reset_not_required'
+                  : (await passwordAuthBlocked(user))
+                    ? 'sso_account'
+                    : null;
+      if (user == null || refusal != null) {
+        if (user != null && refusal != null) {
+          await recordAuthAudit(request, {
+            kind: 'user',
+            accountId: user.id,
+            action: 'login_failed',
+            method: 'password',
+            reason: refusal,
+          });
+          if (refusal === 'bad_password') await recordSignInFailure(request, user.id, 'password');
+        }
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
-
-      if (!user.mustResetPassword) {
-        await reply
-          .status(400)
-          .send({ error: 'Password reset is not required', code: 'RESET_NOT_REQUIRED' });
-        return;
-      }
-
-      if (!user.isActive) {
-        await recordAuthAudit(request, {
-          kind: 'user',
-          accountId: user.id,
-          action: 'login_failed',
-          method: 'password',
-          reason: 'inactive',
-        });
-        await reply.status(403).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
-        return;
-      }
-
-      const valid = await argon2.verify(user.passwordHash, currentPassword);
-      if (!valid) {
-        await recordAuthAudit(request, {
-          kind: 'user',
-          accountId: user.id,
-          action: 'login_failed',
-          method: 'password',
-          reason: 'bad_password',
-        });
-        await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
-        return;
-      }
+      await clearSignInFailures(user.id, 'password');
 
       const complexityError = validatePasswordComplexity(newPassword);
       if (complexityError != null) {
@@ -1019,10 +1054,11 @@ export function userRoutes(app: FastifyInstance): void {
         .set({ passwordHash, mustResetPassword: false, updatedAt: new Date() })
         .where(eq(users.id, user.id));
 
-      // Revoke any existing sessions before issuing the new one. Mirrors
-      // /users/me/change-password and the admin reset-password handler so
-      // forced-reset password changes terminate other devices' sessions.
-      await revokeAllUserSessions(user.id);
+      // End every existing session before issuing the new one (session
+      // version and refresh tokens). API keys stay: the user changed the
+      // password, nobody reset it.
+      const sessionVersion = (await endUserSessions(user.id, { apiKeys: false })) ?? 0;
+      sendPasswordChangedNotice(user.id, request.log);
 
       await writeAudit(
         { table: userAuditLog, idColumn: 'user_id' },
@@ -1053,9 +1089,7 @@ export function userRoutes(app: FastifyInstance): void {
         .from(roles)
         .where(eq(roles.id, user.roleId));
 
-      const token = app.jwt.sign({ userId: user.id, roleId: user.roleId }, { expiresIn: '1h' });
-      const refreshResult = await createRefreshToken({ userId: user.id });
-      setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
+      const token = await issueOperatorSession(app, request, reply, { ...user, sessionVersion });
 
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
       await recordAuthAudit(request, {
@@ -1084,7 +1118,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me',
     {
-      onRequest: [authorize('users:read')],
+      onRequest: [selfService({ allowApiKey: true })],
       schema: {
         tags: ['Users'],
         summary: 'Get the currently authenticated user',
@@ -1125,7 +1159,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.patch(
     '/users/me',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       schema: {
         tags: ['Users'],
         summary: 'Update the authenticated user&#39;s own profile fields',
@@ -1139,6 +1173,7 @@ export function userRoutes(app: FastifyInstance): void {
           400: errorWith('The phone of an SMS second factor cannot be removed', [
             ERROR_CODES.VALIDATION_ERROR,
           ]),
+          403: errorWith('API keys cannot change the profile', [ERROR_CODES.SESSION_REQUIRED]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
       },
@@ -1716,18 +1751,10 @@ export function userRoutes(app: FastifyInstance): void {
         if (row == null) return null;
 
         // Reset and invite links already sent went to the old address.
-        if (emailChanged) {
-          await tx
-            .update(userTokens)
-            .set({ revokedAt: new Date() })
-            .where(
-              and(
-                eq(userTokens.userId, id),
-                eq(userTokens.type, 'password_reset'),
-                isNull(userTokens.revokedAt),
-              ),
-            );
-        }
+        if (emailChanged) await revokeUserEmailLinks(id, tx);
+
+        // A role change ends the access tokens issued under the old role.
+        if (body.roleId !== undefined) await bumpSessionVersion(id, tx);
 
         if (patchSiteIds !== undefined) {
           await tx.delete(userSiteAssignments).where(eq(userSiteAssignments.userId, id));
@@ -1761,12 +1788,12 @@ export function userRoutes(app: FastifyInstance): void {
         invalidateSiteAccessCache(id);
       }
 
-      // Deactivation: revoke all sessions and clear the isActive cache so
-      // the user is locked out immediately rather than after the 30s cache
-      // window plus the JWT lifetime.
+      // Deactivation: end every session, API key and emailed link at once
+      // (user-status.service.ts), not after the cache window plus the JWT
+      // lifetime. Run for every isActive: false, so a retry completes a
+      // failed step.
       if (body.isActive === false) {
-        await revokeAllUserRefreshTokens(id);
-        invalidateUserActiveCache(id);
+        await applyUserDeactivation(id, { log: request.log });
       } else if (body.isActive === true) {
         invalidateUserActiveCache(id);
       }
@@ -1774,6 +1801,7 @@ export function userRoutes(app: FastifyInstance): void {
       if (body.roleId !== undefined) {
         invalidatePermissionCache(id);
         await revokeAllUserSessions(id);
+        announceSessionChange(id);
       }
 
       // Re-fetch site assignments and permissions for the response
@@ -1834,6 +1862,7 @@ export function userRoutes(app: FastifyInstance): void {
           200: successResponse,
           400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
+          409: errorWith('The user signs in with SSO', [ERROR_CODES.USER_SSO_MANAGED]),
         },
       },
     },
@@ -1852,11 +1881,24 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      if (await ssoManagedUser(id)) {
+        await reply
+          .status(409)
+          .send({ error: 'The user signs in with SSO', code: 'USER_SSO_MANAGED' });
+        return;
+      }
+
       const passwordHash = await argon2.hash(password);
 
       const [updated] = await db
         .update(users)
-        .set({ passwordHash, mustResetPassword: true, updatedAt: new Date() })
+        .set({
+          passwordHash,
+          mustResetPassword: true,
+          failedLoginCount: 0,
+          loginLockedUntil: null,
+          updatedAt: new Date(),
+        })
         .where(eq(users.id, id))
         .returning({ id: users.id });
 
@@ -1865,7 +1907,10 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      await revokeAllUserSessions(updated.id);
+      // A reset by an admin ends every session and API key of the user, and
+      // tells the user.
+      await endUserSessions(updated.id, { apiKeys: true });
+      sendPasswordChangedNotice(updated.id, request.log);
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -1888,7 +1933,9 @@ export function userRoutes(app: FastifyInstance): void {
   app.post(
     '/users/me/change-password',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
+      // A stolen session must not brute-force the current password.
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
       schema: {
         tags: ['Users'],
         summary: 'Change the current user password',
@@ -1897,7 +1944,11 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(changePasswordBody),
         response: {
           200: successResponse,
-          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD]),
+          400: errorWith('Weak password', [
+            ERROR_CODES.WEAK_PASSWORD,
+            ERROR_CODES.INVALID_PASSWORD,
+          ]),
+          403: errorWith('API keys cannot change the password', [ERROR_CODES.SESSION_REQUIRED]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
       },
@@ -1907,7 +1958,12 @@ export function userRoutes(app: FastifyInstance): void {
       const { currentPassword, newPassword } = request.body as z.infer<typeof changePasswordBody>;
 
       const [user] = await db
-        .select({ id: users.id, passwordHash: users.passwordHash })
+        .select({
+          id: users.id,
+          roleId: users.roleId,
+          passwordHash: users.passwordHash,
+          authSource: users.authSource,
+        })
         .from(users)
         .where(eq(users.id, userId));
 
@@ -1916,7 +1972,11 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const valid = await argon2.verify(user.passwordHash, currentPassword);
+      // An SSO account while SSO is enabled has no password to change: it
+      // answers as for a wrong current password.
+      const valid =
+        (await verifyPassword(user.passwordHash, currentPassword, request.log)) &&
+        !(await passwordAuthBlocked(user));
       if (!valid) {
         await reply
           .status(400)
@@ -1936,7 +1996,11 @@ export function userRoutes(app: FastifyInstance): void {
         .set({ passwordHash, mustResetPassword: false, updatedAt: new Date() })
         .where(eq(users.id, userId));
 
-      await revokeAllUserSessions(userId);
+      // End every session (other devices included), keep the API keys (a
+      // voluntary change), and give this browser a new session.
+      const sessionVersion = (await endUserSessions(userId, { apiKeys: false })) ?? 0;
+      await issueOperatorSession(app, request, reply, { ...user, sessionVersion });
+      sendPasswordChangedNotice(userId, request.log);
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -2001,10 +2065,7 @@ export function userRoutes(app: FastifyInstance): void {
         .set({ isActive: false, updatedAt: new Date() })
         .where(eq(users.id, id));
 
-      invalidateUserActiveCache(id);
-      invalidatePermissionCache(id);
-      invalidateSiteAccessCache(id);
-      await revokeAllUserRefreshTokens(id);
+      await applyUserDeactivation(id, { log: request.log });
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -2040,6 +2101,7 @@ export function userRoutes(app: FastifyInstance): void {
           200: successResponse,
           403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
+          409: errorWith('The user signs in with SSO', [ERROR_CODES.USER_SSO_MANAGED]),
         },
       },
     },
@@ -2071,18 +2133,14 @@ export function userRoutes(app: FastifyInstance): void {
         await reply.status(403).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
         return;
       }
+      if (await ssoManagedUser(id)) {
+        await reply
+          .status(409)
+          .send({ error: 'The user signs in with SSO', code: 'USER_SSO_MANAGED' });
+        return;
+      }
 
-      // Revoke existing password_reset tokens
-      await db
-        .update(userTokens)
-        .set({ revokedAt: new Date() })
-        .where(
-          and(
-            eq(userTokens.userId, user.id),
-            eq(userTokens.type, 'password_reset'),
-            isNull(userTokens.revokedAt),
-          ),
-        );
+      await revokeUserEmailLinks(user.id);
 
       // Generate new 24-hour token
       const { raw: rawToken, hash: tokenHash } = generateUserToken();
@@ -2183,6 +2241,7 @@ export function userRoutes(app: FastifyInstance): void {
           ]),
           401: errorWith('Unauthorized', [ERROR_CODES.UNAUTHORIZED, ERROR_CODES.MFA_TOKEN_EXPIRED]),
           403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
+          429: errorWith('Too many wrong codes', [ERROR_CODES.MFA_LOCKED]),
         },
       },
       config: {
@@ -2211,15 +2270,6 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Per-challengeId brute-force protection
-      if (challengeId != null && isMfaChallengeExhausted(challengeId)) {
-        await reply.status(400).send({
-          error: 'Too many failed attempts. Request a new code.',
-          code: 'MFA_CHALLENGE_EXHAUSTED',
-        });
-        return;
-      }
-
       const [user] = await db.select().from(users).where(eq(users.id, payload.userId));
       if (user == null || !user.mfaEnabled || user.mfaMethod == null) {
         await reply.status(400).send({ error: 'MFA not configured', code: 'MFA_NOT_CONFIGURED' });
@@ -2237,57 +2287,82 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Per-account backoff after repeated wrong codes (sign-in-backoff.ts).
+      if (user.mfaLockedUntil != null && isLocked(user.mfaLockedUntil)) {
+        const retryAfterSeconds = secondsUntil(user.mfaLockedUntil);
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'mfa',
+          reason: 'locked',
+        });
+        void reply.header('Retry-After', String(retryAfterSeconds));
+        await reply.status(429).send({
+          error: 'Too many wrong codes. Try again later.',
+          code: 'MFA_LOCKED',
+          retryAfterSeconds,
+        });
+        return;
+      }
+
       let verified = false;
+      let exhausted = false;
       if (user.mfaMethod === 'totp') {
         if (user.totpSecretEnc == null) {
           await reply.status(400).send({ error: 'TOTP not set up', code: 'TOTP_NOT_CONFIGURED' });
           return;
         }
         const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
+        let step: number | null = null;
         try {
           const secret = decryptString(user.totpSecretEnc, encKey);
-          verified = verifyTotpCode(secret, code);
+          step = matchTotpStep(secret, code);
         } catch (err: unknown) {
           // Stored TOTP secret cannot be decrypted (e.g. SETTINGS_ENCRYPTION_KEY
           // rotated, ciphertext corrupted). Surface as a clean MFA failure
           // rather than a 500, but log the underlying error for ops.
           request.log.warn({ err, userId: payload.userId }, 'TOTP secret decrypt failed');
-          verified = false;
         }
+        // A code is accepted once (replay guard, sign-in-backoff.ts).
+        if (step != null) verified = await acceptTotpStep(user.id, step);
       } else if (challengeId != null) {
-        verified = await verifyMfaChallenge(client, challengeId, code, { userId: user.id });
+        // Tries are counted on the challenge row (MFA_CHALLENGE_MAX_ATTEMPTS),
+        // shared by every API process, and the challenge is single use.
+        const result = await verifyMfaChallenge(client, challengeId, code, { userId: user.id });
+        verified = result === 'verified';
+        exhausted = result === 'exhausted';
       }
 
       if (!verified) {
-        if (challengeId != null) {
-          recordMfaChallengeAttempt(challengeId);
-        }
         await recordAuthAudit(request, {
           kind: 'user',
           accountId: user.id,
           action: 'login_failed',
           method: 'mfa',
-          reason: 'mfa_code_invalid',
+          reason: exhausted ? 'mfa_challenge_exhausted' : 'mfa_code_invalid',
         });
+        await recordSignInFailure(request, user.id, 'mfa');
+        if (exhausted) {
+          await reply.status(400).send({
+            error: 'Too many failed attempts. Request a new code.',
+            code: 'MFA_CHALLENGE_EXHAUSTED',
+          });
+          return;
+        }
         await reply
           .status(400)
           .send({ error: 'Invalid verification code', code: 'MFA_CODE_INVALID' });
         return;
       }
-
-      // Clear attempt counter on success
-      if (challengeId != null) {
-        clearMfaChallengeAttempts(challengeId);
-      }
+      await clearSignInFailures(user.id, 'mfa');
 
       const [role] = await db
         .select({ id: roles.id, name: roles.name })
         .from(roles)
         .where(eq(roles.id, user.roleId));
 
-      const token = app.jwt.sign({ userId: user.id, roleId: user.roleId }, { expiresIn: '1h' });
-      const refreshResult = await createRefreshToken({ userId: user.id });
-      setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
+      const token = await issueOperatorSession(app, request, reply, user);
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
       await recordAuthAudit(request, {
         kind: 'user',
@@ -2346,6 +2421,8 @@ export function userRoutes(app: FastifyInstance): void {
             ERROR_CODES.MFA_TOTP_NO_RESEND,
           ]),
           401: errorWith('Unauthorized', [ERROR_CODES.UNAUTHORIZED, ERROR_CODES.MFA_TOKEN_EXPIRED]),
+          403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
+          429: errorWith('Too many codes sent', [ERROR_CODES.MFA_RESEND_LIMITED]),
         },
       },
       config: {
@@ -2380,10 +2457,28 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      if (!user.isActive) {
+        await reply.status(403).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
+        return;
+      }
+
       if (user.mfaMethod === 'totp') {
         await reply
           .status(400)
           .send({ error: 'Cannot resend TOTP codes', code: 'MFA_TOTP_NO_RESEND' });
+        return;
+      }
+
+      // A cap on the codes sent to one user (sign-in-backoff.ts), counted
+      // from the challenge rows so every process sees the same count.
+      const retryAfterSeconds = await mfaResendRetryAfter(user.id);
+      if (retryAfterSeconds != null) {
+        void reply.header('Retry-After', String(retryAfterSeconds));
+        await reply.status(429).send({
+          error: 'Too many codes sent. Try again later.',
+          code: 'MFA_RESEND_LIMITED',
+          retryAfterSeconds,
+        });
         return;
       }
 
@@ -2404,6 +2499,83 @@ export function userRoutes(app: FastifyInstance): void {
     },
   );
 
+  // Admin MFA reset: for a user who lost the authenticator or phone. The
+  // user signs in with the password alone and can set MFA up again.
+  app.post(
+    '/users/:id/mfa/reset',
+    {
+      onRequest: [authorize('users:write')],
+      schema: {
+        tags: ['Users'],
+        summary: 'Turn off the MFA of a user',
+        description:
+          'Clears the MFA method and TOTP secret of the user, ends every session of the user (API keys stay) and writes an mfa_reset audit row. For a user who lost the second factor. Requires users:write and every permission of the target user. Never available to the AI assistant or MCP.',
+        operationId: 'resetUserMfa',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(userParams),
+        response: {
+          200: successResponse,
+          403: errorWith('Self edit forbidden', [ERROR_CODES.SELF_EDIT_FORBIDDEN]),
+          404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof userParams>;
+      const { userId: actorUserId } = request.user as JwtPayload;
+
+      // An operator changes its own MFA on its profile, with its password.
+      if (id === actorUserId) {
+        await reply
+          .status(403)
+          .send({ error: 'Use your profile to change your MFA', code: 'SELF_EDIT_FORBIDDEN' });
+        return;
+      }
+
+      const [before] = await db
+        .select({ id: users.id, mfaEnabled: users.mfaEnabled, mfaMethod: users.mfaMethod })
+        .from(users)
+        .where(eq(users.id, id));
+      if (
+        before == null ||
+        !(await canAdministerUser(request, await getUserManagementActor(request), id))
+      ) {
+        await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        return;
+      }
+
+      await db
+        .update(users)
+        .set({
+          mfaEnabled: false,
+          mfaMethod: null,
+          totpSecretEnc: null,
+          totpLastStep: null,
+          mfaFailedCount: 0,
+          mfaLockedUntil: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, id));
+      await endUserSessions(id, { apiKeys: false });
+
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'mfa_reset',
+          ...getAuditActor(request),
+          before: { mfaEnabled: before.mfaEnabled, mfaMethod: before.mfaMethod },
+          after: { mfaEnabled: false, mfaMethod: null },
+        },
+        db,
+        request.log,
+      );
+
+      return { success: true };
+    },
+  );
+
   // MFA profile setup endpoints
 
   const mfaStatusResponse = z
@@ -2419,7 +2591,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/mfa',
     {
-      onRequest: [authorize('users:read')],
+      onRequest: [selfService({ allowApiKey: true })],
       schema: {
         tags: ['Users'],
         summary: 'Get current MFA status',
@@ -2477,7 +2649,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.post(
     '/users/me/mfa/setup',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       schema: {
         tags: ['Users'],
         summary: 'Start MFA setup',
@@ -2589,7 +2761,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.post(
     '/users/me/mfa/confirm',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       schema: {
         tags: ['Users'],
         summary: 'Confirm MFA setup with verification code',
@@ -2639,6 +2811,7 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       let verified = false;
+      let totpStep: number | null = null;
       if (method === 'totp') {
         if (user?.totpSecretEnc == null) {
           await reply.status(400).send({ error: 'TOTP not set up', code: 'TOTP_NOT_CONFIGURED' });
@@ -2647,7 +2820,8 @@ export function userRoutes(app: FastifyInstance): void {
         const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
         try {
           const secret = decryptString(user.totpSecretEnc, encKey);
-          verified = verifyTotpCode(secret, code);
+          totpStep = matchTotpStep(secret, code);
+          verified = totpStep != null;
         } catch (err: unknown) {
           // Stored TOTP secret cannot be decrypted (e.g. SETTINGS_ENCRYPTION_KEY
           // rotated, ciphertext corrupted). Surface as a clean MFA failure
@@ -2656,7 +2830,7 @@ export function userRoutes(app: FastifyInstance): void {
           verified = false;
         }
       } else if (challengeId != null) {
-        verified = await verifyMfaChallenge(client, challengeId, code, { userId });
+        verified = (await verifyMfaChallenge(client, challengeId, code, { userId })) === 'verified';
       }
 
       if (!verified) {
@@ -2666,12 +2840,27 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // The confirming TOTP code cannot be replayed at the next sign-in.
       await db
         .update(users)
-        .set({ mfaEnabled: true, mfaMethod: method, updatedAt: new Date() })
+        .set({
+          mfaEnabled: true,
+          mfaMethod: method,
+          totpLastStep: totpStep,
+          mfaFailedCount: 0,
+          mfaLockedUntil: null,
+          updatedAt: new Date(),
+        })
         .where(eq(users.id, userId));
 
-      await revokeAllUserSessions(userId);
+      // End every other session (session version and refresh tokens) and
+      // give this browser a new one; API keys stay.
+      const sessionVersion = (await endUserSessions(userId, { apiKeys: false })) ?? 0;
+      await issueOperatorSession(app, request, reply, {
+        id: userId,
+        roleId: (request.user as JwtPayload).roleId,
+        sessionVersion,
+      });
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -2698,7 +2887,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.delete(
     '/users/me/mfa',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       // Throttle so a stolen session cookie can't be used to brute-force the
       // password (each request hits argon2.verify with the supplied value).
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
@@ -2734,7 +2923,7 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const valid = await argon2.verify(user.passwordHash, password);
+      const valid = await verifyPassword(user.passwordHash, password, request.log);
       if (!valid) {
         await reply.status(400).send({ error: 'Invalid password', code: 'INVALID_PASSWORD' });
         return;
@@ -2746,11 +2935,18 @@ export function userRoutes(app: FastifyInstance): void {
           mfaEnabled: false,
           mfaMethod: null,
           totpSecretEnc: null,
+          totpLastStep: null,
           updatedAt: new Date(),
         })
         .where(eq(users.id, userId));
 
-      await revokeAllUserSessions(userId);
+      // End every other session and give this browser a new one; API keys stay.
+      const sessionVersion = (await endUserSessions(userId, { apiKeys: false })) ?? 0;
+      await issueOperatorSession(app, request, reply, {
+        id: userId,
+        roleId: (request.user as JwtPayload).roleId,
+        sessionVersion,
+      });
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -2820,7 +3016,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/notification-preferences',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService({ allowApiKey: true })],
       schema: {
         tags: ['Users'],
         summary: 'Get operator notification preferences',
@@ -2845,7 +3041,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.put(
     '/users/me/notification-preferences',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       schema: {
         tags: ['Users'],
         summary: 'Update operator notification preferences',
@@ -2920,7 +3116,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/chatbot-ai-config',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       schema: {
         tags: ['Users'],
         summary: 'Get personal AI configuration',
@@ -2988,7 +3184,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.put(
     '/users/me/chatbot-ai-config',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       schema: {
         tags: ['Users'],
         summary: 'Create or update personal AI configuration',
@@ -3050,7 +3246,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.delete(
     '/users/me/chatbot-ai-config',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       schema: {
         tags: ['Users'],
         summary: 'Delete personal AI configuration',
@@ -3130,7 +3326,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/support-ai-config',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       schema: {
         tags: ['Users'],
         summary: 'Get personal support AI configuration',
@@ -3206,7 +3402,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.put(
     '/users/me/support-ai-config',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       schema: {
         tags: ['Users'],
         summary: 'Create or update personal support AI configuration',
@@ -3278,7 +3474,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.delete(
     '/users/me/support-ai-config',
     {
-      onRequest: [app.authenticate],
+      onRequest: [selfService()],
       schema: {
         tags: ['Users'],
         summary: 'Delete personal support AI configuration',
@@ -3372,7 +3568,7 @@ export function userRoutes(app: FastifyInstance): void {
   app.get(
     '/users/me/permissions',
     {
-      onRequest: [authorize('users:read')],
+      onRequest: [selfService({ allowApiKey: true })],
       schema: {
         tags: ['Users'],
         summary: 'Get current user permissions',
@@ -3493,21 +3689,26 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Capture before-permissions for the audit row
-      const beforePermRows = await db
-        .select({ permission: userPermissions.permission })
-        .from(userPermissions)
-        .where(eq(userPermissions.userId, id));
-
-      // Replace all permissions
-      await db.delete(userPermissions).where(eq(userPermissions.userId, id));
-      if (permissions.length > 0) {
-        await db
-          .insert(userPermissions)
-          .values(permissions.map((p) => ({ userId: id, permission: p })))
-          .onConflictDoNothing();
-      }
+      // One transaction: the before snapshot, the replacement and the
+      // session version (access tokens of the old permissions end) commit
+      // together or not at all.
+      const beforePermRows = await db.transaction(async (tx) => {
+        const before = await tx
+          .select({ permission: userPermissions.permission })
+          .from(userPermissions)
+          .where(eq(userPermissions.userId, id));
+        await tx.delete(userPermissions).where(eq(userPermissions.userId, id));
+        if (permissions.length > 0) {
+          await tx
+            .insert(userPermissions)
+            .values(permissions.map((p) => ({ userId: id, permission: p })))
+            .onConflictDoNothing();
+        }
+        await bumpSessionVersion(id, tx);
+        return before;
+      });
       invalidatePermissionCache(id);
+      announceSessionChange(id);
 
       const auditActor = getAuditActor(request);
       await writeAudit(

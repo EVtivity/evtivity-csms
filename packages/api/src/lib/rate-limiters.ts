@@ -82,24 +82,6 @@ export function isApiKeyRateLimited(tokenHash: string): boolean {
   return false;
 }
 
-// Per-challengeId MFA attempt tracker: max 5 failed attempts per challenge
-const mfaChallengeAttempts = new Map<number, number>();
-const MFA_MAX_ATTEMPTS = 5;
-
-export function isMfaChallengeExhausted(challengeId: number): boolean {
-  const attempts = mfaChallengeAttempts.get(challengeId) ?? 0;
-  return attempts >= MFA_MAX_ATTEMPTS;
-}
-
-export function recordMfaChallengeAttempt(challengeId: number): void {
-  const attempts = mfaChallengeAttempts.get(challengeId) ?? 0;
-  mfaChallengeAttempts.set(challengeId, attempts + 1);
-}
-
-export function clearMfaChallengeAttempts(challengeId: number): void {
-  mfaChallengeAttempts.delete(challengeId);
-}
-
 // Per-IP rate limiter for guest session endpoints: 30 requests per minute
 const guestSessionRateLimit = new Map<string, number[]>();
 const GUEST_SESSION_RATE_LIMIT = 30;

@@ -48,6 +48,7 @@ export const AUDIT_ACTORS = ['operator', 'driver', 'api_key', 'system', 'ocpp'] 
 // packages/database/src/schema/audit.ts, sorted. Labels: audit.actions.<action>.
 // audit-labels.test.ts fails when an enum value is missing here or has no en label.
 export const AUDIT_ACTIONS = [
+  'account_locked',
   'action_confirmed',
   'action_rejected',
   'activated',
@@ -73,6 +74,8 @@ export const AUDIT_ACTIONS = [
   'carbon_region_changed',
   'category_changed',
   'cdr_credited',
+  'cdr_push_retried',
+  'cdr_reissued',
   'certificate_deleted',
   'certificate_installed',
   'command_dispatched',
@@ -123,6 +126,7 @@ export const AUDIT_ACTIONS = [
   'message_added',
   'mfa_disabled',
   'mfa_enabled',
+  'mfa_reset',
   'monitoring_changed',
   'nevi_data_changed',
   'onboarding_status_changed',

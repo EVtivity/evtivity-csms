@@ -35,7 +35,7 @@ interface CacheInvalidateMessage {
  * and the worker drop their in-process caches the instant another pod handles
  * a mutation. Without this listener peers serve stale state for up to the
  * cache TTL (60s permissions / site access / notification settings / security
- * settings, 30s isUserActive).
+ * settings, 30s user status and session version).
  *
  * Per-user kinds (`permission`, `site`, `active`) come from invalidatePermissionCache,
  * invalidateSiteAccessCache, invalidateUserActiveCache. Each helper clears its

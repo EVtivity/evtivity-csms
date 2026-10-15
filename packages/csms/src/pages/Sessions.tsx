@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router';
@@ -35,27 +35,71 @@ interface Station {
 export function Sessions(): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
-  // ?siteId=<id>&costMissing=true lists a site's sessions without an electricity cost.
-  const [searchParams] = useSearchParams();
-  const [filterSiteId, setFilterSiteId] = useState(() => searchParams.get('siteId') ?? '');
-  const [filterStationId, setFilterStationId] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterCostMissing, setFilterCostMissing] = useState(
-    () => searchParams.get('costMissing') === 'true',
+  // The filters and the search live in the URL (?siteId=, ?stationId=,
+  // ?status=, ?costMissing=true, ?search=), so Back, a reload and a shared
+  // link keep them. ?siteId=<id>&costMissing=true lists a site's sessions
+  // without an electricity cost.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const filterSiteId = searchParams.get('siteId') ?? '';
+  const filterStationId = searchParams.get('stationId') ?? '';
+  const filterStatus = searchParams.get('status') ?? '';
+  const filterCostMissing = searchParams.get('costMissing') === 'true';
+  const setFilters = useCallback(
+    (changes: Record<string, string>) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          for (const [key, value] of Object.entries(changes)) {
+            if (value === '') next.delete(key);
+            else next.set(key, value);
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
   );
 
   const { data: sites } = useQuery({
     queryKey: ['sites'],
     queryFn: () => api.get<{ data: Site[]; total: number }>('/v1/sites?limit=100'),
   });
+  // The filter lists hold the first 100 sites and stations. A selected one
+  // past them (a link to a later site) is loaded by id, so the filter shows it.
+  const siteListed = filterSiteId === '' || sites?.data.some((s) => s.id === filterSiteId);
+  const { data: selectedSite } = useQuery({
+    queryKey: ['sites', filterSiteId],
+    queryFn: () => api.get<Site>(`/v1/sites/${filterSiteId}`),
+    enabled: sites != null && siteListed !== true,
+  });
+  const siteOptions = useMemo(() => {
+    const list = sites?.data ?? [];
+    return selectedSite != null && !list.some((s) => s.id === selectedSite.id)
+      ? [...list, selectedSite]
+      : list;
+  }, [sites, selectedSite]);
 
   const stationQueryUrl = filterSiteId
     ? `/v1/stations?limit=100&siteId=${filterSiteId}`
     : '/v1/stations?limit=100';
   const { data: stations } = useQuery({
-    queryKey: ['stations', filterSiteId],
+    queryKey: ['stations', 'filter-options', filterSiteId],
     queryFn: () => api.get<{ data: Station[]; total: number }>(stationQueryUrl),
   });
+  const stationListed =
+    filterStationId === '' || stations?.data.some((s) => s.id === filterStationId);
+  const { data: selectedStation } = useQuery({
+    queryKey: ['stations', filterStationId],
+    queryFn: () => api.get<Station>(`/v1/stations/${filterStationId}`),
+    enabled: stations != null && stationListed !== true,
+  });
+  const stationOptions = useMemo(() => {
+    const list = stations?.data ?? [];
+    return selectedStation != null && !list.some((s) => s.id === selectedStation.id)
+      ? [...list, selectedStation]
+      : list;
+  }, [stations, selectedStation]);
 
   const extraParams = useMemo(() => {
     const params: Record<string, string> = {};
@@ -65,22 +109,32 @@ export function Sessions(): React.JSX.Element {
     if (filterCostMissing) params.costMissing = 'true';
     return Object.keys(params).length > 0 ? params : undefined;
   }, [filterSiteId, filterStationId, filterStatus, filterCostMissing]);
-  const filterSiteName = sites?.data.find((s) => s.id === filterSiteId)?.name;
+  const filterSiteName = siteOptions.find((s) => s.id === filterSiteId)?.name;
 
   // A link can open the list already searched (`?search=`).
   const {
     data: sessions,
     isLoading,
+    isError,
+    refetch,
     page,
     totalPages,
     setPage,
     search,
-    setSearch,
+    setSearch: setListSearch,
   } = usePaginatedQuery<Session>(
     'sessions',
     '/v1/sessions',
     extraParams,
     searchParams.get('search') ?? '',
+  );
+
+  const setSearch = useCallback(
+    (value: string) => {
+      setListSearch(value);
+      setFilters({ search: value });
+    },
+    [setListSearch, setFilters],
   );
 
   const { visibility, setVisibility } = useColumnVisibility('sessions', SESSIONS_COLUMNS);
@@ -110,12 +164,11 @@ export function Sessions(): React.JSX.Element {
                 className="h-10"
                 value={filterSiteId}
                 onChange={(e) => {
-                  setFilterSiteId(e.target.value);
-                  setFilterStationId('');
+                  setFilters({ siteId: e.target.value, stationId: '' });
                 }}
               >
                 <option value="">{t('sessions.allSites')}</option>
-                {sites?.data.map((s) => (
+                {siteOptions.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>
@@ -129,11 +182,11 @@ export function Sessions(): React.JSX.Element {
                 className="h-10"
                 value={filterStationId}
                 onChange={(e) => {
-                  setFilterStationId(e.target.value);
+                  setFilters({ stationId: e.target.value });
                 }}
               >
                 <option value="">{t('sessions.allStations')}</option>
-                {stations?.data.map((s) => (
+                {stationOptions.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.stationId}
                   </option>
@@ -147,7 +200,7 @@ export function Sessions(): React.JSX.Element {
                 className="h-10"
                 value={filterStatus}
                 onChange={(e) => {
-                  setFilterStatus(e.target.value);
+                  setFilters({ status: e.target.value });
                 }}
               >
                 <option value="">{t('sessions.allStatuses')}</option>
@@ -166,7 +219,7 @@ export function Sessions(): React.JSX.Element {
                 className="h-10"
                 value={filterCostMissing ? 'missing' : ''}
                 onChange={(e) => {
-                  setFilterCostMissing(e.target.value === 'missing');
+                  setFilters({ costMissing: e.target.value === 'missing' ? 'true' : '' });
                 }}
               >
                 <option value="">{t('sessions.electricityCostAll')}</option>
@@ -196,10 +249,7 @@ export function Sessions(): React.JSX.Element {
                 <FilterPopover
                   activeCount={activeFilterCount}
                   onClearAll={() => {
-                    setFilterSiteId('');
-                    setFilterStationId('');
-                    setFilterStatus('');
-                    setFilterCostMissing(false);
+                    setFilters({ siteId: '', stationId: '', status: '', costMissing: '' });
                   }}
                 >
                   {filters}
@@ -246,6 +296,8 @@ export function Sessions(): React.JSX.Element {
             onPageChange={setPage}
             timezone={timezone}
             isLoading={isLoading}
+            isError={isError}
+            onRetry={refetch}
             visibility={visibility}
           />
         </CardContent>

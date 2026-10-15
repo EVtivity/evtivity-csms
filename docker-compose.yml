@@ -113,6 +113,9 @@ services:
       NOTIFICATIONS_ALLOW_TEST_SINK: ${NOTIFICATIONS_ALLOW_TEST_SINK:-false}
       NOTIFICATIONS_TEST_SINK_URL: ${NOTIFICATIONS_TEST_SINK_URL:-}
       CORS_ORIGIN: local
+      # Proxy IPs or CIDRs whose X-Forwarded-For is trusted. Empty: the ports are
+      # published directly, so the socket address is the client.
+      TRUST_PROXY: ${TRUST_PROXY:-}
       LOG_LEVEL: info
       NODE_ENV: development
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-3000}
@@ -286,6 +289,7 @@ services:
       OCPI_COUNTRY_CODE: US
       OCPI_PARTY_ID: EVT
       OCPI_BUSINESS_NAME: EVtivity
+      TRUST_PROXY: ${TRUST_PROXY:-}
       LOG_LEVEL: info
     healthcheck:
       test:

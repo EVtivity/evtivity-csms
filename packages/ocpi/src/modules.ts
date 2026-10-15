@@ -16,7 +16,6 @@ import { emspSessionRoutes } from './routes/emsp/sessions.js';
 import { emspCdrRoutes } from './routes/emsp/cdrs.js';
 import { emspTariffRoutes } from './routes/emsp/tariffs.js';
 import { emspTokenRoutes } from './routes/emsp/tokens.js';
-import { emspCommandRoutes } from './routes/emsp/commands.js';
 import { hubClientInfoRoutes } from './routes/hubclientinfo.js';
 
 export interface OcpiModuleEndpoint {
@@ -83,9 +82,9 @@ export const OCPI_MODULES: readonly OcpiModule[] = [
   },
   {
     identifier: 'commands',
-    // Only the CPO receiver is advertised; the eMSP routes take command result callbacks.
+    // We send no commands as eMSP: only the CPO receiver.
     endpoints: [{ role: 'RECEIVER', path: 'cpo/commands' }],
-    routes: [cpoCommandRoutes, emspCommandRoutes],
+    routes: [cpoCommandRoutes],
   },
   {
     identifier: 'hubclientinfo',

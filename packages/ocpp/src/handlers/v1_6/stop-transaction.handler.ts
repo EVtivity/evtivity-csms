@@ -21,6 +21,25 @@ export async function handleStopTransaction(ctx: HandlerContext): Promise<Record
     'StopTransaction received (1.6)',
   );
 
+  // The transactionData readings belong to the transaction: published before
+  // the wait below, so the station lane projects them while the session is
+  // still active and they count in the energy and the price the Ended
+  // settles. Published after the Ended, they reached an ended session.
+  if (request.transactionData != null && Array.isArray(request.transactionData)) {
+    await ctx.eventBus.publish({
+      eventType: 'ocpp.MeterValues',
+      aggregateType: 'EVSE',
+      aggregateId: ctx.stationId,
+      payload: {
+        stationId: ctx.stationId,
+        evseId: 0,
+        meterValues: request.transactionData,
+        transactionId: String(request.transactionId),
+        source: 'TransactionEvent',
+      },
+    });
+  }
+
   // The station's MeterValues and StatusNotifications run on the station
   // projection lane, the stop on the transaction lane, in parallel. A station
   // that replays its offline queue sends the readings before the stop within
@@ -47,22 +66,6 @@ export async function handleStopTransaction(ctx: HandlerContext): Promise<Record
       meterStop: request.meterStop,
     },
   });
-
-  // Emit meter values from transactionData if present
-  if (request.transactionData != null && Array.isArray(request.transactionData)) {
-    await ctx.eventBus.publish({
-      eventType: 'ocpp.MeterValues',
-      aggregateType: 'EVSE',
-      aggregateId: ctx.stationId,
-      payload: {
-        stationId: ctx.stationId,
-        evseId: 0,
-        meterValues: request.transactionData,
-        transactionId: String(request.transactionId),
-        source: 'TransactionEvent',
-      },
-    });
-  }
 
   const response: Record<string, unknown> = {};
   if (request.idTag != null) {

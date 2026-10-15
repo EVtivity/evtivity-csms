@@ -407,6 +407,23 @@ describe('cost writes', () => {
       '2026-06-04T01:00:00.000Z',
       { json: zeroCostBreakdown('net') },
       'ses_1',
+      null,
+      null,
+    ]);
+
+    // With notUpdatedSince, a session updated after it is left alone (the
+    // stale cleanup recheck).
+    const guarded = makeSql([['UPDATE charging_sessions', [{ id: 'ses_1' }]]]);
+    await faultUnbilledSession(guarded.sql, {
+      sessionId: 'ses_1',
+      reason: 'StaleSession',
+      endedAt,
+      notUpdatedSince: new Date('2026-06-04T02:00:00Z'),
+    });
+    expect(guarded.calls[0]?.text).toContain('updated_at <= ?::timestamptz');
+    expect(guarded.calls[0]?.values.slice(-2)).toEqual([
+      '2026-06-04T02:00:00.000Z',
+      '2026-06-04T02:00:00.000Z',
     ]);
 
     // A session that is no longer active is left alone (P5).

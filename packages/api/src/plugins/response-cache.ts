@@ -137,6 +137,14 @@ declare module 'fastify' {
   interface FastifyRequest {
     responseCacheCtx: CacheCtx | null;
   }
+  interface FastifyContextConfig {
+    /**
+     * Cache tags a successful write of this route busts besides its own
+     * resource's (tagsForWrite): a station route that ends a session also
+     * changes the session lists.
+     */
+    invalidatesCacheTags?: readonly string[];
+  }
 }
 
 export interface ResponseCacheRedis {
@@ -339,10 +347,14 @@ export function registerResponseCache(app: FastifyInstance): void {
     const pathname = request.url.split('?')[0] ?? request.url;
     const resource = extractWriteResource(pathname);
     if (resource == null) return;
+    const tags = new Set([
+      ...tagsForWrite(resource),
+      ...(request.routeOptions.config.invalidatesCacheTags ?? []),
+    ]);
 
     try {
       const redis = getCacheRedis();
-      await Promise.all(tagsForWrite(resource).map((tag) => redis.incr(`rc:ver:${tag}`)));
+      await Promise.all([...tags].map((tag) => redis.incr(`rc:ver:${tag}`)));
     } catch (err) {
       logger.debug(
         { err, resource },

@@ -119,7 +119,7 @@ vi.mock('@evtivity/lib', () => ({
   verifyRecaptcha: vi.fn().mockResolvedValue({ success: true }),
   decryptString: vi.fn().mockReturnValue('decrypted'),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 1, code: '123456' }),
-  verifyMfaChallenge: vi.fn().mockResolvedValue(true),
+  verifyMfaChallenge: vi.fn().mockResolvedValue('verified'),
   verifyTotpCode: vi.fn().mockReturnValue(true),
 }));
 

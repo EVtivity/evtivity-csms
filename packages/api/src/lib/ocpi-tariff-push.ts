@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { isRoamingEnabled } from '@evtivity/database';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, OCPI_TARIFF_SETTING_KEYS } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 const logger = createLogger('ocpi-tariff-push');
@@ -27,6 +27,8 @@ export async function publishOcpiTariffPush(change: {
   targets?: OcpiTariffPushTarget[];
   tariffId?: string | null;
   pricingGroupId?: string | null;
+  /** A setting every tariff is rendered with changed: every mapping is pushed. */
+  settingsChanged?: boolean;
 }): Promise<void> {
   try {
     if (!(await isRoamingEnabled())) return;
@@ -34,4 +36,19 @@ export async function publishOcpiTariffPush(change: {
   } catch (err) {
     logger.warn({ err }, 'OCPI tariff push publish failed; partners get it on their next pull');
   }
+}
+
+/**
+ * Pushes every published tariff again after a change to a setting they are
+ * all rendered with (currency, tax basis, idle grace). Unchanged values push
+ * nothing.
+ */
+export async function publishOcpiTariffSettingChange(
+  key: string,
+  before: unknown,
+  after: unknown,
+): Promise<void> {
+  if (!(OCPI_TARIFF_SETTING_KEYS as readonly string[]).includes(key)) return;
+  if (JSON.stringify(before) === JSON.stringify(after)) return;
+  await publishOcpiTariffPush({ settingsChanged: true });
 }

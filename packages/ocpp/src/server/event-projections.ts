@@ -2236,7 +2236,10 @@ export function registerProjections(
           () => sql`
             WITH prev AS (SELECT is_online FROM charging_stations WHERE id = ${loggedStationUuid})
             UPDATE charging_stations
-            SET last_heartbeat = now(), is_online = true
+            SET last_heartbeat = now(), is_online = true,
+              -- Coming back online changes the published OCPI EVSE status
+              -- (UNKNOWN while offline), so it moves last_updated.
+              updated_at = CASE WHEN is_online = false THEN now() ELSE updated_at END
             WHERE id = ${loggedStationUuid}
               AND (is_online = false OR last_heartbeat IS NULL
                 OR last_heartbeat < now() - make_interval(secs => ${LIVENESS_WRITE_INTERVAL_SECONDS}))

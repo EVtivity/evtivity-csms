@@ -53,6 +53,7 @@ import {
   electricityRateRestrictionsSchema,
   deriveElectricityRatePriority,
   STATION_MESSAGE_LANGUAGES,
+  isKnownCountry,
 } from '@evtivity/lib';
 import type { ElectricityRatePeriodRestrictions } from '@evtivity/lib';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
@@ -87,7 +88,12 @@ import { requestStationMessageRepush } from '@evtivity/services/station-message.
 import { recalculateSiteElectricityCost } from '@evtivity/services/electricity-cost.service';
 import { setSiteFreeVend } from '../services/free-vend.service.js';
 import { siteInScope } from '../lib/site-scope.js';
-import { publishOcpiLocationPush } from '../lib/ocpi-location-push.js';
+import {
+  captureDeletedSiteLocation,
+  publishOcpiDeletedSiteLocation,
+  publishOcpiLocationPush,
+} from '../lib/ocpi-location-push.js';
+import type { DeletedSiteLocation } from '../lib/ocpi-location-push.js';
 
 const importSiteRow = z.object({
   siteName: z.string().min(1).max(255),
@@ -182,6 +188,11 @@ const hoursOfOperationField = z
     return trimmed === '' ? null : trimmed;
   });
 
+// Roaming partners get the site's country as an ISO 3166-1 alpha-3 code
+// (OCPI Location.country), so a site takes only a value that converts to one.
+const COUNTRY_MESSAGE = 'Unknown country: use an ISO 3166-1 code or the English country name';
+const emptyOrCountry = (value: string): boolean => value.trim() === '' || isKnownCountry(value);
+
 const createSiteBody = z.object({
   name: z
     .string()
@@ -193,7 +204,12 @@ const createSiteBody = z.object({
   city: z.string().max(255).optional(),
   state: z.string().max(100).optional(),
   postalCode: z.string().max(20).optional(),
-  country: z.string().max(100).optional(),
+  country: z
+    .string()
+    .max(100)
+    .refine(emptyOrCountry, { message: COUNTRY_MESSAGE })
+    .optional()
+    .describe('Country: ISO 3166-1 alpha-2 or alpha-3 code, or English name'),
   latitude: latitudeField.optional(),
   longitude: longitudeField.optional(),
   timezone: z
@@ -243,7 +259,10 @@ const updateSiteBody = z.object({
   city: clearable(z.string().max(255), 'City name'),
   state: clearable(z.string().max(100), 'State, province, or region'),
   postalCode: clearable(z.string().max(20), 'Postal or ZIP code'),
-  country: clearable(z.string().max(100), 'Country name or ISO code'),
+  country: clearable(
+    z.string().max(100).refine(emptyOrCountry, { message: COUNTRY_MESSAGE }),
+    'Country: ISO 3166-1 alpha-2 or alpha-3 code, or English name',
+  ),
   latitude: clearable(
     z
       .string()
@@ -1263,6 +1282,7 @@ export function siteRoutes(app: FastifyInstance): void {
             kind: 'deleted';
             site: typeof sites.$inferSelect;
             paymentConfig: typeof sitePaymentConfigs.$inferSelect | null;
+            ocpiLocation: DeletedSiteLocation | null;
           };
       try {
         outcome = await db.transaction(async (tx) => {
@@ -1288,8 +1308,16 @@ export function siteRoutes(app: FastifyInstance): void {
               .limit(1);
             if (payment != null) return { kind: 'payments' as const };
           }
+          // The delete cascades the publish row and the removed EVSEs: read
+          // the location partners have before it goes.
+          const ocpiLocation = await captureDeletedSiteLocation(locked, request.log);
           await tx.delete(sites).where(eq(sites.id, id));
-          return { kind: 'deleted' as const, site: locked, paymentConfig: paymentConfig ?? null };
+          return {
+            kind: 'deleted' as const,
+            site: locked,
+            paymentConfig: paymentConfig ?? null,
+            ocpiLocation,
+          };
         });
       } catch (err) {
         // A row written after the checks (outside the lock order) still names
@@ -1316,7 +1344,8 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(409).send(hasPaymentsBody);
         return;
       }
-      const { site, paymentConfig } = outcome;
+      const { site, paymentConfig, ocpiLocation } = outcome;
+      if (ocpiLocation != null) await publishOcpiDeletedSiteLocation(ocpiLocation, request.log);
       const actor = getAuditActor(request);
       await writeAudit(
         { table: siteAuditLog, idColumn: 'site_id' },

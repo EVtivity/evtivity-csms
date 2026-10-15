@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { chargingSessions, ACCOUNT_INVOICE_RECIPIENTS } from '@evtivity/database';
 import type { AccountBilling } from '@evtivity/database';
 
@@ -93,6 +94,18 @@ export function sessionAccountBillingColumns() {
       string | null
     >`(SELECT i.invoice_number FROM invoices i WHERE i.id = ${chargingSessions.invoiceId})`,
   };
+}
+
+/**
+ * SQL: the session is invoiced to its fleet, not to the driver (the
+ * `invoicedTo: 'fleet'` case of `toSessionAccountBilling`): stamped
+ * `account`, not member billed, a fleet, and no payment record.
+ */
+export function billedToFleetSql(): SQL {
+  return sql`(${chargingSessions.billingMode} = 'account'
+    AND NOT ${chargingSessions.memberBilled}
+    AND ${chargingSessions.billingFleetId} IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM payment_records pr WHERE pr.session_id = ${chargingSessions.id}))`;
 }
 
 export interface SessionAccountBillingRow {

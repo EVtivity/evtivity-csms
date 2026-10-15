@@ -2,13 +2,20 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull } from 'drizzle-orm';
 import { db, ocpiRoamingSessions } from '@evtivity/database';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
+import { ocpiParamLimits } from '../../middleware/ocpi-params.js';
 import { namespaceMismatch } from '../../lib/namespace-check.js';
 import { notifyRoamingSessionChanged } from '../../lib/pubsub.js';
 import { priceExclTax } from '../../lib/ocpi-price.js';
+import {
+  bodyIdentityMismatch,
+  fitsOcpiString,
+  patchChangesIdentity,
+} from '../../lib/ocpi-fields.js';
+import { receivedSessionUpdateAllowed } from '../../lib/received-session-order.js';
 import type { OcpiVersion, OcpiSession } from '../../types/ocpi.js';
 
 // total_cost is optional; when present it must be a Price of the route's
@@ -25,12 +32,88 @@ function isValidSession(body: unknown, version: OcpiVersion): body is OcpiSessio
     typeof obj['country_code'] === 'string' &&
     typeof obj['party_id'] === 'string' &&
     typeof obj['start_date_time'] === 'string' &&
-    typeof obj['status'] === 'string' &&
-    typeof obj['currency'] === 'string' &&
+    typeof obj['kwh'] === 'number' &&
+    Number.isFinite(obj['kwh']) &&
+    fitsOcpiString(obj['status'], 20) &&
+    fitsOcpiString(obj['currency'], 3) &&
     cdrToken != null &&
-    typeof cdrToken.uid === 'string' &&
+    fitsOcpiString(cdrToken.uid, 36) &&
     (obj['total_cost'] == null || priceExclTax(obj['total_cost'], version) != null)
   );
+}
+
+// A PATCH cannot rename the session or move it to another party.
+const SESSION_IDENTITY_FIELDS = ['id', 'country_code', 'party_id'] as const;
+
+// Sessions the partner pushed to us as eMSP. Rows with a charging session are
+// our own CPO sessions linked to the partner; the receiver never reads or
+// writes those.
+function receivedSession(partnerId: string, sessionId: string) {
+  return and(
+    eq(ocpiRoamingSessions.partnerId, partnerId),
+    eq(ocpiRoamingSessions.ocpiSessionId, sessionId),
+    isNull(ocpiRoamingSessions.chargingSessionId),
+  );
+}
+
+interface SessionColumns {
+  status: string;
+  kwh: string;
+  totalCost: string | null;
+  currency: string;
+  sessionData: OcpiSession;
+}
+
+/**
+ * Upsert a received session under the row lock, applying the ordering guard.
+ * Returns false when the stored session is newer (the update is ignored).
+ */
+async function upsertReceivedSession(
+  partnerId: string,
+  sessionId: string,
+  tokenUid: string,
+  columns: SessionColumns,
+): Promise<boolean> {
+  // Two attempts: an insert that loses the race against a concurrent first
+  // PUT of the same session finds the row on the second pass.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const outcome = await db.transaction(async (tx): Promise<'applied' | 'stale' | 'retry'> => {
+      const [existing] = await tx
+        .select({ id: ocpiRoamingSessions.id, sessionData: ocpiRoamingSessions.sessionData })
+        .from(ocpiRoamingSessions)
+        .where(receivedSession(partnerId, sessionId))
+        .for('update')
+        .limit(1);
+
+      if (existing != null) {
+        if (
+          !receivedSessionUpdateAllowed(
+            existing.sessionData as Record<string, unknown>,
+            columns.sessionData as unknown as Record<string, unknown>,
+          )
+        ) {
+          return 'stale';
+        }
+        await tx
+          .update(ocpiRoamingSessions)
+          .set({ ...columns, updatedAt: new Date() })
+          .where(eq(ocpiRoamingSessions.id, existing.id));
+        return 'applied';
+      }
+
+      const inserted = await tx
+        .insert(ocpiRoamingSessions)
+        .values({ partnerId, ocpiSessionId: sessionId, tokenUid, ...columns })
+        .onConflictDoNothing({
+          target: [ocpiRoamingSessions.partnerId, ocpiRoamingSessions.ocpiSessionId],
+          where: isNull(ocpiRoamingSessions.chargingSessionId),
+        })
+        .returning({ id: ocpiRoamingSessions.id });
+      return inserted.length > 0 ? 'applied' : 'retry';
+    });
+    if (outcome !== 'retry') return outcome === 'applied';
+  }
+  throw new Error('Received session upsert did not settle');
 }
 
 function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): void {
@@ -39,7 +122,7 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
   // GET /ocpi/{version}/emsp/sessions/:country_code/:party_id/:session_id
   app.get(
     `${prefix}/:country_code/:party_id/:session_id`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { session_id } = request.params as {
         country_code: string;
@@ -56,12 +139,7 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
       const [session] = await db
         .select()
         .from(ocpiRoamingSessions)
-        .where(
-          and(
-            eq(ocpiRoamingSessions.partnerId, partner.partnerId),
-            eq(ocpiRoamingSessions.ocpiSessionId, session_id),
-          ),
-        )
+        .where(receivedSession(partner.partnerId, session_id))
         .limit(1);
 
       if (session == null) {
@@ -76,7 +154,7 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
   // PUT /ocpi/{version}/emsp/sessions/:country_code/:party_id/:session_id - upsert session
   app.put(
     `${prefix}/:country_code/:party_id/:session_id`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, session_id } = request.params as {
         country_code: string;
@@ -105,47 +183,44 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
         return;
       }
 
-      const tokenUid = body.cdr_token.uid;
-      const kwh = String(body.kwh);
+      const mismatch = bodyIdentityMismatch(body as unknown as Record<string, unknown>, {
+        id: session_id,
+        country_code,
+        party_id,
+      });
+      if (mismatch != null) {
+        await reply
+          .status(400)
+          .send(
+            ocpiError(
+              OcpiStatusCode.CLIENT_INVALID_PARAMS,
+              `Session ${mismatch} does not match the URL`,
+            ),
+          );
+        return;
+      }
+
       // ocpi_roaming_sessions.total_cost holds the amount excluding tax.
       const exclTax = priceExclTax(body.total_cost, version);
-      const totalCost = exclTax != null ? String(exclTax) : null;
-      const currency = body.currency;
-
-      const [existing] = await db
-        .select({ id: ocpiRoamingSessions.id })
-        .from(ocpiRoamingSessions)
-        .where(
-          and(
-            eq(ocpiRoamingSessions.partnerId, partner.partnerId),
-            eq(ocpiRoamingSessions.ocpiSessionId, session_id),
-          ),
-        )
-        .limit(1);
-
-      if (existing != null) {
-        await db
-          .update(ocpiRoamingSessions)
-          .set({
-            status: body.status,
-            kwh,
-            totalCost,
-            currency,
-            sessionData: body,
-            updatedAt: new Date(),
-          })
-          .where(eq(ocpiRoamingSessions.id, existing.id));
-      } else {
-        await db.insert(ocpiRoamingSessions).values({
-          partnerId: partner.partnerId,
-          ocpiSessionId: session_id,
-          tokenUid,
+      const applied = await upsertReceivedSession(
+        partner.partnerId,
+        session_id,
+        body.cdr_token.uid,
+        {
           status: body.status,
-          kwh,
-          totalCost,
-          currency,
+          kwh: String(body.kwh),
+          totalCost: exclTax != null ? String(exclTax) : null,
+          currency: body.currency,
           sessionData: body,
-        });
+        },
+      );
+
+      if (!applied) {
+        request.log.info(
+          { partnerId: partner.partnerId, sessionId: session_id },
+          'Ignored a received session older than the stored one',
+        );
+        return ocpiSuccess(null);
       }
 
       // Tell the CSMS so the Roaming Sessions page reloads itself.
@@ -158,7 +233,7 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
   // PATCH /ocpi/{version}/emsp/sessions/:country_code/:party_id/:session_id - partial update
   app.patch(
     `${prefix}/:country_code/:party_id/:session_id`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, session_id } = request.params as {
         country_code: string;
@@ -180,7 +255,7 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
       }
 
       const rawPatch = request.body;
-      if (rawPatch == null || typeof rawPatch !== 'object') {
+      if (rawPatch == null || typeof rawPatch !== 'object' || Array.isArray(rawPatch)) {
         await reply
           .status(400)
           .send(
@@ -188,40 +263,36 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
           );
         return;
       }
+      const patch = rawPatch as Record<string, unknown>;
 
-      const [existing] = await db
-        .select()
-        .from(ocpiRoamingSessions)
-        .where(
-          and(
-            eq(ocpiRoamingSessions.partnerId, partner.partnerId),
-            eq(ocpiRoamingSessions.ocpiSessionId, session_id),
-          ),
-        )
-        .limit(1);
-
-      if (existing == null) {
-        await reply.status(404).send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Session not found'));
+      const identity = patchChangesIdentity(
+        patch,
+        { id: session_id, country_code, party_id },
+        SESSION_IDENTITY_FIELDS,
+      );
+      if (identity != null) {
+        await reply
+          .status(400)
+          .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, `Cannot change ${identity}`));
         return;
       }
 
-      const patch = rawPatch as Record<string, unknown>;
-      const currentData = existing.sessionData as Record<string, unknown>;
-      const mergedData = { ...currentData, ...patch } as unknown as OcpiSession;
-
       const updateFields: {
-        sessionData: OcpiSession;
+        sessionData?: OcpiSession;
         updatedAt: Date;
         status?: string;
         kwh?: string;
         totalCost?: string | null;
         currency?: string;
-      } = {
-        sessionData: mergedData,
-        updatedAt: new Date(),
-      };
+      } = { updatedAt: new Date() };
 
-      if (typeof patch['status'] === 'string') {
+      if (patch['status'] != null) {
+        if (!fitsOcpiString(patch['status'], 20)) {
+          await reply
+            .status(400)
+            .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid status'));
+          return;
+        }
         updateFields.status = patch['status'];
       }
       if (typeof patch['kwh'] === 'number') {
@@ -237,14 +308,50 @@ function registerEmspSessionRoutes(app: FastifyInstance, version: OcpiVersion): 
         }
         updateFields.totalCost = String(exclTax);
       }
-      if (typeof patch['currency'] === 'string') {
+      if (patch['currency'] != null) {
+        if (!fitsOcpiString(patch['currency'], 3)) {
+          await reply
+            .status(400)
+            .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid currency'));
+          return;
+        }
         updateFields.currency = patch['currency'];
       }
 
-      await db
-        .update(ocpiRoamingSessions)
-        .set(updateFields)
-        .where(eq(ocpiRoamingSessions.id, existing.id));
+      const partnerId = partner.partnerId;
+      const outcome = await db.transaction(
+        async (tx): Promise<'not_found' | 'stale' | 'applied'> => {
+          const [existing] = await tx
+            .select({ id: ocpiRoamingSessions.id, sessionData: ocpiRoamingSessions.sessionData })
+            .from(ocpiRoamingSessions)
+            .where(receivedSession(partnerId, session_id))
+            .for('update')
+            .limit(1);
+          if (existing == null) return 'not_found';
+
+          const currentData = existing.sessionData as Record<string, unknown>;
+          const mergedData = { ...currentData, ...patch };
+          if (!receivedSessionUpdateAllowed(currentData, mergedData)) return 'stale';
+
+          await tx
+            .update(ocpiRoamingSessions)
+            .set({ ...updateFields, sessionData: mergedData })
+            .where(eq(ocpiRoamingSessions.id, existing.id));
+          return 'applied';
+        },
+      );
+
+      if (outcome === 'not_found') {
+        await reply.status(404).send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Session not found'));
+        return;
+      }
+      if (outcome === 'stale') {
+        request.log.info(
+          { partnerId, sessionId: session_id },
+          'Ignored a received session patch older than the stored session',
+        );
+        return ocpiSuccess(null);
+      }
 
       // Tell the CSMS so the Roaming Sessions page reloads itself.
       notifyRoamingSessionChanged();

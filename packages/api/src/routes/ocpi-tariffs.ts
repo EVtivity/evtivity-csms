@@ -33,6 +33,7 @@ import { publishOcpiTariffPush } from '../lib/ocpi-tariff-push.js';
 import type { OcpiTariffPushTarget } from '../lib/ocpi-tariff-push.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { OCPI_OBJECT_ID_PATTERN, OCPI_OBJECT_ID_MESSAGE } from '../lib/ocpi-object-id.js';
 
 interface MappingAuditState {
   id: number;
@@ -158,7 +159,10 @@ const ocpiTariffIdField = z
   .trim()
   .min(1)
   .max(36)
-  .describe('OCPI tariff id (Tariff.id, CiString(36)), unique per partner');
+  .refine((v) => OCPI_OBJECT_ID_PATTERN.test(v), { message: OCPI_OBJECT_ID_MESSAGE })
+  .describe(
+    'OCPI tariff id (Tariff.id, CiString(36)): 1 to 36 letters, digits, hyphens, periods, underscores or tildes, unique per partner',
+  );
 
 const createTariffMappingBody = z.object({
   ocpiTariffId: ocpiTariffIdField,

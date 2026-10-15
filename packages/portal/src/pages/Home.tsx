@@ -14,6 +14,7 @@ import { formatCents, formatEnergy, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { useHomeCards } from '@/lib/home-cards-store';
 import { HOME_CARDS, type HomeCardId } from '@/lib/home-cards';
+import { isUnchargedSession, sessionDisplayCostCents } from '@evtivity/lib/session-cost';
 
 interface Session {
   id: string;
@@ -187,11 +188,13 @@ export function Home(): React.JSX.Element {
                   <div className="text-right">
                     <p className="text-sm font-medium">{formatEnergy(session.energyDeliveredWh)}</p>
                     <p className="text-xs text-muted-foreground">
-                      {costContainsTax(session.finalCostCents, session.taxCents)
-                        ? t('common.amountInclTax', {
-                            amount: formatCents(session.finalCostCents, session.currency),
-                          })
-                        : formatCents(session.finalCostCents, session.currency)}
+                      {isUnchargedSession(session)
+                        ? t('common.notCharged')
+                        : costContainsTax(session.finalCostCents, session.taxCents)
+                          ? t('common.amountInclTax', {
+                              amount: formatCents(session.finalCostCents, session.currency),
+                            })
+                          : formatCents(sessionDisplayCostCents(session), session.currency)}
                     </p>
                   </div>
                 </CardContent>

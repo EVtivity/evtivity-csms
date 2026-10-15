@@ -45,7 +45,8 @@ export const COMMON_MEASURANDS = [
 ];
 
 interface MeterValuesTableProps {
-  queryKey: string;
+  /** Query key prefix, such as ['sessions', id, 'meter-values']: live events invalidate it. */
+  queryKey: string | readonly unknown[];
   url: string;
   description: string;
 }

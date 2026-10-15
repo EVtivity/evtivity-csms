@@ -60,7 +60,9 @@ export async function dispatchSessionReceiptIfDue(
            pr.captured_amount_cents
     FROM charging_sessions cs
     JOIN charging_stations st ON st.id = cs.station_id
-    LEFT JOIN sites si ON si.id = st.site_id
+    -- The site the session happened at; the station's current site only for
+    -- a row without one (inserted by an older release).
+    LEFT JOIN sites si ON si.id = COALESCE(cs.site_id, st.site_id)
     LEFT JOIN fleets f ON f.id = cs.billing_fleet_id
     LEFT JOIN LATERAL (
       SELECT status, failure_reason, captured_amount_cents FROM payment_records

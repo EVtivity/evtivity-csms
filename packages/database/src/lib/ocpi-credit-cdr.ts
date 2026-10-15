@@ -8,9 +8,9 @@
 // total_cost field SHALL contain the negative amounts of the original CDR."
 
 import crypto from 'node:crypto';
-import { eq, and, isNotNull, sql } from 'drizzle-orm';
+import { eq, and, isNotNull, isNull, sql } from 'drizzle-orm';
 import { db } from '../config.js';
-import { ocpiCdrs } from '../schema/ocpi.js';
+import { ocpiCdrs, ocpiRoamingSessions } from '../schema/ocpi.js';
 
 /**
  * An OCPI Price of either version with every amount negated: excl_vat and
@@ -115,12 +115,15 @@ export async function createCreditCdr(
     }
 
     const creditCdrId = crypto.randomUUID();
+    // last_updated and created_at are one instant (the CDRs sender filters
+    // and orders on created_at).
+    const now = new Date();
     const cdrData = creditCdrData(
       original.cdrData as Record<string, unknown>,
       originalCdrId,
       creditCdrId,
       reason,
-      new Date(),
+      now,
     );
     if (cdrData == null) return { status: 'invalid_cdr' };
 
@@ -135,6 +138,8 @@ export async function createCreditCdr(
       cdrData,
       isCredit: true,
       pushStatus: 'pending',
+      createdAt: now,
+      updatedAt: now,
     });
     return {
       status: 'created',
@@ -145,4 +150,145 @@ export async function createCreditCdr(
       partnerId: original.partnerId,
     };
   });
+}
+
+export type ReissueCdrResult =
+  | {
+      status: 'reissued';
+      chargingSessionId: string;
+      partnerId: string;
+      /** The session's superseded CDRs, counted after this reissue (the CDR job's generation). */
+      generation: number;
+      supersededCdrIds: string[];
+    }
+  /** Every CDR was superseded already and the new one is not issued yet (a repeat). */
+  | { status: 'pending'; chargingSessionId: string; generation: number }
+  | { status: 'not_found' }
+  /** A live CDR of the session has no credit CDR: credit it first (OCPI 10.1). */
+  | { status: 'not_credited'; cdrId: string };
+
+/**
+ * Asks for a new CDR of the session of one of our CDRs, after an operator
+ * credited it (OCPI 10.1: a sent CDR is never changed; a wrong one is
+ * credited and a new one is sent). Every live CDR of the session must have a
+ * credit CDR; they are marked superseded, and the OCPI server issues the new
+ * CDR (`issueSessionCdr` finds no live CDR) on the job the caller asks for.
+ * Runs under the same row lock as the CDR issue (the session's
+ * `ocpi_roaming_sessions` row), so a reissue and an issue never interleave,
+ * and a repeated reissue before the new CDR exists changes nothing.
+ */
+export async function supersedeCreditedSessionCdrs(cdrId: string): Promise<ReissueCdrResult> {
+  return db.transaction(async (tx): Promise<ReissueCdrResult> => {
+    const [cdr] = await tx
+      .select({ chargingSessionId: ocpiCdrs.chargingSessionId, partnerId: ocpiCdrs.partnerId })
+      .from(ocpiCdrs)
+      .where(and(eq(ocpiCdrs.ocpiCdrId, cdrId), isNotNull(ocpiCdrs.chargingSessionId)))
+      .limit(1);
+    const chargingSessionId = cdr?.chargingSessionId;
+    if (cdr == null || chargingSessionId == null) return { status: 'not_found' };
+
+    await tx
+      .select({ id: ocpiRoamingSessions.id })
+      .from(ocpiRoamingSessions)
+      .where(eq(ocpiRoamingSessions.chargingSessionId, chargingSessionId))
+      .for('update');
+
+    const live = await tx
+      .select({ id: ocpiCdrs.id, ocpiCdrId: ocpiCdrs.ocpiCdrId })
+      .from(ocpiCdrs)
+      .where(
+        and(
+          eq(ocpiCdrs.chargingSessionId, chargingSessionId),
+          eq(ocpiCdrs.isCredit, false),
+          isNull(ocpiCdrs.supersededAt),
+        ),
+      );
+    const superseded = async (): Promise<number> => {
+      const [row] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(ocpiCdrs)
+        .where(
+          and(
+            eq(ocpiCdrs.chargingSessionId, chargingSessionId),
+            eq(ocpiCdrs.isCredit, false),
+            isNotNull(ocpiCdrs.supersededAt),
+          ),
+        );
+      return row?.count ?? 0;
+    };
+    if (live.length === 0) {
+      return { status: 'pending', chargingSessionId, generation: await superseded() };
+    }
+
+    for (const row of live) {
+      const [credit] = await tx
+        .select({ id: ocpiCdrs.id })
+        .from(ocpiCdrs)
+        .where(
+          and(
+            eq(ocpiCdrs.chargingSessionId, chargingSessionId),
+            eq(ocpiCdrs.isCredit, true),
+            sql`${ocpiCdrs.cdrData}->>'credit_reference_id' = ${row.ocpiCdrId}`,
+          ),
+        )
+        .limit(1);
+      if (credit == null) return { status: 'not_credited', cdrId: row.ocpiCdrId };
+    }
+
+    const now = new Date();
+    for (const row of live) {
+      await tx
+        .update(ocpiCdrs)
+        .set({ supersededAt: now, updatedAt: now })
+        .where(eq(ocpiCdrs.id, row.id));
+    }
+    return {
+      status: 'reissued',
+      chargingSessionId,
+      partnerId: cdr.partnerId,
+      generation: await superseded(),
+      supersededCdrIds: live.map((r) => r.ocpiCdrId),
+    };
+  });
+}
+
+export type RetryCdrPushResult =
+  | { status: 'claimed'; chargingSessionId: string; partnerId: string; retry: string }
+  | { status: 'not_found' }
+  /** Only a failed push can be retried. */
+  | { status: 'not_failed'; pushStatus: string };
+
+/**
+ * Moves a failed CDR of ours back to pending so the OCPI server pushes it
+ * again. A compare-and-set on `failed`, so of two clicks only one wins (one
+ * push job); `retry` (the time of the claim) makes the job id of this retry.
+ */
+export async function claimCdrPushRetry(cdrId: string): Promise<RetryCdrPushResult> {
+  const now = new Date();
+  const [claimed] = await db
+    .update(ocpiCdrs)
+    .set({ pushStatus: 'pending', updatedAt: now })
+    .where(
+      and(
+        eq(ocpiCdrs.ocpiCdrId, cdrId),
+        isNotNull(ocpiCdrs.chargingSessionId),
+        eq(ocpiCdrs.pushStatus, 'failed'),
+      ),
+    )
+    .returning({ chargingSessionId: ocpiCdrs.chargingSessionId, partnerId: ocpiCdrs.partnerId });
+  if (claimed?.chargingSessionId != null) {
+    return {
+      status: 'claimed',
+      chargingSessionId: claimed.chargingSessionId,
+      partnerId: claimed.partnerId,
+      retry: String(now.getTime()),
+    };
+  }
+  const [row] = await db
+    .select({ pushStatus: ocpiCdrs.pushStatus })
+    .from(ocpiCdrs)
+    .where(and(eq(ocpiCdrs.ocpiCdrId, cdrId), isNotNull(ocpiCdrs.chargingSessionId)))
+    .limit(1);
+  if (row == null) return { status: 'not_found' };
+  return { status: 'not_failed', pushStatus: row.pushStatus };
 }

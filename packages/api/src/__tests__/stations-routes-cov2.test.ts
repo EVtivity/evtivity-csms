@@ -82,6 +82,7 @@ const tables = vi.hoisted(() => {
     'cssEvses',
     'maintenanceEvents',
     'stationAuditLog',
+    'sessionAuditLog',
   ];
   return Object.fromEntries(names.map((n) => [n, make(n)]));
 });
@@ -782,6 +783,17 @@ describe('Station routes - cov2', () => {
           ghostRecovered: false,
         },
       });
+      // The session's own history records the operator stop too.
+      const sessionRows = mocks.writeAudit.mock.calls
+        .filter((c) => (c[0] as { table: unknown }).table === tables['sessionAuditLog'])
+        .map((c) => c[1] as Record<string, unknown>);
+      expect(sessionRows).toEqual([
+        expect.objectContaining({
+          entityId: 'ses_1',
+          action: 'stopped_by_csms',
+          after: expect.objectContaining({ outcome: 'Accepted', ghostRecovered: false }),
+        }),
+      ]);
     });
 
     it('stop active session audits a station that did not answer', async () => {

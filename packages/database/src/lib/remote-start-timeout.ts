@@ -118,6 +118,10 @@ export async function remoteStartTimeoutDelayMs(station: {
 
 /** Stopped reason of a start closed because no EV was connected in time. */
 export const EV_CONNECT_TIMEOUT_REASON = 'EVConnectTimeout';
+/** Stopped reason of a portal start the station did not answer. */
+export const REMOTE_START_TIMEOUT_REASON = 'RemoteStartTimeout';
+/** Stopped reason of a portal start the station rejected. */
+export const REMOTE_START_REJECTED_REASON = 'RemoteStartRejected';
 
 export type UnstartedSessionOutcome =
   /** This call failed the session: it was active and no transaction was reported. */
@@ -139,18 +143,21 @@ export interface UnstartedSession {
 /**
  * Fails a remote-start session for which the station reported no
  * transaction (no TransactionEvent or StartTransaction was projected onto
- * it): status `failed`, stopped reason `EVConnectTimeout`, cost 0, written
+ * it): status `failed`, stopped reason `stoppedReason` (default
+ * `EVConnectTimeout`, the timeout job; the portal start route passes
+ * `RemoteStartTimeout` or `RemoteStartRejected`), cost 0, written
  * only while the session is still `active` (P5). A session that is already
  * failed or faulted and never started is reported `closed`, so a retried
  * job still releases its hold.
  */
 export async function failUnstartedRemoteSession(
   sessionId: string,
+  stoppedReason: string = EV_CONNECT_TIMEOUT_REASON,
 ): Promise<UnstartedSessionOutcome> {
   const [failed] = await db.execute<SessionRow>(sql`
     UPDATE charging_sessions cs
     SET status = 'failed',
-        stopped_reason = ${EV_CONNECT_TIMEOUT_REASON},
+        stopped_reason = ${stoppedReason},
         ended_at = now(),
         final_cost_cents = 0,
         current_cost_cents = 0,

@@ -454,8 +454,7 @@ async function sessionsInScope(sessionIds: string[], siteIds: string[] | null): 
   const rows = await db
     .select({ id: chargingSessions.id })
     .from(chargingSessions)
-    .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-    .where(and(inArray(chargingSessions.id, unique), inArray(chargingStations.siteId, siteIds)));
+    .where(and(inArray(chargingSessions.id, unique), inArray(chargingSessions.siteId, siteIds)));
   return rows.length === unique.length;
 }
 

@@ -24,7 +24,8 @@
     "amountInclTax": "{{amount}} incl. tax",
     "close": "Close",
     "toggleSuggestions": "Toggle suggestions",
-    "copyFailed": "Copy failed"
+    "copyFailed": "Copy failed",
+    "notCharged": "Not Charged"
   },
   "nav": {
     "home": "Home",
@@ -596,6 +597,8 @@
     "CAMPAIGN_NOT_FOUND": "Campaign not found",
     "CASE_NOT_FOUND": "Case not found",
     "CA_CERT_NOT_FOUND": "CA certificate not found",
+    "CDR_NOT_CREDITED": "Credit every CDR of the session before reissuing it",
+    "CDR_PUSH_NOT_FAILED": "Only a CDR whose push failed can be pushed again",
     "CDR_NOT_FOUND": "CDR not found",
     "CIRCUIT_NOT_FOUND": "Circuit not found",
     "COMMAND_ERROR": "Command failed",
@@ -674,6 +677,8 @@
     "INVALID_SITE_IDS": "One or more siteIds do not exist",
     "INVALID_TOKEN": "This reset link is invalid or has expired.",
     "INVOICE_ALREADY_PAID": "The invoice is already paid",
+    "RESERVATION_FEE_ALREADY_INVOICED": "The reservation fee is already invoiced",
+    "SESSION_ALREADY_INVOICED": "The session is already invoiced",
     "INVOICE_CREATION_FAILED": "Failed to create invoice",
     "INVOICE_NOT_ISSUED": "The invoice must be issued for this action",
     "INVOICE_IS_CREDIT_NOTE": "A credit note cannot be marked paid or credited",
@@ -786,7 +791,6 @@
     "RESERVATION_TIMEOUT": "Reservation command timed out",
     "RESERVATION_TOO_LONG": "Reservation cannot exceed ... hours",
     "RESERVATION_WINDOW_TOO_SHORT": "Reservation must end at least 60 seconds after it starts",
-    "RESET_NOT_REQUIRED": "Password reset is not required",
     "ROAMING_DISABLED": "Roaming is disabled",
     "ROLE_NOT_FOUND": "Role does not exist",
     "ROTATION_NOT_APPLICABLE": "Credential rotation only applies to security profiles 1 and 2",
@@ -890,7 +894,14 @@
     "SESSION_NO_VEHICLE_ID": "The charger sent no vehicle id for this session.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "The operator blocked Autocharge for this vehicle. Contact the operator to unblock it.",
     "VEHICLE_ID_IN_USE": "Another vehicle already uses this VIN or EVCCID for Autocharge.",
-    "VEHICLE_ID_REQUIRED": "Autocharge needs a VIN or an EVCCID on the vehicle."
+    "VEHICLE_ID_REQUIRED": "Autocharge needs a VIN or an EVCCID on the vehicle.",
+    "SESSION_STOP_REJECTED": "The station rejected the stop request. The session is still charging.",
+    "PARTNER_ALREADY_CONNECTED": "Partner is already connected",
+    "PARTNER_NOT_REGISTERED": "A partner becomes connected through the OCPI credentials handshake",
+    "SESSION_REQUIRED": "This action needs a signed-in session. API keys cannot use it.",
+    "MFA_LOCKED": "Too many wrong codes. Wait before you try again.",
+    "MFA_RESEND_LIMITED": "Too many codes sent. Wait before you request another one.",
+    "USER_SSO_MANAGED": "This user signs in with SSO and has no password to set."
   },
   "validation": {
     "required": "This field is required",
@@ -935,7 +946,9 @@
     "totalCo2Avoided": "Total CO₂ Avoided",
     "noSessions": "No charging sessions this period.",
     "cost": "Cost",
-    "costInclTax": "Cost (incl. tax)"
+    "costInclTax": "Cost (incl. tax)",
+    "otherCurrencyNote_one": "{{count}} session billed in an earlier currency is not included in the total ({{currency}}).",
+    "otherCurrencyNote_other": "{{count}} sessions billed in an earlier currency are not included in the total ({{currency}})."
   },
   "account": {
     "title": "Account",

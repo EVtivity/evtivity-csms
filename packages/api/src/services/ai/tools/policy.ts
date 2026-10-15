@@ -95,7 +95,9 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // API Keys
   createApiKey: N,
   listApiKeys: N,
+  listUserApiKeys: N,
   revokeApiKey: N,
+  revokeUserApiKey: N,
   updateApiKey: N,
   // Access Logs
   createAccessLog: N,
@@ -386,6 +388,8 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   upsertNotificationTemplate: W,
   // OCPI
   createOcpiCreditCdr: N,
+  reissueOcpiCdr: N,
+  retryOcpiCdrPush: N,
   createOcpiPartner: N,
   createOcpiTariffMapping: N,
   deleteOcpiPartner: N,
@@ -394,6 +398,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   getOcpiPartner: R,
   getOcpiPartnerNeighbors: N,
   getOcpiTariffMapping: R,
+  issueOcpiPartnerRegistrationToken: N,
   listOcpiCdrs: R,
   listOcpiLocations: R,
   listOcpiPartners: R,
@@ -942,6 +947,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   resendMfa: N,
   resendUserInvite: N,
   resetPassword: N,
+  resetUserMfa: N,
   resetUserPassword: N,
   setupMfa: N,
   updateCurrentUser: N,

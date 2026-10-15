@@ -20,12 +20,21 @@ interface UsePaginatedQueryResult<T> {
   setSearch: (search: string) => void;
   isLoading: boolean;
   isError: boolean;
+  /** Loads the current page again (the Retry of a load error). */
+  refetch: () => void;
 }
 
 const LIMIT = 10;
 
+/**
+ * A paginated list query. `queryKey` is the key prefix: a string or an array
+ * such as `['sessions', id, 'meter-values']`, so an invalidation of the
+ * prefix (live events) refreshes the list. The full request URL ends the key,
+ * so two lists with the same prefix and different URLs (another record's
+ * events, another filter) never share a cache entry.
+ */
 export function usePaginatedQuery<T>(
-  queryKey: string,
+  queryKey: string | readonly unknown[],
   baseUrl: string,
   extraParams?: Record<string, string>,
   initialSearch = '',
@@ -64,8 +73,9 @@ export function usePaginatedQuery<T>(
     data: response,
     isLoading,
     isError,
+    refetch,
   } = useQuery({
-    queryKey: [queryKey, page, search, ...(extraParams ? Object.values(extraParams) : [])],
+    queryKey: [...(typeof queryKey === 'string' ? [queryKey] : queryKey), url],
     queryFn: () => api.get<PaginatedResponse<T>>(url),
   });
 
@@ -82,5 +92,8 @@ export function usePaginatedQuery<T>(
     setSearch,
     isLoading,
     isError,
+    refetch: () => {
+      void refetch();
+    },
   };
 }

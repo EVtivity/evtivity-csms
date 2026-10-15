@@ -73,3 +73,107 @@ END $$;
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_site_started_at
   ON charging_sessions (site_id, started_at);
 
+--> statement-breakpoint
+-- beta.8 ocpi
+-- lane E: received OCPI data is stored once. ocpi_cdrs and
+-- ocpi_roaming_sessions hold rows partners send us (charging_session_id null)
+-- next to our own CPO rows; a received CDR or session is one row per partner
+-- and OCPI id, so a resend or two concurrent PUTs or POSTs do not add a second
+-- row (the receivers and the CDR pull insert with ON CONFLICT on these
+-- indexes). Duplicates stored before are removed first, only while the index
+-- is missing: for CDRs (immutable) the earliest row is kept, for sessions the
+-- most recently updated one.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+    WHERE indexrelid = to_regclass('uq_ocpi_cdrs_received') AND NOT indisvalid
+  ) THEN
+    DROP INDEX uq_ocpi_cdrs_received;
+  END IF;
+END $$;
+--> statement-breakpoint
+DO $$
+BEGIN
+  IF to_regclass('uq_ocpi_cdrs_received') IS NULL THEN
+    DELETE FROM ocpi_cdrs t
+    USING ocpi_cdrs d
+    WHERE d.partner_id = t.partner_id
+      AND d.ocpi_cdr_id = t.ocpi_cdr_id
+      AND d.charging_session_id IS NULL
+      AND t.charging_session_id IS NULL
+      AND d.id < t.id;
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_ocpi_cdrs_received
+  ON ocpi_cdrs (partner_id, ocpi_cdr_id)
+  WHERE charging_session_id IS NULL;
+--> statement-breakpoint
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+    WHERE indexrelid = to_regclass('uq_ocpi_roaming_sessions_received') AND NOT indisvalid
+  ) THEN
+    DROP INDEX uq_ocpi_roaming_sessions_received;
+  END IF;
+END $$;
+--> statement-breakpoint
+DO $$
+BEGIN
+  IF to_regclass('uq_ocpi_roaming_sessions_received') IS NULL THEN
+    DELETE FROM ocpi_roaming_sessions t
+    USING ocpi_roaming_sessions d
+    WHERE d.partner_id = t.partner_id
+      AND d.ocpi_session_id = t.ocpi_session_id
+      AND d.charging_session_id IS NULL
+      AND t.charging_session_id IS NULL
+      AND (d.updated_at > t.updated_at OR (d.updated_at = t.updated_at AND d.id > t.id));
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_ocpi_roaming_sessions_received
+  ON ocpi_roaming_sessions (partner_id, ocpi_session_id)
+  WHERE charging_session_id IS NULL;
+-- end beta.8 ocpi
+--> statement-breakpoint
+-- beta.8 sessions
+-- charging_sessions: the portal session list pages a driver's sessions newest
+-- first (created_at DESC, id DESC); without this index every page sorts all
+-- of the driver's sessions.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+    WHERE indexrelid = to_regclass('idx_sessions_driver_created') AND NOT indisvalid
+  ) THEN
+    DROP INDEX idx_sessions_driver_created;
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_driver_created
+  ON charging_sessions (driver_id, created_at DESC, id DESC);
+--> statement-breakpoint
+-- payment_records: payment_records_session_id_unique already indexes
+-- session_id, so the plain index only costs writes.
+DROP INDEX CONCURRENTLY IF EXISTS idx_payment_records_session_id;
+--> statement-breakpoint
+-- guest_sessions: one guest checkout per charging session (a guest is linked
+-- by its own session token, so a session never has two). The unique index
+-- replaces the plain one.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+    WHERE indexrelid = to_regclass('uq_guest_sessions_charging_session') AND NOT indisvalid
+  ) THEN
+    DROP INDEX uq_guest_sessions_charging_session;
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_guest_sessions_charging_session
+  ON guest_sessions (charging_session_id);
+--> statement-breakpoint
+DROP INDEX CONCURRENTLY IF EXISTS idx_guest_sessions_charging_session;
+-- end beta.8 sessions

@@ -9,6 +9,7 @@ import {
   SESSION_END_FAILED_REASON,
   SESSION_END_REQUEST_CHANNEL,
   faultUnbilledSession,
+  publishOcpiSessionPush,
   writeCsmsSessionAudit,
 } from '@evtivity/database';
 import { cancelOpenSessionHold } from '@evtivity/payments';
@@ -148,6 +149,7 @@ export async function sweepSessionEndRequests(
   sql: postgres.Sql,
   eventBus: EventBus,
   logger: Logger,
+  pubsub?: PubSubClient,
 ): Promise<number> {
   const pending = await sql`
     SELECT id, end_request_reason, end_attempts FROM charging_sessions
@@ -162,7 +164,7 @@ export async function sweepSessionEndRequests(
   for (const row of pending) {
     const sessionId = row['id'] as string;
     if (Number(row['end_attempts']) >= SESSION_END_MAX_ATTEMPTS) {
-      await giveUpSessionEnd(sql, sessionId, logger);
+      await giveUpSessionEnd(sql, sessionId, logger, pubsub);
       continue;
     }
     const parsed = z.enum(CSMS_SESSION_END_REASONS).safeParse(row['end_request_reason']);
@@ -186,12 +188,15 @@ export async function sweepSessionEndRequests(
  * segment, cancels its hold (fail-open, P9), logs at error, and alerts the
  * operators (session.EndRequestFailed, fail-open). Only the call whose fault
  * update changed the session sends the alert, so a retry or a second pod
- * never alerts twice (P7). Returns whether this call faulted it.
+ * never alerts twice (P7). A roaming session's partner gets the INVALID
+ * session through an `ocpi_push` (fail-open). Returns whether this call
+ * faulted it.
  */
 export async function giveUpSessionEnd(
   sql: postgres.Sql,
   sessionId: string,
   logger: Logger,
+  pubsub?: PubSubClient,
 ): Promise<boolean> {
   try {
     const faulted = await faultUnbilledSession(sql, {
@@ -233,6 +238,7 @@ export async function giveUpSessionEnd(
       logger.warn({ err, sessionId }, 'Failed to cancel the hold of a session whose end failed');
     }
     await notifySessionEndFailed(sql, sessionId, logger);
+    if (pubsub != null) await publishOcpiSessionPush(pubsub, sessionId, logger);
     return true;
   } catch (err: unknown) {
     logger.error({ err, sessionId }, 'Failed to fault a session whose end failed');
@@ -246,13 +252,14 @@ export function startSessionEndSweep(
   eventBus: EventBus,
   logger: Logger,
   intervalMs: number = SESSION_END_SWEEP_INTERVAL_MS,
+  pubsub?: PubSubClient,
 ): () => void {
   let running = false;
   const timer = setInterval(() => {
     if (running) return;
     running = true;
     void eventBus
-      .track(sweepSessionEndRequests(sql, eventBus, logger))
+      .track(sweepSessionEndRequests(sql, eventBus, logger, pubsub))
       .catch((err: unknown) => {
         logger.error({ err }, 'Session end request sweep failed');
       })

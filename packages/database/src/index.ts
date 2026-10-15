@@ -62,10 +62,28 @@ export {
   runWithAuditViaAi,
   currentAuditViaAi,
 } from './lib/audit.js';
-export { createCreditCdr, creditCdrData, negateOcpiPrice } from './lib/ocpi-credit-cdr.js';
-export type { CreditCdrResult } from './lib/ocpi-credit-cdr.js';
+export {
+  claimCdrPushRetry,
+  createCreditCdr,
+  creditCdrData,
+  negateOcpiPrice,
+  supersedeCreditedSessionCdrs,
+} from './lib/ocpi-credit-cdr.js';
+export type {
+  CreditCdrResult,
+  ReissueCdrResult,
+  RetryCdrPushResult,
+} from './lib/ocpi-credit-cdr.js';
 export { ocpiLocationAudience } from './lib/ocpi-location-audience.js';
+export { issueOcpiRegistrationToken } from './lib/ocpi-registration-token.js';
 export type { OcpiLocationAudience } from './lib/ocpi-location-audience.js';
+export { resolveOcpiTokenOwner, publishOcpiSessionPush } from './lib/ocpi-token-owner.js';
+export { OCPI_START_CONTEXT_MINUTES, isStartableOcpiToken } from './lib/ocpi-token-startable.js';
+export type {
+  OcpiCpoAuthMethod,
+  OcpiTokenOwner,
+  OcpiTokenOwnerResult,
+} from './lib/ocpi-token-owner.js';
 export {
   OCPI_REMOVED_EVSE_RETENTION_DAYS,
   recordRemovedOcpiEvses,
@@ -323,13 +341,18 @@ export {
   getFleetInvoiceRunDay,
   clearInvoiceSettingsCache,
 } from './lib/invoice-settings.js';
-export { getStaleSessionTimeoutHours } from './lib/session-settings.js';
+export {
+  getStaleSessionTimeoutHours,
+  STALE_CLEANUP_IN_TRANSACTION_STATUSES,
+} from './lib/session-settings.js';
 export {
   REMOTE_START_TIMEOUT_CHANNEL,
   EV_CONNECTION_TIMEOUT_SETTING,
   DEFAULT_EV_CONNECTION_TIMEOUT_SECONDS,
   REMOTE_START_TIMEOUT_MARGIN_SECONDS,
   EV_CONNECT_TIMEOUT_REASON,
+  REMOTE_START_TIMEOUT_REASON,
+  REMOTE_START_REJECTED_REASON,
   getEvConnectionTimeoutDefaultSeconds,
   clearEvConnectionTimeoutCache,
   getStationConnectionTimeoutSeconds,

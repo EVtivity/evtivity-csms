@@ -5,7 +5,7 @@
 // stations, EVSEs, connectors, maintenance coverage. Tariff ids are per
 // partner and added by the caller (`withTariffIds`).
 
-import { and, eq, gte, inArray, lte } from 'drizzle-orm';
+import { and, eq, gte, inArray, lte, ne } from 'drizzle-orm';
 import {
   db,
   sites,
@@ -15,6 +15,7 @@ import {
   maintenanceEvents,
   isStationLevelUnavailable,
   removedOcpiEvses,
+  ocpiLocationPublish,
 } from '@evtivity/database';
 import type { RemovedOcpiEvse } from '@evtivity/database';
 import { config } from '../lib/config.js';
@@ -64,10 +65,14 @@ export async function loadSiteLocation(
   // out of partner feeds instead of publishing (0, 0) null-island coordinates.
   if (site.latitude == null || site.longitude == null) return null;
 
+  // A pending station is not onboarded yet: never published. A blocked one
+  // (deleted) stays, as REMOVED.
   const stationRows = await db
     .select()
     .from(chargingStations)
-    .where(eq(chargingStations.siteId, siteId));
+    .where(
+      and(eq(chargingStations.siteId, siteId), ne(chargingStations.onboardingStatus, 'pending')),
+    );
   const removed = await removedOcpiEvses([siteId]);
   if (stationRows.length === 0 && removed.length === 0) return null;
 
@@ -113,9 +118,12 @@ export async function loadSiteLocation(
       evseId: e.evseId,
       updatedAt: e.updatedAt,
       stationLevelUnavailable: station != null && isStationLevelUnavailable(station),
+      stationOnline: station?.isOnline ?? false,
+      ...(station != null ? { stationUpdatedAt: station.updatedAt } : {}),
       // A deleted station is kept with onboarding status `blocked`; a retired
       // EVSE is out of service. Both are REMOVED (OCPI 8.1).
       removed: station?.onboardingStatus === 'blocked' || e.retiredAt != null,
+      ...retiredConnectorsUpdatedAt(connectorsByEvse.get(e.id) ?? []),
       // A retired connector is out of service: left out of the location.
       connectors: (connectorsByEvse.get(e.id) ?? [])
         .filter((c) => c.retiredAt == null)
@@ -158,16 +166,73 @@ export async function loadSiteLocation(
     coverage = { allAffected, affectedStationIds: stationSet };
   }
 
+  const [publish] = await db
+    .select({ updatedAt: ocpiLocationPublish.updatedAt })
+    .from(ocpiLocationPublish)
+    .where(eq(ocpiLocationPublish.siteId, siteId))
+    .limit(1);
+
   return {
     input: {
       site,
       evses: [...evsesWithConnectors, ...removed.map(removedEvseRow)],
       ocpiLocationId,
+      ...(publish != null ? { publishUpdatedAt: publish.updatedAt } : {}),
       countryCode: config.OCPI_COUNTRY_CODE,
       partyId: config.OCPI_PARTY_ID,
       ...(coverage != null ? { maintenance: coverage } : {}),
     },
     stations: stationRows.map((s) => ({ id: s.id, freeVend: site.freeVendEnabled })),
+  };
+}
+
+/**
+ * The latest change of the retired connectors (left out of the location),
+ * for the EVSE's `last_updated`. Empty when none is retired.
+ */
+export function retiredConnectorsUpdatedAt(
+  rows: ReadonlyArray<{ retiredAt: Date | null; updatedAt: Date }>,
+): { retiredConnectorsUpdatedAt?: Date } {
+  let max: Date | undefined;
+  for (const c of rows) {
+    if (c.retiredAt != null && (max == null || c.updatedAt > max)) max = c.updatedAt;
+  }
+  return max != null ? { retiredConnectorsUpdatedAt: max } : {};
+}
+
+/**
+ * A deleted site's location, as the API captured it before the delete
+ * cascaded its publish row and removed EVSEs (`ocpi_push` `deletedSite`).
+ * Dates arrive as JSON strings.
+ */
+export interface DeletedSiteSnapshot {
+  site: Omit<LocationTransformInput['site'], 'updatedAt'> & { updatedAt: string | Date };
+  removedEvses: Array<Omit<RemovedOcpiEvse, 'removedAt'> & { removedAt: string | Date }>;
+}
+
+/**
+ * The deleted site's location for a REMOVED push: its removed EVSEs (the
+ * site has no stations, the API refuses to delete one that has). Null when
+ * it has none (no partner ever had a live EVSE there).
+ */
+export function deletedSiteLocation(
+  snapshot: DeletedSiteSnapshot,
+  ocpiLocationId: string,
+): SiteLocation | null {
+  if (snapshot.removedEvses.length === 0) return null;
+  const site = snapshot.site;
+  if (site.latitude == null || site.longitude == null) return null;
+  return {
+    input: {
+      site: { ...site, updatedAt: new Date(site.updatedAt) },
+      evses: snapshot.removedEvses.map((r) =>
+        removedEvseRow({ ...r, removedAt: new Date(r.removedAt) }),
+      ),
+      ocpiLocationId,
+      countryCode: config.OCPI_COUNTRY_CODE,
+      partyId: config.OCPI_PARTY_ID,
+    },
+    stations: [],
   };
 }
 

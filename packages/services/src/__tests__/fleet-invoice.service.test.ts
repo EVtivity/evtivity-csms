@@ -104,7 +104,7 @@ import {
   previewFleetInvoice,
   previousPeriod,
 } from '../fleet-invoice.service.js';
-import { zonedMidnight } from '@evtivity/lib';
+import { AppError, zonedMidnight } from '@evtivity/lib';
 import type { FleetSessionCandidate } from '../fleet-invoice.service.js';
 import { calculateSessionCost, toSessionCostBreakdown, taxTotals } from '@evtivity/lib';
 
@@ -500,8 +500,9 @@ describe('createFleetInvoice', () => {
 
   it('turns a session billed meanwhile into INVOICE_CREATION_FAILED', async () => {
     h.state.candidates = [candidateRow(candidate())];
+    // The claim's refusal (alreadyInvoicedError in invoice.service).
     vi.mocked(insertInvoiceInTransaction).mockRejectedValueOnce(
-      new Error('Session is already invoiced'),
+      new AppError('Session is already invoiced', 409, 'SESSION_ALREADY_INVOICED'),
     );
     await expect(createFleetInvoice('flt_1', '2026-09', now)).rejects.toMatchObject({
       code: 'INVOICE_CREATION_FAILED',

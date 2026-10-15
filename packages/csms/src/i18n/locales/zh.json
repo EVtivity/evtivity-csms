@@ -199,6 +199,13 @@
       "allowPrivateNetwork": "允许私有网络",
       "allowPrivateNetworkHint": "允许发往该合作伙伴的请求和命令回调访问回环地址和私有地址，用于私有互联或本地模拟器。公网上的合作伙伴请保持关闭。",
       "privateNetworkSaved": "网络访问设置已保存",
+      "allowRawToken": "接受未编码的令牌",
+      "allowRawTokenHint": "适用于发送未经 Base64 编码的凭据令牌的 OCPI 2.1.1 和 2.2 合作伙伴。我们的令牌也将以相同方式发送给对方。OCPI 2.2.1 和 2.3.0 合作伙伴请保持关闭。",
+      "rawTokenSaved": "令牌编码已保存",
+      "newRegistrationToken": "新注册令牌",
+      "newRegistrationTokenTitle": "新注册令牌",
+      "newRegistrationTokenDescription": "为此合作伙伴创建新的注册令牌。之前签发的注册令牌将失效。",
+      "tokenIssued": "新注册令牌已创建。请与合作伙伴共享，以便其在您的 OCPI 服务器上注册。",
       "tokenCreated": "注册令牌已创建。请将此令牌分享给合作伙伴，以便他们可以在您的OCPI服务器上注册。",
       "tokenWarning": "此令牌仅显示一次。请立即复制。",
       "register": "注册",
@@ -254,7 +261,22 @@
       "pushStatus": "推送状态",
       "noCdrs": "无CDR",
       "credit": "信用",
-      "charge": "收费"
+      "charge": "收费",
+      "superseded": "已被取代",
+      "reason": "原因",
+      "actionFailed": "CDR 操作失败",
+      "creditAction": "冲销 CDR",
+      "creditTitle": "冲销此 CDR？",
+      "creditDescription": "将向合作伙伴发送总费用为负数的冲销 CDR。原 CDR 本身不变。",
+      "creditDone": "已创建冲销 CDR",
+      "reissueAction": "重新签发 CDR",
+      "reissueTitle": "重新签发此会话？",
+      "reissueDescription": "将根据会话当前状态签发新的 CDR 并发送给合作伙伴。已冲销的 CDR 保持不变。",
+      "reissueDone": "正在签发新的 CDR",
+      "pushAction": "重新推送",
+      "pushTitle": "再次推送此 CDR？",
+      "pushDescription": "同一 CDR 将再次发送给合作伙伴。",
+      "pushDone": "CDR 已加入重新推送队列"
     },
     "tariffs": {
       "title": "费率映射",
@@ -1114,12 +1136,13 @@
       "notEligible": {
         "status": "此处只能为 CSMS 无法结束的会话计费。",
         "already_rebilled": "该会话已计费。",
-        "roaming": "漫游会话由漫游合作方计费。",
+        "no_energy": "未输送电量的漫游会话不计费。",
         "free_vend": "免费充电会话不计费。",
         "no_tariff": "该会话没有用于计价的资费。",
         "paid": "该会话已付款。"
       },
-      "account": "会话已计费：计入车队账户"
+      "account": "会话已计费：计入车队账户",
+      "roamingBilled": "会话已计费：漫游合作伙伴将收到 CDR"
     },
     "billedTo": "车队记账：{{fleet}}",
     "billingState": {
@@ -1136,7 +1159,14 @@
     "captured": "（已获取）",
     "useVehicleForPlugIn": "将此车辆用于插枪即充",
     "useVehicleDescription": "将充电站为此会话发送的标识 {{id}} 保存到驾驶员的车辆。开启 Autocharge 后，下次插枪即可为驾驶员开始充电，无需卡片或应用。",
-    "vehicleClaimed": "已保存车辆"
+    "vehicleClaimed": "已保存车辆",
+    "co2Kg": "{{value}} kg",
+    "co2AvoidedValue": "减少 {{value}} kg CO₂",
+    "eventCount_one": "{{count}} 个事件",
+    "eventCount_other": "{{count}} 个事件",
+    "stopSession": "停止会话",
+    "stopSessionConfirmTitle": "停止此会话？",
+    "stopSessionConfirmDescription": "将请求充电站 {{station}} 停止 EVSE {{evseId}} 上的交易。驾驶员将按目前已输送的电量计费。"
   },
   "drivers": {
     "title": "驾驶员",
@@ -1445,7 +1475,16 @@
       },
       "aiUsage": "AI 用量",
       "aiMcp": "MCP 访问"
-    }
+    },
+    "securityTab": "安全",
+    "mfaTitle": "多重身份验证",
+    "mfaOnDescription": "该用户使用第二重验证 ({{method}}) 登录。",
+    "mfaOffDescription": "该用户登录时不使用第二重验证。",
+    "mfaReset": "重置 MFA",
+    "mfaResetConfirm": "关闭该用户的第二重验证并在所有设备上注销？用户仅凭密码登录，并可重新设置 MFA。",
+    "mfaResetSuccess": "MFA 已重置",
+    "apiKeysDescription": "该用户的有效 API 密钥。请撤销用户不再需要或可能已泄露的密钥。",
+    "noApiKeys": "该用户没有有效的 API 密钥。"
   },
   "profile": {
     "title": "个人资料",
@@ -3076,6 +3115,8 @@
     "CAMPAIGN_NOT_FOUND": "未找到活动",
     "CASE_NOT_FOUND": "未找到工单",
     "CA_CERT_NOT_FOUND": "未找到 CA 证书",
+    "CDR_NOT_CREDITED": "重新签发前，请先冲销该会话的所有 CDR",
+    "CDR_PUSH_NOT_FAILED": "只有推送失败的 CDR 才能重新推送",
     "CDR_NOT_FOUND": "未找到 CDR",
     "CIRCUIT_NOT_FOUND": "未找到电路",
     "COMMAND_ERROR": "命令执行失败",
@@ -3154,6 +3195,8 @@
     "INVALID_SITE_IDS": "一个或多个 siteId 不存在",
     "INVALID_TOKEN": "重置链接无效或已过期",
     "INVOICE_ALREADY_PAID": "该发票已支付",
+    "RESERVATION_FEE_ALREADY_INVOICED": "该预约费用已开具发票",
+    "SESSION_ALREADY_INVOICED": "该会话已开具发票",
     "INVOICE_CREATION_FAILED": "创建发票失败",
     "INVOICE_NOT_ISSUED": "此操作仅适用于已开具的发票",
     "INVOICE_IS_CREDIT_NOTE": "贷项通知单不能标记为已支付或贷记",
@@ -3266,7 +3309,6 @@
     "RESERVATION_TIMEOUT": "预约命令超时",
     "RESERVATION_TOO_LONG": "预约不能超过 ... 小时",
     "RESERVATION_WINDOW_TOO_SHORT": "预约结束时间必须至少在开始后 60 秒",
-    "RESET_NOT_REQUIRED": "无需重置密码",
     "ROAMING_DISABLED": "漫游已禁用",
     "ROLE_NOT_FOUND": "角色不存在",
     "ROTATION_NOT_APPLICABLE": "凭证轮换仅适用于安全配置文件 1 和 2",
@@ -3370,7 +3412,14 @@
     "SESSION_NO_VEHICLE_ID": "充电站未为此会话发送车辆标识。",
     "VEHICLE_BLOCKED_BY_OPERATOR": "运营商已阻止此车辆使用 Autocharge。请联系运营商解除阻止。",
     "VEHICLE_ID_IN_USE": "另一辆车已将此 VIN 或 EVCCID 用于 Autocharge。",
-    "VEHICLE_ID_REQUIRED": "Autocharge 需要车辆的 VIN 或 EVCCID。"
+    "VEHICLE_ID_REQUIRED": "Autocharge 需要车辆的 VIN 或 EVCCID。",
+    "SESSION_STOP_REJECTED": "充电站拒绝了停止请求。会话仍在充电。",
+    "PARTNER_ALREADY_CONNECTED": "合作伙伴已连接",
+    "PARTNER_NOT_REGISTERED": "合作伙伴通过 OCPI 凭据握手完成连接",
+    "SESSION_REQUIRED": "此操作需要登录会话。API 密钥无法使用此操作。",
+    "MFA_LOCKED": "错误代码过多。请稍后再试。",
+    "MFA_RESEND_LIMITED": "发送的代码过多。请稍后再请求。",
+    "USER_SSO_MANAGED": "该用户通过 SSO 登录，没有可设置的密码。"
   },
   "logs": {
     "title": "日志",
@@ -4512,6 +4561,8 @@
       "erased": "已清除",
       "invite_resent": "邀请已重新发送",
       "cdr_credited": "CDR 已冲销",
+      "cdr_push_retried": "已重新推送 CDR",
+      "cdr_reissued": "CDR 已重新签发",
       "faulted": "已故障",
       "stopped_by_csms": "已由 CSMS 停止",
       "vehicle_changed": "车辆已更改",
@@ -4527,7 +4578,9 @@
       "autocharge_disabled": "已关闭 Autocharge",
       "autocharge_blocked": "车辆已阻止",
       "autocharge_unblocked": "车辆已解除阻止",
-      "vehicle_id_claimed": "已从会话添加车辆标识"
+      "vehicle_id_claimed": "已从会话添加车辆标识",
+      "account_locked": "登录已锁定",
+      "mfa_reset": "MFA 已重置"
     },
     "entities": {
       "site": "站点",

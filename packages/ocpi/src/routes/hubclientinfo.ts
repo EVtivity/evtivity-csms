@@ -1,13 +1,28 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { eq, and } from 'drizzle-orm';
 import type { InferInsertModel } from 'drizzle-orm';
 import { db, ocpiPartners, ocpiPartnerAuditLog, writeAudit } from '@evtivity/database';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../middleware/ocpi-auth.js';
 import type { OcpiVersion } from '../types/ocpi.js';
+
+type PartnerStatus = InferInsertModel<typeof ocpiPartners>['status'];
+
+/** OCPI ConnectionStatus (2.3.0 16.4.1) to the partner status. */
+const STATUS_MAP: Record<string, PartnerStatus> = {
+  CONNECTED: 'connected',
+  OFFLINE: 'disconnected',
+  PLANNED: 'pending',
+  SUSPENDED: 'suspended',
+};
+
+/** Hub client info is the hub's to send: only a partner registered with the HUB role. */
+function isHub(request: FastifyRequest): boolean {
+  return request.ocpiToken?.roleNames.includes('HUB') === true;
+}
 
 interface HubClientInfo {
   party_id: string;
@@ -35,8 +50,14 @@ function mapPartnerStatus(status: string): 'CONNECTED' | 'OFFLINE' | 'PLANNED' |
 function registerHubClientInfoRoutes(app: FastifyInstance, version: OcpiVersion): void {
   const prefix = `/ocpi/${version}/hubclientinfo`;
 
-  // GET /ocpi/{version}/hubclientinfo - list connected partners
-  app.get(prefix, { onRequest: [ocpiAuthenticate] }, async () => {
+  // GET /ocpi/{version}/hubclientinfo - list connected partners (hub only)
+  app.get(prefix, { onRequest: [ocpiAuthenticate] }, async (request, reply) => {
+    if (!isHub(request)) {
+      await reply
+        .status(403)
+        .send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Hub client info is available to a hub only'));
+      return;
+    }
     const partners = await db
       .select({
         countryCode: ocpiPartners.countryCode,
@@ -84,32 +105,25 @@ function registerHubClientInfoRoutes(app: FastifyInstance, version: OcpiVersion)
         party_id: string;
       };
 
-      // Defense in depth: an OCPI partner may only PUT its OWN HubClientInfo
-      // row. Without this check, any authenticated partner can PUT
-      // /hubclientinfo/{otherCountry}/{otherParty} and mark a competing
-      // partner as offline / suspended, breaking roaming routing. The OCPI
-      // spec reserves cross-partner updates for the hub itself; EVtivity
-      // does not currently distinguish hub-mode tokens, so the tightest
-      // correct behavior is "you can only PUT your own row".
+      // OCPI 2.3.0 16: the hub sends the connection status of the OTHER
+      // parties it connects us to. Only a partner registered with the HUB
+      // role may send it, and never for its own row (a suspended hub must not
+      // lift its own suspension).
       const authenticated = request.ocpiPartner;
       if (
         authenticated == null ||
-        authenticated.countryCode !== country_code ||
-        authenticated.partyId !== party_id
+        !isHub(request) ||
+        (authenticated.countryCode === country_code && authenticated.partyId === party_id)
       ) {
         await reply
           .status(403)
-          .send(
-            ocpiError(
-              OcpiStatusCode.CLIENT_ERROR,
-              'Cannot update HubClientInfo for another partner',
-            ),
-          );
+          .send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Hub client info can only come from a hub'));
         return;
       }
 
       const body = request.body as HubClientInfo | null;
-      if (body == null || typeof body.status !== 'string') {
+      const newStatus = typeof body?.status === 'string' ? STATUS_MAP[body.status] : undefined;
+      if (body == null || newStatus == null) {
         await reply
           .status(400)
           .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid HubClientInfo object'));
@@ -123,15 +137,10 @@ function registerHubClientInfoRoutes(app: FastifyInstance, version: OcpiVersion)
         .where(and(eq(ocpiPartners.countryCode, country_code), eq(ocpiPartners.partyId, party_id)))
         .limit(1);
 
-      if (partner != null) {
-        type PartnerStatus = InferInsertModel<typeof ocpiPartners>['status'];
-        const statusMap: Record<string, PartnerStatus> = {
-          CONNECTED: 'connected',
-          OFFLINE: 'disconnected',
-          PLANNED: 'pending',
-          SUSPENDED: 'suspended',
-        };
-        const newStatus: PartnerStatus = statusMap[body.status] ?? 'disconnected';
+      // A partner that never completed its own credentials handshake stays
+      // pending: CONNECTED from the hub does not register it.
+      const skip = partner?.status === 'pending' && newStatus === 'connected';
+      if (partner != null && !skip) {
         await db
           .update(ocpiPartners)
           .set({ status: newStatus, updatedAt: new Date() })

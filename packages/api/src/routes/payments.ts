@@ -1753,16 +1753,15 @@ export function paymentRoutes(app: FastifyInstance): void {
   // ---- Session Payments ----
 
   /**
-   * Whether the operator may act on the session's payment: the session's
-   * station is at a site the operator has access to. An unknown session is
+   * Whether the operator may act on the session's payment: the session
+   * happened at a site the operator has access to (charging_sessions.site_id). An unknown session is
    * not accessible, so a foreign and an unknown session get the same answer
    * (the route's own not-found code, before any payment state).
    */
   async function sessionAccessible(userId: string, sessionId: string): Promise<boolean> {
     const [row] = await db
-      .select({ siteId: chargingStations.siteId })
+      .select({ siteId: chargingSessions.siteId })
       .from(chargingSessions)
-      .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
       .where(eq(chargingSessions.id, sessionId));
     if (row == null) return false;
     return userCanAccessSite(userId, row.siteId);
@@ -1802,10 +1801,10 @@ export function paymentRoutes(app: FastifyInstance): void {
         .select({
           id: chargingSessions.id,
           driverId: chargingSessions.driverId,
-          siteId: chargingStations.siteId,
+          // The site the session happened at: its payout account takes the hold.
+          siteId: chargingSessions.siteId,
         })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
         .where(eq(chargingSessions.id, id));
       // A session at a site outside the operator's access answers like a
       // missing one, before any payment state (P11).

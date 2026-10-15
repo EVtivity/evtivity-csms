@@ -33,6 +33,7 @@ import { paginatedResponse, itemResponse, errorWith } from '../lib/response-sche
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { containsPattern } from '../lib/like-pattern.js';
 import { pendingOperationSchema, providerRefundsSchema } from '../lib/payment-provider-schemas.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
@@ -200,6 +201,13 @@ const sessionDetail = z
     id: z.string().describe('Session identifier'),
     stationId: z.string().describe('Station internal ID'),
     stationName: z.string().nullable().describe('Station OCPP identity (display name)'),
+    evseId: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        'OCPP EVSE number of the session (the stop-active-session path), null when unknown',
+      ),
     siteName: z.string().nullable().describe('Site name where the station is located'),
     driverId: z.string().nullable().describe('Driver internal ID, null for guest sessions'),
     driverName: z
@@ -317,7 +325,7 @@ const sessionDetail = z
       .enum([
         'status',
         'already_rebilled',
-        'roaming',
+        'no_energy',
         'free_vend',
         'no_tariff',
         'paid',
@@ -469,9 +477,9 @@ const rebillResponse = z
         'billed: charged, debited, or nothing to charge; manual: bill outside the platform',
       ),
     result: z
-      .enum(['charged', 'prepaid', 'account', 'no_charge', 'manual'])
+      .enum(['charged', 'prepaid', 'account', 'roaming', 'no_charge', 'manual'])
       .describe(
-        'charged: the default saved card was charged; prepaid: the token balance was debited; account: billed to the fleet on its invoice; no_charge: the cost is 0; manual: left to manual billing',
+        'charged: the default saved card was charged; prepaid: the token balance was debited; account: billed to the fleet on its invoice; roaming: billed to the roaming partner with a CDR, no payment here; no_charge: the cost is 0; manual: left to manual billing',
       ),
     manualReason: z
       .enum([
@@ -545,12 +553,17 @@ export function sessionRoutes(app: FastifyInstance): void {
         return { data: [], total: 0 };
       }
 
+      // Sessions are scoped and filtered by the site they happened at
+      // (charging_sessions.site_id), not the station's current site: a station
+      // moved to another site leaves its earlier sessions at the old site. A
+      // session without a site is visible to all-site users only.
       const conditions = [];
       if (accessibleSiteIds != null) {
-        conditions.push(inArray(chargingStations.siteId, accessibleSiteIds));
+        conditions.push(inArray(chargingSessions.siteId, accessibleSiteIds));
       }
       if (search) {
-        const pattern = `%${search}%`;
+        // The search text is literal: % and _ are not wildcards.
+        const pattern = containsPattern(search);
         conditions.push(
           or(
             ilike(chargingSessions.id, pattern),
@@ -567,7 +580,7 @@ export function sessionRoutes(app: FastifyInstance): void {
         );
       }
       if (siteId != null) {
-        conditions.push(eq(chargingStations.siteId, siteId));
+        conditions.push(eq(chargingSessions.siteId, siteId));
       }
       if (stationId != null) {
         conditions.push(eq(chargingSessions.stationId, stationId));
@@ -588,9 +601,19 @@ export function sessionRoutes(app: FastifyInstance): void {
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-      // Single query with count(*) OVER() window function to get total alongside data,
-      // eliminating a separate count round-trip.
-      const rows = await db
+      // The total comes from its own count query: a count(*) OVER() on the
+      // page query has no row to read it from past the last page (total 0),
+      // and the count needs only the joins the conditions use.
+      let countQuery = db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(chargingSessions)
+        .$dynamic();
+      if (search) {
+        countQuery = countQuery
+          .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+          .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id));
+      }
+      const pageQuery = db
         .select({
           id: chargingSessions.id,
           stationId: chargingSessions.stationId,
@@ -622,11 +645,10 @@ export function sessionRoutes(app: FastifyInstance): void {
           vehicleIdSource: chargingSessions.vehicleIdSource,
           autocharge: chargingSessions.autocharge,
           createdAt: chargingSessions.createdAt,
-          _total: sql<number>`count(*) OVER()`.as('_total'),
         })
         .from(chargingSessions)
         .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-        .leftJoin(sites, eq(chargingStations.siteId, sites.id))
+        .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
         .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
         .leftJoin(vehicles, eq(chargingSessions.vehicleId, vehicles.id))
         .leftJoin(guestSessions, eq(guestSessions.chargingSessionId, chargingSessions.id))
@@ -635,17 +657,10 @@ export function sessionRoutes(app: FastifyInstance): void {
         .limit(limit)
         .offset(offset);
 
-      const total = rows[0]?._total ?? 0;
+      const [rows, countRows] = await Promise.all([pageQuery, countQuery.where(where)]);
+      const total = countRows[0]?.count ?? 0;
       const data = rows.map(
-        ({
-          _total,
-          guestSessionToken,
-          vehicleIdValue,
-          vehicleIdType,
-          vehicleIdSource,
-          ...rest
-        }) => {
-          void _total;
+        ({ guestSessionToken, vehicleIdValue, vehicleIdType, vehicleIdSource, ...rest }) => {
           return {
             ...rest,
             vehicleCapture: sessionVehicleCapture({
@@ -686,8 +701,12 @@ export function sessionRoutes(app: FastifyInstance): void {
           id: chargingSessions.id,
           stationId: chargingSessions.stationId,
           stationName: chargingStations.stationId,
+          evseId: sql<
+            number | null
+          >`(SELECT e.evse_id FROM evses e WHERE e.id = ${chargingSessions.evseId})`,
+          // The site the session happened at (charging_sessions.site_id).
           siteName: sites.name,
-          siteId: chargingStations.siteId,
+          siteId: chargingSessions.siteId,
           driverId: chargingSessions.driverId,
           driverName: sql<
             string | null
@@ -756,7 +775,7 @@ export function sessionRoutes(app: FastifyInstance): void {
         })
         .from(chargingSessions)
         .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-        .leftJoin(sites, eq(chargingStations.siteId, sites.id))
+        .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
         .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
         .leftJoin(driverTokens, eq(chargingSessions.tokenId, driverTokens.id))
         .leftJoin(vehicles, eq(chargingSessions.vehicleId, vehicles.id))
@@ -923,9 +942,8 @@ export function sessionRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof sessionParams>;
       const body = parseZodRequest(vehicleClaimBody, request.body);
       const [row] = await db
-        .select({ driverId: chargingSessions.driverId, siteId: chargingStations.siteId })
+        .select({ driverId: chargingSessions.driverId, siteId: chargingSessions.siteId })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .where(eq(chargingSessions.id, id));
       const { userId } = request.user as JwtPayload;
       if (row == null || !siteInScope(await getUserSiteIds(userId), row.siteId)) {
@@ -987,9 +1005,8 @@ export function sessionRoutes(app: FastifyInstance): void {
       const offset = (page - 1) * limit;
 
       const [session] = await db
-        .select({ id: chargingSessions.id, siteId: chargingStations.siteId })
+        .select({ id: chargingSessions.id, siteId: chargingSessions.siteId })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .where(eq(chargingSessions.id, id))
         .limit(1);
 
@@ -1017,7 +1034,13 @@ export function sessionRoutes(app: FastifyInstance): void {
           })
           .from(transactionEvents)
           .where(eq(transactionEvents.sessionId, id))
-          .orderBy(desc(transactionEvents.timestamp))
+          // seq_no and id break ties between events with the same timestamp,
+          // so a row never moves between pages.
+          .orderBy(
+            desc(transactionEvents.timestamp),
+            desc(transactionEvents.seqNo),
+            desc(transactionEvents.id),
+          )
           .limit(limit)
           .offset(offset),
         db
@@ -1055,9 +1078,8 @@ export function sessionRoutes(app: FastifyInstance): void {
       const offset = (page - 1) * limit;
 
       const [session] = await db
-        .select({ id: chargingSessions.id, siteId: chargingStations.siteId })
+        .select({ id: chargingSessions.id, siteId: chargingSessions.siteId })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .where(eq(chargingSessions.id, id))
         .limit(1);
 
@@ -1093,7 +1115,10 @@ export function sessionRoutes(app: FastifyInstance): void {
           })
           .from(meterValues)
           .where(where)
-          .orderBy(desc(meterValues.timestamp))
+          // id breaks ties between readings with the same timestamp (one
+          // MeterValues message holds several measurands), so a row never
+          // moves between pages.
+          .orderBy(desc(meterValues.timestamp), desc(meterValues.id))
           .limit(limit)
           .offset(offset),
         db
@@ -1116,7 +1141,7 @@ export function sessionRoutes(app: FastifyInstance): void {
         tags: ['Sessions'],
         summary: 'Bill a session the CSMS could not end',
         description:
-          'Bills a session the CSMS gave up ending (status faulted, stopped reason EndRequestFailed: its cost was zeroed and its hold cancelled). The cost is recomputed from the stored meter values and tariff segments with the same calculator as a normal session end, at the last meter value, at most the guest cost ceiling. A driver session is charged off session on the default saved card through the provider it is saved with (idempotency key rebill_<sessionId>), a prepaid token balance is debited, and a cost of 0 charges nothing. The session becomes completed with the cost, rebillStatus billed, and the driver gets a receipt. A session that cannot be charged (no saved card, a guest, a declined card, a card that needs the cardholder authentication) becomes completed with the cost and rebillStatus manual, for billing outside the platform. Requires sessions:write and payments:write. Returns 409 SESSION_REBILL_NOT_ELIGIBLE with details.reason (status, already_rebilled, roaming, free_vend, no_tariff, paid), 409 SESSION_REBILL_PAYMENT_PENDING while the session has an open hold or an unconfirmed provider operation, 409 SESSION_REBILL_IN_PROGRESS while another request bills it, 400 PAYMENT_PROVIDER_NOT_CONFIGURED when the provider of the saved card is not configured, and 400 PAYMENT_PROVIDER_CONNECTION_FAILED when the provider could not be reached (retry after a few minutes: the same key returns the first answer).',
+          'Bills a session the CSMS gave up ending (status faulted, stopped reason EndRequestFailed: its cost was zeroed and its hold cancelled). The cost is recomputed from the stored meter values and tariff segments with the same calculator as a normal session end, at the last meter value, at most the guest cost ceiling. A driver session is charged off session on the default saved card through the provider it is saved with (idempotency key rebill_<sessionId>), a prepaid token balance is debited, and a cost of 0 charges nothing. The session becomes completed with the cost, rebillStatus billed, and the driver gets a receipt. A session that cannot be charged (no saved card, a guest, a declined card, a card that needs the cardholder authentication) becomes completed with the cost and rebillStatus manual, for billing outside the platform. Requires sessions:write and payments:write. A roaming session that delivered energy is completed without a payment and billed to the roaming partner with a CDR (result roaming). Returns 409 SESSION_REBILL_NOT_ELIGIBLE with details.reason (status, already_rebilled, no_energy (a roaming session that delivered no energy), free_vend, no_tariff, paid), 409 SESSION_REBILL_PAYMENT_PENDING while the session has an open hold or an unconfirmed provider operation, 409 SESSION_REBILL_IN_PROGRESS while another request bills it, 400 PAYMENT_PROVIDER_NOT_CONFIGURED when the provider of the saved card is not configured, and 400 PAYMENT_PROVIDER_CONNECTION_FAILED when the provider could not be reached (retry after a few minutes: the same key returns the first answer).',
         operationId: 'rebillSession',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionParams),

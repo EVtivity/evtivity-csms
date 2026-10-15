@@ -113,6 +113,15 @@ vi.mock('../middleware/rbac.js', () => ({
     },
 }));
 
+// Whether the actor holds every permission of the target user (the admin
+// routes on another user's keys).
+const canAdminister = vi.hoisted(() => ({ value: true }));
+vi.mock('../lib/user-management-scope.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/user-management-scope.js')>()),
+  getUserManagementActor: vi.fn().mockResolvedValue({ userId: 'usr_000000000001', siteIds: null }),
+  canAdministerUser: vi.fn(() => Promise.resolve(canAdminister.value)),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { apiKeyRoutes } from '../routes/api-keys.js';
 import { db, writeAudit } from '@evtivity/database';
@@ -266,6 +275,83 @@ describe('API key routes: validation and update paths', () => {
         expect.anything(),
         expect.anything(),
       );
+    });
+  });
+
+  describe("another user's keys", () => {
+    const TARGET = 'usr_000000000002';
+
+    beforeEach(() => {
+      canAdminister.value = true;
+    });
+
+    it('lists the active keys of a user the actor administers', async () => {
+      mockApiKeyService.listApiKeys.mockResolvedValue([
+        {
+          id: 3,
+          name: 'ci',
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+          expiresAt: null,
+          lastUsedAt: null,
+          permissions: ['stations:read'],
+          tokenSuffix: 'abcd',
+        },
+      ]);
+      const res = await app.inject({
+        method: 'GET',
+        url: `/users/${TARGET}/api-keys`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toHaveLength(1);
+      expect(mockApiKeyService.listApiKeys).toHaveBeenCalledWith(TARGET);
+    });
+
+    it('answers 404 USER_NOT_FOUND for a user the actor cannot administer', async () => {
+      canAdminister.value = false;
+      const list = await app.inject({
+        method: 'GET',
+        url: `/users/${TARGET}/api-keys`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(list.statusCode).toBe(404);
+      expect(list.json().code).toBe('USER_NOT_FOUND');
+      const revoke = await app.inject({
+        method: 'DELETE',
+        url: `/users/${TARGET}/api-keys/3`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(revoke.statusCode).toBe(404);
+      expect(mockApiKeyService.revokeApiKey).not.toHaveBeenCalled();
+    });
+
+    it('revokes a key of the user and audits it', async () => {
+      mockApiKeyService.revokeApiKey.mockResolvedValue(true);
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/users/${TARGET}/api-keys/3`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(mockApiKeyService.revokeApiKey).toHaveBeenCalledWith(3, TARGET);
+      expect(writeAudit).toHaveBeenCalledWith(
+        { table: {}, idColumn: 'api_key_id' },
+        expect.objectContaining({ entityId: '3', action: 'revoked', after: { userId: TARGET } }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('answers 404 API_KEY_NOT_FOUND for a key the user does not hold', async () => {
+      mockApiKeyService.revokeApiKey.mockResolvedValue(false);
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/users/${TARGET}/api-keys/99`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('API_KEY_NOT_FOUND');
+      expect(writeAudit).not.toHaveBeenCalled();
     });
   });
 });

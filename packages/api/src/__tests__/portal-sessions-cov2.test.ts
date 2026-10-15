@@ -249,13 +249,13 @@ describe('Portal sessions routes: vehicle and meter history', () => {
       expect(db.update).not.toHaveBeenCalled();
     });
 
-    it('returns 403 when the session belongs to another driver', async () => {
-      setupDbResults([{ driverId: OTHER_DRIVER }]);
+    it('returns 404 when the session belongs to another driver (filtered by the query)', async () => {
+      setupDbResults([]);
       const res = await call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, {
         vehicleId: null,
       });
-      expect(res.statusCode).toBe(403);
-      expect(res.json().code).toBe('FORBIDDEN');
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('SESSION_NOT_FOUND');
       expect(db.update).not.toHaveBeenCalled();
     });
 
@@ -269,12 +269,13 @@ describe('Portal sessions routes: vehicle and meter history', () => {
       expect(db.update).not.toHaveBeenCalled();
     });
 
-    it('returns 403 when the vehicle belongs to another driver', async () => {
+    it('returns 404 when the vehicle belongs to another driver', async () => {
       setupDbResults([{ driverId: DRIVER_ID }], [{ driverId: OTHER_DRIVER }]);
       const res = await call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, {
         vehicleId: VEHICLE_ID,
       });
-      expect(res.statusCode).toBe(403);
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('VEHICLE_NOT_FOUND');
       expect(db.update).not.toHaveBeenCalled();
     });
 
@@ -344,11 +345,11 @@ describe('Portal sessions routes: vehicle and meter history', () => {
       expect(res.json().code).toBe('SESSION_NOT_FOUND');
     });
 
-    it('returns 403 for another driver session', async () => {
-      setupDbResults([{ driverId: OTHER_DRIVER, startedAt: null, meterStart: 0 }]);
+    it('returns 404 for another driver session (filtered by the query)', async () => {
+      setupDbResults([]);
       const res = await call('GET', `/portal/sessions/${SESSION_ID}/${path}`);
-      expect(res.statusCode).toBe(403);
-      expect(res.json().code).toBe('FORBIDDEN');
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('SESSION_NOT_FOUND');
     });
 
     it('prepends a zero point at the session start', async () => {

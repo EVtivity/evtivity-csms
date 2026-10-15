@@ -35,6 +35,10 @@ function makeInsertChain(): Record<string, unknown> {
       rec.upserted = true;
       return chain;
     }),
+    onConflictDoNothing: vi.fn(() => chain),
+    returning: vi.fn(() =>
+      Promise.resolve(Array.isArray(rec.value) ? rec.value.map((_v, i) => ({ id: i })) : []),
+    ),
     then: (onF?: (v: unknown) => unknown, onR?: (r: unknown) => unknown): Promise<unknown> =>
       Promise.resolve(undefined).then(onF, onR),
   };
@@ -50,7 +54,7 @@ vi.mock('@evtivity/database', () => ({
   ocpiPartnerEndpoints: { url: {}, partnerId: {}, module: {}, interfaceRole: {} },
   ocpiExternalLocations: { partnerId: {}, countryCode: {}, partyId: {}, locationId: {} },
   ocpiExternalTariffs: { partnerId: {}, countryCode: {}, partyId: {}, tariffId: {} },
-  ocpiCdrs: { partnerId: {}, ocpiCdrId: {} },
+  ocpiCdrs: { partnerId: {}, ocpiCdrId: {}, chargingSessionId: {} },
   ocpiSyncLog: {},
 }));
 
@@ -237,7 +241,7 @@ describe('pullLocations error paths', () => {
         id: 'L1',
         country_code: 'DE',
         party_id: 'ABC',
-        coordinates: { latitude: '1', longitude: '2' },
+        coordinates: { latitude: '1.000000', longitude: '2.000000' },
         evses: [{ uid: 'a' }, { uid: 'b' }],
       },
       {
@@ -245,7 +249,7 @@ describe('pullLocations error paths', () => {
         country_code: 'DE',
         party_id: 'ABC',
         name: 'Two',
-        coordinates: { latitude: '3', longitude: '4' },
+        coordinates: { latitude: '3.000000', longitude: '4.000000' },
       },
     ]);
 
@@ -253,8 +257,18 @@ describe('pullLocations error paths', () => {
 
     expect(res.objectsCount).toBe(2);
     expect(upserted()).toEqual([
-      expect.objectContaining({ locationId: 'L1', name: null, evseCount: '2', latitude: '1' }),
-      expect.objectContaining({ locationId: 'L2', name: 'Two', evseCount: '0', longitude: '4' }),
+      expect.objectContaining({
+        locationId: 'L1',
+        name: null,
+        evseCount: '2',
+        latitude: '1.000000',
+      }),
+      expect.objectContaining({
+        locationId: 'L2',
+        name: 'Two',
+        evseCount: '0',
+        longitude: '4.000000',
+      }),
     ]);
   });
 });

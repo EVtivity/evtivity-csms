@@ -2,12 +2,44 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db, ocpiExternalLocations } from '@evtivity/database';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
+import { ocpiParamLimits } from '../../middleware/ocpi-params.js';
 import { namespaceMismatch } from '../../lib/namespace-check.js';
+import {
+  bodyIdentityMismatch,
+  fitsOcpiString,
+  isOcpiGeoLocation,
+  patchChangesIdentity,
+} from '../../lib/ocpi-fields.js';
 import type { OcpiVersion, OcpiLocation, OcpiEVSE } from '../../types/ocpi.js';
+
+function invalid(message: string) {
+  return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, message);
+}
+
+// An EVSE object with the fields the receiver reads: uid and connectors.
+function isEvseShape(value: unknown): boolean {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const evse = value as Record<string, unknown>;
+  return fitsOcpiString(evse['uid'], 36) && Array.isArray(evse['connectors']);
+}
+
+// A Location's checked fields (PUT, or the merged result of a PATCH):
+// GeoLocation per OCPI 8.4.16 (the portal geo search casts the stored
+// values), name at most 255 characters, evses an array of EVSE objects.
+function locationProblem(location: Record<string, unknown>): string | null {
+  if (!isOcpiGeoLocation(location['coordinates'])) return 'Invalid location coordinates';
+  const name = location['name'];
+  if (name != null && !fitsOcpiString(name, 255)) return 'Invalid location name';
+  const evses = location['evses'];
+  if (evses != null && (!Array.isArray(evses) || !evses.every(isEvseShape))) {
+    return 'Invalid location evses';
+  }
+  return null;
+}
 
 function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion): void {
   const prefix = `/ocpi/${version}/emsp/locations`;
@@ -15,7 +47,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
   // GET /ocpi/{version}/emsp/locations/:country_code/:party_id/:location_id
   app.get(
     `${prefix}/:country_code/:party_id/:location_id`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, location_id } = request.params as {
         country_code: string;
@@ -56,7 +88,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
   // GET with EVSE uid
   app.get(
     `${prefix}/:country_code/:party_id/:location_id/:evse_uid`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, location_id, evse_uid } = request.params as {
         country_code: string;
@@ -107,7 +139,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
   // GET with connector id
   app.get(
     `${prefix}/:country_code/:party_id/:location_id/:evse_uid/:connector_id`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, location_id, evse_uid, connector_id } = request.params as {
         country_code: string;
@@ -167,7 +199,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
   // PUT /ocpi/{version}/emsp/locations/:country_code/:party_id/:location_id - upsert location
   app.put(
     `${prefix}/:country_code/:party_id/:location_id`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, location_id } = request.params as {
         country_code: string;
@@ -189,66 +221,60 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
       }
 
       const rawBody = request.body;
-      if (rawBody == null || typeof rawBody !== 'object') {
-        await reply
-          .status(400)
-          .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid location object'));
+      if (rawBody == null || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
+        await reply.status(400).send(invalid('Invalid location object'));
         return;
       }
       const candidate = rawBody as Record<string, unknown>;
-      const coords = candidate['coordinates'];
-      if (coords == null || typeof coords !== 'object') {
-        await reply
-          .status(400)
-          .send(
-            ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Location coordinates are required'),
-          );
+      const mismatch = bodyIdentityMismatch(candidate, {
+        id: location_id,
+        country_code,
+        party_id,
+      });
+      if (mismatch != null) {
+        await reply.status(400).send(invalid(`Location ${mismatch} does not match the URL`));
+        return;
+      }
+      const problem = locationProblem(candidate);
+      if (problem != null) {
+        await reply.status(400).send(invalid(problem));
         return;
       }
       const body = rawBody as OcpiLocation;
 
       const evseCount = String(Array.isArray(body.evses) ? body.evses.length : 0);
-      const latitude = body.coordinates.latitude;
-      const longitude = body.coordinates.longitude;
 
-      const [existing] = await db
-        .select({ id: ocpiExternalLocations.id })
-        .from(ocpiExternalLocations)
-        .where(
-          and(
-            eq(ocpiExternalLocations.partnerId, partner.partnerId),
-            eq(ocpiExternalLocations.countryCode, country_code),
-            eq(ocpiExternalLocations.partyId, party_id),
-            eq(ocpiExternalLocations.locationId, location_id),
-          ),
-        )
-        .limit(1);
-
-      if (existing != null) {
-        await db
-          .update(ocpiExternalLocations)
-          .set({
-            name: body.name ?? null,
-            latitude,
-            longitude,
-            evseCount,
-            locationData: body,
-            updatedAt: new Date(),
-          })
-          .where(eq(ocpiExternalLocations.id, existing.id));
-      } else {
-        await db.insert(ocpiExternalLocations).values({
+      // Upsert on the unique (partner, country, party, location id), so two
+      // concurrent first PUTs store one row.
+      await db
+        .insert(ocpiExternalLocations)
+        .values({
           partnerId: partner.partnerId,
           countryCode: country_code,
           partyId: party_id,
           locationId: location_id,
           name: body.name ?? null,
-          latitude,
-          longitude,
+          latitude: body.coordinates.latitude,
+          longitude: body.coordinates.longitude,
           evseCount,
           locationData: body,
+        })
+        .onConflictDoUpdate({
+          target: [
+            ocpiExternalLocations.partnerId,
+            ocpiExternalLocations.countryCode,
+            ocpiExternalLocations.partyId,
+            ocpiExternalLocations.locationId,
+          ],
+          set: {
+            name: sql`excluded.name`,
+            latitude: sql`excluded.latitude`,
+            longitude: sql`excluded.longitude`,
+            evseCount: sql`excluded.evse_count`,
+            locationData: sql`excluded.location_data`,
+            updatedAt: sql`now()`,
+          },
         });
-      }
 
       return ocpiSuccess(null);
     },
@@ -257,7 +283,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
   // PUT EVSE-level update
   app.put(
     `${prefix}/:country_code/:party_id/:location_id/:evse_uid`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, location_id, evse_uid } = request.params as {
         country_code: string;
@@ -280,10 +306,12 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
       }
 
       const rawEvse = request.body;
-      if (rawEvse == null || typeof rawEvse !== 'object') {
-        await reply
-          .status(400)
-          .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid EVSE object'));
+      if (!isEvseShape(rawEvse)) {
+        await reply.status(400).send(invalid('Invalid EVSE object'));
+        return;
+      }
+      if ((rawEvse as Record<string, unknown>)['uid'] !== evse_uid) {
+        await reply.status(400).send(invalid('EVSE uid does not match the URL'));
         return;
       }
       const evseBody = rawEvse as OcpiEVSE;
@@ -334,7 +362,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
   // PUT connector-level update
   app.put(
     `${prefix}/:country_code/:party_id/:location_id/:evse_uid/:connector_id`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, location_id, evse_uid, connector_id } = request.params as {
         country_code: string;
@@ -358,10 +386,16 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
       }
 
       const connectorBody = request.body;
-      if (connectorBody == null || typeof connectorBody !== 'object') {
-        await reply
-          .status(400)
-          .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid connector object'));
+      if (
+        connectorBody == null ||
+        typeof connectorBody !== 'object' ||
+        Array.isArray(connectorBody)
+      ) {
+        await reply.status(400).send(invalid('Invalid connector object'));
+        return;
+      }
+      if ((connectorBody as Record<string, unknown>)['id'] !== connector_id) {
+        await reply.status(400).send(invalid('Connector id does not match the URL'));
         return;
       }
 
@@ -416,7 +450,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
   // PATCH location-level partial update
   app.patch(
     `${prefix}/:country_code/:party_id/:location_id`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, location_id } = request.params as {
         country_code: string;
@@ -440,7 +474,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
       }
 
       const rawPatch = request.body;
-      if (rawPatch == null || typeof rawPatch !== 'object') {
+      if (rawPatch == null || typeof rawPatch !== 'object' || Array.isArray(rawPatch)) {
         await reply
           .status(400)
           .send(
@@ -471,7 +505,22 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
 
       const patch = rawPatch as Record<string, unknown>;
       const currentData = existing.locationData as Record<string, unknown>;
-      const mergedData = { ...currentData, ...patch } as unknown as OcpiLocation;
+      const identity = patchChangesIdentity(patch, { id: location_id, country_code, party_id }, [
+        'id',
+        'country_code',
+        'party_id',
+      ]);
+      if (identity != null) {
+        await reply.status(400).send(invalid(`Cannot change ${identity}`));
+        return;
+      }
+      const merged = { ...currentData, ...patch };
+      const problem = locationProblem(merged);
+      if (problem != null) {
+        await reply.status(400).send(invalid(problem));
+        return;
+      }
+      const mergedData = merged as unknown as OcpiLocation;
 
       const updateFields: {
         locationData: OcpiLocation;
@@ -489,9 +538,8 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
         updateFields.name = patch['name'];
       }
       if (patch['coordinates'] != null) {
-        const coords = patch['coordinates'] as { latitude?: string; longitude?: string };
-        if (coords.latitude != null) updateFields.latitude = coords.latitude;
-        if (coords.longitude != null) updateFields.longitude = coords.longitude;
+        updateFields.latitude = mergedData.coordinates.latitude;
+        updateFields.longitude = mergedData.coordinates.longitude;
       }
       if (Array.isArray(patch['evses'])) {
         updateFields.evseCount = String(patch['evses'].length);
@@ -509,7 +557,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
   // PATCH EVSE-level partial update
   app.patch(
     `${prefix}/:country_code/:party_id/:location_id/:evse_uid`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, location_id, evse_uid } = request.params as {
         country_code: string;
@@ -532,7 +580,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
       }
 
       const rawPatch = request.body;
-      if (rawPatch == null || typeof rawPatch !== 'object') {
+      if (rawPatch == null || typeof rawPatch !== 'object' || Array.isArray(rawPatch)) {
         await reply
           .status(400)
           .send(
@@ -573,7 +621,16 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
 
       const patch = rawPatch as Record<string, unknown>;
       const currentEvse = evses[evseIndex] as unknown as Record<string, unknown>;
-      evses[evseIndex] = { ...currentEvse, ...patch } as unknown as OcpiEVSE;
+      if (patchChangesIdentity(patch, { uid: evse_uid }, ['uid']) != null) {
+        await reply.status(400).send(invalid('Cannot change uid'));
+        return;
+      }
+      const mergedEvse = { ...currentEvse, ...patch };
+      if (!isEvseShape(mergedEvse)) {
+        await reply.status(400).send(invalid('Invalid EVSE object'));
+        return;
+      }
+      evses[evseIndex] = mergedEvse as unknown as OcpiEVSE;
       locationData.evses = evses;
 
       await db
@@ -591,7 +648,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
   // PATCH connector-level partial update
   app.patch(
     `${prefix}/:country_code/:party_id/:location_id/:evse_uid/:connector_id`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, location_id, evse_uid, connector_id } = request.params as {
         country_code: string;
@@ -617,7 +674,7 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
       }
 
       const rawPatch = request.body;
-      if (rawPatch == null || typeof rawPatch !== 'object') {
+      if (rawPatch == null || typeof rawPatch !== 'object' || Array.isArray(rawPatch)) {
         await reply
           .status(400)
           .send(
@@ -664,6 +721,10 @@ function registerEmspLocationRoutes(app: FastifyInstance, version: OcpiVersion):
       }
 
       const patch = rawPatch as Record<string, unknown>;
+      if (patchChangesIdentity(patch, { id: connector_id }, ['id']) != null) {
+        await reply.status(400).send(invalid('Cannot change id'));
+        return;
+      }
       const currentConn = evse.connectors[connIndex] as unknown as Record<string, unknown>;
       evse.connectors[connIndex] = {
         ...currentConn,

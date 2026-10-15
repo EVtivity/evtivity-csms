@@ -140,6 +140,15 @@ vi.mock('@evtivity/database', () => ({
   drivers: h.table('drivers', ['id', 'isActive']),
   guestSessions: h.table('guest_sessions', ['sessionToken', 'status', 'stationOcppId']),
   ocpiExternalTokens: h.table('ocpi_external_tokens', ['uid', 'isValid', 'whitelist', 'tokenData']),
+  resolveOcpiTokenOwner: async (input: { tokenUid: string }) => {
+    const { ocpiOwnerFromRows } = await import('../helpers/ocpi-token-owner.js');
+    const rows = await whereFor({ [h.TABLE]: 'ocpi_external_tokens' })({
+      op: 'eq',
+      col: 'uid',
+      val: input.tokenUid,
+    }).limit();
+    return ocpiOwnerFromRows(rows);
+  },
   chargingSessions: h.table('charging_sessions', [
     'id',
     'tokenId',
@@ -752,6 +761,29 @@ describe('authorizeToken: OCPI', () => {
     expect(d).toMatchObject({ status: 'invalid', source: 'not_found' });
     expect(logger.debug).toHaveBeenCalled();
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('refuses a uid two connected partners hold as valid tokens (ambiguous owner)', async () => {
+    h.tables['ocpi_external_tokens'] = [
+      { uid: 'SHARED', partnerId: 'opr_a', isValid: true, whitelist: 'ALWAYS', tokenData: {} },
+      { uid: 'SHARED', partnerId: 'opr_b', isValid: true, whitelist: 'ALLOWED', tokenData: {} },
+    ];
+    const d = await authorizeToken(input('authorize', 'SHARED', 'ISO14443'), logger);
+    expect(d).toMatchObject({
+      status: 'invalid',
+      reason: 'ocpi_external_ambiguous',
+      source: 'ocpi',
+    });
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('accepts the one valid token when the other partner holds it as invalid', async () => {
+    h.tables['ocpi_external_tokens'] = [
+      { uid: 'SHARED', partnerId: 'opr_a', isValid: false, whitelist: 'ALWAYS', tokenData: {} },
+      { uid: 'SHARED', partnerId: 'opr_b', isValid: true, whitelist: 'ALLOWED', tokenData: {} },
+    ];
+    const d = await authorizeToken(input('authorize', 'SHARED', 'ISO14443'), logger);
+    expect(d).toMatchObject({ status: 'accepted', reason: 'ocpi_external' });
   });
 });
 

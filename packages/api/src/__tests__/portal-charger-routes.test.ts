@@ -54,8 +54,10 @@ const {
   mockAvailableEvseCountSql,
   mockSqlRaw,
   mockWriteCsmsSessionAudit,
+  mockFailUnstartedRemoteSession,
 } = vi.hoisted(() => ({
   mockWriteCsmsSessionAudit: vi.fn(),
+  mockFailUnstartedRemoteSession: vi.fn(),
   mockRecordSessionEndRequest: vi.fn().mockResolvedValue(true),
   mockAvailableEvseCountSql: vi.fn((alias: string) => `AVAILABLE_EVSE_COUNT(${alias})`),
   mockSqlRaw: vi.fn((text: string) => ({ raw: text })),
@@ -73,6 +75,9 @@ vi.mock('@evtivity/database', async () => ({
   SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
   recordSessionEndRequest: mockRecordSessionEndRequest,
   writeCsmsSessionAudit: mockWriteCsmsSessionAudit,
+  failUnstartedRemoteSession: mockFailUnstartedRemoteSession,
+  REMOTE_START_TIMEOUT_REASON: 'RemoteStartTimeout',
+  REMOTE_START_REJECTED_REASON: 'RemoteStartRejected',
   availableEvseCountSql: mockAvailableEvseCountSql,
   isStationLevelUnavailable: (
     await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
@@ -1078,6 +1083,11 @@ describe('Portal charger routes - handler logic', () => {
     beforeEach(() => {
       mockActivePaymentProvider.mockResolvedValue(STRIPE_PROVIDER);
       vi.mocked(isStationChargingFree).mockResolvedValue(false);
+      mockFailUnstartedRemoteSession.mockResolvedValue({
+        outcome: 'failed',
+        session: { id: VALID_SESSION_ID },
+      });
+      mockWriteCsmsSessionAudit.mockClear();
     });
 
     function sessionInsertValues(): Array<Record<string, unknown>> {
@@ -1322,13 +1332,102 @@ describe('Portal charger routes - handler logic', () => {
 
       expect(response.statusCode).toBe(502);
       expect(response.json().code).toBe('START_REJECTED');
-      expect(sessionUpdateSets()).toContainEqual(expect.objectContaining({ status: 'faulted' }));
+      // Closed by the guarded helper (active only, ended, zero cost), never
+      // by an unguarded status write.
+      expect(mockFailUnstartedRemoteSession).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        'RemoteStartRejected',
+      );
+      expect(sessionUpdateSets()).not.toContainEqual(
+        expect.objectContaining({ status: 'faulted' }),
+      );
       expect(mockCancelOpenSessionHold).toHaveBeenCalledWith(
         VALID_SESSION_ID,
         'Station rejected the start: Rejected',
         { registry: 'registry', logger: expect.anything() },
       );
+      expect(mockWriteCsmsSessionAudit).toHaveBeenCalledTimes(1);
       expect(mockScheduleRemoteStartTimeout).not.toHaveBeenCalled();
+    });
+
+    it('closes an unanswered start through the guarded helper and releases its hold', async () => {
+      setupStartRows([{ id: 7 }], [{ id: VALID_SESSION_ID }]);
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'authorized',
+        paymentRecordId: 3,
+        paymentId: 'pi_test_123',
+      });
+      mockCancelOpenSessionHold.mockResolvedValueOnce({ status: 'cancelled', paymentRecordId: 3 });
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'c',
+        error: 'No response within 35s',
+        timedOut: true,
+      });
+
+      const response = await startWithCard();
+
+      expect(response.statusCode).toBe(504);
+      expect(response.json().code).toBe('STATION_TIMEOUT');
+      expect(mockFailUnstartedRemoteSession).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        'RemoteStartTimeout',
+      );
+      expect(sessionUpdateSets()).not.toContainEqual(
+        expect.objectContaining({ status: 'faulted' }),
+      );
+      expect(mockCancelOpenSessionHold).toHaveBeenCalledWith(
+        VALID_SESSION_ID,
+        'Station did not answer the start',
+        { registry: 'registry', logger: expect.anything() },
+      );
+      expect(mockWriteCsmsSessionAudit).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers the start when the station reported its transaction before the timeout', async () => {
+      setupStartRows([{ id: 7 }], [{ id: VALID_SESSION_ID }]);
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'authorized',
+        paymentRecordId: 3,
+        paymentId: 'pi_test_123',
+      });
+      mockFailUnstartedRemoteSession.mockResolvedValueOnce({ outcome: 'skipped' });
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'c',
+        error: 'No response within 35s',
+        timedOut: true,
+      });
+
+      const response = await startWithCard();
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().chargingSessionId).toBe(VALID_SESSION_ID);
+      // The session charges: its hold stays, nothing is audited as faulted.
+      expect(mockCancelOpenSessionHold).not.toHaveBeenCalled();
+      expect(mockWriteCsmsSessionAudit).not.toHaveBeenCalled();
+    });
+
+    it('writes no audit and sends no notice when another path closed the start first', async () => {
+      setupStartRows([{ id: 7 }], [{ id: VALID_SESSION_ID }]);
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'authorized',
+        paymentRecordId: 3,
+        paymentId: 'pi_test_123',
+      });
+      mockFailUnstartedRemoteSession.mockResolvedValueOnce({
+        outcome: 'closed',
+        session: { id: VALID_SESSION_ID },
+      });
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'c',
+        response: { status: 'Rejected' },
+      });
+
+      const response = await startWithCard();
+
+      expect(response.statusCode).toBe(502);
+      expect(mockWriteCsmsSessionAudit).not.toHaveBeenCalled();
+      // A retry still releases the hold (same idempotency key at the provider).
+      expect(mockCancelOpenSessionHold).toHaveBeenCalledTimes(1);
     });
 
     it('still answers the rejection when the hold cancel fails (fail-open)', async () => {
@@ -1476,7 +1575,11 @@ describe('Portal charger routes - handler logic', () => {
       });
 
       it('stops the taken-over transaction, not as a ghost, when the station rejects', async () => {
-        setupTakeoverRows([{ id: 7 }], [{ id: WAITING_ID, transactionId: 'tx-station' }]);
+        setupTakeoverRows(
+          [{ id: 7 }],
+          [{ id: WAITING_ID, transactionId: 'tx-station' }],
+          [{ id: WAITING_ID }], // the guarded fault
+        );
         mockAuthorizeSessionHold.mockResolvedValueOnce({
           outcome: 'authorized',
           paymentRecordId: 3,
@@ -1499,7 +1602,17 @@ describe('Portal charger routes - handler logic', () => {
         expect(response.statusCode).toBe(502);
         // No ghost recovery: one RequestStartTransaction, no RequestStop wait.
         expect(sendOcppCommandAndWait).toHaveBeenCalledTimes(1);
-        expect(sessionUpdateSets()).toContainEqual(expect.objectContaining({ status: 'faulted' }));
+        expect(sessionUpdateSets()).toContainEqual(
+          expect.objectContaining({
+            status: 'faulted',
+            stoppedReason: 'RemoteStartRejected',
+            finalCostCents: 0,
+            currentCostCents: 0,
+            endedAt: expect.any(Date),
+          }),
+        );
+        // A taken-over transaction has events: the unstarted helper does not apply.
+        expect(mockFailUnstartedRemoteSession).not.toHaveBeenCalled();
         expect(mockCancelOpenSessionHold).toHaveBeenCalledWith(
           WAITING_ID,
           expect.any(String),
@@ -1641,6 +1754,87 @@ describe('Portal charger routes - handler logic', () => {
         expect.anything(),
         expect.anything(),
       );
+    });
+
+    it.each([
+      ['ocpp2.1', 'CS-001', 'tx-123'],
+      ['ocpp1.6', 'CS-016', '4'],
+    ])(
+      'answers 409 SESSION_STOP_REJECTED when an %s station rejects the stop',
+      async (ocppProtocol, stationOcppId, transactionId) => {
+        vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+          commandId: 'm',
+          response: { status: 'Rejected' },
+        });
+        setupDbResults([
+          {
+            id: VALID_SESSION_ID,
+            transactionId,
+            stationDbId: VALID_STATION_ID,
+            stationOcppId,
+            ocppProtocol,
+          },
+        ]);
+
+        const response = await app.inject({
+          method: 'POST',
+          url: `/portal/chargers/sessions/${VALID_SESSION_ID}/stop`,
+          headers: { authorization: `Bearer ${driverToken}` },
+        });
+
+        expect(response.statusCode).toBe(409);
+        expect(response.json().code).toBe('SESSION_STOP_REJECTED');
+      },
+    );
+
+    it('answers 409 STATION_OFFLINE when the stop is queued for an offline station', async () => {
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'm',
+        error: 'Station offline, command queued',
+        queued: true,
+      });
+      setupDbResults([
+        {
+          id: VALID_SESSION_ID,
+          transactionId: 'tx-123',
+          stationDbId: VALID_STATION_ID,
+          stationOcppId: 'CS-001',
+        },
+      ]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/portal/chargers/sessions/${VALID_SESSION_ID}/stop`,
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('STATION_OFFLINE');
+    });
+
+    it('answers 504 STATION_TIMEOUT when the station does not answer the stop', async () => {
+      vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+        commandId: 'm',
+        error: 'No response within 35s',
+        timedOut: true,
+      });
+      setupDbResults([
+        {
+          id: VALID_SESSION_ID,
+          transactionId: 'tx-123',
+          stationDbId: VALID_STATION_ID,
+          stationOcppId: 'CS-001',
+        },
+      ]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/portal/chargers/sessions/${VALID_SESSION_ID}/stop`,
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+
+      expect(response.statusCode).toBe(504);
+      expect(response.json().code).toBe('STATION_TIMEOUT');
     });
 
     it('lets the OCPP server translate the stop for an OCPP 1.6 station', async () => {

@@ -200,27 +200,24 @@ describe('transaction routes site access (cov2)', () => {
   });
 
   describe('GET /transactions/by-transaction-id/:transactionId', () => {
-    it('404s a transaction at a site the operator cannot see', async () => {
-      svc.getSessionByTransactionId.mockResolvedValue(makeSession());
-      setupDbResults([{ siteId: 'sit_other' }]);
+    it('404s a transaction that happened at a site the operator cannot see', async () => {
+      // The session's own site decides (decision A), not its station's current site.
+      svc.getSessionByTransactionId.mockResolvedValue(makeSession({ siteId: 'sit_other' }));
       const res = await get('/transactions/by-transaction-id/txn-001?stationId=CS-1');
       expect(res.statusCode).toBe(404);
       expect(res.json()).toEqual({ error: 'Transaction not found', code: 'TRANSACTION_NOT_FOUND' });
-      expect(eqMock).toHaveBeenCalledWith('st.id', 'sta_1');
     });
 
     it('returns a transaction at an allowed site with an uppercase currency', async () => {
-      svc.getSessionByTransactionId.mockResolvedValue(makeSession());
-      setupDbResults([{ siteId: 'sit_a' }]);
+      svc.getSessionByTransactionId.mockResolvedValue(makeSession({ siteId: 'sit_a' }));
       const res = await get('/transactions/by-transaction-id/txn-001?stationId=CS-1');
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({ id: SESSION_ID, currency: 'EUR' });
       expect(svc.getSessionByTransactionId).toHaveBeenCalledWith('CS-1', 'txn-001');
     });
 
-    it('404s a transaction whose station has no site for a site-restricted operator', async () => {
-      svc.getSessionByTransactionId.mockResolvedValue(makeSession());
-      setupDbResults([{ siteId: null }]);
+    it('404s a transaction without a site for a site-restricted operator', async () => {
+      svc.getSessionByTransactionId.mockResolvedValue(makeSession({ siteId: null }));
       const res = await get('/transactions/by-transaction-id/txn-001?stationId=CS-1');
       expect(res.statusCode).toBe(404);
     });

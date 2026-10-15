@@ -74,6 +74,23 @@ describe('publishOcppCommand', () => {
     expect(JSON.parse(raw)).not.toHaveProperty('version');
   });
 
+  it('carries noQueue only when set', async () => {
+    const { pubsub, publish } = makePubSub();
+
+    await publishOcppCommand(pubsub, {
+      stationId: 'CS-5',
+      action: 'UnlockConnector',
+      payload: { evseId: 1, connectorId: 1 },
+      noQueue: true,
+    });
+    await publishOcppCommand(pubsub, { stationId: 'CS-5', action: 'Reset', payload: {} });
+
+    const first = JSON.parse((publish.mock.calls[0] as unknown as [string, string])[1]) as object;
+    const second = JSON.parse((publish.mock.calls[1] as unknown as [string, string])[1]) as object;
+    expect(first).toMatchObject({ noQueue: true });
+    expect(second).not.toHaveProperty('noQueue');
+  });
+
   it('propagates a publish failure to the caller', async () => {
     const { pubsub, publish } = makePubSub();
     publish.mockRejectedValueOnce(new Error('redis down'));

@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   selects: [] as unknown[][],
   updates: [] as Record<string, unknown>[],
   inserts: [] as Record<string, unknown>[],
+  conflictSets: [] as Record<string, unknown>[],
   partner: undefined as OcpiPartnerInfo | undefined,
 }));
 
@@ -37,7 +38,12 @@ vi.mock('@evtivity/database', async (importOriginal) => ({
     insert: vi.fn(() => ({
       values: (values: Record<string, unknown>) => {
         h.inserts.push(values);
-        return Promise.resolve(undefined);
+        return {
+          onConflictDoUpdate: (config: { set: Record<string, unknown> }) => {
+            h.conflictSets.push(config.set);
+            return Promise.resolve(undefined);
+          },
+        };
       },
     })),
   },
@@ -82,7 +88,7 @@ function locationData(): Record<string, unknown> {
     address: '1 Main St',
     city: 'Berlin',
     country: 'DEU',
-    coordinates: { latitude: '52.5', longitude: '13.4' },
+    coordinates: { latitude: '52.520008', longitude: '13.404954' },
     time_zone: 'Europe/Berlin',
     evses: [
       {
@@ -118,6 +124,7 @@ beforeEach(() => {
   h.selects = [];
   h.updates = [];
   h.inserts = [];
+  h.conflictSets = [];
   h.partner = { ...PARTNER };
 });
 
@@ -214,8 +221,7 @@ describe('GET emsp locations', () => {
 });
 
 describe('PUT emsp location', () => {
-  it('inserts a new location with derived columns', async () => {
-    h.selects = [[]];
+  it('upserts the location with derived columns', async () => {
     const payload = locationData();
     const res = await app.inject({ method: 'PUT', url: BASE, payload });
     expect(res.statusCode).toBe(200);
@@ -228,30 +234,89 @@ describe('PUT emsp location', () => {
         partyId: 'ABC',
         locationId: 'LOC1',
         name: 'Old Name',
-        latitude: '52.5',
-        longitude: '13.4',
+        latitude: '52.520008',
+        longitude: '13.404954',
         evseCount: '1',
         locationData: payload,
       },
     ]);
+    // ON CONFLICT on (partner, country, party, location id) replaces the row.
+    expect(Object.keys(h.conflictSets[0] ?? {}).sort()).toEqual([
+      'evseCount',
+      'latitude',
+      'locationData',
+      'longitude',
+      'name',
+      'updatedAt',
+    ]);
   });
 
-  it('updates an existing location and stores a null name and zero EVSEs', async () => {
-    h.selects = [[{ id: 7 }]];
+  it('stores a null name and zero EVSEs', async () => {
     const payload = locationData();
     delete payload['name'];
     delete payload['evses'];
     const res = await app.inject({ method: 'PUT', url: BASE, payload });
     expect(res.statusCode).toBe(200);
-    expect(h.inserts).toHaveLength(0);
-    expect(h.updates[0]).toMatchObject({
+    expect(h.updates).toHaveLength(0);
+    expect(h.inserts[0]).toMatchObject({
       name: null,
-      latitude: '52.5',
-      longitude: '13.4',
+      latitude: '52.520008',
+      longitude: '13.404954',
       evseCount: '0',
       locationData: payload,
     });
-    expect(h.updates[0]?.['updatedAt']).toBeInstanceOf(Date);
+  });
+
+  it('answers 2001 for coordinates outside the OCPI GeoLocation format', async () => {
+    for (const coordinates of [
+      { latitude: '52.5', longitude: '13.404954' },
+      { latitude: '52.520008', longitude: 'east' },
+      { latitude: '95.000000', longitude: '13.404954' },
+      { latitude: '52.520008', longitude: '1e3' },
+    ]) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: BASE,
+        payload: { ...locationData(), coordinates },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json<Body>()).toMatchObject({
+        status_code: 2001,
+        status_message: 'Invalid location coordinates',
+      });
+    }
+    expect(h.inserts).toHaveLength(0);
+  });
+
+  it('refuses a body whose id or party differs from the URL', async () => {
+    for (const [field, value] of [
+      ['id', 'LOC2'],
+      ['country_code', 'NL'],
+      ['party_id', 'XYZ'],
+    ] as const) {
+      const res = await app.inject({
+        method: 'PUT',
+        url: BASE,
+        payload: { ...locationData(), [field]: value },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json<Body>().status_message).toBe(`Location ${field} does not match the URL`);
+    }
+    expect(h.inserts).toHaveLength(0);
+  });
+
+  it('answers 2001 instead of a database error for an over-long location id', async () => {
+    const id = 'L'.repeat(37);
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/ocpi/2.2.1/emsp/locations/DE/ABC/${id}`,
+      payload: { ...locationData(), id },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<Body>()).toMatchObject({
+      status_code: 2001,
+      status_message: 'Invalid location_id',
+    });
   });
 
   it('rejects a namespace that does not match the credentials', async () => {
@@ -290,7 +355,7 @@ describe('PUT emsp location', () => {
     delete payload['coordinates'];
     const res = await app.inject({ method: 'PUT', url: BASE, payload });
     expect(res.statusCode).toBe(400);
-    expect(res.json<Body>().status_message).toBe('Location coordinates are required');
+    expect(res.json<Body>().status_message).toBe('Invalid location coordinates');
   });
 
   it('returns 401 for every write level without a registered partner', async () => {
@@ -355,7 +420,11 @@ describe('PUT emsp EVSE', () => {
     expect(res.json<Body>().status_message).toBe('Invalid EVSE object');
 
     h.selects = [[]];
-    res = await app.inject({ method: 'PUT', url: `${BASE}/EVSE1`, payload: { uid: 'EVSE1' } });
+    res = await app.inject({
+      method: 'PUT',
+      url: `${BASE}/EVSE1`,
+      payload: { uid: 'EVSE1', connectors: [] },
+    });
     expect(res.statusCode).toBe(404);
     expect(res.json<Body>().status_code).toBe(2003);
     expect(h.updates).toHaveLength(0);
@@ -425,7 +494,7 @@ describe('PATCH emsp location', () => {
     h.selects = [[row()]];
     const patch = {
       name: 'New Name',
-      coordinates: { latitude: '48.1', longitude: '11.5' },
+      coordinates: { latitude: '48.137154', longitude: '11.576124' },
       evses: [],
     };
     const res = await app.inject({ method: 'PATCH', url: BASE, payload: patch });
@@ -433,8 +502,8 @@ describe('PATCH emsp location', () => {
     const update = h.updates[0] as Record<string, unknown>;
     expect(update).toMatchObject({
       name: 'New Name',
-      latitude: '48.1',
-      longitude: '11.5',
+      latitude: '48.137154',
+      longitude: '11.576124',
       evseCount: '0',
       locationData: { id: 'LOC1', city: 'Berlin', name: 'New Name', evses: [] },
     });
@@ -445,7 +514,7 @@ describe('PATCH emsp location', () => {
     const res = await app.inject({
       method: 'PATCH',
       url: BASE,
-      payload: { city: 'Hamburg', name: 5, coordinates: {} },
+      payload: { city: 'Hamburg' },
     });
     expect(res.statusCode).toBe(200);
     const update = h.updates[0] as Record<string, unknown>;
@@ -453,7 +522,59 @@ describe('PATCH emsp location', () => {
     expect(update).not.toHaveProperty('latitude');
     expect(update).not.toHaveProperty('longitude');
     expect(update).not.toHaveProperty('evseCount');
-    expect(update['locationData']).toMatchObject({ city: 'Hamburg', name: 5 });
+    expect(update['locationData']).toMatchObject({ city: 'Hamburg', name: 'Old Name' });
+  });
+
+  it('refuses a patch with an invalid name, coordinates or evses', async () => {
+    for (const [patch, message] of [
+      [{ name: 5 }, 'Invalid location name'],
+      [{ coordinates: {} }, 'Invalid location coordinates'],
+      [{ coordinates: { latitude: '48.1', longitude: '11.5' } }, 'Invalid location coordinates'],
+      [{ evses: [{ uid: 'E' }] }, 'Invalid location evses'],
+    ] as const) {
+      h.selects = [[row()]];
+      const res = await app.inject({ method: 'PATCH', url: BASE, payload: patch });
+      expect(res.statusCode).toBe(400);
+      expect(res.json<Body>()).toMatchObject({ status_code: 2001, status_message: message });
+    }
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it('refuses a patch that changes the location id or party', async () => {
+    for (const patch of [{ id: 'LOC2' }, { country_code: 'NL' }, { party_id: 'XYZ' }]) {
+      h.selects = [[row()]];
+      const res = await app.inject({ method: 'PATCH', url: BASE, payload: patch });
+      expect(res.statusCode).toBe(400);
+      expect(res.json<Body>().status_code).toBe(2001);
+    }
+    h.selects = [[row()]];
+    const same = await app.inject({ method: 'PATCH', url: BASE, payload: { id: 'LOC1' } });
+    expect(same.statusCode).toBe(200);
+  });
+
+  it('refuses an EVSE patch that changes its uid and a connector patch that changes its id', async () => {
+    h.selects = [[row()]];
+    let res = await app.inject({ method: 'PATCH', url: `${BASE}/EVSE1`, payload: { uid: 'X' } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<Body>().status_message).toBe('Cannot change uid');
+
+    h.selects = [[row()]];
+    res = await app.inject({ method: 'PATCH', url: `${BASE}/EVSE1/1`, payload: { id: '9' } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<Body>().status_message).toBe('Cannot change id');
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it('refuses an EVSE or connector PUT whose body names another object', async () => {
+    let res = await app.inject({
+      method: 'PUT',
+      url: `${BASE}/EVSE1`,
+      payload: { uid: 'EVSE2', connectors: [] },
+    });
+    expect(res.json<Body>().status_message).toBe('EVSE uid does not match the URL');
+    res = await app.inject({ method: 'PUT', url: `${BASE}/EVSE1/1`, payload: connector('2') });
+    expect(res.json<Body>().status_message).toBe('Connector id does not match the URL');
+    expect(h.updates).toHaveLength(0);
   });
 
   it('rejects a foreign namespace, a bad body and an unknown location', async () => {

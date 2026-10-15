@@ -24,7 +24,8 @@
     "amountInclTax": "{{amount}} impuestos incluidos",
     "close": "Cerrar",
     "toggleSuggestions": "Mostrar u ocultar sugerencias",
-    "copyFailed": "No se pudo copiar"
+    "copyFailed": "No se pudo copiar",
+    "notCharged": "Sin Cargo"
   },
   "nav": {
     "home": "Inicio",
@@ -596,6 +597,8 @@
     "CAMPAIGN_NOT_FOUND": "Campaña no encontrada",
     "CASE_NOT_FOUND": "Caso no encontrado",
     "CA_CERT_NOT_FOUND": "Certificado CA no encontrado",
+    "CDR_NOT_CREDITED": "Abone todos los CDR de la sesión antes de volver a emitirla",
+    "CDR_PUSH_NOT_FAILED": "Solo se puede volver a enviar un CDR cuyo envío falló",
     "CDR_NOT_FOUND": "CDR no encontrado",
     "CIRCUIT_NOT_FOUND": "Circuito no encontrado",
     "COMMAND_ERROR": "Comando fallido",
@@ -674,6 +677,8 @@
     "INVALID_SITE_IDS": "Uno o más siteIds no existen",
     "INVALID_TOKEN": "Enlace de restablecimiento inválido o expirado",
     "INVOICE_ALREADY_PAID": "La factura ya está pagada",
+    "RESERVATION_FEE_ALREADY_INVOICED": "La tarifa de reserva ya está facturada",
+    "SESSION_ALREADY_INVOICED": "La sesión ya está facturada",
     "INVOICE_CREATION_FAILED": "Error al crear la factura",
     "INVOICE_NOT_ISSUED": "La factura debe estar emitida para esta acción",
     "INVOICE_IS_CREDIT_NOTE": "Una nota de crédito no se puede marcar como pagada ni acreditar",
@@ -786,7 +791,6 @@
     "RESERVATION_TIMEOUT": "Tiempo de espera del comando de reserva agotado",
     "RESERVATION_TOO_LONG": "La reserva no puede exceder ... horas",
     "RESERVATION_WINDOW_TOO_SHORT": "La reserva debe terminar al menos 60 segundos después de comenzar",
-    "RESET_NOT_REQUIRED": "No se requiere restablecimiento de contraseña",
     "ROAMING_DISABLED": "El roaming está deshabilitado",
     "ROLE_NOT_FOUND": "El rol no existe",
     "ROTATION_NOT_APPLICABLE": "La rotación de credenciales solo aplica a perfiles de seguridad 1 y 2",
@@ -890,7 +894,14 @@
     "SESSION_NO_VEHICLE_ID": "El cargador no envió ningún identificador de vehículo para esta sesión.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "El operador bloqueó Autocharge para este vehículo. Contacte al operador para desbloquearlo.",
     "VEHICLE_ID_IN_USE": "Otro vehículo ya usa este VIN o EVCCID para Autocharge.",
-    "VEHICLE_ID_REQUIRED": "Autocharge necesita un VIN o un EVCCID en el vehículo."
+    "VEHICLE_ID_REQUIRED": "Autocharge necesita un VIN o un EVCCID en el vehículo.",
+    "SESSION_STOP_REJECTED": "La estación rechazó la solicitud de detención. La sesión sigue cargando.",
+    "PARTNER_ALREADY_CONNECTED": "El socio ya está conectado",
+    "PARTNER_NOT_REGISTERED": "Un socio se conecta mediante el intercambio de credenciales OCPI",
+    "SESSION_REQUIRED": "Esta acción requiere una sesión iniciada. Las claves de API no pueden usarla.",
+    "MFA_LOCKED": "Demasiados códigos incorrectos. Espere antes de volver a intentarlo.",
+    "MFA_RESEND_LIMITED": "Se enviaron demasiados códigos. Espere antes de solicitar otro.",
+    "USER_SSO_MANAGED": "Este usuario inicia sesión con SSO y no tiene contraseña que establecer."
   },
   "validation": {
     "required": "Este campo es obligatorio",
@@ -935,7 +946,9 @@
     "totalCo2Avoided": "CO₂ total evitado",
     "noSessions": "No hay sesiones de carga en este periodo.",
     "cost": "Costo",
-    "costInclTax": "Costo (impuestos incluidos)"
+    "costInclTax": "Costo (impuestos incluidos)",
+    "otherCurrencyNote_one": "{{count}} sesión facturada en una moneda anterior no está incluida en el total ({{currency}}).",
+    "otherCurrencyNote_other": "{{count}} sesiones facturadas en una moneda anterior no están incluidas en el total ({{currency}})."
   },
   "account": {
     "title": "Cuenta",

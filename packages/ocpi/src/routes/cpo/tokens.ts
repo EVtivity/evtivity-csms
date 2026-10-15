@@ -2,25 +2,37 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db, ocpiExternalTokens, ocpiPartnerAuditLog, writeAudit } from '@evtivity/database';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
-import type { OcpiVersion, OcpiToken, OcpiAuthorizationInfo } from '../../types/ocpi.js';
+import { ocpiParamLimits } from '../../middleware/ocpi-params.js';
+import { fitsOcpiString, patchChangesIdentity } from '../../lib/ocpi-fields.js';
+import type { OcpiVersion, OcpiToken } from '../../types/ocpi.js';
 
 function isValidToken(body: unknown): body is OcpiToken {
   if (body == null || typeof body !== 'object') return false;
   const obj = body as Record<string, unknown>;
   return (
     typeof obj['uid'] === 'string' &&
-    typeof obj['type'] === 'string' &&
-    typeof obj['contract_id'] === 'string' &&
-    typeof obj['issuer'] === 'string' &&
+    fitsOcpiString(obj['type'], 20) &&
+    fitsOcpiString(obj['contract_id'], 36) &&
+    fitsOcpiString(obj['issuer'], 64) &&
     typeof obj['valid'] === 'boolean' &&
-    typeof obj['whitelist'] === 'string' &&
+    fitsOcpiString(obj['whitelist'], 20) &&
     typeof obj['country_code'] === 'string' &&
     typeof obj['party_id'] === 'string'
   );
+}
+
+/**
+ * The token type the URL names: `?type=` on the Tokens receiver URL (OCPI
+ * 2.3.0 12.2.2), RFID when absent. Null for a value that is not a TokenType.
+ */
+function requestedTokenType(query: unknown): string | null {
+  const type = (query as Record<string, unknown> | null)?.['type'];
+  if (type == null) return 'RFID';
+  return fitsOcpiString(type, 20) ? type : null;
 }
 
 /**
@@ -59,7 +71,7 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
   // GET /ocpi/{version}/cpo/tokens/:country_code/:party_id/:token_uid - get stored token
   app.get(
     `${prefix}/:country_code/:party_id/:token_uid`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, token_uid } = request.params as {
         country_code: string;
@@ -76,6 +88,7 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
         return;
       }
 
+      const typeParam = (request.query as Record<string, unknown> | null)?.['type'];
       const [token] = await db
         .select()
         .from(ocpiExternalTokens)
@@ -89,7 +102,7 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
         )
         .limit(1);
 
-      if (token == null) {
+      if (token == null || (typeof typeParam === 'string' && token.tokenType !== typeParam)) {
         await reply
           .status(404)
           .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_TOKEN, 'Token not found'));
@@ -103,7 +116,7 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
   // PUT /ocpi/{version}/cpo/tokens/:country_code/:party_id/:token_uid - upsert token
   app.put(
     `${prefix}/:country_code/:party_id/:token_uid`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, token_uid } = request.params as {
         country_code: string;
@@ -135,6 +148,31 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
         await reply
           .status(403)
           .send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Cannot PUT tokens for another partner'));
+        return;
+      }
+
+      // The object in the body is the token the URL names: uid, party and
+      // the type from ?type= (RFID when absent).
+      const urlType = requestedTokenType(request.query);
+      const identityProblem =
+        body.uid !== token_uid
+          ? 'uid'
+          : body.country_code !== country_code
+            ? 'country_code'
+            : body.party_id !== party_id
+              ? 'party_id'
+              : body.type !== urlType
+                ? 'type'
+                : null;
+      if (identityProblem != null) {
+        await reply
+          .status(400)
+          .send(
+            ocpiError(
+              OcpiStatusCode.CLIENT_INVALID_PARAMS,
+              `Token ${identityProblem} does not match the URL`,
+            ),
+          );
         return;
       }
 
@@ -171,16 +209,36 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
           })
           .where(eq(ocpiExternalTokens.id, existing[0].id));
       } else {
-        await db.insert(ocpiExternalTokens).values({
-          partnerId: partner.partnerId,
-          countryCode: country_code,
-          partyId: party_id,
-          uid: token_uid,
-          tokenType: body.type,
-          isValid: body.valid,
-          whitelist: body.whitelist,
-          tokenData: body,
-        });
+        // Two concurrent first PUTs of one token: the later one updates the
+        // row instead of failing on ocpi_external_tokens_unique. The partner
+        // namespace check above keeps the row in this partner's namespace.
+        await db
+          .insert(ocpiExternalTokens)
+          .values({
+            partnerId: partner.partnerId,
+            countryCode: country_code,
+            partyId: party_id,
+            uid: token_uid,
+            tokenType: body.type,
+            isValid: body.valid,
+            whitelist: body.whitelist,
+            tokenData: body,
+          })
+          .onConflictDoUpdate({
+            target: [
+              ocpiExternalTokens.countryCode,
+              ocpiExternalTokens.partyId,
+              ocpiExternalTokens.uid,
+            ],
+            set: {
+              tokenType: sql`excluded.token_type`,
+              isValid: sql`excluded.is_valid`,
+              whitelist: sql`excluded.whitelist`,
+              tokenData: sql`excluded.token_data`,
+              updatedAt: sql`now()`,
+            },
+            setWhere: eq(ocpiExternalTokens.partnerId, partner.partnerId),
+          });
       }
 
       const previous = existing[0];
@@ -201,7 +259,7 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
   // PATCH /ocpi/{version}/cpo/tokens/:country_code/:party_id/:token_uid - partial update
   app.patch(
     `${prefix}/:country_code/:party_id/:token_uid`,
-    { onRequest: [ocpiAuthenticate] },
+    { onRequest: [ocpiAuthenticate], preHandler: [ocpiParamLimits] },
     async (request, reply) => {
       const { country_code, party_id, token_uid } = request.params as {
         country_code: string;
@@ -237,7 +295,8 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
         )
         .limit(1);
 
-      if (existing == null) {
+      const patchType = (request.query as Record<string, unknown> | null)?.['type'];
+      if (existing == null || (typeof patchType === 'string' && existing.tokenType !== patchType)) {
         await reply
           .status(404)
           .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_TOKEN, 'Token not found'));
@@ -245,7 +304,7 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
       }
 
       const rawBody = request.body;
-      if (rawBody == null || typeof rawBody !== 'object') {
+      if (rawBody == null || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
         await reply
           .status(400)
           .send(
@@ -254,6 +313,38 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
         return;
       }
       const patch = rawBody as Record<string, unknown>;
+      // A PATCH updates the token the URL names; it cannot rename it or move
+      // it to another party.
+      const identity = patchChangesIdentity(patch, { uid: token_uid, country_code, party_id }, [
+        'uid',
+        'country_code',
+        'party_id',
+      ]);
+      if (identity != null) {
+        await reply
+          .status(400)
+          .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, `Cannot change ${identity}`));
+        return;
+      }
+      for (const [field, max] of [
+        ['type', 20],
+        ['whitelist', 20],
+        ['contract_id', 36],
+        ['issuer', 64],
+      ] as const) {
+        if (patch[field] != null && !fitsOcpiString(patch[field], max)) {
+          await reply
+            .status(400)
+            .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, `Invalid ${field}`));
+          return;
+        }
+      }
+      if (patch['valid'] != null && typeof patch['valid'] !== 'boolean') {
+        await reply
+          .status(400)
+          .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid valid'));
+        return;
+      }
       const currentData = existing.tokenData as Record<string, unknown>;
       const mergedData = { ...currentData, ...patch };
 
@@ -290,75 +381,6 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
       );
 
       return ocpiSuccess(null);
-    },
-  );
-
-  // POST /ocpi/{version}/cpo/tokens/:token_uid/authorize - real-time authorization
-  app.post(
-    `${prefix}/:token_uid/authorize`,
-    { onRequest: [ocpiAuthenticate] },
-    async (request, reply) => {
-      const { token_uid } = request.params as { token_uid: string };
-
-      const partner = request.ocpiPartner;
-      if (partner?.partnerId == null) {
-        await reply.status(401).send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Not authenticated'));
-        return undefined;
-      }
-
-      // Per-partner namespace scoping. The eMSP partner asking us to
-      // authorize is asking about a token IT previously uploaded. Looking
-      // up by uid alone would let partner A enumerate partner B's tokens
-      // (existence, validity, full token payload) by guessing token UIDs.
-      const [token] = await db
-        .select()
-        .from(ocpiExternalTokens)
-        .where(
-          and(
-            eq(ocpiExternalTokens.partnerId, partner.partnerId),
-            eq(ocpiExternalTokens.uid, token_uid),
-          ),
-        )
-        .limit(1);
-
-      if (token == null) {
-        const result: OcpiAuthorizationInfo = {
-          allowed: 'NOT_ALLOWED',
-          token: {
-            country_code: '',
-            party_id: '',
-            uid: token_uid,
-            type: 'RFID',
-            contract_id: token_uid,
-            issuer: '',
-            valid: false,
-            whitelist: 'NEVER',
-            last_updated: new Date().toISOString(),
-          },
-        };
-        return ocpiSuccess(result);
-      }
-
-      const tokenData = token.tokenData as OcpiToken;
-      const allowed = token.isValid ? 'ALLOWED' : 'BLOCKED';
-
-      const body = request.body as Record<string, unknown> | null;
-      const result: OcpiAuthorizationInfo = {
-        allowed,
-        token: tokenData,
-      };
-
-      if (body != null && typeof body['location_id'] === 'string') {
-        result.location = {
-          location_id: body['location_id'],
-        };
-        const evseUids = body['evse_uids'];
-        if (Array.isArray(evseUids)) {
-          result.location.evse_uids = evseUids as string[];
-        }
-      }
-
-      return ocpiSuccess(result);
     },
   );
 }

@@ -395,7 +395,7 @@ export function tokenRoutes(app: FastifyInstance): void {
           })
           .from(chargingSessions)
           .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-          .leftJoin(sites, eq(chargingStations.siteId, sites.id))
+          .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
           .where(where)
           .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))

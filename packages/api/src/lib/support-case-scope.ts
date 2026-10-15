@@ -16,7 +16,8 @@ import {
  * - a case with a station is visible when the station is in one of the
  *   user's sites (an unsited station is out of scope)
  * - a case without a station is visible only when it has linked sessions and
- *   every linked session ran at a station in the user's sites; a case with
+ *   every linked session happened at one of the user's sites (the session's
+ *   own site, charging_sessions.site_id); a case with
  *   neither station nor sessions belongs to no site and is visible to
  *   all-site users only
  */
@@ -38,9 +39,8 @@ export function supportCaseSiteCondition(siteIds: string[]): SQL {
     ) AND NOT EXISTS (
       SELECT 1 FROM ${supportCaseSessions}
       JOIN ${chargingSessions} ON ${chargingSessions.id} = ${supportCaseSessions.sessionId}
-      LEFT JOIN ${chargingStations} ON ${chargingStations.id} = ${chargingSessions.stationId}
       WHERE ${supportCaseSessions.caseId} = ${supportCases.id}
-        AND (${chargingStations.siteId} IS NULL OR ${chargingStations.siteId} NOT IN (${siteList}))
+        AND (${chargingSessions.siteId} IS NULL OR ${chargingSessions.siteId} NOT IN (${siteList}))
     )
   END)`;
 }

@@ -105,8 +105,8 @@ export async function priceRebill(
 
 /**
  * The electricity cost of a re-billed session, as the session end projection
- * computes it (computeSessionElectricityCost): the rate period of its station's
- * site in force at the billed end, in the site timezone. Null without a site,
+ * computes it (computeSessionElectricityCost): the rate period of the session's
+ * own site (charging_sessions.site_id, where it happened) in force at the billed end, in the site timezone. Null without a site,
  * a matching period or energy. The cached period reader fails open to no
  * periods, so a rate lookup failure never blocks the re-bill.
  */
@@ -117,10 +117,9 @@ export async function rebillElectricityCostCents(
   energyWh: number,
 ): Promise<number | null> {
   const [row] = await sql`
-    SELECT st.site_id, si.timezone
+    SELECT s.site_id, si.timezone
     FROM charging_sessions s
-    JOIN charging_stations st ON st.id = s.station_id
-    LEFT JOIN sites si ON si.id = st.site_id
+    LEFT JOIN sites si ON si.id = s.site_id
     WHERE s.id = ${sessionId}
   `;
   const siteId = row?.['site_id'] as string | null | undefined;

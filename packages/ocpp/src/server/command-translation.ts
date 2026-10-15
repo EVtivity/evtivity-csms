@@ -67,10 +67,14 @@ function mapStopTransaction16(payload: Record<string, unknown>): Record<string, 
   return { transactionId: txId };
 }
 
+// A 1.6 connectorId numbers what 2.1 calls the EVSE (a 1.6 station's
+// connector N is EVSE N with connector 1), so the 2.1 evseId is the 1.6
+// connectorId; the 2.1 connectorId (the connector within the EVSE) is used
+// only when no evseId is given.
 function mapUnlockConnector16(payload: Record<string, unknown>): Record<string, unknown> {
   const evse = payload.evse as Record<string, unknown> | undefined;
   return {
-    connectorId: evse?.connectorId ?? payload.connectorId ?? 1,
+    connectorId: payload.evseId ?? evse?.id ?? evse?.connectorId ?? payload.connectorId ?? 1,
   };
 }
 

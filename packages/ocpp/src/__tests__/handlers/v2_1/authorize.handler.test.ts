@@ -68,6 +68,11 @@ vi.mock('@evtivity/database', () => ({
     status: 'status',
   },
   authorizeAttempts: {},
+  resolveOcpiTokenOwner: async () => {
+    const { ocpiOwnerFromRows } = await import('../../helpers/ocpi-token-owner.js');
+    const rows = await (nextResult() as { limit: () => Promise<unknown[]> }).limit();
+    return ocpiOwnerFromRows(rows);
+  },
   isRoamingEnabled: isRoamingEnabledMock,
   isSiteFreeVendEnabledByStation: isSiteFreeVendEnabledByStationMock,
   buildStationOcppTariff: (...args: unknown[]) => buildStationOcppTariffMock(...args) as unknown,

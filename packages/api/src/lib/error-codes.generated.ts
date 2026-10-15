@@ -55,7 +55,9 @@ export const ERROR_CODES = {
   CAMPAIGN_NOT_ACTIVE: 'CAMPAIGN_NOT_ACTIVE',
   CAMPAIGN_NOT_FOUND: 'CAMPAIGN_NOT_FOUND',
   CASE_NOT_FOUND: 'CASE_NOT_FOUND',
+  CDR_NOT_CREDITED: 'CDR_NOT_CREDITED',
   CDR_NOT_FOUND: 'CDR_NOT_FOUND',
+  CDR_PUSH_NOT_FAILED: 'CDR_PUSH_NOT_FAILED',
   CHARGING_PROFILE_ID_RESERVED: 'CHARGING_PROFILE_ID_RESERVED',
   CIRCUIT_NOT_FOUND: 'CIRCUIT_NOT_FOUND',
   COMMAND_ERROR: 'COMMAND_ERROR',
@@ -167,9 +169,11 @@ export const ERROR_CODES = {
   MFA_ALREADY_ENABLED: 'MFA_ALREADY_ENABLED',
   MFA_CHALLENGE_EXHAUSTED: 'MFA_CHALLENGE_EXHAUSTED',
   MFA_CODE_INVALID: 'MFA_CODE_INVALID',
+  MFA_LOCKED: 'MFA_LOCKED',
   MFA_METHOD_DISABLED: 'MFA_METHOD_DISABLED',
   MFA_NOT_CONFIGURED: 'MFA_NOT_CONFIGURED',
   MFA_REQUIRED: 'MFA_REQUIRED',
+  MFA_RESEND_LIMITED: 'MFA_RESEND_LIMITED',
   MFA_TOKEN_EXPIRED: 'MFA_TOKEN_EXPIRED',
   MFA_TOKEN_INVALID: 'MFA_TOKEN_INVALID',
   MFA_TOTP_NO_RESEND: 'MFA_TOTP_NO_RESEND',
@@ -198,8 +202,10 @@ export const ERROR_CODES = {
   OCTT_RUN_NOT_FOUND: 'OCTT_RUN_NOT_FOUND',
   OVERSUBSCRIPTION_EXCEEDED: 'OVERSUBSCRIPTION_EXCEEDED',
   PANEL_NOT_FOUND: 'PANEL_NOT_FOUND',
+  PARTNER_ALREADY_CONNECTED: 'PARTNER_ALREADY_CONNECTED',
   PARTNER_NOT_CONNECTED: 'PARTNER_NOT_CONNECTED',
   PARTNER_NOT_FOUND: 'PARTNER_NOT_FOUND',
+  PARTNER_NOT_REGISTERED: 'PARTNER_NOT_REGISTERED',
   PASSWORD_REQUIRED: 'PASSWORD_REQUIRED',
   PAYMENT_CONFIG_NOT_FOUND: 'PAYMENT_CONFIG_NOT_FOUND',
   PAYMENT_FAILED: 'PAYMENT_FAILED',
@@ -253,6 +259,7 @@ export const ERROR_CODES = {
   RESERVATION_DISABLED: 'RESERVATION_DISABLED',
   RESERVATION_DURING_MAINTENANCE: 'RESERVATION_DURING_MAINTENANCE',
   RESERVATION_EXPIRES_TOO_SOON: 'RESERVATION_EXPIRES_TOO_SOON',
+  RESERVATION_FEE_ALREADY_INVOICED: 'RESERVATION_FEE_ALREADY_INVOICED',
   RESERVATION_NOT_ACTIVE: 'RESERVATION_NOT_ACTIVE',
   RESERVATION_NOT_FOUND: 'RESERVATION_NOT_FOUND',
   RESERVATION_REJECTED: 'RESERVATION_REJECTED',
@@ -260,7 +267,6 @@ export const ERROR_CODES = {
   RESERVATION_TIMEOUT: 'RESERVATION_TIMEOUT',
   RESERVATION_TOO_LONG: 'RESERVATION_TOO_LONG',
   RESERVATION_WINDOW_TOO_SHORT: 'RESERVATION_WINDOW_TOO_SHORT',
-  RESET_NOT_REQUIRED: 'RESET_NOT_REQUIRED',
   ROAMING_DISABLED: 'ROAMING_DISABLED',
   ROLE_NOT_FOUND: 'ROLE_NOT_FOUND',
   ROTATION_NOT_APPLICABLE: 'ROTATION_NOT_APPLICABLE',
@@ -270,6 +276,7 @@ export const ERROR_CODES = {
   SECURITY_PROFILE_DOWNGRADE: 'SECURITY_PROFILE_DOWNGRADE',
   SELF_EDIT_FORBIDDEN: 'SELF_EDIT_FORBIDDEN',
   SESSION_ALREADY_ACTIVE: 'SESSION_ALREADY_ACTIVE',
+  SESSION_ALREADY_INVOICED: 'SESSION_ALREADY_INVOICED',
   SESSION_CREATE_FAILED: 'SESSION_CREATE_FAILED',
   SESSION_NO_VEHICLE_ID: 'SESSION_NO_VEHICLE_ID',
   SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
@@ -277,6 +284,8 @@ export const ERROR_CODES = {
   SESSION_REBILL_IN_PROGRESS: 'SESSION_REBILL_IN_PROGRESS',
   SESSION_REBILL_NOT_ELIGIBLE: 'SESSION_REBILL_NOT_ELIGIBLE',
   SESSION_REBILL_PAYMENT_PENDING: 'SESSION_REBILL_PAYMENT_PENDING',
+  SESSION_REQUIRED: 'SESSION_REQUIRED',
+  SESSION_STOP_REJECTED: 'SESSION_STOP_REJECTED',
   SETTING_NOT_FOUND: 'SETTING_NOT_FOUND',
   SITE_HAS_STATIONS: 'SITE_HAS_STATIONS',
   SITE_NOT_FOUND: 'SITE_NOT_FOUND',
@@ -321,6 +330,7 @@ export const ERROR_CODES = {
   UNAUTHORIZED: 'UNAUTHORIZED',
   UNKNOWN_ACTION: 'UNKNOWN_ACTION',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
+  USER_SSO_MANAGED: 'USER_SSO_MANAGED',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   VEHICLE_BLOCKED_BY_OPERATOR: 'VEHICLE_BLOCKED_BY_OPERATOR',
   VEHICLE_ID_IN_USE: 'VEHICLE_ID_IN_USE',
@@ -381,7 +391,9 @@ export type ErrorCode =
   | 'CAMPAIGN_NOT_ACTIVE'
   | 'CAMPAIGN_NOT_FOUND'
   | 'CASE_NOT_FOUND'
+  | 'CDR_NOT_CREDITED'
   | 'CDR_NOT_FOUND'
+  | 'CDR_PUSH_NOT_FAILED'
   | 'CHARGING_PROFILE_ID_RESERVED'
   | 'CIRCUIT_NOT_FOUND'
   | 'COMMAND_ERROR'
@@ -493,9 +505,11 @@ export type ErrorCode =
   | 'MFA_ALREADY_ENABLED'
   | 'MFA_CHALLENGE_EXHAUSTED'
   | 'MFA_CODE_INVALID'
+  | 'MFA_LOCKED'
   | 'MFA_METHOD_DISABLED'
   | 'MFA_NOT_CONFIGURED'
   | 'MFA_REQUIRED'
+  | 'MFA_RESEND_LIMITED'
   | 'MFA_TOKEN_EXPIRED'
   | 'MFA_TOKEN_INVALID'
   | 'MFA_TOTP_NO_RESEND'
@@ -524,8 +538,10 @@ export type ErrorCode =
   | 'OCTT_RUN_NOT_FOUND'
   | 'OVERSUBSCRIPTION_EXCEEDED'
   | 'PANEL_NOT_FOUND'
+  | 'PARTNER_ALREADY_CONNECTED'
   | 'PARTNER_NOT_CONNECTED'
   | 'PARTNER_NOT_FOUND'
+  | 'PARTNER_NOT_REGISTERED'
   | 'PASSWORD_REQUIRED'
   | 'PAYMENT_CONFIG_NOT_FOUND'
   | 'PAYMENT_FAILED'
@@ -579,6 +595,7 @@ export type ErrorCode =
   | 'RESERVATION_DISABLED'
   | 'RESERVATION_DURING_MAINTENANCE'
   | 'RESERVATION_EXPIRES_TOO_SOON'
+  | 'RESERVATION_FEE_ALREADY_INVOICED'
   | 'RESERVATION_NOT_ACTIVE'
   | 'RESERVATION_NOT_FOUND'
   | 'RESERVATION_REJECTED'
@@ -586,7 +603,6 @@ export type ErrorCode =
   | 'RESERVATION_TIMEOUT'
   | 'RESERVATION_TOO_LONG'
   | 'RESERVATION_WINDOW_TOO_SHORT'
-  | 'RESET_NOT_REQUIRED'
   | 'ROAMING_DISABLED'
   | 'ROLE_NOT_FOUND'
   | 'ROTATION_NOT_APPLICABLE'
@@ -596,6 +612,7 @@ export type ErrorCode =
   | 'SECURITY_PROFILE_DOWNGRADE'
   | 'SELF_EDIT_FORBIDDEN'
   | 'SESSION_ALREADY_ACTIVE'
+  | 'SESSION_ALREADY_INVOICED'
   | 'SESSION_CREATE_FAILED'
   | 'SESSION_NO_VEHICLE_ID'
   | 'SESSION_NOT_FOUND'
@@ -603,6 +620,8 @@ export type ErrorCode =
   | 'SESSION_REBILL_IN_PROGRESS'
   | 'SESSION_REBILL_NOT_ELIGIBLE'
   | 'SESSION_REBILL_PAYMENT_PENDING'
+  | 'SESSION_REQUIRED'
+  | 'SESSION_STOP_REJECTED'
   | 'SETTING_NOT_FOUND'
   | 'SITE_HAS_STATIONS'
   | 'SITE_NOT_FOUND'
@@ -647,6 +666,7 @@ export type ErrorCode =
   | 'UNAUTHORIZED'
   | 'UNKNOWN_ACTION'
   | 'USER_NOT_FOUND'
+  | 'USER_SSO_MANAGED'
   | 'VALIDATION_ERROR'
   | 'VEHICLE_BLOCKED_BY_OPERATOR'
   | 'VEHICLE_ID_IN_USE'
@@ -718,7 +738,9 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CAMPAIGN_NOT_ACTIVE: 'Only active campaigns can be cancelled',
   CAMPAIGN_NOT_FOUND: 'Campaign not found',
   CASE_NOT_FOUND: 'Case not found',
+  CDR_NOT_CREDITED: 'Credit every CDR of the session before reissuing it',
   CDR_NOT_FOUND: 'CDR not found',
+  CDR_PUSH_NOT_FAILED: 'Only a CDR whose push failed can be pushed again',
   CHARGING_PROFILE_ID_RESERVED:
     "The charging profile ID must be above the station's MaxExternalConstraintsId",
   CIRCUIT_NOT_FOUND: 'Circuit not found',
@@ -843,9 +865,11 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   MFA_ALREADY_ENABLED: 'MFA is already enabled. Disable it first before setting up a new method.',
   MFA_CHALLENGE_EXHAUSTED: 'Too many failed attempts. Request a new code.',
   MFA_CODE_INVALID: 'Invalid verification code',
+  MFA_LOCKED: 'Too many wrong codes. Wait before you try again.',
   MFA_METHOD_DISABLED: 'MFA method is disabled',
   MFA_NOT_CONFIGURED: 'MFA not configured',
   MFA_REQUIRED: 'MFA verification required',
+  MFA_RESEND_LIMITED: 'Too many codes sent. Wait before you request another one.',
   MFA_TOKEN_EXPIRED: 'Invalid or expired MFA token',
   MFA_TOKEN_INVALID: 'Invalid MFA token',
   MFA_TOTP_NO_RESEND: 'Cannot resend TOTP codes',
@@ -876,8 +900,10 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   OVERSUBSCRIPTION_EXCEEDED:
     'Total connected capacity (... kW) exceeds panel effective capacity (... kW)',
   PANEL_NOT_FOUND: 'Panel not found',
+  PARTNER_ALREADY_CONNECTED: 'Partner is already connected',
   PARTNER_NOT_CONNECTED: 'Partner must be connected to sync',
   PARTNER_NOT_FOUND: 'Partner not found',
+  PARTNER_NOT_REGISTERED: 'A partner becomes connected through the OCPI credentials handshake',
   PASSWORD_REQUIRED: 'Password required when upgrading to SP1 or SP2',
   PAYMENT_CONFIG_NOT_FOUND: 'No payment config for this site',
   PAYMENT_FAILED: 'Payment failed',
@@ -939,6 +965,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   RESERVATION_DISABLED: 'Reservations are disabled (system-wide, site-level, or station-level)',
   RESERVATION_DURING_MAINTENANCE: 'Reservation falls within a scheduled maintenance window',
   RESERVATION_EXPIRES_TOO_SOON: 'Reservation must end at least 60 seconds in the future',
+  RESERVATION_FEE_ALREADY_INVOICED: 'The reservation fee is already invoiced',
   RESERVATION_NOT_ACTIVE: 'Reservation is not active',
   RESERVATION_NOT_FOUND: 'Reservation not found',
   RESERVATION_REJECTED: 'Station rejected reservation: ...',
@@ -946,7 +973,6 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   RESERVATION_TIMEOUT: 'Reservation command timed out',
   RESERVATION_TOO_LONG: 'Reservation cannot exceed ... hours',
   RESERVATION_WINDOW_TOO_SHORT: 'Reservation must end at least 60 seconds after it starts',
-  RESET_NOT_REQUIRED: 'Password reset is not required',
   ROAMING_DISABLED: 'Roaming is disabled',
   ROLE_NOT_FOUND: 'Role does not exist',
   ROTATION_NOT_APPLICABLE: 'Credential rotation only applies to security profiles 1 and 2',
@@ -956,6 +982,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   SECURITY_PROFILE_DOWNGRADE: 'A connected station cannot be moved to a lower security profile',
   SELF_EDIT_FORBIDDEN: 'Cannot edit your own role, status, or site access',
   SESSION_ALREADY_ACTIVE: 'You already have an active charging session',
+  SESSION_ALREADY_INVOICED: 'The session is already invoiced',
   SESSION_CREATE_FAILED: 'Failed to create session',
   SESSION_NO_VEHICLE_ID: 'The charger sent no vehicle id for this session.',
   SESSION_NOT_FOUND: 'Session not found',
@@ -964,6 +991,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   SESSION_REBILL_NOT_ELIGIBLE: 'This session cannot be billed',
   SESSION_REBILL_PAYMENT_PENDING:
     'The session has a payment the provider has not settled yet. Try again later.',
+  SESSION_REQUIRED: 'This action needs a signed-in session. API keys cannot use it.',
+  SESSION_STOP_REJECTED: 'The station rejected the stop request. The session is still charging.',
   SETTING_NOT_FOUND: 'Setting not found',
   SITE_HAS_STATIONS: 'Cannot delete site with stations. Remove or reassign stations first.',
   SITE_NOT_FOUND: 'Site not found',
@@ -1016,6 +1045,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   UNAUTHORIZED: 'Unauthorized',
   UNKNOWN_ACTION: 'Unknown OCPP action',
   USER_NOT_FOUND: 'User not found',
+  USER_SSO_MANAGED: 'This user signs in with SSO and has no password to set.',
   VALIDATION_ERROR: 'Validation error',
   VEHICLE_BLOCKED_BY_OPERATOR:
     'The operator blocked Autocharge for this vehicle. Contact the operator to unblock it.',

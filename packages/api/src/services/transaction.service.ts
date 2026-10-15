@@ -5,6 +5,7 @@ import { eq, and, ilike, desc, sql, inArray } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { transactionEvents, chargingSessions, chargingStations } from '@evtivity/database';
 import type { PaginationParams, PaginatedResponse } from '../lib/pagination.js';
+import { containsPattern } from '../lib/like-pattern.js';
 
 export async function listTransactionEvents(
   params: PaginationParams,
@@ -15,10 +16,11 @@ export async function listTransactionEvents(
 
   const conditions = [];
   if (search) {
-    conditions.push(ilike(transactionEvents.triggerReason, `%${search}%`));
+    conditions.push(ilike(transactionEvents.triggerReason, containsPattern(search)));
   }
   if (siteIds != null) {
-    conditions.push(inArray(chargingStations.siteId, siteIds));
+    // The site the session happened at, as for the session routes.
+    conditions.push(inArray(chargingSessions.siteId, siteIds));
   }
 
   const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -26,8 +28,7 @@ export async function listTransactionEvents(
   const baseQuery = db
     .select({ event: transactionEvents })
     .from(transactionEvents)
-    .innerJoin(chargingSessions, eq(transactionEvents.sessionId, chargingSessions.id))
-    .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id));
+    .innerJoin(chargingSessions, eq(transactionEvents.sessionId, chargingSessions.id));
 
   const [data, countRows] = await Promise.all([
     baseQuery
@@ -39,7 +40,6 @@ export async function listTransactionEvents(
       .select({ count: sql<number>`count(*)::int` })
       .from(transactionEvents)
       .innerJoin(chargingSessions, eq(transactionEvents.sessionId, chargingSessions.id))
-      .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
       .where(where),
   ]);
 

@@ -166,13 +166,140 @@ describe('EVSE status from several connectors', () => {
     [[], 'UNKNOWN'],
     [['available', 'faulted', 'charging'], 'OUTOFORDER'],
     [['available', 'charging', 'suspended_ev'], 'CHARGING'],
-    [['available', 'suspended_ev', 'reserved'], 'BLOCKED'],
+    [['available', 'finishing', 'reserved'], 'BLOCKED'],
     [['available', 'reserved', 'unavailable'], 'RESERVED'],
     [['available', 'unavailable'], 'INOPERATIVE'],
-    [['preparing', 'finishing'], 'AVAILABLE'],
+    [['preparing', 'finishing'], 'CHARGING'],
     [['mystery'], 'UNKNOWN'],
   ])('%j -> %s', (statuses, expected) => {
     expect(transformEvseStandalone(withConnectors(statuses), '2.2.1').status).toBe(expected);
+  });
+});
+
+describe('EVSE status of one connector status', () => {
+  // OCPI 8.4.26: CHARGING "in use", BLOCKED "not accessible because of a
+  // physical barrier, i.e. a car".
+  it.each([
+    ['available', 'AVAILABLE'],
+    ['occupied', 'CHARGING'],
+    ['charging', 'CHARGING'],
+    ['idle', 'CHARGING'],
+    ['discharging', 'CHARGING'],
+    ['preparing', 'CHARGING'],
+    ['ev_connected', 'CHARGING'],
+    ['suspended_ev', 'CHARGING'],
+    ['suspended_evse', 'CHARGING'],
+    ['finishing', 'BLOCKED'],
+    ['reserved', 'RESERVED'],
+    ['unavailable', 'INOPERATIVE'],
+    ['faulted', 'OUTOFORDER'],
+  ])('%s -> %s', (status, expected) => {
+    expect(transformEvseStandalone(withConnectors([status]), '2.2.1').status).toBe(expected);
+  });
+});
+
+describe('offline station', () => {
+  it('publishes the EVSEs of a disconnected station as UNKNOWN', () => {
+    const row = { ...evse('evs_a', 'sta_a', 'charging', false), stationOnline: false };
+    expect(transformEvseStandalone(row, '2.2.1').status).toBe('UNKNOWN');
+    expect(location([row]).evses?.[0]?.status).toBe('UNKNOWN');
+  });
+
+  it('keeps REMOVED and the INOPERATIVE masks over UNKNOWN', () => {
+    const offline = { ...evse('evs_a', 'sta_a', 'available', false), stationOnline: false };
+    expect(transformEvseStandalone({ ...offline, removed: true }, '2.2.1').status).toBe('REMOVED');
+    expect(
+      transformEvseStandalone({ ...offline, stationLevelUnavailable: true }, '2.2.1').status,
+    ).toBe('INOPERATIVE');
+    expect(transformEvseStandalone(offline, '2.2.1', true).status).toBe('INOPERATIVE');
+  });
+
+  it('derives the status from the connectors of a connected station', () => {
+    const row = { ...evse('evs_a', 'sta_a', 'available', false), stationOnline: true };
+    expect(transformEvseStandalone(row, '2.2.1').status).toBe('AVAILABLE');
+  });
+});
+
+describe('last_updated', () => {
+  const later = new Date('2026-09-05T00:00:00Z');
+
+  it('is the latest of the site, publish row, EVSE, station and connectors', () => {
+    const base = evse('evs_a', 'sta_a', 'available', false);
+    const cases: Array<[EvseRow, Date | undefined]> = [
+      [{ ...base, updatedAt: later }, undefined],
+      [{ ...base, stationUpdatedAt: later }, undefined],
+      [{ ...base, retiredConnectorsUpdatedAt: later }, undefined],
+      [
+        {
+          ...base,
+          connectors: base.connectors.map((c) => ({ ...c, updatedAt: later })),
+        },
+        undefined,
+      ],
+      [base, later],
+    ];
+    for (const [row, publishUpdatedAt] of cases) {
+      const result = transformLocation(
+        {
+          site,
+          evses: [row],
+          ocpiLocationId: 'LOC-1',
+          countryCode: 'US',
+          partyId: 'EVT',
+          ...(publishUpdatedAt != null ? { publishUpdatedAt } : {}),
+        },
+        '2.2.1',
+      );
+      expect(result.last_updated).toBe(later.toISOString());
+    }
+  });
+
+  it('moves the EVSE last_updated with its station and connectors', () => {
+    const row = { ...evse('evs_a', 'sta_a', 'available', false), stationUpdatedAt: later };
+    expect(transformEvseStandalone(row, '2.2.1').last_updated).toBe(later.toISOString());
+  });
+
+  it('is the site time when nothing else changed later', () => {
+    expect(location([evse('evs_a', 'sta_a', 'available', false)]).last_updated).toBe(
+      updatedAt.toISOString(),
+    );
+  });
+});
+
+describe('country', () => {
+  it.each([
+    ['US', 'USA'],
+    ['United States', 'USA'],
+    ['deu', 'DEU'],
+    ['', 'USA'],
+    [null, 'USA'],
+    ['Nowhere', 'USA'],
+  ])('publishes the stored country %j as ISO 3166-1 alpha-3 %s', (country, expected) => {
+    const result = transformLocation(
+      {
+        site: { ...site, country },
+        evses: [],
+        ocpiLocationId: 'LOC-1',
+        countryCode: 'US',
+        partyId: 'EVT',
+      },
+      '2.2.1',
+    );
+    expect(result.country).toBe(expected);
+  });
+
+  it("falls back to the operator's country", () => {
+    const result = transformLocation(
+      {
+        site: { ...site, country: null },
+        evses: [],
+        ocpiLocationId: 'L',
+        countryCode: 'NL',
+        partyId: 'EVT',
+      },
+      '2.2.1',
+    );
+    expect(result.country).toBe('NLD');
   });
 });
 
@@ -289,7 +416,7 @@ describe('transformLocation site fields', () => {
     expect(loc.state).toBeUndefined();
     expect(loc.address).toBe('Unknown');
     expect(loc.city).toBe('Unknown');
-    expect(loc.country).toBe('US');
+    expect(loc.country).toBe('USA');
   });
 
   it('marks every EVSE INOPERATIVE when maintenance covers the whole site', () => {
@@ -305,5 +432,30 @@ describe('transformLocation site fields', () => {
       '2.2.1',
     );
     expect(loc.evses?.[0]?.status).toBe('INOPERATIVE');
+  });
+});
+
+describe('coordinates (OCPI 8.4.16 GeoLocation)', () => {
+  const LATITUDE = /^-?[0-9]{1,2}\.[0-9]{5,7}$/;
+  const LONGITUDE = /^-?[0-9]{1,3}\.[0-9]{5,7}$/;
+
+  it.each([
+    ['40', '-75', '40.000000', '-75.000000'],
+    ['52.52', '13.405', '52.520000', '13.405000'],
+    ['-33.8688197', '151.2092951', '-33.868820', '151.209295'],
+  ])('publishes %s, %s as %s, %s', (lat, lng, expectedLat, expectedLng) => {
+    const result = transformLocation(
+      {
+        site: { ...site, latitude: lat, longitude: lng },
+        evses: [],
+        ocpiLocationId: 'LOC-1',
+        countryCode: 'US',
+        partyId: 'EVT',
+      },
+      '2.2.1',
+    );
+    expect(result.coordinates).toEqual({ latitude: expectedLat, longitude: expectedLng });
+    expect(result.coordinates.latitude).toMatch(LATITUDE);
+    expect(result.coordinates.longitude).toMatch(LONGITUDE);
   });
 });

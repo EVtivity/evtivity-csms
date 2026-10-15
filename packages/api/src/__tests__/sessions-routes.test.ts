@@ -21,6 +21,7 @@ function makeChain() {
     'orderBy',
     'limit',
     'offset',
+    '$dynamic',
     'innerJoin',
     'leftJoin',
     'groupBy',
@@ -228,10 +229,9 @@ describe('Session routes', () => {
           co2AvoidedKg: null,
           electricityCostCents: null,
           createdAt: '2024-06-01T10:00:00Z',
-          _total: 1,
         },
       ];
-      setupDbResults(sessions);
+      setupDbResults(sessions, [{ count: 1 }]);
 
       const response = await app.inject({
         method: 'GET',
@@ -345,7 +345,6 @@ describe('Session routes', () => {
           co2AvoidedKg: null,
           electricityCostCents: null,
           createdAt: '2024-06-01T10:00:00Z',
-          _total: 25,
         },
         {
           id: 'ses_000000000003',
@@ -380,10 +379,9 @@ describe('Session routes', () => {
           co2AvoidedKg: null,
           electricityCostCents: null,
           createdAt: '2024-06-02T08:00:00Z',
-          _total: 25,
         },
       ];
-      setupDbResults(sessions);
+      setupDbResults(sessions, [{ count: 25 }]);
 
       const response = await app.inject({
         method: 'GET',
@@ -469,10 +467,9 @@ describe('Session routes', () => {
           co2AvoidedKg: null,
           electricityCostCents: null,
           createdAt: '2024-06-01T10:00:00Z',
-          _total: 3,
         },
       ];
-      setupDbResults(sessions);
+      setupDbResults(sessions, [{ count: 3 }]);
 
       const response = await app.inject({
         method: 'GET',
@@ -523,10 +520,9 @@ describe('Session routes', () => {
           co2AvoidedKg: null,
           electricityCostCents: null,
           createdAt: '2024-06-01T10:00:00Z',
-          _total: 1,
         },
       ];
-      setupDbResults(sessions);
+      setupDbResults(sessions, [{ count: 1 }]);
 
       const response = await app.inject({
         method: 'GET',
@@ -557,6 +553,7 @@ describe('Session routes', () => {
         id: VALID_SESSION_ID,
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
+        evseId: 1,
         siteName: 'Site A',
         siteId: null,
         driverId: null,
@@ -627,6 +624,8 @@ describe('Session routes', () => {
       const body = response.json();
       expect(body.id).toBe(VALID_SESSION_ID);
       expect(body.transactionId).toBe('txn-001');
+      // The OCPP EVSE number the CSMS session page stops the session on.
+      expect(body.evseId).toBe(1);
       expect(body.status).toBe('completed');
       expect(body.finalCostCents).toBe(1000);
       expect(body.stationTariffId).toBe('evt-1');
@@ -644,6 +643,7 @@ describe('Session routes', () => {
         id: VALID_SESSION_ID,
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
+        evseId: 1,
         siteName: 'Site A',
         siteId: null,
         driverId: null,
@@ -725,6 +725,7 @@ describe('Session routes', () => {
         id: VALID_SESSION_ID,
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
+        evseId: 1,
         siteName: 'Site A',
         siteId: null,
         driverId: null,
@@ -813,6 +814,7 @@ describe('Session routes', () => {
         id: VALID_SESSION_ID,
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
+        evseId: 1,
         siteName: 'Site A',
         siteId: null,
         driverId: null,
@@ -935,6 +937,7 @@ describe('Session routes', () => {
         id: VALID_SESSION_ID,
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
+        evseId: 1,
         siteName: null,
         siteId: null,
         driverId: null,
@@ -1017,6 +1020,7 @@ describe('Session routes', () => {
         id: VALID_SESSION_ID,
         stationId: VALID_STATION_ID,
         stationName: 'Station-01',
+        evseId: 1,
         siteName: null,
         siteId: null,
         driverId: null,

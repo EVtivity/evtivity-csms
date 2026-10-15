@@ -95,6 +95,8 @@ const LINK = {
   ocpiSessionId: 'OCPI-SES-1',
   chargingSessionId: 'ses_000000000001',
   tokenUid: 'TOK001',
+  authMethod: null,
+  authorizationReference: null,
 };
 const TOKEN_ROW = {
   uid: 'TOK001',
@@ -128,6 +130,12 @@ describe('sessionPlace', () => {
       connectorId: '3',
       connectorType: 'CCS2',
     });
+  });
+
+  it('uses the site the session happened at, not the station current site', async () => {
+    selectResults = [[STATION], [SITE], [], [], []];
+    const place = await sessionPlace(sessionRow({ siteId: 'sit_old_000001' }));
+    expect(place).toMatchObject({ siteId: 'sit_old_000001', locationId: 'sit_old_000001' });
   });
 
   it('falls back to the site id when the site is not published', async () => {
@@ -187,6 +195,31 @@ describe('partnerToken', () => {
   });
 });
 
+describe('partnerToken fallbacks', () => {
+  it('uses the Token embedded in the START_SESSION when the partner pushed none', async () => {
+    selectResults = [
+      [],
+      [{ tokenData: { country_code: 'BE', party_id: 'XYZ', type: 'RFID', contract_id: 'C-9' } }],
+    ];
+    expect(await partnerToken('opr_1', 'TOK9')).toEqual({
+      uid: 'TOK9',
+      countryCode: 'BE',
+      partyId: 'XYZ',
+      tokenType: 'RFID',
+      contractId: 'C-9',
+    });
+  });
+
+  it('uses the partner country and party when no token is known', async () => {
+    selectResults = [[], [], [{ countryCode: 'DE', partyId: 'ABC' }]];
+    expect(await partnerToken('opr_1', 'TOK9')).toEqual({
+      uid: 'TOK9',
+      countryCode: 'DE',
+      partyId: 'ABC',
+    });
+  });
+});
+
 describe('renderCpoSession', () => {
   it('returns null when the session place cannot be resolved', async () => {
     selectResults = [[]];
@@ -215,7 +248,8 @@ describe('renderCpoSession', () => {
       connector_id: '3',
       currency: 'EUR',
       status: 'COMPLETED',
-      auth_method: 'AUTH_REQUEST',
+      // No real-time authorization request is ever sent: a pushed token is WHITELIST.
+      auth_method: 'WHITELIST',
       last_updated: updated.toISOString(),
       cdr_token: {
         country_code: 'NL',
@@ -225,6 +259,19 @@ describe('renderCpoSession', () => {
         contract_id: 'NL-EMS-C00001-X',
       },
       total_cost: { excl_vat: 10, incl_vat: 12.1 },
+    });
+  });
+
+  it('renders a StartSession start as COMMAND with the eMSP authorization_reference', async () => {
+    selectResults = [[{ ...STATION, siteId: null }], [EVSE], [CONNECTOR], [TOKEN_ROW]];
+    const session = await renderCpoSession(
+      { ...LINK, authMethod: 'COMMAND', authorizationReference: 'AUTH-REF-1' },
+      sessionRow(),
+      '2.3.0',
+    );
+    expect(session).toMatchObject({
+      auth_method: 'COMMAND',
+      authorization_reference: 'AUTH-REF-1',
     });
   });
 

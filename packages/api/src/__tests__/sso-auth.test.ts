@@ -30,6 +30,7 @@ function makeChain() {
     'returning',
     'set',
     'onConflictDoUpdate',
+    'onConflictDoNothing',
     'delete',
     'insert',
     'update',
@@ -60,7 +61,11 @@ const {
   mockSetAuthCookies,
   mockCreateMfaChallenge,
   mockDispatchSystemNotification,
+  mockSamlOptions,
+  mockConsumeRead,
 } = vi.hoisted(() => ({
+  mockSamlOptions: vi.fn(),
+  mockConsumeRead: vi.fn(() => Promise.resolve(true)),
   mockCreateMfaChallenge: vi.fn(),
   mockDispatchSystemNotification: vi.fn(),
   mockGetSsoConfig: vi.fn(),
@@ -84,9 +89,14 @@ vi.mock('@evtivity/database', () => ({
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
     execute: vi.fn(() => Promise.resolve([])),
+    transaction: vi.fn(async (fn: (tx: unknown) => unknown) => {
+      const { db } = await import('@evtivity/database');
+      return fn(db);
+    }),
   },
   users: {},
   roles: {},
+  userPermissions: { _table: 'user_permissions' },
   getSsoConfig: mockGetSsoConfig,
   client: { name: 'sql-client' },
 }));
@@ -105,17 +115,36 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('@evtivity/lib', () => ({
   generateId: mockGenerateId,
+  createRedisClient: vi.fn(),
+  permissionCatalog: {
+    defaultsFor: (role: string) => (role === 'operator' ? ['stations:read'] : []),
+  },
   createMfaChallenge: mockCreateMfaChallenge,
   dispatchSystemNotification: mockDispatchSystemNotification,
 }));
 
 vi.mock('@node-saml/node-saml', () => ({
+  ValidateInResponseTo: { never: 'never', ifPresent: 'ifPresent', always: 'always' },
   SAML: class {
+    constructor(options: unknown) {
+      mockSamlOptions(options);
+    }
     getAuthorizeUrlAsync(...args: unknown[]) {
       return mockGetAuthorizeUrlAsync(...args);
     }
     validatePostResponseAsync(...args: unknown[]) {
       return mockValidatePostResponseAsync(...args);
+    }
+  },
+}));
+
+// The real SAML client builder and domain check; a request cache whose
+// single-use consume answers what the test sets.
+vi.mock('../lib/saml-request-cache.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/saml-request-cache.js')>()),
+  RedisSamlRequestCache: class {
+    consumeRead() {
+      return mockConsumeRead();
     }
   },
 }));

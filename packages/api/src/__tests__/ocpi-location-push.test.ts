@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   publish: vi.fn(),
   isRoamingEnabled: vi.fn(),
   recordRemovedOcpiEvses: vi.fn(),
+  ocpiLocationAudience: vi.fn(),
+  removedOcpiEvses: vi.fn(),
   evseRows: [] as Array<{ id: string }>,
 }));
 
@@ -20,12 +22,19 @@ vi.mock('@evtivity/database', () => {
     evses: { id: {}, stationId: {} },
     isRoamingEnabled: mocks.isRoamingEnabled,
     recordRemovedOcpiEvses: mocks.recordRemovedOcpiEvses,
+    ocpiLocationAudience: mocks.ocpiLocationAudience,
+    removedOcpiEvses: mocks.removedOcpiEvses,
   };
 });
 vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish: mocks.publish }) }));
 
-const { lostLocationAudience, publishOcpiLocationPush, publishOcpiStationSiteMove } =
-  await import('../lib/ocpi-location-push.js');
+const {
+  lostLocationAudience,
+  publishOcpiLocationPush,
+  publishOcpiStationSiteMove,
+  captureDeletedSiteLocation,
+  publishOcpiDeletedSiteLocation,
+} = await import('../lib/ocpi-location-push.js');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -108,5 +117,85 @@ describe('publish helpers', () => {
       publishOcpiStationSiteMove('sta_1', 'sit_old', 'sit_new', { warn } as never),
     ).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('deleted site location', () => {
+  const site = {
+    id: 'sit_1',
+    name: 'Main',
+    address: '1 Main St',
+    city: 'Berlin',
+    state: null,
+    postalCode: null,
+    country: 'DE',
+    latitude: '52.5',
+    longitude: '13.4',
+    timezone: 'Europe/Berlin',
+    contactName: null,
+    contactIsPublic: false,
+    hoursOfOperation: null,
+    updatedAt: new Date('2026-09-01T00:00:00Z'),
+    freeVendEnabled: false,
+  } as never;
+  const removed = {
+    evseUid: 'evs_gone',
+    siteId: 'sit_1',
+    stationOcppId: 'CS-1',
+    evseNumber: 1,
+    connectors: [],
+    removedAt: new Date('2026-09-02T00:00:00Z'),
+  };
+
+  it('captures the audience and removed EVSEs, then publishes them with the site', async () => {
+    mocks.ocpiLocationAudience.mockResolvedValue({
+      ocpiLocationId: 'LOC-1',
+      partnerIds: ['opr_a'],
+    });
+    mocks.removedOcpiEvses.mockResolvedValue([removed]);
+    const captured = await captureDeletedSiteLocation(site);
+    expect(captured).toMatchObject({
+      siteId: 'sit_1',
+      ocpiLocationId: 'LOC-1',
+      partnerIds: ['opr_a'],
+      removedEvses: [removed],
+    });
+    expect(captured?.site).not.toHaveProperty('freeVendEnabled');
+
+    await publishOcpiDeletedSiteLocation(captured!);
+    const payload = JSON.parse(mocks.publish.mock.calls[0]?.[1] as string) as Record<
+      string,
+      unknown
+    >;
+    expect(mocks.publish.mock.calls[0]?.[0]).toBe('ocpi_push');
+    expect(payload).toMatchObject({
+      type: 'location',
+      siteId: 'sit_1',
+      removed: { ocpiLocationId: 'LOC-1', partnerIds: ['opr_a'] },
+      deletedSite: {
+        site: { id: 'sit_1', country: 'DE' },
+        removedEvses: [{ evseUid: 'evs_gone' }],
+      },
+    });
+  });
+
+  it('captures nothing when no partner has the location or it has no EVSE', async () => {
+    mocks.ocpiLocationAudience.mockResolvedValue(null);
+    expect(await captureDeletedSiteLocation(site)).toBeNull();
+    mocks.ocpiLocationAudience.mockResolvedValue({
+      ocpiLocationId: 'LOC-1',
+      partnerIds: ['opr_a'],
+    });
+    mocks.removedOcpiEvses.mockResolvedValue([]);
+    expect(await captureDeletedSiteLocation(site)).toBeNull();
+    mocks.isRoamingEnabled.mockResolvedValue(false);
+    expect(await captureDeletedSiteLocation(site)).toBeNull();
+  });
+
+  it('fails open when the read fails', async () => {
+    mocks.ocpiLocationAudience.mockRejectedValue(new Error('db down'));
+    const warn = vi.fn();
+    expect(await captureDeletedSiteLocation(site, { warn } as never)).toBeNull();
+    expect(warn).toHaveBeenCalled();
   });
 });

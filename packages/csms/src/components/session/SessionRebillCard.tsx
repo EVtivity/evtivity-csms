@@ -26,7 +26,7 @@ export type RebillStatus = 'in_progress' | 'billed' | 'manual';
 export type RebillBlockedReason =
   | 'status'
   | 'already_rebilled'
-  | 'roaming'
+  | 'no_energy'
   | 'free_vend'
   | 'no_tariff'
   | 'paid'
@@ -49,7 +49,7 @@ export interface SessionRebillCardProps {
 
 interface RebillResult {
   rebillStatus: 'billed' | 'manual';
-  result: 'charged' | 'prepaid' | 'account' | 'no_charge' | 'manual';
+  result: 'charged' | 'prepaid' | 'account' | 'roaming' | 'no_charge' | 'manual';
   manualReason: ManualReason | null;
 }
 
@@ -57,6 +57,7 @@ const RESULT_TOAST = {
   charged: 'sessions.rebill.charged',
   prepaid: 'sessions.rebill.prepaid',
   account: 'sessions.rebill.account',
+  roaming: 'sessions.rebill.roamingBilled',
   no_charge: 'sessions.rebill.noCharge',
   manual: 'sessions.rebill.manual',
 } as const;

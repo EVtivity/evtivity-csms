@@ -170,6 +170,7 @@ vi.mock('@evtivity/lib', () => ({
   generateTotpSecret: vi.fn().mockReturnValue('JBSWY3DPEHPK3PXP'),
   generateTotpUri: vi.fn().mockReturnValue('otpauth://totp/EVtivity:op@example.com'),
   verifyTotpCode: vi.fn(),
+  matchTotpStep: vi.fn(),
   createMfaChallenge: vi.fn(),
   verifyMfaChallenge: vi.fn(),
   verifyRecaptcha: vi.fn().mockResolvedValue({ success: true }),
@@ -239,6 +240,22 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(401).send({ error: 'Unauthorized' });
       }
     },
+  selfService:
+    (opts?: { allowApiKey?: boolean }) =>
+    async (
+      request: { jwtVerify: () => Promise<void>; user?: { isApiKey?: boolean } },
+      reply: { status: (n: number) => { send: (body: unknown) => Promise<void> } },
+    ) => {
+      try {
+        await request.jwtVerify();
+      } catch {
+        await reply.status(401).send({ error: 'Unauthorized' });
+        return;
+      }
+      if (request.user?.isApiKey === true && opts?.allowApiKey !== true) {
+        await reply.status(403).send({ error: 'Session required', code: 'SESSION_REQUIRED' });
+      }
+    },
   invalidatePermissionCache: vi.fn(),
   // The acting user's permissions: every actor grants only what it holds.
   // All-site tests act with every permission of the mocked catalog; the
@@ -246,21 +263,44 @@ vi.mock('../middleware/rbac.js', () => ({
   getEffectivePermissions: vi.fn(() => Promise.resolve(actorPermissions.value)),
 }));
 
+vi.mock('../lib/operator-session.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/operator-session.js')>();
+  return {
+    ...actual,
+    passwordAuthBlocked: vi.fn().mockResolvedValue(false),
+    ssoManagedUser: vi.fn().mockResolvedValue(false),
+    bumpSessionVersion: vi.fn().mockResolvedValue(1),
+    endUserSessions: vi.fn().mockResolvedValue(1),
+    announceSessionChange: vi.fn(),
+  };
+});
+
+vi.mock('../lib/sign-in-backoff.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/sign-in-backoff.js')>();
+  return {
+    ...actual,
+    recordSignInFailure: vi.fn().mockResolvedValue(null),
+    clearSignInFailures: vi.fn().mockResolvedValue(undefined),
+    mfaResendRetryAfter: vi.fn().mockResolvedValue(null),
+    acceptTotpStep: vi.fn().mockResolvedValue(true),
+  };
+});
+
+vi.mock('../services/user-status.service.js', () => ({
+  USER_EMAIL_LINK_TYPES: ['password_reset'],
+  applyUserDeactivation: vi.fn().mockResolvedValue(undefined),
+  revokeUserEmailLinks: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../lib/password-changed-notice.js', () => ({
+  sendPasswordChangedNotice: vi.fn(),
+}));
+
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
   invalidateSiteAccessCache: vi.fn(),
   assertSitesWithinScope: vi.fn().mockResolvedValue(true),
 }));
-
-vi.mock('../lib/rate-limiters.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../lib/rate-limiters.js')>();
-  return {
-    ...actual,
-    isMfaChallengeExhausted: vi.fn().mockReturnValue(false),
-    recordMfaChallengeAttempt: vi.fn(),
-    clearMfaChallengeAttempts: vi.fn(),
-  };
-});
 
 vi.mock('../lib/config.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/config.js')>();
@@ -280,10 +320,26 @@ import {
   dispatchSystemNotification,
   decryptString,
   verifyTotpCode,
+  matchTotpStep,
   createMfaChallenge,
   verifyMfaChallenge,
   recordNotificationAttempt,
 } from '@evtivity/lib';
+import {
+  acceptTotpStep,
+  clearSignInFailures,
+  mfaResendRetryAfter,
+  recordSignInFailure,
+} from '../lib/sign-in-backoff.js';
+import {
+  announceSessionChange,
+  bumpSessionVersion,
+  endUserSessions,
+  passwordAuthBlocked,
+  ssoManagedUser,
+} from '../lib/operator-session.js';
+import { applyUserDeactivation, revokeUserEmailLinks } from '../services/user-status.service.js';
+import { sendPasswordChangedNotice } from '../lib/password-changed-notice.js';
 import {
   createRefreshToken,
   validateAndRotateRefreshToken,
@@ -297,11 +353,6 @@ import {
   getUserSiteIds,
   invalidateSiteAccessCache,
 } from '../lib/site-access.js';
-import {
-  isMfaChallengeExhausted,
-  recordMfaChallengeAttempt,
-  clearMfaChallengeAttempts,
-} from '../lib/rate-limiters.js';
 import { hashUserToken } from '../lib/user-token.js';
 import { registerAuth } from '../plugins/auth.js';
 import { userRoutes } from '../routes/users.js';
@@ -342,6 +393,10 @@ function fullUser(over: Record<string, unknown> = {}): Record<string, unknown> {
     mfaEnabled: false,
     mfaMethod: null,
     totpSecretEnc: null,
+    sessionVersion: 0,
+    authSource: 'password',
+    loginLockedUntil: null,
+    mfaLockedUntil: null,
     ...over,
   });
 }
@@ -399,11 +454,11 @@ describe('User routes (extended coverage)', () => {
       .mockReset()
       .mockImplementation((v: string) => `dec(${v})`);
     vi.mocked(verifyTotpCode).mockReset().mockReturnValue(true);
-    vi.mocked(verifyMfaChallenge).mockReset().mockResolvedValue(true);
+    vi.mocked(verifyMfaChallenge).mockReset().mockResolvedValue('verified');
     vi.mocked(createMfaChallenge)
       .mockReset()
       .mockResolvedValue({ challengeId: 42, code: '654321' });
-    vi.mocked(isMfaChallengeExhausted).mockReset().mockReturnValue(false);
+    vi.mocked(matchTotpStep).mockReset().mockReturnValue(1);
     vi.mocked(createRefreshToken)
       .mockReset()
       .mockResolvedValue({ rawToken: 'new-refresh', expiresAt: new Date() });
@@ -456,6 +511,55 @@ describe('User routes (extended coverage)', () => {
       expect(res.json().code).toBe('INVALID_CREDENTIALS');
       expect(createRefreshToken).not.toHaveBeenCalled();
       expect(cookieNames(res)).not.toContain('csms_token');
+    });
+
+    it('counts a wrong password toward the per-account backoff', async () => {
+      setupDbResults([fullUser()]);
+      vi.mocked(argon2.verify).mockResolvedValue(false);
+      await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'WrongPass1' },
+      });
+      expect(recordSignInFailure).toHaveBeenCalledWith(expect.anything(), OTHER, 'password');
+    });
+
+    it('answers a locked account as a wrong password without checking it', async () => {
+      setupDbResults([fullUser({ loginLockedUntil: new Date(Date.now() + 60_000) })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'RightPass1' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('INVALID_CREDENTIALS');
+      expect(createRefreshToken).not.toHaveBeenCalled();
+      expect(recordSignInFailure).not.toHaveBeenCalled();
+      expect(auditCall()).toMatchObject({ action: 'login_failed', notes: 'locked' });
+    });
+
+    it('answers an SSO account as a wrong password while SSO is enabled', async () => {
+      setupDbResults([fullUser({ authSource: 'sso', passwordHash: '' })]);
+      vi.mocked(passwordAuthBlocked).mockResolvedValueOnce(true);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'Anything1' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('INVALID_CREDENTIALS');
+      expect(auditCall()).toMatchObject({ action: 'login_failed', notes: 'sso_account' });
+    });
+
+    it('answers 401, not 500, for an account stored with an empty password hash', async () => {
+      setupDbResults([fullUser({ passwordHash: '' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'Anything1' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('INVALID_CREDENTIALS');
     });
 
     it('runs a dummy argon2 verify when the email does not exist (timing equalization)', async () => {
@@ -569,6 +673,23 @@ describe('User routes (extended coverage)', () => {
       const cleared = res.cookies.filter((c) => c.name === 'csms_token');
       expect(cleared).toHaveLength(1);
       expect(cleared[0]?.value).toBe('');
+    });
+
+    it('raises the session version so access tokens issued before stop working', async () => {
+      await app.inject({ method: 'POST', url: '/auth/logout', headers: auth });
+      expect(bumpSessionVersion).toHaveBeenCalledWith(ME);
+      expect(announceSessionChange).toHaveBeenCalledWith(ME);
+    });
+
+    it('signs nothing out for an API key', async () => {
+      const keyToken = app.jwt.sign({ userId: ME, roleId: ROLE, isApiKey: true });
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/logout',
+        headers: { authorization: `Bearer ${keyToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(bumpSessionVersion).not.toHaveBeenCalled();
     });
 
     it('skips refresh revocation for a tampered refresh cookie', async () => {
@@ -688,8 +809,26 @@ describe('User routes (extended coverage)', () => {
   // ------------------------------------------------------ forgot-password
 
   describe('POST /auth/forgot-password', () => {
+    const ACTIVE_RESET_USER = {
+      id: OTHER,
+      firstName: null,
+      lastName: null,
+      language: 'en',
+      isActive: true,
+      authSource: 'password',
+    };
+
     it('revokes old reset tokens, stores a 1h token, emails it and logs the attempt', async () => {
-      setupDbResults([{ id: OTHER, firstName: 'Op', lastName: null, language: 'ko' }]);
+      setupDbResults([
+        {
+          id: OTHER,
+          firstName: 'Op',
+          lastName: null,
+          language: 'ko',
+          isActive: true,
+          authSource: 'password',
+        },
+      ]);
       clientMock.mockResolvedValue([
         { key: 'company.name', value: 'Acme Charging' },
         { key: 'company.city', value: 'Berlin' },
@@ -723,6 +862,10 @@ describe('User routes (extended coverage)', () => {
       expect(expiresMs).toBeGreaterThanOrEqual(before + 60 * 60 * 1000);
       expect(expiresMs).toBeLessThanOrEqual(Date.now() + 60 * 60 * 1000);
 
+      // The answer does not wait for the mail provider.
+      await vi.waitFor(() => {
+        expect(recordNotificationAttempt).toHaveBeenCalled();
+      });
       const renderArgs = vi.mocked(renderTemplate).mock.calls[0];
       expect(renderArgs?.[0]).toBe('email');
       expect(renderArgs?.[1]).toBe('operator.ForgotPassword');
@@ -758,7 +901,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('records credentials_decrypt_failed when SMTP credentials could not be decrypted', async () => {
-      setupDbResults([{ id: OTHER, firstName: null, lastName: null, language: 'en' }]);
+      setupDbResults([ACTIVE_RESET_USER]);
       vi.mocked(getNotificationSettings).mockResolvedValue({
         smtp: { host: 'h', port: 1, credentialError: 'decrypt_failed' },
         twilio: null,
@@ -772,6 +915,9 @@ describe('User routes (extended coverage)', () => {
         payload: { email: 'op@example.com' },
       });
       expect(res.statusCode).toBe(200);
+      await vi.waitFor(() => {
+        expect(recordNotificationAttempt).toHaveBeenCalled();
+      });
       const call = vi.mocked(recordNotificationAttempt).mock.calls[0]?.[1] as Record<
         string,
         unknown
@@ -786,12 +932,15 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('records smtp_send_failed for other send failures', async () => {
-      setupDbResults([{ id: OTHER, firstName: null, lastName: null, language: 'en' }]);
+      setupDbResults([ACTIVE_RESET_USER]);
       vi.mocked(sendEmail).mockResolvedValue(false);
       await app.inject({
         method: 'POST',
         url: '/auth/forgot-password',
         payload: { email: 'op@example.com' },
+      });
+      await vi.waitFor(() => {
+        expect(recordNotificationAttempt).toHaveBeenCalled();
       });
       const call = vi.mocked(recordNotificationAttempt).mock.calls[0]?.[1] as Record<
         string,
@@ -801,7 +950,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('stores the token but sends nothing when SMTP is not configured', async () => {
-      setupDbResults([{ id: OTHER, firstName: null, lastName: null, language: 'en' }]);
+      setupDbResults([ACTIVE_RESET_USER]);
       vi.mocked(getNotificationSettings).mockResolvedValue({
         smtp: null,
         twilio: null,
@@ -814,12 +963,15 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(opsFor('insert', 'userTokens')).toHaveLength(1);
+      await vi.waitFor(() => {
+        expect(getNotificationSettings).toHaveBeenCalled();
+      });
       expect(sendEmail).not.toHaveBeenCalled();
       expect(recordNotificationAttempt).not.toHaveBeenCalled();
     });
 
     it('still returns success when the email pipeline throws', async () => {
-      setupDbResults([{ id: OTHER, firstName: null, lastName: null, language: 'en' }]);
+      setupDbResults([ACTIVE_RESET_USER]);
       vi.mocked(getNotificationSettings).mockRejectedValue(new Error('db down'));
       const res = await app.inject({
         method: 'POST',
@@ -828,6 +980,30 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });
+    });
+
+    it('creates no token for an inactive user and answers the same', async () => {
+      setupDbResults([{ ...ACTIVE_RESET_USER, isActive: false }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/forgot-password',
+        payload: { email: 'op@example.com' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ success: true });
+      expect(opsFor('insert', 'userTokens')).toHaveLength(0);
+    });
+
+    it('creates no token for an SSO account while SSO is enabled', async () => {
+      setupDbResults([{ ...ACTIVE_RESET_USER, authSource: 'sso' }]);
+      vi.mocked(passwordAuthBlocked).mockResolvedValueOnce(true);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/forgot-password',
+        payload: { email: 'op@example.com' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(opsFor('insert', 'userTokens')).toHaveLength(0);
     });
 
     it('does not create a token for an unknown email', async () => {
@@ -872,12 +1048,11 @@ describe('User routes (extended coverage)', () => {
       expect(state.ops).toHaveLength(0);
     });
 
-    it('looks the token up by its hash, resets, revokes sessions and notifies', async () => {
+    it('consumes the link, sets the password and ends every session and API key', async () => {
       setupDbResults(
-        [{ id: 7, userId: OTHER, expiresAt: new Date(Date.now() + 60_000) }],
-        [],
-        [],
-        [{ id: OTHER, email: 'op@example.com', phone: null, firstName: null, lastName: 'L' }],
+        [{ userId: OTHER }],
+        [{ isActive: true, authSource: 'password' }],
+        [{ id: OTHER }],
       );
       const res = await app.inject({
         method: 'POST',
@@ -885,31 +1060,46 @@ describe('User routes (extended coverage)', () => {
         payload: { token: 'raw-token', password: 'NewPassword123' },
       });
       expect(res.statusCode).toBe(200);
-      const lookup = opsFor('select', 'userTokens')[0];
-      expect(argOf(lookup, 'where')).toEqual([
+      const consume = opsFor('update', 'userTokens')[0];
+      expect(argOf(consume, 'set')).toEqual({ revokedAt: expect.any(Date) });
+      expect(argOf(consume, 'where')).toEqual([
         'and',
         ['eq', 'userTokens.tokenHash', hashUserToken('raw-token')],
         ['eq', 'userTokens.type', 'password_reset'],
         ['isNull', 'userTokens.revokedAt'],
+        'sql',
       ]);
       expect(argOf(opsFor('update', 'users')[0], 'set')).toEqual({
         passwordHash: '$argon2id$hashed',
         mustResetPassword: false,
+        failedLoginCount: 0,
+        loginLockedUntil: null,
+        sessionVersion: 'sql',
         updatedAt: expect.any(Date),
       });
-      expect(argOf(opsFor('update', 'userTokens')[0], 'where')).toEqual(['eq', 'userTokens.id', 7]);
-      expect(revokeAllUserSessions).toHaveBeenCalledWith(OTHER);
-      expect(dispatchSystemNotification).toHaveBeenCalledWith(
-        client,
-        'operator.PasswordChanged',
-        { email: 'op@example.com', phone: undefined, userId: OTHER, language: undefined },
-        { firstName: '', lastName: 'L', email: 'op@example.com' },
-        expect.any(Array),
-      );
+      expect(revokeUserEmailLinks).toHaveBeenCalledWith(OTHER, expect.anything());
+      // The session version moved in the transaction; every refresh token and
+      // API key ends after the commit.
+      expect(revokeAllUserRefreshTokens).toHaveBeenCalledWith(OTHER);
+      expect(announceSessionChange).toHaveBeenCalledWith(OTHER);
+      expect(sendPasswordChangedNotice).toHaveBeenCalledWith(OTHER, expect.anything());
+    });
+
+    it('returns 400 INVALID_TOKEN for a used, expired or unknown link', async () => {
+      setupDbResults([]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/reset-password',
+        payload: { token: 'raw-token', password: 'NewPassword123' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('INVALID_TOKEN');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+      expect(endUserSessions).not.toHaveBeenCalled();
     });
 
     it('returns 400 INVALID_TOKEN for a token row without a user', async () => {
-      setupDbResults([{ id: 7, userId: null, expiresAt: new Date(Date.now() + 60_000) }]);
+      setupDbResults([{ userId: null }]);
       const res = await app.inject({
         method: 'POST',
         url: '/auth/reset-password',
@@ -920,15 +1110,31 @@ describe('User routes (extended coverage)', () => {
       expect(opsFor('update', 'users')).toHaveLength(0);
     });
 
-    it('skips the notification when the user vanished after the reset', async () => {
-      setupDbResults([{ id: 7, userId: OTHER, expiresAt: new Date(Date.now() + 60_000) }]);
+    it('uses up the link of a deactivated user and sets nothing', async () => {
+      setupDbResults([{ userId: OTHER }], [{ isActive: false, authSource: 'password' }]);
       const res = await app.inject({
         method: 'POST',
         url: '/auth/reset-password',
         payload: { token: 'raw-token', password: 'NewPassword123' },
       });
-      expect(res.statusCode).toBe(200);
-      expect(dispatchSystemNotification).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('INVALID_TOKEN');
+      expect(opsFor('update', 'userTokens')).toHaveLength(1);
+      expect(opsFor('update', 'users')).toHaveLength(0);
+      expect(sendPasswordChangedNotice).not.toHaveBeenCalled();
+    });
+
+    it('refuses the link of an SSO account while SSO is enabled', async () => {
+      setupDbResults([{ userId: OTHER }], [{ isActive: true, authSource: 'sso' }]);
+      vi.mocked(passwordAuthBlocked).mockResolvedValueOnce(true);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/reset-password',
+        payload: { token: 'raw-token', password: 'NewPassword123' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('INVALID_TOKEN');
+      expect(opsFor('update', 'users')).toHaveLength(0);
     });
   });
 
@@ -972,7 +1178,8 @@ describe('User routes (extended coverage)', () => {
         passwordHash: '$argon2id$hashed',
         mustResetPassword: false,
       });
-      expect(revokeAllUserSessions).toHaveBeenCalledWith(OTHER);
+      expect(endUserSessions).toHaveBeenCalledWith(OTHER, { apiKeys: false });
+      expect(sendPasswordChangedNotice).toHaveBeenCalledWith(OTHER, expect.anything());
       expect(auditCall()).toMatchObject({
         entityId: OTHER,
         action: 'password_reset',
@@ -1503,12 +1710,7 @@ describe('User routes (extended coverage)', () => {
         updatedAt: expect.any(Date),
         isActive: false,
       });
-      expect(revokeAllUserRefreshTokens).toHaveBeenCalledWith(OTHER);
-      expect(published).toContainEqual({
-        channel: 'cache_invalidate',
-        message: JSON.stringify({ kind: 'active', userId: OTHER }),
-      });
-      expect(invalidateSiteAccessCache).not.toHaveBeenCalled();
+      expect(applyUserDeactivation).toHaveBeenCalledWith(OTHER, { log: expect.anything() });
       expect(auditCall()).toMatchObject({ action: 'updated' });
     });
 
@@ -1877,7 +2079,7 @@ describe('User routes (extended coverage)', () => {
       expect(argOf(opsFor('update', 'users')[0], 'set')).toMatchObject({
         email: 'moved@example.com',
       });
-      expect(opsFor('update', 'userTokens')).toHaveLength(1);
+      expect(revokeUserEmailLinks).toHaveBeenCalledWith(OTHER, expect.anything());
     });
 
     it('refuses an email another user holds with 409 and no write', async () => {
@@ -1932,9 +2134,13 @@ describe('User routes (extended coverage)', () => {
       expect(argOf(opsFor('update', 'users')[0], 'set')).toEqual({
         passwordHash: '$argon2id$hashed',
         mustResetPassword: true,
+        failedLoginCount: 0,
+        loginLockedUntil: null,
         updatedAt: expect.any(Date),
       });
-      expect(revokeAllUserSessions).toHaveBeenCalledWith(OTHER);
+      // A reset by an admin ends the sessions and API keys, and tells the user.
+      expect(endUserSessions).toHaveBeenCalledWith(OTHER, { apiKeys: true });
+      expect(sendPasswordChangedNotice).toHaveBeenCalledWith(OTHER, expect.anything());
       expect(auditCall()).toMatchObject({
         entityId: OTHER,
         action: 'password_reset',
@@ -1943,8 +2149,22 @@ describe('User routes (extended coverage)', () => {
       });
     });
 
+    it('admin reset answers 409 USER_SSO_MANAGED for an SSO account while SSO is enabled', async () => {
+      setupDbResults([]);
+      vi.mocked(ssoManagedUser).mockResolvedValueOnce(true);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/users/${OTHER}/reset-password`,
+        headers: auth,
+        payload: { password: 'TempPassword123' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('USER_SSO_MANAGED');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
     it('change-password returns 400 INVALID_PASSWORD on a wrong current password', async () => {
-      setupDbResults([{ id: ME, passwordHash: 'h' }]);
+      setupDbResults([{ id: ME, passwordHash: '$argon2id$h' }]);
       vi.mocked(argon2.verify).mockResolvedValue(false);
       const res = await app.inject({
         method: 'POST',
@@ -1955,11 +2175,39 @@ describe('User routes (extended coverage)', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('INVALID_PASSWORD');
       expect(opsFor('update', 'users')).toHaveLength(0);
-      expect(revokeAllUserSessions).not.toHaveBeenCalled();
+      expect(endUserSessions).not.toHaveBeenCalled();
+    });
+
+    it('change-password answers INVALID_PASSWORD for an SSO account while SSO is enabled', async () => {
+      setupDbResults([{ id: ME, passwordHash: '$argon2id$h', authSource: 'sso' }]);
+      vi.mocked(passwordAuthBlocked).mockResolvedValueOnce(true);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/change-password',
+        headers: auth,
+        payload: { currentPassword: 'Current1', newPassword: 'NewPassword123' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('INVALID_PASSWORD');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('change-password refuses an API key with 403 SESSION_REQUIRED', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/change-password',
+        headers: {
+          authorization: `Bearer ${app.jwt.sign({ userId: ME, roleId: ROLE, isApiKey: true })}`,
+        },
+        payload: { currentPassword: 'Current1', newPassword: 'NewPassword123' },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('SESSION_REQUIRED');
+      expect(state.ops).toHaveLength(0);
     });
 
     it('change-password rejects a weak new password', async () => {
-      setupDbResults([{ id: ME, passwordHash: 'h' }]);
+      setupDbResults([{ id: ME, passwordHash: '$argon2id$h' }]);
       const res = await app.inject({
         method: 'POST',
         url: '/users/me/change-password',
@@ -1972,7 +2220,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('change-password updates the hash, revokes sessions and audits', async () => {
-      setupDbResults([{ id: ME, passwordHash: 'h' }]);
+      setupDbResults([{ id: ME, passwordHash: '$argon2id$h' }]);
       const res = await app.inject({
         method: 'POST',
         url: '/users/me/change-password',
@@ -1980,9 +2228,12 @@ describe('User routes (extended coverage)', () => {
         payload: { currentPassword: 'Current1', newPassword: 'NewPassword123' },
       });
       expect(res.statusCode).toBe(200);
-      expect(argon2.verify).toHaveBeenCalledWith('h', 'Current1');
+      expect(argon2.verify).toHaveBeenCalledWith('$argon2id$h', 'Current1');
       expect(argOf(opsFor('update', 'users')[0], 'where')).toEqual(['eq', 'users.id', ME]);
-      expect(revokeAllUserSessions).toHaveBeenCalledWith(ME);
+      // Other sessions end, API keys stay, this browser gets a new session.
+      expect(endUserSessions).toHaveBeenCalledWith(ME, { apiKeys: false });
+      expect(cookieNames(res)).toEqual(expect.arrayContaining(['csms_token', 'csms_refresh']));
+      expect(sendPasswordChangedNotice).toHaveBeenCalledWith(ME, expect.anything());
       expect(auditCall()).toMatchObject({ entityId: ME, notes: 'User changed own password' });
     });
   });
@@ -2016,13 +2267,8 @@ describe('User routes (extended coverage)', () => {
         updatedAt: expect.any(Date),
       });
       expect(opsFor('delete', 'users')).toHaveLength(0);
-      expect(invalidatePermissionCache).toHaveBeenCalledWith(OTHER);
-      expect(invalidateSiteAccessCache).toHaveBeenCalledWith(OTHER);
-      expect(revokeAllUserRefreshTokens).toHaveBeenCalledWith(OTHER);
-      expect(published).toContainEqual({
-        channel: 'cache_invalidate',
-        message: JSON.stringify({ kind: 'active', userId: OTHER }),
-      });
+      // Sessions, API keys, links, caches and streams end in the user status service.
+      expect(applyUserDeactivation).toHaveBeenCalledWith(OTHER, { log: expect.anything() });
       expect(auditCall()).toMatchObject({ entityId: OTHER, action: 'deleted', before: row });
     });
   });
@@ -2072,12 +2318,7 @@ describe('User routes (extended coverage)', () => {
         headers: auth,
       });
       expect(res.statusCode).toBe(200);
-      expect(argOf(opsFor('update', 'userTokens')[0], 'where')).toEqual([
-        'and',
-        ['eq', 'userTokens.userId', OTHER],
-        ['eq', 'userTokens.type', 'password_reset'],
-        ['isNull', 'userTokens.revokedAt'],
-      ]);
+      expect(revokeUserEmailLinks).toHaveBeenCalledWith(OTHER);
       const inserted = argOf(opsFor('insert', 'userTokens')[0], 'values') as Record<
         string,
         unknown
@@ -2141,8 +2382,9 @@ describe('User routes (extended coverage)', () => {
       expect(state.ops).toHaveLength(0);
     });
 
-    it('returns 400 MFA_CHALLENGE_EXHAUSTED once the challenge is locked out', async () => {
-      vi.mocked(isMfaChallengeExhausted).mockReturnValue(true);
+    it('returns 400 MFA_CHALLENGE_EXHAUSTED when the challenge has no tries left', async () => {
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })]);
+      vi.mocked(verifyMfaChallenge).mockResolvedValue('exhausted');
       const res = await app.inject({
         method: 'POST',
         url: '/auth/mfa/verify',
@@ -2150,8 +2392,42 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CHALLENGE_EXHAUSTED');
-      expect(isMfaChallengeExhausted).toHaveBeenCalledWith(9);
+      expect(verifyMfaChallenge).toHaveBeenCalledWith(client, 9, '123456', { userId: OTHER });
+      expect(recordSignInFailure).toHaveBeenCalledWith(expect.anything(), OTHER, 'mfa');
+      expect(createRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it('returns 429 MFA_LOCKED with Retry-After while the account is locked', async () => {
+      setupDbResults([
+        fullUser({
+          mfaEnabled: true,
+          mfaMethod: 'email',
+          mfaLockedUntil: new Date(Date.now() + 60_000),
+        }),
+      ]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), code: '123456', challengeId: 9 },
+      });
+      expect(res.statusCode).toBe(429);
+      expect(res.json().code).toBe('MFA_LOCKED');
+      expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
       expect(verifyMfaChallenge).not.toHaveBeenCalled();
+    });
+
+    it('refuses a replayed TOTP code', async () => {
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'totp', totpSecretEnc: 'cipher' })]);
+      vi.mocked(acceptTotpStep).mockResolvedValueOnce(false);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), code: '123456' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('MFA_CODE_INVALID');
+      expect(acceptTotpStep).toHaveBeenCalledWith(OTHER, 1);
+      expect(createRefreshToken).not.toHaveBeenCalled();
     });
 
     it('returns 400 MFA_NOT_CONFIGURED when the user has MFA off', async () => {
@@ -2206,7 +2482,7 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CODE_INVALID');
-      expect(verifyTotpCode).not.toHaveBeenCalled();
+      expect(matchTotpStep).not.toHaveBeenCalled();
       expect(createRefreshToken).not.toHaveBeenCalled();
       expect(auditCall()).toMatchObject({
         entityId: OTHER,
@@ -2234,12 +2510,14 @@ describe('User routes (extended coverage)', () => {
       expect(decoded['mfaPending']).toBeUndefined();
       expect(decoded['userId']).toBe(OTHER);
       expect(decryptString).toHaveBeenCalledWith('cipher', 'test-encryption-key');
-      expect(verifyTotpCode).toHaveBeenCalledWith('dec(cipher)', '123456');
+      expect(matchTotpStep).toHaveBeenCalledWith('dec(cipher)', '123456');
+      expect(acceptTotpStep).toHaveBeenCalledWith(OTHER, 1);
+      expect(decoded['sv']).toBe(0);
       expect(cookieNames(res)).toEqual(expect.arrayContaining(['csms_token', 'csms_refresh']));
       expect(argOf(opsFor('update', 'users')[0], 'set')).toEqual({
         lastLoginAt: expect.any(Date),
       });
-      expect(clearMfaChallengeAttempts).not.toHaveBeenCalled();
+      expect(clearSignInFailures).toHaveBeenCalledWith(OTHER, 'mfa');
       expect(auditCall()).toMatchObject({
         entityId: OTHER,
         action: 'login_succeeded',
@@ -2251,7 +2529,7 @@ describe('User routes (extended coverage)', () => {
 
     it('records a failed attempt for a wrong email code', async () => {
       setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })]);
-      vi.mocked(verifyMfaChallenge).mockResolvedValue(false);
+      vi.mocked(verifyMfaChallenge).mockResolvedValue('invalid');
       const res = await app.inject({
         method: 'POST',
         url: '/auth/mfa/verify',
@@ -2260,7 +2538,7 @@ describe('User routes (extended coverage)', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CODE_INVALID');
       expect(verifyMfaChallenge).toHaveBeenCalledWith(client, 5, '000000', { userId: OTHER });
-      expect(recordMfaChallengeAttempt).toHaveBeenCalledWith(5);
+      expect(recordSignInFailure).toHaveBeenCalledWith(expect.anything(), OTHER, 'mfa');
       expect(createRefreshToken).not.toHaveBeenCalled();
     });
 
@@ -2274,10 +2552,10 @@ describe('User routes (extended coverage)', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CODE_INVALID');
       expect(verifyMfaChallenge).not.toHaveBeenCalled();
-      expect(recordMfaChallengeAttempt).not.toHaveBeenCalled();
+      expect(recordSignInFailure).toHaveBeenCalledWith(expect.anything(), OTHER, 'mfa');
     });
 
-    it('clears the attempt counter and returns role null after a valid SMS code', async () => {
+    it('clears the failure counter and returns role null after a valid SMS code', async () => {
       setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'sms' })], [], []);
       const res = await app.inject({
         method: 'POST',
@@ -2286,7 +2564,7 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json().role).toBeNull();
-      expect(clearMfaChallengeAttempts).toHaveBeenCalledWith(5);
+      expect(clearSignInFailures).toHaveBeenCalledWith(OTHER, 'mfa');
       expect(createRefreshToken).toHaveBeenCalledWith({ userId: OTHER });
     });
   });
@@ -2341,6 +2619,32 @@ describe('User routes (extended coverage)', () => {
       expect(createMfaChallenge).not.toHaveBeenCalled();
     });
 
+    it('returns 403 ACCOUNT_DISABLED for a user deactivated after the password step', async () => {
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email', isActive: false })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/resend',
+        payload: { mfaToken: mfaToken() },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('ACCOUNT_DISABLED');
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+    });
+
+    it('returns 429 MFA_RESEND_LIMITED with Retry-After over the cap', async () => {
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })]);
+      vi.mocked(mfaResendRetryAfter).mockResolvedValueOnce(120);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/resend',
+        payload: { mfaToken: mfaToken() },
+      });
+      expect(res.statusCode).toBe(429);
+      expect(res.json()).toMatchObject({ code: 'MFA_RESEND_LIMITED', retryAfterSeconds: 120 });
+      expect(res.headers['retry-after']).toBe('120');
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+    });
+
     it('creates a new challenge and sends the code', async () => {
       setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'sms', phone: '+15550001111' })]);
       const res = await app.inject({
@@ -2359,6 +2663,105 @@ describe('User routes (extended coverage)', () => {
         { code: '654321' },
         expect.any(String),
       );
+    });
+  });
+
+  // ------------------------------------------------------ admin MFA reset
+
+  describe('POST /users/:id/mfa/reset', () => {
+    it('turns off the MFA of a user, ends the sessions and audits mfa_reset', async () => {
+      setupDbResults([{ id: OTHER, mfaEnabled: true, mfaMethod: 'totp' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/users/${OTHER}/mfa/reset`,
+        headers: auth,
+        payload: {},
+      });
+      expect(res.statusCode).toBe(200);
+      expect(argOf(opsFor('update', 'users')[0], 'set')).toEqual({
+        mfaEnabled: false,
+        mfaMethod: null,
+        totpSecretEnc: null,
+        totpLastStep: null,
+        mfaFailedCount: 0,
+        mfaLockedUntil: null,
+        updatedAt: expect.any(Date),
+      });
+      expect(endUserSessions).toHaveBeenCalledWith(OTHER, { apiKeys: false });
+      expect(auditCall()).toMatchObject({
+        entityId: OTHER,
+        action: 'mfa_reset',
+        actorUserId: ME,
+        before: { mfaEnabled: true, mfaMethod: 'totp' },
+        after: { mfaEnabled: false, mfaMethod: null },
+      });
+    });
+
+    it('refuses the caller own account with 403 SELF_EDIT_FORBIDDEN', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/users/${ME}/mfa/reset`,
+        headers: auth,
+        payload: {},
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('SELF_EDIT_FORBIDDEN');
+      expect(state.ops).toHaveLength(0);
+    });
+
+    it('answers 404 for an unknown user without a write', async () => {
+      setupDbResults([]);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/users/${OTHER}/mfa/reset`,
+        headers: auth,
+        payload: {},
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('USER_NOT_FOUND');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+  });
+
+  // ------------------------------------------- API keys on /users/me routes
+
+  describe('API keys on the self-service routes', () => {
+    function keyAuth(): { authorization: string } {
+      return {
+        authorization: `Bearer ${app.jwt.sign({ userId: ME, roleId: ROLE, isApiKey: true })}`,
+      };
+    }
+
+    for (const [method, url, payload] of [
+      ['GET', '/users/me/chatbot-ai-config', undefined],
+      ['PUT', '/users/me/chatbot-ai-config', { provider: 'anthropic' }],
+      ['DELETE', '/users/me/chatbot-ai-config', undefined],
+      ['GET', '/users/me/support-ai-config', undefined],
+      ['PUT', '/users/me/support-ai-config', { provider: 'anthropic' }],
+      ['DELETE', '/users/me/support-ai-config', undefined],
+      ['PATCH', '/users/me', { firstName: 'X' }],
+      ['POST', '/users/me/mfa/setup', { method: 'totp' }],
+      ['POST', '/users/me/mfa/confirm', { method: 'totp', code: '123456' }],
+      ['DELETE', '/users/me/mfa', { password: 'x' }],
+      ['PUT', '/users/me/notification-preferences', { smsEnabled: true }],
+    ] as const) {
+      it(`refuses ${method} ${url} with 403 SESSION_REQUIRED`, async () => {
+        const res = await app.inject({
+          method,
+          url,
+          headers: keyAuth(),
+          ...(payload != null ? { payload } : {}),
+        });
+        expect(res.statusCode).toBe(403);
+        expect(res.json().code).toBe('SESSION_REQUIRED');
+        expect(state.ops).toHaveLength(0);
+      });
+    }
+
+    it('lets an API key read the profile without users:read', async () => {
+      setupDbResults([userRow({ id: ME })], [{ id: ROLE, name: 'admin' }], []);
+      const res = await app.inject({ method: 'GET', url: '/users/me', headers: keyAuth() });
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -2612,13 +3015,18 @@ describe('User routes (extended coverage)', () => {
         payload: { method: 'totp', code: '123456' },
       });
       expect(res.statusCode).toBe(200);
-      expect(verifyTotpCode).toHaveBeenCalledWith('dec(cipher)', '123456');
+      expect(matchTotpStep).toHaveBeenCalledWith('dec(cipher)', '123456');
+      // The confirming code's step is stored, so it cannot sign in again.
       expect(argOf(opsFor('update', 'users')[0], 'set')).toEqual({
         mfaEnabled: true,
         mfaMethod: 'totp',
+        totpLastStep: 1,
+        mfaFailedCount: 0,
+        mfaLockedUntil: null,
         updatedAt: expect.any(Date),
       });
-      expect(revokeAllUserSessions).toHaveBeenCalledWith(ME);
+      expect(endUserSessions).toHaveBeenCalledWith(ME, { apiKeys: false });
+      expect(cookieNames(res)).toEqual(expect.arrayContaining(['csms_token', 'csms_refresh']));
       expect(auditCall()).toMatchObject({
         entityId: ME,
         action: 'mfa_enabled',
@@ -2639,7 +3047,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('confirm rejects a wrong SMS code without enabling MFA', async () => {
-      vi.mocked(verifyMfaChallenge).mockResolvedValue(false);
+      vi.mocked(verifyMfaChallenge).mockResolvedValue('invalid');
       const res = await app.inject({
         method: 'POST',
         url: '/users/me/mfa/confirm',
@@ -2649,7 +3057,7 @@ describe('User routes (extended coverage)', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CODE_INVALID');
       expect(opsFor('update', 'users')).toHaveLength(0);
-      expect(revokeAllUserSessions).not.toHaveBeenCalled();
+      expect(endUserSessions).not.toHaveBeenCalled();
     });
 
     it('confirm rejects an email code without a challengeId', async () => {
@@ -2676,7 +3084,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('disable returns 400 INVALID_PASSWORD for a wrong password', async () => {
-      setupDbResults([{ passwordHash: 'h', mfaEnabled: true, mfaMethod: 'totp' }]);
+      setupDbResults([{ passwordHash: '$argon2id$h', mfaEnabled: true, mfaMethod: 'totp' }]);
       vi.mocked(argon2.verify).mockResolvedValue(false);
       const res = await app.inject({
         method: 'DELETE',
@@ -2690,7 +3098,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('disable clears MFA fields, revokes sessions and audits the before state', async () => {
-      setupDbResults([{ passwordHash: 'h', mfaEnabled: true, mfaMethod: 'email' }]);
+      setupDbResults([{ passwordHash: '$argon2id$h', mfaEnabled: true, mfaMethod: 'email' }]);
       const res = await app.inject({
         method: 'DELETE',
         url: '/users/me/mfa',
@@ -2698,14 +3106,15 @@ describe('User routes (extended coverage)', () => {
         payload: { password: 'Correct1' },
       });
       expect(res.statusCode).toBe(200);
-      expect(argon2.verify).toHaveBeenCalledWith('h', 'Correct1');
+      expect(argon2.verify).toHaveBeenCalledWith('$argon2id$h', 'Correct1');
       expect(argOf(opsFor('update', 'users')[0], 'set')).toEqual({
         mfaEnabled: false,
         mfaMethod: null,
         totpSecretEnc: null,
+        totpLastStep: null,
         updatedAt: expect.any(Date),
       });
-      expect(revokeAllUserSessions).toHaveBeenCalledWith(ME);
+      expect(endUserSessions).toHaveBeenCalledWith(ME, { apiKeys: false });
       expect(auditCall()).toMatchObject({
         action: 'mfa_disabled',
         before: { mfaEnabled: true, mfaMethod: 'email' },
@@ -3413,6 +3822,11 @@ describe('User routes (extended coverage)', () => {
         before: { permissions: ['stations:read'] },
         after: { permissions: ['users:read', 'stations:write'] },
       });
+      // The replacement and the session version share one transaction.
+      const { db } = await import('@evtivity/database');
+      expect(db.transaction).toHaveBeenCalled();
+      expect(bumpSessionVersion).toHaveBeenCalledWith(OTHER, expect.anything());
+      expect(announceSessionChange).toHaveBeenCalledWith(OTHER);
     });
 
     it('PUT /users/:id/permissions refuses an all-site actor granting more than it holds', async () => {

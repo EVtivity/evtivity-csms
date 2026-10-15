@@ -49,10 +49,12 @@ function makeChain() {
   return chain;
 }
 
-const { mockRecordSessionEndRequest, mockWriteCsmsSessionAudit } = vi.hoisted(() => ({
-  mockRecordSessionEndRequest: vi.fn().mockResolvedValue(true),
-  mockWriteCsmsSessionAudit: vi.fn(),
-}));
+const { mockRecordSessionEndRequest, mockWriteCsmsSessionAudit, mockFailUnstartedRemoteSession } =
+  vi.hoisted(() => ({
+    mockRecordSessionEndRequest: vi.fn().mockResolvedValue(true),
+    mockWriteCsmsSessionAudit: vi.fn(),
+    mockFailUnstartedRemoteSession: vi.fn().mockResolvedValue({ outcome: 'failed', session: {} }),
+  }));
 
 vi.mock('@evtivity/database', async () => ({
   writeAudit: vi.fn(() => Promise.resolve()),
@@ -71,6 +73,9 @@ vi.mock('@evtivity/database', async () => ({
   SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
   recordSessionEndRequest: mockRecordSessionEndRequest,
   writeCsmsSessionAudit: mockWriteCsmsSessionAudit,
+  failUnstartedRemoteSession: mockFailUnstartedRemoteSession,
+  REMOTE_START_TIMEOUT_REASON: 'RemoteStartTimeout',
+  REMOTE_START_REJECTED_REASON: 'RemoteStartRejected',
   isStationLevelUnavailable: (
     await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
       '../../../database/src/lib/station-status.js',
@@ -974,7 +979,11 @@ describe('Portal charger routes - remaining branches', () => {
       expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
     });
 
-    it('returns 504 and faults the session when the station does not answer', async () => {
+    it('returns 504 and fails the session when the station does not answer', async () => {
+      mockFailUnstartedRemoteSession.mockResolvedValueOnce({
+        outcome: 'failed',
+        session: { id: SESSION_ID },
+      });
       setupStartRows([{ id: SESSION_ID }]);
       vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
         response: null,
@@ -986,14 +995,22 @@ describe('Portal charger routes - remaining branches', () => {
         error: 'Station did not respond',
         code: 'STATION_TIMEOUT',
       });
-      expect(updateSets()).toEqual([expect.objectContaining({ status: 'faulted' })]);
+      // The guarded helper closes it (active only, ended, zero cost): no
+      // unguarded status write.
+      expect(updateSets()).toEqual([]);
+      expect(mockFailUnstartedRemoteSession).toHaveBeenCalledWith(SESSION_ID, 'RemoteStartTimeout');
+      expect(mockCancelOpenSessionHold).toHaveBeenCalledWith(
+        SESSION_ID,
+        'Station did not answer the start',
+        expect.anything(),
+      );
       expect(mockWriteCsmsSessionAudit).toHaveBeenCalledWith(
         expect.objectContaining({
           sessionId: SESSION_ID,
           action: 'faulted',
           actor: 'system',
           actorLabel: 'portal-start-timeout',
-          after: { status: 'faulted' },
+          after: { status: 'failed', stoppedReason: 'RemoteStartTimeout' },
         }),
         expect.anything(),
         expect.anything(),
@@ -1064,7 +1081,11 @@ describe('Portal charger routes - remaining branches', () => {
         expect(updateSets()).toEqual([]);
       });
 
-      it('retries without a stop when the ghost transaction id is unknown, then faults on a second rejection', async () => {
+      it('retries without a stop when the ghost transaction id is unknown, then fails on a second rejection', async () => {
+        mockFailUnstartedRemoteSession.mockResolvedValueOnce({
+          outcome: 'failed',
+          session: { id: SESSION_ID },
+        });
         setupStartRows([{ id: SESSION_ID }], []);
         mockCancelOpenSessionHold.mockResolvedValueOnce(undefined);
         vi.mocked(sendOcppCommandAndWait)
@@ -1084,7 +1105,11 @@ describe('Portal charger routes - remaining branches', () => {
           'RequestStartTransaction',
           'RequestStartTransaction',
         ]);
-        expect(updateSets()).toEqual([expect.objectContaining({ status: 'faulted' })]);
+        expect(updateSets()).toEqual([]);
+        expect(mockFailUnstartedRemoteSession).toHaveBeenCalledWith(
+          SESSION_ID,
+          'RemoteStartRejected',
+        );
         expect(mockWriteCsmsSessionAudit).toHaveBeenCalledWith(
           expect.objectContaining({
             sessionId: SESSION_ID,
@@ -1138,7 +1163,11 @@ describe('Portal charger routes - remaining branches', () => {
         expect(response.statusCode).toBe(502);
         expect(response.json().code).toBe('START_REJECTED');
         expect(sendOcppCommandAndWait).toHaveBeenCalledTimes(1);
-        expect(updateSets()).toEqual([expect.objectContaining({ status: 'faulted' })]);
+        expect(updateSets()).toEqual([]);
+        expect(mockFailUnstartedRemoteSession).toHaveBeenCalledWith(
+          SESSION_ID,
+          'RemoteStartRejected',
+        );
       });
     });
   });

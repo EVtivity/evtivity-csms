@@ -4,8 +4,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, sql, and } from 'drizzle-orm';
-import * as argon2 from 'argon2';
-import { randomBytes } from 'node:crypto';
 import {
   db,
   ocpiPartners,
@@ -14,6 +12,7 @@ import {
   ocpiSyncLog,
   writeAudit,
   ocpiPartnerAuditLog,
+  issueOcpiRegistrationToken,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -51,6 +50,11 @@ const ocpiPartnerItem = z
       .describe(
         'True when outbound OCPI requests and command callbacks to this partner may reach loopback and private addresses (private peering, local simulators). False: public addresses only.',
       ),
+    allowRawToken: z
+      .boolean()
+      .describe(
+        'True when this partner may send its credentials token without Base64 encoding (OCPI 2.1.1 and 2.2 peers) and gets ours the same way. False: Base64 only (OCPI 2.2-d2 and later).',
+      ),
     hasPartnerRegistrationToken: z
       .boolean()
       .describe(
@@ -72,6 +76,7 @@ interface PartnerRow {
   version: string | null;
   versionUrl: string | null;
   allowPrivateNetwork: boolean;
+  allowRawToken: boolean;
   partnerRegistrationTokenEnc: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -135,6 +140,12 @@ const createPartnerBody = z.object({
     .describe(
       'Allow outbound OCPI requests and command callbacks to this partner to reach loopback and private addresses. Default false (public addresses only).',
     ),
+  allowRawToken: z
+    .boolean()
+    .optional()
+    .describe(
+      "Accept this partner's credentials token without Base64 encoding and send ours the same way (OCPI 2.1.1 and 2.2 peers). Default false.",
+    ),
   partnerRegistrationToken: z
     .string()
     .min(1)
@@ -150,13 +161,21 @@ const updatePartnerBody = z.object({
   status: z
     .enum(['pending', 'connected', 'suspended', 'disconnected'])
     .optional()
-    .describe('Partner connection status'),
+    .describe(
+      'Partner connection status. connected only resumes a suspended partner that completed the credentials handshake; a partner becomes connected through the handshake.',
+    ),
   versionUrl: z.string().url().max(2048).optional().describe('OCPI versions endpoint URL'),
   allowPrivateNetwork: z
     .boolean()
     .optional()
     .describe(
       'Allow outbound OCPI requests and command callbacks to this partner to reach loopback and private addresses. Default false (public addresses only).',
+    ),
+  allowRawToken: z
+    .boolean()
+    .optional()
+    .describe(
+      "Accept this partner's credentials token without Base64 encoding and send ours the same way (OCPI 2.1.1 and 2.2 peers). Default false.",
     ),
   partnerRegistrationToken: z
     .string()
@@ -167,6 +186,32 @@ const updatePartnerBody = z.object({
       "Partner's OOB-shared OCPI 2.2.1 Token C. Set or rotate when the partner provides a new outbound-registration token.",
     ),
 });
+
+const registrationTokenResponse = z
+  .object({
+    registrationToken: z
+      .string()
+      .max(255)
+      .describe('New one-time registration token to share with the partner'),
+  })
+  .passthrough();
+
+/** Whether the partner holds an active credentials token we issued (it registered). */
+async function hasIssuedCredentialsToken(partnerId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: ocpiCredentialsTokens.id })
+    .from(ocpiCredentialsTokens)
+    .where(
+      and(
+        eq(ocpiCredentialsTokens.partnerId, partnerId),
+        eq(ocpiCredentialsTokens.direction, 'issued'),
+        eq(ocpiCredentialsTokens.kind, 'credentials'),
+        eq(ocpiCredentialsTokens.isActive, true),
+      ),
+    )
+    .limit(1);
+  return row != null;
+}
 
 const syncParams = z.object({
   id: ID_PARAMS.ocpiPartnerId.describe('OCPI partner ID'),
@@ -334,38 +379,36 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
           ? encryptString(body.partnerRegistrationToken, apiConfig.SETTINGS_ENCRYPTION_KEY)
           : null;
 
-      const [partner] = await db
-        .insert(ocpiPartners)
-        .values({
-          name: body.name,
-          countryCode: body.countryCode,
-          partyId: body.partyId,
-          versionUrl: body.versionUrl,
-          allowPrivateNetwork,
-          status: 'pending',
-          roles: [],
-          ourRoles: [],
-          partnerRegistrationTokenEnc,
-        })
-        .returning();
+      // The partner and its registration token commit together. The token is
+      // bound to the partner: the OCPI server accepts it on versions,
+      // version details and credentials only, for this country code and
+      // party id.
+      const created = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(ocpiPartners)
+          .values({
+            name: body.name,
+            countryCode: body.countryCode,
+            partyId: body.partyId,
+            versionUrl: body.versionUrl,
+            allowPrivateNetwork,
+            allowRawToken: body.allowRawToken ?? false,
+            status: 'pending',
+            roles: [],
+            ourRoles: [],
+            partnerRegistrationTokenEnc,
+          })
+          .returning();
+        if (row == null) return null;
+        const token = await issueOcpiRegistrationToken(row.id, tx);
+        return { partner: row, registrationToken: token };
+      });
 
-      if (partner == null) {
+      if (created == null) {
         await reply.status(500).send({ error: 'Failed to create partner', code: 'INTERNAL_ERROR' });
         return;
       }
-
-      // Generate registration token for the partner to use. We issue it and the
-      // OCPI server authenticates the partner's calls with it.
-      const registrationToken = randomBytes(32).toString('hex');
-      const tokenHash = await argon2.hash(registrationToken);
-
-      await db.insert(ocpiCredentialsTokens).values({
-        partnerId: partner.id,
-        tokenHash,
-        tokenPrefix: registrationToken.slice(0, 8),
-        direction: 'issued',
-        isActive: true,
-      });
+      const { partner, registrationToken } = created;
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -404,6 +447,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
           200: itemResponse(ocpiPartnerItem),
           400: errorWith('Private url', [ERROR_CODES.PRIVATE_URL]),
           404: errorWith('Partner not found', [ERROR_CODES.PARTNER_NOT_FOUND]),
+          409: errorWith('Partner not registered', [ERROR_CODES.PARTNER_NOT_REGISTERED]),
         },
       },
     },
@@ -430,12 +474,29 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A partner becomes connected through the credentials handshake. By
+      // hand, connected only resumes a suspended partner that registered.
+      if (
+        body.status === 'connected' &&
+        before.status !== 'connected' &&
+        (before.status !== 'suspended' || !(await hasIssuedCredentialsToken(id)))
+      ) {
+        await reply.status(409).send({
+          error: 'A partner becomes connected through the OCPI credentials handshake',
+          code: 'PARTNER_NOT_REGISTERED',
+        });
+        return;
+      }
+
       const updateData: Record<string, unknown> = { updatedAt: new Date() };
       if (body.name != null) updateData['name'] = body.name;
       if (body.status != null) updateData['status'] = body.status;
       if (body.versionUrl != null) updateData['versionUrl'] = body.versionUrl;
       if (body.allowPrivateNetwork != null) {
         updateData['allowPrivateNetwork'] = body.allowPrivateNetwork;
+      }
+      if (body.allowRawToken != null) {
+        updateData['allowRawToken'] = body.allowRawToken;
       }
       if (body.partnerRegistrationToken != null) {
         updateData['partnerRegistrationTokenEnc'] = encryptString(
@@ -550,6 +611,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
           200: successResponse,
           400: errorWith('Missing version url', [ERROR_CODES.MISSING_VERSION_URL]),
           404: errorWith('Partner not found', [ERROR_CODES.PARTNER_NOT_FOUND]),
+          409: errorWith('Partner already connected', [ERROR_CODES.PARTNER_ALREADY_CONNECTED]),
         },
       },
     },
@@ -568,6 +630,14 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         return;
       }
 
+      if (partner.status === 'connected') {
+        await reply.status(409).send({
+          error: 'Partner is already connected',
+          code: 'PARTNER_ALREADY_CONNECTED',
+        });
+        return;
+      }
+
       if (partner.versionUrl == null || partner.versionUrl === '') {
         await reply.status(400).send({
           error: 'Partner version URL is required for registration',
@@ -583,20 +653,88 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         JSON.stringify({ partnerId: id, versionUrl: partner.versionUrl }),
       );
 
+      // The request only: the OCPI server writes `registered` when the
+      // handshake completes.
       const actor = getAuditActor(request);
       await writeAudit(
         { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
         {
           entityId: id,
           entityIdSnapshot: id,
-          action: 'registered',
+          action: 'updated',
           ...actor,
+          notes: 'Outbound registration requested',
         },
         db,
         request.log,
       );
 
       return { success: true };
+    },
+  );
+
+  // POST /ocpi/partners/:id/registration-token - a new registration token
+  app.post(
+    '/ocpi/partners/:id/registration-token',
+    {
+      onRequest: [authorize('roaming:write')],
+      schema: {
+        tags: ['OCPI'],
+        summary: 'Issue a new OCPI registration token',
+        description:
+          'Retires the open registration tokens of a partner that is not connected and returns a new one, shown once. The partner registers with it (POST credentials); it is accepted on versions, version details and credentials only, for the partner country code and party id. 409 PARTNER_ALREADY_CONNECTED for a connected partner.',
+        operationId: 'issueOcpiPartnerRegistrationToken',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(partnerParams),
+        response: {
+          201: itemResponse(registrationTokenResponse),
+          404: errorWith('Partner not found', [ERROR_CODES.PARTNER_NOT_FOUND]),
+          409: errorWith('Partner already connected', [ERROR_CODES.PARTNER_ALREADY_CONNECTED]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
+      const { id } = request.params as z.infer<typeof partnerParams>;
+
+      const result = await db.transaction(async (tx) => {
+        const [partner] = await tx
+          .select({ id: ocpiPartners.id, status: ocpiPartners.status })
+          .from(ocpiPartners)
+          .where(eq(ocpiPartners.id, id))
+          .for('update');
+        if (partner == null) return 'not_found' as const;
+        if (partner.status === 'connected') return 'connected' as const;
+        return { token: await issueOcpiRegistrationToken(id, tx) };
+      });
+
+      if (result === 'not_found') {
+        await reply.status(404).send({ error: 'Partner not found', code: 'PARTNER_NOT_FOUND' });
+        return;
+      }
+      if (result === 'connected') {
+        await reply.status(409).send({
+          error: 'Partner is already connected',
+          code: 'PARTNER_ALREADY_CONNECTED',
+        });
+        return;
+      }
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'updated',
+          ...actor,
+          notes: 'Registration token issued',
+        },
+        db,
+        request.log,
+      );
+
+      await reply.status(201).send({ registrationToken: result.token });
     },
   );
 

@@ -855,7 +855,7 @@ export async function searchAvailableVehicles(fleetId: string, search: string, l
 
 /**
  * The sessions of the fleet's drivers. `siteIds` (the operator's
- * `getUserSiteIds()`) keeps the sessions at stations of those sites; null
+ * `getUserSiteIds()`) keeps the sessions that happened at those sites; null
  * keeps all. The same scope applies to the fleet metrics and energy history.
  */
 function fleetSessionFilter(fleetId: string, siteIds: string[] | null) {
@@ -893,7 +893,7 @@ export async function getFleetSessions(
       })
       .from(chargingSessions)
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-      .leftJoin(sites, eq(chargingStations.siteId, sites.id))
+      .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
       .where(driverFilter)
       .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
       .limit(limit)

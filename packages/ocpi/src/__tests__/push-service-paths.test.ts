@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { inlinePushSink } from './helpers/inline-push-sink.js';
+import type { InlinePushSink } from './helpers/inline-push-sink.js';
 
 // Each awaited select chain resolves to the next queued result; inserts record
 // the sync-log rows the push wrote.
@@ -90,7 +92,8 @@ vi.mock('../services/cpo-sessions.js', () => ({
   syncCpoSessionRow: mocks.syncCpoSessionRow,
 }));
 
-const { OcpiPushListener, pushLegacyEvseRemoval } = await import('../services/push.service.js');
+const { OcpiPushListener, pushLegacyEvseRemoval, pushJobOptions } =
+  await import('../services/push.service.js');
 
 type Handler = (payload: string) => void;
 const unsubscribe = vi.fn(async () => undefined);
@@ -114,11 +117,13 @@ const PARTNER = {
 async function deliver(
   notifications: Array<Record<string, unknown> | string>,
   onCompleted: ((id: string) => Promise<void>) | null = null,
-): Promise<void> {
-  const listener = new OcpiPushListener(pubsub as never, onCompleted);
+): Promise<InlinePushSink> {
+  const sink = inlinePushSink(onCompleted);
+  const listener = new OcpiPushListener(pubsub as never, sink);
   await listener.start();
   for (const n of notifications) handler(typeof n === 'string' ? n : JSON.stringify(n));
   await listener.stop();
+  return sink;
 }
 
 beforeEach(() => {
@@ -155,8 +160,77 @@ describe('listener lifecycle and payloads', () => {
   });
 });
 
+describe('push jobs', () => {
+  it('adds one deduplicated job per object, whatever the number of replicas', async () => {
+    mocks.ocpiLocationAudience.mockResolvedValue(null);
+    const notification = { type: 'session', sessionId: 'ses_1' };
+    mocks.cpoSessionLink.mockResolvedValue(null);
+
+    const sink = await deliver([notification, notification]);
+
+    expect(sink.jobs.map((j) => j.deduplicationId)).toEqual(['ps-ses_1', 'ps-ses_1']);
+  });
+
+  it('retries with backoff and keeps the latest change of a running job', () => {
+    expect(pushJobOptions('ps-ses_1')).toEqual({
+      deduplication: { id: 'ps-ses_1', keepLastIfActive: true },
+      attempts: 6,
+      backoff: { type: 'exponential', delay: 10_000 },
+      removeOnComplete: true,
+      removeOnFail: { age: 7 * 24 * 60 * 60 },
+    });
+  });
+
+  it('hands an operator CDR reissue and push retry to the CDR jobs', async () => {
+    const sink = await deliver([
+      { type: 'cdr', sessionId: 'ses_1', generation: 2 },
+      { type: 'cdr', cdrId: 'CDR-1', retry: '1700000000000' },
+    ]);
+
+    expect(sink.scheduleCdr).toHaveBeenCalledWith('ses_1', 2);
+    expect(sink.pushStoredCdr).toHaveBeenCalledWith('CDR-1', '1700000000000');
+  });
+});
+
 describe('location push', () => {
   const location = { input: { ocpiLocationId: 'LOC-1' }, stations: [] };
+
+  it('fans out one job per partner and skips a partner that lost the location since', async () => {
+    mocks.ocpiLocationAudience
+      // fan-out: two partners see the site
+      .mockResolvedValueOnce({ ocpiLocationId: 'LOC-1', partnerIds: ['opr_1', 'opr_2'] })
+      // opr_1's job: still in the audience
+      .mockResolvedValueOnce({ ocpiLocationId: 'LOC-1', partnerIds: ['opr_1', 'opr_2'] })
+      // opr_2's job: dropped from the allow-list meanwhile
+      .mockResolvedValueOnce({ ocpiLocationId: 'LOC-1', partnerIds: ['opr_1'] });
+    mocks.loadSiteLocation.mockResolvedValue(location);
+    selectResults = [[{ url: 'https://p/locations' }], [PARTNER]];
+
+    const sink = await deliver([{ type: 'location', siteId: 'sit_1' }]);
+
+    expect(sink.jobs.map((j) => j.name)).toEqual(['push-fanout', 'push-location', 'push-location']);
+    expect(mocks.client.put).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts a partner client error as a failed push, not a completed one', async () => {
+    mocks.ocpiLocationAudience.mockResolvedValue({
+      ocpiLocationId: 'LOC-1',
+      partnerIds: ['opr_1'],
+    });
+    mocks.loadSiteLocation.mockResolvedValue(location);
+    mocks.client.put.mockResolvedValue({ status_code: 2001, status_message: 'Invalid' });
+    selectResults = [[{ url: 'https://p/locations' }], [PARTNER]];
+
+    await deliver([{ type: 'location', siteId: 'sit_1' }]);
+
+    expect(syncLogs).toEqual([
+      expect.objectContaining({
+        action: 'push_update',
+        status: 'failed',
+        errorMessage: 'Partner answered 2001 for location LOC-1: Invalid',
+      }),
+    ]);
+  });
 
   it('skips an unpublished site but still sends REMOVED to partners that lost it', async () => {
     mocks.ocpiLocationAudience.mockResolvedValue(null);
@@ -492,6 +566,34 @@ describe('token push', () => {
   it('does nothing when no pushable token is left (internal type or replaced value)', async () => {
     await deliver([{ type: 'token', tokenIds: ['dtk_central'] }]);
     expect(mocks.client.put).not.toHaveBeenCalled();
+  });
+
+  it('PUTs the tombstones before the live tokens', async () => {
+    mocks.loadEmspTokens.mockResolvedValue([live]);
+    mocks.loadEmspTombstones.mockResolvedValue([gone]);
+    selectResults = [[{ id: 'opr_1', ...PARTNER }], [{ url: 'https://cpo/tokens' }], [PARTNER]];
+
+    await deliver([
+      { type: 'token', tokenIds: ['dtk_1'], tombstones: [{ idToken: 'VIN123', tokenType: 'VIN' }] },
+    ]);
+
+    const urls = mocks.client.put.mock.calls.map((c: unknown[]) => c[0]);
+    expect(urls).toEqual([
+      'https://cpo/tokens/US/EVT/VIN123?type=OTHER',
+      'https://cpo/tokens/US/EVT/RFID%2001?type=RFID',
+    ]);
+  });
+
+  it('logs a token the partner rejected as a failed push', async () => {
+    mocks.loadEmspTokens.mockResolvedValue([live]);
+    mocks.client.put.mockResolvedValue({ status_code: 3000, status_message: 'Busy' });
+    selectResults = [[{ id: 'opr_1', ...PARTNER }], [{ url: 'https://cpo/tokens' }], [PARTNER]];
+
+    await deliver([{ type: 'token', tokenIds: ['dtk_1'] }]);
+
+    expect(syncLogs).toEqual([
+      expect.objectContaining({ module: 'tokens', status: 'failed', objectsCount: '0' }),
+    ]);
   });
 
   it('logs a failed token push', async () => {

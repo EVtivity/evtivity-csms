@@ -169,6 +169,15 @@ vi.mock('@evtivity/database', () => ({
   drivers: h.table('drivers', ['id', 'isActive']),
   guestSessions: h.table('guest_sessions', ['sessionToken', 'status', 'stationOcppId']),
   ocpiExternalTokens: h.table('ocpi_external_tokens', ['uid', 'isValid', 'whitelist', 'tokenData']),
+  resolveOcpiTokenOwner: async (input: { tokenUid: string }) => {
+    const { ocpiOwnerFromRows } = await import('../helpers/ocpi-token-owner.js');
+    const rows = await runSelect('ocpi_external_tokens', {
+      op: 'eq',
+      col: 'uid',
+      val: input.tokenUid,
+    });
+    return ocpiOwnerFromRows(rows);
+  },
   chargingSessions: h.table('charging_sessions', [
     'id',
     'tokenId',

@@ -3,23 +3,31 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { PubSubClient } from '@evtivity/lib';
+import type { FakeOcpiCommands } from './helpers/fake-ocpi-commands.js';
 
-const { safeFetchMock, publishOcppCommandMock, getOutboundTokenMock, partnerRows } = vi.hoisted(
-  () => ({
+const { safeFetchMock, publishOcppCommandMock, getOutboundTokenMock, partnerRows, commands } =
+  vi.hoisted(() => ({
     safeFetchMock: vi.fn(),
     publishOcppCommandMock: vi.fn(),
     getOutboundTokenMock: vi.fn(),
     partnerRows: [] as { allowPrivateNetwork: boolean }[],
-  }),
-);
+    commands: { fake: null as FakeOcpiCommands | null },
+  }));
 
 vi.mock('@evtivity/database', async (importOriginal) => {
+  const { createFakeOcpiCommands } = await import('./helpers/fake-ocpi-commands.js');
+  commands.fake = createFakeOcpiCommands();
+  const fake = commands.fake;
   const chain: Record<string, unknown> = {};
   for (const m of ['select', 'from', 'where', 'limit']) chain[m] = vi.fn(() => chain);
   chain['then'] = (resolve: (v: unknown) => unknown) => Promise.resolve(partnerRows).then(resolve);
   return {
     ...(await importOriginal<typeof import('@evtivity/database')>()),
-    db: { select: vi.fn(() => chain) },
+    db: {
+      select: vi.fn(() => chain),
+      insert: vi.fn(() => ({ values: fake.insertValues })),
+    },
+    client: fake.client,
   };
 });
 vi.mock('@evtivity/lib', async (importOriginal) => ({
@@ -68,7 +76,12 @@ async function resultFor(
   const { pubsub, handlers } = makePubsub();
   const service = new OcpiCommandCallbackService(pubsub);
   await service.start();
-  service.registerCommand('cmd-1', 'https://emsp.example.com/cb/1', 'opr_1', commandType);
+  await service.registerCommand({
+    commandId: 'cmd-1',
+    responseUrl: 'https://emsp.example.com/cb/1',
+    partnerId: 'opr_1',
+    commandType: commandType,
+  });
   handlers[0]?.(JSON.stringify({ commandId: 'cmd-1', ...result }));
   await service.stop();
   return postedBody();
@@ -82,6 +95,7 @@ beforeEach(() => {
   getOutboundTokenMock.mockReset();
   getOutboundTokenMock.mockResolvedValue('token-b');
   partnerRows.length = 0;
+  commands.fake?.rows.clear();
 });
 
 describe('OCPP to OCPI command result mapping', () => {
@@ -156,7 +170,12 @@ describe('callback POST', () => {
     const { pubsub, handlers } = makePubsub();
     const service = new OcpiCommandCallbackService(pubsub);
     await service.start();
-    service.registerCommand('cmd-1', 'https://emsp.example.com/cb/1', 'opr_1', 'START_SESSION');
+    await service.registerCommand({
+      commandId: 'cmd-1',
+      responseUrl: 'https://emsp.example.com/cb/1',
+      partnerId: 'opr_1',
+      commandType: 'START_SESSION',
+    });
     handlers[0]?.(JSON.stringify({ commandId: 'cmd-1', response: { status: 'Accepted' } }));
     await service.stop();
 
@@ -174,7 +193,12 @@ describe('callback POST', () => {
     const { pubsub, handlers } = makePubsub();
     const service = new OcpiCommandCallbackService(pubsub);
     await service.start();
-    service.registerCommand('cmd-2', 'https://emsp.example.com/cb/2', 'opr_1', 'STOP_SESSION');
+    await service.registerCommand({
+      commandId: 'cmd-2',
+      responseUrl: 'https://emsp.example.com/cb/2',
+      partnerId: 'opr_1',
+      commandType: 'STOP_SESSION',
+    });
     handlers[0]?.(JSON.stringify({ commandId: 'cmd-2', response: { status: 'Accepted' } }));
     await expect(service.stop()).resolves.toBeUndefined();
     expect(safeFetchMock).toHaveBeenCalledOnce();
@@ -184,7 +208,12 @@ describe('callback POST', () => {
     const { pubsub, handlers } = makePubsub();
     const service = new OcpiCommandCallbackService(pubsub);
     await service.start();
-    service.registerCommand('cmd-1', 'https://emsp.example.com/cb/1', 'opr_1', 'START_SESSION');
+    await service.registerCommand({
+      commandId: 'cmd-1',
+      responseUrl: 'https://emsp.example.com/cb/1',
+      partnerId: 'opr_1',
+      commandType: 'START_SESSION',
+    });
     handlers[0]?.('{oops');
     handlers[0]?.(JSON.stringify({ commandId: 'someone-else', response: { status: 'Accepted' } }));
     await service.stop();
@@ -196,7 +225,12 @@ describe('callback POST', () => {
     const { pubsub, handlers } = makePubsub();
     const service = new OcpiCommandCallbackService(pubsub);
     await service.start();
-    service.registerCommand('cmd-1', 'https://emsp.example.com/cb/1', 'opr_1', 'START_SESSION');
+    await service.registerCommand({
+      commandId: 'cmd-1',
+      responseUrl: 'https://emsp.example.com/cb/1',
+      partnerId: 'opr_1',
+      commandType: 'START_SESSION',
+    });
     const payload = JSON.stringify({ commandId: 'cmd-1', response: { status: 'Accepted' } });
     handlers[0]?.(payload);
     handlers[0]?.(payload);
@@ -228,6 +262,8 @@ describe('command lifecycle', () => {
       stationId: 'CS-1',
       action: 'RequestStartTransaction',
       payload: { evseId: 1 },
+      // A partner's command is never queued for an offline station.
+      noQueue: true,
     });
   });
 
@@ -236,7 +272,12 @@ describe('command lifecycle', () => {
     const { pubsub, unsubscribe } = makePubsub();
     const service = new OcpiCommandCallbackService(pubsub);
     await service.start();
-    service.registerCommand('cmd-1', 'https://emsp.example.com/cb/1', 'opr_1', 'RESERVE_NOW');
+    await service.registerCommand({
+      commandId: 'cmd-1',
+      responseUrl: 'https://emsp.example.com/cb/1',
+      partnerId: 'opr_1',
+      commandType: 'RESERVE_NOW',
+    });
 
     // The 10 s sweep at 10 and 20 s keeps it; the one at 40 s is past the 30 s limit.
     await vi.advanceTimersByTimeAsync(20_000);
@@ -267,5 +308,70 @@ describe('singleton', () => {
   it('returns the instance created by initCommandCallbackService', () => {
     const service = initCommandCallbackService(makePubsub().pubsub);
     expect(getCommandCallbackService()).toBe(service);
+  });
+});
+
+describe('stored commands', () => {
+  it('posts the result of a command another process registered (restart)', async () => {
+    const first = new OcpiCommandCallbackService(makePubsub().pubsub);
+    await first.registerCommand({
+      commandId: 'cmd-r',
+      responseUrl: 'https://emsp.example.com/cb/r',
+      partnerId: 'opr_1',
+      commandType: 'STOP_SESSION',
+    });
+
+    const { pubsub, handlers } = makePubsub();
+    const restarted = new OcpiCommandCallbackService(pubsub);
+    await restarted.start();
+    handlers[0]?.(JSON.stringify({ commandId: 'cmd-r', response: { status: 'Accepted' } }));
+    await restarted.stop();
+
+    expect(safeFetchMock).toHaveBeenCalledOnce();
+    expect(postedBody()).toEqual({ result: 'ACCEPTED' });
+    expect(commands.fake?.rows.get('cmd-r')?.result).toBe('ACCEPTED');
+  });
+
+  it('posts once when two replicas receive the same result', async () => {
+    const a = makePubsub();
+    const b = makePubsub();
+    const replicaA = new OcpiCommandCallbackService(a.pubsub);
+    const replicaB = new OcpiCommandCallbackService(b.pubsub);
+    await replicaA.start();
+    await replicaB.start();
+    await replicaA.registerCommand({
+      commandId: 'cmd-x',
+      responseUrl: 'https://emsp.example.com/cb/x',
+      partnerId: 'opr_1',
+      commandType: 'START_SESSION',
+    });
+    const payload = JSON.stringify({ commandId: 'cmd-x', response: { status: 'Accepted' } });
+    a.handlers[0]?.(payload);
+    b.handlers[0]?.(payload);
+    await replicaA.stop();
+    await replicaB.stop();
+
+    expect(safeFetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('posts TIMEOUT for an expired command left by a stopped process', async () => {
+    const first = new OcpiCommandCallbackService(makePubsub().pubsub);
+    await first.registerCommand({
+      commandId: 'cmd-old',
+      responseUrl: 'https://emsp.example.com/cb/old',
+      partnerId: 'opr_1',
+      commandType: 'START_SESSION',
+    });
+    const row = commands.fake?.rows.get('cmd-old');
+    if (row == null) throw new Error('not stored');
+    row.expiresAt = new Date(Date.now() - 1000);
+
+    const restarted = new OcpiCommandCallbackService(makePubsub().pubsub);
+    await restarted.cleanupExpired();
+
+    expect(postedBody()).toEqual({ result: 'TIMEOUT' });
+    expect(row.result).toBe('TIMEOUT');
+    await restarted.cleanupExpired();
+    expect(safeFetchMock).toHaveBeenCalledOnce();
   });
 });

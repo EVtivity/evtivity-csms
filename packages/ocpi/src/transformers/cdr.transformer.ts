@@ -1,10 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { toIso3166Alpha3 } from '@evtivity/lib';
 import { toOcpiPrice } from '../lib/ocpi-price.js';
+import { ocpiCoordinate } from '../lib/geo-location.js';
 import type { OcpiCdrCost } from '../lib/ocpi-price.js';
 import { chargingPeriods, cdrToken, sessionTimes, whToKwh } from '../lib/charging-periods.js';
 import type { CdrTokenSource } from '../lib/charging-periods.js';
+import { ocpiAuthMethod } from './session.transformer.js';
 import type {
   OcpiCdr,
   OcpiCdrLocation,
@@ -51,7 +54,13 @@ interface CdrTransformInput {
   countryCode: string;
   partyId: string;
   cdrId: string;
+  /** When the CDR is created: its last_updated (a CDR never changes). */
+  issuedAt: Date;
   token: CdrTokenSource;
+  /** `ocpi_roaming_sessions.auth_method` (see the session transformer). */
+  authMethod?: string | null;
+  /** The eMSP's authorization_reference from the StartSession. */
+  authorizationReference?: string | null;
   /** The tariffs the session was billed with (its price snapshots), as the partner sees them. */
   tariffs?: Array<OcpiTariff | Ocpi230Tariff>;
   /**
@@ -109,10 +118,11 @@ export function transformCdr(input: CdrTransformInput, version: OcpiVersion): Oc
     name: location.siteName,
     address: location.address ?? 'Unknown',
     city: location.city ?? 'Unknown',
-    country: location.country ?? 'US',
+    // ISO 3166-1 alpha-3 (10.4.4 CdrLocation); the operator's country when unknown.
+    country: toIso3166Alpha3(location.country) ?? toIso3166Alpha3(countryCode) ?? 'USA',
     coordinates: {
-      latitude: location.latitude ?? '0',
-      longitude: location.longitude ?? '0',
+      latitude: ocpiCoordinate(location.latitude ?? '0'),
+      longitude: ocpiCoordinate(location.longitude ?? '0'),
     },
     evse_uid: location.evseUid,
     evse_id: location.evseId,
@@ -137,14 +147,17 @@ export function transformCdr(input: CdrTransformInput, version: OcpiVersion): Oc
     end_date_time: session.endedAt.toISOString(),
     session_id: session.ocpiSessionId,
     cdr_token: cdrToken(input.token),
-    auth_method: 'AUTH_REQUEST',
+    auth_method: ocpiAuthMethod(input.authMethod),
+    ...(input.authorizationReference != null
+      ? { authorization_reference: input.authorizationReference }
+      : {}),
     cdr_location: cdrLocation,
     currency,
     charging_periods: input.chargingPeriods ?? chargingPeriods(volumes),
     total_cost: toOcpiPrice(input.cost.total, version),
     total_energy: totalEnergy,
     total_time: times.totalHours,
-    last_updated: session.endedAt.toISOString(),
+    last_updated: input.issuedAt.toISOString(),
   };
 
   // Dimension costs (all Price, optional): fixed is the session fee, time the

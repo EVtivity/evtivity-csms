@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import * as OTPAuth from 'otpauth';
-import { generateTotpSecret, generateTotpUri, verifyTotpCode } from '../totp.js';
+import { generateTotpSecret, generateTotpUri, verifyTotpCode, matchTotpStep } from '../totp.js';
 
 describe('generateTotpSecret', () => {
   it('returns a non-empty base32 string', () => {
@@ -126,5 +126,36 @@ describe('verifyTotpCode', () => {
     } else {
       expect(verifyTotpCode(secretA, codeForA)).toBe(true);
     }
+  });
+});
+
+describe('matchTotpStep', () => {
+  const NOW = Date.UTC(2026, 5, 1, 12, 0, 15);
+  const STEP = Math.floor(NOW / 30_000);
+
+  function codeAt(secret: string, ms: number): string {
+    const totp = new OTPAuth.TOTP({
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(secret),
+    });
+    return totp.generate({ timestamp: ms });
+  }
+
+  it('returns the step of the current code and of the previous one', () => {
+    const secret = generateTotpSecret();
+    expect(matchTotpStep(secret, codeAt(secret, NOW), NOW)).toBe(STEP);
+    const previous = codeAt(secret, NOW - 30_000);
+    if (previous !== codeAt(secret, NOW)) {
+      expect(matchTotpStep(secret, previous, NOW)).toBe(STEP - 1);
+    }
+  });
+
+  it('returns null for a code outside the window', () => {
+    const secret = generateTotpSecret();
+    const old = codeAt(secret, NOW - 5 * 60_000);
+    const near = [-1, 0, 1].map((d) => codeAt(secret, NOW + d * 30_000));
+    if (!near.includes(old)) expect(matchTotpStep(secret, old, NOW)).toBeNull();
   });
 });

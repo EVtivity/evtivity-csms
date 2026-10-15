@@ -28,6 +28,10 @@ export interface UserDetailUser {
   siteIds: string[];
   /** The user's permissions (GET /v1/users/:id). */
   permissions?: string[];
+  mfaEnabled?: boolean;
+  mfaMethod?: string | null;
+  /** 'sso' for an account an SSO sign-in created. */
+  authSource?: 'password' | 'sso';
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;

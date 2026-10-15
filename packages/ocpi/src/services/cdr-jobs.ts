@@ -2,26 +2,34 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // The `ocpi-cdrs` BullMQ queue, owned by the OCPI server (producer and
-// consumer), so no other process imports OCPI code:
+// consumer), so no other process imports OCPI code. It holds every OCPI
+// background job (the Redis user of the OCPI server may use this queue only):
 //
-// - `cdr` (jobId `cdr-<sessionId>`): issue the CDR of a completed CPO session
-//   and POST it to the partner. Added by the push listener after it pushes a
-//   completed session (every OCPI replica adds the same jobId, so one job
-//   runs) and by the sweep.
+// - `cdr` (jobId `cdr-<sessionId>`, `cdr-<sessionId>-r<n>` after the n-th
+//   operator reissue): issue the CDR of a completed CPO session and POST it
+//   to the partner. Added by the session push job after it pushes a
+//   completed session, by the push listener for an operator reissue (every
+//   OCPI replica adds the same jobId, so one job runs), and by the sweep.
 // - `cdr-sweep` (job scheduler, every 5 minutes): adds `cdr` jobs for
-//   completed sessions of the last 24 hours without a CDR (a lost pub/sub
-//   message, an OCPI restart), `cdr-push` jobs for credit CDRs of the last 24
-//   hours not pushed yet (the API's operator credit stores them pending), and
-//   `legacy-evse-removal` jobs. It also prunes `ocpi_removed_evses` past the
-//   retention period, and runs one step of the one-time CDR backfill
+//   completed sessions of the last 30 days, and reissued sessions of any age,
+//   without a live CDR (a lost pub/sub message, an OCPI restart, an outage
+//   longer than a day), oldest first; `cdr-push` jobs for stored CDRs still
+//   pending after 10 minutes at a partner with a CDRs receiver (an operator
+//   credit or retry, a lost push), a credit only once its original was sent;
+//   and `legacy-evse-removal` jobs. It also prunes `ocpi_removed_evses` past
+//   the retention period, and runs one step of the one-time CDR backfill
 //   (`runCdrBackfillStep`).
-// - `cdr-push` (jobId `cdr-push-<ocpiCdrId>`): POST a stored CDR.
+// - `cdr-push` (jobId `cdr-push-<ocpiCdrId>`, or with the retry stamp of an
+//   operator retry): POST a stored CDR. Removed once done, so the sweep can
+//   add it again while it stays pending.
+// - `push-*`: the location, session, tariff and token pushes
+//   (push.service.ts), deduplicated per object and partner.
 // - `legacy-evse-removal` (jobId `legacy-evse-removal-<partnerId>`): sends
 //   REMOVED once per partner for the EVSE uids published before v0.1.32.
 
 import { Queue, Worker } from 'bullmq';
 import type { ConnectionOptions, Job } from 'bullmq';
-import { and, asc, eq, gt, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, isNotNull, isNull, lt, sql } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -35,7 +43,13 @@ import {
 } from '@evtivity/database';
 import { createBullMQConnection, createLogger, logBullMQErrors } from '@evtivity/lib';
 import { issueSessionCdr, pushCdr } from './cdr.service.js';
-import { pushLegacyEvseRemoval } from './push.service.js';
+import {
+  isPushJobName,
+  processPushJob,
+  pushJobOptions,
+  pushLegacyEvseRemoval,
+} from './push.service.js';
+import type { PushJobSink } from './push.service.js';
 
 const logger = createLogger('ocpi-cdr-jobs');
 
@@ -44,9 +58,14 @@ export const OCPI_CDR_QUEUE = 'ocpi-cdrs';
 /** A CDR is issued a minute after the session push, so late cost updates land first. */
 export const CDR_DELAY_MS = 60_000;
 const SWEEP_EVERY_MS = 5 * 60_000;
-/** The sweep covers sessions that ended between 2 minutes and 24 hours ago. */
+/**
+ * The sweep covers sessions that ended between 2 minutes and 30 days ago
+ * (a reissued session at any age), and CDRs still pending 10 minutes after
+ * they were stored.
+ */
 const SWEEP_MIN_AGE_MS = 2 * 60_000;
-const SWEEP_MAX_AGE_MS = 24 * 60 * 60_000;
+const SWEEP_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
+const SWEEP_PENDING_PUSH_AGE_MS = 10 * 60_000;
 const SWEEP_BATCH = 500;
 /** The one-time backfill covers sessions that ended this long before its cutoff. */
 export const BACKFILL_WINDOW_DAYS = 30;
@@ -55,12 +74,18 @@ const BACKFILL_BATCH = 50;
 /** Spacing of the backfill jobs of one tick, so partners get one CDR every few seconds. */
 const BACKFILL_SPACING_MS = 5_000;
 
-export function cdrJobId(sessionId: string): string {
-  return `cdr-${sessionId}`;
+/**
+ * The jobId of a session's CDR job. `generation` counts the session's
+ * superseded CDRs: a reissue gets a new jobId, while every add of the same
+ * generation (replicas, sweep) is one job.
+ */
+export function cdrJobId(sessionId: string, generation = 0): string {
+  return generation > 0 ? `cdr-${sessionId}-r${String(generation)}` : `cdr-${sessionId}`;
 }
 
-export function cdrPushJobId(ocpiCdrId: string): string {
-  return `cdr-push-${ocpiCdrId}`;
+/** The jobId of a CDR push; an operator retry passes its retry stamp. */
+export function cdrPushJobId(ocpiCdrId: string, retry?: string): string {
+  return retry != null ? `cdr-push-${ocpiCdrId}-${retry}` : `cdr-push-${ocpiCdrId}`;
 }
 
 export function legacyRemovalJobId(partnerId: string): string {
@@ -79,22 +104,54 @@ export function createOcpiCdrQueue(connection: ConnectionOptions): Queue {
   });
 }
 
-/** Schedules the CDR of a session (idempotent per session, P7). */
+/** Schedules the CDR of a session (idempotent per session and generation, P7). */
 export async function scheduleSessionCdr(
   queue: Queue,
   sessionId: string,
   delayMs = CDR_DELAY_MS,
+  generation = 0,
 ): Promise<void> {
   await queue.add(
     'cdr',
     { sessionId },
     {
-      jobId: cdrJobId(sessionId),
+      jobId: cdrJobId(sessionId, generation),
       delay: delayMs,
       attempts: 8,
       backoff: { type: 'exponential', delay: 30_000 },
     },
   );
+}
+
+/** Schedules the POST of a stored CDR (idempotent per CDR and retry stamp). */
+export async function scheduleCdrPush(
+  queue: Queue,
+  ocpiCdrId: string,
+  retry?: string,
+): Promise<void> {
+  await queue.add(
+    'cdr-push',
+    { cdrId: ocpiCdrId },
+    {
+      jobId: cdrPushJobId(ocpiCdrId, retry),
+      attempts: 8,
+      backoff: { type: 'exponential', delay: 30_000 },
+      // Removed once done: a credit waiting for its original stays pending,
+      // and the sweep adds the same jobId again.
+      removeOnComplete: true,
+    },
+  );
+}
+
+/** The push sink of the queue: push jobs with their deduplication id, and the CDR jobs. */
+export function queuePushSink(queue: Queue): PushJobSink {
+  return {
+    add: async (name, data, deduplicationId) => {
+      await queue.add(name, data, pushJobOptions(deduplicationId));
+    },
+    scheduleCdr: (sessionId, generation) => scheduleSessionCdr(queue, sessionId, 0, generation),
+    pushStoredCdr: (ocpiCdrId, retry) => scheduleCdrPush(queue, ocpiCdrId, retry),
+  };
 }
 
 /**
@@ -202,48 +259,66 @@ export async function runCdrSweep(queue: Queue, now: Date = new Date()): Promise
   await pruneRemovedOcpiEvses(now);
   await runCdrBackfillStep(queue);
 
+  // Live CDR: not a credit, not superseded by an operator reissue. The
+  // generation (superseded CDRs) picks the jobId of a reissue.
+  const generation = sql<number>`(
+    SELECT count(*)::int FROM ocpi_cdrs g
+    WHERE g.charging_session_id = ${chargingSessions.id}
+      AND g.is_credit = false AND g.superseded_at IS NOT NULL
+  )`;
   const sessions = await db
-    .select({ sessionId: chargingSessions.id })
+    .select({ sessionId: chargingSessions.id, generation })
     .from(ocpiRoamingSessions)
     .innerJoin(chargingSessions, eq(chargingSessions.id, ocpiRoamingSessions.chargingSessionId))
     .where(
       and(
         eq(chargingSessions.status, 'completed'),
         lt(chargingSessions.endedAt, new Date(now.getTime() - SWEEP_MIN_AGE_MS)),
-        gt(chargingSessions.endedAt, new Date(now.getTime() - SWEEP_MAX_AGE_MS)),
+        sql`(${chargingSessions.endedAt} > ${new Date(now.getTime() - SWEEP_MAX_AGE_MS)} OR ${generation} > 0)`,
         sql`NOT EXISTS (
           SELECT 1 FROM ocpi_cdrs c
-          WHERE c.charging_session_id = ${chargingSessions.id} AND c.is_credit = false
+          WHERE c.charging_session_id = ${chargingSessions.id}
+            AND c.is_credit = false AND c.superseded_at IS NULL
         )`,
       ),
     )
+    // Oldest first: a backlog drains in order instead of the oldest sessions
+    // aging out of the window.
+    .orderBy(asc(chargingSessions.endedAt), asc(chargingSessions.id))
     .limit(SWEEP_BATCH);
-  for (const { sessionId } of sessions) {
-    await scheduleSessionCdr(queue, sessionId, 0);
+  for (const { sessionId, generation: gen } of sessions) {
+    await scheduleSessionCdr(queue, sessionId, 0, gen);
   }
 
-  const credits = await db
+  // Stored CDRs not pushed 10 minutes after they were stored, at partners
+  // with a CDRs receiver (a partner without one pulls them). A credit is
+  // pushed only after the CDR it credits was sent.
+  const pending = await db
     .select({ ocpiCdrId: ocpiCdrs.ocpiCdrId })
     .from(ocpiCdrs)
     .where(
       and(
-        eq(ocpiCdrs.isCredit, true),
         isNotNull(ocpiCdrs.chargingSessionId),
         eq(ocpiCdrs.pushStatus, 'pending'),
-        gt(ocpiCdrs.createdAt, new Date(now.getTime() - SWEEP_MAX_AGE_MS)),
+        lt(ocpiCdrs.createdAt, new Date(now.getTime() - SWEEP_PENDING_PUSH_AGE_MS)),
+        sql`EXISTS (
+          SELECT 1 FROM ocpi_partner_endpoints e
+          WHERE e.partner_id = ${ocpiCdrs.partnerId}
+            AND e.module = 'cdrs' AND e.interface_role = 'RECEIVER'
+        )`,
+        sql`(${ocpiCdrs.isCredit} = false OR EXISTS (
+          SELECT 1 FROM ocpi_cdrs o
+          WHERE o.partner_id = ${ocpiCdrs.partnerId}
+            AND o.is_credit = false
+            AND o.push_status = 'sent'
+            AND o.ocpi_cdr_id = ${ocpiCdrs.cdrData}->>'credit_reference_id'
+        ))`,
       ),
     )
+    .orderBy(asc(ocpiCdrs.createdAt), asc(ocpiCdrs.id))
     .limit(SWEEP_BATCH);
-  for (const { ocpiCdrId } of credits) {
-    await queue.add(
-      'cdr-push',
-      { cdrId: ocpiCdrId },
-      {
-        jobId: cdrPushJobId(ocpiCdrId),
-        attempts: 8,
-        backoff: { type: 'exponential', delay: 30_000 },
-      },
-    );
+  for (const { ocpiCdrId } of pending) {
+    await scheduleCdrPush(queue, ocpiCdrId);
   }
 
   const partners = await db
@@ -270,15 +345,22 @@ export async function runCdrSweep(queue: Queue, now: Date = new Date()): Promise
     );
   }
 
-  if (sessions.length > 0 || credits.length > 0 || partners.length > 0) {
+  if (sessions.length > 0 || pending.length > 0 || partners.length > 0) {
     logger.info(
-      { cdrs: sessions.length, creditCdrs: credits.length, legacyRemovals: partners.length },
+      { cdrs: sessions.length, pendingCdrs: pending.length, legacyRemovals: partners.length },
       'OCPI sweep scheduled jobs',
     );
   }
 }
 
 export async function processOcpiCdrJob(job: Job, queue: Queue): Promise<void> {
+  if (isPushJobName(job.name)) {
+    await processPushJob(job.name, job.data, {
+      sink: queuePushSink(queue),
+      onSessionCompleted: (sessionId) => scheduleSessionCdr(queue, sessionId),
+    });
+    return;
+  }
   const data = job.data as { sessionId?: string; partnerId?: string; cdrId?: string };
   switch (job.name) {
     case 'cdr':
@@ -300,8 +382,8 @@ export async function processOcpiCdrJob(job: Job, queue: Queue): Promise<void> {
 
 export interface OcpiCdrJobs {
   queue: Queue;
-  /** For the push listener: schedule the CDR of a completed session. */
-  scheduleSessionCdr: (sessionId: string) => Promise<void>;
+  /** For the push listener: adds the push and CDR jobs of an `ocpi_push` message. */
+  pushSink: PushJobSink;
   stop: () => Promise<void>;
 }
 
@@ -319,7 +401,9 @@ export async function startOcpiCdrJobs(redisUrl: string): Promise<OcpiCdrJobs> {
 
   const worker = new Worker(OCPI_CDR_QUEUE, (job) => processOcpiCdrJob(job, queue), {
     connection: createBullMQConnection(redisUrl),
-    concurrency: 5,
+    // Push jobs wait on partner HTTP (up to 30 s each): enough slots that one
+    // slow partner does not hold the CDR and other partners' jobs.
+    concurrency: 20,
   });
   // BullMQ re-emits connection errors on each Queue and Worker.
   logBullMQErrors(worker, OCPI_CDR_QUEUE);
@@ -332,7 +416,7 @@ export async function startOcpiCdrJobs(redisUrl: string): Promise<OcpiCdrJobs> {
 
   return {
     queue,
-    scheduleSessionCdr: (sessionId) => scheduleSessionCdr(queue, sessionId),
+    pushSink: queuePushSink(queue),
     stop: async () => {
       await worker.close();
       await queue.close();

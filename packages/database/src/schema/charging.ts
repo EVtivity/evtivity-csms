@@ -207,6 +207,12 @@ export const chargingSessions = pgTable(
     ),
     index('idx_sessions_started_at').on(table.startedAt),
     index('idx_sessions_driver_id').on(table.driverId),
+    // The portal session list (a driver's sessions, newest first).
+    index('idx_sessions_driver_created').on(
+      table.driverId,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
     index('idx_sessions_reservation_id').on(table.reservationId),
     index('idx_sessions_status_idle').on(table.status, table.idleStartedAt),
     index('idx_sessions_created_at').on(table.createdAt),

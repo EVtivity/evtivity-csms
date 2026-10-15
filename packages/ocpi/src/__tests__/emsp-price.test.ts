@@ -9,7 +9,7 @@ let selectResults: unknown[][] = [];
 let writes: Record<string, unknown>[] = [];
 function makeChain(): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const m of ['from', 'where', 'limit']) chain[m] = vi.fn(() => chain);
+  for (const m of ['from', 'where', 'limit', 'for']) chain[m] = vi.fn(() => chain);
   chain['then'] = (resolve: (v: unknown) => unknown) =>
     Promise.resolve(selectResults.shift() ?? []).then(resolve);
   return chain;
@@ -23,20 +23,31 @@ function makeWriteChain(): Record<string, unknown> {
   chain['values'] = vi.fn(record);
   chain['set'] = vi.fn(record);
   chain['where'] = vi.fn(() => chain);
+  chain['onConflictDoNothing'] = vi.fn(() => chain);
   chain['returning'] = vi.fn(() => Promise.resolve([{ id: 1 }]));
   chain['then'] = (resolve: (v: unknown) => unknown) => Promise.resolve(undefined).then(resolve);
   return chain;
 }
 
-vi.mock('@evtivity/database', () => ({
-  db: {
+vi.mock('@evtivity/database', () => {
+  const db: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeWriteChain()),
     update: vi.fn(() => makeWriteChain()),
-  },
-  ocpiCdrs: { partnerId: {}, ocpiCdrId: {}, id: {} },
-  ocpiRoamingSessions: { partnerId: {}, ocpiSessionId: {}, id: {} },
-}));
+  };
+  db['transaction'] = vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn(db));
+  return {
+    db,
+    ocpiCdrs: { partnerId: {}, ocpiCdrId: {}, id: {}, chargingSessionId: {} },
+    ocpiRoamingSessions: {
+      partnerId: {},
+      ocpiSessionId: {},
+      id: {},
+      chargingSessionId: {},
+      sessionData: {},
+    },
+  };
+});
 vi.mock('../middleware/ocpi-auth.js', () => ({
   ocpiAuthenticate: async (request: { ocpiPartner?: unknown }) => {
     request.ocpiPartner = { partnerId: 'opr_1', countryCode: 'DE', partyId: 'CPO' };

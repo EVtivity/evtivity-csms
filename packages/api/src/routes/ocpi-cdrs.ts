@@ -6,10 +6,12 @@ import { z } from 'zod';
 import { eq, desc, sql, and } from 'drizzle-orm';
 import {
   db,
+  claimCdrPushRetry,
   createCreditCdr,
   ocpiCdrs,
   ocpiPartners,
   sessionAuditLog,
+  supersedeCreditedSessionCdrs,
   writeAudit,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -23,6 +25,7 @@ import { getUserSiteIds } from '../lib/site-access.js';
 import { sessionInSites } from '../lib/ocpi-site-scope.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { publishOcpiCdrRequest } from '../lib/ocpi-cdr-request.js';
 
 const cdrListItem = z
   .object({
@@ -45,6 +48,15 @@ const cdrListItem = z
       ),
     currency: z.string().length(3).nullable().describe('ISO 4217 currency code'),
     isCredit: z.boolean().describe('True when this CDR is a credit (refund) for an earlier CDR'),
+    hasCredit: z
+      .boolean()
+      .describe('True when a credit CDR credits this CDR (always false on a credit CDR)'),
+    supersededAt: z.coerce
+      .date()
+      .nullable()
+      .describe(
+        'When an operator reissued the session after crediting this CDR; null for the live CDR',
+      ),
     pushStatus: z
       .enum(['pending', 'sent', 'confirmed', 'failed'])
       .describe('Outbound delivery status to the partner'),
@@ -60,6 +72,32 @@ const creditCdrResponse = z
       .describe(
         'OCPI id of the credit CDR. Crediting a CDR that already has a credit CDR returns that one',
       ),
+  })
+  .passthrough();
+
+const cdrIdParams = z.object({
+  id: z.string().min(1).max(36).describe('OCPI CDR identifier (ocpiCdrId)'),
+});
+
+const reissueCdrBody = z.object({
+  reason: z.string().min(1).max(500).describe('Why the session is billed again'),
+});
+
+const reissueCdrResponse = z
+  .object({
+    chargingSessionId: z.string().describe('The charging session whose CDR is issued again'),
+    status: z
+      .enum(['reissued', 'pending'])
+      .describe(
+        'reissued: the credited CDRs were superseded and a new CDR is being issued; pending: a reissue was already asked for and its CDR is not issued yet',
+      ),
+  })
+  .passthrough();
+
+const retryCdrPushResponse = z
+  .object({
+    cdrId: z.string().describe('OCPI CDR identifier pushed again'),
+    pushStatus: z.literal('pending').describe('The CDR waits for the OCPI server to push it'),
   })
   .passthrough();
 
@@ -122,6 +160,13 @@ export function ocpiCdrRoutes(app: FastifyInstance): void {
             totalCost: ocpiCdrs.totalCost,
             currency: ocpiCdrs.currency,
             isCredit: ocpiCdrs.isCredit,
+            supersededAt: ocpiCdrs.supersededAt,
+            hasCredit: sql<boolean>`(${ocpiCdrs.isCredit} = false AND EXISTS (
+              SELECT 1 FROM ocpi_cdrs credit
+              WHERE credit.partner_id = ${ocpiCdrs.partnerId}
+                AND credit.is_credit = true
+                AND credit.cdr_data->>'credit_reference_id' = ${ocpiCdrs.ocpiCdrId}
+            ))`,
             pushStatus: ocpiCdrs.pushStatus,
             createdAt: ocpiCdrs.createdAt,
             partnerName: ocpiPartners.name,
@@ -234,6 +279,164 @@ export function ocpiCdrRoutes(app: FastifyInstance): void {
           return;
         case 'existing':
           await reply.status(201).send({ cdrId: result.cdrId });
+          return;
+      }
+    },
+  );
+
+  /**
+   * Whether a site-restricted user may act on the CDR: only CDRs of sessions
+   * at its own sites. Any other CDR answers like an unknown one.
+   */
+  async function cdrInUserScope(userId: string, cdrId: string): Promise<boolean> {
+    const siteIds = await getUserSiteIds(userId);
+    if (siteIds == null) return true;
+    if (siteIds.length === 0) return false;
+    const [inScope] = await db
+      .select({ id: ocpiCdrs.id })
+      .from(ocpiCdrs)
+      .where(
+        and(eq(ocpiCdrs.ocpiCdrId, cdrId), sessionInSites(ocpiCdrs.chargingSessionId, siteIds)),
+      )
+      .limit(1);
+    return inScope != null;
+  }
+
+  // POST /ocpi/cdrs/:id/reissue - bill a credited session again with a new CDR
+  app.post(
+    '/ocpi/cdrs/:id/reissue',
+    {
+      onRequest: [authorize('roaming:write')],
+      schema: {
+        tags: ['OCPI'],
+        summary: 'Reissue the CDR of a credited roaming session',
+        description:
+          'OCPI 10.1: a sent CDR is never changed. After every CDR of the session was credited, a new CDR with a new id is issued from the session and sent to the partner. Use it after correcting a session that was billed wrong.',
+        operationId: 'reissueOcpiCdr',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(cdrIdParams),
+        body: zodSchema(reissueCdrBody),
+        response: {
+          202: itemResponse(reissueCdrResponse),
+          404: errorWith('Cdr not found', [ERROR_CODES.CDR_NOT_FOUND]),
+          409: errorWith('A CDR of the session is not credited', [ERROR_CODES.CDR_NOT_CREDITED]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof cdrIdParams>;
+      const body = request.body as z.infer<typeof reissueCdrBody>;
+      const { userId } = request.user as JwtPayload;
+      if (!(await cdrInUserScope(userId, id))) {
+        await reply.status(404).send({ error: 'CDR not found', code: 'CDR_NOT_FOUND' });
+        return;
+      }
+
+      const result = await supersedeCreditedSessionCdrs(id);
+      switch (result.status) {
+        case 'not_found':
+          await reply.status(404).send({ error: 'CDR not found', code: 'CDR_NOT_FOUND' });
+          return;
+        case 'not_credited':
+          await reply.status(409).send({
+            error: 'Credit every CDR of the session before reissuing it',
+            code: 'CDR_NOT_CREDITED',
+            details: { cdrId: result.cdrId },
+          });
+          return;
+        case 'pending':
+          // A repeat before the new CDR exists: the job is asked for again
+          // (deduplicated by its generation), nothing else changes.
+          await publishOcpiCdrRequest({
+            sessionId: result.chargingSessionId,
+            generation: result.generation,
+          });
+          await reply
+            .status(202)
+            .send({ chargingSessionId: result.chargingSessionId, status: 'pending' });
+          return;
+        case 'reissued':
+          await writeAudit(
+            { table: sessionAuditLog, idColumn: 'session_id' },
+            {
+              entityId: result.chargingSessionId,
+              entityIdSnapshot: result.chargingSessionId,
+              action: 'cdr_reissued',
+              ...getAuditActor(request),
+              before: { liveCdrIds: result.supersededCdrIds },
+              after: { supersededCdrIds: result.supersededCdrIds, partnerId: result.partnerId },
+              notes: body.reason,
+            },
+            db,
+            request.log,
+          );
+          await publishOcpiCdrRequest({
+            sessionId: result.chargingSessionId,
+            generation: result.generation,
+          });
+          await reply
+            .status(202)
+            .send({ chargingSessionId: result.chargingSessionId, status: 'reissued' });
+          return;
+      }
+    },
+  );
+
+  // POST /ocpi/cdrs/:id/push - push a CDR whose push failed again
+  app.post(
+    '/ocpi/cdrs/:id/push',
+    {
+      onRequest: [authorize('roaming:write')],
+      schema: {
+        tags: ['OCPI'],
+        summary: 'Push a failed CDR to its partner again',
+        operationId: 'retryOcpiCdrPush',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(cdrIdParams),
+        response: {
+          202: itemResponse(retryCdrPushResponse),
+          404: errorWith('Cdr not found', [ERROR_CODES.CDR_NOT_FOUND]),
+          409: errorWith('The CDR push did not fail', [ERROR_CODES.CDR_PUSH_NOT_FAILED]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof cdrIdParams>;
+      const { userId } = request.user as JwtPayload;
+      if (!(await cdrInUserScope(userId, id))) {
+        await reply.status(404).send({ error: 'CDR not found', code: 'CDR_NOT_FOUND' });
+        return;
+      }
+
+      const result = await claimCdrPushRetry(id);
+      switch (result.status) {
+        case 'not_found':
+          await reply.status(404).send({ error: 'CDR not found', code: 'CDR_NOT_FOUND' });
+          return;
+        case 'not_failed':
+          await reply.status(409).send({
+            error: 'Only a CDR whose push failed can be pushed again',
+            code: 'CDR_PUSH_NOT_FAILED',
+            details: { pushStatus: result.pushStatus },
+          });
+          return;
+        case 'claimed':
+          await writeAudit(
+            { table: sessionAuditLog, idColumn: 'session_id' },
+            {
+              entityId: result.chargingSessionId,
+              entityIdSnapshot: result.chargingSessionId,
+              action: 'cdr_push_retried',
+              ...getAuditActor(request),
+              before: { cdrId: id, pushStatus: 'failed' },
+              after: { cdrId: id, pushStatus: 'pending', partnerId: result.partnerId },
+              notes: null,
+            },
+            db,
+            request.log,
+          );
+          await publishOcpiCdrRequest({ cdrId: id, retry: result.retry });
+          await reply.status(202).send({ cdrId: id, pushStatus: 'pending' });
           return;
       }
     },

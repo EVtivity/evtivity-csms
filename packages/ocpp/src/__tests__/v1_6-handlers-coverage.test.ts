@@ -36,6 +36,11 @@ vi.mock('@evtivity/database', () => {
     },
     chargingStations: { id: 'id', stationId: 'station_id', siteId: 'site_id' },
     sites: { id: 'id', freeVendEnabled: 'free_vend_enabled' },
+    resolveOcpiTokenOwner: async () => {
+      const { ocpiOwnerFromRows } = await import('./helpers/ocpi-token-owner.js');
+      const rows = (await selectFn().from({}).where({}).limit(1)) as unknown[];
+      return ocpiOwnerFromRows(rows);
+    },
     isRoamingEnabled: vi.fn().mockResolvedValue(false),
     isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   };

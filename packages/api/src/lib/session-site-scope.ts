@@ -17,10 +17,16 @@ function stationsAtSites(siteIds: string[]) {
     .where(inArray(chargingStations.siteId, siteIds));
 }
 
-/** Charging sessions at stations of the given sites. */
+/**
+ * Charging sessions that happened at the given sites: the session's own site
+ * (`charging_sessions.site_id`), so a station moved to another site leaves its
+ * earlier sessions at the old site. A session without a site (a station
+ * without one, a deleted site, or a row an older release inserted) is left
+ * out, so only an unrestricted operator sees it.
+ */
 export function sessionsAtSites(siteIds: string[]): SQL {
   if (siteIds.length === 0) return inArray(chargingSessions.id, []);
-  return inArray(chargingSessions.stationId, stationsAtSites(siteIds));
+  return inArray(chargingSessions.siteId, siteIds);
 }
 
 /** Reservations at stations of the given sites. */

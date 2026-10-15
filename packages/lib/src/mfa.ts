@@ -9,6 +9,21 @@ export interface CreateChallengeResult {
   code: string;
 }
 
+/**
+ * Codes tried against one email or SMS challenge before it is refused. The
+ * count lives on the challenge row (`mfa_challenges.attempts`), so every API
+ * process and a restart see the same count.
+ */
+export const MFA_CHALLENGE_MAX_ATTEMPTS = 5;
+
+/**
+ * The outcome of a code against a challenge: `verified` (the code matched and
+ * the challenge is now used), `invalid` (a wrong code, or an unknown, used,
+ * expired or foreign challenge), or `exhausted` (no tries left: request a new
+ * code).
+ */
+export type MfaChallengeResult = 'verified' | 'invalid' | 'exhausted';
+
 export async function createMfaChallenge(
   client: Sql,
   opts: { userId?: string; driverId?: string; method: string },
@@ -49,58 +64,65 @@ export async function createMfaChallenge(
   return { challengeId: row.id, code };
 }
 
+/**
+ * Checks a code against a challenge of the principal in the MFA token.
+ *
+ * Each try is counted first by a guarded UPDATE that matches only an unused,
+ * unexpired challenge of that principal with tries left, so parallel requests
+ * and several API processes share one count. A matching code then marks the
+ * challenge used with a second guarded UPDATE (`used_at IS NULL`), so of two
+ * requests with the right code only one is verified.
+ */
 export async function verifyMfaChallenge(
   client: Sql,
   challengeId: number,
   code: string,
   expected: { userId?: string; driverId?: string },
-): Promise<boolean> {
+): Promise<MfaChallengeResult> {
+  // Bind the challenge to the principal in the mfaToken JWT. Without this
+  // an attacker who knows victim A's password could complete A's login with
+  // a code from a challenge owned by attacker B.
+  if (expected.userId == null && expected.driverId == null) return 'invalid';
   const codeHash = crypto.createHash('sha256').update(code).digest('hex');
 
   // Expiry is decided in SQL: on the shared client (drizzle replaces its date
-  // parsers) a raw expires_at comes back as postgres text, and comparing a
-  // Date with that string is always false, which accepted expired codes.
-  const rows = await client`
-    SELECT id, code_hash, (expires_at <= now()) AS expired, used_at, user_id, driver_id
-    FROM mfa_challenges
+  // parsers) a raw expires_at comes back as postgres text.
+  const counted = await client`
+    UPDATE mfa_challenges SET attempts = attempts + 1
     WHERE id = ${challengeId}
+      AND used_at IS NULL
+      AND expires_at > now()
+      AND attempts < ${MFA_CHALLENGE_MAX_ATTEMPTS}
+      AND user_id IS NOT DISTINCT FROM ${expected.userId ?? null}
+      AND driver_id IS NOT DISTINCT FROM ${expected.driverId ?? null}
+    RETURNING code_hash
   `;
+  const row = counted[0] as { code_hash: string } | undefined;
+  if (row == null) {
+    const spent = await client`
+      SELECT 1 FROM mfa_challenges
+      WHERE id = ${challengeId}
+        AND used_at IS NULL
+        AND expires_at > now()
+        AND attempts >= ${MFA_CHALLENGE_MAX_ATTEMPTS}
+        AND user_id IS NOT DISTINCT FROM ${expected.userId ?? null}
+        AND driver_id IS NOT DISTINCT FROM ${expected.driverId ?? null}
+    `;
+    return spent.length > 0 ? 'exhausted' : 'invalid';
+  }
 
-  const row = rows[0] as
-    | {
-        id: number;
-        code_hash: string;
-        expired: boolean;
-        used_at: Date | string | null;
-        user_id: string | null;
-        driver_id: string | null;
-      }
-    | undefined;
-
-  if (row == null) return false;
-  if (row.used_at != null) return false;
-  if (row.expired) return false;
-  // Bind the challenge to the principal in the mfaToken JWT. Without this
-  // an attacker who knows victim A's password can complete login as A by
-  // submitting their own MFA code from a challenge owned by attacker B:
-  // verifyMfaChallenge would return true for any unused/unexpired row that
-  // matches the supplied code, and the handler then issues a session JWT
-  // for the userId carried in the mfaToken.
-  if (expected.userId != null && row.user_id !== expected.userId) return false;
-  if (expected.driverId != null && row.driver_id !== expected.driverId) return false;
-  if (expected.userId == null && expected.driverId == null) return false;
   // Constant-time compare so a remote attacker can't infer the SHA-256
-  // hex prefix from response timing. Both inputs are guaranteed to be
-  // 64-char hex strings (server-generated hash on insert; we just
-  // hashed the user-supplied code above), so byteLength always matches.
+  // hex prefix from response timing. Both are 64-char hex strings.
   const stored = Buffer.from(row.code_hash, 'hex');
   const supplied = Buffer.from(codeHash, 'hex');
-  if (stored.length !== supplied.length) return false;
-  if (!crypto.timingSafeEqual(stored, supplied)) return false;
+  if (stored.length !== supplied.length || !crypto.timingSafeEqual(stored, supplied)) {
+    return 'invalid';
+  }
 
-  await client`
-    UPDATE mfa_challenges SET used_at = NOW() WHERE id = ${challengeId}
+  const used = await client`
+    UPDATE mfa_challenges SET used_at = NOW()
+    WHERE id = ${challengeId} AND used_at IS NULL
+    RETURNING id
   `;
-
-  return true;
+  return used.length > 0 ? 'verified' : 'invalid';
 }

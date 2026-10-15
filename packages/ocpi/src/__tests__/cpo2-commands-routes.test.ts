@@ -72,13 +72,17 @@ const EVSE = {
   updatedAt: new Date('2026-09-01T00:00:00Z'),
   stationState: AVAILABLE,
   stationRemoved: false,
+  evseRetired: false,
+  stationOnline: true,
+  stationAccepted: true,
 };
 const STATION_ROW = {
   stationDbId: 'sta_000000000003',
   stationId: 'CS-0003',
   ...AVAILABLE,
+  isOnline: true,
 };
-const VALID_TOKEN = [{ isValid: true }];
+const VALID_TOKEN = [{ isValid: true, tokenType: 'RFID' }];
 const PUBLISHED = [{ siteId: SITE_ID }];
 const NO_MAINTENANCE: unknown[] = [];
 const RESPONSE_URL = 'https://partner.example.com/commands/1';
@@ -169,7 +173,7 @@ describe('START_SESSION', () => {
   });
 
   it('answers REJECTED for a blocked token', async () => {
-    dbResults = [[{ isValid: false }]];
+    dbResults = [[{ isValid: false, tokenType: 'RFID' }]];
     expect(result(await post('START_SESSION', START))).toBe('REJECTED');
   });
 
@@ -196,21 +200,15 @@ describe('START_SESSION', () => {
     expect(result(await post('START_SESSION', START))).toBe('REJECTED');
   });
 
-  it('adds the connector id when the EVSE has that connector', async () => {
+  it('sends a 2.1 RequestStartTransaction with the EVSE number and an IdToken', async () => {
     mockFindEvseByUid.mockResolvedValue(EVSE);
-    dbResults = [VALID_TOKEN, PUBLISHED, NO_MAINTENANCE, [{ connectorId: 1 }]];
+    dbResults = [VALID_TOKEN, PUBLISHED, NO_MAINTENANCE];
     const res = await post('START_SESSION', {
       ...START,
       evse_uid: EVSE.evseDbId,
       connector_id: '1',
     });
     expect(result(res)).toBe('ACCEPTED');
-    expect(mockRegister).toHaveBeenCalledWith(
-      'cmd-1',
-      RESPONSE_URL,
-      PARTNER.partnerId,
-      'START_SESSION',
-    );
     const [, stationId, action, payload] = mockDispatch.mock.calls[0] as [
       string,
       string,
@@ -219,29 +217,44 @@ describe('START_SESSION', () => {
     ];
     expect(stationId).toBe('CS-0002');
     expect(action).toBe('RequestStartTransaction');
-    expect(payload).toMatchObject({ idTag: 'TOKEN-1', evseId: 2, connectorId: 1 });
-    expect(typeof payload['remoteStartId']).toBe('number');
+    // 2.1 has no connectorId in RequestStartTransaction; the 1.6 translation
+    // takes its connectorId from evseId and its idTag from idToken.
+    expect(payload).toEqual({
+      idToken: { idToken: 'TOKEN-1', type: 'ISO14443' },
+      evseId: 2,
+      remoteStartId: expect.any(Number) as number,
+    });
+    expect(mockRegister).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commandId: 'cmd-1',
+        responseUrl: RESPONSE_URL,
+        partnerId: PARTNER.partnerId,
+        commandType: 'START_SESSION',
+        stationId: 'CS-0002',
+        remoteStartId: payload['remoteStartId'],
+      }),
+    );
   });
 
-  it('omits the connector id when the EVSE has no such connector', async () => {
-    mockFindEvseByUid.mockResolvedValue(EVSE);
-    dbResults = [VALID_TOKEN, PUBLISHED, NO_MAINTENANCE, []];
-    await post('START_SESSION', { ...START, evse_uid: EVSE.evseDbId, connector_id: '9' });
+  it.each([
+    ['RFID', 'ISO14443'],
+    ['EMAID', 'eMAID'],
+    ['APP_USER', 'Central'],
+    ['AD_HOC_USER', 'Central'],
+    ['OTHER', 'Central'],
+  ])('sends a %s token as an OCPP %s IdToken', async (ocpiType, ocppType) => {
+    dbResults = [
+      [{ isValid: true, tokenType: ocpiType }],
+      PUBLISHED,
+      NO_MAINTENANCE,
+      [STATION_ROW],
+    ];
+    await post('START_SESSION', START);
     const payload = mockDispatch.mock.calls[0]?.[3] as Record<string, unknown>;
-    expect(payload).not.toHaveProperty('connectorId');
-    expect(payload['evseId']).toBe(2);
+    expect(payload['idToken']).toEqual({ idToken: 'TOKEN-1', type: ocppType });
   });
 
-  it('omits the connector id for a non-numeric connector without a lookup', async () => {
-    mockFindEvseByUid.mockResolvedValue(EVSE);
-    dbResults = [VALID_TOKEN, PUBLISHED, NO_MAINTENANCE, [{ connectorId: 1 }]];
-    await post('START_SESSION', { ...START, evse_uid: EVSE.evseDbId, connector_id: 'abc' });
-    const payload = mockDispatch.mock.calls[0]?.[3] as Record<string, unknown>;
-    expect(payload).not.toHaveProperty('connectorId');
-    expect(dbResults).toHaveLength(1);
-  });
-
-  it('ignores the connector id when no EVSE uid was given', async () => {
+  it('omits the EVSE when no EVSE uid was given', async () => {
     dbResults = [VALID_TOKEN, PUBLISHED, NO_MAINTENANCE, [STATION_ROW]];
     await post('START_SESSION', { ...START, connector_id: '1' });
     const [, stationId, , payload] = mockDispatch.mock.calls[0] as [
@@ -305,26 +318,42 @@ describe('STOP_SESSION', () => {
     expect(result(await post('STOP_SESSION', STOP))).toBe('REJECTED');
   });
 
+  it('answers REJECTED for an offline station', async () => {
+    dbResults = [
+      [{ chargingSessionId: 'ses_1' }],
+      [{ stationId: 'CS-1', transactionId: 'TX-1', isOnline: false }],
+    ];
+    expect(result(await post('STOP_SESSION', STOP))).toBe('REJECTED');
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
   it('refuses a private response_url', async () => {
-    dbResults = [[{ chargingSessionId: 'ses_1' }], [{ stationId: 'CS-1', transactionId: 'TX-1' }]];
+    dbResults = [
+      [{ chargingSessionId: 'ses_1' }],
+      [{ stationId: 'CS-1', transactionId: 'TX-1', isOnline: true }],
+    ];
     const res = await post('STOP_SESSION', { ...STOP, response_url: 'http://127.0.0.1/cb' });
     expect(res.json()).toMatchObject({ status_code: 2001 });
     expect(mockDispatch).not.toHaveBeenCalled();
   });
 
   it('dispatches RequestStopTransaction with the transaction id', async () => {
-    dbResults = [[{ chargingSessionId: 'ses_1' }], [{ stationId: 'CS-1', transactionId: 'TX-1' }]];
+    dbResults = [
+      [{ chargingSessionId: 'ses_1' }],
+      [{ stationId: 'CS-1', transactionId: 'TX-1', isOnline: true }],
+    ];
     const res = await post('STOP_SESSION', STOP, '2.3.0');
     expect(res.json()).toMatchObject({
       status_code: 1000,
       data: { result: 'ACCEPTED', timeout: 30 },
     });
-    expect(mockRegister).toHaveBeenCalledWith(
-      'cmd-1',
-      RESPONSE_URL,
-      PARTNER.partnerId,
-      'STOP_SESSION',
-    );
+    expect(mockRegister).toHaveBeenCalledWith({
+      commandId: 'cmd-1',
+      responseUrl: RESPONSE_URL,
+      partnerId: PARTNER.partnerId,
+      commandType: 'STOP_SESSION',
+      stationId: 'CS-1',
+    });
     expect(mockDispatch).toHaveBeenCalledWith('cmd-1', 'CS-1', 'RequestStopTransaction', {
       transactionId: 'TX-1',
     });
@@ -347,39 +376,16 @@ describe('RESERVE_NOW', () => {
     expect(res.json()).toMatchObject({ status_message: 'Invalid ReserveNow command' });
   });
 
-  it('answers REJECTED for a blocked token', async () => {
-    dbResults = [[{ isValid: false }]];
-    expect(result(await post('RESERVE_NOW', RESERVE))).toBe('REJECTED');
-  });
-
-  it('answers REJECTED for an unknown location', async () => {
-    dbResults = [VALID_TOKEN, []];
-    expect(result(await post('RESERVE_NOW', RESERVE))).toBe('REJECTED');
-  });
-
-  it('answers REJECTED for an EVSE uid at another site', async () => {
-    mockFindEvseByUid.mockResolvedValue({ ...EVSE, siteId: 'sit_other' });
-    dbResults = [VALID_TOKEN, PUBLISHED, NO_MAINTENANCE];
-    expect(result(await post('RESERVE_NOW', { ...RESERVE, evse_uid: EVSE.evseDbId }))).toBe(
-      'REJECTED',
-    );
-  });
-
-  it('falls back to reservation id 1 for a non-numeric id and omits the EVSE without a uid', async () => {
+  it('always answers REJECTED and dispatches nothing (owner decision)', async () => {
+    mockFindEvseByUid.mockResolvedValue(EVSE);
     dbResults = [VALID_TOKEN, PUBLISHED, NO_MAINTENANCE, [STATION_ROW]];
-    expect(result(await post('RESERVE_NOW', RESERVE))).toBe('ACCEPTED');
-    expect(mockDispatch).toHaveBeenCalledWith('cmd-1', 'CS-0003', 'ReserveNow', {
-      id: 1,
-      expiryDateTime: RESERVE.expiry_date,
-      idToken: { idToken: 'TOKEN-1', type: 'ISO14443' },
+    const res = await post('RESERVE_NOW', { ...RESERVE, evse_uid: EVSE.evseDbId });
+    expect(res.json()).toMatchObject({
+      status_code: 1000,
+      data: { result: 'REJECTED', timeout: 30 },
     });
-  });
-
-  it('refuses a private response_url', async () => {
-    dbResults = [VALID_TOKEN, PUBLISHED, NO_MAINTENANCE, [STATION_ROW]];
-    const res = await post('RESERVE_NOW', { ...RESERVE, response_url: 'http://192.168.1.1/cb' });
-    expect(res.json()).toMatchObject({ status_code: 2001 });
     expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockRegister).not.toHaveBeenCalled();
   });
 });
 
@@ -441,7 +447,11 @@ describe('UNLOCK_CONNECTOR', () => {
 
   it('refuses a private response_url', async () => {
     mockFindEvseByUid.mockResolvedValue(EVSE);
-    dbResults = [PUBLISHED];
+    dbResults = [
+      PUBLISHED,
+      [{ connectorId: 1 }],
+      [{ status: 'active', endedAt: null, linkPartnerId: PARTNER.partnerId }],
+    ];
     const res = await post('UNLOCK_CONNECTOR', { ...UNLOCK, response_url: 'http://10.1.1.1/cb' });
     expect(res.json()).toMatchObject({ status_code: 2001 });
     expect(mockDispatch).not.toHaveBeenCalled();

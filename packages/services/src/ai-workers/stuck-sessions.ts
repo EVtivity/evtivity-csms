@@ -14,7 +14,12 @@
  * again for the same session).
  */
 
-import { client, toDate, toDateOrNull } from '@evtivity/database';
+import {
+  client,
+  toDate,
+  toDateOrNull,
+  STALE_CLEANUP_IN_TRANSACTION_STATUSES,
+} from '@evtivity/database';
 import type { RawTimestamp } from '@evtivity/database';
 
 /** An offline station or an available connector counts after this much silence. */
@@ -80,9 +85,25 @@ export async function findStuckSessions(input: {
       : input.siteId === null
         ? client`cs.site_id IS NULL`
         : client`cs.site_id = ${input.siteId}`;
+  // Left out: sessions the stale cleanup faults on its next run. It skips a
+  // session whose online station still reports the transaction (connector in
+  // a transaction status, or a transaction event since its cutoff), so such a
+  // session stays a stop suggestion past the timeout.
   const cleanupFilter =
     input.staleTimeoutHours > 0
-      ? client`s.updated_at > now() - ${input.staleTimeoutHours} * interval '1 hour'`
+      ? client`(s.updated_at > now() - ${input.staleTimeoutHours} * interval '1 hour'
+          OR (cs.is_online AND (
+            EXISTS (
+              SELECT 1 FROM connectors sc
+              WHERE (sc.id = s.connector_id OR (s.connector_id IS NULL AND sc.evse_id = s.evse_id))
+                AND sc.status::text IN ${client([...STALE_CLEANUP_IN_TRANSACTION_STATUSES])}
+            )
+            OR EXISTS (
+              SELECT 1 FROM transaction_events te
+              WHERE te.session_id = s.id
+                AND te.created_at > now() - ${input.staleTimeoutHours} * interval '1 hour'
+            )
+          )))`
       : client`true`;
   const rows = await client<StuckRow[]>`
     SELECT s.id, s.station_id, cs.station_id AS ocpp_station_id, cs.ocpp_protocol,

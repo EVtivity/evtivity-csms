@@ -31,6 +31,7 @@ import {
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
+import { publishOcpiSessionPush } from '../lib/ocpi-cdr-request.js';
 import { paymentContext } from '../lib/payments.js';
 import { siteInScope } from '../lib/site-scope.js';
 
@@ -44,13 +45,15 @@ import { siteInScope } from '../lib/site-scope.js';
 // charged automatically (no saved method, a guest, a decline, a charge that
 // needed the cardholder's authentication) falls back to manual billing: it is
 // completed with its cost and `rebill_status = 'manual'`, and the operator
-// collects it outside the platform.
+// collects it outside the platform. A roaming session that delivered energy
+// is completed without a payment (the eMSP partner pays through the CDR): the
+// session push to the partner follows, and the OCPI server issues its CDR.
 
 /** Why a session cannot be re-billed (`details.reason` of SESSION_REBILL_NOT_ELIGIBLE). */
 export type RebillRefusalReason =
   | 'status'
   | 'already_rebilled'
-  | 'roaming'
+  | 'no_energy'
   | 'free_vend'
   | 'no_tariff'
   | 'paid';
@@ -64,7 +67,7 @@ export type ManualBillingReason =
   | 'prepaid_not_debited'
   | 'prepaid_record_exists';
 
-export type RebillResult = 'charged' | 'prepaid' | 'account' | 'no_charge' | 'manual';
+export type RebillResult = 'charged' | 'prepaid' | 'account' | 'roaming' | 'no_charge' | 'manual';
 
 export interface RebillResponse {
   sessionId: string;
@@ -154,13 +157,13 @@ async function loadSession(sessionId: string): Promise<RebillSession | null> {
            s.driver_id, s.is_roaming, s.free_vend, s.tariff_id, s.transaction_id,
            s.started_at, upper(s.currency) AS currency, s.tariff_tax_rate,
            s.energy_delivered_wh, st.id AS station_uuid, st.station_id AS station_ocpp_id,
-           st.site_id, si.name AS site_name,
+           s.site_id, si.name AS site_name,
            (t.prepaid_balance_cents IS NOT NULL) AS prepaid,
            s.billing_mode, s.member_billed, bf.name AS billing_fleet_name,
            EXISTS (SELECT 1 FROM guest_sessions g WHERE g.charging_session_id = s.id) AS guest_session
     FROM charging_sessions s
     JOIN charging_stations st ON st.id = s.station_id
-    LEFT JOIN sites si ON si.id = st.site_id
+    LEFT JOIN sites si ON si.id = s.site_id
     LEFT JOIN driver_tokens t ON t.id = s.token_id
     LEFT JOIN fleets bf ON bf.id = s.billing_fleet_id
     WHERE s.id = ${sessionId}
@@ -244,7 +247,9 @@ export function rebillBlockedReason(
   ) {
     return 'in_progress';
   }
-  if (session.isRoaming) return 'roaming';
+  // A roaming session is billed to the eMSP partner with a CDR (owner
+  // decision 2, v0.1.46): only one that delivered energy.
+  if (session.isRoaming && session.energyDeliveredWh <= 0) return 'no_energy';
   if (session.freeVend) return 'free_vend';
   if (session.tariffId == null) return 'no_tariff';
   if (record == null) return null;
@@ -329,6 +334,16 @@ async function takePayment(
     driverId: session.driverId,
     guestSession: session.guestSession,
   });
+  // Roaming: the eMSP partner pays us through the CDR, no payment here.
+  if (mode === 'roaming') {
+    return {
+      result: 'roaming',
+      manualReason: null,
+      paymentRecordId: null,
+      failureReason: null,
+      billedCents: null,
+    };
+  }
   // Charge on account: the re-billed cost goes on the fleet invoice (the
   // session stays unbilled until the fleet invoice claims it). No card. An
   // account session with a payment record (an operator hold the give-up
@@ -590,5 +605,8 @@ export async function rebillSession(
     ctx.log,
   );
   await notifyRebilled(session, response, breakdown, ctx);
+  // The partner gets the completed Session, and the OCPI server then issues
+  // its CDR (the CDR sweep catches a lost message).
+  if (session.isRoaming) await publishOcpiSessionPush(sessionId);
   return response;
 }

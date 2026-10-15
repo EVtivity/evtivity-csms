@@ -182,6 +182,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     revenueFromGrossGroups: actual.revenueFromGrossGroups,
     createLogger: actual.createLogger,
     STATION_MESSAGE_LANGUAGES: actual.STATION_MESSAGE_LANGUAGES,
+    isKnownCountry: actual.isKnownCountry,
   };
 });
 
@@ -191,6 +192,8 @@ vi.mock('@evtivity/services/station-message.service', () => ({
 
 vi.mock('../lib/ocpi-location-push.js', () => ({
   publishOcpiLocationPush: vi.fn().mockResolvedValue(undefined),
+  captureDeletedSiteLocation: vi.fn().mockResolvedValue(null),
+  publishOcpiDeletedSiteLocation: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../services/site-import.service.js', () => ({
@@ -249,7 +252,11 @@ import { siteRoutes } from '../routes/sites.js';
 import * as databaseModule from '@evtivity/database';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
-import { publishOcpiLocationPush } from '../lib/ocpi-location-push.js';
+import {
+  captureDeletedSiteLocation,
+  publishOcpiDeletedSiteLocation,
+  publishOcpiLocationPush,
+} from '../lib/ocpi-location-push.js';
 import { requestHasPermission } from '../middleware/rbac.js';
 import { importSitesCsv } from '../services/site-import.service.js';
 import * as sessionRevenueModule from '@evtivity/services/session-revenue';
@@ -507,6 +514,20 @@ describe('Site routes - handler logic', () => {
       expect(response.statusCode).toBe(400);
       expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
     });
+
+    it('returns 400 for a country that is not an ISO 3166-1 code or country name', async () => {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/sites',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { name: 'New Site', country: 'Atlantis' },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        message: 'Unknown country: use an ISO 3166-1 code or the English country name',
+      });
+    });
   });
 
   // --- PATCH /v1/sites/:id ---
@@ -760,6 +781,18 @@ describe('Site routes - handler logic', () => {
         message: 'Latitude must be a number in [-90, 90]',
       });
     });
+
+    it('returns 400 for an unknown country', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/sites/${VALID_SITE_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { country: 'XX' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    });
   });
 
   // --- DELETE /v1/sites/:id ---
@@ -801,6 +834,56 @@ describe('Site routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().name).toBe('Deleted Site');
       expect(databaseModule.db.transaction).toHaveBeenCalled();
+    });
+
+    it('publishes the location it captured before the delete, REMOVED to its partners', async () => {
+      const captured = {
+        siteId: VALID_SITE_ID,
+        ocpiLocationId: 'LOC-1',
+        partnerIds: ['opr_000000000001'],
+        site: { id: VALID_SITE_ID },
+        removedEvses: [],
+      };
+      vi.mocked(captureDeletedSiteLocation).mockResolvedValueOnce(captured as never);
+      setupDbResults(
+        [
+          {
+            id: VALID_SITE_ID,
+            name: 'Gone',
+            address: null,
+            city: null,
+            state: null,
+            postalCode: null,
+            country: null,
+            latitude: null,
+            longitude: null,
+            timezone: null,
+            hoursOfOperation: null,
+            metadata: null,
+            stationMessageLanguage: null,
+            autochargeEnabled: null,
+            aiInsightsEnabled: true,
+            aiMonthlyTokenBudget: null,
+            createdAt: '2024-01-01T00:00:00.000Z',
+            updatedAt: '2024-01-01T00:00:00.000Z',
+          },
+        ],
+        [],
+        [],
+      );
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/sites/${VALID_SITE_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(captureDeletedSiteLocation).toHaveBeenCalledWith(
+        expect.objectContaining({ id: VALID_SITE_ID }),
+        expect.anything(),
+      );
+      expect(publishOcpiDeletedSiteLocation).toHaveBeenCalledWith(captured, expect.anything());
     });
 
     it('returns 409 when site has stations', async () => {

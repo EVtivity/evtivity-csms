@@ -48,7 +48,12 @@ async function fakeAuth(request: FastifyRequest, reply: FastifyReply): Promise<v
     await reply.status(401).send({ status_code: 2000, status_message: 'Invalid token' });
     return;
   }
-  request.ocpiPartner = JSON.parse(raw) as NonNullable<FastifyRequest['ocpiPartner']>;
+  const parsed = JSON.parse(raw) as {
+    partner: NonNullable<FastifyRequest['ocpiPartner']>;
+    token: NonNullable<FastifyRequest['ocpiToken']>;
+  };
+  request.ocpiPartner = parsed.partner;
+  request.ocpiToken = parsed.token;
 }
 vi.mock('../middleware/ocpi-auth.js', () => ({
   ocpiAuthenticate: fakeAuth,
@@ -63,12 +68,13 @@ vi.mock('../services/credentials.service.js', async (importOriginal) => ({
 }));
 
 const { credentialRoutes } = await import('../routes/credentials.js');
+const { CredentialsError } = await import('../services/credentials.service.js');
 const { versionRoutes } = await import('../routes/versions.js');
 const { hubClientInfoRoutes } = await import('../routes/hubclientinfo.js');
 
 const BASE = 'http://localhost:7104';
 
-const REGISTERED = {
+const PARTNER = {
   partnerId: 'opr_000000000001',
   partnerName: 'Partner NL',
   countryCode: 'NL',
@@ -76,7 +82,18 @@ const REGISTERED = {
   allowPrivateNetwork: false,
   tokenId: 5,
 };
-const REGISTRATION = { ...REGISTERED, partnerId: null, partnerName: null, tokenId: 9 };
+const REGISTERED = {
+  partner: PARTNER,
+  token: { kind: 'credentials', partnerStatus: 'connected', roleNames: ['EMSP'] },
+};
+const REGISTRATION = {
+  partner: { ...PARTNER, tokenId: 9 },
+  token: { kind: 'registration', partnerStatus: 'pending', roleNames: [] },
+};
+const HUB = {
+  partner: { ...PARTNER, countryCode: 'NL', partyId: 'HUB' },
+  token: { kind: 'credentials', partnerStatus: 'connected', roleNames: ['HUB'] },
+};
 
 const VALID_BODY = {
   token: 'partner-token-b',
@@ -215,6 +232,16 @@ describe('credentials', () => {
     ['missing token', { url: 'https://x', roles: [{}] }],
     ['empty roles', { token: 't', url: 'https://x', roles: [] }],
     ['roles not an array', { token: 't', url: 'https://x', roles: 'CPO' }],
+    [
+      'a role without business details',
+      {
+        token: 't',
+        url: 'https://x',
+        roles: [{ role: 'EMSP', party_id: 'ABC', country_code: 'NL' }],
+      },
+    ],
+    ['a token over 64 characters', { ...VALID_BODY, token: 'x'.repeat(65) }],
+    ['a token with whitespace', { ...VALID_BODY, token: 'a b' }],
   ])('POST rejects an invalid credentials object (%s) with 2001', async (_label, payload) => {
     const res = await app.inject({
       method: 'POST',
@@ -226,6 +253,20 @@ describe('credentials', () => {
     const body = res.json<Envelope>();
     expect(body.status_code).toBe(2001);
     expect(body.data).toBeNull();
+    expect(mockRegistration).not.toHaveBeenCalled();
+  });
+
+  it('POST rejects a registration token of a connected partner with 405', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/ocpi/2.2.1/credentials',
+      headers: as({
+        ...REGISTRATION,
+        token: { ...REGISTRATION.token, partnerStatus: 'connected' },
+      }),
+      payload: VALID_BODY,
+    });
+    expect(res.statusCode).toBe(405);
     expect(mockRegistration).not.toHaveBeenCalled();
   });
 
@@ -256,11 +297,17 @@ describe('credentials', () => {
     const body = res.json<Envelope>();
     expect(body.status_code).toBe(1000);
     expect(body.data).toEqual(ours);
-    expect(mockRegistration).toHaveBeenCalledWith(VALID_BODY, 9, '2.3.0');
+    expect(mockRegistration).toHaveBeenCalledWith(
+      VALID_BODY,
+      { tokenId: 9, partnerId: 'opr_000000000001' },
+      '2.3.0',
+    );
   });
 
-  it('POST maps a registration failure to 400 with the error message', async () => {
-    mockRegistration.mockRejectedValue(new Error('Registration token already used'));
+  it('POST answers a refused handshake with its status and message', async () => {
+    mockRegistration.mockRejectedValue(
+      new CredentialsError(400, 2001, 'The credentials roles do not match the registered party'),
+    );
     const res = await app.inject({
       method: 'POST',
       url: '/ocpi/2.2.1/credentials',
@@ -269,22 +316,25 @@ describe('credentials', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json<Envelope>()).toMatchObject({
-      status_code: 2000,
-      status_message: 'Registration token already used',
+      status_code: 2001,
+      status_message: 'The credentials roles do not match the registered party',
       data: null,
     });
   });
 
-  it('POST uses a generic message for a non-Error rejection', async () => {
-    mockRegistration.mockRejectedValue('boom');
+  it('POST never echoes an unexpected error message', async () => {
+    mockRegistration.mockRejectedValue(new Error('duplicate key value violates constraint x'));
     const res = await app.inject({
       method: 'POST',
       url: '/ocpi/2.2.1/credentials',
       headers: as(REGISTRATION),
       payload: VALID_BODY,
     });
-    expect(res.statusCode).toBe(400);
-    expect(res.json<Envelope>().status_message).toBe('Registration failed');
+    expect(res.statusCode).toBe(500);
+    expect(res.json<Envelope>()).toMatchObject({
+      status_code: 3000,
+      status_message: 'Registration failed',
+    });
   });
 
   it('PUT rejects an invalid body with 2001', async () => {
@@ -324,8 +374,8 @@ describe('credentials', () => {
     expect(mockUpdate).toHaveBeenCalledWith(VALID_BODY, 'opr_000000000001', '2.3.0');
   });
 
-  it('PUT maps an update failure to 400', async () => {
-    mockUpdate.mockRejectedValue(new Error('No compatible OCPI version found'));
+  it('PUT maps a refused update to its status', async () => {
+    mockUpdate.mockRejectedValue(new CredentialsError(400, 3001, "Unable to use the client's API"));
     const res = await app.inject({
       method: 'PUT',
       url: '/ocpi/2.2.1/credentials',
@@ -333,11 +383,14 @@ describe('credentials', () => {
       payload: VALID_BODY,
     });
     expect(res.statusCode).toBe(400);
-    expect(res.json<Envelope>().status_message).toBe('No compatible OCPI version found');
+    expect(res.json<Envelope>()).toMatchObject({
+      status_code: 3001,
+      status_message: "Unable to use the client's API",
+    });
   });
 
-  it('PUT uses a generic message for a non-Error rejection', async () => {
-    mockUpdate.mockRejectedValue(42);
+  it('PUT uses a generic message for an unexpected rejection', async () => {
+    mockUpdate.mockRejectedValue(new Error('internal detail'));
     const res = await app.inject({
       method: 'PUT',
       url: '/ocpi/2.2.1/credentials',
@@ -374,7 +427,7 @@ describe('credentials', () => {
 describe('hubclientinfo', () => {
   const updatedAt = new Date('2026-09-01T12:00:00Z');
 
-  it('GET maps partners to HubClientInfo with role names and statuses', async () => {
+  it('GET maps partners to HubClientInfo with role names and statuses (hub only)', async () => {
     dbResults = [
       [
         {
@@ -393,7 +446,7 @@ describe('hubclientinfo', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/ocpi/2.2.1/hubclientinfo',
-      headers: as(REGISTERED),
+      headers: as(HUB),
     });
     expect(res.statusCode).toBe(200);
     const last = updatedAt.toISOString();
@@ -418,7 +471,16 @@ describe('hubclientinfo', () => {
     ]);
   });
 
-  it('PUT refuses to update another partner with 403', async () => {
+  it('GET refuses a partner without the HUB role with 403', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/ocpi/2.2.1/hubclientinfo',
+      headers: as(REGISTERED),
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it('PUT refuses a partner without the HUB role with 403', async () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/ocpi/2.2.1/hubclientinfo/DE/DEF',
@@ -426,45 +488,57 @@ describe('hubclientinfo', () => {
       payload: { status: 'SUSPENDED' },
     });
     expect(res.statusCode).toBe(403);
-    expect(res.json<Envelope>().status_message).toBe(
-      'Cannot update HubClientInfo for another partner',
-    );
     expect(updateMock).not.toHaveBeenCalled();
   });
 
-  it('PUT refuses a matching country with a different party', async () => {
+  it('PUT refuses a non-hub partner reporting its own row (no self-unsuspend)', async () => {
     const res = await app.inject({
       method: 'PUT',
-      url: '/ocpi/2.2.1/hubclientinfo/NL/XYZ',
+      url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
       headers: as(REGISTERED),
-      payload: { status: 'OFFLINE' },
+      payload: { status: 'CONNECTED' },
     });
     expect(res.statusCode).toBe(403);
+    expect(updateMock).not.toHaveBeenCalled();
   });
 
-  it('PUT rejects a body without a status with 2001', async () => {
+  it('PUT refuses a hub reporting its own row', async () => {
     const res = await app.inject({
       method: 'PUT',
-      url: '/ocpi/2.3.0/hubclientinfo/NL/ABC',
-      headers: as(REGISTERED),
-      payload: { party_id: 'ABC' },
+      url: '/ocpi/2.2.1/hubclientinfo/NL/HUB',
+      headers: as(HUB),
+      payload: { status: 'CONNECTED' },
     });
-    expect(res.statusCode).toBe(400);
-    expect(res.json<Envelope>().status_code).toBe(2001);
+    expect(res.statusCode).toBe(403);
+    expect(updateMock).not.toHaveBeenCalled();
   });
+
+  it.each([{ party_id: 'ABC' }, { status: 'UNKNOWN' }, { status: 5 }])(
+    'PUT rejects a body without a known status with 2001 (%o)',
+    async (payload) => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/ocpi/2.3.0/hubclientinfo/NL/ABC',
+        headers: as(HUB),
+        payload,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json<Envelope>().status_code).toBe(2001);
+      expect(updateMock).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ['CONNECTED', 'connected'],
     ['OFFLINE', 'disconnected'],
     ['PLANNED', 'pending'],
     ['SUSPENDED', 'suspended'],
-    ['UNKNOWN', 'disconnected'],
   ])('PUT maps hub status %s to partner status %s', async (hubStatus, partnerStatus) => {
-    dbResults = [[{ id: 'opr_000000000001' }], []];
+    dbResults = [[{ id: 'opr_000000000002', status: 'suspended' }], []];
     const res = await app.inject({
       method: 'PUT',
       url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
-      headers: as(REGISTERED),
+      headers: as(HUB),
       payload: { status: hubStatus },
     });
     expect(res.statusCode).toBe(200);
@@ -473,19 +547,31 @@ describe('hubclientinfo', () => {
     expect(updateSets[0]).toMatchObject({ status: partnerStatus });
   });
 
-  it('PUT audits a status change reported by the hub as a system row', async () => {
-    dbResults = [[{ id: 'opr_000000000001', status: 'connected' }], []];
+  it('PUT leaves a partner that never registered pending on CONNECTED', async () => {
+    dbResults = [[{ id: 'opr_000000000002', status: 'pending' }]];
     const res = await app.inject({
       method: 'PUT',
       url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
-      headers: as(REGISTERED),
+      headers: as(HUB),
+      payload: { status: 'CONNECTED' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('PUT audits a status change reported by the hub as a system row', async () => {
+    dbResults = [[{ id: 'opr_000000000002', status: 'connected' }], []];
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
+      headers: as(HUB),
       payload: { status: 'SUSPENDED' },
     });
     expect(res.statusCode).toBe(200);
     expect(mockWriteAudit).toHaveBeenCalledTimes(1);
     expect(mockWriteAudit.mock.calls[0]?.[1]).toEqual({
-      entityId: 'opr_000000000001',
-      entityIdSnapshot: 'opr_000000000001',
+      entityId: 'opr_000000000002',
+      entityIdSnapshot: 'opr_000000000002',
       action: 'updated',
       actor: 'system',
       actorLabel: 'ocpi-hubclientinfo',
@@ -496,11 +582,11 @@ describe('hubclientinfo', () => {
   });
 
   it('PUT writes no audit row when the hub reports the stored status', async () => {
-    dbResults = [[{ id: 'opr_000000000001', status: 'connected' }], []];
+    dbResults = [[{ id: 'opr_000000000002', status: 'connected' }], []];
     await app.inject({
       method: 'PUT',
       url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
-      headers: as(REGISTERED),
+      headers: as(HUB),
       payload: { status: 'CONNECTED' },
     });
     expect(mockWriteAudit).not.toHaveBeenCalled();
@@ -511,7 +597,7 @@ describe('hubclientinfo', () => {
     const res = await app.inject({
       method: 'PUT',
       url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
-      headers: as(REGISTERED),
+      headers: as(HUB),
       payload: { status: 'CONNECTED' },
     });
     expect(res.statusCode).toBe(200);

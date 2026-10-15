@@ -658,3 +658,168 @@ DROP FUNCTION IF EXISTS charging_sessions_stamp_site();
 ALTER TABLE "dashboard_snapshots" ADD COLUMN IF NOT EXISTS "billed_sessions" integer;
 --> statement-breakpoint
 ALTER TABLE "dashboard_snapshots" ADD COLUMN IF NOT EXISTS "session_revenue_cents" bigint;
+
+--> statement-breakpoint
+-- beta.8 access
+-- Operator access hardening: session versions (an access token carries the
+-- version it was issued under), SSO accounts, sign-in and MFA backoff, the
+-- TOTP replay guard and MFA challenge attempts.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "session_version" integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "auth_source" varchar(20) DEFAULT 'password' NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "failed_login_count" integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "login_locked_until" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "mfa_failed_count" integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "mfa_locked_until" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "totp_last_step" bigint;
+--> statement-breakpoint
+ALTER TABLE "mfa_challenges" ADD COLUMN IF NOT EXISTS "attempts" integer DEFAULT 0 NOT NULL;
+--> statement-breakpoint
+-- SSO auto-provisioning stored an empty password hash: those accounts are the
+-- SSO accounts. One-time, while the check does not exist yet.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'users_auth_source_check') THEN
+    UPDATE "users" SET "auth_source" = 'sso' WHERE "password_hash" = '';
+    ALTER TABLE "users" ADD CONSTRAINT "users_auth_source_check"
+      CHECK ("auth_source" IN ('password', 'sso'));
+  END IF;
+END $$;
+--> statement-breakpoint
+ALTER TYPE "user_audit_action" ADD VALUE IF NOT EXISTS 'mfa_reset';
+--> statement-breakpoint
+ALTER TYPE "user_audit_action" ADD VALUE IF NOT EXISTS 'account_locked';
+-- end beta.8 access
+--> statement-breakpoint
+-- beta.8 ocpi
+-- lane B: how a partner's token started our CPO session (OCPI AuthMethod) and
+-- the eMSP's authorization_reference, rendered in the Session and the CDR.
+ALTER TABLE "ocpi_roaming_sessions" ADD COLUMN IF NOT EXISTS "auth_method" varchar(20);
+--> statement-breakpoint
+ALTER TABLE "ocpi_roaming_sessions" ADD COLUMN IF NOT EXISTS "authorization_reference" varchar(36);
+--> statement-breakpoint
+-- lane B: commands partners send us as CPO, kept so the CommandResult (or its
+-- TIMEOUT) survives an OCPI restart and a START_SESSION links its session to
+-- the partner that sent it. A new, empty table: plain indexes.
+CREATE TABLE IF NOT EXISTS "ocpi_commands" (
+  "id" text PRIMARY KEY NOT NULL,
+  "partner_id" text NOT NULL,
+  "command_type" varchar(30) NOT NULL,
+  "response_url" text NOT NULL,
+  "station_id" text,
+  "token_uid" varchar(36),
+  "token_type" varchar(20),
+  "token_data" jsonb,
+  "remote_start_id" integer,
+  "authorization_reference" varchar(36),
+  "charging_session_id" text,
+  "result" varchar(30),
+  "result_sent_at" timestamp with time zone,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "expires_at" timestamp with time zone NOT NULL
+);
+--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "ocpi_commands" ADD CONSTRAINT "ocpi_commands_partner_id_ocpi_partners_id_fk"
+    FOREIGN KEY ("partner_id") REFERENCES "ocpi_partners"("id") ON DELETE cascade;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_ocpi_commands_station_token" ON "ocpi_commands" ("station_id", "token_uid");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_ocpi_commands_pending" ON "ocpi_commands" ("expires_at") WHERE result_sent_at IS NULL;
+--> statement-breakpoint
+-- lane A: credentials token kind. A registration token (CREDENTIALS_TOKEN_A)
+-- reaches only versions, version details and credentials (OCPI 2.3.0 4.1).
+-- The backfill runs only when this statement adds the column: issued tokens
+-- of a partner that never completed the handshake, and unbound ones, are
+-- registration tokens.
+DO $$ BEGIN
+  CREATE TYPE "public"."ocpi_token_kind" AS ENUM('registration', 'credentials');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'ocpi_credentials_tokens' AND column_name = 'kind'
+  ) THEN
+    ALTER TABLE "ocpi_credentials_tokens"
+      ADD COLUMN "kind" "ocpi_token_kind" NOT NULL DEFAULT 'credentials';
+    UPDATE "ocpi_credentials_tokens" t SET "kind" = 'registration'
+    WHERE t."direction" = 'issued'
+      AND (
+        t."partner_id" IS NULL
+        OR EXISTS (
+          SELECT 1 FROM "ocpi_partners" p WHERE p."id" = t."partner_id" AND p."status" = 'pending'
+        )
+      );
+  END IF;
+END $$;
+--> statement-breakpoint
+-- lane A: a token bound to no partner could register as any country code and
+-- party id (the seed shipped two as public constants). Every issued token is
+-- now bound to its partner, so the unbound ones are retired.
+UPDATE "ocpi_credentials_tokens" SET "is_active" = false
+WHERE "partner_id" IS NULL AND "direction" = 'issued' AND "is_active" = true;
+--> statement-breakpoint
+-- lane A: accept credentials tokens that are not Base64 encoded from this
+-- partner (OCPI 2.1.1 and 2.2 peers, 2.3.0 4.1 note). Off by default.
+ALTER TABLE "ocpi_partners" ADD COLUMN IF NOT EXISTS "allow_raw_token" boolean DEFAULT false NOT NULL;
+--> statement-breakpoint
+-- lane A: audit rows written before stored the encrypted registration token
+-- ciphertext of the partner. Rewrites only rows still holding a value.
+UPDATE "ocpi_partner_audit_log"
+SET "before" = "before" || '{"partnerRegistrationTokenEnc": "<redacted>"}'::jsonb
+WHERE jsonb_typeof("before") = 'object'
+  AND jsonb_typeof("before"->'partnerRegistrationTokenEnc') = 'string'
+  AND "before"->>'partnerRegistrationTokenEnc' <> '<redacted>';
+--> statement-breakpoint
+UPDATE "ocpi_partner_audit_log"
+SET "after" = "after" || '{"partnerRegistrationTokenEnc": "<redacted>"}'::jsonb
+WHERE jsonb_typeof("after") = 'object'
+  AND jsonb_typeof("after"->'partnerRegistrationTokenEnc') = 'string'
+  AND "after"->>'partnerRegistrationTokenEnc' <> '<redacted>';
+--> statement-breakpoint
+-- lane D: session audit actions of the operator CDR reissue and push retry.
+ALTER TYPE "session_audit_action" ADD VALUE IF NOT EXISTS 'cdr_reissued';
+--> statement-breakpoint
+ALTER TYPE "session_audit_action" ADD VALUE IF NOT EXISTS 'cdr_push_retried';
+--> statement-breakpoint
+-- lane D: CDR reissue. A CDR an operator credited and reissued keeps its row
+-- (it was sent and stays the partner's record) with superseded_at set; the
+-- reissued CDR is the session's live CDR. One live non-credit CDR per session
+-- (uq_ocpi_cdrs_session_live, the only guard against two concurrent issues
+-- besides the row lock). ocpi_cdrs is small (one row per roaming CDR), so the
+-- index is built here, not CONCURRENTLY.
+ALTER TABLE "ocpi_cdrs" ADD COLUMN IF NOT EXISTS "superseded_at" timestamp with time zone;
+--> statement-breakpoint
+-- Guarded one-time dedup, only while the index is missing: a session with more
+-- than one live non-credit CDR keeps its earliest one live; the others are
+-- marked superseded (never deleted: a partner may hold them).
+DO $$
+BEGIN
+  IF to_regclass('uq_ocpi_cdrs_session_live') IS NULL THEN
+    UPDATE "ocpi_cdrs" c
+    SET "superseded_at" = now()
+    WHERE c."charging_session_id" IS NOT NULL
+      AND c."is_credit" = false
+      AND c."superseded_at" IS NULL
+      AND EXISTS (
+        SELECT 1 FROM "ocpi_cdrs" k
+        WHERE k."charging_session_id" = c."charging_session_id"
+          AND k."is_credit" = false
+          AND k."superseded_at" IS NULL
+          AND (k."created_at", k."id") < (c."created_at", c."id")
+      );
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_ocpi_cdrs_session_live"
+  ON "ocpi_cdrs" ("charging_session_id")
+  WHERE "charging_session_id" IS NOT NULL AND "is_credit" = false AND "superseded_at" IS NULL;
+-- end beta.8 ocpi

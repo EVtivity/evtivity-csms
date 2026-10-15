@@ -204,6 +204,13 @@
       "allowPrivateNetwork": "Allow private network",
       "allowPrivateNetworkHint": "Allow requests and command callbacks to this partner to reach loopback and private addresses, for private peering or a local simulator. Leave off for partners on the public internet.",
       "privateNetworkSaved": "Network access saved",
+      "allowRawToken": "Accept Unencoded Tokens",
+      "allowRawTokenHint": "For OCPI 2.1.1 and 2.2 partners that send their credentials token without Base64 encoding. Our token is then sent to them the same way. Leave off for OCPI 2.2.1 and 2.3.0 partners.",
+      "rawTokenSaved": "Token encoding saved",
+      "newRegistrationToken": "New Registration Token",
+      "newRegistrationTokenTitle": "New Registration Token",
+      "newRegistrationTokenDescription": "Creates a new registration token for this partner. Registration tokens issued before stop working.",
+      "tokenIssued": "New registration token created. Share it with the partner so they can register with your OCPI server.",
       "tokenCreated": "Registration token created. Share this token with the partner so they can register with your OCPI server.",
       "tokenWarning": "This token will only be shown once. Copy it now.",
       "register": "Register",
@@ -254,7 +261,22 @@
       "pushStatus": "Push Status",
       "noCdrs": "No CDRs",
       "credit": "Credit",
-      "charge": "Charge"
+      "charge": "Charge",
+      "superseded": "Superseded",
+      "reason": "Reason",
+      "actionFailed": "CDR action failed",
+      "creditAction": "Credit CDR",
+      "creditTitle": "Credit This CDR?",
+      "creditDescription": "A credit CDR with the negative total cost is sent to the partner. The CDR itself does not change.",
+      "creditDone": "Credit CDR created",
+      "reissueAction": "Reissue CDR",
+      "reissueTitle": "Reissue This Session?",
+      "reissueDescription": "A new CDR is issued from the session as it is now and sent to the partner. The credited CDR stays as it was.",
+      "reissueDone": "A new CDR is being issued",
+      "pushAction": "Retry Push",
+      "pushTitle": "Push This CDR Again?",
+      "pushDescription": "The same CDR is sent to the partner again.",
+      "pushDone": "The CDR is queued for another push"
     },
     "tariffs": {
       "title": "Tariff Mappings",
@@ -1045,7 +1067,7 @@
     "cost": "Cost",
     "idleStartedAt": "Idle Started",
     "meterValuesTab": "Meter Values",
-    "reservationTokenMismatch": "Reservation token mismatch",
+    "reservationTokenMismatch": "Reservation Token Mismatch",
     "reservationTokenMismatchTooltip": "This session fulfilled a reservation, but the token used differs from the one the reservation was bound to.",
     "meterValuesDescription": "Meter readings reported during this transaction. OCPP 2.1 stations send these inside TransactionEvent messages. OCPP 1.6 stations send them via MeterValues and StopTransaction messages.",
     "meterValueTimestamp": "Timestamp",
@@ -1071,7 +1093,7 @@
     "guestExpiresAt": "Expires",
     "electricityCost": "Electricity Cost",
     "electricityCostTooltip": "Operator's wholesale electricity cost for this session",
-    "providerConfirmation": "Provider confirmation",
+    "providerConfirmation": "Provider Confirmation",
     "pendingOperation": {
       "capture": "Capture awaiting confirmation",
       "cancel": "Cancellation awaiting confirmation",
@@ -1085,15 +1107,15 @@
     },
     "refundPending": "Refund requested. The payment provider confirms it shortly.",
     "refundAfterConfirmation": "Refunds are possible once the provider confirms the capture.",
-    "manualBilling": "Manual billing",
+    "manualBilling": "Manual Billing",
     "rebill": {
       "cardTitle": "Billing",
-      "unbilledBadge": "Not billed",
+      "unbilledBadge": "Not Billed",
       "unbilledHelp": "The CSMS could not end this session, so it was not billed. Bill it to price it from its meter values and charge the driver's saved card or prepaid balance. A session that cannot be charged is marked for manual billing.",
       "billedBadge": "Billed by an operator",
       "billedHelp": "An operator billed this session after the CSMS could not end it.",
       "manualHelp": "The CSMS could not end this session and it could not be charged automatically. Collect {{cost}} outside the platform.",
-      "button": "Bill session",
+      "button": "Bill Session",
       "confirmTitle": "Bill This Session?",
       "confirmDescription": "The cost is recomputed from the meter values and charged to the driver's default saved card or prepaid balance. If the session cannot be charged, it is marked for manual billing.",
       "inProgress": "The session is being billed.",
@@ -1114,12 +1136,13 @@
       "notEligible": {
         "status": "Only a session the CSMS could not end can be billed here.",
         "already_rebilled": "The session was billed already.",
-        "roaming": "Roaming sessions are billed by the roaming partner.",
+        "no_energy": "A roaming session that delivered no energy is not billed.",
         "free_vend": "Free vend sessions are not billed.",
         "no_tariff": "The session has no tariff to price it.",
         "paid": "The session was paid already."
       },
-      "account": "Session billed: billed to the fleet account"
+      "account": "Session billed: billed to the fleet account",
+      "roamingBilled": "Session billed: the roaming partner gets a CDR"
     },
     "billedTo": "On account: {{fleet}}",
     "billingState": {
@@ -1136,7 +1159,14 @@
     "captured": "(captured)",
     "useVehicleForPlugIn": "Use This Vehicle for Plug-In Charging",
     "useVehicleDescription": "Stores {{id}}, the id the charger sent for this session, on a vehicle of the driver. With Autocharge on, the next plug-in starts charging for the driver without a card or the app.",
-    "vehicleClaimed": "Vehicle saved"
+    "vehicleClaimed": "Vehicle saved",
+    "co2Kg": "{{value}} kg",
+    "co2AvoidedValue": "{{value}} kg CO₂ avoided",
+    "eventCount_one": "{{count}} event",
+    "eventCount_other": "{{count}} events",
+    "stopSession": "Stop Session",
+    "stopSessionConfirmTitle": "Stop This Session?",
+    "stopSessionConfirmDescription": "This asks station {{station}} to stop the transaction on EVSE {{evseId}}. The driver is billed for the energy delivered so far."
   },
   "drivers": {
     "title": "Drivers",
@@ -1445,7 +1475,16 @@
       },
       "aiUsage": "AI Usage",
       "aiMcp": "MCP Access"
-    }
+    },
+    "securityTab": "Security",
+    "mfaTitle": "Multi-Factor Authentication",
+    "mfaOnDescription": "The user signs in with a second factor ({{method}}).",
+    "mfaOffDescription": "The user signs in without a second factor.",
+    "mfaReset": "Reset MFA",
+    "mfaResetConfirm": "Turn off the second factor of this user and sign the user out everywhere? The user signs in with the password alone and can set up MFA again.",
+    "mfaResetSuccess": "MFA reset",
+    "apiKeysDescription": "Active API keys of this user. Revoke a key the user no longer needs or that may have leaked.",
+    "noApiKeys": "This user has no active API keys."
   },
   "profile": {
     "title": "Profile",
@@ -3076,6 +3115,8 @@
     "CAMPAIGN_NOT_FOUND": "Campaign not found",
     "CASE_NOT_FOUND": "Case not found",
     "CA_CERT_NOT_FOUND": "CA certificate not found",
+    "CDR_NOT_CREDITED": "Credit every CDR of the session before reissuing it",
+    "CDR_PUSH_NOT_FAILED": "Only a CDR whose push failed can be pushed again",
     "CDR_NOT_FOUND": "CDR not found",
     "CIRCUIT_NOT_FOUND": "Circuit not found",
     "COMMAND_ERROR": "Command failed",
@@ -3154,6 +3195,8 @@
     "INVALID_SITE_IDS": "One or more siteIds do not exist",
     "INVALID_TOKEN": "Invalid or expired reset link",
     "INVOICE_ALREADY_PAID": "The invoice is already paid",
+    "RESERVATION_FEE_ALREADY_INVOICED": "The reservation fee is already invoiced",
+    "SESSION_ALREADY_INVOICED": "The session is already invoiced",
     "INVOICE_CREATION_FAILED": "Failed to create invoice",
     "INVOICE_NOT_ISSUED": "The invoice must be issued for this action",
     "INVOICE_IS_CREDIT_NOTE": "A credit note cannot be marked paid or credited",
@@ -3266,7 +3309,6 @@
     "RESERVATION_TIMEOUT": "Reservation command timed out",
     "RESERVATION_TOO_LONG": "Reservation cannot exceed ... hours",
     "RESERVATION_WINDOW_TOO_SHORT": "Reservation must end at least 60 seconds after it starts",
-    "RESET_NOT_REQUIRED": "Password reset is not required",
     "ROAMING_DISABLED": "Roaming is disabled",
     "ROLE_NOT_FOUND": "Role does not exist",
     "ROTATION_NOT_APPLICABLE": "Credential rotation only applies to security profiles 1 and 2",
@@ -3370,7 +3412,14 @@
     "SESSION_NO_VEHICLE_ID": "The charger sent no vehicle id for this session.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "The operator blocked Autocharge for this vehicle. Contact the operator to unblock it.",
     "VEHICLE_ID_IN_USE": "Another vehicle already uses this VIN or EVCCID for Autocharge.",
-    "VEHICLE_ID_REQUIRED": "Autocharge needs a VIN or an EVCCID on the vehicle."
+    "VEHICLE_ID_REQUIRED": "Autocharge needs a VIN or an EVCCID on the vehicle.",
+    "SESSION_STOP_REJECTED": "The station rejected the stop request. The session is still charging.",
+    "PARTNER_ALREADY_CONNECTED": "Partner is already connected",
+    "PARTNER_NOT_REGISTERED": "A partner becomes connected through the OCPI credentials handshake",
+    "SESSION_REQUIRED": "This action needs a signed-in session. API keys cannot use it.",
+    "MFA_LOCKED": "Too many wrong codes. Wait before you try again.",
+    "MFA_RESEND_LIMITED": "Too many codes sent. Wait before you request another one.",
+    "USER_SSO_MANAGED": "This user signs in with SSO and has no password to set."
   },
   "logs": {
     "title": "Logs",
@@ -4512,6 +4561,8 @@
       "erased": "Erased",
       "invite_resent": "Invitation resent",
       "cdr_credited": "CDR credited",
+      "cdr_push_retried": "CDR push retried",
+      "cdr_reissued": "CDR reissued",
       "faulted": "Faulted",
       "stopped_by_csms": "Stopped by the CSMS",
       "vehicle_changed": "Vehicle changed",
@@ -4527,7 +4578,9 @@
       "autocharge_disabled": "Autocharge turned off",
       "autocharge_blocked": "Vehicle blocked",
       "autocharge_unblocked": "Vehicle unblocked",
-      "vehicle_id_claimed": "Vehicle id added from a session"
+      "vehicle_id_claimed": "Vehicle id added from a session",
+      "account_locked": "Sign-in locked",
+      "mfa_reset": "MFA reset"
     },
     "entities": {
       "site": "Site",

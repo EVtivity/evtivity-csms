@@ -89,8 +89,10 @@ export function registerAiToolCallContext(app: FastifyInstance): void {
   app.addHook('onRequest', (request, _reply, done) => {
     const token = request.headers[AI_TOOL_CALL_HEADER];
     const ctx = typeof token === 'string' ? inFlight.get(token) : undefined;
-    // Injected requests come from light-my-request's 127.0.0.1 socket.
-    if (ctx === undefined || request.ip !== '127.0.0.1') {
+    // Injected requests come from light-my-request's 127.0.0.1 socket. Read
+    // the socket, not request.ip: with TRUST_PROXY set, request.ip comes from
+    // X-Forwarded-For, which a client writes.
+    if (ctx === undefined || request.raw.socket.remoteAddress !== '127.0.0.1') {
       done();
       return;
     }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { desc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm';
+import { asc, eq, gte, isNotNull, lt, sql } from 'drizzle-orm';
 import { db, ocpiCdrs } from '@evtivity/database';
 import { listPartnerCpoSessions } from '../../services/cpo-sessions.js';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
@@ -58,11 +58,13 @@ function registerCpoCdrRoutes(app: FastifyInstance, version: OcpiVersion): void 
         isNotNull(ocpiCdrs.chargingSessionId),
       ];
       // last_updated between date_from (inclusive) and date_to (exclusive).
+      // A CDR is immutable: its last_updated is its creation (updated_at
+      // moves with our push status, which the partner never sees).
       if (dateFrom != null) {
-        conditions.push(gte(ocpiCdrs.updatedAt, dateFrom));
+        conditions.push(gte(ocpiCdrs.createdAt, dateFrom));
       }
       if (dateTo != null) {
-        conditions.push(lt(ocpiCdrs.updatedAt, dateTo));
+        conditions.push(lt(ocpiCdrs.createdAt, dateTo));
       }
 
       const where = sql.join(conditions, sql` AND `);
@@ -72,7 +74,8 @@ function registerCpoCdrRoutes(app: FastifyInstance, version: OcpiVersion): void 
           .select()
           .from(ocpiCdrs)
           .where(where)
-          .orderBy(desc(ocpiCdrs.updatedAt))
+          // Stable order, so the pages of a pull neither skip nor repeat a CDR.
+          .orderBy(asc(ocpiCdrs.createdAt), asc(ocpiCdrs.id))
           .limit(limit)
           .offset(offset),
         db

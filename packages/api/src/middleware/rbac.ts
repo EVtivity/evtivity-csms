@@ -11,7 +11,8 @@ import { getPubSub } from '@evtivity/lib/pubsub-instance';
 const permissionCache = new Map<string, { permissions: string[]; expiresAt: number }>();
 const CACHE_TTL_MS = 60_000;
 
-async function getUserPermissions(userId: string): Promise<string[]> {
+/** The user's permissions (`user_permissions`), cached 60 s per user. */
+export async function getUserPermissions(userId: string): Promise<string[]> {
   const cached = permissionCache.get(userId);
   if (cached != null && cached.expiresAt > Date.now()) {
     return cached.permissions;
@@ -63,7 +64,9 @@ export async function getEffectivePermissions(request: FastifyRequest): Promise<
     'apiKeyPermissions' in user
       ? (user as { apiKeyPermissions?: string[] }).apiKeyPermissions
       : undefined;
-  return apiKeyPerms != null ? perms.filter((p) => apiKeyPerms.includes(p)) : perms;
+  // Each key permission the user holds stays, write implying read: a key
+  // scoped to `x:read` keeps it for a user who holds `x:write`.
+  return apiKeyPerms != null ? apiKeyPerms.filter((p) => hasPermission(perms, p)) : perms;
 }
 
 /**
@@ -103,6 +106,33 @@ export function authorize(...requiredPermissions: string[]) {
           .send({ error: 'Insufficient permissions', code: 'INSUFFICIENT_PERMISSIONS' });
         return;
       }
+    }
+  };
+}
+
+/**
+ * Guard for the routes on the caller's own account (`/v1/users/me/*`): any
+ * signed-in operator, no permission needed. API keys are refused (403
+ * `SESSION_REQUIRED`) unless `allowApiKey` is set: a key must never read the
+ * personal AI keys or change the password, MFA, phone or profile of the user
+ * who created it. Reads of the profile, permissions, MFA status and
+ * notification preferences allow API keys.
+ */
+export function selfService(opts: { allowApiKey?: boolean } = {}) {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const app = request.server;
+    await app.authenticate(request, reply);
+    if (reply.sent) return;
+    const user = request.user as { userId?: unknown; isApiKey?: unknown };
+    if (typeof user.userId !== 'string') {
+      await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+      return;
+    }
+    if (user.isApiKey === true && opts.allowApiKey !== true) {
+      await reply.status(403).send({
+        error: 'This route needs a signed-in session, not an API key',
+        code: 'SESSION_REQUIRED',
+      });
     }
   };
 }

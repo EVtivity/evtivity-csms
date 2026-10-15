@@ -10,15 +10,17 @@
 // Rows without a charging session are partners' sessions we received as eMSP;
 // they are never served on the CPO Sessions interface.
 
-import { and, count, desc, eq, gte, isNotNull, lt } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, isNotNull, lt } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
   chargingStations,
   connectors,
   evses,
+  ocpiCommands,
   ocpiExternalTokens,
   ocpiLocationPublish,
+  ocpiPartners,
   ocpiRoamingSessions,
   sites,
 } from '@evtivity/database';
@@ -56,16 +58,19 @@ export async function sessionPlace(session: ChargingSessionRow): Promise<Session
     .limit(1);
   if (station == null) return null;
 
+  // The site the session happened at (charging_sessions.site_id, stamped at
+  // insert), so a station moved to another site later keeps its past
+  // sessions and CDRs at the old location. Sessions without a stamp fall
+  // back to the station's current site.
+  const siteId = session.siteId ?? station.siteId;
   const [site] =
-    station.siteId != null
-      ? await db.select().from(sites).where(eq(sites.id, station.siteId)).limit(1)
-      : [];
+    siteId != null ? await db.select().from(sites).where(eq(sites.id, siteId)).limit(1) : [];
   const [publish] =
-    station.siteId != null
+    siteId != null
       ? await db
           .select({ ocpiLocationId: ocpiLocationPublish.ocpiLocationId })
           .from(ocpiLocationPublish)
-          .where(eq(ocpiLocationPublish.siteId, station.siteId))
+          .where(eq(ocpiLocationPublish.siteId, siteId))
           .limit(1)
       : [];
 
@@ -94,9 +99,9 @@ export async function sessionPlace(session: ChargingSessionRow): Promise<Session
   }
 
   return {
-    siteId: station.siteId,
+    siteId,
     site: site ?? null,
-    locationId: publish?.ocpiLocationId ?? station.siteId ?? station.id,
+    locationId: publish?.ocpiLocationId ?? siteId ?? station.id,
     evseUid,
     evseId,
     connectorId,
@@ -104,7 +109,12 @@ export async function sessionPlace(session: ChargingSessionRow): Promise<Session
   };
 }
 
-/** The partner's token, with its type and contract id when the partner sent them. */
+/**
+ * The partner's token, with its type and contract id when the partner sent
+ * them: the token the partner pushed, else the Token object of its
+ * START_SESSION (owner decision: accepted without a push), else the uid under
+ * the partner's own country code and party id (a token is the eMSP's).
+ */
 export async function partnerToken(partnerId: string, uid: string): Promise<CdrTokenSource> {
   const [token] = await db
     .select({
@@ -118,15 +128,49 @@ export async function partnerToken(partnerId: string, uid: string): Promise<CdrT
     .where(and(eq(ocpiExternalTokens.partnerId, partnerId), eq(ocpiExternalTokens.uid, uid)))
     .orderBy(desc(ocpiExternalTokens.updatedAt))
     .limit(1);
-  if (token == null) return { uid, countryCode: '', partyId: '' };
-  const contractId = (token.tokenData as { contract_id?: unknown } | null)?.contract_id;
-  return {
-    uid: token.uid,
-    countryCode: token.countryCode,
-    partyId: token.partyId,
-    tokenType: token.tokenType,
-    contractId: typeof contractId === 'string' ? contractId : null,
-  };
+  if (token != null) {
+    const contractId = (token.tokenData as { contract_id?: unknown } | null)?.contract_id;
+    return {
+      uid: token.uid,
+      countryCode: token.countryCode,
+      partyId: token.partyId,
+      tokenType: token.tokenType,
+      contractId: typeof contractId === 'string' ? contractId : null,
+    };
+  }
+
+  const [command] = await db
+    .select({ tokenData: ocpiCommands.tokenData })
+    .from(ocpiCommands)
+    .where(
+      and(
+        eq(ocpiCommands.partnerId, partnerId),
+        eq(ocpiCommands.commandType, 'START_SESSION'),
+        eq(ocpiCommands.tokenUid, uid),
+        isNotNull(ocpiCommands.tokenData),
+      ),
+    )
+    .orderBy(desc(ocpiCommands.createdAt))
+    .limit(1);
+  const embedded = command?.tokenData as Record<string, unknown> | null | undefined;
+  if (embedded != null) {
+    const str = (key: string): string | null =>
+      typeof embedded[key] === 'string' ? embedded[key] : null;
+    return {
+      uid,
+      countryCode: str('country_code') ?? '',
+      partyId: str('party_id') ?? '',
+      tokenType: str('type'),
+      contractId: str('contract_id'),
+    };
+  }
+
+  const [partner] = await db
+    .select({ countryCode: ocpiPartners.countryCode, partyId: ocpiPartners.partyId })
+    .from(ocpiPartners)
+    .where(eq(ocpiPartners.id, partnerId))
+    .limit(1);
+  return { uid, countryCode: partner?.countryCode ?? '', partyId: partner?.partyId ?? '' };
 }
 
 export interface CpoSessionLink {
@@ -136,6 +180,9 @@ export interface CpoSessionLink {
   ocpiSessionId: string;
   chargingSessionId: string;
   tokenUid: string;
+  /** OCPI AuthMethod stored at session start (null on links written before). */
+  authMethod: string | null;
+  authorizationReference: string | null;
 }
 
 /** A linked charging session as the OCPI Session of a version. */
@@ -160,6 +207,8 @@ export async function renderCpoSession(
       evseUid: place.evseUid,
       connectorId: place.connectorId,
       token: await partnerToken(link.partnerId, link.tokenUid),
+      authMethod: link.authMethod,
+      authorizationReference: link.authorizationReference,
     },
     version,
   );
@@ -195,6 +244,8 @@ const linkColumns = {
   ocpiSessionId: ocpiRoamingSessions.ocpiSessionId,
   chargingSessionId: ocpiRoamingSessions.chargingSessionId,
   tokenUid: ocpiRoamingSessions.tokenUid,
+  authMethod: ocpiRoamingSessions.authMethod,
+  authorizationReference: ocpiRoamingSessions.authorizationReference,
 };
 
 /** The CPO session link of a charging session, if a partner's token started it. */
@@ -209,7 +260,9 @@ export async function cpoSessionLink(chargingSessionId: string): Promise<CpoSess
 }
 
 /**
- * A page of a partner's CPO sessions, newest change first, filtered on the
+ * A page of a partner's CPO sessions in a stable order (link created_at, id:
+ * a session that changes while a partner pages does not move to another
+ * page), filtered on the
  * session's last_updated (`charging_sessions.updated_at`): date_from
  * inclusive, date_to exclusive (§9.2.1.1).
  */
@@ -232,7 +285,7 @@ export async function listPartnerCpoSessions(
       .from(ocpiRoamingSessions)
       .innerJoin(chargingSessions, eq(chargingSessions.id, ocpiRoamingSessions.chargingSessionId))
       .where(where)
-      .orderBy(desc(chargingSessions.updatedAt), desc(ocpiRoamingSessions.id))
+      .orderBy(asc(ocpiRoamingSessions.createdAt), asc(ocpiRoamingSessions.id))
       .limit(page.limit)
       .offset(page.offset),
     db

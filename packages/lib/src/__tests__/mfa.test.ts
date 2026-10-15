@@ -5,7 +5,7 @@ import crypto from 'node:crypto';
 import type { Sql } from 'postgres';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-import { createMfaChallenge, verifyMfaChallenge } from '../mfa.js';
+import { createMfaChallenge, verifyMfaChallenge, MFA_CHALLENGE_MAX_ATTEMPTS } from '../mfa.js';
 
 interface SqlCall {
   sql: string;
@@ -144,133 +144,63 @@ describe('createMfaChallenge', () => {
 });
 
 describe('verifyMfaChallenge', () => {
-  const NOW = new Date('2026-06-01T00:00:00.000Z');
+  const hashed = { code_hash: sha256Hex('123456') };
 
-  beforeEach(() => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
+  it('verifies a matching code and marks the challenge used', async () => {
+    const { client, calls } = createSqlMock([[hashed], [{ id: 1 }]]);
+    expect(await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' })).toBe('verified');
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.sql).toContain('SET attempts = attempts + 1');
+    expect(calls[0]!.sql).toContain('used_at IS NULL');
+    expect(calls[0]!.sql).toContain('expires_at > now()');
+    expect(calls[0]!.sql).toContain('attempts <');
+    expect(calls[0]!.values).toEqual([1, MFA_CHALLENGE_MAX_ATTEMPTS, 'usr_1', null]);
+    expect(calls[1]!.sql).toContain('SET used_at = NOW()');
+    expect(calls[1]!.sql).toContain('used_at IS NULL');
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
+  it('binds a driver challenge to the driver', async () => {
+    const { client, calls } = createSqlMock([[hashed], [{ id: 1 }]]);
+    expect(await verifyMfaChallenge(client, 1, '123456', { driverId: 'drv_1' })).toBe('verified');
+    expect(calls[0]!.values).toEqual([1, MFA_CHALLENGE_MAX_ATTEMPTS, null, 'drv_1']);
   });
 
-  function validRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-    return {
-      id: 1,
-      code_hash: sha256Hex('123456'),
-      expired: false,
-      used_at: null,
-      user_id: 'usr_1',
-      driver_id: null,
-      ...overrides,
-    };
-  }
-
-  it('accepts a correct, unexpired, unused code bound to the right user', async () => {
-    const { client, calls } = createSqlMock([[validRow()], []]);
-    const ok = await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' });
-    expect(ok).toBe(true);
-    // It marks the challenge used after a successful verify.
-    const markUsed = calls.find(
-      (c) => c.sql.includes('UPDATE mfa_challenges') && c.sql.includes('used_at = NOW()'),
-    );
-    expect(markUsed).toBeDefined();
-    expect(markUsed!.values).toContain(1);
+  it('answers invalid for a wrong code and leaves the challenge unused', async () => {
+    const { client, calls } = createSqlMock([[hashed]]);
+    expect(await verifyMfaChallenge(client, 1, '000000', { userId: 'usr_1' })).toBe('invalid');
+    expect(calls).toHaveLength(1);
   });
 
-  it('accepts a correct code bound to the right driver', async () => {
-    const row = validRow({ user_id: null, driver_id: 'drv_2' });
-    const { client } = createSqlMock([[row], []]);
-    const ok = await verifyMfaChallenge(client, 1, '123456', { driverId: 'drv_2' });
-    expect(ok).toBe(true);
+  it('answers invalid for an unknown, used, expired or foreign challenge', async () => {
+    const { client } = createSqlMock([[], []]);
+    expect(await verifyMfaChallenge(client, 9, '123456', { userId: 'usr_1' })).toBe('invalid');
   });
 
-  it('rejects when no challenge row exists', async () => {
-    const { client, calls } = createSqlMock([[]]);
-    const ok = await verifyMfaChallenge(client, 999, '123456', { userId: 'usr_1' });
-    expect(ok).toBe(false);
-    // No mark-used UPDATE should be issued.
-    const markUsed = calls.find((c) => c.sql.includes('used_at = NOW()'));
-    expect(markUsed).toBeUndefined();
+  it('answers exhausted when the challenge has no tries left', async () => {
+    const { client, calls } = createSqlMock([[], [{ '?column?': 1 }]]);
+    expect(await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' })).toBe('exhausted');
+    expect(calls[1]!.sql).toContain('attempts >=');
   });
 
-  it('rejects an already-used challenge', async () => {
-    const row = validRow({ used_at: new Date('2026-06-01T00:01:00.000Z') });
-    const { client, calls } = createSqlMock([[row]]);
-    const ok = await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' });
-    expect(ok).toBe(false);
-    expect(calls.find((c) => c.sql.includes('used_at = NOW()'))).toBeUndefined();
+  it('answers invalid when another request used the challenge first', async () => {
+    const { client } = createSqlMock([[hashed], []]);
+    expect(await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' })).toBe('invalid');
   });
 
-  it('rejects an expired challenge', async () => {
-    const row = validRow({ expired: true });
-    const { client, calls } = createSqlMock([[row]]);
-    const ok = await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' });
-    expect(ok).toBe(false);
-    expect(calls.find((c) => c.sql.includes('used_at = NOW()'))).toBeUndefined();
+  it('refuses without a principal and sends no query', async () => {
+    const { client, calls } = createSqlMock([]);
+    expect(await verifyMfaChallenge(client, 1, '123456', {})).toBe('invalid');
+    expect(calls).toHaveLength(0);
   });
 
-  it('decides expiry in SQL, not by comparing a raw expires_at with a Date', async () => {
-    // The shared client returns timestamps as postgres text; a Date-vs-string
-    // comparison was always false and accepted expired codes.
-    const { client, calls } = createSqlMock([[validRow({ expired: true })]]);
+  it('never sends the plaintext code', async () => {
+    const { client, calls } = createSqlMock([[hashed], [{ id: 1 }]]);
     await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' });
-    expect(calls[0]!.sql).toContain('expires_at <= now()');
+    for (const call of calls) expect(call.values).not.toContain('123456');
   });
 
-  it('rejects when the supplied code is wrong', async () => {
-    const { client, calls } = createSqlMock([[validRow()]]);
-    const ok = await verifyMfaChallenge(client, 1, '000000', { userId: 'usr_1' });
-    expect(ok).toBe(false);
-    expect(calls.find((c) => c.sql.includes('used_at = NOW()'))).toBeUndefined();
-  });
-
-  it('rejects when the challenge belongs to a different user', async () => {
-    const row = validRow({ user_id: 'usr_attacker' });
-    const { client } = createSqlMock([[row]]);
-    const ok = await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_victim' });
-    expect(ok).toBe(false);
-  });
-
-  it('rejects when the challenge belongs to a different driver', async () => {
-    const row = validRow({ user_id: null, driver_id: 'drv_attacker' });
-    const { client } = createSqlMock([[row]]);
-    const ok = await verifyMfaChallenge(client, 1, '123456', { driverId: 'drv_victim' });
-    expect(ok).toBe(false);
-  });
-
-  it('rejects when neither userId nor driverId is expected', async () => {
-    const { client } = createSqlMock([[validRow()]]);
-    const ok = await verifyMfaChallenge(client, 1, '123456', {});
-    expect(ok).toBe(false);
-  });
-
-  it('hashes the supplied code before comparison and never queries by plaintext', async () => {
-    const { client, calls } = createSqlMock([[validRow()], []]);
-    await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' });
-    // The lookup is by challenge id only; the plaintext code is not sent to the DB.
-    const lookup = calls.find((c) => c.sql.includes('SELECT'))!;
-    expect(lookup.values).toContain(1);
-    expect(lookup.values).not.toContain('123456');
-  });
-
-  it('rejects when the stored hash buffer length differs from the supplied hash buffer', async () => {
-    // Defensive guard: a corrupted/short code_hash decodes to a shorter Buffer
-    // than the 32-byte sha256 of the supplied code, so the length check rejects
-    // before timingSafeEqual is reached.
-    const row = validRow({ code_hash: 'ab' });
-    const { client, calls } = createSqlMock([[row]]);
-    const ok = await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' });
-    expect(ok).toBe(false);
-    expect(calls.find((c) => c.sql.includes('used_at = NOW()'))).toBeUndefined();
-  });
-
-  it('accepts a driver-bound challenge even when expected also carries a matching userId path is skipped', async () => {
-    // Both expected ids present; only the driver one must match a driver-bound row.
-    const row = validRow({ user_id: null, driver_id: 'drv_2' });
-    const { client } = createSqlMock([[row], []]);
-    const ok = await verifyMfaChallenge(client, 1, '123456', { driverId: 'drv_2' });
-    expect(ok).toBe(true);
+  it('answers invalid when the stored hash has another length', async () => {
+    const { client } = createSqlMock([[{ code_hash: 'abcd' }]]);
+    expect(await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' })).toBe('invalid');
   });
 });

@@ -24,7 +24,8 @@
     "amountInclTax": "{{amount}}（含稅）",
     "close": "關閉",
     "toggleSuggestions": "顯示或隱藏建議",
-    "copyFailed": "複製失敗"
+    "copyFailed": "複製失敗",
+    "notCharged": "未收費"
   },
   "nav": {
     "home": "首頁",
@@ -596,6 +597,8 @@
     "CAMPAIGN_NOT_FOUND": "找不到行銷活動",
     "CASE_NOT_FOUND": "找不到案件",
     "CA_CERT_NOT_FOUND": "找不到 CA 憑證",
+    "CDR_NOT_CREDITED": "重新簽發前，請先沖銷該工作階段的所有 CDR",
+    "CDR_PUSH_NOT_FAILED": "只有推送失敗的 CDR 才能重新推送",
     "CDR_NOT_FOUND": "找不到 CDR",
     "CIRCUIT_NOT_FOUND": "找不到迴路",
     "COMMAND_ERROR": "命令錯誤",
@@ -674,6 +677,8 @@
     "INVALID_SITE_IDS": "一個或多個 siteId 不存在",
     "INVALID_TOKEN": "重設連結無效或已過期",
     "INVOICE_ALREADY_PAID": "該發票已付款",
+    "RESERVATION_FEE_ALREADY_INVOICED": "該預約費用已開立發票",
+    "SESSION_ALREADY_INVOICED": "該工作階段已開立發票",
     "INVOICE_CREATION_FAILED": "建立發票失敗",
     "INVOICE_NOT_ISSUED": "此操作僅適用於已開立的發票",
     "INVOICE_IS_CREDIT_NOTE": "貸項通知單不能標記為已付款或貸記",
@@ -786,7 +791,6 @@
     "RESERVATION_TIMEOUT": "預約命令逾時",
     "RESERVATION_TOO_LONG": "預約時長不得超過 ... 小時",
     "RESERVATION_WINDOW_TOO_SHORT": "預約結束時間需在開始後至少 60 秒",
-    "RESET_NOT_REQUIRED": "目前不需要重設密碼",
     "ROAMING_DISABLED": "漫遊功能已停用",
     "ROLE_NOT_FOUND": "角色不存在",
     "ROTATION_NOT_APPLICABLE": "認證資訊輪替僅適用於安全設定檔 1 和 2",
@@ -890,7 +894,14 @@
     "SESSION_NO_VEHICLE_ID": "充電站未為此工作階段傳送車輛識別碼。",
     "VEHICLE_BLOCKED_BY_OPERATOR": "營運商已封鎖此車輛的 Autocharge。請聯絡營運商解除封鎖。",
     "VEHICLE_ID_IN_USE": "另一輛車已將此 VIN 或 EVCCID 用於 Autocharge。",
-    "VEHICLE_ID_REQUIRED": "Autocharge 需要車輛的 VIN 或 EVCCID。"
+    "VEHICLE_ID_REQUIRED": "Autocharge 需要車輛的 VIN 或 EVCCID。",
+    "SESSION_STOP_REJECTED": "充電站拒絕了停止請求。工作階段仍在充電。",
+    "PARTNER_ALREADY_CONNECTED": "合作夥伴已連線",
+    "PARTNER_NOT_REGISTERED": "合作夥伴透過 OCPI 憑證交換完成連線",
+    "SESSION_REQUIRED": "此操作需要登入工作階段。API 金鑰無法使用此操作。",
+    "MFA_LOCKED": "錯誤驗證碼過多。請稍後再試。",
+    "MFA_RESEND_LIMITED": "傳送的驗證碼過多。請稍後再請求。",
+    "USER_SSO_MANAGED": "此使用者透過 SSO 登入，沒有可設定的密碼。"
   },
   "validation": {
     "required": "此欄位為必填項",
@@ -935,7 +946,8 @@
     "totalCo2Avoided": "減少的 CO₂總量",
     "noSessions": "此期間沒有充電紀錄。",
     "cost": "費用",
-    "costInclTax": "費用（含稅）"
+    "costInclTax": "費用（含稅）",
+    "otherCurrencyNote_other": "{{count}} 個以先前貨幣計費的工作階段未計入總計（{{currency}}）。"
   },
   "account": {
     "title": "帳戶",

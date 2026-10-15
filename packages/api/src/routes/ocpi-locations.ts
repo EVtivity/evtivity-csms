@@ -38,6 +38,7 @@ import {
 } from '../lib/response-schemas.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { OCPI_OBJECT_ID_PATTERN, OCPI_OBJECT_ID_MESSAGE } from '../lib/ocpi-object-id.js';
 
 type PublishState = {
   isPublished: boolean;
@@ -166,9 +167,10 @@ const publishBody = z.object({
     .string()
     .min(1)
     .max(36)
+    .refine((v) => OCPI_OBJECT_ID_PATTERN.test(v), { message: OCPI_OBJECT_ID_MESSAGE })
     .optional()
     .describe(
-      'Custom OCPI location identifier. Must be unique and must not have the form of a site id (sit_ prefix) other than this site. Omit it to keep the stored one (the site id is the default)',
+      'Custom OCPI location identifier: 1 to 36 letters, digits, hyphens, periods, underscores or tildes. Must be unique and must not have the form of a site id (sit_ prefix) other than this site. Omit it to keep the stored one (the site id is the default)',
     ),
   partnerIds: z
     .array(ID_PARAMS.ocpiPartnerId)

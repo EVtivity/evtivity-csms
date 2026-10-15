@@ -3,12 +3,36 @@
 
 import { and, desc, eq, gte, inArray, lte, notExists, notInArray, or, sql } from 'drizzle-orm';
 import { db, driverTokens, driverTokenTombstones } from '@evtivity/database';
+import { OCPI_TOKEN_TYPE_BY_DRIVER_TYPE } from '@evtivity/lib';
+import type { SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import type { EmspTokenRow } from '../transformers/token.transformer.js';
 
 // Internal token-type markers that have no OCPI meaning. NoAuthorization is
 // the free-vend / auto-start marker and Central is the CSMS-issued internal
 // token; neither represents a physical card a partner CPO could authorize.
 export const INTERNAL_TOKEN_TYPES = ['NoAuthorization', 'Central'];
+
+/** The OCPI Token type of a driver token type column, in SQL (same map as ocpiTokenTypeOf). */
+function ocpiTypeSql(column: AnyPgColumn): SQL {
+  const cases = Object.entries(OCPI_TOKEN_TYPE_BY_DRIVER_TYPE).map(
+    ([driverType, ocpiType]) => sql`WHEN ${driverType} THEN ${ocpiType}`,
+  );
+  return sql`(CASE ${column} ${sql.join(cases, sql` `)} ELSE 'RFID' END)`;
+}
+
+/**
+ * A tombstone is replaced when a published live token has its uid and OCPI
+ * type: OCPI identifies a Token by uid and type (12.4.2), so a card changed
+ * from ISO14443 to ISO15693 (both RFID) is the same Token, still valid.
+ */
+function replacedByLiveToken(): SQL | undefined {
+  return and(
+    eq(driverTokens.idToken, driverTokenTombstones.idToken),
+    notInArray(driverTokens.tokenType, INTERNAL_TOKEN_TYPES),
+    sql`${ocpiTypeSql(driverTokens.tokenType)} = ${ocpiTypeSql(driverTokenTombstones.tokenType)}`,
+  );
+}
 
 /**
  * Our driver tokens as the eMSP Tokens sender serves them (OCPI 12.2.2): the
@@ -36,12 +60,7 @@ export async function listEmspTokens(params: {
       db
         .select({ one: sql`1` })
         .from(driverTokens)
-        .where(
-          and(
-            eq(driverTokens.idToken, driverTokenTombstones.idToken),
-            eq(driverTokens.tokenType, driverTokenTombstones.tokenType),
-          ),
-        ),
+        .where(replacedByLiveToken()),
     ),
   );
 
@@ -144,12 +163,7 @@ export async function loadEmspTombstones(
           db
             .select({ one: sql`1` })
             .from(driverTokens)
-            .where(
-              and(
-                eq(driverTokens.idToken, driverTokenTombstones.idToken),
-                eq(driverTokens.tokenType, driverTokenTombstones.tokenType),
-              ),
-            ),
+            .where(replacedByLiveToken()),
         ),
       ),
     );

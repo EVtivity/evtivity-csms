@@ -10,11 +10,11 @@ import { paymentRecordsAtSites } from '../lib/payment-site-scope.js';
 describe('paymentRecordsAtSites', () => {
   const render = (siteIds: string[]) => new PgDialect().sqlToQuery(paymentRecordsAtSites(siteIds));
 
-  it('scopes session records by session station and fee records by reservation station', () => {
+  it('scopes session records by the session site and fee records by reservation station', () => {
     const { sql, params } = render(['sit_a', 'sit_b']);
     const normalized = sql.replace(/\s+/g, ' ');
     expect(normalized).toContain(
-      '"payment_records"."session_id" in (select "charging_sessions"."id" from "charging_sessions" inner join "charging_stations" on "charging_stations"."id" = "charging_sessions"."station_id" where "charging_stations"."site_id" in ($1, $2))',
+      '"payment_records"."session_id" in (select "id" from "charging_sessions" where "charging_sessions"."site_id" in ($1, $2))',
     );
     expect(normalized).toContain(
       '"payment_records"."reservation_id" in (select "reservations"."id" from "reservations" inner join "charging_stations" on "charging_stations"."id" = "reservations"."station_id" where "charging_stations"."site_id" in ($3, $4))',

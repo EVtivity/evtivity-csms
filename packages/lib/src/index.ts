@@ -62,10 +62,10 @@ export { csvEscape, buildCsv, neutraliseSpreadsheetFormula } from './csv-escape.
 export { verifyRecaptcha } from './recaptcha.js';
 export type { RecaptchaResult } from './recaptcha.js';
 
-export { generateTotpSecret, generateTotpUri, verifyTotpCode } from './totp.js';
+export { generateTotpSecret, generateTotpUri, verifyTotpCode, matchTotpStep } from './totp.js';
 
-export { createMfaChallenge, verifyMfaChallenge } from './mfa.js';
-export type { CreateChallengeResult } from './mfa.js';
+export { createMfaChallenge, verifyMfaChallenge, MFA_CHALLENGE_MAX_ATTEMPTS } from './mfa.js';
+export type { CreateChallengeResult, MfaChallengeResult } from './mfa.js';
 
 export type { PubSubClient, Subscription } from './pubsub.js';
 export {
@@ -115,6 +115,7 @@ export {
   parseMajorInputToCents,
 } from './currency.js';
 export type { SupportedCurrency, TariffSummaryLabels, TariffSummaryPrices } from './currency.js';
+export { ISO3166_ALPHA2_TO_ALPHA3, toIso3166Alpha3, isKnownCountry } from './country.js';
 export {
   PRICE_DISPLAYS,
   DEFAULT_PRICE_DISPLAY,
@@ -229,8 +230,14 @@ export {
   conductorFactor,
 } from './load-allocation.js';
 export type { LoadAllocationStrategy } from './load-allocation.js';
-export { OCPI_PULL_MODULES } from './ocpi-modules.js';
+export { OCPI_PULL_MODULES, OCPI_TARIFF_SETTING_KEYS } from './ocpi-modules.js';
 export type { OcpiPullModule } from './ocpi-modules.js';
+export {
+  OCPI_TOKEN_TYPE_BY_DRIVER_TYPE,
+  isNewOcpiToken,
+  ocpiTokenTypeOf,
+} from './ocpi-token-types.js';
+export type { OcpiTokenTypeName } from './ocpi-token-types.js';
 export {
   FIRMWARE_SIGNING_CERTIFICATE_MAX_LENGTH,
   FIRMWARE_SIGNATURE_MAX_LENGTH,

@@ -16,6 +16,7 @@ import { UserDetailsTab } from '@/components/user/UserDetailsTab';
 import type { UserDetailUser, UserRole } from '@/components/user/UserDetailsTab';
 import { UserPermissionsTab } from '@/components/user/UserPermissionsTab';
 import { UserSecurityTab } from '@/components/user/UserSecurityTab';
+import { UserAccessCards } from '@/components/user/UserAccessCards';
 import { api } from '@/lib/api';
 import { isSubsetOf } from '@evtivity/lib/permissions';
 import { useAuth } from '@/lib/auth';
@@ -80,7 +81,7 @@ export function UserDetail(): React.JSX.Element {
         <TabsList>
           <TabsTrigger value="details">{t('common.details')}</TabsTrigger>
           <TabsTrigger value="permissions">{t('users.permissions')}</TabsTrigger>
-          {canAdminister && <TabsTrigger value="security">{t('users.resetPassword')}</TabsTrigger>}
+          {canAdminister && <TabsTrigger value="security">{t('users.securityTab')}</TabsTrigger>}
           <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>
         </TabsList>
 
@@ -98,8 +99,13 @@ export function UserDetail(): React.JSX.Element {
         </TabsContent>
 
         {canAdminister && (
-          <TabsContent value="security">
+          <TabsContent value="security" className="space-y-6">
             <UserSecurityTab userId={user.id} />
+            <UserAccessCards
+              userId={user.id}
+              mfaEnabled={user.mfaEnabled === true}
+              mfaMethod={user.mfaMethod ?? null}
+            />
           </TabsContent>
         )}
 

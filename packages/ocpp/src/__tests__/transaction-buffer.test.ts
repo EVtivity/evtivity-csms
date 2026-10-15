@@ -167,7 +167,15 @@ describe('TransactionBuffer', () => {
     });
 
     it('logs expired events during the cleanup sweep', () => {
-      loggedBuffer.add('STATION-001', 'tx-1', makeEvent('ocpp.TransactionEvent', 'tx-1'));
+      loggedBuffer.add('STATION-001', 'tx-1', {
+        ...makeEvent('ocpp.TransactionEvent', 'tx-1'),
+        payload: {
+          transactionId: 'tx-1',
+          eventType: 'Ended',
+          seqNo: 4,
+          timestamp: '2026-10-14T10:00:00.000Z',
+        },
+      });
       // Advance past TTL so the next cleanup interval evicts the entry.
       vi.advanceTimersByTime(1100);
 
@@ -176,12 +184,33 @@ describe('TransactionBuffer', () => {
           stationId: 'STATION-001',
           transactionId: 'tx-1',
           expired: 1,
-          firstEventType: 'ocpp.TransactionEvent',
           ttlMs: 1000,
+          dropped: [{ eventType: 'Ended', seqNo: 4, timestamp: '2026-10-14T10:00:00.000Z' }],
         }),
         expect.stringContaining('expired in cleanup sweep'),
       );
       expect(loggedBuffer.size).toBe(0);
+    });
+
+    it('logs the event it drops when the buffer is full', () => {
+      for (let i = 0; i < 5; i++) {
+        loggedBuffer.add('STATION-001', `tx-${String(i)}`, makeEvent('ocpp.TransactionEvent', 'x'));
+      }
+      const accepted = loggedBuffer.add('STATION-001', 'tx-9', {
+        ...makeEvent('ocpp.TransactionEvent', 'tx-9'),
+        payload: { transactionId: 'tx-9', eventType: 'Updated', seqNo: 2 },
+      });
+
+      expect(accepted).toBe(false);
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          stationId: 'STATION-001',
+          transactionId: 'tx-9',
+          maxSize: 5,
+          dropped: [{ eventType: 'Updated', seqNo: 2, timestamp: undefined }],
+        }),
+        expect.stringContaining('buffer full'),
+      );
     });
 
     it('keeps non-expired events across a cleanup sweep', () => {

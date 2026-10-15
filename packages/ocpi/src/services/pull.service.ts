@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, inArray, sql } from 'drizzle-orm';
+import { eq, and, inArray, isNull, sql } from 'drizzle-orm';
 import type { Redis } from 'ioredis';
 import {
   db,
@@ -20,6 +20,7 @@ import { getOutboundToken } from '../lib/outbound-token.js';
 import { config } from '../lib/config.js';
 import { resolvePartnerVersion } from '../lib/ocpi-version.js';
 import { priceExclTax } from '../lib/ocpi-price.js';
+import { fitsOcpiString, isOcpiGeoLocation } from '../lib/ocpi-fields.js';
 import type { OcpiLocation, OcpiTariff, OcpiCdr } from '../types/ocpi.js';
 import type { OcpiModule } from '../modules.js';
 
@@ -53,6 +54,21 @@ function getPartyId(): string {
   return config.OCPI_PARTY_ID;
 }
 
+/**
+ * One row per key, the last occurrence winning: a page that repeats an object
+ * would otherwise fail its batched upsert ("ON CONFLICT DO UPDATE command
+ * cannot affect row a second time") and lose the whole page.
+ */
+export function dedupeByKey<T>(rows: readonly T[], key: (row: T) => string): T[] {
+  const byKey = new Map<string, T>();
+  for (const row of rows) {
+    const k = key(row);
+    byKey.delete(k);
+    byKey.set(k, row);
+  }
+  return [...byKey.values()];
+}
+
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) {
@@ -66,6 +82,7 @@ async function getPartnerInfo(partnerId: string): Promise<{
   partyId: string;
   version: string | null;
   allowPrivateNetwork: boolean;
+  allowRawToken: boolean;
 } | null> {
   const [partner] = await db
     .select({
@@ -73,6 +90,7 @@ async function getPartnerInfo(partnerId: string): Promise<{
       partyId: ocpiPartners.partyId,
       version: ocpiPartners.version,
       allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
+      allowRawToken: ocpiPartners.allowRawToken,
     })
     .from(ocpiPartners)
     .where(eq(ocpiPartners.id, partnerId))
@@ -105,7 +123,12 @@ async function getPartnerToken(partnerId: string): Promise<string | null> {
 
 function createOcpiClient(
   token: string,
-  partner: { countryCode: string; partyId: string; allowPrivateNetwork: boolean },
+  partner: {
+    countryCode: string;
+    partyId: string;
+    allowPrivateNetwork: boolean;
+    allowRawToken: boolean;
+  },
 ): OcpiClient {
   return new OcpiClient({
     token,
@@ -114,6 +137,7 @@ function createOcpiClient(
     toCountryCode: partner.countryCode,
     toPartyId: partner.partyId,
     allowPrivateNetwork: partner.allowPrivateNetwork,
+    rawToken: partner.allowRawToken,
   });
 }
 
@@ -251,14 +275,15 @@ async function pullLocationsInner(partnerId: string): Promise<SyncResult> {
         const coords = candidate['coordinates'] as
           | { latitude?: unknown; longitude?: unknown }
           | undefined;
+        // Fields checked against the column sizes and the OCPI GeoLocation
+        // format (8.4.16), so one bad row is skipped instead of failing the
+        // page's insert or the portal geo search.
         if (
-          typeof candidate['id'] !== 'string' ||
-          typeof candidate['country_code'] !== 'string' ||
-          typeof candidate['party_id'] !== 'string' ||
-          coords == null ||
-          typeof coords !== 'object' ||
-          coords.latitude == null ||
-          coords.longitude == null
+          !fitsOcpiString(candidate['id'], 36) ||
+          !fitsOcpiString(candidate['country_code'], 2) ||
+          !fitsOcpiString(candidate['party_id'], 3) ||
+          (candidate['name'] != null && !fitsOcpiString(candidate['name'], 255)) ||
+          !isOcpiGeoLocation(coords)
         ) {
           logger.warn(
             { partnerId, locationId: candidate['id'] },
@@ -280,7 +305,8 @@ async function pullLocationsInner(partnerId: string): Promise<SyncResult> {
           locationData: location,
         });
       }
-      for (const batch of chunk(valid, UPSERT_CHUNK)) {
+      const unique = dedupeByKey(valid, (r) => `${r.countryCode}|${r.partyId}|${r.locationId}`);
+      for (const batch of chunk(unique, UPSERT_CHUNK)) {
         await upsertLocationBatch(batch);
         count += batch.length;
       }
@@ -365,10 +391,10 @@ async function pullTariffsInner(partnerId: string): Promise<SyncResult> {
         }
         const candidate = item as Record<string, unknown>;
         if (
-          typeof candidate['id'] !== 'string' ||
-          typeof candidate['country_code'] !== 'string' ||
-          typeof candidate['party_id'] !== 'string' ||
-          typeof candidate['currency'] !== 'string'
+          !fitsOcpiString(candidate['id'], 36) ||
+          !fitsOcpiString(candidate['country_code'], 2) ||
+          !fitsOcpiString(candidate['party_id'], 3) ||
+          !fitsOcpiString(candidate['currency'], 3)
         ) {
           logger.warn(
             { partnerId, tariffId: candidate['id'] },
@@ -387,7 +413,8 @@ async function pullTariffsInner(partnerId: string): Promise<SyncResult> {
           tariffData: tariff,
         });
       }
-      for (const batch of chunk(valid, UPSERT_CHUNK)) {
+      const unique = dedupeByKey(valid, (r) => `${r.countryCode}|${r.partyId}|${r.tariffId}`);
+      for (const batch of chunk(unique, UPSERT_CHUNK)) {
         await upsertTariffBatch(batch);
         count += batch.length;
       }
@@ -459,9 +486,10 @@ async function pullCdrsInner(partnerId: string): Promise<SyncResult> {
         const candidate = item as Record<string, unknown>;
         const exclTax = priceExclTax(candidate['total_cost'], version);
         if (
-          typeof candidate['id'] !== 'string' ||
+          !fitsOcpiString(candidate['id'], 36) ||
           typeof candidate['total_energy'] !== 'number' ||
-          typeof candidate['currency'] !== 'string' ||
+          !Number.isFinite(candidate['total_energy']) ||
+          !fitsOcpiString(candidate['currency'], 3) ||
           exclTax == null
         ) {
           logger.warn(
@@ -488,18 +516,39 @@ async function pullCdrsInner(partnerId: string): Promise<SyncResult> {
 
       // CDRs are immutable: skip ids already stored. Scope the existence check
       // to this page's ids so memory stays bounded on a large history pull.
+      // The page's own repeats are dropped (first occurrence kept), and the
+      // insert skips a row a concurrent receiver POST stored meanwhile
+      // (partial unique index uq_ocpi_cdrs_received).
       const existing = new Set<string>();
       if (pageIds.length > 0) {
         const rows = await db
           .select({ ocpiCdrId: ocpiCdrs.ocpiCdrId })
           .from(ocpiCdrs)
-          .where(and(eq(ocpiCdrs.partnerId, partnerId), inArray(ocpiCdrs.ocpiCdrId, pageIds)));
+          .where(
+            and(
+              eq(ocpiCdrs.partnerId, partnerId),
+              inArray(ocpiCdrs.ocpiCdrId, pageIds),
+              isNull(ocpiCdrs.chargingSessionId),
+            ),
+          );
         for (const r of rows) existing.add(r.ocpiCdrId);
       }
-      const fresh = valid.filter((c) => !existing.has(c.ocpiCdrId));
+      const seen = new Set<string>();
+      const fresh = valid.filter((c) => {
+        if (existing.has(c.ocpiCdrId) || seen.has(c.ocpiCdrId)) return false;
+        seen.add(c.ocpiCdrId);
+        return true;
+      });
       for (const batch of chunk(fresh, UPSERT_CHUNK)) {
-        await db.insert(ocpiCdrs).values(batch);
-        count += batch.length;
+        const inserted = await db
+          .insert(ocpiCdrs)
+          .values(batch)
+          .onConflictDoNothing({
+            target: [ocpiCdrs.partnerId, ocpiCdrs.ocpiCdrId],
+            where: isNull(ocpiCdrs.chargingSessionId),
+          })
+          .returning({ id: ocpiCdrs.id });
+        count += inserted.length;
       }
     });
 

@@ -114,7 +114,8 @@ async function loadSession(id: string): Promise<ExplainSubject | null> {
       id: chargingSessions.id,
       stationDbId: chargingSessions.stationId,
       ocppStationId: chargingStations.stationId,
-      siteId: chargingStations.siteId,
+      // The site the session happened at decides who may see it.
+      siteId: chargingSessions.siteId,
     })
     .from(chargingSessions)
     .leftJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))

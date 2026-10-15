@@ -156,7 +156,13 @@ async function start(): Promise<void> {
     server.getLogger(),
   );
   // The backstop: ends sessions whose end request message was lost.
-  stopSessionEndSweep = startSessionEndSweep(client, server.getEventBus(), server.getLogger());
+  stopSessionEndSweep = startSessionEndSweep(
+    client,
+    server.getEventBus(),
+    server.getLogger(),
+    undefined,
+    pubsub,
+  );
 
   // Health check HTTP server
   // Returns 503 during shutdown so Kubernetes stops routing traffic before

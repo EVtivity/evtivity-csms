@@ -4,11 +4,12 @@
 import type { FastifyInstance } from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Subscription } from '@evtivity/lib';
-import { createLogger, tryParseJson } from '@evtivity/lib';
+import { createLogger, hasPermission, tryParseJson } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { endSseClients, writeSseClient } from '../lib/sse-broadcast.js';
 import { operatorTokenRejection } from '../plugins/auth.js';
+import { getUserPermissions } from '../middleware/rbac.js';
 import { noteDashboardEvent } from '../plugins/response-cache.js';
 
 const logger = createLogger('events-sse');
@@ -58,6 +59,8 @@ interface SseClient {
   reply: FastifyReply;
   userId: string;
   allowedSiteIds: string[] | null;
+  /** Whether the user holds payments:read: else payment events lose their reasons. */
+  canSeePayments: boolean;
   /**
    * True while the stream resolves the user's sites: events wait in
    * `pending` and are filtered once the scope is known, so none is sent
@@ -106,6 +109,23 @@ export function isEventVisible(allowedSiteIds: string[] | null, payload: unknown
   );
 }
 
+/** Fields of a payment event that only payments:read may see (failure reasons). */
+const PAYMENT_DETAIL_FIELDS = ['reason', 'failureReason', 'errorMessage'] as const;
+
+/**
+ * The payload a client receives: unchanged, or for a client without
+ * payments:read a payment event (`payment.*`) without its failure reasons.
+ */
+export function eventForClient(canSeePayments: boolean, payload: string, parsed: unknown): string {
+  if (canSeePayments || typeof parsed !== 'object' || parsed == null) return payload;
+  const event = parsed as Record<string, unknown>;
+  const type = typeof event['eventType'] === 'string' ? event['eventType'] : event['type'];
+  if (typeof type !== 'string' || !type.startsWith('payment.')) return payload;
+  if (!PAYMENT_DETAIL_FIELDS.some((field) => field in event)) return payload;
+  const hidden: ReadonlySet<string> = new Set(PAYMENT_DETAIL_FIELDS);
+  return JSON.stringify(Object.fromEntries(Object.entries(event).filter(([k]) => !hidden.has(k))));
+}
+
 let nextClientId = 1;
 const clients = new Set<SseClient>();
 let subscription: Subscription | null = null;
@@ -130,13 +150,15 @@ async function ensureListener(): Promise<void> {
     if (parsed != null && typeof parsed === 'object') {
       noteDashboardEvent((parsed as { eventType?: unknown }).eventType);
     }
-    const message = `data: ${payload}\n\n`;
     for (const client of clients) {
       if (client.scopePending) {
         client.pending.push(payload);
         if (client.pending.length > MAX_PENDING_EVENTS) client.pending.shift();
       } else if (isEventVisible(client.allowedSiteIds, parsed)) {
-        writeToClient(client, message);
+        writeToClient(
+          client,
+          `data: ${eventForClient(client.canSeePayments, payload, parsed)}\n\n`,
+        );
       }
     }
   });
@@ -242,6 +264,15 @@ export function eventStreamRoutes(app: FastifyInstance): void {
       }
       const { userId, exp } = decoded as { userId: string; exp?: number };
 
+      // The stream carries data of every page: a user without any permission
+      // (each one is a read or a write, and write implies read) gets none.
+      const permissions = await getUserPermissions(userId);
+      if (permissions.length === 0) {
+        return reply
+          .status(403)
+          .send({ error: 'Insufficient permissions', code: 'INSUFFICIENT_PERMISSIONS' });
+      }
+
       // Register the client before its sites are resolved, so an access
       // change during the lookup is not lost (closeUserEventStreams marks
       // it stale and the lookup runs again) and events published meanwhile
@@ -251,6 +282,7 @@ export function eventStreamRoutes(app: FastifyInstance): void {
         reply,
         userId,
         allowedSiteIds: [],
+        canSeePayments: false,
         scopePending: true,
         scopeStale: false,
         pending: [],
@@ -265,6 +297,7 @@ export function eventStreamRoutes(app: FastifyInstance): void {
         do {
           client.scopeStale = false;
           client.allowedSiteIds = await getUserSiteIds(userId);
+          client.canSeePayments = hasPermission(await getUserPermissions(userId), 'payments:read');
         } while (scopeChangedDuringLookup(client));
       } catch (err) {
         removeClient(client);
@@ -298,8 +331,12 @@ export function eventStreamRoutes(app: FastifyInstance): void {
       const held = client.pending;
       client.pending = [];
       for (const payload of held) {
-        if (isEventVisible(client.allowedSiteIds, tryParseJson(payload))) {
-          writeToClient(client, `data: ${payload}\n\n`);
+        const parsed = tryParseJson(payload);
+        if (isEventVisible(client.allowedSiteIds, parsed)) {
+          writeToClient(
+            client,
+            `data: ${eventForClient(client.canSeePayments, payload, parsed)}\n\n`,
+          );
         }
       }
 

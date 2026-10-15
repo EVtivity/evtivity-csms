@@ -192,6 +192,7 @@ vi.mock('@evtivity/database', async () => {
     writeAudit: vi.fn().mockResolvedValue(undefined),
     siteAuditLog: {},
     stationAuditLog: {},
+    sessionAuditLog: {},
     driverAuditLog: {},
     fleetAuditLog: {},
     userAuditLog: {},

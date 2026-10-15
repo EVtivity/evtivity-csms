@@ -213,6 +213,8 @@ vi.mock('../lib/pricing-group-lookup.js', () => ({
 
 vi.mock('../lib/ocpi-location-push.js', () => ({
   publishOcpiLocationPush: vi.fn().mockResolvedValue(undefined),
+  captureDeletedSiteLocation: vi.fn().mockResolvedValue(null),
+  publishOcpiDeletedSiteLocation: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../services/free-vend.service.js', () => ({

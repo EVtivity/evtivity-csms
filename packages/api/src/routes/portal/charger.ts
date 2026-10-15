@@ -37,6 +37,9 @@ import {
   stationImages,
   settings,
   sessionSiteIdSql,
+  failUnstartedRemoteSession,
+  REMOTE_START_TIMEOUT_REASON,
+  REMOTE_START_REJECTED_REASON,
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
 import { publicSiteListed, publicStationListed } from '../../lib/public-station.js';
@@ -2279,33 +2282,99 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         request.log,
       );
 
+      // A start the station did not answer or rejected is closed the way the
+      // remote start timeout job closes one (failUnstartedRemoteSession): only
+      // while the session is still active and no transaction reached it (P5),
+      // ended now at zero cost (P4); then its hold is released. A taken-over
+      // waiting transaction already has its events: it is faulted under the
+      // same guard and the station is asked to stop it. Returns 'started' when
+      // the station's Started reached the session first (it is charging),
+      // 'closed' when this call closed it, 'already_closed' otherwise.
+      const closeFailedStart = async (
+        stoppedReason: string,
+        holdReason: string,
+      ): Promise<'started' | 'closed' | 'already_closed'> => {
+        let closed = false;
+        if (!tookOver) {
+          const result = await failUnstartedRemoteSession(session.id, stoppedReason);
+          if (result.outcome === 'skipped') return 'started';
+          closed = result.outcome === 'failed';
+        } else {
+          const now = new Date();
+          const faulted = await db
+            .update(chargingSessions)
+            .set({
+              status: 'faulted',
+              stoppedReason,
+              endedAt: now,
+              finalCostCents: 0,
+              currentCostCents: 0,
+              updatedAt: now,
+            })
+            .where(and(eq(chargingSessions.id, session.id), eq(chargingSessions.status, 'active')))
+            .returning({ id: chargingSessions.id });
+          closed = faulted.length > 0;
+          if (closed) await stopTakenOverTransaction();
+        }
+        // The station will not start: the hold placed above is released now
+        // instead of staying open until the provider expires it (P4). Best
+        // effort (P9): the start already failed for the driver.
+        try {
+          await cancelOpenSessionHold(
+            session.id,
+            holdReason,
+            paymentContext(request.log, getAuditActor(request)),
+          );
+        } catch (err) {
+          request.log.warn(
+            { err, sessionId: session.id },
+            'Failed to cancel the hold of a failed start',
+          );
+        }
+        return closed ? 'closed' : 'already_closed';
+      };
+
       if (cmdResult.error != null) {
-        await db
-          .update(chargingSessions)
-          .set({ status: 'faulted', updatedAt: new Date() })
-          .where(eq(chargingSessions.id, session.id));
-        await writeCsmsSessionAudit(
-          {
-            sessionId: session.id,
-            action: 'faulted',
-            actor: 'system',
-            actorLabel: 'portal-start-timeout',
-            before: { status: 'active' },
-            after: { status: 'faulted' },
-            notes: 'Station did not answer RequestStartTransaction',
-          },
-          db,
-          request.log,
+        const outcome = await closeFailedStart(
+          REMOTE_START_TIMEOUT_REASON,
+          'Station did not answer the start',
         );
-        await stopTakenOverTransaction();
-        void dispatchDriverNotification(
-          client,
-          'session.Faulted',
-          driverId,
-          { stationId: station.stationId, reason: 'Station did not respond' },
-          ALL_TEMPLATES_DIRS,
-          getPubSub(),
-        );
+        if (outcome === 'started') {
+          // The station's Started arrived before its answer: the session runs.
+          request.log.info(
+            { sessionId: session.id, stationId: station.stationId },
+            'Portal start: no answer from the station, but its transaction started',
+          );
+          return { chargingSessionId: session.id };
+        }
+        if (outcome === 'closed') {
+          await writeCsmsSessionAudit(
+            {
+              sessionId: session.id,
+              // The audit action enum names every CSMS-side close `faulted`;
+              // `after` holds the status written.
+              action: 'faulted',
+              actor: 'system',
+              actorLabel: 'portal-start-timeout',
+              before: { status: 'active' },
+              after: {
+                status: tookOver ? 'faulted' : 'failed',
+                stoppedReason: REMOTE_START_TIMEOUT_REASON,
+              },
+              notes: 'Station did not answer RequestStartTransaction',
+            },
+            db,
+            request.log,
+          );
+          void dispatchDriverNotification(
+            client,
+            'session.Faulted',
+            driverId,
+            { stationId: station.stationId, reason: 'Station did not respond' },
+            ALL_TEMPLATES_DIRS,
+            getPubSub(),
+          );
+        }
         await reply.status(504).send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });
         return;
       }
@@ -2381,48 +2450,48 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           }
         }
 
-        await db
-          .update(chargingSessions)
-          .set({ status: 'faulted', updatedAt: new Date() })
-          .where(eq(chargingSessions.id, session.id));
-        await writeCsmsSessionAudit(
-          {
-            sessionId: session.id,
-            action: 'faulted',
-            actor: 'system',
-            actorLabel: 'portal-start-rejected',
-            before: { status: 'active' },
-            after: { status: 'faulted' },
-            notes: `Station rejected RequestStartTransaction: ${cmdStatus ?? 'Unknown'}`,
-          },
-          db,
-          request.log,
+        const reason = `Station rejected: ${cmdStatus ?? 'Unknown'}`;
+        const outcome = await closeFailedStart(
+          REMOTE_START_REJECTED_REASON,
+          `Station rejected the start: ${cmdStatus ?? 'Unknown'}`,
         );
-        await stopTakenOverTransaction();
-        // The station will not start: the hold placed above is released now
-        // instead of staying open until the provider expires it (P4).
-        // Best effort (P9): the start already failed for the driver.
-        try {
-          await cancelOpenSessionHold(
-            session.id,
-            `Station rejected the start: ${cmdStatus ?? 'Unknown'}`,
-            paymentContext(request.log, getAuditActor(request)),
-          );
-        } catch (err) {
+        if (outcome === 'started') {
+          // A transaction reached the session although the station answered
+          // Rejected: the session is charging, so the start succeeded.
           request.log.warn(
-            { err, sessionId: session.id },
-            'Failed to cancel the hold of a rejected start',
+            { sessionId: session.id, stationId: station.stationId, cmdStatus },
+            'Portal start: the station rejected the start, but its transaction started',
+          );
+          return { chargingSessionId: session.id };
+        }
+        if (outcome === 'closed') {
+          await writeCsmsSessionAudit(
+            {
+              sessionId: session.id,
+              // The audit action enum names every CSMS-side close `faulted`;
+              // `after` holds the status written.
+              action: 'faulted',
+              actor: 'system',
+              actorLabel: 'portal-start-rejected',
+              before: { status: 'active' },
+              after: {
+                status: tookOver ? 'faulted' : 'failed',
+                stoppedReason: REMOTE_START_REJECTED_REASON,
+              },
+              notes: `Station rejected RequestStartTransaction: ${cmdStatus ?? 'Unknown'}`,
+            },
+            db,
+            request.log,
+          );
+          void dispatchDriverNotification(
+            client,
+            'session.Faulted',
+            driverId,
+            { stationId: station.stationId, reason },
+            ALL_TEMPLATES_DIRS,
+            getPubSub(),
           );
         }
-        const reason = `Station rejected: ${cmdStatus ?? 'Unknown'}`;
-        void dispatchDriverNotification(
-          client,
-          'session.Faulted',
-          driverId,
-          { stationId: station.stationId, reason },
-          ALL_TEMPLATES_DIRS,
-          getPubSub(),
-        );
         await reply.status(502).send({
           error: `Station rejected start request: ${cmdStatus ?? 'Unknown'}`,
           code: 'START_REJECTED',
@@ -2491,13 +2560,17 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         tags: ['Portal Chargers'],
         summary: 'Stop an active charging session',
         description:
-          'Sends RequestStopTransaction (OCPP 2.1) or RemoteStopTransaction (OCPP 1.6) for the supplied sessionId and waits up to 35s for the station response. If the station rejects with reasonCode=TxNotFound (a "ghost session"), the API asks the OCPP server to end the session as completed and billed at its last metered energy, and returns status=ghostRecovered. Returns 404 if the session does not exist or is not owned by the driver, 504 if the station does not respond within the timeout window.',
+          'Sends RequestStopTransaction (OCPP 2.1) or RemoteStopTransaction (OCPP 1.6) for the supplied sessionId and waits up to 35s for the station response. If the station rejects with reasonCode=TxNotFound (a "ghost session"), the API asks the OCPP server to end the session as completed and billed at its last metered energy, and returns status=ghostRecovered. Returns 404 if the session does not exist or is not owned by the driver, 409 SESSION_STOP_REJECTED if the station rejects the stop (the session keeps charging), 409 STATION_OFFLINE if the station is not connected (the stop is sent when it reconnects), 504 if the station does not respond within the timeout window.',
         operationId: 'portalStopSession',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionIdParams),
         response: {
           200: itemResponse(stopSessionResponse),
           404: errorWith('Session not found', [ERROR_CODES.SESSION_NOT_FOUND]),
+          409: errorWith('Station rejected the stop or is offline', [
+            ERROR_CODES.SESSION_STOP_REJECTED,
+            ERROR_CODES.STATION_OFFLINE,
+          ]),
           504: errorWith('Station timeout', [ERROR_CODES.STATION_TIMEOUT]),
         },
       },
@@ -2548,6 +2621,17 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         request.log,
       );
 
+      if (cmdResult.queued === true) {
+        // The OCPP server holds the stop in the offline command queue and
+        // sends it when the station reconnects: the session keeps running
+        // until then.
+        await reply.status(409).send({
+          error: 'Station is offline; the stop is sent when it reconnects',
+          code: 'STATION_OFFLINE',
+        });
+        return;
+      }
+
       if (cmdResult.error != null) {
         await reply.status(504).send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });
         return;
@@ -2566,6 +2650,17 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           'Ghost session recovered: station returned TxNotFound, session end requested',
         );
         return { status: 'ghostRecovered', chargingSessionId: session.id };
+      }
+
+      if (status !== 'Accepted') {
+        // The station refused the stop (2.1 RequestStopTransaction or 1.6
+        // RemoteStopTransaction Rejected): the session keeps charging, so the
+        // driver must not be told it is stopping.
+        await reply.status(409).send({
+          error: `Station rejected the stop request: ${status ?? 'Unknown'}`,
+          code: 'SESSION_STOP_REJECTED',
+        });
+        return;
       }
 
       return { status: 'stopping', chargingSessionId: session.id };

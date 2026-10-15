@@ -25,6 +25,11 @@ function createSqlMock() {
     if (strings.join('?').includes('AND te.seq_no = ?')) {
       return Promise.resolve(Object.assign([], { count: 0 }));
     }
+    // The late Ended check (TransactionProjector.recordLateEnded) answers the
+    // same way: no session has ended through another Ended.
+    if (strings.join('?').includes("te.event_type = 'ended'")) {
+      return Promise.resolve(Object.assign([], { count: 0 }));
+    }
     const idx = sqlCallIndex;
     sqlCallIndex++;
     const error = sqlErrors.get(idx);
@@ -3160,9 +3165,9 @@ describe('Event projections - coverage round 2', () => {
           },
         ], // 3 SELECT sessionRows
         [], // 4 INSERT transaction_events
-        [{ carbon_region_code: 'US-CAL', carbon_intensity_kg_per_kwh: '0.2' }], // 5 carbon query
-        [], // 6 UPDATE co2_avoided_kg
-        [{ site_id: null }], // 7 resolveSiteId
+        [{ site_id: null }], // 5 resolveSiteId (the session has no site of its own)
+        [{ carbon_region_code: 'US-CAL', carbon_intensity_kg_per_kwh: '0.2' }], // 6 carbon query
+        [], // 7 UPDATE co2_avoided_kg
         [], // 8 UPDATE reservations 'used'
         [
           {
@@ -3205,8 +3210,8 @@ describe('Event projections - coverage round 2', () => {
           },
         ],
         [], // INSERT transaction_events
+        [{ site_id: null }], // resolveSiteId (the session has no site of its own)
         [{ carbon_region_code: 'US-XYZ', carbon_intensity_kg_per_kwh: null }], // region but no factor
-        [{ site_id: null }], // resolveSiteId
         [
           {
             driver_id: null,
@@ -3250,10 +3255,10 @@ describe('Event projections - coverage round 2', () => {
         ],
         [], // INSERT transaction_events
       );
-      // carbon query (index 6, after the JB-2 open idle period SELECT) throws
-      sqlErrors.set(6, new Error('carbon table missing'));
-      // resolveSiteId (7), endedDriverRows (8), station message protocol (9)
-      sqlResults[7] = [{ site_id: null }];
+      // resolveSiteId (6, the session has no site of its own), then the
+      // carbon query (7) throws; endedDriverRows (8), station message protocol (9)
+      sqlResults[6] = [{ site_id: null }];
+      sqlErrors.set(7, new Error('carbon table missing'));
       sqlResults[8] = [
         {
           driver_id: null,

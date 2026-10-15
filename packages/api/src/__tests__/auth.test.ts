@@ -3,10 +3,11 @@
 
 import { describe, it, expect, beforeAll, vi } from 'vitest';
 import Fastify from 'fastify';
+import cookie from '@fastify/cookie';
 import type { FastifyInstance } from 'fastify';
 import { registerAuth } from '../plugins/auth.js';
 import { healthRoutes } from '../routes/health.js';
-import { isUserActive } from '../lib/user-active.js';
+import { getUserSessionState } from '../lib/user-active.js';
 
 describe('Auth plugin', () => {
   let app: FastifyInstance;
@@ -62,7 +63,7 @@ describe('Auth plugin', () => {
   });
 
   it('refuses a valid JWT of a deactivated operator with ACCOUNT_DEACTIVATED', async () => {
-    vi.mocked(isUserActive).mockResolvedValueOnce(false);
+    vi.mocked(getUserSessionState).mockResolvedValueOnce({ active: false, sessionVersion: 0 });
     const token = app.jwt.sign({ userId: 'usr_off', roleId: 'test-role' });
 
     const response = await app.inject({
@@ -73,7 +74,7 @@ describe('Auth plugin', () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.json()).toEqual({ error: 'Account deactivated', code: 'ACCOUNT_DEACTIVATED' });
-    expect(vi.mocked(isUserActive)).toHaveBeenCalledWith('usr_off');
+    expect(vi.mocked(getUserSessionState)).toHaveBeenCalledWith('usr_off');
   });
 
   it('rejects requests with invalid JWT', async () => {
@@ -86,5 +87,73 @@ describe('Auth plugin', () => {
     });
 
     expect(response.statusCode).toBe(401);
+  });
+
+  it('accepts a token of the current session version, a token without one as version 0', async () => {
+    vi.mocked(getUserSessionState).mockResolvedValueOnce({ active: true, sessionVersion: 3 });
+    const current = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      headers: {
+        authorization: `Bearer ${app.jwt.sign({ userId: 'usr_sv', roleId: 'r', sv: 3 })}`,
+      },
+    });
+    expect(current.statusCode).toBe(200);
+
+    const legacy = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      headers: { authorization: `Bearer ${app.jwt.sign({ userId: 'usr_sv0', roleId: 'r' })}` },
+    });
+    expect(legacy.statusCode).toBe(200);
+  });
+
+  it('refuses a token issued before the session version moved on', async () => {
+    vi.mocked(getUserSessionState).mockResolvedValueOnce({ active: true, sessionVersion: 4 });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      headers: {
+        authorization: `Bearer ${app.jwt.sign({ userId: 'usr_sv', roleId: 'r', sv: 3 })}`,
+      },
+    });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: 'Session ended', code: 'UNAUTHORIZED' });
+  });
+});
+
+describe('Auth plugin with cookies', () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = Fastify();
+    await app.register(cookie, { secret: 'test-cookie-secret-0123456789abcdef' });
+    await registerAuth(app);
+    app.get('/protected', { onRequest: [app.authenticate] }, () => ({ data: 'secret' }));
+    await app.ready();
+  });
+
+  it('accepts the csms_token cookie without an Authorization header', async () => {
+    const token = app.jwt.sign({ userId: 'usr_cookie', roleId: 'r' });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      cookies: { csms_token: app.signCookie(token) },
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it('never falls back to the cookie when an Authorization header is present', async () => {
+    // The CSRF hook skips requests with an Authorization header, so a cookie
+    // session must not pass behind a bogus header.
+    const token = app.jwt.sign({ userId: 'usr_cookie', roleId: 'r' });
+    const get = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      headers: { authorization: 'Bearer not-a-token' },
+      cookies: { csms_token: app.signCookie(token) },
+    });
+    expect(get.statusCode).toBe(401);
+    expect(get.json()).toMatchObject({ code: 'UNAUTHORIZED' });
   });
 });

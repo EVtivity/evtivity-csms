@@ -7,9 +7,6 @@ import {
   getCachedConnectorStatus,
   setCachedConnectorStatus,
   isApiKeyRateLimited,
-  isMfaChallengeExhausted,
-  recordMfaChallengeAttempt,
-  clearMfaChallengeAttempts,
   isGuestSessionRateLimited,
 } from '../lib/rate-limiters.js';
 
@@ -96,29 +93,6 @@ describe('isApiKeyRateLimited', () => {
     expect(isApiKeyRateLimited(key)).toBe(true);
     vi.advanceTimersByTime(61_000);
     expect(isApiKeyRateLimited(key)).toBe(false);
-  });
-});
-
-describe('MFA challenge attempt tracking', () => {
-  it('is not exhausted before any attempts', () => {
-    expect(isMfaChallengeExhausted(100)).toBe(false);
-  });
-
-  it('becomes exhausted after 5 recorded attempts', () => {
-    for (let i = 0; i < 5; i++) recordMfaChallengeAttempt(101);
-    expect(isMfaChallengeExhausted(101)).toBe(true);
-  });
-
-  it('is not exhausted at 4 attempts', () => {
-    for (let i = 0; i < 4; i++) recordMfaChallengeAttempt(102);
-    expect(isMfaChallengeExhausted(102)).toBe(false);
-  });
-
-  it('clearMfaChallengeAttempts resets the counter', () => {
-    for (let i = 0; i < 5; i++) recordMfaChallengeAttempt(103);
-    expect(isMfaChallengeExhausted(103)).toBe(true);
-    clearMfaChallengeAttempts(103);
-    expect(isMfaChallengeExhausted(103)).toBe(false);
   });
 });
 

@@ -1217,7 +1217,9 @@ describe('driver invoice creation audit', () => {
   });
 
   it('audits nothing when the invoice was not created', async () => {
-    vi.mocked(createSessionInvoice).mockRejectedValue(new Error('Session already invoiced'));
+    vi.mocked(createSessionInvoice).mockRejectedValue(
+      new AppError('Session is already invoiced', 409, 'SESSION_ALREADY_INVOICED'),
+    );
     vi.mocked(createAggregatedInvoice).mockRejectedValue(
       new AppError('No sessions', 400, 'INVOICE_NO_SESSIONS'),
     );
@@ -1234,8 +1236,34 @@ describe('driver invoice creation audit', () => {
       payload: aggregatedBody,
     });
 
-    expect(single.statusCode).toBe(400);
+    expect(single.statusCode).toBe(409);
+    expect(single.json()).toEqual({
+      error: 'Session is already invoiced',
+      code: 'SESSION_ALREADY_INVOICED',
+    });
     expect(aggregated.statusCode).toBe(400);
+    expect(writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('answers an unexpected failure as a server error, not a 400 with its raw message', async () => {
+    vi.mocked(createSessionInvoice).mockRejectedValue(new Error('connection reset'));
+    vi.mocked(createAggregatedInvoice).mockRejectedValue(new Error('connection reset'));
+
+    const single = await app.inject({
+      method: 'POST',
+      url: '/invoices/session/ses_000000000001',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const aggregated = await app.inject({
+      method: 'POST',
+      url: '/invoices/aggregated',
+      headers: { authorization: `Bearer ${token}` },
+      payload: aggregatedBody,
+    });
+
+    expect(single.statusCode).toBe(500);
+    expect(single.json<{ code: string }>().code).toBe('INTERNAL_ERROR');
+    expect(aggregated.statusCode).toBe(500);
     expect(writeAudit).not.toHaveBeenCalled();
   });
 });

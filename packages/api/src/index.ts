@@ -25,6 +25,7 @@ async function start(): Promise<void> {
   initSentry('evtivity-api', sentryConfig);
 
   const opts: FastifyServerOptions = {
+    trustProxy: config.TRUST_PROXY,
     logger: {
       level: config.LOG_LEVEL,
       ...logFormatOptions,

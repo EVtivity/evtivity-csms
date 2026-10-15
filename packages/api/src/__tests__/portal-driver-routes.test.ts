@@ -107,7 +107,7 @@ vi.mock('@evtivity/lib', () => ({
   generateTotpUri: vi.fn().mockReturnValue('otpauth://totp/test'),
   verifyTotpCode: vi.fn().mockReturnValue(true),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 1, code: '123456' }),
-  verifyMfaChallenge: vi.fn().mockResolvedValue(true),
+  verifyMfaChallenge: vi.fn().mockResolvedValue('verified'),
 }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({

@@ -114,7 +114,7 @@ vi.mock('@evtivity/lib', () => ({
   decryptString: vi.fn().mockReturnValue('decrypted-secret'),
   decryptSettingOrNull: vi.fn().mockReturnValue('decrypted-secret'),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 41, code: '654321' }),
-  verifyMfaChallenge: vi.fn().mockResolvedValue(true),
+  verifyMfaChallenge: vi.fn().mockResolvedValue('verified'),
   verifyTotpCode: vi.fn().mockReturnValue(true),
 }));
 
@@ -824,65 +824,21 @@ describe('Portal auth routes - extra coverage', () => {
       );
     });
 
-    it('locks a challenge after 5 wrong codes and stops checking it', async () => {
-      const challengeId = 9004;
-      vi.mocked(verifyMfaChallenge).mockResolvedValue(false);
-      for (let i = 0; i < 5; i++) {
-        setupDbResults([mfaDriver]);
-        const res = await app.inject({
-          method: 'POST',
-          url: '/portal/auth/mfa/verify',
-          payload: { mfaToken, code: '000000', challengeId },
-        });
-        expect(res.statusCode).toBe(400);
-        expect(res.json().code).toBe('MFA_CODE_INVALID');
-      }
-      vi.mocked(verifyMfaChallenge).mockClear();
-      vi.mocked(db.select).mockClear();
+    it('answers MFA_CHALLENGE_EXHAUSTED when the challenge has no tries left', async () => {
+      // The tries are counted on the challenge row (verifyMfaChallenge).
+      vi.mocked(verifyMfaChallenge).mockResolvedValue('exhausted');
+      setupDbResults([mfaDriver]);
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/mfa/verify',
-        payload: { mfaToken, code: '654321', challengeId },
+        payload: { mfaToken, code: '654321', challengeId: 9004 },
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CHALLENGE_EXHAUSTED');
-      expect(verifyMfaChallenge).not.toHaveBeenCalled();
-      expect(db.select).not.toHaveBeenCalled();
-      vi.mocked(verifyMfaChallenge).mockResolvedValue(true);
-    });
-
-    it('clears the failed-attempt counter after a successful code', async () => {
-      const challengeId = 9005;
-      vi.mocked(verifyMfaChallenge).mockResolvedValue(false);
-      for (let i = 0; i < 4; i++) {
-        setupDbResults([mfaDriver]);
-        await app.inject({
-          method: 'POST',
-          url: '/portal/auth/mfa/verify',
-          payload: { mfaToken, code: '000000', challengeId },
-        });
-      }
-      vi.mocked(verifyMfaChallenge).mockResolvedValue(true);
-      setupDbResults([mfaDriver]);
-      const ok = await app.inject({
-        method: 'POST',
-        url: '/portal/auth/mfa/verify',
-        payload: { mfaToken, code: '654321', challengeId },
+      expect(verifyMfaChallenge).toHaveBeenCalledWith(expect.anything(), 9004, '654321', {
+        driverId: mfaDriver.id,
       });
-      expect(ok.statusCode).toBe(200);
-
-      // Two more failures would exhaust the challenge if the counter were not reset.
-      vi.mocked(verifyMfaChallenge).mockResolvedValue(false);
-      for (let i = 0; i < 2; i++) {
-        setupDbResults([mfaDriver]);
-        const res = await app.inject({
-          method: 'POST',
-          url: '/portal/auth/mfa/verify',
-          payload: { mfaToken, code: '000000', challengeId },
-        });
-        expect(res.json().code).toBe('MFA_CODE_INVALID');
-      }
-      vi.mocked(verifyMfaChallenge).mockResolvedValue(true);
+      vi.mocked(verifyMfaChallenge).mockResolvedValue('verified');
     });
 
     it('returns 400 TOTP_NOT_CONFIGURED when the TOTP secret is missing', async () => {

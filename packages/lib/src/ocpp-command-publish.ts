@@ -23,6 +23,12 @@ export interface OcppCommand {
   version?: string | null | undefined;
   /** Correlates the result on `ocpp_command_results`. Generated when omitted. */
   commandId?: string | undefined;
+  /**
+   * Never queue the command for an offline station: the OCPP server answers
+   * with an error result instead. For callers whose command means nothing
+   * later (an OCPI partner's remote start or unlock).
+   */
+  noQueue?: boolean | undefined;
 }
 
 /**
@@ -43,6 +49,7 @@ export async function publishOcppCommand(
       action: command.action,
       payload: command.payload,
       ...(command.version != null ? { version: command.version } : {}),
+      ...(command.noQueue === true ? { noQueue: true } : {}),
     }),
   );
   return commandId;

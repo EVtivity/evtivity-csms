@@ -28,12 +28,23 @@ vi.mock('../guest-payments.js', () => ({
 vi.mock('@evtivity/database', () => ({
   db: { select: h.select },
   client: { __client: true },
-  chargingSessions: { id: 'cs.id', transactionId: 'cs.tx', stationId: 'cs.station_id' },
+  chargingSessions: {
+    id: 'cs.id',
+    transactionId: 'cs.tx',
+    stationId: 'cs.station_id',
+    siteId: 'cs.site_id',
+  },
   chargingStations: { id: 'st.id', stationId: 'st.station_id', siteId: 'st.site_id' },
   sites: { id: 'si.id', name: 'si.name' },
   reservations: { id: 'r.id', reservationId: 'r.reservation_id' },
 }));
-vi.mock('drizzle-orm', () => ({ eq: (a: unknown, b: unknown) => ({ eq: [a, b] }) }));
+vi.mock('drizzle-orm', () => ({
+  eq: (a: unknown, b: unknown) => ({ eq: [a, b] }),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    sql: strings.join('?'),
+    values,
+  }),
+}));
 vi.mock('@evtivity/lib', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   dispatchDriverNotification: h.dispatchDriverNotification,

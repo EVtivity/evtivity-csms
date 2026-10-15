@@ -327,33 +327,17 @@ describe('Portal sessions routes - handler logic', () => {
       expect(response.json().code).toBe('SESSION_NOT_FOUND');
     });
 
-    it('returns 403 when session belongs to another driver', async () => {
-      setupDbResults([
-        {
-          id: VALID_SESSION_ID,
-          transactionId: 'tx-1',
-          status: 'completed',
-          startedAt: '2024-01-01T00:00:00Z',
-          endedAt: '2024-01-01T01:00:00Z',
-          energyDeliveredWh: 10000,
-          currentCostCents: null,
-          finalCostCents: 500,
-          currency: 'USD',
-          meterStart: 0,
-          meterStop: 10000,
-          stoppedReason: 'EVDisconnected',
-          stationName: 'CS-001',
-          siteName: 'Site A',
-          driverId: 'other-driver-id',
-        },
-      ]);
+    it('returns 404 when the session belongs to another driver (filtered by the query)', async () => {
+      // The driver id is part of the WHERE: another driver's session reads as
+      // no row, so its existence is not revealed.
+      setupDbResults([]);
       const response = await app.inject({
         method: 'GET',
         url: `/portal/sessions/${VALID_SESSION_ID}`,
         headers: { authorization: `Bearer ${driverToken}` },
       });
-      expect(response.statusCode).toBe(403);
-      expect(response.json().code).toBe('FORBIDDEN');
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('SESSION_NOT_FOUND');
     });
 
     it('returns session detail with payment when session belongs to driver', async () => {

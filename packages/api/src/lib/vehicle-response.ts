@@ -117,7 +117,7 @@ export async function vehicleLastSeen(
     })
     .from(chargingSessions)
     .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-    .leftJoin(sites, eq(chargingStations.siteId, sites.id))
+    .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
     .where(
       and(
         inArray(chargingSessions.vehicleId, vehicleIds),

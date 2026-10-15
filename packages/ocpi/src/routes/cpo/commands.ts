@@ -1,8 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { eq, and, lte, gte, asc, isNull } from 'drizzle-orm';
+import { eq, and, lte, gte, asc, desc, isNull, isNotNull } from 'drizzle-orm';
 import {
   db,
   chargingStations,
@@ -23,6 +24,7 @@ import { findEvseByUid } from '../../lib/evse-lookup.js';
 import { getCommandCallbackService } from '../../services/command-callback.service.js';
 import type {
   OcpiVersion,
+  OcpiToken,
   OcpiStartSession,
   OcpiStopSession,
   OcpiReserveNow,
@@ -103,13 +105,16 @@ interface ResolvedStation {
   stationDbId: string;
   stationId: string;
   stationState: StationLevelState;
+  stationOnline: boolean;
   evseDbId?: string;
   evseNumber?: number;
 }
 
-// Without an EVSE uid, pick the first station at the site that can start a
-// session, so one disabled or maintained station does not block the site.
-// When none can, return the first one and let the caller's gates reject it.
+// Without an EVSE uid, pick the first accepted station at the site that is
+// online and can start a session, so one offline, disabled or maintained
+// station does not block the site. When none can, return the first accepted
+// one and let the caller's gates reject it. Pending and removed (blocked)
+// stations are never used.
 async function findStationForSite(
   siteId: string,
   evseUid: string | undefined,
@@ -119,11 +124,12 @@ async function findStationForSite(
     // The uid identifies one EVSE; it must belong to a station at this site.
     const found = await findEvseByUid(evseUid);
     // A retired EVSE is out of service: no start or reservation.
-    if (found?.siteId !== siteId || found.evseRetired) return null;
+    if (found?.siteId !== siteId || found.evseRetired || !found.stationAccepted) return null;
     return {
       stationDbId: found.stationDbId,
       stationId: found.stationOcppId,
       stationState: found.stationState,
+      stationOnline: found.stationOnline,
       evseDbId: found.evseDbId,
       evseNumber: found.evseNumber,
     };
@@ -136,30 +142,135 @@ async function findStationForSite(
       disabledReason: chargingStations.disabledReason,
       firmwareState: chargingStations.firmwareState,
       reportedStatus: chargingStations.reportedStatus,
+      isOnline: chargingStations.isOnline,
     })
     .from(chargingStations)
-    .where(eq(chargingStations.siteId, siteId))
+    .where(
+      and(eq(chargingStations.siteId, siteId), eq(chargingStations.onboardingStatus, 'accepted')),
+    )
     .orderBy(asc(chargingStations.stationId));
 
   const station =
-    stations.find((s) => !isStationLevelUnavailable(s) && !isCovered(coverage, s.stationDbId)) ??
-    stations[0];
+    stations.find(
+      (s) => s.isOnline && !isStationLevelUnavailable(s) && !isCovered(coverage, s.stationDbId),
+    ) ?? stations[0];
   if (station == null) return null;
-  const { stationDbId, stationId, disabledReason, firmwareState, reportedStatus } = station;
+  const { stationDbId, stationId, disabledReason, firmwareState, reportedStatus, isOnline } =
+    station;
   return {
     stationDbId,
     stationId,
     stationState: { disabledReason, firmwareState, reportedStatus },
+    stationOnline: isOnline,
   };
 }
 
-// A maintenance window, a disable, a firmware install, or a station-level fault
-// rejects a start or reservation for every EVSE on the station.
+// An offline station (the command would wait for a reconnect, and run with no
+// partner waiting), a maintenance window, a disable, a firmware install, or a
+// station-level fault rejects a start for every EVSE on the station.
 function canStartOn(station: ResolvedStation, coverage: MaintenanceCoverage): boolean {
   return (
-    !isCovered(coverage, station.stationDbId) && !isStationLevelUnavailable(station.stationState)
+    station.stationOnline &&
+    !isCovered(coverage, station.stationDbId) &&
+    !isStationLevelUnavailable(station.stationState)
   );
 }
+
+const MAX_CI_STRING_36 = 36;
+
+function isCiString36(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_CI_STRING_36;
+}
+
+/**
+ * The OCPP 2.1 IdToken type a partner's token is sent as in a remote start
+ * (OCPI 12.4.4 TokenType): an RFID card as ISO14443, an eMAID as eMAID, and
+ * an app or ad hoc user, which the station cannot know, as a Central token
+ * the CSMS issued. The 1.6 translation sends the value as the idTag.
+ */
+export function ocppIdTokenType(ocpiType: string | null | undefined): string {
+  if (ocpiType === 'RFID') return 'ISO14443';
+  if (ocpiType === 'EMAID') return 'eMAID';
+  return 'Central';
+}
+
+interface StartToken {
+  uid: string;
+  type: string | null;
+  /** The token embedded in the StartSession when the partner pushed none. */
+  embedded: OcpiToken | null;
+}
+
+/**
+ * The token of a StartSession, scoped to the calling partner so it cannot use
+ * another eMSP's token (a uid is unique per eMSP only). A token the partner
+ * pushed must be valid. Without one, the Token object of the command is
+ * accepted when it is the partner's own (its country code and party id) and
+ * valid (owner decision): the StartSession is the eMSP's authorization.
+ */
+async function startToken(
+  token: Partial<OcpiToken>,
+  partner: { partnerId: string; countryCode: string | null; partyId: string | null },
+): Promise<StartToken | null> {
+  if (!isCiString36(token.uid)) return null;
+  const [pushed] = await db
+    .select({ isValid: ocpiExternalTokens.isValid, tokenType: ocpiExternalTokens.tokenType })
+    .from(ocpiExternalTokens)
+    .where(
+      and(
+        eq(ocpiExternalTokens.partnerId, partner.partnerId),
+        eq(ocpiExternalTokens.uid, token.uid),
+      ),
+    )
+    .limit(1);
+  if (pushed != null) {
+    return pushed.isValid ? { uid: token.uid, type: pushed.tokenType, embedded: null } : null;
+  }
+  const own =
+    typeof token.country_code === 'string' &&
+    typeof token.party_id === 'string' &&
+    partner.countryCode != null &&
+    partner.partyId != null &&
+    token.country_code.toUpperCase() === partner.countryCode.toUpperCase() &&
+    token.party_id.toUpperCase() === partner.partyId.toUpperCase();
+  if (!own || token.valid === false) return null;
+  return {
+    uid: token.uid,
+    type: typeof token.type === 'string' ? token.type : null,
+    embedded: token as OcpiToken,
+  };
+}
+
+/** How long after a session ends its partner may still unlock the connector. */
+const UNLOCK_AFTER_SESSION_MINUTES = 30;
+
+/**
+ * Whether the partner may unlock the EVSE's connector: the newest session on
+ * the EVSE is the partner's CPO session (its link row), active or ended in the
+ * last UNLOCK_AFTER_SESSION_MINUTES. Another driver's cable is never unlocked.
+ */
+async function partnerOwnsEvseSession(partnerId: string, evseDbId: string): Promise<boolean> {
+  const [latest] = await db
+    .select({
+      status: chargingSessions.status,
+      endedAt: chargingSessions.endedAt,
+      linkPartnerId: ocpiRoamingSessions.partnerId,
+    })
+    .from(chargingSessions)
+    .leftJoin(ocpiRoamingSessions, eq(ocpiRoamingSessions.chargingSessionId, chargingSessions.id))
+    .where(eq(chargingSessions.evseId, evseDbId))
+    .orderBy(desc(chargingSessions.startedAt))
+    .limit(1);
+  if (latest?.linkPartnerId !== partnerId) return false;
+  if (latest.status === 'active') return true;
+  return (
+    latest.endedAt != null &&
+    Date.now() - latest.endedAt.getTime() <= UNLOCK_AFTER_SESSION_MINUTES * 60_000
+  );
+}
+
+const rejected = (): ReturnType<typeof ocpiSuccess> =>
+  ocpiSuccess({ result: 'REJECTED', timeout: COMMAND_TIMEOUT } satisfies OcpiCommandResponse);
 
 async function findConnectorId(evseDbId: string, connectorIdStr: string): Promise<number | null> {
   const connectorIdNum = Number(connectorIdStr);
@@ -205,71 +316,61 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       return;
     }
     const body = raw as unknown as OcpiStartSession;
-
-    // Validate token. Scope by partnerId so partner A cannot start a
-    // session using partner B's token uid (cross-partner token leak).
-    const tokenUid = body.token.uid;
-    const [token] = await db
-      .select({ isValid: ocpiExternalTokens.isValid })
-      .from(ocpiExternalTokens)
-      .where(
-        and(
-          eq(ocpiExternalTokens.partnerId, partner.partnerId),
-          eq(ocpiExternalTokens.uid, tokenUid),
-        ),
-      )
-      .limit(1);
-
-    if (token == null || !token.isValid) {
-      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-      return ocpiSuccess(response);
+    if (body.authorization_reference != null && !isCiString36(body.authorization_reference)) {
+      await reply
+        .status(400)
+        .send(ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'Invalid authorization_reference'));
+      return;
     }
+
+    const token = await startToken(body.token, {
+      partnerId: partner.partnerId,
+      countryCode: partner.countryCode,
+      partyId: partner.partyId,
+    });
+    if (token == null) return rejected();
 
     // Resolve location
     const siteId = await resolveSiteId(body.location_id, partner.partnerId);
-    if (siteId == null) {
-      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-      return ocpiSuccess(response);
-    }
+    if (siteId == null) return rejected();
 
     const coverage = await getMaintenanceCoverage(siteId);
     const station = await findStationForSite(siteId, body.evse_uid, coverage);
-    if (station == null || !canStartOn(station, coverage)) {
-      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-      return ocpiSuccess(response);
-    }
-
-    // Build OCPP payload
-    const ocppPayload: Record<string, unknown> = {
-      idTag: tokenUid,
-      remoteStartId: Math.floor(Math.random() * 2_147_483_647),
-    };
-    if (station.evseDbId != null) {
-      const evseNum = station.evseNumber;
-      if (evseNum != null) {
-        ocppPayload['evseId'] = evseNum;
-      }
-    }
-    if (body.connector_id != null && station.evseDbId != null) {
-      const connId = await findConnectorId(station.evseDbId, body.connector_id);
-      if (connId != null) {
-        ocppPayload['connectorId'] = connId;
-      }
-    }
+    if (station == null || !canStartOn(station, coverage)) return rejected();
 
     if (!isAcceptableResponseUrl(body.response_url, partner.allowPrivateNetwork)) {
       return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
     }
 
-    // Dispatch OCPP command
+    // OCPP 2.1 RequestStartTransaction (the OCPP server translates it for a
+    // 1.6 station: idTag from idToken.idToken, connectorId from evseId).
+    const remoteStartId = crypto.randomInt(1, 2_147_483_647);
+    const ocppPayload: Record<string, unknown> = {
+      idToken: { idToken: token.uid, type: ocppIdTokenType(token.type) },
+      remoteStartId,
+    };
+    if (station.evseNumber != null) {
+      ocppPayload['evseId'] = station.evseNumber;
+    }
+
+    // The command row binds the token to this station and partner, so the
+    // session the station starts is linked to this partner even when another
+    // eMSP holds the same uid, with auth_method COMMAND and the eMSP's
+    // authorization_reference.
     const callbackService = getCommandCallbackService();
     const commandId = callbackService.generateCommandId();
-    callbackService.registerCommand(
+    await callbackService.registerCommand({
       commandId,
-      body.response_url,
-      partner.partnerId,
-      'START_SESSION',
-    );
+      responseUrl: body.response_url,
+      partnerId: partner.partnerId,
+      commandType: 'START_SESSION',
+      stationId: station.stationId,
+      tokenUid: token.uid,
+      tokenType: token.type,
+      tokenData: token.embedded,
+      remoteStartId,
+      authorizationReference: body.authorization_reference ?? null,
+    });
     await callbackService.dispatchOcppCommand(
       commandId,
       station.stationId,
@@ -311,6 +412,9 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
         and(
           eq(ocpiRoamingSessions.partnerId, partner.partnerId),
           eq(ocpiRoamingSessions.ocpiSessionId, body.session_id),
+          // Our CPO sessions only: a row the partner pushed to us as eMSP
+          // (no charging session) is not a session we can stop.
+          isNotNull(ocpiRoamingSessions.chargingSessionId),
         ),
       )
       .limit(1);
@@ -332,16 +436,15 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
       .select({
         stationId: chargingStations.stationId,
         transactionId: chargingSessions.transactionId,
+        isOnline: chargingStations.isOnline,
       })
       .from(chargingSessions)
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
       .where(eq(chargingSessions.id, session.chargingSessionId))
       .limit(1);
 
-    if (chargingSession == null) {
-      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-      return ocpiSuccess(response);
-    }
+    // An offline station cannot stop now; the command is never queued.
+    if (chargingSession?.isOnline !== true) return rejected();
 
     if (!isAcceptableResponseUrl(body.response_url, partner.allowPrivateNetwork)) {
       return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
@@ -350,12 +453,13 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
     // Dispatch OCPP command
     const callbackService = getCommandCallbackService();
     const commandId = callbackService.generateCommandId();
-    callbackService.registerCommand(
+    await callbackService.registerCommand({
       commandId,
-      body.response_url,
-      partner.partnerId,
-      'STOP_SESSION',
-    );
+      responseUrl: body.response_url,
+      partnerId: partner.partnerId,
+      commandType: 'STOP_SESSION',
+      stationId: chargingSession.stationId,
+    });
     await callbackService.dispatchOcppCommand(
       commandId,
       chargingSession.stationId,
@@ -392,69 +496,15 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
     }
     const body = raw as unknown as OcpiReserveNow;
 
-    // Validate token. Scope by partnerId for the same reason as
-    // START_SESSION (cross-partner token leak).
-    const tokenUid = body.token.uid;
-    const [token] = await db
-      .select({ isValid: ocpiExternalTokens.isValid })
-      .from(ocpiExternalTokens)
-      .where(
-        and(
-          eq(ocpiExternalTokens.partnerId, partner.partnerId),
-          eq(ocpiExternalTokens.uid, tokenUid),
-        ),
-      )
-      .limit(1);
-
-    if (token == null || !token.isValid) {
-      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-      return ocpiSuccess(response);
-    }
-
-    // Resolve location
-    const siteId = await resolveSiteId(body.location_id, partner.partnerId);
-    if (siteId == null) {
-      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-      return ocpiSuccess(response);
-    }
-
-    const coverage = await getMaintenanceCoverage(siteId);
-    const station = await findStationForSite(siteId, body.evse_uid, coverage);
-    if (station == null || !canStartOn(station, coverage)) {
-      const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-      return ocpiSuccess(response);
-    }
-
-    // Build OCPP payload
-    const ocppPayload: Record<string, unknown> = {
-      id: Number(body.reservation_id) || 1,
-      expiryDateTime: body.expiry_date,
-      idToken: { idToken: tokenUid, type: 'ISO14443' },
-    };
-    if (station.evseDbId != null) {
-      const evseNum = station.evseNumber;
-      if (evseNum != null) {
-        ocppPayload['evseId'] = evseNum;
-      }
-    }
-
-    if (!isAcceptableResponseUrl(body.response_url, partner.allowPrivateNetwork)) {
-      return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
-    }
-
-    // Dispatch OCPP command
-    const callbackService = getCommandCallbackService();
-    const commandId = callbackService.generateCommandId();
-    callbackService.registerCommand(commandId, body.response_url, partner.partnerId, 'RESERVE_NOW');
-    await callbackService.dispatchOcppCommand(
-      commandId,
-      station.stationId,
-      'ReserveNow',
-      ocppPayload,
+    // Rejected (owner decision): a reservation a partner makes has no owner
+    // in the reservations model (no partner, driver or fee), so it could not
+    // be cancelled by the partner (CANCEL_RESERVATION is rejected for the
+    // same reason) and would block the EVSE for local drivers.
+    logger.warn(
+      { partnerId: partner.partnerId, reservationId: body.reservation_id },
+      'RESERVE_NOW rejected: partner reservations are not supported',
     );
-
-    const response: OcpiCommandResponse = { result: 'ACCEPTED', timeout: COMMAND_TIMEOUT };
-    return ocpiSuccess(response);
+    return rejected();
   });
 
   // POST /ocpi/{version}/cpo/commands/CANCEL_RESERVATION
@@ -533,34 +583,36 @@ function registerCpoCommandRoutes(app: FastifyInstance, version: OcpiVersion): v
 
       // The uid identifies one EVSE; it must belong to a station at this site.
       const found = await findEvseByUid(body.evse_uid);
-      if (found?.siteId !== siteId) {
-        const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-        return ocpiSuccess(response);
-      }
+      if (found?.siteId !== siteId || !found.stationAccepted) return rejected();
+      // An offline station cannot unlock now; the command is never queued.
+      if (!found.stationOnline) return rejected();
 
-      const evseNum = found.evseNumber;
-      const connectorNum = Number(body.connector_id);
+      // The connector within the EVSE (OCPI Connector.id, as published).
+      const connectorNum = await findConnectorId(found.evseDbId, body.connector_id);
+      if (connectorNum == null) return rejected();
 
-      if (Number.isNaN(connectorNum)) {
-        const response: OcpiCommandResponse = { result: 'REJECTED', timeout: COMMAND_TIMEOUT };
-        return ocpiSuccess(response);
-      }
+      // Only the partner whose session is (or just was) on this EVSE may
+      // unlock it: never another driver's cable.
+      if (!(await partnerOwnsEvseSession(partner.partnerId, found.evseDbId))) return rejected();
 
       if (!isAcceptableResponseUrl(body.response_url, partner.allowPrivateNetwork)) {
         return ocpiError(OcpiStatusCode.CLIENT_INVALID_PARAMS, 'response_url is not allowed');
       }
 
-      // Dispatch OCPP command
       const callbackService = getCommandCallbackService();
       const commandId = callbackService.generateCommandId();
-      callbackService.registerCommand(
+      await callbackService.registerCommand({
         commandId,
-        body.response_url,
-        partner.partnerId,
-        'UNLOCK_CONNECTOR',
-      );
+        responseUrl: body.response_url,
+        partnerId: partner.partnerId,
+        commandType: 'UNLOCK_CONNECTOR',
+        stationId: found.stationOcppId,
+      });
+      // OCPP 2.1 UnlockConnector: evseId and the connector within it. The
+      // 1.6 translation sends the evseId as the 1.6 connectorId (a 1.6
+      // connector is an EVSE).
       await callbackService.dispatchOcppCommand(commandId, found.stationOcppId, 'UnlockConnector', {
-        evseId: evseNum,
+        evseId: found.evseNumber,
         connectorId: connectorNum,
       });
 

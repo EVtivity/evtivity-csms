@@ -434,9 +434,11 @@ export function App(): React.JSX.Element {
                   <Route
                     path="roaming/partners/new"
                     element={
-                      <AllSiteRoute>
-                        <RoamingPartnerCreate />
-                      </AllSiteRoute>
+                      <AdminRoute requiredPermission="roaming:write">
+                        <AllSiteRoute>
+                          <RoamingPartnerCreate />
+                        </AllSiteRoute>
+                      </AdminRoute>
                     }
                   />
                   <Route
@@ -450,9 +452,11 @@ export function App(): React.JSX.Element {
                   <Route
                     path="roaming/tariffs/new"
                     element={
-                      <AllSiteRoute>
-                        <RoamingTariffMappingCreate />
-                      </AllSiteRoute>
+                      <AdminRoute requiredPermission="roaming:write">
+                        <AllSiteRoute>
+                          <RoamingTariffMappingCreate />
+                        </AllSiteRoute>
+                      </AdminRoute>
                     }
                   />
                   <Route

@@ -395,6 +395,22 @@ describe('OCPP 1.6 StopTransaction handler - transactionData', () => {
       expect.objectContaining({ eventType: 'ocpp.MeterValues' }),
     );
   });
+
+  it('publishes the transactionData readings before the Ended, so they reach the active session', async () => {
+    const { ctx, publishMock } = makeCtx('StopTransaction', {
+      transactionId: 42,
+      timestamp: '2026-02-15T11:00:00Z',
+      meterStop: 5000,
+      transactionData: [{ timestamp: '2026-02-15T10:30:00Z', sampledValue: [{ value: '3000' }] }],
+    });
+
+    await handleStopTransaction(ctx);
+
+    const order = publishMock.mock.calls.map(
+      (call) => (call[0] as { eventType: string }).eventType,
+    );
+    expect(order).toEqual(['ocpp.MeterValues', 'ocpp.TransactionEvent']);
+  });
 });
 
 describe('OCPP 1.6 StatusNotification handler - passes through raw status', () => {

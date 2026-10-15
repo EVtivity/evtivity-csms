@@ -14,6 +14,7 @@ import { formatCents, formatEnergy, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 import type { SessionAccountBilling } from '@/lib/fleet-billing';
+import { isUnchargedSession, sessionDisplayCostCents } from '@evtivity/lib/session-cost';
 
 interface Session {
   id: string;
@@ -98,11 +99,13 @@ export function Sessions(): React.JSX.Element {
                   <Badge variant={statusVariant(session.status)}>{session.status}</Badge>
                   <p className="text-sm font-medium">{formatEnergy(session.energyDeliveredWh)}</p>
                   <p className="text-xs text-muted-foreground">
-                    {costContainsTax(session.finalCostCents, session.taxCents)
-                      ? t('common.amountInclTax', {
-                          amount: formatCents(session.finalCostCents, session.currency),
-                        })
-                      : formatCents(session.finalCostCents, session.currency)}
+                    {isUnchargedSession(session)
+                      ? t('common.notCharged')
+                      : costContainsTax(session.finalCostCents, session.taxCents)
+                        ? t('common.amountInclTax', {
+                            amount: formatCents(session.finalCostCents, session.currency),
+                          })
+                        : formatCents(sessionDisplayCostCents(session), session.currency)}
                   </p>
                   {session.accountBilling != null && (
                     <p className="text-xs text-muted-foreground">

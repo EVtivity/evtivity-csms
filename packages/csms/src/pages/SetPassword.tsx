@@ -117,11 +117,6 @@ export function SetPassword(): React.JSX.Element {
           setError(t('auth.invalidCredentials'));
         } else if (body?.code === 'WEAK_PASSWORD') {
           setServerWeakPassword(true);
-        } else if (body?.code === 'RESET_NOT_REQUIRED') {
-          setError(t('auth.mustSetPassword'));
-          setTimeout(() => {
-            void navigate('/login');
-          }, 2000);
         } else if (body?.code === 'VALIDATION_ERROR' && body.error) {
           setError(body.error);
         } else {

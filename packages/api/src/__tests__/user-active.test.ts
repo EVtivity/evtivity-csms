@@ -17,51 +17,54 @@ vi.mock('@evtivity/database', () => {
     reads.count++;
     return Promise.resolve(rows.value).then(resolve);
   };
-  return { db: chain, users: { id: 'id', isActive: 'isActive' } };
+  return {
+    db: chain,
+    users: { id: 'id', isActive: 'isActive', sessionVersion: 'sessionVersion' },
+  };
 });
 vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish }) }));
 vi.mock('@evtivity/lib', () => ({ createLogger: () => ({ warn }) }));
 
-// The API unit test setup replaces isUserActive; this file tests the real one.
-const { isUserActive, clearUserActiveCacheLocal, invalidateUserActiveCache } =
+// The API unit test setup replaces getUserSessionState; this file tests the real one.
+const { getUserSessionState, clearUserActiveCacheLocal, invalidateUserActiveCache } =
   await vi.importActual<typeof import('../lib/user-active.js')>('../lib/user-active.js');
 
-describe('isUserActive', () => {
+describe('getUserSessionState', () => {
   beforeEach(() => {
     reads.count = 0;
     publish.mockReset();
     publish.mockResolvedValue(undefined);
   });
 
-  it('is true for an active operator', async () => {
-    rows.value = [{ isActive: true }];
-    expect(await isUserActive('usr_active')).toBe(true);
+  it('is active with the stored session version for an active operator', async () => {
+    rows.value = [{ isActive: true, sessionVersion: 3 }];
+    expect(await getUserSessionState('usr_active')).toEqual({ active: true, sessionVersion: 3 });
   });
 
   it('is false for a deactivated or unknown operator', async () => {
     rows.value = [{ isActive: false }];
-    expect(await isUserActive('usr_inactive')).toBe(false);
+    expect((await getUserSessionState('usr_inactive')).active).toBe(false);
     rows.value = [];
-    expect(await isUserActive('usr_unknown')).toBe(false);
+    expect((await getUserSessionState('usr_unknown')).active).toBe(false);
   });
 
   it('caches the status until the entry is cleared', async () => {
     rows.value = [{ isActive: true }];
-    expect(await isUserActive('usr_cached')).toBe(true);
+    expect((await getUserSessionState('usr_cached')).active).toBe(true);
     rows.value = [{ isActive: false }];
-    expect(await isUserActive('usr_cached')).toBe(true);
+    expect((await getUserSessionState('usr_cached')).active).toBe(true);
     expect(reads.count).toBe(1);
     clearUserActiveCacheLocal('usr_cached');
-    expect(await isUserActive('usr_cached')).toBe(false);
+    expect((await getUserSessionState('usr_cached')).active).toBe(false);
     expect(reads.count).toBe(2);
   });
 
   it('reads the status again after an invalidation', async () => {
     rows.value = [{ isActive: true }];
-    expect(await isUserActive('usr_inval')).toBe(true);
+    expect((await getUserSessionState('usr_inval')).active).toBe(true);
     rows.value = [{ isActive: false }];
     invalidateUserActiveCache('usr_inval');
-    expect(await isUserActive('usr_inval')).toBe(false);
+    expect((await getUserSessionState('usr_inval')).active).toBe(false);
   });
 });
 

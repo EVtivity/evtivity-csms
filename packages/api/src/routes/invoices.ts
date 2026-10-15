@@ -14,9 +14,8 @@ import {
   invoiceAuditLog,
   writeAudit,
   chargingSessions,
-  chargingStations,
 } from '@evtivity/database';
-import { dispatchDriverNotification, AppError, notificationMoney } from '@evtivity/lib';
+import { dispatchDriverNotification, notificationMoney } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -656,7 +655,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Generate an invoice for a single charging session',
         description:
-          "Builds an invoice from the session and its tariff snapshot, allocating the next gap-free invoice number from the invoice counter. Inserts the invoice header and line items in a transaction. Returns 400 if the session is not eligible (no driver, no final cost, or already invoiced), and 404 SESSION_NOT_FOUND for an unknown session or one at a site outside the user's site access.",
+          "Builds an invoice from the session and its tariff snapshot, allocating the next gap-free invoice number from the invoice counter. Inserts the invoice header and line items in a transaction. Returns 400 INVOICE_CREATION_FAILED if the session is not eligible (not completed, billed to a fleet account, or no final cost), 409 SESSION_ALREADY_INVOICED when it is already on an invoice, and 404 SESSION_NOT_FOUND for an unknown session or one at a site outside the user's site access.",
         operationId: 'createSessionInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionIdParams),
@@ -666,6 +665,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
           404: errorWith("Session not found, or at a site outside the user's site access", [
             ERROR_CODES.SESSION_NOT_FOUND,
           ]),
+          409: errorWith('Session already invoiced', [ERROR_CODES.SESSION_ALREADY_INVOICED]),
         },
       },
     },
@@ -675,23 +675,21 @@ export function invoiceRoutes(app: FastifyInstance): void {
 
       // A session at a site outside the user's access answers like a missing one (P11).
       const [session] = await db
-        .select({ siteId: chargingStations.siteId })
+        .select({ siteId: chargingSessions.siteId })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
         .where(eq(chargingSessions.id, sessionId));
       if (session == null || !(await userCanAccessSite(userId, session.siteId))) {
         await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
         return;
       }
 
-      try {
-        const result = await createSessionInvoice(sessionId);
-        await auditDriverInvoiceGenerated(result, getAuditActor(request), request.log, null);
-        await reply.status(201).send(result);
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Failed to create invoice';
-        await reply.status(400).send({ error: message, code: 'INVOICE_CREATION_FAILED' });
-      }
+      // A refusal the service names (not eligible, already invoiced) is an
+      // AppError the error handler answers with its status and code; anything
+      // else is a server error (500 INTERNAL_ERROR), not a client error that
+      // echoes a raw message.
+      const result = await createSessionInvoice(sessionId);
+      await auditDriverInvoiceGenerated(result, getAuditActor(request), request.log, null);
+      await reply.status(201).send(result);
     },
   );
 
@@ -704,15 +702,16 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Generate an aggregated invoice for a driver over a date range',
         description:
-          'Aggregates every uninvoiced completed session for the driver between startDate and endDate into a single invoice with one line item per session and tax rate, plus one line per reservation cancellation or no-show fee charged in the window and not yet invoiced. Allocates the next gap-free invoice number from the invoice counter. Returns 400 if no eligible sessions or fees are found in the window.',
+          'Aggregates every uninvoiced completed session for the driver between startDate and endDate into a single invoice with one line item per session and tax rate, plus one line per reservation cancellation or no-show fee charged in the window and not yet invoiced. Allocates the next gap-free invoice number from the invoice counter. Returns 400 INVOICE_NO_SESSIONS if no eligible sessions or fees are found in the window, and 409 SESSION_ALREADY_INVOICED or RESERVATION_FEE_ALREADY_INVOICED when another invoice took one of them meanwhile.',
         operationId: 'createAggregatedInvoice',
         security: [{ bearerAuth: [] }],
         body: zodSchema(aggregatedInvoiceBody),
         response: {
           201: itemResponse(invoiceDetailItem),
-          400: errorWith('Invoice creation failed', [
-            ERROR_CODES.INVOICE_NO_SESSIONS,
-            ERROR_CODES.INVOICE_CREATION_FAILED,
+          400: errorWith('Invoice creation failed', [ERROR_CODES.INVOICE_NO_SESSIONS]),
+          409: errorWith('A session or fee was invoiced meanwhile', [
+            ERROR_CODES.SESSION_ALREADY_INVOICED,
+            ERROR_CODES.RESERVATION_FEE_ALREADY_INVOICED,
           ]),
           404: errorWith('Invoice not found, or the user is restricted to some sites', [
             ERROR_CODES.INVOICE_NOT_FOUND,
@@ -724,28 +723,21 @@ export function invoiceRoutes(app: FastifyInstance): void {
       if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const body = request.body as z.infer<typeof aggregatedInvoiceBody>;
 
-      try {
-        const result = await createAggregatedInvoice(
-          body.driverId,
-          new Date(body.startDate),
-          new Date(body.endDate),
-        );
-        // The billed window as an ISO 8601 interval.
-        await auditDriverInvoiceGenerated(
-          result,
-          getAuditActor(request),
-          request.log,
-          `${body.startDate}/${body.endDate}`,
-        );
-        await reply.status(201).send(result);
-      } catch (err: unknown) {
-        if (err instanceof AppError) {
-          await reply.status(400).send({ error: err.message, code: err.code });
-          return;
-        }
-        const message = err instanceof Error ? err.message : 'Failed to create invoice';
-        await reply.status(400).send({ error: message, code: 'INVOICE_CREATION_FAILED' });
-      }
+      // As for a single session: a named refusal (AppError) answers with its
+      // code through the error handler, anything else is a server error.
+      const result = await createAggregatedInvoice(
+        body.driverId,
+        new Date(body.startDate),
+        new Date(body.endDate),
+      );
+      // The billed window as an ISO 8601 interval.
+      await auditDriverInvoiceGenerated(
+        result,
+        getAuditActor(request),
+        request.log,
+        `${body.startDate}/${body.endDate}`,
+      );
+      await reply.status(201).send(result);
     },
   );
 

@@ -39,6 +39,7 @@ export function RoamingPartnerCreate(): React.JSX.Element {
   const [versionUrl, setVersionUrl] = useState('');
   const [partnerRegistrationToken, setPartnerRegistrationToken] = useState('');
   const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(false);
+  const [allowRawToken, setAllowRawToken] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -51,6 +52,7 @@ export function RoamingPartnerCreate(): React.JSX.Element {
       versionUrl?: string;
       partnerRegistrationToken?: string;
       allowPrivateNetwork: boolean;
+      allowRawToken: boolean;
     }) => api.post<CreateResult>('/v1/ocpi/partners', data),
     onSuccess: (result) => {
       setCreatedToken(result.registrationToken);
@@ -80,11 +82,13 @@ export function RoamingPartnerCreate(): React.JSX.Element {
       versionUrl?: string;
       partnerRegistrationToken?: string;
       allowPrivateNetwork: boolean;
+      allowRawToken: boolean;
     } = {
       name,
       countryCode: countryCode.toUpperCase(),
       partyId: partyId.toUpperCase(),
       allowPrivateNetwork,
+      allowRawToken,
     };
     if (versionUrl.trim() !== '') {
       data.versionUrl = versionUrl;
@@ -224,6 +228,23 @@ export function RoamingPartnerCreate(): React.JSX.Element {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {t('roaming.partners.allowPrivateNetworkHint')}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="partner-allow-raw-token"
+                    checked={allowRawToken}
+                    onChange={(e) => {
+                      setAllowRawToken(e.target.checked);
+                    }}
+                  />
+                  <Label htmlFor="partner-allow-raw-token">
+                    {t('roaming.partners.allowRawToken')}
+                  </Label>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {t('roaming.partners.allowRawTokenHint')}
                 </p>
               </div>
               {createMutation.isError && (

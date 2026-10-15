@@ -14,6 +14,18 @@ vi.mock('@evtivity/database', () => ({
   users: {},
 }));
 
+// The stream reads the user's permissions (cached reader): every test user
+// holds a read permission and payments:read unless a test says otherwise.
+const { getUserPermissions } = vi.hoisted(() => ({
+  getUserPermissions: vi.fn((_userId: string) =>
+    Promise.resolve(['stations:read', 'payments:read']),
+  ),
+}));
+vi.mock('../middleware/rbac.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../middleware/rbac.js')>()),
+  getUserPermissions,
+}));
+
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
 }));

@@ -133,7 +133,8 @@ export const guestSessions = pgTable(
     index('idx_guest_sessions_station').on(table.stationOcppId, table.evseId),
     index('idx_guest_sessions_token').on(table.sessionToken),
     index('idx_guest_sessions_status').on(table.status),
-    index('idx_guest_sessions_charging_session').on(table.chargingSessionId),
+    // One guest checkout per charging session.
+    uniqueIndex('uq_guest_sessions_charging_session').on(table.chargingSessionId),
   ],
 );
 

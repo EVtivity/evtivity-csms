@@ -34,6 +34,11 @@ function createSqlMock() {
     if (strings.join('?').includes('AND te.seq_no = ?')) {
       return Promise.resolve(Object.assign([], { count: 0 }));
     }
+    // The late Ended check (TransactionProjector.recordLateEnded) answers the
+    // same way: no session has ended through another Ended.
+    if (strings.join('?').includes("te.event_type = 'ended'")) {
+      return Promise.resolve(Object.assign([], { count: 0 }));
+    }
     const idx = sqlCallIndex;
     sqlCallIndex++;
     const error = sqlErrors.get(idx);
@@ -197,6 +202,10 @@ vi.mock('@evtivity/database', async () => ({
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   // The session site sub-select (lib/session-site.ts), a plain value here.
   sessionSiteIdSql: vi.fn(() => 'site-of-station'),
+  // The real OCPI token owner checks (one statement each), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/ocpi-token-startable.js',
+  )),
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',

@@ -11,7 +11,9 @@ import type {
   OcpiPowerType,
   OcpiVersion,
 } from '../types/ocpi.js';
+import { toIso3166Alpha3 } from '@evtivity/lib';
 import { ocpiEvseUid, ocpiEvseId } from '../lib/evse-uid.js';
+import { ocpiCoordinate } from '../lib/geo-location.js';
 
 // Internal DB types (matching Drizzle schema select results)
 
@@ -46,6 +48,17 @@ export interface EvseRow {
    *  station-reported Unavailable or Faulted). Masks the EVSE as INOPERATIVE
    *  the same way maintenance does. */
   stationLevelUnavailable: boolean;
+  /** False when the owning station is not connected: its status is not
+   *  known, so the EVSE is published UNKNOWN (OCPI 8.4.26: "also used when
+   *  offline"). Omitted (removed EVSE rows) counts as online. */
+  stationOnline?: boolean;
+  /** Last change of the owning station (connect, disconnect, disable,
+   *  firmware state): it changes the published EVSE status, so it moves the
+   *  EVSE's `last_updated`. */
+  stationUpdatedAt?: Date;
+  /** Last change of a retired connector of this EVSE: it is left out of
+   *  `connectors`, but retiring it changed the EVSE. */
+  retiredConnectorsUpdatedAt?: Date;
   /** True when the EVSE left the location: its station was deleted (soft
    *  delete, onboarding status `blocked`), or the EVSE is a removed EVSE of
    *  `ocpi_removed_evses` (deleted, or its station moved to another site).
@@ -76,6 +89,8 @@ export interface LocationTransformInput {
   /** Report every EVSE as REMOVED: the location is unpublished for the
    *  partner it is rendered for (OCPI 8.1, there is no DELETE). */
   allRemoved?: boolean;
+  /** Last change of the site's publish settings (OCPI location id). */
+  publishUpdatedAt?: Date;
   /** Maintenance coverage for this location. When `allAffected` is true every
    *  EVSE in the location reports INOPERATIVE regardless of its connector
    *  status. When `allAffected` is false, only stations whose internal DB id
@@ -90,11 +105,16 @@ const EVSE_STATUS_MAP: Record<string, OcpiEVSEStatus> = {
   available: 'AVAILABLE',
   occupied: 'CHARGING',
   charging: 'CHARGING',
-  preparing: 'AVAILABLE',
-  ev_connected: 'AVAILABLE',
-  finishing: 'AVAILABLE',
-  suspended_ev: 'BLOCKED',
-  suspended_evse: 'INOPERATIVE',
+  // A plugged-in EV in a transaction holds the EVSE (OCPI 8.4.26 CHARGING:
+  // "in use"), whether or not energy flows.
+  preparing: 'CHARGING',
+  ev_connected: 'CHARGING',
+  suspended_ev: 'CHARGING',
+  suspended_evse: 'CHARGING',
+  // The transaction ended but the EV is still plugged in: the EVSE cannot be
+  // used until it leaves (BLOCKED: "not accessible because of a physical
+  // barrier, i.e. a car").
+  finishing: 'BLOCKED',
   reserved: 'RESERVED',
   unavailable: 'INOPERATIVE',
   faulted: 'OUTOFORDER',
@@ -198,7 +218,40 @@ function deriveEvseStatus(connectors: ConnectorRow[]): OcpiEVSEStatus {
 function evseStatus(evse: EvseRow, underMaintenance: boolean, removed: boolean): OcpiEVSEStatus {
   if (removed || evse.removed === true) return 'REMOVED';
   if (underMaintenance || evse.stationLevelUnavailable) return 'INOPERATIVE';
+  // The last reported connector status of a disconnected station is stale.
+  if (evse.stationOnline === false) return 'UNKNOWN';
   return deriveEvseStatus(evse.connectors);
+}
+
+function latest(dates: Array<Date | undefined>): Date {
+  let max = 0;
+  for (const d of dates) {
+    if (d != null && d.getTime() > max) max = d.getTime();
+  }
+  return new Date(max);
+}
+
+/** The EVSE's last change: the EVSE, its connectors, or its station. */
+export function evseLastUpdated(evse: EvseRow): Date {
+  return latest([
+    evse.updatedAt,
+    evse.stationUpdatedAt,
+    evse.retiredConnectorsUpdatedAt,
+    ...evse.connectors.map((c) => c.updatedAt),
+  ]);
+}
+
+/**
+ * The location's last change (OCPI 8.3.1: last_updated of the Location, its
+ * EVSEs or connectors): the site, its publish settings, and every EVSE
+ * (removed EVSEs at their removal time).
+ */
+export function locationLastUpdated(input: LocationTransformInput): Date {
+  return latest([
+    input.site.updatedAt,
+    input.publishUpdatedAt,
+    ...input.evses.map(evseLastUpdated),
+  ]);
 }
 
 function transformEvse(
@@ -213,7 +266,7 @@ function transformEvse(
     status: evseStatus(evse, underMaintenance, removed),
     connectors: evse.connectors.map((c) => transformConnector(c, version, evse.tariffIds)),
     capabilities: ['REMOTE_START_STOP_CAPABLE', 'RFID_READER'],
-    last_updated: evse.updatedAt.toISOString(),
+    last_updated: evseLastUpdated(evse).toISOString(),
   };
 }
 
@@ -247,10 +300,12 @@ export function transformLocation(
     name: site.name,
     address: site.address ?? 'Unknown',
     city: site.city ?? 'Unknown',
-    country: site.country ?? 'US',
+    // ISO 3166-1 alpha-3 (8.3.1). A site without a known country gets the
+    // operator's country (OCPI_COUNTRY_CODE, alpha-2).
+    country: toIso3166Alpha3(site.country) ?? toIso3166Alpha3(countryCode) ?? 'USA',
     coordinates: {
-      latitude: site.latitude,
-      longitude: site.longitude,
+      latitude: ocpiCoordinate(site.latitude),
+      longitude: ocpiCoordinate(site.longitude),
     },
     time_zone: site.timezone,
     evses: evses.map((e) =>
@@ -261,7 +316,7 @@ export function transformLocation(
         input.allRemoved === true,
       ),
     ),
-    last_updated: site.updatedAt.toISOString(),
+    last_updated: locationLastUpdated(input).toISOString(),
   };
 
   if (site.postalCode != null) {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
+import { useHasPermission } from '@/lib/auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -33,6 +34,7 @@ export function RoamingLocations(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const canWrite = useHasPermission('roaming:write');
 
   const { data: locations, isLoading } = useQuery({
     queryKey: ['ocpi-locations'],
@@ -90,6 +92,7 @@ export function RoamingLocations(): React.JSX.Element {
                     <TableCell>
                       <Checkbox
                         checked={loc.isPublished}
+                        disabled={!canWrite}
                         aria-label={t('roaming.locations.published')}
                         onChange={(e) => {
                           toggleMutation.mutate({ siteId: loc.id, isPublished: e.target.checked });

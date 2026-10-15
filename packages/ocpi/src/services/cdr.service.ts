@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -130,6 +130,9 @@ export async function buildSessionCdr(
   }
 
   const cdrId = crypto.randomUUID();
+  // The CDR's last_updated and its row's created_at are one instant: the
+  // CPO CDRs sender filters and orders on created_at.
+  const issuedAt = new Date();
 
   // final_cost_cents includes tax: the CDR carries it as the gross and its
   // net and tax split per tax rate and dimension, from the pricing engine
@@ -172,7 +175,10 @@ export async function buildSessionCdr(
     countryCode: getCountryCode(),
     partyId: getPartyId(),
     cdrId,
+    issuedAt,
     token,
+    authMethod: link.authMethod,
+    authorizationReference: link.authorizationReference,
   };
   if (periods.length > 0) cdrInput.chargingPeriods = periods;
   if (tariffs.length > 0) cdrInput.tariffs = tariffs;
@@ -192,6 +198,8 @@ export async function buildSessionCdr(
       cdrData: cdr,
       isCredit: false,
       pushStatus: 'pending',
+      createdAt: issuedAt,
+      updatedAt: issuedAt,
     },
   };
 }
@@ -207,15 +215,23 @@ async function existingSessionCdrId(
   const [row] = await executor
     .select({ ocpiCdrId: ocpiCdrs.ocpiCdrId })
     .from(ocpiCdrs)
-    .where(and(eq(ocpiCdrs.chargingSessionId, chargingSessionId), eq(ocpiCdrs.isCredit, false)))
+    .where(
+      and(
+        eq(ocpiCdrs.chargingSessionId, chargingSessionId),
+        eq(ocpiCdrs.isCredit, false),
+        isNull(ocpiCdrs.supersededAt),
+      ),
+    )
     .limit(1);
   return row?.ocpiCdrId ?? null;
 }
 
 /**
  * Issues the CDR of one of our CPO sessions: the only writer of our session
- * CDRs. One CDR per session (OCPI 10.1: a sent CDR is never replaced, only
- * credited): a second call returns the CDR already stored. The session's
+ * CDRs. One live CDR per session (OCPI 10.1: a sent CDR is never replaced,
+ * only credited): a second call returns the CDR already stored. After an
+ * operator credited every CDR of the session and reissued it (the API marks
+ * them superseded), the next call issues a new CDR with a new id. The session's
  * `ocpi_roaming_sessions` row is locked while the CDR is stored, so two runs
  * (a retried job, two replicas) cannot both insert.
  *
@@ -266,18 +282,46 @@ export async function issueSessionCdr(chargingSessionId: string): Promise<IssueC
   return result;
 }
 
+export type PushCdrResult =
+  | 'sent'
+  | 'already_sent'
+  | 'no_receiver'
+  | 'waiting_for_original'
+  | 'failed'
+  | 'not_found';
+
+/**
+ * Whether the CDR a credit CDR credits was sent: a credit goes to the partner
+ * only after its original (a partner cannot credit a CDR it never got).
+ */
+async function creditedOriginalSent(cdr: typeof ocpiCdrs.$inferSelect): Promise<boolean> {
+  const [original] = await db
+    .select({ pushStatus: ocpiCdrs.pushStatus })
+    .from(ocpiCdrs)
+    .where(
+      and(
+        eq(ocpiCdrs.partnerId, cdr.partnerId),
+        eq(ocpiCdrs.isCredit, false),
+        sql`${ocpiCdrs.ocpiCdrId} = ${cdr.cdrData}->>'credit_reference_id'`,
+      ),
+    )
+    .limit(1);
+  return original?.pushStatus === 'sent';
+}
+
 /**
  * sent: POSTed now; already_sent: sent before, not repeated; no_receiver: the
  * partner has no CDRs receiver or no token, so it stays pending for the
- * partner's pull; failed: the POST failed (retry); not_found.
+ * partner's pull; waiting_for_original: a credit CDR whose original was not
+ * sent yet stays pending (the sweep tries again); failed: the POST failed or
+ * the partner answered another code than 1000 (retry); not_found.
  */
-export type PushCdrResult = 'sent' | 'already_sent' | 'no_receiver' | 'failed' | 'not_found';
-
 export async function pushCdr(cdrId: string): Promise<PushCdrResult> {
   const [cdr] = await db.select().from(ocpiCdrs).where(eq(ocpiCdrs.ocpiCdrId, cdrId)).limit(1);
 
   if (cdr == null) return 'not_found';
   if (cdr.pushStatus === 'sent') return 'already_sent';
+  if (cdr.isCredit && !(await creditedOriginalSent(cdr))) return 'waiting_for_original';
 
   const partnerId = cdr.partnerId;
 
@@ -310,6 +354,7 @@ export async function pushCdr(cdrId: string): Promise<PushCdrResult> {
         countryCode: ocpiPartners.countryCode,
         partyId: ocpiPartners.partyId,
         allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
+        allowRawToken: ocpiPartners.allowRawToken,
       })
       .from(ocpiPartners)
       .where(eq(ocpiPartners.id, partnerId))
@@ -324,6 +369,7 @@ export async function pushCdr(cdrId: string): Promise<PushCdrResult> {
       toCountryCode: partner.countryCode,
       toPartyId: partner.partyId,
       allowPrivateNetwork: partner.allowPrivateNetwork,
+      rawToken: partner.allowRawToken,
     });
 
     // The same stored CDR (same id) on every attempt, so a retry after a

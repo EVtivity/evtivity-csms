@@ -5,6 +5,7 @@ import { memo } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
   Table,
   TableBody,
@@ -19,6 +20,7 @@ import { sessionStatusVariant } from '@/lib/status-variants';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatVehicleId } from '@evtivity/lib/vehicle-id';
+import { sessionDisplayCostCents } from '@evtivity/lib/session-cost';
 
 export const SESSIONS_COLUMNS: ColumnMeta[] = [
   {
@@ -130,7 +132,7 @@ function SessionVehicleCell({ session }: { session: Session }): React.JSX.Elemen
 }
 
 function formatCost(session: Session): string {
-  const cents = session.status === 'completed' ? session.finalCostCents : session.currentCostCents;
+  const cents = sessionDisplayCostCents(session);
   if (cents == null) return '-';
   return formatCents(cents, session.currency);
 }
@@ -142,6 +144,9 @@ interface SessionsTableProps {
   onPageChange: (page: number) => void;
   timezone: string;
   isLoading?: boolean;
+  /** The list failed to load: shows the load error with a Retry button. */
+  isError?: boolean;
+  onRetry?: () => void;
   emptyMessage?: string;
   hideStationName?: boolean;
   hideDriverName?: boolean;
@@ -152,6 +157,8 @@ export const SessionsTable = memo(function SessionsTable({
   sessions,
   timezone,
   isLoading,
+  isError = false,
+  onRetry,
   emptyMessage,
   hideStationName = false,
   hideDriverName = false,
@@ -203,6 +210,18 @@ export const SessionsTable = memo(function SessionsTable({
                 </TableCell>
               </TableRow>
             )}
+            {isError && isLoading !== true && (
+              <TableRow>
+                <TableCell colSpan={colCount} className="text-center">
+                  <span className="text-destructive">{t('common.loadError')}</span>
+                  {onRetry != null && (
+                    <Button variant="outline" size="sm" className="ml-3" onClick={onRetry}>
+                      {t('common.retry')}
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            )}
             {sessions?.map((session) => (
               <TableRow
                 key={session.id}
@@ -245,7 +264,7 @@ export const SessionsTable = memo(function SessionsTable({
                         {session.driverName}
                       </Link>
                     ) : (
-                      'n/a'
+                      t('common.na')
                     )}
                   </TableCell>
                 )}
@@ -273,7 +292,7 @@ export const SessionsTable = memo(function SessionsTable({
                     >
                       {session.status === 'active' && session.idleStartedAt != null
                         ? t('status.idle')
-                        : session.status}
+                        : t(`status.${session.status}`, { defaultValue: session.status })}
                     </Badge>
                     {session.rebillStatus === 'manual' && (
                       <Badge variant="warning" className="ml-2">
@@ -303,10 +322,12 @@ export const SessionsTable = memo(function SessionsTable({
                   <TableCell className="text-right">
                     {session.co2AvoidedKg != null ? (
                       <span className="text-success">
-                        {formatNumber(parseFloat(String(session.co2AvoidedKg)), 2)} kg
+                        {t('sessions.co2Kg', {
+                          value: formatNumber(parseFloat(String(session.co2AvoidedKg)), 2),
+                        })}
                       </span>
                     ) : (
-                      'n/a'
+                      t('common.na')
                     )}
                   </TableCell>
                 )}
@@ -315,7 +336,7 @@ export const SessionsTable = memo(function SessionsTable({
                 )}
               </TableRow>
             ))}
-            {sessions?.length === 0 && (
+            {!isError && sessions?.length === 0 && (
               <TableRow>
                 <TableCell colSpan={colCount} className="text-center text-muted-foreground">
                   {emptyMessage ?? t('sessions.noSessionsFound')}

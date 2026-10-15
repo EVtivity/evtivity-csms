@@ -132,4 +132,16 @@ describe('Sessions', () => {
     expect(screen.queryByText(/common\.amountInclTax/)).toBeNull();
     expect(screen.queryByText(/incl/)).toBeNull();
   });
+
+  it('labels a faulted or failed session that cost nothing Not Charged', async () => {
+    getMock.mockResolvedValue({
+      data: [
+        { ...session('7', null, null), status: 'faulted', endedAt: '2026-01-01T11:00:00Z' },
+        { ...session('8', 0, null), status: 'failed' },
+      ],
+      total: 2,
+    });
+    renderPage();
+    expect(await screen.findAllByText('common.notCharged')).toHaveLength(2);
+  });
 });

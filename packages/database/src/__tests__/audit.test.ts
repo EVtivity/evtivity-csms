@@ -191,6 +191,20 @@ describe('writeAudit', () => {
     expect(out['certs']?.[0]?.['clientKey']).toBe('<redacted>');
   });
 
+  it('redactAuditPayload redacts every encrypted-at-rest key (*Enc, *_enc)', () => {
+    const out = redactAuditPayload({
+      id: 'ocpiPartner_1',
+      partnerRegistrationTokenEnc: 'cipher-1',
+      nested: { outbound_token_enc: 'cipher-2', name: 'Partner' },
+      encoding: 'utf-8',
+    }) as Record<string, unknown>;
+    expect(out['partnerRegistrationTokenEnc']).toBe('<redacted>');
+    expect((out['nested'] as Record<string, unknown>)['outbound_token_enc']).toBe('<redacted>');
+    expect((out['nested'] as Record<string, unknown>)['name']).toBe('Partner');
+    expect(out['encoding']).toBe('utf-8');
+    expect(out['id']).toBe('ocpiPartner_1');
+  });
+
   it('null-defaults all optional actor and snapshot fields', async () => {
     const insertedValues: unknown[] = [];
     const fakeDb = {

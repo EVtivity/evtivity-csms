@@ -57,7 +57,6 @@ import {
   supportCaseMessages,
   ocpiPartners,
   ocpiPartnerEndpoints,
-  ocpiCredentialsTokens,
   pkiCaCertificates,
   stationCertificates,
   driverPaymentMethods,
@@ -93,6 +92,7 @@ import {
   invoiceLineItems,
 } from './schema/index.js';
 import { acceptPendingFixtureStations } from './lib/fixture-stations.js';
+import { issueOcpiRegistrationToken } from './lib/ocpi-registration-token.js';
 import { REBILL_DEMO_METHOD_ID } from './seed-demo-cards.js';
 import { insertDemoMeterValues, type DemoMeterValueRow } from './seed-meter-values.js';
 import {
@@ -1879,6 +1879,9 @@ async function seed(): Promise<void> {
     const meterStop = status !== 'active' ? meterStart + energyWh : null;
     // Cost: ~$0.15-0.30/kWh, so cents = energyWh / 1000 * 15-30
     const costCents = Math.round((energyWh / 1000) * randomInt(15, 30));
+    // A faulted session is not billed: it costs nothing, as the payment gate
+    // and the stale-session cleanup leave a real one.
+    const billedCents = status === 'faulted' ? 0 : costCents;
     // Operator electricity cost from the site's rate periods, as the session
     // end projection computes it (the period in force at the end time).
     const stationSiteId = at(stationRows, stationIdx).siteId;
@@ -1910,9 +1913,9 @@ async function seed(): Promise<void> {
       energyDeliveredWh: status !== 'active' ? String(energyWh) : null,
       stoppedReason: status === 'completed' ? pick(stopReasons) : null,
       currentCostCents: status === 'active' ? costCents : null,
-      finalCostCents: status !== 'active' ? costCents : null,
+      finalCostCents: status !== 'active' ? billedCents : null,
       // Demo sessions have no tariff snapshot, so no tax rate.
-      ...demoCostSplit(costCents, 0),
+      ...demoCostSplit(billedCents, 0),
       electricityCostCents,
     });
   }
@@ -2349,11 +2352,9 @@ async function seed(): Promise<void> {
 
   // ------ OCPI Simulator Partner ------
   // Pre-seeds a partner record for the ocpi-simulator (NL/SIM, eMSP role).
-  // The registration token 'ocpi-sim-reg-token' lets the simulator complete the
-  // credentials handshake. Set OCPI_REGISTRATION_TOKEN=ocpi-sim-reg-token in
-  // the simulator's env and point OCPI_TARGET_URL at the OCPI server.
-  const SIM_REG_TOKEN = 'ocpi-sim-reg-token';
-  const simTokenHash = await argon2.hash(SIM_REG_TOKEN);
+  // Its registration token is generated here, bound to the partner, and
+  // printed once: pass it to the simulator (OCPI_REGISTRATION_TOKEN or POST
+  // /sim/register). Roaming > Partners issues a new one at any time.
   const [simPartner] = await db
     .insert(ocpiPartners)
     .values({
@@ -2372,15 +2373,7 @@ async function seed(): Promise<void> {
 
   if (simPartner == null) throw new Error('Failed to create OCPI simulator partner');
 
-  // Registration token: partnerId is null until the handshake completes.
-  // handleRegistration will match the partner by country_code/party_id and deactivate this token.
-  await db.insert(ocpiCredentialsTokens).values({
-    partnerId: null,
-    tokenHash: simTokenHash,
-    tokenPrefix: SIM_REG_TOKEN.slice(0, 8),
-    direction: 'issued',
-    isActive: true,
-  });
+  const simRegToken = await issueOcpiRegistrationToken(simPartner.id, db);
 
   // Pre-seed the endpoints the simulator will advertise once registered
   const simBase = 'http://localhost:7105/ocpi/2.2.1';
@@ -2422,14 +2415,12 @@ async function seed(): Promise<void> {
       url: `${simBase}/credentials`,
     },
   ]);
-  console.log(`  OCPI simulator partner seeded (NL/SIM). Registration token: ${SIM_REG_TOKEN}`);
+  console.log(`  OCPI simulator partner seeded (NL/SIM). Registration token: ${simRegToken}`);
 
   // ------ OCPI CPO Simulator Partner ------
   // Pre-seeds a partner record for the CPO simulator (DE/CPO, CPO role).
   // Run with: npm run dev:ocpi-sim-cpo
   // OCPI_SIM_AUTO_SESSION=true triggers the auto-session loop after registration.
-  const CPO_SIM_REG_TOKEN = 'ocpi-cpo-sim-reg-token';
-  const cpoSimTokenHash = await argon2.hash(CPO_SIM_REG_TOKEN);
   const [cpoSimPartner] = await db
     .insert(ocpiPartners)
     .values({
@@ -2448,13 +2439,7 @@ async function seed(): Promise<void> {
 
   if (cpoSimPartner == null) throw new Error('Failed to create OCPI CPO simulator partner');
 
-  await db.insert(ocpiCredentialsTokens).values({
-    partnerId: null,
-    tokenHash: cpoSimTokenHash,
-    tokenPrefix: CPO_SIM_REG_TOKEN.slice(0, 8),
-    direction: 'issued',
-    isActive: true,
-  });
+  const cpoSimRegToken = await issueOcpiRegistrationToken(cpoSimPartner.id, db);
 
   const cpoSimBase = 'http://localhost:7106/ocpi/2.2.1';
   await db.insert(ocpiPartnerEndpoints).values([
@@ -2496,7 +2481,7 @@ async function seed(): Promise<void> {
     },
   ]);
   console.log(
-    `  OCPI CPO simulator partner seeded (DE/CPO). Registration token: ${CPO_SIM_REG_TOKEN}`,
+    `  OCPI CPO simulator partner seeded (DE/CPO). Registration token: ${cpoSimRegToken}`,
   );
 
   // ------ SP3 Test CA Certificate ------
@@ -3930,9 +3915,7 @@ async function seed(): Promise<void> {
   console.log(
     `  ${String(createdConfigTemplates.length)} config templates (${String(totalPushes)} pushes, ${String(totalPushStations)} push stations)`,
   );
-  console.log(
-    '  2 OCPI simulator partners (NL/SIM token: ocpi-sim-reg-token, DE/CPO token: ocpi-cpo-sim-reg-token)',
-  );
+  console.log('  2 OCPI simulator partners (NL/SIM, DE/CPO; registration tokens printed above)');
   console.log('  Dashboard snapshots seeded for the last 14 days (see seedDashboardSnapshots).');
 
   await client.end();

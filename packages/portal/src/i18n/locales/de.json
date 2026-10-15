@@ -24,7 +24,8 @@
     "amountInclTax": "{{amount}} inkl. Steuer",
     "close": "Schließen",
     "toggleSuggestions": "Vorschläge ein- oder ausblenden",
-    "copyFailed": "Kopieren fehlgeschlagen"
+    "copyFailed": "Kopieren fehlgeschlagen",
+    "notCharged": "Nicht Berechnet"
   },
   "nav": {
     "home": "Startseite",
@@ -596,6 +597,8 @@
     "CAMPAIGN_NOT_FOUND": "Kampagne nicht gefunden",
     "CASE_NOT_FOUND": "Fall nicht gefunden",
     "CA_CERT_NOT_FOUND": "CA-Zertifikat nicht gefunden",
+    "CDR_NOT_CREDITED": "Schreiben Sie jeden CDR der Sitzung gut, bevor Sie sie neu ausstellen",
+    "CDR_PUSH_NOT_FAILED": "Nur ein CDR, dessen Übertragung fehlgeschlagen ist, kann erneut gesendet werden",
     "CDR_NOT_FOUND": "CDR nicht gefunden",
     "CIRCUIT_NOT_FOUND": "Stromkreis nicht gefunden",
     "COMMAND_ERROR": "Befehl fehlgeschlagen",
@@ -674,6 +677,8 @@
     "INVALID_SITE_IDS": "Eine oder mehrere siteIds existieren nicht",
     "INVALID_TOKEN": "Ungültiger oder abgelaufener Zurücksetzungslink",
     "INVOICE_ALREADY_PAID": "Die Rechnung ist bereits bezahlt",
+    "RESERVATION_FEE_ALREADY_INVOICED": "Die Reservierungsgebühr ist bereits abgerechnet",
+    "SESSION_ALREADY_INVOICED": "Die Sitzung ist bereits abgerechnet",
     "INVOICE_CREATION_FAILED": "Rechnung konnte nicht erstellt werden",
     "INVOICE_NOT_ISSUED": "Für diese Aktion muss die Rechnung ausgestellt sein",
     "INVOICE_IS_CREDIT_NOTE": "Eine Stornorechnung kann nicht als bezahlt markiert oder storniert werden",
@@ -786,7 +791,6 @@
     "RESERVATION_TIMEOUT": "Reservierungsbefehl hat das Zeitlimit überschritten",
     "RESERVATION_TOO_LONG": "Reservierung darf ... Stunden nicht überschreiten",
     "RESERVATION_WINDOW_TOO_SHORT": "Reservierung muss mindestens 60 Sekunden nach Beginn enden",
-    "RESET_NOT_REQUIRED": "Passwortzurücksetzung ist nicht erforderlich",
     "ROAMING_DISABLED": "Roaming ist deaktiviert",
     "ROLE_NOT_FOUND": "Rolle existiert nicht",
     "ROTATION_NOT_APPLICABLE": "Rotation der Anmeldedaten gilt nur für Sicherheitsprofile 1 und 2",
@@ -890,7 +894,14 @@
     "SESSION_NO_VEHICLE_ID": "Die Ladestation hat für diesen Ladevorgang keine Fahrzeugkennung gesendet.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "Der Betreiber hat Autocharge für dieses Fahrzeug gesperrt. Wenden Sie sich an den Betreiber, um es zu entsperren.",
     "VEHICLE_ID_IN_USE": "Ein anderes Fahrzeug verwendet diese FIN oder EVCCID bereits für Autocharge.",
-    "VEHICLE_ID_REQUIRED": "Autocharge benötigt eine FIN oder EVCCID am Fahrzeug."
+    "VEHICLE_ID_REQUIRED": "Autocharge benötigt eine FIN oder EVCCID am Fahrzeug.",
+    "SESSION_STOP_REJECTED": "Die Ladestation hat die Stoppanforderung abgelehnt. Der Ladevorgang läuft weiter.",
+    "PARTNER_ALREADY_CONNECTED": "Partner ist bereits verbunden",
+    "PARTNER_NOT_REGISTERED": "Ein Partner wird über den OCPI-Credentials-Handshake verbunden",
+    "SESSION_REQUIRED": "Diese Aktion erfordert eine angemeldete Sitzung. API-Schlüssel können sie nicht verwenden.",
+    "MFA_LOCKED": "Zu viele falsche Codes. Warten Sie, bevor Sie es erneut versuchen.",
+    "MFA_RESEND_LIMITED": "Zu viele Codes gesendet. Warten Sie, bevor Sie einen weiteren anfordern.",
+    "USER_SSO_MANAGED": "Dieser Benutzer meldet sich per SSO an und hat kein Passwort, das gesetzt werden kann."
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
@@ -935,7 +946,9 @@
     "totalCo2Avoided": "Insgesamt vermiedenes CO₂",
     "noSessions": "Keine Ladevorgänge in diesem Zeitraum.",
     "cost": "Kosten",
-    "costInclTax": "Kosten (inkl. Steuer)"
+    "costInclTax": "Kosten (inkl. Steuer)",
+    "otherCurrencyNote_one": "{{count}} Ladevorgang, der in einer früheren Währung abgerechnet wurde, ist nicht in der Summe ({{currency}}) enthalten.",
+    "otherCurrencyNote_other": "{{count}} Ladevorgänge, die in einer früheren Währung abgerechnet wurden, sind nicht in der Summe ({{currency}}) enthalten."
   },
   "account": {
     "title": "Konto",

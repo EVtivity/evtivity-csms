@@ -107,7 +107,6 @@ export function getQueryKeysForEvent(event: CsmsEvent): string[][] {
         keys.push(['stations', stationId, 'energy-history']);
         keys.push(['stations', stationId, 'revenue-history']);
         keys.push(['stations', stationId, 'metrics']);
-        keys.push(['station-meter-values']);
       }
       if (siteId != null) {
         keys.push(['sites', siteId, 'meter-values']);

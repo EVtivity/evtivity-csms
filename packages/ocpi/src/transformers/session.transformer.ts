@@ -5,7 +5,7 @@ import type { TaxLine } from '@evtivity/lib/price-display';
 import { toOcpiPrice } from '../lib/ocpi-price.js';
 import { chargingPeriods, cdrToken, whToKwh } from '../lib/charging-periods.js';
 import type { CdrTokenSource } from '../lib/charging-periods.js';
-import type { OcpiSession, OcpiSessionStatus, OcpiVersion } from '../types/ocpi.js';
+import type { OcpiAuthMethod, OcpiSession, OcpiSessionStatus, OcpiVersion } from '../types/ocpi.js';
 
 interface SessionRow {
   id: string;
@@ -40,6 +40,20 @@ interface SessionTransformInput {
   evseUid: string;
   connectorId: string;
   token: CdrTokenSource;
+  /**
+   * How the token was authorized (`ocpi_roaming_sessions.auth_method`):
+   * COMMAND for a StartSession, WHITELIST for a token the partner pushed.
+   * Null on links written before it was stored: WHITELIST, since the CSMS
+   * never sends a real-time authorization request (AUTH_REQUEST).
+   */
+  authMethod?: string | null;
+  /** The eMSP's authorization_reference from the StartSession. */
+  authorizationReference?: string | null;
+}
+
+/** The OCPI AuthMethod of a stored link value (OCPI 2.3.0 10.4.1). */
+export function ocpiAuthMethod(value: string | null | undefined): OcpiAuthMethod {
+  return value === 'COMMAND' || value === 'AUTH_REQUEST' ? value : 'WHITELIST';
 }
 
 const SESSION_STATUS_MAP: Record<string, OcpiSessionStatus> = {
@@ -63,7 +77,10 @@ export function transformSession(input: SessionTransformInput, version: OcpiVers
     start_date_time: (session.startedAt ?? session.updatedAt).toISOString(),
     kwh,
     cdr_token: cdrToken(input.token),
-    auth_method: 'AUTH_REQUEST',
+    auth_method: ocpiAuthMethod(input.authMethod),
+    ...(input.authorizationReference != null
+      ? { authorization_reference: input.authorizationReference }
+      : {}),
     location_id: locationId,
     evse_uid: evseUid,
     connector_id: connectorId,

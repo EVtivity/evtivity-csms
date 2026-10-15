@@ -24,7 +24,7 @@ let ops: DbOp[] = [];
 function makeChain(entry: DbOp): Record<string, unknown> {
   ops.push(entry);
   const chain: Record<string, unknown> = {};
-  for (const m of ['where', 'limit']) {
+  for (const m of ['where', 'limit', 'for']) {
     chain[m] = vi.fn(() => chain);
   }
   chain['from'] = vi.fn((table: unknown) => {
@@ -48,23 +48,32 @@ function makeChain(entry: DbOp): Record<string, unknown> {
   return chain;
 }
 
-const { clientGet, clientPost, clientOptions, mockWriteAudit } = vi.hoisted(() => ({
-  mockWriteAudit: vi.fn(),
-  clientGet: vi.fn(),
-  clientPost: vi.fn(),
-  clientOptions: [] as unknown[],
-}));
+const { clientGet, clientPost, clientOptions, mockWriteAudit, mockTransaction } = vi.hoisted(
+  () => ({
+    mockWriteAudit: vi.fn(),
+    mockTransaction: vi.fn(),
+    clientGet: vi.fn(),
+    clientPost: vi.fn(),
+    clientOptions: [] as unknown[],
+  }),
+);
 
-vi.mock('@evtivity/database', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@evtivity/database')>()),
-  writeAudit: mockWriteAudit,
-  db: {
+vi.mock('@evtivity/database', async (importOriginal) => {
+  const fakeDb: Record<string, unknown> = {
     select: vi.fn(() => makeChain({ op: 'select', table: null })),
     insert: vi.fn((table: unknown) => makeChain({ op: 'insert', table })),
     update: vi.fn((table: unknown) => makeChain({ op: 'update', table })),
     delete: vi.fn((table: unknown) => makeChain({ op: 'delete', table })),
-  },
-}));
+  };
+  // The transaction runs its callback on the same recorder.
+  fakeDb['transaction'] = mockTransaction;
+  mockTransaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(fakeDb));
+  return {
+    ...(await importOriginal<typeof import('@evtivity/database')>()),
+    writeAudit: mockWriteAudit,
+    db: fakeDb,
+  };
+});
 
 vi.mock('../lib/ocpi-client.js', () => ({
   OcpiClient: class {
@@ -124,6 +133,7 @@ const BOTH = [
 
 beforeEach(() => {
   mockWriteAudit.mockReset().mockResolvedValue(undefined);
+  mockTransaction.mockClear();
   dbResults = [];
   ops = [];
   clientOptions.length = 0;
@@ -153,7 +163,7 @@ describe('buildOurCredentials', () => {
 });
 
 describe('generateAndStoreToken', () => {
-  it('stores an argon2 hash and the 8-char prefix of a 64-hex token', async () => {
+  it('stores an argon2 hash and the 8-char prefix of a 64-hex credentials token', async () => {
     const token = await svc.generateAndStoreToken('opr_000000000001', 'issued');
     expect(token).toMatch(/^[0-9a-f]{64}$/);
     const [insert] = opsOn(ocpiCredentialsTokens, 'insert');
@@ -162,6 +172,7 @@ describe('generateAndStoreToken', () => {
       partnerId: 'opr_000000000001',
       tokenPrefix: token.slice(0, 8),
       direction: 'issued',
+      kind: 'credentials',
       isActive: true,
     });
     expect(values['tokenHash']).not.toBe(token);
@@ -169,118 +180,128 @@ describe('generateAndStoreToken', () => {
   });
 
   it('generates a different token each time', async () => {
-    const a = await svc.generateAndStoreToken(null, 'issued');
-    const b = await svc.generateAndStoreToken(null, 'issued');
+    const a = await svc.generateAndStoreToken('opr_000000000001', 'issued');
+    const b = await svc.generateAndStoreToken('opr_000000000001', 'issued');
     expect(a).not.toBe(b);
   });
 });
 
+const PENDING_PARTNER = {
+  id: 'opr_000000000042',
+  name: 'Pre-created NL',
+  countryCode: 'NL',
+  partyId: 'ABC',
+  status: 'pending',
+  version: null,
+  versionUrl: null,
+  allowPrivateNetwork: false,
+  allowRawToken: false,
+};
+const AUTH = { tokenId: 9, partnerId: 'opr_000000000042' };
+
 describe('handleRegistration', () => {
-  it('refuses a registration token another request already claimed', async () => {
-    dbResults = [[]]; // claim UPDATE ... RETURNING returns no row
-    const err = await svc.handleRegistration(PARTNER_CREDENTIALS, 9).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(Error);
-    expect((err as Error).message).toBe('Registration token already used');
-    expect((err as Error & { code: string }).code).toBe('TOKEN_ALREADY_USED');
+  it('refuses roles of another party (no takeover of a partner by country and party)', async () => {
+    dbResults = [[PENDING_PARTNER]];
+    const other = {
+      ...PARTNER_CREDENTIALS,
+      roles: [{ ...PARTNER_CREDENTIALS.roles[0]!, country_code: 'DE', party_id: 'XYZ' }],
+    };
+    const err = await svc.handleRegistration(other, AUTH).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(svc.CredentialsError);
+    expect(err).toMatchObject({ httpStatus: 400, ocpiStatus: 2001 });
     expect(clientGet).not.toHaveBeenCalled();
-    expect(ops).toHaveLength(1);
-    expect(ops[0]).toMatchObject({
-      op: 'update',
-      table: ocpiCredentialsTokens,
-      set: { isActive: false },
-      returning: true,
+    expect(ops.filter((o) => o.op !== 'select')).toHaveLength(0);
+  });
+
+  it('refuses a second role naming another party', async () => {
+    dbResults = [[PENDING_PARTNER]];
+    const mixed = {
+      ...PARTNER_CREDENTIALS,
+      roles: [
+        PARTNER_CREDENTIALS.roles[0]!,
+        { ...PARTNER_CREDENTIALS.roles[0]!, role: 'HUB' as const, party_id: 'HUB' },
+      ],
+    };
+    await expect(svc.handleRegistration(mixed, AUTH)).rejects.toMatchObject({ httpStatus: 400 });
+  });
+
+  it('answers 405 for a partner already connected', async () => {
+    dbResults = [[{ ...PENDING_PARTNER, status: 'connected' }]];
+    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, AUTH)).rejects.toMatchObject({
+      httpStatus: 405,
+    });
+    expect(clientGet).not.toHaveBeenCalled();
+  });
+
+  it('answers 401 when the token partner no longer exists', async () => {
+    dbResults = [[]];
+    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, AUTH)).rejects.toMatchObject({
+      httpStatus: 401,
     });
   });
 
-  it('rejects credentials without roles', async () => {
-    await expect(svc.handleRegistration({ ...PARTNER_CREDENTIALS, roles: [] }, 9)).rejects.toThrow(
-      'No roles provided in credentials',
-    );
-    expect(ops).toHaveLength(0);
+  it('refuses a registration token another request already claimed, writing nothing', async () => {
+    partnerOffers(BOTH);
+    dbResults = [[PENDING_PARTNER], []]; // partner, claim UPDATE ... RETURNING no row
+    const err = await svc.handleRegistration(PARTNER_CREDENTIALS, AUTH).catch((e: unknown) => e);
+    expect(err).toMatchObject({ httpStatus: 401, message: 'Invalid token' });
+    expect(opsOn(ocpiPartners, 'update')).toHaveLength(0);
+    expect(opsOn(ocpiCredentialsTokens, 'insert')).toHaveLength(0);
+    expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 
-  it('creates a new partner, stores endpoints and both tokens', async () => {
-    partnerOffers(BOTH);
-    dbResults = [
-      [{ id: 9 }], // claim
-      [], // existing partner lookup
-      [{ id: 'opr_000000000042' }], // insert partner returning
-    ];
-    const result = await svc.handleRegistration(PARTNER_CREDENTIALS, 9, '2.3.0');
+  it('maps a failing partner API to 3001 without its message, keeping the token', async () => {
+    clientGet.mockRejectedValue(new Error('connect ECONNREFUSED 10.0.0.5:443 secret detail'));
+    dbResults = [[PENDING_PARTNER]];
+    const err = await svc.handleRegistration(PARTNER_CREDENTIALS, AUTH).catch((e: unknown) => e);
+    expect(err).toMatchObject({ httpStatus: 400, ocpiStatus: 3001 });
+    expect((err as Error).message).not.toContain('ECONNREFUSED');
+    // Nothing claimed: the registration token stays usable.
+    expect(ops.filter((o) => o.op === 'update')).toHaveLength(0);
+  });
 
-    // Version negotiation: preferred 2.3.0 is offered, so its detail URL is used.
+  it('connects the bound partner, stores endpoints and both tokens in one transaction', async () => {
+    partnerOffers(BOTH);
+    dbResults = [[PENDING_PARTNER], [{ id: 9 }], [{ status: 'pending' }]];
+    const result = await svc.handleRegistration(PARTNER_CREDENTIALS, AUTH, '2.3.0');
+
     expect(clientGet.mock.calls.map((c) => c[0])).toEqual([
       VERSIONS_URL,
       'https://partner.example.com/ocpi/2.3.0',
     ]);
     expect(clientOptions[0]).toMatchObject({
       token: PARTNER_CREDENTIALS.token,
-      fromCountryCode: 'US',
-      fromPartyId: 'EVT',
       allowPrivateNetwork: false,
+      rawToken: false,
     });
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
 
-    const [partnerInsert] = opsOn(ocpiPartners, 'insert');
-    expect(partnerInsert?.values).toMatchObject({
+    const [claim] = opsOn(ocpiCredentialsTokens, 'update');
+    expect(claim).toMatchObject({ set: { isActive: false }, returning: true });
+
+    expect(opsOn(ocpiPartners, 'insert')).toHaveLength(0);
+    const [partnerUpdate] = opsOn(ocpiPartners, 'update');
+    expect(partnerUpdate?.set).toMatchObject({
       name: 'Partner NL',
-      countryCode: 'NL',
-      partyId: 'ABC',
       status: 'connected',
       version: '2.3.0',
       versionUrl: VERSIONS_URL,
       roles: PARTNER_CREDENTIALS.roles,
+      partnerRegistrationTokenEnc: null,
     });
-
-    expect(opsOn(ocpiPartnerEndpoints, 'delete')).toHaveLength(1);
-    const [endpointInsert] = opsOn(ocpiPartnerEndpoints, 'insert');
-    expect(endpointInsert?.values).toEqual([
-      {
-        partnerId: 'opr_000000000042',
-        module: 'credentials',
-        interfaceRole: 'RECEIVER',
-        url: 'https://partner.example.com/creds',
-      },
-      {
-        partnerId: 'opr_000000000042',
-        module: 'tokens',
-        interfaceRole: 'SENDER',
-        url: 'https://partner.example.com/tokens',
-      },
-    ]);
+    expect(opsOn(ocpiPartnerEndpoints, 'insert')[0]?.values).toHaveLength(2);
 
     const tokenInserts = opsOn(ocpiCredentialsTokens, 'insert').map(
       (o) => o.values as Record<string, unknown>,
     );
-    expect(tokenInserts).toHaveLength(2);
     const received = tokenInserts.find((v) => v['direction'] === 'received');
     const issued = tokenInserts.find((v) => v['direction'] === 'issued');
-    expect(received).toMatchObject({
-      partnerId: 'opr_000000000042',
-      tokenPrefix: 'partner-',
-      isActive: true,
-    });
     expect(decryptString(received?.['outboundTokenEnc'] as string, KEY)).toBe(
       PARTNER_CREDENTIALS.token,
     );
-    await expect(
-      argon2.verify(received?.['tokenHash'] as string, PARTNER_CREDENTIALS.token),
-    ).resolves.toBe(true);
-
-    // The returned token is the issued one, and it is stored hashed.
-    expect(result.token).toMatch(/^[0-9a-f]{64}$/);
-    expect(issued?.['tokenPrefix']).toBe(result.token.slice(0, 8));
+    expect(issued).toMatchObject({ kind: 'credentials', partnerId: 'opr_000000000042' });
     await expect(argon2.verify(issued?.['tokenHash'] as string, result.token)).resolves.toBe(true);
-    expect(result.url).toBe(`${BASE}/ocpi/versions`);
-    expect(result.roles.map((r) => r.role)).toEqual(['CPO', 'EMSP']);
 
-    // Old received and issued tokens are deactivated before the new ones.
-    const deactivations = opsOn(ocpiCredentialsTokens, 'update').filter(
-      (o) => o.returning !== true,
-    );
-    expect(deactivations).toHaveLength(2);
-    for (const d of deactivations) expect(d.set).toEqual({ isActive: false });
-
-    // One system audit row on the new partner, with no token in it.
     expect(mockWriteAudit).toHaveBeenCalledTimes(1);
     const [config, args] = mockWriteAudit.mock.calls[0] as [unknown, Record<string, unknown>];
     expect(config).toEqual({ table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' });
@@ -289,147 +310,119 @@ describe('handleRegistration', () => {
       action: 'registered',
       actor: 'system',
       actorLabel: 'ocpi-credentials',
-      before: null,
-      after: {
-        name: 'Partner NL',
-        status: 'connected',
-        version: '2.3.0',
-        versionUrl: VERSIONS_URL,
-        endpointCount: 2,
-      },
+      after: { status: 'connected', version: '2.3.0', endpointCount: 2 },
     });
     const stored = JSON.stringify(args);
     expect(stored).not.toContain(PARTNER_CREDENTIALS.token);
     expect(stored).not.toContain(result.token);
   });
 
-  it('updates a pre-created partner and honors its private-network flag', async () => {
+  it('honors the partner private-network and raw token flags', async () => {
     partnerOffers([{ version: '2.2.1', url: 'https://partner.example.com/ocpi/2.2.1' }], []);
-    dbResults = [[{ id: 9 }], [{ id: 'opr_000000000007', allowPrivateNetwork: true }]];
-    await svc.handleRegistration(PARTNER_CREDENTIALS, 9, '2.3.0');
-
-    // 2.3.0 not offered: falls back to 2.2.1.
+    dbResults = [
+      [{ ...PENDING_PARTNER, allowPrivateNetwork: true, allowRawToken: true }],
+      [{ id: 9 }],
+      [{ status: 'pending' }],
+    ];
+    await svc.handleRegistration(PARTNER_CREDENTIALS, AUTH, '2.3.0');
     expect(clientGet).toHaveBeenLastCalledWith('https://partner.example.com/ocpi/2.2.1');
-    expect(clientOptions[0]).toMatchObject({ allowPrivateNetwork: true });
-    expect(opsOn(ocpiPartners, 'insert')).toHaveLength(0);
-    const [partnerUpdate] = opsOn(ocpiPartners, 'update');
-    expect(partnerUpdate?.set).toMatchObject({
-      name: 'Partner NL',
-      status: 'connected',
-      version: '2.2.1',
-      versionUrl: VERSIONS_URL,
-    });
-    // No endpoints offered: old ones deleted, nothing inserted.
-    expect(opsOn(ocpiPartnerEndpoints, 'delete')).toHaveLength(1);
+    expect(clientOptions[0]).toMatchObject({ allowPrivateNetwork: true, rawToken: true });
     expect(opsOn(ocpiPartnerEndpoints, 'insert')).toHaveLength(0);
-    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
-      entityId: 'opr_000000000007',
-      action: 'registered',
-      before: expect.any(Object) as unknown,
-      after: { status: 'connected', version: '2.2.1', endpointCount: 0 },
-    });
   });
 
-  it('fails when the partner insert returns no row', async () => {
+  it('answers 405 when the partner got connected while the request ran', async () => {
     partnerOffers(BOTH);
-    dbResults = [[{ id: 9 }], [], []];
-    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, 9)).rejects.toThrow(
-      'Failed to create partner record',
-    );
+    dbResults = [[PENDING_PARTNER], [{ id: 9 }], [{ status: 'connected' }]];
+    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, AUTH)).rejects.toMatchObject({
+      httpStatus: 405,
+    });
+    expect(opsOn(ocpiPartners, 'update')).toHaveLength(0);
   });
 
-  it('fails when the partner returns no versions', async () => {
-    clientGet.mockResolvedValue(envelope([]));
-    dbResults = [[{ id: 9 }], []];
-    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, 9)).rejects.toThrow(
-      'Partner returned no versions',
-    );
-  });
-
-  it('fails when the versions payload is not an array', async () => {
-    clientGet.mockResolvedValue(envelope(null));
-    dbResults = [[{ id: 9 }], []];
-    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, 9)).rejects.toThrow(
-      'Partner returned no versions',
-    );
-  });
-
-  it('fails when no offered version is supported', async () => {
-    partnerOffers([{ version: '2.1.1', url: 'https://partner.example.com/ocpi/2.1.1' }]);
-    dbResults = [[{ id: 9 }], []];
-    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, 9)).rejects.toThrow(
-      'No compatible OCPI version found',
-    );
-  });
-
-  it('fails when the version detail has no endpoints array', async () => {
-    partnerOffers(BOTH, null);
-    dbResults = [[{ id: 9 }], []];
-    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, 9)).rejects.toThrow(
-      'Partner returned invalid version detail',
-    );
+  it.each([
+    ['no versions', () => clientGet.mockResolvedValue(envelope([]))],
+    ['a versions payload that is not an array', () => clientGet.mockResolvedValue(envelope(null))],
+    [
+      'no supported version',
+      () => partnerOffers([{ version: '2.1.1', url: 'https://partner.example.com/ocpi/2.1.1' }]),
+    ],
+    ['a version detail without endpoints', () => partnerOffers(BOTH, null)],
+  ])('answers 3001 for %s', async (_label, setup) => {
+    setup();
+    dbResults = [[PENDING_PARTNER]];
+    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, AUTH)).rejects.toMatchObject({
+      ocpiStatus: 3001,
+    });
   });
 });
 
 describe('handleCredentialUpdate', () => {
-  it('rejects credentials without roles', async () => {
-    await expect(
-      svc.handleCredentialUpdate({ ...PARTNER_CREDENTIALS, roles: [] }, 'opr_000000000001'),
-    ).rejects.toThrow('No roles provided in credentials');
+  const CONNECTED = { ...PENDING_PARTNER, status: 'connected', name: 'Old NL', version: '2.1.1' };
+
+  it('refuses roles of another party', async () => {
+    dbResults = [[CONNECTED]];
+    const other = {
+      ...PARTNER_CREDENTIALS,
+      roles: [{ ...PARTNER_CREDENTIALS.roles[0]!, party_id: 'XYZ' }],
+    };
+    await expect(svc.handleCredentialUpdate(other, 'opr_000000000042')).rejects.toMatchObject({
+      httpStatus: 400,
+      ocpiStatus: 2001,
+    });
   });
 
-  it('refreshes the partner, endpoints and both tokens', async () => {
+  it('refreshes the partner, endpoints and both tokens, keeping its status', async () => {
     partnerOffers(BOTH);
-    dbResults = [
-      [{ allowPrivateNetwork: true, name: 'Old NL', version: '2.1.1', versionUrl: 'https://old' }],
-    ];
-    const result = await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000001');
+    dbResults = [[{ ...CONNECTED, allowPrivateNetwork: true }]];
+    const result = await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042');
     expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
-      entityId: 'opr_000000000001',
+      entityId: 'opr_000000000042',
       action: 'updated',
       actor: 'system',
-      actorLabel: 'ocpi-credentials',
-      before: { name: 'Old NL', version: '2.1.1', versionUrl: 'https://old' },
-      after: { name: 'Partner NL', version: '2.2.1', versionUrl: VERSIONS_URL, endpointCount: 2 },
+      after: { name: 'Partner NL', status: 'connected', version: '2.2.1', endpointCount: 2 },
     });
-    expect(JSON.stringify(mockWriteAudit.mock.calls[0]?.[1])).not.toContain(
-      PARTNER_CREDENTIALS.token,
-    );
-
-    // Default preferred version is 2.2.1.
-    expect(clientGet).toHaveBeenLastCalledWith('https://partner.example.com/ocpi/2.2.1');
     expect(clientOptions[0]).toMatchObject({ allowPrivateNetwork: true });
     const [partnerUpdate] = opsOn(ocpiPartners, 'update');
-    expect(partnerUpdate?.set).toMatchObject({
-      name: 'Partner NL',
-      version: '2.2.1',
-      versionUrl: VERSIONS_URL,
-      roles: PARTNER_CREDENTIALS.roles,
-    });
-    expect(opsOn(ocpiPartnerEndpoints, 'insert')[0]?.values).toHaveLength(2);
+    expect(partnerUpdate?.set?.['status']).toBeUndefined();
     const inserts = opsOn(ocpiCredentialsTokens, 'insert').map(
       (o) => o.values as Record<string, unknown>,
     );
     expect(inserts.map((v) => v['direction'])).toEqual(['received', 'issued']);
-    expect(decryptString(inserts[0]?.['outboundTokenEnc'] as string, KEY)).toBe(
-      PARTNER_CREDENTIALS.token,
-    );
     expect(inserts[1]?.['tokenPrefix']).toBe(result.token.slice(0, 8));
   });
 
-  it('defaults to no private network when the partner row is missing', async () => {
+  it('completes the handshake of a pending partner (connected, token C cleared)', async () => {
     partnerOffers(BOTH, []);
+    dbResults = [[PENDING_PARTNER]];
+    await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042', '2.3.0');
+    const [partnerUpdate] = opsOn(ocpiPartners, 'update');
+    expect(partnerUpdate?.set).toMatchObject({
+      status: 'connected',
+      partnerRegistrationTokenEnc: null,
+    });
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({ action: 'registered' });
+  });
+
+  it('keeps a suspended partner suspended', async () => {
+    partnerOffers(BOTH, []);
+    dbResults = [[{ ...CONNECTED, status: 'suspended' }]];
+    await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042');
+    const [partnerUpdate] = opsOn(ocpiPartners, 'update');
+    expect(partnerUpdate?.set?.['status']).toBeUndefined();
+  });
+
+  it('answers 405 when the partner row is missing', async () => {
     dbResults = [[]];
-    await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000001', '2.3.0');
-    expect(clientOptions[0]).toMatchObject({ allowPrivateNetwork: false });
-    expect(clientGet).toHaveBeenLastCalledWith('https://partner.example.com/ocpi/2.3.0');
-    expect(opsOn(ocpiPartnerEndpoints, 'insert')).toHaveLength(0);
+    await expect(
+      svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042'),
+    ).rejects.toMatchObject({ httpStatus: 405 });
   });
 });
 
 describe('handleUnregister', () => {
   it('disconnects the partner and deactivates all its tokens', async () => {
     await svc.handleUnregister('opr_000000000001');
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
     expect(ops).toHaveLength(2);
     expect(ops[0]).toMatchObject({ op: 'update', table: ocpiPartners });
     expect(ops[0]?.set).toMatchObject({ status: 'disconnected' });
@@ -453,8 +446,10 @@ describe('initiateRegistration', () => {
     id: 'opr_000000000001',
     countryCode: 'NL',
     partyId: 'ABC',
+    status: 'pending',
     versionUrl: VERSIONS_URL,
     allowPrivateNetwork: false,
+    allowRawToken: false,
     partnerRegistrationTokenEnc: encryptString('token-C-registration', KEY),
   };
 
@@ -487,20 +482,33 @@ describe('initiateRegistration', () => {
     expect(clientPost).not.toHaveBeenCalled();
   });
 
-  it('fails when the partner returns no credentials', async () => {
+  it('fails for a connected partner', async () => {
+    dbResults = [[{ ...PARTNER_ROW, status: 'connected' }]];
+    await expect(svc.initiateRegistration('opr_000000000001')).rejects.toThrow(
+      'Partner already connected',
+    );
+  });
+
+  it('retires only the new token A when the partner returns no credentials', async () => {
     partnerOffers(BOTH);
     clientPost.mockResolvedValue(envelope(null));
-    dbResults = [[PARTNER_ROW]];
+    dbResults = [[PARTNER_ROW], [{ id: 77 }]];
     await expect(svc.initiateRegistration('opr_000000000001')).rejects.toThrow(
       'Partner returned no credentials',
     );
+    // The earlier issued tokens stay active: one update, the new token only.
+    const updates = opsOn(ocpiCredentialsTokens, 'update');
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.set).toEqual({ isActive: false });
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 
   it('posts token A with token C, stores token B and clears token C', async () => {
     const theirs = { ...PARTNER_CREDENTIALS, token: 'token-B-from-partner' };
     partnerOffers(BOTH);
     clientPost.mockResolvedValue(envelope(theirs));
-    dbResults = [[PARTNER_ROW]];
+    dbResults = [[PARTNER_ROW], [{ id: 77 }]];
 
     const result = await svc.initiateRegistration('opr_000000000001', '2.3.0');
     expect(result).toEqual(theirs);
@@ -540,9 +548,10 @@ describe('initiateRegistration', () => {
       versionUrl: VERSIONS_URL,
       partnerRegistrationTokenEnc: null,
     });
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
     expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
       entityId: 'opr_000000000001',
-      action: 'updated',
+      action: 'registered',
       actor: 'system',
       after: { status: 'connected', version: '2.3.0', versionUrl: VERSIONS_URL, endpointCount: 2 },
     });
@@ -561,7 +570,7 @@ describe('initiateRegistration', () => {
       );
     });
     clientPost.mockResolvedValue(envelope({ ...PARTNER_CREDENTIALS, token: 'token-B-xyz' }));
-    dbResults = [[PARTNER_ROW]];
+    dbResults = [[PARTNER_ROW], [{ id: 77 }]];
     await svc.initiateRegistration('opr_000000000001');
     expect(opsOn(ocpiPartnerEndpoints, 'delete')).toHaveLength(1);
     expect(opsOn(ocpiPartnerEndpoints, 'insert')).toHaveLength(0);

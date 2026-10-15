@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { eq, and, gte, lte, sql, isNotNull, isNull, desc } from 'drizzle-orm';
+import { eq, and, gte, lte, sql, isNotNull, isNull, desc, ne } from 'drizzle-orm';
 import {
   db,
   sites,
@@ -29,7 +29,8 @@ import { isLocationVisibleToPartner } from '../../lib/location-visibility.js';
 import { findPublishedSiteId } from '../../lib/published-location.js';
 import { findEvseByUid } from '../../lib/evse-lookup.js';
 import { connectorTariffIds } from '../../services/connector-tariffs.js';
-import { removedEvseRow } from '../../services/location-render.js';
+import { removedEvseRow, retiredConnectorsUpdatedAt } from '../../services/location-render.js';
+import { locationLastUpdatedSql } from '../../lib/location-last-updated.js';
 import type { OcpiVersion } from '../../types/ocpi.js';
 import type { EvseRow as TransformEvseRow } from '../../transformers/location.transformer.js';
 
@@ -48,6 +49,9 @@ interface EvseRow {
   evseId: number;
   updatedAt: Date;
   stationLevelUnavailable: boolean;
+  stationOnline: boolean;
+  stationUpdatedAt: Date;
+  retiredConnectorsUpdatedAt?: Date;
   removed: boolean;
 }
 
@@ -61,87 +65,69 @@ interface ConnectorRow {
   updatedAt: Date;
 }
 
+interface PublishedLocationRow {
+  site: typeof sites.$inferSelect;
+  ocpiLocationId: string;
+  publishUpdatedAt: Date;
+}
+
 async function getPublishedLocations(
   partnerId: string,
   offset: number,
   limit: number,
   dateFrom?: Date,
   dateTo?: Date,
-): Promise<{ locations: (typeof sites.$inferSelect)[]; total: number }> {
-  // Get published location IDs visible to this partner
+): Promise<{ locations: PublishedLocationRow[]; total: number }> {
+  // The location's last_updated: the site, its publish row, its EVSEs and
+  // connectors, and its removed EVSEs (OCPI 8.3.1). The date filters and the
+  // sort use it, so a partner pulling with date_from sees an EVSE change.
+  const lastUpdated = locationLastUpdatedSql();
   const conditions = [eq(ocpiLocationPublish.isPublished, true)];
+  if (dateFrom != null) conditions.push(sql`${lastUpdated} >= ${dateFrom}`);
+  if (dateTo != null) conditions.push(sql`${lastUpdated} <= ${dateTo}`);
 
-  if (dateFrom != null) {
-    conditions.push(gte(ocpiLocationPublish.updatedAt, dateFrom));
-  }
-  if (dateTo != null) {
-    conditions.push(lte(ocpiLocationPublish.updatedAt, dateTo));
-  }
-
-  // Query published sites - either publishToAll=true or partner is in the allow list.
+  // Published sites - either publishToAll=true or partner is in the allow list.
   // Inner-join sites and require non-null coordinates so the OCPI list reflects
   // only locations we can actually represent (coordinates is a required field
   // in the OCPI Location object); count and pagination both reflect that filter.
-  // OCPI 2.2.1 §3.1.3: list responses MUST be sorted by `last_updated`.
-  // Without an explicit ORDER BY, Postgres returns rows in storage order,
-  // which means client pagination can skip or repeat rows as the index
-  // mutates. Sort by site.updated_at DESC to match the Location.last_updated
-  // each row will carry.
-  const publishedSiteIds = await db
+  // OCPI 2.2.1 §3.1.3: list responses MUST be sorted by `last_updated`; the
+  // site id breaks ties so pages never skip or repeat a row. EXISTS on the
+  // allow-list keeps one row per site.
+  const visible = sql`(${ocpiLocationPublish.publishToAll} = true OR EXISTS (
+    SELECT 1 FROM ${ocpiLocationPublishPartners}
+     WHERE ${ocpiLocationPublishPartners.locationPublishId} = ${ocpiLocationPublish.id}
+       AND ${ocpiLocationPublishPartners.partnerId} = ${partnerId}))`;
+  const where = and(...conditions, isNotNull(sites.latitude), isNotNull(sites.longitude), visible);
+
+  const [countRow] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(ocpiLocationPublish)
+    .innerJoin(sites, eq(sites.id, ocpiLocationPublish.siteId))
+    .where(where);
+  const total = countRow?.total ?? 0;
+  if (total === 0 || offset >= total) return { locations: [], total };
+
+  const rows = await db
     .select({
-      siteId: ocpiLocationPublish.siteId,
+      site: sites,
       ocpiLocationId: ocpiLocationPublish.ocpiLocationId,
+      publishUpdatedAt: ocpiLocationPublish.updatedAt,
     })
     .from(ocpiLocationPublish)
     .innerJoin(sites, eq(sites.id, ocpiLocationPublish.siteId))
-    .leftJoin(
-      ocpiLocationPublishPartners,
-      eq(ocpiLocationPublish.id, ocpiLocationPublishPartners.locationPublishId),
-    )
-    .where(
-      and(
-        ...conditions,
-        isNotNull(sites.latitude),
-        isNotNull(sites.longitude),
-        sql`(${ocpiLocationPublish.publishToAll} = true OR ${ocpiLocationPublishPartners.partnerId} = ${partnerId})`,
-      ),
-    )
-    .orderBy(desc(sites.updatedAt), desc(ocpiLocationPublish.siteId));
+    .where(where)
+    .orderBy(desc(lastUpdated), desc(ocpiLocationPublish.siteId))
+    .limit(limit)
+    .offset(offset);
 
-  // Dedupe while preserving sort order. A site with multiple allow-list rows
-  // appears once per row from the LEFT JOIN; the first hit wins.
-  const siteIdSet = new Map<string, string | null>();
-  for (const row of publishedSiteIds) {
-    if (!siteIdSet.has(row.siteId)) {
-      siteIdSet.set(row.siteId, row.ocpiLocationId);
-    }
-  }
-
-  const uniqueSiteIds = [...siteIdSet.keys()];
-
-  if (uniqueSiteIds.length === 0) {
-    return { locations: [], total: 0 };
-  }
-
-  const total = uniqueSiteIds.length;
-
-  // Paginate the site IDs
-  const pagedSiteIds = uniqueSiteIds.slice(offset, offset + limit);
-  if (pagedSiteIds.length === 0) {
-    return { locations: [], total };
-  }
-
-  // Sites returned by the IN-list filter come back unordered. Re-sort to
-  // match the canonical pagination order so the response array matches the
-  // header offsets.
-  const orderIndex = new Map(pagedSiteIds.map((id, idx) => [id, idx]));
-  const siteRows = await db
-    .select()
-    .from(sites)
-    .where(sql`${sites.id} IN ${pagedSiteIds}`);
-  siteRows.sort((a, b) => (orderIndex.get(a.id) ?? 0) - (orderIndex.get(b.id) ?? 0));
-
-  return { locations: siteRows, total };
+  return {
+    locations: rows.map((r) => ({
+      site: r.site,
+      ocpiLocationId: r.ocpiLocationId ?? r.site.id,
+      publishUpdatedAt: r.publishUpdatedAt,
+    })),
+    total,
+  };
 }
 
 function withEvseTariffIds<T extends EvseRow>(
@@ -168,6 +154,8 @@ async function getEvsesWithConnectors(
       firmwareState: chargingStations.firmwareState,
       reportedStatus: chargingStations.reportedStatus,
       onboardingStatus: chargingStations.onboardingStatus,
+      isOnline: chargingStations.isOnline,
+      stationUpdatedAt: chargingStations.updatedAt,
     })
     .from(evses)
     .innerJoin(chargingStations, eq(chargingStations.id, evses.stationId))
@@ -179,12 +167,20 @@ async function getEvsesWithConnectors(
       ? await db
           .select()
           .from(connectors)
-          // A retired connector is out of service: left out of the location.
-          .where(sql`${connectors.evseId} IN ${evseIds} AND ${connectors.retiredAt} IS NULL`)
+          .where(sql`${connectors.evseId} IN ${evseIds}`)
       : [];
 
   const connectorsByEvse = new Map<string, ConnectorRow[]>();
+  const retiredByEvse = new Map<string, Array<{ retiredAt: Date | null; updatedAt: Date }>>();
   for (const c of connectorRows) {
+    // A retired connector is out of service: left out of the location, but
+    // its change still moves the EVSE's last_updated.
+    if (c.retiredAt != null) {
+      const retired = retiredByEvse.get(c.evseId) ?? [];
+      retired.push(c);
+      retiredByEvse.set(c.evseId, retired);
+      continue;
+    }
     const list = connectorsByEvse.get(c.evseId) ?? [];
     list.push({
       id: c.id,
@@ -209,6 +205,9 @@ async function getEvsesWithConnectors(
       evseId: e.evseId,
       updatedAt: e.updatedAt,
       stationLevelUnavailable: isStationLevelUnavailable(e),
+      stationOnline: e.isOnline,
+      stationUpdatedAt: e.stationUpdatedAt,
+      ...retiredConnectorsUpdatedAt(retiredByEvse.get(e.id) ?? []),
       // A deleted station is kept with onboarding status `blocked`; a retired
       // EVSE is out of service. Both are REMOVED (OCPI 8.1).
       removed: e.onboardingStatus === 'blocked' || e.retiredAt != null,
@@ -309,12 +308,18 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
       return ocpiSuccess([]);
     }
 
-    // Get stations for these sites
-    const siteIds = siteRows.map((s) => s.id);
+    // Get stations for these sites. A pending station is not onboarded:
+    // never published (a blocked one, deleted, stays as REMOVED).
+    const siteIds = siteRows.map((r) => r.site.id);
     const stationRows = await db
       .select()
       .from(chargingStations)
-      .where(sql`${chargingStations.siteId} IN ${siteIds}`);
+      .where(
+        and(
+          sql`${chargingStations.siteId} IN ${siteIds}`,
+          ne(chargingStations.onboardingStatus, 'pending'),
+        ),
+      );
 
     const stationIds = stationRows.map((s) => s.id);
     const evseMap = await getEvsesWithConnectors(stationIds);
@@ -328,26 +333,12 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
       stationsBySite.set(station.siteId, list);
     }
 
-    // Get OCPI location IDs from publish settings
-    const publishSettings = await db
-      .select({
-        siteId: ocpiLocationPublish.siteId,
-        ocpiLocationId: ocpiLocationPublish.ocpiLocationId,
-      })
-      .from(ocpiLocationPublish)
-      .where(sql`${ocpiLocationPublish.siteId} IN ${siteIds}`);
-
-    const locationIdMap = new Map<string, string>();
-    for (const ps of publishSettings) {
-      locationIdMap.set(ps.siteId, ps.ocpiLocationId ?? ps.siteId);
-    }
-
     const countryCode = getCountryCode();
     const partyId = getPartyId();
 
-    const allSiteIds = siteRows.map((s) => s.id);
+    const allSiteIds = siteIds;
     const maintenanceCoverage = await findSiteMaintenanceCoverage(allSiteIds);
-    const freeVendBySite = new Map(siteRows.map((s) => [s.id, s.freeVendEnabled]));
+    const freeVendBySite = new Map(siteRows.map((r) => [r.site.id, r.site.freeVendEnabled]));
     // EVSEs that left these sites (deleted, station moved) are served as
     // REMOVED for the retention period (OCPI 8.1).
     const removedBySite = new Map<string, TransformEvseRow[]>();
@@ -366,7 +357,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
 
     // OCPI Location.coordinates is required; getPublishedLocations() filters
     // out coordinateless sites at the source so total + pagination stay aligned.
-    const ocpiLocations = siteRows.map((site) => {
+    const ocpiLocations = siteRows.map(({ site, ocpiLocationId, publishUpdatedAt }) => {
       const siteStationIds = stationsBySite.get(site.id) ?? [];
       const allEvses = [
         ...siteStationIds.flatMap((stId) =>
@@ -380,7 +371,8 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         {
           site,
           evses: allEvses,
-          ocpiLocationId: locationIdMap.get(site.id) ?? site.id,
+          ocpiLocationId,
+          publishUpdatedAt,
           countryCode,
           partyId,
           ...(coverage != null ? { maintenance: coverage } : {}),
@@ -432,7 +424,14 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
     const stationRows = await db
       .select()
       .from(chargingStations)
-      .where(eq(chargingStations.siteId, siteId));
+      .where(
+        and(eq(chargingStations.siteId, siteId), ne(chargingStations.onboardingStatus, 'pending')),
+      );
+    const [publish] = await db
+      .select({ updatedAt: ocpiLocationPublish.updatedAt })
+      .from(ocpiLocationPublish)
+      .where(eq(ocpiLocationPublish.siteId, siteId))
+      .limit(1);
 
     const stationIds = stationRows.map((s) => s.id);
     const evseMap = await getEvsesWithConnectors(stationIds);
@@ -454,6 +453,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         site,
         evses: allEvses,
         ocpiLocationId: location_id,
+        ...(publish != null ? { publishUpdatedAt: publish.updatedAt } : {}),
         countryCode: getCountryCode(),
         partyId: getPartyId(),
         ...(coverage != null ? { maintenance: coverage } : {}),
@@ -490,7 +490,8 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
           .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'EVSE not found'));
         return;
       }
-      if (found?.siteId !== siteId) {
+      // A pending station is not onboarded: its EVSEs are not published.
+      if (found?.siteId !== siteId || found.stationPending) {
         const removed = await findRemovedEvse(siteId, evse_uid);
         if (removed == null) {
           await reply
@@ -507,17 +508,22 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         evseId: found.evseNumber,
         updatedAt: found.updatedAt,
         stationLevelUnavailable: isStationLevelUnavailable(found.stationState),
+        stationOnline: found.stationOnline,
+        stationUpdatedAt: found.stationUpdatedAt,
         removed: found.stationRemoved || found.evseRetired,
       };
       const evseTariffIds = await stationTariffIds(partner.partnerId, found.stationDbId, siteId);
 
-      const connectorRows = await db
+      const allConnectorRows = await db
         .select()
         .from(connectors)
-        .where(and(eq(connectors.evseId, evseRow.id), isNull(connectors.retiredAt)));
+        .where(eq(connectors.evseId, evseRow.id));
+      // A retired connector is left out; its change still moves last_updated.
+      const connectorRows = allConnectorRows.filter((c) => c.retiredAt == null);
 
       const evseWithConnectors = {
         ...evseRow,
+        ...retiredConnectorsUpdatedAt(allConnectorRows),
         ...(evseTariffIds != null ? { tariffIds: evseTariffIds } : {}),
         connectors: connectorRows.map((c) => ({
           id: c.id,
@@ -567,7 +573,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
           .send(ocpiError(OcpiStatusCode.CLIENT_UNKNOWN_LOCATION, 'Connector not found'));
         return;
       }
-      if (found?.siteId !== siteId) {
+      if (found?.siteId !== siteId || found.stationPending) {
         const removed = (await findRemovedEvse(siteId, evse_uid))?.connectors.find(
           (c) => c.connectorId === connectorIdNum,
         );
@@ -580,6 +586,11 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         return ocpiSuccess(transformConnectorStandalone(removed, version));
       }
 
+      // The EVSE of a deleted station, or a retired EVSE, is REMOVED (the
+      // EVSE GET and the location carry the status; a Connector has none,
+      // OCPI 8.3.3): its connectors are served as they were, like those of
+      // a removed EVSE. A retired connector of a live EVSE is left out.
+      const evseRemoved = found.stationRemoved || found.evseRetired;
       const [connector] = await db
         .select()
         .from(connectors)
@@ -587,7 +598,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
           and(
             eq(connectors.evseId, found.evseDbId),
             eq(connectors.connectorId, connectorIdNum),
-            isNull(connectors.retiredAt),
+            ...(evseRemoved ? [] : [isNull(connectors.retiredAt)]),
           ),
         )
         .limit(1);

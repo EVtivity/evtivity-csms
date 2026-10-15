@@ -11,7 +11,7 @@ import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
 import { hashToken } from '../lib/token-hash.js';
 import { authRequestOrigin } from '../lib/auth-audit.js';
 import { isDriverActive } from '../lib/driver-active.js';
-import { isUserActive } from '../lib/user-active.js';
+import { getUserSessionState } from '../lib/user-active.js';
 import { isAiToolRequest } from '../services/ai/tools/execute.js';
 
 // A missing, expired or forged token is routine: log it at debug. Anything
@@ -44,6 +44,12 @@ export interface JwtPayload {
    * /auth/mfa/resend; `app.authenticate` rejects them on every other route.
    */
   mfaPending?: boolean;
+  /**
+   * The user's session version when the token was issued
+   * (`signOperatorAccessToken`). A token of another version is refused; a
+   * token without it counts as version 0.
+   */
+  sv?: number;
 }
 
 export interface DriverJwtPayload {
@@ -62,9 +68,11 @@ export interface OperatorTokenRejection {
 /**
  * The checks every operator route applies to a JWT after its signature and
  * expiry verified: a driver token (the two realms share a signing key) or a
- * token without a userId is refused, an MFA-pending token is refused, and a
- * deactivated user is refused. Used by `app.authenticate` and by the SSE
- * stream, which verifies its token itself.
+ * token without a userId is refused, an MFA-pending token is refused, a
+ * deactivated user is refused, and a token issued under an earlier session
+ * version (logout, password, MFA, role or permission change) is refused.
+ * Used by `app.authenticate` and by the SSE stream, which verifies its token
+ * itself.
  */
 export async function operatorTokenRejection(
   payload: unknown,
@@ -76,8 +84,13 @@ export async function operatorTokenRejection(
   if (record['mfaPending'] === true) {
     return { error: 'MFA verification required', code: 'MFA_REQUIRED' };
   }
-  if (!(await isUserActive(record['userId']))) {
+  const state = await getUserSessionState(record['userId']);
+  if (!state.active) {
     return { error: 'Account deactivated', code: 'ACCOUNT_DEACTIVATED' };
+  }
+  const sv = typeof record['sv'] === 'number' ? record['sv'] : 0;
+  if (sv !== state.sessionVersion) {
+    return { error: 'Session ended', code: 'UNAUTHORIZED' };
   }
   return null;
 }
@@ -148,8 +161,13 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       return;
     } catch (err) {
       logAuthFailure(request, err, 'Bearer token check failed, trying the csms_token cookie');
+      const authHeader = request.headers['authorization'];
+      // A request with an Authorization header authenticates with it only.
+      // The CSMS CSRF hook skips such requests, so a cookie fallback here
+      // would let a cookie session through without its CSRF token.
+      const hasAuthHeader = authHeader != null && authHeader !== '';
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      const rawCsmsToken = request.cookies?.['csms_token'];
+      const rawCsmsToken = hasAuthHeader ? undefined : request.cookies?.['csms_token'];
       if (rawCsmsToken != null && rawCsmsToken !== '') {
         try {
           // Unsign the cookie; fall back to raw value for backward compatibility
@@ -170,7 +188,6 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
         }
       }
       // Fallback 2: API key (opaque hex token in Authorization header)
-      const authHeader = request.headers['authorization'];
       if (authHeader != null) {
         const token = authHeader.replace(/^Bearer\s+/i, '');
         if (/^[0-9a-f]{64}$/i.test(token)) {

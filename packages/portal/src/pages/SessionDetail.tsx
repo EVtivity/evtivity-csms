@@ -29,6 +29,7 @@ import { SessionCharts } from '@/components/SessionCharts';
 import { SessionVehicleCard, type SessionVehicleCapture } from '@/components/SessionVehicleCard';
 import { ReportIssue } from '@/components/ReportIssue';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import {
   formatCents,
   formatEnergy,
@@ -42,6 +43,10 @@ import { useAuth } from '@/lib/auth';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 import type { SessionAccountBilling } from '@/lib/fleet-billing';
+import { isUnchargedSession, sessionDisplayCostCents } from '@evtivity/lib/session-cost';
+
+/** Longer than the API's 35 s wait for the station's stop answer plus the session end. */
+const STOP_SAFETY_TIMEOUT_MS = 50_000;
 
 interface SessionDetailData {
   id: string;
@@ -220,10 +225,15 @@ export function SessionDetail(): React.JSX.Element {
       void queryClient.invalidateQueries({ queryKey: ['portal-session', id] });
       void queryClient.invalidateQueries({ queryKey: ['portal-active-sessions'] });
     },
-    onError: () => {
+    onError: (err: unknown) => {
       setStopping(false);
       setShowStopConfirm(false);
-      toast({ variant: 'destructive', title: t('sessionDetail.stopFailed') });
+      // The station refused the stop (SESSION_STOP_REJECTED), is offline
+      // (STATION_OFFLINE) or did not answer (STATION_TIMEOUT): the API code says which.
+      toast({
+        variant: 'destructive',
+        title: getErrorMessage(err, t, 'sessionDetail.stopFailed'),
+      });
     },
   });
 
@@ -238,15 +248,18 @@ export function SessionDetail(): React.JSX.Element {
     }
   }, [session?.status, stopping]);
 
-  // Safety timeout. If the station never acks (offline, dropped command, etc.)
-  // clear the spinner and surface a toast so the user can retry.
+  // Safety timeout. If the session does not end after the station accepted the
+  // stop, clear the spinner and surface a toast so the user can retry. It runs
+  // longer than the API's 35 s wait for the station's answer
+  // (STOP_SAFETY_TIMEOUT_MS), so a rejection or timeout the API reports shows
+  // its own toast first.
   useEffect(() => {
     if (!stopping) return;
     const timer = setTimeout(() => {
       setStopping(false);
       setShowStopConfirm(false);
       toast({ variant: 'warning', title: t('sessionDetail.stopTimeout') });
-    }, 30000);
+    }, STOP_SAFETY_TIMEOUT_MS);
     return () => {
       clearTimeout(timer);
     };
@@ -262,9 +275,12 @@ export function SessionDetail(): React.JSX.Element {
     return <ErrorCard message={t('sessionDetail.notFound')} />;
   }
 
-  const costCents = session.finalCostCents ?? session.currentCostCents;
-  const cost =
-    costCents != null && costCents === 0
+  // A faulted or failed session that cost nothing was not charged; any other
+  // session at 0 was free (shared rule: @evtivity/lib/session-cost).
+  const costCents = sessionDisplayCostCents(session);
+  const cost = isUnchargedSession(session)
+    ? t('common.notCharged')
+    : costCents === 0
       ? t('sessionDetail.free')
       : formatCents(costCents, session.currency);
   // Costs include tax. The API splits out the tax they contain per tariff, as

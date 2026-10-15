@@ -251,10 +251,7 @@ describe('completeRebilledSession', () => {
 
   it('moves only a claimed faulted EndRequestFailed session to completed with its cost', async () => {
     const { sql, calls } = makeSql([
-      [
-        'FROM charging_sessions s\n    JOIN charging_stations',
-        [{ site_id: 'sit_1', timezone: 'UTC' }],
-      ],
+      ['LEFT JOIN sites si ON si.id = s.site_id', [{ site_id: 'sit_1', timezone: 'UTC' }]],
       ["SET status = 'completed'", [{ id: 'ses_1' }]],
     ]);
     const changed = await completeRebilledSession(sql, {
@@ -289,7 +286,7 @@ describe('completeRebilledSession', () => {
   it('prices the electricity cost like session end (computeSessionElectricityCost)', async () => {
     const { sql } = makeSql([
       [
-        'FROM charging_sessions s\n    JOIN charging_stations',
+        'LEFT JOIN sites si ON si.id = s.site_id',
         [{ site_id: 'sit_1', timezone: 'America/Chicago' }],
       ],
     ]);
@@ -306,12 +303,27 @@ describe('completeRebilledSession', () => {
     expect(await rebillElectricityCostCents(sql, 'ses_1', endedAt, 10_000)).toBe(220);
   });
 
+  it('reads the rates of the site the session happened at, not the station current site', async () => {
+    const { sql, calls } = makeSql([
+      ['LEFT JOIN sites si ON si.id = s.site_id', [{ site_id: 'sit_old', timezone: 'UTC' }]],
+    ]);
+    periodsMock.mockResolvedValue(periods);
+    await rebillElectricityCostCents(sql, 'ses_1', new Date('2026-06-08T22:30:00Z'), 10_000);
+    expect(calls[0]?.text).toContain('SELECT s.site_id, si.timezone');
+    expect(calls[0]?.text).not.toContain('charging_stations');
+    expect(periodsMock).toHaveBeenCalledWith('sit_old');
+  });
+
   it('records no electricity cost without a site, a matching period or energy', async () => {
-    const unsited = makeSql([['JOIN charging_stations', [{ site_id: null, timezone: null }]]]);
+    const unsited = makeSql([
+      ['LEFT JOIN sites si ON si.id = s.site_id', [{ site_id: null, timezone: null }]],
+    ]);
     expect(
       await rebillElectricityCostCents(unsited.sql, 'ses_1', new Date('2026-06-08T22:30:00Z'), 1),
     ).toBeNull();
-    const sited = makeSql([['JOIN charging_stations', [{ site_id: 'sit_1', timezone: 'UTC' }]]]);
+    const sited = makeSql([
+      ['LEFT JOIN sites si ON si.id = s.site_id', [{ site_id: 'sit_1', timezone: 'UTC' }]],
+    ]);
     periodsMock.mockResolvedValue([]);
     expect(
       await rebillElectricityCostCents(sited.sql, 'ses_1', new Date('2026-06-08T22:30:00Z'), 1),

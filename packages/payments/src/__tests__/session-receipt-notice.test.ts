@@ -53,6 +53,23 @@ beforeEach(() => {
 });
 
 describe('dispatchSessionReceiptIfDue (finding JB-3)', () => {
+  it('names the site the session happened at, not the station current site (owner decision A)', async () => {
+    h.results.push([{ id: 's1' }], [sessionRow({ site_name: 'Old Depot' })]);
+
+    expect(await dispatchSessionReceiptIfDue('s1', deps)).toBe(true);
+
+    const read = h.statements.find((s) => s.includes('site_name'));
+    expect(read).toContain('LEFT JOIN sites si ON si.id = COALESCE(cs.site_id, st.site_id)');
+    expect(h.dispatchDriverNotification).toHaveBeenCalledWith(
+      h.client,
+      'session.Receipt',
+      'd1',
+      expect.objectContaining({ siteName: 'Old Depot' }),
+      ['/t'],
+      undefined,
+    );
+  });
+
   it('TC-T3-31: says what was charged when the top-up above the hold was declined', async () => {
     h.results.push(
       [{ id: 's1' }],

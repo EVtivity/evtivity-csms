@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { z } from 'zod';
+import { parseTrustProxy } from '@evtivity/lib/trust-proxy';
 
 const schema = z.object({
   OCPI_PORT: z.coerce.number().int().positive(),
@@ -14,6 +15,21 @@ const schema = z.object({
   DATABASE_URL: z.string().url().default('postgres://evtivity:evtivity@localhost:5433/evtivity'),
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
   SETTINGS_ENCRYPTION_KEY: z.string().min(1),
+  // Proxies in front of the OCPI server (Fastify trustProxy): empty (default)
+  // trusts none, else a comma-separated list of proxy IPs or CIDRs. Behind it the
+  // client address and the Link header scheme and host come from the
+  // X-Forwarded-* headers. `true` is refused (spoofable).
+  TRUST_PROXY: z
+    .string()
+    .default('')
+    .transform((v, ctx) => {
+      try {
+        return parseTrustProxy(v);
+      } catch (err) {
+        ctx.addIssue({ code: 'custom', message: (err as Error).message });
+        return z.NEVER;
+      }
+    }),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

@@ -199,6 +199,13 @@
       "allowPrivateNetwork": "사설 네트워크 허용",
       "allowPrivateNetworkHint": "이 파트너에 대한 요청과 명령 콜백이 루프백 및 사설 주소에 연결되도록 허용합니다. 사설 피어링이나 로컬 시뮬레이터에 사용합니다. 공용 인터넷의 파트너는 끈 상태로 두세요.",
       "privateNetworkSaved": "네트워크 접근 설정이 저장되었습니다",
+      "allowRawToken": "인코딩되지 않은 토큰 허용",
+      "allowRawTokenHint": "자격 증명 토큰을 Base64 인코딩 없이 보내는 OCPI 2.1.1 및 2.2 파트너용입니다. 이 경우 당사 토큰도 같은 방식으로 전송됩니다. OCPI 2.2.1 및 2.3.0 파트너는 끈 상태로 두세요.",
+      "rawTokenSaved": "토큰 인코딩이 저장되었습니다",
+      "newRegistrationToken": "새 등록 토큰",
+      "newRegistrationTokenTitle": "새 등록 토큰",
+      "newRegistrationTokenDescription": "이 파트너의 새 등록 토큰을 만듭니다. 이전에 발급된 등록 토큰은 더 이상 작동하지 않습니다.",
+      "tokenIssued": "새 등록 토큰이 생성되었습니다. 파트너가 OCPI 서버에 등록할 수 있도록 공유하세요.",
       "tokenCreated": "등록 토큰이 생성되었습니다. 이 토큰을 파트너에게 공유하여 OCPI 서버에 등록할 수 있도록 하세요.",
       "tokenWarning": "이 토큰은 한 번만 표시됩니다. 지금 복사하세요.",
       "register": "등록",
@@ -254,7 +261,22 @@
       "pushStatus": "전송 상태",
       "noCdrs": "CDR 없음",
       "credit": "크레딧",
-      "charge": "청구"
+      "charge": "청구",
+      "superseded": "대체됨",
+      "reason": "사유",
+      "actionFailed": "CDR 작업 실패",
+      "creditAction": "CDR 크레딧",
+      "creditTitle": "이 CDR을 크레딧 처리하시겠습니까?",
+      "creditDescription": "총 비용이 음수인 크레딧 CDR이 파트너에게 전송됩니다. CDR 자체는 변경되지 않습니다.",
+      "creditDone": "크레딧 CDR 생성됨",
+      "reissueAction": "CDR 재발행",
+      "reissueTitle": "이 세션을 재발행하시겠습니까?",
+      "reissueDescription": "현재 세션 상태로 새 CDR이 발행되어 파트너에게 전송됩니다. 크레딧 처리된 CDR은 그대로 유지됩니다.",
+      "reissueDone": "새 CDR을 발행하는 중입니다",
+      "pushAction": "전송 재시도",
+      "pushTitle": "이 CDR을 다시 전송하시겠습니까?",
+      "pushDescription": "동일한 CDR이 파트너에게 다시 전송됩니다.",
+      "pushDone": "CDR이 재전송 대기열에 추가되었습니다"
     },
     "tariffs": {
       "title": "요금 매핑",
@@ -1114,12 +1136,13 @@
       "notEligible": {
         "status": "여기서는 CSMS가 종료하지 못한 세션만 청구할 수 있습니다.",
         "already_rebilled": "세션이 이미 청구되었습니다.",
-        "roaming": "로밍 세션은 로밍 파트너가 청구합니다.",
+        "no_energy": "에너지를 공급하지 않은 로밍 세션은 청구되지 않습니다.",
         "free_vend": "무료 충전 세션은 청구되지 않습니다.",
         "no_tariff": "세션에 요금을 계산할 요금제가 없습니다.",
         "paid": "세션이 이미 결제되었습니다."
       },
-      "account": "세션 청구 완료: 차량대 계정으로 청구됨"
+      "account": "세션 청구 완료: 차량대 계정으로 청구됨",
+      "roamingBilled": "세션 청구됨: 로밍 파트너가 CDR을 받습니다"
     },
     "billedTo": "차량대 청구: {{fleet}}",
     "billingState": {
@@ -1136,7 +1159,14 @@
     "captured": "(수집됨)",
     "useVehicleForPlugIn": "플러그 충전에 이 차량 사용",
     "useVehicleDescription": "충전기가 이 세션에 보낸 ID {{id}}를 운전자의 차량에 저장합니다. Autocharge가 켜져 있으면 다음에 플러그를 꽂을 때 카드나 앱 없이 운전자의 충전이 시작됩니다.",
-    "vehicleClaimed": "차량을 저장했습니다"
+    "vehicleClaimed": "차량을 저장했습니다",
+    "co2Kg": "{{value}} kg",
+    "co2AvoidedValue": "CO₂ {{value}} kg 절감",
+    "eventCount_one": "이벤트 {{count}}개",
+    "eventCount_other": "이벤트 {{count}}개",
+    "stopSession": "세션 중지",
+    "stopSessionConfirmTitle": "이 세션을 중지하시겠습니까?",
+    "stopSessionConfirmDescription": "충전소 {{station}}에 EVSE {{evseId}}의 트랜잭션 중지를 요청합니다. 운전자에게는 지금까지 공급된 에너지가 청구됩니다."
   },
   "drivers": {
     "title": "운전자",
@@ -1445,7 +1475,16 @@
       },
       "aiUsage": "AI 사용량",
       "aiMcp": "MCP 액세스"
-    }
+    },
+    "securityTab": "보안",
+    "mfaTitle": "다단계 인증",
+    "mfaOnDescription": "이 사용자는 두 번째 인증 요소({{method}})로 로그인합니다.",
+    "mfaOffDescription": "이 사용자는 두 번째 인증 요소 없이 로그인합니다.",
+    "mfaReset": "MFA 초기화",
+    "mfaResetConfirm": "이 사용자의 두 번째 인증 요소를 끄고 모든 곳에서 로그아웃시키시겠습니까? 사용자는 비밀번호만으로 로그인하며 MFA를 다시 설정할 수 있습니다.",
+    "mfaResetSuccess": "MFA가 초기화되었습니다",
+    "apiKeysDescription": "이 사용자의 활성 API 키입니다. 더 이상 필요하지 않거나 유출되었을 수 있는 키를 취소하세요.",
+    "noApiKeys": "이 사용자에게는 활성 API 키가 없습니다."
   },
   "profile": {
     "title": "프로필",
@@ -3076,6 +3115,8 @@
     "CAMPAIGN_NOT_FOUND": "캠페인을 찾을 수 없습니다",
     "CASE_NOT_FOUND": "문의를 찾을 수 없습니다",
     "CA_CERT_NOT_FOUND": "CA 인증서를 찾을 수 없습니다",
+    "CDR_NOT_CREDITED": "세션을 다시 발행하기 전에 세션의 모든 CDR을 크레딧 처리하세요",
+    "CDR_PUSH_NOT_FAILED": "전송에 실패한 CDR만 다시 전송할 수 있습니다",
     "CDR_NOT_FOUND": "CDR을 찾을 수 없습니다",
     "CIRCUIT_NOT_FOUND": "회로를 찾을 수 없습니다",
     "COMMAND_ERROR": "명령 실패",
@@ -3154,6 +3195,8 @@
     "INVALID_SITE_IDS": "하나 이상의 siteId가 존재하지 않습니다",
     "INVALID_TOKEN": "유효하지 않거나 만료된 재설정 링크입니다",
     "INVOICE_ALREADY_PAID": "이미 결제된 청구서입니다",
+    "RESERVATION_FEE_ALREADY_INVOICED": "이미 청구서가 발행된 예약 수수료입니다",
+    "SESSION_ALREADY_INVOICED": "이미 청구서가 발행된 세션입니다",
     "INVOICE_CREATION_FAILED": "청구서 생성에 실패했습니다",
     "INVOICE_NOT_ISSUED": "이 작업은 발행된 청구서에만 가능합니다",
     "INVOICE_IS_CREDIT_NOTE": "크레딧 노트는 결제 완료로 표시하거나 크레딧 처리할 수 없습니다",
@@ -3266,7 +3309,6 @@
     "RESERVATION_TIMEOUT": "예약 명령 시간 초과",
     "RESERVATION_TOO_LONG": "예약은 ...시간을 초과할 수 없습니다",
     "RESERVATION_WINDOW_TOO_SHORT": "예약 종료 시간은 시작 시간보다 최소 60초 이후여야 합니다",
-    "RESET_NOT_REQUIRED": "비밀번호 재설정이 필요하지 않습니다",
     "ROAMING_DISABLED": "로밍이 사용 중지되었습니다",
     "ROLE_NOT_FOUND": "역할이 존재하지 않습니다",
     "ROTATION_NOT_APPLICABLE": "자격 증명 교체는 보안 프로필 1과 2에만 적용됩니다",
@@ -3370,7 +3412,14 @@
     "SESSION_NO_VEHICLE_ID": "충전기가 이 세션에 차량 ID를 보내지 않았습니다.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "운영자가 이 차량의 Autocharge를 차단했습니다. 차단을 해제하려면 운영자에게 문의하세요.",
     "VEHICLE_ID_IN_USE": "다른 차량이 이미 이 VIN 또는 EVCCID를 Autocharge에 사용하고 있습니다.",
-    "VEHICLE_ID_REQUIRED": "Autocharge를 사용하려면 차량에 VIN 또는 EVCCID가 있어야 합니다."
+    "VEHICLE_ID_REQUIRED": "Autocharge를 사용하려면 차량에 VIN 또는 EVCCID가 있어야 합니다.",
+    "SESSION_STOP_REJECTED": "충전소가 중지 요청을 거부했습니다. 세션이 계속 충전 중입니다.",
+    "PARTNER_ALREADY_CONNECTED": "파트너가 이미 연결되어 있습니다",
+    "PARTNER_NOT_REGISTERED": "파트너는 OCPI 자격 증명 교환을 통해 연결됩니다",
+    "SESSION_REQUIRED": "이 작업에는 로그인 세션이 필요합니다. API 키로는 사용할 수 없습니다.",
+    "MFA_LOCKED": "잘못된 코드가 너무 많습니다. 잠시 후 다시 시도하세요.",
+    "MFA_RESEND_LIMITED": "코드를 너무 많이 보냈습니다. 잠시 후 다시 요청하세요.",
+    "USER_SSO_MANAGED": "이 사용자는 SSO로 로그인하므로 설정할 비밀번호가 없습니다."
   },
   "logs": {
     "title": "로그",
@@ -4512,6 +4561,8 @@
       "erased": "삭제됨",
       "invite_resent": "초대 재전송됨",
       "cdr_credited": "CDR 크레딧 처리됨",
+      "cdr_push_retried": "CDR 전송 재시도됨",
+      "cdr_reissued": "CDR 재발행됨",
       "faulted": "오류로 종료됨",
       "stopped_by_csms": "CSMS에서 중지됨",
       "vehicle_changed": "차량 변경됨",
@@ -4527,7 +4578,9 @@
       "autocharge_disabled": "Autocharge 꺼짐",
       "autocharge_blocked": "차량 차단",
       "autocharge_unblocked": "차량 차단 해제",
-      "vehicle_id_claimed": "세션에서 차량 ID 추가"
+      "vehicle_id_claimed": "세션에서 차량 ID 추가",
+      "account_locked": "로그인 잠김",
+      "mfa_reset": "MFA 초기화"
     },
     "entities": {
       "site": "사이트",

@@ -15,7 +15,12 @@ import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { createApiKey, listApiKeys, revokeApiKey } from '../services/api-key.service.js';
 import { permissionCatalog } from '@evtivity/lib';
-import { canGrantPermissions } from '../lib/user-management-scope.js';
+import {
+  canAdministerUser,
+  canGrantPermissions,
+  getUserManagementActor,
+} from '../lib/user-management-scope.js';
+import { ID_PARAMS } from '../lib/id-validation.js';
 import {
   db,
   refreshTokens,
@@ -89,6 +94,13 @@ const apiKeyCreatedItem = z
   .passthrough();
 
 const idParams = z.object({ id: z.coerce.number().int().min(1) });
+
+const userIdParams = z.object({ id: ID_PARAMS.userId.describe('User ID') });
+
+const userApiKeyParams = z.object({
+  id: ID_PARAMS.userId.describe('User ID'),
+  keyId: z.coerce.number().int().min(1).describe('API key ID'),
+});
 
 /**
  * Whether a request may change or revoke a key with this scope. A request
@@ -418,6 +430,87 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         request.log,
       );
 
+      return { success: true as const };
+    },
+  );
+
+  // Another user's keys, for an admin who holds every permission of that
+  // user (canAdministerUser): list them and revoke one, for example after
+  // the user left or a key leaked. A user outside the actor's reach answers
+  // 404 like a missing one.
+  app.get(
+    '/users/:id/api-keys',
+    {
+      onRequest: [authorize('users:read')],
+      schema: {
+        tags: ['API Keys'],
+        summary: 'List the active API keys of a user',
+        description:
+          'Active API keys of another user (no token, only the last characters). Requires users:read and every permission of the target user.',
+        operationId: 'listUserApiKeys',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(userIdParams),
+        response: {
+          200: arrayResponse(apiKeyItem),
+          404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof userIdParams>;
+      if (!(await canAdministerUser(request, await getUserManagementActor(request), id))) {
+        await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        return;
+      }
+      return listApiKeys(id);
+    },
+  );
+
+  app.delete(
+    '/users/:id/api-keys/:keyId',
+    {
+      onRequest: [authorize('users:write')],
+      schema: {
+        tags: ['API Keys'],
+        summary: 'Revoke an API key of a user',
+        description:
+          'Revokes one API key of another user and writes a revoked audit row. Requires users:write and every permission of the target user.',
+        operationId: 'revokeUserApiKey',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(userApiKeyParams),
+        response: {
+          200: successResponse,
+          404: errorWith('User or API key not found', [
+            ERROR_CODES.USER_NOT_FOUND,
+            ERROR_CODES.API_KEY_NOT_FOUND,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, keyId } = request.params as z.infer<typeof userApiKeyParams>;
+      if (!(await canAdministerUser(request, await getUserManagementActor(request), id))) {
+        await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        return;
+      }
+      const revoked = await revokeApiKey(keyId, id);
+      if (!revoked) {
+        await reply.status(404).send({ error: 'API key not found', code: 'API_KEY_NOT_FOUND' });
+        return;
+      }
+      await writeAudit(
+        { table: apiKeyAuditLog, idColumn: 'api_key_id' },
+        {
+          entityId: String(keyId),
+          entityIdSnapshot: String(keyId),
+          action: 'revoked',
+          ...getAuditActor(request),
+          after: { userId: id },
+          notes: 'Revoked by an administrator',
+        },
+        db,
+        request.log,
+      );
       return { success: true as const };
     },
   );

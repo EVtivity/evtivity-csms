@@ -29,6 +29,18 @@ const { getUserSiteIds, subscribe, unsubscribe, handlers } = vi.hoisted(() => {
   return { getUserSiteIds: vi.fn(), subscribe, unsubscribe, handlers };
 });
 
+// The stream reads the user's permissions (cached reader): every test user
+// holds a read permission and payments:read unless a test says otherwise.
+const { getUserPermissions } = vi.hoisted(() => ({
+  getUserPermissions: vi.fn((_userId: string) =>
+    Promise.resolve(['stations:read', 'payments:read']),
+  ),
+}));
+vi.mock('../middleware/rbac.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../middleware/rbac.js')>()),
+  getUserPermissions,
+}));
+
 vi.mock('../lib/site-access.js', () => ({ getUserSiteIds, clearSiteAccessCacheLocal: vi.fn() }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
@@ -36,7 +48,7 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
 }));
 
 import { registerAuth } from '../plugins/auth.js';
-import { isUserActive } from '../lib/user-active.js';
+import { getUserSessionState } from '../lib/user-active.js';
 import { startCacheInvalidateListener } from '../services/cache-invalidate-listener.js';
 import {
   closeUserEventStreams,
@@ -209,8 +221,66 @@ describe('event stream fan-out', () => {
     expect(getUserSiteIds).not.toHaveBeenCalled();
   }, 5000);
 
+  function streamStatus(token: string): Promise<{ status: number; body: string }> {
+    return new Promise((resolve, reject) => {
+      const req = request(
+        { host: '127.0.0.1', port, path: `/events/stream?token=${token}`, method: 'GET' },
+        (r) => {
+          let body = '';
+          r.setEncoding('utf8');
+          r.on('data', (c: string) => (body += c));
+          r.on('end', () => {
+            resolve({ status: r.statusCode ?? 0, body });
+          });
+        },
+      );
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  it('refuses a user without any permission with 403 INSUFFICIENT_PERMISSIONS', async () => {
+    getUserPermissions.mockResolvedValueOnce([]);
+    const res = await streamStatus(app.jwt.sign({ userId: 'usr_none', roleId: 'rol_1' }));
+    expect(res.status).toBe(403);
+    expect(res.body).toContain('INSUFFICIENT_PERMISSIONS');
+    expect(getUserSiteIds).not.toHaveBeenCalled();
+  });
+
+  it('refuses a token of an earlier session version', async () => {
+    vi.mocked(getUserSessionState).mockResolvedValueOnce({ active: true, sessionVersion: 2 });
+    const res = await streamStatus(app.jwt.sign({ userId: 'usr_1', roleId: 'rol_1', sv: 1 }));
+    expect(res.status).toBe(401);
+    expect(res.body).toContain('UNAUTHORIZED');
+  });
+
+  it('removes payment failure reasons for a user without payments:read', async () => {
+    getUserSiteIds.mockResolvedValue(null);
+    getUserPermissions.mockImplementation((userId: string) =>
+      Promise.resolve(userId === 'usr_pay' ? ['payments:read'] : ['stations:read']),
+    );
+    const payer = await openStream(port, app.jwt.sign({ userId: 'usr_pay', roleId: 'rol_1' }));
+    const viewer = await openStream(port, app.jwt.sign({ userId: 'usr_view', roleId: 'rol_1' }));
+    const handler = handlers[0]!;
+    handler(
+      JSON.stringify({ type: 'payment.preAuthFailed', sessionId: 's1', reason: 'card_declined' }),
+    );
+    handler(JSON.stringify({ type: 'x', n: 9 }));
+    await payer.waitFor('"n":9');
+    await viewer.waitFor('"n":9');
+    expect(payer.chunks.join('')).toContain('"reason":"card_declined"');
+    const viewerText = viewer.chunks.join('');
+    expect(viewerText).toContain('"type":"payment.preAuthFailed","sessionId":"s1"');
+    expect(viewerText).not.toContain('card_declined');
+    payer.req.destroy();
+    viewer.req.destroy();
+    getUserPermissions.mockImplementation(() =>
+      Promise.resolve(['stations:read', 'payments:read']),
+    );
+  });
+
   it('refuses a deactivated operator with ACCOUNT_DEACTIVATED', async () => {
-    vi.mocked(isUserActive).mockResolvedValueOnce(false);
+    vi.mocked(getUserSessionState).mockResolvedValueOnce({ active: false, sessionVersion: 0 });
     const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
       const token = app.jwt.sign({ userId: 'usr_off', roleId: 'rol_1' });
       const req = request(
@@ -229,7 +299,7 @@ describe('event stream fan-out', () => {
     });
     expect(res.status).toBe(401);
     expect(res.body).toContain('ACCOUNT_DEACTIVATED');
-    expect(vi.mocked(isUserActive)).toHaveBeenCalledWith('usr_off');
+    expect(vi.mocked(getUserSessionState)).toHaveBeenCalledWith('usr_off');
     expect(getUserSiteIds).not.toHaveBeenCalled();
   }, 5000);
 

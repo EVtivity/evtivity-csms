@@ -15,21 +15,17 @@ const { OcpiClient } = await import('../lib/ocpi-client.js');
 const BASE = 'https://partner.example.com';
 
 function makeResponse(data: unknown[], nextUrl: string | null): Response {
-  const link = nextUrl != null ? `<${nextUrl}>; rel="next"` : null;
-  return {
-    status: 200,
-    ok: true,
-    text: () =>
-      Promise.resolve(
-        JSON.stringify({
-          data,
-          status_code: 1000,
-          status_message: 'Success',
-          timestamp: '2026-01-01T00:00:00Z',
-        }),
-      ),
-    headers: { get: (h: string) => (h.toLowerCase() === 'link' ? link : null) },
-  } as unknown as Response;
+  const headers: Record<string, string> =
+    nextUrl != null ? { Link: `<${nextUrl}>; rel="next"` } : {};
+  return new Response(
+    JSON.stringify({
+      data,
+      status_code: 1000,
+      status_message: 'Success',
+      timestamp: '2026-01-01T00:00:00Z',
+    }),
+    { status: 200, headers },
+  );
 }
 
 const client = new OcpiClient({
@@ -65,7 +61,9 @@ describe('OcpiClient.getPaginatedEach', () => {
 
   it('stops when the next URL repeats a visited page (loop guard)', async () => {
     // The endpoint keeps pointing rel="next" back at the same URL.
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse([{ id: 'a' }], `${BASE}/p1`));
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(makeResponse([{ id: 'a' }], `${BASE}/p1`)));
     vi.stubGlobal('fetch', fetchMock);
 
     const pages: unknown[][] = [];
@@ -114,7 +112,7 @@ describe('OcpiClient SSRF policy', () => {
   });
 
   it('sends every request through safeFetch with the partner private-network flag', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(makeResponse([], null));
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(makeResponse([], null)));
     vi.stubGlobal('fetch', fetchMock);
 
     await client.get(`${BASE}/a`);
@@ -136,12 +134,7 @@ describe('OcpiClient SSRF policy', () => {
   });
 
   it('follows a redirect manually, keeping the method and body for the next hop', async () => {
-    const redirect = {
-      status: 307,
-      ok: false,
-      headers: { get: (h: string) => (h.toLowerCase() === 'location' ? '/moved' : null) },
-      body: null,
-    } as unknown as Response;
+    const redirect = new Response(null, { status: 307, headers: { location: '/moved' } });
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(redirect)

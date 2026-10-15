@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { config } from './config.js';
 
 export interface OcpiPaginationParams {
   offset: number;
@@ -57,8 +58,10 @@ export function setPaginationHeaders(
 
   const nextOffset = offset + limit;
   if (nextOffset < totalCount) {
+    // The public address partners use (OCPI_BASE_URL), never the request's
+    // Host header, which a client (or a proxy) sets.
     const pathPart = request.url.split('?')[0] ?? request.url;
-    const baseUrl = `${request.protocol}://${request.hostname}${pathPart}`;
+    const baseUrl = new URL(pathPart, config.OCPI_BASE_URL).toString();
     const query = request.query as Record<string, string | undefined>;
     const params = new URLSearchParams();
     params.set('offset', String(nextOffset));

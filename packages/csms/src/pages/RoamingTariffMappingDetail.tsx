@@ -28,6 +28,7 @@ import type {
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { LoadingLogo } from '@/components/loading-logo';
+import { useHasPermission } from '@/lib/auth';
 
 interface TariffMapping {
   id: number;
@@ -47,6 +48,7 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const canWrite = useHasPermission('roaming:write');
 
   const [editing, setEditing] = useState(false);
   const [values, setValues] = useState<TariffMappingValues>(EMPTY_TARIFF_MAPPING);
@@ -120,15 +122,17 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
-          <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-            {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
-            <RemoveButton
-              label={t('common.delete')}
-              onClick={() => {
-                setDeleteOpen(true);
-              }}
-            />
-          </div>
+          {canWrite && (
+            <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+              {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
+              <RemoveButton
+                label={t('common.delete')}
+                onClick={() => {
+                  setDeleteOpen(true);
+                }}
+              />
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {editing ? (

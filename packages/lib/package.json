@@ -47,6 +47,9 @@
     "./id-token-types": {
       "import": "./src/id-token-types.ts"
     },
+    "./session-cost": {
+      "import": "./src/session-cost.ts"
+    },
     "./vehicle-id": {
       "import": "./src/vehicle-id.ts"
     },
@@ -115,6 +118,9 @@
     },
     "./notification-test-sink": {
       "import": "./src/notification-test-sink.ts"
+    },
+    "./trust-proxy": {
+      "import": "./src/trust-proxy.ts"
     },
     "./pdf-branding": {
       "import": "./src/pdf-branding.ts"

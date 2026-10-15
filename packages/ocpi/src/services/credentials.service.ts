@@ -11,9 +11,10 @@ import {
   ocpiPartnerAuditLog,
   writeAudit,
 } from '@evtivity/database';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, ne } from 'drizzle-orm';
 import { createLogger, encryptString, decryptString } from '@evtivity/lib';
 import { OcpiClient } from '../lib/ocpi-client.js';
+import { OcpiStatusCode } from '../lib/ocpi-response.js';
 import { config } from '../lib/config.js';
 import type {
   OcpiBusinessDetails,
@@ -73,6 +74,7 @@ async function auditPartnerHandshake(
   before: PartnerAuditView | null,
   after: PartnerAuditView,
   notes: string,
+  database: Pick<typeof db, 'insert'> = db,
 ): Promise<void> {
   await writeAudit(
     { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
@@ -86,7 +88,7 @@ async function auditPartnerHandshake(
       after,
       notes,
     },
-    db,
+    database,
     logger,
   );
 }
@@ -118,19 +120,50 @@ export function buildOurCredentials(token: string): OcpiCredentials {
   };
 }
 
+type ServiceDb = Pick<typeof db, 'insert' | 'update' | 'delete' | 'select'>;
+
+/** A refused handshake: the HTTP status, the OCPI status and a fixed message. */
+export class CredentialsError extends Error {
+  constructor(
+    readonly httpStatus: number,
+    readonly ocpiStatus: OcpiStatusCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'CredentialsError';
+  }
+}
+
+/**
+ * The partner's outbound requests failed during the handshake. Logged with
+ * the cause; the partner gets a fixed message (OCPI 3001), never the cause.
+ */
+function unableToUseClientApi(err: unknown): never {
+  if (err instanceof CredentialsError) throw err;
+  logger.warn({ err }, 'OCPI handshake: request to the partner failed');
+  throw new CredentialsError(
+    400,
+    OcpiStatusCode.SERVER_UNABLE_TO_USE_API,
+    "Unable to use the client's API",
+  );
+}
+
+/** A credentials token we issue to a partner (it calls us with it). */
 export async function generateAndStoreToken(
-  partnerId: string | null,
+  partnerId: string,
   direction: 'issued' | 'received',
+  database: ServiceDb = db,
 ): Promise<string> {
   const token = generateToken();
   const tokenHash = await argon2.hash(token);
   const tokenPrefix = token.slice(0, 8);
 
-  await db.insert(ocpiCredentialsTokens).values({
+  await database.insert(ocpiCredentialsTokens).values({
     partnerId,
     tokenHash,
     tokenPrefix,
     direction,
+    kind: 'credentials',
     isActive: true,
   });
 
@@ -140,8 +173,9 @@ export async function generateAndStoreToken(
 async function deactivateTokens(
   partnerId: string,
   direction: 'issued' | 'received',
+  database: ServiceDb = db,
 ): Promise<void> {
-  await db
+  await database
     .update(ocpiCredentialsTokens)
     .set({ isActive: false })
     .where(
@@ -153,21 +187,62 @@ async function deactivateTokens(
     );
 }
 
+/** Stores the token the partner gave us for our calls to it. */
+async function storeReceivedToken(
+  partnerId: string,
+  token: string,
+  database: ServiceDb,
+): Promise<void> {
+  await deactivateTokens(partnerId, 'received', database);
+  const encKey = getEncryptionKey();
+  await database.insert(ocpiCredentialsTokens).values({
+    partnerId,
+    tokenHash: await argon2.hash(token),
+    tokenPrefix: token.slice(0, 8),
+    direction: 'received',
+    kind: 'credentials',
+    isActive: true,
+    outboundTokenEnc: encKey !== '' ? encryptString(token, encKey) : null,
+  });
+}
+
+async function replaceEndpoints(
+  partnerId: string,
+  endpoints: OcpiVersionDetail['endpoints'],
+  database: ServiceDb,
+): Promise<void> {
+  await database.delete(ocpiPartnerEndpoints).where(eq(ocpiPartnerEndpoints.partnerId, partnerId));
+  if (endpoints.length > 0) {
+    await database.insert(ocpiPartnerEndpoints).values(
+      endpoints.map((ep) => ({
+        partnerId,
+        module: ep.identifier,
+        interfaceRole: ep.role,
+        url: ep.url,
+      })),
+    );
+  }
+}
+
 /**
- * Atomically claim a registration token: flip isActive=false and return
- * whether THIS call won the race. Two concurrent registrations using the
- * same one-time token both pass the read-only middleware check; without an
- * atomic claim they would each create a partner row and issue duplicate
- * outbound tokens. Postgres serializes the conditional UPDATE so only one
- * caller sees a returning row.
+ * Every role of the credentials must name the partner the token is bound to:
+ * a registration token issued for NL/ABC cannot register (or claim roles
+ * for) another party.
  */
-async function claimRegistrationToken(tokenId: number): Promise<boolean> {
-  const claimed = await db
-    .update(ocpiCredentialsTokens)
-    .set({ isActive: false })
-    .where(and(eq(ocpiCredentialsTokens.id, tokenId), eq(ocpiCredentialsTokens.isActive, true)))
-    .returning({ id: ocpiCredentialsTokens.id });
-  return claimed.length > 0;
+function assertRolesMatchPartner(
+  credentials: OcpiCredentials,
+  partner: { countryCode: string; partyId: string },
+): void {
+  const mismatch = credentials.roles.some(
+    (r) => r.country_code !== partner.countryCode || r.party_id !== partner.partyId,
+  );
+  if (mismatch) {
+    throw new CredentialsError(
+      400,
+      OcpiStatusCode.CLIENT_INVALID_PARAMS,
+      'The credentials roles do not match the registered party',
+    );
+  }
 }
 
 async function fetchPartnerEndpoints(
@@ -175,6 +250,7 @@ async function fetchPartnerEndpoints(
   token: string,
   preferredVersion: OcpiVersion,
   allowPrivateNetwork: boolean,
+  rawToken: boolean,
 ): Promise<{ version: OcpiVersion; endpoints: OcpiVersionDetail['endpoints'] }> {
   const client = new OcpiClient({
     token,
@@ -183,6 +259,7 @@ async function fetchPartnerEndpoints(
     toCountryCode: '',
     toPartyId: '',
     allowPrivateNetwork,
+    rawToken,
   });
 
   const versionsResponse = await client.get<OcpiVersionInfo[]>(versionsUrl);
@@ -224,150 +301,144 @@ async function fetchPartnerEndpoints(
   };
 }
 
+interface AuthenticatedToken {
+  tokenId: number;
+  partnerId: string;
+}
+
+/**
+ * POST credentials (OCPI 2.3.0 7.2.2) with a registration token. The token
+ * is bound to the partner the operator created; every role must carry that
+ * partner's country code and party id. The partner's versions and endpoints
+ * are read first (outside any transaction); the token claim, the partner,
+ * its endpoints and tokens, and the audit row then commit together, so a
+ * failed registration leaves the registration token usable.
+ */
 export async function handleRegistration(
   credentials: OcpiCredentials,
-  registrationTokenId: number,
+  auth: AuthenticatedToken,
   preferredVersion: OcpiVersion = '2.2.1',
 ): Promise<OcpiCredentials> {
-  logger.info({ url: credentials.url, roles: credentials.roles }, 'Processing registration');
+  logger.info({ partnerId: auth.partnerId, url: credentials.url }, 'Processing registration');
 
-  const partnerRole = credentials.roles[0];
-  if (partnerRole == null) {
-    throw new Error('No roles provided in credentials');
-  }
-
-  // Claim the registration token up front so a concurrent duplicate
-  // submission cannot also create a partner / issue tokens. The middleware
-  // only validates the token; without this guard two parallel POSTs both
-  // pass and both run the full registration flow.
-  const claimed = await claimRegistrationToken(registrationTokenId);
-  if (!claimed) {
-    const err = new Error('Registration token already used');
-    (err as Error & { code: string }).code = 'TOKEN_ALREADY_USED';
-    throw err;
-  }
-
-  // The partner may be pre-created by the operator (or the seed), with the
-  // private-network flag that decides which addresses its URLs may reach.
-  const existing = await db
+  const [partner] = await db
     .select()
     .from(ocpiPartners)
-    .where(
-      and(
-        eq(ocpiPartners.countryCode, partnerRole.country_code),
-        eq(ocpiPartners.partyId, partnerRole.party_id),
-      ),
-    )
+    .where(eq(ocpiPartners.id, auth.partnerId))
     .limit(1);
-
-  // Fetch partner version and endpoints
-  const { version, endpoints } = await fetchPartnerEndpoints(
-    credentials.url,
-    credentials.token,
-    preferredVersion,
-    existing[0]?.allowPrivateNetwork ?? false,
-  );
-
-  // Create or update partner
-
-  let partnerId: string;
-
-  if (existing.length > 0 && existing[0] != null) {
-    partnerId = existing[0].id;
-    await db
-      .update(ocpiPartners)
-      .set({
-        name: partnerRole.business_details.name,
-        roles: credentials.roles,
-        ourRoles: buildOurCredentials('').roles,
-        status: 'connected',
-        version,
-        versionUrl: credentials.url,
-        updatedAt: new Date(),
-      })
-      .where(eq(ocpiPartners.id, partnerId));
-  } else {
-    const [inserted] = await db
-      .insert(ocpiPartners)
-      .values({
-        name: partnerRole.business_details.name,
-        countryCode: partnerRole.country_code,
-        partyId: partnerRole.party_id,
-        roles: credentials.roles,
-        ourRoles: buildOurCredentials('').roles,
-        status: 'connected',
-        version,
-        versionUrl: credentials.url,
-      })
-      .returning({ id: ocpiPartners.id });
-
-    if (inserted == null) {
-      throw new Error('Failed to create partner record');
-    }
-    partnerId = inserted.id;
+  if (partner == null) {
+    throw new CredentialsError(401, OcpiStatusCode.CLIENT_ERROR, 'Invalid token');
   }
-
-  // Store partner endpoints
-  await db.delete(ocpiPartnerEndpoints).where(eq(ocpiPartnerEndpoints.partnerId, partnerId));
-
-  if (endpoints.length > 0) {
-    await db.insert(ocpiPartnerEndpoints).values(
-      endpoints.map((ep) => ({
-        partnerId,
-        module: ep.identifier,
-        interfaceRole: ep.role,
-        url: ep.url,
-      })),
+  if (partner.status === 'connected') {
+    throw new CredentialsError(
+      405,
+      OcpiStatusCode.CLIENT_ERROR,
+      'Already registered. Use PUT to update credentials.',
     );
   }
+  assertRolesMatchPartner(credentials, partner);
 
-  // Store the token they gave us (for calling them)
-  await deactivateTokens(partnerId, 'received');
-  const receivedTokenHash = await argon2.hash(credentials.token);
-  const encKey = getEncryptionKey();
-  const outboundTokenEnc = encKey !== '' ? encryptString(credentials.token, encKey) : null;
-  await db.insert(ocpiCredentialsTokens).values({
-    partnerId,
-    tokenHash: receivedTokenHash,
-    tokenPrefix: credentials.token.slice(0, 8),
-    direction: 'received',
-    isActive: true,
-    outboundTokenEnc,
+  let fetched: { version: OcpiVersion; endpoints: OcpiVersionDetail['endpoints'] };
+  try {
+    fetched = await fetchPartnerEndpoints(
+      credentials.url,
+      credentials.token,
+      preferredVersion,
+      partner.allowPrivateNetwork,
+      partner.allowRawToken,
+    );
+  } catch (err) {
+    unableToUseClientApi(err);
+  }
+  const { version, endpoints } = fetched;
+  const name = credentials.roles[0]?.business_details.name ?? partner.name;
+
+  const newToken = await db.transaction(async (tx) => {
+    // The claim: one of two concurrent registrations with the same token wins.
+    const claimed = await tx
+      .update(ocpiCredentialsTokens)
+      .set({ isActive: false })
+      .where(
+        and(
+          eq(ocpiCredentialsTokens.id, auth.tokenId),
+          eq(ocpiCredentialsTokens.partnerId, auth.partnerId),
+          eq(ocpiCredentialsTokens.kind, 'registration'),
+          eq(ocpiCredentialsTokens.isActive, true),
+        ),
+      )
+      .returning({ id: ocpiCredentialsTokens.id });
+    if (claimed.length === 0) {
+      throw new CredentialsError(401, OcpiStatusCode.CLIENT_ERROR, 'Invalid token');
+    }
+
+    const [locked] = await tx
+      .select({ status: ocpiPartners.status })
+      .from(ocpiPartners)
+      .where(eq(ocpiPartners.id, auth.partnerId))
+      .for('update');
+    if (locked == null || locked.status === 'connected') {
+      throw new CredentialsError(
+        405,
+        OcpiStatusCode.CLIENT_ERROR,
+        'Already registered. Use PUT to update credentials.',
+      );
+    }
+
+    await tx
+      .update(ocpiPartners)
+      .set({
+        name,
+        roles: credentials.roles,
+        ourRoles: buildOurCredentials('').roles,
+        status: 'connected',
+        version,
+        versionUrl: credentials.url,
+        // The handshake is done: an operator-stored outbound token C retires.
+        partnerRegistrationTokenEnc: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(ocpiPartners.id, auth.partnerId));
+
+    await replaceEndpoints(auth.partnerId, endpoints, tx);
+    await storeReceivedToken(auth.partnerId, credentials.token, tx);
+    // Every other issued token (another open registration token included)
+    // retires; the new credentials token is the only one left.
+    await deactivateTokens(auth.partnerId, 'issued', tx);
+    const issued = await generateAndStoreToken(auth.partnerId, 'issued', tx);
+
+    await auditPartnerHandshake(
+      auth.partnerId,
+      'registered',
+      {
+        name: partner.name,
+        status: partner.status,
+        version: partner.version,
+        versionUrl: partner.versionUrl,
+      },
+      {
+        name,
+        status: 'connected',
+        version,
+        versionUrl: credentials.url,
+        roles: credentials.roles,
+        endpointCount: endpoints.length,
+      },
+      'Partner registered through POST credentials',
+      tx,
+    );
+    return issued;
   });
-
-  // Generate a new token for them to call us
-  await deactivateTokens(partnerId, 'issued');
-  const newToken = await generateAndStoreToken(partnerId, 'issued');
-
-  // Registration token already deactivated atomically at the top of this
-  // function via claimRegistrationToken().
-
-  const previous = existing[0];
-  await auditPartnerHandshake(
-    partnerId,
-    'registered',
-    previous != null
-      ? {
-          name: previous.name,
-          status: previous.status,
-          version: previous.version,
-          versionUrl: previous.versionUrl,
-        }
-      : null,
-    {
-      name: partnerRole.business_details.name,
-      status: 'connected',
-      version,
-      versionUrl: credentials.url,
-      roles: credentials.roles,
-      endpointCount: endpoints.length,
-    },
-    'Partner registered through POST credentials',
-  );
 
   return buildOurCredentials(newToken);
 }
 
+/**
+ * PUT credentials (OCPI 2.3.0 7.2.3) with a credentials token. A partner
+ * still pending (our outbound registration sent it this token, and it
+ * answers with PUT) completes the handshake here: connected, its open
+ * registration tokens and stored token C retired. A suspended partner may
+ * rotate its tokens but stays suspended.
+ */
 export async function handleCredentialUpdate(
   credentials: OcpiCredentials,
   partnerId: string,
@@ -375,89 +446,74 @@ export async function handleCredentialUpdate(
 ): Promise<OcpiCredentials> {
   logger.info({ partnerId }, 'Updating credentials');
 
-  const partnerRole = credentials.roles[0];
-  if (partnerRole == null) {
-    throw new Error('No roles provided in credentials');
-  }
-
   const [current] = await db
-    .select({
-      allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
-      name: ocpiPartners.name,
-      version: ocpiPartners.version,
-      versionUrl: ocpiPartners.versionUrl,
-    })
+    .select()
     .from(ocpiPartners)
     .where(eq(ocpiPartners.id, partnerId))
     .limit(1);
-
-  // Fetch partner endpoints
-  const { version, endpoints } = await fetchPartnerEndpoints(
-    credentials.url,
-    credentials.token,
-    preferredVersion,
-    current?.allowPrivateNetwork ?? false,
-  );
-
-  // Update partner
-  await db
-    .update(ocpiPartners)
-    .set({
-      name: partnerRole.business_details.name,
-      roles: credentials.roles,
-      version,
-      versionUrl: credentials.url,
-      updatedAt: new Date(),
-    })
-    .where(eq(ocpiPartners.id, partnerId));
-
-  // Update endpoints
-  await db.delete(ocpiPartnerEndpoints).where(eq(ocpiPartnerEndpoints.partnerId, partnerId));
-
-  if (endpoints.length > 0) {
-    await db.insert(ocpiPartnerEndpoints).values(
-      endpoints.map((ep) => ({
-        partnerId,
-        module: ep.identifier,
-        interfaceRole: ep.role,
-        url: ep.url,
-      })),
-    );
+  if (current == null) {
+    throw new CredentialsError(405, OcpiStatusCode.CLIENT_ERROR, 'Not registered');
   }
+  assertRolesMatchPartner(credentials, current);
 
-  // Update the token they gave us
-  await deactivateTokens(partnerId, 'received');
-  const receivedTokenHash = await argon2.hash(credentials.token);
-  const encKey2 = getEncryptionKey();
-  const outboundTokenEnc2 = encKey2 !== '' ? encryptString(credentials.token, encKey2) : null;
-  await db.insert(ocpiCredentialsTokens).values({
-    partnerId,
-    tokenHash: receivedTokenHash,
-    tokenPrefix: credentials.token.slice(0, 8),
-    direction: 'received',
-    isActive: true,
-    outboundTokenEnc: outboundTokenEnc2,
+  let fetched: { version: OcpiVersion; endpoints: OcpiVersionDetail['endpoints'] };
+  try {
+    fetched = await fetchPartnerEndpoints(
+      credentials.url,
+      credentials.token,
+      preferredVersion,
+      current.allowPrivateNetwork,
+      current.allowRawToken,
+    );
+  } catch (err) {
+    unableToUseClientApi(err);
+  }
+  const { version, endpoints } = fetched;
+  const name = credentials.roles[0]?.business_details.name ?? current.name;
+  const completes = current.status === 'pending';
+
+  const newToken = await db.transaction(async (tx) => {
+    await tx
+      .update(ocpiPartners)
+      .set({
+        name,
+        roles: credentials.roles,
+        version,
+        versionUrl: credentials.url,
+        ...(completes ? { status: 'connected' as const, partnerRegistrationTokenEnc: null } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(ocpiPartners.id, partnerId));
+
+    await replaceEndpoints(partnerId, endpoints, tx);
+    await storeReceivedToken(partnerId, credentials.token, tx);
+    await deactivateTokens(partnerId, 'issued', tx);
+    const issued = await generateAndStoreToken(partnerId, 'issued', tx);
+
+    await auditPartnerHandshake(
+      partnerId,
+      completes ? 'registered' : 'updated',
+      {
+        name: current.name,
+        status: current.status,
+        version: current.version,
+        versionUrl: current.versionUrl,
+      },
+      {
+        name,
+        status: completes ? 'connected' : current.status,
+        version,
+        versionUrl: credentials.url,
+        roles: credentials.roles,
+        endpointCount: endpoints.length,
+      },
+      completes
+        ? 'Partner completed the registration through PUT credentials'
+        : 'Partner updated its credentials through PUT credentials (tokens rotated)',
+      tx,
+    );
+    return issued;
   });
-
-  // Generate new token for them
-  await deactivateTokens(partnerId, 'issued');
-  const newToken = await generateAndStoreToken(partnerId, 'issued');
-
-  await auditPartnerHandshake(
-    partnerId,
-    'updated',
-    current != null
-      ? { name: current.name, version: current.version, versionUrl: current.versionUrl }
-      : null,
-    {
-      name: partnerRole.business_details.name,
-      version,
-      versionUrl: credentials.url,
-      roles: credentials.roles,
-      endpointCount: endpoints.length,
-    },
-    'Partner updated its credentials through PUT credentials (tokens rotated)',
-  );
 
   return buildOurCredentials(newToken);
 }
@@ -465,26 +521,31 @@ export async function handleCredentialUpdate(
 export async function handleUnregister(partnerId: string): Promise<void> {
   logger.info({ partnerId }, 'Unregistering partner');
 
-  await db
-    .update(ocpiPartners)
-    .set({ status: 'disconnected', updatedAt: new Date() })
-    .where(eq(ocpiPartners.id, partnerId));
+  await db.transaction(async (tx) => {
+    await tx
+      .update(ocpiPartners)
+      .set({ status: 'disconnected', updatedAt: new Date() })
+      .where(eq(ocpiPartners.id, partnerId));
 
-  // Deactivate all tokens for this partner
-  await db
-    .update(ocpiCredentialsTokens)
-    .set({ isActive: false })
-    .where(
-      and(eq(ocpiCredentialsTokens.partnerId, partnerId), eq(ocpiCredentialsTokens.isActive, true)),
+    await tx
+      .update(ocpiCredentialsTokens)
+      .set({ isActive: false })
+      .where(
+        and(
+          eq(ocpiCredentialsTokens.partnerId, partnerId),
+          eq(ocpiCredentialsTokens.isActive, true),
+        ),
+      );
+
+    await auditPartnerHandshake(
+      partnerId,
+      'disconnected',
+      null,
+      { status: 'disconnected' },
+      'Partner unregistered through DELETE credentials',
+      tx,
     );
-
-  await auditPartnerHandshake(
-    partnerId,
-    'disconnected',
-    null,
-    { status: 'disconnected' },
-    'Partner unregistered through DELETE credentials',
-  );
+  });
 }
 
 /**
@@ -520,6 +581,11 @@ export async function initiateRegistration(
     throw new Error('Partner not found');
   }
 
+  // A connected partner updates its credentials with PUT, not a new POST.
+  if (partner.status === 'connected') {
+    throw new Error('Partner already connected');
+  }
+
   if (partner.versionUrl == null || partner.versionUrl === '') {
     throw new Error('Partner versionUrl not configured');
   }
@@ -543,6 +609,7 @@ export async function initiateRegistration(
     tokenC,
     preferredVersion,
     partner.allowPrivateNetwork,
+    partner.allowRawToken,
   );
 
   const credentialsEndpoint = endpoints.find((ep) => ep.identifier === 'credentials');
@@ -550,91 +617,109 @@ export async function initiateRegistration(
     throw new Error('Partner does not expose a credentials endpoint');
   }
 
-  // Generate Token A — the token partner will use to call us going forward
-  // (issued = we issued it for their inbound calls).
-  await deactivateTokens(partnerId, 'issued');
-  const tokenA = await generateAndStoreToken(partnerId, 'issued');
+  // Token A: the token the partner calls us with from now on. It is active
+  // before the POST (the partner reads our versions with it while it
+  // answers), the earlier issued tokens stay active until the partner
+  // accepted, and a failed POST retires only this new token.
+  const tokenA = generateToken();
+  const [tokenARow] = await db
+    .insert(ocpiCredentialsTokens)
+    .values({
+      partnerId,
+      tokenHash: await argon2.hash(tokenA),
+      tokenPrefix: tokenA.slice(0, 8),
+      direction: 'issued',
+      kind: 'credentials',
+      isActive: true,
+    })
+    .returning({ id: ocpiCredentialsTokens.id });
+  if (tokenARow == null) throw new Error('Failed to store the credentials token');
   const ourCredentials = buildOurCredentials(tokenA);
 
-  // Step 3: POST our credentials using Token C as bearer
-  const client = new OcpiClient({
-    token: tokenC,
-    fromCountryCode: getOurCountryCode(),
-    fromPartyId: getOurPartyId(),
-    toCountryCode: partner.countryCode,
-    toPartyId: partner.partyId,
-    allowPrivateNetwork: partner.allowPrivateNetwork,
-  });
+  const retireTokenA = async (): Promise<void> => {
+    await db
+      .update(ocpiCredentialsTokens)
+      .set({ isActive: false })
+      .where(eq(ocpiCredentialsTokens.id, tokenARow.id));
+  };
 
-  const response = await client.post<OcpiCredentials>(credentialsEndpoint.url, ourCredentials);
-  const theirCredentials = response.data as OcpiCredentials | null;
+  let theirCredentials: OcpiCredentials;
+  let newEndpoints: OcpiVersionDetail['endpoints'];
+  try {
+    // Step 3: POST our credentials using Token C as bearer
+    const client = new OcpiClient({
+      token: tokenC,
+      fromCountryCode: getOurCountryCode(),
+      fromPartyId: getOurPartyId(),
+      toCountryCode: partner.countryCode,
+      toPartyId: partner.partyId,
+      allowPrivateNetwork: partner.allowPrivateNetwork,
+      rawToken: partner.allowRawToken,
+    });
 
-  if (theirCredentials == null) {
-    throw new Error('Partner returned no credentials');
+    const response = await client.post<OcpiCredentials>(credentialsEndpoint.url, ourCredentials);
+    const received = response.data as OcpiCredentials | null;
+    if (received == null || typeof received.token !== 'string' || received.token === '') {
+      throw new Error('Partner returned no credentials');
+    }
+    theirCredentials = received;
+
+    // The partner may return a new versions URL or endpoint list.
+    ({ endpoints: newEndpoints } = await fetchPartnerEndpoints(
+      theirCredentials.url,
+      theirCredentials.token,
+      version,
+      partner.allowPrivateNetwork,
+      partner.allowRawToken,
+    ));
+  } catch (err) {
+    await retireTokenA();
+    throw err;
   }
 
-  // Step 4: store Token B (their token for us to use on outbound calls).
-  // 'received' direction = token we received from them, use for outbound.
-  await deactivateTokens(partnerId, 'received');
-  const tokenBHash = await argon2.hash(theirCredentials.token);
-  const tokenBEnc = encryptString(theirCredentials.token, encKey);
-  await db.insert(ocpiCredentialsTokens).values({
-    partnerId,
-    tokenHash: tokenBHash,
-    tokenPrefix: theirCredentials.token.slice(0, 8),
-    direction: 'received',
-    isActive: true,
-    outboundTokenEnc: tokenBEnc,
-  });
+  await db.transaction(async (tx) => {
+    // Step 4: store Token B (their token for our outbound calls) and retire
+    // every issued token but Token A.
+    await storeReceivedToken(partnerId, theirCredentials.token, tx);
+    await tx
+      .update(ocpiCredentialsTokens)
+      .set({ isActive: false })
+      .where(
+        and(
+          eq(ocpiCredentialsTokens.partnerId, partnerId),
+          eq(ocpiCredentialsTokens.direction, 'issued'),
+          eq(ocpiCredentialsTokens.isActive, true),
+          ne(ocpiCredentialsTokens.id, tokenARow.id),
+        ),
+      );
+    await replaceEndpoints(partnerId, newEndpoints, tx);
 
-  // Replace endpoints from the credentials response (the partner may return
-  // a new versions URL or updated endpoint list).
-  await db.delete(ocpiPartnerEndpoints).where(eq(ocpiPartnerEndpoints.partnerId, partnerId));
+    // Step 5: Token C is now retired; clear the stored ciphertext.
+    await tx
+      .update(ocpiPartners)
+      .set({
+        status: 'connected',
+        version,
+        versionUrl: theirCredentials.url,
+        partnerRegistrationTokenEnc: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(ocpiPartners.id, partnerId));
 
-  const { endpoints: newEndpoints } = await fetchPartnerEndpoints(
-    theirCredentials.url,
-    theirCredentials.token,
-    version,
-    partner.allowPrivateNetwork,
-  );
-
-  if (newEndpoints.length > 0) {
-    await db.insert(ocpiPartnerEndpoints).values(
-      newEndpoints.map((ep) => ({
-        partnerId,
-        module: ep.identifier,
-        interfaceRole: ep.role,
-        url: ep.url,
-      })),
+    await auditPartnerHandshake(
+      partnerId,
+      'registered',
+      { status: partner.status, version: partner.version, versionUrl: partner.versionUrl },
+      {
+        status: 'connected',
+        version,
+        versionUrl: theirCredentials.url,
+        endpointCount: newEndpoints.length,
+      },
+      'Outbound registration completed (registration token retired)',
+      tx,
     );
-  }
-
-  // Step 5: Token C is now retired; clear the stored ciphertext.
-  await db
-    .update(ocpiPartners)
-    .set({
-      status: 'connected',
-      version,
-      versionUrl: theirCredentials.url,
-      partnerRegistrationTokenEnc: null,
-      updatedAt: new Date(),
-    })
-    .where(eq(ocpiPartners.id, partnerId));
-
-  // The operator's request is audited by the API (`registered`); this row
-  // records the completed handshake.
-  await auditPartnerHandshake(
-    partnerId,
-    'updated',
-    { status: partner.status, version: partner.version, versionUrl: partner.versionUrl },
-    {
-      status: 'connected',
-      version,
-      versionUrl: theirCredentials.url,
-      endpointCount: newEndpoints.length,
-    },
-    'Outbound registration completed (registration token retired)',
-  );
+  });
 
   return theirCredentials;
 }

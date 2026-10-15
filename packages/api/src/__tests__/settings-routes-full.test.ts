@@ -152,6 +152,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     isStationMessageLanguage: actual.isStationMessageLanguage,
     STATION_MESSAGE_LANGUAGES: actual.STATION_MESSAGE_LANGUAGES,
     isTaxBasis: actual.isTaxBasis,
+    OCPI_TARIFF_SETTING_KEYS: actual.OCPI_TARIFF_SETTING_KEYS,
     TAX_BASES: actual.TAX_BASES,
     UI_LANGUAGES: actual.UI_LANGUAGES,
     isMobileAppSettingKey: actual.isMobileAppSettingKey,

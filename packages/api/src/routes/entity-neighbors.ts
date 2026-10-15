@@ -86,15 +86,6 @@ interface NeighborTarget {
   allSitesOnly?: boolean;
 }
 
-const stationSiteSubquery = (siteIds: string[]): SQL =>
-  inArray(
-    chargingSessions.stationId,
-    db
-      .select({ id: chargingStations.id })
-      .from(chargingStations)
-      .where(inArray(chargingStations.siteId, siteIds)),
-  );
-
 const TARGETS: NeighborTarget[] = [
   {
     path: '/ai/insights/:id/neighbors',
@@ -143,7 +134,9 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'SESSION_NOT_FOUND',
     idColumn: chargingSessions.id,
     createdAtColumn: chargingSessions.createdAt,
-    scopeWhere: (siteIds) => stationSiteSubquery(siteIds),
+    // The site the session happened at, matching the list: a session without
+    // a site is visible to all-site users only.
+    scopeWhere: (siteIds) => inArray(chargingSessions.siteId, siteIds),
   },
   {
     path: '/drivers/:id/neighbors',

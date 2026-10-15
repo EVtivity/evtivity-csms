@@ -250,7 +250,6 @@ export const paymentRecords = pgTable(
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    index('idx_payment_records_session_id').on(table.sessionId),
     index('idx_payment_records_invoice_id')
       .on(table.invoiceId)
       .where(sql`invoice_id IS NOT NULL`),

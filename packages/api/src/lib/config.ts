@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { resolveNotificationTestSinkUrl } from '@evtivity/lib/notification-test-sink';
+import { parseTrustProxy } from '@evtivity/lib/trust-proxy';
 
 const schema = z.object({
   API_PORT: z.coerce.number().int().positive(),
@@ -25,6 +26,21 @@ const schema = z.object({
   CSMS_URL: z.string().default('http://localhost:7100'),
   PORTAL_URL: z.string().default('http://localhost:7101'),
   COOKIE_DOMAIN: z.string().optional(),
+  // Proxies in front of the API (Fastify trustProxy): empty (default) trusts
+  // none, else a comma-separated list of proxy IPs or CIDRs. Behind it, the client
+  // address (rate limits, audit and access logs) and the protocol come from
+  // X-Forwarded-For and X-Forwarded-Proto. `true` is refused (spoofable).
+  TRUST_PROXY: z
+    .string()
+    .default('')
+    .transform((v, ctx) => {
+      try {
+        return parseTrustProxy(v);
+      } catch (err) {
+        ctx.addIssue({ code: 'custom', message: (err as Error).message });
+        return z.NEVER;
+      }
+    }),
   // Public wss:// address stations use for security profiles 2 and 3, without
   // the station identity. Needed to move a connected 2.1 station from plain
   // WebSocket to TLS (OCPP 2.1 A05); unset disables that upgrade.

@@ -90,6 +90,7 @@ vi.mock('@evtivity/database', async () => ({
     email: 'email',
   },
   pncContracts: { driverTokenId: 'driverTokenId', status: 'status' },
+  driverTokenTombstones: { idToken: 'idToken', tokenType: 'tokenType' },
   tokenAuditLog: {
     id: 'id',
     tokenId: 'tokenId',
@@ -146,6 +147,11 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
     close: vi.fn().mockResolvedValue(undefined),
   })),
   setPubSub: vi.fn(),
+}));
+
+const publishOcpiTokenPushMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('../lib/ocpi-token-push.js', () => ({
+  publishOcpiTokenPush: (...args: unknown[]) => publishOcpiTokenPushMock(...args) as unknown,
 }));
 
 import {
@@ -407,6 +413,27 @@ describe('updateToken', () => {
     const result = await updateToken('t1', { idToken: 'UPDATED', tokenType: 'ISO15693' });
 
     expect(result).toEqual(token);
+  });
+
+  it('pushes no tombstone from ISO14443 to ISO15693 (same OCPI Token, uid and RFID)', async () => {
+    const token = { id: 't1', idToken: 'CARD', tokenType: 'ISO15693' };
+    setupDbResults([{ idToken: 'CARD', tokenType: 'ISO14443' }], [], [token]);
+
+    await updateToken('t1', { tokenType: 'ISO15693' });
+
+    expect(publishOcpiTokenPushMock).toHaveBeenCalledWith({ tokenIds: ['t1'], tombstones: [] });
+  });
+
+  it('tombstones the old value when the OCPI type changes', async () => {
+    const token = { id: 't1', idToken: 'CARD', tokenType: 'eMAID' };
+    setupDbResults([{ idToken: 'CARD', tokenType: 'ISO14443' }], [], [token]);
+
+    await updateToken('t1', { tokenType: 'eMAID' });
+
+    expect(publishOcpiTokenPushMock).toHaveBeenCalledWith({
+      tokenIds: ['t1'],
+      tombstones: [{ idToken: 'CARD', tokenType: 'ISO14443' }],
+    });
   });
 
   it('returns null when not found', async () => {

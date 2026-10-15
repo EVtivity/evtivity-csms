@@ -14,16 +14,17 @@ vi.mock('react-i18next', () => ({
 }));
 vi.mock('@/lib/timezone', () => ({ formatDateTime: (value: string) => value }));
 vi.mock('@/lib/auth', () => ({ useHasPermission: () => false }));
-vi.mock('@/hooks/use-paginated-query', () => ({
-  usePaginatedQuery: () => ({
+const paginatedQuery = vi.hoisted(() =>
+  vi.fn(() => ({
     data: [],
     isLoading: false,
     page: 1,
     totalPages: 1,
-    setPage: vi.fn(),
+    setPage: () => undefined,
     total: 0,
-  }),
-}));
+  })),
+);
+vi.mock('@/hooks/use-paginated-query', () => ({ usePaginatedQuery: paginatedQuery }));
 
 import { SessionDetailsTab, type SessionDetailsTabProps } from '../session/SessionDetailsTab';
 
@@ -88,5 +89,41 @@ describe('SessionDetailsTab Plug and Charge contract', () => {
     renderTab({ id: 'dtk_2', idToken: 'RFID-1', tokenType: 'ISO14443', pncContract: null });
     expect(screen.queryByText('sessions.pncContract')).toBeNull();
     expect(screen.getByText('RFID-1')).toBeDefined();
+  });
+});
+
+describe('SessionDetailsTab cost and events', () => {
+  function renderSession(overrides: Partial<SessionDetailsTabProps['session']>): void {
+    render(
+      <MemoryRouter>
+        <SessionDetailsTab
+          session={{ ...session, ...overrides }}
+          sessionId="ses_1"
+          currency="USD"
+          timezone="UTC"
+          formatCents={(cents) => `cost:${String(cents)}`}
+          formatDuration={() => '1m'}
+        />
+      </MemoryRouter>,
+    );
+  }
+
+  it('shows a faulted session without a stored final cost at 0, not its running cost', () => {
+    renderSession({ status: 'faulted', currentCostCents: 300, finalCostCents: null });
+    expect(screen.getByText('cost:0')).toBeDefined();
+    expect(screen.queryByText('cost:300')).toBeNull();
+  });
+
+  it('shows a completed session at its final cost', () => {
+    renderSession({ status: 'completed', currentCostCents: 300, finalCostCents: 450 });
+    expect(screen.getByText('cost:450')).toBeDefined();
+  });
+
+  it('keys the transaction events under the session, so another session never shares them', () => {
+    renderSession({});
+    expect(paginatedQuery).toHaveBeenCalledWith(
+      ['sessions', 'ses_1', 'transaction-events'],
+      '/v1/sessions/ses_1/transaction-events',
+    );
   });
 });

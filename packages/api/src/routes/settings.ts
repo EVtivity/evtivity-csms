@@ -142,6 +142,7 @@ import { isAllSiteUser, requireAllSiteAccess } from '../lib/site-access.js';
 import { config as apiConfig } from '../lib/config.js';
 import { storedSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { publishOcpiTariffSettingChange } from '../lib/ocpi-tariff-push.js';
 import { readDriverAiAvailability } from '../lib/driver-ai-availability.js';
 import { DRIVER_AI_NOTICE_VERSION } from '@evtivity/lib/driver-ai';
 import { decryptForRead, encryptForWrite, isServerManagedSetting } from '../lib/settings-crypto.js';
@@ -831,6 +832,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       if (row.key === 'autocharge.enabled') await invalidateAutochargeCaches(request.log);
       await repushStationMessagesIfChanged(row.key, before?.value, row.value, request.log);
+      await publishOcpiTariffSettingChange(row.key, before?.value, row.value);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
@@ -908,6 +910,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       if (row.key === 'autocharge.enabled') await invalidateAutochargeCaches(request.log);
       await repushStationMessagesIfChanged(row.key, before?.value, row.value, request.log);
+      await publishOcpiTariffSettingChange(row.key, before?.value, row.value);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );
@@ -960,6 +963,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
       if (row.key === 'autocharge.enabled') await invalidateAutochargeCaches(request.log);
       await repushStationMessagesIfChanged(row.key, row.value, undefined, request.log);
+      await publishOcpiTariffSettingChange(row.key, row.value, undefined);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
   );

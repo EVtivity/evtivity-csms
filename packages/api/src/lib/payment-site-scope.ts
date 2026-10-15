@@ -18,13 +18,13 @@ import {
  */
 export function paymentRecordsAtSites(siteIds: string[]): SQL {
   return or(
+    // A session's payment belongs to the site the session happened at.
     inArray(
       paymentRecords.sessionId,
       db
         .select({ id: chargingSessions.id })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
-        .where(inArray(chargingStations.siteId, siteIds)),
+        .where(inArray(chargingSessions.siteId, siteIds)),
     ),
     inArray(
       paymentRecords.reservationId,

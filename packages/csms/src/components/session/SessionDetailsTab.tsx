@@ -22,6 +22,7 @@ import { formatDateTime } from '@/lib/timezone';
 import { eventTypeVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatNumber } from '@/lib/formatting';
+import { sessionDisplayCostCents } from '@evtivity/lib/session-cost';
 import {
   SessionVehicle,
   type SessionVehicleCapture,
@@ -103,7 +104,7 @@ export function SessionDetailsTab({
     setPage: setTxEventPage,
     total: txEventTotal,
   } = usePaginatedQuery<TransactionEvent>(
-    'session-transaction-events',
+    ['sessions', sessionId, 'transaction-events'],
     `/v1/sessions/${sessionId}/transaction-events`,
   );
 
@@ -128,10 +129,10 @@ export function SessionDetailsTab({
             {t('sessions.reservationTokenMismatchDescription')}
             <div className="mt-2 text-xs">
               <div>
-                {t('sessions.expectedToken')}: {reservationMismatch.expected ?? 'n/a'}
+                {t('sessions.expectedToken')}: {reservationMismatch.expected ?? t('common.na')}
               </div>
               <div>
-                {t('sessions.actualToken')}: {reservationMismatch.actual ?? 'n/a'}
+                {t('sessions.actualToken')}: {reservationMismatch.actual ?? t('common.na')}
               </div>
             </div>
           </AlertDescription>
@@ -148,7 +149,7 @@ export function SessionDetailsTab({
               <Link to={`/stations/${session.stationId}`} className="text-link hover:underline">
                 {session.siteName != null
                   ? `${session.siteName} / ${String(session.stationName)}`
-                  : (session.stationName ?? 'n/a')}
+                  : (session.stationName ?? t('common.na'))}
               </Link>
             </Row>
             <Row label={t('sessions.driver')}>
@@ -162,7 +163,7 @@ export function SessionDetailsTab({
                   {session.driverName}
                 </Link>
               ) : (
-                'n/a'
+                t('common.na')
               )}
             </Row>
             <Row label={t('vehicles.vehicle')}>
@@ -175,10 +176,12 @@ export function SessionDetailsTab({
               />
             </Row>
             <Row label={t('sessions.started')}>
-              {session.startedAt != null ? formatDateTime(session.startedAt, timezone) : 'n/a'}
+              {session.startedAt != null
+                ? formatDateTime(session.startedAt, timezone)
+                : t('common.na')}
             </Row>
             <Row label={t('sessions.ended')}>
-              {session.endedAt != null ? formatDateTime(session.endedAt, timezone) : 'n/a'}
+              {session.endedAt != null ? formatDateTime(session.endedAt, timezone) : t('common.na')}
             </Row>
             {session.idleStartedAt != null && (
               <Row label={t('sessions.idleStartedAt')}>
@@ -190,22 +193,23 @@ export function SessionDetailsTab({
             </Row>
             <Row label={t('sessions.energy')}>
               {session.energyDeliveredWh != null
-                ? `${formatNumber(session.energyDeliveredWh / 1000, 2)} kWh`
-                : 'n/a'}
+                ? t('sessions.energyKwh', {
+                    value: formatNumber(session.energyDeliveredWh / 1000, 2),
+                  })
+                : t('common.na')}
             </Row>
             {session.co2AvoidedKg != null && (
               <Row label={t('sessions.co2AvoidedLabel')}>
                 <span className="inline-flex items-center gap-1 text-success">
                   <Leaf className="h-4 w-4" />
-                  {formatNumber(parseFloat(String(session.co2AvoidedKg)), 2)} kg CO₂ avoided
+                  {t('sessions.co2AvoidedValue', {
+                    value: formatNumber(parseFloat(String(session.co2AvoidedKg)), 2),
+                  })}
                 </span>
               </Row>
             )}
             <Row label={t('payments.cost')}>
-              {formatCents(
-                session.status === 'completed' ? session.finalCostCents : session.currentCostCents,
-                currency,
-              )}
+              {formatCents(sessionDisplayCostCents(session), currency)}
             </Row>
             {session.token != null && (
               <Row label={t('sessions.token')}>
@@ -230,7 +234,7 @@ export function SessionDetailsTab({
                 </Badge>
               </Row>
             )}
-            <Row label={t('sessions.stoppedReason')}>{session.stoppedReason ?? 'n/a'}</Row>
+            <Row label={t('sessions.stoppedReason')}>{session.stoppedReason ?? t('common.na')}</Row>
             {session.reservationId != null && (
               <Row label={t('sessions.reservation')}>
                 <Link
@@ -252,7 +256,7 @@ export function SessionDetailsTab({
             <CardTitle>{t('sessions.transactionEvents')}</CardTitle>
             {txEventTotal > 0 && (
               <span className="text-sm text-muted-foreground">
-                {txEventTotal} {txEventTotal === 1 ? 'event' : 'events'}
+                {t('sessions.eventCount', { count: txEventTotal })}
               </span>
             )}
           </div>

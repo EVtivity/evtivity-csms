@@ -21,7 +21,7 @@ import {
   writeAudit,
   currentAuditViaAi,
 } from '@evtivity/database';
-import { dispatchDriverNotification, createLogger, csvEscape } from '@evtivity/lib';
+import { dispatchDriverNotification, createLogger, csvEscape, isNewOcpiToken } from '@evtivity/lib';
 import { isOcppIdTokenType } from '@evtivity/lib/id-token-types';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
@@ -744,9 +744,11 @@ export async function updateToken(
     });
     if (listFieldsChanged) await bumpStationsHoldingTokens([token.id]);
   }
-  // A changed value or type is a new OCPI Token: the old one is invalidated.
+  // A changed value or OCPI type is a new OCPI Token: the old one is
+  // invalidated. ISO14443 to ISO15693 (both RFID) is the same OCPI Token,
+  // so no tombstone would mark the live card invalid at partners.
   const tombstones: OcpiTokenTombstoneRef[] = [];
-  if (token.idToken !== current.idToken || token.tokenType !== current.tokenType) {
+  if (isNewOcpiToken(current, token)) {
     const old = { idToken: current.idToken, tokenType: current.tokenType };
     if (await tombstoneTokenValue(old)) tombstones.push(old);
   }

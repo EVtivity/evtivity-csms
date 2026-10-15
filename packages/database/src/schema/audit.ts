@@ -221,6 +221,9 @@ export const userAuditActionEnum = pgEnum('user_audit_action', [
   'login_failed',
   // Complete audit coverage (v0.1.46, 0475).
   'invite_resent',
+  // Operator access hardening (v0.1.46, 0475).
+  'mfa_reset',
+  'account_locked',
 ]);
 
 export const userAuditLog = pgTable(
@@ -922,6 +925,9 @@ export const sessionAuditActionEnum = pgEnum('session_audit_action', [
   'faulted',
   'stopped_by_csms',
   'vehicle_changed',
+  // Operator CDR reissue and push retry (v0.1.46, 0475).
+  'cdr_reissued',
+  'cdr_push_retried',
 ]);
 
 export const sessionAuditLog = pgTable(

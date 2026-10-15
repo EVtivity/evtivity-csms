@@ -23,7 +23,7 @@ const { results, getUserSiteIds, drizzle } = vi.hoisted(() => {
       isNotNull: vi.fn((col: unknown) => ({ isNotNull: col })),
       inArray: vi.fn((col: unknown, val: unknown) => ({ inArray: [col, val] })),
       sql: Object.assign(sqlTag, { raw: () => ({ as: () => 'raw' }) }),
-      desc: vi.fn(),
+      desc: vi.fn((col: unknown) => ({ desc: col })),
       count: vi.fn(),
       asc: vi.fn(),
     },
@@ -39,6 +39,7 @@ function makeChain(): Record<string, unknown> {
     'orderBy',
     'limit',
     'offset',
+    '$dynamic',
     'innerJoin',
     'leftJoin',
   ]) {
@@ -73,6 +74,7 @@ vi.mock('@evtivity/database', () => ({
   chargingSessions: {
     id: 'cs.id',
     stationId: 'cs.stationId',
+    siteId: 'cs.siteId',
     status: 'cs.status',
     idleStartedAt: 'cs.idleStartedAt',
     transactionId: 'cs.transactionId',
@@ -81,7 +83,12 @@ vi.mock('@evtivity/database', () => ({
   sites: {},
   drivers: { firstName: 'd.firstName', lastName: 'd.lastName' },
   driverTokens: {},
-  transactionEvents: { sessionId: 'te.sessionId', timestamp: 'te.timestamp' },
+  transactionEvents: {
+    id: 'te.id',
+    sessionId: 'te.sessionId',
+    timestamp: 'te.timestamp',
+    seqNo: 'te.seqNo',
+  },
   transactionEventTypeEnum: { enumValues: ['Started', 'Updated', 'Ended'] as const },
   paymentRecords: {},
   paymentStatusEnum: {
@@ -95,7 +102,12 @@ vi.mock('@evtivity/database', () => ({
       'cancelled',
     ] as const,
   },
-  meterValues: { sessionId: 'mv.sessionId', measurand: 'mv.measurand' },
+  meterValues: {
+    id: 'mv.id',
+    sessionId: 'mv.sessionId',
+    measurand: 'mv.measurand',
+    timestamp: 'mv.timestamp',
+  },
   guestSessions: {},
   vehicles: {},
   sessionStatusEnum: {
@@ -152,11 +164,30 @@ describe('session routes - filters, site scope, transaction events', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ data: [], total: 0 });
-      expect(drizzle.inArray).toHaveBeenCalledWith('st.siteId', [SITE_ID]);
-      expect(drizzle.eq).toHaveBeenCalledWith('st.siteId', SITE_ID);
+      // Scoped and filtered by the site the session happened at (decision A).
+      expect(drizzle.inArray).toHaveBeenCalledWith('cs.siteId', [SITE_ID]);
+      expect(drizzle.eq).toHaveBeenCalledWith('cs.siteId', SITE_ID);
       expect(drizzle.eq).toHaveBeenCalledWith('cs.stationId', STATION_ID);
       expect(drizzle.eq).toHaveBeenCalledWith('cs.status', 'completed');
       expect(drizzle.isNotNull).not.toHaveBeenCalled();
+    });
+
+    it('reports the total from its own count, also past the last page', async () => {
+      // The page query (first) is empty, the count query (second) still counts.
+      results.push([], [{ count: 30 }]);
+      const res = await app.inject({ method: 'GET', url: '/sessions?page=9&limit=5', headers });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ data: [], total: 30 });
+    });
+
+    it('takes the search text literally: %, _ and backslash are escaped', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/sessions?search=${encodeURIComponent('5%_a\\b')}`,
+        headers,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(drizzle.ilike).toHaveBeenCalledWith('cs.id', '%5\\%\\_a\\\\b%');
     });
 
     it('rate-limits per user at 60 requests a minute', async () => {
@@ -226,6 +257,9 @@ describe('session routes - filters, site scope, transaction events', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ data: [event], total: 7 });
       expect(drizzle.eq).toHaveBeenCalledWith('te.sessionId', SESSION_ID);
+      // Events with the same timestamp keep one order across pages.
+      expect(drizzle.desc).toHaveBeenCalledWith('te.seqNo');
+      expect(drizzle.desc).toHaveBeenCalledWith('te.id');
     });
 
     it('returns total 0 when the count query has no row', async () => {
@@ -238,6 +272,18 @@ describe('session routes - filters, site scope, transaction events', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ data: [], total: 0 });
     });
+  });
+
+  it('GET /sessions/:id/meter-values orders readings by timestamp, then id', async () => {
+    results.push([{ id: SESSION_ID, siteId: null }], [], [{ count: 0 }]);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sessions/${SESSION_ID}/meter-values`,
+      headers,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(drizzle.desc).toHaveBeenCalledWith('mv.timestamp');
+    expect(drizzle.desc).toHaveBeenCalledWith('mv.id');
   });
 
   it('GET /sessions/:id/meter-values returns 404 when the session is on another site', async () => {

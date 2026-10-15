@@ -32,6 +32,10 @@ export const ocpiPartnerStatusEnum = pgEnum('ocpi_partner_status', [
 ]);
 
 export const ocpiTokenDirectionEnum = pgEnum('ocpi_token_direction', ['issued', 'received']);
+// What an issued token may do: a registration token (CREDENTIALS_TOKEN_A,
+// OCPI 2.3.0 4.1) reaches only versions, version details and credentials; a
+// credentials token reaches every module once the partner is connected.
+export const ocpiTokenKindEnum = pgEnum('ocpi_token_kind', ['registration', 'credentials']);
 
 export const ocpiInterfaceRoleEnum = pgEnum('ocpi_interface_role', ['SENDER', 'RECEIVER']);
 
@@ -68,6 +72,10 @@ export const ocpiPartners = pgTable(
     // addresses (private peering, local simulators). Off: every outbound OCPI
     // request and command callback must resolve to public addresses only.
     allowPrivateNetwork: boolean('allow_private_network').notNull().default(false),
+    // Operator-set: accept this partner's credentials token without Base64
+    // encoding in the Authorization header (OCPI 2.1.1 and 2.2 peers, 2.3.0
+    // 4.1 note), and send ours to it the same way. Default off.
+    allowRawToken: boolean('allow_raw_token').notNull().default(false),
     // When the partner was sent REMOVED for the EVSE uids published before
     // v0.1.32 ({siteId}-{evseNumber}). Null: still to send (partners that
     // existed at migration 0139). New partners never saw them: default now().
@@ -108,6 +116,7 @@ export const ocpiCredentialsTokens = pgTable(
     tokenHash: text('token_hash').notNull(),
     tokenPrefix: varchar('token_prefix', { length: 8 }).notNull(),
     direction: ocpiTokenDirectionEnum('direction').notNull(),
+    kind: ocpiTokenKindEnum('kind').notNull().default('credentials'),
     isActive: boolean('is_active').notNull().default(true),
     outboundTokenEnc: text('outbound_token_enc'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -230,6 +239,12 @@ export const ocpiRoamingSessions = pgTable(
     totalCost: numeric('total_cost', { precision: 10, scale: 2 }),
     currency: varchar('currency', { length: 3 }),
     sessionData: jsonb('session_data').notNull().default({}),
+    // Our CPO sessions: how the partner's token started the session (OCPI
+    // AuthMethod: COMMAND for a StartSession, WHITELIST for a token the
+    // partner pushed), and the eMSP's authorization_reference from the
+    // StartSession. Null on received (eMSP) rows.
+    authMethod: varchar('auth_method', { length: 20 }),
+    authorizationReference: varchar('authorization_reference', { length: 36 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -241,6 +256,51 @@ export const ocpiRoamingSessions = pgTable(
     uniqueIndex('uq_ocpi_roaming_sessions_charging_session')
       .on(table.chargingSessionId)
       .where(sql`charging_session_id IS NOT NULL`),
+    // One received session per partner and OCPI session id (the eMSP
+    // receiver upserts with ON CONFLICT on it).
+    uniqueIndex('uq_ocpi_roaming_sessions_received')
+      .on(table.partnerId, table.ocpiSessionId)
+      .where(sql`charging_session_id IS NULL`),
+  ],
+);
+
+// Commands a partner sent us as CPO (OCPI 13): the partner's response_url
+// for the asynchronous CommandResult, and for START_SESSION the station, the
+// token and the OCPP remoteStartId, so the session the station starts is
+// linked to the partner that started it (a token uid can repeat across
+// eMSPs). Kept in the database so a result or a timeout still reaches the
+// partner after an OCPI restart, and so only one replica posts it
+// (`result_sent_at` is claimed with a guarded UPDATE).
+export const ocpiCommands = pgTable(
+  'ocpi_commands',
+  {
+    id: text('id').primaryKey(),
+    partnerId: text('partner_id')
+      .notNull()
+      .references(() => ocpiPartners.id, { onDelete: 'cascade' }),
+    commandType: varchar('command_type', { length: 30 }).notNull(),
+    responseUrl: text('response_url').notNull(),
+    // The station's OCPP id.
+    stationId: text('station_id'),
+    tokenUid: varchar('token_uid', { length: 36 }),
+    tokenType: varchar('token_type', { length: 20 }),
+    // The Token object of the StartSession (owner decision: accepted when
+    // the partner pushed no token with that uid).
+    tokenData: jsonb('token_data'),
+    remoteStartId: integer('remote_start_id'),
+    authorizationReference: varchar('authorization_reference', { length: 36 }),
+    // The charging session the START_SESSION started, once linked.
+    chargingSessionId: text('charging_session_id'),
+    result: varchar('result', { length: 30 }),
+    resultSentAt: timestamp('result_sent_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    index('idx_ocpi_commands_station_token').on(table.stationId, table.tokenUid),
+    index('idx_ocpi_commands_pending')
+      .on(table.expiresAt)
+      .where(sql`result_sent_at IS NULL`),
   ],
 );
 
@@ -303,14 +363,28 @@ export const ocpiCdrs = pgTable(
     cdrData: jsonb('cdr_data').notNull(),
     isCredit: boolean('is_credit').notNull().default(false),
     pushStatus: ocpiCdrPushStatusEnum('push_status').notNull().default('pending'),
+    /** Set when an operator reissued the session's CDR after crediting this one. */
+    supersededAt: timestamp('superseded_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    // One live (not credit, not superseded) CDR per session.
+    uniqueIndex('uq_ocpi_cdrs_session_live')
+      .on(table.chargingSessionId)
+      .where(
+        sql`${table.chargingSessionId} IS NOT NULL AND ${table.isCredit} = false AND ${table.supersededAt} IS NULL`,
+      ),
     index('idx_ocpi_cdrs_partner').on(table.partnerId),
     index('idx_ocpi_cdrs_ocpi_id').on(table.ocpiCdrId),
     index('idx_ocpi_cdrs_push_status').on(table.pushStatus),
     index('idx_ocpi_cdrs_charging').on(table.chargingSessionId),
+    // One received CDR per partner and OCPI id (rows partners send us have no
+    // charging session; our own CDRs do). Receiver and pull insert with
+    // ON CONFLICT on it.
+    uniqueIndex('uq_ocpi_cdrs_received')
+      .on(table.partnerId, table.ocpiCdrId)
+      .where(sql`charging_session_id IS NULL`),
   ],
 );
 

@@ -15,6 +15,20 @@ interface BufferedTransaction {
   entries: BufferedEvent[];
 }
 
+/**
+ * The identity of a dropped event for the warning: the TransactionEvent type,
+ * seqNo and timestamp. The event itself stays in domain_events (the event bus
+ * persists every ocpp.TransactionEvent at publish, aggregate Transaction keyed
+ * by the transactionId), so an operator can find and replay it.
+ */
+function droppedEventIdentity(event: DomainEvent): Record<string, unknown> {
+  return {
+    eventType: event.payload.eventType,
+    seqNo: event.payload.seqNo,
+    timestamp: event.payload.timestamp,
+  };
+}
+
 interface TransactionBufferOptions {
   maxSize?: number;
   ttlMs?: number;
@@ -49,7 +63,18 @@ export class TransactionBuffer {
   }
 
   add(stationId: string, transactionId: string, event: DomainEvent): boolean {
-    if (this.totalCount >= this.maxSize) return false;
+    if (this.totalCount >= this.maxSize) {
+      this.logger?.warn(
+        {
+          stationId,
+          transactionId,
+          maxSize: this.maxSize,
+          dropped: [droppedEventIdentity(event)],
+        },
+        'Transaction event buffer full; event for a transaction without a Started dropped (kept in domain_events)',
+      );
+      return false;
+    }
 
     const key = transactionKey(stationId, transactionId);
     const existing = this.buffer.get(key) ?? { stationId, transactionId, entries: [] };
@@ -67,11 +92,17 @@ export class TransactionBuffer {
     this.buffer.delete(key);
     const now = Date.now();
     const valid = entries.filter((e) => now - e.bufferedAt < this.ttlMs);
-    const expired = entries.length - valid.length;
-    if (expired > 0) {
+    const expired = entries.filter((e) => now - e.bufferedAt >= this.ttlMs);
+    if (expired.length > 0) {
       this.logger?.warn(
-        { stationId, transactionId, expired, ttlMs: this.ttlMs },
-        'Buffered transaction events expired before Started arrived (dropped at drain)',
+        {
+          stationId,
+          transactionId,
+          expired: expired.length,
+          ttlMs: this.ttlMs,
+          dropped: expired.map((e) => droppedEventIdentity(e.event)),
+        },
+        'Buffered transaction events expired before Started arrived (dropped at drain, kept in domain_events)',
       );
     }
     this.totalCount -= entries.length;
@@ -82,17 +113,22 @@ export class TransactionBuffer {
     const now = Date.now();
     for (const [key, { stationId, transactionId, entries }] of this.buffer) {
       const remaining = entries.filter((e) => now - e.bufferedAt < this.ttlMs);
-      const removed = entries.length - remaining.length;
-      this.totalCount -= removed;
-      if (removed > 0) {
+      const expired = entries.filter((e) => now - e.bufferedAt >= this.ttlMs);
+      this.totalCount -= expired.length;
+      if (expired.length > 0) {
         // Silent expiry hides cases where a station sends Updated/Ended for a
         // transaction whose Started never arrived: revenue loss with no signal
-        // to the operator. Log with a sample event type so an alert can be
-        // tuned.
-        const firstEventType = entries[0]?.event.eventType;
+        // to the operator. Each dropped event is named (type, seqNo,
+        // timestamp) so it can be found in domain_events.
         this.logger?.warn(
-          { stationId, transactionId, expired: removed, firstEventType, ttlMs: this.ttlMs },
-          'Buffered transaction events expired in cleanup sweep (Started never arrived)',
+          {
+            stationId,
+            transactionId,
+            expired: expired.length,
+            ttlMs: this.ttlMs,
+            dropped: expired.map((e) => droppedEventIdentity(e.event)),
+          },
+          'Buffered transaction events expired in cleanup sweep (Started never arrived, kept in domain_events)',
         );
       }
       if (remaining.length === 0) {

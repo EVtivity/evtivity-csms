@@ -9,7 +9,16 @@ import type { OcpiPartnerInfo } from '../middleware/ocpi-auth.js';
 let dbResults: unknown[][] = [];
 function makeChain(): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'where', 'limit', 'innerJoin', 'leftJoin', 'orderBy']) {
+  for (const m of [
+    'select',
+    'from',
+    'where',
+    'limit',
+    'offset',
+    'innerJoin',
+    'leftJoin',
+    'orderBy',
+  ]) {
     chain[m] = vi.fn(() => chain);
   }
   chain['then'] = (resolve: (v: unknown) => unknown) =>
@@ -169,9 +178,22 @@ describe('authentication', () => {
   }
 });
 
+// A row of the published locations page query.
+function published(
+  id: string,
+  ocpiLocationId: string,
+  siteOverrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    site: site(id, siteOverrides),
+    ocpiLocationId: ocpiLocationId,
+    publishUpdatedAt: updatedAt,
+  };
+}
+
 describe('GET /cpo/locations (list)', () => {
   it('returns an empty page with a zero total when nothing is published', async () => {
-    dbResults = [[]];
+    dbResults = [[{ total: 0 }]];
     const res = await app.inject({
       method: 'GET',
       url: '/ocpi/2.2.1/cpo/locations?date_from=2026-01-01T00:00:00Z&date_to=2026-12-31T00:00:00Z',
@@ -182,31 +204,17 @@ describe('GET /cpo/locations (list)', () => {
   });
 
   it('returns an empty page past the end but keeps the total', async () => {
-    dbResults = [
-      [
-        { siteId: S1, ocpiLocationId: null },
-        { siteId: S2, ocpiLocationId: null },
-      ],
-    ];
+    dbResults = [[{ total: 2 }]];
     const res = await app.inject({ method: 'GET', url: '/ocpi/2.2.1/cpo/locations?offset=5' });
     expect(res.json()).toMatchObject({ data: [] });
     expect(res.headers['x-total-count']).toBe('2');
   });
 
-  it('dedupes allow-list rows, keeps the published order, and names locations', async () => {
-    mockRemoved.mockResolvedValue([REMOVED_EVSE]);
+  it('keeps the query order and names locations by their OCPI id', async () => {
     dbResults = [
-      [
-        { siteId: S1, ocpiLocationId: 'LOC-1' },
-        { siteId: S1, ocpiLocationId: 'LOC-1' },
-        { siteId: S2, ocpiLocationId: null },
-      ], // published (S1 twice from the partner join)
-      [site(S2), site(S1)], // sites, unordered
+      [{ total: 2 }],
+      [published(S1, 'LOC-1'), published(S2, S2)], // page, sorted by last_updated
       [], // stations
-      [
-        { siteId: S1, ocpiLocationId: 'LOC-1' },
-        { siteId: S2, ocpiLocationId: null },
-      ], // publish settings
       [], // maintenance
     ];
     const res = await app.inject({ method: 'GET', url: '/ocpi/2.3.0/cpo/locations' });
@@ -223,16 +231,7 @@ describe('GET /cpo/locations (list)', () => {
   });
 
   it('pages the published sites and links to the next page', async () => {
-    dbResults = [
-      [
-        { siteId: S1, ocpiLocationId: 'LOC-1' },
-        { siteId: S2, ocpiLocationId: 'LOC-2' },
-      ],
-      [site(S2)],
-      [],
-      [{ siteId: S2, ocpiLocationId: 'LOC-2' }],
-      [],
-    ];
+    dbResults = [[{ total: 2 }], [published(S2, 'LOC-2')], [], []];
     const res = await app.inject({
       method: 'GET',
       url: '/ocpi/2.2.1/cpo/locations?offset=1&limit=1',
@@ -243,14 +242,11 @@ describe('GET /cpo/locations (list)', () => {
     expect(res.headers['link']).toBeUndefined();
   });
 
-  it('serves removed EVSEs, falls back to the site id, and applies site maintenance', async () => {
+  it('serves removed EVSEs and applies site maintenance', async () => {
     mockRemoved.mockResolvedValue([REMOVED_EVSE]);
     dbResults = [
-      [
-        { siteId: S1, ocpiLocationId: null },
-        { siteId: S2, ocpiLocationId: null },
-      ],
-      [site(S1), site(S2)],
+      [{ total: 2 }],
+      [published(S1, S1), published(S2, S2)],
       [
         { id: 'sta_000000000001', siteId: S1 },
         { id: 'sta_orphan', siteId: null },
@@ -264,10 +260,10 @@ describe('GET /cpo/locations (list)', () => {
           updatedAt,
           ...AVAILABLE,
           onboardingStatus: 'accepted',
+          isOnline: true,
         },
       ],
       [connectorRow('evs_a'), connectorRow('evs_a', 2)],
-      [{ siteId: S1, ocpiLocationId: null }], // S2 has no publish setting row
       [{ siteId: S1, affectedStationIds: [] }], // whole-site maintenance on S1
     ];
     const res = await app.inject({ method: 'GET', url: '/ocpi/2.2.1/cpo/locations' });
@@ -288,8 +284,8 @@ describe('GET /cpo/locations (list)', () => {
 
   it('marks only the listed stations under maintenance', async () => {
     dbResults = [
-      [{ siteId: S1, ocpiLocationId: null }],
-      [site(S1, { freeVendEnabled: true })],
+      [{ total: 1 }],
+      [published(S1, S1, { freeVendEnabled: true })],
       [
         { id: 'sta_1', siteId: S1 },
         { id: 'sta_2', siteId: S1 },
@@ -302,6 +298,7 @@ describe('GET /cpo/locations (list)', () => {
           evseId: 1,
           updatedAt,
           ...AVAILABLE,
+          isOnline: true,
         },
         {
           id: 'evs_2',
@@ -310,10 +307,10 @@ describe('GET /cpo/locations (list)', () => {
           evseId: 1,
           updatedAt,
           ...AVAILABLE,
+          isOnline: true,
         },
       ],
       [connectorRow('evs_1'), connectorRow('evs_2')],
-      [{ siteId: S1, ocpiLocationId: null }],
       [{ siteId: S1, affectedStationIds: ['sta_2'] }],
     ];
     const res = await app.inject({ method: 'GET', url: '/ocpi/2.2.1/cpo/locations' });
@@ -326,6 +323,34 @@ describe('GET /cpo/locations (list)', () => {
       { id: 'sta_1', freeVend: true },
       { id: 'sta_2', freeVend: true },
     ]);
+  });
+
+  it('carries the latest EVSE, connector and station change in last_updated', async () => {
+    const later = new Date('2026-09-09T00:00:00Z');
+    dbResults = [
+      [{ total: 1 }],
+      [published(S1, S1)],
+      [{ id: 'sta_1', siteId: S1 }],
+      [
+        {
+          id: 'evs_1',
+          stationId: 'sta_1',
+          stationOcppId: 'CS-1',
+          evseId: 1,
+          updatedAt,
+          stationUpdatedAt: updatedAt,
+          ...AVAILABLE,
+          isOnline: true,
+        },
+      ],
+      // A retired connector (left out) changed last.
+      [connectorRow('evs_1'), { ...connectorRow('evs_1', 2), retiredAt: later, updatedAt: later }],
+      [],
+    ];
+    const res = await app.inject({ method: 'GET', url: '/ocpi/2.2.1/cpo/locations' });
+    const location = res.json<Envelope<Array<LocationOut & { last_updated: string }>>>().data[0];
+    expect(location?.evses[0]?.connectors).toHaveLength(1);
+    expect(location?.last_updated).toBe(later.toISOString());
   });
 });
 
@@ -368,6 +393,7 @@ describe('GET /cpo/locations/:location_id', () => {
       [{ siteId: S1 }],
       [site(S1, { freeVendEnabled: true })],
       [{ id: 'sta_000000000001', siteId: S1 }],
+      [], // publish row
       [
         {
           id: 'evs_a',
@@ -506,5 +532,52 @@ describe('GET /cpo/locations/:location_id/:evse_uid/:connector_id', () => {
       id: '1',
       tariff_ids: ['T-5'],
     });
+  });
+});
+
+describe('stations that are not onboarded or not connected', () => {
+  it('does not serve the EVSE or connector of a pending station', async () => {
+    mockFindEvseByUid.mockResolvedValue({ ...EVSE, stationPending: true });
+    dbResults = [[{ siteId: S1 }]];
+    const evse = await app.inject({
+      method: 'GET',
+      url: `/ocpi/2.2.1/cpo/locations/LOC-1/${EVSE.evseDbId}`,
+    });
+    expect(evse.statusCode).toBe(404);
+    dbResults = [[{ siteId: S1 }]];
+    const connector = await app.inject({
+      method: 'GET',
+      url: `/ocpi/2.2.1/cpo/locations/LOC-1/${EVSE.evseDbId}/1`,
+    });
+    expect(connector.statusCode).toBe(404);
+  });
+
+  it('serves the EVSE of a disconnected station as UNKNOWN', async () => {
+    mockFindEvseByUid.mockResolvedValue({
+      ...EVSE,
+      stationOnline: false,
+      stationUpdatedAt: updatedAt,
+    });
+    dbResults = [[{ siteId: S1 }], [{ freeVendEnabled: false }], [connectorRow(EVSE.evseDbId)], []];
+    const res = await app.inject({
+      method: 'GET',
+      url: `/ocpi/2.2.1/cpo/locations/LOC-1/${EVSE.evseDbId}`,
+    });
+    expect(res.json<Envelope<{ status: string }>>().data.status).toBe('UNKNOWN');
+  });
+
+  it('serves the connector of a retired EVSE as it was', async () => {
+    mockFindEvseByUid.mockResolvedValue({ ...EVSE, evseRetired: true });
+    dbResults = [
+      [{ siteId: S1 }],
+      [{ ...connectorRow(EVSE.evseDbId), retiredAt: updatedAt }],
+      [{ freeVendEnabled: false }],
+    ];
+    const res = await app.inject({
+      method: 'GET',
+      url: `/ocpi/2.2.1/cpo/locations/LOC-1/${EVSE.evseDbId}/1`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json<Envelope<Record<string, unknown>>>().data).toMatchObject({ id: '1' });
   });
 });

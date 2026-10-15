@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import { registerAuth } from '../plugins/auth.js';
-import { isUserActive } from '../lib/user-active.js';
+import { getUserSessionState } from '../lib/user-active.js';
 
 describe('authenticate decorator with csms_token cookie', () => {
   async function buildApp() {
@@ -52,7 +52,7 @@ describe('authenticate decorator with csms_token cookie', () => {
 
   it('refuses the csms_token cookie of a deactivated operator', async () => {
     const app = await buildApp();
-    vi.mocked(isUserActive).mockResolvedValueOnce(false);
+    vi.mocked(getUserSessionState).mockResolvedValueOnce({ active: false, sessionVersion: 0 });
     const token = app.jwt.sign({ userId: 'u_off', roleId: 'r2' }, { expiresIn: '1h' });
 
     const res = await app.inject({

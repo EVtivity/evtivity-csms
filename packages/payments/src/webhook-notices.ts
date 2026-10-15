@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { chargingSessions, chargingStations, client, db, sites } from '@evtivity/database';
 import { dispatchDriverNotification, notificationMoney } from '@evtivity/lib';
 import type { PubSubClient } from '@evtivity/lib';
@@ -42,12 +42,17 @@ async function sessionRef(sessionId: string | null): Promise<SessionRef> {
       transactionId: chargingSessions.transactionId,
       stationOcppId: chargingStations.stationId,
       stationUuid: chargingStations.id,
-      siteId: chargingStations.siteId,
+      // The site the session happened at; the station's current site only
+      // for a row without one (inserted by an older release).
+      siteId: sql<string | null>`COALESCE(${chargingSessions.siteId}, ${chargingStations.siteId})`,
       siteName: sites.name,
     })
     .from(chargingSessions)
     .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
-    .leftJoin(sites, eq(sites.id, chargingStations.siteId))
+    .leftJoin(
+      sites,
+      eq(sites.id, sql`COALESCE(${chargingSessions.siteId}, ${chargingStations.siteId})`),
+    )
     .where(eq(chargingSessions.id, sessionId));
   return row ?? NO_SESSION;
 }

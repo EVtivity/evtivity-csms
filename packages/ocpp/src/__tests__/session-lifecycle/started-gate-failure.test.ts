@@ -65,6 +65,10 @@ vi.mock('@evtivity/database', async () => ({
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   // The session site sub-select (lib/session-site.ts), a plain value here.
   sessionSiteIdSql: vi.fn(() => 'site-of-station'),
+  // The real OCPI token owner checks (one statement each), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../../database/src/lib/ocpi-token-startable.js',
+  )),
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../../database/src/lib/session-end-request.js',
   )),

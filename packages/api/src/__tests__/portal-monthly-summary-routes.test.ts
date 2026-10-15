@@ -124,9 +124,17 @@ describe('Portal monthly summary routes', () => {
     });
 
     it('returns the month total in the company currency', async () => {
-      setupDbResults([
-        { totalCostCents: 5000, totalEnergyWh: '45000', totalCo2AvoidedKg: '7.5', sessionCount: 3 },
-      ]);
+      setupDbResults(
+        [{ timezone: 'America/New_York' }], // the driver's timezone sets the month
+        [
+          {
+            totalCostCents: 5000,
+            totalEnergyWh: '45000',
+            totalCo2AvoidedKg: '7.5',
+            sessionCount: 3,
+          },
+        ],
+      );
       const response = await app.inject({
         method: 'GET',
         url: '/portal/sessions/monthly-summary?month=2026-02',
@@ -143,7 +151,7 @@ describe('Portal monthly summary routes', () => {
     });
 
     it('returns zeros when no sessions', async () => {
-      setupDbResults([]);
+      setupDbResults([{ timezone: 'UTC' }], []);
       const response = await app.inject({
         method: 'GET',
         url: '/portal/sessions/monthly-summary?month=2026-01',
@@ -222,13 +230,74 @@ describe('Portal monthly summary routes', () => {
         totalEnergyWh: 40000,
         totalCo2AvoidedKg: 7,
         sessionCount: 2,
+        otherCurrencySessionCount: 0,
+        fleetBilledSessionCount: 0,
       });
+    });
+
+    it('leaves fleet-invoiced and earlier-currency sessions out of the total and counts them', async () => {
+      const row = (
+        id: string,
+        cents: number,
+        currency: string,
+        billing: Record<string, unknown>,
+      ) => ({
+        id,
+        startedAt: '2026-02-10T10:00:00Z',
+        endedAt: '2026-02-10T11:00:00Z',
+        energyDeliveredWh: '1000',
+        co2AvoidedKg: null,
+        finalCostCents: cents,
+        taxCents: null,
+        currency,
+        siteName: 'Site Alpha',
+        siteCity: 'Austin',
+        billingMode: null,
+        billingFleetName: null,
+        billingInvoiceStatus: null,
+        billingHasPaymentRecord: false,
+        billingMemberBilled: false,
+        billingInvoiceId: null,
+        billingInvoiceNumber: null,
+        ...billing,
+      });
+      setupDbResults(
+        [{ firstName: 'John', lastName: 'Doe', timezone: 'Europe/Berlin' }],
+        [
+          row('ses_card', 1000, 'EUR', {}),
+          row('ses_fleet', 700, 'EUR', { billingMode: 'account', billingFleetName: 'Acme' }),
+          row('ses_member', 300, 'EUR', {
+            billingMode: 'account',
+            billingFleetName: 'Acme',
+            billingMemberBilled: true,
+          }),
+          row('ses_usd', 900, 'USD', {}),
+        ],
+      );
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/sessions/monthly-statement?month=2026-02',
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      // The member-billed session is the driver's to pay: it stays in.
+      expect(body.totals).toMatchObject({
+        totalCostCents: 1300,
+        sessionCount: 4,
+        otherCurrencySessionCount: 1,
+        fleetBilledSessionCount: 1,
+      });
+      const fleet = body.sessions.find((s: { id: string }) => s.id === 'ses_fleet');
+      expect(fleet.accountBilling).toMatchObject({ fleetName: 'Acme', invoicedTo: 'fleet' });
+      expect(fleet).not.toHaveProperty('billingMode');
     });
   });
 
   describe('GET /v1/portal/sessions with month filter', () => {
     it('accepts month query parameter', async () => {
       setupDbResults(
+        [{ timezone: 'America/Chicago' }],
         [
           {
             id: 'ses_000000000001',

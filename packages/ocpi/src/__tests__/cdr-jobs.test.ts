@@ -53,6 +53,13 @@ vi.mock('../services/cdr.service.js', () => ({
 }));
 vi.mock('../services/push.service.js', () => ({
   pushLegacyEvseRemoval: mocks.pushLegacyEvseRemoval,
+  isPushJobName: (name: string) => name.startsWith('push-'),
+  processPushJob: vi.fn(async () => undefined),
+  pushJobOptions: (id: string) => ({
+    deduplication: { id, keepLastIfActive: true },
+    attempts: 6,
+    removeOnComplete: true,
+  }),
 }));
 
 const {
@@ -202,7 +209,11 @@ describe('runCdrSweep', () => {
   it('schedules missing CDRs, unsent credit CDRs, and legacy removals', async () => {
     selectResults = [
       [DONE_BACKFILL],
-      [{ sessionId: 'ses_1' }, { sessionId: 'ses_2' }],
+      [
+        { sessionId: 'ses_1', generation: 0 },
+        // Reissued once: the new CDR job gets a new jobId.
+        { sessionId: 'ses_2', generation: 1 },
+      ],
       [{ ocpiCdrId: 'cdr-c1' }],
       [{ id: 'opr_1' }],
     ];
@@ -215,12 +226,12 @@ describe('runCdrSweep', () => {
     expect(queue.add).toHaveBeenCalledWith(
       'cdr',
       { sessionId: 'ses_2' },
-      expect.objectContaining({ jobId: 'cdr-ses_2' }),
+      expect.objectContaining({ jobId: 'cdr-ses_2-r1' }),
     );
     expect(queue.add).toHaveBeenCalledWith(
       'cdr-push',
       { cdrId: 'cdr-c1' },
-      expect.objectContaining({ jobId: 'cdr-push-cdr-c1' }),
+      expect.objectContaining({ jobId: 'cdr-push-cdr-c1', removeOnComplete: true }),
     );
     expect(queue.add).toHaveBeenCalledWith(
       'legacy-evse-removal',

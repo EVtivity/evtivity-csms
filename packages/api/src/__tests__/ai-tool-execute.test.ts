@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 
 import { currentAuditViaAi } from '@evtivity/database';
 import {
+  AI_TOOL_CALL_HEADER,
   buildToolRequest,
   createToolset,
   currentAiToolCall,
@@ -221,5 +222,51 @@ describe('running a tool call', () => {
     expect(outcome.content).not.toContain('abcdefghijklmnop');
     expect(outcome.redactionCounts).toEqual({ keys: 1, values: 1, pii: 0 });
     expect(outcome.summary).toBe('PATCH /v1/stations/sta_000000000001 200');
+  });
+});
+
+describe('an AI tool call token behind a trusted proxy', () => {
+  it('is honored only from the in-process socket, never from X-Forwarded-For', async () => {
+    const app = Fastify({ logger: false, trustProxy: '10.0.0.0/16' });
+    let captured: string | undefined;
+    // Take the token off the injected request before the context hook sees
+    // it, so it stays unused for the forged request below.
+    app.addHook('onRequest', (request, _reply, done) => {
+      const token = request.headers[AI_TOOL_CALL_HEADER];
+      if (typeof token === 'string' && captured === undefined) {
+        captured = token;
+        request.headers[AI_TOOL_CALL_HEADER] = undefined;
+      }
+      done();
+    });
+    registerAiToolCallContext(app);
+    const seen: boolean[] = [];
+    app.patch('/v1/stations/:id', async (request) => {
+      seen.push(isAiToolRequest());
+      return { id: (request.params as { id: string }).id };
+    });
+    await app.ready();
+
+    await runToolCall(app, { entry: entry(), args: { id: 'sta_000000000001' } }, 'Bearer t', {
+      surface: 'chatbot',
+      userId: 'usr_1',
+      via: { channel: 'chat', conversationId: 'aic_1', toolCallId: 'atc_1' },
+    });
+    expect(captured).toBeTypeOf('string');
+
+    // A remote client behind the proxy forges 127.0.0.1 as its address.
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/v1/stations/sta_000000000001',
+      remoteAddress: '10.0.0.5',
+      headers: {
+        [AI_TOOL_CALL_HEADER]: captured ?? '',
+        'x-forwarded-for': '127.0.0.1',
+      },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(200);
+    expect(seen).toEqual([false, false]);
+    await app.close();
   });
 });

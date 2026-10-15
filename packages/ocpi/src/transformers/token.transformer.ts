@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { ocpiTokenTypeOf as sharedOcpiTokenTypeOf } from '@evtivity/lib';
 import type { OcpiToken, OcpiTokenType, OcpiVersion } from '../types/ocpi.js';
 
 /**
@@ -26,27 +27,9 @@ interface TokenTransformInput {
   driverName?: string;
 }
 
-const TOKEN_TYPE_MAP: Record<string, OcpiTokenType> = {
-  ISO14443: 'RFID',
-  ISO15693: 'RFID',
-  eMAID: 'APP_USER',
-  Central: 'OTHER',
-  Local: 'OTHER',
-  MacAddress: 'OTHER',
-  EVCCID: 'OTHER',
-  VIN: 'OTHER',
-  DirectPayment: 'AD_HOC_USER',
-  NoAuthorization: 'AD_HOC_USER',
-  KeyCode: 'OTHER',
-};
-
 /** The OCPI Token type of a driver token type (the `type` URL parameter of a push). */
 export function ocpiTokenTypeOf(tokenType: string): OcpiTokenType {
-  return mapTokenType(tokenType);
-}
-
-function mapTokenType(tokenType: string): OcpiTokenType {
-  return TOKEN_TYPE_MAP[tokenType] ?? 'RFID';
+  return sharedOcpiTokenTypeOf(tokenType);
 }
 
 export function transformToken(input: TokenTransformInput, version: OcpiVersion): OcpiToken {
@@ -68,7 +51,7 @@ export function transformToken(input: TokenTransformInput, version: OcpiVersion)
     country_code: countryCode,
     party_id: partyId,
     uid: token.idToken,
-    type: mapTokenType(token.tokenType),
+    type: ocpiTokenTypeOf(token.tokenType),
     contract_id: token.idToken,
     issuer: partyId,
     valid,

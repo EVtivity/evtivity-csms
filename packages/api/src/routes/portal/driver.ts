@@ -43,6 +43,7 @@ import {
 import { getAuditActor } from '../../lib/audit-actor.js';
 import { changedFields } from '../../lib/audit-diff.js';
 import { hasMfaContact, mfaCodeRecipient, removesSmsMfaPhone } from '../../lib/mfa-contact.js';
+import { verifyPassword } from '../../lib/password-verify.js';
 
 /** The profile fields a portal profile update can change, audited when they do. */
 const PROFILE_AUDIT_KEYS = [
@@ -315,7 +316,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const valid = await argon2.verify(driver.passwordHash, body.currentPassword);
+      const valid = await verifyPassword(driver.passwordHash, body.currentPassword, request.log);
       if (!valid) {
         await reply
           .status(400)
@@ -719,7 +720,8 @@ export function portalDriverRoutes(app: FastifyInstance): void {
           return;
         }
       } else if (challengeId != null) {
-        verified = await verifyMfaChallenge(client, challengeId, code, { driverId });
+        verified =
+          (await verifyMfaChallenge(client, challengeId, code, { driverId })) === 'verified';
       }
 
       if (!verified) {
@@ -792,7 +794,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const valid = await argon2.verify(driver.passwordHash, password);
+      const valid = await verifyPassword(driver.passwordHash, password, request.log);
       if (!valid) {
         await reply.status(400).send({ error: 'Invalid password', code: 'INVALID_PASSWORD' });
         return;

@@ -192,6 +192,18 @@ describe('command-translation', () => {
         });
       });
 
+      it('sends the 2.1 evseId as the 1.6 connectorId, not the connector within the EVSE', () => {
+        // A 1.6 connector is what 2.1 calls the EVSE: EVSE 2, connector 1 is 1.6 connector 2.
+        const result = translateCommand('UnlockConnector', 'ocpp1.6', {
+          evseId: 2,
+          connectorId: 1,
+        });
+        expect(result).toEqual({
+          action: 'UnlockConnector',
+          payload: { connectorId: 2 },
+        });
+      });
+
       it('defaults connectorId to 1 when no evse for ocpp1.6', () => {
         const result = translateCommand('UnlockConnector', 'ocpp1.6', {});
         expect(result).toEqual({

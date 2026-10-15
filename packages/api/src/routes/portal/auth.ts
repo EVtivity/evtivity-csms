@@ -59,6 +59,7 @@ import { driverBillingSchema, toDriverBilling } from '../../lib/portal-billing.j
 import { recordAuthAudit } from '../../lib/auth-audit.js';
 import { activateDriverPortal } from '../../services/driver-portal-access.service.js';
 import { verifyAgainstDummyHash } from '../../lib/dummy-password-hash.js';
+import { verifyPassword } from '../../lib/password-verify.js';
 import { sendDriverEmailVerification } from '../../lib/driver-email-verification.js';
 import { mfaCodeRecipient } from '../../lib/mfa-contact.js';
 import {
@@ -71,11 +72,6 @@ import {
   registerIosAttestation,
   verifyDeviceAttestation,
 } from '../../lib/device-attestation/index.js';
-import {
-  isMfaChallengeExhausted,
-  recordMfaChallengeAttempt,
-  clearMfaChallengeAttempts,
-} from '../../lib/rate-limiters.js';
 
 const portalDriverItem = z
   .object({
@@ -528,7 +524,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const valid = await argon2.verify(driver.passwordHash, password);
+      const valid = await verifyPassword(driver.passwordHash, password, request.log);
       if (!valid) {
         await recordAuthAudit(request, {
           kind: 'driver',
@@ -821,15 +817,6 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Per-challengeId brute-force protection
-      if (challengeId != null && isMfaChallengeExhausted(challengeId)) {
-        await reply.status(400).send({
-          error: 'Too many failed attempts. Request a new code.',
-          code: 'MFA_CHALLENGE_EXHAUSTED',
-        });
-        return;
-      }
-
       const [driver] = await db.select().from(drivers).where(eq(drivers.id, payload.driverId));
       if (driver == null || !driver.mfaEnabled || driver.mfaMethod == null) {
         await reply.status(400).send({ error: 'MFA not configured', code: 'MFA_NOT_CONFIGURED' });
@@ -870,13 +857,22 @@ export function portalAuthRoutes(app: FastifyInstance): void {
           return;
         }
       } else if (challengeId != null) {
-        verified = await verifyMfaChallenge(client, challengeId, code, { driverId: driver.id });
+        // The tries are counted on the challenge row (single use, at most
+        // MFA_CHALLENGE_MAX_ATTEMPTS codes), shared by every API process.
+        const result = await verifyMfaChallenge(client, challengeId, code, {
+          driverId: driver.id,
+        });
+        if (result === 'exhausted') {
+          await reply.status(400).send({
+            error: 'Too many failed attempts. Request a new code.',
+            code: 'MFA_CHALLENGE_EXHAUSTED',
+          });
+          return;
+        }
+        verified = result === 'verified';
       }
 
       if (!verified) {
-        if (challengeId != null) {
-          recordMfaChallengeAttempt(challengeId);
-        }
         await recordAuthAudit(request, {
           kind: 'driver',
           accountId: driver.id,
@@ -888,11 +884,6 @@ export function portalAuthRoutes(app: FastifyInstance): void {
           .status(400)
           .send({ error: 'Invalid verification code', code: 'MFA_CODE_INVALID' });
         return;
-      }
-
-      // Clear attempt counter on success
-      if (challengeId != null) {
-        clearMfaChallengeAttempts(challengeId);
       }
 
       await recordAuthAudit(request, {

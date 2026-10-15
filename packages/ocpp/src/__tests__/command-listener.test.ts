@@ -440,6 +440,31 @@ describe('CommandListener', () => {
     expect(JSON.stringify(eventBus.publish.mock.calls)).not.toContain('SeedStationPass1234');
   });
 
+  it('never queues a noQueue command for an offline station and answers an error', async () => {
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+      new Error('Station CS-001 is not connected'),
+    );
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-ocpi',
+        stationId: 'CS-001',
+        action: 'RequestStartTransaction',
+        payload: { idToken: { idToken: 'TOK', type: 'ISO14443' }, remoteStartId: 9 },
+        noQueue: true,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    // No command.Queued event: nothing reaches offline_command_queue.
+    const types = eventBus.publish.mock.calls.map((c) => c[0].eventType);
+    expect(types).not.toContain('command.Queued');
+    expect(mockPublish).toHaveBeenCalledWith(
+      'ocpp_command_results',
+      JSON.stringify({ commandId: 'cmd-ocpi', error: 'Station offline, command not queued' }),
+    );
+  });
+
   it('sends queued result via pubsub when station offline', async () => {
     dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
       new Error('Station CS-001 is not connected'),

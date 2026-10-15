@@ -197,7 +197,11 @@ describe('OCPP 1.6 StartTransaction handler', () => {
       expect(claim.raw).toContain("pending.status = 'active'");
       expect(claim.raw).toContain('NOT EXISTS');
       expect(claim.raw).toContain('ORDER BY pending.started_at DESC');
-      expect(claim.values).toEqual(['sta_1', 2]);
+      // Only for the idTag the portal sent: the driver id, or the token of the
+      // held reservation (1.6 idTag compares without case).
+      expect(claim.raw).toContain('lower(pending.driver_id) = lower(?)');
+      expect(claim.raw).toContain('lower(dt.id_token) = lower(?)');
+      expect(claim.values).toEqual(['sta_1', 2, 'TAG-CLAIM', 'TAG-CLAIM']);
     });
 
     it('answers a resent StartTransaction with the transaction id it already has', async () => {

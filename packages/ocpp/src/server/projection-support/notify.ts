@@ -5,6 +5,7 @@ import type postgres from 'postgres';
 import type { EventBus, Logger, PubSubClient } from '@evtivity/lib';
 import {
   isRoamingEnabled,
+  resolveOcpiTokenOwner,
   getIdlingGracePeriodMinutes,
   getCompanyPriceDisplay,
   writeReservationAudit,
@@ -48,7 +49,11 @@ export interface ProjectionNotifier {
     type: 'location' | 'session' | 'cdr' | 'tariff',
     ids: { siteId?: string; sessionId?: string; cdrId?: string; tariffId?: string },
   ): Promise<void>;
-  linkCpoRoamingSession(sessionId: string, idToken: string): Promise<void>;
+  linkCpoRoamingSession(
+    sessionId: string,
+    idToken: string,
+    remoteStartId?: number | null,
+  ): Promise<void>;
 }
 
 /**
@@ -290,19 +295,58 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
   // Written here, before the push is published, so a lost push still leaves
   // the session visible to the partner's next pull. ON CONFLICT keeps it to
   // one link per session when Started is processed twice.
-  async function linkCpoRoamingSession(sessionId: string, idToken: string): Promise<void> {
+  //
+  // The partner is the one that authorized the start (`resolveOcpiTokenOwner`):
+  // its START_SESSION for this station and token (by remoteStartId when the
+  // event carries one; auth_method COMMAND with the eMSP's
+  // authorization_reference), else the one connected partner holding a valid
+  // token with this uid (WHITELIST). A uid several connected partners hold
+  // without a command naming one is not linked: no partner can be billed.
+  async function linkCpoRoamingSession(
+    sessionId: string,
+    idToken: string,
+    remoteStartId?: number | null,
+  ): Promise<void> {
     try {
-      await sql`
-        INSERT INTO ocpi_roaming_sessions
-          (partner_id, ocpi_session_id, charging_session_id, token_uid, status, currency)
-        SELECT t.partner_id, ${sessionId}, ${sessionId}, t.uid, 'ACTIVE', cs.currency
-        FROM ocpi_external_tokens t
-        JOIN charging_sessions cs ON cs.id = ${sessionId}
-        WHERE t.uid = ${idToken} AND t.is_valid = true
-        ORDER BY t.updated_at DESC
-        LIMIT 1
-        ON CONFLICT (charging_session_id) WHERE charging_session_id IS NOT NULL DO NOTHING
+      const [station] = await sql<{ station_id: string; currency: string }[]>`
+        SELECT st.station_id, cs.currency
+        FROM charging_sessions cs
+        JOIN charging_stations st ON st.id = cs.station_id
+        WHERE cs.id = ${sessionId}
       `;
+      if (station == null) return;
+      const { owner, ambiguous } = await resolveOcpiTokenOwner(
+        {
+          stationOcppId: station.station_id,
+          tokenUid: idToken,
+          remoteStartId: remoteStartId ?? null,
+        },
+        sql,
+      );
+      if (ambiguous) {
+        logger.warn(
+          { sessionId, stationId: station.station_id, idToken },
+          'OCPI token uid held by several connected partners; roaming session not linked',
+        );
+        return;
+      }
+      if (owner == null || !owner.isValid) return;
+      const inserted = await sql`
+        INSERT INTO ocpi_roaming_sessions
+          (partner_id, ocpi_session_id, charging_session_id, token_uid, status, currency,
+           auth_method, authorization_reference)
+        VALUES (${owner.partnerId}, ${sessionId}, ${sessionId}, ${idToken}, 'ACTIVE',
+          ${station.currency}, ${owner.authMethod}, ${owner.authorizationReference})
+        ON CONFLICT (charging_session_id) WHERE charging_session_id IS NOT NULL DO NOTHING
+        RETURNING id
+      `;
+      if (inserted.length > 0 && owner.commandId != null) {
+        // The command is used: it binds no later session.
+        await sql`
+          UPDATE ocpi_commands SET charging_session_id = ${sessionId}
+          WHERE id = ${owner.commandId} AND charging_session_id IS NULL
+        `;
+      }
     } catch (err) {
       logger.warn({ err, sessionId }, 'OCPI roaming session link failed; continuing');
     }

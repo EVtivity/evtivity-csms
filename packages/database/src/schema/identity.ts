@@ -9,6 +9,8 @@ import {
   boolean,
   timestamp,
   jsonb,
+  integer,
+  bigint,
   index,
   check,
   unique,
@@ -53,6 +55,24 @@ export const users = pgTable(
     mfaEnabled: boolean('mfa_enabled').notNull().default(false),
     mfaMethod: varchar('mfa_method', { length: 20 }),
     totpSecretEnc: varchar('totp_secret_enc', { length: 500 }),
+    // The last TOTP time step a sign-in accepted: a code of that step or an
+    // earlier one is refused, so an observed code cannot be replayed.
+    totpLastStep: bigint('totp_last_step', { mode: 'number' }),
+    // How the account was created: 'password' or 'sso' (auto-provisioned by
+    // a SAML sign-in). While SSO is enabled an SSO account has no password
+    // sign-in, reset or change.
+    authSource: varchar('auth_source', { length: 20 }).notNull().default('password'),
+    // Raised by every change that must end the access tokens issued before it
+    // (logout, password, MFA, role, permissions, deactivation). An access
+    // token carries the version it was issued under (`sv`).
+    sessionVersion: integer('session_version').notNull().default(0),
+    // Per-account sign-in backoff: failed password sign-ins in a row and the
+    // time until which the next one is refused.
+    failedLoginCount: integer('failed_login_count').notNull().default(0),
+    loginLockedUntil: timestamp('login_locked_until', { withTimezone: true }),
+    // The same for MFA codes after the password step.
+    mfaFailedCount: integer('mfa_failed_count').notNull().default(0),
+    mfaLockedUntil: timestamp('mfa_locked_until', { withTimezone: true }),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -60,6 +80,7 @@ export const users = pgTable(
   (table) => [
     index('idx_users_email').on(table.email),
     index('idx_users_role_id').on(table.roleId),
+    check('users_auth_source_check', sql`"auth_source" IN ('password', 'sso')`),
   ],
 );
 
@@ -145,6 +166,9 @@ export const mfaChallenges = pgTable(
     method: varchar('method', { length: 20 }).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     usedAt: timestamp('used_at', { withTimezone: true }),
+    // Codes tried against this challenge: a guarded UPDATE counts each try
+    // and refuses the challenge after MFA_CHALLENGE_MAX_ATTEMPTS.
+    attempts: integer('attempts').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

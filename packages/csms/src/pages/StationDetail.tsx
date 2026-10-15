@@ -467,7 +467,7 @@ export function StationDetail(): React.JSX.Element {
 
         <TabsContent value="meter-values">
           <MeterValuesTable
-            queryKey="station-meter-values"
+            queryKey={['stations', station.id, 'meter-values']}
             url={`/v1/stations/${station.id}/standalone-meter-values`}
             description={t('stations.meterValuesDescription')}
           />

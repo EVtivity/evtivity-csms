@@ -483,7 +483,9 @@ export async function loadFleetInvoiceCandidates(
     FROM charging_sessions cs
     LEFT JOIN drivers d ON d.id = cs.driver_id
     LEFT JOIN charging_stations st ON st.id = cs.station_id
-    LEFT JOIN sites si ON si.id = st.site_id
+    -- The site the session happened at (the station's current site only for
+    -- a row without one), so a moved station keeps its earlier sessions' site.
+    LEFT JOIN sites si ON si.id = COALESCE(cs.site_id, st.site_id)
     WHERE cs.billing_fleet_id = ${fleetId}
       AND cs.billing_mode = 'account'
       ${recipient}
@@ -1080,13 +1082,9 @@ async function issueAccountInvoice(
       return result;
     });
   } catch (err) {
-    if (err instanceof AppError) throw err;
-    const periodIndex = target.kind === 'fleet' ? FLEET_PERIOD_INDEX : MEMBER_PERIOD_INDEX;
-    if (pgErrorCode(err) === PG_UNIQUE_VIOLATION && pgConstraintName(err) === periodIndex) {
-      const live = await findTargetPeriodInvoice(db, target, bounds.periodStart);
-      if (live != null) throw periodExistsError(target, live);
-    }
-    if (err instanceof Error && err.message === 'Session is already invoiced') {
+    // The claim in insertInvoiceInTransaction found a session another invoice
+    // took meanwhile (alreadyInvoicedError).
+    if (err instanceof AppError && err.code === 'SESSION_ALREADY_INVOICED') {
       throw new AppError(
         target.kind === 'fleet'
           ? 'A session of the fleet was billed while the invoice was being created; generate it again'
@@ -1094,6 +1092,12 @@ async function issueAccountInvoice(
         400,
         'INVOICE_CREATION_FAILED',
       );
+    }
+    if (err instanceof AppError) throw err;
+    const periodIndex = target.kind === 'fleet' ? FLEET_PERIOD_INDEX : MEMBER_PERIOD_INDEX;
+    if (pgErrorCode(err) === PG_UNIQUE_VIOLATION && pgConstraintName(err) === periodIndex) {
+      const live = await findTargetPeriodInvoice(db, target, bounds.periodStart);
+      if (live != null) throw periodExistsError(target, live);
     }
     throw err;
   }

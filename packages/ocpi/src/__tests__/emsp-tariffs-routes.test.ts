@@ -11,6 +11,7 @@ const h = vi.hoisted(() => ({
   selects: [] as unknown[][],
   updates: [] as Record<string, unknown>[],
   inserts: [] as Record<string, unknown>[],
+  conflictSets: [] as Record<string, unknown>[],
   deletes: 0,
   partner: undefined as OcpiPartnerInfo | undefined,
 }));
@@ -38,7 +39,12 @@ vi.mock('@evtivity/database', async (importOriginal) => ({
     insert: vi.fn(() => ({
       values: (values: Record<string, unknown>) => {
         h.inserts.push(values);
-        return Promise.resolve(undefined);
+        return {
+          onConflictDoUpdate: (config: { set: Record<string, unknown> }) => {
+            h.conflictSets.push(config.set);
+            return Promise.resolve(undefined);
+          },
+        };
       },
     })),
     delete: vi.fn(() => ({
@@ -97,6 +103,7 @@ beforeEach(() => {
   h.selects = [];
   h.updates = [];
   h.inserts = [];
+  h.conflictSets = [];
   h.deletes = 0;
   h.partner = { ...PARTNER };
 });
@@ -131,8 +138,7 @@ describe('GET emsp tariff', () => {
 });
 
 describe('PUT emsp tariff', () => {
-  it('inserts a new tariff', async () => {
-    h.selects = [[]];
+  it('upserts the tariff', async () => {
     const res = await app.inject({ method: 'PUT', url: URL_230, payload: TARIFF });
     expect(res.statusCode).toBe(200);
     expect(res.json<Body>()).toMatchObject({ status_code: 1000, data: null });
@@ -147,16 +153,41 @@ describe('PUT emsp tariff', () => {
       },
     ]);
     expect(h.updates).toHaveLength(0);
+    // ON CONFLICT on (partner, country, party, tariff id) replaces the row.
+    expect(Object.keys(h.conflictSets[0] ?? {}).sort()).toEqual([
+      'currency',
+      'tariffData',
+      'updatedAt',
+    ]);
   });
 
-  it('updates an existing tariff', async () => {
-    h.selects = [[{ id: 9 }]];
-    const payload = { ...TARIFF, currency: 'CHF' };
-    const res = await app.inject({ method: 'PUT', url: URL_221, payload });
-    expect(res.statusCode).toBe(200);
+  it('refuses a body whose id differs from the URL and an over-long tariff id', async () => {
+    let res = await app.inject({ method: 'PUT', url: URL_221, payload: { ...TARIFF, id: 'T2' } });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<Body>()).toMatchObject({
+      status_code: 2001,
+      status_message: 'Tariff id does not match the URL',
+    });
+
+    const id = 'T'.repeat(37);
+    res = await app.inject({
+      method: 'PUT',
+      url: `/ocpi/2.2.1/emsp/tariffs/DE/ABC/${id}`,
+      payload: { ...TARIFF, id },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json<Body>().status_message).toBe('Invalid tariff_id');
     expect(h.inserts).toHaveLength(0);
-    expect(h.updates[0]).toMatchObject({ currency: 'CHF', tariffData: payload });
-    expect(h.updates[0]?.['updatedAt']).toBeInstanceOf(Date);
+  });
+
+  it('refuses a patch that changes the tariff id or party', async () => {
+    for (const patch of [{ id: 'T2' }, { country_code: 'NL' }, { party_id: 'XYZ' }]) {
+      h.selects = [[{ id: 9, tariffData: TARIFF }]];
+      const res = await app.inject({ method: 'PATCH', url: URL_221, payload: patch });
+      expect(res.statusCode).toBe(400);
+      expect(res.json<Body>().status_code).toBe(2001);
+    }
+    expect(h.updates).toHaveLength(0);
   });
 
   it('rejects a namespace that does not match the credentials', async () => {

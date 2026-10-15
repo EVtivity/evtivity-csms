@@ -228,7 +228,7 @@ describe('rebillSession', () => {
     [{ status: 'faulted', stopped_reason: 'PaymentFailed' }, 'NOT_ELIGIBLE:status'],
     [{ status: 'completed', rebill_status: 'billed' }, 'NOT_ELIGIBLE:already_rebilled'],
     [{ rebill_status: 'manual' }, 'NOT_ELIGIBLE:already_rebilled'],
-    [{ is_roaming: true }, 'NOT_ELIGIBLE:roaming'],
+    [{ is_roaming: true, energy_delivered_wh: '0' }, 'NOT_ELIGIBLE:no_energy'],
     [{ free_vend: true }, 'NOT_ELIGIBLE:free_vend'],
     [{ tariff_id: null }, 'NOT_ELIGIBLE:no_tariff'],
     [{ rebill_status: 'in_progress', rebill_claimed_at: new Date() }, 'SESSION_REBILL_IN_PROGRESS'],
@@ -254,6 +254,33 @@ describe('rebillSession', () => {
     await expect(rebillSession('ses_1', ctx)).resolves.toMatchObject({ result: 'charged' });
     useSession({}, { id: 4, status: 'pending', metadata: { rebill: {} } });
     await expect(rebillSession('ses_1', ctx)).resolves.toMatchObject({ result: 'charged' });
+  });
+
+  it('completes a roaming session that delivered energy without a payment and pushes it', async () => {
+    useSession({ is_roaming: true, driver_id: null });
+
+    await expect(rebillSession('ses_1', ctx)).resolves.toMatchObject({
+      rebillStatus: 'billed',
+      result: 'roaming',
+      manualReason: null,
+      paymentRecordId: null,
+      finalCostCents: 1190,
+    });
+    expect(m.chargeSessionRebill).not.toHaveBeenCalled();
+    expect(m.settlePrepaidSession).not.toHaveBeenCalled();
+    expect(m.completeRebilledSession).toHaveBeenCalledWith(
+      m.client,
+      expect.objectContaining({ outcome: 'billed' }),
+    );
+    expect(m.writeAudit.mock.calls[0]?.[1]).toMatchObject({
+      action: 'rebilled',
+      after: expect.objectContaining({ result: 'roaming' }),
+    });
+    // The partner gets the completed Session; the OCPI server then issues its CDR.
+    expect(m.publish).toHaveBeenCalledWith(
+      'ocpi_push',
+      JSON.stringify({ type: 'session', sessionId: 'ses_1' }),
+    );
   });
 
   it('answers 404 for a session on a site the operator cannot access', async () => {
@@ -599,7 +626,7 @@ describe('getSessionRebillState', () => {
     [{ rebill_status: 'in_progress', rebill_claimed_at: new Date() }, null, 'in_progress'],
     [{}, { id: 4, status: 'pre_authorized' }, 'payment_pending'],
     [{ status: 'completed', rebill_status: 'billed' }, null, 'already_rebilled'],
-    [{ is_roaming: true }, null, 'roaming'],
+    [{ is_roaming: true, energy_delivered_wh: '0' }, null, 'no_energy'],
   ])('reports why the session cannot be re-billed (%j %j)', async (session, record, reason) => {
     useSession(session, record);
     expect(await getSessionRebillState('ses_1')).toEqual({

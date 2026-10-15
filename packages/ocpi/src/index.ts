@@ -28,6 +28,7 @@ async function start(): Promise<void> {
   initSentry('evtivity-ocpi', sentryConfig);
 
   const opts: FastifyServerOptions = {
+    trustProxy: config.TRUST_PROXY,
     logger: {
       level: config.LOG_LEVEL,
       ...logFormatOptions,
@@ -59,13 +60,15 @@ async function start(): Promise<void> {
   // run SET NX / EVAL). Serializes overlapping pulls across OCPI replicas.
   const lockRedis = createBullMQConnection(config.REDIS_URL);
 
-  // CDR issue and push, and the one-time legacy EVSE removal (BullMQ, so a
-  // job runs once across replicas and survives a restart).
+  // CDR issue and push, the location, session, tariff and token pushes, and
+  // the one-time legacy EVSE removal (BullMQ, so a job runs once across
+  // replicas, retries, and survives a restart).
   const cdrJobs = await startOcpiCdrJobs(config.REDIS_URL);
 
-  // Start push listener for data change notifications. A pushed completed
-  // session schedules its CDR.
-  const pushListener = new OcpiPushListener(pubsub, cdrJobs.scheduleSessionCdr);
+  // Start push listener for data change notifications: it adds the push jobs
+  // (deduplicated across replicas). A pushed completed session schedules its
+  // CDR.
+  const pushListener = new OcpiPushListener(pubsub, cdrJobs.pushSink);
   await pushListener.start();
 
   // Start pull listener for sync requests

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { inlinePushSink } from './helpers/inline-push-sink.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 // Each awaited query chain resolves to the next queued result.
@@ -16,6 +17,7 @@ function makeChain(): Record<string, unknown> {
     'innerJoin',
     'leftJoin',
     'orderBy',
+    'offset',
     'values',
   ]) {
     chain[m] = vi.fn(() => chain);
@@ -160,8 +162,14 @@ beforeEach(() => {
 describe('GET /cpo/locations', () => {
   it('masks unavailable stations, removes deleted ones, and links connector tariffs', async () => {
     dbResults = [
-      [{ siteId: SITE_ID, ocpiLocationId: 'LOC-1' }], // published site ids
-      [{ ...SITE, freeVendEnabled: false }], // sites
+      [{ total: 1 }], // published locations count
+      [
+        {
+          site: { ...SITE, freeVendEnabled: false },
+          ocpiLocationId: 'LOC-1',
+          publishUpdatedAt: updatedAt,
+        },
+      ], // published locations page
       [
         { id: 'sta_000000000001', siteId: SITE_ID },
         { id: 'sta_000000000002', siteId: SITE_ID },
@@ -193,9 +201,17 @@ describe('GET /cpo/locations', () => {
           ...AVAILABLE,
           onboardingStatus: 'blocked',
         },
+        {
+          id: 'evs_d',
+          stationId: 'sta_000000000003',
+          stationOcppId: 'CS-0003',
+          evseId: 2,
+          updatedAt,
+          ...AVAILABLE,
+          isOnline: false,
+        },
       ], // evses
-      [connector('evs_a'), connector('evs_b'), connector('evs_c')],
-      [{ siteId: SITE_ID, ocpiLocationId: 'LOC-1' }], // publish settings
+      [connector('evs_a'), connector('evs_b'), connector('evs_c'), connector('evs_d')],
       [], // maintenance events
     ];
     mockTariffIds.mockResolvedValue(new Map([['sta_000000000002', ['T-GROUP']]]));
@@ -211,6 +227,8 @@ describe('GET /cpo/locations', () => {
       expect.objectContaining({ uid: 'evs_a', status: 'INOPERATIVE' }),
       expect.objectContaining({ uid: 'evs_b', status: 'AVAILABLE' }),
       expect.objectContaining({ uid: 'evs_c', status: 'REMOVED' }),
+      // A station that is not connected: its status is unknown.
+      expect.objectContaining({ uid: 'evs_d', status: 'UNKNOWN' }),
     ]);
     expect(evses?.[0]?.connectors[0]).not.toHaveProperty('tariff_ids');
     expect(evses?.[1]?.connectors[0]?.tariff_ids).toEqual(['T-GROUP']);
@@ -369,15 +387,36 @@ describe('location push', () => {
     dbResults = [
       [SITE],
       [
-        { id: 'sta_000000000001', stationId: 'CS-0001', siteId: SITE_ID, ...DISABLED },
-        { id: 'sta_000000000002', stationId: 'CS-0002', siteId: SITE_ID, ...AVAILABLE },
+        {
+          id: 'sta_000000000001',
+          stationId: 'CS-0001',
+          siteId: SITE_ID,
+          ...DISABLED,
+          isOnline: true,
+        },
+        {
+          id: 'sta_000000000002',
+          stationId: 'CS-0002',
+          siteId: SITE_ID,
+          ...AVAILABLE,
+          isOnline: true,
+        },
+        {
+          id: 'sta_000000000003',
+          stationId: 'CS-0003',
+          siteId: SITE_ID,
+          ...AVAILABLE,
+          isOnline: false,
+        },
       ],
       [
         { id: 'evs_a', stationId: 'sta_000000000001', evseId: 1, updatedAt },
         { id: 'evs_b', stationId: 'sta_000000000002', evseId: 1, updatedAt },
+        { id: 'evs_c', stationId: 'sta_000000000003', evseId: 1, updatedAt },
       ],
-      [connector('evs_a'), connector('evs_b')],
+      [connector('evs_a'), connector('evs_b'), connector('evs_c')],
       [], // maintenance events
+      [], // publish row
       [{ url: 'http://127.0.0.1/locations' }], // partner endpoint
       [{ countryCode: 'DE', partyId: 'ABC', version: '2.2.1' }], // partner
     ];
@@ -388,7 +427,7 @@ describe('location push', () => {
         return Promise.resolve({ unsubscribe: vi.fn() });
       }),
     };
-    const listener = new OcpiPushListener(pubsub as never);
+    const listener = new OcpiPushListener(pubsub as never, inlinePushSink());
     await listener.start();
 
     handler?.(JSON.stringify({ type: 'location', siteId: SITE_ID }));
@@ -402,6 +441,8 @@ describe('location push', () => {
         evses: [
           expect.objectContaining({ uid: 'evs_a', status: 'INOPERATIVE' }),
           expect.objectContaining({ uid: 'evs_b', status: 'AVAILABLE' }),
+          // Offline: pushed UNKNOWN (OCPI 8.4.26).
+          expect.objectContaining({ uid: 'evs_c', status: 'UNKNOWN' }),
         ],
       }),
     );
@@ -415,7 +456,7 @@ describe('location push', () => {
         return Promise.resolve({ unsubscribe: vi.fn() });
       }),
     };
-    await new OcpiPushListener(pubsub as never).start();
+    await new OcpiPushListener(pubsub as never, inlinePushSink()).start();
     return (payload) => handler?.(payload);
   }
 
@@ -423,10 +464,19 @@ describe('location push', () => {
     mockAudience.mockResolvedValue(null); // unpublished
     dbResults = [
       [SITE],
-      [{ id: 'sta_000000000001', stationId: 'CS-0001', siteId: SITE_ID, ...AVAILABLE }],
+      [
+        {
+          id: 'sta_000000000001',
+          stationId: 'CS-0001',
+          siteId: SITE_ID,
+          ...AVAILABLE,
+          isOnline: true,
+        },
+      ],
       [{ id: 'evs_a', stationId: 'sta_000000000001', evseId: 1, updatedAt }],
       [connector('evs_a')],
       [], // maintenance events
+      [], // publish row
       [{ url: 'http://127.0.0.1/locations' }], // partner endpoint
       [{ countryCode: 'DE', partyId: 'ABC', version: '2.3.0' }], // partner
     ];
@@ -460,6 +510,7 @@ describe('location push', () => {
       [SITE],
       [], // no stations left at the site
       [], // maintenance events
+      [], // publish row
       [{ url: 'http://127.0.0.1/locations' }], // partner endpoint
       [{ countryCode: 'DE', partyId: 'ABC', version: '2.2.1' }], // partner
     ];
@@ -481,6 +532,37 @@ describe('location push', () => {
             connectors: [expect.objectContaining({ id: '1' })],
           }),
         ],
+      }),
+    );
+  });
+  it('pushes a deleted site from the snapshot the API sent, every EVSE REMOVED', async () => {
+    mockAudience.mockResolvedValue(null); // the publish row went with the site
+    dbResults = [
+      [], // the site is gone
+      [{ url: 'http://127.0.0.1/locations' }], // partner endpoint
+      [{ countryCode: 'DE', partyId: 'ABC', version: '2.2.1' }], // partner
+    ];
+    const send = await startListener();
+
+    send(
+      JSON.stringify({
+        type: 'location',
+        siteId: SITE_ID,
+        removed: { ocpiLocationId: 'LOC/1', partnerIds: ['opr_000000000001'] },
+        deletedSite: { site: SITE, removedEvses: [REMOVED_EVSE] },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(putMock).toHaveBeenCalled();
+    });
+
+    // The location id is one path segment, escaped.
+    expect(putMock).toHaveBeenCalledWith(
+      expect.stringMatching(/\/LOC%2F1$/),
+      expect.objectContaining({
+        id: 'LOC/1',
+        country: 'USA',
+        evses: [expect.objectContaining({ uid: 'evs_gone', status: 'REMOVED' })],
       }),
     );
   });

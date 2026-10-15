@@ -37,6 +37,7 @@ function makeInsertChain(): Record<string, unknown> {
     insertValues.push(values);
     return chain;
   });
+  chain['onConflictDoUpdate'] = vi.fn(() => chain);
   chain['then'] = (resolve: (v: unknown) => unknown) => Promise.resolve(undefined).then(resolve);
   return chain;
 }
@@ -233,7 +234,11 @@ describe('PUT /cpo/tokens/:country_code/:party_id/:token_uid', () => {
   it('updates the existing token row instead of inserting', async () => {
     selectResults = [[{ id: 42, tokenType: 'RFID', isValid: true, whitelist: 'ALLOWED' }]];
     const body = { ...TOKEN, valid: false, type: 'APP_USER', whitelist: 'NEVER' };
-    const res = await app.inject({ method: 'PUT', url: TOKEN_URL, payload: body });
+    const res = await app.inject({
+      method: 'PUT',
+      url: `${TOKEN_URL}?type=APP_USER`,
+      payload: body,
+    });
     expect(res.statusCode).toBe(200);
     expect(insertValues).toHaveLength(0);
     expect(updateSets).toHaveLength(1);
@@ -323,79 +328,100 @@ describe('PATCH /cpo/tokens/:country_code/:party_id/:token_uid', () => {
     const res = await app.inject({
       method: 'PATCH',
       url: TOKEN_URL,
-      payload: { issuer: 'New issuer', valid: 'no' },
+      payload: { issuer: 'New issuer' },
     });
     expect(res.statusCode).toBe(200);
     const set = updateSets[0] ?? {};
-    expect(set['tokenData']).toEqual({ ...TOKEN, issuer: 'New issuer', valid: 'no' });
+    expect(set['tokenData']).toEqual({ ...TOKEN, issuer: 'New issuer' });
     expect(set).not.toHaveProperty('isValid');
     expect(set).not.toHaveProperty('whitelist');
     expect(set).not.toHaveProperty('tokenType');
   });
 });
 
+describe('Tokens receiver identity and field checks', () => {
+  it('answers 2001 for a uid longer than 36 characters', async () => {
+    const uid = 'U'.repeat(37);
+    const res = await app.inject({
+      method: 'PUT',
+      url: `${BASE}/NL/EMS/${uid}`,
+      payload: { ...TOKEN, uid },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ status_code: 2001, status_message: 'Invalid token_uid' });
+    expect(insertValues).toHaveLength(0);
+  });
+
+  it('refuses a PUT whose body uid differs from the URL', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: TOKEN_URL,
+      payload: { ...TOKEN, uid: 'OTHER' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({
+      status_code: 2001,
+      status_message: 'Token uid does not match the URL',
+    });
+  });
+
+  it('honors ?type=: a body type other than the URL type is refused, RFID by default', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: TOKEN_URL,
+      payload: { ...TOKEN, type: 'APP_USER' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ status_message: 'Token type does not match the URL' });
+
+    const ok = await app.inject({
+      method: 'PUT',
+      url: `${TOKEN_URL}?type=APP_USER`,
+      payload: { ...TOKEN, type: 'APP_USER' },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(insertValues[0]).toMatchObject({ uid: 'TOK001', tokenType: 'APP_USER' });
+  });
+
+  it('GET with ?type= answers 2004 when the stored token has another type', async () => {
+    selectResults = [[{ id: 7, tokenType: 'RFID', tokenData: TOKEN }]];
+    const res = await app.inject({ method: 'GET', url: `${TOKEN_URL}?type=APP_USER` });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ status_code: 2004 });
+  });
+
+  it('refuses a PATCH that changes uid, country_code or party_id', async () => {
+    for (const patch of [{ uid: 'NEW' }, { country_code: 'DE' }, { party_id: 'XYZ' }]) {
+      selectResults = [[{ id: 3, tokenType: 'RFID', tokenData: TOKEN }]];
+      const res = await app.inject({ method: 'PATCH', url: TOKEN_URL, payload: patch });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ status_code: 2001 });
+    }
+    expect(updateSets).toHaveLength(0);
+  });
+
+  it('allows a PATCH that repeats the token uid and refuses a non-boolean valid', async () => {
+    selectResults = [[{ id: 3, tokenType: 'RFID', tokenData: TOKEN }]];
+    const same = await app.inject({ method: 'PATCH', url: TOKEN_URL, payload: { uid: 'TOK001' } });
+    expect(same.statusCode).toBe(200);
+
+    selectResults = [[{ id: 3, tokenType: 'RFID', tokenData: TOKEN }]];
+    const bad = await app.inject({ method: 'PATCH', url: TOKEN_URL, payload: { valid: 'no' } });
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json()).toMatchObject({ status_message: 'Invalid valid' });
+  });
+});
+
 describe('POST /cpo/tokens/:token_uid/authorize', () => {
-  const AUTH_URL = `${BASE}/TOK001/authorize`;
-
-  it('returns 401 without a registered partner', async () => {
-    partner = { ...PARTNER, partnerId: null };
-    const res = await app.inject({ method: 'POST', url: AUTH_URL, payload: {} });
-    expect(res.statusCode).toBe(401);
-  });
-
-  it('answers NOT_ALLOWED with a placeholder token for an unknown uid', async () => {
-    selectResults = [[]];
-    const res = await app.inject({ method: 'POST', url: AUTH_URL, payload: {} });
-    expect(res.statusCode).toBe(200);
-    const body = res.json<{
-      status_code: number;
-      data: { allowed: string; token: Record<string, unknown> };
-    }>();
-    expect(body.status_code).toBe(1000);
-    expect(body.data.allowed).toBe('NOT_ALLOWED');
-    expect(body.data.token).toMatchObject({
-      uid: 'TOK001',
-      contract_id: 'TOK001',
-      valid: false,
-      whitelist: 'NEVER',
-      type: 'RFID',
-    });
-  });
-
-  it('answers ALLOWED for a valid token and echoes the location reference', async () => {
-    selectResults = [[{ id: 1, isValid: true, tokenData: TOKEN }]];
+  // Removed (owner decision): real-time authorization is an eMSP interface
+  // (OCPI 12.2.2), never served by a CPO. A whitelist NEVER token stays
+  // blocked at the station.
+  it('is not served', async () => {
     const res = await app.inject({
       method: 'POST',
-      url: AUTH_URL,
-      payload: { location_id: 'LOC1', evse_uids: ['E1', 'E2'] },
+      url: '/ocpi/2.2.1/cpo/tokens/TOK1/authorize',
+      payload: {},
     });
-    const body = res.json<{ data: Record<string, unknown> }>();
-    expect(body.data).toEqual({
-      allowed: 'ALLOWED',
-      token: TOKEN,
-      location: { location_id: 'LOC1', evse_uids: ['E1', 'E2'] },
-    });
-  });
-
-  it('answers BLOCKED for an invalid token and omits evse_uids when not an array', async () => {
-    selectResults = [[{ id: 1, isValid: false, tokenData: TOKEN }]];
-    const res = await app.inject({
-      method: 'POST',
-      url: AUTH_URL,
-      payload: { location_id: 'LOC1', evse_uids: 'E1' },
-    });
-    const body = res.json<{ data: Record<string, unknown> }>();
-    expect(body.data).toEqual({
-      allowed: 'BLOCKED',
-      token: TOKEN,
-      location: { location_id: 'LOC1' },
-    });
-  });
-
-  it('omits the location when the body has no location_id', async () => {
-    selectResults = [[{ id: 1, isValid: true, tokenData: TOKEN }]];
-    const res = await app.inject({ method: 'POST', url: AUTH_URL });
-    const body = res.json<{ data: Record<string, unknown> }>();
-    expect(body.data).toEqual({ allowed: 'ALLOWED', token: TOKEN });
+    expect(res.statusCode).toBe(404);
   });
 });

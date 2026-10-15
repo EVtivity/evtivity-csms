@@ -68,6 +68,7 @@ function cdrInput(): Parameters<typeof transformCdr>[0] {
     countryCode: 'DE',
     partyId: 'EVT',
     cdrId: 'cdr-1',
+    issuedAt: new Date('2026-03-01T13:00:00Z'),
     token: { uid: 'TOKEN-1', countryCode: 'NL', partyId: 'MSP' },
   };
 }
@@ -156,6 +157,10 @@ describe('charging periods and parking time', () => {
     const cdr = transformCdr(cdrInput(), '2.2.1');
     expect(cdr.charging_periods).toHaveLength(1);
     expect(cdr).not.toHaveProperty('total_parking_time');
+  });
+
+  it('carries its creation as last_updated (a CDR never changes)', () => {
+    expect(transformCdr(cdrInput(), '2.2.1').last_updated).toBe('2026-03-01T13:00:00.000Z');
   });
 });
 
@@ -272,10 +277,21 @@ describe('cdr_location', () => {
     expect(loc).toMatchObject({
       address: 'Unknown',
       city: 'Unknown',
-      country: 'US',
-      coordinates: { latitude: '0', longitude: '0' },
+      // No country: the operator's (countryCode DE) as alpha-3.
+      country: 'DEU',
+      coordinates: { latitude: '0.000000', longitude: '0.000000' },
       postal_code: '10115',
       state: 'BE',
     });
+  });
+
+  it.each([
+    ['US', 'USA'],
+    ['United States', 'USA'],
+    ['', 'DEU'],
+    ['Atlantis', 'DEU'],
+  ])('sends the stored country %j as ISO 3166-1 alpha-3 %s', (country, expected) => {
+    const loc = transformCdr(withLocation({ country }), '2.2.1').cdr_location;
+    expect(loc.country).toBe(expected);
   });
 });

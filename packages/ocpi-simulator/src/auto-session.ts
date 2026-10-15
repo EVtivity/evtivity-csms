@@ -51,7 +51,7 @@ async function pushLocation(): Promise<void> {
     address: '1 Simulator Street',
     city: 'Simville',
     country: state.countryCode,
-    coordinates: { latitude: '52.3676', longitude: '4.9041' },
+    coordinates: { latitude: '52.367600', longitude: '4.904100' },
     time_zone: 'Europe/Amsterdam',
     evses: [
       {
@@ -174,7 +174,7 @@ async function runSession(): Promise<void> {
       address: '1 Simulator Street',
       city: 'Simville',
       country: state.countryCode,
-      coordinates: { latitude: '52.3676', longitude: '4.9041' },
+      coordinates: { latitude: '52.367600', longitude: '4.904100' },
       evse_uid: eu,
       evse_id: `${state.countryCode}*${state.partyId}*E001`,
       connector_id: '1',

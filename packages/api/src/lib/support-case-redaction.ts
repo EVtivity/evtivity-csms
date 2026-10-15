@@ -12,13 +12,7 @@
 
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import {
-  db,
-  chargingSessions,
-  chargingStations,
-  supportCaseAuditLog,
-  supportCaseSessions,
-} from '@evtivity/database';
+import { db, chargingSessions, supportCaseAuditLog, supportCaseSessions } from '@evtivity/database';
 
 type SupportCaseAuditAction = (typeof supportCaseAuditLog.action.enumValues)[number];
 
@@ -53,8 +47,7 @@ export function supportCaseAuditSessionCondition(siteIds: string[]): SQL {
       jsonb_build_array(${table}.after->>'sessionId')
     )) AS ref(session_id)
     JOIN ${chargingSessions} ON ${chargingSessions.id} = ref.session_id
-    JOIN ${chargingStations} ON ${chargingStations.id} = ${chargingSessions.stationId}
-    WHERE ${chargingStations.siteId} IN (${siteList})
+    WHERE ${chargingSessions.siteId} IN (${siteList})
   ))`;
 }
 
@@ -76,7 +69,7 @@ export function auditRowSessionRefs(row: { before: unknown; after: unknown }): s
   return [...sessionRefsOf(row.before), ...sessionRefsOf(row.after)];
 }
 
-/** The given session ids that ran at a station in the user's sites. */
+/** The given session ids that happened at one of the user's sites. */
 export async function sessionIdsInSites(
   sessionIds: Iterable<string>,
   siteIds: string[],
@@ -86,8 +79,7 @@ export async function sessionIdsInSites(
   const rows = await db
     .select({ id: chargingSessions.id })
     .from(chargingSessions)
-    .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
-    .where(and(inArray(chargingSessions.id, unique), inArray(chargingStations.siteId, siteIds)));
+    .where(and(inArray(chargingSessions.id, unique), inArray(chargingSessions.siteId, siteIds)));
   return new Set(rows.map((r) => r.id));
 }
 

@@ -214,10 +214,39 @@ describe('renderTariffMapping', () => {
     expect(selectResults).toHaveLength(0);
   });
 
+  it('moves last_updated with a deleted holiday (its audit row)', async () => {
+    selectResults = [
+      [{ updatedAt: at(4) }],
+      [tariffRow({ restrictions: { holidays: true } })],
+      [{ date: '2026-12-25', createdAt: at(5) }],
+      [{ updatedAt: at(12) }],
+      [{ updatedAt: null }],
+    ];
+    const tariff = await renderTariffMapping(
+      mapping({ tariffId: null, pricingGroupId: 'pg_1' }),
+      '2.2.1',
+      new Date('2026-12-01T00:00:00Z'),
+    );
+    expect(tariff?.last_updated).toBe(at(12).toISOString());
+  });
+
+  it('moves last_updated with a change of the currency, tax basis or grace setting', async () => {
+    selectResults = [[tariffRow({ updatedAt: at(5) })], [{ updatedAt: at(9) }]];
+    const tariff = await renderTariffMapping(mapping({ updatedAt: at(3) }), '2.2.1');
+    expect(tariff?.last_updated).toBe(at(9).toISOString());
+  });
+
+  it('does not publish an inactive tariff', async () => {
+    selectResults = [[tariffRow({ isActive: false })]];
+    expect(await renderTariffMapping(mapping(), '2.2.1')).toBeNull();
+  });
+
   it('skips the holiday query when no group tariff uses holidays', async () => {
     selectResults = [
       [{ updatedAt: at(8) }],
       [tariffRow()],
+      // The tariff settings (currency, tax basis, grace): never changed.
+      [{ updatedAt: null }],
       [{ date: '2026-12-25', createdAt: at(20) }],
     ];
     const tariff = await renderTariffMapping(
@@ -314,6 +343,8 @@ describe('findEvseByUid', () => {
       disabledReason: 'operator',
       firmwareState: null,
       reportedStatus: 'Faulted',
+      isOnline: true,
+      stationUpdatedAt: at(3),
     };
     selectResults = [[{ ...base, onboardingStatus: 'blocked' }]];
     expect(await findEvseByUid('evs_aaaaaaaaaaaa')).toEqual({
@@ -325,10 +356,25 @@ describe('findEvseByUid', () => {
       updatedAt,
       stationState: { disabledReason: 'operator', firmwareState: null, reportedStatus: 'Faulted' },
       stationRemoved: true,
+      stationPending: false,
       evseRetired: false,
+      stationOnline: true,
+      stationAccepted: false,
+      stationUpdatedAt: at(3),
     });
+    selectResults = [[{ ...base, onboardingStatus: 'pending' }]];
+    expect((await findEvseByUid('evs_aaaaaaaaaaaa'))?.stationPending).toBe(true);
     selectResults = [[{ ...base, onboardingStatus: 'accepted' }]];
     expect((await findEvseByUid('evs_aaaaaaaaaaaa'))?.stationRemoved).toBe(false);
+    selectResults = [[{ ...base, onboardingStatus: 'accepted' }]];
+    expect((await findEvseByUid('evs_aaaaaaaaaaaa'))?.stationAccepted).toBe(true);
+    // A pending station is not accepted, and not removed either.
+    selectResults = [[{ ...base, onboardingStatus: 'pending', isOnline: false }]];
+    expect(await findEvseByUid('evs_aaaaaaaaaaaa')).toMatchObject({
+      stationAccepted: false,
+      stationRemoved: false,
+      stationOnline: false,
+    });
     // A retired EVSE is out of service.
     selectResults = [[{ ...base, onboardingStatus: 'accepted', retiredAt: at(2) }]];
     expect((await findEvseByUid('evs_aaaaaaaaaaaa'))?.evseRetired).toBe(true);

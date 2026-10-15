@@ -199,6 +199,13 @@
       "allowPrivateNetwork": "允許私有網路",
       "allowPrivateNetworkHint": "允許發往此合作夥伴的請求和命令回呼存取迴環位址和私有位址，用於私有互連或本機模擬器。公共網際網路上的合作夥伴請保持關閉。",
       "privateNetworkSaved": "網路存取設定已儲存",
+      "allowRawToken": "接受未編碼的權杖",
+      "allowRawTokenHint": "適用於傳送未經 Base64 編碼之憑證權杖的 OCPI 2.1.1 與 2.2 合作夥伴。我們的權杖也會以相同方式傳送給對方。OCPI 2.2.1 與 2.3.0 合作夥伴請保持關閉。",
+      "rawTokenSaved": "權杖編碼已儲存",
+      "newRegistrationToken": "新註冊權杖",
+      "newRegistrationTokenTitle": "新註冊權杖",
+      "newRegistrationTokenDescription": "為此合作夥伴建立新的註冊權杖。先前簽發的註冊權杖將失效。",
+      "tokenIssued": "新註冊權杖已建立。請與合作夥伴分享，以便其在您的 OCPI 伺服器上註冊。",
       "tokenCreated": "註冊權杖已建立。請將此權杖分享給合作夥伴，以便他們可以在您的 OCPI 伺服器上註冊。",
       "tokenWarning": "此權杖僅顯示一次。請立即複製。",
       "register": "註冊",
@@ -254,7 +261,22 @@
       "pushStatus": "推送狀態",
       "noCdrs": "無 CDR",
       "credit": "信用",
-      "charge": "收費"
+      "charge": "收費",
+      "superseded": "已被取代",
+      "reason": "原因",
+      "actionFailed": "CDR 操作失敗",
+      "creditAction": "沖銷 CDR",
+      "creditTitle": "沖銷此 CDR？",
+      "creditDescription": "將向合作夥伴傳送總費用為負數的沖銷 CDR。原 CDR 本身不變。",
+      "creditDone": "已建立沖銷 CDR",
+      "reissueAction": "重新簽發 CDR",
+      "reissueTitle": "重新簽發此工作階段？",
+      "reissueDescription": "將依工作階段目前狀態簽發新的 CDR 並傳送給合作夥伴。已沖銷的 CDR 保持不變。",
+      "reissueDone": "正在簽發新的 CDR",
+      "pushAction": "重新推送",
+      "pushTitle": "再次推送此 CDR？",
+      "pushDescription": "同一 CDR 將再次傳送給合作夥伴。",
+      "pushDone": "CDR 已加入重新推送佇列"
     },
     "tariffs": {
       "title": "費率對應",
@@ -1114,12 +1136,13 @@
       "notEligible": {
         "status": "此處只能為 CSMS 無法結束的工作階段計費。",
         "already_rebilled": "此工作階段已計費。",
-        "roaming": "漫遊工作階段由漫遊合作夥伴計費。",
+        "no_energy": "未輸送電量的漫遊工作階段不計費。",
         "free_vend": "免費充電工作階段不計費。",
         "no_tariff": "此工作階段沒有可計價的費率。",
         "paid": "此工作階段已付款。"
       },
-      "account": "工作階段已計費：計入車隊帳戶"
+      "account": "工作階段已計費：計入車隊帳戶",
+      "roamingBilled": "工作階段已計費：漫遊合作夥伴將收到 CDR"
     },
     "billedTo": "車隊記帳：{{fleet}}",
     "billingState": {
@@ -1136,7 +1159,14 @@
     "captured": "（已取得）",
     "useVehicleForPlugIn": "將此車輛用於插槍即充",
     "useVehicleDescription": "將充電站為此工作階段傳送的識別碼 {{id}} 儲存到駕駛員的車輛。開啟 Autocharge 後，下次插槍即可為駕駛員開始充電，無需卡片或應用程式。",
-    "vehicleClaimed": "已儲存車輛"
+    "vehicleClaimed": "已儲存車輛",
+    "co2Kg": "{{value}} kg",
+    "co2AvoidedValue": "減少 {{value}} kg CO₂",
+    "eventCount_one": "{{count}} 個事件",
+    "eventCount_other": "{{count}} 個事件",
+    "stopSession": "停止工作階段",
+    "stopSessionConfirmTitle": "停止此工作階段？",
+    "stopSessionConfirmDescription": "將請求充電站 {{station}} 停止 EVSE {{evseId}} 上的交易。駕駛員將依目前已輸送的電量計費。"
   },
   "drivers": {
     "title": "駕駛員",
@@ -1445,7 +1475,16 @@
       },
       "aiUsage": "AI 用量",
       "aiMcp": "MCP 存取"
-    }
+    },
+    "securityTab": "安全",
+    "mfaTitle": "多重身分驗證",
+    "mfaOnDescription": "此使用者使用第二重驗證 ({{method}}) 登入。",
+    "mfaOffDescription": "此使用者登入時不使用第二重驗證。",
+    "mfaReset": "重設 MFA",
+    "mfaResetConfirm": "關閉此使用者的第二重驗證並在所有裝置上登出？使用者僅憑密碼登入，並可重新設定 MFA。",
+    "mfaResetSuccess": "MFA 已重設",
+    "apiKeysDescription": "此使用者的有效 API 金鑰。請撤銷使用者不再需要或可能已外洩的金鑰。",
+    "noApiKeys": "此使用者沒有有效的 API 金鑰。"
   },
   "profile": {
     "title": "個人資料",
@@ -3076,6 +3115,8 @@
     "CAMPAIGN_NOT_FOUND": "找不到行銷活動",
     "CASE_NOT_FOUND": "找不到案件",
     "CA_CERT_NOT_FOUND": "找不到 CA 憑證",
+    "CDR_NOT_CREDITED": "重新簽發前，請先沖銷該工作階段的所有 CDR",
+    "CDR_PUSH_NOT_FAILED": "只有推送失敗的 CDR 才能重新推送",
     "CDR_NOT_FOUND": "找不到 CDR",
     "CIRCUIT_NOT_FOUND": "找不到迴路",
     "COMMAND_ERROR": "命令執行失敗",
@@ -3154,6 +3195,8 @@
     "INVALID_SITE_IDS": "一個或多個 siteId 不存在",
     "INVALID_TOKEN": "重設連結無效或已過期",
     "INVOICE_ALREADY_PAID": "該發票已付款",
+    "RESERVATION_FEE_ALREADY_INVOICED": "該預約費用已開立發票",
+    "SESSION_ALREADY_INVOICED": "該工作階段已開立發票",
     "INVOICE_CREATION_FAILED": "建立發票失敗",
     "INVOICE_NOT_ISSUED": "此操作僅適用於已開立的發票",
     "INVOICE_IS_CREDIT_NOTE": "貸項通知單不能標記為已付款或貸記",
@@ -3266,7 +3309,6 @@
     "RESERVATION_TIMEOUT": "預約命令逾時",
     "RESERVATION_TOO_LONG": "預約時長不得超過 ... 小時",
     "RESERVATION_WINDOW_TOO_SHORT": "預約結束時間需在開始後至少 60 秒",
-    "RESET_NOT_REQUIRED": "目前不需要重設密碼",
     "ROAMING_DISABLED": "漫遊功能已停用",
     "ROLE_NOT_FOUND": "角色不存在",
     "ROTATION_NOT_APPLICABLE": "認證資訊輪替僅適用於安全設定檔 1 和 2",
@@ -3370,7 +3412,14 @@
     "SESSION_NO_VEHICLE_ID": "充電站未為此工作階段傳送車輛識別碼。",
     "VEHICLE_BLOCKED_BY_OPERATOR": "營運商已封鎖此車輛的 Autocharge。請聯絡營運商解除封鎖。",
     "VEHICLE_ID_IN_USE": "另一輛車已將此 VIN 或 EVCCID 用於 Autocharge。",
-    "VEHICLE_ID_REQUIRED": "Autocharge 需要車輛的 VIN 或 EVCCID。"
+    "VEHICLE_ID_REQUIRED": "Autocharge 需要車輛的 VIN 或 EVCCID。",
+    "SESSION_STOP_REJECTED": "充電站拒絕了停止請求。工作階段仍在充電。",
+    "PARTNER_ALREADY_CONNECTED": "合作夥伴已連線",
+    "PARTNER_NOT_REGISTERED": "合作夥伴透過 OCPI 憑證交換完成連線",
+    "SESSION_REQUIRED": "此操作需要登入工作階段。API 金鑰無法使用此操作。",
+    "MFA_LOCKED": "錯誤驗證碼過多。請稍後再試。",
+    "MFA_RESEND_LIMITED": "傳送的驗證碼過多。請稍後再請求。",
+    "USER_SSO_MANAGED": "此使用者透過 SSO 登入，沒有可設定的密碼。"
   },
   "logs": {
     "title": "日誌",
@@ -4512,6 +4561,8 @@
       "erased": "已清除",
       "invite_resent": "邀請已重新傳送",
       "cdr_credited": "CDR 已沖銷",
+      "cdr_push_retried": "已重新推送 CDR",
+      "cdr_reissued": "CDR 已重新簽發",
       "faulted": "已故障",
       "stopped_by_csms": "已由 CSMS 停止",
       "vehicle_changed": "車輛已變更",
@@ -4527,7 +4578,9 @@
       "autocharge_disabled": "已關閉 Autocharge",
       "autocharge_blocked": "車輛已封鎖",
       "autocharge_unblocked": "車輛已解除封鎖",
-      "vehicle_id_claimed": "已從工作階段新增車輛識別碼"
+      "vehicle_id_claimed": "已從工作階段新增車輛識別碼",
+      "account_locked": "登入已鎖定",
+      "mfa_reset": "MFA 已重設"
     },
     "entities": {
       "site": "站點",

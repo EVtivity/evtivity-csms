@@ -160,6 +160,8 @@ const LINK = {
   ocpiSessionId: 'ses_1',
   chargingSessionId: 'ses_1',
   tokenUid: 'TOKEN-1',
+  authMethod: null,
+  authorizationReference: null,
 };
 
 async function generateCdr(sessionId: string, partnerId: string, ocpiSessionId = sessionId) {
@@ -382,6 +384,28 @@ describe('pushCdr', () => {
     selectResults = [[{ ...ROW, pushStatus: 'sent' }]];
     expect(await pushCdr('cdr-1')).toBe('already_sent');
     expect(mocks.post).not.toHaveBeenCalled();
+  });
+
+  it('holds a credit CDR until its original was sent, then pushes it', async () => {
+    const credit = {
+      ...ROW,
+      isCredit: true,
+      cdrData: { id: 'cdr-c', credit_reference_id: 'cdr-1' },
+    };
+    selectResults = [[credit], [{ pushStatus: 'pending' }]];
+    expect(await pushCdr('cdr-c')).toBe('waiting_for_original');
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(updates).toHaveLength(0);
+
+    mocks.getOutboundToken.mockResolvedValue('token');
+    mocks.post.mockResolvedValue({ status_code: 1000, status_message: 'OK' });
+    selectResults = [
+      [credit],
+      [{ pushStatus: 'sent' }],
+      [{ url: 'https://emsp/cdrs' }],
+      [{ countryCode: 'NL', partyId: 'MSP' }],
+    ];
+    expect(await pushCdr('cdr-c')).toBe('sent');
   });
 
   it('leaves the CDR pending for a partner without a CDRs receiver', async () => {

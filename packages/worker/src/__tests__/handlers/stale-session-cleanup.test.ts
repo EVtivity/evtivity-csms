@@ -31,7 +31,9 @@ const {
   mockClient,
   mockCancelOpenSessionHold,
   mockSessionAudit,
+  mockOcpiSessionPush,
 } = vi.hoisted(() => ({
+  mockOcpiSessionPush: vi.fn().mockResolvedValue(undefined),
   mockSessionAudit: vi.fn().mockResolvedValue(undefined),
   mockGetStaleSessionTimeoutHours: vi.fn(),
   mockWriteReservationAudit: vi.fn().mockResolvedValue(undefined),
@@ -68,6 +70,8 @@ vi.mock('@evtivity/database', async () => ({
   closeSegmentsAt: mockCloseSegmentsAt,
   faultUnbilledSession: mockFaultUnbilledSession,
   writeCsmsSessionAudit: mockSessionAudit,
+  publishOcpiSessionPush: mockOcpiSessionPush,
+  STALE_CLEANUP_IN_TRANSACTION_STATUSES: ['charging'],
   sessionIdleMinutesAt: (
     await vi.importActual<typeof import('../../../../database/src/lib/session-pricing.js')>(
       '../../../../database/src/lib/session-pricing.js',
@@ -89,7 +93,7 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn((column: unknown) => ({ isNull: column })),
   sql: Object.assign(
     (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
-    { raw: vi.fn() },
+    { raw: vi.fn(), join: vi.fn(() => ({})) },
   ),
 }));
 
@@ -119,6 +123,7 @@ function baseSession(overrides: Record<string, unknown> = {}): Record<string, un
     stationIsOnline: false,
     stationOcppId: 'CS-001',
     ocppProtocol: 'ocpp2.1',
+    stillReported: false,
     ...overrides,
   };
 }
@@ -165,6 +170,7 @@ describe('staleSessionCleanupHandler', () => {
       sessionId: 'ses_1',
       reason: 'StaleSession',
       endedAt: new Date('2026-06-01T01:00:00.000Z'),
+      notUpdatedSince: expect.any(Date),
     });
   });
 
@@ -189,6 +195,24 @@ describe('staleSessionCleanupHandler', () => {
       undefined,
       log,
     );
+  });
+
+  it('pushes the faulted session to its roaming partner, only when this run faulted it', async () => {
+    const { staleSessionCleanupHandler } = mod;
+    setStaleSessions([baseSession()]);
+    const log = makeLog();
+    await staleSessionCleanupHandler(log);
+    expect(mockOcpiSessionPush).toHaveBeenCalledWith(
+      expect.objectContaining({ publish: mockPublish }),
+      'ses_1',
+      log,
+    );
+
+    mockOcpiSessionPush.mockClear();
+    setStaleSessions([baseSession()]);
+    mockFaultUnbilledSession.mockResolvedValueOnce(false);
+    await staleSessionCleanupHandler(makeLog());
+    expect(mockOcpiSessionPush).not.toHaveBeenCalled();
   });
 
   it('audits no fault for a session that ended meanwhile', async () => {
@@ -259,6 +283,36 @@ describe('staleSessionCleanupHandler', () => {
     expect(log.info).not.toHaveBeenCalledWith(expect.anything(), 'Stale session cleanup complete');
   });
 
+  it('skips a session whose online station still reports its transaction (owner decision B)', async () => {
+    setStaleSessions([baseSession({ stationIsOnline: true, stillReported: true })]);
+    const log = makeLog();
+
+    const { staleSessionCleanupHandler } = mod;
+    await staleSessionCleanupHandler(log);
+
+    expect(mockFaultUnbilledSession).not.toHaveBeenCalled();
+    expect(mockPublish).not.toHaveBeenCalled();
+    expect(mockCancelOpenSessionHold).not.toHaveBeenCalled();
+    expect(mockSessionAudit).not.toHaveBeenCalled();
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'ses_1' }),
+      'Stale session skipped: the online station still reports its transaction',
+    );
+  });
+
+  it('faults only while the session was not updated after the cutoff (H6)', async () => {
+    setStaleSessions([baseSession()]);
+    const before = Date.now();
+
+    const { staleSessionCleanupHandler } = mod;
+    await staleSessionCleanupHandler(makeLog());
+
+    const input = mockFaultUnbilledSession.mock.calls[0]?.[1] as { notUpdatedSince: Date };
+    // The cutoff is the timeout (4 h) before the run.
+    const expected = before - 4 * 60 * 60 * 1000;
+    expect(Math.abs(input.notUpdatedSince.getTime() - expected)).toBeLessThan(5_000);
+  });
+
   it('faults a stale session on an offline station without publishing a stop', async () => {
     setStaleSessions([baseSession({ stationIsOnline: false })]);
     const log = makeLog();
@@ -272,6 +326,7 @@ describe('staleSessionCleanupHandler', () => {
       sessionId: 'ses_1',
       reason: 'StaleSession',
       endedAt: new Date('2026-06-01T01:00:00.000Z'),
+      notUpdatedSince: expect.any(Date),
     });
     // No tariff snapshot: no segment to close.
     expect(mockCloseSegmentsAt).not.toHaveBeenCalled();
@@ -361,6 +416,7 @@ describe('staleSessionCleanupHandler', () => {
       sessionId: 'ses_1',
       reason: 'StaleSession',
       endedAt,
+      notUpdatedSince: expect.any(Date),
     });
     // The fault comes first, so the segments of a session that ended
     // meanwhile keep the end its Ended projection gave them.

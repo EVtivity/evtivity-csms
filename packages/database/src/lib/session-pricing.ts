@@ -248,13 +248,21 @@ export function zeroCostBreakdown(basis: TaxBasis): SessionCostBreakdown {
  * session's basis, like the payment gate's stop. Only an `active` session
  * changes (P5), so one that ended meanwhile keeps its own end and cost.
  * Returns whether this call faulted the session. The caller cancels the open
- * hold.
+ * hold. With `notUpdatedSince`, the session changes only while its last
+ * update is at or before that time, so a session a meter value or event
+ * refreshed after the caller read it (the stale cleanup) is left running.
  */
 export async function faultUnbilledSession(
   sql: postgres.Sql,
-  input: { sessionId: string; reason: string; endedAt: Date | string },
+  input: {
+    sessionId: string;
+    reason: string;
+    endedAt: Date | string;
+    notUpdatedSince?: Date;
+  },
 ): Promise<boolean> {
   const endedAt = input.endedAt instanceof Date ? input.endedAt.toISOString() : input.endedAt;
+  const notUpdatedSince = input.notUpdatedSince?.toISOString() ?? null;
   const rows = await sql`
     UPDATE charging_sessions
     SET status = 'faulted',
@@ -271,6 +279,7 @@ export async function faultUnbilledSession(
         ),
         updated_at = now()
     WHERE id = ${input.sessionId} AND status = 'active'
+      AND (${notUpdatedSince}::timestamptz IS NULL OR updated_at <= ${notUpdatedSince}::timestamptz)
     RETURNING id
   `;
   return rows.length > 0;

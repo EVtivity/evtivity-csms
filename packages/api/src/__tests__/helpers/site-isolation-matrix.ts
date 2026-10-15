@@ -119,6 +119,8 @@ export interface MatrixWorld {
   role: string;
   /** A Plug and Charge trust store CA certificate. */
   caCertificate: number;
+  /** Yesterday in the system timezone, the day of the newest snapshot rows. */
+  snapshotDay: string;
 }
 
 type UrlFn = (f: SiteFixture, w: MatrixWorld) => string;
@@ -874,15 +876,17 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   l('/dashboard/snapshots/trend', 'dashboard:read', undefined, {
     counts: [{ path: 'days.@sum:totalStations', all: 21, a: 1 }],
   }),
-  // The two days it compares depend on the hour in the system timezone, so no counts.
-  l('/dashboard/snapshots/day-over-day', 'dashboard:read'),
+  // Yesterday in the system timezone: A's one row against A's and B's.
+  l('/dashboard/snapshots/day-over-day', 'dashboard:read', undefined, {
+    counts: [{ path: 'current.totalStations', all: 11, a: 1 }],
+  }),
   l('/dashboard/snapshots/available-dates', 'dashboard:read', undefined, {
     counts: [{ path: 'length', all: 2, a: 1 }],
   }),
   l(
     '/dashboard/snapshots',
     'dashboard:read',
-    () => `/dashboard/snapshots?date=${iso(-24).slice(0, 10)}`,
+    (_f, w) => `/dashboard/snapshots?date=${w.snapshotDay}`,
     { counts: [{ path: 'totalStations', all: 11, a: 1 }] },
   ),
   l('/dashboard/carbon-stats', 'dashboard:read', undefined, {
@@ -1699,6 +1703,30 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     unsited: true,
     body: (f) => ({ originalCdrId: f.cdr, reason: 'Credit' }),
   }),
+  s(
+    'POST',
+    '/ocpi/cdrs/:id/reissue',
+    'roaming:write',
+    (f) => `/ocpi/cdrs/${f.cdr}/reissue`,
+    'CDR_NOT_FOUND',
+    { unsited: true, body: () => ({ reason: 'Reissue' }) },
+  ),
+  s(
+    'POST',
+    '/ocpi/cdrs/:id/push',
+    'roaming:write',
+    (f) => `/ocpi/cdrs/${f.cdr}/push`,
+    'CDR_NOT_FOUND',
+    {
+      unsited: true,
+      control: {
+        status: 409,
+        code: 'CDR_PUSH_NOT_FAILED',
+        reason:
+          'the test CDR was never pushed, so it cannot be retried; checked after the site check',
+      },
+    },
+  ),
   l('/ocpi/locations', 'roaming:read'),
   s(
     'GET',
@@ -1754,7 +1782,18 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'PARTNER_NOT_FOUND',
     {
       body: () => ({}),
-      control: ctl(400, 'MISSING_VERSION_URL', 'the seeded partner has no version URL'),
+      control: ctl(409, 'PARTNER_ALREADY_CONNECTED', 'the seeded partner is connected'),
+    },
+  ),
+  c(
+    'POST',
+    '/ocpi/partners/:id/registration-token',
+    'roaming:write',
+    (_f, w) => `/ocpi/partners/${w.partner}/registration-token`,
+    'PARTNER_NOT_FOUND',
+    {
+      body: () => ({}),
+      control: ctl(409, 'PARTNER_ALREADY_CONNECTED', 'the seeded partner is connected'),
     },
   ),
   c(
@@ -3680,6 +3719,37 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'users:read',
     (f) => `/users/${f.user}/neighbors`,
     'USER_NOT_FOUND',
+  ),
+  s(
+    'POST',
+    '/users/:id/mfa/reset',
+    'users:write',
+    (f) => `/users/${f.user}/mfa/reset`,
+    'USER_NOT_FOUND',
+    {
+      body: () => ({}),
+    },
+  ),
+  s(
+    'GET',
+    '/users/:id/api-keys',
+    'users:read',
+    (f) => `/users/${f.user}/api-keys`,
+    'USER_NOT_FOUND',
+  ),
+  s(
+    'DELETE',
+    '/users/:id/api-keys/:keyId',
+    'users:write',
+    (f) => `/users/${f.user}/api-keys/1`,
+    'USER_NOT_FOUND',
+    {
+      control: {
+        status: 404,
+        code: 'API_KEY_NOT_FOUND',
+        reason: 'the matrix users hold no API key: the user check passed, the key lookup refuses',
+      },
+    },
   ),
   // system, security and SSO settings: all-site access only (REVIEW2 #1, #2)
   // REVIEW2 #2: generic settings hold the payment provider, currency, secrets and SMTP.

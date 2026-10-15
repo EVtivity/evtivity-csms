@@ -6,17 +6,20 @@
 // from. Every GET, push, and CDR renders the tariff from that source with
 // `transformTariff`, so prices, tax, and currency are the ones billed.
 
-import { eq, isNull, or } from 'drizzle-orm';
+import { eq, inArray, isNull, max, or } from 'drizzle-orm';
 import {
   db,
+  holidayAuditLog,
   ocpiTariffMappings,
   pricingGroups,
   pricingHolidays,
+  settings,
   tariffs,
   getCompanyCurrency,
   getCompanyTaxBasis,
   getIdlingGracePeriodMinutes,
 } from '@evtivity/database';
+import { OCPI_TARIFF_SETTING_KEYS } from '@evtivity/lib';
 import type { TariffRestrictions } from '@evtivity/lib';
 import { config } from '../lib/config.js';
 import { transformTariff } from '../transformers/tariff.transformer.js';
@@ -126,6 +129,27 @@ function latest(dates: readonly Date[]): Date {
   return new Date(Math.max(...dates.map((d) => d.getTime())));
 }
 
+/**
+ * The last change of a setting every published tariff is rendered with
+ * (`OCPI_TARIFF_SETTING_KEYS`: currency, tax basis, idle grace). It changes
+ * every published tariff, so it moves `last_updated`.
+ */
+async function tariffSettingsUpdatedAt(): Promise<Date | null> {
+  const [row] = await db
+    .select({ updatedAt: max(settings.updatedAt) })
+    .from(settings)
+    .where(inArray(settings.key, [...OCPI_TARIFF_SETTING_KEYS]));
+  return row?.updatedAt ?? null;
+}
+
+/** The last holiday change, a deleted holiday included (its audit row). */
+async function holidaysUpdatedAt(): Promise<Date | null> {
+  const [row] = await db
+    .select({ updatedAt: max(holidayAuditLog.createdAt) })
+    .from(holidayAuditLog);
+  return row?.updatedAt ?? null;
+}
+
 /** UTC-12, the last timezone to reach a date. */
 const LAST_TIMEZONE_OFFSET_MS = 12 * 3_600_000;
 
@@ -168,7 +192,9 @@ export async function renderTariffMapping(
   const updated: Date[] = [mapping.updatedAt];
   if (mapping.tariffId != null) {
     rows = await db.select(columns).from(tariffs).where(eq(tariffs.id, mapping.tariffId));
-    if (rows.length === 0) return null;
+    // An inactive tariff is not billed, so it is not published either: the
+    // push DELETEs it at the partner and GET /cpo/tariffs leaves it out.
+    if (rows.length === 0 || rows.every((r) => !r.isActive)) return null;
   } else if (mapping.pricingGroupId != null) {
     const [group] = await db
       .select({ updatedAt: pricingGroups.updatedAt })
@@ -199,7 +225,11 @@ export async function renderTariffMapping(
       .from(pricingHolidays);
     holidays = holidayRows.map((h) => toIsoDate(h.date));
     updated.push(...holidayRows.map((h) => h.createdAt));
+    const holidayChange = await holidaysUpdatedAt();
+    if (holidayChange != null) updated.push(holidayChange);
   }
+  const settingsChange = await tariffSettingsUpdatedAt();
+  if (settingsChange != null) updated.push(settingsChange);
 
   return transformTariff(
     {

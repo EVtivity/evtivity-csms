@@ -9,25 +9,10 @@ vi.mock('@evtivity/lib', async (importOriginal) => ({
   safeFetch: safeFetchMock,
 }));
 
-const { OcpiClient } = await import('../lib/ocpi-client.js');
+const { OcpiClient, MAX_OCPI_RESPONSE_BYTES } = await import('../lib/ocpi-client.js');
 
-interface FakeResponse {
-  status: number;
-  ok: boolean;
-  text: () => Promise<string>;
-  headers: { get: (h: string) => string | null };
-  body: { cancel: () => Promise<void> } | null;
-}
-
-function respond(status: number, body: string, headers: Record<string, string> = {}): FakeResponse {
-  const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), v]));
-  return {
-    status,
-    ok: status >= 200 && status < 300,
-    text: () => Promise.resolve(body),
-    headers: { get: (h: string) => lower[h.toLowerCase()] ?? null },
-    body: { cancel: vi.fn(() => Promise.resolve()) },
-  };
+function respond(status: number, body: string, headers: Record<string, string> = {}): Response {
+  return new Response(body === '' ? null : body, { status, headers });
 }
 
 const ENVELOPE = { data: { id: 'x' }, status_code: 1000, timestamp: '2026-01-01T00:00:00Z' };
@@ -111,6 +96,32 @@ describe('OcpiClient verbs', () => {
     await expect(client.get('https://p.example/ocpi/x')).resolves.toEqual(err);
   });
 
+  it('throws for an HTTP error whose envelope claims success or has no OCPI code', async () => {
+    safeFetchMock.mockResolvedValueOnce(respond(500, JSON.stringify(ENVELOPE)));
+    await expect(client.put('https://p.example/ocpi/x', {})).rejects.toThrow('HTTP 500');
+    safeFetchMock.mockResolvedValueOnce(respond(404, JSON.stringify({ message: 'nope' })));
+    await expect(client.get('https://p.example/ocpi/x')).rejects.toThrow('HTTP 404');
+  });
+
+  it('refuses a reply larger than 10 MB, declared or streamed', async () => {
+    safeFetchMock.mockResolvedValueOnce(
+      respond(200, '{}', { 'content-length': String(MAX_OCPI_RESPONSE_BYTES + 1) }),
+    );
+    await expect(client.get('https://p.example/ocpi/x')).rejects.toThrow('exceeds');
+
+    const big = new Uint8Array(1024 * 1024).fill(32);
+    let sent = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        sent++;
+        if (sent > 11) controller.close();
+        else controller.enqueue(big);
+      },
+    });
+    safeFetchMock.mockResolvedValueOnce(new Response(stream, { status: 200 }));
+    await expect(client.get('https://p.example/ocpi/x')).rejects.toThrow('exceeds');
+  });
+
   it('throws with the HTTP status when the body is not JSON', async () => {
     safeFetchMock.mockResolvedValue(respond(502, '<html>Bad Gateway</html>'));
 
@@ -142,10 +153,25 @@ describe('OcpiClient redirects', () => {
   });
 
   it('returns a 3xx reply without a Location header as is', async () => {
-    safeFetchMock.mockResolvedValue(respond(304, JSON.stringify(ENVELOPE)));
+    safeFetchMock.mockResolvedValue(respond(300, JSON.stringify(ENVELOPE)));
 
     await expect(client.get('https://p.example/ocpi/x')).resolves.toEqual(ENVELOPE);
     expect(safeFetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('drops the Authorization header on a redirect to another origin', async () => {
+    safeFetchMock
+      .mockResolvedValueOnce(respond(307, '', { location: 'https://other.example/ocpi/x' }))
+      .mockResolvedValueOnce(respond(307, '', { location: 'https://p.example/ocpi/back' }))
+      .mockResolvedValueOnce(respond(200, JSON.stringify(ENVELOPE)));
+
+    await client.put('https://p.example/ocpi/x', { a: 1 });
+
+    expect(call(0)[1].headers['Authorization']).toBeDefined();
+    expect(call(1)[1].headers['Authorization']).toBeUndefined();
+    expect(call(1)[1].headers['OCPI-to-party-id']).toBe('ABC');
+    // Back on the partner origin the token is sent again.
+    expect(call(2)[1].headers['Authorization']).toBeDefined();
   });
 
   it('gives up after five redirects', async () => {
@@ -185,5 +211,25 @@ describe('OcpiClient.getPaginated', () => {
 
     expect(rows).toEqual([{ id: 1 }, { id: 2 }, { id: 3 }]);
     expect(safeFetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('refuses a next link on another origin and resolves a relative one', async () => {
+    safeFetchMock
+      .mockResolvedValueOnce(
+        respond(200, JSON.stringify({ data: [{ id: 1 }], status_code: 1000 }), {
+          Link: '</p2>; rel="next"',
+        }),
+      )
+      .mockResolvedValueOnce(
+        respond(200, JSON.stringify({ data: [{ id: 2 }], status_code: 1000 }), {
+          Link: '<https://evil.example/p3>; rel="next"',
+        }),
+      );
+
+    await expect(client.getPaginated('https://p.example/p1')).rejects.toThrow(
+      'leaves the partner origin',
+    );
+    expect(call(1)[0]).toBe('https://p.example/p2');
+    expect(safeFetchMock).toHaveBeenCalledTimes(2);
   });
 });

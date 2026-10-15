@@ -168,7 +168,6 @@ describe('getQueryKeysForEvent', () => {
       makeEvent('meter.values', { stationId: 'CS-1', siteId: 'S-1' }),
     );
     expect(hasKey(keys, ['stations', 'CS-1', 'meter-values'])).toBe(true);
-    expect(hasKey(keys, ['station-meter-values'])).toBe(true);
     expect(hasKey(keys, ['sites', 'S-1', 'load-management'])).toBe(true);
     expect(hasKey(keys, ['sites', 'S-1', 'energy-history'])).toBe(true);
     expect(getQueryKeysForEvent(makeEvent('meter.values'))).toEqual([

@@ -42,8 +42,11 @@ function jobsNamed(name: string): Array<[string, string]> {
   return queuedJobs.filter((j) => j[0] === name);
 }
 
+const mockResolveOwner = vi.hoisted(() => vi.fn());
+
 vi.mock('@evtivity/database', () => ({
   isRoamingEnabled: mockIsRoamingEnabled,
+  resolveOcpiTokenOwner: mockResolveOwner,
   getIdlingGracePeriodMinutes: mockGetIdlingGrace,
   getCompanyPriceDisplay: mockGetCompanyPriceDisplay,
   writeReservationAudit: mockWriteReservationAudit,
@@ -247,20 +250,100 @@ describe('createProjectionNotifier', () => {
   });
 
   describe('linkCpoRoamingSession', () => {
-    it('inserts the roaming session link', async () => {
+    const STATION = [{ station_id: 'CS-1', currency: 'EUR' }];
+    const owner = (over: Record<string, unknown> = {}) => ({
+      owner: {
+        partnerId: 'opr_a',
+        authMethod: 'WHITELIST',
+        commandId: null,
+        authorizationReference: null,
+        isValid: true,
+        whitelist: 'ALLOWED',
+        tokenData: {},
+        ...over,
+      },
+      ambiguous: false,
+    });
+
+    function statement(h: ReturnType<typeof makeHarness>, n: number): string {
+      return (h.query.mock.calls[n] as [TemplateStringsArray])[0].join('?');
+    }
+
+    it('links a whitelisted token to the one partner that owns it', async () => {
       const h = makeHarness();
-      h.query.mockResolvedValueOnce([]);
+      h.query.mockResolvedValueOnce(STATION).mockResolvedValueOnce([{ id: 1 }]);
+      mockResolveOwner.mockResolvedValueOnce(owner());
       await h.notify.linkCpoRoamingSession('sess-1', 'TOKEN-1');
-      expect(h.query).toHaveBeenCalledTimes(1);
-      const strings = (h.query.mock.calls[0] as [TemplateStringsArray])[0].join('?');
-      expect(strings).toContain('INSERT INTO ocpi_roaming_sessions');
-      expect(strings).toContain('ON CONFLICT (charging_session_id)');
-      expect((h.query.mock.calls[0] as unknown[]).slice(1)).toEqual([
-        'sess-1',
+      expect(mockResolveOwner).toHaveBeenCalledWith(
+        { stationOcppId: 'CS-1', tokenUid: 'TOKEN-1', remoteStartId: null },
+        expect.anything(),
+      );
+      expect(h.query).toHaveBeenCalledTimes(2);
+      expect(statement(h, 1)).toContain('INSERT INTO ocpi_roaming_sessions');
+      expect(statement(h, 1)).toContain('ON CONFLICT (charging_session_id)');
+      expect((h.query.mock.calls[1] as unknown[]).slice(1)).toEqual([
+        'opr_a',
         'sess-1',
         'sess-1',
         'TOKEN-1',
+        'EUR',
+        'WHITELIST',
+        null,
       ]);
+    });
+
+    it('links a START_SESSION start to its partner as COMMAND and uses the command', async () => {
+      const h = makeHarness();
+      h.query
+        .mockResolvedValueOnce(STATION)
+        .mockResolvedValueOnce([{ id: 1 }])
+        .mockResolvedValueOnce([]);
+      mockResolveOwner.mockResolvedValueOnce(
+        owner({
+          partnerId: 'opr_b',
+          authMethod: 'COMMAND',
+          commandId: 'cmd-9',
+          authorizationReference: 'REF-1',
+        }),
+      );
+      await h.notify.linkCpoRoamingSession('sess-1', 'TOKEN-1', 77);
+      expect(mockResolveOwner).toHaveBeenCalledWith(
+        expect.objectContaining({ remoteStartId: 77 }),
+        expect.anything(),
+      );
+      expect((h.query.mock.calls[1] as unknown[]).slice(1)).toEqual([
+        'opr_b',
+        'sess-1',
+        'sess-1',
+        'TOKEN-1',
+        'EUR',
+        'COMMAND',
+        'REF-1',
+      ]);
+      expect(statement(h, 2)).toContain('UPDATE ocpi_commands SET charging_session_id');
+      expect((h.query.mock.calls[2] as unknown[]).slice(1)).toEqual(['sess-1', 'cmd-9']);
+    });
+
+    it('does not link a uid several partners hold, and warns', async () => {
+      const h = makeHarness();
+      h.query.mockResolvedValueOnce(STATION);
+      mockResolveOwner.mockResolvedValueOnce({ owner: null, ambiguous: true });
+      await h.notify.linkCpoRoamingSession('sess-1', 'SHARED');
+      expect(h.query).toHaveBeenCalledTimes(1);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'sess-1', idToken: 'SHARED' }),
+        'OCPI token uid held by several connected partners; roaming session not linked',
+      );
+    });
+
+    it('does not link an invalid token or one no partner owns', async () => {
+      const h = makeHarness();
+      h.query.mockResolvedValue(STATION);
+      mockResolveOwner.mockResolvedValueOnce(owner({ isValid: false }));
+      await h.notify.linkCpoRoamingSession('sess-1', 'T');
+      mockResolveOwner.mockResolvedValueOnce({ owner: null, ambiguous: false });
+      await h.notify.linkCpoRoamingSession('sess-1', 'T');
+      expect(h.query).toHaveBeenCalledTimes(2);
     });
 
     it('logs a failure at warn and continues', async () => {

@@ -17,9 +17,10 @@ function makeChain(): Record<string, unknown> {
   return chain;
 }
 
-const { mockFindEvseByUid, mockDispatch, partnerFlags } = vi.hoisted(() => ({
+const { mockFindEvseByUid, mockDispatch, mockRegister, partnerFlags } = vi.hoisted(() => ({
   mockFindEvseByUid: vi.fn(),
   mockDispatch: vi.fn().mockResolvedValue(undefined),
+  mockRegister: vi.fn().mockResolvedValue(undefined),
   partnerFlags: { allowPrivateNetwork: false },
 }));
 
@@ -31,6 +32,8 @@ vi.mock('../middleware/ocpi-auth.js', () => ({
   ocpiAuthenticate: async (request: { ocpiPartner?: unknown }) => {
     request.ocpiPartner = {
       partnerId: 'opr_000000000001',
+      countryCode: 'NL',
+      partyId: 'EMS',
       allowPrivateNetwork: partnerFlags.allowPrivateNetwork,
     };
   },
@@ -42,7 +45,7 @@ vi.mock('../lib/evse-lookup.js', () => ({ findEvseByUid: mockFindEvseByUid }));
 vi.mock('../services/command-callback.service.js', () => ({
   getCommandCallbackService: () => ({
     generateCommandId: () => 'cmd-1',
-    registerCommand: vi.fn(),
+    registerCommand: mockRegister,
     dispatchOcppCommand: mockDispatch,
   }),
 }));
@@ -64,6 +67,7 @@ afterAll(async () => {
 beforeEach(() => {
   dbResults = [];
   mockDispatch.mockClear();
+  mockRegister.mockClear();
   mockFindEvseByUid.mockReset();
   partnerFlags.allowPrivateNetwork = false;
 });
@@ -85,6 +89,10 @@ const EVSE = {
   siteId: 'sit_000000000001',
   updatedAt: new Date(),
   stationState: AVAILABLE,
+  stationRemoved: false,
+  evseRetired: false,
+  stationOnline: true,
+  stationAccepted: true,
 };
 
 const UNAVAILABLE_STATES: StationLevelState[] = [
@@ -95,7 +103,11 @@ const UNAVAILABLE_STATES: StationLevelState[] = [
   FAULTED,
 ];
 
-function startSession(evseUid?: string, responseUrl = 'https://partner.example.com/commands/1') {
+function startSession(
+  evseUid?: string,
+  responseUrl = 'https://partner.example.com/commands/1',
+  extra: Record<string, unknown> = {},
+) {
   return app.inject({
     method: 'POST',
     url: '/ocpi/2.2.1/cpo/commands/START_SESSION',
@@ -104,9 +116,12 @@ function startSession(evseUid?: string, responseUrl = 'https://partner.example.c
       token: { uid: 'TOKEN-1' },
       location_id: 'sit_000000000001',
       ...(evseUid != null ? { evse_uid: evseUid } : {}),
+      ...extra,
     },
   });
 }
+
+const PUSHED_RFID = [{ isValid: true, tokenType: 'RFID' }];
 
 function reserveNow(evseUid?: string) {
   return app.inject({
@@ -123,11 +138,12 @@ function reserveNow(evseUid?: string) {
   });
 }
 
-function stationRow(n: number, state = AVAILABLE) {
+function stationRow(n: number, state = AVAILABLE, isOnline = true) {
   return {
     stationDbId: `sta_00000000000${String(n)}`,
     stationId: `CS-000${String(n)}`,
     ...state,
+    isOnline,
   };
 }
 
@@ -135,7 +151,7 @@ describe('OCPI START_SESSION', () => {
   it('starts on the station that owns the EVSE uid, with its EVSE number', async () => {
     mockFindEvseByUid.mockResolvedValue(EVSE);
     dbResults = [
-      [{ isValid: true }], // token
+      PUSHED_RFID, // token
       [{ siteId: 'sit_000000000001' }], // location publish
       [], // maintenance events
     ];
@@ -148,26 +164,135 @@ describe('OCPI START_SESSION', () => {
       'cmd-1',
       'CS-0002',
       'RequestStartTransaction',
-      expect.objectContaining({ evseId: 1 }),
+      expect.objectContaining({
+        evseId: 1,
+        idToken: { idToken: 'TOKEN-1', type: 'ISO14443' },
+        remoteStartId: expect.any(Number) as number,
+      }),
     );
+    const payload = mockDispatch.mock.calls[0]?.[3] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('idTag');
+    // The command row binds the token to the station and the partner.
+    expect(mockRegister).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commandId: 'cmd-1',
+        partnerId: 'opr_000000000001',
+        commandType: 'START_SESSION',
+        stationId: 'CS-0002',
+        tokenUid: 'TOKEN-1',
+        tokenType: 'RFID',
+        tokenData: null,
+        remoteStartId: payload['remoteStartId'],
+        authorizationReference: null,
+      }),
+    );
+  });
+
+  it('rejects an offline station: the command is never queued', async () => {
+    mockFindEvseByUid.mockResolvedValue({ ...EVSE, stationOnline: false });
+    dbResults = [PUSHED_RFID, [{ siteId: 'sit_000000000001' }], []];
+
+    const res = await startSession(EVSE.evseDbId);
+
+    expect(res.json().data.result).toBe('REJECTED');
+    expect(mockDispatch).not.toHaveBeenCalled();
+    expect(mockRegister).not.toHaveBeenCalled();
+  });
+
+  it('rejects a station that is pending or removed', async () => {
+    mockFindEvseByUid.mockResolvedValue({ ...EVSE, stationAccepted: false });
+    dbResults = [PUSHED_RFID, [{ siteId: 'sit_000000000001' }], []];
+
+    const res = await startSession(EVSE.evseDbId);
+
+    expect(res.json().data.result).toBe('REJECTED');
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a token the partner pushed as invalid', async () => {
+    dbResults = [[{ isValid: false, tokenType: 'RFID' }]];
+
+    const res = await startSession(EVSE.evseDbId);
+
+    expect(res.json().data.result).toBe('REJECTED');
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it('accepts the token embedded in the command when it is the partner own', async () => {
+    mockFindEvseByUid.mockResolvedValue(EVSE);
+    dbResults = [[], [{ siteId: 'sit_000000000001' }], []];
+    const token = {
+      uid: 'APP-77',
+      type: 'APP_USER',
+      country_code: 'nl',
+      party_id: 'ems',
+      contract_id: 'NL-EMS-77',
+      valid: true,
+      whitelist: 'NEVER',
+    };
+
+    const res = await startSession(EVSE.evseDbId, undefined, {
+      token,
+      authorization_reference: 'AUTH-1',
+    });
+
+    expect(res.json().data.result).toBe('ACCEPTED');
+    expect(mockDispatch).toHaveBeenCalledWith(
+      'cmd-1',
+      'CS-0002',
+      'RequestStartTransaction',
+      expect.objectContaining({ idToken: { idToken: 'APP-77', type: 'Central' } }),
+    );
+    expect(mockRegister).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tokenUid: 'APP-77',
+        tokenType: 'APP_USER',
+        tokenData: token,
+        authorizationReference: 'AUTH-1',
+      }),
+    );
+  });
+
+  it.each([
+    ['another party', { country_code: 'NL', party_id: 'OTH' }],
+    ['another country', { country_code: 'DE', party_id: 'EMS' }],
+    ['no country or party', {}],
+    ['an invalid token', { country_code: 'NL', party_id: 'EMS', valid: false }],
+  ])('rejects an embedded token of %s', async (_name, fields) => {
+    dbResults = [[]];
+
+    const res = await startSession(EVSE.evseDbId, undefined, {
+      token: { uid: 'X-1', type: 'RFID', ...fields },
+    });
+
+    expect(res.json().data.result).toBe('REJECTED');
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses an over-long authorization_reference', async () => {
+    const res = await startSession(EVSE.evseDbId, undefined, {
+      authorization_reference: 'x'.repeat(37),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().status_code).toBe(2001);
   });
 
   it('rejects a private response_url unless the partner has the private-network flag', async () => {
     mockFindEvseByUid.mockResolvedValue(EVSE);
-    dbResults = [[{ isValid: true }], [{ siteId: 'sit_000000000001' }], []];
+    dbResults = [PUSHED_RFID, [{ siteId: 'sit_000000000001' }], []];
     const refused = await startSession(EVSE.evseDbId, 'http://127.0.0.1:7105/commands/1');
     expect(refused.json().status_code).not.toBe(1000);
     expect(mockDispatch).not.toHaveBeenCalled();
 
     partnerFlags.allowPrivateNetwork = true;
-    dbResults = [[{ isValid: true }], [{ siteId: 'sit_000000000001' }], []];
+    dbResults = [PUSHED_RFID, [{ siteId: 'sit_000000000001' }], []];
     const accepted = await startSession(EVSE.evseDbId, 'http://127.0.0.1:7105/commands/1');
     expect(accepted.json().data.result).toBe('ACCEPTED');
   });
 
   it('rejects an EVSE uid that belongs to another site', async () => {
     mockFindEvseByUid.mockResolvedValue({ ...EVSE, siteId: 'sit_000000000009' });
-    dbResults = [[{ isValid: true }], [{ siteId: 'sit_000000000001' }], []];
+    dbResults = [PUSHED_RFID, [{ siteId: 'sit_000000000001' }], []];
 
     const res = await startSession(EVSE.evseDbId);
 
@@ -177,7 +302,7 @@ describe('OCPI START_SESSION', () => {
 
   it.each(UNAVAILABLE_STATES)('rejects a station-level unavailable station %o', async (state) => {
     mockFindEvseByUid.mockResolvedValue({ ...EVSE, stationState: state });
-    dbResults = [[{ isValid: true }], [{ siteId: 'sit_000000000001' }], []];
+    dbResults = [PUSHED_RFID, [{ siteId: 'sit_000000000001' }], []];
 
     const res = await startSession(EVSE.evseDbId);
 
@@ -188,7 +313,7 @@ describe('OCPI START_SESSION', () => {
   it('rejects a station under maintenance', async () => {
     mockFindEvseByUid.mockResolvedValue(EVSE);
     dbResults = [
-      [{ isValid: true }],
+      PUSHED_RFID,
       [{ siteId: 'sit_000000000001' }],
       [{ affectedStationIds: [EVSE.stationDbId] }],
     ];
@@ -201,7 +326,7 @@ describe('OCPI START_SESSION', () => {
 
   it('without an EVSE uid, skips a disabled station and starts on the next one', async () => {
     dbResults = [
-      [{ isValid: true }],
+      PUSHED_RFID,
       [{ siteId: 'sit_000000000001' }],
       [], // maintenance events
       [stationRow(1, DISABLED), stationRow(2)], // stations at the site
@@ -219,9 +344,42 @@ describe('OCPI START_SESSION', () => {
     );
   });
 
+  it('without an EVSE uid, skips an offline station and starts on an online one', async () => {
+    dbResults = [
+      PUSHED_RFID,
+      [{ siteId: 'sit_000000000001' }],
+      [],
+      [stationRow(1, AVAILABLE, false), stationRow(2)],
+    ];
+
+    const res = await startSession();
+
+    expect(res.json().data.result).toBe('ACCEPTED');
+    expect(mockDispatch).toHaveBeenCalledWith(
+      'cmd-1',
+      'CS-0002',
+      'RequestStartTransaction',
+      expect.anything(),
+    );
+  });
+
+  it('without an EVSE uid, rejects when every station is offline', async () => {
+    dbResults = [
+      PUSHED_RFID,
+      [{ siteId: 'sit_000000000001' }],
+      [],
+      [stationRow(1, AVAILABLE, false), stationRow(2, AVAILABLE, false)],
+    ];
+
+    const res = await startSession();
+
+    expect(res.json().data.result).toBe('REJECTED');
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
   it('without an EVSE uid, skips a station under maintenance', async () => {
     dbResults = [
-      [{ isValid: true }],
+      PUSHED_RFID,
       [{ siteId: 'sit_000000000001' }],
       [{ affectedStationIds: ['sta_000000000001'] }],
       [stationRow(1), stationRow(2)],
@@ -240,7 +398,7 @@ describe('OCPI START_SESSION', () => {
 
   it('without an EVSE uid, rejects when no station at the site can start', async () => {
     dbResults = [
-      [{ isValid: true }],
+      PUSHED_RFID,
       [{ siteId: 'sit_000000000001' }],
       [],
       [stationRow(1, DISABLED), stationRow(2, FAULTED)],
@@ -253,7 +411,7 @@ describe('OCPI START_SESSION', () => {
   });
 
   it('without an EVSE uid, rejects a site with no stations', async () => {
-    dbResults = [[{ isValid: true }], [{ siteId: 'sit_000000000001' }], [], []];
+    dbResults = [PUSHED_RFID, [{ siteId: 'sit_000000000001' }], [], []];
 
     const res = await startSession();
 
@@ -263,43 +421,16 @@ describe('OCPI START_SESSION', () => {
 });
 
 describe('OCPI RESERVE_NOW', () => {
-  it('reserves on the station that owns the EVSE uid', async () => {
+  // Owner decision: partner reservations are not supported, like CANCEL_RESERVATION.
+  it('answers REJECTED without dispatching', async () => {
     mockFindEvseByUid.mockResolvedValue(EVSE);
-    dbResults = [[{ isValid: true }], [{ siteId: 'sit_000000000001' }], []];
-
-    const res = await reserveNow(EVSE.evseDbId);
-
-    expect(res.json().data.result).toBe('ACCEPTED');
-    expect(mockDispatch).toHaveBeenCalledWith(
-      'cmd-1',
-      'CS-0002',
-      'ReserveNow',
-      expect.objectContaining({ id: 7, evseId: 1 }),
-    );
-  });
-
-  it.each(UNAVAILABLE_STATES)('rejects a station-level unavailable station %o', async (state) => {
-    mockFindEvseByUid.mockResolvedValue({ ...EVSE, stationState: state });
-    dbResults = [[{ isValid: true }], [{ siteId: 'sit_000000000001' }], []];
+    dbResults = [PUSHED_RFID, [{ siteId: 'sit_000000000001' }], []];
 
     const res = await reserveNow(EVSE.evseDbId);
 
     expect(res.json().data.result).toBe('REJECTED');
     expect(mockDispatch).not.toHaveBeenCalled();
-  });
-
-  it('without an EVSE uid, skips a disabled station', async () => {
-    dbResults = [
-      [{ isValid: true }],
-      [{ siteId: 'sit_000000000001' }],
-      [],
-      [stationRow(1, INSTALLING), stationRow(2)],
-    ];
-
-    const res = await reserveNow();
-
-    expect(res.json().data.result).toBe('ACCEPTED');
-    expect(mockDispatch).toHaveBeenCalledWith('cmd-1', 'CS-0002', 'ReserveNow', expect.anything());
+    expect(mockRegister).not.toHaveBeenCalled();
   });
 });
 
@@ -317,9 +448,11 @@ describe('OCPI UNLOCK_CONNECTOR', () => {
     });
   }
 
+  const OWN_ACTIVE = [{ status: 'active', endedAt: null, linkPartnerId: 'opr_000000000001' }];
+
   it('unlocks the connector on the EVSE owner station', async () => {
     mockFindEvseByUid.mockResolvedValue(EVSE);
-    dbResults = [[{ siteId: 'sit_000000000001' }]];
+    dbResults = [[{ siteId: 'sit_000000000001' }], [{ connectorId: 1 }], OWN_ACTIVE];
 
     const res = await unlock();
 
@@ -328,6 +461,54 @@ describe('OCPI UNLOCK_CONNECTOR', () => {
       evseId: 1,
       connectorId: 1,
     });
+  });
+
+  it('unlocks shortly after the partner session ended', async () => {
+    mockFindEvseByUid.mockResolvedValue(EVSE);
+    dbResults = [
+      [{ siteId: 'sit_000000000001' }],
+      [{ connectorId: 1 }],
+      [{ status: 'completed', endedAt: new Date(), linkPartnerId: 'opr_000000000001' }],
+    ];
+
+    const res = await unlock();
+
+    expect(res.json().data.result).toBe('ACCEPTED');
+  });
+
+  it.each([
+    ['another partner session', [{ status: 'active', endedAt: null, linkPartnerId: 'opr_9' }]],
+    ['a local driver session', [{ status: 'active', endedAt: null, linkPartnerId: null }]],
+    [
+      'a partner session that ended long ago',
+      [
+        {
+          status: 'completed',
+          endedAt: new Date(Date.now() - 2 * 60 * 60_000),
+          linkPartnerId: 'opr_000000000001',
+        },
+      ],
+    ],
+    ['no session', []],
+  ])('rejects an unlock over %s', async (_name, latest) => {
+    mockFindEvseByUid.mockResolvedValue(EVSE);
+    dbResults = [[{ siteId: 'sit_000000000001' }], [{ connectorId: 1 }], latest];
+
+    const res = await unlock();
+
+    expect(res.json().data.result).toBe('REJECTED');
+    expect(mockDispatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects an offline station or an unknown connector', async () => {
+    mockFindEvseByUid.mockResolvedValue({ ...EVSE, stationOnline: false });
+    dbResults = [[{ siteId: 'sit_000000000001' }]];
+    expect((await unlock()).json().data.result).toBe('REJECTED');
+
+    mockFindEvseByUid.mockResolvedValue(EVSE);
+    dbResults = [[{ siteId: 'sit_000000000001' }], []];
+    expect((await unlock()).json().data.result).toBe('REJECTED');
+    expect(mockDispatch).not.toHaveBeenCalled();
   });
 
   it('rejects an EVSE uid that belongs to another site', async () => {

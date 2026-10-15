@@ -24,7 +24,8 @@
     "amountInclTax": "{{amount}} (세금 포함)",
     "close": "닫기",
     "toggleSuggestions": "제안 표시/숨기기",
-    "copyFailed": "복사 실패"
+    "copyFailed": "복사 실패",
+    "notCharged": "청구 안 됨"
   },
   "nav": {
     "home": "홈",
@@ -596,6 +597,8 @@
     "CAMPAIGN_NOT_FOUND": "캠페인을 찾을 수 없습니다",
     "CASE_NOT_FOUND": "문의를 찾을 수 없습니다",
     "CA_CERT_NOT_FOUND": "CA 인증서를 찾을 수 없습니다",
+    "CDR_NOT_CREDITED": "세션을 다시 발행하기 전에 세션의 모든 CDR을 크레딧 처리하세요",
+    "CDR_PUSH_NOT_FAILED": "전송에 실패한 CDR만 다시 전송할 수 있습니다",
     "CDR_NOT_FOUND": "CDR을 찾을 수 없습니다",
     "CIRCUIT_NOT_FOUND": "회로를 찾을 수 없습니다",
     "COMMAND_ERROR": "명령 실패",
@@ -674,6 +677,8 @@
     "INVALID_SITE_IDS": "하나 이상의 siteId가 존재하지 않습니다",
     "INVALID_TOKEN": "유효하지 않거나 만료된 재설정 링크입니다",
     "INVOICE_ALREADY_PAID": "이미 결제된 청구서입니다",
+    "RESERVATION_FEE_ALREADY_INVOICED": "이미 청구서가 발행된 예약 수수료입니다",
+    "SESSION_ALREADY_INVOICED": "이미 청구서가 발행된 세션입니다",
     "INVOICE_CREATION_FAILED": "청구서 생성에 실패했습니다",
     "INVOICE_NOT_ISSUED": "이 작업은 발행된 청구서에만 가능합니다",
     "INVOICE_IS_CREDIT_NOTE": "크레딧 노트는 결제 완료로 표시하거나 크레딧 처리할 수 없습니다",
@@ -786,7 +791,6 @@
     "RESERVATION_TIMEOUT": "예약 명령 시간 초과",
     "RESERVATION_TOO_LONG": "예약은 ...시간을 초과할 수 없습니다",
     "RESERVATION_WINDOW_TOO_SHORT": "예약 종료 시간은 시작 시간보다 최소 60초 이후여야 합니다",
-    "RESET_NOT_REQUIRED": "비밀번호 재설정이 필요하지 않습니다",
     "ROAMING_DISABLED": "로밍이 사용 중지되었습니다",
     "ROLE_NOT_FOUND": "역할이 존재하지 않습니다",
     "ROTATION_NOT_APPLICABLE": "자격 증명 교체는 보안 프로필 1과 2에만 적용됩니다",
@@ -890,7 +894,14 @@
     "SESSION_NO_VEHICLE_ID": "충전기가 이 세션에 차량 ID를 보내지 않았습니다.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "운영자가 이 차량의 Autocharge를 차단했습니다. 차단을 해제하려면 운영자에게 문의하세요.",
     "VEHICLE_ID_IN_USE": "다른 차량이 이미 이 VIN 또는 EVCCID를 Autocharge에 사용하고 있습니다.",
-    "VEHICLE_ID_REQUIRED": "Autocharge를 사용하려면 차량에 VIN 또는 EVCCID가 있어야 합니다."
+    "VEHICLE_ID_REQUIRED": "Autocharge를 사용하려면 차량에 VIN 또는 EVCCID가 있어야 합니다.",
+    "SESSION_STOP_REJECTED": "충전소가 중지 요청을 거부했습니다. 세션이 계속 충전 중입니다.",
+    "PARTNER_ALREADY_CONNECTED": "파트너가 이미 연결되어 있습니다",
+    "PARTNER_NOT_REGISTERED": "파트너는 OCPI 자격 증명 교환을 통해 연결됩니다",
+    "SESSION_REQUIRED": "이 작업에는 로그인 세션이 필요합니다. API 키로는 사용할 수 없습니다.",
+    "MFA_LOCKED": "잘못된 코드가 너무 많습니다. 잠시 후 다시 시도하세요.",
+    "MFA_RESEND_LIMITED": "코드를 너무 많이 보냈습니다. 잠시 후 다시 요청하세요.",
+    "USER_SSO_MANAGED": "이 사용자는 SSO로 로그인하므로 설정할 비밀번호가 없습니다."
   },
   "validation": {
     "required": "필수 항목입니다",
@@ -935,7 +946,8 @@
     "totalCo2Avoided": "총 CO₂ 절감량",
     "noSessions": "이 기간에 충전 세션이 없습니다.",
     "cost": "비용",
-    "costInclTax": "비용 (세금 포함)"
+    "costInclTax": "비용 (세금 포함)",
+    "otherCurrencyNote_other": "이전 통화로 청구된 세션 {{count}}건은 합계({{currency}})에 포함되지 않습니다."
   },
   "account": {
     "title": "계정",

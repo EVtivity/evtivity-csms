@@ -25,6 +25,7 @@ import {
   writeAudit,
   recordRemovedOcpiEvses,
   stationAuditLog,
+  sessionAuditLog,
   getCompanyCurrency,
   setStationDisabled,
   pgErrorCode,
@@ -2300,6 +2301,8 @@ export function stationRoutes(app: FastifyInstance): void {
           504: errorWith('Station timeout', [ERROR_CODES.STATION_TIMEOUT]),
         },
       },
+      // The stop (and a ghost session end) changes the session lists and detail.
+      config: { invalidatesCacheTags: ['sessions'] },
     },
     async (request, reply) => {
       const { id, evseId: ocppEvseId } = request.params as z.infer<typeof evseParams>;
@@ -2370,6 +2373,30 @@ export function stationRoutes(app: FastifyInstance): void {
         },
         notes: `RequestStopTransaction (${stopOutcome})${isGhost ? ', ghost session end requested' : ''}`,
       });
+      // The session's own history records the operator's stop with its outcome
+      // (the station's Ended, or the OCPP server's ghost end, then closes it).
+      await writeAudit(
+        { table: sessionAuditLog, idColumn: 'session_id' },
+        {
+          entityId: activeSession.id,
+          entityIdSnapshot: activeSession.id,
+          action: 'stopped_by_csms',
+          ...getAuditActor(request),
+          before: { status: 'active' },
+          after: {
+            action: 'RequestStopTransaction',
+            transactionId: activeSession.transactionId,
+            evseId: ocppEvseId,
+            outcome: stopOutcome,
+            ghostRecovered: isGhost,
+          },
+          notes: isGhost
+            ? 'Operator stop: the station has no such transaction, session end requested'
+            : `Operator stop (${stopOutcome})`,
+        },
+        db,
+        request.log,
+      );
 
       if (cmdResult.error != null) {
         await reply.status(504).send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });

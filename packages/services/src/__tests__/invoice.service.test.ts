@@ -504,12 +504,20 @@ describe('createSessionInvoice', () => {
 
   it('throws when the session is not found', async () => {
     queue('chargingSessions', []);
-    await expect(createSessionInvoice('missing')).rejects.toThrow('Session not found');
+    await expect(createSessionInvoice('missing')).rejects.toMatchObject({
+      message: 'Session not found',
+      statusCode: 404,
+      code: 'SESSION_NOT_FOUND',
+    });
   });
 
   it('throws when the session is not completed', async () => {
     queue('chargingSessions', [session({ status: 'active' })]);
-    await expect(createSessionInvoice('ses_1')).rejects.toThrow('Session is not completed');
+    await expect(createSessionInvoice('ses_1')).rejects.toMatchObject({
+      message: 'Session is not completed',
+      statusCode: 400,
+      code: 'INVOICE_CREATION_FAILED',
+    });
   });
 
   it('throws for a session billed to a fleet account (the fleet invoice bills it)', async () => {
@@ -534,7 +542,11 @@ describe('createSessionInvoice', () => {
 
   it('throws when the session is already invoiced', async () => {
     queue('chargingSessions', [session({ invoiceId: 'inv_0' })]);
-    await expect(createSessionInvoice('ses_1')).rejects.toThrow('already invoiced');
+    await expect(createSessionInvoice('ses_1')).rejects.toMatchObject({
+      message: 'Session is already invoiced',
+      statusCode: 409,
+      code: 'SESSION_ALREADY_INVOICED',
+    });
     expect(h.state.inserted['invoices']).toBeUndefined();
   });
 

@@ -21,7 +21,7 @@ import {
   loadDriverAccountCredit,
   driverTokens,
   drivers,
-  ocpiExternalTokens,
+  resolveOcpiTokenOwner,
   chargingSessions,
   chargingStations,
   guestSessions,
@@ -31,6 +31,7 @@ import {
   findBlockedVehicle,
   isAutochargeEnabledForStation,
 } from '@evtivity/database';
+import type { OcpiTokenOwnerResult } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
 import { logAuthorizeAttempt, parseOcpiValidThru } from './authorize-log.js';
 import { prepaidCredit } from './prepaid.js';
@@ -540,11 +541,17 @@ function vehicleDecision(
 }
 
 /**
- * No driver token matched: an OCPI external token when the context checks
- * them and roaming is on, else Invalid. OCPI 2.2.1 permits the token when
- * `is_valid`, `whitelist` is not NEVER (NEVER requires real-time
- * authorization, which the CSMS does not perform), and any `valid_thru` is in
- * the future.
+ * No driver token matched: an OCPI token when the context checks them and
+ * roaming is on, else Invalid. The owner is resolved per station
+ * (`resolveOcpiTokenOwner`): the START_SESSION a connected partner sent for
+ * this station and token, else the one connected partner holding a token
+ * with this uid. A uid that several connected partners hold as a valid token
+ * (uids are unique per eMSP only) and that no command names is refused, as
+ * the session could not be billed to one partner. The token is permitted when
+ * valid, its `whitelist` is not NEVER (NEVER requires a real-time
+ * authorization request, which the CSMS does not send; a StartSession is the
+ * eMSP's authorization), and any `valid_thru` is in the future. Partners that
+ * are not connected (suspended, disconnected) own no token.
  */
 async function notFound(
   input: AuthorizeTokenInput,
@@ -560,17 +567,12 @@ async function notFound(
   };
   if (!rules.ocpi || !(await isRoamingEnabled())) return invalid;
 
-  let external: { isValid: boolean; whitelist: string; tokenData: unknown } | undefined;
+  let resolved: OcpiTokenOwnerResult | undefined;
   try {
-    [external] = await db
-      .select({
-        isValid: ocpiExternalTokens.isValid,
-        whitelist: ocpiExternalTokens.whitelist,
-        tokenData: ocpiExternalTokens.tokenData,
-      })
-      .from(ocpiExternalTokens)
-      .where(eq(ocpiExternalTokens.uid, input.token.value))
-      .limit(1);
+    resolved = await resolveOcpiTokenOwner({
+      stationOcppId: input.stationId,
+      tokenUid: input.token.value,
+    });
   } catch (err) {
     // Expected on an install whose OCPI tables do not exist: debug, not warn.
     logger.debug(
@@ -578,6 +580,20 @@ async function notFound(
       'OCPI external token lookup failed; treating the token as not found',
     );
   }
+  if (resolved?.ambiguous === true) {
+    logger.warn(
+      { stationId: input.stationId, idToken: input.token.value },
+      'OCPI token uid held by several connected partners; refused',
+    );
+    return {
+      ...NO_MATCH,
+      status: 'invalid',
+      outcome: 'unknown',
+      reason: 'ocpi_external_ambiguous',
+      source: 'ocpi',
+    };
+  }
+  const external = resolved?.owner;
   if (external == null) return invalid;
 
   const validThru = parseOcpiValidThru(external.tokenData);
@@ -596,7 +612,7 @@ async function notFound(
         ...NO_MATCH,
         status: 'accepted',
         outcome: 'accepted',
-        reason: 'ocpi_external',
+        reason: external.authMethod === 'COMMAND' ? 'ocpi_command' : 'ocpi_external',
         source: 'ocpi',
       }
     : {

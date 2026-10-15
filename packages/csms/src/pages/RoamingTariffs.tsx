@@ -4,6 +4,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { useHasPermission } from '@/lib/auth';
 import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
@@ -35,6 +36,7 @@ interface TariffMapping {
 
 export function RoamingTariffs(): React.JSX.Element {
   const { t } = useTranslation();
+  const canWrite = useHasPermission('roaming:write');
   const navigate = useNavigate();
   const timezone = useUserTimezone();
 
@@ -48,15 +50,16 @@ export function RoamingTariffs(): React.JSX.Element {
 
   useRoamingTabAction(
     useMemo(
-      () => (
-        <CreateButton
-          label={t('roaming.tariffs.addMapping')}
-          onClick={() => {
-            void navigate('/roaming/tariffs/new');
-          }}
-        />
-      ),
-      [t, navigate],
+      () =>
+        canWrite ? (
+          <CreateButton
+            label={t('roaming.tariffs.addMapping')}
+            onClick={() => {
+              void navigate('/roaming/tariffs/new');
+            }}
+          />
+        ) : null,
+      [t, navigate, canWrite],
     ),
   );
 

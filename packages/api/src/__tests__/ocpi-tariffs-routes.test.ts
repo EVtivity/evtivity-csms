@@ -334,6 +334,15 @@ describe('OCPI tariff mapping routes', () => {
       });
     });
 
+    it('rejects an OCPI tariff id with characters outside the URL unreserved set', async () => {
+      for (const ocpiTariffId of ['T/1', 'T 1', 'T?1', 'T#1', 'T%2F']) {
+        const res = await post({ ocpiTariffId, tariffId: 'trf_000000000001' });
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+      }
+      expect(publishOcpiTariffPush).not.toHaveBeenCalled();
+    });
+
     it('rejects a mapping without a source or with both', async () => {
       for (const payload of [
         { ocpiTariffId: 'T-1' },

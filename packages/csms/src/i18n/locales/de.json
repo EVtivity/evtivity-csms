@@ -199,6 +199,13 @@
       "allowPrivateNetwork": "Privates Netzwerk erlauben",
       "allowPrivateNetworkHint": "Erlaubt Anfragen und Befehlsrückmeldungen an diesen Partner an Loopback- und private Adressen, für privates Peering oder einen lokalen Simulator. Für Partner im öffentlichen Internet deaktiviert lassen.",
       "privateNetworkSaved": "Netzwerkzugriff gespeichert",
+      "allowRawToken": "Unkodierte Tokens Akzeptieren",
+      "allowRawTokenHint": "Für OCPI-2.1.1- und 2.2-Partner, die ihr Credentials-Token ohne Base64-Kodierung senden. Unser Token wird ihnen dann ebenso gesendet. Für OCPI-2.2.1- und 2.3.0-Partner ausgeschaltet lassen.",
+      "rawTokenSaved": "Token-Kodierung gespeichert",
+      "newRegistrationToken": "Neues Registrierungstoken",
+      "newRegistrationTokenTitle": "Neues Registrierungstoken",
+      "newRegistrationTokenDescription": "Erstellt ein neues Registrierungstoken für diesen Partner. Zuvor ausgestellte Registrierungstokens funktionieren nicht mehr.",
+      "tokenIssued": "Neues Registrierungstoken erstellt. Teilen Sie es mit dem Partner, damit er sich bei Ihrem OCPI-Server registrieren kann.",
       "tokenCreated": "Registrierungs-Token erstellt. Geben Sie diesen Token an den Partner weiter, damit er sich bei Ihrem OCPI-Server registrieren kann.",
       "tokenWarning": "Dieser Token wird nur einmal angezeigt. Kopieren Sie ihn jetzt.",
       "register": "Registrieren",
@@ -254,7 +261,22 @@
       "pushStatus": "Übertragungsstatus",
       "noCdrs": "Keine CDRs",
       "credit": "Gutschrift",
-      "charge": "Belastung"
+      "charge": "Belastung",
+      "superseded": "Ersetzt",
+      "reason": "Grund",
+      "actionFailed": "CDR-Aktion fehlgeschlagen",
+      "creditAction": "CDR gutschreiben",
+      "creditTitle": "Diesen CDR gutschreiben?",
+      "creditDescription": "Ein Gutschrift-CDR mit negativen Gesamtkosten wird an den Partner gesendet. Der CDR selbst ändert sich nicht.",
+      "creditDone": "Gutschrift-CDR erstellt",
+      "reissueAction": "CDR neu ausstellen",
+      "reissueTitle": "Diese Sitzung neu ausstellen?",
+      "reissueDescription": "Ein neuer CDR wird aus der Sitzung in ihrem aktuellen Stand ausgestellt und an den Partner gesendet. Der gutgeschriebene CDR bleibt unverändert.",
+      "reissueDone": "Ein neuer CDR wird ausgestellt",
+      "pushAction": "Erneut senden",
+      "pushTitle": "Diesen CDR erneut senden?",
+      "pushDescription": "Derselbe CDR wird erneut an den Partner gesendet.",
+      "pushDone": "Der CDR wird erneut gesendet"
     },
     "tariffs": {
       "title": "Tarifzuordnungen",
@@ -1114,12 +1136,13 @@
       "notEligible": {
         "status": "Hier kann nur ein Ladevorgang abgerechnet werden, den das CSMS nicht beenden konnte.",
         "already_rebilled": "Der Ladevorgang wurde bereits abgerechnet.",
-        "roaming": "Roaming-Ladevorgänge rechnet der Roaming-Partner ab.",
+        "no_energy": "Eine Roaming-Sitzung ohne geladene Energie wird nicht abgerechnet.",
         "free_vend": "Ladevorgänge mit freiem Laden werden nicht abgerechnet.",
         "no_tariff": "Der Ladevorgang hat keinen Tarif zur Preisberechnung.",
         "paid": "Der Ladevorgang wurde bereits bezahlt."
       },
-      "account": "Ladevorgang abgerechnet: auf die Flottenrechnung gesetzt"
+      "account": "Ladevorgang abgerechnet: auf die Flottenrechnung gesetzt",
+      "roamingBilled": "Sitzung abgerechnet: Der Roaming-Partner erhält einen CDR"
     },
     "billedTo": "Auf Flottenrechnung: {{fleet}}",
     "billingState": {
@@ -1136,7 +1159,14 @@
     "captured": "(erfasst)",
     "useVehicleForPlugIn": "Fahrzeug zum Laden durch Einstecken verwenden",
     "useVehicleDescription": "Speichert {{id}}, die Kennung, die die Ladestation für diesen Ladevorgang gesendet hat, an einem Fahrzeug des Fahrers. Mit Autocharge startet das nächste Einstecken den Ladevorgang für den Fahrer ohne Karte oder App.",
-    "vehicleClaimed": "Fahrzeug gespeichert"
+    "vehicleClaimed": "Fahrzeug gespeichert",
+    "co2Kg": "{{value}} kg",
+    "co2AvoidedValue": "{{value}} kg CO₂ vermieden",
+    "eventCount_one": "{{count}} Ereignis",
+    "eventCount_other": "{{count}} Ereignisse",
+    "stopSession": "Sitzung Beenden",
+    "stopSessionConfirmTitle": "Diese Sitzung Beenden?",
+    "stopSessionConfirmDescription": "Die Ladestation {{station}} wird aufgefordert, die Transaktion an EVSE {{evseId}} zu beenden. Dem Fahrer wird die bisher gelieferte Energie berechnet."
   },
   "drivers": {
     "title": "Fahrer",
@@ -1445,7 +1475,16 @@
       },
       "aiUsage": "KI-Nutzung",
       "aiMcp": "MCP-Zugriff"
-    }
+    },
+    "securityTab": "Sicherheit",
+    "mfaTitle": "Mehrstufige Authentifizierung",
+    "mfaOnDescription": "Der Benutzer meldet sich mit einem zweiten Faktor an ({{method}}).",
+    "mfaOffDescription": "Der Benutzer meldet sich ohne zweiten Faktor an.",
+    "mfaReset": "MFA Zurücksetzen",
+    "mfaResetConfirm": "Den zweiten Faktor dieses Benutzers ausschalten und den Benutzer überall abmelden? Der Benutzer meldet sich nur mit dem Passwort an und kann MFA erneut einrichten.",
+    "mfaResetSuccess": "MFA zurückgesetzt",
+    "apiKeysDescription": "Aktive API-Schlüssel dieses Benutzers. Widerrufen Sie einen Schlüssel, den der Benutzer nicht mehr braucht oder der offengelegt sein könnte.",
+    "noApiKeys": "Dieser Benutzer hat keine aktiven API-Schlüssel."
   },
   "profile": {
     "title": "Profil",
@@ -3076,6 +3115,8 @@
     "CAMPAIGN_NOT_FOUND": "Kampagne nicht gefunden",
     "CASE_NOT_FOUND": "Fall nicht gefunden",
     "CA_CERT_NOT_FOUND": "CA-Zertifikat nicht gefunden",
+    "CDR_NOT_CREDITED": "Schreiben Sie jeden CDR der Sitzung gut, bevor Sie sie neu ausstellen",
+    "CDR_PUSH_NOT_FAILED": "Nur ein CDR, dessen Übertragung fehlgeschlagen ist, kann erneut gesendet werden",
     "CDR_NOT_FOUND": "CDR nicht gefunden",
     "CIRCUIT_NOT_FOUND": "Stromkreis nicht gefunden",
     "COMMAND_ERROR": "Befehl fehlgeschlagen",
@@ -3154,6 +3195,8 @@
     "INVALID_SITE_IDS": "Eine oder mehrere siteIds existieren nicht",
     "INVALID_TOKEN": "Ungültiger oder abgelaufener Zurücksetzungslink",
     "INVOICE_ALREADY_PAID": "Die Rechnung ist bereits bezahlt",
+    "RESERVATION_FEE_ALREADY_INVOICED": "Die Reservierungsgebühr ist bereits abgerechnet",
+    "SESSION_ALREADY_INVOICED": "Die Sitzung ist bereits abgerechnet",
     "INVOICE_CREATION_FAILED": "Rechnung konnte nicht erstellt werden",
     "INVOICE_NOT_ISSUED": "Für diese Aktion muss die Rechnung ausgestellt sein",
     "INVOICE_IS_CREDIT_NOTE": "Eine Stornorechnung kann nicht als bezahlt markiert oder storniert werden",
@@ -3266,7 +3309,6 @@
     "RESERVATION_TIMEOUT": "Reservierungsbefehl hat das Zeitlimit überschritten",
     "RESERVATION_TOO_LONG": "Reservierung darf ... Stunden nicht überschreiten",
     "RESERVATION_WINDOW_TOO_SHORT": "Reservierung muss mindestens 60 Sekunden nach Beginn enden",
-    "RESET_NOT_REQUIRED": "Passwortzurücksetzung ist nicht erforderlich",
     "ROAMING_DISABLED": "Roaming ist deaktiviert",
     "ROLE_NOT_FOUND": "Rolle existiert nicht",
     "ROTATION_NOT_APPLICABLE": "Rotation der Anmeldedaten gilt nur für Sicherheitsprofile 1 und 2",
@@ -3370,7 +3412,14 @@
     "SESSION_NO_VEHICLE_ID": "Die Ladestation hat für diesen Ladevorgang keine Fahrzeugkennung gesendet.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "Der Betreiber hat Autocharge für dieses Fahrzeug gesperrt. Wenden Sie sich an den Betreiber, um es zu entsperren.",
     "VEHICLE_ID_IN_USE": "Ein anderes Fahrzeug verwendet diese FIN oder EVCCID bereits für Autocharge.",
-    "VEHICLE_ID_REQUIRED": "Autocharge benötigt eine FIN oder EVCCID am Fahrzeug."
+    "VEHICLE_ID_REQUIRED": "Autocharge benötigt eine FIN oder EVCCID am Fahrzeug.",
+    "SESSION_STOP_REJECTED": "Die Ladestation hat die Stoppanforderung abgelehnt. Der Ladevorgang läuft weiter.",
+    "PARTNER_ALREADY_CONNECTED": "Partner ist bereits verbunden",
+    "PARTNER_NOT_REGISTERED": "Ein Partner wird über den OCPI-Credentials-Handshake verbunden",
+    "SESSION_REQUIRED": "Diese Aktion erfordert eine angemeldete Sitzung. API-Schlüssel können sie nicht verwenden.",
+    "MFA_LOCKED": "Zu viele falsche Codes. Warten Sie, bevor Sie es erneut versuchen.",
+    "MFA_RESEND_LIMITED": "Zu viele Codes gesendet. Warten Sie, bevor Sie einen weiteren anfordern.",
+    "USER_SSO_MANAGED": "Dieser Benutzer meldet sich per SSO an und hat kein Passwort, das gesetzt werden kann."
   },
   "logs": {
     "title": "Protokolle",
@@ -4512,6 +4561,8 @@
       "erased": "Gelöscht",
       "invite_resent": "Einladung erneut gesendet",
       "cdr_credited": "CDR gutgeschrieben",
+      "cdr_push_retried": "CDR-Übertragung wiederholt",
+      "cdr_reissued": "CDR neu ausgestellt",
       "faulted": "Fehlerhaft beendet",
       "stopped_by_csms": "Vom CSMS gestoppt",
       "vehicle_changed": "Fahrzeug geändert",
@@ -4527,7 +4578,9 @@
       "autocharge_disabled": "Autocharge ausgeschaltet",
       "autocharge_blocked": "Fahrzeug gesperrt",
       "autocharge_unblocked": "Fahrzeug entsperrt",
-      "vehicle_id_claimed": "Fahrzeugkennung aus einem Ladevorgang übernommen"
+      "vehicle_id_claimed": "Fahrzeugkennung aus einem Ladevorgang übernommen",
+      "account_locked": "Anmeldung gesperrt",
+      "mfa_reset": "MFA zurückgesetzt"
     },
     "entities": {
       "site": "Standort",

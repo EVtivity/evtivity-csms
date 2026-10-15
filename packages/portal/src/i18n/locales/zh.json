@@ -24,7 +24,8 @@
     "amountInclTax": "{{amount}}（含税）",
     "close": "关闭",
     "toggleSuggestions": "显示或隐藏建议",
-    "copyFailed": "复制失败"
+    "copyFailed": "复制失败",
+    "notCharged": "未收费"
   },
   "nav": {
     "home": "首页",
@@ -596,6 +597,8 @@
     "CAMPAIGN_NOT_FOUND": "未找到活动",
     "CASE_NOT_FOUND": "未找到工单",
     "CA_CERT_NOT_FOUND": "未找到 CA 证书",
+    "CDR_NOT_CREDITED": "重新签发前，请先冲销该会话的所有 CDR",
+    "CDR_PUSH_NOT_FAILED": "只有推送失败的 CDR 才能重新推送",
     "CDR_NOT_FOUND": "未找到 CDR",
     "CIRCUIT_NOT_FOUND": "未找到电路",
     "COMMAND_ERROR": "命令错误",
@@ -674,6 +677,8 @@
     "INVALID_SITE_IDS": "一个或多个 siteId 不存在",
     "INVALID_TOKEN": "重置链接无效或已过期",
     "INVOICE_ALREADY_PAID": "该发票已支付",
+    "RESERVATION_FEE_ALREADY_INVOICED": "该预约费用已开具发票",
+    "SESSION_ALREADY_INVOICED": "该会话已开具发票",
     "INVOICE_CREATION_FAILED": "创建发票失败",
     "INVOICE_NOT_ISSUED": "此操作仅适用于已开具的发票",
     "INVOICE_IS_CREDIT_NOTE": "贷项通知单不能标记为已支付或贷记",
@@ -786,7 +791,6 @@
     "RESERVATION_TIMEOUT": "预约命令超时",
     "RESERVATION_TOO_LONG": "预约不能超过 ... 小时",
     "RESERVATION_WINDOW_TOO_SHORT": "预约结束时间必须至少在开始后 60 秒",
-    "RESET_NOT_REQUIRED": "无需重置密码",
     "ROAMING_DISABLED": "漫游已禁用",
     "ROLE_NOT_FOUND": "角色不存在",
     "ROTATION_NOT_APPLICABLE": "凭证轮换仅适用于安全配置文件 1 和 2",
@@ -890,7 +894,14 @@
     "SESSION_NO_VEHICLE_ID": "充电站未为此会话发送车辆标识。",
     "VEHICLE_BLOCKED_BY_OPERATOR": "运营商已阻止此车辆使用 Autocharge。请联系运营商解除阻止。",
     "VEHICLE_ID_IN_USE": "另一辆车已将此 VIN 或 EVCCID 用于 Autocharge。",
-    "VEHICLE_ID_REQUIRED": "Autocharge 需要车辆的 VIN 或 EVCCID。"
+    "VEHICLE_ID_REQUIRED": "Autocharge 需要车辆的 VIN 或 EVCCID。",
+    "SESSION_STOP_REJECTED": "充电站拒绝了停止请求。会话仍在充电。",
+    "PARTNER_ALREADY_CONNECTED": "合作伙伴已连接",
+    "PARTNER_NOT_REGISTERED": "合作伙伴通过 OCPI 凭据握手完成连接",
+    "SESSION_REQUIRED": "此操作需要登录会话。API 密钥无法使用此操作。",
+    "MFA_LOCKED": "错误代码过多。请稍后再试。",
+    "MFA_RESEND_LIMITED": "发送的代码过多。请稍后再请求。",
+    "USER_SSO_MANAGED": "该用户通过 SSO 登录，没有可设置的密码。"
   },
   "validation": {
     "required": "此字段为必填项",
@@ -935,7 +946,8 @@
     "totalCo2Avoided": "减少的CO₂总量",
     "noSessions": "此期间没有充电会话。",
     "cost": "费用",
-    "costInclTax": "费用（含税）"
+    "costInclTax": "费用（含税）",
+    "otherCurrencyNote_other": "{{count}} 个以先前货币计费的会话未计入总计（{{currency}}）。"
   },
   "account": {
     "title": "账户",

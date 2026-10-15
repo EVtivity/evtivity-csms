@@ -7,7 +7,6 @@ import { eq } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
-  chargingStations,
   transactionEventTypeEnum,
   sessionStatusEnum,
 } from '@evtivity/database';
@@ -117,15 +116,14 @@ const transactionLookupQuery = z.object({
 });
 
 /**
- * True when the session exists and its station is in the user's sites. A
+ * True when the session exists and happened at one of the user's sites. A
  * missing session is false for every user, so a foreign and an unknown
  * session answer the same 404.
  */
 async function checkSessionSiteAccess(sessionId: string, userId: string): Promise<boolean> {
   const [session] = await db
-    .select({ siteId: chargingStations.siteId })
+    .select({ siteId: chargingSessions.siteId })
     .from(chargingSessions)
-    .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
     .where(eq(chargingSessions.id, sessionId));
   if (session == null) return false;
   const siteIds = await getUserSiteIds(userId);
@@ -215,19 +213,14 @@ export function transactionRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // The site the session happened at decides access, not the station's
+      // current site.
       const { userId } = request.user as { userId: string };
-      const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null) {
-        const [stationRow] = await db
-          .select({ siteId: chargingStations.siteId })
-          .from(chargingStations)
-          .where(eq(chargingStations.id, session.stationId));
-        if (!siteInScope(siteIds, stationRow?.siteId)) {
-          await reply
-            .status(404)
-            .send({ error: 'Transaction not found', code: 'TRANSACTION_NOT_FOUND' });
-          return;
-        }
+      if (!siteInScope(await getUserSiteIds(userId), session.siteId)) {
+        await reply
+          .status(404)
+          .send({ error: 'Transaction not found', code: 'TRANSACTION_NOT_FOUND' });
+        return;
       }
 
       return { ...session, currency: session.currency.toUpperCase() };

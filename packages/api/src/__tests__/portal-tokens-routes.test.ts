@@ -88,7 +88,9 @@ vi.mock('drizzle-orm', () => ({
   ne: vi.fn(),
 }));
 
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async () => ({
+  // The real OCPI token type rule (the token service decides tombstones with it).
+  ...(await vi.importActual<Record<string, unknown>>('../../../lib/src/ocpi-token-types.js')),
   dispatchDriverNotification: vi.fn().mockResolvedValue(undefined),
   createLogger: vi.fn(() => ({
     info: vi.fn(),

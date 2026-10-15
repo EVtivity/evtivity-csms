@@ -30,6 +30,7 @@ function makeChain() {
     'returning',
     'set',
     'onConflictDoUpdate',
+    'onConflictDoNothing',
     'delete',
     'insert',
     'update',
@@ -59,7 +60,11 @@ const {
   mockCreateRefreshToken,
   mockSetAuthCookies,
   mockWriteAudit,
+  mockSamlOptions,
+  mockConsumeRead,
 } = vi.hoisted(() => ({
+  mockSamlOptions: vi.fn(),
+  mockConsumeRead: vi.fn(() => Promise.resolve(true)),
   mockWriteAudit: vi.fn(),
   mockGetSsoConfig: vi.fn(),
   mockGenerateId: vi.fn(),
@@ -76,9 +81,14 @@ vi.mock('@evtivity/database', () => ({
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
     execute: vi.fn(() => Promise.resolve([])),
+    transaction: vi.fn(async (fn: (tx: unknown) => unknown) => {
+      const { db } = await import('@evtivity/database');
+      return fn(db);
+    }),
   },
   users: {},
   roles: {},
+  userPermissions: { _table: 'user_permissions' },
   userAuditLog: { name: 'userAuditLog' },
   writeAudit: mockWriteAudit,
   getSsoConfig: mockGetSsoConfig,
@@ -98,15 +108,34 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('@evtivity/lib', () => ({
   generateId: mockGenerateId,
+  createRedisClient: vi.fn(),
+  permissionCatalog: {
+    defaultsFor: (role: string) => (role === 'operator' ? ['stations:read'] : []),
+  },
 }));
 
 vi.mock('@node-saml/node-saml', () => ({
+  ValidateInResponseTo: { never: 'never', ifPresent: 'ifPresent', always: 'always' },
   SAML: class {
+    constructor(options: unknown) {
+      mockSamlOptions(options);
+    }
     getAuthorizeUrlAsync(...args: unknown[]) {
       return mockGetAuthorizeUrlAsync(...args);
     }
     validatePostResponseAsync(...args: unknown[]) {
       return mockValidatePostResponseAsync(...args);
+    }
+  },
+}));
+
+// The real SAML client builder and domain check; a request cache whose
+// single-use consume answers what the test sets.
+vi.mock('../lib/saml-request-cache.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/saml-request-cache.js')>()),
+  RedisSamlRequestCache: class {
+    consumeRead() {
+      return mockConsumeRead();
     }
   },
 }));
@@ -288,7 +317,7 @@ describe('SSO callback error and provisioning paths', () => {
         action: 'created',
         actor: 'system',
         actorLabel: 'sso:https://csms.example.com',
-        after: created,
+        after: { ...created, permissions: [] },
         notes: 'auto-provisioned via SSO',
       }),
       expect.anything(),
@@ -302,5 +331,80 @@ describe('SSO callback error and provisioning paths', () => {
       'refresh_raw',
       false,
     );
+  });
+
+  it('provisions the user with authSource sso and its role permissions in one transaction', async () => {
+    mockGetSsoConfig.mockResolvedValue(PROVISION_CONFIG);
+    mockGenerateId.mockReturnValue('usr_op');
+    mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'op@corp.com' } });
+    setupDbResults([], [{ id: 'rol_default', name: 'operator' }], [{ id: 'usr_op' }], []);
+    const res = await callback('SAMLResponse=abc');
+    expect(res.headers['location']).toBe('/');
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    const inserts = vi.mocked(db.insert).mock.calls.map((c) => c[0]);
+    expect(inserts).toEqual([{}, { _table: 'user_permissions' }]);
+    const insertChains = vi
+      .mocked(db.insert)
+      .mock.results.map((r) => r.value as { values: ReturnType<typeof vi.fn> });
+    expect(insertChains[0]?.values).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'usr_op', authSource: 'sso', passwordHash: '' }),
+    );
+    expect(insertChains[1]?.values).toHaveBeenCalledWith([
+      { userId: 'usr_op', permission: 'stations:read' },
+    ]);
+  });
+
+  it('refuses an existing user whose email domain is outside the allowed list', async () => {
+    mockGetSsoConfig.mockResolvedValue({ ...SSO_CONFIG, allowedDomains: ['corp.com'] });
+    mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'old@other.com' } });
+    setupDbResults([{ id: 'usr_old', roleId: 'rol_1', isActive: true, sessionVersion: 0 }]);
+    const res = await callback('SAMLResponse=abc');
+    expect(res.headers['location']).toBe('/login?error=sso_domain_not_allowed');
+    expect(mockSetAuthCookies).not.toHaveBeenCalled();
+    expect(mockWriteAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        entityId: 'usr_old',
+        action: 'login_failed',
+        notes: 'domain_not_allowed',
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('refuses a reply whose request id another post already consumed', async () => {
+    mockGetSsoConfig.mockResolvedValue(SSO_CONFIG);
+    mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'a@corp.com' } });
+    mockConsumeRead.mockResolvedValueOnce(false);
+    setupDbResults([{ id: 'usr_a', roleId: 'rol_1', isActive: true, sessionVersion: 0 }]);
+    const res = await callback('SAMLResponse=abc');
+    expect(res.headers['location']).toBe('/login?error=sso_config_error');
+    expect(mockSetAuthCookies).not.toHaveBeenCalled();
+    expect(mockCreateRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it('builds the SAML client to require InResponseTo with the request cache', async () => {
+    mockGetSsoConfig.mockResolvedValue(SSO_CONFIG);
+    mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'a@corp.com' } });
+    setupDbResults([{ id: 'usr_a', roleId: 'rol_1', isActive: true, sessionVersion: 0 }], []);
+    await callback('SAMLResponse=abc');
+    expect(mockSamlOptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        validateInResponseTo: 'always',
+        requestIdExpirationPeriodMs: 10 * 60 * 1000,
+        wantAuthnResponseSigned: true,
+        cacheProvider: expect.objectContaining({ consumeRead: expect.any(Function) }),
+      }),
+    );
+  });
+
+  it('signs the access token with the user session version', async () => {
+    mockGetSsoConfig.mockResolvedValue(SSO_CONFIG);
+    mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'a@corp.com' } });
+    setupDbResults([{ id: 'usr_sv', roleId: 'rol_1', isActive: true, sessionVersion: 4 }], []);
+    await callback('SAMLResponse=abc');
+    const token = String(mockSetAuthCookies.mock.calls[0]?.[2]);
+    expect(app.jwt.verify(token)).toMatchObject({ userId: 'usr_sv', sv: 4 });
   });
 });

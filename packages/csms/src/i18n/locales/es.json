@@ -199,6 +199,13 @@
       "allowPrivateNetwork": "Permitir red privada",
       "allowPrivateNetworkHint": "Permite que las solicitudes y las respuestas de comandos a este socio lleguen a direcciones de loopback y privadas, para peering privado o un simulador local. Déjelo desactivado para socios en internet público.",
       "privateNetworkSaved": "Acceso de red guardado",
+      "allowRawToken": "Aceptar Tokens sin Codificar",
+      "allowRawTokenHint": "Para socios OCPI 2.1.1 y 2.2 que envían su token de credenciales sin codificación Base64. Nuestro token se les envía de la misma forma. Déjelo desactivado para socios OCPI 2.2.1 y 2.3.0.",
+      "rawTokenSaved": "Codificación del token guardada",
+      "newRegistrationToken": "Nuevo Token de Registro",
+      "newRegistrationTokenTitle": "Nuevo Token de Registro",
+      "newRegistrationTokenDescription": "Crea un nuevo token de registro para este socio. Los tokens de registro emitidos antes dejan de funcionar.",
+      "tokenIssued": "Nuevo token de registro creado. Compártalo con el socio para que pueda registrarse en su servidor OCPI.",
       "tokenCreated": "Token de registro creado. Comparta este token con el socio para que pueda registrarse en su servidor OCPI.",
       "tokenWarning": "Este token solo se mostrará una vez. Copielo ahora.",
       "register": "Registrar",
@@ -254,7 +261,22 @@
       "pushStatus": "Estado de Envío",
       "noCdrs": "No hay CDRs",
       "credit": "Crédito",
-      "charge": "Cargo"
+      "charge": "Cargo",
+      "superseded": "Reemplazado",
+      "reason": "Motivo",
+      "actionFailed": "La acción del CDR falló",
+      "creditAction": "Abonar CDR",
+      "creditTitle": "¿Abonar este CDR?",
+      "creditDescription": "Se envía al socio un CDR de abono con el costo total negativo. El CDR en sí no cambia.",
+      "creditDone": "CDR de abono creado",
+      "reissueAction": "Reemitir CDR",
+      "reissueTitle": "¿Reemitir esta sesión?",
+      "reissueDescription": "Se emite un nuevo CDR a partir de la sesión tal como está ahora y se envía al socio. El CDR abonado queda como estaba.",
+      "reissueDone": "Se está emitiendo un nuevo CDR",
+      "pushAction": "Reintentar envío",
+      "pushTitle": "¿Enviar este CDR de nuevo?",
+      "pushDescription": "El mismo CDR se envía de nuevo al socio.",
+      "pushDone": "El CDR está en cola para otro envío"
     },
     "tariffs": {
       "title": "Mapeos de Tarifas",
@@ -1114,12 +1136,13 @@
       "notEligible": {
         "status": "Aquí solo se puede facturar una sesión que el CSMS no pudo finalizar.",
         "already_rebilled": "La sesión ya se facturó.",
-        "roaming": "Las sesiones de roaming las factura el socio de roaming.",
+        "no_energy": "Una sesión de roaming que no entregó energía no se factura.",
         "free_vend": "Las sesiones de carga libre no se facturan.",
         "no_tariff": "La sesión no tiene una tarifa para calcular su precio.",
         "paid": "La sesión ya se pagó."
       },
-      "account": "Sesión facturada: se factura a la cuenta de la flota"
+      "account": "Sesión facturada: se factura a la cuenta de la flota",
+      "roamingBilled": "Sesión facturada: el socio de roaming recibe un CDR"
     },
     "billedTo": "A cuenta de la flota: {{fleet}}",
     "billingState": {
@@ -1136,7 +1159,14 @@
     "captured": "(capturado)",
     "useVehicleForPlugIn": "Usar este vehículo para cargar al conectar",
     "useVehicleDescription": "Guarda {{id}}, el identificador que el cargador envió para esta sesión, en un vehículo del conductor. Con Autocharge activado, la próxima conexión inicia la carga para el conductor sin tarjeta ni aplicación.",
-    "vehicleClaimed": "Vehículo guardado"
+    "vehicleClaimed": "Vehículo guardado",
+    "co2Kg": "{{value}} kg",
+    "co2AvoidedValue": "{{value}} kg de CO₂ evitados",
+    "eventCount_one": "{{count}} evento",
+    "eventCount_other": "{{count}} eventos",
+    "stopSession": "Detener Sesión",
+    "stopSessionConfirmTitle": "¿Detener Esta Sesión?",
+    "stopSessionConfirmDescription": "Se pide a la estación {{station}} que detenga la transacción en el EVSE {{evseId}}. Al conductor se le cobra la energía entregada hasta ahora."
   },
   "drivers": {
     "title": "Conductores",
@@ -1445,7 +1475,16 @@
       },
       "aiUsage": "Uso de IA",
       "aiMcp": "Acceso MCP"
-    }
+    },
+    "securityTab": "Seguridad",
+    "mfaTitle": "Autenticación Multifactor",
+    "mfaOnDescription": "El usuario inicia sesión con un segundo factor ({{method}}).",
+    "mfaOffDescription": "El usuario inicia sesión sin un segundo factor.",
+    "mfaReset": "Restablecer MFA",
+    "mfaResetConfirm": "¿Desactivar el segundo factor de este usuario y cerrar todas sus sesiones? El usuario inicia sesión solo con la contraseña y puede volver a configurar MFA.",
+    "mfaResetSuccess": "MFA restablecida",
+    "apiKeysDescription": "Claves de API activas de este usuario. Revoque una clave que el usuario ya no necesite o que pueda haberse filtrado.",
+    "noApiKeys": "Este usuario no tiene claves de API activas."
   },
   "profile": {
     "title": "Perfil",
@@ -3076,6 +3115,8 @@
     "CAMPAIGN_NOT_FOUND": "Campaña no encontrada",
     "CASE_NOT_FOUND": "Caso no encontrado",
     "CA_CERT_NOT_FOUND": "Certificado CA no encontrado",
+    "CDR_NOT_CREDITED": "Abone todos los CDR de la sesión antes de volver a emitirla",
+    "CDR_PUSH_NOT_FAILED": "Solo se puede volver a enviar un CDR cuyo envío falló",
     "CDR_NOT_FOUND": "CDR no encontrado",
     "CIRCUIT_NOT_FOUND": "Circuito no encontrado",
     "COMMAND_ERROR": "Comando fallido",
@@ -3154,6 +3195,8 @@
     "INVALID_SITE_IDS": "Uno o más siteIds no existen",
     "INVALID_TOKEN": "Enlace de restablecimiento inválido o expirado",
     "INVOICE_ALREADY_PAID": "La factura ya está pagada",
+    "RESERVATION_FEE_ALREADY_INVOICED": "La tarifa de reserva ya está facturada",
+    "SESSION_ALREADY_INVOICED": "La sesión ya está facturada",
     "INVOICE_CREATION_FAILED": "Error al crear la factura",
     "INVOICE_NOT_ISSUED": "La factura debe estar emitida para esta acción",
     "INVOICE_IS_CREDIT_NOTE": "Una nota de crédito no se puede marcar como pagada ni acreditar",
@@ -3266,7 +3309,6 @@
     "RESERVATION_TIMEOUT": "Tiempo de espera del comando de reserva agotado",
     "RESERVATION_TOO_LONG": "La reserva no puede exceder ... horas",
     "RESERVATION_WINDOW_TOO_SHORT": "La reserva debe terminar al menos 60 segundos después de comenzar",
-    "RESET_NOT_REQUIRED": "No se requiere restablecimiento de contraseña",
     "ROAMING_DISABLED": "El roaming está deshabilitado",
     "ROLE_NOT_FOUND": "El rol no existe",
     "ROTATION_NOT_APPLICABLE": "La rotación de credenciales solo aplica a perfiles de seguridad 1 y 2",
@@ -3370,7 +3412,14 @@
     "SESSION_NO_VEHICLE_ID": "El cargador no envió ningún identificador de vehículo para esta sesión.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "El operador bloqueó Autocharge para este vehículo. Contacte al operador para desbloquearlo.",
     "VEHICLE_ID_IN_USE": "Otro vehículo ya usa este VIN o EVCCID para Autocharge.",
-    "VEHICLE_ID_REQUIRED": "Autocharge necesita un VIN o un EVCCID en el vehículo."
+    "VEHICLE_ID_REQUIRED": "Autocharge necesita un VIN o un EVCCID en el vehículo.",
+    "SESSION_STOP_REJECTED": "La estación rechazó la solicitud de detención. La sesión sigue cargando.",
+    "PARTNER_ALREADY_CONNECTED": "El socio ya está conectado",
+    "PARTNER_NOT_REGISTERED": "Un socio se conecta mediante el intercambio de credenciales OCPI",
+    "SESSION_REQUIRED": "Esta acción requiere una sesión iniciada. Las claves de API no pueden usarla.",
+    "MFA_LOCKED": "Demasiados códigos incorrectos. Espere antes de volver a intentarlo.",
+    "MFA_RESEND_LIMITED": "Se enviaron demasiados códigos. Espere antes de solicitar otro.",
+    "USER_SSO_MANAGED": "Este usuario inicia sesión con SSO y no tiene contraseña que establecer."
   },
   "logs": {
     "title": "Registros",
@@ -4512,6 +4561,8 @@
       "erased": "Borrado",
       "invite_resent": "Invitación reenviada",
       "cdr_credited": "CDR abonado",
+      "cdr_push_retried": "Envío del CDR reintentado",
+      "cdr_reissued": "CDR reemitido",
       "faulted": "Con fallo",
       "stopped_by_csms": "Detenida por el CSMS",
       "vehicle_changed": "Vehículo modificado",
@@ -4527,7 +4578,9 @@
       "autocharge_disabled": "Autocharge desactivado",
       "autocharge_blocked": "Vehículo bloqueado",
       "autocharge_unblocked": "Vehículo desbloqueado",
-      "vehicle_id_claimed": "Identificador de vehículo añadido desde una sesión"
+      "vehicle_id_claimed": "Identificador de vehículo añadido desde una sesión",
+      "account_locked": "Inicio de sesión bloqueado",
+      "mfa_reset": "MFA restablecida"
     },
     "entities": {
       "site": "Sitio",

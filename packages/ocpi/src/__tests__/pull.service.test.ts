@@ -37,6 +37,11 @@ function makeInsertChain(): Record<string, unknown> {
       rec.upserted = true;
       return chain;
     }),
+    onConflictDoNothing: vi.fn(() => chain),
+    // The CDR insert returns one row per value (none conflicted).
+    returning: vi.fn(() =>
+      Promise.resolve(Array.isArray(rec.value) ? rec.value.map((_v, i) => ({ id: i })) : []),
+    ),
     then: (onF?: (v: unknown) => unknown, onR?: (r: unknown) => unknown): Promise<unknown> =>
       Promise.resolve(undefined).then(onF, onR),
   };
@@ -52,7 +57,7 @@ vi.mock('@evtivity/database', () => ({
   ocpiPartnerEndpoints: { url: {}, partnerId: {}, module: {}, interfaceRole: {} },
   ocpiExternalLocations: { partnerId: {}, countryCode: {}, partyId: {}, locationId: {} },
   ocpiExternalTariffs: { partnerId: {}, countryCode: {}, partyId: {}, tariffId: {} },
-  ocpiCdrs: { partnerId: {}, ocpiCdrId: {} },
+  ocpiCdrs: { partnerId: {}, ocpiCdrId: {}, chargingSessionId: {} },
   ocpiSyncLog: {},
 }));
 
@@ -84,7 +89,7 @@ function validLocation(id: string): Record<string, unknown> {
     country_code: 'DE',
     party_id: 'ABC',
     name: `Loc ${id}`,
-    coordinates: { latitude: '52.5', longitude: '13.4' },
+    coordinates: { latitude: '52.520008', longitude: '13.404954' },
     evses: [],
   };
 }
@@ -123,6 +128,49 @@ describe('pullLocations', () => {
     expect(upserts[0]?.value).toHaveLength(2);
     // started + completed sync-log rows
     expect(syncLogRows()).toHaveLength(2);
+  });
+
+  it('skips rows with malformed coordinates or over-long ids and keeps the rest', async () => {
+    primePartnerLookups();
+    getPaginatedEachMock.mockImplementation(
+      async (_url: string, onPage: (p: unknown[]) => Promise<void>) => {
+        await onPage([
+          { ...validLocation('a'), coordinates: { latitude: '52.5', longitude: '13.4' } },
+          { ...validLocation('b'), coordinates: { latitude: 'north', longitude: '13.404954' } },
+          validLocation('x'.repeat(37)),
+          { ...validLocation('c'), party_id: 'ABCD' },
+          validLocation('ok'),
+        ]);
+      },
+    );
+
+    const res = await pullLocations('opr_1');
+
+    expect(res.objectsCount).toBe(1);
+    const rows = upsertedRows()[0]?.value as Array<Record<string, unknown>>;
+    expect(rows.map((r) => r['locationId'])).toEqual(['ok']);
+  });
+
+  it('upserts a location repeated in one page once, with its last version', async () => {
+    primePartnerLookups();
+    getPaginatedEachMock.mockImplementation(
+      async (_url: string, onPage: (p: unknown[]) => Promise<void>) => {
+        await onPage([
+          { ...validLocation('a'), name: 'first' },
+          validLocation('b'),
+          { ...validLocation('a'), name: 'second' },
+        ]);
+      },
+    );
+
+    const res = await pullLocations('opr_1');
+
+    expect(res.objectsCount).toBe(2);
+    const rows = upsertedRows()[0]?.value as Array<Record<string, unknown>>;
+    expect(rows.map((r) => [r['locationId'], r['name']])).toEqual([
+      ['b', 'Loc b'],
+      ['a', 'second'],
+    ]);
   });
 
   it('chunks large pages into multiple batched upserts of <= 500 rows', async () => {
@@ -237,6 +285,24 @@ describe('pullCdrs', () => {
     const res = await pullCdrs('opr_1');
 
     expect(res).toEqual({ module: 'cdrs', objectsCount: 1, status: 'completed' });
+    expect(insertedCdrs()).toEqual([expect.objectContaining({ ocpiCdrId: 'a', totalCost: '4' })]);
+  });
+
+  it('stores a CDR repeated in one page once and skips over-long ids', async () => {
+    primeCdrLookups('2.2.1');
+    getPaginatedEachMock.mockImplementation(
+      async (_url: string, onPage: (p: unknown[]) => Promise<void>) => {
+        await onPage([
+          cdr('a', { excl_vat: 4, incl_vat: 4.76 }),
+          cdr('a', { excl_vat: 5, incl_vat: 5.95 }),
+          cdr('x'.repeat(37), { excl_vat: 4, incl_vat: 4.76 }),
+        ]);
+      },
+    );
+
+    const res = await pullCdrs('opr_1');
+
+    expect(res.objectsCount).toBe(1);
     expect(insertedCdrs()).toEqual([expect.objectContaining({ ocpiCdrId: 'a', totalCost: '4' })]);
   });
 

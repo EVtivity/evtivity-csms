@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { inlinePushSink } from './helpers/inline-push-sink.js';
 
 // Each awaited select chain resolves to the next queued result.
 let selectResults: unknown[][] = [];
@@ -92,7 +93,7 @@ const URL = 'https://partner.example/ocpi/2.3.0/tariffs';
 beforeEach(async () => {
   selectResults = [];
   vi.clearAllMocks();
-  await new OcpiPushListener(pubsub as never).start();
+  await new OcpiPushListener(pubsub as never, inlinePushSink()).start();
 });
 
 async function settle(): Promise<void> {
@@ -218,7 +219,7 @@ describe('session push', () => {
 
   it('schedules the CDR of a completed session', async () => {
     const onCompleted = vi.fn(async () => undefined);
-    await new OcpiPushListener(pubsub as never, onCompleted).start();
+    await new OcpiPushListener(pubsub as never, inlinePushSink(onCompleted)).start();
     mocks.cpoSessionLink.mockResolvedValue(link);
     mocks.renderCpoSession.mockResolvedValue({ ...ocpiSession, status: 'COMPLETED' });
     selectResults = [
@@ -235,7 +236,7 @@ describe('session push', () => {
 
   it.each(['active', 'faulted', 'failed'])('schedules no CDR for a %s session', async (status) => {
     const onCompleted = vi.fn(async () => undefined);
-    await new OcpiPushListener(pubsub as never, onCompleted).start();
+    await new OcpiPushListener(pubsub as never, inlinePushSink(onCompleted)).start();
     mocks.cpoSessionLink.mockResolvedValue(link);
     mocks.renderCpoSession.mockResolvedValue(ocpiSession);
     selectResults = [

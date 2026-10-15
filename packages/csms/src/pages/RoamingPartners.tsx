@@ -4,6 +4,7 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { useHasPermission } from '@/lib/auth';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { SearchInput } from '@/components/search-input';
@@ -36,6 +37,7 @@ interface Partner {
 
 export function RoamingPartners(): React.JSX.Element {
   const { t } = useTranslation();
+  const canWrite = useHasPermission('roaming:write');
   const navigate = useNavigate();
   const timezone = useUserTimezone();
 
@@ -51,15 +53,16 @@ export function RoamingPartners(): React.JSX.Element {
 
   useRoamingTabAction(
     useMemo(
-      () => (
-        <CreateButton
-          label={t('roaming.partners.addPartner')}
-          onClick={() => {
-            void navigate('/roaming/partners/new');
-          }}
-        />
-      ),
-      [t, navigate],
+      () =>
+        canWrite ? (
+          <CreateButton
+            label={t('roaming.partners.addPartner')}
+            onClick={() => {
+              void navigate('/roaming/partners/new');
+            }}
+          />
+        ) : null,
+      [t, navigate, canWrite],
     ),
   );
 

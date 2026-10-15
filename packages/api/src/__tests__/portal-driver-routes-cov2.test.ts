@@ -70,7 +70,7 @@ vi.mock('@evtivity/lib', () => ({
   generateTotpUri: vi.fn(() => 'otpauth://totp/EVtivity:jane'),
   verifyTotpCode: vi.fn(() => true),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 17, code: '654321' }),
-  verifyMfaChallenge: vi.fn().mockResolvedValue(true),
+  verifyMfaChallenge: vi.fn().mockResolvedValue('verified'),
   isValidTimezone: vi.fn((tz: string) => tz !== 'Mars/Olympus'),
 }));
 
