@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { LoadErrorRetry } from './ChartBody';
 import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
 import { MapPin } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,11 +31,12 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
 
   const { data: mapsSettings } = useGoogleMapsSettings();
 
-  const { data: siteLocations } = useQuery({
+  const siteLocationsQuery = useQuery({
     queryKey: ['dashboard', 'site-locations'],
     queryFn: () => api.get<SiteLocation[]>('/v1/dashboard/site-locations'),
     refetchInterval: 60_000,
   });
+  const siteLocations = siteLocationsQuery.data;
 
   useEffect(() => {
     if (mapsSettings == null || mapsSettings.apiKey === '' || mapRef.current == null) return;
@@ -65,10 +67,10 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
         setMapInstance(map);
       } catch (err) {
         console.error('Google Maps load error:', err);
-        setMapError(err instanceof Error ? err.message : 'Failed to load Google Maps');
+        setMapError(t('dashboard.siteMapLoadError'));
       }
     })();
-  }, [mapsSettings, mapInstance]);
+  }, [mapsSettings, mapInstance, t]);
 
   useEffect(() => {
     const map = mapInstance;
@@ -91,7 +93,7 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
           const marker = new markerLib.AdvancedMarkerElement({
             map,
             position: { lat, lng },
-            title: `${site.name} (${String(site.stationCount)} stations)`,
+            title: t('dashboard.siteMapMarker', { name: site.name, count: site.stationCount }),
           });
 
           markersRef.current.push(marker);
@@ -104,7 +106,7 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
         console.warn('Render site markers on the map failed', err);
       }
     })();
-  }, [siteLocations, mapInstance]);
+  }, [siteLocations, mapInstance, t]);
 
   return (
     <Card>
@@ -118,13 +120,19 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
         {mapsSettings == null || mapsSettings.apiKey === '' ? (
           <div className="flex items-center gap-2 rounded-md border border-dashed p-4 text-sm text-muted-foreground">
             <MapPin className="h-4 w-4" />
-            Configure Google Maps API key in Settings to enable the site map.
+            {t('dashboard.siteMapNotConfigured')}
           </div>
         ) : mapError != null ? (
           <div className="flex items-center gap-2 rounded-md border border-dashed p-4 text-sm text-destructive">
             <MapPin className="h-4 w-4" />
             {mapError}
           </div>
+        ) : siteLocationsQuery.isError ? (
+          <LoadErrorRetry
+            onRetry={() => {
+              void siteLocationsQuery.refetch();
+            }}
+          />
         ) : (
           <div ref={mapRef} className="h-96 w-full rounded-md border" />
         )}

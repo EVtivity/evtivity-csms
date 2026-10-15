@@ -54,6 +54,10 @@ import {
   registerResponseCache,
   cacheRoutes,
   setResponseCacheRedis,
+  noteDashboardEvent,
+  resetDashboardBumpThrottle,
+  DASHBOARD_BUMP_INTERVAL_MS,
+  DASHBOARD_EVENT_TYPES,
   type ResponseCacheRedis,
 } from '../plugins/response-cache.js';
 import { buildScopeHash } from '../lib/access-scope.js';
@@ -355,5 +359,71 @@ describe('response cache hooks', () => {
     const second = await app.inject({ method: 'GET', url: '/v1/sites/export' });
     expect(second.headers['x-cache']).toBeUndefined();
     expect(handlerCalls).toBe(2);
+  });
+});
+
+describe('noteDashboardEvent', () => {
+  let redis: FakeRedis;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    redis = new FakeRedis();
+    setResponseCacheRedis(redis);
+    resetDashboardBumpThrottle();
+  });
+
+  afterEach(() => {
+    resetDashboardBumpThrottle();
+    setResponseCacheRedis(null);
+    vi.useRealTimers();
+  });
+
+  const version = (): string | undefined => redis.store.get('rc:ver:dashboard');
+
+  it('bumps the dashboard tag at once for a dashboard event, so the refetch reads fresh data', async () => {
+    noteDashboardEvent('session.ended', Date.now());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(version()).toBe('1');
+  });
+
+  it('ignores events that change no dashboard figure', async () => {
+    noteDashboardEvent('supportCase.newMessage', Date.now());
+    noteDashboardEvent(undefined, Date.now());
+    await vi.advanceTimersByTimeAsync(DASHBOARD_BUMP_INTERVAL_MS * 2);
+    expect(version()).toBeUndefined();
+  });
+
+  it('bumps once more at the end of the interval for a burst, never more often', async () => {
+    noteDashboardEvent('meter.values', Date.now());
+    await vi.advanceTimersByTimeAsync(100);
+    noteDashboardEvent('meter.values', Date.now());
+    noteDashboardEvent('station.status', Date.now());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(version()).toBe('1');
+    await vi.advanceTimersByTimeAsync(DASHBOARD_BUMP_INTERVAL_MS);
+    expect(version()).toBe('2');
+    // The trailing bump covered the burst: nothing else is pending.
+    await vi.advanceTimersByTimeAsync(DASHBOARD_BUMP_INTERVAL_MS * 2);
+    expect(version()).toBe('2');
+  });
+
+  it('covers every event type the CSMS refetches the dashboard on', () => {
+    expect([...DASHBOARD_EVENT_TYPES].sort()).toEqual([
+      'meter.values',
+      'ocpp.health',
+      'payment.settled',
+      'session.ended',
+      'session.started',
+      'station.status',
+    ]);
+  });
+
+  it('keeps going when the cache is down', async () => {
+    redis.failing = true;
+    expect(() => {
+      noteDashboardEvent('session.started', Date.now());
+    }).not.toThrow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(version()).toBeUndefined();
   });
 });

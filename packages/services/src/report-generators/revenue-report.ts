@@ -22,6 +22,7 @@ import {
   revenueItem,
   EMPTY_REVENUE,
   paymentsKeptCentsSql,
+  profitOf,
 } from '../session-revenue.js';
 import { MoneyCell, moneyCell, csvRows, dateCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
@@ -82,6 +83,7 @@ interface RevenueByDay {
   taxCents: number;
   electricityCostCents: number;
   billedOnAccountCents: number;
+  billedOnAccountElectricityCostCents: number;
   sessionCount: number;
   costMissingCount: number;
   costMissingNetCents: number;
@@ -94,6 +96,7 @@ interface RevenueBySite {
   taxCents: number;
   electricityCostCents: number;
   billedOnAccountCents: number;
+  billedOnAccountElectricityCostCents: number;
   sessionCount: number;
   costMissingCount: number;
   costMissingNetCents: number;
@@ -168,6 +171,7 @@ async function queryRevenueByDay(
       taxCents: r.taxCents,
       electricityCostCents: costByDay.get(date) ?? 0,
       billedOnAccountCents: r.billedOnAccountCents,
+      billedOnAccountElectricityCostCents: r.billedOnAccountElectricityCostCents,
       sessionCount: r.sessionCount,
       costMissingCount: r.costMissingCount,
       costMissingNetCents: r.costMissingNetCents,
@@ -213,6 +217,7 @@ async function queryRevenueBySite(
       taxCents: 0,
       electricityCostCents: row.electricityCostCents,
       billedOnAccountCents: 0,
+      billedOnAccountElectricityCostCents: 0,
       sessionCount: 0,
       costMissingCount: 0,
       costMissingNetCents: 0,
@@ -234,6 +239,7 @@ async function queryRevenueBySite(
         taxCents: 0,
         electricityCostCents: 0,
         billedOnAccountCents: 0,
+        billedOnAccountElectricityCostCents: 0,
         sessionCount: 0,
         costMissingCount: 0,
         costMissingNetCents: 0,
@@ -251,6 +257,7 @@ async function queryRevenueBySite(
         taxCents: 0,
         electricityCostCents: 0,
         billedOnAccountCents: 0,
+        billedOnAccountElectricityCostCents: 0,
         sessionCount: 0,
         costMissingCount: 0,
         costMissingNetCents: 0,
@@ -260,6 +267,7 @@ async function queryRevenueBySite(
     site.netRevenueCents = r.netCents;
     site.taxCents = r.taxCents;
     site.billedOnAccountCents = r.billedOnAccountCents;
+    site.billedOnAccountElectricityCostCents = r.billedOnAccountElectricityCostCents;
     site.sessionCount = r.sessionCount;
     site.costMissingCount = r.costMissingCount;
     site.costMissingNetCents = r.costMissingNetCents;
@@ -319,12 +327,17 @@ export async function generateRevenueReport(
   const totalBilledOnAccountCents = bySite.reduce((sum, r) => sum + r.billedOnAccountCents, 0);
   const totalCostMissingCount = bySite.reduce((sum, r) => sum + r.costMissingCount, 0);
   const totalCostMissingNetCents = bySite.reduce((sum, r) => sum + r.costMissingNetCents, 0);
+  const totalAccountElectricityCents = bySite.reduce(
+    (sum, r) => sum + r.billedOnAccountElectricityCostCents,
+    0,
+  );
 
   // Revenue is billed sessions and reservation fees minus refunds
   // (session-revenue.ts); unpaid account sessions are a column of their own
   // (billed on account), not revenue. Profit is revenue excluding tax minus electricity
   // cost: the tax collected is owed to the tax authority, not earned. Sessions
-  // without an electricity cost are left out of profit and counted in a column.
+  // without an electricity cost are left out of profit and counted in a column,
+  // and unpaid account sessions leave their electricity cost out until paid.
   const moneyColumns = [
     rl.moneyHeader(l.columns.revenue, currency, common.inclTax),
     rl.moneyHeader(l.columns.tax, currency),
@@ -339,13 +352,14 @@ export async function generateRevenueReport(
     netRevenueCents: number;
     electricityCostCents: number;
     billedOnAccountCents: number;
+    billedOnAccountElectricityCostCents: number;
     costMissingNetCents: number;
   }): MoneyCell[] => [
     money(r.revenueCents),
     money(r.taxCents),
     money(r.netRevenueCents),
     money(r.electricityCostCents),
-    money(r.netRevenueCents - r.costMissingNetCents - r.electricityCostCents),
+    money(profitOf({ ...r, netCents: r.netRevenueCents })),
     money(r.billedOnAccountCents),
   ];
   const dayHeaders = [
@@ -410,7 +424,14 @@ export async function generateRevenueReport(
   pdf.addSummaryRow(rl.summary(l.summary.totalElectricityCost), fmt(totalElectricityCents));
   pdf.addSummaryRow(
     rl.summary(l.summary.totalProfit),
-    fmt(totalNetRevenueCents - totalCostMissingNetCents - totalElectricityCents),
+    fmt(
+      profitOf({
+        netCents: totalNetRevenueCents,
+        costMissingNetCents: totalCostMissingNetCents,
+        electricityCostCents: totalElectricityCents,
+        billedOnAccountElectricityCostCents: totalAccountElectricityCents,
+      }),
+    ),
   );
   pdf.addSummaryRow(
     rl.summary(l.summary.totalSessionsWithoutElectricityCost),

@@ -6,14 +6,15 @@
  * ApexCharts requires hex strings, not CSS variables.
  */
 
+import { formatCalendarDate } from './formatting';
+
 export function getGridColor(isDark: boolean): string {
   return isDark ? '#1e293b' : '#e2e8f0';
 }
 
-/** Format a YYYY-MM-DD calendar-date label as "M/D" for chart x-axes.
- * Parses by splitting the string rather than `new Date(val)` because
- * `new Date("2024-03-12")` parses as UTC midnight and would shift the
- * label by one day for browsers west of UTC.
+/** Format a YYYY-MM-DD calendar-date label for chart x-axes as a short day
+ * and month in the UI language ("10/13" in English, "13.10." in German),
+ * without a time zone shift (formatCalendarDate).
  *
  * ApexCharts' types promise a string but line charts convert date-like
  * categories to a numeric axis and call this with numbers or undefined;
@@ -21,9 +22,8 @@ export function getGridColor(isDark: boolean): string {
 export function formatChartDateLabel(val: unknown): string {
   if (typeof val === 'number') return String(val);
   if (typeof val !== 'string') return '';
-  const parts = val.split('-');
-  if (parts.length !== 3) return val;
-  return `${String(Number(parts[1]))}/${String(Number(parts[2]))}`;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+  return formatCalendarDate(val, { year: undefined, month: 'numeric', day: 'numeric' });
 }
 
 export const CHART_COLORS = {

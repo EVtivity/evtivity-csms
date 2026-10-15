@@ -9,6 +9,7 @@ import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { endSseClients, writeSseClient } from '../lib/sse-broadcast.js';
 import { operatorTokenRejection } from '../plugins/auth.js';
+import { noteDashboardEvent } from '../plugins/response-cache.js';
 
 const logger = createLogger('events-sse');
 
@@ -126,6 +127,9 @@ async function ensureListener(): Promise<void> {
   const pubsub = getPubSub();
   subscription = await pubsub.subscribe(EVENTS_CHANNEL, (payload: string) => {
     const parsed = tryParseJson(payload);
+    if (parsed != null && typeof parsed === 'object') {
+      noteDashboardEvent((parsed as { eventType?: unknown }).eventType);
+    }
     const message = `data: ${payload}\n\n`;
     for (const client of clients) {
       if (client.scopePending) {

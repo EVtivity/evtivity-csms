@@ -56,7 +56,7 @@ export function paymentsKeptCentsSql(companyCurrency: string): SQL {
  * (profitCents). A session without energy costs nothing, so it is never cost
  * missing. Fees have no electricity cost.
  */
-function revenueItemsSql(companyCurrency: string): SQL {
+function sessionItemsSql(companyCurrency: string, extraWhere: SQL): SQL {
   return sql`
     SELECT CASE WHEN cs.billing_mode = 'account' AND pr.id IS NULL AND inv.status = 'paid'
                 THEN coalesce(inv.paid_at, cs.started_at) ELSE cs.started_at END AS occurred_at,
@@ -73,12 +73,39 @@ function revenueItemsSql(companyCurrency: string): SQL {
                      AND inv.status IS DISTINCT FROM 'paid'
                 THEN 'account' ELSE 'session' END AS source,
            (cs.electricity_cost_cents IS NULL
-             AND coalesce(cs.energy_delivered_wh, 0) > 0) AS cost_missing
+             AND coalesce(cs.energy_delivered_wh, 0) > 0) AS cost_missing,
+           cs.electricity_cost_cents
     FROM charging_sessions cs
     LEFT JOIN payment_records pr ON pr.session_id = cs.id
     LEFT JOIN invoices inv ON inv.id = cs.invoice_id
     WHERE cs.final_cost_cents IS NOT NULL
       AND upper(cs.currency) = ${companyCurrency}
+      ${extraWhere}
+  `;
+}
+
+/**
+ * The revenue items. With `occurredSince`, only the items that can have
+ * happened since then are read, through indexed conditions: sessions started
+ * since then, account sessions started earlier whose invoice was paid since
+ * then, and fees charged since then. The caller still filters on occurred_at.
+ */
+function revenueItemsSql(companyCurrency: string, occurredSince?: Date): SQL {
+  const since = occurredSince?.toISOString();
+  const sessions =
+    since == null
+      ? sessionItemsSql(companyCurrency, sql``)
+      : sql`${sessionItemsSql(companyCurrency, sql`AND cs.started_at >= ${since}::timestamptz`)}
+    UNION ALL
+    ${sessionItemsSql(
+      companyCurrency,
+      sql`AND cs.started_at < ${since}::timestamptz
+      AND cs.billing_mode = 'account'
+      AND inv.status = 'paid'
+      AND inv.paid_at >= ${since}::timestamptz`,
+    )}`;
+  return sql`
+    ${sessions}
     UNION ALL
     SELECT pr.created_at AS occurred_at,
            r.station_id,
@@ -89,13 +116,15 @@ function revenueItemsSql(companyCurrency: string): SQL {
            NULL::integer AS net_cents,
            NULL::integer AS tax_cents,
            'fee'::text AS source,
-           false AS cost_missing
+           false AS cost_missing,
+           NULL::integer AS electricity_cost_cents
     FROM payment_records pr
     LEFT JOIN reservations r ON r.id = pr.reservation_id
     LEFT JOIN charging_stations st ON st.id = r.station_id
     WHERE pr.charge_type <> 'session'
       AND pr.status IN ('captured', 'partially_refunded', 'refunded')
       AND upper(pr.currency) = ${companyCurrency}
+      ${since == null ? sql`` : sql`AND pr.created_at >= ${since}::timestamptz`}
   `;
 }
 
@@ -137,6 +166,11 @@ export interface RevenueTotals extends TaxTotals {
   /** The number of those account sessions. */
   billedOnAccountCount: number;
   /**
+   * Electricity cost of those account sessions. Profit leaves it out until
+   * the invoice is paid, as it leaves out their revenue (profitCents).
+   */
+  billedOnAccountElectricityCostCents: number;
+  /**
    * Billed sessions (in sessionCount) that delivered energy but have no
    * electricity cost. Profit leaves them out (profitCents).
    */
@@ -156,6 +190,7 @@ export const EMPTY_REVENUE: RevenueTotals = {
   itemCount: 0,
   billedOnAccountCents: 0,
   billedOnAccountCount: 0,
+  billedOnAccountElectricityCostCents: 0,
   costMissingCount: 0,
   costMissingGrossCents: 0,
   costMissingNetCents: 0,
@@ -172,6 +207,8 @@ export interface RevenueRow {
   source: string;
   /** A billed session with energy but no electricity cost (see revenueItemsSql). */
   costMissing?: boolean | null;
+  /** Sum of the electricity cost of the items of the row (null when none has one). */
+  electricityCostCents?: number | string | null;
   count: number | string;
 }
 
@@ -212,11 +249,13 @@ export function aggregateRevenueRows(
     const list = all.filter((r) => r.source !== 'account');
     let billedOnAccountCents = 0;
     let billedOnAccountCount = 0;
+    let billedOnAccountElectricityCostCents = 0;
     for (const r of all) {
       if (r.source !== 'account') continue;
       const count = Number(r.count);
       billedOnAccountCount += count;
       billedOnAccountCents += Number(r.grossCents) * count;
+      billedOnAccountElectricityCostCents += Number(r.electricityCostCents ?? 0);
     }
     const split = netOfRows(list);
     const costMissing = list.filter((r) => r.source === 'session' && r.costMissing === true);
@@ -241,6 +280,7 @@ export function aggregateRevenueRows(
       itemCount,
       billedOnAccountCents,
       billedOnAccountCount,
+      billedOnAccountElectricityCostCents,
       costMissingCount,
       costMissingGrossCents: missing.grossCents,
       costMissingNetCents: missing.netCents,
@@ -261,6 +301,7 @@ export function sumRevenue(totals: Iterable<RevenueTotals>): RevenueTotals {
     sum.itemCount += t.itemCount;
     sum.billedOnAccountCents += t.billedOnAccountCents;
     sum.billedOnAccountCount += t.billedOnAccountCount;
+    sum.billedOnAccountElectricityCostCents += t.billedOnAccountElectricityCostCents;
     sum.costMissingCount += t.costMissingCount;
     sum.costMissingGrossCents += t.costMissingGrossCents;
     sum.costMissingNetCents += t.costMissingNetCents;
@@ -272,10 +313,27 @@ export function sumRevenue(totals: Iterable<RevenueTotals>): RevenueTotals {
  * Profit in cents: revenue excluding tax minus electricity cost, over the
  * revenue items with a known electricity cost. Sessions without one
  * (costMissing*) are left out, so their revenue is not counted as profit.
- * May be negative.
+ * Unpaid account sessions are not revenue yet, so their electricity cost is
+ * left out too until the invoice is paid. `electricityCostCents` is the cost
+ * of the same sessions the revenue covers (same sites, period by session
+ * start, company currency). May be negative.
  */
 export function profitCents(revenue: RevenueTotals, electricityCostCents: number): number {
-  return revenue.netCents - revenue.costMissingNetCents - electricityCostCents;
+  return profitOf({ ...revenue, electricityCostCents });
+}
+
+/** profitCents from its parts, for a caller that keeps them in its own rows (revenue report). */
+export function profitOf(parts: {
+  netCents: number;
+  costMissingNetCents: number;
+  electricityCostCents: number;
+  billedOnAccountElectricityCostCents: number;
+}): number {
+  return (
+    parts.netCents -
+    parts.costMissingNetCents -
+    (parts.electricityCostCents - parts.billedOnAccountElectricityCostCents)
+  );
 }
 
 /**
@@ -288,12 +346,17 @@ export async function queryRevenue(input: {
   companyCurrency: string;
   key?: SQL | undefined;
   where?: readonly SQL[] | undefined;
+  /** Only items that happened at or after this instant, read through indexes. */
+  occurredSince?: Date | undefined;
 }): Promise<Map<string | null, RevenueTotals>> {
   const key = input.key ?? sql`NULL::text`;
-  const where =
-    input.where != null && input.where.length > 0
-      ? sql`WHERE ${sql.join([...input.where], sql` AND `)}`
-      : sql``;
+  const conditions = [...(input.where ?? [])];
+  if (input.occurredSince != null) {
+    conditions.push(
+      sql`${revenueItem.occurredAt} >= ${input.occurredSince.toISOString()}::timestamptz`,
+    );
+  }
+  const where = conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
   const rows = await db.execute<{
     key: string | null;
     tax_rate: string;
@@ -302,11 +365,13 @@ export async function queryRevenue(input: {
     tax_cents: string | number | null;
     source: string;
     cost_missing: boolean;
+    electricity_cost_cents: string | number | null;
     count: string | number;
   }>(sql`
     SELECT (${key})::text AS key, ri.tax_rate, ri.gross_cents, ri.net_cents, ri.tax_cents,
-           ri.source, ri.cost_missing, count(*) AS count
-    FROM (${revenueItemsSql(input.companyCurrency)}) AS ri
+           ri.source, ri.cost_missing, sum(ri.electricity_cost_cents) AS electricity_cost_cents,
+           count(*) AS count
+    FROM (${revenueItemsSql(input.companyCurrency, input.occurredSince)}) AS ri
     ${where}
     GROUP BY 1, 2, 3, 4, 5, 6, 7
   `);
@@ -319,6 +384,7 @@ export async function queryRevenue(input: {
       taxCents: r.tax_cents,
       source: r.source,
       costMissing: r.cost_missing,
+      electricityCostCents: r.electricity_cost_cents,
       count: r.count,
     })),
   );
@@ -328,6 +394,7 @@ export async function queryRevenue(input: {
 export async function queryRevenueTotal(input: {
   companyCurrency: string;
   where?: readonly SQL[] | undefined;
+  occurredSince?: Date | undefined;
 }): Promise<RevenueTotals> {
   const byKey = await queryRevenue(input);
   return byKey.get(null) ?? EMPTY_REVENUE;

@@ -13,6 +13,7 @@ import {
   queryRevenueTotal,
   EMPTY_REVENUE,
   profitCents,
+  profitOf,
 } from '../session-revenue.js';
 
 describe('aggregateRevenueRows', () => {
@@ -32,6 +33,7 @@ describe('aggregateRevenueRows', () => {
       itemCount: 6,
       billedOnAccountCents: 0,
       billedOnAccountCount: 0,
+      billedOnAccountElectricityCostCents: 0,
       costMissingCount: 0,
       costMissingGrossCents: 0,
       costMissingNetCents: 0,
@@ -45,6 +47,7 @@ describe('aggregateRevenueRows', () => {
       itemCount: 1,
       billedOnAccountCents: 0,
       billedOnAccountCount: 0,
+      billedOnAccountElectricityCostCents: 0,
       costMissingCount: 0,
       costMissingGrossCents: 0,
       costMissingNetCents: 0,
@@ -73,6 +76,7 @@ describe('aggregateRevenueRows', () => {
       itemCount: 1,
       billedOnAccountCents: 4760,
       billedOnAccountCount: 2,
+      billedOnAccountElectricityCostCents: 0,
       costMissingCount: 0,
       costMissingGrossCents: 0,
       costMissingNetCents: 0,
@@ -117,6 +121,7 @@ describe('aggregateRevenueRows with stored splits', () => {
       itemCount: 3,
       billedOnAccountCents: 0,
       billedOnAccountCount: 0,
+      billedOnAccountElectricityCostCents: 0,
       costMissingCount: 0,
       costMissingGrossCents: 0,
       costMissingNetCents: 0,
@@ -203,6 +208,57 @@ describe('sessions without an electricity cost', () => {
   });
 });
 
+describe('unpaid account sessions and profit', () => {
+  it('leaves the electricity cost of unpaid account sessions out of profit until paid', () => {
+    const byKey = aggregateRevenueRows([
+      {
+        key: null,
+        taxRate: '0',
+        grossCents: 1000,
+        source: 'session',
+        electricityCostCents: 300,
+        count: 1,
+      },
+      {
+        key: null,
+        taxRate: '0',
+        grossCents: 2000,
+        source: 'account',
+        electricityCostCents: '500',
+        count: 2,
+      },
+    ]);
+    const total = byKey.get(null) ?? EMPTY_REVENUE;
+    expect(total.billedOnAccountElectricityCostCents).toBe(500);
+    // The caller's cost covers both sessions (800): only the paid one's 300 counts.
+    expect(profitCents(total, 800)).toBe(1000 - 300);
+    expect(
+      profitOf({
+        netCents: 1000,
+        costMissingNetCents: 0,
+        electricityCostCents: 800,
+        billedOnAccountElectricityCostCents: 500,
+      }),
+    ).toBe(700);
+  });
+
+  it('reads the electricity cost of each item and filters by the indexed dates with occurredSince', async () => {
+    mockExecute.mockReset();
+    mockExecute.mockResolvedValueOnce([]);
+    await queryRevenueTotal({
+      companyCurrency: 'EUR',
+      occurredSince: new Date('2026-10-14T04:00:00.000Z'),
+    });
+    const text = JSON.stringify(mockExecute.mock.calls[0]?.[0]);
+    expect(text).toContain('sum(ri.electricity_cost_cents)');
+    expect(text).toContain('AND cs.started_at >= ');
+    expect(text).toContain('AND cs.started_at < ');
+    expect(text).toContain('inv.paid_at >= ');
+    expect(text).toContain('AND pr.created_at >= ');
+    expect(text).toContain('2026-10-14T04:00:00.000Z');
+  });
+});
+
 describe('sumRevenue', () => {
   it('adds every amount and count', () => {
     const a = { ...EMPTY_REVENUE, grossCents: 119, netCents: 100, taxCents: 19, itemCount: 1 };
@@ -215,6 +271,7 @@ describe('sumRevenue', () => {
       itemCount: 1,
       billedOnAccountCents: 300,
       billedOnAccountCount: 1,
+      billedOnAccountElectricityCostCents: 0,
       costMissingCount: 0,
       costMissingGrossCents: 0,
       costMissingNetCents: 0,
@@ -228,6 +285,7 @@ describe('sumRevenue', () => {
       itemCount: 2,
       billedOnAccountCents: 300,
       billedOnAccountCount: 1,
+      billedOnAccountElectricityCostCents: 0,
       costMissingCount: 0,
       costMissingGrossCents: 0,
       costMissingNetCents: 0,

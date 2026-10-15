@@ -18,6 +18,7 @@ import {
   formatNumber as formatLocaleNumber,
   resolveLocale,
 } from '@evtivity/lib/number';
+import { formatDate as formatLocaleDate } from '@evtivity/lib/timezone';
 import i18next from 'i18next';
 
 /**
@@ -27,6 +28,18 @@ import i18next from 'i18next';
  */
 export function uiLocale(): string {
   return i18next.isInitialized ? i18next.language : 'en';
+}
+
+/**
+ * Format a calendar date (YYYY-MM-DD, no time zone: a dashboard day, a
+ * snapshot date) in the UI language, e.g. "Oct 13" (en) or "13. Okt." (de).
+ * Read at noon UTC and shown in UTC, so the date never moves by a day.
+ */
+export function formatCalendarDate(
+  date: string,
+  options: Intl.DateTimeFormatOptions = { year: undefined, month: 'short', day: 'numeric' },
+): string {
+  return formatLocaleDate(`${date}T12:00:00Z`, 'UTC', options, uiLocale());
 }
 
 /**

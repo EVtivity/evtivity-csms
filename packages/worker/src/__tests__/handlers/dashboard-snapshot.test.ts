@@ -25,6 +25,8 @@ const mockSelect = vi.fn(() => ({
 
 interface SiteData {
   yesterday?: string;
+  /** Earlier dates without a snapshot, which the run backfills. */
+  missing?: string[];
   stations?: { total: string; online: string };
   uptime?:
     | { uptime_percent: string; total_ports: string; stations_below_threshold: string }
@@ -50,6 +52,7 @@ interface SiteData {
 
 const DEFAULT_SITE_DATA: Required<Omit<SiteData, 'uptime'>> & Pick<SiteData, 'uptime'> = {
   yesterday: '2026-06-03',
+  missing: [],
   stations: { total: '10', online: '8' },
   uptime: { uptime_percent: '99.5', total_ports: '20', stations_below_threshold: '1' },
   sessions: {
@@ -91,7 +94,7 @@ const upsertCalls: Array<{ siteId: string; values: unknown[] }> = [];
 function classify(strings: readonly string[]): string {
   const joined = strings.join('?');
   if (joined.includes('INSERT INTO dashboard_snapshots')) return 'upsert';
-  if (joined.includes('AS yesterday')) return 'yesterday';
+  if (joined.includes('AS missing')) return 'days';
   if (joined.includes('AS day_start')) return 'dayBoundaries';
   if (joined.includes('AS total_sessions')) return 'sessions';
   if (joined.includes('all_ports')) return 'uptime';
@@ -124,8 +127,13 @@ const mockExecute = vi.fn((arg: unknown) => {
   const d = siteId ? dataFor(siteId) : {};
 
   switch (kind) {
-    case 'yesterday':
-      return Promise.resolve([{ yesterday: d.yesterday ?? DEFAULT_SITE_DATA.yesterday }]);
+    case 'days': {
+      // Yesterday first, then the earlier days of the backfill window.
+      const yesterday = d.yesterday ?? DEFAULT_SITE_DATA.yesterday;
+      const missing = new Set(d.missing ?? []);
+      const days = [yesterday, '2026-06-02', '2026-06-01', '2026-05-31'];
+      return Promise.resolve(days.map((day, i) => ({ day, missing: i > 0 && missing.has(day) })));
+    }
     case 'dayBoundaries':
       return Promise.resolve([
         { day_start: '2026-06-03T07:00:00.000Z', day_end: '2026-06-04T07:00:00.000Z' },
@@ -235,6 +243,50 @@ describe('dashboardSnapshotHandler', () => {
     expect(where[0]?.values).toContain('sit_1');
   });
 
+  it('counts accepted stations and the totals through the end of the snapshot day', async () => {
+    setSites([{ id: 'sit_1', timezone: 'UTC' }]);
+    const { dashboardSnapshotHandler } = mod;
+    await dashboardSnapshotHandler(makeLog());
+
+    const callsOf = (kind: string) =>
+      mockExecute.mock.calls
+        .map(([arg]) => arg as { strings: readonly string[]; values: unknown[] })
+        .filter((q) => classify(q.strings) === kind);
+    const [stations] = callsOf('stations');
+    expect(stations?.strings.join('?')).toContain("onboarding_status = 'accepted'");
+    // Sessions started before the end of the day (not the run time).
+    const [sessions] = callsOf('sessions');
+    expect(sessions?.strings.join('?')).toContain('cs2.started_at < ?::timestamptz');
+    expect(sessions?.values).toContain('2026-06-04T07:00:00.000Z');
+    // Revenue up to the end of the day.
+    const where = mockQueryRevenue.mock.calls[0]?.[0].where ?? [];
+    expect(where[1]?.values).toContain('2026-06-04T07:00:00.000Z');
+  });
+
+  it('backfills the earlier days without a snapshot and never replaces them', async () => {
+    setSites([{ id: 'sit_1', timezone: 'UTC' }]);
+    siteDataById = { sit_1: { missing: ['2026-06-01', '2026-05-31'] } };
+    const log = makeLog();
+    const { dashboardSnapshotHandler } = mod;
+    await dashboardSnapshotHandler(log);
+
+    // Yesterday plus the two missing days; 2026-06-02 already has its row.
+    expect(upsertCalls.map((u) => u.values[1])).toEqual(['2026-06-03', '2026-06-01', '2026-05-31']);
+    const conflictOf = (date: string) => {
+      const call = mockExecute.mock.calls
+        .map(([arg]) => arg as { strings: readonly string[]; values: unknown[] })
+        .find((q) => classify(q.strings) === 'upsert' && q.values[1] === date);
+      const clause = call?.values.at(-1) as { strings: readonly string[] } | undefined;
+      return clause?.strings.join('');
+    };
+    expect(conflictOf('2026-06-03')).toContain('DO UPDATE SET');
+    expect(conflictOf('2026-06-01')).toContain('DO NOTHING');
+    expect(log.info).toHaveBeenCalledWith(
+      { siteId: 'sit_1', snapshotDate: '2026-06-01', mode: 'fill' },
+      'Site snapshot saved',
+    );
+  });
+
   it('returns early and logs when there are no sites', async () => {
     setSites([]);
     const log = makeLog();
@@ -264,7 +316,8 @@ describe('dashboardSnapshotHandler', () => {
     expect(mockQueryRevenue).toHaveBeenCalledTimes(1);
 
     // INSERT VALUES(...) bound params in source column order.
-    expect(upsertFor('sit_1')).toEqual([
+    // The last value is the ON CONFLICT clause.
+    expect(upsertFor('sit_1').slice(0, -1)).toEqual([
       'sit_1',
       '2026-06-03',
       10, // totalStations
@@ -280,6 +333,8 @@ describe('dashboardSnapshotHandler', () => {
       250000, // totalRevCents (sessions and fees)
       30000, // dayRevenueCents
       2766, // avgRevPerSession = round(243400 session revenue / 88 billed sessions)
+      88, // billedSessions (reservation fees left out)
+      243400, // sessionRevenueCents
       1200, // totalElectricityCostCents
       150, // dayElectricityCostCents
       90, // totalTransactions (billed sessions and fee charges)
@@ -292,7 +347,7 @@ describe('dashboardSnapshotHandler', () => {
     ]);
 
     expect(log.info).toHaveBeenCalledWith(
-      { siteId: 'sit_1', snapshotDate: '2026-06-03' },
+      { siteId: 'sit_1', snapshotDate: '2026-06-03', mode: 'replace' },
       'Site snapshot saved',
     );
     expect(log.info).toHaveBeenCalledWith({ siteCount: 1 }, 'Dashboard snapshot complete');
@@ -308,8 +363,8 @@ describe('dashboardSnapshotHandler', () => {
     await dashboardSnapshotHandler(log);
 
     const values = upsertFor('sit_1');
-    expect(values[21]).toBe(0); // avgPingLatencyMs default
-    expect(values[22]).toBe(100); // pingSuccessRate default
+    expect(values[23]).toBe(0); // avgPingLatencyMs default
+    expect(values[24]).toBe(100); // pingSuccessRate default
   });
 
   it('handles zero stations: onlinePercent and avgRevPerSession both 0, uptime/ports default', async () => {
@@ -341,8 +396,9 @@ describe('dashboardSnapshotHandler', () => {
     expect(values[4]).toBe(0); // onlinePercent -> 0 (no divide-by-zero)
     expect(values[5]).toBe(100); // uptimePercent default when row missing
     expect(values[14]).toBe(0); // avgRevPerSession -> 0 (no sessions)
-    expect(values[19]).toBe(0); // totalPorts default
-    expect(values[20]).toBe(0); // stationsBelowThreshold default
+    expect(values[15]).toBe(0); // billedSessions
+    expect(values[21]).toBe(0); // totalPorts default
+    expect(values[22]).toBe(0); // stationsBelowThreshold default
   });
 
   it('snapshots every site across batch boundaries (CONCURRENCY=5)', async () => {
@@ -388,7 +444,7 @@ describe('dashboardSnapshotHandler', () => {
     // The good site still produced its upsert + saved log; the run completes.
     expect(upsertCalls.map((u) => u.siteId)).toEqual(['sit_ok']);
     expect(log.info).toHaveBeenCalledWith(
-      { siteId: 'sit_ok', snapshotDate: '2026-06-03' },
+      { siteId: 'sit_ok', snapshotDate: '2026-06-03', mode: 'replace' },
       'Site snapshot saved',
     );
     expect(log.info).toHaveBeenCalledWith({ siteCount: 2 }, 'Dashboard snapshot complete');

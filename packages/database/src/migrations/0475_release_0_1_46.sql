@@ -651,3 +651,10 @@ DROP TRIGGER IF EXISTS charging_sessions_stamp_site ON "charging_sessions";
 --> statement-breakpoint
 DROP FUNCTION IF EXISTS charging_sessions_stamp_site();
 
+--> statement-breakpoint
+-- Dashboard snapshots: the billed sessions and their revenue (reservation fees
+-- left out), cumulative through the snapshot date, so the revenue per session
+-- of several sites matches the live figure. Null on rows written before.
+ALTER TABLE "dashboard_snapshots" ADD COLUMN IF NOT EXISTS "billed_sessions" integer;
+--> statement-breakpoint
+ALTER TABLE "dashboard_snapshots" ADD COLUMN IF NOT EXISTS "session_revenue_cents" bigint;

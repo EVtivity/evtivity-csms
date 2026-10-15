@@ -874,6 +874,8 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   l('/dashboard/snapshots/trend', 'dashboard:read', undefined, {
     counts: [{ path: 'days.@sum:totalStations', all: 21, a: 1 }],
   }),
+  // The two days it compares depend on the hour in the system timezone, so no counts.
+  l('/dashboard/snapshots/day-over-day', 'dashboard:read'),
   l('/dashboard/snapshots/available-dates', 'dashboard:read', undefined, {
     counts: [{ path: 'length', all: 2, a: 1 }],
   }),

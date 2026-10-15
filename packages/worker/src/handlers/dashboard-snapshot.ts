@@ -11,6 +11,9 @@ import {
 } from '@evtivity/services/session-revenue';
 import type { Logger } from 'pino';
 
+/** Each run also writes the snapshot of each of this many earlier days that has none. */
+export const SNAPSHOT_BACKFILL_DAYS = 7;
+
 export async function dashboardSnapshotHandler(log: Logger): Promise<void> {
   const allSites = await db.select({ id: sites.id, timezone: sites.timezone }).from(sites);
 
@@ -25,21 +28,13 @@ export async function dashboardSnapshotHandler(log: Logger): Promise<void> {
   const { avgPingLatencyMs, pingSuccessRate } = await getOcppFleetHealth(client);
 
   const companyCurrency = await getCompanyCurrency();
+  const context = { log, avgPingLatencyMs, pingSuccessRate, companyCurrency };
 
   const CONCURRENCY = 5;
   for (let i = 0; i < allSites.length; i += CONCURRENCY) {
     const batch = allSites.slice(i, i + CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map((site) =>
-        snapshotSite(
-          site.id,
-          site.timezone,
-          log,
-          avgPingLatencyMs,
-          pingSuccessRate,
-          companyCurrency,
-        ),
-      ),
+      batch.map((site) => snapshotSiteDays(site.id, site.timezone, context)),
     );
     results.forEach((result, idx) => {
       if (result.status === 'rejected') {
@@ -52,19 +47,54 @@ export async function dashboardSnapshotHandler(log: Logger): Promise<void> {
   log.info({ siteCount: allSites.length }, 'Dashboard snapshot complete');
 }
 
-async function snapshotSite(
+interface SnapshotContext {
+  log: Logger;
+  avgPingLatencyMs: number;
+  pingSuccessRate: number;
+  companyCurrency: string;
+}
+
+/**
+ * Yesterday in the site timezone (written again on every run), then each of
+ * the SNAPSHOT_BACKFILL_DAYS days before it that has no snapshot yet (a run
+ * that failed or did not happen). A backfilled day keeps the station counts
+ * and ping health of the run: those are not kept per day.
+ */
+async function snapshotSiteDays(
   siteId: string,
   timezone: string,
-  log: Logger,
-  avgPingLatencyMs: number,
-  pingSuccessRate: number,
-  companyCurrency: string,
+  context: SnapshotContext,
 ): Promise<void> {
-  // "Yesterday" in the site's timezone
-  const yesterdayResult = await db.execute(
-    sql`SELECT (now() AT TIME ZONE ${timezone} - interval '1 day')::date AS yesterday`,
-  );
-  const snapshotDate = (yesterdayResult[0] as { yesterday: string }).yesterday;
+  const dayRows = await db.execute<{ day: string; missing: boolean }>(sql`
+    SELECT d::date::text AS day,
+           NOT EXISTS (
+             SELECT 1 FROM dashboard_snapshots ds
+             WHERE ds.site_id = ${siteId} AND ds.snapshot_date = d::date
+           ) AS missing
+    FROM generate_series(
+      (now() AT TIME ZONE ${timezone})::date - ${SNAPSHOT_BACKFILL_DAYS + 1}::int,
+      (now() AT TIME ZONE ${timezone})::date - 1,
+      interval '1 day'
+    ) AS d
+    ORDER BY d DESC
+  `);
+  const [yesterday, ...earlier] = dayRows;
+  if (yesterday == null) return;
+  await snapshotSite(siteId, timezone, yesterday.day, 'replace', context);
+  for (const day of earlier) {
+    if (day.missing) await snapshotSite(siteId, timezone, day.day, 'fill', context);
+  }
+}
+
+/** One site's snapshot of one date: totals through the end of that date in the site timezone. */
+export async function snapshotSite(
+  siteId: string,
+  timezone: string,
+  snapshotDate: string,
+  mode: 'replace' | 'fill',
+  context: SnapshotContext,
+): Promise<void> {
+  const { log, avgPingLatencyMs, pingSuccessRate, companyCurrency } = context;
 
   // Day boundaries in UTC for filtering
   const dayBoundaries = await db.execute(sql`
@@ -87,6 +117,7 @@ async function snapshotSite(
 
   // Money sums count only amounts in the company currency.
   const sessionBilled = sql`UPPER(cs2.currency) = ${companyCurrency}`;
+  const inDay = sql`cs2.started_at >= ${dayStartIso}::timestamptz AND cs2.started_at < ${dayEndIso}::timestamptz`;
 
   // The four read blocks (station counts, uptime, sessions+energy, revenue)
   // are all independent of each other. The only cross-block dependency is
@@ -94,13 +125,13 @@ async function snapshotSite(
   // RTTs into one. Ping data is fetched once at the run level (singleton
   // row) and passed in, so it is not part of this fan-out.
   const [stationRows, uptimeRows, sessionRows, revenueRows] = await Promise.all([
-    // 1. Station counts
+    // 1. Station counts: accepted stations, as the live dashboard counts them.
     db.execute(sql`
       SELECT
         COUNT(*) AS total,
         COUNT(*) FILTER (WHERE is_online = true) AS online
       FROM charging_stations
-      WHERE site_id = ${siteId}
+      WHERE site_id = ${siteId} AND onboarding_status = 'accepted'
     `),
 
     // 2. Uptime CTE (midnight to midnight in site timezone)
@@ -170,28 +201,36 @@ async function snapshotSite(
     FROM station_uptime
   `),
 
-    // 3. Sessions, energy: sessions that happened at the site (site_id is kept
-    // when a station moves).
+    // 3. Sessions, energy, cost through the end of the day: sessions that
+    // happened at the site (site_id is kept when a station moves). Active at
+    // the end of the day: started before it and not ended by then.
     db.execute(sql`
       SELECT
         COUNT(*) AS total_sessions,
-        COUNT(*) FILTER (WHERE cs2.started_at >= ${dayStartIso}::timestamptz AND cs2.started_at < ${dayEndIso}::timestamptz) AS day_sessions,
+        COUNT(*) FILTER (WHERE ${inDay}) AS day_sessions,
         COALESCE(SUM(cs2.energy_delivered_wh), 0) AS total_energy_wh,
-        COALESCE(SUM(cs2.energy_delivered_wh) FILTER (WHERE cs2.started_at >= ${dayStartIso}::timestamptz AND cs2.started_at < ${dayEndIso}::timestamptz), 0) AS day_energy_wh,
+        COALESCE(SUM(cs2.energy_delivered_wh) FILTER (WHERE ${inDay}), 0) AS day_energy_wh,
         COALESCE(SUM(cs2.electricity_cost_cents) FILTER (WHERE ${sessionBilled}), 0) AS total_electricity_cost_cents,
-        COALESCE(SUM(cs2.electricity_cost_cents) FILTER (WHERE ${sessionBilled} AND cs2.started_at >= ${dayStartIso}::timestamptz AND cs2.started_at < ${dayEndIso}::timestamptz), 0) AS day_electricity_cost_cents,
-        COUNT(*) FILTER (WHERE cs2.status = 'active') AS active_sessions
+        COALESCE(SUM(cs2.electricity_cost_cents) FILTER (WHERE ${sessionBilled} AND ${inDay}), 0) AS day_electricity_cost_cents,
+        COUNT(*) FILTER (
+          WHERE cs2.status = 'active' OR cs2.ended_at >= ${dayEndIso}::timestamptz
+        ) AS active_sessions
       FROM charging_sessions cs2
       WHERE cs2.site_id = ${siteId}
+        AND cs2.started_at < ${dayEndIso}::timestamptz
     `),
 
     // 4. Revenue (session-revenue.ts, the definition every revenue view
-    // shares): ended sessions and reservation fees billed in the company
-    // currency minus refunds, split by the snapshot day and the rest.
+    // shares) through the end of the day: ended sessions and reservation fees
+    // billed in the company currency minus refunds, split by the snapshot day
+    // and the days before.
     queryRevenue({
       companyCurrency,
-      key: sql`${revenueItem.occurredAt} >= ${dayStartIso}::timestamptz AND ${revenueItem.occurredAt} < ${dayEndIso}::timestamptz`,
-      where: [sql`${revenueItem.siteId} = ${siteId}`],
+      key: sql`${revenueItem.occurredAt} >= ${dayStartIso}::timestamptz`,
+      where: [
+        sql`${revenueItem.siteId} = ${siteId}`,
+        sql`${revenueItem.occurredAt} < ${dayEndIso}::timestamptz`,
+      ],
     }),
   ]);
 
@@ -230,28 +269,10 @@ async function snapshotSite(
       ? Math.round(totalRevenue.sessionGrossCents / totalRevenue.sessionCount)
       : 0;
 
-  // 6. Upsert
-  await db.execute(sql`
-    INSERT INTO dashboard_snapshots (
-      site_id, snapshot_date, total_stations, online_stations, online_percent,
-      uptime_percent, active_sessions, total_energy_wh, day_energy_wh,
-      total_sessions, day_sessions, connected_stations,
-      total_revenue_cents, day_revenue_cents, avg_revenue_cents_per_session,
-      total_electricity_cost_cents, day_electricity_cost_cents,
-      total_transactions, day_transactions, total_ports, stations_below_threshold,
-      avg_ping_latency_ms, ping_success_rate, currency,
-      created_at
-    ) VALUES (
-      ${siteId}, ${snapshotDate}::date, ${totalStations}, ${onlineStations}, ${onlinePercent},
-      ${uptimePercent}, ${Number(sessData.active_sessions)}, ${Number(sessData.total_energy_wh)}, ${Number(sessData.day_energy_wh)},
-      ${totalSessionsNum}, ${Number(sessData.day_sessions)}, ${onlineStations},
-      ${totalRevCents}, ${dayRevenue.grossCents}, ${avgRevPerSession},
-      ${Number(sessData.total_electricity_cost_cents)}, ${Number(sessData.day_electricity_cost_cents)},
-      ${totalRevenue.itemCount}, ${dayRevenue.itemCount}, ${totalPorts}, ${stationsBelowThreshold},
-      ${avgPingLatencyMs}, ${pingSuccessRate}, ${companyCurrency},
-      now()
-    )
-    ON CONFLICT (site_id, snapshot_date) DO UPDATE SET
+  const onConflict =
+    mode === 'fill'
+      ? sql`ON CONFLICT (site_id, snapshot_date) DO NOTHING`
+      : sql`ON CONFLICT (site_id, snapshot_date) DO UPDATE SET
       total_stations = EXCLUDED.total_stations,
       online_stations = EXCLUDED.online_stations,
       online_percent = EXCLUDED.online_percent,
@@ -265,6 +286,8 @@ async function snapshotSite(
       total_revenue_cents = EXCLUDED.total_revenue_cents,
       day_revenue_cents = EXCLUDED.day_revenue_cents,
       avg_revenue_cents_per_session = EXCLUDED.avg_revenue_cents_per_session,
+      billed_sessions = EXCLUDED.billed_sessions,
+      session_revenue_cents = EXCLUDED.session_revenue_cents,
       total_electricity_cost_cents = EXCLUDED.total_electricity_cost_cents,
       day_electricity_cost_cents = EXCLUDED.day_electricity_cost_cents,
       total_transactions = EXCLUDED.total_transactions,
@@ -274,8 +297,32 @@ async function snapshotSite(
       avg_ping_latency_ms = EXCLUDED.avg_ping_latency_ms,
       ping_success_rate = EXCLUDED.ping_success_rate,
       currency = EXCLUDED.currency,
-      created_at = now()
+      created_at = now()`;
+
+  await db.execute(sql`
+    INSERT INTO dashboard_snapshots (
+      site_id, snapshot_date, total_stations, online_stations, online_percent,
+      uptime_percent, active_sessions, total_energy_wh, day_energy_wh,
+      total_sessions, day_sessions, connected_stations,
+      total_revenue_cents, day_revenue_cents, avg_revenue_cents_per_session,
+      billed_sessions, session_revenue_cents,
+      total_electricity_cost_cents, day_electricity_cost_cents,
+      total_transactions, day_transactions, total_ports, stations_below_threshold,
+      avg_ping_latency_ms, ping_success_rate, currency,
+      created_at
+    ) VALUES (
+      ${siteId}, ${snapshotDate}::date, ${totalStations}, ${onlineStations}, ${onlinePercent},
+      ${uptimePercent}, ${Number(sessData.active_sessions)}, ${Number(sessData.total_energy_wh)}, ${Number(sessData.day_energy_wh)},
+      ${totalSessionsNum}, ${Number(sessData.day_sessions)}, ${onlineStations},
+      ${totalRevCents}, ${dayRevenue.grossCents}, ${avgRevPerSession},
+      ${totalRevenue.sessionCount}, ${totalRevenue.sessionGrossCents},
+      ${Number(sessData.total_electricity_cost_cents)}, ${Number(sessData.day_electricity_cost_cents)},
+      ${totalRevenue.itemCount}, ${dayRevenue.itemCount}, ${totalPorts}, ${stationsBelowThreshold},
+      ${avgPingLatencyMs}, ${pingSuccessRate}, ${companyCurrency},
+      now()
+    )
+    ${onConflict}
   `);
 
-  log.info({ siteId, snapshotDate }, 'Site snapshot saved');
+  log.info({ siteId, snapshotDate, mode }, 'Site snapshot saved');
 }

@@ -113,6 +113,8 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn((col: unknown) => (typeof col === 'string' ? col : 'unnamed')),
   gte: vi.fn(),
   lte: vi.fn(),
+  lt: vi.fn(),
+  isNull: vi.fn(),
   between: vi.fn(),
   isNotNull: vi.fn(),
 }));
@@ -125,11 +127,15 @@ vi.mock('@evtivity/services/station-derived-status', () => ({
   buildDerivedStatusSubquery: mockDerivedStatus,
 }));
 
-const { mockQueryRevenue } = vi.hoisted(() => ({ mockQueryRevenue: vi.fn() }));
+const { mockQueryRevenue, mockQueryRevenueTotal } = vi.hoisted(() => ({
+  mockQueryRevenue: vi.fn(),
+  mockQueryRevenueTotal: vi.fn(),
+}));
 
 vi.mock('@evtivity/services/session-revenue', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   queryRevenue: (input: unknown) => mockQueryRevenue(input),
+  queryRevenueTotal: (input: unknown) => mockQueryRevenueTotal(input),
 }));
 
 vi.mock('../lib/site-access.js', () => ({
@@ -151,12 +157,15 @@ vi.mock('../middleware/rbac.js', () => ({
       }
     },
   invalidatePermissionCache: vi.fn(),
+  requestHasPermission: vi.fn().mockResolvedValue(true),
 }));
 
 import { registerAuth } from '../plugins/auth.js';
 import { dashboardRoutes } from '../routes/dashboard.js';
 import { db } from '@evtivity/database';
-import { inArray, lte, sql } from 'drizzle-orm';
+import { inArray, lt, sql } from 'drizzle-orm';
+import { EMPTY_REVENUE } from '@evtivity/services/session-revenue';
+import { clearDashboardTotalsCache } from '../lib/dashboard-totals.js';
 import rateLimit from '@fastify/rate-limit';
 import { getUserSiteIds } from '../lib/site-access.js';
 
@@ -195,6 +204,8 @@ describe('dashboard routes - site scoping and date ranges', () => {
     setupDbResults();
     getUserSiteIdsMock.mockResolvedValue(null);
     mockQueryRevenue.mockResolvedValue(new Map());
+    mockQueryRevenueTotal.mockResolvedValue(EMPTY_REVENUE);
+    clearDashboardTotalsCache();
     vi.mocked(db.execute).mockResolvedValue([] as never);
   });
 
@@ -286,7 +297,6 @@ describe('dashboard routes - site scoping and date ranges', () => {
       `/dashboard/energy-history?${RANGE}`,
       `/dashboard/session-history?${RANGE}`,
       '/dashboard/station-status',
-      `/dashboard/utilization?${RANGE}`,
       `/dashboard/peak-usage?${RANGE}`,
       '/dashboard/financial-stats',
       '/dashboard/ocpp-health',
@@ -302,7 +312,7 @@ describe('dashboard routes - site scoping and date ranges', () => {
       });
     }
 
-    it('GET /dashboard/energy-history and session-history bound the range with lte', async () => {
+    it('GET /dashboard/energy-history, session-history and peak-usage end the range at the midnight after "to"', async () => {
       const a = await app.inject({
         method: 'GET',
         url: `/dashboard/energy-history?${RANGE}`,
@@ -322,11 +332,10 @@ describe('dashboard routes - site scoping and date ranges', () => {
       expect([a.statusCode, b.statusCode, c.statusCode, d.statusCode]).toEqual([
         200, 200, 200, 200,
       ]);
-      expect(lte).toHaveBeenCalledTimes(4);
-      // The range end is the last millisecond of the "to" day (parseDateRange).
-      const end = new Date('2025-01-10');
-      end.setHours(23, 59, 59, 999);
-      expect(lte).toHaveBeenCalledWith('sessions.startedAt', end);
+      expect(lt).toHaveBeenCalledTimes(3);
+      // The exclusive end: midnight after the "to" day in the system timezone
+      // (America/New_York), not the UTC or server day.
+      expect(lt).toHaveBeenCalledWith('sessions.startedAt', new Date('2025-01-11T05:00:00.000Z'));
     });
 
     it('GET /dashboard/revenue-history passes the site and end-date filters to the revenue query', async () => {
@@ -354,6 +363,7 @@ describe('dashboard routes - site scoping and date ranges', () => {
 
     const executeRoutes = [
       '/dashboard/uptime',
+      `/dashboard/utilization?${RANGE}`,
       '/dashboard/snapshots/trend',
       '/dashboard/snapshots/available-dates',
       '/dashboard/snapshots?date=2025-01-01',
@@ -443,7 +453,7 @@ describe('dashboard routes - site scoping and date ranges', () => {
     expect(getUserSiteIdsMock).not.toHaveBeenCalled();
   });
 
-  it('limits each user to 30 dashboard requests a minute', async () => {
+  it('limits each user to 120 dashboard requests a minute per route', async () => {
     const limited = Fastify();
     await registerAuth(limited);
     await limited.register(rateLimit, { global: false });
@@ -454,7 +464,7 @@ describe('dashboard routes - site scoping and date ranges', () => {
         authorization: `Bearer ${limited.jwt.sign({ userId, roleId: VALID_ROLE_ID })}`,
       });
       let last = 0;
-      for (let i = 0; i < 31; i++) {
+      for (let i = 0; i < 121; i++) {
         const res = await limited.inject({
           method: 'GET',
           url: '/dashboard/station-status',

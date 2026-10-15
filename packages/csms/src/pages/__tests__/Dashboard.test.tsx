@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
@@ -25,17 +25,26 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
   initReactI18next: { type: '3rdParty', init: () => undefined },
 }));
-// The financial stats answer with account sessions waiting for their fleet
-// invoice; every other query stays pending, so the layout renders its defaults.
+// By default the financial stats answer with account sessions waiting for
+// their fleet invoice; every other query stays pending (loading). A test sets
+// `answers` to make a path answer or fail.
+const { answers, requested } = vi.hoisted(() => ({
+  answers: new Map<string, () => Promise<unknown>>(),
+  requested: [] as string[],
+}));
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return {
     ...actual,
     api: {
-      get: (path: string) =>
-        path === '/v1/dashboard/financial-stats'
+      get: (path: string) => {
+        requested.push(path);
+        const answer = answers.get(path.split('?')[0] ?? path);
+        if (answer != null) return answer();
+        return path === '/v1/dashboard/financial-stats'
           ? Promise.resolve({ billedOnAccountCents: 20550, billedOnAccountCount: 9 })
-          : new Promise(() => {}),
+          : new Promise(() => {});
+      },
     },
   };
 });
@@ -58,7 +67,16 @@ vi.mock('@/components/charts/PaymentBreakdownChart', () => ({
   PaymentBreakdownChart: () => null,
 }));
 vi.mock('@/components/charts/Sparkline', () => ({ Sparkline: () => null }));
-vi.mock('@/components/SessionsTable', () => ({ SessionsTable: () => null }));
+vi.mock('@/components/SessionsTable', () => ({
+  SessionsTable: (props: { isLoading?: boolean; sessions?: unknown[]; emptyMessage?: string }) => (
+    <div
+      data-testid="sessions-table"
+      data-loading={String(props.isLoading === true)}
+      data-rows={String(props.sessions?.length ?? -1)}
+      data-empty={props.emptyMessage}
+    />
+  ),
+}));
 
 // The tabs and stat cards measure themselves; jsdom has no ResizeObserver.
 vi.stubGlobal(
@@ -73,8 +91,11 @@ vi.stubGlobal(
 import { Dashboard, statGridClass } from '../Dashboard';
 import { useAuth } from '@/lib/auth';
 
-function renderDashboard(role: string): void {
-  useAuth.setState({ role, permissions: ['*'], hasAllSiteAccess: true });
+function renderDashboard(
+  role: string,
+  permissions: string[] = ['dashboard:read', 'payments:read'],
+): void {
+  useAuth.setState({ role, permissions, hasAllSiteAccess: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -92,6 +113,8 @@ function before(a: Element, b: Element): boolean {
 
 afterEach(() => {
   cleanup();
+  answers.clear();
+  requested.length = 0;
 });
 
 describe('Dashboard layout (plan v0.1.45, section 6)', () => {
@@ -107,15 +130,17 @@ describe('Dashboard layout (plan v0.1.45, section 6)', () => {
     expect(before(screen.getByText('dashboard.title'), widget)).toBe(true);
   });
 
-  it('TC-UI-LY-02 the operator dashboard uses the same order', () => {
+  it('TC-UI-LY-02 every role gets the same dashboard in the same order', () => {
     renderDashboard('operator');
     const insights = screen.getAllByTestId('active-insights');
     expect(insights).toHaveLength(1);
     const widget = insights[0] as HTMLElement;
-    const stat = screen.getAllByText('dashboard.stations')[0] as HTMLElement;
+    const stat = screen.getAllByText('dashboard.totalStations')[0] as HTMLElement;
     const chart = screen.getAllByTestId('chart')[0] as HTMLElement;
     expect(before(stat, widget)).toBe(true);
     expect(before(widget, chart)).toBe(true);
+    // The role name no longer picks a smaller dashboard: the money row shows by permission.
+    expect(screen.getAllByText('dashboard.totalRevenue').length).toBeGreaterThan(0);
   });
 
   it('renders the account cards through the shared stat card, in a row that fits them', async () => {
@@ -155,5 +180,114 @@ describe('Dashboard layout (plan v0.1.45, section 6)', () => {
       const card = title.parentElement?.parentElement as HTMLElement;
       expect(card.className).not.toMatch(/(^|\s)-?m[xytrbl]?-/);
     }
+  });
+});
+
+describe('Dashboard states and permissions', () => {
+  it('shows the loading mark on a card while its query loads, never a zero', () => {
+    renderDashboard('admin');
+    const card = screen.getAllByText('dashboard.totalStations')[0]?.closest('div.rounded-lg');
+    expect(card).not.toBeNull();
+    expect(within(card as HTMLElement).getByRole('status')).toBeTruthy();
+    expect(within(card as HTMLElement).queryByText('0')).toBeNull();
+  });
+
+  it('shows the load error with a Retry button that loads again', async () => {
+    let calls = 0;
+    answers.set('/v1/dashboard/stats', () => {
+      calls += 1;
+      return Promise.reject(new Error('down'));
+    });
+    renderDashboard('admin');
+    const errors = await screen.findAllByText('common.loadError');
+    expect(errors.length).toBeGreaterThan(0);
+    const card = screen.getAllByText('dashboard.totalStations')[0]?.closest('div.rounded-lg');
+    const retry = within(card as HTMLElement).getByRole('button', { name: 'common.retry' });
+    const before = calls;
+    fireEvent.click(retry);
+    await waitFor(() => {
+      expect(calls).toBeGreaterThan(before);
+    });
+  });
+
+  it('shows the stations count with the pending and blocked note', async () => {
+    answers.set('/v1/dashboard/stats', () =>
+      Promise.resolve({
+        totalStations: 4,
+        onlineStations: 2,
+        onlinePercent: 50,
+        activeSessions: 1,
+        totalSessions: 10,
+        totalEnergyWh: 1000,
+        faultedStations: 0,
+        statusCounts: {},
+        onboardingStatusCounts: { accepted: 4, pending: 2, blocked: 1 },
+      }),
+    );
+    renderDashboard('admin');
+    expect(await screen.findByText('dashboard.stationsNotAccepted')).toBeTruthy();
+  });
+
+  it('asks for the uptime of the last 30 days', () => {
+    renderDashboard('admin');
+    expect(requested).toContain('/v1/dashboard/uptime?days=30');
+  });
+
+  it('hides the money row and asks for no money without payments:read', () => {
+    renderDashboard('viewer', ['dashboard:read', 'stations:read']);
+    expect(screen.queryByText('dashboard.totalRevenue')).toBeNull();
+    expect(screen.queryByText('dashboard.profit')).toBeNull();
+    expect(screen.getAllByText('dashboard.totalStations').length).toBeGreaterThan(0);
+    for (const path of [
+      '/v1/dashboard/financial-stats',
+      '/v1/dashboard/revenue-history',
+      '/v1/dashboard/payment-breakdown',
+    ]) {
+      expect(requested.some((r) => r.startsWith(path))).toBe(false);
+    }
+  });
+
+  it('shows the Active Sessions card with sessions:read, loading then its rows', async () => {
+    let resolve: (value: unknown) => void = () => undefined;
+    answers.set(
+      '/v1/sessions',
+      () =>
+        new Promise((r) => {
+          resolve = r;
+        }),
+    );
+    renderDashboard('admin', ['dashboard:read', 'sessions:read']);
+    expect(screen.getByText('charts.activeSessions')).toBeTruthy();
+    const table = screen.getByTestId('sessions-table');
+    expect(table.getAttribute('data-loading')).toBe('true');
+    expect(table.getAttribute('data-empty')).toBe('charts.noActiveSessions');
+    expect(requested).toContain('/v1/sessions?limit=20&status=active');
+    resolve({ data: [{ id: 'ses_1' }], total: 1 });
+    await waitFor(() => {
+      expect(screen.getByTestId('sessions-table').getAttribute('data-rows')).toBe('1');
+    });
+  });
+
+  it('shows the load error with Retry on the Active Sessions card', async () => {
+    let calls = 0;
+    answers.set('/v1/sessions', () => {
+      calls += 1;
+      return Promise.reject(new Error('down'));
+    });
+    renderDashboard('admin', ['dashboard:read', 'sessions:read']);
+    const title = screen.getByText('charts.activeSessions');
+    const card = title.closest('div.rounded-lg') as HTMLElement;
+    const retry = await within(card).findByRole('button', { name: 'common.retry' });
+    const before = calls;
+    fireEvent.click(retry);
+    await waitFor(() => {
+      expect(calls).toBeGreaterThan(before);
+    });
+  });
+
+  it('hides the Active Sessions card without sessions:read', () => {
+    renderDashboard('viewer', ['dashboard:read']);
+    expect(screen.queryByText('charts.activeSessions')).toBeNull();
+    expect(requested.some((r) => r.startsWith('/v1/sessions'))).toBe(false);
   });
 });

@@ -7,6 +7,7 @@ import type { ApexOptions } from 'apexcharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
+import { ChartBody, type QueryState } from './ChartBody';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
 
@@ -14,9 +15,16 @@ interface PeakUsageChartProps {
   data: { hour: number; dayOfWeek: number; count: number }[];
   actions?: React.ReactNode;
   info?: string;
+  /** The state of the query behind the chart; omitted, the chart shows as given. */
+  state?: QueryState;
 }
 
-export function PeakUsageChart({ data, actions, info }: PeakUsageChartProps): React.JSX.Element {
+export function PeakUsageChart({
+  data,
+  actions,
+  info,
+  state,
+}: PeakUsageChartProps): React.JSX.Element {
   const { t } = useTranslation();
   const isDark = useAuth((s) => s.theme) === 'dark';
   const dayNames = useMemo(
@@ -87,7 +95,9 @@ export function PeakUsageChart({ data, actions, info }: PeakUsageChartProps): Re
         {actions}
       </CardHeader>
       <CardContent>
-        <ReactApexChart options={options} series={seriesData} type="heatmap" height={300} />
+        <ChartBody state={state} isEmpty={data.length === 0} emptyText={t('charts.noData')}>
+          <ReactApexChart options={options} series={seriesData} type="heatmap" height={300} />
+        </ChartBody>
       </CardContent>
     </Card>
   );

@@ -34,6 +34,10 @@ export const dashboardSnapshots = pgTable(
     totalRevenueCents: bigint('total_revenue_cents', { mode: 'number' }),
     dayRevenueCents: bigint('day_revenue_cents', { mode: 'number' }),
     avgRevenueCentsPerSession: bigint('avg_revenue_cents_per_session', { mode: 'number' }),
+    // Billed sessions in the company currency through the snapshot date, and
+    // their revenue without reservation fees (null on rows before v0.1.46).
+    billedSessions: integer('billed_sessions'),
+    sessionRevenueCents: bigint('session_revenue_cents', { mode: 'number' }),
     totalElectricityCostCents: bigint('total_electricity_cost_cents', { mode: 'number' }),
     dayElectricityCostCents: bigint('day_electricity_cost_cents', { mode: 'number' }),
     currency: varchar('currency', { length: 3 }).notNull(),

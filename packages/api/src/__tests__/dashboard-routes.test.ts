@@ -110,6 +110,8 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
   gte: vi.fn(),
   lte: vi.fn(),
+  lt: vi.fn(),
+  isNull: vi.fn(),
   between: vi.fn(),
   isNotNull: vi.fn(),
 }));
@@ -122,11 +124,16 @@ vi.mock('@evtivity/services/station-derived-status', () => ({
   buildDerivedStatusSubquery: mockDerivedStatus,
 }));
 
-const { mockQueryRevenue } = vi.hoisted(() => ({ mockQueryRevenue: vi.fn() }));
+const { mockQueryRevenue, mockQueryRevenueTotal, mockRequestHasPermission } = vi.hoisted(() => ({
+  mockQueryRevenue: vi.fn(),
+  mockQueryRevenueTotal: vi.fn(),
+  mockRequestHasPermission: vi.fn(),
+}));
 
 vi.mock('@evtivity/services/session-revenue', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   queryRevenue: (input: unknown) => mockQueryRevenue(input),
+  queryRevenueTotal: (input: unknown) => mockQueryRevenueTotal(input),
 }));
 
 vi.mock('../lib/site-access.js', () => ({
@@ -148,15 +155,46 @@ vi.mock('../middleware/rbac.js', () => ({
       }
     },
   invalidatePermissionCache: vi.fn(),
+  requestHasPermission: (...args: unknown[]) => mockRequestHasPermission(...args),
 }));
 
 import { registerAuth } from '../plugins/auth.js';
 import { dashboardRoutes } from '../routes/dashboard.js';
+import { clearDashboardTotalsCache } from '../lib/dashboard-totals.js';
 import { db } from '@evtivity/database';
 import { getUserSiteIds } from '../lib/site-access.js';
 import * as sessionRevenueModule from '@evtivity/services/session-revenue';
 
 const getUserSiteIdsMock = getUserSiteIds as ReturnType<typeof vi.fn>;
+
+/** A per-day snapshot aggregate row as querySnapshotDays reads it. */
+function snapshotDayRow(date: string, overrides: Record<string, string> = {}) {
+  return {
+    date,
+    total_stations: '10',
+    online_stations: '9',
+    online_percent: '90',
+    uptime_percent: '99.5',
+    active_sessions: '3',
+    total_energy_wh: '500000',
+    day_energy_wh: '50000',
+    total_sessions: '100',
+    day_sessions: '10',
+    connected_stations: '9',
+    total_revenue_cents: '500000',
+    day_revenue_cents: '50000',
+    session_revenue_cents: '360000',
+    billed_sessions: '80',
+    legacy_avg_revenue: null,
+    total_transactions: '100',
+    day_transactions: '10',
+    total_ports: '20',
+    stations_below_threshold: '1',
+    avg_ping_latency_ms: '12.5',
+    ping_success_rate: '99.1',
+    ...overrides,
+  };
+}
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -184,7 +222,17 @@ describe('Dashboard routes', () => {
 
   beforeEach(() => {
     setupDbResults();
+    clearDashboardTotalsCache();
+    mockRequestHasPermission.mockResolvedValue(true);
   });
+
+  /** Revenue totals of rows, as queryRevenueTotal returns them. */
+  function totalsOf(rows: Parameters<typeof sessionRevenueModule.aggregateRevenueRows>[0]) {
+    return (
+      sessionRevenueModule.aggregateRevenueRows(rows.map((r) => ({ ...r, key: null }))).get(null) ??
+      sessionRevenueModule.EMPTY_REVENUE
+    );
+  }
 
   // --- Auth requirements ---
 
@@ -215,16 +263,19 @@ describe('Dashboard routes', () => {
 
   // --- Happy paths ---
 
-  it('GET /v1/dashboard/stats returns station and session statistics', async () => {
-    // First query: station rows grouped by availability and isOnline
-    // Second query: session stats
-    // Third query: stations whose display status is faulted (drives faultedStations)
+  it('GET /v1/dashboard/stats counts accepted stations and reads the cached all-time totals', async () => {
+    // Load order: session totals before today (cached), station rows, today's
+    // session totals, active sessions, stations whose display status is faulted.
     setupDbResults(
+      [{ totalSessions: 90, totalEnergyWh: 450000 }],
       [
-        { status: 'available', isOnline: true, count: 5 },
-        { status: 'faulted', isOnline: false, count: 1 },
+        { status: 'available', onboardingStatus: 'accepted', isOnline: true, count: 5 },
+        { status: 'faulted', onboardingStatus: 'accepted', isOnline: false, count: 1 },
+        { status: 'available', onboardingStatus: 'pending', isOnline: true, count: 2 },
+        { status: 'available', onboardingStatus: 'blocked', isOnline: false, count: 1 },
       ],
-      [{ activeSessions: 3, totalSessions: 100, totalEnergyWh: 500000 }],
+      [{ totalSessions: 10, totalEnergyWh: 50000 }],
+      [{ activeSessions: 3 }],
       [{ faulted: 1 }],
     );
     const response = await app.inject({
@@ -236,18 +287,37 @@ describe('Dashboard routes', () => {
     const body = JSON.parse(response.body);
     expect(body).toHaveProperty('totalStations', 6);
     expect(body).toHaveProperty('onlineStations', 5);
+    expect(body).toHaveProperty('onlinePercent', 83);
     expect(body).toHaveProperty('activeSessions', 3);
     expect(body).toHaveProperty('totalSessions', 100);
     expect(body).toHaveProperty('totalEnergyWh', 500000);
     expect(body).toHaveProperty('faultedStations', 1);
+    expect(body.statusCounts).toEqual({ available: 5, faulted: 1 });
+    expect(body.onboardingStatusCounts).toEqual({ accepted: 6, pending: 2, blocked: 1 });
     // The faulted count reads the station list's display status.
     expect(mockDerivedStatus).toHaveBeenCalled();
-    expect(body).toHaveProperty('statusCounts');
-    expect(body).toHaveProperty('onlinePercent');
+
+    // Within the minute the earlier totals come from the cache; today stays live.
+    setupDbResults(
+      [{ status: 'available', onboardingStatus: 'accepted', isOnline: true, count: 1 }],
+      [{ totalSessions: 11, totalEnergyWh: 51000 }],
+      [{ activeSessions: 0 }],
+      [{ faulted: 0 }],
+    );
+    const again = await app.inject({
+      method: 'GET',
+      url: '/dashboard/stats',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(JSON.parse(again.body)).toMatchObject({
+      totalStations: 1,
+      totalSessions: 101,
+      activeSessions: 0,
+    });
   });
 
   it('GET /v1/dashboard/stats returns zeros when no data', async () => {
-    setupDbResults([], [undefined]);
+    setupDbResults([], [], [], [], []);
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/stats',
@@ -264,20 +334,21 @@ describe('Dashboard routes', () => {
     // First query: timezone setting
     // Timezone now comes from cached getSystemTimezone (mocked above).
     setupDbResults([
+      { date: '2025-01-03', energyWh: 2000 },
       { date: '2025-01-01', energyWh: 1000 },
-      { date: '2025-01-02', energyWh: 2000 },
     ]);
     const response = await app.inject({
       method: 'GET',
-      url: '/dashboard/energy-history',
+      url: '/dashboard/energy-history?from=2025-01-01&to=2025-01-03',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    expect(Array.isArray(body)).toBe(true);
-    expect(body.length).toBe(2);
-    expect(body[0]).toHaveProperty('date');
-    expect(body[0]).toHaveProperty('energyWh');
+    // Every day of the range, oldest first, a day without sessions at 0.
+    expect(JSON.parse(response.body)).toEqual([
+      { date: '2025-01-01', energyWh: 1000 },
+      { date: '2025-01-02', energyWh: 0 },
+      { date: '2025-01-03', energyWh: 2000 },
+    ]);
   });
 
   it('GET /v1/dashboard/session-history returns session counts per day', async () => {
@@ -287,14 +358,26 @@ describe('Dashboard routes', () => {
     ]);
     const response = await app.inject({
       method: 'GET',
-      url: '/dashboard/session-history',
+      url: '/dashboard/session-history?from=2024-12-31&to=2025-01-02',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    expect(Array.isArray(body)).toBe(true);
-    expect(body[0]).toHaveProperty('date');
-    expect(body[0]).toHaveProperty('count');
+    expect(JSON.parse(response.body)).toEqual([
+      { date: '2024-12-31', count: 0 },
+      { date: '2025-01-01', count: 10 },
+      { date: '2025-01-02', count: 15 },
+    ]);
+  });
+
+  it('GET /v1/dashboard/session-history refuses a negative or zero days', async () => {
+    for (const days of ['-3', '0', 'abc']) {
+      const response = await app.inject({
+        method: 'GET',
+        url: `/dashboard/session-history?days=${days}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode, days).toBe(400);
+    }
   });
 
   it('GET /v1/dashboard/station-status returns status counts', async () => {
@@ -315,17 +398,26 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/utilization returns site utilization data', async () => {
-    setupDbResults([{ siteName: 'Main Site', sessionHours: 100, stationCount: 5 }]);
+    // A past range of 3 days is 72 hours per port.
+    vi.mocked(db.execute).mockResolvedValueOnce([
+      { site_name: 'Two Ports', ports: '2', session_hours: '36' },
+      { site_name: 'Busy', ports: '1', session_hours: '54' },
+      { site_name: 'No Ports', ports: '0', session_hours: '10' },
+      { site_name: 'Over', ports: '1', session_hours: '80' },
+    ] as never);
     const response = await app.inject({
       method: 'GET',
-      url: '/dashboard/utilization',
+      url: '/dashboard/utilization?from=2025-01-01&to=2025-01-03',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(response.statusCode).toBe(200);
-    const body = JSON.parse(response.body);
-    expect(Array.isArray(body)).toBe(true);
-    expect(body[0]).toHaveProperty('site', 'Main Site');
-    expect(body[0]).toHaveProperty('utilization');
+    // Ordered by the ratio, never above 100; a site without ports is 0.
+    expect(JSON.parse(response.body)).toEqual([
+      { site: 'Over', utilization: 100 },
+      { site: 'Busy', utilization: 75 },
+      { site: 'Two Ports', utilization: 25 },
+      { site: 'No Ports', utilization: 0 },
+    ]);
   });
 
   it('GET /v1/dashboard/peak-usage returns 401 without auth', async () => {
@@ -352,22 +444,26 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/financial-stats returns revenue, electricity cost, and profit in the company currency', async () => {
-    setupDbResults([{ totalElectricityCostCents: 120000, dayElectricityCostCents: 3000 }]);
-    // The shared revenue definition (session-revenue.ts), split by today.
-    const { aggregateRevenueRows } = sessionRevenueModule;
-    mockQueryRevenue.mockResolvedValueOnce(
-      aggregateRevenueRows([
-        { key: 'false', taxRate: '0.19', grossCents: 1190, source: 'session', count: 392 },
-        { key: 'true', taxRate: '0.19', grossCents: 1190, source: 'session', count: 8 },
-        { key: 'false', taxRate: '0', grossCents: 23520, source: 'session', count: 1 },
-        { key: 'true', taxRate: '0.07', grossCents: 480, source: 'session', count: 1 },
-        // A reservation fee: revenue, but not a session.
-        { key: 'true', taxRate: '0.19', grossCents: 595, source: 'fee', count: 1 },
-        // Unpaid account sessions: billed on account, not revenue.
-        { key: 'false', taxRate: '0.19', grossCents: 2380, source: 'account', count: 2 },
-        { key: 'true', taxRate: '0.19', grossCents: 1190, source: 'account', count: 1 },
-      ]),
-    );
+    // Load order: the electricity cost before today (cached), then today's.
+    setupDbResults([{ electricityCostCents: 117000 }], [{ electricityCostCents: 3000 }]);
+    // The shared revenue definition (session-revenue.ts): before today, then today.
+    const today = [
+      { key: null, taxRate: '0.19', grossCents: 1190, source: 'session', count: 8 },
+      { key: null, taxRate: '0.07', grossCents: 480, source: 'session', count: 1 },
+      // A reservation fee: revenue, but not a session.
+      { key: null, taxRate: '0.19', grossCents: 595, source: 'fee', count: 1 },
+      { key: null, taxRate: '0.19', grossCents: 1190, source: 'account', count: 1 },
+    ];
+    mockQueryRevenueTotal
+      .mockResolvedValueOnce(
+        totalsOf([
+          { key: null, taxRate: '0.19', grossCents: 1190, source: 'session', count: 392 },
+          { key: null, taxRate: '0', grossCents: 23520, source: 'session', count: 1 },
+          // Unpaid account sessions: billed on account, not revenue.
+          { key: null, taxRate: '0.19', grossCents: 2380, source: 'account', count: 2 },
+        ]),
+      )
+      .mockResolvedValueOnce(totalsOf(today));
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/financial-stats',
@@ -394,61 +490,91 @@ describe('Dashboard routes', () => {
     expect(body).toHaveProperty('billedOnAccountCents', 2 * 2380 + 1190);
     expect(body).toHaveProperty('billedOnAccountCount', 3);
     expect(body).toHaveProperty('currency', 'EUR');
-    expect(mockQueryRevenue).toHaveBeenCalledWith(
-      expect.objectContaining({ companyCurrency: 'EUR', where: [] }),
+    // Before today: the cached part, bounded by the start of today.
+    const earlier = mockQueryRevenueTotal.mock.calls[0]?.[0] as { where: unknown[] };
+    expect(earlier.where).toHaveLength(1);
+    // Today is read through the indexed dates.
+    expect(mockQueryRevenueTotal).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ companyCurrency: 'EUR', occurredSince: expect.any(Date) }),
     );
   });
 
+  it('GET /v1/dashboard/financial-stats leaves the electricity cost of unpaid account sessions out of profit', async () => {
+    setupDbResults([{ electricityCostCents: 500 }], [{ electricityCostCents: 0 }]);
+    const rows = [
+      {
+        key: null,
+        taxRate: '0',
+        grossCents: 1000,
+        source: 'session',
+        electricityCostCents: 300,
+        count: 1,
+      },
+      {
+        key: null,
+        taxRate: '0',
+        grossCents: 900,
+        source: 'account',
+        electricityCostCents: 200,
+        count: 1,
+      },
+    ];
+    mockQueryRevenueTotal.mockResolvedValueOnce(totalsOf(rows)).mockResolvedValueOnce(totalsOf([]));
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/financial-stats',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = JSON.parse(response.body);
+    expect(body.totalElectricityCostCents).toBe(500);
+    expect(body.totalProfitCents).toBe(1000 - 300);
+  });
+
   it('GET /v1/dashboard/financial-stats leaves sessions without an electricity cost out of profit', async () => {
-    setupDbResults([{ totalElectricityCostCents: 300, dayElectricityCostCents: 100 }]);
-    const { aggregateRevenueRows } = sessionRevenueModule;
-    mockQueryRevenue.mockResolvedValueOnce(
-      aggregateRevenueRows([
-        // Two sessions with a cost (one today), one without (today).
-        {
-          key: 'false',
-          taxRate: '0',
-          grossCents: 1000,
-          source: 'session',
-          costMissing: false,
-          count: 1,
-        },
-        {
-          key: 'true',
-          taxRate: '0',
-          grossCents: 1000,
-          source: 'session',
-          costMissing: false,
-          count: 1,
-        },
-        {
-          key: 'true',
-          taxRate: '0',
-          grossCents: 400,
-          source: 'session',
-          costMissing: true,
-          count: 1,
-        },
-        // Two sessions without a cost, earlier.
-        {
-          key: 'false',
-          taxRate: '0',
-          grossCents: 500,
-          source: 'session',
-          costMissing: true,
-          count: 2,
-        },
-        // A station without a site: counted too.
-        {
-          key: 'false',
-          taxRate: '0',
-          grossCents: 700,
-          source: 'session',
-          costMissing: true,
-          count: 1,
-        },
-      ]),
-    );
+    setupDbResults([{ electricityCostCents: 200 }], [{ electricityCostCents: 100 }]);
+    const today = [
+      {
+        key: null,
+        taxRate: '0',
+        grossCents: 1000,
+        source: 'session',
+        costMissing: false,
+        count: 1,
+      },
+      { key: null, taxRate: '0', grossCents: 400, source: 'session', costMissing: true, count: 1 },
+    ];
+    mockQueryRevenueTotal
+      .mockResolvedValueOnce(
+        totalsOf([
+          // One session with a cost, two without, one at a station without a site.
+          {
+            key: null,
+            taxRate: '0',
+            grossCents: 1000,
+            source: 'session',
+            costMissing: false,
+            count: 1,
+          },
+          {
+            key: null,
+            taxRate: '0',
+            grossCents: 500,
+            source: 'session',
+            costMissing: true,
+            count: 2,
+          },
+          {
+            key: null,
+            taxRate: '0',
+            grossCents: 700,
+            source: 'session',
+            costMissing: true,
+            count: 1,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(totalsOf(today));
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/financial-stats',
@@ -469,20 +595,21 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/financial-stats reports no excluded sessions when every session has a cost', async () => {
-    setupDbResults([{ totalElectricityCostCents: 300, dayElectricityCostCents: 0 }]);
-    const { aggregateRevenueRows } = sessionRevenueModule;
-    mockQueryRevenue.mockResolvedValueOnce(
-      aggregateRevenueRows([
-        {
-          key: 'false',
-          taxRate: '0',
-          grossCents: 1000,
-          source: 'session',
-          costMissing: false,
-          count: 2,
-        },
-      ]),
-    );
+    setupDbResults([{ electricityCostCents: 300 }], [{ electricityCostCents: 0 }]);
+    mockQueryRevenueTotal
+      .mockResolvedValueOnce(
+        totalsOf([
+          {
+            key: null,
+            taxRate: '0',
+            grossCents: 1000,
+            source: 'session',
+            costMissing: false,
+            count: 2,
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(totalsOf([]));
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/financial-stats',
@@ -517,23 +644,28 @@ describe('Dashboard routes', () => {
     const { aggregateRevenueRows } = sessionRevenueModule;
     mockQueryRevenue.mockResolvedValueOnce(
       aggregateRevenueRows([
-        { key: '2025-01-02', taxRate: '0', grossCents: 500, source: 'session', count: 14 },
+        { key: '2025-01-03', taxRate: '0', grossCents: 500, source: 'session', count: 14 },
         { key: '2025-01-01', taxRate: '0', grossCents: 500, source: 'session', count: 10 },
         { key: '2025-01-01', taxRate: '0', grossCents: 300, source: 'fee', count: 1 },
       ]),
     );
     const response = await app.inject({
       method: 'GET',
-      url: '/dashboard/revenue-history',
+      url: '/dashboard/revenue-history?from=2025-01-01&to=2025-01-03',
       headers: { authorization: `Bearer ${token}` },
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    // Ordered by day; revenue includes fees, the count only sessions.
+    // Every day, oldest first; revenue includes fees, the count only sessions.
     expect(body).toEqual([
       { date: '2025-01-01', revenueCents: 5300, sessionCount: 10 },
-      { date: '2025-01-02', revenueCents: 7000, sessionCount: 14 },
+      { date: '2025-01-02', revenueCents: 0, sessionCount: 0 },
+      { date: '2025-01-03', revenueCents: 7000, sessionCount: 14 },
     ]);
+    // Midnight of the first day in America/New_York, read through the indexed dates.
+    expect(mockQueryRevenue).toHaveBeenCalledWith(
+      expect.objectContaining({ occurredSince: new Date('2025-01-01T05:00:00.000Z') }),
+    );
   });
 
   it('GET /v1/dashboard/payment-breakdown returns payment status data', async () => {
@@ -686,30 +818,7 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/snapshots returns aggregated snapshot for a date', async () => {
-    vi.mocked(db.execute).mockResolvedValueOnce([
-      {
-        has_data: true,
-        total_stations: '10',
-        online_stations: '9',
-        online_percent: '90',
-        uptime_percent: '99.5',
-        active_sessions: '3',
-        total_energy_wh: '500000',
-        day_energy_wh: '50000',
-        total_sessions: '100',
-        day_sessions: '10',
-        connected_stations: '9',
-        total_revenue_cents: '500000',
-        day_revenue_cents: '50000',
-        avg_revenue_cents_per_session: '5000',
-        total_transactions: '100',
-        day_transactions: '10',
-        total_ports: '20',
-        stations_below_threshold: '1',
-        avg_ping_latency_ms: '12.5',
-        ping_success_rate: '99.1',
-      },
-    ] as never);
+    vi.mocked(db.execute).mockResolvedValueOnce([snapshotDayRow('2026-03-12')] as never);
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/snapshots?date=2026-03-12',
@@ -717,9 +826,93 @@ describe('Dashboard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
+    expect(body).toHaveProperty('hasData', true);
     expect(body).toHaveProperty('totalStations', 10);
     expect(body).toHaveProperty('uptimePercent', 99.5);
     expect(body).toHaveProperty('dayRevenueCents', 50000);
+    // Revenue per session: billed session revenue over billed sessions.
+    expect(body).toHaveProperty('avgRevenueCentsPerSession', 4500);
+  });
+
+  it('GET /v1/dashboard/snapshots uses the stored average of rows without a billed count', async () => {
+    vi.mocked(db.execute).mockResolvedValueOnce([
+      snapshotDayRow('2026-03-12', {
+        session_revenue_cents: null as unknown as string,
+        billed_sessions: null as unknown as string,
+        legacy_avg_revenue: '3300',
+      }),
+    ] as never);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/snapshots?date=2026-03-12',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(JSON.parse(response.body)).toHaveProperty('avgRevenueCentsPerSession', 3300);
+  });
+
+  it('GET /v1/dashboard/snapshots hides money from a user without payments:read', async () => {
+    mockRequestHasPermission.mockResolvedValue(false);
+    vi.mocked(db.execute).mockResolvedValueOnce([snapshotDayRow('2026-03-12')] as never);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/snapshots?date=2026-03-12',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = JSON.parse(response.body);
+    expect(body).toMatchObject({
+      totalStations: 10,
+      totalRevenueCents: null,
+      dayRevenueCents: null,
+      avgRevenueCentsPerSession: null,
+      totalTransactions: null,
+      dayTransactions: null,
+    });
+    expect(mockRequestHasPermission).toHaveBeenCalledWith(expect.anything(), 'payments:read');
+  });
+
+  it('GET /v1/dashboard/snapshots averages a date range over the days with data', async () => {
+    vi.mocked(db.execute).mockResolvedValueOnce([
+      snapshotDayRow('2026-03-11', { day_sessions: '10' }),
+      snapshotDayRow('2026-03-12', { day_sessions: '20' }),
+    ] as never);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/snapshots?date=2026-03-10&to=2026-03-12',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(JSON.parse(response.body)).toMatchObject({ hasData: true, daySessions: 15 });
+  });
+
+  it('GET /v1/dashboard/snapshots/day-over-day compares the latest snapshot day with the day before', async () => {
+    vi.mocked(db.execute)
+      .mockResolvedValueOnce([{ date: '2026-03-12' }] as never)
+      .mockResolvedValueOnce([
+        snapshotDayRow('2026-03-11', { day_sessions: '8' }),
+        snapshotDayRow('2026-03-12', { day_sessions: '10' }),
+      ] as never);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/snapshots/day-over-day',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.current).toMatchObject({ date: '2026-03-12', hasData: true, daySessions: 10 });
+    expect(body.previous).toMatchObject({ date: '2026-03-11', hasData: true, daySessions: 8 });
+  });
+
+  it('GET /v1/dashboard/snapshots/day-over-day marks a day without a snapshot', async () => {
+    vi.mocked(db.execute)
+      .mockResolvedValueOnce([{ date: '2026-03-12' }] as never)
+      .mockResolvedValueOnce([snapshotDayRow('2026-03-12')] as never);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/snapshots/day-over-day',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = JSON.parse(response.body);
+    expect(body.current.hasData).toBe(true);
+    expect(body.previous).toMatchObject({ date: '2026-03-11', hasData: false });
   });
 
   it('GET /v1/dashboard/snapshots returns zeros when no data', async () => {
@@ -743,31 +936,10 @@ describe('Dashboard routes', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('GET /v1/dashboard/snapshots/trend returns daily aggregated data', async () => {
+  it('GET /v1/dashboard/snapshots/trend returns daily aggregated data, newest first', async () => {
     vi.mocked(db.execute).mockResolvedValueOnce([
-      {
-        date: '2026-03-12',
-        has_data: true,
-        total_stations: '10',
-        online_stations: '9',
-        online_percent: '95',
-        uptime_percent: '99',
-        active_sessions: '3',
-        total_energy_wh: '500000',
-        day_energy_wh: '50000',
-        total_sessions: '100',
-        day_sessions: '10',
-        connected_stations: '9',
-        total_revenue_cents: '500000',
-        day_revenue_cents: '50000',
-        avg_revenue_cents_per_session: '5000',
-        total_transactions: '100',
-        day_transactions: '10',
-        total_ports: '20',
-        stations_below_threshold: '0',
-        avg_ping_latency_ms: '12.5',
-        ping_success_rate: '99.1',
-      },
+      snapshotDayRow('2026-03-11'),
+      snapshotDayRow('2026-03-12'),
     ] as never);
     const response = await app.inject({
       method: 'GET',
@@ -776,9 +948,7 @@ describe('Dashboard routes', () => {
     });
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
-    expect(body).toHaveProperty('days');
-    expect(Array.isArray(body.days)).toBe(true);
-    expect(body.days[0]).toHaveProperty('date', '2026-03-12');
+    expect(body.days.map((d: { date: string }) => d.date)).toEqual(['2026-03-12', '2026-03-11']);
     expect(body.days[0]).toHaveProperty('totalStations', 10);
   });
 

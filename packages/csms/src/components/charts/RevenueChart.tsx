@@ -11,6 +11,7 @@ import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor, formatChartDateLabel } from '@/lib/chart-theme';
 import { formatCents } from '@/lib/formatting';
 import { LoadingLogo } from '@/components/loading-logo';
+import { ChartBody, type QueryState } from './ChartBody';
 import { Button } from '@/components/ui/button';
 
 interface RevenueChartProps {
@@ -22,6 +23,8 @@ interface RevenueChartProps {
   title?: string;
   actions?: React.ReactNode;
   info?: string;
+  /** The state of the query behind the chart; omitted, the chart shows as given. */
+  state?: QueryState;
 }
 
 export function RevenueChart({
@@ -32,8 +35,9 @@ export function RevenueChart({
   title,
   actions,
   info,
+  state,
 }: RevenueChartProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isDark = useAuth((s) => s.theme) === 'dark';
   const resolvedTitle = title ?? t('charts.revenuePerDay');
   const options = useMemo<ApexOptions>(
@@ -79,7 +83,7 @@ export function RevenueChart({
         },
       ],
     }),
-    [isDark, data, currency],
+    [isDark, data, currency, i18n.language],
   );
 
   const series = useMemo(
@@ -97,22 +101,22 @@ export function RevenueChart({
         {actions}
       </CardHeader>
       <CardContent>
-        {data.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">{t('charts.noRevenueData')}</p>
-        ) : currency == null && currencyError ? (
-          <div className="flex flex-col items-center gap-2">
-            <p className="text-center text-sm text-destructive">{t('common.loadError')}</p>
-            {onRetry != null && (
-              <Button type="button" variant="outline" size="sm" onClick={onRetry}>
-                {t('common.retry')}
-              </Button>
-            )}
-          </div>
-        ) : currency == null ? (
-          <LoadingLogo size="inline" />
-        ) : (
-          <ReactApexChart options={options} series={series} type="line" height={300} />
-        )}
+        <ChartBody state={state} isEmpty={data.length === 0} emptyText={t('charts.noRevenueData')}>
+          {currency == null && currencyError ? (
+            <div className="flex flex-col items-center gap-2">
+              <p className="text-center text-sm text-destructive">{t('common.loadError')}</p>
+              {onRetry != null && (
+                <Button type="button" variant="outline" size="sm" onClick={onRetry}>
+                  {t('common.retry')}
+                </Button>
+              )}
+            </div>
+          ) : currency == null ? (
+            <LoadingLogo size="inline" />
+          ) : (
+            <ReactApexChart options={options} series={series} type="line" height={300} />
+          )}
+        </ChartBody>
       </CardContent>
     </Card>
   );

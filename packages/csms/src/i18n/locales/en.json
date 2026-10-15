@@ -375,8 +375,8 @@
     "custom": "Custom",
     "siteMap": "Site Map",
     "info": {
-      "totalStations": "Total number of charging stations registered in the system.",
-      "online": "Percentage of stations currently connected and communicating via OCPP.",
+      "totalStations": "Accepted charging stations. Pending and blocked stations are counted apart.",
+      "online": "Percentage of accepted stations currently connected and communicating via OCPP.",
       "onlineCount": "Number of stations currently connected and communicating via OCPP.",
       "uptime": "Average connector uptime across all stations over the last 30 days.",
       "activeSessions": "Number of charging sessions currently in progress.",
@@ -391,7 +391,7 @@
       "totalTransactions": "Total number of payment transactions processed.",
       "faults": "Number of stations currently reporting a fault condition.",
       "stationStatus": "Distribution of station statuses across all registered stations.",
-      "utilization": "Percentage of time each site's connectors were occupied during the selected period. A site at 100% would mean every station was charging nonstop for the entire period.",
+      "utilization": "Percentage of each site's port-hours spent charging during the selected period: charging time over the site's EVSEs in service times the hours so far. 100% means every port charged nonstop.",
       "energyChart": "Daily energy delivered across all stations for the selected period.",
       "sessionsChart": "Daily charging session count for the selected period.",
       "revenueChart": "Daily revenue from charging sessions for the selected period.",
@@ -400,9 +400,9 @@
       "activeSessionsTable": "Real-time view of currently active charging sessions.",
       "siteMap": "Map showing all site locations with station counts.",
       "electricityCost": "Operator's total wholesale electricity cost across all sessions, from configured per-site rates.",
-      "dayElectricityCost": "Wholesale electricity cost from sessions completed today.",
-      "profit": "Total revenue excluding tax minus total electricity cost. Sessions without an electricity cost are left out.",
-      "dayProfit": "Today's revenue excluding tax minus today's electricity cost. Sessions without an electricity cost are left out.",
+      "dayElectricityCost": "Wholesale electricity cost of the sessions started today.",
+      "profit": "Total revenue excluding tax minus total electricity cost. Sessions without an electricity cost, and unpaid account sessions until their invoice is paid, are left out.",
+      "dayProfit": "Today's revenue excluding tax minus today's electricity cost. Sessions without an electricity cost, and unpaid account sessions until their invoice is paid, are left out.",
       "totalPorts": "Total number of connector ports across all stations.",
       "netRevenue": "Total revenue excluding tax. Each session's charged amount is split at its tariff tax rate.",
       "todayNetRevenue": "Revenue excluding tax from sessions started today.",
@@ -452,7 +452,15 @@
     "todayTaxCollected": "Today's Tax Collected",
     "showPage": "Show page {{page}} of {{total}}",
     "billedOnAccount": "Billed on Account",
-    "billedOnAccountSessions": "Unpaid Account Sessions"
+    "billedOnAccountSessions": "Unpaid Account Sessions",
+    "deltaChange": "{{value}}% ({{range}})",
+    "deltaNoChange": "No change ({{range}})",
+    "deltaRange": "{{current}} vs {{previous}}",
+    "dateSpan": "{{from}} to {{to}}",
+    "stationsNotAccepted": "Pending: {{pending}}, blocked: {{blocked}}",
+    "siteMapNotConfigured": "Configure a Google Maps API key in Settings to show the site map.",
+    "siteMapLoadError": "The map could not be loaded.",
+    "siteMapMarker": "{{name}} (stations: {{count}})"
   },
   "sites": {
     "title": "Sites",
@@ -1903,7 +1911,8 @@
     "usuallyVeryBusy": "Usually very busy",
     "uptime": "Uptime",
     "uptimePerDay": "Uptime (% per day)",
-    "noUptimeData": "No uptime data available"
+    "noUptimeData": "No uptime data available",
+    "noData": "No data for this period"
   },
   "metrics": {
     "uptime": "Uptime",

@@ -375,8 +375,8 @@
     "custom": "自定义",
     "siteMap": "站点地图",
     "info": {
-      "totalStations": "系统中注册的充电站总数。",
-      "online": "当前通过 OCPP 连接并通信的充电站百分比。",
+      "totalStations": "已接受的充电站。待审核和已阻止的充电站单独计数。",
+      "online": "当前通过 OCPP 连接并通信的已接受充电站百分比。",
       "onlineCount": "当前通过 OCPP 连接并通信的充电站数量。",
       "uptime": "过去 30 天所有充电站连接器的平均运行时间。",
       "activeSessions": "当前正在进行的充电会话数量。",
@@ -391,7 +391,7 @@
       "totalTransactions": "已处理的支付交易总数。",
       "faults": "当前报告故障状态的充电站数量。",
       "stationStatus": "所有已注册充电站的状态分布。",
-      "utilization": "所选时段内每个站点连接器被占用的时间百分比。100%表示所有充电站在整个时段内不间断充电。",
+      "utilization": "所选时段内每个站点的端口小时中用于充电的百分比：充电时间除以站点在用 EVSE 数乘以至今的小时数。100% 表示每个端口不间断充电。",
       "energyChart": "所选时段内所有充电站的每日输送电量。",
       "sessionsChart": "所选时段内的每日充电会话数量。",
       "revenueChart": "所选时段内充电会话的每日收入。",
@@ -400,9 +400,9 @@
       "activeSessionsTable": "当前活跃充电会话的实时视图。",
       "siteMap": "显示所有站点位置及充电站数量的地图。",
       "electricityCost": "根据各站点配置的费率，运营商在所有充电中的批发电力成本总额。",
-      "dayElectricityCost": "今日完成充电的批发电力成本。",
-      "profit": "不含税总收入减去总电力成本。没有电力成本的会话不计入。",
-      "dayProfit": "今日不含税收入减去今日电力成本。没有电力成本的会话不计入。",
+      "dayElectricityCost": "今日开始的会话的批发电力成本。",
+      "profit": "不含税总收入减去总电力成本。没有电力成本的会话，以及发票付款前未付款的账户会话，不计入。",
+      "dayProfit": "今日不含税收入减去今日电力成本。没有电力成本的会话，以及发票付款前未付款的账户会话，不计入。",
       "totalPorts": "所有充电站的连接器端口总数。",
       "netRevenue": "不含税的总收入。每次会话的收费金额按其费率的税率拆分。",
       "todayNetRevenue": "今日开始的会话的不含税收入。",
@@ -452,7 +452,15 @@
     "todayTaxCollected": "今日已收税额",
     "showPage": "显示第 {{page}} 页，共 {{total}} 页",
     "billedOnAccount": "车队挂账",
-    "billedOnAccountSessions": "未付记账会话"
+    "billedOnAccountSessions": "未付记账会话",
+    "deltaChange": "{{value}}%（{{range}}）",
+    "deltaNoChange": "无变化（{{range}}）",
+    "deltaRange": "{{current}} 对比 {{previous}}",
+    "dateSpan": "{{from}} 至 {{to}}",
+    "stationsNotAccepted": "待审核：{{pending}}，已阻止：{{blocked}}",
+    "siteMapNotConfigured": "请在设置中配置 Google Maps API 密钥以显示站点地图。",
+    "siteMapLoadError": "无法加载地图。",
+    "siteMapMarker": "{{name}}（充电站：{{count}}）"
   },
   "sites": {
     "title": "站点",
@@ -1903,7 +1911,8 @@
     "usuallyVeryBusy": "通常非常忙",
     "uptime": "运行时间",
     "uptimePerDay": "正常运行时间 (每日%)",
-    "noUptimeData": "无正常运行时间数据"
+    "noUptimeData": "无正常运行时间数据",
+    "noData": "此时段没有数据"
   },
   "metrics": {
     "uptime": "运行时间",

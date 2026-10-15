@@ -375,8 +375,8 @@
     "custom": "Benutzerdefiniert",
     "siteMap": "Standortkarte",
     "info": {
-      "totalStations": "Gesamtanzahl der im System registrierten Stationen.",
-      "online": "Prozentsatz der derzeit verbundenen und über OCPP kommunizierenden Stationen.",
+      "totalStations": "Akzeptierte Ladestationen. Ausstehende und gesperrte Stationen werden gesondert gezählt.",
+      "online": "Prozentsatz der akzeptierten Stationen, die derzeit verbunden sind und über OCPP kommunizieren.",
       "onlineCount": "Anzahl der derzeit verbundenen und über OCPP kommunizierenden Stationen.",
       "uptime": "Durchschnittliche Anschlussverfügbarkeit über alle Stationen in den letzten 30 Tagen.",
       "activeSessions": "Anzahl der derzeit laufenden Ladevorgänge.",
@@ -391,7 +391,7 @@
       "totalTransactions": "Gesamtzahl der verarbeiteten Zahlungstransaktionen.",
       "faults": "Anzahl der Stationen, die derzeit einen Fehlerzustand melden.",
       "stationStatus": "Verteilung der Stationsstatus über alle registrierten Stationen.",
-      "utilization": "Prozentsatz der Zeit, in der die Anschlüsse jedes Standorts während des ausgewählten Zeitraums belegt waren. Ein Standort bei 100 % bedeutet, dass jede Station den gesamten Zeitraum ununterbrochen geladen hat.",
+      "utilization": "Anteil der Anschlussstunden jedes Standorts, in denen im ausgewählten Zeitraum geladen wurde: Ladezeit geteilt durch die EVSEs des Standorts in Betrieb mal die bisherigen Stunden. 100 % bedeutet, dass jeder Anschluss ununterbrochen geladen hat.",
       "energyChart": "Tägliche gelieferte Energie über alle Stationen für den ausgewählten Zeitraum.",
       "sessionsChart": "Tägliche Anzahl der Ladevorgänge für den ausgewählten Zeitraum.",
       "revenueChart": "Tägliche Einnahmen aus Ladevorgängen für den ausgewählten Zeitraum.",
@@ -400,9 +400,9 @@
       "activeSessionsTable": "Echtzeitansicht der derzeit aktiven Ladevorgänge.",
       "siteMap": "Karte mit allen Standorten und Stationsanzahlen.",
       "electricityCost": "Gesamte Strombezugskosten des Betreibers über alle Ladevorgänge, aus den pro Standort konfigurierten Tarifen.",
-      "dayElectricityCost": "Strombezugskosten aus heute abgeschlossenen Ladevorgängen.",
-      "profit": "Gesamtumsatz ohne Steuer abzüglich der gesamten Stromkosten. Ladevorgänge ohne Stromkosten sind nicht enthalten.",
-      "dayProfit": "Heutiger Umsatz ohne Steuer abzüglich der heutigen Stromkosten. Ladevorgänge ohne Stromkosten sind nicht enthalten.",
+      "dayElectricityCost": "Strombezugskosten der heute gestarteten Ladevorgänge.",
+      "profit": "Gesamtumsatz ohne Steuer abzüglich der gesamten Stromkosten. Ladevorgänge ohne Stromkosten und unbezahlte Kontoladevorgänge bis zur Bezahlung ihrer Rechnung sind nicht enthalten.",
+      "dayProfit": "Heutiger Umsatz ohne Steuer abzüglich der heutigen Stromkosten. Ladevorgänge ohne Stromkosten und unbezahlte Kontoladevorgänge bis zur Bezahlung ihrer Rechnung sind nicht enthalten.",
       "totalPorts": "Gesamtzahl der Anschlüsse über alle Stationen.",
       "netRevenue": "Gesamtumsatz ohne Steuer. Der berechnete Betrag jedes Ladevorgangs wird mit dem Steuersatz seines Tarifs aufgeteilt.",
       "todayNetRevenue": "Umsatz ohne Steuer aus heute gestarteten Ladevorgängen.",
@@ -452,7 +452,15 @@
     "todayTaxCollected": "Heute vereinnahmte Steuer",
     "showPage": "Seite {{page}} von {{total}} anzeigen",
     "billedOnAccount": "Auf Flottenrechnung",
-    "billedOnAccountSessions": "Offene Ladevorgänge auf Rechnung"
+    "billedOnAccountSessions": "Offene Ladevorgänge auf Rechnung",
+    "deltaChange": "{{value}} % ({{range}})",
+    "deltaNoChange": "Keine Änderung ({{range}})",
+    "deltaRange": "{{current}} vs. {{previous}}",
+    "dateSpan": "{{from}} bis {{to}}",
+    "stationsNotAccepted": "Ausstehend: {{pending}}, gesperrt: {{blocked}}",
+    "siteMapNotConfigured": "Hinterlegen Sie in den Einstellungen einen Google-Maps-API-Schlüssel, um die Standortkarte anzuzeigen.",
+    "siteMapLoadError": "Die Karte konnte nicht geladen werden.",
+    "siteMapMarker": "{{name}} (Stationen: {{count}})"
   },
   "sites": {
     "title": "Standorte",
@@ -1903,7 +1911,8 @@
     "usuallyVeryBusy": "Normalerweise stark ausgelastet",
     "uptime": "Verfügbarkeit",
     "uptimePerDay": "Verfügbarkeit (% pro Tag)",
-    "noUptimeData": "Keine Verfügbarkeitsdaten verfügbar"
+    "noUptimeData": "Keine Verfügbarkeitsdaten verfügbar",
+    "noData": "Keine Daten für diesen Zeitraum"
   },
   "metrics": {
     "uptime": "Verfügbarkeit",

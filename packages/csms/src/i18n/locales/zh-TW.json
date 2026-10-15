@@ -375,8 +375,8 @@
     "custom": "自訂",
     "siteMap": "站點地圖",
     "info": {
-      "totalStations": "系統中註冊的充電站總數。",
-      "online": "當前透過 OCPP 連線並通訊的充電站百分比。",
+      "totalStations": "已接受的充電站。待審核和已封鎖的充電站另行計數。",
+      "online": "當前透過 OCPP 連線並通訊的已接受充電站百分比。",
       "onlineCount": "當前透過 OCPP 連線並通訊的充電站數量。",
       "uptime": "過去 30 天所有充電站連接器的平均執行時間。",
       "activeSessions": "當前正在進行的充電工作階段數量。",
@@ -391,7 +391,7 @@
       "totalTransactions": "已處理的支付交易總數。",
       "faults": "當前報告故障狀態的充電站數量。",
       "stationStatus": "所有已註冊充電站的狀態分佈。",
-      "utilization": "所選時段內每個站點連接器被佔用的時間百分比。100%表示所有充電站在整個時段內不間斷充電。",
+      "utilization": "所選時段內每個站點的埠小時中用於充電的百分比：充電時間除以站點使用中 EVSE 數乘以至今的小時數。100% 表示每個埠不間斷充電。",
       "energyChart": "所選時段內所有充電站的每日輸送電量。",
       "sessionsChart": "所選時段內的每日充電工作階段數量。",
       "revenueChart": "所選時段內充電工作階段的每日收入。",
@@ -400,9 +400,9 @@
       "activeSessionsTable": "當前活躍充電工作階段的即時檢視。",
       "siteMap": "顯示所有站點位置及充電站數量的地圖。",
       "electricityCost": "根據各站點設定的費率，營運商在所有充電中的批發電力成本總額。",
-      "dayElectricityCost": "今日完成充電的批發電力成本。",
-      "profit": "未稅總收入減去總電力成本。沒有電力成本的工作階段不計入。",
-      "dayProfit": "今日未稅收入減去今日電力成本。沒有電力成本的工作階段不計入。",
+      "dayElectricityCost": "今日開始的工作階段的批發電力成本。",
+      "profit": "未稅總收入減去總電力成本。沒有電力成本的工作階段，以及發票付款前未付款的帳戶工作階段，不計入。",
+      "dayProfit": "今日未稅收入減去今日電力成本。沒有電力成本的工作階段，以及發票付款前未付款的帳戶工作階段，不計入。",
       "totalPorts": "所有充電站的充電埠總數。",
       "netRevenue": "未稅的總收入。每次工作階段的收費金額依其費率的稅率拆分。",
       "todayNetRevenue": "今日開始的工作階段的未稅收入。",
@@ -452,7 +452,15 @@
     "todayTaxCollected": "今日已收稅額",
     "showPage": "顯示第 {{page}} 頁，共 {{total}} 頁",
     "billedOnAccount": "車隊掛帳",
-    "billedOnAccountSessions": "未付記帳工作階段"
+    "billedOnAccountSessions": "未付記帳工作階段",
+    "deltaChange": "{{value}}%（{{range}}）",
+    "deltaNoChange": "無變化（{{range}}）",
+    "deltaRange": "{{current}} 對比 {{previous}}",
+    "dateSpan": "{{from}} 至 {{to}}",
+    "stationsNotAccepted": "待審核：{{pending}}，已封鎖：{{blocked}}",
+    "siteMapNotConfigured": "請在設定中配置 Google Maps API 金鑰以顯示站點地圖。",
+    "siteMapLoadError": "無法載入地圖。",
+    "siteMapMarker": "{{name}}（充電站：{{count}}）"
   },
   "sites": {
     "title": "站點",
@@ -1903,7 +1911,8 @@
     "usuallyVeryBusy": "通常非常忙",
     "uptime": "正常執行時間",
     "uptimePerDay": "正常執行時間 (每日%)",
-    "noUptimeData": "無正常執行時間資料"
+    "noUptimeData": "無正常執行時間資料",
+    "noData": "此時段沒有資料"
   },
   "metrics": {
     "uptime": "執行時間",

@@ -375,8 +375,8 @@
     "custom": "Personalizado",
     "siteMap": "Mapa de Sitios",
     "info": {
-      "totalStations": "Número total de estaciones de carga registradas en el sistema.",
-      "online": "Porcentaje de estaciones actualmente conectadas y comunicándose vía OCPP.",
+      "totalStations": "Estaciones de carga aceptadas. Las estaciones pendientes y bloqueadas se cuentan aparte.",
+      "online": "Porcentaje de estaciones aceptadas actualmente conectadas y comunicándose vía OCPP.",
       "onlineCount": "Número de estaciones actualmente conectadas y comunicándose vía OCPP.",
       "uptime": "Tiempo de actividad promedio de los conectores en los últimos 30 días.",
       "activeSessions": "Número de sesiones de carga actualmente en curso.",
@@ -391,7 +391,7 @@
       "totalTransactions": "Número total de transacciones de pago procesadas.",
       "faults": "Número de estaciones que actualmente reportan una condición de falla.",
       "stationStatus": "Distribución de estados de estaciones en todas las estaciones registradas.",
-      "utilization": "Porcentaje de tiempo que los conectores de cada sitio estuvieron ocupados durante el periodo seleccionado. Un sitio al 100% significaría que todas las estaciones estuvieron cargando sin parar durante todo el periodo.",
+      "utilization": "Porcentaje de las horas de puerto de cada sitio dedicadas a cargar en el periodo seleccionado: tiempo de carga entre los EVSE en servicio del sitio por las horas transcurridas. 100% significa que cada puerto cargó sin parar.",
       "energyChart": "Energía diaria entregada en todas las estaciones para el periodo seleccionado.",
       "sessionsChart": "Conteo diario de sesiones de carga para el periodo seleccionado.",
       "revenueChart": "Ingresos diarios de sesiones de carga para el periodo seleccionado.",
@@ -400,9 +400,9 @@
       "activeSessionsTable": "Vista en tiempo real de las sesiones de carga actualmente activas.",
       "siteMap": "Mapa que muestra las ubicaciones de todos los sitios con el conteo de estaciones.",
       "electricityCost": "Costo mayorista total de electricidad del operador en todas las sesiones, según las tarifas configuradas por sitio.",
-      "dayElectricityCost": "Costo mayorista de electricidad de las sesiones completadas hoy.",
-      "profit": "Ingresos totales sin impuestos menos el costo total de electricidad. No se incluyen las sesiones sin costo de electricidad.",
-      "dayProfit": "Ingresos de hoy sin impuestos menos el costo de electricidad de hoy. No se incluyen las sesiones sin costo de electricidad.",
+      "dayElectricityCost": "Costo mayorista de electricidad de las sesiones iniciadas hoy.",
+      "profit": "Ingresos totales sin impuestos menos el costo total de electricidad. No se incluyen las sesiones sin costo de electricidad ni las sesiones de cuenta impagas hasta que se pague su factura.",
+      "dayProfit": "Ingresos de hoy sin impuestos menos el costo de electricidad de hoy. No se incluyen las sesiones sin costo de electricidad ni las sesiones de cuenta impagas hasta que se pague su factura.",
       "totalPorts": "Número total de puertos de conexión en todas las estaciones.",
       "netRevenue": "Ingresos totales sin impuestos. El importe cobrado de cada sesión se divide según la tasa impositiva de su tarifa.",
       "todayNetRevenue": "Ingresos sin impuestos de las sesiones iniciadas hoy.",
@@ -452,7 +452,15 @@
     "todayTaxCollected": "Impuestos recaudados hoy",
     "showPage": "Mostrar página {{page}} de {{total}}",
     "billedOnAccount": "Facturado a la flota",
-    "billedOnAccountSessions": "Sesiones a cuenta pendientes"
+    "billedOnAccountSessions": "Sesiones a cuenta pendientes",
+    "deltaChange": "{{value}} % ({{range}})",
+    "deltaNoChange": "Sin cambios ({{range}})",
+    "deltaRange": "{{current}} vs. {{previous}}",
+    "dateSpan": "{{from}} a {{to}}",
+    "stationsNotAccepted": "Pendientes: {{pending}}, bloqueadas: {{blocked}}",
+    "siteMapNotConfigured": "Configure una clave de API de Google Maps en Configuración para mostrar el mapa de sitios.",
+    "siteMapLoadError": "No se pudo cargar el mapa.",
+    "siteMapMarker": "{{name}} (estaciones: {{count}})"
   },
   "sites": {
     "title": "Sitios",
@@ -1903,7 +1911,8 @@
     "usuallyVeryBusy": "Generalmente muy concurrido",
     "uptime": "Tiempo activo",
     "uptimePerDay": "Tiempo activo (% por día)",
-    "noUptimeData": "No hay datos de tiempo activo disponibles"
+    "noUptimeData": "No hay datos de tiempo activo disponibles",
+    "noData": "No hay datos para este periodo"
   },
   "metrics": {
     "uptime": "Tiempo activo",

@@ -3,7 +3,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { sql, eq, and, gte, lte, count, inArray } from 'drizzle-orm';
+import { sql, eq, and, gte, lt, count, inArray, isNull } from 'drizzle-orm';
 import {
   client,
   db,
@@ -18,7 +18,6 @@ import {
   evses,
   sites,
   paymentRecords,
-  dashboardSnapshots,
 } from '@evtivity/database';
 import { ValidationError } from '@evtivity/lib';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
@@ -26,6 +25,7 @@ import { inCompanyCurrency } from '@evtivity/services/company-currency';
 import { paymentRecordsAtSites } from '../lib/payment-site-scope.js';
 import {
   queryRevenue,
+  queryRevenueTotal,
   revenueAtSites,
   revenueItem,
   sumRevenue,
@@ -37,9 +37,25 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { buildDerivedStatusSubquery } from '@evtivity/services/station-derived-status';
-import { dateRangeQuery, parseDateRange, parseCalendarDate } from '../lib/date-range.js';
+import {
+  addCalendarDays,
+  calendarDateIn,
+  calendarDayBounds,
+  dateRangeQuery,
+  fillDates,
+  parseCalendarDate,
+  resolveCalendarRange,
+} from '../lib/date-range.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
+import { cachedDashboardTotals, siteScopeKey } from '../lib/dashboard-totals.js';
+import {
+  averageSnapshotDays,
+  EMPTY_SNAPSHOT,
+  querySnapshotDays,
+  snapshotScope,
+  type DatedSnapshot,
+} from '../lib/dashboard-snapshots.js';
 
 const dashboardStatsResponse = z
   .object({
@@ -47,19 +63,31 @@ const dashboardStatsResponse = z
       .number()
       .int()
       .min(0)
-      .describe('Total number of stations matching site access filter'),
+      .describe(
+        'Accepted stations (onboarding status accepted) of the user sites. Pending and blocked stations are in onboardingStatusCounts.',
+      ),
     onlineStations: z
       .number()
       .int()
       .min(0)
-      .describe('Number of stations currently connected via WebSocket'),
-    onlinePercent: z.number().min(0).max(100).describe('Percentage of stations online (0-100)'),
+      .describe('Accepted stations currently connected via WebSocket'),
+    onlinePercent: z
+      .number()
+      .min(0)
+      .max(100)
+      .describe('Percentage of the accepted stations online (0-100)'),
     activeSessions: z
       .number()
       .int()
       .min(0)
       .describe('Number of charging sessions currently in progress'),
-    totalSessions: z.number().int().min(0).describe('Total number of charging sessions on record'),
+    totalSessions: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Total number of charging sessions on record. All-time totals are refreshed at most once a minute.',
+      ),
     totalEnergyWh: z
       .number()
       .min(0)
@@ -68,13 +96,15 @@ const dashboardStatsResponse = z
       .number()
       .int()
       .min(0)
-      .describe('Number of stations currently in faulted state'),
+      .describe('Number of accepted stations currently in faulted state'),
     statusCounts: z
       .record(z.number().int().min(0))
-      .describe('Map of station availability status to count'),
+      .describe('Map of station availability status to count, accepted stations'),
     onboardingStatusCounts: z
       .record(z.number().int().min(0))
-      .describe('Map of station onboarding status to count'),
+      .describe(
+        'Map of station onboarding status (accepted, pending, blocked) to count, every station',
+      ),
   })
   .passthrough();
 
@@ -112,7 +142,9 @@ const utilizationItem = z
       .number()
       .min(0)
       .max(100)
-      .describe('Utilization percentage (0-100): session-hours over total available hours'),
+      .describe(
+        'Utilization percentage (0-100): charging hours of the sessions at the site, clipped to the period, over the port-hours of its EVSEs in service (not retired) for the period so far',
+      ),
   })
   .passthrough();
 const peakUsageItem = z
@@ -362,173 +394,125 @@ const ocppHealthResponse = z
   })
   .passthrough();
 
-const snapshotItem = z
+const MONEY_HIDDEN = ' Null for a user without payments:read, who does not see revenue.';
+
+/** Fields of an aggregated snapshot (one date, a date range, or a trend day). */
+const snapshotFields = {
+  hasData: z
+    .boolean()
+    .describe(
+      'True when at least one dashboard_snapshots row matched the requested date filter. False on early days after deployment before the nightly snapshot worker has populated the table: the dashboard then shows no day-over-day arrows instead of a misleading +/-100%.',
+    ),
+  totalStations: z
+    .number()
+    .int()
+    .min(0)
+    .describe(
+      'Accepted stations on this date (station counts of rows before v0.1.46 counted every station)',
+    ),
+  onlineStations: z.number().int().min(0).describe('Number of stations online on this date'),
+  onlinePercent: z
+    .number()
+    .min(0)
+    .max(100)
+    .describe('Percentage of stations online on this date (0-100)'),
+  uptimePercent: z
+    .number()
+    .min(0)
+    .max(100)
+    .describe('Average port uptime percentage on this date (0-100)'),
+  activeSessions: z.number().int().min(0).describe('Sessions active at the end of this date'),
+  totalEnergyWh: z
+    .number()
+    .min(0)
+    .describe('Cumulative energy delivered through the end of this date in watt-hours'),
+  dayEnergyWh: z.number().min(0).describe('Energy delivered on this date in watt-hours'),
+  totalSessions: z
+    .number()
+    .int()
+    .min(0)
+    .describe('Cumulative session count through the end of this date'),
+  daySessions: z.number().int().min(0).describe('Number of sessions started on this date'),
+  connectedStations: z
+    .number()
+    .int()
+    .min(0)
+    .describe('Number of stations connected via WebSocket on this date'),
+  totalRevenueCents: z
+    .number()
+    .int()
+    .min(0)
+    .nullable()
+    .describe(`Cumulative revenue through the end of this date in cents.${MONEY_HIDDEN}`),
+  dayRevenueCents: z
+    .number()
+    .int()
+    .min(0)
+    .nullable()
+    .describe(`Revenue earned on this date in cents.${MONEY_HIDDEN}`),
+  avgRevenueCentsPerSession: z
+    .number()
+    .min(0)
+    .nullable()
+    .describe(
+      `Average revenue per billed session in the company currency (reservation fees left out), as the live figure.${MONEY_HIDDEN}`,
+    ),
+  totalTransactions: z
+    .number()
+    .int()
+    .min(0)
+    .nullable()
+    .describe(
+      `Cumulative revenue items (billed sessions and fee charges) through the end of this date.${MONEY_HIDDEN}`,
+    ),
+  dayTransactions: z
+    .number()
+    .int()
+    .min(0)
+    .nullable()
+    .describe(`Revenue items of this date.${MONEY_HIDDEN}`),
+  totalPorts: z.number().int().min(0).describe('Total number of ports tracked on this date'),
+  stationsBelowThreshold: z
+    .number()
+    .int()
+    .min(0)
+    .describe('Number of stations with uptime below the 97% threshold on this date'),
+  avgPingLatencyMs: z
+    .number()
+    .min(0)
+    .describe('Average OCPP ping round-trip latency in milliseconds'),
+  pingSuccessRate: z
+    .number()
+    .min(0)
+    .max(100)
+    .describe('Percentage of OCPP pings that received a pong response (0-100)'),
+};
+
+const snapshotItem = z.object(snapshotFields).passthrough();
+
+const datedSnapshotItem = z
   .object({
-    hasData: z
-      .boolean()
-      .describe(
-        'True when at least one dashboard_snapshots row matched the requested date filter. False on early days after deployment before the nightly snapshot worker has populated the table -- the StatCards on the dashboard suppress their day-over-day delta arrows when this is false to avoid showing a misleading +/-100%.',
-      ),
-    totalStations: z.number().int().min(0).describe('Total number of stations on this date'),
-    onlineStations: z.number().int().min(0).describe('Number of stations online on this date'),
-    onlinePercent: z
-      .number()
-      .min(0)
-      .max(100)
-      .describe('Percentage of stations online on this date (0-100)'),
-    uptimePercent: z
-      .number()
-      .min(0)
-      .max(100)
-      .describe('Average port uptime percentage on this date (0-100)'),
-    activeSessions: z.number().int().min(0).describe('Number of active sessions on this date'),
-    totalEnergyWh: z
-      .number()
-      .min(0)
-      .describe('Cumulative energy delivered through this date in watt-hours'),
-    dayEnergyWh: z.number().min(0).describe('Energy delivered on this date in watt-hours'),
-    totalSessions: z.number().int().min(0).describe('Cumulative session count through this date'),
-    daySessions: z.number().int().min(0).describe('Number of sessions started on this date'),
-    connectedStations: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Number of stations connected via WebSocket on this date'),
-    totalRevenueCents: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Cumulative revenue through this date in cents'),
-    dayRevenueCents: z.number().int().min(0).describe('Revenue earned on this date in cents'),
-    avgRevenueCentsPerSession: z.number().min(0).describe('Average revenue per session in cents'),
-    totalTransactions: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Cumulative paid transaction count through this date'),
-    dayTransactions: z.number().int().min(0).describe('Number of paid transactions on this date'),
-    totalPorts: z.number().int().min(0).describe('Total number of ports tracked on this date'),
-    stationsBelowThreshold: z
-      .number()
-      .int()
-      .min(0)
-      .describe('Number of stations with uptime below the 97% threshold on this date'),
-    avgPingLatencyMs: z
-      .number()
-      .min(0)
-      .describe('Average OCPP ping round-trip latency in milliseconds'),
-    pingSuccessRate: z
-      .number()
-      .min(0)
-      .max(100)
-      .describe('Percentage of OCPP pings that received a pong response (0-100)'),
+    date: z.string().describe('Snapshot date in YYYY-MM-DD format (system timezone)'),
+    ...snapshotFields,
   })
   .passthrough();
 
 const trendResponse = z
   .object({
     days: z
-      .array(
-        z
-          .object({
-            date: z.string().describe('Date in YYYY-MM-DD format (local timezone)'),
-            hasData: z
-              .boolean()
-              .describe(
-                'Always true for trend rows -- the query GROUP BYs snapshot_date so each row represents a day that actually had a snapshot. Mirrors the snapshot endpoint shape so TrendDay can extend SnapshotData on the frontend without divergence.',
-              ),
-            totalStations: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Total number of stations on this date'),
-            onlineStations: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Number of stations online on this date'),
-            onlinePercent: z
-              .number()
-              .min(0)
-              .max(100)
-              .describe('Percentage of stations online on this date (0-100)'),
-            uptimePercent: z
-              .number()
-              .min(0)
-              .max(100)
-              .describe('Average port uptime percentage on this date (0-100)'),
-            activeSessions: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Number of active sessions on this date'),
-            totalEnergyWh: z
-              .number()
-              .min(0)
-              .describe('Cumulative energy delivered through this date in watt-hours'),
-            dayEnergyWh: z.number().min(0).describe('Energy delivered on this date in watt-hours'),
-            totalSessions: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Cumulative session count through this date'),
-            daySessions: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Number of sessions started on this date'),
-            connectedStations: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Number of stations connected via WebSocket on this date'),
-            totalRevenueCents: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Cumulative revenue through this date in cents'),
-            dayRevenueCents: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Revenue earned on this date in cents'),
-            avgRevenueCentsPerSession: z
-              .number()
-              .min(0)
-              .describe('Average revenue per session in cents'),
-            totalTransactions: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Cumulative paid transaction count through this date'),
-            dayTransactions: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Number of paid transactions on this date'),
-            totalPorts: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Total number of ports tracked on this date'),
-            stationsBelowThreshold: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Number of stations with uptime below the 97% threshold on this date'),
-            avgPingLatencyMs: z
-              .number()
-              .min(0)
-              .describe('Average OCPP ping round-trip latency in milliseconds'),
-            pingSuccessRate: z
-              .number()
-              .min(0)
-              .max(100)
-              .describe('Percentage of OCPP pings that received a pong response (0-100)'),
-          })
-          .passthrough(),
-      )
-      .describe('Per-day snapshot rows ordered by date'),
+      .array(datedSnapshotItem)
+      .describe(
+        'Per-day snapshot rows of the last 14 days in the system timezone, newest first. Only days with a snapshot are listed, so hasData is always true.',
+      ),
+  })
+  .passthrough();
+
+const dayOverDayResponse = z
+  .object({
+    current: datedSnapshotItem.describe(
+      'The latest snapshot date up to yesterday in the system timezone (yesterday when none has data)',
+    ),
+    previous: datedSnapshotItem.describe('The calendar day before current'),
   })
   .passthrough();
 
@@ -545,15 +529,35 @@ const snapshotDateQuery = z.object({
 });
 
 const uptimeQuery = z.object({
+  days: z
+    .string()
+    .regex(/^\d+$/)
+    .optional()
+    .describe(
+      'Number of trailing days to compute uptime over (1-366). Takes precedence over `months`; the dashboard sends 30.',
+    ),
   months: z
     .string()
     .optional()
     .describe('Number of trailing months to compute uptime over (1-24, defaults to 12).'),
 });
 
+/**
+ * How far before the period an ended session may have started and still be
+ * counted: it bounds the scan to an index range. Longer sessions are ended
+ * by the stale session cleanup long before this.
+ */
+const UTILIZATION_LOOKBACK_DAYS = 7;
+
+/**
+ * Per user and route. One open dashboard refetches a route at most once per
+ * 5 s on CSMS events plus the 60 s poll (about 14 a minute); 120 leaves room
+ * for several tabs and windows. The response cache and the one-minute totals
+ * cache keep the database load per minute bounded whatever the request rate.
+ */
 const DASHBOARD_RATE_LIMIT = {
   rateLimit: {
-    max: 30,
+    max: 120,
     timeWindow: '1 minute',
     keyGenerator: (request: FastifyRequest) => {
       const user = request.user as { userId?: string } | undefined;
@@ -600,32 +604,50 @@ export function dashboardRoutes(app: FastifyInstance): void {
       if (siteIds != null) {
         stationConditions.push(inArray(chargingStations.siteId, siteIds));
       }
+      const sessionScope = siteIds != null ? inArray(chargingSessions.siteId, siteIds) : undefined;
 
-      // Station counts and session stats are independent; fire them in
-      // parallel so the dashboard stats endpoint costs max(query) instead of
-      // sum(query). With both queries hitting separate tables, no contention.
-      const sessionQueryBuilder = db
-        .select({
-          activeSessions: sql<number>`count(*) filter (where ${chargingSessions.status} = 'active')`,
-          totalSessions: count(),
-          totalEnergyWh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`,
-        })
-        .from(chargingSessions);
+      // All-time session totals: the sessions started before today from the
+      // shared one-minute cache, plus today's read live through the start
+      // index. Active sessions, station counts and faults are read live.
+      const tz = await getSystemTimezone();
+      const todayStart = calendarDayBounds(calendarDateIn(new Date(), tz), tz).since;
+      const sessionTotalsSql = {
+        totalSessions: count(),
+        totalEnergyWh:
+          sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`.mapWith(
+            Number,
+          ),
+      };
+      const earlierTotals = cachedDashboardTotals(
+        `stats:${todayStart.toISOString()}:${siteScopeKey(siteIds)}`,
+        async () => {
+          const [row] = await db
+            .select(sessionTotalsSql)
+            .from(chargingSessions)
+            .where(and(lt(chargingSessions.startedAt, todayStart), sessionScope));
+          return { totalSessions: row?.totalSessions ?? 0, totalEnergyWh: row?.totalEnergyWh ?? 0 };
+        },
+      );
+      const todayTotalsQuery = db
+        .select(sessionTotalsSql)
+        .from(chargingSessions)
+        .where(and(gte(chargingSessions.startedAt, todayStart), sessionScope));
 
-      if (siteIds != null) {
-        sessionQueryBuilder.where(inArray(chargingSessions.siteId, siteIds));
-      }
+      const activeSessionsQuery = db
+        .select({ activeSessions: count() })
+        .from(chargingSessions)
+        .where(and(eq(chargingSessions.status, 'active'), sessionScope));
 
       // Faulted stations use the station list's display status, so a station
       // charging on one plug while another plug is faulted is not counted.
-      const faultedStationsQueryBuilder = db
+      const faultedStationsQuery = db
         .select({
           faulted: sql<number>`count(*) filter (where ${buildDerivedStatusSubquery(chargingStations.id)} = 'faulted')`,
         })
         .from(chargingStations)
-        .where(stationConditions.length > 0 ? and(...stationConditions) : undefined);
+        .where(and(eq(chargingStations.onboardingStatus, 'accepted'), ...stationConditions));
 
-      const [stationRows, sessionStatsRows, faultedStationsRows] = await Promise.all([
+      const [stationRows, earlier, [todayTotals], [active], [faulted]] = await Promise.all([
         db
           .select({
             status: chargingStations.availability,
@@ -640,33 +662,36 @@ export function dashboardRoutes(app: FastifyInstance): void {
             chargingStations.onboardingStatus,
             chargingStations.isOnline,
           ),
-        sessionQueryBuilder,
-        faultedStationsQueryBuilder,
+        earlierTotals,
+        todayTotalsQuery,
+        activeSessionsQuery,
+        faultedStationsQuery,
       ]);
 
+      // Station counts cover accepted stations: a pending or blocked station
+      // is not in service. onboardingStatusCounts counts every station.
       let totalStations = 0;
       let onlineStations = 0;
       const statusCounts: Record<string, number> = {};
       const onboardingStatusCounts: Record<string, number> = {};
 
       for (const row of stationRows) {
+        onboardingStatusCounts[row.onboardingStatus] =
+          (onboardingStatusCounts[row.onboardingStatus] ?? 0) + row.count;
+        if (row.onboardingStatus !== 'accepted') continue;
         totalStations += row.count;
         if (row.isOnline) onlineStations += row.count;
         statusCounts[row.status] = (statusCounts[row.status] ?? 0) + row.count;
-        onboardingStatusCounts[row.onboardingStatus] =
-          (onboardingStatusCounts[row.onboardingStatus] ?? 0) + row.count;
       }
-
-      const sessionStats = sessionStatsRows[0];
 
       return {
         totalStations,
         onlineStations,
         onlinePercent: totalStations > 0 ? Math.round((onlineStations / totalStations) * 100) : 0,
-        activeSessions: sessionStats?.activeSessions ?? 0,
-        totalSessions: sessionStats?.totalSessions ?? 0,
-        totalEnergyWh: sessionStats?.totalEnergyWh ?? 0,
-        faultedStations: faultedStationsRows[0]?.faulted ?? 0,
+        activeSessions: active?.activeSessions ?? 0,
+        totalSessions: earlier.totalSessions + (todayTotals?.totalSessions ?? 0),
+        totalEnergyWh: earlier.totalEnergyWh + (todayTotals?.totalEnergyWh ?? 0),
+        faultedStations: faulted?.faulted ?? 0,
         statusCounts,
         onboardingStatusCounts,
       };
@@ -695,32 +720,34 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null && siteIds.length === 0) return [];
 
-      const { since, until } = parseDateRange(
+      const tz = await getSystemTimezone();
+      const range = resolveCalendarRange(
         request.query as { days?: string; from?: string; to?: string },
+        tz,
       );
 
-      const tz = await getSystemTimezone();
-
-      const conditions = [gte(chargingSessions.startedAt, since)];
-      if (until) conditions.push(lte(chargingSessions.startedAt, until));
+      const conditions = [
+        gte(chargingSessions.startedAt, range.since),
+        lt(chargingSessions.startedAt, range.until),
+      ];
       if (siteIds != null) {
         // The sessions that happened at the user's sites (site_id).
         conditions.push(inArray(chargingSessions.siteId, siteIds));
       }
 
-      const query = db
+      const rows = await db
         .select({
-          date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
-          energyWh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`,
+          date: sql<string>`(${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
+          energyWh:
+            sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`.mapWith(
+              Number,
+            ),
         })
-        .from(chargingSessions);
-
-      const rows = await query
+        .from(chargingSessions)
         .where(and(...conditions))
-        .groupBy(sql`1`)
-        .orderBy(sql`1`);
+        .groupBy(sql`1`);
 
-      return rows.map((r) => ({ date: r.date, energyWh: r.energyWh }));
+      return fillDates(range.dates, rows, (date) => ({ date, energyWh: 0 }));
     },
   );
 
@@ -746,32 +773,31 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null && siteIds.length === 0) return [];
 
-      const { since, until } = parseDateRange(
+      const tz = await getSystemTimezone();
+      const range = resolveCalendarRange(
         request.query as { days?: string; from?: string; to?: string },
+        tz,
       );
 
-      const tz = await getSystemTimezone();
-
-      const conditions = [gte(chargingSessions.startedAt, since)];
-      if (until) conditions.push(lte(chargingSessions.startedAt, until));
+      const conditions = [
+        gte(chargingSessions.startedAt, range.since),
+        lt(chargingSessions.startedAt, range.until),
+      ];
       if (siteIds != null) {
         // The sessions that happened at the user's sites (site_id).
         conditions.push(inArray(chargingSessions.siteId, siteIds));
       }
 
-      const query = db
+      const rows = await db
         .select({
-          date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
+          date: sql<string>`(${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
           count: count(),
         })
-        .from(chargingSessions);
-
-      const rows = await query
+        .from(chargingSessions)
         .where(and(...conditions))
-        .groupBy(sql`1`)
-        .orderBy(sql`1`);
+        .groupBy(sql`1`);
 
-      return rows.map((r) => ({ date: r.date, count: r.count }));
+      return fillDates(range.dates, rows, (date) => ({ date, count: 0 }));
     },
   );
 
@@ -793,23 +819,21 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null && siteIds.length === 0) return [];
 
-      const query = db
+      // Connectors in service only: a retired connector, or one on a retired
+      // EVSE, keeps its last status but is no longer a port.
+      const conditions = [isNull(connectors.retiredAt), isNull(evses.retiredAt)];
+      if (siteIds != null) conditions.push(inArray(chargingStations.siteId, siteIds));
+
+      return db
         .select({
           status: connectors.status,
           count: count(),
         })
-        .from(connectors);
-
-      if (siteIds != null) {
-        query
-          .innerJoin(evses, eq(connectors.evseId, evses.id))
-          .innerJoin(chargingStations, eq(evses.stationId, chargingStations.id))
-          .where(inArray(chargingStations.siteId, siteIds));
-      }
-
-      const rows = await query.groupBy(connectors.status);
-
-      return rows;
+        .from(connectors)
+        .innerJoin(evses, eq(connectors.evseId, evses.id))
+        .innerJoin(chargingStations, eq(evses.stationId, chargingStations.id))
+        .where(and(...conditions))
+        .groupBy(connectors.status);
     },
   );
 
@@ -835,44 +859,64 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null && siteIds.length === 0) return [];
 
-      const { since, until, daysNum } = parseDateRange(
+      const tz = await getSystemTimezone();
+      const range = resolveCalendarRange(
         request.query as { days?: string; from?: string; to?: string },
+        tz,
       );
+      const sinceIso = range.since.toISOString();
+      const endIso = range.periodEnd.toISOString();
+      const periodHours =
+        Math.max(range.periodEnd.getTime() - range.since.getTime(), 0) / 3_600_000;
 
-      // Session hours of the sessions that happened at each site over the
-      // stations the site has now.
-      const sessionConditions = [
-        eq(chargingSessions.siteId, sites.id),
-        gte(chargingSessions.startedAt, since),
-      ];
-      if (until) sessionConditions.push(lte(chargingSessions.startedAt, until));
+      // Charging hours of the sessions at each site (the session's own site),
+      // started in the period, earlier by up to the lookback or still active,
+      // each clipped to the period, over the port-hours of the site: its EVSEs
+      // in service now (not retired) times the hours of the period so far.
+      const siteFilter =
+        siteIds != null
+          ? sql`WHERE s.id IN (${sql.join(
+              siteIds.map((id) => sql`${id}`),
+              sql`, `,
+            )})`
+          : sql``;
+      const rows = await db.execute<{
+        site_name: string | null;
+        ports: number | string;
+        session_hours: number | string;
+      }>(sql`
+        SELECT s.name AS site_name, p.ports, h.session_hours
+        FROM sites s
+        CROSS JOIN LATERAL (
+          SELECT count(*) AS ports
+          FROM evses e
+          INNER JOIN charging_stations st ON st.id = e.station_id
+          WHERE st.site_id = s.id AND e.retired_at IS NULL
+        ) p
+        CROSS JOIN LATERAL (
+          SELECT coalesce(sum(extract(epoch from (
+            least(coalesce(cs.ended_at, now()), ${endIso}::timestamptz)
+            - greatest(cs.started_at, ${sinceIso}::timestamptz)
+          )) / 3600), 0) AS session_hours
+          FROM charging_sessions cs
+          WHERE cs.site_id = s.id
+            AND cs.started_at < ${endIso}::timestamptz
+            AND (cs.started_at >= ${sinceIso}::timestamptz - interval '${sql.raw(String(UTILIZATION_LOOKBACK_DAYS))} days'
+                 OR cs.status = 'active')
+            AND coalesce(cs.ended_at, now()) > ${sinceIso}::timestamptz
+        ) h
+        ${siteFilter}
+      `);
 
-      const siteConditions = [];
-      if (siteIds != null) {
-        siteConditions.push(inArray(sites.id, siteIds));
-      }
-
-      const rows = await db
-        .select({
-          siteName: sites.name,
-          sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
-          stationCount: sql<number>`(select count(*)::int from ${chargingStations} st where st.site_id = ${sites.id})`,
+      return rows
+        .map((r) => {
+          const capacity = Number(r.ports) * periodHours;
+          const ratio = capacity > 0 ? Number(r.session_hours) / capacity : 0;
+          return { site: r.site_name, ratio };
         })
-        .from(sites)
-        .leftJoin(chargingSessions, and(...sessionConditions))
-        .where(siteConditions.length > 0 ? and(...siteConditions) : undefined)
-        .groupBy(sites.id, sites.name)
-        .orderBy(sql`2 desc`)
-        .limit(10);
-
-      const totalHours = daysNum * 24;
-      return rows.map((r) => ({
-        site: r.siteName,
-        utilization:
-          r.stationCount > 0
-            ? Math.round((r.sessionHours / (r.stationCount * totalHours)) * 100)
-            : 0,
-      }));
+        .sort((a, b) => b.ratio - a.ratio || (a.site ?? '').localeCompare(b.site ?? ''))
+        .slice(0, 10)
+        .map((r) => ({ site: r.site, utilization: Math.min(Math.round(r.ratio * 100), 100) }));
     },
   );
 
@@ -898,14 +942,16 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null && siteIds.length === 0) return [];
 
-      const { since, until } = parseDateRange(
+      const tz = await getSystemTimezone();
+      const range = resolveCalendarRange(
         request.query as { days?: string; from?: string; to?: string },
+        tz,
       );
 
-      const tz = await getSystemTimezone();
-
-      const conditions = [gte(chargingSessions.startedAt, since)];
-      if (until) conditions.push(lte(chargingSessions.startedAt, until));
+      const conditions = [
+        gte(chargingSessions.startedAt, range.since),
+        lt(chargingSessions.startedAt, range.until),
+      ];
       if (siteIds != null) {
         // The sessions that happened at the user's sites (site_id).
         conditions.push(inArray(chargingSessions.siteId, siteIds));
@@ -932,13 +978,18 @@ export function dashboardRoutes(app: FastifyInstance): void {
   app.get(
     '/dashboard/financial-stats',
     {
-      onRequest: [authorize('dashboard:read')],
+      onRequest: [authorize('dashboard:read', 'payments:read')],
       schema: {
         tags: ['Dashboard'],
         summary: 'Get financial summary statistics',
         operationId: 'getDashboardFinancialStats',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(financialStatsResponse) },
+        description:
+          'Needs payments:read in addition to dashboard:read (403 INSUFFICIENT_PERMISSIONS).',
+        response: {
+          200: itemResponse(financialStatsResponse),
+          403: errorWith('Insufficient permissions', [ERROR_CODES.INSUFFICIENT_PERMISSIONS]),
+        },
       },
       config: DASHBOARD_RATE_LIMIT,
     },
@@ -972,40 +1023,53 @@ export function dashboardRoutes(app: FastifyInstance): void {
 
       const tz = await getSystemTimezone();
       const billed = inCompanyCurrency(chargingSessions.currency, currency);
-      const today = sql`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz}) = date_trunc('day', now() AT TIME ZONE ${tz})`;
+      const today = calendarDayBounds(calendarDateIn(new Date(), tz), tz);
+      const sessionScope = siteIds != null ? inArray(chargingSessions.siteId, siteIds) : undefined;
+      const revenueScope = siteIds != null ? [revenueAtSites(siteIds)] : [];
 
-      // Electricity cost of the sessions billed in the company currency.
-      const costQuery = db
-        .select({
-          totalElectricityCostCents:
-            sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed}), 0)`.mapWith(
-              Number,
-            ),
-          dayElectricityCostCents:
-            sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}) filter (where ${billed} and ${today}), 0)`.mapWith(
-              Number,
-            ),
-        })
-        .from(chargingSessions);
-      if (siteIds != null) {
-        costQuery.where(inArray(chargingSessions.siteId, siteIds));
-      }
+      // All-time totals (session-revenue.ts definition): the items before today
+      // from the shared one-minute cache, plus today's items read live through
+      // the indexed start and charge dates. Today is fresh after every event;
+      // a change to an earlier item (a refund) shows within the minute.
+      const electricityCostSql = {
+        electricityCostCents:
+          sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}), 0)`.mapWith(Number),
+      };
+      const earlierPromise = cachedDashboardTotals(
+        `financial:${currency}:${today.since.toISOString()}:${siteScopeKey(siteIds)}`,
+        async () => {
+          const [[cost], revenue] = await Promise.all([
+            db
+              .select(electricityCostSql)
+              .from(chargingSessions)
+              .where(and(billed, sessionScope, lt(chargingSessions.startedAt, today.since))),
+            queryRevenueTotal({
+              companyCurrency: currency,
+              where: [
+                ...revenueScope,
+                sql`${revenueItem.occurredAt} < ${today.since.toISOString()}::timestamptz`,
+              ],
+            }),
+          ]);
+          return { revenue, electricityCostCents: cost?.electricityCostCents ?? 0 };
+        },
+      );
 
-      // Revenue (session-revenue.ts): ended sessions and reservation fees,
-      // minus refunds, split by today and earlier. The key is "true" for today.
-      const [[costs], revenueByKey] = await Promise.all([
-        costQuery,
-        queryRevenue({
+      const [earlier, [todayCost], todayRevenue] = await Promise.all([
+        earlierPromise,
+        db
+          .select(electricityCostSql)
+          .from(chargingSessions)
+          .where(and(billed, sessionScope, gte(chargingSessions.startedAt, today.since))),
+        queryRevenueTotal({
           companyCurrency: currency,
-          key: sql`(date_trunc('day', ${revenueItem.occurredAt} AT TIME ZONE ${tz}) = date_trunc('day', now() AT TIME ZONE ${tz}))::text`,
-          where: siteIds != null ? [revenueAtSites(siteIds)] : [],
+          occurredSince: today.since,
+          where: revenueScope,
         }),
       ]);
-      const todayRevenue = revenueByKey.get('true') ?? EMPTY_REVENUE;
-      const totalRevenue = sumRevenue(revenueByKey.values());
-
-      const totalElectricityCostCents = costs?.totalElectricityCostCents ?? 0;
-      const dayElectricityCostCents = costs?.dayElectricityCostCents ?? 0;
+      const totalRevenue = sumRevenue([earlier.revenue, todayRevenue]);
+      const dayElectricityCostCents = todayCost?.electricityCostCents ?? 0;
+      const totalElectricityCostCents = earlier.electricityCostCents + dayElectricityCostCents;
 
       return {
         totalRevenueCents: totalRevenue.grossCents,
@@ -1037,16 +1101,19 @@ export function dashboardRoutes(app: FastifyInstance): void {
   app.get(
     '/dashboard/revenue-history',
     {
-      onRequest: [authorize('dashboard:read')],
+      onRequest: [authorize('dashboard:read', 'payments:read')],
       schema: {
         tags: ['Dashboard'],
         summary: 'Get revenue history by day',
         operationId: 'listDashboardRevenueHistory',
         security: [{ bearerAuth: [] }],
+        description:
+          'Needs payments:read in addition to dashboard:read (403 INSUFFICIENT_PERMISSIONS).',
         querystring: zodSchema(dateRangeQuery),
         response: {
           200: arrayResponse(revenueHistoryItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          403: errorWith('Insufficient permissions', [ERROR_CODES.INSUFFICIENT_PERMISSIONS]),
         },
       },
       config: DASHBOARD_RATE_LIMIT,
@@ -1056,45 +1123,49 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null && siteIds.length === 0) return [];
 
-      const { since, until } = parseDateRange(
+      const [tz, currency] = await Promise.all([getSystemTimezone(), getCompanyCurrency()]);
+      const range = resolveCalendarRange(
         request.query as { days?: string; from?: string; to?: string },
+        tz,
       );
 
-      const [tz, currency] = await Promise.all([getSystemTimezone(), getCompanyCurrency()]);
-
-      const where = [sql`${revenueItem.occurredAt} >= ${since.toISOString()}::timestamptz`];
-      if (until) where.push(sql`${revenueItem.occurredAt} <= ${until.toISOString()}::timestamptz`);
+      const where = [
+        sql`${revenueItem.occurredAt} >= ${range.since.toISOString()}::timestamptz`,
+        sql`${revenueItem.occurredAt} < ${range.until.toISOString()}::timestamptz`,
+      ];
       if (siteIds != null) where.push(revenueAtSites(siteIds));
 
       // Revenue per day (session-revenue.ts): ended sessions and reservation
       // fees, minus refunds, tax included.
       const byDay = await queryRevenue({
         companyCurrency: currency,
-        key: sql`date_trunc('day', ${revenueItem.occurredAt} AT TIME ZONE ${tz})::date`,
+        key: sql`(${revenueItem.occurredAt} AT TIME ZONE ${tz})::date`,
         where,
+        occurredSince: range.since,
       });
 
-      return [...byDay]
-        .filter((entry): entry is [string, (typeof entry)[1]] => entry[0] != null)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, revenue]) => ({
-          date,
-          revenueCents: revenue.grossCents,
-          sessionCount: revenue.sessionCount,
-        }));
+      return range.dates.map((date) => {
+        const revenue = byDay.get(date) ?? EMPTY_REVENUE;
+        return { date, revenueCents: revenue.grossCents, sessionCount: revenue.sessionCount };
+      });
     },
   );
 
   app.get(
     '/dashboard/payment-breakdown',
     {
-      onRequest: [authorize('dashboard:read')],
+      onRequest: [authorize('dashboard:read', 'payments:read')],
       schema: {
         tags: ['Dashboard'],
         summary: 'Get payment counts and totals grouped by status',
         operationId: 'listDashboardPaymentBreakdown',
         security: [{ bearerAuth: [] }],
-        response: { 200: arrayResponse(paymentBreakdownItem) },
+        description:
+          'Needs payments:read in addition to dashboard:read (403 INSUFFICIENT_PERMISSIONS).',
+        response: {
+          200: arrayResponse(paymentBreakdownItem),
+          403: errorWith('Insufficient permissions', [ERROR_CODES.INSUFFICIENT_PERMISSIONS]),
+        },
       },
       config: DASHBOARD_RATE_LIMIT,
     },
@@ -1132,7 +1203,10 @@ export function dashboardRoutes(app: FastifyInstance): void {
         operationId: 'getDashboardUptime',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(uptimeQuery),
-        response: { 200: itemResponse(uptimeResponse) },
+        response: {
+          200: itemResponse(uptimeResponse),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+        },
       },
       config: DASHBOARD_RATE_LIMIT,
     },
@@ -1143,10 +1217,18 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const emptyUptime = { uptimePercent: 100, totalPorts: 0, stationsBelowThreshold: 0 };
       if (siteIds != null && siteIds.length === 0) return emptyUptime;
 
-      const { months = '12' } = request.query as { months?: string };
-      const monthsNum = Math.min(Number(months) || 12, 24);
+      const { days, months = '12' } = request.query as { days?: string; months?: string };
       const since = new Date();
-      since.setMonth(since.getMonth() - monthsNum);
+      if (days != null) {
+        const daysNum = Number(days);
+        if (daysNum < 1 || daysNum > 366) {
+          throw new ValidationError('"days" must be between 1 and 366');
+        }
+        since.setTime(since.getTime() - daysNum * 86_400_000);
+      } else {
+        const monthsNum = Math.min(Number(months) || 12, 24);
+        since.setMonth(since.getMonth() - monthsNum);
+      }
 
       const periodMinutes = Math.floor((Date.now() - since.getTime()) / 60000);
       const periodMinutesLiteral = sql.raw(String(periodMinutes));
@@ -1387,94 +1469,54 @@ export function dashboardRoutes(app: FastifyInstance): void {
       config: DASHBOARD_RATE_LIMIT,
     },
     async (request) => {
-      const { userId } = request.user as JwtPayload;
-      const [siteIds, currency] = await Promise.all([getUserSiteIds(userId), getCompanyCurrency()]);
-      const snapshotBilled = inCompanyCurrency(dashboardSnapshots.currency, currency);
+      const scope = await snapshotScope(request);
+      if (scope == null) return { days: [] };
+      const tz = await getSystemTimezone();
+      const days = await querySnapshotDays(
+        scope,
+        sql`snapshot_date >= (now() AT TIME ZONE ${tz})::date - 14`,
+      );
+      return { days: [...days].reverse().map((d) => scope.present(d)) };
+    },
+  );
 
-      if (siteIds != null && siteIds.length === 0) return { days: [] };
-
-      const siteFilter =
-        siteIds != null
-          ? sql`AND site_id IN (${sql.join(
-              siteIds.map((id) => sql`${id}`),
-              sql`, `,
-            )})`
-          : sql``;
-
-      const rows = await db.execute(sql`
-        SELECT
-          snapshot_date::text AS date,
-          true AS has_data,
-          COALESCE(SUM(total_stations), 0) AS total_stations,
-          COALESCE(SUM(online_stations), 0) AS online_stations,
-          CASE WHEN SUM(total_stations) > 0
-            THEN SUM(online_percent::numeric * total_stations) / SUM(total_stations)
-            ELSE 0
-          END AS online_percent,
-          CASE WHEN SUM(total_stations) > 0
-            THEN SUM(uptime_percent::numeric * total_stations) / SUM(total_stations)
-            ELSE 100
-          END AS uptime_percent,
-          COALESCE(SUM(active_sessions), 0) AS active_sessions,
-          COALESCE(SUM(total_energy_wh::numeric), 0) AS total_energy_wh,
-          COALESCE(SUM(day_energy_wh::numeric), 0) AS day_energy_wh,
-          COALESCE(SUM(total_sessions), 0) AS total_sessions,
-          COALESCE(SUM(day_sessions), 0) AS day_sessions,
-          COALESCE(SUM(connected_stations), 0) AS connected_stations,
-          COALESCE(SUM(total_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS total_revenue_cents,
-          COALESCE(SUM(day_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS day_revenue_cents,
-          CASE WHEN SUM(total_sessions) > 0
-            THEN SUM(total_revenue_cents) FILTER (WHERE ${snapshotBilled}) / SUM(total_sessions)
-            ELSE 0
-          END AS avg_revenue_cents_per_session,
-          COALESCE(SUM(total_transactions), 0) AS total_transactions,
-          COALESCE(SUM(day_transactions), 0) AS day_transactions,
-          COALESCE(SUM(total_ports), 0) AS total_ports,
-          COALESCE(SUM(stations_below_threshold), 0) AS stations_below_threshold,
-          CASE WHEN SUM(total_stations) > 0
-            THEN SUM(avg_ping_latency_ms::numeric * total_stations) / SUM(total_stations)
-            ELSE 0
-          END AS avg_ping_latency_ms,
-          CASE WHEN SUM(total_stations) > 0
-            THEN SUM(ping_success_rate::numeric * total_stations) / SUM(total_stations)
-            ELSE 100
-          END AS ping_success_rate
+  app.get(
+    '/dashboard/snapshots/day-over-day',
+    {
+      onRequest: [authorize('dashboard:read')],
+      schema: {
+        tags: ['Dashboard'],
+        summary: 'Get the snapshots the day-over-day arrows compare',
+        description:
+          'The latest snapshot date up to yesterday in the system timezone and the day before it, aggregated over the user sites like GET /v1/dashboard/snapshots. The dashboard compares the two and labels the comparison with both dates.',
+        operationId: 'getDashboardSnapshotDayOverDay',
+        security: [{ bearerAuth: [] }],
+        response: { 200: itemResponse(dayOverDayResponse) },
+      },
+      config: DASHBOARD_RATE_LIMIT,
+    },
+    async (request) => {
+      const tz = await getSystemTimezone();
+      const yesterday = addCalendarDays(calendarDateIn(new Date(), tz), -1);
+      const scope = await snapshotScope(request);
+      const empty = (date: string): DatedSnapshot => ({ date, ...EMPTY_SNAPSHOT });
+      if (scope == null) {
+        return { current: empty(yesterday), previous: empty(addCalendarDays(yesterday, -1)) };
+      }
+      const [latest] = await db.execute<{ date: string | null }>(sql`
+        SELECT max(snapshot_date)::text AS date
         FROM dashboard_snapshots
-        WHERE snapshot_date >= (CURRENT_DATE - interval '14 days')::date
-          ${siteFilter}
-        GROUP BY snapshot_date
-        ORDER BY snapshot_date DESC
+        WHERE snapshot_date <= ${yesterday}::date ${scope.siteFilter}
       `);
-
-      const days = (rows as Array<Record<string, string | boolean>>).map((row) => ({
-        date: row.date as string,
-        // Each row only exists because a snapshot was recorded for that day,
-        // so has_data is always true here. We surface it explicitly to keep
-        // the TrendDay/SnapshotData type contract consistent with the
-        // single-date and range snapshot endpoints.
-        hasData: row.has_data === true,
-        totalStations: Number(row.total_stations),
-        onlineStations: Number(row.online_stations),
-        onlinePercent: Math.round(Number(row.online_percent) * 10) / 10,
-        uptimePercent: Math.round(Number(row.uptime_percent) * 100) / 100,
-        activeSessions: Number(row.active_sessions),
-        totalEnergyWh: Number(row.total_energy_wh),
-        dayEnergyWh: Number(row.day_energy_wh),
-        totalSessions: Number(row.total_sessions),
-        daySessions: Number(row.day_sessions),
-        connectedStations: Number(row.connected_stations),
-        totalRevenueCents: Number(row.total_revenue_cents),
-        dayRevenueCents: Number(row.day_revenue_cents),
-        avgRevenueCentsPerSession: Number(row.avg_revenue_cents_per_session),
-        totalTransactions: Number(row.total_transactions),
-        dayTransactions: Number(row.day_transactions),
-        totalPorts: Number(row.total_ports),
-        stationsBelowThreshold: Number(row.stations_below_threshold),
-        avgPingLatencyMs: Math.round(Number(row.avg_ping_latency_ms) * 100) / 100,
-        pingSuccessRate: Math.round(Number(row.ping_success_rate) * 10) / 10,
-      }));
-
-      return { days };
+      const current = latest?.date ?? yesterday;
+      const previous = addCalendarDays(current, -1);
+      const days = await querySnapshotDays(
+        scope,
+        sql`snapshot_date IN (${current}::date, ${previous}::date)`,
+      );
+      const day = (date: string): DatedSnapshot =>
+        scope.present(days.find((d) => d.date === date) ?? empty(date));
+      return { current: day(current), previous: day(previous) };
     },
   );
 
@@ -1492,23 +1534,13 @@ export function dashboardRoutes(app: FastifyInstance): void {
       config: DASHBOARD_RATE_LIMIT,
     },
     async (request) => {
-      const { userId } = request.user as JwtPayload;
-      const siteIds = await getUserSiteIds(userId);
-
-      if (siteIds != null && siteIds.length === 0) return [];
-
-      const siteFilter =
-        siteIds != null
-          ? sql`AND site_id IN (${sql.join(
-              siteIds.map((id) => sql`${id}`),
-              sql`, `,
-            )})`
-          : sql``;
+      const scope = await snapshotScope(request);
+      if (scope == null) return [];
 
       const rows = await db.execute(sql`
         SELECT DISTINCT snapshot_date::text AS date
         FROM dashboard_snapshots
-        WHERE 1=1 ${siteFilter}
+        WHERE 1=1 ${scope.siteFilter}
         ORDER BY date DESC
       `);
 
@@ -1534,9 +1566,6 @@ export function dashboardRoutes(app: FastifyInstance): void {
       config: DASHBOARD_RATE_LIMIT,
     },
     async (request) => {
-      const { userId } = request.user as JwtPayload;
-      const [siteIds, currency] = await Promise.all([getUserSiteIds(userId), getCompanyCurrency()]);
-      const snapshotBilled = inCompanyCurrency(dashboardSnapshots.currency, currency);
       const { date, to } = request.query as z.infer<typeof snapshotDateQuery>;
 
       // Regex on snapshotDateQuery only checks the YYYY-MM-DD shape; reject
@@ -1558,184 +1587,18 @@ export function dashboardRoutes(app: FastifyInstance): void {
         }
       }
 
+      const scope = await snapshotScope(request);
+      if (scope == null) return EMPTY_SNAPSHOT;
+
       const isRange = to != null && to !== date;
-
-      const emptySnapshot = {
-        hasData: false,
-        totalStations: 0,
-        onlineStations: 0,
-        onlinePercent: 0,
-        uptimePercent: 100,
-        activeSessions: 0,
-        totalEnergyWh: 0,
-        dayEnergyWh: 0,
-        totalSessions: 0,
-        daySessions: 0,
-        connectedStations: 0,
-        totalRevenueCents: 0,
-        dayRevenueCents: 0,
-        avgRevenueCentsPerSession: 0,
-        totalTransactions: 0,
-        dayTransactions: 0,
-        totalPorts: 0,
-        stationsBelowThreshold: 0,
-        avgPingLatencyMs: 0,
-        pingSuccessRate: 100,
-      };
-
-      if (siteIds != null && siteIds.length === 0) return emptySnapshot;
-
-      const siteFilter =
-        siteIds != null
-          ? sql`AND site_id IN (${sql.join(
-              siteIds.map((id) => sql`${id}`),
-              sql`, `,
-            )})`
-          : sql``;
-
-      const dateFilter = isRange
-        ? sql`snapshot_date >= ${date}::date AND snapshot_date <= ${to}::date`
-        : sql`snapshot_date = ${date}::date`;
-
-      // For ranges, compute per-day aggregates first, then average across days
-      // has_data distinguishes "no snapshot rows match the filter" from
-      // "stations exist but report all zeros"; without it the empty case
-      // looks identical to a legitimate 0-station read and the frontend
-      // delta arrows show a misleading +/-100% on the first day after
-      // deployment.
-      const queryText = isRange
-        ? sql`
-          SELECT
-            COUNT(DISTINCT snapshot_date) > 0 AS has_data,
-            COUNT(DISTINCT snapshot_date) AS day_count,
-            COALESCE(AVG(day_total_stations), 0) AS total_stations,
-            COALESCE(AVG(day_online_stations), 0) AS online_stations,
-            CASE WHEN AVG(day_total_stations) > 0
-              THEN AVG(day_online_percent)
-              ELSE 0
-            END AS online_percent,
-            CASE WHEN AVG(day_total_stations) > 0
-              THEN AVG(day_uptime_percent)
-              ELSE 100
-            END AS uptime_percent,
-            COALESCE(AVG(day_active_sessions), 0) AS active_sessions,
-            COALESCE(AVG(day_total_energy_wh), 0) AS total_energy_wh,
-            COALESCE(AVG(day_day_energy_wh), 0) AS day_energy_wh,
-            COALESCE(AVG(day_total_sessions), 0) AS total_sessions,
-            COALESCE(AVG(day_day_sessions), 0) AS day_sessions,
-            COALESCE(AVG(day_connected_stations), 0) AS connected_stations,
-            COALESCE(AVG(day_total_revenue_cents), 0) AS total_revenue_cents,
-            COALESCE(AVG(day_day_revenue_cents), 0) AS day_revenue_cents,
-            CASE WHEN AVG(day_total_sessions) > 0
-              THEN AVG(day_total_revenue_cents) / NULLIF(AVG(day_total_sessions), 0)
-              ELSE 0
-            END AS avg_revenue_cents_per_session,
-            COALESCE(AVG(day_total_transactions), 0) AS total_transactions,
-            COALESCE(AVG(day_day_transactions), 0) AS day_transactions,
-            COALESCE(AVG(day_total_ports), 0) AS total_ports,
-            COALESCE(AVG(day_stations_below), 0) AS stations_below_threshold,
-            COALESCE(AVG(day_avg_ping_latency_ms), 0) AS avg_ping_latency_ms,
-            COALESCE(AVG(day_ping_success_rate), 100) AS ping_success_rate
-          FROM (
-            SELECT
-              snapshot_date,
-              SUM(total_stations) AS day_total_stations,
-              SUM(online_stations) AS day_online_stations,
-              CASE WHEN SUM(total_stations) > 0
-                THEN SUM(online_percent::numeric * total_stations) / SUM(total_stations)
-                ELSE 0
-              END AS day_online_percent,
-              CASE WHEN SUM(total_stations) > 0
-                THEN SUM(uptime_percent::numeric * total_stations) / SUM(total_stations)
-                ELSE 100
-              END AS day_uptime_percent,
-              SUM(active_sessions) AS day_active_sessions,
-              SUM(total_energy_wh::numeric) AS day_total_energy_wh,
-              SUM(day_energy_wh::numeric) AS day_day_energy_wh,
-              SUM(total_sessions) AS day_total_sessions,
-              SUM(day_sessions) AS day_day_sessions,
-              SUM(connected_stations) AS day_connected_stations,
-              COALESCE(SUM(total_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS day_total_revenue_cents,
-              COALESCE(SUM(day_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS day_day_revenue_cents,
-              SUM(total_transactions) AS day_total_transactions,
-              SUM(day_transactions) AS day_day_transactions,
-              SUM(total_ports) AS day_total_ports,
-              SUM(stations_below_threshold) AS day_stations_below,
-              AVG(avg_ping_latency_ms::numeric) AS day_avg_ping_latency_ms,
-              CASE WHEN SUM(total_stations) > 0
-                THEN SUM(ping_success_rate::numeric * total_stations) / SUM(total_stations)
-                ELSE 100
-              END AS day_ping_success_rate
-            FROM dashboard_snapshots
-            WHERE ${dateFilter} ${siteFilter}
-            GROUP BY snapshot_date
-          ) per_day
-        `
-        : sql`
-          SELECT
-            COUNT(*) > 0 AS has_data,
-            COALESCE(SUM(total_stations), 0) AS total_stations,
-            COALESCE(SUM(online_stations), 0) AS online_stations,
-            CASE WHEN SUM(total_stations) > 0
-              THEN SUM(online_percent::numeric * total_stations) / SUM(total_stations)
-              ELSE 0
-            END AS online_percent,
-            CASE WHEN SUM(total_stations) > 0
-              THEN SUM(uptime_percent::numeric * total_stations) / SUM(total_stations)
-              ELSE 100
-            END AS uptime_percent,
-            COALESCE(SUM(active_sessions), 0) AS active_sessions,
-            COALESCE(SUM(total_energy_wh::numeric), 0) AS total_energy_wh,
-            COALESCE(SUM(day_energy_wh::numeric), 0) AS day_energy_wh,
-            COALESCE(SUM(total_sessions), 0) AS total_sessions,
-            COALESCE(SUM(day_sessions), 0) AS day_sessions,
-            COALESCE(SUM(connected_stations), 0) AS connected_stations,
-            COALESCE(SUM(total_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS total_revenue_cents,
-            COALESCE(SUM(day_revenue_cents) FILTER (WHERE ${snapshotBilled}), 0) AS day_revenue_cents,
-            CASE WHEN SUM(total_sessions) > 0
-              THEN SUM(total_revenue_cents) FILTER (WHERE ${snapshotBilled}) / SUM(total_sessions)
-              ELSE 0
-            END AS avg_revenue_cents_per_session,
-            COALESCE(SUM(total_transactions), 0) AS total_transactions,
-            COALESCE(SUM(day_transactions), 0) AS day_transactions,
-            COALESCE(SUM(total_ports), 0) AS total_ports,
-            COALESCE(SUM(stations_below_threshold), 0) AS stations_below_threshold,
-            COALESCE(AVG(avg_ping_latency_ms::numeric), 0) AS avg_ping_latency_ms,
-            CASE WHEN SUM(total_stations) > 0
-              THEN SUM(ping_success_rate::numeric * total_stations) / SUM(total_stations)
-              ELSE 100
-            END AS ping_success_rate
-          FROM dashboard_snapshots
-          WHERE ${dateFilter} ${siteFilter}
-        `;
-
-      const rows = await db.execute(queryText);
-
-      const row = rows[0] as Record<string, string | boolean> | undefined;
-      if (row == null) return emptySnapshot;
-
-      return {
-        hasData: row.has_data === true,
-        totalStations: Math.round(Number(row.total_stations)),
-        onlineStations: Math.round(Number(row.online_stations)),
-        onlinePercent: Math.round(Number(row.online_percent) * 10) / 10,
-        uptimePercent: Math.round(Number(row.uptime_percent) * 100) / 100,
-        activeSessions: Math.round(Number(row.active_sessions)),
-        totalEnergyWh: Math.round(Number(row.total_energy_wh)),
-        dayEnergyWh: Math.round(Number(row.day_energy_wh)),
-        totalSessions: Math.round(Number(row.total_sessions)),
-        daySessions: Math.round(Number(row.day_sessions)),
-        connectedStations: Math.round(Number(row.connected_stations)),
-        totalRevenueCents: Math.round(Number(row.total_revenue_cents)),
-        dayRevenueCents: Math.round(Number(row.day_revenue_cents)),
-        avgRevenueCentsPerSession: Math.round(Number(row.avg_revenue_cents_per_session)),
-        totalTransactions: Math.round(Number(row.total_transactions)),
-        dayTransactions: Math.round(Number(row.day_transactions)),
-        totalPorts: Math.round(Number(row.total_ports)),
-        stationsBelowThreshold: Math.round(Number(row.stations_below_threshold)),
-        avgPingLatencyMs: Math.round(Number(row.avg_ping_latency_ms) * 100) / 100,
-        pingSuccessRate: Math.round(Number(row.ping_success_rate) * 10) / 10,
-      };
+      const days = await querySnapshotDays(
+        scope,
+        isRange
+          ? sql`snapshot_date >= ${date}::date AND snapshot_date <= ${to}::date`
+          : sql`snapshot_date = ${date}::date`,
+      );
+      // A range averages the per-day aggregates over the days with data.
+      return scope.present(averageSnapshotDays(days));
     },
   );
 
@@ -1817,15 +1680,11 @@ export function dashboardRoutes(app: FastifyInstance): void {
         })
         .from(chargingSessions);
 
-      if (siteIds != null) {
-        query
-          .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-          .where(and(...conditions, inArray(chargingStations.siteId, siteIds)));
-      } else {
-        query.where(and(...conditions));
-      }
+      // The sessions that happened at the user's sites (site_id), as every
+      // other session aggregate counts them.
+      if (siteIds != null) conditions.push(inArray(chargingSessions.siteId, siteIds));
 
-      const [stats] = await query;
+      const [stats] = await query.where(and(...conditions));
 
       return {
         totalCo2AvoidedKg: Math.round((stats?.totalCo2 ?? 0) * 100) / 100,

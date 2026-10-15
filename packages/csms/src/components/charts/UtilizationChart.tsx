@@ -7,6 +7,7 @@ import type { ApexOptions } from 'apexcharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTranslation } from 'react-i18next';
+import { ChartBody, type QueryState } from './ChartBody';
 import { formatNumberUpTo } from '@/lib/formatting';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
@@ -15,12 +16,15 @@ interface UtilizationChartProps {
   data: { site: string; utilization: number }[];
   actions?: React.ReactNode;
   info?: string;
+  /** The state of the query behind the chart; omitted, the chart shows as given. */
+  state?: QueryState;
 }
 
 export function UtilizationChart({
   data,
   actions,
   info,
+  state,
 }: UtilizationChartProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const isDark = useAuth((s) => s.theme) === 'dark';
@@ -103,7 +107,9 @@ export function UtilizationChart({
         {actions}
       </CardHeader>
       <CardContent>
-        <ReactApexChart options={options} series={series} type="bar" height={300} />
+        <ChartBody state={state} isEmpty={data.length === 0} emptyText={t('charts.noData')}>
+          <ReactApexChart options={options} series={series} type="bar" height={300} />
+        </ChartBody>
       </CardContent>
     </Card>
   );
