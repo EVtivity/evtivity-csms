@@ -13798,6 +13798,7 @@ exports[`authorize decision matrix > ST16 | C07 Accepted | roaming off 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -13854,6 +13855,7 @@ exports[`authorize decision matrix > ST16 | C07 Accepted | roaming on 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -14020,6 +14022,7 @@ exports[`authorize decision matrix > ST16 | C07 Accepted from certificate hash d
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -14076,6 +14079,7 @@ exports[`authorize decision matrix > ST16 | C07 Accepted from certificate hash d
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -14132,6 +14136,7 @@ exports[`authorize decision matrix > ST16 | C07 CertChainError | roaming off 1`]
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -14188,6 +14193,7 @@ exports[`authorize decision matrix > ST16 | C07 CertChainError | roaming on 1`] 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -14244,6 +14250,7 @@ exports[`authorize decision matrix > ST16 | C07 CertificateExpired | roaming off
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -14300,6 +14307,7 @@ exports[`authorize decision matrix > ST16 | C07 CertificateExpired | roaming on 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -14356,6 +14364,7 @@ exports[`authorize decision matrix > ST16 | C07 CertificateRevoked | roaming off
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -14412,6 +14421,7 @@ exports[`authorize decision matrix > ST16 | C07 CertificateRevoked | roaming on 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -14582,6 +14592,7 @@ exports[`authorize decision matrix > ST16 | C07 validation throws | roaming off 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -14638,6 +14649,7 @@ exports[`authorize decision matrix > ST16 | C07 validation throws | roaming on 1
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -15719,6 +15731,7 @@ exports[`authorize decision matrix > ST16 | account, ceiling not reserved yet | 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -15775,6 +15788,7 @@ exports[`authorize decision matrix > ST16 | account, ceiling not reserved yet | 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -15831,6 +15845,7 @@ exports[`authorize decision matrix > ST16 | account, fleet credit left | roaming
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -15887,6 +15902,7 @@ exports[`authorize decision matrix > ST16 | account, fleet credit left | roaming
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -15926,7 +15942,9 @@ exports[`authorize decision matrix > ST16 | account, fleet credit lookup error |
       },
     },
   ],
-  "logs": [],
+  "logs": [
+    "warn",
+  ],
   "prepaidRemembered": [],
   "response": {
     "idTagInfo": {
@@ -15943,6 +15961,7 @@ exports[`authorize decision matrix > ST16 | account, fleet credit lookup error |
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -15982,7 +16001,9 @@ exports[`authorize decision matrix > ST16 | account, fleet credit lookup error |
       },
     },
   ],
-  "logs": [],
+  "logs": [
+    "warn",
+  ],
   "prepaidRemembered": [],
   "response": {
     "idTagInfo": {
@@ -15999,6 +16020,7 @@ exports[`authorize decision matrix > ST16 | account, fleet credit lookup error |
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16012,8 +16034,8 @@ exports[`authorize decision matrix > ST16 | account, no fleet credit left | roam
       "matchedDriverId": "drv-owner",
       "matchedTokenId": "tok-1",
       "ocppVersion": "ocpp1.6",
-      "outcome": "accepted",
-      "reason": "active",
+      "outcome": "no_credit",
+      "reason": "account_credit_limit",
       "stationId": "CS-001",
       "tokenType": "ISO14443",
     },
@@ -16042,7 +16064,7 @@ exports[`authorize decision matrix > ST16 | account, no fleet credit left | roam
   "prepaidRemembered": [],
   "response": {
     "idTagInfo": {
-      "status": "Accepted",
+      "status": "Blocked",
     },
     "transactionId": 5000,
   },
@@ -16055,6 +16077,7 @@ exports[`authorize decision matrix > ST16 | account, no fleet credit left | roam
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16068,8 +16091,8 @@ exports[`authorize decision matrix > ST16 | account, no fleet credit left | roam
       "matchedDriverId": "drv-owner",
       "matchedTokenId": "tok-1",
       "ocppVersion": "ocpp1.6",
-      "outcome": "accepted",
-      "reason": "active",
+      "outcome": "no_credit",
+      "reason": "account_credit_limit",
       "stationId": "CS-001",
       "tokenType": "ISO14443",
     },
@@ -16098,7 +16121,7 @@ exports[`authorize decision matrix > ST16 | account, no fleet credit left | roam
   "prepaidRemembered": [],
   "response": {
     "idTagInfo": {
-      "status": "Accepted",
+      "status": "Blocked",
     },
     "transactionId": 5000,
   },
@@ -16111,6 +16134,7 @@ exports[`authorize decision matrix > ST16 | account, no fleet credit left | roam
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16167,6 +16191,7 @@ exports[`authorize decision matrix > ST16 | active | roaming off 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16223,6 +16248,7 @@ exports[`authorize decision matrix > ST16 | active | roaming on 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16279,6 +16305,7 @@ exports[`authorize decision matrix > ST16 | active with a tariff | roaming off 1
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16335,6 +16362,7 @@ exports[`authorize decision matrix > ST16 | active with a tariff | roaming on 1`
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16390,6 +16418,7 @@ exports[`authorize decision matrix > ST16 | active with a tariff, no station row
     "driver_tokens",
     "charging_stations",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16445,6 +16474,7 @@ exports[`authorize decision matrix > ST16 | active with a tariff, no station row
     "driver_tokens",
     "charging_stations",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16502,6 +16532,7 @@ exports[`authorize decision matrix > ST16 | active with expiry | roaming off 1`]
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16559,6 +16590,7 @@ exports[`authorize decision matrix > ST16 | active with expiry | roaming on 1`] 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -16947,6 +16979,7 @@ exports[`authorize decision matrix > ST16 | concurrent session is the resent Sta
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -17001,6 +17034,7 @@ exports[`authorize decision matrix > ST16 | concurrent session is the resent Sta
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -17059,6 +17093,7 @@ exports[`authorize decision matrix > ST16 | concurrent session lookup error | ro
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -17117,6 +17152,7 @@ exports[`authorize decision matrix > ST16 | concurrent session lookup error | ro
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -17173,6 +17209,7 @@ exports[`authorize decision matrix > ST16 | driver id, active driver | roaming o
     "freeVend",
     "driver_tokens",
     "drivers",
+    "account_credit",
   ],
 }
 `;
@@ -17229,6 +17266,7 @@ exports[`authorize decision matrix > ST16 | driver id, active driver | roaming o
     "freeVend",
     "driver_tokens",
     "drivers",
+    "account_credit",
   ],
 }
 `;
@@ -19485,6 +19523,7 @@ exports[`authorize decision matrix > ST16 | multiple rows, revoked of this type 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -19541,6 +19580,7 @@ exports[`authorize decision matrix > ST16 | multiple rows, revoked of this type 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;

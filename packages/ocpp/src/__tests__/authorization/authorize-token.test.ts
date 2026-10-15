@@ -46,6 +46,7 @@ const h = vi.hoisted(() => {
     blockedVehicle: { vehicleId: string; driverId: string } | null;
     autochargeOn: boolean;
     vehicleLookups: { value: string; type: string }[];
+    accountCreditExclusions: ({ stationId: string; transactionId: string } | undefined)[];
   } = {
     TABLE,
     table,
@@ -59,6 +60,7 @@ const h = vi.hoisted(() => {
     blockedVehicle: null,
     autochargeOn: true,
     vehicleLookups: [],
+    accountCreditExclusions: [],
   };
   return state;
 });
@@ -121,8 +123,13 @@ const selectFn = vi.fn(() => ({
 vi.mock('@evtivity/database', () => ({
   db: { select: selectFn },
   client: {},
-  loadDriverAccountCredit: (_sql: unknown, driverId: string) => {
+  loadDriverAccountCredit: (
+    _sql: unknown,
+    driverId: string,
+    options?: { excludeTransaction?: { stationId: string; transactionId: string } | undefined },
+  ) => {
     h.accountCreditCalls.push(driverId);
+    h.accountCreditExclusions.push(options?.excludeTransaction);
     return h.accountCredit instanceof Error
       ? Promise.reject(h.accountCredit)
       : Promise.resolve(h.accountCredit);
@@ -224,6 +231,7 @@ beforeEach(() => {
   h.blockedVehicle = null;
   h.autochargeOn = true;
   h.vehicleLookups = [];
+  h.accountCreditExclusions = [];
 });
 
 afterAll(() => {
@@ -1037,7 +1045,6 @@ describe('authorizeToken: fleet credit limit (plan S8)', () => {
   });
 
   it.each([
-    ['tx_start', null],
     ['tx_update', null],
     ['tx_update', 'ISO14443'],
   ] as const)('is not checked in %s (%s)', async (ctx, type) => {
@@ -1046,6 +1053,49 @@ describe('authorizeToken: fleet credit limit (plan S8)', () => {
     expect(d.status).toBe('accepted');
     expect(d.accountFleetId).toBeUndefined();
     expect(h.accountCreditCalls).toEqual([]);
+  });
+
+  it('answers no_credit to a 1.6 StartTransaction without a prior Authorize', async () => {
+    h.accountCredit = { fleetId: 'flt-1', remainingCents: 0 };
+    const d = await authorizeToken(input('tx_start', 'TAG', null), logger);
+    expect(d).toMatchObject({
+      status: 'no_credit',
+      outcome: 'no_credit',
+      reason: 'account_credit_limit',
+    });
+    expect(h.accountCreditCalls).toEqual(['drv-1']);
+  });
+
+  it('accepts a 1.6 StartTransaction while credit is left and names the fleet', async () => {
+    h.accountCredit = { fleetId: 'flt-1', remainingCents: 1200 };
+    const d = await authorizeToken(input('tx_start', 'TAG', null), logger);
+    expect(d).toMatchObject({ status: 'accepted', accountFleetId: 'flt-1' });
+  });
+
+  it('leaves the own transaction out of the credit of a resent StartTransaction', async () => {
+    h.tables['charging_sessions'] = [
+      { id: 'ses-own', stationId: 'sta_db_1', transactionId: '42', status: 'active' },
+    ];
+    h.accountCredit = { fleetId: 'flt-1', remainingCents: 1200 };
+    const d = await authorizeToken(input('tx_start', 'TAG', null, { transactionId: '42' }), logger);
+    expect(h.accountCreditExclusions).toEqual([{ stationId: 'CS-001', transactionId: '42' }]);
+    expect(d.status).toBe('accepted');
+  });
+
+  it('leaves the own transaction out even before its session is written', async () => {
+    // The projection writes the session (and the payment gate its ceiling)
+    // while the check runs: the exclusion is the transaction, matched in the
+    // credit query itself, not a session looked up before it.
+    h.tables['charging_sessions'] = [];
+    h.accountCredit = { fleetId: 'flt-1', remainingCents: 1200 };
+    await authorizeToken(input('tx_start', 'TAG', null, { transactionId: '43' }), logger);
+    expect(h.accountCreditExclusions).toEqual([{ stationId: 'CS-001', transactionId: '43' }]);
+  });
+
+  it('excludes no transaction at Authorize', async () => {
+    h.accountCredit = { fleetId: 'flt-1', remainingCents: 1200 };
+    await authorizeToken(input('authorize', 'TAG', null), logger);
+    expect(h.accountCreditExclusions).toEqual([undefined]);
   });
 
   it('leaves a card driver (no limited account fleet) unchanged', async () => {

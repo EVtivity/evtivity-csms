@@ -139,12 +139,26 @@ interface ExposureWithReservations {
   activeReservedCents: number;
 }
 
+/**
+ * A station's transaction by its OCPP ids. It is matched in the exposure query
+ * itself, so its session is left out even when it is written just before the
+ * query runs.
+ */
+export interface FleetCreditTransaction {
+  /** The station's OCPP id (charging_stations.station_id). */
+  stationId: string;
+  transactionId: string;
+}
+
 async function queryFleetExposure(
   sql: Sql,
   fleetId: string,
   excludeSessionId: string | null,
+  excludeTransaction: FleetCreditTransaction | null = null,
 ): Promise<ExposureWithReservations> {
   const currency = await getCompanyCurrency();
+  const excludeStationId = excludeTransaction?.stationId ?? null;
+  const excludeTransactionId = excludeTransaction?.transactionId ?? null;
   const rows = await sql<
     Array<{
       unbilled: string | null;
@@ -169,6 +183,12 @@ async function queryFleetExposure(
       AND cs.billing_mode = 'account'
       AND upper(cs.currency) = ${currency}
       AND (${excludeSessionId}::text IS NULL OR cs.id <> ${excludeSessionId}::text)
+      AND (${excludeStationId}::text IS NULL OR NOT EXISTS (
+        SELECT 1 FROM charging_stations st
+        WHERE st.id = cs.station_id
+          AND st.station_id = ${excludeStationId}::text
+          AND cs.transaction_id = ${excludeTransactionId}::text
+      ))
       AND NOT EXISTS (SELECT 1 FROM payment_records pr WHERE pr.session_id = cs.id)
   `;
   const row = rows[0];
@@ -226,6 +246,7 @@ async function creditCheckFor(
   fleetId: string,
   fleet: FleetLimitRow | undefined,
   excludeSessionId: string | null,
+  excludeTransaction: FleetCreditTransaction | null = null,
 ): Promise<Omit<FleetCreditCheck, 'ceilingCents'> | null> {
   if (fleet?.credit_limit_cents == null) return null;
   const limitCents = fleet.credit_limit_cents;
@@ -234,6 +255,7 @@ async function creditCheckFor(
     sql,
     fleetId,
     excludeSessionId,
+    excludeTransaction,
   );
   return {
     fleetId,
@@ -428,17 +450,20 @@ export async function fleetCreditNoticesClaimed(sql: Sql, fleetId: string): Prom
 /**
  * The fleet's credit limit and exposure without the row lock: for the
  * fleet's notices while a session runs and the Authorize check, which reserve
- * nothing. Null when the fleet has no limit (or no longer exists).
+ * nothing. `excludeTransaction` leaves the session of a start message's own
+ * transaction out of the exposure, as a start of that session sees it. Null
+ * when the fleet has no limit (or no longer exists).
  */
 export async function readFleetCreditLimit(
   sql: Sql,
   fleetId: string,
+  options: { excludeTransaction?: FleetCreditTransaction | undefined } = {},
 ): Promise<FleetCreditCheck | null> {
   const [fleet] = await sql<FleetLimitRow[]>`
     SELECT name, credit_limit_cents, credit_limit_warning_percent
     FROM fleets WHERE id = ${fleetId}
   `;
-  const check = await creditCheckFor(sql, fleetId, fleet, null);
+  const check = await creditCheckFor(sql, fleetId, fleet, null, options.excludeTransaction ?? null);
   return check == null ? null : { ...check, ceilingCents: null };
 }
 
@@ -457,10 +482,11 @@ export interface DriverAccountCredit {
 export async function loadDriverAccountCredit(
   sql: postgres.Sql,
   driverId: string,
+  options: { excludeTransaction?: FleetCreditTransaction | undefined } = {},
 ): Promise<DriverAccountCredit | null> {
   const billing = await resolveAccountBilling(sql, driverId);
   if (billing == null) return null;
-  const check = await readFleetCreditLimit(sql, billing.fleetId);
+  const check = await readFleetCreditLimit(sql, billing.fleetId, options);
   return check == null ? null : { fleetId: check.fleetId, remainingCents: check.remainingCents };
 }
 

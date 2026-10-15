@@ -231,9 +231,17 @@ const UNTYPED_TRANSACTION: AuthorizeContextRules = {
   driverIdFallback: true,
   guestAcceptedStatuses: new Set(['payment_authorized', 'charging']),
   ocpi: true,
-  // 1.6 has no transaction limit: the payment gate stops a start without
-  // credit and the MeterValues cost loop stops at the ceiling.
+  // tx_update is not checked for credit: the MeterValues cost loop stops at
+  // the ceiling.
   accountCredit: 'off',
+};
+
+// StartTransaction (1.6) without a prior Authorize (local authorization list,
+// LocalPreAuthorize): this answer is the only refusal point, since 1.6 has no
+// transaction limit. The payment gate stays as the backstop.
+const UNTYPED_TX_START: AuthorizeContextRules = {
+  ...UNTYPED_TRANSACTION,
+  accountCredit: 'refuse',
 };
 
 /**
@@ -286,7 +294,7 @@ export const AUTHORIZE_CONTEXT_RULES: Readonly<
       accountCredit: 'refuse',
     },
   },
-  tx_start: { untyped: UNTYPED_TRANSACTION, typed: TYPED_TX_START },
+  tx_start: { untyped: UNTYPED_TX_START, typed: TYPED_TX_START },
   tx_update: { untyped: UNTYPED_TRANSACTION, typed: TYPED_TX_UPDATE },
 };
 

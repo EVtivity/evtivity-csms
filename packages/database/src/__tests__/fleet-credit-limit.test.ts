@@ -105,7 +105,7 @@ describe('loadFleetCreditExposure', () => {
     expect(text).toContain('NOT EXISTS (SELECT 1 FROM payment_records');
     // A draft invoice is not paid either: counted with the issued ones.
     expect(text).toContain("i.status IN ('draft', 'issued')");
-    expect(calls[0]?.values).toEqual(['flt_1', 'EUR', 'ses_1', 'ses_1']);
+    expect(calls[0]?.values).toEqual(['flt_1', 'EUR', 'ses_1', 'ses_1', null, null, null]);
   });
 
   it('is zero for a fleet without account sessions', async () => {
@@ -199,7 +199,7 @@ describe('checkFleetCreditLimit', () => {
     expect(mock.begins).toBe(1);
     expect(check).toMatchObject({ remainingCents: 5000, ceilingCents: 5000 });
     const exposureCall = mock.calls.find((c) => c.text.includes('FROM charging_sessions'));
-    expect(exposureCall?.values).toEqual(['flt_1', 'EUR', 'ses_7', 'ses_7']);
+    expect(exposureCall?.values).toEqual(['flt_1', 'EUR', 'ses_7', 'ses_7', null, null, null]);
     const update = mock.calls.find((c) => c.text.includes('UPDATE charging_sessions'));
     expect(update?.text).toContain('COALESCE(cost_ceiling_cents');
     expect(update?.text).toContain("billing_mode = 'account'");
@@ -276,6 +276,32 @@ describe('loadDriverAccountCredit', () => {
       fleetId: 'flt_1',
       remainingCents: 4000,
     });
+  });
+
+  it('leaves the own transaction out in the exposure query itself', async () => {
+    // A session the projection writes (and the payment gate reserves for)
+    // while the start is checked must not count against that start: the
+    // exclusion is matched by station and transaction in the same statement,
+    // not by a session id looked up before it.
+    resolveAccountBilling.mockResolvedValue({ fleetId: 'flt_1', fleetName: 'Acme' });
+    const { sql, calls } = makeSql([
+      [
+        'FROM fleets',
+        [{ name: 'Acme', credit_limit_cents: 5000, credit_limit_warning_percent: 80 }],
+      ],
+      [
+        'FROM charging_sessions',
+        [{ unbilled: '1000', invoiced: '0', running: '0', reserved: '0' }],
+      ],
+    ]);
+    await loadDriverAccountCredit(sql, 'drv_1', {
+      excludeTransaction: { stationId: 'CS-001', transactionId: '42' },
+    });
+    const exposure = calls.find((c) => c.text.includes('FROM charging_sessions'));
+    expect(exposure?.text).toContain('FROM charging_stations st');
+    expect(exposure?.text).toContain('cs.transaction_id = ?::text');
+    expect(exposure?.values).toEqual(['flt_1', 'EUR', null, null, 'CS-001', 'CS-001', '42']);
+    expect(calls).toHaveLength(2);
   });
 
   it('is null for a card driver and reads no fleet', async () => {
