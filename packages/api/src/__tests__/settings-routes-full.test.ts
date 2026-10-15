@@ -60,6 +60,16 @@ vi.mock('@evtivity/database', () => ({
   getCompanyTaxBasis: vi.fn(() => Promise.resolve('net')),
   getCompanyPriceDisplay: vi.fn(() => Promise.resolve('net')),
   clearSystemSettingsCache: vi.fn(),
+  clearGuestChargingCache: vi.fn(),
+  clearGuestVelocityCache: vi.fn(),
+  GUEST_STARTS_PER_IP_PER_HOUR_KEY: 'guest.startsPerIpPerHour',
+  GUEST_DECLINES_PER_IP_PER_HOUR_KEY: 'guest.declinesPerIpPerHour',
+  MAX_GUEST_VELOCITY_LIMIT: 10_000,
+  parseGuestVelocityLimit: vi.fn((value: unknown) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 10_000
+      ? value
+      : null,
+  ),
   clearMobileAppConfigCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
   clearWebhookSettingsCache: vi.fn(),
