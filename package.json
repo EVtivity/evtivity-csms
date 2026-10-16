@@ -1,6 +1,6 @@
 {
   "name": "evtivity",
-  "version": "0.1.46-beta.11",
+  "version": "0.1.46-beta.12",
   "private": true,
   "type": "module",
   "workspaces": [
