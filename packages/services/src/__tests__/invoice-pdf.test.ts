@@ -3,15 +3,25 @@
 
 import { inflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 
-const { warn, settingsRows } = vi.hoisted(() => ({
+const { warn, settingsRows, paymentSettings } = vi.hoisted(() => ({
   warn: vi.fn(),
   settingsRows: { rows: [] as Array<{ key: string; value: unknown }> },
+  paymentSettings: {
+    value: {
+      accountHolder: null as string | null,
+      iban: null as string | null,
+      bic: null as string | null,
+      bankName: null as string | null,
+      epcQrEnabled: true,
+    },
+  },
 }));
 
 vi.mock('@evtivity/database', () => ({
   client: vi.fn(() => Promise.resolve(settingsRows.rows)),
+  getInvoicePaymentSettings: vi.fn(() => Promise.resolve(paymentSettings.value)),
 }));
 
 vi.mock('@evtivity/lib', async (importOriginal) => ({
@@ -496,6 +506,52 @@ describe('generateInvoicePdf', () => {
       expect(warn).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('generateInvoicePdf payment information', () => {
+  const bank = {
+    accountHolder: 'Acme Charging GmbH',
+    iban: 'DE89370400440532013000',
+    bic: 'COBADEFFXXX',
+    bankName: 'Commerzbank',
+    epcQrEnabled: true,
+  };
+  const noBank = { ...bank, accountHolder: null, iban: null, bic: null, bankName: null };
+
+  afterEach(() => {
+    paymentSettings.value = noBank;
+  });
+
+  it('prints the bank details and the transfer request on an open invoice', async () => {
+    paymentSettings.value = bank;
+    const { text } = pdfContent(await generateInvoicePdf(detail('en')));
+    const labels = INVOICE_LABELS.en;
+    expect(text).toContain(labels.paymentInformation);
+    expect(text).toContain('IBANDE89 3704 0044 0532 0130 00');
+    expect(text).toContain('BICCOBADEFFXXX');
+    expect(text).toContain('Payment referenceINV-202606-0042');
+    expect(text).toContain('quoting the payment reference INV-202606-0042.');
+    expect(text).toContain(labels.paymentQrHint);
+  });
+
+  it('prints Paid and no bank details on a paid invoice', async () => {
+    paymentSettings.value = bank;
+    const base = detail('de');
+    const paid: InvoiceDetail = {
+      ...base,
+      invoice: { ...base.invoice, status: 'paid', paidAt: base.invoice.issuedAt },
+    };
+    const { text } = pdfContent(await generateInvoicePdf(paid));
+    expect(text).toContain(INVOICE_LABELS.de.paymentInformation);
+    expect(text).toContain('per Karte bezahlt');
+    expect(text).not.toContain('DE89 3704');
+    expect(text).not.toContain(INVOICE_LABELS.de.paymentQrHint);
+  });
+
+  it('prints no payment block without an IBAN', async () => {
+    const { text } = pdfContent(await generateInvoicePdf(detail('en')));
+    expect(text).not.toContain(INVOICE_LABELS.en.paymentInformation);
+  });
 });
 
 describe('generateInvoicePdf without the CJK fonts', () => {

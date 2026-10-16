@@ -909,7 +909,10 @@
     "MFA_LOCKED": "错误代码过多。请稍后再试。",
     "MFA_RESEND_LIMITED": "发送的代码过多。请稍后再请求。",
     "USER_SSO_MANAGED": "该用户通过 SSO 登录，没有可设置的密码。",
-    "STATION_SITE_SUPPRESSED": "该充电站所属站点的 AI 洞察已暂停。恢复站点即可恢复其充电站"
+    "STATION_SITE_SUPPRESSED": "该充电站所属站点的 AI 洞察已暂停。恢复站点即可恢复其充电站",
+    "SESSION_NOT_ON_ACCOUNT": "该会话未通过车队账户计费",
+    "FLEET_ACCOUNT_BILLING_OFF": "该车队未启用账户计费",
+    "DRIVER_NOT_FLEET_MEMBER": "该驾驶员已不是车队成员"
   },
   "validation": {
     "required": "此字段为必填项",

@@ -288,6 +288,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'POST /fleets/:id/drivers': { audited: 'fleet' },
   'POST /fleets/:id/invoices': { audited: 'invoice' },
+  'POST /fleets/:id/billing-recipient': {
+    audited: 'session',
+    service: 'api/src/services/session-billing-recipient.service.ts',
+  },
   'POST /fleets/:id/member-invoices': { audited: 'invoice' },
   'POST /fleets/:id/member-invoices/batch': {
     audited: 'invoice',
@@ -355,6 +359,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /sessions/:id/pre-authorize': {
     audited: 'payment',
     service: 'payments/src/payment-records.ts',
+  },
+  'PATCH /sessions/:id/billing-recipient': {
+    audited: 'session',
+    service: 'api/src/services/session-billing-recipient.service.ts',
   },
   'POST /sessions/:id/end': { audited: 'session' },
   'POST /sessions/:id/rebill': {

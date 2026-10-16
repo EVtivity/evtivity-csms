@@ -155,8 +155,16 @@ export {
   stampSessionBilling,
   sessionBillingColumns,
   toSessionBilling,
+  moveSessionBillingRecipient,
+  listMovableFleetSessions,
 } from './lib/fleet-billing.js';
-export type { AccountBilling, BillingMembership, SessionBilling } from './lib/fleet-billing.js';
+export type {
+  AccountBilling,
+  BillingMembership,
+  SessionBilling,
+  SessionBillingMove,
+  SessionBillingMoveOutcome,
+} from './lib/fleet-billing.js';
 export {
   DEFAULT_CREDIT_LIMIT_WARNING_PERCENT,
   fleetCreditLevel,
@@ -397,8 +405,11 @@ export {
   getCompanyPriceDisplay,
   getCompanyTaxBasis,
   getCompanyCountry,
+  getInvoicePaymentSettings,
+  readInvoicePaymentSettings,
   clearSystemSettingsCache,
 } from './lib/system-settings.js';
+export type { InvoicePaymentSettings } from './lib/system-settings.js';
 export {
   getRecaptchaConfig,
   getMfaConfig,

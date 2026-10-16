@@ -909,7 +909,10 @@
     "MFA_LOCKED": "Too many wrong codes. Wait before you try again.",
     "MFA_RESEND_LIMITED": "Too many codes sent. Wait before you request another one.",
     "USER_SSO_MANAGED": "This user signs in with SSO and has no password to set.",
-    "STATION_SITE_SUPPRESSED": "The AI insights of the station's site are suppressed. Resume the site to resume its stations"
+    "STATION_SITE_SUPPRESSED": "The AI insights of the station's site are suppressed. Resume the site to resume its stations",
+    "SESSION_NOT_ON_ACCOUNT": "The session is not billed on account to a fleet",
+    "FLEET_ACCOUNT_BILLING_OFF": "The fleet does not bill on account",
+    "DRIVER_NOT_FLEET_MEMBER": "The driver is no longer a member of the fleet"
   },
   "validation": {
     "required": "This field is required",

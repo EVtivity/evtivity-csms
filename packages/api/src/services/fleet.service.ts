@@ -22,6 +22,7 @@ import {
 } from '@evtivity/database';
 import type {
   AccountInvoiceRecipient,
+  InvoiceDateMode,
   FleetCreditExposure,
   FleetCreditLevel,
   ReleaseUpgradePending,
@@ -198,7 +199,9 @@ export async function deleteFleet(id: string) {
  * processes neither stamp sessions nor keep account sessions off driver
  * invoices); invoicing each member needs v0.1.46 (older processes bill member
  * sessions on the fleet invoice and send member invoices to the fleet
- * contacts). When no older process is connected or was seen recently but the
+ * contacts). When none is connected now but one was seen less than
+ * LEGACY_CLEAN_MS ago, the details carry `allowedFrom`, the time the change is
+ * allowed from. When no older process is connected or was seen recently but the
  * worker's version watch is missing or stale, the code is
  * FLEET_BILLING_VERSION_CHECK_STALE instead: the guard cannot tell, so it
  * still refuses (fail closed), and the operator checks the worker.
@@ -212,7 +215,9 @@ export class FleetBillingUpgradePendingError extends AppError {
     super(
       stale
         ? `The worker's process version check has not run recently, so the CSMS cannot confirm that every process runs v${minVersion} or later. Check that the worker is running, then change the fleet billing.`
-        : `A process older than v${minVersion} is still connected. Finish the upgrade, then change the fleet billing.`,
+        : details.allowedFrom != null
+          ? `A process older than v${minVersion} ran until recently. You can change the fleet billing from ${details.allowedFrom}.`
+          : `A process older than v${minVersion} is still connected. Finish the upgrade, then change the fleet billing.`,
       409,
       stale ? 'FLEET_BILLING_VERSION_CHECK_STALE' : 'FLEET_BILLING_OLD_PODS_CONNECTED',
     );
@@ -351,6 +356,7 @@ export interface FleetBillingProfile {
   invoiceLanguage: string;
   paymentTermsDays: number | null;
   autoInvoice: boolean;
+  invoiceDateMode: InvoiceDateMode;
 }
 
 export type FleetBillingProfilePatch = {
@@ -369,6 +375,7 @@ const PROFILE_KEYS = [
   'invoiceLanguage',
   'paymentTermsDays',
   'autoInvoice',
+  'invoiceDateMode',
 ] as const satisfies readonly (keyof FleetBillingProfile)[];
 
 const PROFILE_TEXT_KEYS = [
@@ -413,6 +420,7 @@ export function mergeBillingProfile(
   if (patch.invoiceLanguage !== undefined) next.invoiceLanguage = patch.invoiceLanguage;
   if (patch.paymentTermsDays !== undefined) next.paymentTermsDays = patch.paymentTermsDays;
   if (patch.autoInvoice !== undefined) next.autoInvoice = patch.autoInvoice;
+  if (patch.invoiceDateMode !== undefined) next.invoiceDateMode = patch.invoiceDateMode;
   return next;
 }
 
@@ -446,7 +454,8 @@ const billingContactRequiredError = (): AppError =>
 
 /**
  * Updates the fleet billing profile: the only writer of the profile columns
- * (billing contacts, bill-to, invoice language, payment terms, auto invoice;
+ * (billing contacts, bill-to, invoice language, payment terms, auto invoice,
+ * invoice date mode;
  * P3). Keys left out keep their value. Refused with 400
  * FLEET_BILLING_CONTACT_REQUIRED when auto invoice would be on without a
  * billing contact (the check `fleets_auto_invoice_contact_check` holds the

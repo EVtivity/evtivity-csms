@@ -388,6 +388,7 @@ describe('fleet account billing', () => {
       oldConnections: 2,
       hosts: ['10.0.0.8'],
       lastOldSeenAt: '2026-10-07T11:59:00.000Z',
+      allowedFrom: null,
       watchCheckedAt: '2026-10-07T11:59:30.000Z',
     };
     mockReleaseUpgradePending.mockResolvedValue(details);
@@ -410,12 +411,37 @@ describe('fleet account billing', () => {
     expect(mockPublishFanout).not.toHaveBeenCalled();
   });
 
+  it('says when the change is allowed when an older process ran until recently', async () => {
+    const details = {
+      reason: 'old_processes' as const,
+      oldConnections: 0,
+      hosts: [],
+      lastOldSeenAt: '2026-10-07T11:55:00.000Z',
+      allowedFrom: '2026-10-07T12:05:00.000Z',
+      watchCheckedAt: '2026-10-07T11:59:30.000Z',
+    };
+    mockReleaseUpgradePending.mockResolvedValue(details);
+    setupDbResults([
+      { id: 'f1', name: 'Acme', accountBillingEnabled: false, accountInvoiceRecipient: 'fleet' },
+    ]);
+
+    const err = await setFleetAccountBilling('f1', { enabled: true }, { actor, log }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toMatchObject({ code: 'FLEET_BILLING_OLD_PODS_CONNECTED', details });
+    expect((err as Error).message).toBe(
+      'A process older than v0.1.41 ran until recently. You can change the fleet billing from 2026-10-07T12:05:00.000Z.',
+    );
+    expect((err as Error).message).not.toContain('still connected');
+  });
+
   it('refuses with FLEET_BILLING_VERSION_CHECK_STALE when only the worker watch is stale', async () => {
     const details = {
       reason: 'version_check_stale' as const,
       oldConnections: 0,
       hosts: [],
       lastOldSeenAt: null,
+      allowedFrom: null,
       watchCheckedAt: null,
     };
     mockReleaseUpgradePending.mockResolvedValue(details);
@@ -669,6 +695,7 @@ describe('fleet billing profile', () => {
     invoiceLanguage: 'en',
     paymentTermsDays: null,
     autoInvoice: false,
+    invoiceDateMode: 'run_date',
   };
   const fleetRow = { id: 'f1', name: 'Acme', accountBillingEnabled: true, ...profile };
 
@@ -690,6 +717,16 @@ describe('fleet billing profile', () => {
       billingTaxId: null,
       billingContactEmails: ['ap@acme.example', 'cfo@acme.example'],
       paymentTermsDays: 14,
+    });
+  });
+
+  it('merges and diffs the invoice date mode', () => {
+    const next = mergeBillingProfile(profile, { invoiceDateMode: 'period_end' });
+    expect(next.invoiceDateMode).toBe('period_end');
+    expect(mergeBillingProfile(next, {}).invoiceDateMode).toBe('period_end');
+    expect(diffBillingProfile(profile, next)).toEqual({
+      before: { invoiceDateMode: 'run_date' },
+      after: { invoiceDateMode: 'period_end' },
     });
   });
 

@@ -39,6 +39,7 @@ import { createFleetInvoiceWorker, setFleetInvoiceQueue } from './fleet-invoice-
 import { createMemberInvoiceWorker, setMemberInvoiceQueue } from './member-invoice-worker.js';
 import { createStationWatchWorker } from './station-watch-worker.js';
 import { createPaymentWebhookWorker } from './payment-webhook-worker.js';
+import { createPaymentStopWorker } from './payment-stop-worker.js';
 import { setSimulatedEventSink } from './lib/payments.js';
 import {
   createRemoteStartTimeoutWorker,
@@ -92,6 +93,7 @@ async function start(): Promise<void> {
     memberInvoiceQueue,
     stationWatchQueue,
     paymentWebhookQueue,
+    paymentStopQueue,
     remoteStartTimeoutQueue,
     stationMessageQueue,
     reportQueue,
@@ -108,6 +110,7 @@ async function start(): Promise<void> {
     [QUEUE_NAMES.MEMBER_INVOICES, memberInvoiceQueue],
     [QUEUE_NAMES.STATION_WATCH, stationWatchQueue],
     [QUEUE_NAMES.PAYMENT_WEBHOOKS, paymentWebhookQueue],
+    [QUEUE_NAMES.PAYMENT_STOPS, paymentStopQueue],
     [QUEUE_NAMES.STATION_MESSAGES, stationMessageQueue],
   ]);
   setJobQueueResolver((name) => queuesByName.get(name));
@@ -153,6 +156,7 @@ async function start(): Promise<void> {
     createBullMQConnection(REDIS_URL),
     pubsub,
   );
+  const paymentStopWorker = createPaymentStopWorker(createBullMQConnection(REDIS_URL), pubsub);
   const remoteStartTimeoutWorker = createRemoteStartTimeoutWorker(
     createBullMQConnection(REDIS_URL),
     pubsub,
@@ -191,6 +195,7 @@ async function start(): Promise<void> {
     memberInvoiceWorker,
     stationWatchWorker,
     paymentWebhookWorker,
+    paymentStopWorker,
     remoteStartTimeoutWorker,
     stationMessageWorker,
     reportWorker,
@@ -292,6 +297,7 @@ async function start(): Promise<void> {
     await memberInvoiceWorker.close();
     await stationWatchWorker.close();
     await paymentWebhookWorker.close();
+    await paymentStopWorker.close();
     await remoteStartTimeoutWorker.close();
     await stationMessageWorker.close();
     await reportWorker.close();
@@ -314,6 +320,7 @@ async function start(): Promise<void> {
     await stationWatchQueue.close();
     setSimulatedEventSink(null);
     await paymentWebhookQueue.close();
+    await paymentStopQueue.close();
     await remoteStartTimeoutQueue.close();
     await stationMessageQueue.close();
     await reportQueue.close();

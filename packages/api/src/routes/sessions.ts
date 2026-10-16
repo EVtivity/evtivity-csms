@@ -48,6 +48,10 @@ import {
   rebillSession,
   SessionRebillRefusedError,
 } from '../services/session-rebill.service.js';
+import {
+  moveSessionsBilling,
+  sessionBillingMoveError,
+} from '../services/session-billing-recipient.service.js';
 import { normalizeMacAddress } from '@evtivity/lib/vehicle-id';
 import * as vehicleService from '../services/vehicle.service.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
@@ -533,6 +537,23 @@ const rebillResponse = z
 const sessionParams = z.object({
   id: ID_PARAMS.sessionId.describe('Session ID'),
 });
+
+const billingRecipientBody = z.object({
+  recipient: z
+    .enum(['fleet', 'member'])
+    .describe(
+      "Who the session is invoiced to: 'fleet' (the fleet invoice) or 'member' (the driver's member invoice)",
+    ),
+});
+
+const billingRecipientResponse = z
+  .object({
+    sessionId: z.string().describe('Session ID'),
+    recipient: z.enum(['fleet', 'member']).describe('Who the session is invoiced to now'),
+    memberBilled: z.boolean().describe("True when the session goes on the driver's member invoice"),
+    moved: z.boolean().describe('False when the session was already billed to the recipient'),
+  })
+  .passthrough();
 
 export function sessionRoutes(app: FastifyInstance): void {
   app.get(
@@ -1334,6 +1355,55 @@ export function sessionRoutes(app: FastifyInstance): void {
         }
         throw err;
       }
+    },
+  );
+
+  app.patch(
+    '/sessions/:id/billing-recipient',
+    {
+      onRequest: [authorize('payments:write')],
+      schema: {
+        tags: ['Sessions'],
+        summary: "Move a session between the fleet invoice and the member's invoice",
+        description:
+          "Moves an unbilled session billed on account to a fleet between the fleet invoice (recipient fleet) and the driver's own member invoice (recipient member). Allowed only while the session is on no invoice (a session of an issued invoice is released by crediting the invoice first: 409 SESSION_ALREADY_INVOICED), the driver is still a member of the fleet (409 DRIVER_NOT_FLEET_MEMBER) and the fleet bills on account (409 FLEET_ACCOUNT_BILLING_OFF). A session not billed on account (card, prepaid, roaming, or paid by card) answers 409 SESSION_NOT_ON_ACCOUNT. A session already billed to the recipient answers 200 with moved false and writes nothing. A move is audited on the session (billing_reassigned, recipient before and after). A user restricted to some sites gets 404 SESSION_NOT_FOUND: account invoices span every site.",
+        operationId: 'moveSessionBillingRecipient',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(sessionParams),
+        body: zodSchema(billingRecipientBody),
+        response: {
+          200: itemResponse(billingRecipientResponse),
+          404: errorWith('Session not found', [ERROR_CODES.SESSION_NOT_FOUND]),
+          409: errorWith('The session cannot move', [
+            ERROR_CODES.SESSION_NOT_ON_ACCOUNT,
+            ERROR_CODES.SESSION_ALREADY_INVOICED,
+            ERROR_CODES.FLEET_ACCOUNT_BILLING_OFF,
+            ERROR_CODES.DRIVER_NOT_FLEET_MEMBER,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof sessionParams>;
+      const { recipient } = request.body as z.infer<typeof billingRecipientBody>;
+      const { userId } = request.user as JwtPayload;
+      if ((await getUserSiteIds(userId)) != null) {
+        await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+        return;
+      }
+      const [move] = await moveSessionsBilling([id], recipient, {
+        actor: getAuditActor(request),
+        log: request.log,
+      });
+      const outcome = move?.outcome ?? 'not_found';
+      const refusal = sessionBillingMoveError(outcome);
+      if (refusal != null) throw refusal;
+      return {
+        sessionId: id,
+        recipient,
+        memberBilled: recipient === 'member',
+        moved: outcome === 'moved',
+      };
     },
   );
 }

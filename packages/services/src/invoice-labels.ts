@@ -75,6 +75,26 @@ export interface InvoiceLabels {
   segment: string;
   /** Fleet invoice idle fee line: "{label}" (kinds.idleFee) and "{minutes}" are replaced. */
   idleFeeMinutes: string;
+  /** Heading of the payment block below the totals (printed when an IBAN is set). */
+  paymentInformation: string;
+  paymentAccountHolder: string;
+  paymentIban: string;
+  paymentBic: string;
+  paymentBank: string;
+  /** The reference to quote with a transfer (the invoice number), or of a recorded payment. */
+  paymentReference: string;
+  /** Open invoice with a due date: "{amount}", "{date}" and "{reference}" are replaced. */
+  paymentTransfer: string;
+  /** Open invoice without a due date: "{amount}" and "{reference}" are replaced. */
+  paymentTransferNoDue: string;
+  /** Printed next to the EPC QR code. */
+  paymentQrHint: string;
+  /** Paid invoice: "{date}" is replaced. */
+  paymentPaid: string;
+  /** Driver invoice paid by card when it was issued: "{date}" is replaced. */
+  paymentPaidByCard: string;
+  /** Credit note: nothing to pay. */
+  paymentCreditNote: string;
 }
 
 export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
@@ -131,6 +151,19 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     session: 'Charging session {date} ({kwh} kWh)',
     segment: 'Segment {n}: {label}',
     idleFeeMinutes: '{label}, {minutes} min',
+    paymentInformation: 'PAYMENT INFORMATION',
+    paymentAccountHolder: 'Account holder',
+    paymentIban: 'IBAN',
+    paymentBic: 'BIC',
+    paymentBank: 'Bank',
+    paymentReference: 'Payment reference',
+    paymentTransfer:
+      'Please transfer {amount} by {date}, quoting the payment reference {reference}.',
+    paymentTransferNoDue: 'Please transfer {amount}, quoting the payment reference {reference}.',
+    paymentQrHint: 'Scan with your banking app to pay by SEPA transfer.',
+    paymentPaid: 'Paid on {date}. No payment is due.',
+    paymentPaidByCard: 'Paid by card on {date}. No payment is due.',
+    paymentCreditNote: 'No payment is due. The amount is refunded or offset against open invoices.',
   },
   de: {
     locale: 'de-DE',
@@ -186,6 +219,21 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     session: 'Ladevorgang {date} ({kwh} kWh)',
     segment: 'Abschnitt {n}: {label}',
     idleFeeMinutes: '{label}, {minutes} Min.',
+    paymentInformation: 'ZAHLUNGSINFORMATIONEN',
+    paymentAccountHolder: 'Kontoinhaber',
+    paymentIban: 'IBAN',
+    paymentBic: 'BIC',
+    paymentBank: 'Bank',
+    paymentReference: 'Verwendungszweck',
+    paymentTransfer:
+      'Bitte überweisen Sie {amount} bis zum {date} unter Angabe des Verwendungszwecks {reference}.',
+    paymentTransferNoDue:
+      'Bitte überweisen Sie {amount} unter Angabe des Verwendungszwecks {reference}.',
+    paymentQrHint: 'Mit der Banking-App scannen, um per SEPA-Überweisung zu bezahlen.',
+    paymentPaid: 'Bezahlt am {date}. Es ist keine Zahlung fällig.',
+    paymentPaidByCard: 'Am {date} per Karte bezahlt. Es ist keine Zahlung fällig.',
+    paymentCreditNote:
+      'Es ist keine Zahlung fällig. Der Betrag wird erstattet oder mit offenen Rechnungen verrechnet.',
   },
   es: {
     locale: 'es-ES',
@@ -240,6 +288,20 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     session: 'Sesión de carga {date} ({kwh} kWh)',
     segment: 'Tramo {n}: {label}',
     idleFeeMinutes: '{label}, {minutes} min',
+    paymentInformation: 'INFORMACIÓN DE PAGO',
+    paymentAccountHolder: 'Titular de la cuenta',
+    paymentIban: 'IBAN',
+    paymentBic: 'BIC',
+    paymentBank: 'Banco',
+    paymentReference: 'Referencia de pago',
+    paymentTransfer:
+      'Transfiera {amount} antes del {date} indicando la referencia de pago {reference}.',
+    paymentTransferNoDue: 'Transfiera {amount} indicando la referencia de pago {reference}.',
+    paymentQrHint: 'Escanee el código con su app bancaria para pagar por transferencia SEPA.',
+    paymentPaid: 'Pagada el {date}. No hay ningún pago pendiente.',
+    paymentPaidByCard: 'Pagada con tarjeta el {date}. No hay ningún pago pendiente.',
+    paymentCreditNote:
+      'No hay ningún pago pendiente. El importe se reembolsa o se compensa con facturas pendientes.',
   },
   ko: {
     locale: 'ko-KR',
@@ -294,6 +356,19 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     session: '충전 세션 {date} ({kwh} kWh)',
     segment: '구간 {n}: {label}',
     idleFeeMinutes: '{label}, {minutes}분',
+    paymentInformation: '결제 정보',
+    paymentAccountHolder: '예금주',
+    paymentIban: 'IBAN',
+    paymentBic: 'BIC',
+    paymentBank: '은행',
+    paymentReference: '입금 참조',
+    paymentTransfer:
+      '{date}까지 입금 참조 {reference}을(를) 기재하여 {amount}을(를) 송금해 주십시오.',
+    paymentTransferNoDue: '입금 참조 {reference}을(를) 기재하여 {amount}을(를) 송금해 주십시오.',
+    paymentQrHint: '은행 앱으로 스캔하여 SEPA 송금으로 결제하십시오.',
+    paymentPaid: '{date}에 결제되었습니다. 지불할 금액이 없습니다.',
+    paymentPaidByCard: '{date}에 카드로 결제되었습니다. 지불할 금액이 없습니다.',
+    paymentCreditNote: '지불할 금액이 없습니다. 금액은 환불되거나 미결제 청구서와 상계됩니다.',
   },
   zh: {
     locale: 'zh-CN',
@@ -348,6 +423,18 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     session: '充电会话 {date}（{kwh} kWh）',
     segment: '第 {n} 段：{label}',
     idleFeeMinutes: '{label}，{minutes} 分钟',
+    paymentInformation: '付款信息',
+    paymentAccountHolder: '账户持有人',
+    paymentIban: 'IBAN',
+    paymentBic: 'BIC',
+    paymentBank: '银行',
+    paymentReference: '付款备注',
+    paymentTransfer: '请于 {date} 前转账 {amount}，并注明付款备注 {reference}。',
+    paymentTransferNoDue: '请转账 {amount}，并注明付款备注 {reference}。',
+    paymentQrHint: '使用银行应用扫描二维码，通过 SEPA 转账付款。',
+    paymentPaid: '已于 {date} 付款，无需再付款。',
+    paymentPaidByCard: '已于 {date} 通过银行卡付款，无需再付款。',
+    paymentCreditNote: '无需付款。该金额将退还或与未结发票抵销。',
   },
   'zh-TW': {
     locale: 'zh-TW',
@@ -402,6 +489,18 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     session: '充電會話 {date}（{kwh} kWh）',
     segment: '第 {n} 段：{label}',
     idleFeeMinutes: '{label}，{minutes} 分鐘',
+    paymentInformation: '付款資訊',
+    paymentAccountHolder: '帳戶持有人',
+    paymentIban: 'IBAN',
+    paymentBic: 'BIC',
+    paymentBank: '銀行',
+    paymentReference: '付款備註',
+    paymentTransfer: '請於 {date} 前轉帳 {amount}，並註明付款備註 {reference}。',
+    paymentTransferNoDue: '請轉帳 {amount}，並註明付款備註 {reference}。',
+    paymentQrHint: '使用銀行應用程式掃描 QR 碼，以 SEPA 轉帳付款。',
+    paymentPaid: '已於 {date} 付款，無需再付款。',
+    paymentPaidByCard: '已於 {date} 以卡片付款，無需再付款。',
+    paymentCreditNote: '無需付款。該金額將退還或與未結發票抵銷。',
   },
 };
 

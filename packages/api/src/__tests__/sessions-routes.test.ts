@@ -56,6 +56,12 @@ const rebill = vi.hoisted(() => ({
   getSessionRebillState: vi.fn(),
 }));
 
+const billingMove = vi.hoisted(() => ({ moveSessionsBilling: vi.fn() }));
+vi.mock('../services/session-billing-recipient.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/session-billing-recipient.service.js')>()),
+  moveSessionsBilling: billingMove.moveSessionsBilling,
+}));
+
 vi.mock('../services/session-rebill.service.js', async () => {
   const { AppError } = await import('@evtivity/lib');
   class SessionRebillRefusedError extends AppError {
@@ -1556,6 +1562,83 @@ describe('Session routes', () => {
       });
       expect(response.statusCode).toBe(400);
       expect(rebill.rebillSession).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('PATCH /v1/sessions/:id/billing-recipient', () => {
+    function patch(body: Record<string, unknown>) {
+      return app.inject({
+        method: 'PATCH',
+        url: `/sessions/${VALID_SESSION_ID}/billing-recipient`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: body,
+      });
+    }
+
+    beforeEach(() => {
+      billingMove.moveSessionsBilling.mockReset();
+    });
+
+    it('moves the session to the member invoice', async () => {
+      billingMove.moveSessionsBilling.mockResolvedValueOnce([
+        {
+          sessionId: VALID_SESSION_ID,
+          outcome: 'moved',
+          driverId: 'd',
+          fleetId: 'f',
+          from: 'fleet',
+        },
+      ]);
+      const response = await patch({ recipient: 'member' });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        sessionId: VALID_SESSION_ID,
+        recipient: 'member',
+        memberBilled: true,
+        moved: true,
+      });
+      expect(billingMove.moveSessionsBilling).toHaveBeenCalledWith(
+        [VALID_SESSION_ID],
+        'member',
+        expect.objectContaining({ actor: expect.anything() }),
+      );
+    });
+
+    it('answers moved false for a session already billed to the recipient', async () => {
+      billingMove.moveSessionsBilling.mockResolvedValueOnce([
+        {
+          sessionId: VALID_SESSION_ID,
+          outcome: 'unchanged',
+          driverId: 'd',
+          fleetId: 'f',
+          from: 'fleet',
+        },
+      ]);
+      const response = await patch({ recipient: 'fleet' });
+      expect(response.json()).toMatchObject({ moved: false, memberBilled: false });
+    });
+
+    it.each([
+      ['invoiced', 409, 'SESSION_ALREADY_INVOICED'],
+      ['not_member', 409, 'DRIVER_NOT_FLEET_MEMBER'],
+      ['billing_off', 409, 'FLEET_ACCOUNT_BILLING_OFF'],
+      ['not_on_account', 409, 'SESSION_NOT_ON_ACCOUNT'],
+      ['not_found', 404, 'SESSION_NOT_FOUND'],
+    ])('refuses a %s session with %i %s', async (outcome, status, code) => {
+      billingMove.moveSessionsBilling.mockResolvedValueOnce([
+        { sessionId: VALID_SESSION_ID, outcome, driverId: null, fleetId: null, from: null },
+      ]);
+      const response = await patch({ recipient: 'member' });
+      expect(response.statusCode).toBe(status);
+      expect(response.json().code).toBe(code);
+    });
+
+    it('answers 404 to a site-restricted user and 400 to an unknown recipient', async () => {
+      const { getUserSiteIds } = await import('../lib/site-access.js');
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_1']);
+      expect((await patch({ recipient: 'member' })).statusCode).toBe(404);
+      expect((await patch({ recipient: 'driver' })).statusCode).toBe(400);
+      expect(billingMove.moveSessionsBilling).not.toHaveBeenCalled();
     });
   });
 });

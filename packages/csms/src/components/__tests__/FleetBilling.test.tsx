@@ -16,7 +16,8 @@ const { patchMock, getMock, toastMock, permission } = vi.hoisted(() => ({
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
-    t: (key: string) => key,
+    t: (key: string, opts?: { time?: string }) =>
+      opts?.time != null ? `${key} ${opts.time}` : key,
   }),
 }));
 
@@ -40,11 +41,12 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock('@/lib/timezone', () => ({
-  useUserTimezone: () => 'UTC',
+  useUserTimezone: () => 'Europe/Berlin',
   formatDate: (v: string) => v,
+  formatDateTime: (v: string, tz: string) => `${v}@${tz}`,
 }));
 
-import { FleetBillingTab } from '../fleet/FleetBillingTab';
+import { FleetBillingTab, oldProcessAllowedFrom } from '../fleet/FleetBillingTab';
 import { FleetBillingProfileCard, parseContactEmails } from '../fleet/FleetBillingProfileCard';
 import { FleetDriversTab } from '../fleet/FleetDriversTab';
 import { DriverBillingCard } from '../driver/DriverBillingCard';
@@ -130,6 +132,49 @@ describe('FleetBillingTab', () => {
     fireEvent.click(screen.getByRole('button', { name: 'fleets.billing.recipientChange' }));
     expect(await screen.findByTestId('fleet-billing-upgrade-error')).toBeTruthy();
     expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it('names the time the change is allowed from when an older process ran until recently', async () => {
+    const { ApiError } = await import('@/lib/api');
+    patchMock.mockRejectedValueOnce(
+      new ApiError(409, {
+        error: 'A process older than v0.1.41 ran until recently.',
+        code: 'FLEET_BILLING_OLD_PODS_CONNECTED',
+        details: {
+          reason: 'old_processes',
+          oldConnections: 0,
+          hosts: [],
+          lastOldSeenAt: '2026-10-16T09:50:00.000Z',
+          allowedFrom: '2026-10-16T10:00:00.000Z',
+          watchCheckedAt: '2026-10-16T09:55:00.000Z',
+        },
+      }),
+    );
+    wrap(<FleetBillingTab fleet={{ id: 'flt_1', accountBillingEnabled: false }} />);
+    fireEvent.click(screen.getByRole('switch', { name: 'fleets.billing.chargeOnAccount' }));
+    fireEvent.click(screen.getByRole('button', { name: 'fleets.billing.enable' }));
+    const notice = await screen.findByTestId('fleet-billing-upgrade-error');
+    expect(notice.textContent).toBe(
+      'fleets.billing.oldProcessRecent 2026-10-16T10:00:00.000Z@Europe/Berlin',
+    );
+    expect(toastMock).not.toHaveBeenCalled();
+  });
+
+  it('reads allowedFrom only for an old-release refusal with no process connected now', async () => {
+    const { ApiError } = await import('@/lib/api');
+    const body = (details: Record<string, unknown>, code = 'FLEET_BILLING_OLD_PODS_CONNECTED') =>
+      new ApiError(409, { error: 'x', code, details });
+    const at = '2026-10-16T10:00:00.000Z';
+    expect(oldProcessAllowedFrom(body({ oldConnections: 0, allowedFrom: at }))).toBe(at);
+    expect(oldProcessAllowedFrom(body({ oldConnections: 2, allowedFrom: at }))).toBeNull();
+    expect(oldProcessAllowedFrom(body({ oldConnections: 0, allowedFrom: null }))).toBeNull();
+    expect(oldProcessAllowedFrom(body({ oldConnections: 0, allowedFrom: 'soon' }))).toBeNull();
+    expect(
+      oldProcessAllowedFrom(
+        body({ oldConnections: 0, allowedFrom: at }, 'FLEET_BILLING_VERSION_CHECK_STALE'),
+      ),
+    ).toBeNull();
+    expect(oldProcessAllowedFrom(new Error('network'))).toBeNull();
   });
 
   it('shows the stale version check refusal inline with its own message', async () => {
@@ -305,6 +350,7 @@ describe('FleetBillingProfileCard', () => {
     invoiceLanguage: 'de',
     paymentTermsDays: 14,
     autoInvoice: true,
+    invoiceDateMode: 'run_date' as const,
   };
 
   it('splits contacts on lines, commas and semicolons', () => {
@@ -324,6 +370,7 @@ describe('FleetBillingProfileCard', () => {
     expect(screen.getByText('Deutsch')).toBeTruthy();
     expect(screen.getByText('14')).toBeTruthy();
     expect(screen.getByText('fleets.billing.on')).toBeTruthy();
+    expect(screen.getByText('fleets.billingProfile.invoiceDateRunDate')).toBeTruthy();
   });
 
   it('falls back to the fleet name and the default terms', () => {
@@ -346,6 +393,9 @@ describe('FleetBillingProfileCard', () => {
     fireEvent.change(screen.getByLabelText('fleets.billingProfile.paymentTerms'), {
       target: { value: '' },
     });
+    fireEvent.change(screen.getByLabelText('fleets.billingProfile.invoiceDate'), {
+      target: { value: 'period_end' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
 
     await waitFor(() => {
@@ -361,6 +411,7 @@ describe('FleetBillingProfileCard', () => {
         invoiceLanguage: 'de',
         paymentTermsDays: null,
         autoInvoice: true,
+        invoiceDateMode: 'period_end',
       });
     });
     await waitFor(() => {

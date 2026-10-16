@@ -21,6 +21,8 @@ import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCents } from '@/lib/formatting';
+import { BillToButton } from '@/components/bill-to-button';
+import { useBillingRecipientMove } from './use-billing-recipient-move';
 
 /** A member row of GET /v1/fleets/:id/billing/unbilled (`members`). */
 export interface FleetMemberPreview {
@@ -121,6 +123,10 @@ export function FleetMemberInvoices({
     },
   });
 
+  const move = useBillingRecipientMove(fleetId, period);
+  // Members with unbilled sessions that can go back on the fleet invoice.
+  const movable = members.filter((m) => m.sessionCount > 0).map((m) => m.driverId);
+
   return (
     <div className="space-y-3" data-testid="fleet-member-invoices">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -128,17 +134,28 @@ export function FleetMemberInvoices({
           <p className="font-medium">{t('fleets.invoices.membersTitle')}</p>
           <p className="text-muted-foreground">{t('fleets.invoices.membersDescription')}</p>
         </div>
-        {canWrite && (
-          <Button
-            variant="outline"
-            disabled={pending.length === 0 || invoiceAll.isPending}
-            onClick={() => {
-              setAllOpen(true);
-            }}
-          >
-            {t('fleets.invoices.invoiceAll')}
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {move.canMove && movable.length > 0 && (
+            <BillToButton
+              recipient="fleet"
+              label={t('billingRecipient.billAllToFleet')}
+              onClick={() => {
+                move.request({ recipient: 'fleet', driverIds: movable, driverName: null });
+              }}
+            />
+          )}
+          {canWrite && (
+            <Button
+              variant="outline"
+              disabled={pending.length === 0 || invoiceAll.isPending}
+              onClick={() => {
+                setAllOpen(true);
+              }}
+            >
+              {t('fleets.invoices.invoiceAll')}
+            </Button>
+          )}
+        </div>
       </div>
       {members.length === 0 ? (
         <p className="text-muted-foreground">{t('fleets.invoices.noMembers')}</p>
@@ -185,17 +202,30 @@ export function FleetMemberInvoices({
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {canWrite && (
-                      <Button
-                        size="sm"
-                        disabled={!canInvoiceMember(member) || generate.isPending}
-                        onClick={() => {
-                          setTarget(member);
-                        }}
-                      >
-                        {t('fleets.invoices.generateMember')}
-                      </Button>
-                    )}
+                    <div className="flex justify-end gap-2">
+                      {move.canMove && member.sessionCount > 0 && (
+                        <BillToButton
+                          recipient="fleet"
+                          onClick={() => {
+                            move.request({
+                              recipient: 'fleet',
+                              driverIds: [member.driverId],
+                              driverName: member.driverName,
+                            });
+                          }}
+                        />
+                      )}
+                      {canWrite && (
+                        <Button
+                          disabled={!canInvoiceMember(member) || generate.isPending}
+                          onClick={() => {
+                            setTarget(member);
+                          }}
+                        >
+                          {t('fleets.invoices.generateMember')}
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -222,6 +252,7 @@ export function FleetMemberInvoices({
           return false;
         }}
       />
+      {move.dialog}
       <ConfirmDialog
         open={allOpen}
         onOpenChange={setAllOpen}

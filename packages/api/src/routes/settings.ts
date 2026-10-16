@@ -106,6 +106,12 @@ import {
   COMPANY_INVOICE_EMAIL_KEY,
   isInvoiceSellerSettingKey,
   normalizeInvoiceSellerSetting,
+  COMPANY_BIC_KEY,
+  COMPANY_IBAN_KEY,
+  INVOICE_EPC_QR_ENABLED_KEY,
+  INVOICE_PAYMENT_MAX_LENGTHS,
+  isInvoicePaymentSettingKey,
+  normalizeInvoicePaymentSetting,
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
@@ -170,7 +176,9 @@ function isCachedSystemSetting(key: string): boolean {
   return (
     key === COMPANY_CURRENCY_KEY ||
     key === COMPANY_PRICE_DISPLAY_KEY ||
-    key === COMPANY_TAX_BASIS_KEY
+    key === COMPANY_TAX_BASIS_KEY ||
+    key === INVOICE_EPC_QR_ENABLED_KEY ||
+    isInvoicePaymentSettingKey(key)
   );
 }
 
@@ -249,6 +257,11 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
     const seller = normalizeInvoiceSellerSetting(key, value);
     return seller != null ? { value: seller } : null;
   }
+  if (isInvoicePaymentSettingKey(key)) {
+    const bank = normalizeInvoicePaymentSetting(key, value);
+    return bank != null ? { value: bank } : null;
+  }
+  if (key === INVOICE_EPC_QR_ENABLED_KEY) return typeof value === 'boolean' ? { value } : null;
   if (key !== COMPANY_CURRENCY_KEY) return { value };
   const code = typeof value === 'string' ? value.trim().toUpperCase() : value;
   return isSupportedCurrency(code) ? { value: code } : null;
@@ -321,6 +334,28 @@ const invalidPdfFooterError = {
   error: `${PDF_FOOTER_KEY} must be plain text of at most ${String(MAX_PDF_FOOTER_LENGTH)} characters and ${String(MAX_PDF_FOOTER_LINES)} lines`,
   code: 'VALIDATION_ERROR',
 };
+
+function invalidInvoicePaymentError(key: keyof typeof INVOICE_PAYMENT_MAX_LENGTHS): {
+  error: string;
+  code: string;
+} {
+  if (key === COMPANY_IBAN_KEY) {
+    return {
+      error: `${key} must be empty or a valid IBAN (ISO 13616 format and checksum)`,
+      code: 'VALIDATION_ERROR',
+    };
+  }
+  if (key === COMPANY_BIC_KEY) {
+    return {
+      error: `${key} must be empty or a BIC of 8 or 11 letters and digits`,
+      code: 'VALIDATION_ERROR',
+    };
+  }
+  return {
+    error: `${key} must be one line of text of at most ${String(INVOICE_PAYMENT_MAX_LENGTHS[key])} characters`,
+    code: 'VALIDATION_ERROR',
+  };
+}
 
 function invalidInvoiceSellerError(key: keyof typeof INVOICE_SELLER_MAX_LENGTHS): {
   error: string;
@@ -446,6 +481,10 @@ function invalidSettingError(key: string): { error: string; code: string } {
   if (key === PDF_LOGO_KEY) return invalidPdfLogoError;
   if (key === PDF_FOOTER_KEY) return invalidPdfFooterError;
   if (isInvoiceSellerSettingKey(key)) return invalidInvoiceSellerError(key);
+  if (isInvoicePaymentSettingKey(key)) return invalidInvoicePaymentError(key);
+  if (key === INVOICE_EPC_QR_ENABLED_KEY) {
+    return { error: `${key} must be true or false`, code: 'VALIDATION_ERROR' };
+  }
   if (key === MOBILE_APP_URL_SCHEMES_KEY) return invalidMobileAppSchemesError;
   if (key === MOBILE_APP_ANDROID_PACKAGES_KEY) return invalidMobileAppPackagesError;
   if (key === COMPANY_PRICE_DISPLAY_KEY) return invalidPriceDisplayError;

@@ -6,6 +6,15 @@ import { describe, it, expect, vi } from 'vitest';
 
 vi.mock('@evtivity/database', () => ({
   client: vi.fn(() => Promise.resolve([])),
+  getInvoicePaymentSettings: vi.fn(() =>
+    Promise.resolve({
+      accountHolder: null,
+      iban: null,
+      bic: null,
+      bankName: null,
+      epcQrEnabled: true,
+    }),
+  ),
 }));
 
 import {

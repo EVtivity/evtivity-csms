@@ -67,8 +67,13 @@ vi.mock('@evtivity/database', () => {
     invoiceAuditLog: { __table: 'invoice_audit_log' },
     writeAudit: vi.fn().mockResolvedValue(undefined),
     getSystemTimezone: vi.fn().mockResolvedValue('UTC'),
+    listMovableFleetSessions: vi.fn(),
   };
 });
+
+vi.mock('../services/session-billing-recipient.service.js', () => ({
+  moveSessionsBilling: vi.fn(),
+}));
 
 vi.mock('@evtivity/services/fleet-invoice.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/services/fleet-invoice.service')>()),
@@ -98,7 +103,8 @@ vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: ['/t'] 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: vi.fn() }));
 
 import { AppError } from '@evtivity/lib';
-import { writeAudit } from '@evtivity/database';
+import { db, listMovableFleetSessions, writeAudit } from '@evtivity/database';
+import { moveSessionsBilling } from '../services/session-billing-recipient.service.js';
 import {
   createFleetInvoice,
   createMemberInvoice,
@@ -631,5 +637,103 @@ describe('GET /fleets/:id/invoices', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(bad.statusCode).toBe(400);
+  });
+});
+
+describe('POST /fleets/:id/billing-recipient', () => {
+  const DRIVER_A = 'drv_00000000000a';
+
+  /** The fleet row the route reads before the move. */
+  function fleetRow(row: Record<string, unknown> | null): void {
+    vi.mocked(db.select).mockImplementationOnce(
+      () =>
+        ({
+          from: () => ({ where: () => Promise.resolve(row == null ? [] : [row]) }),
+        }) as never,
+    );
+  }
+
+  function move(body: Record<string, unknown>) {
+    return app.inject({
+      method: 'POST',
+      url: `/fleets/${FLEET_ID}/billing-recipient`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: body,
+    });
+  }
+
+  const body = { recipient: 'member', driverIds: [DRIVER_A], period: '2026-09' };
+
+  beforeEach(() => {
+    vi.mocked(listMovableFleetSessions).mockReset();
+    vi.mocked(moveSessionsBilling).mockReset();
+  });
+
+  it("moves the preview's sessions of the drivers and reports each outcome", async () => {
+    fleetRow({ accountBillingEnabled: true });
+    vi.mocked(listMovableFleetSessions).mockResolvedValueOnce(['ses_1', 'ses_2']);
+    vi.mocked(moveSessionsBilling).mockResolvedValueOnce([
+      {
+        sessionId: 'ses_1',
+        outcome: 'moved',
+        driverId: DRIVER_A,
+        fleetId: FLEET_ID,
+        from: 'fleet',
+      },
+      {
+        sessionId: 'ses_2',
+        outcome: 'invoiced',
+        driverId: DRIVER_A,
+        fleetId: FLEET_ID,
+        from: 'fleet',
+      },
+    ]);
+    const res = await move(body);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      movedCount: 1,
+      sessions: [
+        { sessionId: 'ses_1', driverId: DRIVER_A, outcome: 'moved' },
+        { sessionId: 'ses_2', driverId: DRIVER_A, outcome: 'invoiced' },
+      ],
+    });
+    expect(listMovableFleetSessions).toHaveBeenCalledWith(expect.anything(), {
+      fleetId: FLEET_ID,
+      driverIds: [DRIVER_A],
+      recipient: 'member',
+      endsBefore: new Date('2026-10-01T00:00:00.000Z'),
+    });
+    expect(moveSessionsBilling).toHaveBeenCalledWith(
+      ['ses_1', 'ses_2'],
+      'member',
+      expect.objectContaining({ actor: expect.objectContaining({ actor: 'operator' }) }),
+    );
+  });
+
+  it('refuses a fleet without account billing and an unknown fleet', async () => {
+    fleetRow({ accountBillingEnabled: false });
+    const off = await move(body);
+    expect(off.statusCode).toBe(409);
+    expect(off.json().code).toBe('FLEET_ACCOUNT_BILLING_OFF');
+    fleetRow(null);
+    expect((await move(body)).json().code).toBe('FLEET_NOT_FOUND');
+    expect(moveSessionsBilling).not.toHaveBeenCalled();
+  });
+
+  it('refuses a site-restricted user, no drivers and a missing permission', async () => {
+    siteAccess.siteIds = ['sit_000000000001'];
+    try {
+      expect((await move(body)).statusCode).toBe(404);
+    } finally {
+      siteAccess.siteIds = null;
+    }
+    expect((await move({ ...body, driverIds: [] })).statusCode).toBe(400);
+    heldPermissions = new Set(['payments:read']);
+    try {
+      expect((await move(body)).statusCode).toBe(403);
+    } finally {
+      heldPermissions = new Set(['payments:read', 'payments:write']);
+    }
+    expect(moveSessionsBilling).not.toHaveBeenCalled();
   });
 });

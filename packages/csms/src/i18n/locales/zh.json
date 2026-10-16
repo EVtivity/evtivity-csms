@@ -1705,7 +1705,8 @@
       "recipientConfirmMember": "从现在开始的会话将按驾驶员的账单地址和电子邮件向每位驾驶员开票。已开始的会话仍在车队发票上。每位受影响的驾驶员都会收到通知。",
       "recipientTitleFleet": "向车队开票",
       "recipientConfirmFleet": "从现在开始的会话计入车队发票。已开始的会话仍在各驾驶员的发票上。每位受影响的驾驶员都会收到通知。",
-      "recipientChange": "更改"
+      "recipientChange": "更改",
+      "oldProcessRecent": "旧版本的进程直到最近仍在运行。您可以从 {{time}} 起更改此设置。"
     },
     "billingProfile": {
       "title": "账单资料",
@@ -1726,6 +1727,10 @@
       "invoiceLanguage": "发票语言",
       "paymentTerms": "付款期限（天）",
       "paymentTermsHelp": "从开具到到期的天数。留空则使用“设置 > 支付”中的付款期限。",
+      "invoiceDate": "发票日期",
+      "invoiceDateRunDate": "开票当天",
+      "invoiceDatePeriodEnd": "计费月份的最后一天",
+      "invoiceDateHelp": "适用于车队发票和成员发票。选择计费月份的最后一天时，月末之后开具的发票使用该日期和该月份的编号。当月的发票使用今天的日期。",
       "paymentTermsDefault": "设置中的默认值",
       "paymentTermsInvalid": "请输入 0 到 {{max}} 之间的整数天数。",
       "autoInvoice": "自动月度发票",
@@ -2266,6 +2271,20 @@
     "invoiceSellerEmailInvalid": "请输入有效的电子邮箱地址，或留空。",
     "invoiceSellerSaved": "发票开票方信息已保存",
     "invoiceSellerSaveFailed": "无法保存发票开票方信息。",
+    "invoicePayment": "发票付款信息",
+    "invoicePaymentDescription": "打印在每张发票 PDF 合计下方的付款信息区块中。未结发票要求以发票号作为备注进行银行转账，已付款发票显示已付款，贷项通知单说明无需付款。未设置 IBAN 时不打印该区块。",
+    "invoicePaymentHolder": "账户持有人",
+    "invoicePaymentHolderHelp": "留空则打印公司名称。",
+    "invoicePaymentIban": "IBAN",
+    "invoicePaymentBic": "BIC",
+    "invoicePaymentBankName": "银行名称",
+    "invoicePaymentEpcQr": "EUR 发票上的 EPC 二维码",
+    "invoicePaymentEpcQrHelp": "打印一个二维码，银行应用扫描后可预填包含金额和发票号的 SEPA 转账。仅用于 EUR 未结发票。",
+    "invoicePaymentIbanInvalid": "请输入有效的 IBAN，或将此字段留空。",
+    "invoicePaymentBicInvalid": "请输入 8 位或 11 位的 BIC，或将此字段留空。",
+    "invoicePaymentTextInvalid": "请使用一行，最多 {{max}} 个字符。",
+    "invoicePaymentSaved": "发票付款信息已保存",
+    "invoicePaymentSaveFailed": "无法保存发票付款信息。",
     "uploadLogo": "上传标志",
     "removeLogo": "移除标志",
     "noLogo": "未上传标志。",
@@ -3503,7 +3522,10 @@
     "MFA_LOCKED": "错误代码过多。请稍后再试。",
     "MFA_RESEND_LIMITED": "发送的代码过多。请稍后再请求。",
     "USER_SSO_MANAGED": "该用户通过 SSO 登录，没有可设置的密码。",
-    "STATION_SITE_SUPPRESSED": "该充电站所属站点的 AI 洞察已暂停。恢复站点即可恢复其充电站"
+    "STATION_SITE_SUPPRESSED": "该充电站所属站点的 AI 洞察已暂停。恢复站点即可恢复其充电站",
+    "SESSION_NOT_ON_ACCOUNT": "该会话未通过车队账户计费",
+    "FLEET_ACCOUNT_BILLING_OFF": "该车队未启用账户计费",
+    "DRIVER_NOT_FLEET_MEMBER": "该驾驶员已不是车队成员"
   },
   "logs": {
     "title": "日志",
@@ -4534,6 +4556,7 @@
       "attachment_added": "已添加附件",
       "availability_changed": "可用性已更改",
       "billing_address_updated": "账单地址已更新",
+      "billing_reassigned": "计费对象已更改",
       "billing_updated": "计费已更新",
       "ca_certificate_added": "已添加 CA 证书",
       "ca_certificate_deleted": "已删除 CA 证书",
@@ -5458,5 +5481,22 @@
       "error": "错误",
       "cleared": "已清除"
     }
+  },
+  "billingRecipient": {
+    "billToDriver": "向驾驶员开票",
+    "billToFleet": "向车队开票",
+    "billAllToDrivers": "全部向驾驶员开票",
+    "billAllToFleet": "全部向车队开票",
+    "toDriverTitle": "移至驾驶员发票",
+    "toFleetTitle": "移至车队发票",
+    "sessionToDriverDescription": "此未开票会话将从车队发票移至 {{driver}} 的成员发票。此更改会记录在会话历史中。",
+    "sessionToFleetDescription": "此未开票会话将从驾驶员的成员发票移至 {{fleet}} 的发票。此更改会记录在会话历史中。",
+    "driverToDriverDescription": "{{driver}} 在此期间的未开票会话将从车队发票移至该驾驶员的成员发票。",
+    "driverToFleetDescription": "{{driver}} 在此期间的未开票会话将从该驾驶员的成员发票移至车队发票。",
+    "allToDriversDescription": "{{count}} 名驾驶员在此期间的未开票会话将从车队发票移至各自的成员发票。",
+    "allToFleetDescription": "{{count}} 名驾驶员在此期间的未开票会话将从其成员发票移至车队发票。",
+    "moved": "计费对象已更改",
+    "movedCount": "已移动的会话：{{count}}",
+    "moveFailed": "无法移动会话。"
   }
 }

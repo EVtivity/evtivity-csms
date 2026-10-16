@@ -115,3 +115,21 @@ describe('invoiceNumberPrefix', () => {
     );
   });
 });
+
+describe('invoice number of a period_end invoice date', () => {
+  it('takes the prefix of the billed month from the noon date on the last day', async () => {
+    // accountInvoiceDate dates an October invoice of a New York fleet at
+    // 2026-10-31T16:00Z (noon EDT; DST ends on November 1).
+    getSystemTimezone.mockResolvedValue('America/New_York');
+    const { tx, statements } = executor([{ value: '7' }]);
+    expect(
+      await allocateInvoiceNumber(tx as never, 'invoice', new Date('2026-10-31T16:00:00Z')),
+    ).toBe('INV-202610-0007');
+    // The counter is shared, so the number stays unique and in issue order
+    // although the date lies in the month before the run.
+    expect(statements[0]).toContain('UPDATE invoice_number_counters SET value = value + 1');
+    expect(invoiceNumberPrefix(new Date('2026-10-31T11:00:00Z'), 'Europe/Berlin')).toBe(
+      'INV-202610-',
+    );
+  });
+});

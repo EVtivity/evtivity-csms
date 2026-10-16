@@ -287,6 +287,8 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // Member invoices: money and personal data, never through the assistant.
   createMemberInvoice: N,
   createMemberInvoiceBatch: N,
+  // Moves sessions between the fleet and member invoices: billing, never through the assistant.
+  moveFleetBillingRecipient: N,
   deleteFleet: W,
   getFleet: R,
   getFleetCreditLimit: R,
@@ -737,6 +739,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   listSessionTransactionEvents: supportRead({ id: 'case.sessionIds' }),
   listSessions: R,
   rebillSession: N,
+  moveSessionBillingRecipient: N,
   // Settings
   deleteSetting: N,
   flushResponseCache: N,

@@ -13,8 +13,10 @@ const {
   mockDispatchOneShot,
   mockDispatchDriver,
   mockSessionAudit,
+  mockEnqueueRefusedStartStop,
 } = vi.hoisted(() => ({
   calls: [] as string[],
+  mockEnqueueRefusedStartStop: vi.fn(),
   mockSessionAudit: vi.fn(),
   mockFaultUnbilledSession: vi.fn(),
   mockPublishOcppCommand: vi.fn(),
@@ -36,6 +38,11 @@ vi.mock('@evtivity/lib', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/lib')>()),
   publishOcppCommand: mockPublishOcppCommand,
   dispatchOneShotStationMessage: mockDispatchOneShot,
+}));
+
+vi.mock('@evtivity/services/refused-start-stop', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/services/refused-start-stop')>()),
+  enqueueRefusedStartStop: mockEnqueueRefusedStartStop,
 }));
 
 const { stopSessionForPayment, costLimitReported, noteCostLimitReached, ceilingStopReason } =
@@ -110,6 +117,10 @@ describe('stopSessionForPayment', () => {
     });
     mockDispatchDriver.mockImplementation(() => {
       calls.push('notice');
+      return Promise.resolve();
+    });
+    mockEnqueueRefusedStartStop.mockImplementation(() => {
+      calls.push('enqueue');
       return Promise.resolve();
     });
   });
@@ -347,6 +358,61 @@ describe('stopSessionForPayment', () => {
         expect.objectContaining({ sessionId: 'sess-1' }),
         'Account credit limit notice failed; continuing',
       );
+    });
+
+    describe('a start the CSMS refused (startRefused)', () => {
+      it('faults and notifies at once but leaves the stop and the message to the delayed job', async () => {
+        const h = accountHarness();
+        await stopSessionForPayment(h.deps, target, 'AccountCreditLimit', { startRefused: true });
+        expect(calls).toEqual(['fault', 'segments', 'enqueue', 'notice-read', 'notice', 'audit']);
+        expect(mockEnqueueRefusedStartStop).toHaveBeenCalledWith(target);
+        expect(mockPublishOcppCommand).not.toHaveBeenCalled();
+        expect(mockDispatchOneShot).not.toHaveBeenCalled();
+        expect(mockSessionAudit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'faulted',
+            notes:
+              'Start refused: RequestStopTransaction for transaction tx-1 in 30 s unless the station ends it',
+          }),
+          undefined,
+          h.logger,
+        );
+      });
+
+      it('stops at once when the delayed job cannot be queued', async () => {
+        const h = accountHarness();
+        mockEnqueueRefusedStartStop.mockRejectedValueOnce(new Error('NOPERM'));
+        await stopSessionForPayment(h.deps, target, 'AccountCreditLimit', { startRefused: true });
+        expect(calls.slice(0, 3)).toEqual(['fault', 'segments', 'publish']);
+        expect(mockDispatchOneShot).toHaveBeenCalledWith(
+          h.pubsub,
+          h.sql,
+          expect.objectContaining({ state: 'account_credit_limit' }),
+          { ttlSeconds: 30, autoClearMs: 30_000 },
+        );
+        expect(h.logger.warn).toHaveBeenCalledWith(
+          expect.objectContaining({ sessionId: 'sess-1' }),
+          'Refused start stop not queued; stopping the transaction now',
+        );
+      });
+
+      it('queues nothing for a transaction the station already ended', async () => {
+        const h = accountHarness();
+        await stopSessionForPayment(h.deps, target, 'AccountCreditLimit', {
+          startRefused: true,
+          transactionEnded: true,
+        });
+        expect(mockEnqueueRefusedStartStop).not.toHaveBeenCalled();
+        expect(mockPublishOcppCommand).not.toHaveBeenCalled();
+      });
+
+      it('never defers another reason, or an accepted start', async () => {
+        const h = accountHarness();
+        await stopSessionForPayment(h.deps, target, 'PaymentFailed', { startRefused: true });
+        await stopSessionForPayment(h.deps, target, 'AccountCreditLimit');
+        expect(mockEnqueueRefusedStartStop).not.toHaveBeenCalled();
+        expect(mockPublishOcppCommand).toHaveBeenCalledTimes(2);
+      });
     });
 
     describe('at the ceiling (plan S8)', () => {

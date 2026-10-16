@@ -1122,6 +1122,28 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   ),
   c(
     'POST',
+    '/fleets/:id/billing-recipient',
+    'payments:write',
+    (_f, w) => `/fleets/${w.fleet}/billing-recipient`,
+    'FLEET_NOT_FOUND',
+    {
+      body: (_f, w) => ({ recipient: 'member', driverIds: [w.driver], period: '2026-01' }),
+      control: ctl(409, 'FLEET_ACCOUNT_BILLING_OFF', 'the seeded fleet does not bill on account'),
+    },
+  ),
+  c(
+    'PATCH',
+    '/sessions/:id/billing-recipient',
+    'payments:write',
+    (f) => `/sessions/${f.session}/billing-recipient`,
+    'SESSION_NOT_FOUND',
+    {
+      body: () => ({ recipient: 'member' }),
+      control: ctl(409, 'SESSION_NOT_ON_ACCOUNT', 'the seeded session is not billed on account'),
+    },
+  ),
+  c(
+    'POST',
     '/fleets/:id/member-invoices/batch',
     'payments:write',
     (_f, w) => `/fleets/${w.fleet}/member-invoices/batch`,

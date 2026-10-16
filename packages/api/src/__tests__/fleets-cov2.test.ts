@@ -52,6 +52,7 @@ vi.mock('@evtivity/database', () => {
     writeAudit,
     pgErrorCode: (err: unknown) => (err as { code?: string }).code,
     PG_FOREIGN_KEY_VIOLATION: '23503',
+    INVOICE_DATE_MODES: ['run_date', 'period_end'],
   };
 });
 

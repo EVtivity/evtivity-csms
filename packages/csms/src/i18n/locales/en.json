@@ -1705,7 +1705,8 @@
       "recipientConfirmMember": "Sessions that start from now on are invoiced to each driver, with the driver's billing address and email. Sessions already started stay on the fleet invoice. Each affected driver is notified.",
       "recipientTitleFleet": "Invoice the Fleet",
       "recipientConfirmFleet": "Sessions that start from now on go on the fleet invoice. Sessions already started stay on each driver's invoice. Each affected driver is notified.",
-      "recipientChange": "Change"
+      "recipientChange": "Change",
+      "oldProcessRecent": "A process of an older version ran until recently. You can change this from {{time}}."
     },
     "billingProfile": {
       "title": "Billing Profile",
@@ -1726,6 +1727,10 @@
       "invoiceLanguage": "Invoice language",
       "paymentTerms": "Payment terms (days)",
       "paymentTermsHelp": "Days from issue to the due date. Empty uses the payment terms in Settings > Payment.",
+      "invoiceDate": "Invoice date",
+      "invoiceDateRunDate": "Day the invoice is issued",
+      "invoiceDatePeriodEnd": "Last day of the billed month",
+      "invoiceDateHelp": "Applies to the fleet invoice and the member invoices. With the last day of the billed month, an invoice issued after the month end is dated on that day and numbered in that month. An invoice of the current month is dated today.",
       "paymentTermsDefault": "Default from Settings",
       "paymentTermsInvalid": "Enter a whole number of days from 0 to {{max}}.",
       "autoInvoice": "Automatic monthly invoice",
@@ -2266,6 +2271,20 @@
     "invoiceSellerEmailInvalid": "Enter a valid email address or leave the field empty.",
     "invoiceSellerSaved": "Invoice seller details saved",
     "invoiceSellerSaveFailed": "Could not save the invoice seller details.",
+    "invoicePayment": "Invoice Payment Information",
+    "invoicePaymentDescription": "Printed in the Payment information block below the totals of every invoice PDF. Open invoices ask for a bank transfer with the invoice number as the reference, paid invoices show Paid, and credit notes state that nothing is due. Without an IBAN the block is left off.",
+    "invoicePaymentHolder": "Account holder",
+    "invoicePaymentHolderHelp": "Leave empty to print the company name.",
+    "invoicePaymentIban": "IBAN",
+    "invoicePaymentBic": "BIC",
+    "invoicePaymentBankName": "Bank name",
+    "invoicePaymentEpcQr": "EPC QR code on EUR invoices",
+    "invoicePaymentEpcQrHelp": "Prints a QR code that banking apps scan to prefill a SEPA transfer with the amount and the invoice number. Only on open invoices in EUR.",
+    "invoicePaymentIbanInvalid": "Enter a valid IBAN or leave the field empty.",
+    "invoicePaymentBicInvalid": "Enter a BIC of 8 or 11 characters or leave the field empty.",
+    "invoicePaymentTextInvalid": "Use one line of at most {{max}} characters.",
+    "invoicePaymentSaved": "Invoice payment information saved",
+    "invoicePaymentSaveFailed": "Could not save the invoice payment information.",
     "uploadLogo": "Upload Logo",
     "removeLogo": "Remove Logo",
     "noLogo": "No logo uploaded.",
@@ -3503,7 +3522,10 @@
     "MFA_LOCKED": "Too many wrong codes. Wait before you try again.",
     "MFA_RESEND_LIMITED": "Too many codes sent. Wait before you request another one.",
     "USER_SSO_MANAGED": "This user signs in with SSO and has no password to set.",
-    "STATION_SITE_SUPPRESSED": "The AI insights of the station's site are suppressed. Resume the site to resume its stations"
+    "STATION_SITE_SUPPRESSED": "The AI insights of the station's site are suppressed. Resume the site to resume its stations",
+    "SESSION_NOT_ON_ACCOUNT": "The session is not billed on account to a fleet",
+    "FLEET_ACCOUNT_BILLING_OFF": "The fleet does not bill on account",
+    "DRIVER_NOT_FLEET_MEMBER": "The driver is no longer a member of the fleet"
   },
   "logs": {
     "title": "Logs",
@@ -4534,6 +4556,7 @@
       "attachment_added": "Attachment added",
       "availability_changed": "Availability changed",
       "billing_address_updated": "Billing address updated",
+      "billing_reassigned": "Billing recipient changed",
       "billing_updated": "Billing updated",
       "ca_certificate_added": "CA certificate added",
       "ca_certificate_deleted": "CA certificate deleted",
@@ -5458,5 +5481,22 @@
       "error": "Error",
       "cleared": "Cleared"
     }
+  },
+  "billingRecipient": {
+    "billToDriver": "Bill to Driver",
+    "billToFleet": "Bill to Fleet",
+    "billAllToDrivers": "Bill All to Drivers",
+    "billAllToFleet": "Bill All to Fleet",
+    "toDriverTitle": "Move to the Driver's Invoice",
+    "toFleetTitle": "Move to the Fleet Invoice",
+    "sessionToDriverDescription": "This unbilled session moves from the fleet invoice to the member invoice of {{driver}}. The move is recorded in the session history.",
+    "sessionToFleetDescription": "This unbilled session moves from the driver's member invoice to the invoice of {{fleet}}. The move is recorded in the session history.",
+    "driverToDriverDescription": "The unbilled sessions of {{driver}} in this period move from the fleet invoice to the driver's member invoice.",
+    "driverToFleetDescription": "The unbilled sessions of {{driver}} in this period move from the driver's member invoice to the fleet invoice.",
+    "allToDriversDescription": "The unbilled sessions of {{count}} drivers in this period move from the fleet invoice to each driver's member invoice.",
+    "allToFleetDescription": "The unbilled sessions of {{count}} drivers in this period move from their member invoices to the fleet invoice.",
+    "moved": "Billing recipient changed",
+    "movedCount": "Sessions moved: {{count}}",
+    "moveFailed": "Could not move the sessions."
   }
 }

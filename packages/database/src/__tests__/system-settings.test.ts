@@ -12,6 +12,7 @@ vi.mock('../config.js', () => ({
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((_col, val) => ({ type: 'eq', val })),
+  inArray: vi.fn((_col, values) => ({ type: 'inArray', values })),
 }));
 
 vi.mock('../schema/settings.js', () => ({
@@ -241,5 +242,43 @@ describe('getCompanyCountry', () => {
     clearSystemSettingsCache();
     expect(await getCompanyCountry()).toBeNull();
     vi.useRealTimers();
+  });
+});
+
+describe('getInvoicePaymentSettings', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mockSelect.mockReset();
+  });
+
+  it('reads the bank details and the QR switch, dropping invalid values', async () => {
+    mockSelect.mockReturnValue(
+      makeChain([
+        { key: 'company.bankAccountHolder', value: 'Acme GmbH' },
+        { key: 'company.iban', value: 'DE89370400440532013000' },
+        { key: 'company.bic', value: 'not a bic' },
+        { key: 'company.bankName', value: '' },
+        { key: 'invoice.epcQrEnabled', value: false },
+      ]),
+    );
+    const { getInvoicePaymentSettings } = await import('../lib/system-settings.js');
+    expect(await getInvoicePaymentSettings()).toEqual({
+      accountHolder: 'Acme GmbH',
+      iban: 'DE89370400440532013000',
+      bic: null,
+      bankName: null,
+      epcQrEnabled: false,
+    });
+  });
+
+  it('has no bank details and the QR code on when nothing is set or the query fails', async () => {
+    mockSelect.mockReturnValueOnce(makeChain([])).mockReturnValueOnce(makeFailingChain());
+    const { getInvoicePaymentSettings, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    const none = { accountHolder: null, iban: null, bic: null, bankName: null, epcQrEnabled: true };
+    expect(await getInvoicePaymentSettings()).toEqual(none);
+    clearSystemSettingsCache();
+    expect(await getInvoicePaymentSettings()).toEqual(none);
   });
 });

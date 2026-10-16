@@ -139,13 +139,14 @@ describe('releaseUpgradePending', () => {
       oldConnections: 2,
       hosts: ['10.0.0.8'],
       lastOldSeenAt: NOW.toISOString(),
+      allowedFrom: null,
       watchCheckedAt: ago(30_000),
     });
   });
 
   it('(b) refuses without a fresh watch, and a version guard without a version watch', async () => {
     connections([]);
-    const stale = { reason: 'version_check_stale', oldConnections: 0 };
+    const stale = { reason: 'version_check_stale', oldConnections: 0, allowedFrom: null };
     await expect(releaseUpgradePending(null, store(null), NOW)).resolves.toMatchObject({
       ...stale,
       watchCheckedAt: null,
@@ -188,6 +189,8 @@ describe('releaseUpgradePending', () => {
       reason: 'old_processes',
       oldConnections: 0,
       lastOldSeenAt: ago(LEGACY_CLEAN_MS - 1),
+      // None is connected now: the change is allowed once the clean window has passed.
+      allowedFrom: new Date(NOW.getTime() + 1).toISOString(),
     });
     await expect(
       releaseUpgradePending(

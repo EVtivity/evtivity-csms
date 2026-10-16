@@ -1705,7 +1705,8 @@
       "recipientConfirmMember": "지금부터 시작되는 세션은 운전자의 청구지 주소와 이메일로 각 운전자에게 청구됩니다. 이미 시작된 세션은 차량대 청구서에 남습니다. 영향을 받는 각 운전자에게 알림이 전송됩니다.",
       "recipientTitleFleet": "차량대에 청구",
       "recipientConfirmFleet": "지금부터 시작되는 세션은 차량대 청구서에 포함됩니다. 이미 시작된 세션은 각 운전자의 청구서에 남습니다. 영향을 받는 각 운전자에게 알림이 전송됩니다.",
-      "recipientChange": "변경"
+      "recipientChange": "변경",
+      "oldProcessRecent": "이전 버전의 프로세스가 최근까지 실행되었습니다. {{time}}부터 변경할 수 있습니다."
     },
     "billingProfile": {
       "title": "청구 프로필",
@@ -1726,6 +1727,10 @@
       "invoiceLanguage": "청구서 언어",
       "paymentTerms": "결제 기한(일)",
       "paymentTermsHelp": "발행일부터 만기일까지의 일수입니다. 비워 두면 설정 > 결제의 결제 기한을 사용합니다.",
+      "invoiceDate": "청구서 날짜",
+      "invoiceDateRunDate": "청구서 발행일",
+      "invoiceDatePeriodEnd": "청구 대상 월의 마지막 날",
+      "invoiceDateHelp": "플릿 청구서와 멤버 청구서에 적용됩니다. 청구 대상 월의 마지막 날을 선택하면 월말 이후에 발행된 청구서는 그 날짜와 그 달의 번호를 받습니다. 이번 달 청구서는 오늘 날짜를 받습니다.",
       "paymentTermsDefault": "설정의 기본값",
       "paymentTermsInvalid": "0부터 {{max}} 사이의 정수 일수를 입력하십시오.",
       "autoInvoice": "자동 월간 청구서",
@@ -2266,6 +2271,20 @@
     "invoiceSellerEmailInvalid": "올바른 이메일 주소를 입력하거나 비워 두세요.",
     "invoiceSellerSaved": "청구서 발행처 정보가 저장되었습니다",
     "invoiceSellerSaveFailed": "청구서 발행처 정보를 저장하지 못했습니다.",
+    "invoicePayment": "청구서 결제 정보",
+    "invoicePaymentDescription": "모든 청구서 PDF의 합계 아래 결제 정보 블록에 인쇄됩니다. 미결제 청구서는 청구서 번호를 참조로 계좌 이체를 요청하고, 결제된 청구서는 결제됨을 표시하며, 크레딧 노트는 지불할 금액이 없음을 안내합니다. IBAN이 없으면 블록이 인쇄되지 않습니다.",
+    "invoicePaymentHolder": "예금주",
+    "invoicePaymentHolderHelp": "비워 두면 회사 이름이 인쇄됩니다.",
+    "invoicePaymentIban": "IBAN",
+    "invoicePaymentBic": "BIC",
+    "invoicePaymentBankName": "은행 이름",
+    "invoicePaymentEpcQr": "EUR 청구서의 EPC QR 코드",
+    "invoicePaymentEpcQrHelp": "은행 앱이 스캔하여 금액과 청구서 번호로 SEPA 송금을 미리 채우는 QR 코드를 인쇄합니다. EUR 미결제 청구서에만 인쇄됩니다.",
+    "invoicePaymentIbanInvalid": "올바른 IBAN을 입력하거나 비워 두십시오.",
+    "invoicePaymentBicInvalid": "8자 또는 11자의 BIC를 입력하거나 비워 두십시오.",
+    "invoicePaymentTextInvalid": "최대 {{max}}자의 한 줄로 입력하십시오.",
+    "invoicePaymentSaved": "청구서 결제 정보가 저장되었습니다",
+    "invoicePaymentSaveFailed": "청구서 결제 정보를 저장하지 못했습니다.",
     "uploadLogo": "로고 업로드",
     "removeLogo": "로고 제거",
     "noLogo": "업로드된 로고가 없습니다.",
@@ -3503,7 +3522,10 @@
     "MFA_LOCKED": "잘못된 코드가 너무 많습니다. 잠시 후 다시 시도하세요.",
     "MFA_RESEND_LIMITED": "코드를 너무 많이 보냈습니다. 잠시 후 다시 요청하세요.",
     "USER_SSO_MANAGED": "이 사용자는 SSO로 로그인하므로 설정할 비밀번호가 없습니다.",
-    "STATION_SITE_SUPPRESSED": "충전소가 속한 사이트의 AI 인사이트가 중지되었습니다. 사이트를 재개하면 충전소도 재개됩니다"
+    "STATION_SITE_SUPPRESSED": "충전소가 속한 사이트의 AI 인사이트가 중지되었습니다. 사이트를 재개하면 충전소도 재개됩니다",
+    "SESSION_NOT_ON_ACCOUNT": "플릿 계정으로 청구되는 세션이 아닙니다",
+    "FLEET_ACCOUNT_BILLING_OFF": "플릿이 계정 청구를 사용하지 않습니다",
+    "DRIVER_NOT_FLEET_MEMBER": "운전자가 더 이상 플릿의 멤버가 아닙니다"
   },
   "logs": {
     "title": "로그",
@@ -4534,6 +4556,7 @@
       "attachment_added": "첨부 파일 추가됨",
       "availability_changed": "가용성 변경됨",
       "billing_address_updated": "청구지 주소 업데이트됨",
+      "billing_reassigned": "청구 대상 변경됨",
       "billing_updated": "청구 설정 업데이트됨",
       "ca_certificate_added": "CA 인증서 추가됨",
       "ca_certificate_deleted": "CA 인증서 삭제됨",
@@ -5458,5 +5481,22 @@
       "error": "오류",
       "cleared": "삭제됨"
     }
+  },
+  "billingRecipient": {
+    "billToDriver": "운전자에게 청구",
+    "billToFleet": "플릿에 청구",
+    "billAllToDrivers": "모두 운전자에게 청구",
+    "billAllToFleet": "모두 플릿에 청구",
+    "toDriverTitle": "운전자 청구서로 이동",
+    "toFleetTitle": "플릿 청구서로 이동",
+    "sessionToDriverDescription": "청구되지 않은 이 세션이 플릿 청구서에서 {{driver}}의 멤버 청구서로 이동합니다. 변경 내용은 세션 기록에 남습니다.",
+    "sessionToFleetDescription": "청구되지 않은 이 세션이 운전자의 멤버 청구서에서 {{fleet}}의 청구서로 이동합니다. 변경 내용은 세션 기록에 남습니다.",
+    "driverToDriverDescription": "이 기간에 청구되지 않은 {{driver}}의 세션이 플릿 청구서에서 운전자의 멤버 청구서로 이동합니다.",
+    "driverToFleetDescription": "이 기간에 청구되지 않은 {{driver}}의 세션이 운전자의 멤버 청구서에서 플릿 청구서로 이동합니다.",
+    "allToDriversDescription": "이 기간에 청구되지 않은 운전자 {{count}}명의 세션이 플릿 청구서에서 각 운전자의 멤버 청구서로 이동합니다.",
+    "allToFleetDescription": "이 기간에 청구되지 않은 운전자 {{count}}명의 세션이 멤버 청구서에서 플릿 청구서로 이동합니다.",
+    "moved": "청구 대상이 변경되었습니다",
+    "movedCount": "이동한 세션: {{count}}",
+    "moveFailed": "세션을 이동하지 못했습니다."
   }
 }

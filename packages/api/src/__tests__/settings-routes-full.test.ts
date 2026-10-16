@@ -194,6 +194,12 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     COMPANY_INVOICE_EMAIL_KEY: actual.COMPANY_INVOICE_EMAIL_KEY,
     isInvoiceSellerSettingKey: actual.isInvoiceSellerSettingKey,
     normalizeInvoiceSellerSetting: actual.normalizeInvoiceSellerSetting,
+    COMPANY_BIC_KEY: actual.COMPANY_BIC_KEY,
+    COMPANY_IBAN_KEY: actual.COMPANY_IBAN_KEY,
+    INVOICE_EPC_QR_ENABLED_KEY: actual.INVOICE_EPC_QR_ENABLED_KEY,
+    INVOICE_PAYMENT_MAX_LENGTHS: actual.INVOICE_PAYMENT_MAX_LENGTHS,
+    isInvoicePaymentSettingKey: actual.isInvoicePaymentSettingKey,
+    normalizeInvoicePaymentSetting: actual.normalizeInvoicePaymentSetting,
   };
 });
 

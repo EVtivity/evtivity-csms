@@ -13794,11 +13794,11 @@ exports[`authorize decision matrix > ST16 | C07 Accepted | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -13851,11 +13851,11 @@ exports[`authorize decision matrix > ST16 | C07 Accepted | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -13908,9 +13908,9 @@ exports[`authorize decision matrix > ST16 | C07 Accepted for an inactive token |
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -13963,9 +13963,9 @@ exports[`authorize decision matrix > ST16 | C07 Accepted for an inactive token |
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14018,11 +14018,11 @@ exports[`authorize decision matrix > ST16 | C07 Accepted from certificate hash d
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14075,11 +14075,11 @@ exports[`authorize decision matrix > ST16 | C07 Accepted from certificate hash d
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14132,11 +14132,11 @@ exports[`authorize decision matrix > ST16 | C07 CertChainError | roaming off 1`]
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14189,11 +14189,11 @@ exports[`authorize decision matrix > ST16 | C07 CertChainError | roaming on 1`] 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14246,11 +14246,11 @@ exports[`authorize decision matrix > ST16 | C07 CertificateExpired | roaming off
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14303,11 +14303,11 @@ exports[`authorize decision matrix > ST16 | C07 CertificateExpired | roaming on 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14360,11 +14360,11 @@ exports[`authorize decision matrix > ST16 | C07 CertificateRevoked | roaming off
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14417,11 +14417,11 @@ exports[`authorize decision matrix > ST16 | C07 CertificateRevoked | roaming on 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14475,10 +14475,10 @@ exports[`authorize decision matrix > ST16 | C07 CertificateRevoked for a prepaid
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14532,10 +14532,10 @@ exports[`authorize decision matrix > ST16 | C07 CertificateRevoked for a prepaid
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14588,11 +14588,11 @@ exports[`authorize decision matrix > ST16 | C07 validation throws | roaming off 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14645,11 +14645,11 @@ exports[`authorize decision matrix > ST16 | C07 validation throws | roaming on 1
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14702,11 +14702,11 @@ exports[`authorize decision matrix > ST16 | Central issued by the CSMS | roaming
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14759,12 +14759,12 @@ exports[`authorize decision matrix > ST16 | Central issued by the CSMS | roaming
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14817,11 +14817,11 @@ exports[`authorize decision matrix > ST16 | Central unknown | roaming off 1`] = 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14874,12 +14874,12 @@ exports[`authorize decision matrix > ST16 | Central unknown | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14932,11 +14932,11 @@ exports[`authorize decision matrix > ST16 | Central unknown with ad hoc limit | 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -14989,12 +14989,12 @@ exports[`authorize decision matrix > ST16 | Central unknown with ad hoc limit | 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15047,9 +15047,9 @@ exports[`authorize decision matrix > ST16 | Central with an inactive row | roami
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15102,9 +15102,9 @@ exports[`authorize decision matrix > ST16 | Central with an inactive row | roami
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15157,11 +15157,11 @@ exports[`authorize decision matrix > ST16 | DirectPayment with ad hoc limit | ro
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15214,12 +15214,12 @@ exports[`authorize decision matrix > ST16 | DirectPayment with ad hoc limit | ro
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15272,11 +15272,11 @@ exports[`authorize decision matrix > ST16 | Local unknown | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15329,12 +15329,12 @@ exports[`authorize decision matrix > ST16 | Local unknown | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15387,11 +15387,11 @@ exports[`authorize decision matrix > ST16 | MasterPass | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15444,12 +15444,12 @@ exports[`authorize decision matrix > ST16 | MasterPass | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15502,9 +15502,9 @@ exports[`authorize decision matrix > ST16 | MasterPass with an inactive row | ro
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15557,9 +15557,9 @@ exports[`authorize decision matrix > ST16 | MasterPass with an inactive row | ro
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15612,11 +15612,11 @@ exports[`authorize decision matrix > ST16 | NoAuthorization | roaming off 1`] = 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15669,12 +15669,12 @@ exports[`authorize decision matrix > ST16 | NoAuthorization | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15727,11 +15727,11 @@ exports[`authorize decision matrix > ST16 | account, ceiling not reserved yet | 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15784,11 +15784,11 @@ exports[`authorize decision matrix > ST16 | account, ceiling not reserved yet | 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15841,11 +15841,11 @@ exports[`authorize decision matrix > ST16 | account, fleet credit left | roaming
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15898,11 +15898,11 @@ exports[`authorize decision matrix > ST16 | account, fleet credit left | roaming
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -15957,11 +15957,11 @@ exports[`authorize decision matrix > ST16 | account, fleet credit lookup error |
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16016,11 +16016,11 @@ exports[`authorize decision matrix > ST16 | account, fleet credit lookup error |
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16052,6 +16052,7 @@ exports[`authorize decision matrix > ST16 | account, no fleet credit left | roam
         "meterStart": 1000,
         "reservationId": undefined,
         "seqNo": 0,
+        "startRefusal": "no_credit",
         "stationId": "CS-001",
         "timestamp": "2026-10-07T11:59:00.000Z",
         "tokenType": "ISO14443",
@@ -16073,11 +16074,11 @@ exports[`authorize decision matrix > ST16 | account, no fleet credit left | roam
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16109,6 +16110,7 @@ exports[`authorize decision matrix > ST16 | account, no fleet credit left | roam
         "meterStart": 1000,
         "reservationId": undefined,
         "seqNo": 0,
+        "startRefusal": "no_credit",
         "stationId": "CS-001",
         "timestamp": "2026-10-07T11:59:00.000Z",
         "tokenType": "ISO14443",
@@ -16130,11 +16132,11 @@ exports[`authorize decision matrix > ST16 | account, no fleet credit left | roam
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16187,11 +16189,11 @@ exports[`authorize decision matrix > ST16 | active | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16244,11 +16246,11 @@ exports[`authorize decision matrix > ST16 | active | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16301,11 +16303,11 @@ exports[`authorize decision matrix > ST16 | active with a tariff | roaming off 1
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16358,11 +16360,11 @@ exports[`authorize decision matrix > ST16 | active with a tariff | roaming on 1`
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16413,12 +16415,12 @@ exports[`authorize decision matrix > ST16 | active with a tariff, no station row
   "tariffResolvedFor": [],
   "trace": [
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_stations",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16469,12 +16471,12 @@ exports[`authorize decision matrix > ST16 | active with a tariff, no station row
   "tariffResolvedFor": [],
   "trace": [
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_stations",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16528,11 +16530,11 @@ exports[`authorize decision matrix > ST16 | active with expiry | roaming off 1`]
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16586,11 +16588,11 @@ exports[`authorize decision matrix > ST16 | active with expiry | roaming on 1`] 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16643,10 +16645,10 @@ exports[`authorize decision matrix > ST16 | active without driver | roaming off 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16699,10 +16701,10 @@ exports[`authorize decision matrix > ST16 | active without driver | roaming on 1
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16755,9 +16757,9 @@ exports[`authorize decision matrix > ST16 | active, driver deactivated | roaming
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16810,9 +16812,9 @@ exports[`authorize decision matrix > ST16 | active, driver deactivated | roaming
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16865,10 +16867,10 @@ exports[`authorize decision matrix > ST16 | concurrent session | roaming off 1`]
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16921,10 +16923,10 @@ exports[`authorize decision matrix > ST16 | concurrent session | roaming on 1`] 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -16975,11 +16977,11 @@ exports[`authorize decision matrix > ST16 | concurrent session is the resent Sta
   "tariffResolvedFor": [],
   "trace": [
     "execute:find_resent",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17030,11 +17032,11 @@ exports[`authorize decision matrix > ST16 | concurrent session is the resent Sta
   "tariffResolvedFor": [],
   "trace": [
     "execute:find_resent",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17089,11 +17091,11 @@ exports[`authorize decision matrix > ST16 | concurrent session lookup error | ro
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17148,11 +17150,11 @@ exports[`authorize decision matrix > ST16 | concurrent session lookup error | ro
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17205,11 +17207,11 @@ exports[`authorize decision matrix > ST16 | driver id, active driver | roaming o
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "drivers",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17262,11 +17264,11 @@ exports[`authorize decision matrix > ST16 | driver id, active driver | roaming o
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "drivers",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17319,10 +17321,10 @@ exports[`authorize decision matrix > ST16 | driver id, inactive driver | roaming
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "drivers",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17375,10 +17377,10 @@ exports[`authorize decision matrix > ST16 | driver id, inactive driver | roaming
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "drivers",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17431,12 +17433,12 @@ exports[`authorize decision matrix > ST16 | driver id, no driver | roaming off 1
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "drivers",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17489,13 +17491,13 @@ exports[`authorize decision matrix > ST16 | driver id, no driver | roaming on 1`
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "drivers",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17550,10 +17552,10 @@ exports[`authorize decision matrix > ST16 | drivers lookup error | roaming off 1
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "drivers",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17608,10 +17610,10 @@ exports[`authorize decision matrix > ST16 | drivers lookup error | roaming on 1`
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "drivers",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17664,9 +17666,9 @@ exports[`authorize decision matrix > ST16 | expired | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17719,9 +17721,9 @@ exports[`authorize decision matrix > ST16 | expired | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17731,25 +17733,7 @@ exports[`authorize decision matrix > ST16 | free vend setting read throws | roam
   "adHocLimitLookups": 0,
   "authorizeAttempts": [],
   "certificateValidations": 0,
-  "events": [
-    {
-      "eventType": "ocpp.TransactionEvent",
-      "payload": {
-        "connectorId": 1,
-        "eventType": "Started",
-        "evseId": 1,
-        "idToken": "TAG-1",
-        "meterStart": 1000,
-        "reservationId": undefined,
-        "seqNo": 0,
-        "stationId": "CS-001",
-        "timestamp": "2026-10-07T11:59:00.000Z",
-        "tokenType": "ISO14443",
-        "transactionId": "5000",
-        "triggerReason": "Authorized",
-      },
-    },
-  ],
+  "events": [],
   "logs": [],
   "prepaidRemembered": [],
   "response": {
@@ -17760,7 +17744,6 @@ exports[`authorize decision matrix > ST16 | free vend setting read throws | roam
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
   ],
 }
@@ -17771,25 +17754,7 @@ exports[`authorize decision matrix > ST16 | free vend setting read throws | roam
   "adHocLimitLookups": 0,
   "authorizeAttempts": [],
   "certificateValidations": 0,
-  "events": [
-    {
-      "eventType": "ocpp.TransactionEvent",
-      "payload": {
-        "connectorId": 1,
-        "eventType": "Started",
-        "evseId": 1,
-        "idToken": "TAG-1",
-        "meterStart": 1000,
-        "reservationId": undefined,
-        "seqNo": 0,
-        "stationId": "CS-001",
-        "timestamp": "2026-10-07T11:59:00.000Z",
-        "tokenType": "ISO14443",
-        "transactionId": "5000",
-        "triggerReason": "Authorized",
-      },
-    },
-  ],
+  "events": [],
   "logs": [],
   "prepaidRemembered": [],
   "response": {
@@ -17800,7 +17765,6 @@ exports[`authorize decision matrix > ST16 | free vend setting read throws | roam
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
   ],
 }
@@ -17854,8 +17818,8 @@ exports[`authorize decision matrix > ST16 | free vend, inactive token | roaming 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17908,8 +17872,8 @@ exports[`authorize decision matrix > ST16 | free vend, inactive token | roaming 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -17962,8 +17926,8 @@ exports[`authorize decision matrix > ST16 | free vend, known token | roaming off
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18016,8 +17980,8 @@ exports[`authorize decision matrix > ST16 | free vend, known token | roaming on 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18070,8 +18034,8 @@ exports[`authorize decision matrix > ST16 | free vend, token lookup error | roam
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18124,8 +18088,8 @@ exports[`authorize decision matrix > ST16 | free vend, token lookup error | roam
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18178,8 +18142,8 @@ exports[`authorize decision matrix > ST16 | free vend, unknown token | roaming o
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18232,8 +18196,8 @@ exports[`authorize decision matrix > ST16 | free vend, unknown token | roaming o
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18286,10 +18250,10 @@ exports[`authorize decision matrix > ST16 | guest session charging | roaming off
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18342,10 +18306,10 @@ exports[`authorize decision matrix > ST16 | guest session charging | roaming on 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18398,10 +18362,10 @@ exports[`authorize decision matrix > ST16 | guest session completed | roaming of
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18454,10 +18418,10 @@ exports[`authorize decision matrix > ST16 | guest session completed | roaming on
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18510,10 +18474,10 @@ exports[`authorize decision matrix > ST16 | guest session expired | roaming off 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18566,10 +18530,10 @@ exports[`authorize decision matrix > ST16 | guest session expired | roaming on 1
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18622,10 +18586,10 @@ exports[`authorize decision matrix > ST16 | guest session failed | roaming off 1
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18678,10 +18642,10 @@ exports[`authorize decision matrix > ST16 | guest session failed | roaming on 1`
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18736,10 +18700,10 @@ exports[`authorize decision matrix > ST16 | guest session lookup error | roaming
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18794,10 +18758,10 @@ exports[`authorize decision matrix > ST16 | guest session lookup error | roaming
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18850,11 +18814,11 @@ exports[`authorize decision matrix > ST16 | guest session of another station | r
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18907,12 +18871,12 @@ exports[`authorize decision matrix > ST16 | guest session of another station | r
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -18965,10 +18929,10 @@ exports[`authorize decision matrix > ST16 | guest session payment_authorized | r
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19021,10 +18985,10 @@ exports[`authorize decision matrix > ST16 | guest session payment_authorized | r
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19077,10 +19041,10 @@ exports[`authorize decision matrix > ST16 | guest session pending_payment | roam
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19133,10 +19097,10 @@ exports[`authorize decision matrix > ST16 | guest session pending_payment | roam
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19189,9 +19153,9 @@ exports[`authorize decision matrix > ST16 | inactive | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19244,9 +19208,9 @@ exports[`authorize decision matrix > ST16 | inactive | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19299,9 +19263,9 @@ exports[`authorize decision matrix > ST16 | inactive and expired | roaming off 1
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19354,9 +19318,9 @@ exports[`authorize decision matrix > ST16 | inactive and expired | roaming on 1`
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19409,9 +19373,9 @@ exports[`authorize decision matrix > ST16 | multiple rows, inactive and expired 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19464,9 +19428,9 @@ exports[`authorize decision matrix > ST16 | multiple rows, inactive and expired 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19519,11 +19483,11 @@ exports[`authorize decision matrix > ST16 | multiple rows, revoked of this type 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19576,11 +19540,11 @@ exports[`authorize decision matrix > ST16 | multiple rows, revoked of this type 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
     "account_credit",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19633,11 +19597,11 @@ exports[`authorize decision matrix > ST16 | ocpi lookup error | roaming off 1`] 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19690,12 +19654,12 @@ exports[`authorize decision matrix > ST16 | ocpi lookup error | roaming on 1`] =
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19748,11 +19712,11 @@ exports[`authorize decision matrix > ST16 | ocpi not valid | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19805,12 +19769,12 @@ exports[`authorize decision matrix > ST16 | ocpi not valid | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19863,11 +19827,11 @@ exports[`authorize decision matrix > ST16 | ocpi valid | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19920,12 +19884,12 @@ exports[`authorize decision matrix > ST16 | ocpi valid | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -19978,11 +19942,11 @@ exports[`authorize decision matrix > ST16 | ocpi valid_thru in the future | roam
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20035,12 +19999,12 @@ exports[`authorize decision matrix > ST16 | ocpi valid_thru in the future | roam
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20093,11 +20057,11 @@ exports[`authorize decision matrix > ST16 | ocpi valid_thru in the past | roamin
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20150,12 +20114,12 @@ exports[`authorize decision matrix > ST16 | ocpi valid_thru in the past | roamin
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20208,11 +20172,11 @@ exports[`authorize decision matrix > ST16 | ocpi whitelist NEVER | roaming off 1
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20265,12 +20229,12 @@ exports[`authorize decision matrix > ST16 | ocpi whitelist NEVER | roaming on 1`
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20324,10 +20288,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit | roaming off 1`
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20381,10 +20345,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit | roaming on 1`]
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20438,10 +20402,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit and expiry | roa
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20495,10 +20459,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit and expiry | roa
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20551,10 +20515,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit in a concurrent 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20607,10 +20571,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit in a concurrent 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20664,10 +20628,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, authorized befo
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20721,10 +20685,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, authorized befo
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20778,10 +20742,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, ceiling lookup 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20835,10 +20799,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, ceiling lookup 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20890,11 +20854,11 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, no station row 
   "tariffResolvedFor": [],
   "trace": [
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_stations",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -20946,11 +20910,11 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, no station row 
   "tariffResolvedFor": [],
   "trace": [
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_stations",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21003,10 +20967,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, own transaction
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21059,10 +21023,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, own transaction
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21116,10 +21080,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, reserved in ful
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21173,10 +21137,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, reserved in ful
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21230,10 +21194,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, reserved in par
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21287,10 +21251,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, reserved in par
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21344,10 +21308,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, session not lin
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21401,10 +21365,10 @@ exports[`authorize decision matrix > ST16 | prepaid with credit, session not lin
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21436,6 +21400,7 @@ exports[`authorize decision matrix > ST16 | prepaid without credit | roaming off
         "meterStart": 1000,
         "reservationId": undefined,
         "seqNo": 0,
+        "startRefusal": "no_credit",
         "stationId": "CS-001",
         "timestamp": "2026-10-07T11:59:00.000Z",
         "tokenType": "ISO14443",
@@ -21458,10 +21423,10 @@ exports[`authorize decision matrix > ST16 | prepaid without credit | roaming off
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21493,6 +21458,7 @@ exports[`authorize decision matrix > ST16 | prepaid without credit | roaming on 
         "meterStart": 1000,
         "reservationId": undefined,
         "seqNo": 0,
+        "startRefusal": "no_credit",
         "stationId": "CS-001",
         "timestamp": "2026-10-07T11:59:00.000Z",
         "tokenType": "ISO14443",
@@ -21515,10 +21481,10 @@ exports[`authorize decision matrix > ST16 | prepaid without credit | roaming on 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21571,9 +21537,9 @@ exports[`authorize decision matrix > ST16 | revoked | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21626,9 +21592,9 @@ exports[`authorize decision matrix > ST16 | revoked | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21681,9 +21647,9 @@ exports[`authorize decision matrix > ST16 | revoked and expired | roaming off 1`
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21736,9 +21702,9 @@ exports[`authorize decision matrix > ST16 | revoked and expired | roaming on 1`]
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21793,11 +21759,11 @@ exports[`authorize decision matrix > ST16 | roaming setting read throws | roamin
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21852,11 +21818,11 @@ exports[`authorize decision matrix > ST16 | roaming setting read throws | roamin
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21911,9 +21877,9 @@ exports[`authorize decision matrix > ST16 | token lookup error | roaming off 1`]
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -21968,9 +21934,9 @@ exports[`authorize decision matrix > ST16 | token lookup error | roaming on 1`] 
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -22023,11 +21989,11 @@ exports[`authorize decision matrix > ST16 | unknown | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -22080,12 +22046,12 @@ exports[`authorize decision matrix > ST16 | unknown | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -22138,11 +22104,11 @@ exports[`authorize decision matrix > ST16 | unknown eMAID | roaming off 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;
@@ -22195,12 +22161,12 @@ exports[`authorize decision matrix > ST16 | unknown eMAID | roaming on 1`] = `
     "execute:find_resent",
     "execute:claim_remote_start",
     "execute:nextval",
-    "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+    "publish:ocpp.TransactionEvent",
   ],
 }
 `;

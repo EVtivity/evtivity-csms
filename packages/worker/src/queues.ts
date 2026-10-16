@@ -9,6 +9,8 @@ import {
   FLEET_BILLING_FANOUT_QUEUE,
   MAINTENANCE_FANOUT_JOB_OPTIONS,
   MAINTENANCE_FANOUT_QUEUE,
+  PAYMENT_STOP_JOB_OPTIONS,
+  PAYMENT_STOP_QUEUE,
   PAYMENT_WEBHOOK_JOB_OPTIONS,
   PAYMENT_WEBHOOK_QUEUE,
   STATION_MESSAGE_JOB_OPTIONS,
@@ -33,6 +35,7 @@ export const QUEUE_NAMES = {
   MEMBER_INVOICES: MEMBER_INVOICE_QUEUE,
   STATION_WATCH: STATION_WATCH_QUEUE,
   PAYMENT_WEBHOOKS: PAYMENT_WEBHOOK_QUEUE,
+  PAYMENT_STOPS: PAYMENT_STOP_QUEUE,
   REMOTE_START_TIMEOUTS: 'remote-start-timeouts',
   STATION_MESSAGES: STATION_MESSAGE_QUEUE,
   REPORTS: 'reports',
@@ -71,6 +74,7 @@ export interface WorkerQueues {
   memberInvoiceQueue: Queue;
   stationWatchQueue: Queue;
   paymentWebhookQueue: Queue;
+  paymentStopQueue: Queue;
   remoteStartTimeoutQueue: Queue;
   stationMessageQueue: Queue;
   reportQueue: Queue;
@@ -172,6 +176,12 @@ export function createQueues(redisUrl: string): WorkerQueues {
     paymentWebhookQueue: new Queue(QUEUE_NAMES.PAYMENT_WEBHOOKS, {
       connection: createBullMQConnection(redisUrl),
       defaultJobOptions: PAYMENT_WEBHOOK_JOB_OPTIONS,
+    }),
+    // Delayed payment stops: the stop of a start the OCPP gate refused, after
+    // its grace period (OCPP).
+    paymentStopQueue: new Queue(QUEUE_NAMES.PAYMENT_STOPS, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: PAYMENT_STOP_JOB_OPTIONS,
     }),
     // Delayed close-out of accepted remote starts that never became a
     // transaction. Retrying is safe: the session update is status-guarded and

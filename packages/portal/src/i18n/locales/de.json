@@ -909,7 +909,10 @@
     "MFA_LOCKED": "Zu viele falsche Codes. Warten Sie, bevor Sie es erneut versuchen.",
     "MFA_RESEND_LIMITED": "Zu viele Codes gesendet. Warten Sie, bevor Sie einen weiteren anfordern.",
     "USER_SSO_MANAGED": "Dieser Benutzer meldet sich per SSO an und hat kein Passwort, das gesetzt werden kann.",
-    "STATION_SITE_SUPPRESSED": "Die KI-Erkenntnisse des Standorts der Ladestation sind unterdrückt. Setzen Sie den Standort fort, um seine Ladestationen fortzusetzen"
+    "STATION_SITE_SUPPRESSED": "Die KI-Erkenntnisse des Standorts der Ladestation sind unterdrückt. Setzen Sie den Standort fort, um seine Ladestationen fortzusetzen",
+    "SESSION_NOT_ON_ACCOUNT": "Die Sitzung wird nicht über ein Flottenkonto abgerechnet",
+    "FLEET_ACCOUNT_BILLING_OFF": "Die Flotte rechnet nicht über das Konto ab",
+    "DRIVER_NOT_FLEET_MEMBER": "Der Fahrer ist kein Mitglied der Flotte mehr"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",

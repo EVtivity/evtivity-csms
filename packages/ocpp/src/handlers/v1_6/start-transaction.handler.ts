@@ -133,6 +133,29 @@ export async function handleStartTransaction(
     transactionId = await nextOcpp16TransactionId(ctx);
   }
 
+  // A station that skips Authorize (LocalAuthList, LocalPreAuthorize) comes
+  // straight here, so the idTag goes through the whole authorize pipeline:
+  // revocation, expiry, ConcurrentTx (OCPP 1.6 5.13, not counting this
+  // transaction's own session: a resent message's, or the one the projection
+  // may already have linked) and prepaid credit. The attempts log is the only
+  // record of the decision for those flows. The decision comes before the
+  // Started event, which carries a refusal for no fleet credit
+  // (`startRefusal`): the payment gate then gives the station a grace period
+  // to end the refused transaction itself before it sends a stop.
+  const input: AuthorizeTokenInput = {
+    stationId: ctx.stationId,
+    stationDbId: ctx.stationDbId,
+    evseId: request.connectorId,
+    token: { value: request.idTag, type: null },
+    context: 'tx_start',
+    ocppVersion: 'ocpp1.6',
+    transactionId: String(transactionId),
+    vehicleId,
+  };
+  const decision = await authorizeToken(input, ctx.logger);
+  logAuthorizeDecision(input, decision, ctx.logger);
+  recordAuthorizeDecision(input, decision, ctx.logger);
+
   await ctx.eventBus.publish({
     eventType: 'ocpp.TransactionEvent',
     aggregateType: 'Transaction',
@@ -151,28 +174,9 @@ export async function handleStartTransaction(
       meterStart: request.meterStart,
       reservationId: request.reservationId,
       ...(vehicleId != null ? { vehicleId } : {}),
+      ...(decision.outcome === 'no_credit' ? { startRefusal: 'no_credit' } : {}),
     },
   });
-
-  // A station that skips Authorize (LocalAuthList, LocalPreAuthorize) comes
-  // straight here, so the idTag goes through the whole authorize pipeline:
-  // revocation, expiry, ConcurrentTx (OCPP 1.6 5.13, not counting this
-  // transaction's own session: a resent message's, or the one the projection
-  // may already have linked) and prepaid credit. The attempts log is the only
-  // record of the decision for those flows.
-  const input: AuthorizeTokenInput = {
-    stationId: ctx.stationId,
-    stationDbId: ctx.stationDbId,
-    evseId: request.connectorId,
-    token: { value: request.idTag, type: null },
-    context: 'tx_start',
-    ocppVersion: 'ocpp1.6',
-    transactionId: String(transactionId),
-    vehicleId,
-  };
-  const decision = await authorizeToken(input, ctx.logger);
-  logAuthorizeDecision(input, decision, ctx.logger);
-  recordAuthorizeDecision(input, decision, ctx.logger);
 
   const response: StartTransactionResponse = { transactionId, idTagInfo: idTagInfoFor(decision) };
   return response as unknown as Record<string, unknown>;

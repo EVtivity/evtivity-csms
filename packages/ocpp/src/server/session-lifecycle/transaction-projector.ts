@@ -1269,6 +1269,7 @@ export class TransactionProjector {
           reserved: pending.reserved,
           sessionTariff,
           transactionEnded: stage === 'ended',
+          startRefused: getString(tx.payload, 'startRefusal') === 'no_credit',
         }),
       );
     } catch (err: unknown) {

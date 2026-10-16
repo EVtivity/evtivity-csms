@@ -29,9 +29,10 @@ import { sessionStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
-import { useHasPermission } from '@/lib/auth';
+import { useHasCompanyWidePermission, useHasPermission } from '@/lib/auth';
 import { ExplainButton } from '@/components/ai/ExplainButton';
 import { StopButton } from '@/components/stop-button';
+import { BillToButton } from '@/components/bill-to-button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { getErrorMessage } from '@/lib/error-message';
@@ -116,6 +117,9 @@ export function SessionDetail(): React.JSX.Element {
   const canRefundPayments = useHasPermission('payments:write');
   const canStopSession = useHasPermission('stations:write');
   const canEndSession = useHasPermission('sessions:write');
+  // Account invoices span every site: moving a session between them needs all-site access.
+  const canMoveBilling = useHasCompanyWidePermission('payments:write');
+  const [billingConfirmOpen, setBillingConfirmOpen] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
@@ -152,6 +156,25 @@ export function SessionDetail(): React.JSX.Element {
     },
     onSettled: () => {
       setStopConfirmOpen(false);
+    },
+  });
+
+  // Moves the unbilled account session between the fleet invoice and the member invoice.
+  const billingMutation = useMutation({
+    mutationFn: (recipient: 'fleet' | 'member') =>
+      api.patch<{ moved: boolean }>(`/v1/sessions/${id ?? ''}/billing-recipient`, { recipient }),
+    onSuccess: () => {
+      toast({ variant: 'success', title: t('billingRecipient.moved') });
+      void queryClient.invalidateQueries({ queryKey: ['sessions', id] });
+    },
+    onError: (err: unknown) => {
+      toast({
+        variant: 'destructive',
+        title: getErrorMessage(err, t, 'billingRecipient.moveFailed'),
+      });
+    },
+    onSettled: () => {
+      setBillingConfirmOpen(false);
     },
   });
 
@@ -292,9 +315,51 @@ export function SessionDetail(): React.JSX.Element {
               }}
             />
           )}
+          {canMoveBilling &&
+            isBilledOnAccount(session) &&
+            session.invoiceId == null &&
+            session.driverId != null && (
+              <BillToButton
+                recipient={session.memberBilled === true ? 'fleet' : 'member'}
+                size="header"
+                onClick={() => {
+                  setBillingConfirmOpen(true);
+                }}
+              />
+            )}
           <EntityNavButtons resource="sessions" basePath="/sessions" currentId={id} />
         </div>
       </div>
+
+      {canMoveBilling && (
+        <ConfirmDialog
+          open={billingConfirmOpen}
+          onOpenChange={setBillingConfirmOpen}
+          title={
+            session.memberBilled === true
+              ? t('billingRecipient.toFleetTitle')
+              : t('billingRecipient.toDriverTitle')
+          }
+          description={
+            session.memberBilled === true
+              ? t('billingRecipient.sessionToFleetDescription', {
+                  fleet: session.billingFleetName ?? '',
+                })
+              : t('billingRecipient.sessionToDriverDescription', {
+                  driver: session.driverName ?? '',
+                })
+          }
+          confirmLabel={
+            session.memberBilled === true
+              ? t('billingRecipient.billToFleet')
+              : t('billingRecipient.billToDriver')
+          }
+          isPending={billingMutation.isPending}
+          onConfirm={() => {
+            billingMutation.mutate(session.memberBilled === true ? 'fleet' : 'member');
+          }}
+        />
+      )}
 
       {canStop && (
         <ConfirmDialog

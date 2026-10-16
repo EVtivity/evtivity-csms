@@ -13,11 +13,14 @@ import {
   invoiceAuditLog,
   writeAudit,
   getSystemTimezone,
+  client,
+  listMovableFleetSessions,
 } from '@evtivity/database';
 import type { AccountInvoiceRecipient } from '@evtivity/database';
 import {
   createFleetInvoice,
   createMemberInvoice,
+  fleetInvoicePeriod,
   listMemberInvoiceDrivers,
   previewFleetInvoice,
   previousPeriod,
@@ -44,6 +47,7 @@ import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { refuseSiteRestrictedFleetBilling } from '../lib/fleet-billing-access.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { invoiceDetailItem, invoiceListItem, invoiceListColumns } from './invoices.js';
+import { moveSessionsBilling } from '../services/session-billing-recipient.service.js';
 
 const fleetParams = z.object({ id: ID_PARAMS.fleetId.describe('Fleet ID') });
 
@@ -71,6 +75,54 @@ const memberCreateBody = z.object({
   period: periodField,
   driverId: ID_PARAMS.driverId.describe('Driver the member invoice is issued to'),
 });
+
+/** Most drivers one billing recipient move takes (the preview lists one row per driver). */
+const MAX_RECIPIENT_MOVE_DRIVERS = 500;
+
+const billingRecipientMoveBody = z.object({
+  recipient: z
+    .enum(INVOICE_RECIPIENTS)
+    .describe(
+      "Where the sessions go: 'member' (each driver's member invoice) or 'fleet' (the fleet invoice)",
+    ),
+  driverIds: z
+    .array(ID_PARAMS.driverId)
+    .min(1)
+    .max(MAX_RECIPIENT_MOVE_DRIVERS)
+    .describe('Drivers whose unbilled sessions of the preview move'),
+  period: periodField.describe(
+    'Calendar month of the preview (YYYY-MM, system timezone): sessions ended before its end move',
+  ),
+});
+
+const billingRecipientMoveResponse = z
+  .object({
+    movedCount: z.number().int().describe('Sessions moved'),
+    sessions: z
+      .array(
+        z
+          .object({
+            sessionId: z.string().describe('Session ID'),
+            driverId: z.string().nullable().describe('Driver of the session'),
+            outcome: z
+              .enum([
+                'moved',
+                'unchanged',
+                'not_found',
+                'not_on_account',
+                'invoiced',
+                'billing_off',
+                'not_member',
+              ])
+              .describe(
+                'moved, unchanged (already billed to the recipient), or why it did not move: not_found, not_on_account, invoiced (credit the invoice first), billing_off, not_member',
+              ),
+          })
+          .passthrough(),
+      )
+      .describe('Every session the move looked at'),
+  })
+  .passthrough();
 
 const fleetInvoiceListQuery = paginationQuery.extend({
   recipient: z
@@ -412,6 +464,71 @@ export function fleetInvoiceRoutes(app: FastifyInstance): void {
         excludedCount: result.excludedCount,
         emailed,
       });
+    },
+  );
+
+  app.post(
+    '/fleets/:id/billing-recipient',
+    {
+      onRequest: [authorize('payments:write')],
+      schema: {
+        tags: ['Fleets'],
+        summary: "Move drivers' unbilled sessions between the fleet invoice and member invoices",
+        description:
+          "Moves the unbilled account sessions the invoice preview of a month counts for the given drivers to the other recipient: recipient member takes them off the fleet invoice onto each driver's member invoice, recipient fleet the reverse. A session moves only while it is on no invoice (credit an issued invoice to release its sessions first), its driver is still a member and the fleet bills on account; each session is checked under the fleet lock and reported with its outcome. Every move is audited on the session (billing_reassigned, recipient before and after). 409 FLEET_ACCOUNT_BILLING_OFF when the fleet does not bill on account. A user restricted to some sites gets 404 FLEET_NOT_FOUND.",
+        operationId: 'moveFleetBillingRecipient',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(fleetParams),
+        body: zodSchema(billingRecipientMoveBody),
+        response: {
+          200: itemResponse(billingRecipientMoveResponse),
+          400: errorWith('Invalid period or drivers', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+          409: errorWith('The fleet does not bill on account', [
+            ERROR_CODES.FLEET_ACCOUNT_BILLING_OFF,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
+      const { id } = request.params as z.infer<typeof fleetParams>;
+      const { recipient, driverIds, period } = request.body as z.infer<
+        typeof billingRecipientMoveBody
+      >;
+      const [fleet] = await db
+        .select({ accountBillingEnabled: fleets.accountBillingEnabled })
+        .from(fleets)
+        .where(eq(fleets.id, id));
+      if (fleet == null) {
+        await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+        return;
+      }
+      if (!fleet.accountBillingEnabled) {
+        await reply
+          .status(409)
+          .send({ error: 'The fleet does not bill on account', code: 'FLEET_ACCOUNT_BILLING_OFF' });
+        return;
+      }
+      const bounds = fleetInvoicePeriod(period, await getSystemTimezone());
+      const sessionIds = await listMovableFleetSessions(client, {
+        fleetId: id,
+        driverIds,
+        recipient,
+        endsBefore: bounds.endsAt,
+      });
+      const moves = await moveSessionsBilling(sessionIds, recipient, {
+        actor: getAuditActor(request),
+        log: request.log,
+      });
+      return {
+        movedCount: moves.filter((m) => m.outcome === 'moved').length,
+        sessions: moves.map((m) => ({
+          sessionId: m.sessionId,
+          driverId: m.driverId,
+          outcome: m.outcome,
+        })),
+      };
     },
   );
 

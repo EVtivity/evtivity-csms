@@ -63,6 +63,14 @@ export interface PaymentGateInput {
    * station no RequestStopTransaction, the transaction is over.
    */
   transactionEnded?: boolean;
+  /**
+   * The CSMS refused the start itself for no fleet credit (a 1.6
+   * StartTransaction answered Blocked, `startRefusal: 'no_credit'` on the
+   * Started event). A credit limit stop then faults the session at once but
+   * leaves the station a grace period to end the transaction before the
+   * stop (stopSessionForPayment).
+   */
+  startRefused?: boolean;
 }
 
 interface PreAuthFailedNotice {
@@ -422,7 +430,10 @@ export async function runPaymentGate(
         stationDbId: input.stationDbId,
       },
       decision.reason,
-      { transactionEnded: input.transactionEnded === true },
+      {
+        transactionEnded: input.transactionEnded === true,
+        startRefused: decision.why === 'account_credit_limit' && input.startRefused === true,
+      },
     );
     if (decision.notice != null) await sendNotice(deps, input, decision.notice);
   }

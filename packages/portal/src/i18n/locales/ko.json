@@ -909,7 +909,10 @@
     "MFA_LOCKED": "잘못된 코드가 너무 많습니다. 잠시 후 다시 시도하세요.",
     "MFA_RESEND_LIMITED": "코드를 너무 많이 보냈습니다. 잠시 후 다시 요청하세요.",
     "USER_SSO_MANAGED": "이 사용자는 SSO로 로그인하므로 설정할 비밀번호가 없습니다.",
-    "STATION_SITE_SUPPRESSED": "충전소가 속한 사이트의 AI 인사이트가 중지되었습니다. 사이트를 재개하면 충전소도 재개됩니다"
+    "STATION_SITE_SUPPRESSED": "충전소가 속한 사이트의 AI 인사이트가 중지되었습니다. 사이트를 재개하면 충전소도 재개됩니다",
+    "SESSION_NOT_ON_ACCOUNT": "플릿 계정으로 청구되는 세션이 아닙니다",
+    "FLEET_ACCOUNT_BILLING_OFF": "플릿이 계정 청구를 사용하지 않습니다",
+    "DRIVER_NOT_FLEET_MEMBER": "운전자가 더 이상 플릿의 멤버가 아닙니다"
   },
   "validation": {
     "required": "필수 항목입니다",

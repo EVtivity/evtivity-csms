@@ -14,6 +14,7 @@ import {
   chargingStations,
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
+  INVOICE_DATE_MODES,
 } from '@evtivity/database';
 import type { AccountInvoiceRecipient } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
@@ -82,6 +83,11 @@ const billingProfileFields = {
   autoInvoice: z
     .boolean()
     .describe('The monthly run invoices the fleet and emails the invoice to the billing contacts'),
+  invoiceDateMode: z
+    .enum(INVOICE_DATE_MODES)
+    .describe(
+      'Date of the fleet and member invoices: run_date (the day they are issued) or period_end (the last day of the billed month, system timezone; an invoice of the current month is dated today). The number prefix follows the date',
+    ),
 };
 const optionalBillingProfileFields = Object.fromEntries(
   Object.entries(billingProfileFields).map(([key, schema]) => [key, schema.optional()]),
@@ -415,6 +421,12 @@ const fleetBillingProfileBody = z.object({
     .boolean()
     .optional()
     .describe('The monthly run invoices the fleet (needs at least one billing contact)'),
+  invoiceDateMode: z
+    .enum(INVOICE_DATE_MODES)
+    .optional()
+    .describe(
+      'Date of the fleet and member invoices: run_date (the issue day) or period_end (the last day of the billed month)',
+    ),
 });
 
 const fleetCreditLimitBody = z.object({
@@ -759,7 +771,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Change charge on account and the invoice recipient of a fleet',
         description:
-          "accountBillingEnabled on: the members' new sessions are billed on account, with no card and no hold (members who opted out pay by card). Off: new sessions are paid by card; running sessions keep how they started and unbilled sessions are still billed on account. accountInvoiceRecipient: 'fleet' bills the account sessions on one monthly fleet invoice to the billing contacts, 'member' on one monthly invoice per member driver, sent to that driver only; it applies to sessions started after the change. At least one field (400 VALIDATION_ERROR). Turning account billing on answers 409 FLEET_BILLING_OLD_PODS_CONNECTED (details: reason, oldConnections, hosts, lastOldSeenAt, watchCheckedAt) while processes before v0.1.41 may run, switching to 'member' while processes before v0.1.46 may run. When no older process is connected or was seen recently but the worker's process version check has not run recently (the worker is down), the 409 is FLEET_BILLING_VERSION_CHECK_STALE with the same details (reason version_check_stale). Turning it off and switching back to 'fleet' are never refused. A change is audited (billing_updated with the changed fields) and the worker sends fleet.AccountBillingChanged to each member whose billing it moved (a background job); a request that changes nothing does neither. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.",
+          "accountBillingEnabled on: the members' new sessions are billed on account, with no card and no hold (members who opted out pay by card). Off: new sessions are paid by card; running sessions keep how they started and unbilled sessions are still billed on account. accountInvoiceRecipient: 'fleet' bills the account sessions on one monthly fleet invoice to the billing contacts, 'member' on one monthly invoice per member driver, sent to that driver only; it applies to sessions started after the change. At least one field (400 VALIDATION_ERROR). Turning account billing on answers 409 FLEET_BILLING_OLD_PODS_CONNECTED (details: reason, oldConnections, hosts, lastOldSeenAt, allowedFrom, watchCheckedAt; allowedFrom is set when no older process is connected now but one was seen less than 10 minutes ago, and gives the time the change is allowed from) while processes before v0.1.41 may run, switching to 'member' while processes before v0.1.46 may run. When no older process is connected or was seen recently but the worker's process version check has not run recently (the worker is down), the 409 is FLEET_BILLING_VERSION_CHECK_STALE with the same details (reason version_check_stale). Turning it off and switching back to 'fleet' are never refused. A change is audited (billing_updated with the changed fields) and the worker sends fleet.AccountBillingChanged to each member whose billing it moved (a background job); a request that changes nothing does neither. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.",
         operationId: 'updateFleetBilling',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),

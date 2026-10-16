@@ -11,6 +11,15 @@ const { warn, settingsRows } = vi.hoisted(() => ({
 
 vi.mock('@evtivity/database', () => ({
   client: vi.fn(() => Promise.resolve(settingsRows.rows)),
+  getInvoicePaymentSettings: vi.fn(() =>
+    Promise.resolve({
+      accountHolder: null,
+      iban: null,
+      bic: null,
+      bankName: null,
+      epcQrEnabled: true,
+    }),
+  ),
 }));
 
 vi.mock('@evtivity/lib', async (importOriginal) => ({

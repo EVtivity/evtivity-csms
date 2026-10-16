@@ -124,6 +124,7 @@ vi.mock('@evtivity/database', () => {
     return chain;
   };
   return {
+    INVOICE_DATE_MODES: ['run_date', 'period_end'],
     db: {
       select: vi.fn(() => buildChain()),
       insert: vi.fn(() => buildChain()),
@@ -520,6 +521,7 @@ describe('Fleet routes - handler logic', () => {
         oldConnections: 1,
         hosts: [],
         lastOldSeenAt: null,
+        allowedFrom: null,
         watchCheckedAt: null,
       };
       mockFleetService.setFleetAccountBilling.mockRejectedValue(
@@ -546,6 +548,7 @@ describe('Fleet routes - handler logic', () => {
         oldConnections: 0,
         hosts: [],
         lastOldSeenAt: null,
+        allowedFrom: null,
         watchCheckedAt: null,
       };
       mockFleetService.setFleetAccountBilling.mockRejectedValue(

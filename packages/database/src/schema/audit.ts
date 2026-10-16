@@ -928,6 +928,9 @@ export const sessionAuditActionEnum = pgEnum('session_audit_action', [
   // Operator CDR reissue and push retry (v0.1.46, 0475).
   'cdr_reissued',
   'cdr_push_retried',
+  // An operator moved an unbilled account session between the fleet invoice
+  // and the member invoice (v0.1.47, 0477).
+  'billing_reassigned',
 ]);
 
 export const sessionAuditLog = pgTable(

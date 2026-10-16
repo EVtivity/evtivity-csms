@@ -1705,7 +1705,8 @@
       "recipientConfirmMember": "Las sesiones que empiecen a partir de ahora se facturan a cada conductor, con su dirección de facturación y su correo electrónico. Las sesiones ya iniciadas siguen en la factura de la flota. Se notifica a cada conductor afectado.",
       "recipientTitleFleet": "Facturar a la Flota",
       "recipientConfirmFleet": "Las sesiones que empiecen a partir de ahora van en la factura de la flota. Las sesiones ya iniciadas siguen en la factura de cada conductor. Se notifica a cada conductor afectado.",
-      "recipientChange": "Cambiar"
+      "recipientChange": "Cambiar",
+      "oldProcessRecent": "Un proceso de una versión anterior estuvo en ejecución hasta hace poco. Puede cambiar esto a partir de {{time}}."
     },
     "billingProfile": {
       "title": "Perfil de facturación",
@@ -1726,6 +1727,10 @@
       "invoiceLanguage": "Idioma de la factura",
       "paymentTerms": "Plazo de pago (días)",
       "paymentTermsHelp": "Días desde la emisión hasta el vencimiento. Vacío usa el plazo de pago de Configuración > Pago.",
+      "invoiceDate": "Fecha de la factura",
+      "invoiceDateRunDate": "Día en que se emite la factura",
+      "invoiceDatePeriodEnd": "Último día del mes facturado",
+      "invoiceDateHelp": "Se aplica a la factura de la flota y a las facturas de los miembros. Con el último día del mes facturado, una factura emitida después del fin de mes lleva esa fecha y un número de ese mes. Una factura del mes en curso lleva la fecha de hoy.",
       "paymentTermsDefault": "Predeterminado de Configuración",
       "paymentTermsInvalid": "Introduzca un número entero de días entre 0 y {{max}}.",
       "autoInvoice": "Factura mensual automática",
@@ -2266,6 +2271,20 @@
     "invoiceSellerEmailInvalid": "Introduzca un correo electrónico válido o deje el campo vacío.",
     "invoiceSellerSaved": "Datos del emisor de facturas guardados",
     "invoiceSellerSaveFailed": "No se pudieron guardar los datos del emisor de facturas.",
+    "invoicePayment": "Información de Pago en Facturas",
+    "invoicePaymentDescription": "Se imprime en el bloque Información de pago debajo de los totales de cada factura en PDF. Las facturas pendientes piden una transferencia con el número de factura como referencia, las pagadas muestran Pagada y las notas de crédito indican que no hay nada pendiente. Sin IBAN, el bloque no se imprime.",
+    "invoicePaymentHolder": "Titular de la cuenta",
+    "invoicePaymentHolderHelp": "Déjelo vacío para imprimir el nombre de la empresa.",
+    "invoicePaymentIban": "IBAN",
+    "invoicePaymentBic": "BIC",
+    "invoicePaymentBankName": "Nombre del banco",
+    "invoicePaymentEpcQr": "Código QR EPC en facturas en EUR",
+    "invoicePaymentEpcQrHelp": "Imprime un código QR que las apps bancarias escanean para rellenar una transferencia SEPA con el importe y el número de factura. Solo en facturas pendientes en EUR.",
+    "invoicePaymentIbanInvalid": "Introduzca un IBAN válido o deje el campo vacío.",
+    "invoicePaymentBicInvalid": "Introduzca un BIC de 8 u 11 caracteres o deje el campo vacío.",
+    "invoicePaymentTextInvalid": "Use una sola línea de {{max}} caracteres como máximo.",
+    "invoicePaymentSaved": "Información de pago guardada",
+    "invoicePaymentSaveFailed": "No se pudo guardar la información de pago.",
     "uploadLogo": "Subir logotipo",
     "removeLogo": "Eliminar logotipo",
     "noLogo": "No hay logotipo subido.",
@@ -3503,7 +3522,10 @@
     "MFA_LOCKED": "Demasiados códigos incorrectos. Espere antes de volver a intentarlo.",
     "MFA_RESEND_LIMITED": "Se enviaron demasiados códigos. Espere antes de solicitar otro.",
     "USER_SSO_MANAGED": "Este usuario inicia sesión con SSO y no tiene contraseña que establecer.",
-    "STATION_SITE_SUPPRESSED": "Los análisis de IA del sitio de la estación están suprimidos. Reanude el sitio para reanudar sus estaciones"
+    "STATION_SITE_SUPPRESSED": "Los análisis de IA del sitio de la estación están suprimidos. Reanude el sitio para reanudar sus estaciones",
+    "SESSION_NOT_ON_ACCOUNT": "La sesión no se factura a cuenta de una flota",
+    "FLEET_ACCOUNT_BILLING_OFF": "La flota no factura a cuenta",
+    "DRIVER_NOT_FLEET_MEMBER": "El conductor ya no es miembro de la flota"
   },
   "logs": {
     "title": "Registros",
@@ -4534,6 +4556,7 @@
       "attachment_added": "Archivo adjunto añadido",
       "availability_changed": "Disponibilidad cambiada",
       "billing_address_updated": "Dirección de facturación actualizada",
+      "billing_reassigned": "Destinatario de facturación cambiado",
       "billing_updated": "Facturación actualizada",
       "ca_certificate_added": "Certificado de CA añadido",
       "ca_certificate_deleted": "Certificado de CA eliminado",
@@ -5458,5 +5481,22 @@
       "error": "Error",
       "cleared": "Eliminado"
     }
+  },
+  "billingRecipient": {
+    "billToDriver": "Facturar al Conductor",
+    "billToFleet": "Facturar a la Flota",
+    "billAllToDrivers": "Facturar Todo a los Conductores",
+    "billAllToFleet": "Facturar Todo a la Flota",
+    "toDriverTitle": "Mover a la Factura del Conductor",
+    "toFleetTitle": "Mover a la Factura de la Flota",
+    "sessionToDriverDescription": "Esta sesión sin facturar pasa de la factura de la flota a la factura de miembro de {{driver}}. El cambio queda registrado en el historial de la sesión.",
+    "sessionToFleetDescription": "Esta sesión sin facturar pasa de la factura de miembro del conductor a la factura de {{fleet}}. El cambio queda registrado en el historial de la sesión.",
+    "driverToDriverDescription": "Las sesiones sin facturar de {{driver}} en este periodo pasan de la factura de la flota a la factura de miembro del conductor.",
+    "driverToFleetDescription": "Las sesiones sin facturar de {{driver}} en este periodo pasan de la factura de miembro del conductor a la factura de la flota.",
+    "allToDriversDescription": "Las sesiones sin facturar de {{count}} conductores en este periodo pasan de la factura de la flota a la factura de miembro de cada conductor.",
+    "allToFleetDescription": "Las sesiones sin facturar de {{count}} conductores en este periodo pasan de sus facturas de miembro a la factura de la flota.",
+    "moved": "Destinatario de facturación cambiado",
+    "movedCount": "Sesiones movidas: {{count}}",
+    "moveFailed": "No se pudieron mover las sesiones."
   }
 }

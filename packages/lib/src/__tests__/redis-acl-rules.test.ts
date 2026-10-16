@@ -238,7 +238,13 @@ describe('docker/redis/acl-rules.conf', () => {
         'station-messages',
         'station-watch',
       ],
-      ocpp: ['maintenance-fanout', 'payment-webhooks', 'station-messages', 'station-watch'],
+      ocpp: [
+        'maintenance-fanout',
+        'payment-stops',
+        'payment-webhooks',
+        'station-messages',
+        'station-watch',
+      ],
     };
     for (const [name, queues] of Object.entries(producerQueues)) {
       for (const queue of queues) {

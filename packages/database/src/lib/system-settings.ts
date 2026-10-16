@@ -1,8 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import {
+  COMPANY_BANK_ACCOUNT_HOLDER_KEY,
+  COMPANY_BANK_NAME_KEY,
+  COMPANY_BIC_KEY,
+  COMPANY_IBAN_KEY,
+  INVOICE_EPC_QR_ENABLED_KEY,
   createLogger,
   DEFAULT_CURRENCY,
   DEFAULT_PRICE_DISPLAY,
@@ -11,6 +16,7 @@ import {
   isPriceDisplay,
   isSupportedCurrency,
   isTaxBasis,
+  normalizeInvoicePaymentSetting,
   type PriceDisplay,
   type TaxBasis,
 } from '@evtivity/lib';
@@ -35,6 +41,9 @@ let cachedTaxBasisAt = 0;
 
 let cachedCountry: string | null | undefined;
 let cachedCountryAt = 0;
+
+let cachedInvoicePayment: InvoicePaymentSettings | undefined;
+let cachedInvoicePaymentAt = 0;
 
 /**
  * Cached reader for the `system.timezone` setting. Used by dashboard
@@ -185,7 +194,88 @@ export async function getCompanyCountry(): Promise<string | null> {
   }
 }
 
+/** The bank details printed in the invoice PDF payment block. Unset values are null. */
+export interface InvoicePaymentSettings {
+  accountHolder: string | null;
+  iban: string | null;
+  bic: string | null;
+  bankName: string | null;
+  /** Print the EPC QR code on open EUR invoices (`invoice.epcQrEnabled`, default true). */
+  epcQrEnabled: boolean;
+}
+
+const INVOICE_PAYMENT_KEYS = [
+  COMPANY_BANK_ACCOUNT_HOLDER_KEY,
+  COMPANY_IBAN_KEY,
+  COMPANY_BIC_KEY,
+  COMPANY_BANK_NAME_KEY,
+  INVOICE_EPC_QR_ENABLED_KEY,
+];
+
+/** The bank details from the settings rows (key to value); invalid or empty values are null. */
+export function readInvoicePaymentSettings(
+  values: Record<string, unknown>,
+): InvoicePaymentSettings {
+  const text = (
+    key:
+      | typeof COMPANY_BANK_ACCOUNT_HOLDER_KEY
+      | typeof COMPANY_IBAN_KEY
+      | typeof COMPANY_BIC_KEY
+      | typeof COMPANY_BANK_NAME_KEY,
+  ): string | null => {
+    const value = normalizeInvoicePaymentSetting(key, values[key] ?? '');
+    return value != null && value !== '' ? value : null;
+  };
+  return {
+    accountHolder: text(COMPANY_BANK_ACCOUNT_HOLDER_KEY),
+    iban: text(COMPANY_IBAN_KEY),
+    bic: text(COMPANY_BIC_KEY),
+    bankName: text(COMPANY_BANK_NAME_KEY),
+    epcQrEnabled: values[INVOICE_EPC_QR_ENABLED_KEY] !== false,
+  };
+}
+
+const NO_INVOICE_PAYMENT: InvoicePaymentSettings = {
+  accountHolder: null,
+  iban: null,
+  bic: null,
+  bankName: null,
+  epcQrEnabled: true,
+};
+
+/**
+ * Cached reader (60 s) for the invoice payment settings: `company.bankAccountHolder`,
+ * `company.iban`, `company.bic`, `company.bankName` and `invoice.epcQrEnabled`.
+ * On error: the cached value, else no bank details (the PDF leaves the block out).
+ */
+export async function getInvoicePaymentSettings(): Promise<InvoicePaymentSettings> {
+  const now = Date.now();
+  if (cachedInvoicePayment !== undefined && now - cachedInvoicePaymentAt < TTL_MS) {
+    return cachedInvoicePayment;
+  }
+
+  try {
+    const rows = await db
+      .select({ key: settings.key, value: settings.value })
+      .from(settings)
+      .where(inArray(settings.key, INVOICE_PAYMENT_KEYS));
+    const values: Record<string, unknown> = {};
+    for (const row of rows) values[row.key] = row.value;
+    cachedInvoicePayment = readInvoicePaymentSettings(values);
+    cachedInvoicePaymentAt = now;
+    return cachedInvoicePayment;
+  } catch (err) {
+    logger.warn(
+      { err, keys: INVOICE_PAYMENT_KEYS },
+      'getInvoicePaymentSettings failed, using the cached value or none',
+    );
+    return cachedInvoicePayment ?? NO_INVOICE_PAYMENT;
+  }
+}
+
 export function clearSystemSettingsCache(): void {
+  cachedInvoicePayment = undefined;
+  cachedInvoicePaymentAt = 0;
   cachedTimezone = undefined;
   cachedAt = 0;
   cachedCurrency = undefined;

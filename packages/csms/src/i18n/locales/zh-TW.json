@@ -1705,7 +1705,8 @@
       "recipientConfirmMember": "從現在開始的工作階段將依駕駛員的帳單地址和電子郵件向每位駕駛員開票。已開始的工作階段仍在車隊發票上。每位受影響的駕駛員都會收到通知。",
       "recipientTitleFleet": "向車隊開票",
       "recipientConfirmFleet": "從現在開始的工作階段計入車隊發票。已開始的工作階段仍在各駕駛員的發票上。每位受影響的駕駛員都會收到通知。",
-      "recipientChange": "變更"
+      "recipientChange": "變更",
+      "oldProcessRecent": "舊版本的程序直到最近仍在執行。您可以從 {{time}} 起變更此設定。"
     },
     "billingProfile": {
       "title": "帳單資料",
@@ -1726,6 +1727,10 @@
       "invoiceLanguage": "發票語言",
       "paymentTerms": "付款期限（天）",
       "paymentTermsHelp": "從開立到到期的天數。留空則使用「設定 > 支付」中的付款期限。",
+      "invoiceDate": "發票日期",
+      "invoiceDateRunDate": "開立當天",
+      "invoiceDatePeriodEnd": "計費月份的最後一天",
+      "invoiceDateHelp": "適用於車隊發票和成員發票。選擇計費月份的最後一天時，月底之後開立的發票使用該日期和該月份的編號。當月的發票使用今天的日期。",
       "paymentTermsDefault": "設定中的預設值",
       "paymentTermsInvalid": "請輸入 0 到 {{max}} 之間的整數天數。",
       "autoInvoice": "自動月度發票",
@@ -2266,6 +2271,20 @@
     "invoiceSellerEmailInvalid": "請輸入有效的電子郵件地址，或留空。",
     "invoiceSellerSaved": "發票開立方資訊已儲存",
     "invoiceSellerSaveFailed": "無法儲存發票開立方資訊。",
+    "invoicePayment": "發票付款資訊",
+    "invoicePaymentDescription": "列印在每張發票 PDF 合計下方的付款資訊區塊中。未結發票要求以發票號碼作為備註進行銀行轉帳，已付款發票顯示已付款，貸項通知單說明無需付款。未設定 IBAN 時不列印該區塊。",
+    "invoicePaymentHolder": "帳戶持有人",
+    "invoicePaymentHolderHelp": "留空則列印公司名稱。",
+    "invoicePaymentIban": "IBAN",
+    "invoicePaymentBic": "BIC",
+    "invoicePaymentBankName": "銀行名稱",
+    "invoicePaymentEpcQr": "EUR 發票上的 EPC QR 碼",
+    "invoicePaymentEpcQrHelp": "列印一個 QR 碼，銀行應用程式掃描後可預填含金額與發票號碼的 SEPA 轉帳。僅用於 EUR 未結發票。",
+    "invoicePaymentIbanInvalid": "請輸入有效的 IBAN，或將此欄位留空。",
+    "invoicePaymentBicInvalid": "請輸入 8 碼或 11 碼的 BIC，或將此欄位留空。",
+    "invoicePaymentTextInvalid": "請使用一行，最多 {{max}} 個字元。",
+    "invoicePaymentSaved": "發票付款資訊已儲存",
+    "invoicePaymentSaveFailed": "無法儲存發票付款資訊。",
     "uploadLogo": "上傳標誌",
     "removeLogo": "移除標誌",
     "noLogo": "未上傳標誌。",
@@ -3503,7 +3522,10 @@
     "MFA_LOCKED": "錯誤驗證碼過多。請稍後再試。",
     "MFA_RESEND_LIMITED": "傳送的驗證碼過多。請稍後再請求。",
     "USER_SSO_MANAGED": "此使用者透過 SSO 登入，沒有可設定的密碼。",
-    "STATION_SITE_SUPPRESSED": "該充電站所屬站點的 AI 洞察已暫停。恢復站點即可恢復其充電站"
+    "STATION_SITE_SUPPRESSED": "該充電站所屬站點的 AI 洞察已暫停。恢復站點即可恢復其充電站",
+    "SESSION_NOT_ON_ACCOUNT": "該工作階段未透過車隊帳戶計費",
+    "FLEET_ACCOUNT_BILLING_OFF": "該車隊未啟用帳戶計費",
+    "DRIVER_NOT_FLEET_MEMBER": "該駕駛員已不是車隊成員"
   },
   "logs": {
     "title": "日誌",
@@ -4534,6 +4556,7 @@
       "attachment_added": "已新增附件",
       "availability_changed": "可用性已變更",
       "billing_address_updated": "帳單地址已更新",
+      "billing_reassigned": "計費對象已變更",
       "billing_updated": "計費已更新",
       "ca_certificate_added": "已新增 CA 憑證",
       "ca_certificate_deleted": "已刪除 CA 憑證",
@@ -5458,5 +5481,22 @@
       "error": "錯誤",
       "cleared": "已清除"
     }
+  },
+  "billingRecipient": {
+    "billToDriver": "向駕駛員開票",
+    "billToFleet": "向車隊開票",
+    "billAllToDrivers": "全部向駕駛員開票",
+    "billAllToFleet": "全部向車隊開票",
+    "toDriverTitle": "移至駕駛員發票",
+    "toFleetTitle": "移至車隊發票",
+    "sessionToDriverDescription": "此未開票工作階段將從車隊發票移至 {{driver}} 的成員發票。此變更會記錄在工作階段歷史中。",
+    "sessionToFleetDescription": "此未開票工作階段將從駕駛員的成員發票移至 {{fleet}} 的發票。此變更會記錄在工作階段歷史中。",
+    "driverToDriverDescription": "{{driver}} 在此期間的未開票工作階段將從車隊發票移至該駕駛員的成員發票。",
+    "driverToFleetDescription": "{{driver}} 在此期間的未開票工作階段將從該駕駛員的成員發票移至車隊發票。",
+    "allToDriversDescription": "{{count}} 名駕駛員在此期間的未開票工作階段將從車隊發票移至各自的成員發票。",
+    "allToFleetDescription": "{{count}} 名駕駛員在此期間的未開票工作階段將從其成員發票移至車隊發票。",
+    "moved": "計費對象已變更",
+    "movedCount": "已移動的工作階段：{{count}}",
+    "moveFailed": "無法移動工作階段。"
   }
 }

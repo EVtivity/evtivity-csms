@@ -11,9 +11,10 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/toast';
-import { api, getApiErrorCode } from '@/lib/api';
+import { api, ApiError, getApiErrorCode } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
+import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 /** Who the account invoices of a fleet go to: the fleet, or each member driver. */
 export type AccountInvoiceRecipient = 'fleet' | 'member';
@@ -24,6 +25,25 @@ export interface FleetBillingTabProps {
     accountBillingEnabled?: boolean;
     accountInvoiceRecipient?: AccountInvoiceRecipient;
   };
+}
+
+/**
+ * When a 409 FLEET_BILLING_OLD_PODS_CONNECTED found no older process connected
+ * now but one seen recently: the time the change is allowed from
+ * (`details.allowedFrom`). Null for any other error.
+ */
+export function oldProcessAllowedFrom(err: unknown): string | null {
+  if (!(err instanceof ApiError) || getApiErrorCode(err) !== 'FLEET_BILLING_OLD_PODS_CONNECTED') {
+    return null;
+  }
+  const details = (err.body as { details?: unknown } | null)?.details;
+  if (details == null || typeof details !== 'object') return null;
+  const { oldConnections, allowedFrom } = details as {
+    oldConnections?: unknown;
+    allowedFrom?: unknown;
+  };
+  if (oldConnections !== 0 || typeof allowedFrom !== 'string') return null;
+  return Number.isNaN(Date.parse(allowedFrom)) ? null : allowedFrom;
 }
 
 /** The change a confirm dialog asks for. */
@@ -37,13 +57,16 @@ type PendingChange =
  * each member driver. The API refuses a change older processes cannot follow
  * (409 FLEET_BILLING_OLD_PODS_CONNECTED), or cannot confirm the upgrade
  * because the worker's version check is stale (409
- * FLEET_BILLING_VERSION_CHECK_STALE); the card shows either inline.
+ * FLEET_BILLING_VERSION_CHECK_STALE); the card shows either inline. When no
+ * older process is connected but one ran until recently, it names the time the
+ * change is allowed from, in the user's time zone and language.
  */
 export function FleetBillingTab({ fleet }: FleetBillingTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('fleets:write');
+  const timezone = useUserTimezone();
   const enabled = fleet.accountBillingEnabled === true;
   const recipient: AccountInvoiceRecipient = fleet.accountInvoiceRecipient ?? 'fleet';
   const [pending, setPending] = useState<PendingChange | null>(null);
@@ -69,7 +92,14 @@ export function FleetBillingTab({ fleet }: FleetBillingTabProps): React.JSX.Elem
         code === 'FLEET_BILLING_OLD_PODS_CONNECTED' ||
         code === 'FLEET_BILLING_VERSION_CHECK_STALE'
       ) {
-        setUpgradeError(getErrorMessage(err, t));
+        const allowedFrom = oldProcessAllowedFrom(err);
+        setUpgradeError(
+          allowedFrom != null
+            ? t('fleets.billing.oldProcessRecent', {
+                time: formatDateTime(allowedFrom, timezone),
+              })
+            : getErrorMessage(err, t),
+        );
       } else {
         toast({
           title: t('fleets.billing.updateFailed'),

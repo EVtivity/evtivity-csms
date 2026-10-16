@@ -93,6 +93,7 @@ vi.mock('../invoice.service.js', async (importOriginal) => {
 import { insertInvoiceInTransaction } from '../invoice.service.js';
 import type { InsertInvoiceInput } from '../invoice.service.js';
 import {
+  accountInvoiceDate,
   billToFromDriver,
   billToFromFleet,
   createFleetInvoice,
@@ -252,6 +253,7 @@ describe('billToFromFleet', () => {
       billingTaxId: 'DE1',
       invoiceLanguage: 'en',
       paymentTermsDays: null,
+      invoiceDateMode: 'run_date' as const,
     };
     expect(billToFromFleet(fleet)).toMatchObject({ name: 'Acme', taxId: 'DE1' });
     expect(billToFromFleet({ ...fleet, billingLegalName: 'Acme GmbH' }).name).toBe('Acme GmbH');
@@ -326,6 +328,47 @@ describe('planFleetInvoice', () => {
   });
 });
 
+describe('accountInvoiceDate', () => {
+  const october = (tz: string) => fleetInvoicePeriod('2026-10', tz);
+
+  it('dates the invoice on the run day in run_date mode', () => {
+    const now = new Date('2026-11-03T08:00:00Z');
+    expect(accountInvoiceDate('run_date', october('Europe/Berlin'), 'Europe/Berlin', now)).toBe(
+      now,
+    );
+  });
+
+  it('dates it at noon of the last day of the month in period_end mode', () => {
+    const now = new Date('2026-11-03T08:00:00Z');
+    // Berlin is back on CET (UTC+1) since October 25.
+    expect(
+      accountInvoiceDate(
+        'period_end',
+        october('Europe/Berlin'),
+        'Europe/Berlin',
+        now,
+      ).toISOString(),
+    ).toBe('2026-10-31T11:00:00.000Z');
+    // New York is still on EDT (UTC-4) on October 31; DST ends on November 1.
+    expect(
+      accountInvoiceDate(
+        'period_end',
+        october('America/New_York'),
+        'America/New_York',
+        now,
+      ).toISOString(),
+    ).toBe('2026-10-31T16:00:00.000Z');
+    expect(
+      accountInvoiceDate('period_end', october('Not/AZone'), 'Not/AZone', now).toISOString(),
+    ).toBe('2026-10-31T12:00:00.000Z');
+  });
+
+  it('keeps now for an invoice of the current month', () => {
+    const now = new Date('2026-10-16T08:00:00Z');
+    expect(accountInvoiceDate('period_end', october('UTC'), 'UTC', now)).toBe(now);
+  });
+});
+
 describe('createFleetInvoice', () => {
   const now = new Date('2026-10-08T10:00:00Z');
 
@@ -336,6 +379,7 @@ describe('createFleetInvoice', () => {
 
     expect(result.invoice.id).toBe('inv_9');
     const input = vi.mocked(insertInvoiceInTransaction).mock.calls[0]?.[1];
+    expect(input?.issuedAt).toBe(now);
     expect(input).toMatchObject({
       driverId: null,
       currency: 'EUR',
@@ -619,6 +663,18 @@ describe('billToFromDriver', () => {
 
 describe('createMemberInvoice', () => {
   const now = new Date('2026-10-08T10:00:00Z');
+
+  it('dates fleet and member invoices of a period_end fleet on the last day of the month', async () => {
+    h.state.fleet = { ...h.state.fleet, invoice_date_mode: 'period_end' };
+    h.state.candidates = [candidateRow(candidate())];
+    h.state.memberCandidates = [candidateRow(candidate({ id: 'ses_m' }))];
+    await createFleetInvoice('flt_1', '2026-09', now);
+    await createMemberInvoice('flt_1', 'drv_a', '2026-09', now);
+    const dates = vi
+      .mocked(insertInvoiceInTransaction)
+      .mock.calls.map((call) => call[1].issuedAt?.toISOString());
+    expect(dates).toEqual(['2026-09-30T12:00:00.000Z', '2026-09-30T12:00:00.000Z']);
+  });
 
   it("issues the driver's invoice with the driver's bill-to, language and the fleet's terms", async () => {
     h.state.memberCandidates = [

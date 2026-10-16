@@ -283,3 +283,114 @@ describe('resolveDriverPricingSource', () => {
     expect(await resolveDriverPricingSource(sql, 'drv_1')).toBeNull();
   });
 });
+
+describe('moveSessionBillingRecipient', () => {
+  function sessionRow(id: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id,
+      driver_id: 'drv_1',
+      billing_mode: 'account',
+      billing_fleet_id: 'flt_1',
+      member_billed: false,
+      invoice_id: null,
+      has_payment: false,
+      is_member: true,
+      ...over,
+    };
+  }
+
+  /** A sql mock with begin() running the work on the same mock. */
+  function txSql(
+    sessions: Record<string, unknown>[],
+    fleets: Record<string, unknown>[] = [{ id: 'flt_1', account_billing_enabled: true }],
+  ) {
+    const { sql, calls } = makeSql([
+      ['SELECT DISTINCT billing_fleet_id', [{ billing_fleet_id: 'flt_1' }]],
+      ['FROM fleets', fleets],
+      ['FOR UPDATE OF cs', sessions],
+    ]);
+    (sql as unknown as { begin: unknown }).begin = (work: (tx: postgres.Sql) => unknown) =>
+      Promise.resolve(work(sql));
+    return { sql, calls };
+  }
+
+  it('moves an unbilled account session of a member to the member invoice', async () => {
+    const { moveSessionBillingRecipient } = await import('../lib/fleet-billing.js');
+    const { sql, calls } = txSql([sessionRow('ses_1')]);
+    const moves = await moveSessionBillingRecipient(sql, ['ses_1', 'ses_1'], 'member');
+    expect(moves).toEqual([
+      { sessionId: 'ses_1', outcome: 'moved', driverId: 'drv_1', fleetId: 'flt_1', from: 'fleet' },
+    ]);
+    const update = calls.find((c) => c.text.includes('UPDATE charging_sessions'));
+    expect(update?.text).toContain('invoice_id IS NULL');
+    expect(update?.values).toEqual([true, ['ses_1'], false]);
+    // The fleet rows are locked before the sessions, like the invoice issue.
+    const order = calls.map((c) => c.text);
+    expect(order.findIndex((t) => t.includes('FOR SHARE'))).toBeLessThan(
+      order.findIndex((t) => t.includes('FOR UPDATE OF cs')),
+    );
+  });
+
+  it('refuses each guard and writes nothing', async () => {
+    const { moveSessionBillingRecipient } = await import('../lib/fleet-billing.js');
+    const { sql, calls } = txSql([
+      sessionRow('ses_card', { billing_mode: 'card', billing_fleet_id: null }),
+      sessionRow('ses_paid', { has_payment: true }),
+      sessionRow('ses_inv', { invoice_id: 'inv_1' }),
+      sessionRow('ses_gone', { is_member: false }),
+      sessionRow('ses_same', { member_billed: true }),
+    ]);
+    const moves = await moveSessionBillingRecipient(
+      sql,
+      ['ses_card', 'ses_paid', 'ses_inv', 'ses_gone', 'ses_same', 'ses_none'],
+      'member',
+    );
+    expect(moves.map((m) => [m.sessionId, m.outcome])).toEqual([
+      ['ses_card', 'not_on_account'],
+      ['ses_paid', 'not_on_account'],
+      ['ses_inv', 'invoiced'],
+      ['ses_gone', 'not_member'],
+      ['ses_same', 'unchanged'],
+      ['ses_none', 'not_found'],
+    ]);
+    expect(calls.some((c) => c.text.includes('UPDATE charging_sessions'))).toBe(false);
+  });
+
+  it('refuses a fleet whose account billing is off', async () => {
+    const { moveSessionBillingRecipient } = await import('../lib/fleet-billing.js');
+    const { sql } = txSql(
+      [sessionRow('ses_1', { member_billed: true })],
+      [{ id: 'flt_1', account_billing_enabled: false }],
+    );
+    const [move] = await moveSessionBillingRecipient(sql, ['ses_1'], 'fleet');
+    expect(move?.outcome).toBe('billing_off');
+    expect(move?.from).toBe('member');
+  });
+});
+
+describe('listMovableFleetSessions', () => {
+  it('selects what the preview counts on the other side, ended before the period end', async () => {
+    const { listMovableFleetSessions } = await import('../lib/fleet-billing.js');
+    const { sql, calls } = makeSql([['FROM charging_sessions cs', [{ id: 'ses_1' }]]]);
+    const endsBefore = new Date('2026-10-01T00:00:00Z');
+    expect(
+      await listMovableFleetSessions(sql, {
+        fleetId: 'flt_1',
+        driverIds: ['drv_1', 'drv_1'],
+        recipient: 'member',
+        endsBefore,
+      }),
+    ).toEqual(['ses_1']);
+    // Moving to the member invoice takes the fleet's own sessions (not member billed).
+    expect(calls[0]?.values).toEqual(['flt_1', ['drv_1'], false, endsBefore]);
+    expect(calls[0]?.text).toContain('NOT EXISTS (SELECT 1 FROM payment_records');
+    expect(
+      await listMovableFleetSessions(sql, {
+        fleetId: 'f',
+        recipient: 'fleet',
+        endsBefore,
+        driverIds: [],
+      }),
+    ).toEqual([]);
+  });
+});

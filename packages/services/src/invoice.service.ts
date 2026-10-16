@@ -400,6 +400,12 @@ export interface InsertInvoiceInput {
   status: 'paid' | 'issued';
   /** Days from issue to the due date; default the invoice.paymentTermsDays setting. */
   paymentTermsDays?: number | null;
+  /**
+   * The issue date; default now. A fleet with the `period_end` invoice date
+   * passes the last day of the billed month. The due date and the number
+   * prefix follow it.
+   */
+  issuedAt?: Date;
   /** Set on a fleet invoice. */
   fleet?: FleetInvoiceHeader;
   /**
@@ -444,7 +450,7 @@ export async function insertInvoiceInTransaction(
   assertLinesMatchCharged(lines, chargedCents);
   const totals = taxTotals(lines);
 
-  const now = new Date();
+  const now = input.issuedAt ?? new Date();
   const termsDays = input.paymentTermsDays ?? (await getInvoicePaymentTermsDays());
   const dueAt = new Date(now.getTime() + termsDays * DAY_MS);
   const sessionIds = [

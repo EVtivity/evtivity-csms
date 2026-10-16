@@ -605,6 +605,10 @@ async function seed(): Promise<void> {
     'company.registrationNumber': '',
     'company.invoiceEmail': '',
     'company.invoicePhone': '',
+    'company.bankAccountHolder': '',
+    'company.iban': '',
+    'company.bic': '',
+    'company.bankName': '',
     'company.logo': animatedLogoDataUri,
     'company.favicon': logoDataUri,
     qr_code_icon: logoSvg,
@@ -620,6 +624,7 @@ async function seed(): Promise<void> {
     'idling.gracePeriodMinutes': 30,
     'prepaid.lowCreditThresholdCents': 500,
     'invoice.paymentTermsDays': 30,
+    'invoice.epcQrEnabled': true,
     'fleet.invoiceRunDay': 1,
     // Every generated PDF: '' is the default EVtivity logo; '' as a footer prints none.
     'pdf.logo': '',

@@ -1705,7 +1705,8 @@
       "recipientConfirmMember": "Ab jetzt gestartete Ladevorgänge werden jedem Fahrer mit seiner Rechnungsadresse und E-Mail in Rechnung gestellt. Bereits gestartete Ladevorgänge bleiben auf der Flottenrechnung. Jeder betroffene Fahrer wird benachrichtigt.",
       "recipientTitleFleet": "Der Flotte Rechnung Stellen",
       "recipientConfirmFleet": "Ab jetzt gestartete Ladevorgänge kommen auf die Flottenrechnung. Bereits gestartete Ladevorgänge bleiben auf der Rechnung des jeweiligen Fahrers. Jeder betroffene Fahrer wird benachrichtigt.",
-      "recipientChange": "Ändern"
+      "recipientChange": "Ändern",
+      "oldProcessRecent": "Ein Prozess einer älteren Version lief bis vor Kurzem. Sie können dies ab {{time}} ändern."
     },
     "billingProfile": {
       "title": "Rechnungsprofil",
@@ -1726,6 +1727,10 @@
       "invoiceLanguage": "Rechnungssprache",
       "paymentTerms": "Zahlungsziel (Tage)",
       "paymentTermsHelp": "Tage vom Rechnungsdatum bis zur Fälligkeit. Leer verwendet das Zahlungsziel unter Einstellungen > Zahlung.",
+      "invoiceDate": "Rechnungsdatum",
+      "invoiceDateRunDate": "Tag der Ausstellung",
+      "invoiceDatePeriodEnd": "Letzter Tag des abgerechneten Monats",
+      "invoiceDateHelp": "Gilt für die Flottenrechnung und die Mitgliederrechnungen. Mit dem letzten Tag des abgerechneten Monats erhält eine nach Monatsende ausgestellte Rechnung dieses Datum und eine Nummer dieses Monats. Eine Rechnung des laufenden Monats erhält das heutige Datum.",
       "paymentTermsDefault": "Standard aus den Einstellungen",
       "paymentTermsInvalid": "Geben Sie eine ganze Zahl von Tagen zwischen 0 und {{max}} ein.",
       "autoInvoice": "Automatische Monatsrechnung",
@@ -2266,6 +2271,20 @@
     "invoiceSellerEmailInvalid": "Geben Sie eine gültige E-Mail-Adresse ein oder lassen Sie das Feld leer.",
     "invoiceSellerSaved": "Angaben zum Rechnungssteller gespeichert",
     "invoiceSellerSaveFailed": "Die Angaben zum Rechnungssteller konnten nicht gespeichert werden.",
+    "invoicePayment": "Zahlungsinformationen auf Rechnungen",
+    "invoicePaymentDescription": "Erscheint im Block Zahlungsinformationen unter den Summen jeder Rechnungs-PDF. Offene Rechnungen bitten um eine Überweisung mit der Rechnungsnummer als Verwendungszweck, bezahlte Rechnungen zeigen Bezahlt, und Stornorechnungen geben an, dass nichts fällig ist. Ohne IBAN entfällt der Block.",
+    "invoicePaymentHolder": "Kontoinhaber",
+    "invoicePaymentHolderHelp": "Leer lassen, um den Firmennamen zu drucken.",
+    "invoicePaymentIban": "IBAN",
+    "invoicePaymentBic": "BIC",
+    "invoicePaymentBankName": "Name der Bank",
+    "invoicePaymentEpcQr": "EPC-QR-Code auf EUR-Rechnungen",
+    "invoicePaymentEpcQrHelp": "Druckt einen QR-Code, den Banking-Apps scannen, um eine SEPA-Überweisung mit Betrag und Rechnungsnummer vorzubelegen. Nur auf offenen Rechnungen in EUR.",
+    "invoicePaymentIbanInvalid": "Geben Sie eine gültige IBAN ein oder lassen Sie das Feld leer.",
+    "invoicePaymentBicInvalid": "Geben Sie eine BIC mit 8 oder 11 Zeichen ein oder lassen Sie das Feld leer.",
+    "invoicePaymentTextInvalid": "Verwenden Sie eine Zeile mit höchstens {{max}} Zeichen.",
+    "invoicePaymentSaved": "Zahlungsinformationen gespeichert",
+    "invoicePaymentSaveFailed": "Die Zahlungsinformationen konnten nicht gespeichert werden.",
     "uploadLogo": "Logo hochladen",
     "removeLogo": "Logo entfernen",
     "noLogo": "Kein Logo hochgeladen.",
@@ -3503,7 +3522,10 @@
     "MFA_LOCKED": "Zu viele falsche Codes. Warten Sie, bevor Sie es erneut versuchen.",
     "MFA_RESEND_LIMITED": "Zu viele Codes gesendet. Warten Sie, bevor Sie einen weiteren anfordern.",
     "USER_SSO_MANAGED": "Dieser Benutzer meldet sich per SSO an und hat kein Passwort, das gesetzt werden kann.",
-    "STATION_SITE_SUPPRESSED": "Die KI-Erkenntnisse des Standorts der Ladestation sind unterdrückt. Setzen Sie den Standort fort, um seine Ladestationen fortzusetzen"
+    "STATION_SITE_SUPPRESSED": "Die KI-Erkenntnisse des Standorts der Ladestation sind unterdrückt. Setzen Sie den Standort fort, um seine Ladestationen fortzusetzen",
+    "SESSION_NOT_ON_ACCOUNT": "Die Sitzung wird nicht über ein Flottenkonto abgerechnet",
+    "FLEET_ACCOUNT_BILLING_OFF": "Die Flotte rechnet nicht über das Konto ab",
+    "DRIVER_NOT_FLEET_MEMBER": "Der Fahrer ist kein Mitglied der Flotte mehr"
   },
   "logs": {
     "title": "Protokolle",
@@ -4534,6 +4556,7 @@
       "attachment_added": "Anhang hinzugefügt",
       "availability_changed": "Verfügbarkeit geändert",
       "billing_address_updated": "Rechnungsadresse aktualisiert",
+      "billing_reassigned": "Rechnungsempfänger geändert",
       "billing_updated": "Abrechnung aktualisiert",
       "ca_certificate_added": "CA-Zertifikat hinzugefügt",
       "ca_certificate_deleted": "CA-Zertifikat gelöscht",
@@ -5458,5 +5481,22 @@
       "error": "Fehler",
       "cleared": "Entfernt"
     }
+  },
+  "billingRecipient": {
+    "billToDriver": "An Fahrer abrechnen",
+    "billToFleet": "An Flotte abrechnen",
+    "billAllToDrivers": "Alle an Fahrer abrechnen",
+    "billAllToFleet": "Alle an Flotte abrechnen",
+    "toDriverTitle": "Auf die Rechnung des Fahrers verschieben",
+    "toFleetTitle": "Auf die Flottenrechnung verschieben",
+    "sessionToDriverDescription": "Dieser nicht abgerechnete Ladevorgang wird von der Flottenrechnung auf die Mitgliederrechnung von {{driver}} verschoben. Die Änderung wird im Verlauf des Ladevorgangs festgehalten.",
+    "sessionToFleetDescription": "Dieser nicht abgerechnete Ladevorgang wird von der Mitgliederrechnung des Fahrers auf die Rechnung von {{fleet}} verschoben. Die Änderung wird im Verlauf des Ladevorgangs festgehalten.",
+    "driverToDriverDescription": "Die nicht abgerechneten Ladevorgänge von {{driver}} in diesem Zeitraum werden von der Flottenrechnung auf die Mitgliederrechnung des Fahrers verschoben.",
+    "driverToFleetDescription": "Die nicht abgerechneten Ladevorgänge von {{driver}} in diesem Zeitraum werden von der Mitgliederrechnung des Fahrers auf die Flottenrechnung verschoben.",
+    "allToDriversDescription": "Die nicht abgerechneten Ladevorgänge von {{count}} Fahrern in diesem Zeitraum werden von der Flottenrechnung auf die Mitgliederrechnung jedes Fahrers verschoben.",
+    "allToFleetDescription": "Die nicht abgerechneten Ladevorgänge von {{count}} Fahrern in diesem Zeitraum werden von ihren Mitgliederrechnungen auf die Flottenrechnung verschoben.",
+    "moved": "Rechnungsempfänger geändert",
+    "movedCount": "Verschobene Ladevorgänge: {{count}}",
+    "moveFailed": "Die Ladevorgänge konnten nicht verschoben werden."
   }
 }

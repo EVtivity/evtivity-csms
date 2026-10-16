@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import PDFDocument from 'pdfkit';
-import { client } from '@evtivity/database';
+import QRCode from 'qrcode';
+import { client, getInvoicePaymentSettings } from '@evtivity/database';
 import {
   COMPANY_INVOICE_EMAIL_KEY,
   COMPANY_INVOICE_PHONE_KEY,
@@ -16,6 +17,8 @@ import {
 } from '@evtivity/lib';
 import type { InvoiceDetail } from './invoice.service.js';
 import { INVOICE_LABELS, describeLineItem, isInvoiceLanguage } from './invoice-labels.js';
+import { invoicePaymentBlock } from './invoice-payment-block.js';
+import type { InvoicePaymentBlock } from './invoice-payment-block.js';
 import type { InvoiceLabels, InvoiceLanguage } from './invoice-labels.js';
 import { pdfCanRender, registerPdfFonts, registerPdfTextFonts } from './cjk-fonts.js';
 import {
@@ -279,6 +282,98 @@ function ensureSpace(
   return y;
 }
 
+const QR_SIZE = 96;
+const QR_GAP = 16;
+
+/** Draws a QR code of the payload as vector modules (error correction M, EPC069-12). */
+function drawQrCode(doc: PDFKit.PDFDocument, payload: string, x: number, y: number): void {
+  const { modules } = QRCode.create(payload, { errorCorrectionLevel: 'M' });
+  const quiet = 2;
+  const cell = QR_SIZE / (modules.size + quiet * 2);
+  doc.save();
+  doc.rect(x, y, QR_SIZE, QR_SIZE).fill('#ffffff');
+  doc.fillColor('#000000');
+  for (let row = 0; row < modules.size; row++) {
+    let col = 0;
+    while (col < modules.size) {
+      if (!modules.get(row, col)) {
+        col++;
+        continue;
+      }
+      const start = col;
+      while (col < modules.size && modules.get(row, col)) col++;
+      doc
+        .rect(x + (start + quiet) * cell, y + (row + quiet) * cell, (col - start) * cell, cell)
+        .fill();
+    }
+  }
+  doc.restore();
+}
+
+/**
+ * The "Payment information" block below the totals: the heading, the
+ * sentence, the label and value rows, and the EPC QR code on the right when
+ * there is one. The block does not split across pages.
+ */
+function drawPaymentBlock(
+  doc: PDFKit.PDFDocument,
+  block: InvoicePaymentBlock,
+  labels: InvoiceLabels,
+  fonts: { regular: string; bold: string },
+  startY: number,
+  ensure: (y: number, needed: number) => number,
+): void {
+  const textWidth = block.qrPayload != null ? CONTENT_WIDTH - QR_SIZE - QR_GAP : CONTENT_WIDTH;
+  const labelWidth = 110;
+  doc.fontSize(10).font(fonts.regular);
+  const textHeight = doc.heightOfString(block.text, { width: textWidth });
+  const rowsHeight = block.rows.reduce(
+    (sum, [, value]) =>
+      sum + Math.max(14, doc.heightOfString(value, { width: textWidth - labelWidth }) + 2),
+    0,
+  );
+  const qrHeight = block.qrPayload != null ? QR_SIZE + 24 : 0;
+  const needed = 16 + Math.max(textHeight + 6 + rowsHeight, qrHeight);
+  let y = ensure(startY, needed);
+  const top = y;
+
+  drawRule(doc, y - 6);
+  doc
+    .fontSize(9)
+    .font(fonts.bold)
+    .fillColor(COLOR_MUTED)
+    .text(labels.paymentInformation, MARGIN, y, { width: textWidth });
+  y += 16;
+  doc
+    .fontSize(10)
+    .font(fonts.regular)
+    .fillColor(COLOR_TEXT)
+    .text(block.text, MARGIN, y, { width: textWidth });
+  y += textHeight + 6;
+  for (const [label, value] of block.rows) {
+    doc
+      .fontSize(10)
+      .font(fonts.regular)
+      .fillColor(COLOR_MUTED)
+      .text(label, MARGIN, y, { width: labelWidth });
+    doc
+      .font(fonts.bold)
+      .fillColor(COLOR_TEXT)
+      .text(value, MARGIN + labelWidth, y, { width: textWidth - labelWidth });
+    y += Math.max(14, doc.heightOfString(value, { width: textWidth - labelWidth }) + 2);
+  }
+
+  if (block.qrPayload != null) {
+    const qrX = MARGIN + CONTENT_WIDTH - QR_SIZE;
+    drawQrCode(doc, block.qrPayload, qrX, top);
+    doc
+      .fontSize(7)
+      .font(fonts.regular)
+      .fillColor(COLOR_MUTED)
+      .text(labels.paymentQrHint, qrX, top + QR_SIZE + 4, { width: QR_SIZE, align: 'center' });
+  }
+}
+
 export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer> {
   const { invoice, lineItems, driver, fleet, taxBreakdown, creditedInvoice, creditNote } = detail;
   const isCreditNote = invoice.kind === 'credit_note';
@@ -293,7 +388,11 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
   const rate = (taxRate: number | string): string =>
     labels.taxRateValue.replace('{rate}', formatTaxRatePercent(Number(taxRate), labels.locale));
 
-  const [seller, branding] = await Promise.all([loadInvoiceSeller(), loadPdfBranding()]);
+  const [seller, branding, payment] = await Promise.all([
+    loadInvoiceSeller(),
+    loadPdfBranding(),
+    getInvoicePaymentSettings(),
+  ]);
 
   const doc = new PDFDocument({
     margins: { top: MARGIN, left: MARGIN, right: MARGIN, bottom: MARGIN },
@@ -551,9 +650,27 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
     .font(fonts.regular)
     .fillColor(COLOR_MUTED)
     .text(labels.amountsNote, MARGIN, y + 4, { width: CONTENT_WIDTH });
+  y += 16;
   if (isCreditNote && creditedInvoice?.paidAt != null) {
-    const noteY = ensure(y + 16, 24);
-    doc.text(labels.creditNotePaidNote, MARGIN, noteY, { width: CONTENT_WIDTH });
+    y = ensure(y, 24);
+    doc.text(labels.creditNotePaidNote, MARGIN, y, { width: CONTENT_WIDTH });
+    y += Math.max(12, doc.heightOfString(labels.creditNotePaidNote, { width: CONTENT_WIDTH }));
+  }
+
+  const paymentBlock = invoicePaymentBlock({
+    invoice,
+    labels,
+    payment,
+    sellerName: seller.name,
+    formatDate: (value) => formatDate(value, labels.locale),
+  });
+  if (paymentBlock != null) {
+    const blockFonts = registerPdfTextFonts(
+      doc,
+      fonts,
+      [paymentBlock.text, ...paymentBlock.rows.map(([, value]) => value)].join('\n'),
+    );
+    drawPaymentBlock(doc, paymentBlock, labels, blockFonts, y + 14, ensure);
   }
 
   drawPdfFooter(doc, footer, MARGIN, CONTENT_WIDTH);

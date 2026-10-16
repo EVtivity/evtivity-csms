@@ -769,6 +769,50 @@ describe('Settings routes', () => {
     expect(db.insert).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ['company.iban', ' de89 3704 0044 0532 0130 00 ', 'DE89370400440532013000'],
+    ['company.bic', 'cobadeffxxx', 'COBADEFFXXX'],
+    ['company.bankAccountHolder', '  Acme Charging GmbH ', 'Acme Charging GmbH'],
+    ['company.iban', '', ''],
+    ['invoice.epcQrEnabled', false, false],
+  ])('PUT /v1/settings/%s stores the normalized value', async (key, value, stored) => {
+    vi.mocked(db.insert).mockClear();
+    setupDbResults([], [{ key, value: stored }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/settings/${key}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith({ key, value: stored });
+  });
+
+  it.each([
+    ['company.iban', 'DE89370400440532013001'],
+    ['company.iban', 'DE89-3704'],
+    ['company.bic', 'COBADEF'],
+    ['company.bic', 'COBA1EFF'],
+    ['company.bankAccountHolder', 'x'.repeat(71)],
+    ['company.bankName', 'Bank\nName'],
+    ['invoice.epcQrEnabled', 'yes'],
+  ])('PUT /v1/settings/%s rejects %j', async (key, value) => {
+    vi.mocked(db.insert).mockClear();
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/settings/${key}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
+    expect(response.json().error).toContain(key);
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
   it.each([0, -1, 1.5, '5000', 100_000_001, null])(
     'PUT /v1/settings/fleet.creditReservationCents rejects %s',
     async (value) => {

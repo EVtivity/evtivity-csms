@@ -66,6 +66,7 @@ export const AUDIT_ACTIONS = [
   'autocharge_unblocked',
   'availability_changed',
   'billing_address_updated',
+  'billing_reassigned',
   'billing_updated',
   'ca_certificate_added',
   'ca_certificate_deleted',

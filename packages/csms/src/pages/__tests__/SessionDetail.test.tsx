@@ -7,7 +7,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
 const { apiMock, perms, paymentTab, toastMock } = vi.hoisted(() => ({
-  apiMock: { get: vi.fn(), post: vi.fn() },
+  apiMock: { get: vi.fn(), post: vi.fn(), patch: vi.fn() },
   perms: new Set<string>(),
   paymentTab: vi.fn((props: { canRefund: boolean }) => {
     void props;
@@ -278,5 +278,62 @@ describe('SessionDetail end without the station', () => {
         title: 'The station is online',
       });
     });
+  });
+});
+
+describe('SessionDetail billing recipient', () => {
+  const ACCOUNT_SESSION = {
+    ...SESSION,
+    status: 'completed',
+    driverId: 'drv_1',
+    driverName: 'Anna Berg',
+    paymentRecord: null,
+    billingMode: 'account',
+    billingFleetName: 'Acme',
+    memberBilled: false,
+    invoiceId: null,
+    invoiceStatus: null,
+  };
+
+  beforeEach(() => {
+    perms.clear();
+    perms.add('payments:write');
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
+
+  it('moves an unbilled fleet session to the member invoice after the confirmation', async () => {
+    apiMock.patch.mockResolvedValue({ moved: true });
+    renderPage(ACCOUNT_SESSION);
+    fireEvent.click(await screen.findByRole('button', { name: 'billingRecipient.billToDriver' }));
+    expect(screen.getByText('billingRecipient.sessionToDriverDescription')).toBeTruthy();
+    const buttons = screen.getAllByRole('button', { name: 'billingRecipient.billToDriver' });
+    fireEvent.click(buttons.at(-1) as HTMLElement);
+    await waitFor(() => {
+      expect(apiMock.patch).toHaveBeenCalledWith('/v1/sessions/ses_1/billing-recipient', {
+        recipient: 'member',
+      });
+    });
+  });
+
+  it('offers Bill to Fleet for a member-billed session', async () => {
+    renderPage({ ...ACCOUNT_SESSION, memberBilled: true });
+    expect(
+      await screen.findByRole('button', { name: 'billingRecipient.billToFleet' }),
+    ).toBeTruthy();
+  });
+
+  it('offers no move for an invoiced session or without the permission', async () => {
+    renderPage({ ...ACCOUNT_SESSION, invoiceId: 'inv_1', invoiceStatus: 'issued' });
+    await screen.findByTestId('session-billing-badge');
+    expect(screen.queryByRole('button', { name: 'billingRecipient.billToDriver' })).toBeNull();
+    cleanup();
+    perms.clear();
+    renderPage(ACCOUNT_SESSION);
+    await screen.findByTestId('session-billing-badge');
+    expect(screen.queryByRole('button', { name: 'billingRecipient.billToDriver' })).toBeNull();
   });
 });

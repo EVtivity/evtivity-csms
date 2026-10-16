@@ -909,7 +909,10 @@
     "MFA_LOCKED": "錯誤驗證碼過多。請稍後再試。",
     "MFA_RESEND_LIMITED": "傳送的驗證碼過多。請稍後再請求。",
     "USER_SSO_MANAGED": "此使用者透過 SSO 登入，沒有可設定的密碼。",
-    "STATION_SITE_SUPPRESSED": "該充電站所屬站點的 AI 洞察已暫停。恢復站點即可恢復其充電站"
+    "STATION_SITE_SUPPRESSED": "該充電站所屬站點的 AI 洞察已暫停。恢復站點即可恢復其充電站",
+    "SESSION_NOT_ON_ACCOUNT": "該工作階段未透過車隊帳戶計費",
+    "FLEET_ACCOUNT_BILLING_OFF": "該車隊未啟用帳戶計費",
+    "DRIVER_NOT_FLEET_MEMBER": "該駕駛員已不是車隊成員"
   },
   "validation": {
     "required": "此欄位為必填項",

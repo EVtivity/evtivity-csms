@@ -909,7 +909,10 @@
     "MFA_LOCKED": "Demasiados códigos incorrectos. Espere antes de volver a intentarlo.",
     "MFA_RESEND_LIMITED": "Se enviaron demasiados códigos. Espere antes de solicitar otro.",
     "USER_SSO_MANAGED": "Este usuario inicia sesión con SSO y no tiene contraseña que establecer.",
-    "STATION_SITE_SUPPRESSED": "Los análisis de IA del sitio de la estación están suprimidos. Reanude el sitio para reanudar sus estaciones"
+    "STATION_SITE_SUPPRESSED": "Los análisis de IA del sitio de la estación están suprimidos. Reanude el sitio para reanudar sus estaciones",
+    "SESSION_NOT_ON_ACCOUNT": "La sesión no se factura a cuenta de una flota",
+    "FLEET_ACCOUNT_BILLING_OFF": "La flota no factura a cuenta",
+    "DRIVER_NOT_FLEET_MEMBER": "El conductor ya no es miembro de la flota"
   },
   "validation": {
     "required": "Este campo es obligatorio",

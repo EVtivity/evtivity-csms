@@ -22,6 +22,8 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 }));
 vi.mock('@/lib/auth', () => ({
   useHasPermission: (permission: string) => h.permissions.has(permission),
+  useHasCompanyWidePermission: (permission: string) =>
+    h.permissions.has(permission) && !h.permissions.has('site-restricted'),
 }));
 vi.mock('@/lib/timezone', () => ({
   useUserTimezone: () => 'UTC',
@@ -361,5 +363,82 @@ describe('FleetInvoicesCard member invoices', () => {
         '/v1/fleets/flt_1/invoices?page=1&limit=10&recipient=member',
       );
     });
+  });
+});
+
+describe('FleetInvoicesCard billing recipient moves', () => {
+  const members: NonNullable<FleetUnbilledPreview['members']> = [
+    {
+      driverId: 'drv_3',
+      driverName: 'Mia Meyer',
+      sessionCount: 2,
+      energyWh: 20000,
+      netCents: 1000,
+      taxCents: 190,
+      totalCents: 1190,
+      existingInvoice: null,
+      hasEmail: true,
+      hasAddress: true,
+    },
+  ];
+
+  function confirm(name: string): void {
+    const buttons = screen.getAllByRole('button', { name });
+    fireEvent.click(buttons.at(-1) as HTMLElement);
+  }
+
+  it("moves one driver's fleet sessions to the member invoice after the confirmation", async () => {
+    mockGet(preview());
+    h.post.mockResolvedValue({ movedCount: 2, sessions: [] });
+    wrap();
+    const anna = (await screen.findByText('Anna Berg')).closest('tr') as HTMLElement;
+    fireEvent.click(within(anna).getByRole('button', { name: 'billingRecipient.billToDriver' }));
+    expect(screen.getByText('billingRecipient.driverToDriverDescription')).toBeTruthy();
+    confirm('billingRecipient.billToDriver');
+    await waitFor(() => {
+      expect(h.post).toHaveBeenCalledWith('/v1/fleets/flt_1/billing-recipient', {
+        recipient: 'member',
+        driverIds: ['drv_1'],
+        period: previousMonth(),
+      });
+    });
+    expect(h.toast).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'billingRecipient.movedCount', variant: 'success' }),
+    );
+  });
+
+  it('moves every driver at once and moves member sessions back to the fleet', async () => {
+    mockGet(preview({ members }));
+    h.post.mockResolvedValue({ movedCount: 3, sessions: [] });
+    wrap('member');
+    await screen.findByTestId('member-row-drv_3');
+    fireEvent.click(screen.getByRole('button', { name: 'billingRecipient.billAllToDrivers' }));
+    confirm('billingRecipient.billToDriver');
+    await waitFor(() => {
+      expect(h.post).toHaveBeenCalledWith('/v1/fleets/flt_1/billing-recipient', {
+        recipient: 'member',
+        driverIds: ['drv_1', 'drv_2'],
+        period: previousMonth(),
+      });
+    });
+    const mia = screen.getByTestId('member-row-drv_3');
+    fireEvent.click(within(mia).getByRole('button', { name: 'billingRecipient.billToFleet' }));
+    confirm('billingRecipient.billToFleet');
+    await waitFor(() => {
+      expect(h.post).toHaveBeenCalledWith('/v1/fleets/flt_1/billing-recipient', {
+        recipient: 'fleet',
+        driverIds: ['drv_3'],
+        period: previousMonth(),
+      });
+    });
+  });
+
+  it('hides the moves without payments:write on every site', async () => {
+    h.permissions = new Set(['payments:read', 'payments:write', 'site-restricted']);
+    mockGet(preview({ members }));
+    wrap('member');
+    await screen.findByTestId('member-row-drv_3');
+    expect(screen.queryByRole('button', { name: 'billingRecipient.billToDriver' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'billingRecipient.billToFleet' })).toBeNull();
   });
 });

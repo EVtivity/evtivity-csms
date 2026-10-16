@@ -59,6 +59,7 @@ describe('createQueues', () => {
     expect(queues.aiWorkerQueue).toBeDefined();
     expect(queues.aiInsightQueue).toBeDefined();
     expect(queues.driverAiQueue).toBeDefined();
+    expect(queues.paymentStopQueue).toBeDefined();
 
     const names = queueCalls.map((c) => c.name);
     expect(names).toEqual([
@@ -73,6 +74,7 @@ describe('createQueues', () => {
       QUEUE_NAMES.MEMBER_INVOICES,
       QUEUE_NAMES.STATION_WATCH,
       QUEUE_NAMES.PAYMENT_WEBHOOKS,
+      QUEUE_NAMES.PAYMENT_STOPS,
       QUEUE_NAMES.REMOTE_START_TIMEOUTS,
       QUEUE_NAMES.STATION_MESSAGES,
       QUEUE_NAMES.REPORTS,
@@ -92,6 +94,7 @@ describe('createQueues', () => {
       'member-invoices',
       'station-watch',
       'payment-webhooks',
+      'payment-stops',
       'remote-start-timeouts',
       'station-messages',
       'reports',
@@ -106,7 +109,7 @@ describe('createQueues', () => {
     const { createQueues } = queuesModule;
     createQueues('redis://localhost:6379');
 
-    expect(createBullMQConnection).toHaveBeenCalledTimes(17);
+    expect(createBullMQConnection).toHaveBeenCalledTimes(18);
     expect(createBullMQConnection).toHaveBeenCalledWith('redis://localhost:6379');
     for (const call of queueCalls) {
       expect(call.opts.connection).toBe(mockConnection);
@@ -181,6 +184,20 @@ describe('createQueues', () => {
       removeOnComplete: 200,
       removeOnFail: { count: 500 },
       attempts: 5,
+      backoff: { type: 'exponential', delay: 5000 },
+    });
+  });
+
+  it('retries delayed payment stops three times with exponential backoff', async () => {
+    const { createQueues } = queuesModule;
+    createQueues('redis://localhost:6379');
+
+    const byName = Object.fromEntries(queueCalls.map((c) => [c.name, c.opts]));
+
+    expect(byName['payment-stops']?.['defaultJobOptions']).toEqual({
+      removeOnComplete: 200,
+      removeOnFail: { count: 500 },
+      attempts: 3,
       backoff: { type: 'exponential', delay: 5000 },
     });
   });

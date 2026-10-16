@@ -384,12 +384,15 @@ describe('OCPP 1.6 StartTransaction handler', () => {
         .mockReturnValueOnce(selectResolving([prepaidRow(5000)]))
         .mockReturnValueOnce(selectResolving([])) // own station row lookup: none
         .mockReturnValueOnce(selectResolving([])); // concurrent-tx lookup: none
-      const { ctx } = makeCtx(basePayload('PREPAID-TAG'));
+      const { ctx, publishMock } = makeCtx(basePayload('PREPAID-TAG'));
 
       const response = await handleStartTransaction(ctx);
       const info = response.idTagInfo as Record<string, unknown>;
 
       expect(info['status']).toBe('Accepted');
+      // An accepted start carries no refusal: the payment gate stops at once.
+      const event = publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> };
+      expect(event.payload).not.toHaveProperty('startRefusal');
       expect(Math.abs(Date.parse(info['expiryDate'] as string) - Date.now())).toBeLessThan(5_000);
     });
 
@@ -398,12 +401,19 @@ describe('OCPP 1.6 StartTransaction handler', () => {
         .mockReturnValueOnce(selectResolving([prepaidRow(-10)]))
         .mockReturnValueOnce(selectResolving([])) // own station row lookup: none
         .mockReturnValueOnce(selectResolving([])); // concurrent-tx lookup: none
-      const { ctx } = makeCtx(basePayload('NOCREDIT-TAG'));
+      const { ctx, publishMock } = makeCtx(basePayload('NOCREDIT-TAG'));
 
       const response = await handleStartTransaction(ctx);
 
       expect((response.idTagInfo as Record<string, unknown>)['status']).toBe('Blocked');
       expect(lastAttemptRow()).toMatchObject({ outcome: 'no_credit', reason: 'no_credit' });
+      // The Started event carries the refusal, so the payment gate waits for
+      // the station to end the transaction before it stops it.
+      expect(publishMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({ eventType: 'Started', startRefusal: 'no_credit' }),
+        }),
+      );
     });
   });
 

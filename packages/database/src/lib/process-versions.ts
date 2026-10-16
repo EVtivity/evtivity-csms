@@ -79,6 +79,13 @@ export interface ReleaseUpgradePending {
   hosts: string[];
   /** When the watch last saw an old process, or null. */
   lastOldSeenAt: string | null;
+  /**
+   * When no old process is connected now but one was seen less than
+   * LEGACY_CLEAN_MS ago: the time the change is allowed from (lastOldSeenAt
+   * plus LEGACY_CLEAN_MS), if no old process reconnects and the watch keeps
+   * running. Null while an old process is connected or none was seen recently.
+   */
+  allowedFrom: string | null;
   watchCheckedAt: string | null;
 }
 
@@ -252,11 +259,17 @@ export async function releaseUpgradePending(
   const watchFresh = usable && nowMs - Date.parse(watch.checkedAt) < WATCH_FRESH_MS;
   const oldClean = lastOld == null || nowMs - Date.parse(lastOld) >= LEGACY_CLEAN_MS;
   if (check.connections === 0 && watchFresh && oldClean) return null;
+  // None connected now, one seen within the clean window: allowed from its end.
+  const allowedFrom =
+    check.connections === 0 && lastOld != null && !oldClean
+      ? new Date(Date.parse(lastOld) + LEGACY_CLEAN_MS).toISOString()
+      : null;
   return {
     reason: check.connections === 0 && oldClean ? 'version_check_stale' : 'old_processes',
     oldConnections: check.connections,
     hosts: check.hosts,
     lastOldSeenAt: lastOld,
+    allowedFrom,
     watchCheckedAt: watch?.checkedAt ?? null,
   };
 }

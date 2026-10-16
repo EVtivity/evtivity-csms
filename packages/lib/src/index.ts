@@ -616,6 +616,29 @@ export {
   normalizeInvoiceSellerSetting,
 } from './invoice-seller.js';
 export type { InvoiceSellerSettingKey } from './invoice-seller.js';
+export {
+  COMPANY_BANK_ACCOUNT_HOLDER_KEY,
+  COMPANY_IBAN_KEY,
+  COMPANY_BIC_KEY,
+  COMPANY_BANK_NAME_KEY,
+  INVOICE_EPC_QR_ENABLED_KEY,
+  INVOICE_PAYMENT_MAX_LENGTHS,
+  INVOICE_PAYMENT_SETTING_KEYS,
+  isInvoicePaymentSettingKey,
+  normalizeInvoicePaymentSetting,
+  normalizeIban,
+  normalizeBic,
+  formatIban,
+} from './invoice-payment.js';
+export type { InvoicePaymentSettingKey } from './invoice-payment.js';
+export {
+  EPC_MAX_NAME_LENGTH,
+  EPC_MAX_REMITTANCE_LENGTH,
+  EPC_MAX_AMOUNT_CENTS,
+  EPC_MAX_PAYLOAD_BYTES,
+  buildEpcQrPayload,
+} from './epc-qr.js';
+export type { EpcQrInput } from './epc-qr.js';
 export type { DecodedPdfLogo } from './pdf-logo.js';
 export {
   CLEARABLE_PROFILE_PURPOSES,

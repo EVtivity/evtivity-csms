@@ -11,6 +11,7 @@ import { EditButton } from '@/components/edit-button';
 import { SaveButton } from '@/components/save-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { LanguageSelect, LANGUAGES } from '@/components/ui/language-select';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/toast';
@@ -31,7 +32,11 @@ export interface FleetBillingProfile {
   invoiceLanguage: string;
   paymentTermsDays: number | null;
   autoInvoice: boolean;
+  invoiceDateMode: InvoiceDateMode;
 }
+
+/** The date of the fleet's account invoices: the issue day or the last day of the billed month. */
+export type InvoiceDateMode = 'run_date' | 'period_end';
 
 export interface FleetBillingProfileCardProps {
   fleet: { id: string; name: string } & Partial<FleetBillingProfile>;
@@ -53,6 +58,7 @@ interface FormState {
   language: string;
   paymentTerms: string;
   autoInvoice: boolean;
+  invoiceDateMode: InvoiceDateMode;
 }
 
 /** Splits the contacts field (one per line, or comma or semicolon separated). */
@@ -76,6 +82,7 @@ function toForm(fleet: FleetBillingProfileCardProps['fleet']): FormState {
     language: fleet.invoiceLanguage ?? 'en',
     paymentTerms: fleet.paymentTermsDays == null ? '' : String(fleet.paymentTermsDays),
     autoInvoice: fleet.autoInvoice === true,
+    invoiceDateMode: fleet.invoiceDateMode === 'period_end' ? 'period_end' : 'run_date',
   };
 }
 
@@ -153,6 +160,7 @@ export function FleetBillingProfileCard({
       invoiceLanguage: form.language,
       paymentTermsDays: terms === '' ? null : Number(terms),
       autoInvoice: form.autoInvoice,
+      invoiceDateMode: form.invoiceDateMode,
     });
   }
 
@@ -254,6 +262,29 @@ export function FleetBillingProfileCard({
                   <p className="text-sm text-destructive">{errors.paymentTerms}</p>
                 )}
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="billing-invoice-date">
+                  {t('fleets.billingProfile.invoiceDate')}
+                </Label>
+                <Select
+                  id="billing-invoice-date"
+                  value={form.invoiceDateMode}
+                  onChange={(e) => {
+                    set(
+                      'invoiceDateMode',
+                      e.target.value === 'period_end' ? 'period_end' : 'run_date',
+                    );
+                  }}
+                >
+                  <option value="run_date">{t('fleets.billingProfile.invoiceDateRunDate')}</option>
+                  <option value="period_end">
+                    {t('fleets.billingProfile.invoiceDatePeriodEnd')}
+                  </option>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t('fleets.billingProfile.invoiceDateHelp')}
+                </p>
+              </div>
             </div>
             <div className="space-y-1">
               <div className="flex items-center gap-3">
@@ -317,6 +348,14 @@ export function FleetBillingProfileCard({
                 {fleet.paymentTermsDays == null
                   ? t('fleets.billingProfile.paymentTermsDefault')
                   : String(fleet.paymentTermsDays)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('fleets.billingProfile.invoiceDate')}</dt>
+              <dd className="font-medium">
+                {fleet.invoiceDateMode === 'period_end'
+                  ? t('fleets.billingProfile.invoiceDatePeriodEnd')
+                  : t('fleets.billingProfile.invoiceDateRunDate')}
               </dd>
             </div>
             <div>

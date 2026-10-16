@@ -33,6 +33,8 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatCents, formatNumber } from '@/lib/formatting';
 import { currentMonth, formatPeriodMonth, previousMonth } from '@/lib/fleet-invoice';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { BillToButton } from '@/components/bill-to-button';
+import { useBillingRecipientMove } from './use-billing-recipient-move';
 import { FleetMemberInvoices } from './FleetMemberInvoices';
 import type { FleetMemberPreview } from './FleetMemberInvoices';
 import type { AccountInvoiceRecipient } from './FleetBillingTab';
@@ -107,6 +109,11 @@ async function downloadPdf(invoice: { id: string; invoiceNumber: string }): Prom
   URL.revokeObjectURL(link.href);
 }
 
+/** The drivers of the fleet's own preview rows (a row without a driver cannot move). */
+function fleetDriverIds(data: FleetUnbilledPreview): string[] {
+  return data.drivers.flatMap((d) => (d.driverId != null ? [d.driverId] : []));
+}
+
 function kwh(energyWh: number): string {
   return `${formatNumber(energyWh / 1000, 2)} kWh`;
 }
@@ -148,6 +155,7 @@ function FleetUnbilledCard({
   const [confirmOpen, setConfirmOpen] = useState(false);
   // Until when the preview follows an "Invoice All Members" run in the background.
   const [pollUntil, setPollUntil] = useState(0);
+  const move = useBillingRecipientMove(fleetId, period);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['fleets', fleetId, 'unbilled', period],
@@ -258,42 +266,82 @@ function FleetUnbilledCard({
             {data.drivers.length === 0 ? (
               <p className="text-muted-foreground">{t('fleets.invoices.noUnbilled')}</p>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t('fleets.invoices.driver')}</TableHead>
-                      <TableHead className="text-right">{t('fleets.invoices.sessions')}</TableHead>
-                      <TableHead className="text-right">{t('fleets.invoices.energy')}</TableHead>
-                      <TableHead className="text-right">{t('fleets.invoices.total')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {data.drivers.map((driver) => (
-                      <TableRow key={driver.driverId ?? 'unknown'}>
-                        <TableCell>
-                          {driver.driverId != null ? (
-                            <Link
-                              to={`/drivers/${driver.driverId}`}
-                              className="text-link hover:underline"
-                            >
-                              {driver.driverName !== ''
-                                ? driver.driverName
-                                : t('invoices.unknownDriver')}
-                            </Link>
-                          ) : (
-                            t('invoices.unknownDriver')
-                          )}
-                        </TableCell>
-                        <TableCell className="text-right">{driver.sessionCount}</TableCell>
-                        <TableCell className="text-right">{kwh(driver.energyWh)}</TableCell>
-                        <TableCell className="text-right">{money(driver.totalCents)}</TableCell>
+              <div className="space-y-2">
+                {move.canMove && fleetDriverIds(data).length > 0 && (
+                  <div className="flex justify-end">
+                    <BillToButton
+                      recipient="member"
+                      label={t('billingRecipient.billAllToDrivers')}
+                      onClick={() => {
+                        move.request({
+                          recipient: 'member',
+                          driverIds: fleetDriverIds(data),
+                          driverName: null,
+                        });
+                      }}
+                    />
+                  </div>
+                )}
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('fleets.invoices.driver')}</TableHead>
+                        <TableHead className="text-right">
+                          {t('fleets.invoices.sessions')}
+                        </TableHead>
+                        <TableHead className="text-right">{t('fleets.invoices.energy')}</TableHead>
+                        <TableHead className="text-right">{t('fleets.invoices.total')}</TableHead>
+                        {move.canMove && (
+                          <TableHead className="text-right">{t('common.actions')}</TableHead>
+                        )}
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {data.drivers.map((driver) => (
+                        <TableRow key={driver.driverId ?? 'unknown'}>
+                          <TableCell>
+                            {driver.driverId != null ? (
+                              <Link
+                                to={`/drivers/${driver.driverId}`}
+                                className="text-link hover:underline"
+                              >
+                                {driver.driverName !== ''
+                                  ? driver.driverName
+                                  : t('invoices.unknownDriver')}
+                              </Link>
+                            ) : (
+                              t('invoices.unknownDriver')
+                            )}
+                          </TableCell>
+                          <TableCell className="text-right">{driver.sessionCount}</TableCell>
+                          <TableCell className="text-right">{kwh(driver.energyWh)}</TableCell>
+                          <TableCell className="text-right">{money(driver.totalCents)}</TableCell>
+                          {move.canMove && (
+                            <TableCell className="text-right">
+                              {driver.driverId != null && (
+                                <BillToButton
+                                  recipient="member"
+                                  onClick={() => {
+                                    if (driver.driverId == null) return;
+                                    move.request({
+                                      recipient: 'member',
+                                      driverIds: [driver.driverId],
+                                      driverName: driver.driverName,
+                                    });
+                                  }}
+                                />
+                              )}
+                            </TableCell>
+                          )}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               </div>
             )}
+            {move.dialog}
             {(recipient === 'member' || (data.members ?? []).length > 0) && (
               <FleetMemberInvoices
                 fleetId={fleetId}

@@ -47,6 +47,21 @@ export const PAYMENT_WEBHOOK_JOB_OPTIONS = {
   backoff: { type: 'exponential', delay: 5000 },
 };
 
+/** Delayed payment stops: the stop of a start the CSMS refused, after a grace period (OCPP). */
+export const PAYMENT_STOP_QUEUE = 'payment-stops';
+
+/**
+ * Retrying is safe: the job changes no session state, and a repeated
+ * RequestStopTransaction for a transaction the station already ended is
+ * refused by the station.
+ */
+export const PAYMENT_STOP_JOB_OPTIONS = {
+  removeOnComplete: 200,
+  removeOnFail: { count: 500 },
+  attempts: 3,
+  backoff: { type: 'exponential', delay: 5000 },
+};
+
 /** Station screen renders: station and session events, config repushes (OCPP, API, worker cron). */
 export const STATION_MESSAGE_QUEUE = 'station-messages';
 

@@ -127,6 +127,9 @@
     },
     "./invoice-seller": {
       "import": "./src/invoice-seller.ts"
+    },
+    "./invoice-payment": {
+      "import": "./src/invoice-payment.ts"
     }
   },
   "scripts": {

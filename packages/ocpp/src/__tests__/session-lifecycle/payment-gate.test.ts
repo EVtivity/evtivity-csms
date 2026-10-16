@@ -564,7 +564,7 @@ describe('runPaymentGate', () => {
         deps,
         expect.objectContaining({ sessionId: 'sess-1' }),
         'PaymentFailed',
-        { transactionEnded: false },
+        { transactionEnded: false, startRefused: false },
       );
       expect(logger.warn).toHaveBeenCalledWith(
         { sessionId: 'sess-1', status },
@@ -721,6 +721,24 @@ describe('runPaymentGate', () => {
     expect(mockStopSessionForPayment).not.toHaveBeenCalled();
   });
 
+  it('passes a refused start to the stop only for a credit limit stop', async () => {
+    mockStampSessionBilling.mockResolvedValue({
+      mode: 'account',
+      fleetId: 'flt-1',
+      fleetName: 'Acme',
+    });
+    mockCheckFleetCreditLimit.mockResolvedValue(creditCheck('reached', 10_000));
+
+    await runPaymentGate(deps, { ...input, driverId: 'drv-1', startRefused: true });
+
+    expect(mockStopSessionForPayment).toHaveBeenCalledWith(
+      deps,
+      expect.objectContaining({ sessionId: 'sess-1' }),
+      'AccountCreditLimit',
+      { transactionEnded: false, startRefused: true },
+    );
+  });
+
   it('stops an account start at the credit limit and notifies the fleet', async () => {
     mockStampSessionBilling.mockResolvedValue({
       mode: 'account',
@@ -748,7 +766,7 @@ describe('runPaymentGate', () => {
         stationDbId: 'station-uuid',
       },
       'AccountCreditLimit',
-      { transactionEnded: false },
+      { transactionEnded: false, startRefused: false },
     );
     expect(mockDispatchFleetCreditLimitNotices).toHaveBeenCalledWith(
       check,

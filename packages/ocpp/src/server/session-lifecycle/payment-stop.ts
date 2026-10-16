@@ -3,12 +3,14 @@
 
 import type postgres from 'postgres';
 import { faultUnbilledSession, writeCsmsSessionAudit } from '@evtivity/database';
-import {
-  dispatchOneShotStationMessage,
-  notificationMoney,
-  publishOcppCommand,
-} from '@evtivity/lib';
+import { notificationMoney, publishOcppCommand } from '@evtivity/lib';
 import type { StationMessageState } from '@evtivity/lib';
+import {
+  enqueueRefusedStartStop,
+  REFUSED_START_STOP_GRACE_MS,
+  showPaymentStopMessage,
+} from '@evtivity/services/refused-start-stop';
+import type { PaymentStopTarget } from '@evtivity/services/refused-start-stop';
 import { dispatchDriverNotification, ALL_TEMPLATES_DIRS } from '../notification-dispatcher.js';
 import type { ProjectionDeps } from '../projection-support/context.js';
 
@@ -22,12 +24,7 @@ interface CeilingStopRow {
   site_name: string | null;
 }
 
-export interface StopTarget {
-  sessionId: string;
-  transactionId: string;
-  ocppStationId: string;
-  stationDbId: string;
-}
+export type StopTarget = PaymentStopTarget;
 
 export type PaymentStopReason =
   | 'PaymentFailed'
@@ -105,12 +102,21 @@ export async function costLimitReported(sql: postgres.Sql, sessionId: string): P
  * up to its ceiling, and the station message and the driver notice go out
  * from the call that claimed it, shared with a 2.1 CostLimitReached report
  * (noteCostLimitReached).
+ *
+ * With `startRefused` (an AccountCreditLimit stop of a start the CSMS
+ * already refused: a 1.6 StartTransaction answered Blocked for no credit)
+ * the session is still faulted at once, but RequestStopTransaction and the
+ * station message wait REFUSED_START_STOP_GRACE_MS in a delayed worker job
+ * (`refused-start-stop`, job id per session, P7), which sends nothing when
+ * the station ended the transaction itself by then: a stop sent while a
+ * station ends a refused transaction crossed its own StopTransaction. When
+ * the job cannot be queued the stop goes out at once.
  */
 export async function stopSessionForPayment(
   deps: ProjectionDeps,
   target: StopTarget,
   reason: PaymentStopReason,
-  options: { atCeiling?: boolean; transactionEnded?: boolean } = {},
+  options: { atCeiling?: boolean; transactionEnded?: boolean; startRefused?: boolean } = {},
 ): Promise<void> {
   const { sql, pubsub, logger, notify } = deps;
   const { sessionId, transactionId, ocppStationId } = target;
@@ -161,10 +167,30 @@ export async function stopSessionForPayment(
     }
   }
 
+  // A start the CSMS refused: the station ends the transaction itself, so
+  // the stop waits for the grace period (the fault above is already done).
+  let stopDeferred = false;
+  if (
+    reason === 'AccountCreditLimit' &&
+    !accountAtCeiling &&
+    options.startRefused === true &&
+    options.transactionEnded !== true
+  ) {
+    try {
+      await enqueueRefusedStartStop(target);
+      stopDeferred = true;
+    } catch (err) {
+      logger.warn(
+        { err, sessionId },
+        'Refused start stop not queued; stopping the transaction now',
+      );
+    }
+  }
+
   // A transaction the station already ended (the gate ran for an idToken
   // first presented in TransactionEvent Ended) needs no stop.
   let stopSent = false;
-  if (options.transactionEnded !== true) {
+  if (options.transactionEnded !== true && !stopDeferred) {
     try {
       await publishOcppCommand(pubsub, {
         stationId: ocppStationId,
@@ -177,7 +203,12 @@ export async function stopSessionForPayment(
     }
   }
 
-  await auditPaymentStop(deps, target, reason, { faulted, stopSent, ceiling: ceilingStop != null });
+  await auditPaymentStop(deps, target, reason, {
+    faulted,
+    stopSent,
+    stopDeferred,
+    ceiling: ceilingStop != null,
+  });
 
   if (reason === 'PrepaidCreditExhausted') {
     // Only the call that claimed the stop gets here.
@@ -197,8 +228,9 @@ export async function stopSessionForPayment(
       GuestHoldExhausted: null,
       AccountCreditLimit: 'account_credit_limit',
     };
-    const messageState = stateByReason[reason];
-    if (messageState != null) await showStopMessage(deps, target, messageState);
+    // A deferred stop shows its message from the job, with the stop.
+    const messageState = stopDeferred ? null : stateByReason[reason];
+    if (messageState != null) await showPaymentStopMessage(deps, target, messageState);
   }
 
   if (reason === 'AccountCreditLimit' && faulted) {
@@ -222,7 +254,7 @@ async function auditPaymentStop(
   deps: ProjectionDeps,
   target: StopTarget,
   reason: PaymentStopReason,
-  outcome: { faulted: boolean; stopSent: boolean; ceiling: boolean },
+  outcome: { faulted: boolean; stopSent: boolean; stopDeferred: boolean; ceiling: boolean },
 ): Promise<void> {
   const { sessionId, transactionId } = target;
   if (outcome.faulted) {
@@ -236,7 +268,9 @@ async function auditPaymentStop(
         after: { status: 'faulted', stoppedReason: reason, finalCostCents: 0 },
         notes: outcome.stopSent
           ? `RequestStopTransaction sent for transaction ${transactionId}`
-          : null,
+          : outcome.stopDeferred
+            ? `Start refused: RequestStopTransaction for transaction ${transactionId} in ${String(REFUSED_START_STOP_GRACE_MS / 1000)} s unless the station ends it`
+            : null,
       },
       undefined,
       deps.logger,
@@ -397,7 +431,7 @@ async function claimCeilingStop(
  * fleet credit it reserved (plan S8). Both fail-open (P9).
  */
 async function sendAccountCeilingNotices(deps: ProjectionDeps, target: StopTarget): Promise<void> {
-  await showStopMessage(deps, target, 'account_credit_limit');
+  await showPaymentStopMessage(deps, target, 'account_credit_limit');
   await sendAccountCreditLimitNotice(deps, target);
 }
 
@@ -411,7 +445,7 @@ async function sendPrepaidExhaustedNotices(
   row: CeilingStopRow,
 ): Promise<void> {
   const { sql, eventBus, pubsub, logger } = deps;
-  await showStopMessage(deps, target, 'prepaid_exhausted');
+  await showPaymentStopMessage(deps, target, 'prepaid_exhausted');
   if (row.driver_id == null) return;
   const currency = row.currency;
   // Fail-open (P9): the notice runs in the background and logs its failure.
@@ -438,56 +472,4 @@ async function sendPrepaidExhaustedNotices(
       );
     }),
   );
-}
-
-/**
- * Pushes a one-shot driver-facing message to the station screen so the
- * physical UX matches the email/SMS notification fan-out. The template body
- * is operator-editable in Settings -> Integration -> Station Messages,
- * rendered with the standard StationMessageContext, and dispatched via
- * dispatchOneShotStationMessage. Fail-open (P9).
- */
-async function showStopMessage(
-  deps: ProjectionDeps,
-  target: StopTarget,
-  state: StationMessageState,
-): Promise<void> {
-  const { sql, pubsub, logger } = deps;
-  try {
-    const settingRows = await sql`
-      SELECT key, value FROM settings
-      WHERE key IN ('company.name', 'company.supportPhone', 'stationMessage.eventMessageTtlSeconds')
-    `;
-    const settingsMap = new Map<string, unknown>();
-    for (const row of settingRows) {
-      settingsMap.set(row['key'] as string, row['value']);
-    }
-    const companyName = (settingsMap.get('company.name') as string | undefined) ?? 'EVtivity';
-    const supportPhone = settingsMap.get('company.supportPhone') as string | undefined;
-    const ttlSetting = settingsMap.get('stationMessage.eventMessageTtlSeconds');
-    const ttlSeconds = typeof ttlSetting === 'number' && ttlSetting > 0 ? ttlSetting : 30;
-    await dispatchOneShotStationMessage(
-      pubsub,
-      sql,
-      {
-        stationOcppId: target.ocppStationId,
-        stationDbId: target.stationDbId,
-        state,
-        context: {
-          companyName,
-          stationOcppId: target.ocppStationId,
-          ...(supportPhone != null && supportPhone !== '' ? { supportPhone } : {}),
-        },
-      },
-      {
-        ttlSeconds,
-        // Defensive in-process clear for OCPP 1.6 (no native endDateTime)
-        // and 2.1 firmwares that ignore endDateTime. Same window so the
-        // operator can tune one knob.
-        autoClearMs: ttlSeconds * 1000,
-      },
-    );
-  } catch (err) {
-    logger.warn({ err, state }, 'Failed to publish payment-failure display message');
-  }
 }

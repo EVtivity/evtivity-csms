@@ -292,6 +292,14 @@ export const vehicles = pgTable(
 export const ACCOUNT_INVOICE_RECIPIENTS = ['fleet', 'member'] as const;
 export type AccountInvoiceRecipient = (typeof ACCOUNT_INVOICE_RECIPIENTS)[number];
 
+/**
+ * The date of a fleet's account invoices (fleet and member invoices):
+ * `run_date` (the day it is issued) or `period_end` (the last day of the
+ * billed month, system timezone, when issued after it).
+ */
+export const INVOICE_DATE_MODES = ['run_date', 'period_end'] as const;
+export type InvoiceDateMode = (typeof INVOICE_DATE_MODES)[number];
+
 export const fleets = pgTable(
   'fleets',
   {
@@ -327,6 +335,11 @@ export const fleets = pgTable(
     paymentTermsDays: integer('payment_terms_days'),
     // The monthly run invoices the fleet automatically (needs a billing contact).
     autoInvoice: boolean('auto_invoice').notNull().default(false),
+    // The invoice date of the fleet's account invoices (INVOICE_DATE_MODES).
+    invoiceDateMode: varchar('invoice_date_mode', { length: 16 })
+      .$type<InvoiceDateMode>()
+      .notNull()
+      .default('run_date'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     // Credit limit of the account billing (cents of the company currency, null:
@@ -356,6 +369,10 @@ export const fleets = pgTable(
     check(
       'fleets_account_invoice_recipient_check',
       sql`${table.accountInvoiceRecipient} IN ('fleet', 'member')`,
+    ),
+    check(
+      'fleets_invoice_date_mode_check',
+      sql`${table.invoiceDateMode} IN ('run_date', 'period_end')`,
     ),
   ],
 );
