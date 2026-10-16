@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/ocpi-simulator",
-  "version": "0.1.46",
+  "version": "0.1.47-beta.1",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
