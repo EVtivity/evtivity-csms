@@ -72,6 +72,7 @@ const BY_ID_ONLY = new Set([
   'database/src/lib/autocharge.ts',
   'database/src/lib/firmware-updates.ts',
   'database/src/lib/fixture-stations.ts',
+  'database/src/lib/fleet-credit-limit.ts',
   'database/src/lib/free-vend-setting.ts',
   'database/src/lib/load-management-state.ts',
   'database/src/lib/ocpp-session-tariff.ts',

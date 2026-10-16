@@ -619,7 +619,9 @@ describe('v2_1 TransactionEvent handler', () => {
 
       expect(response['transactionLimit']).toEqual({ maxCost: 12.5 });
       expect((response['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
-      expect(accountCreditMock).toHaveBeenCalledWith({}, 'drv_acc');
+      expect(accountCreditMock).toHaveBeenCalledWith({}, 'drv_acc', {
+        excludeTransaction: { stationId: 'CS-001', transactionId: 'tx-acc' },
+      });
       expect(waitForSignalMock).toHaveBeenCalledWith(sessionGatedKey('CS-001', 'tx-acc'), 5000);
       expect(accountCeilingMock).toHaveBeenCalledWith('CS-001', 'tx-acc');
       // Recorded as sent, so a grown ceiling follows on a later response.

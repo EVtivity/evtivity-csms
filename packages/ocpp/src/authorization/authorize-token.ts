@@ -718,14 +718,18 @@ function applyPrepaidCredit(decision: AuthorizeDecision): AuthorizeDecision {
 
 /**
  * Fleet credit limit (plan S8): a driver who charges on account with a fleet
- * that has a credit limit. With `refuse` (Authorize) an accepted token that
- * is not prepaid becomes no_credit when the fleet has no credit left: its
- * exposure, with the running sessions at their reserved ceiling, is at the
- * limit (2.1 NoCredit, 1.6 Blocked). Otherwise, and with `annotate` (2.1
- * TransactionEvent Started), the decision names the fleet. Read without the
- * fleet row lock: nothing is reserved here; the payment gate reserves the
- * session's ceiling and stops a start without credit. A failed lookup keeps
- * the decision (logged at warn): the gate checks again.
+ * that has a credit limit. With `refuse` (Authorize, 1.6 StartTransaction)
+ * an accepted token that is not prepaid becomes no_credit when the fleet has
+ * no credit left: its exposure, with the running sessions at their reserved
+ * ceiling, is at the limit (2.1 NoCredit, 1.6 Blocked). Otherwise, and with
+ * `annotate` (2.1 TransactionEvent Started), the decision names the fleet.
+ * The session of the message's own transaction is left out of the exposure
+ * in the same query: the projection writes it, and the payment gate its
+ * reservation, while this check runs, and a resent StartTransaction finds it
+ * running. Read without the fleet row lock: nothing is reserved here; the
+ * payment gate reserves the session's ceiling and stops a start without
+ * credit. A failed lookup keeps the decision (logged at warn): the gate
+ * checks again.
  */
 async function checkAccountCredit(
   input: AuthorizeTokenInput,
@@ -742,7 +746,12 @@ async function checkAccountCredit(
     return decision;
   }
   try {
-    const credit = await loadDriverAccountCredit(client, decision.matchedDriverId);
+    const credit = await loadDriverAccountCredit(client, decision.matchedDriverId, {
+      excludeTransaction:
+        input.transactionId != null
+          ? { stationId: input.stationId, transactionId: input.transactionId }
+          : undefined,
+    });
     if (credit == null) return decision;
     if (rules.accountCredit === 'refuse' && credit.remainingCents <= 0) {
       return {

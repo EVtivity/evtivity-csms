@@ -180,6 +180,7 @@ export type {
   FleetCreditCheck,
   FleetBillingContacts,
   DriverAccountCredit,
+  FleetCreditTransaction,
   FleetCeilingExtension,
   CeilingExtensionInput,
 } from './lib/fleet-credit-limit.js';
