@@ -19,6 +19,7 @@ import { PeakUsageChart } from '@/components/charts/PeakUsageChart';
 import { StationMapChart } from '@/components/charts/StationMapChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
 import { SessionsTable } from '@/components/SessionsTable';
+import { Pagination } from '@/components/ui/pagination';
 import type { Session } from '@/components/SessionsTable';
 import { useUserTimezone } from '@/lib/timezone';
 import { PaymentBreakdownChart } from '@/components/charts/PaymentBreakdownChart';
@@ -1248,15 +1249,23 @@ function DashboardBody({
                 }}
               />
             ) : (
-              <SessionsTable
-                sessions={activeSessions.data?.data}
-                page={activeSessionsPage}
-                totalPages={activeSessionsTotalPages}
-                onPageChange={setActiveSessionsPage}
-                timezone={timezone}
-                isLoading={activeSessions.isLoading}
-                emptyMessage={t('charts.noActiveSessions')}
-              />
+              <div className="space-y-4">
+                <SessionsTable
+                  sessions={activeSessions.data?.data}
+                  page={activeSessionsPage}
+                  totalPages={activeSessionsTotalPages}
+                  onPageChange={setActiveSessionsPage}
+                  timezone={timezone}
+                  isLoading={activeSessions.isLoading}
+                  emptyMessage={t('charts.noActiveSessions')}
+                />
+                {/* SessionsTable renders no page controls: every caller adds them. */}
+                <Pagination
+                  page={activeSessionsPage}
+                  totalPages={activeSessionsTotalPages}
+                  onPageChange={setActiveSessionsPage}
+                />
+              </div>
             )}
           </CardContent>
         </Card>

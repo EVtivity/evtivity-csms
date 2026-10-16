@@ -292,10 +292,10 @@ describe('Dashboard states and permissions', () => {
       }),
     );
     renderDashboard('admin', ['dashboard:read', 'sessions:read']);
-    await waitFor(() => {
-      expect(screen.getByTestId('sessions-table').getAttribute('data-total-pages')).toBe('3');
-    });
-    fireEvent.click(screen.getByTestId('sessions-table-next'));
+    // The page controls the card renders itself (SessionsTable has none).
+    const next = await screen.findByRole('button', { name: /common\.next/ });
+    expect(screen.getByText('common.pageOf')).toBeTruthy();
+    fireEvent.click(next);
     await waitFor(() => {
       expect(requested).toContain('/v1/sessions?page=2&limit=20&status=active');
     });
