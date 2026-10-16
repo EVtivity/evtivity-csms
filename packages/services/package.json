@@ -7,6 +7,9 @@
     "./account-invoice-jobs": {
       "import": "./src/account-invoice-jobs.ts"
     },
+    "./ai-alerts": {
+      "import": "./src/ai-alerts.ts"
+    },
     "./ai-evidence": {
       "import": "./src/ai-evidence/index.ts"
     },
@@ -90,6 +93,9 @@
     },
     "./pdf-fonts": {
       "import": "./src/pdf-fonts.ts"
+    },
+    "./report-audit": {
+      "import": "./src/report-audit.ts"
     },
     "./report-generators/*": {
       "import": "./src/report-generators/*.ts"

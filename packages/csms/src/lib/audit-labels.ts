@@ -158,6 +158,8 @@ export const AUDIT_ACTIONS = [
   'renamed',
   'reordered',
   'report_deleted',
+  'report_downloaded',
+  'report_generated',
   'reservations_cancelled',
   'reset',
   'reset_triggered',

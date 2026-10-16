@@ -185,6 +185,7 @@ export interface TurnRunResult {
 const PROVIDER_ERROR_CODES: Partial<Record<AiProviderErrorCode, string>> = {
   auth: 'AI_PROVIDER_AUTH_FAILED',
   rate_limited: 'AI_PROVIDER_RATE_LIMITED',
+  quota_exceeded: 'AI_PROVIDER_QUOTA_EXCEEDED',
   overloaded: 'AI_PROVIDER_UNAVAILABLE',
   unavailable: 'AI_PROVIDER_UNAVAILABLE',
   model_unavailable: 'AI_MODEL_UNAVAILABLE',

@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { AiAlertsBanner } from '@/components/ai/alerts/AiAlertsBanner';
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -165,6 +166,7 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
   const cardProps = { settings, canWrite };
   return (
     <Tabs value={active} onValueChange={setSub}>
+      <AiAlertsBanner placement="settings" className="mb-4" />
       <TabsList>
         {AI_SETTINGS_TABS.map((id) => (
           <TabsTrigger key={id} value={id}>

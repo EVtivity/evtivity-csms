@@ -584,6 +584,7 @@
     "AI_MODEL_UNAVAILABLE": "設定的 AI 模型不存在或已停用",
     "AI_PROVIDER_AUTH_FAILED": "AI 供應商拒絕了設定的 API 金鑰",
     "AI_PROVIDER_RATE_LIMITED": "AI 供應商正在限制請求，請稍後重試",
+    "AI_PROVIDER_QUOTA_EXCEEDED": "AI 供應商帳戶的額度或配額已用完。管理員必須儲值或提高配額",
     "AI_PROVIDER_UNAVAILABLE": "AI 供應商無法使用，請稍後重試",
     "AI_RATE_LIMITED": "AI 請求過多，請一分鐘後重試",
     "ALERT_NOT_FOUND": "找不到警示",
@@ -907,7 +908,8 @@
     "SESSION_REQUIRED": "此操作需要登入工作階段。API 金鑰無法使用此操作。",
     "MFA_LOCKED": "錯誤驗證碼過多。請稍後再試。",
     "MFA_RESEND_LIMITED": "傳送的驗證碼過多。請稍後再請求。",
-    "USER_SSO_MANAGED": "此使用者透過 SSO 登入，沒有可設定的密碼。"
+    "USER_SSO_MANAGED": "此使用者透過 SSO 登入，沒有可設定的密碼。",
+    "STATION_SITE_SUPPRESSED": "該充電站所屬站點的 AI 洞察已暫停。恢復站點即可恢復其充電站"
   },
   "validation": {
     "required": "此欄位為必填項",

@@ -16,6 +16,7 @@ import {
   scheduleSkipReason,
   type ReportSiteScope,
 } from '@evtivity/services/report-scope';
+import { writeReportGeneratedAudit } from '@evtivity/services/report-audit';
 import { getNotificationSettings, sendEmail, renderTemplate, wrapEmailHtml } from '@evtivity/lib';
 import type { EmailAttachment, RenderedTemplate } from '@evtivity/lib';
 import { isUiLanguage } from '@evtivity/lib/languages';
@@ -75,6 +76,20 @@ async function runOneSchedule(
     log.info(
       { scheduleId: schedule.id, reportId, reportType: schedule.reportType },
       'Scheduled report queued',
+    );
+
+    await writeReportGeneratedAudit(
+      {
+        reportId,
+        name: schedule.name,
+        reportType: schedule.reportType,
+        format: schedule.format,
+        filters,
+        siteScope,
+        scheduleId: schedule.id,
+      },
+      { actor: 'system', actorLabel: 'report-scheduler' },
+      log,
     );
 
     await advanceSchedule(schedule, now);

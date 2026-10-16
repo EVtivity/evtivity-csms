@@ -435,6 +435,23 @@ async function claimNotice(
   return rows.length > 0;
 }
 
+/**
+ * A budget threshold notice this process won the claim for: the caller sends
+ * the operator notification (`ai.BudgetWarning`, `ai.BudgetExhausted`).
+ */
+export interface AiBudgetNotice {
+  scope: 'company' | 'site';
+  /** The site of a site notice; null for the company. */
+  siteId: string | null;
+  /** The calendar month, YYYY-MM, in the system timezone. */
+  period: string;
+  /** warn: the `ai.budget.warnPercent` level; exceeded: used up. */
+  level: 'warn' | 'exceeded';
+  percent: number;
+  usedTokens: number;
+  limitTokens: number;
+}
+
 async function announceScope(
   scope: 'company' | 'site',
   siteId: string | null,
@@ -442,9 +459,9 @@ async function announceScope(
   limit: number,
   warnPercent: number,
   month: string,
-): Promise<void> {
+): Promise<AiBudgetNotice | null> {
   const level = aiBudgetLevel(used, limit, warnPercent);
-  if (level === null) return;
+  if (level === null) return null;
   const scopeId = siteId ?? '';
   // At 100% the warn claim is taken silently: only the process that wins the
   // exceeded claim announces, so a late warn never follows an exceeded notice.
@@ -455,18 +472,34 @@ async function announceScope(
   } else {
     announce = (await claimNotice(scope, scopeId, month, 'warn')) ? 'warn' : null;
   }
-  if (announce === null) return;
-  await getPubSub().publish(
-    'csms_events',
-    JSON.stringify({
-      eventType: AI_USAGE_THRESHOLD_EVENT,
-      scope,
-      ...(siteId !== null ? { siteId } : {}),
-      period: month,
-      level: announce,
-      percent: Math.floor((used * 100) / limit),
-    }),
-  );
+  if (announce === null) return null;
+  const percent = Math.floor((used * 100) / limit);
+  const notice: AiBudgetNotice = {
+    scope,
+    siteId,
+    period: month,
+    level: announce,
+    percent,
+    usedTokens: used,
+    limitTokens: limit,
+  };
+  try {
+    await getPubSub().publish(
+      'csms_events',
+      JSON.stringify({
+        eventType: AI_USAGE_THRESHOLD_EVENT,
+        scope,
+        ...(siteId !== null ? { siteId } : {}),
+        period: month,
+        level: announce,
+        percent,
+      }),
+    );
+  } catch (err) {
+    // fail-open: the claim is taken; the notification still goes out (P9).
+    logger.warn({ err, scope, siteId }, 'AI budget threshold event not published');
+  }
+  return notice;
 }
 
 /**
@@ -474,33 +507,46 @@ async function announceScope(
  * crossed, once per scope, month and level (claim rows). Fail-open: a failure
  * is logged and the caller goes on (P9).
  */
-async function announceThresholds(siteId: string | null, at: Date): Promise<void> {
+async function announceThresholds(siteId: string | null, at: Date): Promise<AiBudgetNotice[]> {
+  const notices: AiBudgetNotice[] = [];
   try {
     const ctx = await liveBudgetContext();
     const month = aiUsageMonth(aiUsageMonthOf(at, ctx.timeZone), ctx.timeZone);
     const { budgetWarnPercent: warnPercent, companyMonthlyTokens } = ctx.limits;
     if (companyMonthlyTokens > 0) {
       const used = await ctx.tokens({ kind: 'company' }, month);
-      await announceScope('company', null, used, companyMonthlyTokens, warnPercent, month.month);
+      const notice = await announceScope(
+        'company',
+        null,
+        used,
+        companyMonthlyTokens,
+        warnPercent,
+        month.month,
+      );
+      if (notice !== null) notices.push(notice);
     }
     if (siteId !== null) {
       const limit = await ctx.siteMonthlyBudget(siteId);
       if (limit > 0) {
         const used = await ctx.tokens({ kind: 'site', siteId }, month);
-        await announceScope('site', siteId, used, limit, warnPercent, month.month);
+        const notice = await announceScope('site', siteId, used, limit, warnPercent, month.month);
+        if (notice !== null) notices.push(notice);
       }
     }
   } catch (err) {
     logger.warn({ err, siteId }, 'AI budget threshold notice failed, usage was recorded');
   }
+  return notices;
 }
 
 /**
  * Writes one ledger row for one model call (the only writer), adds it to
  * this process's cached sums, and sends any threshold notice the call
- * crossed. An insert failure throws; the notice is fail-open.
+ * crossed. An insert failure throws; the notice is fail-open. Returns the
+ * threshold notices this call claimed, for the operator notification
+ * (`dispatchAiBudgetNotices` in `@evtivity/services/ai-alerts`).
  */
-export async function recordAiUsage(record: AiUsageRecord): Promise<void> {
+export async function recordAiUsage(record: AiUsageRecord): Promise<AiBudgetNotice[]> {
   const occurredAt = record.occurredAt ?? new Date();
   const siteId = record.siteId ?? null;
   await db.insert(aiUsageLedger).values({
@@ -533,7 +579,38 @@ export async function recordAiUsage(record: AiUsageRecord): Promise<void> {
     occurredAt,
     count(record.usage.inputTokens) + count(record.usage.outputTokens),
   );
-  await announceThresholds(siteId, occurredAt);
+  return announceThresholds(siteId, occurredAt);
+}
+
+/** The company monthly budget of the current month, for the AI alert banner. */
+export interface CompanyAiBudgetStatus {
+  period: string;
+  limitTokens: number;
+  usedTokens: number;
+  percent: number;
+  /** warn: at or past `ai.budget.warnPercent`; exceeded: used up; null: below. */
+  level: 'warn' | 'exceeded' | null;
+}
+
+/**
+ * The company monthly budget state (cached sums, 60 s), or null when the
+ * company has no monthly budget (0).
+ */
+export async function getCompanyAiBudgetStatus(
+  now: Date = new Date(),
+): Promise<CompanyAiBudgetStatus | null> {
+  const ctx = await liveBudgetContext();
+  const limit = ctx.limits.companyMonthlyTokens;
+  if (limit <= 0) return null;
+  const month = aiUsageMonth(aiUsageMonthOf(now, ctx.timeZone), ctx.timeZone);
+  const used = await ctx.tokens({ kind: 'company' }, month);
+  return {
+    period: month.month,
+    limitTokens: limit,
+    usedTokens: used,
+    percent: Math.floor((used * 100) / limit),
+    level: aiBudgetLevel(used, limit, ctx.limits.budgetWarnPercent),
+  };
 }
 
 // ---------------------------------------------------------------------------

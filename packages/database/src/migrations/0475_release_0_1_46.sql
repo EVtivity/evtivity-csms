@@ -416,11 +416,16 @@ CREATE INDEX IF NOT EXISTS "idx_event_alert_rule_audit_entity_id" ON "event_aler
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "idx_event_alert_rule_audit_created_at" ON "event_alert_rule_audit_log" ("created_at");
 --> statement-breakpoint
--- New audited entity: report schedules and deleted reports.
+-- New audited entity: report schedules, and generated, downloaded and deleted reports.
 DO $$ BEGIN
-  CREATE TYPE "report_schedule_audit_action" AS ENUM ('created', 'updated', 'deleted', 'report_deleted');
+  CREATE TYPE "report_schedule_audit_action" AS ENUM ('created', 'updated', 'deleted', 'report_deleted', 'report_generated', 'report_downloaded');
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+--> statement-breakpoint
+-- A database that ran an earlier build of this file has the type without them.
+ALTER TYPE "report_schedule_audit_action" ADD VALUE IF NOT EXISTS 'report_generated';
+--> statement-breakpoint
+ALTER TYPE "report_schedule_audit_action" ADD VALUE IF NOT EXISTS 'report_downloaded';
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "report_schedule_audit_log" (
   "id" serial PRIMARY KEY NOT NULL,
@@ -1014,3 +1019,29 @@ INSERT INTO cronjobs (name, schedule, status, next_run_at)
 SELECT 'conformance-station-sweep', '*/10 * * * *', 'pending', NOW()
 WHERE NOT EXISTS (SELECT 1 FROM cronjobs WHERE name = 'conformance-station-sweep');
 -- end conformance stations
+--> statement-breakpoint
+-- 10. Per-site AI insight suppression: while sites.ai_insights_suppressed_at
+--     is set and ai_insights_suppressed_until is null or ahead, the insight
+--     scan and the AI workers create nothing for the site or its stations.
+ALTER TABLE "sites" ADD COLUMN IF NOT EXISTS "ai_insights_suppressed_at" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "sites" ADD COLUMN IF NOT EXISTS "ai_insights_suppressed_until" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "sites" ADD COLUMN IF NOT EXISTS "ai_insights_suppressed_by" text;
+--> statement-breakpoint
+ALTER TABLE "sites" ADD COLUMN IF NOT EXISTS "ai_insights_suppressed_reason" varchar(500);
+-- end site AI insight suppression
+--> statement-breakpoint
+-- 11. AI provider quota alerts: one row per provider whose account answered
+--     out of credit or over quota (cleared_at null while active). Kept after
+--     it clears, so the daily notification claim (notified_on) holds.
+CREATE TABLE IF NOT EXISTS "ai_provider_alerts" (
+  "provider" varchar(20) PRIMARY KEY NOT NULL,
+  "since_at" timestamp with time zone NOT NULL,
+  "last_seen_at" timestamp with time zone NOT NULL,
+  "cleared_at" timestamp with time zone,
+  "last_probe_at" timestamp with time zone,
+  "notified_on" varchar(10),
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+-- end AI provider quota alerts

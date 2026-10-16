@@ -105,6 +105,11 @@ vi.mock('@evtivity/services/report-scope', () => ({
   scheduleSkipReason: (...args: unknown[]) => mockScheduleSkipReason(...args),
 }));
 
+const mockWriteReportGeneratedAudit = vi.fn().mockResolvedValue(undefined);
+vi.mock('@evtivity/services/report-audit', () => ({
+  writeReportGeneratedAudit: (...args: unknown[]) => mockWriteReportGeneratedAudit(...args),
+}));
+
 const mockEnqueueReport = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../report-worker.js', () => ({
   enqueueReport: (...args: unknown[]) => mockEnqueueReport(...args),
@@ -518,6 +523,39 @@ describe('reportSchedulerHandler', () => {
     const insertCall = clientCalls.find((c) => String(c[0]).includes('INSERT INTO notifications'));
     expect(insertCall).toBeDefined();
     expect(insertCall).toContain('failed');
+  });
+
+  it('records the generated report with actor system', async () => {
+    setupDbResults([makeSchedule({ recipientEmails: [] })]);
+    const log = makeLog();
+
+    const { reportSchedulerHandler } = reportSchedulerModule;
+    await reportSchedulerHandler(log);
+
+    expect(mockWriteReportGeneratedAudit).toHaveBeenCalledTimes(1);
+    expect(mockWriteReportGeneratedAudit).toHaveBeenCalledWith(
+      {
+        reportId: 'report-id-123',
+        name: 'Daily Sessions',
+        reportType: 'sessions',
+        format: 'csv',
+        filters: { siteId: 'site_1' },
+        siteScope: ['site_1'],
+        scheduleId: 'sch_1',
+      },
+      { actor: 'system', actorLabel: 'report-scheduler' },
+      log,
+    );
+  });
+
+  it('writes no generated row when the run is skipped', async () => {
+    mockScheduleSkipReason.mockResolvedValue('creator_inactive');
+    setupDbResults([makeSchedule()], []);
+
+    const { reportSchedulerHandler } = reportSchedulerModule;
+    await reportSchedulerHandler(makeLog());
+
+    expect(mockWriteReportGeneratedAudit).not.toHaveBeenCalled();
   });
 
   it('treats null filters as an empty object', async () => {

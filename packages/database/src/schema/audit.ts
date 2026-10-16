@@ -1239,13 +1239,16 @@ export const eventAlertRuleAuditLog = pgTable(
   ],
 );
 
-// Report schedule audit (v0.1.46, 0475): schedule changes, and a deleted
-// report as 'report_deleted' (the report id in notes).
+// Report schedule audit (v0.1.46, 0475): schedule changes, and a generated,
+// downloaded or deleted report as 'report_generated', 'report_downloaded' or
+// 'report_deleted' (the report id in notes).
 export const reportScheduleAuditActionEnum = pgEnum('report_schedule_audit_action', [
   'created',
   'updated',
   'deleted',
   'report_deleted',
+  'report_generated',
+  'report_downloaded',
 ]);
 
 export const reportScheduleAuditLog = pgTable(

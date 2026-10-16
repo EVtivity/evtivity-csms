@@ -27,6 +27,7 @@ import {
   chargingSessions,
   chargingStations,
   getAiInsightSettings,
+  operatorStationSql,
   writeAudit,
 } from '@evtivity/database';
 import type { AuditActor } from '@evtivity/database';
@@ -556,34 +557,17 @@ async function expireOne(id: string, log: ServiceLogger): Promise<AiProposalRow 
   return row;
 }
 
-/**
- * The sweep (cron `ai-proposal-sweep`): expires unclaimed pending proposals
- * past their expiry, and fails claims older than the claim timeout (a confirm
- * whose process died; whether the route ran is unknown, so it is never
- * retried). Returns the counts.
- */
-/**
- * Expires the pending, unclaimed actions of a station whose AI insights an
- * operator suppressed (a running confirm decides its own outcome). Audited
- * with the reason; each insight closes `expired` with its action. Returns
- * the number expired.
- */
-export async function expireStationAiProposals(
-  stationId: string,
+/** Expires the pending, unclaimed actions matching `where`, audited with the reason. */
+async function expireSuppressedAiProposals(
+  where: SQL,
   reason: string,
   actor: AiProposalActor,
-  log: ServiceLogger = moduleLogger,
+  log: ServiceLogger,
 ): Promise<number> {
   const rows = await db
     .update(aiProposals)
     .set({ status: 'expired', updatedAt: sql`now()` })
-    .where(
-      and(
-        eq(aiProposals.stationId, stationId),
-        eq(aiProposals.status, 'pending'),
-        isNull(aiProposals.decidedAt),
-      ),
-    )
+    .where(and(where, eq(aiProposals.status, 'pending'), isNull(aiProposals.decidedAt)))
     .returning();
   for (const row of rows) {
     await audit(
@@ -596,6 +580,40 @@ export async function expireStationAiProposals(
     await afterEnd(row, actor, log);
   }
   return rows.length;
+}
+
+/**
+ * Expires the pending, unclaimed actions of a station whose AI insights an
+ * operator suppressed (a running confirm decides its own outcome). Audited
+ * with the reason; each insight closes `expired` with its action. Returns
+ * the number expired.
+ */
+export async function expireStationAiProposals(
+  stationId: string,
+  reason: string,
+  actor: AiProposalActor,
+  log: ServiceLogger = moduleLogger,
+): Promise<number> {
+  return expireSuppressedAiProposals(eq(aiProposals.stationId, stationId), reason, actor, log);
+}
+
+/**
+ * Expires the pending, unclaimed actions of a site whose AI insights an
+ * operator suppressed: the site's own actions and those of every station of
+ * the site, as `expireStationAiProposals` does for one station.
+ */
+export async function expireSiteAiProposals(
+  siteId: string,
+  reason: string,
+  actor: AiProposalActor,
+  log: ServiceLogger = moduleLogger,
+): Promise<number> {
+  return expireSuppressedAiProposals(
+    sql`(${aiProposals.siteId} = ${siteId} OR ${aiProposals.stationId} IN (SELECT cs.id FROM charging_stations cs WHERE cs.site_id = ${siteId} AND ${sql.raw(operatorStationSql('cs'))}))`,
+    reason,
+    actor,
+    log,
+  );
 }
 
 /** The insight cooldown in minutes, its default when settings cannot be read (fail-open, P9). */
@@ -632,6 +650,12 @@ async function holdStuckSessionCooldown(
   }
 }
 
+/**
+ * The sweep (cron `ai-proposal-sweep`): expires unclaimed pending proposals
+ * past their expiry, and fails claims older than the claim timeout (a confirm
+ * whose process died; whether the route ran is unknown, so it is never
+ * retried). Returns the counts.
+ */
 export async function sweepAiProposals(
   log: ServiceLogger = moduleLogger,
 ): Promise<{ expired: number; interrupted: number; stale: number }> {

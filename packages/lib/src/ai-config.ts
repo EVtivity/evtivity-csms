@@ -39,6 +39,14 @@ import type { UiLanguage } from './languages.js';
 export const AI_PROVIDER_IDS = ['anthropic', 'openai', 'gemini', 'deepseek'] as const;
 export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
 
+/** Product names of the providers, the same in every language. */
+export const AI_PROVIDER_LABELS: Readonly<Record<AiProviderId, string>> = {
+  anthropic: 'Anthropic',
+  openai: 'OpenAI',
+  gemini: 'Google Gemini',
+  deepseek: 'DeepSeek',
+};
+
 export const AI_EFFORTS = ['low', 'medium', 'high'] as const;
 export type AiEffort = (typeof AI_EFFORTS)[number];
 export const DEFAULT_AI_EFFORT: AiEffort = 'medium';

@@ -27,8 +27,15 @@ describe('AI roadmap events (v0.1.44)', () => {
     expect(IMMEDIATE_EVENT_TYPES.has('ai.insight.updated')).toBe(true);
   });
 
-  it('ai.usage.threshold refreshes the usage views', () => {
-    expect(getQueryKeysForEvent(makeEvent('ai.usage.threshold'))).toEqual([['ai', 'usage']]);
+  it('ai.usage.threshold refreshes the usage views and the AI alert banner', () => {
+    expect(getQueryKeysForEvent(makeEvent('ai.usage.threshold'))).toEqual([
+      ['ai', 'usage'],
+      ['ai', 'alerts'],
+    ]);
+  });
+
+  it('ai.alerts.changed refreshes the AI alert banner', () => {
+    expect(getQueryKeysForEvent(makeEvent('ai.alerts.changed'))).toEqual([['ai', 'alerts']]);
   });
 });
 

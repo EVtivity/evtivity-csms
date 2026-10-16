@@ -13,6 +13,12 @@ import type { ProviderId } from './types.js';
 export const AI_PROVIDER_ERROR_CODES = [
   'auth',
   'rate_limited',
+  /**
+   * The provider account is out of credit, or over a spend cap or a daily
+   * quota: waiting a few seconds does not help, an administrator must add
+   * credit or raise the quota (unlike `rate_limited`).
+   */
+  'quota_exceeded',
   'overloaded',
   'invalid_request',
   'refusal',
@@ -97,6 +103,9 @@ export function isAiProviderError(err: unknown): err is AiProviderError {
  */
 export function providerErrorCodeForStatus(status: number): AiProviderErrorCode {
   if (status === 401 || status === 403) return 'auth';
+  // 402 Payment Required: DeepSeek "Insufficient Balance", Anthropic
+  // billing_error, Gemini depleted prepayment credits.
+  if (status === 402) return 'quota_exceeded';
   if (status === 404) return 'model_unavailable';
   if (status === 408 || status === 504) return 'unavailable';
   if (status === 413) return 'context_exceeded';

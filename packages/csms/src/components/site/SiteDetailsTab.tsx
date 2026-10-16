@@ -18,13 +18,15 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { LANGUAGES } from '@/components/ui/language-select';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { HoursOfOperationField } from '@/components/site/HoursOfOperationField';
+import { SiteAiInsightsRow } from '@/components/site/SiteAiInsightsRow';
+import type { SiteAiInsightsState } from '@/components/site/SiteAiInsightsRow';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { TIMEZONE_OPTIONS, formatDateTime } from '@/lib/timezone';
 
-interface Site {
+interface Site extends SiteAiInsightsState {
   id: string;
   name: string;
   address: string | null;
@@ -473,6 +475,7 @@ export function SiteDetailsTab({
                 <dt className="text-muted-foreground">{t('common.lastUpdated')}</dt>
                 <dd className="font-medium">{formatDateTime(site.updatedAt, site.timezone)}</dd>
               </div>
+              <SiteAiInsightsRow siteId={site.id} site={site} timezone={site.timezone} />
             </dl>
           )}
         </CardContent>

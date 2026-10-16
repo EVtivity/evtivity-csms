@@ -94,6 +94,14 @@ export const sites = pgTable(
     aiInsightsEnabled: boolean('ai_insights_enabled').notNull().default(true),
     // Monthly AI token budget of the site; null follows ai.budget.siteMonthlyTokens, 0 is no limit.
     aiMonthlyTokenBudget: bigint('ai_monthly_token_budget', { mode: 'number' }),
+    // AI insight suppression of the whole site set by an operator
+    // (site-ai-insights.service.ts is the only writer): no new insight or
+    // worker action for the site or any of its stations while suppressed_at is
+    // set and suppressed_until is null or ahead.
+    aiInsightsSuppressedAt: timestamp('ai_insights_suppressed_at', { withTimezone: true }),
+    aiInsightsSuppressedUntil: timestamp('ai_insights_suppressed_until', { withTimezone: true }),
+    aiInsightsSuppressedBy: text('ai_insights_suppressed_by'),
+    aiInsightsSuppressedReason: varchar('ai_insights_suppressed_reason', { length: 500 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

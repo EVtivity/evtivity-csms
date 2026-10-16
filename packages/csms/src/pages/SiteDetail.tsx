@@ -69,6 +69,12 @@ interface Site {
   autochargeEnabled?: boolean | null;
   aiInsightsEnabled?: boolean;
   aiMonthlyTokenBudget?: number | null;
+  aiInsightsSuppressed?: boolean;
+  aiInsightsSuppressedSources?: string[];
+  aiInsightsSuppressedAt?: string | null;
+  aiInsightsSuppressedUntil?: string | null;
+  aiInsightsSuppressedByName?: string | null;
+  aiInsightsSuppressedReason?: string | null;
   stationCount: number;
   createdAt: string;
   updatedAt: string;

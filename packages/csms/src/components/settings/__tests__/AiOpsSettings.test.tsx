@@ -12,6 +12,8 @@ const { apiMock, perms, access } = vi.hoisted(() => ({
   access: { allSites: true },
 }));
 
+// The AI alert banner has its own test (AiAlertsBanner.test.tsx).
+vi.mock('@/components/ai/alerts/AiAlertsBanner', () => ({ AiAlertsBanner: () => null }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
 }));

@@ -495,6 +495,26 @@ describe('AI turn runner', () => {
     expect(JSON.stringify(error)).not.toContain('x-api-key');
   });
 
+  it('maps an account out of credit or quota to AI_PROVIDER_QUOTA_EXCEEDED, not a rate limit', async () => {
+    const adapter = createScriptedAdapter([
+      {
+        events: [],
+        error: new AiProviderError({
+          code: 'quota_exceeded',
+          provider: 'deepseek',
+          message: 'Insufficient Balance',
+          status: 402,
+        }),
+      },
+    ]);
+    const r = recorder();
+    const result = await runTurn(baseInput(adapter, r));
+    expect(result.errorCode).toBe('AI_PROVIDER_QUOTA_EXCEEDED');
+    expect(r.events).toContainEqual(
+      expect.objectContaining({ type: 'error', code: 'AI_PROVIDER_QUOTA_EXCEEDED' }),
+    );
+  });
+
   it('TC-AI-S-06 ends the turn when a tool call comes back 401', async () => {
     const adapter = createScriptedAdapter([
       { events: [...call('c1', 'get_station'), { type: 'finish', reason: 'tool_use' }] },

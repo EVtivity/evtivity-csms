@@ -8,6 +8,7 @@
  * hold the conversation's turn lease around these calls.
  */
 
+import { aiProviderGate, dispatchAiBudgetNotices } from '@evtivity/services/ai-alerts';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
@@ -122,17 +123,19 @@ async function recordTurnUsage(
   },
 ): Promise<void> {
   try {
-    await recordAiUsage({
-      surface: conversation.surface === 'support' ? 'support' : 'chatbot',
-      userId: ctx.userId,
-      siteId,
-      conversationId: conversation.id,
-      aiMessageId: call.messageId,
-      provider: call.provider,
-      model: call.model,
-      usage: call.usage,
-      costMicros: call.costMicros,
-    });
+    await dispatchAiBudgetNotices(
+      await recordAiUsage({
+        surface: conversation.surface === 'support' ? 'support' : 'chatbot',
+        userId: ctx.userId,
+        siteId,
+        conversationId: conversation.id,
+        aiMessageId: call.messageId,
+        provider: call.provider,
+        model: call.model,
+        usage: call.usage,
+        costMicros: call.costMicros,
+      }),
+    );
   } catch (err) {
     ctx.log.warn(
       { err, conversationId: conversation.id },
@@ -597,6 +600,13 @@ export async function runSupportAssistTurn(input: {
   const { ctx, conversation, config, stream } = input;
   const firstMessageId = generateId('aiMessage');
   sendStart(stream, conversation.id, firstMessageId, config);
+  // The company provider account is out of credit or quota: no draft until it
+  // answers again (one probe per interval still runs). A personal key is
+  // another account and is not paused.
+  if (config.source === 'system' && (await aiProviderGate(config.provider)) === 'paused') {
+    failStream(stream, firstMessageId, 'AI_PROVIDER_QUOTA_EXCEEDED');
+    return null;
+  }
   try {
     await appendMessage({
       conversationId: conversation.id,

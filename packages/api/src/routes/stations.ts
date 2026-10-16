@@ -33,11 +33,14 @@ import {
   PG_UNIQUE_VIOLATION,
   PG_FOREIGN_KEY_VIOLATION,
   toDate,
+  STATION_INSIGHT_SUPPRESSION_SOURCES,
   stationInsightsOperatorSuppressedSql,
   stationInsightsSuppressedSql,
+  stationInsightSuppressionSourcesSql,
   stationUnderActiveMaintenanceSql,
   isOperatorStation,
 } from '@evtivity/database';
+import type { StationInsightSuppressionSource } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { auditStationChange } from '../lib/station-audit.js';
 import {
@@ -272,7 +275,7 @@ const stationListQuery = paginationQuery.merge(
       .enum(['in_scope', 'suppressed'])
       .optional()
       .describe(
-        'Filter by AI insight scope: suppressed (by an operator, or by an active maintenance event) or in_scope',
+        'Filter by AI insight scope: suppressed (by an operator on the station or its site, or by an active maintenance event) or in_scope',
       ),
   }),
 );
@@ -467,7 +470,7 @@ const stationItem = z
     aiInsightsSuppressed: z
       .boolean()
       .describe(
-        'True while no AI insight is created for the station: an operator suppressed them (until aiInsightsSuppressedUntil, or until resumed), or an active maintenance event covers it',
+        'True while no AI insight is created for the station: an operator suppressed the station (until aiInsightsSuppressedUntil, or until resumed) or its site, or an active maintenance event covers it',
       ),
   })
   .passthrough();
@@ -598,11 +601,16 @@ const stationDetail = z
     aiInsightsSuppressed: z
       .boolean()
       .describe(
-        'True while no AI insight is created for the station: an operator suppressed them (until aiInsightsSuppressedUntil, or until resumed), or an active maintenance event covers it',
+        'True while no AI insight is created for the station: an operator suppressed the station (until aiInsightsSuppressedUntil, or until resumed) or its site, or an active maintenance event covers it',
       ),
     aiInsightsSuppressedByMaintenance: z
       .boolean()
       .describe('True while an active maintenance event suppresses the AI insights'),
+    aiInsightsSuppressedSources: z
+      .array(z.enum(STATION_INSIGHT_SUPPRESSION_SOURCES))
+      .describe(
+        'What suppresses the AI insights of the station now: station (its own suppression, fields below), site (the suppression of its site), maintenance (an active maintenance event). Empty when in scope',
+      ),
     aiInsightsSuppressedAt: z.coerce
       .date()
       .nullable()
@@ -1196,6 +1204,9 @@ export function stationRoutes(app: FastifyInstance): void {
           reservationsEnabled: chargingStations.reservationsEnabled,
           aiInsightsSuppressed: sql<boolean>`${sql.raw(stationInsightsSuppressedSql('charging_stations'))}`,
           aiInsightsSuppressedByMaintenance: sql<boolean>`${sql.raw(stationUnderActiveMaintenanceSql('charging_stations'))}`,
+          aiInsightsSuppressedSources: sql<
+            StationInsightSuppressionSource[]
+          >`${sql.raw(stationInsightSuppressionSourcesSql('charging_stations'))}`,
           aiInsightsSuppressedAt: sql<Date | null>`CASE WHEN ${sql.raw(stationInsightsOperatorSuppressedSql('charging_stations'))} THEN ${chargingStations.aiInsightsSuppressedAt} END`,
           aiInsightsSuppressedUntil: sql<Date | null>`CASE WHEN ${sql.raw(stationInsightsOperatorSuppressedSql('charging_stations'))} THEN ${chargingStations.aiInsightsSuppressedUntil} END`,
           aiInsightsSuppressedBy: sql<
@@ -1324,13 +1335,16 @@ export function stationRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Resume the AI insights of a station',
         description:
-          'Ends an operator suppression of the station AI insights; the insight scan and the AI workers watch the station again (an active maintenance event still suppresses them while it lasts). Audited in the station history.',
+          'Ends an operator suppression of the station AI insights; the insight scan and the AI workers watch the station again (an active maintenance event still suppresses them while it lasts). 409 STATION_SITE_SUPPRESSED, changing nothing, while an operator suppression of its site holds: the stations of a suppressed site resume with the site, each back to its own state. Audited in the station history.',
         operationId: 'resumeStationAiInsights',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
         response: {
           200: itemResponse(aiSuppressionResponse),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          409: errorWith('The site of the station is suppressed', [
+            ERROR_CODES.STATION_SITE_SUPPRESSED,
+          ]),
         },
       },
       config: { invalidatesCacheTags: ['stations'] },
@@ -1345,6 +1359,13 @@ export function stationRoutes(app: FastifyInstance): void {
       const result = await resumeStationAiInsights(id, getAuditActor(request), request.log);
       if (result == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
+      if (result === 'site_suppressed') {
+        await reply.status(409).send({
+          error: 'The AI insights of the station site are suppressed; resume the site',
+          code: 'STATION_SITE_SUPPRESSED',
+        });
         return;
       }
       return {

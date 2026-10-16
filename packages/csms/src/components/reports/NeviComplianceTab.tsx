@@ -134,6 +134,7 @@ async function downloadReport(id: string, fileName: string): Promise<void> {
 
 function EvChartExportSection(): React.JSX.Element {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [quarter, setQuarter] = useState('1');
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [neviReportId, setNeviReportId] = useState<string | null>(null);
@@ -148,6 +149,7 @@ function EvChartExportSection(): React.JSX.Element {
       }),
     onSuccess: (report) => {
       setNeviReportId(report.id);
+      void queryClient.invalidateQueries({ queryKey: ['audit', 'report_schedule'] });
     },
   });
 
@@ -233,7 +235,9 @@ function EvChartExportSection(): React.JSX.Element {
                 variant="outline"
                 className="w-full sm:w-auto"
                 onClick={() => {
-                  void downloadReport(neviReport.id, neviReport.name + '.xlsx');
+                  void downloadReport(neviReport.id, neviReport.name + '.xlsx').finally(() => {
+                    void queryClient.invalidateQueries({ queryKey: ['audit', 'report_schedule'] });
+                  });
                 }}
               >
                 {t('common.download')}

@@ -154,6 +154,7 @@ export function SchedulesTab(): React.JSX.Element {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['reports'] });
+      void queryClient.invalidateQueries({ queryKey: ['audit', 'report_schedule'] });
       toast({ title: t('reports.runNowQueued'), variant: 'success' });
     },
     onError: () => {

@@ -178,6 +178,7 @@ vi.mock('@evtivity/database', async () => {
     db: dbMock,
     client: {},
     ...tables,
+    ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
     writeAudit: mocks.writeAudit,
     pgErrorCode: pgErrors.pgErrorCode,
     PG_UNIQUE_VIOLATION: pgErrors.PG_UNIQUE_VIOLATION,

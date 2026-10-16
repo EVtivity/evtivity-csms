@@ -340,8 +340,8 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /pricing-holidays': { audited: 'holiday' },
   'POST /pricing-holidays/bulk': { audited: 'holiday' },
   'POST /report-schedules': { audited: 'report_schedule' },
-  'POST /report-schedules/:id/run-now': { allow: 'triggers a run of an existing schedule' },
-  'POST /reports/generate': { allow: 'produces an output artifact, no configuration change' },
+  'POST /report-schedules/:id/run-now': { audited: 'report_schedule' },
+  'POST /reports/generate': { audited: 'report_schedule' },
   'POST /reservations': { audited: 'reservation', service: 'services/src/reservation.service.ts' },
   'POST /reservations/:id/fee-payments/:paymentId/refund': {
     audited: 'payment',
@@ -380,6 +380,14 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /sites': { audited: 'site' },
   'POST /sites/:id/electricity-cost/recalculate': { audited: 'site' },
   'POST /sites/:id/electricity-rates': { audited: 'site' },
+  'POST /sites/:id/ai-insights/suppress': {
+    audited: ['site', 'ai_insight'],
+    service: 'api/src/services/site-ai-insights.service.ts',
+  },
+  'POST /sites/:id/ai-insights/resume': {
+    audited: 'site',
+    service: 'api/src/services/site-ai-insights.service.ts',
+  },
   'POST /sites/:id/free-vend': {
     audited: ['site', 'config_template'],
     service: 'api/src/services/free-vend.service.ts',

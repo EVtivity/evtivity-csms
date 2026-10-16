@@ -491,6 +491,14 @@ export const CONTRACT_CASES: readonly ContractCase[] = [
     },
   },
   {
+    id: 'P-11-quota',
+    title: 'an account out of credit or quota maps to quota_exceeded, not rate_limited',
+    fixtures: ['error_quota_exceeded'],
+    async run(ctx) {
+      await expectProviderError(ctx, 'quota_exceeded');
+    },
+  },
+  {
     id: 'P-11-live',
     title: 'an invalid key maps to auth and the key never appears in the message',
     live: true,

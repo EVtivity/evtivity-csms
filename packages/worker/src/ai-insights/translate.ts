@@ -10,6 +10,7 @@
  * `unavailable`: viewers get the structured fields and the original.
  */
 
+import { dispatchAiBudgetNotices } from '@evtivity/services/ai-alerts';
 import { recordAiUsage } from '@evtivity/database';
 import { frameUntrusted } from '@evtivity/ai/prompt';
 import { redactProviderRequest } from '@evtivity/ai/redact';
@@ -64,6 +65,8 @@ export async function translateInsight(
   }
   const config = deps.resolveConfig(settings);
   if (config == null) return unavailable();
+  // A provider out of credit or quota translates nothing until it answers again.
+  if ((await deps.providerGate(config.provider)) === 'paused') return unavailable();
   const budget = await deps.checkBudgets({
     surface: 'insight_translation',
     siteId: row.siteId,
@@ -93,16 +96,18 @@ export async function translateInsight(
     AbortSignal.timeout(TRANSLATION_TIMEOUT_MS),
   );
   const prices = getModelEntry(config.provider, config.model)?.prices ?? null;
-  await recordAiUsage({
-    surface: 'insight_translation',
-    insightId,
-    siteId: row.siteId,
-    userId: null,
-    provider: config.provider,
-    model: config.model,
-    usage: result.usage,
-    costMicros: prices == null ? null : aiUsageCostMicros(result.usage, prices),
-  });
+  await dispatchAiBudgetNotices(
+    await recordAiUsage({
+      surface: 'insight_translation',
+      insightId,
+      siteId: row.siteId,
+      userId: null,
+      provider: config.provider,
+      model: config.model,
+      usage: result.usage,
+      costMicros: prices == null ? null : aiUsageCostMicros(result.usage, prices),
+    }),
+  );
   const text = result.text.trim().slice(0, INSIGHT_TRANSLATION_MAX_LENGTH);
   if (text === '') {
     log.warn({ insightId, language }, 'Insight translation came back empty');

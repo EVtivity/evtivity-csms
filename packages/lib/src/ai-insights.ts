@@ -116,6 +116,8 @@ export const INSIGHT_SKIP_REASONS = [
   'budget_exceeded',
   /** `opsAi.enabled` or the kind's switch was turned off before the job ran. */
   'disabled',
+  /** The ops provider account is out of credit or quota (an active provider alert). */
+  'provider_paused',
 ] as const;
 export type InsightSkipReason = (typeof INSIGHT_SKIP_REASONS)[number];
 

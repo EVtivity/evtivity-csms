@@ -24,6 +24,7 @@
  * final failure marks the insight `failed` (internal, never listed).
  */
 
+import { dispatchAiBudgetNotices } from '@evtivity/services/ai-alerts';
 import { client, recordAiUsage } from '@evtivity/database';
 import type { AiUsageRecord } from '@evtivity/database';
 import { aiUsageCostMicros } from '@evtivity/lib/pricing-engine';
@@ -47,7 +48,8 @@ import type {
 } from '@evtivity/lib/ai-insights';
 import type { CheckAiBudgets } from '@evtivity/lib/ai-usage';
 import { getModelEntry } from '@evtivity/ai/core';
-import type { AiAdapter, AiMessage, AiRequest } from '@evtivity/ai/core';
+import type { AiAdapter, AiMessage, AiRequest, ProviderId } from '@evtivity/ai/core';
+import type { AiProviderGate } from '@evtivity/services/ai-alerts';
 import { redactProviderRequest } from '@evtivity/ai/redact';
 import {
   activateInsight,
@@ -99,6 +101,8 @@ export interface InsightJobDeps {
   createAdapter: (config: OpsAiConfig) => AiAdapter;
   /** `checkAiBudgets` of `@evtivity/database`; tests pass a refusal. */
   checkBudgets: CheckAiBudgets;
+  /** The provider quota alert gate (`aiProviderGate`); tests pass a state. */
+  providerGate: (provider: ProviderId) => Promise<AiProviderGate>;
   pubsub: PubSubClient;
   now: () => Date;
   /** Keys the hashes of evidence values (`SETTINGS_ENCRYPTION_KEY`). */
@@ -351,13 +355,15 @@ export async function askInsightModel(input: {
       redactProviderRequest({ ...base, messages: [...messages] }, 'insight'),
       signal,
     );
-    await recordAiUsage({
-      ...input.ledger,
-      provider: input.config.provider,
-      model: input.config.model,
-      usage: result.usage,
-      costMicros: prices == null ? null : aiUsageCostMicros(result.usage, prices),
-    });
+    await dispatchAiBudgetNotices(
+      await recordAiUsage({
+        ...input.ledger,
+        provider: input.config.provider,
+        model: input.config.model,
+        usage: result.usage,
+        costMicros: prices == null ? null : aiUsageCostMicros(result.usage, prices),
+      }),
+    );
     const parsed = parseJsonAnswer(result.text);
     const answer = sanitizeInsightModelOutput(parsed, input.evidenceIds);
     if (answer != null) return { answer, refused: false, feedbackUsed };
@@ -468,6 +474,17 @@ export async function generateInsight(
   const config = deps.resolveConfig(settings);
   let answer: InsightModelOutput | null = null;
   let feedbackUsed = false;
+  if (config != null && (await deps.providerGate(config.provider)) === 'paused') {
+    // The provider account is out of credit or quota: skipped with the rule
+    // fallback's fields, like a budget refusal; one probe per interval still runs.
+    const fallback = INSIGHT_KIND_FALLBACKS[kind];
+    return skip(deps, row, 'provider_paused', {
+      category: fallback.category,
+      confidence: 'low',
+      fixes: fallback.fixes.map((code) => ({ code })),
+      scope: evidence.scope,
+    });
+  }
   if (config == null) {
     log.warn({ insightId }, 'opsAi has no usable provider key; storing the rule fallback');
   } else {

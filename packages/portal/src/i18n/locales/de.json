@@ -584,6 +584,7 @@
     "AI_MODEL_UNAVAILABLE": "Das konfigurierte KI-Modell existiert nicht oder wurde eingestellt",
     "AI_PROVIDER_AUTH_FAILED": "Der KI-Anbieter hat den konfigurierten API-Schlüssel abgelehnt",
     "AI_PROVIDER_RATE_LIMITED": "Der KI-Anbieter begrenzt die Anfragen. Versuchen Sie es gleich erneut",
+    "AI_PROVIDER_QUOTA_EXCEEDED": "Das Konto beim KI-Anbieter hat kein Guthaben oder Kontingent mehr. Ein Administrator muss Guthaben aufladen oder das Kontingent erhöhen",
     "AI_PROVIDER_UNAVAILABLE": "Der KI-Anbieter ist nicht erreichbar. Versuchen Sie es später erneut",
     "AI_RATE_LIMITED": "Zu viele KI-Anfragen. Versuchen Sie es in einer Minute erneut",
     "ALERT_NOT_FOUND": "Alarm nicht gefunden",
@@ -907,7 +908,8 @@
     "SESSION_REQUIRED": "Diese Aktion erfordert eine angemeldete Sitzung. API-Schlüssel können sie nicht verwenden.",
     "MFA_LOCKED": "Zu viele falsche Codes. Warten Sie, bevor Sie es erneut versuchen.",
     "MFA_RESEND_LIMITED": "Zu viele Codes gesendet. Warten Sie, bevor Sie einen weiteren anfordern.",
-    "USER_SSO_MANAGED": "Dieser Benutzer meldet sich per SSO an und hat kein Passwort, das gesetzt werden kann."
+    "USER_SSO_MANAGED": "Dieser Benutzer meldet sich per SSO an und hat kein Passwort, das gesetzt werden kann.",
+    "STATION_SITE_SUPPRESSED": "Die KI-Erkenntnisse des Standorts der Ladestation sind unterdrückt. Setzen Sie den Standort fort, um seine Ladestationen fortzusetzen"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",

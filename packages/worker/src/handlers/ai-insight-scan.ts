@@ -65,6 +65,7 @@ import {
   publishInsightUpdated,
   readScanWatermark,
   resolveInsights,
+  siteInsightsSuppressed,
   writeScanWatermark,
 } from '@evtivity/services/ai-insight.service';
 import type { NewInsight } from '@evtivity/services/ai-insight.service';
@@ -577,6 +578,9 @@ async function groupIncidents(
         AND created_at > now() - make_interval(secs => ${Math.max(settings.insights.debounceSeconds, 60)})
     `;
     if (members.length === 0) continue;
+    // A suppressed site raises no incident (its stations raise no member
+    // either; this covers members created just before the suppression).
+    if (await siteInsightsSuppressed(siteId)) continue;
     const [open] = await client<{ id: string }[]>`
       SELECT id FROM ai_insights
       WHERE site_id = ${siteId} AND kind = 'site_incident' AND status IN ('analyzing', 'open', 'pending')

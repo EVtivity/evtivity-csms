@@ -9,6 +9,7 @@ import {
   recomputeStationAvailability,
   setStationDisabled,
   isOperatorStation,
+  siteInsightsSuppressedSql,
 } from '@evtivity/database';
 import { siteNameEq } from '../lib/site-lookup.js';
 import {
@@ -87,6 +88,7 @@ export interface SiteExportFilters {
   city?: string | undefined;
   state?: string | undefined;
   loadManagement?: 'true' | 'false' | undefined;
+  aiInsights?: 'in_scope' | 'suppressed' | undefined;
 }
 
 export async function exportSitesCsv(
@@ -113,6 +115,10 @@ export async function exportSitesCsv(
     conditions.push(
       filters.loadManagement === 'true' ? sql`${enabled} = true` : sql`${enabled} = false`,
     );
+  }
+  if (filters.aiInsights != null) {
+    const suppressed = sql`${sql.raw(siteInsightsSuppressedSql('sites'))}`;
+    conditions.push(filters.aiInsights === 'suppressed' ? suppressed : sql`NOT ${suppressed}`);
   }
   if (siteIds != null) {
     if (siteIds.length === 0) return CSV_HEADER;

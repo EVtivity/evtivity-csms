@@ -8,3 +8,4 @@ export * from './messages.js';
 export * from './model-registry.js';
 export * from './provider-registry.js';
 export * from './sse.js';
+export * from './observe.js';

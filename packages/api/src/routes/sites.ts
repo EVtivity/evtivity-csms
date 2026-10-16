@@ -19,7 +19,16 @@ import {
   isOperatorStation,
   operatorStationSql,
   inOperatorStation,
+  SITE_INSIGHT_SUPPRESSION_SOURCES,
+  siteInsightsOperatorSuppressedSql,
+  siteInsightsSuppressedSql,
+  siteInsightSuppressionSourcesSql,
 } from '@evtivity/database';
+import type { SiteInsightSuppressionSource } from '@evtivity/database';
+import {
+  resumeSiteAiInsights,
+  suppressSiteAiInsights,
+} from '../services/site-ai-insights.service.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { changedFields } from '../lib/audit-diff.js';
 import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/company-currency';
@@ -392,6 +401,22 @@ const siteSelect = {
   stationMessageLanguage: sites.stationMessageLanguage,
   aiInsightsEnabled: sites.aiInsightsEnabled,
   aiMonthlyTokenBudget: sites.aiMonthlyTokenBudget,
+  aiInsightsSuppressed: sql<boolean>`${sql.raw(siteInsightsSuppressedSql('sites'))}`,
+  aiInsightsSuppressedSources: sql<
+    SiteInsightSuppressionSource[]
+  >`${sql.raw(siteInsightSuppressionSourcesSql('sites'))}`,
+  // The operator suppression, null once its end date passed.
+  aiInsightsSuppressedAt: sql<Date | null>`CASE WHEN ${sql.raw(siteInsightsOperatorSuppressedSql('sites'))} THEN ${sites.aiInsightsSuppressedAt} END`,
+  aiInsightsSuppressedUntil: sql<Date | null>`CASE WHEN ${sql.raw(siteInsightsOperatorSuppressedSql('sites'))} THEN ${sites.aiInsightsSuppressedUntil} END`,
+  aiInsightsSuppressedBy: sql<
+    string | null
+  >`CASE WHEN ${sql.raw(siteInsightsOperatorSuppressedSql('sites'))} THEN ${sites.aiInsightsSuppressedBy} END`,
+  aiInsightsSuppressedByName: sql<
+    string | null
+  >`CASE WHEN ${sql.raw(siteInsightsOperatorSuppressedSql('sites'))} THEN (SELECT NULLIF(trim(concat_ws(' ', u.first_name, u.last_name)), '') FROM users u WHERE u.id = ${sites.aiInsightsSuppressedBy}) END`,
+  aiInsightsSuppressedReason: sql<
+    string | null
+  >`CASE WHEN ${sql.raw(siteInsightsOperatorSuppressedSql('sites'))} THEN ${sites.aiInsightsSuppressedReason} END`,
   underMaintenance: sql<boolean>`EXISTS (
     SELECT 1
     FROM maintenance_events me
@@ -460,6 +485,29 @@ const siteItem = z
       .describe(
         'Monthly AI token budget of this site. Null follows the ai.budget.siteMonthlyTokens setting, 0 means no limit',
       ),
+    aiInsightsSuppressed: z
+      .boolean()
+      .describe(
+        'True while no site-level AI insight is created for the site: an operator suppressed the site (until aiInsightsSuppressedUntil, or until resumed), or an active maintenance event covers all of it. While an operator suppression holds, every station of the site is suppressed too',
+      ),
+    aiInsightsSuppressedSources: z
+      .array(z.enum(SITE_INSIGHT_SUPPRESSION_SOURCES))
+      .describe(
+        'What suppresses the AI insights of the site now: site (the operator suppression, fields below), maintenance (an active maintenance event of the whole site). Empty when in scope',
+      ),
+    aiInsightsSuppressedAt: z.coerce
+      .date()
+      .nullable()
+      .describe(
+        'When an operator suppressed the AI insights of the site, null when not suppressed',
+      ),
+    aiInsightsSuppressedUntil: z.coerce
+      .date()
+      .nullable()
+      .describe('End of the operator suppression, null for until resumed'),
+    aiInsightsSuppressedBy: z.string().nullable().describe('User who suppressed them'),
+    aiInsightsSuppressedByName: z.string().nullable().describe('Name of that user'),
+    aiInsightsSuppressedReason: z.string().nullable().describe('Reason given for the suppression'),
   })
   .passthrough();
 
@@ -788,6 +836,12 @@ const sitesListQuery = paginationQuery.extend({
   city: z.string().optional().describe('Filter by city'),
   state: z.string().optional().describe('Filter by state'),
   loadManagement: z.enum(['true', 'false']).optional().describe('Filter by load management status'),
+  aiInsights: z
+    .enum(['in_scope', 'suppressed'])
+    .optional()
+    .describe(
+      'Filter by AI insight scope: suppressed (by an operator, or by an active maintenance event of the whole site) or in_scope',
+    ),
 });
 
 const locationOption = z
@@ -819,9 +873,8 @@ export function siteRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
-      const { page, limit, search, city, state, loadManagement } = request.query as z.infer<
-        typeof sitesListQuery
-      >;
+      const { page, limit, search, city, state, loadManagement, aiInsights } =
+        request.query as z.infer<typeof sitesListQuery>;
       const offset = (page - 1) * limit;
 
       const { userId } = request.user as JwtPayload;
@@ -860,6 +913,9 @@ export function siteRoutes(app: FastifyInstance): void {
             : sql`coalesce(${siteLoadManagement.isEnabled}, false) = false`,
         );
       }
+      const aiSuppressed = sql<boolean>`${sql.raw(siteInsightsSuppressedSql('sites'))}`;
+      if (aiInsights === 'suppressed') conditions.push(aiSuppressed);
+      if (aiInsights === 'in_scope') conditions.push(sql`NOT ${aiSuppressed}`);
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -933,14 +989,14 @@ export function siteRoutes(app: FastifyInstance): void {
         tags: ['Sites'],
         summary: 'Export sites as CSV',
         description:
-          'Exports every site matching the list filters (search, city, state, loadManagement), with their stations, EVSEs and connectors. page and limit are ignored.',
+          'Exports every site matching the list filters (search, city, state, loadManagement, aiInsights), with their stations, EVSEs and connectors. page and limit are ignored.',
         operationId: 'exportSites',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(sitesListQuery),
       },
     },
     async (request, reply) => {
-      const { search, city, state, loadManagement } = request.query as z.infer<
+      const { search, city, state, loadManagement, aiInsights } = request.query as z.infer<
         typeof sitesListQuery
       >;
       const { userId } = request.user as JwtPayload;
@@ -949,6 +1005,7 @@ export function siteRoutes(app: FastifyInstance): void {
         city,
         state,
         loadManagement,
+        aiInsights,
       });
       await reply
         .header('Content-Type', 'text/csv; charset=utf-8')
@@ -1063,6 +1120,139 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
       return row;
+    },
+  );
+
+  const aiSuppressBody = z.object({
+    reason: z.string().trim().min(1).max(500).describe('Why the AI insights are suppressed'),
+    until: z
+      .string()
+      .datetime({ offset: true })
+      .optional()
+      .describe('End of the suppression (ISO 8601, in the future); omitted for until resumed'),
+  });
+  const aiSuppressionResponse = z
+    .object({
+      aiInsightsSuppressedAt: z.coerce.date().nullable().describe('When they were suppressed'),
+      aiInsightsSuppressedUntil: z.coerce
+        .date()
+        .nullable()
+        .describe('End of the suppression, null for until resumed'),
+      aiInsightsSuppressedBy: z.string().nullable().describe('User who suppressed them'),
+      aiInsightsSuppressedByName: z.string().nullable().describe('Name of that user'),
+      aiInsightsSuppressedReason: z.string().nullable().describe('Reason of the suppression'),
+      insightsDismissed: z
+        .number()
+        .int()
+        .optional()
+        .describe('Open insights of the site and its stations dismissed by the suppression'),
+      actionsExpired: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          'Waiting insight actions of the site and its stations expired by the suppression',
+        ),
+    })
+    .passthrough();
+
+  // Per-site AI insight suppression (site-ai-insights.service.ts).
+  app.post(
+    '/sites/:id/ai-insights/suppress',
+    {
+      onRequest: [authorize('sites:write')],
+      schema: {
+        tags: ['Sites'],
+        summary: 'Suppress the AI insights of a site',
+        description:
+          'Until `until` (or until resumed), every station of the site counts as suppressed (stations added later included: the insight scan and the AI workers create no station insight or action for them, as for a suppressed station), and the site gets no site-level insight (site incidents, site summaries, tariff findings). The open insights of the site and its stations close dismissed with the reason, and their waiting actions expire. The end date passing resumes the insights with no action. Audited in the site history. 400 VALIDATION_ERROR for an end date that is not in the future.',
+        operationId: 'suppressSiteAiInsights',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(siteParams),
+        body: zodSchema(aiSuppressBody),
+        response: {
+          200: itemResponse(aiSuppressionResponse),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+        },
+      },
+      config: { invalidatesCacheTags: ['stations'] },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof siteParams>;
+      const body = parseZodRequest(aiSuppressBody, request.body);
+      const { userId } = request.user as JwtPayload;
+      if (!siteInScope(await getUserSiteIds(userId), id)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      const until = body.until == null ? null : new Date(body.until);
+      if (until != null && until.getTime() <= Date.now()) {
+        await reply
+          .status(400)
+          .send({ error: 'The end date must be in the future', code: 'VALIDATION_ERROR' });
+        return;
+      }
+      const result = await suppressSiteAiInsights(
+        id,
+        { reason: body.reason, until },
+        getAuditActor(request),
+        request.log,
+      );
+      if (result == null) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      return {
+        aiInsightsSuppressedAt: result.suppressedAt,
+        aiInsightsSuppressedUntil: result.suppressedUntil,
+        aiInsightsSuppressedBy: result.suppressedBy,
+        aiInsightsSuppressedByName: result.suppressedByName,
+        aiInsightsSuppressedReason: result.reason,
+        insightsDismissed: result.insightsDismissed,
+        actionsExpired: result.actionsExpired,
+      };
+    },
+  );
+
+  app.post(
+    '/sites/:id/ai-insights/resume',
+    {
+      onRequest: [authorize('sites:write')],
+      schema: {
+        tags: ['Sites'],
+        summary: 'Resume the AI insights of a site',
+        description:
+          'Ends an operator suppression of the site AI insights; the insight scan and the AI workers watch the site and its stations again (a suppression of a single station and an active maintenance event still suppress them while they last). Audited in the site history.',
+        operationId: 'resumeSiteAiInsights',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(siteParams),
+        response: {
+          200: itemResponse(aiSuppressionResponse),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+        },
+      },
+      config: { invalidatesCacheTags: ['stations'] },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof siteParams>;
+      const { userId } = request.user as JwtPayload;
+      if (!siteInScope(await getUserSiteIds(userId), id)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      const result = await resumeSiteAiInsights(id, getAuditActor(request), request.log);
+      if (result == null) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      return {
+        aiInsightsSuppressedAt: result.suppressedAt,
+        aiInsightsSuppressedUntil: result.suppressedUntil,
+        aiInsightsSuppressedBy: result.suppressedBy,
+        aiInsightsSuppressedByName: result.suppressedByName,
+        aiInsightsSuppressedReason: result.reason,
+      };
     },
   );
 

@@ -91,6 +91,8 @@ export const DRIVER_AI_STATE_REASONS = [
   'driver_declined_answer',
   // The driver was deactivated between consent and analysis (threat T8).
   'driver_inactive',
+  // The driver AI provider account is out of credit or quota (an active provider alert).
+  'provider_paused',
 ] as const;
 export type DriverAiStateReason = (typeof DRIVER_AI_STATE_REASONS)[number];
 

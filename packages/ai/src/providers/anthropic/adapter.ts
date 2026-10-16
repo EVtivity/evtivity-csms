@@ -18,8 +18,22 @@ import { AnthropicStreamMapper } from './map-stream.js';
 
 export const ANTHROPIC_DEFAULT_BASE_URL = 'https://api.anthropic.com';
 
-/** Anthropic error `type` values that decide the neutral code over the HTTP status. */
+/**
+ * Anthropic error `type` values and texts that decide the neutral code over
+ * the HTTP status, checked in order. Out of credit or over a spend limit
+ * (https://platform.claude.com/docs/en/api/errors and /api/rate-limits):
+ * 402 `billing_error`; 400 "Your credit balance is too low to access the
+ * Anthropic API"; 400 "You have reached your specified (workspace) API usage
+ * limits" (an organization or workspace spend limit); 429 `rate_limit_error`
+ * with `details.error_code` `enforced_spend_limit_reached` (the monthly tier
+ * cap, no retry-after). Listed before `rate_limit_error` so the cap is not
+ * read as a rate limit.
+ */
 const ERROR_TYPES = {
+  billing_error: 'quota_exceeded',
+  enforced_spend_limit_reached: 'quota_exceeded',
+  'credit balance is too low': 'quota_exceeded',
+  'You have reached your specified': 'quota_exceeded',
   overloaded_error: 'overloaded',
   rate_limit_error: 'rate_limited',
   authentication_error: 'auth',

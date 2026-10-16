@@ -53,7 +53,12 @@ describe('operator session alert events', () => {
 
 describe('AI proposal digest event', () => {
   it('lists ai.ProposalDigest as an operator AI event with count-only variables', () => {
-    expect(OPERATOR_AI_EVENTS).toEqual(['ai.ProposalDigest']);
+    expect(OPERATOR_AI_EVENTS).toEqual([
+      'ai.ProposalDigest',
+      'ai.ProviderQuotaExceeded',
+      'ai.BudgetWarning',
+      'ai.BudgetExhausted',
+    ]);
     expect(OPERATOR_EVENT_TYPES).toContain('ai.ProposalDigest');
     const names = (TEMPLATE_VARIABLES['ai.ProposalDigest'] ?? []).map((v) => v.name);
     expect(names).toEqual([
@@ -69,11 +74,35 @@ describe('AI proposal digest event', () => {
     ]);
   });
 
-  it('names the event and the AI group in every locale', () => {
+  it('gives the AI alert events their variables, never provider text or keys', () => {
+    expect((TEMPLATE_VARIABLES['ai.ProviderQuotaExceeded'] ?? []).map((v) => v.name)).toEqual([
+      'firstName',
+      'lastName',
+      'provider',
+      'providerName',
+      'since',
+    ]);
+    for (const event of ['ai.BudgetWarning', 'ai.BudgetExhausted']) {
+      expect((TEMPLATE_VARIABLES[event] ?? []).map((v) => v.name)).toEqual([
+        'firstName',
+        'lastName',
+        'scope',
+        'siteName',
+        'period',
+        'percent',
+        'usedTokens',
+        'limitTokens',
+      ]);
+    }
+  });
+
+  it('names the events and the AI group in every locale', () => {
     for (const [lang, locale] of Object.entries(LOCALES)) {
       const notifications = locale.notifications as Record<string, unknown>;
       const eventNames = notifications['eventNames'] as Record<string, string>;
-      expect(eventNames['ai.ProposalDigest'], lang).toBeTruthy();
+      for (const event of OPERATOR_AI_EVENTS) {
+        expect(eventNames[event], `${lang} ${event}`).toBeTruthy();
+      }
       expect(notifications['aiEvents'], lang).toBeTruthy();
     }
   });

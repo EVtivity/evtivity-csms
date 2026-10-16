@@ -2,14 +2,16 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import {
+  AiInsightsSuppressDialog,
+  invalidateAiInsightsSuppression,
+} from '@/components/ai/insights/AiInsightsSuppressDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
@@ -17,8 +19,12 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 
 export interface StationAiInsightsState {
+  siteId?: string | null;
+  siteName?: string | null;
   aiInsightsSuppressed?: boolean;
   aiInsightsSuppressedByMaintenance?: boolean;
+  /** What suppresses the insights now: station, site, maintenance. */
+  aiInsightsSuppressedSources?: string[];
   aiInsightsSuppressedAt?: string | null;
   aiInsightsSuppressedUntil?: string | null;
   aiInsightsSuppressedByName?: string | null;
@@ -28,7 +34,11 @@ export interface StationAiInsightsState {
 /**
  * The AI Insights row of the station Details card: In Scope, or Suppressed
  * (until a date, by whom, why), with Suppress and Resume for a user with
- * stations:write. An active maintenance event also suppresses the insights.
+ * stations:write. A suppression of the station's site ("Suppressed with its
+ * site", linking the site) and an active maintenance event also suppress the
+ * insights. While the site is suppressed the station cannot be resumed (the
+ * API answers 409 STATION_SITE_SUPPRESSED), so Resume is hidden; its own
+ * Suppress still works and is kept for when the site resumes.
  */
 export function StationAiInsightsRow({
   stationId,
@@ -45,45 +55,23 @@ export function StationAiInsightsRow({
   const canWrite = useHasPermission('stations:write');
   const [suppressOpen, setSuppressOpen] = useState(false);
   const [resumeOpen, setResumeOpen] = useState(false);
-  const [reason, setReason] = useState('');
-  const [until, setUntil] = useState('');
-  const [reasonMissing, setReasonMissing] = useState(false);
 
   const operatorSuppressed = station.aiInsightsSuppressedAt != null;
   const suppressed = station.aiInsightsSuppressed === true;
+  const withSite = station.aiInsightsSuppressedSources?.includes('site') === true;
 
-  const done = (title: string): void => {
-    toast({ variant: 'success', title });
-    void queryClient.invalidateQueries({ queryKey: ['stations', stationId] });
-    void queryClient.invalidateQueries({ queryKey: ['stations'] });
-  };
-  const failed = (err: unknown): void => {
-    toast({
-      variant: 'destructive',
-      title: getErrorMessage(err, t, 'stations.aiInsights.failed'),
-    });
-  };
-
-  const suppressMutation = useMutation({
-    mutationFn: () =>
-      api.post(`/v1/stations/${stationId}/ai-insights/suppress`, {
-        reason: reason.trim(),
-        ...(until !== '' ? { until: new Date(until).toISOString() } : {}),
-      }),
-    onSuccess: () => {
-      setSuppressOpen(false);
-      setReason('');
-      setUntil('');
-      done(t('stations.aiInsights.suppressedToast'));
-    },
-    onError: failed,
-  });
   const resumeMutation = useMutation({
     mutationFn: () => api.post(`/v1/stations/${stationId}/ai-insights/resume`, {}),
     onSuccess: () => {
-      done(t('stations.aiInsights.resumedToast'));
+      toast({ variant: 'success', title: t('stations.aiInsights.resumedToast') });
+      invalidateAiInsightsSuppression(queryClient, 'station', stationId);
     },
-    onError: failed,
+    onError: (err: unknown) => {
+      toast({
+        variant: 'destructive',
+        title: getErrorMessage(err, t, 'stations.aiInsights.failed'),
+      });
+    },
     onSettled: () => {
       setResumeOpen(false);
     },
@@ -105,14 +93,13 @@ export function StationAiInsightsRow({
               variant="outline"
               size="sm"
               onClick={() => {
-                setReasonMissing(false);
                 setSuppressOpen(true);
               }}
             >
               {t('stations.aiInsights.suppress')}
             </Button>
           )}
-          {canWrite && operatorSuppressed && (
+          {canWrite && operatorSuppressed && !withSite && (
             <Button
               variant="outline"
               size="sm"
@@ -124,6 +111,25 @@ export function StationAiInsightsRow({
             </Button>
           )}
         </div>
+        {withSite && (
+          <p
+            className="text-sm font-normal text-muted-foreground"
+            data-testid="station-ai-insights-with-site"
+          >
+            {t('stations.aiInsights.withSite')}
+            {station.siteId != null && (
+              <>
+                {' · '}
+                <Link
+                  to={`/sites/${encodeURIComponent(station.siteId)}`}
+                  className="text-link hover:underline"
+                >
+                  {station.siteName ?? station.siteId}
+                </Link>
+              </>
+            )}
+          </p>
+        )}
         {operatorSuppressed && (
           <p
             className="text-sm font-normal text-muted-foreground"
@@ -148,50 +154,12 @@ export function StationAiInsightsRow({
         )}
       </dd>
 
-      <ConfirmDialog
+      <AiInsightsSuppressDialog
+        target="station"
+        id={stationId}
         open={suppressOpen}
         onOpenChange={setSuppressOpen}
-        title={t('stations.aiInsights.suppressTitle')}
-        description={t('stations.aiInsights.suppressDescription')}
-        confirmLabel={t('stations.aiInsights.suppress')}
-        variant="default"
-        isPending={suppressMutation.isPending}
-        onConfirm={() => {
-          if (reason.trim() === '') {
-            setReasonMissing(true);
-            return false;
-          }
-          suppressMutation.mutate();
-          return false;
-        }}
-      >
-        <div className="space-y-2">
-          <Label htmlFor="ai-suppress-reason">{t('stations.aiInsights.reason')}</Label>
-          <Textarea
-            id="ai-suppress-reason"
-            value={reason}
-            maxLength={500}
-            onChange={(e) => {
-              setReason(e.target.value);
-              setReasonMissing(false);
-            }}
-          />
-          {reasonMissing && (
-            <p className="text-sm text-destructive">{t('stations.aiInsights.reasonRequired')}</p>
-          )}
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="ai-suppress-until">{t('stations.aiInsights.endDate')}</Label>
-          <Input
-            id="ai-suppress-until"
-            type="datetime-local"
-            value={until}
-            onChange={(e) => {
-              setUntil(e.target.value);
-            }}
-          />
-        </div>
-      </ConfirmDialog>
+      />
 
       <ConfirmDialog
         open={resumeOpen}

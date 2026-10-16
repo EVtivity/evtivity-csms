@@ -622,7 +622,27 @@
     "freeVendRestoreDescription": "Pushed when Free Vend is turned off: authorization on, with the values the stations reported when Free Vend was turned on. Each template lists its push results.",
     "autocharge": "Autocharge",
     "autochargeDescription": "Charge by plugging in at this site's stations. The company setting applies unless you turn it on or off here.",
-    "autochargeDefault": "Use Company Setting"
+    "autochargeDefault": "Use Company Setting",
+    "aiInsights": {
+      "label": "AI Insights",
+      "inScope": "In Scope",
+      "suppressed": "Suppressed",
+      "allScopes": "All",
+      "listBadge": "AI Insights Suppressed",
+      "suppress": "Suppress",
+      "resume": "Resume",
+      "until": "Until {{date}}",
+      "untilResumed": "Until resumed",
+      "by": "By {{name}}: {{reason}}",
+      "maintenance": "Suppressed while an active maintenance event covers the whole site",
+      "suppressTitle": "Suppress AI Insights for This Site?",
+      "suppressDescription": "No new AI insight or suggested action is created for this site or any of its stations, including stations added later, until the end date, or until you resume. The open insights of the site and its stations are dismissed and their waiting actions expire.",
+      "resumeTitle": "Resume AI Insights for This Site?",
+      "resumeDescription": "AI insights watch this site and its stations again. A station with its own suppression stays suppressed.",
+      "suppressedToast": "AI insights suppressed",
+      "resumedToast": "AI insights resumed",
+      "failed": "Failed to change the AI insights of the site"
+    }
   },
   "stations": {
     "title": "Stations",
@@ -1019,7 +1039,8 @@
       "resumeDescription": "AI insights watch this station again.",
       "suppressedToast": "AI insights suppressed",
       "resumedToast": "AI insights resumed",
-      "failed": "Failed to change the AI insights of the station"
+      "failed": "Failed to change the AI insights of the station",
+      "withSite": "Suppressed with its site"
     }
   },
   "eventAlertRules": {
@@ -3013,6 +3034,9 @@
       "invoice.FleetCreditNote": "Fleet Credit Note Issued",
       "invoice.FleetOverdue": "Fleet Invoice Overdue",
       "ai.ProposalDigest": "AI Insight Action Digest",
+      "ai.ProviderQuotaExceeded": "AI Provider Out of Credit or Quota",
+      "ai.BudgetWarning": "AI Budget Warning",
+      "ai.BudgetExhausted": "AI Budget Used Up",
       "session.AutochargeStarted": "Autocharge Session Started"
     },
     "templatePreviewInvalid": "The template has an error:",
@@ -3154,6 +3178,7 @@
     "AI_MODEL_UNAVAILABLE": "The configured AI model does not exist or is retired",
     "AI_PROVIDER_AUTH_FAILED": "The AI provider refused the configured API key",
     "AI_PROVIDER_RATE_LIMITED": "The AI provider is rate limiting requests. Try again shortly",
+    "AI_PROVIDER_QUOTA_EXCEEDED": "The AI provider account is out of credit or quota. An administrator must add credit or raise the quota",
     "AI_PROVIDER_UNAVAILABLE": "The AI provider is unavailable. Try again later",
     "AI_RATE_LIMITED": "Too many AI requests. Try again in a minute",
     "ALERT_NOT_FOUND": "Alert not found",
@@ -3477,7 +3502,8 @@
     "SESSION_REQUIRED": "This action needs a signed-in session. API keys cannot use it.",
     "MFA_LOCKED": "Too many wrong codes. Wait before you try again.",
     "MFA_RESEND_LIMITED": "Too many codes sent. Wait before you request another one.",
-    "USER_SSO_MANAGED": "This user signs in with SSO and has no password to set."
+    "USER_SSO_MANAGED": "This user signs in with SSO and has no password to set.",
+    "STATION_SITE_SUPPRESSED": "The AI insights of the station's site are suppressed. Resume the site to resume its stations"
   },
   "logs": {
     "title": "Logs",
@@ -3780,7 +3806,8 @@
         "no_feedback": "No feedback from the driver",
         "driver_replied": "The driver wrote a message",
         "driver_declined_answer": "The answer did not help the driver",
-        "driver_inactive": "The driver account is inactive"
+        "driver_inactive": "The driver account is inactive",
+        "provider_paused": "AI provider out of credit or quota"
       },
       "resolutionSource": {
         "operator": "Support team",
@@ -4642,6 +4669,8 @@
       "event_settings_changed": "Event settings changed",
       "reset": "Reset to default",
       "report_deleted": "Report deleted",
+      "report_downloaded": "Report downloaded",
+      "report_generated": "Report generated",
       "autocharge_enabled": "Autocharge turned on",
       "autocharge_disabled": "Autocharge turned off",
       "autocharge_blocked": "Vehicle blocked",
@@ -5093,7 +5122,8 @@
       "site_daily_cap": "The daily insight limit of the site is reached",
       "site_disabled": "Insights are off for this site",
       "budget_exceeded": "The AI budget is used up",
-      "disabled": "Automatic insights were turned off"
+      "disabled": "Automatic insights were turned off",
+      "provider_paused": "The AI provider account is out of credit or quota"
     },
     "fix": {
       "check_network_connection": "Check the station's network connection",
@@ -5202,7 +5232,15 @@
       "reservation": "Reservation",
       "driver": "Driver",
       "token": "Token",
-      "partOf": "Part of"
+      "partOf": "Part of",
+      "suppressionLabel": "AI Insights",
+      "suppressStation": "Suppress for This Station",
+      "suppressSite": "Suppress for This Site",
+      "stationSuppressedUntil": "Station suppressed until {{date}}",
+      "stationSuppressedUntilResumed": "Station suppressed until resumed",
+      "stationSuppressedWithSite": "Station suppressed with its site",
+      "siteSuppressedUntil": "Site suppressed until {{date}}",
+      "siteSuppressedUntilResumed": "Site suppressed until resumed"
     },
     "likelyCause": "Likely cause",
     "staleNote": "The record changed after this analysis. Regenerate it for a current one.",
@@ -5371,6 +5409,14 @@
     "siteInsights": "Automatic insights",
     "siteInsightsHelp": "Turn off to stop automatic insights for this site.",
     "allSitesOnly": "Only users with access to every site can change this."
+  },
+  "aiAlerts": {
+    "providerTitle": "{{provider}} Is Out of Credit or Quota",
+    "providerBody": "Since {{since}}, {{provider}} has refused AI requests because the account is out of credit or quota. AI features that use it are paused. Add credit or raise the quota at the provider. The alert clears with the next successful request.",
+    "openSettings": "Open AI Settings",
+    "budgetWarningTitle": "AI Budget Warning",
+    "budgetExhaustedTitle": "AI Budget Used Up",
+    "openUsage": "View AI Usage"
   },
   "stationChargingNeeds": {
     "needsTitle": "EV Charging Needs",

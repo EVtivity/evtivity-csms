@@ -622,7 +622,27 @@
     "freeVendRestoreDescription": "Werden beim Ausschalten von freiem Laden übertragen: Autorisierung an, mit den Werten, die die Stationen beim Einschalten gemeldet haben. Jede Vorlage zeigt ihre Übertragungsergebnisse.",
     "autocharge": "Autocharge",
     "autochargeDescription": "Laden durch Einstecken an den Ladestationen dieses Standorts. Es gilt die Firmeneinstellung, außer Sie schalten es hier ein oder aus.",
-    "autochargeDefault": "Firmeneinstellung verwenden"
+    "autochargeDefault": "Firmeneinstellung verwenden",
+    "aiInsights": {
+      "label": "KI-Erkenntnisse",
+      "inScope": "Aktiv",
+      "suppressed": "Unterdrückt",
+      "allScopes": "Alle",
+      "listBadge": "KI-Erkenntnisse Unterdrückt",
+      "suppress": "Unterdrücken",
+      "resume": "Fortsetzen",
+      "until": "Bis {{date}}",
+      "untilResumed": "Bis zur Fortsetzung",
+      "by": "Von {{name}}: {{reason}}",
+      "maintenance": "Unterdrückt, solange ein aktiver Wartungseinsatz den gesamten Standort umfasst",
+      "suppressTitle": "KI-Erkenntnisse für Diesen Standort Unterdrücken?",
+      "suppressDescription": "Für diesen Standort und alle seine Ladestationen, auch später hinzugefügte, wird bis zum Enddatum oder bis zur Fortsetzung keine neue KI-Erkenntnis und keine vorgeschlagene Aktion erstellt. Die offenen Erkenntnisse des Standorts und seiner Ladestationen werden verworfen und ihre wartenden Aktionen laufen ab.",
+      "resumeTitle": "KI-Erkenntnisse für Diesen Standort Fortsetzen?",
+      "resumeDescription": "KI-Erkenntnisse überwachen diesen Standort und seine Ladestationen wieder. Eine Ladestation mit eigener Unterdrückung bleibt unterdrückt.",
+      "suppressedToast": "KI-Erkenntnisse unterdrückt",
+      "resumedToast": "KI-Erkenntnisse fortgesetzt",
+      "failed": "KI-Erkenntnisse des Standorts konnten nicht geändert werden"
+    }
   },
   "stations": {
     "title": "Stationen",
@@ -1019,7 +1039,8 @@
       "resumeDescription": "KI-Erkenntnisse überwachen diese Ladestation wieder.",
       "suppressedToast": "KI-Erkenntnisse unterdrückt",
       "resumedToast": "KI-Erkenntnisse fortgesetzt",
-      "failed": "KI-Erkenntnisse der Ladestation konnten nicht geändert werden"
+      "failed": "KI-Erkenntnisse der Ladestation konnten nicht geändert werden",
+      "withSite": "Mit dem Standort unterdrückt"
     }
   },
   "eventAlertRules": {
@@ -3013,6 +3034,9 @@
       "invoice.FleetCreditNote": "Stornorechnung der Flotte ausgestellt",
       "invoice.FleetOverdue": "Flottenrechnung überfällig",
       "ai.ProposalDigest": "Zusammenfassung der KI-Analyseaktionen",
+      "ai.ProviderQuotaExceeded": "KI-Anbieter ohne Guthaben oder Kontingent",
+      "ai.BudgetWarning": "KI-Budgetwarnung",
+      "ai.BudgetExhausted": "KI-Budget aufgebraucht",
       "session.AutochargeStarted": "Ladevorgang per Autocharge gestartet"
     },
     "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:",
@@ -3154,6 +3178,7 @@
     "AI_MODEL_UNAVAILABLE": "Das konfigurierte KI-Modell existiert nicht oder wurde eingestellt",
     "AI_PROVIDER_AUTH_FAILED": "Der KI-Anbieter hat den konfigurierten API-Schlüssel abgelehnt",
     "AI_PROVIDER_RATE_LIMITED": "Der KI-Anbieter begrenzt die Anfragen. Versuchen Sie es gleich erneut",
+    "AI_PROVIDER_QUOTA_EXCEEDED": "Das Konto beim KI-Anbieter hat kein Guthaben oder Kontingent mehr. Ein Administrator muss Guthaben aufladen oder das Kontingent erhöhen",
     "AI_PROVIDER_UNAVAILABLE": "Der KI-Anbieter ist nicht erreichbar. Versuchen Sie es später erneut",
     "AI_RATE_LIMITED": "Zu viele KI-Anfragen. Versuchen Sie es in einer Minute erneut",
     "ALERT_NOT_FOUND": "Alarm nicht gefunden",
@@ -3477,7 +3502,8 @@
     "SESSION_REQUIRED": "Diese Aktion erfordert eine angemeldete Sitzung. API-Schlüssel können sie nicht verwenden.",
     "MFA_LOCKED": "Zu viele falsche Codes. Warten Sie, bevor Sie es erneut versuchen.",
     "MFA_RESEND_LIMITED": "Zu viele Codes gesendet. Warten Sie, bevor Sie einen weiteren anfordern.",
-    "USER_SSO_MANAGED": "Dieser Benutzer meldet sich per SSO an und hat kein Passwort, das gesetzt werden kann."
+    "USER_SSO_MANAGED": "Dieser Benutzer meldet sich per SSO an und hat kein Passwort, das gesetzt werden kann.",
+    "STATION_SITE_SUPPRESSED": "Die KI-Erkenntnisse des Standorts der Ladestation sind unterdrückt. Setzen Sie den Standort fort, um seine Ladestationen fortzusetzen"
   },
   "logs": {
     "title": "Protokolle",
@@ -3780,7 +3806,8 @@
         "no_feedback": "Keine Rückmeldung vom Fahrer",
         "driver_replied": "Der Fahrer hat eine Nachricht geschrieben",
         "driver_declined_answer": "Die Antwort hat dem Fahrer nicht geholfen",
-        "driver_inactive": "Das Fahrerkonto ist inaktiv"
+        "driver_inactive": "Das Fahrerkonto ist inaktiv",
+        "provider_paused": "KI-Anbieter ohne Guthaben oder Kontingent"
       },
       "resolutionSource": {
         "operator": "Support-Team",
@@ -4642,6 +4669,8 @@
       "event_settings_changed": "Ereigniseinstellungen geändert",
       "reset": "Auf Standard zurückgesetzt",
       "report_deleted": "Bericht gelöscht",
+      "report_downloaded": "Bericht heruntergeladen",
+      "report_generated": "Bericht erstellt",
       "autocharge_enabled": "Autocharge eingeschaltet",
       "autocharge_disabled": "Autocharge ausgeschaltet",
       "autocharge_blocked": "Fahrzeug gesperrt",
@@ -5093,7 +5122,8 @@
       "site_daily_cap": "Das tägliche Analyselimit des Standorts ist erreicht",
       "site_disabled": "Analysen sind für diesen Standort ausgeschaltet",
       "budget_exceeded": "Das KI-Budget ist aufgebraucht",
-      "disabled": "Automatische Analysen wurden ausgeschaltet"
+      "disabled": "Automatische Analysen wurden ausgeschaltet",
+      "provider_paused": "Das Konto beim KI-Anbieter hat kein Guthaben oder Kontingent mehr"
     },
     "fix": {
       "check_network_connection": "Netzwerkverbindung der Station prüfen",
@@ -5202,7 +5232,15 @@
       "reservation": "Reservierung",
       "driver": "Fahrer",
       "token": "Token",
-      "partOf": "Teil von"
+      "partOf": "Teil von",
+      "suppressionLabel": "KI-Erkenntnisse",
+      "suppressStation": "Für Diese Ladestation Unterdrücken",
+      "suppressSite": "Für Diesen Standort Unterdrücken",
+      "stationSuppressedUntil": "Ladestation unterdrückt bis {{date}}",
+      "stationSuppressedUntilResumed": "Ladestation unterdrückt bis zur Fortsetzung",
+      "stationSuppressedWithSite": "Ladestation mit dem Standort unterdrückt",
+      "siteSuppressedUntil": "Standort unterdrückt bis {{date}}",
+      "siteSuppressedUntilResumed": "Standort unterdrückt bis zur Fortsetzung"
     },
     "likelyCause": "Wahrscheinliche Ursache",
     "staleNote": "Der Datensatz hat sich nach dieser Analyse geändert. Erzeugen Sie sie neu, um eine aktuelle zu erhalten.",
@@ -5371,6 +5409,14 @@
     "siteInsights": "Automatische Analysen",
     "siteInsightsHelp": "Ausschalten, um automatische Analysen für diesen Standort zu beenden.",
     "allSitesOnly": "Nur Benutzer mit Zugriff auf alle Standorte können dies ändern."
+  },
+  "aiAlerts": {
+    "providerTitle": "{{provider}}: Kein Guthaben oder Kontingent",
+    "providerBody": "Seit {{since}} lehnt {{provider}} KI-Anfragen ab, weil das Konto kein Guthaben oder Kontingent mehr hat. KI-Funktionen, die diesen Anbieter nutzen, sind pausiert. Laden Sie beim Anbieter Guthaben auf oder erhöhen Sie das Kontingent. Die Warnung verschwindet mit der nächsten erfolgreichen Anfrage.",
+    "openSettings": "KI-Einstellungen öffnen",
+    "budgetWarningTitle": "KI-Budgetwarnung",
+    "budgetExhaustedTitle": "KI-Budget aufgebraucht",
+    "openUsage": "KI-Nutzung anzeigen"
   },
   "stationChargingNeeds": {
     "needsTitle": "EV-Ladebedarf",

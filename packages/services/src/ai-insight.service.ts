@@ -27,6 +27,8 @@ import {
   aiInsightTexts,
   client,
   db,
+  operatorStationSql,
+  siteInsightsSuppressedSql,
   writeAudit,
 } from '@evtivity/database';
 import type { AuditActor } from '@evtivity/database';
@@ -399,15 +401,10 @@ export async function dismissInsight(id: string, actor: InsightAuditActor): Prom
   return true;
 }
 
-/**
- * Closes the open and analyzing insights of a station whose AI insights an
- * operator suppressed: `dismissed`, audited with the suppression reason
- * (insights whose action waits end through their action instead,
- * `expireStationAiProposals`). Publishes each change (fail-open inside).
- * Returns the ids that moved.
- */
-export async function dismissStationInsights(
-  stationId: string,
+/** Closes the open and analyzing insights matching `where` as dismissed, audited with `cause`. */
+async function dismissSuppressedInsights(
+  where: SQL,
+  cause: 'station_ai_insights_suppressed' | 'site_ai_insights_suppressed',
   reason: string,
   actor: InsightAuditActor,
   pubsub: PubSubClient,
@@ -420,9 +417,7 @@ export async function dismissStationInsights(
       dismissedBy: actor.actorUserId ?? null,
       updatedAt: sql`now()`,
     })
-    .where(
-      and(eq(aiInsights.stationId, stationId), inArray(aiInsights.status, ['analyzing', 'open'])),
-    )
+    .where(and(where, inArray(aiInsights.status, ['analyzing', 'open'])))
     .returning({
       id: aiInsights.id,
       siteId: aiInsights.siteId,
@@ -441,7 +436,7 @@ export async function dismissStationInsights(
         actorUserId: actor.actorUserId ?? null,
         actorApiKeyId: actor.actorApiKeyId ?? null,
         before: null,
-        after: { status: 'dismissed', cause: 'station_ai_insights_suppressed' },
+        after: { status: 'dismissed', cause },
         notes: reason,
       },
       db,
@@ -450,6 +445,63 @@ export async function dismissStationInsights(
     await publishInsightUpdated(pubsub, { ...row, status: 'dismissed' });
   }
   return rows.map((r) => r.id);
+}
+
+/**
+ * Closes the open and analyzing insights of a station whose AI insights an
+ * operator suppressed: `dismissed`, audited with the suppression reason
+ * (insights whose action waits end through their action instead,
+ * `expireStationAiProposals`). Publishes each change (fail-open inside).
+ * Returns the ids that moved.
+ */
+export async function dismissStationInsights(
+  stationId: string,
+  reason: string,
+  actor: InsightAuditActor,
+  pubsub: PubSubClient,
+): Promise<string[]> {
+  return dismissSuppressedInsights(
+    eq(aiInsights.stationId, stationId),
+    'station_ai_insights_suppressed',
+    reason,
+    actor,
+    pubsub,
+  );
+}
+
+/**
+ * Closes the open and analyzing insights of a site whose AI insights an
+ * operator suppressed: the site's own insights (site incidents, summaries,
+ * findings) and those of every station of the site, `dismissed` with the
+ * reason (insights whose action waits end through their action instead,
+ * `expireSiteAiProposals`). Returns the ids that moved.
+ */
+export async function dismissSiteInsights(
+  siteId: string,
+  reason: string,
+  actor: InsightAuditActor,
+  pubsub: PubSubClient,
+): Promise<string[]> {
+  return dismissSuppressedInsights(
+    sql`(${aiInsights.siteId} = ${siteId} OR ${aiInsights.stationId} IN (SELECT cs.id FROM charging_stations cs WHERE cs.site_id = ${siteId} AND ${sql.raw(operatorStationSql('cs'))}))`,
+    'site_ai_insights_suppressed',
+    reason,
+    actor,
+    pubsub,
+  );
+}
+
+/**
+ * Whether the site-level AI insights of a site are suppressed now
+ * (`siteInsightsSuppressedSql`): an operator suppressed the site, or an
+ * active maintenance event covers all of it. False for an unknown site.
+ */
+export async function siteInsightsSuppressed(siteId: string): Promise<boolean> {
+  const [row] = await client<{ suppressed: boolean }[]>`
+    SELECT ${client.unsafe(siteInsightsSuppressedSql('s'))} AS suppressed
+    FROM sites s WHERE s.id = ${siteId}
+  `;
+  return row?.suppressed === true;
 }
 
 export interface InsightFeedbackInput {

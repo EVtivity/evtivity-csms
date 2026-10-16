@@ -243,6 +243,11 @@ const { changeStationPasswordMock, changeSecurityProfileMock, rotateStationPassw
     rotateStationPasswordMock: vi.fn(),
   }));
 
+vi.mock('../services/station-ai-insights.service.js', () => ({
+  suppressStationAiInsights: vi.fn(),
+  resumeStationAiInsights: vi.fn(),
+}));
+
 vi.mock('../services/station-security.service.js', () => ({
   changeStationPassword: changeStationPasswordMock,
   changeSecurityProfile: changeSecurityProfileMock,
@@ -319,6 +324,7 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { stationRoutes } from '../routes/stations.js';
+import { resumeStationAiInsights } from '../services/station-ai-insights.service.js';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -466,6 +472,7 @@ describe('Station routes - handler logic', () => {
         underMaintenance: false,
         aiInsightsSuppressed: true,
         aiInsightsSuppressedByMaintenance: false,
+        aiInsightsSuppressedSources: ['station'],
         aiInsightsSuppressedAt: '2024-01-02T00:00:00.000Z',
         aiInsightsSuppressedUntil: null,
         aiInsightsSuppressedBy: 'usr_1',
@@ -2976,6 +2983,38 @@ describe('Station routes - handler logic', () => {
         headers: { authorization: 'Bearer ' + token },
       });
       expect(response.statusCode).toBe(404);
+    });
+  });
+
+  describe('POST /v1/stations/:id/ai-insights/resume', () => {
+    it('answers 409 STATION_SITE_SUPPRESSED while the site of the station is suppressed', async () => {
+      vi.mocked(resumeStationAiInsights).mockResolvedValueOnce('site_suppressed');
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/ai-insights/resume`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ code: string }>().code).toBe('STATION_SITE_SUPPRESSED');
+    });
+
+    it('resumes a station whose site is in scope', async () => {
+      vi.mocked(resumeStationAiInsights).mockResolvedValueOnce({
+        suppressedAt: null,
+        suppressedUntil: null,
+        suppressedBy: null,
+        suppressedByName: null,
+        reason: null,
+      });
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/ai-insights/resume`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {},
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json<Record<string, unknown>>().aiInsightsSuppressedAt).toBeNull();
     });
   });
 });

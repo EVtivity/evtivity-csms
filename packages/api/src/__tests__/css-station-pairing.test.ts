@@ -65,7 +65,7 @@ function makeChain() {
 const updateChainSpy = vi.fn();
 const insertChainSpy = vi.fn();
 
-vi.mock('@evtivity/database', () => {
+vi.mock('@evtivity/database', async () => {
   const dbMock: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => {
@@ -86,6 +86,7 @@ vi.mock('@evtivity/database', () => {
   // db back as the tx so the chained query helpers above are reused inside.
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
   return {
+    ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
     db: dbMock,
     chargingStations: {},
     evses: {},

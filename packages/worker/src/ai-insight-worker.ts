@@ -35,6 +35,7 @@ import { generateInsight } from './ai-insights/generate.js';
 import type { InsightJobDeps } from './ai-insights/generate.js';
 import { translateInsight } from './ai-insights/translate.js';
 import { createOpsAdapter, resolveOpsAiConfig } from '@evtivity/services/ai-ops-config';
+import { aiProviderGate } from '@evtivity/services/ai-alerts';
 
 const log = createLogger('ai-insight-worker');
 
@@ -114,6 +115,7 @@ export function defaultInsightJobDeps(pubsub: PubSubClient): InsightJobDeps {
       resolveOpsAiConfig(settings, config.SETTINGS_ENCRYPTION_KEY, nodeEnv === 'development'),
     createAdapter: createOpsAdapter,
     checkBudgets: checkAiBudgets,
+    providerGate: aiProviderGate,
     pubsub,
     now: () => new Date(),
     subjectSecret: config.SETTINGS_ENCRYPTION_KEY,

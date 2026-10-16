@@ -43,7 +43,10 @@ import {
   stuckSessionCase,
   stuckSessionProposal,
 } from '@evtivity/services/ai-workers/proposals';
-import { insightTriggerExists } from '@evtivity/services/ai-insight.service';
+import {
+  insightTriggerExists,
+  siteInsightsSuppressed,
+} from '@evtivity/services/ai-insight.service';
 import {
   MAX_TRANSACTION_PROBES,
   probeTransactionOngoing,
@@ -356,6 +359,9 @@ export async function runTariffAnomalies(
   await withRun(data, log, async (runId) => {
     const siteId = data.siteId;
     if (siteId === null) return { status: 'skipped' };
+    if (await siteInsightsSuppressed(siteId)) {
+      return { status: 'skipped', output: { siteSuppressed: true } };
+    }
     const findings = await tariffAnomalies({ siteId, now });
     if (findings.length === 0) return { status: 'completed', output: { findings } };
     const facts = { findings: findings.map((f) => ({ type: f.type, count: f.count })) };

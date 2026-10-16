@@ -622,7 +622,27 @@
     "freeVendRestoreDescription": "Se envían al desactivar Carga Libre: autorización activada, con los valores que las estaciones informaron al activarla. Cada plantilla muestra sus resultados de envío.",
     "autocharge": "Autocharge",
     "autochargeDescription": "Cargar al conectar en las estaciones de este sitio. Se aplica el ajuste de la empresa salvo que lo active o desactive aquí.",
-    "autochargeDefault": "Usar el ajuste de la empresa"
+    "autochargeDefault": "Usar el ajuste de la empresa",
+    "aiInsights": {
+      "label": "Análisis de IA",
+      "inScope": "Incluido",
+      "suppressed": "Suprimidos",
+      "allScopes": "Todos",
+      "listBadge": "Análisis de IA Suprimidos",
+      "suppress": "Suprimir",
+      "resume": "Reanudar",
+      "until": "Hasta {{date}}",
+      "untilResumed": "Hasta reanudar",
+      "by": "Por {{name}}: {{reason}}",
+      "maintenance": "Suprimidos mientras un evento de mantenimiento activo incluye todo el sitio",
+      "suppressTitle": "¿Suprimir los Análisis de IA de Este Sitio?",
+      "suppressDescription": "No se crea ningún análisis de IA ni acción sugerida para este sitio ni para ninguna de sus estaciones, incluidas las que se añadan después, hasta la fecha de fin o hasta que los reanude. Los análisis abiertos del sitio y de sus estaciones se descartan y sus acciones en espera caducan.",
+      "resumeTitle": "¿Reanudar los Análisis de IA de Este Sitio?",
+      "resumeDescription": "Los análisis de IA vuelven a vigilar este sitio y sus estaciones. Una estación con su propia supresión sigue suprimida.",
+      "suppressedToast": "Análisis de IA suprimidos",
+      "resumedToast": "Análisis de IA reanudados",
+      "failed": "No se pudieron cambiar los análisis de IA del sitio"
+    }
   },
   "stations": {
     "title": "Estaciones",
@@ -1019,7 +1039,8 @@
       "resumeDescription": "Los análisis de IA vuelven a vigilar esta estación.",
       "suppressedToast": "Análisis de IA suprimidos",
       "resumedToast": "Análisis de IA reanudados",
-      "failed": "No se pudieron cambiar los análisis de IA de la estación"
+      "failed": "No se pudieron cambiar los análisis de IA de la estación",
+      "withSite": "Suprimidos con su sitio"
     }
   },
   "eventAlertRules": {
@@ -3013,6 +3034,9 @@
       "invoice.FleetCreditNote": "Nota de crédito de flota emitida",
       "invoice.FleetOverdue": "Factura de flota vencida",
       "ai.ProposalDigest": "Resumen de acciones de análisis de IA",
+      "ai.ProviderQuotaExceeded": "Proveedor de IA sin saldo ni cuota",
+      "ai.BudgetWarning": "Aviso de presupuesto de IA",
+      "ai.BudgetExhausted": "Presupuesto de IA agotado",
       "session.AutochargeStarted": "Sesión iniciada por Autocharge"
     },
     "templatePreviewInvalid": "La plantilla tiene un error:",
@@ -3154,6 +3178,7 @@
     "AI_MODEL_UNAVAILABLE": "El modelo de IA configurado no existe o fue retirado",
     "AI_PROVIDER_AUTH_FAILED": "El proveedor de IA rechazó la clave de API configurada",
     "AI_PROVIDER_RATE_LIMITED": "El proveedor de IA está limitando las solicitudes. Inténtalo de nuevo en breve",
+    "AI_PROVIDER_QUOTA_EXCEEDED": "La cuenta del proveedor de IA no tiene saldo ni cuota. Un administrador debe añadir saldo o aumentar la cuota",
     "AI_PROVIDER_UNAVAILABLE": "El proveedor de IA no está disponible. Inténtalo más tarde",
     "AI_RATE_LIMITED": "Demasiadas solicitudes de IA. Inténtalo de nuevo en un minuto",
     "ALERT_NOT_FOUND": "Alerta no encontrada",
@@ -3477,7 +3502,8 @@
     "SESSION_REQUIRED": "Esta acción requiere una sesión iniciada. Las claves de API no pueden usarla.",
     "MFA_LOCKED": "Demasiados códigos incorrectos. Espere antes de volver a intentarlo.",
     "MFA_RESEND_LIMITED": "Se enviaron demasiados códigos. Espere antes de solicitar otro.",
-    "USER_SSO_MANAGED": "Este usuario inicia sesión con SSO y no tiene contraseña que establecer."
+    "USER_SSO_MANAGED": "Este usuario inicia sesión con SSO y no tiene contraseña que establecer.",
+    "STATION_SITE_SUPPRESSED": "Los análisis de IA del sitio de la estación están suprimidos. Reanude el sitio para reanudar sus estaciones"
   },
   "logs": {
     "title": "Registros",
@@ -3780,7 +3806,8 @@
         "no_feedback": "Sin valoración del conductor",
         "driver_replied": "El conductor escribió un mensaje",
         "driver_declined_answer": "La respuesta no ayudó al conductor",
-        "driver_inactive": "La cuenta del conductor está inactiva"
+        "driver_inactive": "La cuenta del conductor está inactiva",
+        "provider_paused": "Proveedor de IA sin saldo ni cuota"
       },
       "resolutionSource": {
         "operator": "Equipo de soporte",
@@ -4642,6 +4669,8 @@
       "event_settings_changed": "Configuración de eventos modificada",
       "reset": "Restablecido al predeterminado",
       "report_deleted": "Informe eliminado",
+      "report_downloaded": "Informe descargado",
+      "report_generated": "Informe generado",
       "autocharge_enabled": "Autocharge activado",
       "autocharge_disabled": "Autocharge desactivado",
       "autocharge_blocked": "Vehículo bloqueado",
@@ -5093,7 +5122,8 @@
       "site_daily_cap": "Se alcanzó el límite diario de análisis del sitio",
       "site_disabled": "Los análisis están desactivados para este sitio",
       "budget_exceeded": "El presupuesto de IA está agotado",
-      "disabled": "Los análisis automáticos se desactivaron"
+      "disabled": "Los análisis automáticos se desactivaron",
+      "provider_paused": "La cuenta del proveedor de IA no tiene saldo ni cuota"
     },
     "fix": {
       "check_network_connection": "Revisar la conexión de red de la estación",
@@ -5202,7 +5232,15 @@
       "reservation": "Reserva",
       "driver": "Conductor",
       "token": "Token",
-      "partOf": "Parte de"
+      "partOf": "Parte de",
+      "suppressionLabel": "Análisis de IA",
+      "suppressStation": "Suprimir para Esta Estación",
+      "suppressSite": "Suprimir para Este Sitio",
+      "stationSuppressedUntil": "Estación suprimida hasta {{date}}",
+      "stationSuppressedUntilResumed": "Estación suprimida hasta reanudar",
+      "stationSuppressedWithSite": "Estación suprimida con su sitio",
+      "siteSuppressedUntil": "Sitio suprimido hasta {{date}}",
+      "siteSuppressedUntilResumed": "Sitio suprimido hasta reanudar"
     },
     "likelyCause": "Causa probable",
     "staleNote": "El registro cambió después de este análisis. Regénerelo para obtener uno actual.",
@@ -5371,6 +5409,14 @@
     "siteInsights": "Análisis automáticos",
     "siteInsightsHelp": "Desactívelo para detener los análisis automáticos de este sitio.",
     "allSitesOnly": "Solo los usuarios con acceso a todos los sitios pueden cambiar esto."
+  },
+  "aiAlerts": {
+    "providerTitle": "{{provider}} sin saldo ni cuota",
+    "providerBody": "Desde {{since}}, {{provider}} rechaza las solicitudes de IA porque la cuenta no tiene saldo ni cuota. Las funciones de IA que lo usan están en pausa. Añada saldo o aumente la cuota en el proveedor. El aviso desaparece con la siguiente solicitud correcta.",
+    "openSettings": "Abrir la configuración de IA",
+    "budgetWarningTitle": "Aviso de presupuesto de IA",
+    "budgetExhaustedTitle": "Presupuesto de IA agotado",
+    "openUsage": "Ver el uso de IA"
   },
   "stationChargingNeeds": {
     "needsTitle": "Necesidades de Carga del VE",

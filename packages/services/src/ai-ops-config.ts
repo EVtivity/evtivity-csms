@@ -15,6 +15,7 @@ import type { AiSettings } from '@evtivity/lib/ai-config';
 import { getProviderEntry } from '@evtivity/ai/core';
 import type { AiAdapter, Effort, ProviderId } from '@evtivity/ai/core';
 import { getProviderRegistry } from '@evtivity/ai/providers';
+import { trackAiProviderCalls } from './ai-alerts.js';
 
 export interface OpsAiConfig {
   provider: ProviderId;
@@ -57,9 +58,12 @@ export function resolveOpsAiConfig(
   };
 }
 
+/** The company key's adapter; its calls keep the provider quota alert state. */
 export function createOpsAdapter(config: OpsAiConfig): AiAdapter {
-  return getProviderRegistry().create(config.provider, {
-    apiKey: config.apiKey,
-    ...(config.baseUrl !== '' ? { baseUrl: config.baseUrl } : {}),
-  });
+  return trackAiProviderCalls(
+    getProviderRegistry().create(config.provider, {
+      apiKey: config.apiKey,
+      ...(config.baseUrl !== '' ? { baseUrl: config.baseUrl } : {}),
+    }),
+  );
 }

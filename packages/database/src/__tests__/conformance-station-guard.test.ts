@@ -91,7 +91,6 @@ const BY_ID_ONLY = new Set([
   'services/src/ai-evidence/session.ts',
   'services/src/ai-evidence/state.ts',
   'services/src/ai-evidence/station.ts',
-  'services/src/ai-proposal.service.ts',
   'services/src/fleet-invoice.service.ts',
   'services/src/maintenance-check.ts',
   'services/src/reservation-expiry.ts',

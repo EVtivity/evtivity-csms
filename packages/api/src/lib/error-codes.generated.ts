@@ -38,6 +38,7 @@ export const ERROR_CODES = {
   AI_PROPOSAL_NOT_FOUND: 'AI_PROPOSAL_NOT_FOUND',
   AI_PROPOSAL_STALE: 'AI_PROPOSAL_STALE',
   AI_PROVIDER_AUTH_FAILED: 'AI_PROVIDER_AUTH_FAILED',
+  AI_PROVIDER_QUOTA_EXCEEDED: 'AI_PROVIDER_QUOTA_EXCEEDED',
   AI_PROVIDER_RATE_LIMITED: 'AI_PROVIDER_RATE_LIMITED',
   AI_PROVIDER_UNAVAILABLE: 'AI_PROVIDER_UNAVAILABLE',
   AI_RATE_LIMITED: 'AI_RATE_LIMITED',
@@ -308,6 +309,7 @@ export const ERROR_CODES = {
   STATION_REJECTED: 'STATION_REJECTED',
   STATION_SECURITY_CHANGE_REJECTED: 'STATION_SECURITY_CHANGE_REJECTED',
   STATION_SECURITY_ROUTE_REQUIRED: 'STATION_SECURITY_ROUTE_REQUIRED',
+  STATION_SITE_SUPPRESSED: 'STATION_SITE_SUPPRESSED',
   STATION_TIMEOUT: 'STATION_TIMEOUT',
   STATION_TLS_URL_NOT_CONFIGURED: 'STATION_TLS_URL_NOT_CONFIGURED',
   STATION_UNAVAILABLE: 'STATION_UNAVAILABLE',
@@ -379,6 +381,7 @@ export type ErrorCode =
   | 'AI_PROPOSAL_NOT_FOUND'
   | 'AI_PROPOSAL_STALE'
   | 'AI_PROVIDER_AUTH_FAILED'
+  | 'AI_PROVIDER_QUOTA_EXCEEDED'
   | 'AI_PROVIDER_RATE_LIMITED'
   | 'AI_PROVIDER_UNAVAILABLE'
   | 'AI_RATE_LIMITED'
@@ -649,6 +652,7 @@ export type ErrorCode =
   | 'STATION_REJECTED'
   | 'STATION_SECURITY_CHANGE_REJECTED'
   | 'STATION_SECURITY_ROUTE_REQUIRED'
+  | 'STATION_SITE_SUPPRESSED'
   | 'STATION_TIMEOUT'
   | 'STATION_TLS_URL_NOT_CONFIGURED'
   | 'STATION_UNAVAILABLE'
@@ -731,6 +735,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   AI_PROPOSAL_NOT_FOUND: 'Action not found',
   AI_PROPOSAL_STALE: 'This action no longer applies because the situation changed',
   AI_PROVIDER_AUTH_FAILED: 'The AI provider refused the configured API key',
+  AI_PROVIDER_QUOTA_EXCEEDED:
+    'The AI provider account is out of credit or quota. An administrator must add credit or raise the quota',
   AI_PROVIDER_RATE_LIMITED: 'The AI provider is rate limiting requests. Try again shortly',
   AI_PROVIDER_UNAVAILABLE: 'The AI provider is unavailable. Try again later',
   AI_RATE_LIMITED: 'Too many AI requests. Try again in a minute',
@@ -1031,6 +1037,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     'The station did not accept the security change; its current settings are unchanged',
   STATION_SECURITY_ROUTE_REQUIRED:
     'Station security profiles and network profiles are changed with PATCH /v1/stations/:id, not with a configuration template',
+  STATION_SITE_SUPPRESSED:
+    "The AI insights of the station's site are suppressed. Resume the site to resume its stations",
   STATION_TIMEOUT: 'Station did not respond',
   STATION_TLS_URL_NOT_CONFIGURED:
     'The public TLS address for stations (OCPP_STATION_TLS_URL) is not configured',

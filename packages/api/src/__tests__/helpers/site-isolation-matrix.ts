@@ -1366,6 +1366,24 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'INVOICE_NOT_FOUND',
   ),
 
+  // AI insight suppression of a site
+  s(
+    'POST',
+    '/sites/:id/ai-insights/suppress',
+    'sites:write',
+    (f) => `${sit(f)}/ai-insights/suppress`,
+    'SITE_NOT_FOUND',
+    { body: () => ({ reason: 'site isolation matrix' }) },
+  ),
+  s(
+    'POST',
+    '/sites/:id/ai-insights/resume',
+    'sites:write',
+    (f) => `${sit(f)}/ai-insights/resume`,
+    'SITE_NOT_FOUND',
+    { body: () => ({}) },
+  ),
+
   // load management
   s(
     'GET',
@@ -3826,6 +3844,8 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     () => '/settings/ai/defaults',
     'SETTING_NOT_FOUND',
   ),
+  // The AI alerts (provider quota, company budget) are company-wide like Settings > AI.
+  c('GET', '/ai/alerts', 'settings.ai:read', () => '/ai/alerts', 'SETTING_NOT_FOUND'),
   c(
     'GET',
     '/settings/s3/status',

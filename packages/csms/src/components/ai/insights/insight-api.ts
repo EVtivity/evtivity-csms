@@ -29,7 +29,7 @@ import { useHasPermission } from '@/lib/auth';
  */
 
 /** Root of every insight query; the SSE event invalidates it. */
-const AI_INSIGHTS_KEY = ['ai', 'insights'] as const;
+export const AI_INSIGHTS_KEY = ['ai', 'insights'] as const;
 
 /** The action an insight carries (a background worker suggestion), as the API sends it. */
 export interface AiInsightActionView extends AiProposalDto {

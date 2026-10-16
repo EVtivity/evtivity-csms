@@ -584,6 +584,7 @@
     "AI_MODEL_UNAVAILABLE": "구성된 AI 모델이 없거나 지원이 종료되었습니다",
     "AI_PROVIDER_AUTH_FAILED": "AI 공급자가 구성된 API 키를 거부했습니다",
     "AI_PROVIDER_RATE_LIMITED": "AI 공급자가 요청을 제한하고 있습니다. 잠시 후 다시 시도하세요",
+    "AI_PROVIDER_QUOTA_EXCEEDED": "AI 공급자 계정의 크레딧 또는 할당량이 소진되었습니다. 관리자가 크레딧을 추가하거나 할당량을 늘려야 합니다",
     "AI_PROVIDER_UNAVAILABLE": "AI 공급자를 사용할 수 없습니다. 나중에 다시 시도하세요",
     "AI_RATE_LIMITED": "AI 요청이 너무 많습니다. 1분 후에 다시 시도하세요",
     "ALERT_NOT_FOUND": "알림을 찾을 수 없습니다",
@@ -907,7 +908,8 @@
     "SESSION_REQUIRED": "이 작업에는 로그인 세션이 필요합니다. API 키로는 사용할 수 없습니다.",
     "MFA_LOCKED": "잘못된 코드가 너무 많습니다. 잠시 후 다시 시도하세요.",
     "MFA_RESEND_LIMITED": "코드를 너무 많이 보냈습니다. 잠시 후 다시 요청하세요.",
-    "USER_SSO_MANAGED": "이 사용자는 SSO로 로그인하므로 설정할 비밀번호가 없습니다."
+    "USER_SSO_MANAGED": "이 사용자는 SSO로 로그인하므로 설정할 비밀번호가 없습니다.",
+    "STATION_SITE_SUPPRESSED": "충전소가 속한 사이트의 AI 인사이트가 중지되었습니다. 사이트를 재개하면 충전소도 재개됩니다"
   },
   "validation": {
     "required": "필수 항목입니다",

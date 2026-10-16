@@ -207,3 +207,44 @@ export const AI_USAGE_ERROR_CODES = {
   AI_MONTHLY_BUDGET_EXCEEDED: 429,
 } as const;
 export type AiUsageErrorCode = keyof typeof AI_USAGE_ERROR_CODES;
+
+/**
+ * SSE event on `csms_events` when an AI provider quota alert starts or clears
+ * (no site: all-site clients only). The CSMS refetches `GET /v1/ai/alerts`.
+ */
+export const AI_ALERTS_CHANGED_EVENT = 'ai.alerts.changed';
+
+export const aiProviderAlertSchema = z
+  .object({
+    provider: z.string().describe('AI provider id (anthropic, openai, gemini, deepseek)'),
+    since: z
+      .string()
+      .describe('When the provider first answered out of credit or quota (ISO 8601)'),
+    lastSeenAt: z.string().describe('The latest out of credit or quota answer (ISO 8601)'),
+  })
+  .describe('An AI provider account out of credit or quota');
+export type AiProviderAlertDto = z.infer<typeof aiProviderAlertSchema>;
+
+export const aiCompanyBudgetAlertSchema = z
+  .object({
+    period: aiUsageMonthSchema,
+    level: z
+      .enum(['warn', 'exceeded'])
+      .describe('warn: at or past ai.budget.warnPercent; exceeded: the budget is used up'),
+    percent: z.number().int().nonnegative().describe('Share of the budget used, in percent'),
+    usedTokens: z.number().int().nonnegative().describe('Budget tokens used this month'),
+    limitTokens: z.number().int().min(1).describe('The company monthly token budget'),
+  })
+  .describe('The company monthly AI token budget at or past its warning level');
+export type AiCompanyBudgetAlert = z.infer<typeof aiCompanyBudgetAlertSchema>;
+
+/** `GET /v1/ai/alerts`: what the CSMS AI alert banner shows. */
+export const aiAlertsDtoSchema = z.object({
+  providers: z
+    .array(aiProviderAlertSchema)
+    .describe('Providers with an active quota alert; background AI features are paused for them'),
+  companyBudget: aiCompanyBudgetAlertSchema
+    .nullable()
+    .describe('The company monthly budget when at or past its warning level, else null'),
+});
+export type AiAlertsDto = z.infer<typeof aiAlertsDtoSchema>;

@@ -302,6 +302,9 @@ export const SYSTEM_EVENT_TYPES = [
   'invoice.FleetCreditNote',
   'invoice.FleetOverdue',
   'ai.ProposalDigest',
+  'ai.ProviderQuotaExceeded',
+  'ai.BudgetWarning',
+  'ai.BudgetExhausted',
 ];
 
 const ALL_EVENT_TYPES = [
@@ -763,6 +766,29 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'siteCount',
     'siteNames',
     'insightsUrl',
+  ],
+  // An AI provider account out of credit or quota: AI features are paused.
+  'ai.ProviderQuotaExceeded': ['firstName', 'lastName', 'provider', 'providerName', 'since'],
+  // A company or site monthly AI token budget at its warning level, or used up.
+  'ai.BudgetWarning': [
+    'firstName',
+    'lastName',
+    'scope',
+    'siteName',
+    'period',
+    'percent',
+    'usedTokens',
+    'limitTokens',
+  ],
+  'ai.BudgetExhausted': [
+    'firstName',
+    'lastName',
+    'scope',
+    'siteName',
+    'period',
+    'percent',
+    'usedTokens',
+    'limitTokens',
   ],
 };
 

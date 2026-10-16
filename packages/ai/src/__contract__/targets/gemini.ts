@@ -108,6 +108,25 @@ export const geminiTarget: AdapterContractTarget = {
       503,
       googleError(503, 'UNAVAILABLE', 'The model is overloaded.'),
     ),
+    error_quota_exceeded: jsonErrorFixture(429, {
+      error: {
+        code: 429,
+        message: 'You exceeded your current quota, please check your plan and billing details.',
+        status: 'RESOURCE_EXHAUSTED',
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+            violations: [
+              {
+                quotaMetric:
+                  'generativelanguage.googleapis.com/generate_content_free_tier_requests',
+                quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier',
+              },
+            ],
+          },
+        ],
+      },
+    }),
     error_context: jsonErrorFixture(
       400,
       googleError(

@@ -471,12 +471,15 @@ export {
   checkAiBudgets,
   clearAiUsageCache,
   evaluateAiBudgets,
+  getCompanyAiBudgetStatus,
   getSiteMonthlyTokenBudget,
   isAiUsageMonth,
   recordAiUsage,
 } from './lib/ai-usage.js';
 export type {
   AiBudgetContext,
+  AiBudgetNotice,
+  CompanyAiBudgetStatus,
   AiBudgetLimits,
   AiBudgetSumKey,
   AiUsageMonth,
@@ -484,6 +487,16 @@ export type {
   AiUsageRecord,
   AiUsageSums,
 } from './lib/ai-usage.js';
+export {
+  AI_PROVIDER_PROBE_INTERVAL_MS,
+  claimAiProviderAlertNotice,
+  claimAiProviderProbe,
+  clearAiProviderAlert,
+  clearAiProviderAlertsCache,
+  getActiveAiProviderAlerts,
+  recordAiProviderQuotaFailure,
+} from './lib/ai-provider-alerts.js';
+export type { AiProviderAlert } from './lib/ai-provider-alerts.js';
 export { getSsoConfig, clearSsoSettingsCache } from './lib/sso-settings.js';
 export type { SsoConfig } from './lib/sso-settings.js';
 export { getAttestationConfig, clearAttestationConfigCache } from './lib/attestation-settings.js';
@@ -506,7 +519,19 @@ export type {
   ConformanceDriverDeleteResult,
 } from './lib/conformance-stations.js';
 export {
+  SITE_INSIGHT_SUPPRESSION_SOURCES,
+  STATION_INSIGHT_SUPPRESSION_SOURCES,
+  siteInsightsOperatorSuppressedSql,
+  siteInsightsSuppressedSql,
+  siteInsightSuppressionSourcesSql,
+  siteUnderActiveMaintenanceSql,
   stationInsightsOperatorSuppressedSql,
   stationInsightsSuppressedSql,
+  stationInsightSuppressionSourcesSql,
+  stationSiteInsightsSuppressedSql,
   stationUnderActiveMaintenanceSql,
+} from './lib/ai-insight-suppression.js';
+export type {
+  SiteInsightSuppressionSource,
+  StationInsightSuppressionSource,
 } from './lib/ai-insight-suppression.js';

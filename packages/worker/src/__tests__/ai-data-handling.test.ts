@@ -48,7 +48,7 @@ vi.mock('@evtivity/services/ai-ops-config', () => ({
 }));
 vi.mock('../lib/config.js', () => ({ config: { SETTINGS_ENCRYPTION_KEY: 'test-key' } }));
 vi.mock('@evtivity/database', () => ({
-  recordAiUsage: vi.fn(),
+  recordAiUsage: vi.fn().mockResolvedValue([]),
   checkAiBudgets: vi.fn(() => Promise.resolve({ allowed: true })),
   getAiSettings: () => Promise.resolve(settingsState.settings),
   toIsoOrNull: (v: Date | string | null | undefined) =>
@@ -256,6 +256,7 @@ describe('AI data handling: worker surfaces', () => {
         resolveConfig: () => config(p),
         createAdapter: () => p.adapter,
         checkBudgets: () => Promise.resolve({ allowed: true }),
+        providerGate: () => Promise.resolve('open'),
         pubsub: { publish: vi.fn() } as unknown as PubSubClient,
         now: () => new Date(),
         subjectSecret: 'test-subject-secret',
@@ -304,6 +305,7 @@ describe('AI data handling: worker surfaces', () => {
         {
           createAdapter: () => p.adapter,
           checkBudgets: () => Promise.resolve({ allowed: true }),
+          providerGate: () => Promise.resolve('open'),
           encryptionKey: 'test-key',
           allowPrivateHosts: true,
         },

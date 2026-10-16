@@ -188,6 +188,14 @@ export const anthropicTarget: AdapterContractTarget = {
       'retry-after': '7',
     }),
     error_overloaded: jsonErrorFixture(529, errorBody('overloaded_error', 'Overloaded')),
+    // The reply of an account without credit (400 invalid_request_error).
+    error_quota_exceeded: jsonErrorFixture(
+      400,
+      errorBody(
+        'invalid_request_error',
+        'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.',
+      ),
+    ),
     error_context: jsonErrorFixture(
       400,
       errorBody('invalid_request_error', 'prompt is too long: 1200000 tokens > 1000000 maximum'),

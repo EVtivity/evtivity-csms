@@ -10,6 +10,12 @@
  */
 
 import { resolveOpsAiConfig } from '@evtivity/services/ai-ops-config';
+import {
+  aiProviderGate,
+  trackAiProviderCalls,
+  dispatchAiBudgetNotices,
+} from '@evtivity/services/ai-alerts';
+import type { AiProviderGate } from '@evtivity/services/ai-alerts';
 import type { OpsAiConfig } from '@evtivity/services/ai-ops-config';
 import type { CheckAiBudgets } from '@evtivity/lib/ai-usage';
 import type { AiWorkerJob } from '@evtivity/lib/ai-proposals';
@@ -49,6 +55,8 @@ export interface OpsModelDeps {
     provider: ProviderId,
     options: { apiKey: string; baseUrl?: string },
   ) => AiAdapter;
+  /** The provider quota alert gate; default `aiProviderGate` (tests pass a state). */
+  providerGate?: (provider: ProviderId) => Promise<AiProviderGate>;
   encryptionKey: string;
   allowPrivateHosts: boolean;
 }
@@ -60,6 +68,8 @@ export type OpsNarrativeResult =
   /** No provider, key or valid base URL for the surface. */
   | { kind: 'not_configured' }
   | { kind: 'budget'; code: string }
+  /** The provider account is out of credit or quota (an active provider alert). */
+  | { kind: 'provider_paused' }
   | { kind: 'error' };
 
 function clean(text: string): string {
@@ -109,13 +119,18 @@ export async function runOpsNarrative(
     return { kind: 'budget', code: 'AI_BUDGET_UNAVAILABLE' };
   }
   if (!decision.allowed) return { kind: 'budget', code: decision.code };
+  // A provider out of credit or quota is not called, except one probe per
+  // interval that clears the alert once the account answers again.
+  if ((await (deps.providerGate ?? aiProviderGate)(provider)) === 'paused') {
+    return { kind: 'provider_paused' };
+  }
 
   const language = promptLanguage(settings.insights.primaryLanguage);
   const system = opsSystemPrompt(request.job, language, config.systemPrompt, request.actionRule);
   const create =
     deps.createAdapter ??
     ((p: ProviderId, options: { apiKey: string; baseUrl?: string }) =>
-      getProviderRegistry().create(p, options));
+      trackAiProviderCalls(getProviderRegistry().create(p, options)));
   try {
     const adapter = create(provider, {
       apiKey: config.apiKey,
@@ -148,15 +163,17 @@ export async function runOpsNarrative(
     );
     try {
       const prices = getModelEntry(provider, model)?.prices ?? null;
-      await recordAiUsage({
-        surface: 'worker',
-        siteId: request.siteId,
-        workerRunId: String(request.workerRunId),
-        provider,
-        model,
-        usage: result.usage,
-        costMicros: prices === null ? null : aiUsageCostMicros(result.usage, prices),
-      });
+      await dispatchAiBudgetNotices(
+        await recordAiUsage({
+          surface: 'worker',
+          siteId: request.siteId,
+          workerRunId: String(request.workerRunId),
+          provider,
+          model,
+          usage: result.usage,
+          costMicros: prices === null ? null : aiUsageCostMicros(result.usage, prices),
+        }),
+      );
     } catch (err) {
       // fail-open: the call already ran; a lost ledger row is logged (P9).
       log.warn({ err, job: request.job, siteId: request.siteId }, 'AI worker usage not recorded');

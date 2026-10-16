@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const { apiMock, perms, toastMock } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), post: vi.fn() },
@@ -33,9 +34,11 @@ function renderRow(station: StationAiInsightsState): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <dl>
-        <StationAiInsightsRow stationId="sta_1" station={station} timezone="UTC" />
-      </dl>
+      <MemoryRouter>
+        <dl>
+          <StationAiInsightsRow stationId="sta_1" station={station} timezone="UTC" />
+        </dl>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -118,6 +121,46 @@ describe('StationAiInsightsRow', () => {
       aiInsightsSuppressedAt: null,
     });
     expect(screen.getByText('stations.aiInsights.maintenance')).toBeDefined();
+    expect(screen.queryByRole('button', { name: 'stations.aiInsights.resume' })).toBeNull();
+  });
+
+  it('shows the suppression of its site with a site link and no Resume button', () => {
+    perms.add('stations:write');
+    renderRow({
+      siteId: 'sit_1',
+      siteName: 'Main Street',
+      aiInsightsSuppressed: true,
+      aiInsightsSuppressedSources: ['station', 'site'],
+      aiInsightsSuppressedAt: '2026-10-15T10:00:00Z',
+      aiInsightsSuppressedUntil: null,
+      aiInsightsSuppressedByName: 'Ada Lovelace',
+      aiInsightsSuppressedReason: 'Own reason',
+    });
+    const withSite = screen.getByTestId('station-ai-insights-with-site');
+    expect(withSite.textContent).toContain('stations.aiInsights.withSite');
+    const link = within(withSite).getByRole('link', { name: 'Main Street' });
+    expect(link.getAttribute('href')).toBe('/sites/sit_1');
+    // Its own suppression stays visible, kept for when the site resumes.
+    expect(screen.getByTestId('station-ai-insights-detail').textContent).toContain(
+      'stations.aiInsights.untilResumed',
+    );
+    expect(screen.queryByRole('button', { name: 'stations.aiInsights.resume' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'stations.aiInsights.suppress' })).toBeNull();
+  });
+
+  it('keeps Suppress for a station suppressed only with its site', () => {
+    perms.add('stations:write');
+    renderRow({
+      siteId: 'sit_1',
+      siteName: 'Main Street',
+      aiInsightsSuppressed: true,
+      aiInsightsSuppressedSources: ['site'],
+      aiInsightsSuppressedAt: null,
+    });
+    expect(screen.getByTestId('station-ai-insights-badge').textContent).toBe(
+      'stations.aiInsights.suppressed',
+    );
+    expect(screen.getByRole('button', { name: 'stations.aiInsights.suppress' })).toBeDefined();
     expect(screen.queryByRole('button', { name: 'stations.aiInsights.resume' })).toBeNull();
   });
 });

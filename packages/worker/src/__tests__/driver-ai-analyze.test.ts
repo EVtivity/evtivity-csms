@@ -26,7 +26,7 @@ const svc = vi.hoisted(() => ({
   storeDriverAiAnswer: vi.fn(),
 }));
 const ev = vi.hoisted(() => ({ collectDriverSupportEvidence: vi.fn() }));
-const ledger = vi.hoisted(() => ({ recordAiUsage: vi.fn() }));
+const ledger = vi.hoisted(() => ({ recordAiUsage: vi.fn().mockResolvedValue([]) }));
 const dbState = vi.hoisted(() => ({
   driver: { is_active: true, language: 'en' },
   casesUpTo: 1,
@@ -161,6 +161,7 @@ function deps(steps: ScriptedStep[], over: Partial<Deps> = {}) {
     resolveConfig: () => CONFIG,
     createAdapter: () => adapter,
     checkBudgets: () => Promise.resolve({ allowed: true }),
+    providerGate: () => Promise.resolve('open'),
     systemTimezone: () => Promise.resolve('UTC'),
     now: () => new Date('2026-10-11T12:00:00Z'),
     ...over,
@@ -307,6 +308,17 @@ describe('analyzeDriverAiCase', () => {
     );
     expect(svc.escalateFromAi).toHaveBeenCalledWith(
       expect.objectContaining({ state: 'skipped', reason: 'budget_exceeded' }),
+    );
+  });
+
+  it('a provider out of credit or quota: skipped/provider_paused, no call, the case goes to operators', async () => {
+    const { deps: d, adapter } = deps([], {
+      providerGate: () => Promise.resolve('paused'),
+    });
+    expect(await analyzeDriverAiCase('cas_1', d, log)).toBe('skipped');
+    expect(adapter.calls).toHaveLength(0);
+    expect(svc.escalateFromAi).toHaveBeenCalledWith(
+      expect.objectContaining({ from: ['queued'], state: 'skipped', reason: 'provider_paused' }),
     );
   });
 

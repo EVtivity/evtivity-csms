@@ -193,6 +193,14 @@ export const openaiTarget: AdapterContractTarget = {
       503,
       apiError('The server is overloaded', 'server_error', 'server_is_overloaded'),
     ),
+    error_quota_exceeded: jsonErrorFixture(
+      429,
+      apiError(
+        'You exceeded your current quota, please check your plan and billing details.',
+        'insufficient_quota',
+        'insufficient_quota',
+      ),
+    ),
     error_context: jsonErrorFixture(
       400,
       apiError(

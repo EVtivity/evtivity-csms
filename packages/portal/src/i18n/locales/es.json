@@ -584,6 +584,7 @@
     "AI_MODEL_UNAVAILABLE": "El modelo de IA configurado no existe o fue retirado",
     "AI_PROVIDER_AUTH_FAILED": "El proveedor de IA rechazó la clave de API configurada",
     "AI_PROVIDER_RATE_LIMITED": "El proveedor de IA está limitando las solicitudes. Inténtalo de nuevo en breve",
+    "AI_PROVIDER_QUOTA_EXCEEDED": "La cuenta del proveedor de IA no tiene saldo ni cuota. Un administrador debe añadir saldo o aumentar la cuota",
     "AI_PROVIDER_UNAVAILABLE": "El proveedor de IA no está disponible. Inténtalo más tarde",
     "AI_RATE_LIMITED": "Demasiadas solicitudes de IA. Inténtalo de nuevo en un minuto",
     "ALERT_NOT_FOUND": "Alerta no encontrada",
@@ -907,7 +908,8 @@
     "SESSION_REQUIRED": "Esta acción requiere una sesión iniciada. Las claves de API no pueden usarla.",
     "MFA_LOCKED": "Demasiados códigos incorrectos. Espere antes de volver a intentarlo.",
     "MFA_RESEND_LIMITED": "Se enviaron demasiados códigos. Espere antes de solicitar otro.",
-    "USER_SSO_MANAGED": "Este usuario inicia sesión con SSO y no tiene contraseña que establecer."
+    "USER_SSO_MANAGED": "Este usuario inicia sesión con SSO y no tiene contraseña que establecer.",
+    "STATION_SITE_SUPPRESSED": "Los análisis de IA del sitio de la estación están suprimidos. Reanude el sitio para reanudar sus estaciones"
   },
   "validation": {
     "required": "Este campo es obligatorio",

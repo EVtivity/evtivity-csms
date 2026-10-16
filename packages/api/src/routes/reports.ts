@@ -85,6 +85,10 @@ import {
 } from '@evtivity/services/report.service';
 import { REPORT_FORMATS } from '@evtivity/services/report-registry';
 import {
+  writeReportDownloadedAudit,
+  writeReportGeneratedAudit,
+} from '@evtivity/services/report-audit';
+import {
   intersectSiteScopes,
   siteScopeVisibleTo,
   type ReportSiteScope,
@@ -369,6 +373,8 @@ export function reportRoutes(app: FastifyInstance): void {
           fileData: reports.fileData,
           fileName: reports.fileName,
           format: reports.format,
+          name: reports.name,
+          reportType: reports.reportType,
         })
         .from(reports)
         .where(and(eq(reports.id, id), siteScopeVisibleTo(reports.siteScope, userScope)));
@@ -385,10 +391,23 @@ export function reportRoutes(app: FastifyInstance): void {
       };
 
       const contentType = contentTypes[report.format] ?? 'application/octet-stream';
+      const fileName = report.fileName ?? 'report';
+
+      await writeReportDownloadedAudit(
+        {
+          reportId: id,
+          name: report.name,
+          reportType: report.reportType,
+          format: report.format,
+          fileName,
+        },
+        getAuditActor(request),
+        request.log,
+      );
 
       await reply
         .header('Content-Type', contentType)
-        .header('Content-Disposition', `attachment; filename="${report.fileName ?? 'report'}"`)
+        .header('Content-Disposition', `attachment; filename="${fileName}"`)
         .send(report.fileData);
     },
   );
@@ -452,6 +471,20 @@ export function reportRoutes(app: FastifyInstance): void {
           siteScope: siteIds,
         },
         announceReport,
+      );
+
+      await writeReportGeneratedAudit(
+        {
+          reportId,
+          name: body.name,
+          reportType: body.reportType,
+          format: body.format,
+          filters,
+          siteScope: siteIds,
+          scheduleId: null,
+        },
+        getAuditActor(request),
+        request.log,
       );
 
       return { id: reportId, status: 'pending' };
@@ -859,6 +892,20 @@ export function reportRoutes(app: FastifyInstance): void {
           siteScope: runScope,
         },
         announceReport,
+      );
+
+      await writeReportGeneratedAudit(
+        {
+          reportId,
+          name: schedule.name,
+          reportType: schedule.reportType,
+          format: schedule.format,
+          filters,
+          siteScope: runScope,
+          scheduleId: schedule.id,
+        },
+        getAuditActor(request),
+        request.log,
       );
 
       return { id: reportId, status: 'pending' };

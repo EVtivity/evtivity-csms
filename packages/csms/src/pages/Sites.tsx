@@ -55,6 +55,7 @@ interface Site {
   stationCount: number;
   loadManagementEnabled: boolean;
   underMaintenance: boolean;
+  aiInsightsSuppressed?: boolean;
   maxPowerKw: string | null;
   totalDrawKw: string;
   createdAt: string;
@@ -87,6 +88,7 @@ export function Sites(): React.JSX.Element {
   const [updateExisting, setUpdateExisting] = useState(false);
   const [locationFilter, setLocationFilter] = useState('');
   const [loadManagementFilter, setLoadManagementFilter] = useState('');
+  const [aiInsightsFilter, setAiInsightsFilter] = useState('');
 
   const { data: filterOptions } = useQuery({
     queryKey: ['sites-filter-options'],
@@ -108,6 +110,7 @@ export function Sites(): React.JSX.Element {
     city: locationCity ?? '',
     state: locationState ?? '',
     loadManagement: loadManagementFilter,
+    aiInsights: aiInsightsFilter,
   });
 
   const importMutation = useMutation({
@@ -126,6 +129,7 @@ export function Sites(): React.JSX.Element {
     if (locationCity) params.set('city', locationCity);
     if (locationState) params.set('state', locationState);
     if (loadManagementFilter) params.set('loadManagement', loadManagementFilter);
+    if (aiInsightsFilter) params.set('aiInsights', aiInsightsFilter);
     const query = params.toString();
     const url = `${API_BASE_URL}/v1/sites/export${query ? `?${query}` : ''}`;
     void fetch(url, { credentials: 'include' })
@@ -344,10 +348,27 @@ export function Sites(): React.JSX.Element {
                 <option value="false">{t('common.no')}</option>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label className="leading-6">{t('sites.aiInsights.label')}</Label>
+              <Select
+                aria-label={t('sites.aiInsights.label')}
+                value={aiInsightsFilter}
+                onChange={(e) => {
+                  setAiInsightsFilter(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">{t('sites.aiInsights.allScopes')}</option>
+                <option value="in_scope">{t('sites.aiInsights.inScope')}</option>
+                <option value="suppressed">{t('sites.aiInsights.suppressed')}</option>
+              </Select>
+            </div>
           </>
         );
         const activeFilterCount =
-          (locationFilter !== '' ? 1 : 0) + (loadManagementFilter !== '' ? 1 : 0);
+          (locationFilter !== '' ? 1 : 0) +
+          (loadManagementFilter !== '' ? 1 : 0) +
+          (aiInsightsFilter !== '' ? 1 : 0);
         return (
           <Card>
             <CardContent className="p-4">
@@ -358,6 +379,7 @@ export function Sites(): React.JSX.Element {
                   onClearAll={() => {
                     setLocationFilter('');
                     setLoadManagementFilter('');
+                    setAiInsightsFilter('');
                     setPage(1);
                   }}
                 >
@@ -415,6 +437,11 @@ export function Sites(): React.JSX.Element {
                       {site.name}
                       {site.underMaintenance && (
                         <Badge variant="warning">{t('sites.underMaintenanceBadge')}</Badge>
+                      )}
+                      {site.aiInsightsSuppressed === true && (
+                        <Badge variant="secondary" data-testid="site-ai-suppressed-badge">
+                          {t('sites.aiInsights.listBadge')}
+                        </Badge>
                       )}
                     </span>
                   </TableCell>

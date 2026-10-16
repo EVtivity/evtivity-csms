@@ -19,8 +19,19 @@ import { OpenAiStreamMapper } from './map-stream.js';
 
 export const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 
-/** OpenAI error codes that decide the neutral code over the HTTP status. */
+/**
+ * OpenAI error codes that decide the neutral code over the HTTP status,
+ * checked in order. Billing 429s (https://developers.openai.com/api/docs/guides/error-codes):
+ * `error.type` `insufficient_quota` with `error.code` `insufficient_quota`,
+ * `credit_balance_exhausted`, `organization_spend_limit_exceeded`,
+ * `project_spend_limit_exceeded` or `organization_usage_limit_exceeded`. They
+ * come before `rate_limit_exceeded`, the 429 that recovers by waiting.
+ */
 const ERROR_CODES = {
+  insufficient_quota: 'quota_exceeded',
+  credit_balance_exhausted: 'quota_exceeded',
+  spend_limit_exceeded: 'quota_exceeded',
+  usage_limit_exceeded: 'quota_exceeded',
   context_length_exceeded: 'context_exceeded',
   model_not_found: 'model_unavailable',
   rate_limit_exceeded: 'rate_limited',

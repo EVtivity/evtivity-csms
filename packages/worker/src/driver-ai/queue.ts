@@ -25,6 +25,7 @@ import {
 } from '@evtivity/lib/driver-ai';
 import type { DriverAiRequest } from '@evtivity/lib/driver-ai';
 import { createDriverAiAdapter, resolveDriverAiConfig } from '@evtivity/services/driver-ai-config';
+import { aiProviderGate } from '@evtivity/services/ai-alerts';
 import { logJobStarted, logJobCompleted, logJobFailed } from '../job-logger.js';
 import { config } from '../lib/config.js';
 import { analyzeDriverAiCase, failDriverAiCase } from './analyze.js';
@@ -95,6 +96,7 @@ export function defaultDriverAiJobDeps(): DriverAiJobDeps {
       resolveDriverAiConfig(settings, config.SETTINGS_ENCRYPTION_KEY, nodeEnv === 'development'),
     createAdapter: createDriverAiAdapter,
     checkBudgets: checkAiBudgets,
+    providerGate: aiProviderGate,
     systemTimezone: getSystemTimezone,
     now: () => new Date(),
   };

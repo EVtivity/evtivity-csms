@@ -158,7 +158,12 @@ export const FLEET_INVOICE_EVENTS = [
 ] as const;
 
 // AI: the daily digest of AI insight actions, sent to opted-in operators who can confirm them
-export const OPERATOR_AI_EVENTS = ['ai.ProposalDigest'] as const;
+export const OPERATOR_AI_EVENTS = [
+  'ai.ProposalDigest',
+  'ai.ProviderQuotaExceeded',
+  'ai.BudgetWarning',
+  'ai.BudgetExhausted',
+] as const;
 
 export const OPERATOR_EVENT_TYPES = [
   ...OPERATOR_ACCOUNT_EVENTS,
@@ -1145,6 +1150,33 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'siteCount', description: 'Number of sites with pending actions' },
     { name: 'siteNames', description: 'Sites with pending actions, comma-separated' },
     { name: 'insightsUrl', description: 'Link to the AI insights with a pending action' },
+  ],
+  'ai.ProviderQuotaExceeded': [
+    { name: 'firstName', description: 'Operator first name' },
+    { name: 'lastName', description: 'Operator last name' },
+    { name: 'provider', description: 'AI provider id (anthropic, openai, gemini, deepseek)' },
+    { name: 'providerName', description: 'AI provider name' },
+    { name: 'since', description: 'When the provider first answered out of credit or quota' },
+  ],
+  'ai.BudgetWarning': [
+    { name: 'firstName', description: 'Operator first name' },
+    { name: 'lastName', description: 'Operator last name' },
+    { name: 'scope', description: 'Budget scope: company or site' },
+    { name: 'siteName', description: 'Site name of a site budget (empty for the company budget)' },
+    { name: 'period', description: 'Month of the budget (YYYY-MM)' },
+    { name: 'percent', description: 'Share of the budget used, in percent' },
+    { name: 'usedTokens', description: 'Budget tokens used this month' },
+    { name: 'limitTokens', description: 'Monthly token budget' },
+  ],
+  'ai.BudgetExhausted': [
+    { name: 'firstName', description: 'Operator first name' },
+    { name: 'lastName', description: 'Operator last name' },
+    { name: 'scope', description: 'Budget scope: company or site' },
+    { name: 'siteName', description: 'Site name of a site budget (empty for the company budget)' },
+    { name: 'period', description: 'Month of the budget (YYYY-MM)' },
+    { name: 'percent', description: 'Share of the budget used, in percent' },
+    { name: 'usedTokens', description: 'Budget tokens used this month' },
+    { name: 'limitTokens', description: 'Monthly token budget' },
   ],
   'site.PayoutOnboarding': [
     { name: 'siteName', description: 'Site name' },

@@ -60,7 +60,7 @@ export function Reports(): React.JSX.Element {
 
         {canReadAudit && (
           <TabsContent value="history">
-            {/* Report schedule changes and report deletes. */}
+            {/* Report schedule changes, and generated, downloaded and deleted reports. */}
             <EntityHistoryTab
               entityType="report_schedule"
               entityId={null}

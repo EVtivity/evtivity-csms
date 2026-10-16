@@ -768,6 +768,10 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   updateStationMessageTemplate: N,
   upsertSetting: N,
   // Sites
+  // What the AI watches is the operator's call: suppressing or resuming a
+  // site's AI insights is never an AI tool.
+  suppressSiteAiInsights: N,
+  resumeSiteAiInsights: N,
   addSitePricingGroup: N,
   createSite: W,
   createSiteElectricityRate: W,
@@ -972,6 +976,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // rebase: main had the routes without policy entries, so codegen failed).
   getAiSiteUsage: N,
   getAiUsage: N,
+  getAiAlerts: N,
   getMyAiUsage: N,
   // --- end R1 ---
   // --- R4 MCP (append-only lane block) ---

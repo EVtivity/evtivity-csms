@@ -31,6 +31,7 @@
  * ends it failed/provider_error, with no answer stored (TC-AI-DR-24).
  */
 
+import { dispatchAiBudgetNotices } from '@evtivity/services/ai-alerts';
 import { client, recordAiUsage } from '@evtivity/database';
 import { isUiLanguage, isValidTimezone } from '@evtivity/lib';
 import type { Logger } from '@evtivity/lib';
@@ -40,7 +41,8 @@ import type { DriverAiStateReason } from '@evtivity/lib/driver-ai';
 import type { CheckAiBudgets } from '@evtivity/lib/ai-usage';
 import { aiUsageCostMicros } from '@evtivity/lib/pricing-engine';
 import { getModelEntry } from '@evtivity/ai/core';
-import type { AiAdapter, AiMessage, AiRequest } from '@evtivity/ai/core';
+import type { AiAdapter, AiMessage, AiRequest, ProviderId } from '@evtivity/ai/core';
+import type { AiProviderGate } from '@evtivity/services/ai-alerts';
 import { promptLanguage } from '@evtivity/ai/prompt';
 import { redactProviderRequest } from '@evtivity/ai/redact';
 import { collectDriverSupportEvidence, renderEvidencePack } from '@evtivity/services/ai-evidence';
@@ -73,6 +75,8 @@ export interface DriverAiJobDeps {
   createAdapter: (config: DriverAiConfig) => AiAdapter;
   /** `checkAiBudgets` of `@evtivity/database`; tests pass a refusal. */
   checkBudgets: CheckAiBudgets;
+  /** The provider quota alert gate (`aiProviderGate`); tests pass a state. */
+  providerGate: (provider: ProviderId) => Promise<AiProviderGate>;
   /** The system timezone of the per-driver daily case cap. */
   systemTimezone: () => Promise<string>;
   now: () => Date;
@@ -178,16 +182,18 @@ export async function askDriverAiModel(input: {
       redactProviderRequest({ ...base, messages: [...messages] }, 'driver_support'),
       signal,
     );
-    await recordAiUsage({
-      surface: 'driver_support',
-      driverId: input.ledger.driverId,
-      siteId: input.ledger.siteId,
-      supportCaseId: input.ledger.supportCaseId,
-      provider: input.config.provider,
-      model: input.config.model,
-      usage: result.usage,
-      costMicros: prices == null ? null : aiUsageCostMicros(result.usage, prices),
-    });
+    await dispatchAiBudgetNotices(
+      await recordAiUsage({
+        surface: 'driver_support',
+        driverId: input.ledger.driverId,
+        siteId: input.ledger.siteId,
+        supportCaseId: input.ledger.supportCaseId,
+        provider: input.config.provider,
+        model: input.config.model,
+        usage: result.usage,
+        costMicros: prices == null ? null : aiUsageCostMicros(result.usage, prices),
+      }),
+    );
     const empty = result.text.trim() === '';
     const parsed = empty ? null : parseJsonAnswer(result.text);
     const problem = empty
@@ -252,6 +258,11 @@ export async function analyzeDriverAiCase(
   if (config == null) {
     log.warn({ caseId }, 'driverAi has no usable provider key; sent to operators');
     return end(['queued'], 'skipped', 'disabled');
+  }
+  // The provider account is out of credit or quota: the case goes to
+  // operators at once; one probe per interval still runs.
+  if ((await deps.providerGate(config.provider)) === 'paused') {
+    return end(['queued'], 'skipped', 'provider_paused');
   }
 
   if (!(await claimDriverAiAnalysis(caseId))) return 'noop';

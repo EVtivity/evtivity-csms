@@ -19,11 +19,26 @@ import { GeminiStreamMapper } from './map-stream.js';
 
 export const GEMINI_DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com';
 
-/** Google status names in the error body that decide the neutral code over the HTTP status. */
+/**
+ * Google status names and texts in the error body that decide the neutral
+ * code over the HTTP status, checked in order. Quota and credit replies come
+ * before `RESOURCE_EXHAUSTED`, which also answers per-minute limits
+ * (https://ai.google.dev/gemini-api/docs/api-errors): `quota_exceeded`
+ * ("You have exceeded your daily quota"), a `google.rpc.QuotaFailure`
+ * violation whose `quotaId` is a per-day quota (such as
+ * `GenerateRequestsPerDayPerProjectPerModel-FreeTier`), "Your project has
+ * exceeded its monthly spending cap", and 402 `payment_required` ("Your
+ * prepayment credits are depleted").
+ */
 const ERROR_CODES = {
   API_KEY_INVALID: 'auth',
   PERMISSION_DENIED: 'auth',
   UNAUTHENTICATED: 'auth',
+  payment_required: 'quota_exceeded',
+  'prepayment credits are depleted': 'quota_exceeded',
+  'spending cap': 'quota_exceeded',
+  quota_exceeded: 'quota_exceeded',
+  PerDay: 'quota_exceeded',
   RESOURCE_EXHAUSTED: 'rate_limited',
   stream_truncated: 'unavailable',
 } as const;

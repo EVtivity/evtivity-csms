@@ -8,6 +8,7 @@ import { useCanExplain, useOpenExplain } from '@/components/ai/ExplainButton';
 import { aiRequestErrorText } from '@/components/ai/ai-error-text';
 import { InsightCard } from '@/components/ai/insights/InsightCard';
 import { InsightRecordLink } from '@/components/ai/insights/InsightRecordLink';
+import { InsightSuppressShortcuts } from '@/components/ai/insights/InsightSuppressShortcuts';
 import { InsightWrongVotesCard } from '@/components/ai/insights/InsightWrongVotesCard';
 import { useInsight } from '@/components/ai/insights/insight-api';
 import type { AiInsightView } from '@/components/ai/insights/insight-api';
@@ -171,6 +172,11 @@ export function AiInsightDetail(): React.JSX.Element {
                   </Link>
                 </Row>
               )}
+              <InsightSuppressShortcuts
+                stationId={insight.stationId ?? null}
+                siteId={insight.siteId ?? null}
+                timezone={timezone}
+              />
               <Row label={t('common.created')}>{formatDateTime(insight.createdAt, timezone)}</Row>
               {insight.resolvedAt != null && (
                 <Row label={t('aiInsights.status.resolved')}>

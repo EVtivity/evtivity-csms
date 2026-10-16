@@ -179,7 +179,12 @@ export function GeneratedReportsTab(): React.JSX.Element {
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            void downloadReport(report.id, report.name);
+                            // A download is listed in the page's History.
+                            void downloadReport(report.id, report.name).finally(() => {
+                              void queryClient.invalidateQueries({
+                                queryKey: ['audit', 'report_schedule'],
+                              });
+                            });
                           }}
                         >
                           {t('reports.download')}

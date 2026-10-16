@@ -161,6 +161,7 @@ export const deepseekTarget: AdapterContractTarget = {
       'retry-after': '7',
     }),
     error_overloaded: jsonErrorFixture(503, apiError('Server Overloaded', 'server_error')),
+    error_quota_exceeded: jsonErrorFixture(402, apiError('Insufficient Balance', 'unknown_error')),
     error_context: jsonErrorFixture(
       400,
       apiError(

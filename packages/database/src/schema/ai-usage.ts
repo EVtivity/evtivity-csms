@@ -99,3 +99,27 @@ export const aiBudgetNotices = pgTable(
     check('ai_budget_notices_level_check', sql`${table.level} IN ('warn', 'exceeded')`),
   ],
 );
+
+/**
+ * The quota alert of an AI provider (migration 0475): set when a call with
+ * the company key fails because the provider account is out of credit or
+ * over its quota, cleared by the next successful call to that provider. One
+ * row per provider, kept after it clears, so the daily notification claim
+ * (`notified_on`) holds across an alert that clears and comes back.
+ * `packages/database/src/lib/ai-provider-alerts.ts` is the only writer.
+ */
+export const aiProviderAlerts = pgTable('ai_provider_alerts', {
+  /** anthropic, openai, gemini or deepseek. */
+  provider: varchar('provider', { length: 20 }).primaryKey(),
+  /** When the current (or last) alert started. */
+  sinceAt: timestamp('since_at', { withTimezone: true }).notNull(),
+  /** The latest quota failure. */
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+  /** Null while the alert is active. */
+  clearedAt: timestamp('cleared_at', { withTimezone: true }),
+  /** The latest background call allowed through as a probe, or the latest failure. */
+  lastProbeAt: timestamp('last_probe_at', { withTimezone: true }),
+  /** The day (YYYY-MM-DD, system timezone) of the last notification: one per provider and day. */
+  notifiedOn: varchar('notified_on', { length: 10 }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

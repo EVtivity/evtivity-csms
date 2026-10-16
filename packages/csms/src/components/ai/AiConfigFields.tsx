@@ -7,6 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AI_EFFORTS,
   AI_PROVIDER_IDS,
+  AI_PROVIDER_LABELS,
   AI_SUPPORT_TONES,
   DEFAULT_AI_EFFORT,
   DEFAULT_AI_SUPPORT_TONE,
@@ -30,12 +31,7 @@ import { AiSystemPromptField } from './AiSystemPromptField';
 import { isCustomModel, isDefaultPrompt, useAiDefaults } from './use-ai-defaults';
 
 /** Product names, the same in every language. */
-export const PROVIDER_LABELS: Record<AiProviderId, string> = {
-  anthropic: 'Anthropic',
-  openai: 'OpenAI',
-  gemini: 'Google Gemini',
-  deepseek: 'DeepSeek',
-};
+export const PROVIDER_LABELS: Readonly<Record<AiProviderId, string>> = AI_PROVIDER_LABELS;
 
 interface SelectFieldProps {
   id: string;

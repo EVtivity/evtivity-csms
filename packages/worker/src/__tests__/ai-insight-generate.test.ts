@@ -194,13 +194,14 @@ function deps(
   options: {
     caps?: Partial<ModelCapabilities>;
     budget?: boolean;
+    gate?: 'open' | 'probe' | 'paused';
     overrides?: Record<string, unknown>;
   } = {},
 ) {
   const adapter = createScriptedAdapter(steps, {
     capabilities: { ...UNKNOWN_MODEL_CAPABILITIES, ...(options.caps ?? {}) },
   });
-  const recordUsage = ledger.recordAiUsage.mockResolvedValue(undefined);
+  const recordUsage = ledger.recordAiUsage.mockResolvedValue([]);
   const checkBudgets = vi.fn().mockResolvedValue(
     options.budget === false
       ? {
@@ -224,6 +225,7 @@ function deps(
     }),
     createAdapter: () => adapter,
     checkBudgets,
+    providerGate: () => Promise.resolve(options.gate ?? 'open'),
     pubsub,
     now: () => new Date('2026-10-10T10:05:00Z'),
     subjectSecret: 'test-subject-secret',
@@ -285,6 +287,24 @@ describe('insight generation', () => {
       scope: SCOPE,
     });
     expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('a provider out of credit or quota skips with provider_paused and makes no provider request', async () => {
+    const { d, adapter } = deps([], { gate: 'paused' });
+    expect(await generateInsight('ain_1', d, log)).toBe('skipped');
+    expect(svc.skipInsight).toHaveBeenCalledWith('ain_1', 'provider_paused', {
+      category: INSIGHT_KIND_FALLBACKS.station_offline.category,
+      confidence: 'low',
+      fixes: INSIGHT_KIND_FALLBACKS.station_offline.fixes.map((code) => ({ code })),
+      scope: SCOPE,
+    });
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('the probe of a paused provider still asks the model, so the alert can clear', async () => {
+    const { d, adapter } = deps([{ events: answer(GOOD) }], { gate: 'probe' });
+    expect(await generateInsight('ain_1', d, log)).toBe('model');
+    expect(adapter.calls).toHaveLength(1);
   });
 
   it('TC-AI-IN-06 a known cause still gets its rule insight when the budget is used up', async () => {

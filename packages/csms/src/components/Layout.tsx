@@ -9,6 +9,7 @@ import { Menu, X, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { AiAssistantLauncher } from '@/components/ai/AiAssistantLauncher';
+import { AiAlertsBanner } from '@/components/ai/alerts/AiAlertsBanner';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { UserDropdown } from '@/components/layout/UserDropdown';
 import { useAuth, useHasAllSiteAccess } from '@/lib/auth';
@@ -140,6 +141,9 @@ export function Layout(): React.JSX.Element {
     setMobileNavOpen(false);
   }, [location.pathname]);
 
+  const onAiSettings =
+    location.pathname === '/settings' && new URLSearchParams(location.search).get('tab') === 'ai';
+
   return (
     <div className="flex h-screen">
       {/* Desktop sidebar */}
@@ -221,6 +225,8 @@ export function Layout(): React.JSX.Element {
           </div>
         </header>
         <main className="flex-1 overflow-auto bg-background px-4 py-4 lg:px-6 lg:py-6">
+          {/* Settings > AI shows the same alerts at its top. */}
+          {!onAiSettings && <AiAlertsBanner className="mb-4" />}
           <Outlet />
         </main>
       </div>

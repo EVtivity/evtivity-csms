@@ -622,7 +622,27 @@
     "freeVendRestoreDescription": "무료 충전을 끌 때 전달됩니다. 인증을 켜고, 무료 충전을 켤 때 충전소가 보고한 값을 사용합니다. 각 템플릿에서 전달 결과를 볼 수 있습니다.",
     "autocharge": "Autocharge",
     "autochargeDescription": "이 사이트 충전소에서 플러그를 꽂아 충전합니다. 여기에서 켜거나 끄지 않으면 회사 설정이 적용됩니다.",
-    "autochargeDefault": "회사 설정 사용"
+    "autochargeDefault": "회사 설정 사용",
+    "aiInsights": {
+      "label": "AI 인사이트",
+      "inScope": "적용 중",
+      "suppressed": "중지됨",
+      "allScopes": "전체",
+      "listBadge": "AI 인사이트 중지됨",
+      "suppress": "중지",
+      "resume": "재개",
+      "until": "{{date}}까지",
+      "untilResumed": "재개할 때까지",
+      "by": "{{name}}: {{reason}}",
+      "maintenance": "활성 유지보수 이벤트가 사이트 전체를 포함하는 동안 중지됨",
+      "suppressTitle": "이 사이트의 AI 인사이트를 중지하시겠습니까?",
+      "suppressDescription": "종료일까지 또는 재개할 때까지 이 사이트와 나중에 추가되는 충전소를 포함한 모든 충전소에 대해 새 AI 인사이트나 제안된 작업이 생성되지 않습니다. 사이트와 충전소의 열려 있는 인사이트는 해제되고 대기 중인 작업은 만료됩니다.",
+      "resumeTitle": "이 사이트의 AI 인사이트를 재개하시겠습니까?",
+      "resumeDescription": "AI 인사이트가 이 사이트와 충전소를 다시 감시합니다. 자체 중지가 설정된 충전소는 계속 중지됩니다.",
+      "suppressedToast": "AI 인사이트가 중지되었습니다",
+      "resumedToast": "AI 인사이트가 재개되었습니다",
+      "failed": "사이트의 AI 인사이트를 변경하지 못했습니다"
+    }
   },
   "stations": {
     "title": "충전소",
@@ -1019,7 +1039,8 @@
       "resumeDescription": "AI 인사이트가 이 충전소를 다시 감시합니다.",
       "suppressedToast": "AI 인사이트가 중지되었습니다",
       "resumedToast": "AI 인사이트가 재개되었습니다",
-      "failed": "충전소의 AI 인사이트를 변경하지 못했습니다"
+      "failed": "충전소의 AI 인사이트를 변경하지 못했습니다",
+      "withSite": "사이트와 함께 중지됨"
     }
   },
   "eventAlertRules": {
@@ -3013,6 +3034,9 @@
       "invoice.FleetCreditNote": "차량대 크레딧 노트 발행",
       "invoice.FleetOverdue": "차량대 청구서 연체",
       "ai.ProposalDigest": "AI 인사이트 작업 요약",
+      "ai.ProviderQuotaExceeded": "AI 공급자 크레딧 또는 할당량 소진",
+      "ai.BudgetWarning": "AI 예산 경고",
+      "ai.BudgetExhausted": "AI 예산 소진",
       "session.AutochargeStarted": "Autocharge 세션 시작"
     },
     "templatePreviewInvalid": "템플릿에 오류가 있습니다:",
@@ -3154,6 +3178,7 @@
     "AI_MODEL_UNAVAILABLE": "구성된 AI 모델이 없거나 지원이 종료되었습니다",
     "AI_PROVIDER_AUTH_FAILED": "AI 공급자가 구성된 API 키를 거부했습니다",
     "AI_PROVIDER_RATE_LIMITED": "AI 공급자가 요청을 제한하고 있습니다. 잠시 후 다시 시도하세요",
+    "AI_PROVIDER_QUOTA_EXCEEDED": "AI 공급자 계정의 크레딧 또는 할당량이 소진되었습니다. 관리자가 크레딧을 추가하거나 할당량을 늘려야 합니다",
     "AI_PROVIDER_UNAVAILABLE": "AI 공급자를 사용할 수 없습니다. 나중에 다시 시도하세요",
     "AI_RATE_LIMITED": "AI 요청이 너무 많습니다. 1분 후에 다시 시도하세요",
     "ALERT_NOT_FOUND": "알림을 찾을 수 없습니다",
@@ -3477,7 +3502,8 @@
     "SESSION_REQUIRED": "이 작업에는 로그인 세션이 필요합니다. API 키로는 사용할 수 없습니다.",
     "MFA_LOCKED": "잘못된 코드가 너무 많습니다. 잠시 후 다시 시도하세요.",
     "MFA_RESEND_LIMITED": "코드를 너무 많이 보냈습니다. 잠시 후 다시 요청하세요.",
-    "USER_SSO_MANAGED": "이 사용자는 SSO로 로그인하므로 설정할 비밀번호가 없습니다."
+    "USER_SSO_MANAGED": "이 사용자는 SSO로 로그인하므로 설정할 비밀번호가 없습니다.",
+    "STATION_SITE_SUPPRESSED": "충전소가 속한 사이트의 AI 인사이트가 중지되었습니다. 사이트를 재개하면 충전소도 재개됩니다"
   },
   "logs": {
     "title": "로그",
@@ -3780,7 +3806,8 @@
         "no_feedback": "운전자 피드백 없음",
         "driver_replied": "운전자가 메시지를 작성함",
         "driver_declined_answer": "답변이 운전자에게 도움이 되지 않음",
-        "driver_inactive": "운전자 계정이 비활성 상태입니다"
+        "driver_inactive": "운전자 계정이 비활성 상태입니다",
+        "provider_paused": "AI 공급자 크레딧 또는 할당량 소진"
       },
       "resolutionSource": {
         "operator": "지원팀",
@@ -4642,6 +4669,8 @@
       "event_settings_changed": "이벤트 설정 변경됨",
       "reset": "기본값으로 재설정됨",
       "report_deleted": "보고서 삭제됨",
+      "report_downloaded": "보고서 다운로드됨",
+      "report_generated": "보고서 생성됨",
       "autocharge_enabled": "Autocharge 켜짐",
       "autocharge_disabled": "Autocharge 꺼짐",
       "autocharge_blocked": "차량 차단",
@@ -5093,7 +5122,8 @@
       "site_daily_cap": "사이트의 일일 인사이트 한도에 도달했습니다",
       "site_disabled": "이 사이트의 인사이트가 꺼져 있습니다",
       "budget_exceeded": "AI 예산을 모두 사용했습니다",
-      "disabled": "자동 인사이트가 꺼졌습니다"
+      "disabled": "자동 인사이트가 꺼졌습니다",
+      "provider_paused": "AI 공급자 계정의 크레딧 또는 할당량이 소진되었습니다"
     },
     "fix": {
       "check_network_connection": "충전소의 네트워크 연결 확인",
@@ -5202,7 +5232,15 @@
       "reservation": "예약",
       "driver": "운전자",
       "token": "토큰",
-      "partOf": "상위 항목"
+      "partOf": "상위 항목",
+      "suppressionLabel": "AI 인사이트",
+      "suppressStation": "이 충전소에서 중지",
+      "suppressSite": "이 사이트에서 중지",
+      "stationSuppressedUntil": "충전소 {{date}}까지 중지됨",
+      "stationSuppressedUntilResumed": "충전소 재개할 때까지 중지됨",
+      "stationSuppressedWithSite": "충전소가 사이트와 함께 중지됨",
+      "siteSuppressedUntil": "사이트 {{date}}까지 중지됨",
+      "siteSuppressedUntilResumed": "사이트 재개할 때까지 중지됨"
     },
     "likelyCause": "추정 원인",
     "staleNote": "이 분석 후 기록이 변경되었습니다. 최신 분석을 받으려면 다시 생성하세요.",
@@ -5371,6 +5409,14 @@
     "siteInsights": "자동 인사이트",
     "siteInsightsHelp": "이 사이트의 자동 인사이트를 중지하려면 끄십시오.",
     "allSitesOnly": "모든 사이트에 접근할 수 있는 사용자만 변경할 수 있습니다."
+  },
+  "aiAlerts": {
+    "providerTitle": "{{provider}} 크레딧 또는 할당량 소진",
+    "providerBody": "{{since}}부터 계정의 크레딧 또는 할당량이 소진되어 {{provider}}에서 AI 요청을 거부하고 있습니다. 이 공급자를 사용하는 AI 기능이 일시 중지되었습니다. 공급자에서 크레딧을 추가하거나 할당량을 늘리세요. 다음 요청이 성공하면 알림이 사라집니다.",
+    "openSettings": "AI 설정 열기",
+    "budgetWarningTitle": "AI 예산 경고",
+    "budgetExhaustedTitle": "AI 예산 소진",
+    "openUsage": "AI 사용량 보기"
   },
   "stationChargingNeeds": {
     "needsTitle": "EV 충전 요구",

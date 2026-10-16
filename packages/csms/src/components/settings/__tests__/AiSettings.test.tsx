@@ -12,6 +12,8 @@ const { putMock, getMock, permissions } = vi.hoisted(() => ({
   permissions: { write: true },
 }));
 
+// The AI alert banner has its own test (AiAlertsBanner.test.tsx).
+vi.mock('@/components/ai/alerts/AiAlertsBanner', () => ({ AiAlertsBanner: () => null }));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'de' } }),
 }));

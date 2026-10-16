@@ -622,7 +622,27 @@
     "freeVendRestoreDescription": "關閉免費充電時推送：開啟授權，並使用開啟免費充電時充電站回報的值。每個範本列出其推送結果。",
     "autocharge": "Autocharge",
     "autochargeDescription": "在此站點的充電站插槍即充。除非在此處開啟或關閉，否則適用公司設定。",
-    "autochargeDefault": "使用公司設定"
+    "autochargeDefault": "使用公司設定",
+    "aiInsights": {
+      "label": "AI 洞察",
+      "inScope": "已啟用",
+      "suppressed": "已暫停",
+      "allScopes": "全部",
+      "listBadge": "AI 洞察已暫停",
+      "suppress": "暫停",
+      "resume": "恢復",
+      "until": "直到 {{date}}",
+      "untilResumed": "直到恢復",
+      "by": "{{name}}：{{reason}}",
+      "maintenance": "在進行中的維護活動涵蓋整個站點期間暫停",
+      "suppressTitle": "暫停此站點的 AI 洞察？",
+      "suppressDescription": "在結束日期之前或在您恢復之前，不會為此站點及其所有充電站（包括之後新增的充電站）建立新的 AI 洞察或建議操作。站點及其充電站未關閉的洞察將被忽略，等待中的操作將過期。",
+      "resumeTitle": "恢復此站點的 AI 洞察？",
+      "resumeDescription": "AI 洞察將重新監測此站點及其充電站。單獨暫停的充電站仍保持暫停。",
+      "suppressedToast": "AI 洞察已暫停",
+      "resumedToast": "AI 洞察已恢復",
+      "failed": "無法變更此站點的 AI 洞察"
+    }
   },
   "stations": {
     "title": "充電站",
@@ -1019,7 +1039,8 @@
       "resumeDescription": "AI 洞察將重新監測此充電站。",
       "suppressedToast": "AI 洞察已暫停",
       "resumedToast": "AI 洞察已恢復",
-      "failed": "無法變更此充電站的 AI 洞察"
+      "failed": "無法變更此充電站的 AI 洞察",
+      "withSite": "隨站點暫停"
     }
   },
   "eventAlertRules": {
@@ -3013,6 +3034,9 @@
       "invoice.FleetCreditNote": "車隊貸項通知單已開立",
       "invoice.FleetOverdue": "車隊發票逾期",
       "ai.ProposalDigest": "AI 洞察操作摘要",
+      "ai.ProviderQuotaExceeded": "AI 供應商額度或配額已用完",
+      "ai.BudgetWarning": "AI 預算警告",
+      "ai.BudgetExhausted": "AI 預算已用完",
       "session.AutochargeStarted": "Autocharge 充電工作階段已開始"
     },
     "templatePreviewInvalid": "範本有錯誤：",
@@ -3154,6 +3178,7 @@
     "AI_MODEL_UNAVAILABLE": "設定的 AI 模型不存在或已停用",
     "AI_PROVIDER_AUTH_FAILED": "AI 供應商拒絕了設定的 API 金鑰",
     "AI_PROVIDER_RATE_LIMITED": "AI 供應商正在限制請求，請稍後重試",
+    "AI_PROVIDER_QUOTA_EXCEEDED": "AI 供應商帳戶的額度或配額已用完。管理員必須儲值或提高配額",
     "AI_PROVIDER_UNAVAILABLE": "AI 供應商無法使用，請稍後重試",
     "AI_RATE_LIMITED": "AI 請求過多，請一分鐘後重試",
     "ALERT_NOT_FOUND": "找不到警示",
@@ -3477,7 +3502,8 @@
     "SESSION_REQUIRED": "此操作需要登入工作階段。API 金鑰無法使用此操作。",
     "MFA_LOCKED": "錯誤驗證碼過多。請稍後再試。",
     "MFA_RESEND_LIMITED": "傳送的驗證碼過多。請稍後再請求。",
-    "USER_SSO_MANAGED": "此使用者透過 SSO 登入，沒有可設定的密碼。"
+    "USER_SSO_MANAGED": "此使用者透過 SSO 登入，沒有可設定的密碼。",
+    "STATION_SITE_SUPPRESSED": "該充電站所屬站點的 AI 洞察已暫停。恢復站點即可恢復其充電站"
   },
   "logs": {
     "title": "日誌",
@@ -3780,7 +3806,8 @@
         "no_feedback": "駕駛員未回饋",
         "driver_replied": "駕駛員傳送了訊息",
         "driver_declined_answer": "回覆沒有幫到駕駛員",
-        "driver_inactive": "駕駛員帳戶已停用"
+        "driver_inactive": "駕駛員帳戶已停用",
+        "provider_paused": "AI 供應商額度或配額已用完"
       },
       "resolutionSource": {
         "operator": "客服團隊",
@@ -4642,6 +4669,8 @@
       "event_settings_changed": "事件設定已變更",
       "reset": "已重設為預設",
       "report_deleted": "報告已刪除",
+      "report_downloaded": "報告已下載",
+      "report_generated": "報告已產生",
       "autocharge_enabled": "已開啟 Autocharge",
       "autocharge_disabled": "已關閉 Autocharge",
       "autocharge_blocked": "車輛已封鎖",
@@ -5093,7 +5122,8 @@
       "site_daily_cap": "已達到站點每日洞察上限",
       "site_disabled": "此站點的洞察已關閉",
       "budget_exceeded": "AI 預算已用完",
-      "disabled": "自動洞察已關閉"
+      "disabled": "自動洞察已關閉",
+      "provider_paused": "AI 供應商帳戶的額度或配額已用完"
     },
     "fix": {
       "check_network_connection": "檢查充電站的網路連線",
@@ -5202,7 +5232,15 @@
       "reservation": "預約",
       "driver": "駕駛員",
       "token": "權杖",
-      "partOf": "所屬"
+      "partOf": "所屬",
+      "suppressionLabel": "AI 洞察",
+      "suppressStation": "為此充電站暫停",
+      "suppressSite": "為此站點暫停",
+      "stationSuppressedUntil": "充電站暫停至 {{date}}",
+      "stationSuppressedUntilResumed": "充電站暫停直到恢復",
+      "stationSuppressedWithSite": "充電站隨站點暫停",
+      "siteSuppressedUntil": "站點暫停至 {{date}}",
+      "siteSuppressedUntilResumed": "站點暫停直到恢復"
     },
     "likelyCause": "可能原因",
     "staleNote": "此分析之後記錄已變更。請重新產生以取得最新分析。",
@@ -5371,6 +5409,14 @@
     "siteInsights": "自動洞察",
     "siteInsightsHelp": "關閉後將停止此站點的自動洞察。",
     "allSitesOnly": "只有可存取所有站點的使用者才能變更此項。"
+  },
+  "aiAlerts": {
+    "providerTitle": "{{provider}} 額度或配額已用完",
+    "providerBody": "自 {{since}} 起，{{provider}} 因帳戶額度或配額已用完而拒絕 AI 請求。使用此供應商的 AI 功能已暫停。請在供應商處儲值或提高配額，下一次請求成功後此提醒將消失。",
+    "openSettings": "開啟 AI 設定",
+    "budgetWarningTitle": "AI 預算警告",
+    "budgetExhaustedTitle": "AI 預算已用完",
+    "openUsage": "檢視 AI 用量"
   },
   "stationChargingNeeds": {
     "needsTitle": "電動車充電需求",

@@ -112,6 +112,7 @@ import { circuitRoutes } from './routes/circuits.js';
 import { unmanagedLoadRoutes } from './routes/unmanaged-loads.js';
 import { assistantRoutes } from './routes/assistant.js';
 import { aiUsageRoutes } from './routes/ai-usage.js';
+import { aiAlertsRoutes } from './routes/ai-alerts.js';
 import { mcpRoutes } from './routes/mcp.js';
 import { aiInsightRoutes } from './routes/ai-insights.js';
 import { assistantAttachmentRoutes } from './routes/assistant-attachments.js';
@@ -270,6 +271,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(unmanagedLoadRoutes);
       await v1.register(assistantRoutes);
       await v1.register(aiUsageRoutes);
+      await v1.register(aiAlertsRoutes);
       await v1.register(mcpRoutes);
       await v1.register(aiInsightRoutes);
       await v1.register(assistantAttachmentRoutes);

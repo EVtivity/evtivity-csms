@@ -19,11 +19,16 @@ import { DeepSeekStreamMapper } from './map-stream.js';
 
 export const DEEPSEEK_DEFAULT_BASE_URL = 'https://api.deepseek.com';
 
-/** DeepSeek error texts that decide the neutral code over the HTTP status. */
+/**
+ * DeepSeek error texts that decide the neutral code over the HTTP status.
+ * "Insufficient Balance" is HTTP 402, "You have run out of balance"
+ * (https://api-docs.deepseek.com/quick_start/error_codes): the account needs
+ * a top-up, so it is `quota_exceeded`, not the 429 "Rate Limit Reached".
+ */
 const ERROR_CODES = {
   insufficient_system_resource: 'overloaded',
   stream_truncated: 'unavailable',
-  'Insufficient Balance': 'rate_limited',
+  'Insufficient Balance': 'quota_exceeded',
   'Model Not Exist': 'model_unavailable',
 } as const;
 

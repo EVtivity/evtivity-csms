@@ -13,14 +13,21 @@
  */
 
 import type { FastifyBaseLogger } from 'fastify';
-import { eq } from 'drizzle-orm';
-import { db, chargingStations, stationAuditLog, users, writeAudit } from '@evtivity/database';
+import { and, eq, sql } from 'drizzle-orm';
+import {
+  db,
+  chargingStations,
+  stationAuditLog,
+  stationSiteInsightsSuppressedSql,
+  users,
+  writeAudit,
+} from '@evtivity/database';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { dismissStationInsights } from '@evtivity/services/ai-insight.service';
 import { expireStationAiProposals } from '@evtivity/services/ai-proposal.service';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 
-export interface StationAiSuppression {
+export interface AiInsightSuppression {
   suppressedAt: Date | null;
   suppressedUntil: Date | null;
   suppressedBy: string | null;
@@ -28,12 +35,12 @@ export interface StationAiSuppression {
   reason: string | null;
 }
 
-export interface SuppressResult extends StationAiSuppression {
+export interface SuppressResult extends AiInsightSuppression {
   insightsDismissed: number;
   actionsExpired: number;
 }
 
-async function current(stationId: string): Promise<StationAiSuppression | null> {
+async function current(stationId: string): Promise<AiInsightSuppression | null> {
   const [row] = await db
     .select({
       suppressedAt: chargingStations.aiInsightsSuppressedAt,
@@ -58,7 +65,7 @@ async function current(stationId: string): Promise<StationAiSuppression | null> 
 async function auditChange(
   stationId: string,
   actor: AuditActorInfo,
-  before: StationAiSuppression,
+  before: AiInsightSuppression,
   after: Record<string, unknown>,
   notes: string,
   log: FastifyBaseLogger,
@@ -133,16 +140,34 @@ export async function suppressStationAiInsights(
   return { ...after, insightsDismissed: dismissed.length, actionsExpired };
 }
 
-/** Resumes the station's AI insights. Null when the station is unknown. */
+/** Whether the site of the station is suppressed by an operator now. */
+async function siteSuppressed(stationId: string): Promise<boolean> {
+  const [row] = await db
+    .select({
+      suppressed: sql<boolean>`${sql.raw(stationSiteInsightsSuppressedSql('charging_stations'))}`,
+    })
+    .from(chargingStations)
+    .where(eq(chargingStations.id, stationId));
+  return row?.suppressed === true;
+}
+
+/**
+ * Resumes the station's AI insights. Null when the station is unknown;
+ * `site_suppressed` (nothing changed) while an operator suppression of its
+ * site holds: the stations of a suppressed site resume with the site.
+ */
 export async function resumeStationAiInsights(
   stationId: string,
   actor: AuditActorInfo,
   log: FastifyBaseLogger,
-): Promise<StationAiSuppression | null> {
+): Promise<AiInsightSuppression | 'site_suppressed' | null> {
   const before = await current(stationId);
   if (before == null) return null;
+  if (await siteSuppressed(stationId)) return 'site_suppressed';
   if (before.suppressedAt == null) return before;
-  await db
+  // The guard repeats the site check in the write, so a site suppressed in
+  // between keeps the station's own suppression.
+  const updated = await db
     .update(chargingStations)
     .set({
       aiInsightsSuppressedAt: null,
@@ -150,7 +175,14 @@ export async function resumeStationAiInsights(
       aiInsightsSuppressedBy: null,
       aiInsightsSuppressedReason: null,
     })
-    .where(eq(chargingStations.id, stationId));
+    .where(
+      and(
+        eq(chargingStations.id, stationId),
+        sql`NOT ${sql.raw(stationSiteInsightsSuppressedSql('charging_stations'))}`,
+      ),
+    )
+    .returning({ id: chargingStations.id });
+  if (updated.length === 0) return 'site_suppressed';
   await auditChange(
     stationId,
     actor,

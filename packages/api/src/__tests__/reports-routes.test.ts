@@ -69,6 +69,7 @@ vi.mock('@evtivity/database', () => ({
   },
   reports: {},
   reportSchedules: {},
+  chargingStations: {},
   reportScheduleAuditLog: { _name: 'reportScheduleAuditLog' },
   writeAudit: mockWriteAudit,
   reportStatusEnum: {
@@ -308,6 +309,57 @@ describe('Report routes', () => {
     expect(response.headers['content-disposition']).toContain('report.csv');
   });
 
+  it('GET /v1/reports/:id/download records one downloaded row per request', async () => {
+    setupDbResults([
+      {
+        fileData: Buffer.from('test data'),
+        fileName: 'report.csv',
+        format: 'csv',
+        name: 'Revenue Q1',
+        reportType: 'revenue',
+      },
+    ]);
+    const response = await app.inject({
+      method: 'GET',
+      url: `/reports/${VALID_REPORT_ID}/download`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+    expect(mockWriteAudit.mock.calls[0]?.[0]).toEqual({
+      table: { _name: 'reportScheduleAuditLog' },
+      idColumn: 'report_schedule_id',
+    });
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toEqual({
+      entityId: null,
+      entityIdSnapshot: `report:${VALID_REPORT_ID}`,
+      action: 'report_downloaded',
+      actor: 'operator',
+      actorUserId: VALID_USER_ID,
+      actorDriverId: null,
+      actorApiKeyId: null,
+      actorLabel: null,
+      after: {
+        reportId: VALID_REPORT_ID,
+        name: 'Revenue Q1',
+        reportType: 'revenue',
+        format: 'csv',
+        fileName: 'report.csv',
+      },
+      notes: VALID_REPORT_ID,
+    });
+  });
+
+  it('GET /v1/reports/:id/download writes no row when the file is missing', async () => {
+    setupDbResults([]);
+    await app.inject({
+      method: 'GET',
+      url: `/reports/${VALID_REPORT_ID}/download`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(mockWriteAudit).not.toHaveBeenCalled();
+  });
+
   it('POST /v1/reports/generate returns 401 without auth', async () => {
     const response = await app.inject({
       method: 'POST',
@@ -328,6 +380,58 @@ describe('Report routes', () => {
     const body = JSON.parse(response.body);
     expect(body.id).toBe('report-123');
     expect(body.status).toBe('pending');
+  });
+
+  it('POST /v1/reports/generate records the generated report with its filters', async () => {
+    const filters = {
+      dateFrom: '2026-01-01',
+      dateTo: '2026-03-31',
+      siteId: 'sit_1',
+      stationId: 'sta_1',
+    };
+    setupDbResults([{ siteId: 'sit_1' }]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/reports/generate',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: 'Q1 Revenue', reportType: 'revenue', format: 'xlsx', filters },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+    expect(mockWriteAudit.mock.calls[0]?.[0]).toEqual({
+      table: { _name: 'reportScheduleAuditLog' },
+      idColumn: 'report_schedule_id',
+    });
+    const row = mockWriteAudit.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(row).toMatchObject({
+      entityId: null,
+      entityIdSnapshot: 'report:report-123',
+      action: 'report_generated',
+      actor: 'operator',
+      actorUserId: VALID_USER_ID,
+      after: {
+        reportId: 'report-123',
+        name: 'Q1 Revenue',
+        reportType: 'revenue',
+        format: 'xlsx',
+        filters,
+        siteScope: null,
+        scheduleId: null,
+      },
+      notes: 'report-123',
+    });
+    expect(row['before']).toBeUndefined();
+  });
+
+  it('POST /v1/reports/generate writes no row when a filter is refused', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/reports/generate',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: 'NEVI', reportType: 'nevi', format: 'xlsx' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 
   it('POST /v1/reports/generate announces the report to the worker instead of generating it', async () => {
@@ -618,6 +722,39 @@ describe('Report schedule routes', () => {
       entityIdSnapshot: '1',
       action: 'deleted',
       before: { id: 1, name: 'Weekly Revenue' },
+    });
+  });
+
+  it('POST /v1/report-schedules/:id/run-now records the generated report under the schedule', async () => {
+    setupDbResults([
+      {
+        id: 7,
+        name: 'Weekly Energy',
+        reportType: 'energy',
+        format: 'csv',
+        filters: { dateFrom: '2026-01-01' },
+        siteScope: null,
+      },
+    ]);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/report-schedules/7/run-now`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: '7',
+      entityIdSnapshot: 'report:report-123',
+      action: 'report_generated',
+      actor: 'operator',
+      after: {
+        reportId: 'report-123',
+        name: 'Weekly Energy',
+        reportType: 'energy',
+        filters: { dateFrom: '2026-01-01' },
+        scheduleId: 7,
+      },
     });
   });
 

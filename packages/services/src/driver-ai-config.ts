@@ -15,6 +15,7 @@ import type { AiSettings } from '@evtivity/lib/ai-config';
 import { getProviderEntry } from '@evtivity/ai/core';
 import type { AiAdapter } from '@evtivity/ai/core';
 import { getProviderRegistry } from '@evtivity/ai/providers';
+import { trackAiProviderCalls } from './ai-alerts.js';
 import type { OpsAiConfig } from './ai-ops-config.js';
 
 /** Same shape as the ops surface: provider, key, endpoint, model, effort, prompt. */
@@ -64,9 +65,12 @@ export function resolveDriverAiConfig(
   };
 }
 
+/** The company key's adapter; its calls keep the provider quota alert state. */
 export function createDriverAiAdapter(config: DriverAiConfig): AiAdapter {
-  return getProviderRegistry().create(config.provider, {
-    apiKey: config.apiKey,
-    ...(config.baseUrl !== '' ? { baseUrl: config.baseUrl } : {}),
-  });
+  return trackAiProviderCalls(
+    getProviderRegistry().create(config.provider, {
+      apiKey: config.apiKey,
+      ...(config.baseUrl !== '' ? { baseUrl: config.baseUrl } : {}),
+    }),
+  );
 }
