@@ -46,6 +46,7 @@ import {
 } from '../lib/fleet-operation-scope.js';
 import { authorize } from '../middleware/rbac.js';
 import { templateStateError } from '../lib/charging-profile-template-rules.js';
+import { chargingProfileTemplateCondition } from '../lib/template-protocols.js';
 
 // OCPP 2.1 ChargingProfilePurposeEnumType minus the two purposes excluded from
 // templates: TxProfile (needs a transactionId per station) and
@@ -291,10 +292,15 @@ const targetFilterSchema = z
 // clear handlers both build the identical predicate; the matching-stations
 // preview adds its own pagination so it inlines the pieces it needs.
 async function resolveTemplateTargetStations(
-  template: { ocppVersion: string; targetFilter: unknown },
+  template: {
+    ocppVersion: string;
+    profilePurpose: string;
+    profileKind: string;
+    schedulePeriods: unknown;
+    targetFilter: unknown;
+  },
   userId: string,
 ): Promise<Array<{ id: string; stationId: string }>> {
-  const expectedProtocol = `ocpp${template.ocppVersion}`;
   const filter = template.targetFilter as Record<string, string> | null;
 
   const accessibleSiteIds = await getUserSiteIds(userId);
@@ -303,7 +309,7 @@ async function resolveTemplateTargetStations(
   // Conformance test stations are never a template target.
   const conditions = [
     eq(chargingStations.isOnline, true),
-    eq(chargingStations.ocppProtocol, expectedProtocol),
+    chargingProfileTemplateCondition(template),
     isOperatorStation(),
   ];
   if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
@@ -535,10 +541,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       const data = await Promise.all(
         rows.map(async (template) => {
           const filter = template.targetFilter as Record<string, string> | null;
-          const conds = [
-            eq(chargingStations.ocppProtocol, `ocpp${template.ocppVersion}`),
-            isOperatorStation(),
-          ];
+          const conds = [chargingProfileTemplateCondition(template), isOperatorStation()];
           if (filter?.siteId) conds.push(eq(chargingStations.siteId, filter.siteId));
           if (filter?.vendorId) conds.push(eq(chargingStations.vendorId, filter.vendorId));
           if (filter?.model) conds.push(eq(chargingStations.model, filter.model));
@@ -1038,13 +1041,10 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const ocppVersion = template.ocppVersion;
-      const expectedProtocol = `ocpp${ocppVersion}`;
-
       const filter = template.targetFilter as Record<string, string> | null;
       const conditions = [
         eq(chargingStations.isOnline, true),
-        eq(chargingStations.ocppProtocol, expectedProtocol),
+        chargingProfileTemplateCondition(template),
         isOperatorStation(),
       ];
       if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));

@@ -17,6 +17,8 @@ export const TC_K_126_CSMS: TestCase = {
   description: 'Authorization of an EV by the CSMS to start a V2X power transfer loop.',
   purpose:
     'To check if the CSMS supports ISO15118-20 Dynamic Control without setting a charging profile.',
+  // Prerequisite: the CSMS is able to turn off providing a charging profile.
+  settings: { 'smartCharging.iso15118Enabled': false },
   execute: async (ctx) => {
     const steps: StepResult[] = [];
 

@@ -39,7 +39,7 @@ function noopSql(): postgres.Sql {
 }
 
 function makeSimulator(
-  ocppProtocol: 'ocpp1.6' | 'ocpp2.1',
+  ocppProtocol: 'ocpp1.6' | 'ocpp2.0.1' | 'ocpp2.1',
   securityProfile = 0,
   extra: Partial<StationConfig> = {},
 ): StationSimulator {
@@ -272,6 +272,78 @@ describe('OCPP 2.1 password and security profile (A01, A05)', () => {
 
     const get = (k: string) => internals(sim).getConfigValue.call(sim, k);
     expect(get('SecurityCtrlr.SecurityProfile')).toBe('2');
+    expect(get('OCPPCommCtrlr.NetworkConfigurationPriority')).toBe('2');
+  });
+});
+
+describe('OCPP 2.0.1 security profile upgrade (A05)', () => {
+  it('takes the CSMS sequence for a 2.0.1 station and reconnects on the new profile', async () => {
+    const sim = makeSimulator('ocpp2.0.1', 0, { password: '' });
+    const reads = await call(sim, 'GetVariables', {
+      getVariableData: [
+        {
+          component: { name: 'OCPPCommCtrlr' },
+          variable: { name: 'NetworkConfigurationPriority' },
+        },
+        {
+          component: { name: 'OCPPCommCtrlr' },
+          variable: { name: 'MessageTimeout', instance: 'Default' },
+        },
+      ],
+    });
+    expect(
+      (reads['getVariableResult'] as { attributeStatus: string; attributeValue?: string }[]).map(
+        (r) => [r.attributeStatus, r.attributeValue],
+      ),
+    ).toEqual([
+      ['Accepted', '1'],
+      ['Accepted', '30'],
+    ]);
+
+    await call(sim, 'SetVariables', {
+      setVariableData: [
+        {
+          component: { name: 'SecurityCtrlr' },
+          variable: { name: 'BasicAuthPassword' },
+          attributeValue: 'new-station-pass-201',
+        },
+      ],
+    });
+    expect(
+      await call(sim, 'SetNetworkProfile', {
+        configurationSlot: 2,
+        connectionData: {
+          ocppVersion: 'OCPP20',
+          ocppTransport: 'JSON',
+          ocppCsmsUrl: 'ws://ocpp:7103',
+          messageTimeout: 30,
+          securityProfile: 1,
+          ocppInterface: 'Wireless1',
+        },
+      }),
+    ).toEqual({ status: 'Accepted' });
+    await call(sim, 'SetVariables', {
+      setVariableData: [
+        {
+          component: { name: 'OCPPCommCtrlr' },
+          variable: { name: 'NetworkConfigurationPriority' },
+          attributeValue: '2,1',
+        },
+      ],
+    });
+
+    const candidates = internals(sim).rebootConnections.call(sim);
+    // The 2.0.1 profile has no password: the station uses the one set before it.
+    expect(candidates?.[0]).toEqual({
+      serverUrl: 'ws://ocpp:7103',
+      securityProfile: 1,
+      password: 'new-station-pass-201',
+    });
+    expect(candidates?.[1]?.securityProfile).toBe(0);
+
+    await internals(sim).commitConnection.call(sim, candidates?.[0] as never);
+    const get = (k: string) => internals(sim).getConfigValue.call(sim, k);
+    expect(get('SecurityCtrlr.SecurityProfile')).toBe('1');
     expect(get('OCPPCommCtrlr.NetworkConfigurationPriority')).toBe('2');
   });
 });

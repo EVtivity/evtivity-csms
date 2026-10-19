@@ -6,12 +6,36 @@ import { db, chargingStations } from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
 import { hash } from 'argon2';
 import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
-import type { TestCase, TestCaseResult, RunConfig, TriggerCommandFn, CallApiFn } from './types.js';
+import type {
+  TestCase,
+  TestCaseResult,
+  TestResult,
+  RunConfig,
+  TriggerCommandFn,
+  CallApiFn,
+} from './types.js';
 import { createTestClient, generateStationId } from './client.js';
 import { generateTestTokens, provisionTestTokens } from './test-tokens.js';
 import { stopOpenTransactions } from './transaction-teardown.js';
 import { defaultReply } from './default-replies.js';
 import type { OcspTestService } from './ocsp-test-service.js';
+
+/**
+ * Fails a result when the OCPP 2.0.1 edge of the test station removed or
+ * changed what the test set in a message: the CSMS then saw another message
+ * than the one the test case describes.
+ */
+export function failOnMappingLosses(result: TestResult, losses: readonly string[]): void {
+  if (losses.length === 0) return;
+  result.status = 'failed';
+  result.steps.push({
+    step: Math.max(0, ...result.steps.map((s) => s.step)) + 1,
+    description: 'Every message the test built is sent unchanged in OCPP 2.0.1',
+    status: 'failed',
+    expected: 'No field of a test message removed or changed by the OCPP 2.0.1 mapping',
+    actual: losses.join(' | '),
+  });
+}
 
 export async function executeTest(
   testCase: TestCase,
@@ -89,6 +113,7 @@ export async function executeTest(
 
     const result = await testCase.execute({
       client,
+      version: testCase.version,
       stationId,
       tokens,
       stationDbId,
@@ -101,6 +126,7 @@ export async function executeTest(
     });
 
     result.durationMs = Date.now() - start;
+    failOnMappingLosses(result, client.mappingLosses);
     log.debug({ status: result.status, durationMs: result.durationMs }, 'Test completed');
 
     return {

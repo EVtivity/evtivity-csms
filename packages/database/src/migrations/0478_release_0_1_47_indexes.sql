@@ -1,0 +1,15 @@
+-- evtivity:no-transaction
+-- v0.1.47 index changes over large tables, run CONCURRENTLY so meter value
+-- inserts go on. The runner applies this file statement by statement outside a
+-- transaction and records it only after the last statement succeeded, so a
+-- crash halfway reruns the whole file.
+--
+-- meter_values: drop the old dedup index without station_id. v0.1.46 built
+-- meter_values_station_dedup_idx (with station_id) and kept this one for
+-- v0.1.45 pods, whose inserts named its columns in ON CONFLICT. Every insert
+-- now uses a targetless ON CONFLICT DO NOTHING, so the station key alone
+-- dedups resends, and station-wide readings (no session, no EVSE) of two
+-- stations with the same timestamp and measurand are both stored.
+-- Cost: no table scan or rewrite; DROP INDEX CONCURRENTLY waits for the
+-- transactions using the table to end and blocks no insert.
+DROP INDEX CONCURRENTLY IF EXISTS meter_values_dedup_idx;

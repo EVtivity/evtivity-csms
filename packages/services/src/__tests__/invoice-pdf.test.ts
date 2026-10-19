@@ -44,6 +44,7 @@ vi.mock('../pdf-fonts.js', async (importOriginal) => ({
 }));
 
 import {
+  INVOICE_ROW_BAND_COLOR,
   generateInvoicePdf,
   readInvoiceSeller,
   resolveInvoicePdfLanguage,
@@ -436,6 +437,25 @@ describe('generateInvoicePdf', () => {
     expect(text).not.toContain(labels.due);
     expect(text).toContain(labels.creditNotePaidNote);
     expect(text).toContain('Gesamtbetrag-5,18');
+  });
+
+  it('bands every second line item with the row band color', async () => {
+    const hex = INVOICE_ROW_BAND_COLOR.slice(1);
+    const rgb = [0, 2, 4].map((i) => String(parseInt(hex.slice(i, i + 2), 16) / 255)).join(' ');
+    const bands = (pdf: Buffer): number =>
+      [...pdfObjects(pdf).values()].reduce(
+        (sum, { stream }) => sum + (stream?.toString('latin1').split(`${rgb} scn`).length ?? 1) - 1,
+        0,
+      );
+    const base = detail('en');
+    const first = base.lineItems[0];
+    if (first == null) throw new Error('fixture has no line items');
+    const fiveLines: InvoiceDetail = {
+      ...base,
+      lineItems: [0, 1, 2, 3, 4].map((i) => ({ ...first, id: i + 1 })),
+    };
+    expect(bands(await generateInvoicePdf(base))).toBe(1);
+    expect(bands(await generateInvoicePdf(fiveLines))).toBe(2);
   });
 
   it('names the credit note on a credited invoice', async () => {

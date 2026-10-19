@@ -20,6 +20,7 @@ import { getUserSiteIds } from '../lib/site-access.js';
 import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
 import { siteInScope } from '../lib/site-scope.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
+import { isOcpp21 } from '@evtivity/lib/ocpp-version';
 
 /** How long an authorized payment waits for the station to start the transaction. */
 const PAYMENT_TTL_MS = 15 * 60 * 1000;
@@ -84,7 +85,7 @@ export async function startAdHocPayment(
     return { ok: false, status: 400, code: 'STATION_OFFLINE', error: 'Station is offline' };
   }
   // DirectPayment idTokens and transaction limits exist only in OCPP 2.1.
-  if (station.ocppProtocol !== 'ocpp2.1') {
+  if (!isOcpp21(station.ocppProtocol)) {
     return {
       ok: false,
       status: 400,

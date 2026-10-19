@@ -28,6 +28,35 @@ function keyMap(defaults: ReturnType<typeof buildCssConfigDefaults>): Map<string
 }
 
 describe('buildCssConfigDefaults', () => {
+  describe('OCPP 2.0.1', () => {
+    it('gets the 2.x device model with OcppVersion OCPP20', () => {
+      const m = keyMap(buildCssConfigDefaults(baseInput({ ocppProtocol: 'ocpp2.0.1' })));
+
+      expect(m.get('OCPPCommCtrlr.HeartbeatInterval')).toBe('300');
+      expect(m.has('HeartbeatInterval')).toBe(false);
+      expect(m.get('NetworkConfiguration.OcppVersion#1')).toBe('OCPP20');
+      expect(m.get('NetworkConfiguration.OcppVersion#2')).toBe('OCPP20');
+    });
+
+    it('reports a 2.0.1 OcppInterface (Wired0), never the 2.1-only Any', () => {
+      const m = keyMap(buildCssConfigDefaults(baseInput({ ocppProtocol: 'ocpp2.0.1' })));
+      expect(m.get('NetworkConfiguration.OcppInterface#1')).toBe('Wired0');
+      expect(m.get('NetworkConfiguration.OcppInterface#2')).toBe('Wired0');
+    });
+
+    it('keeps OcppVersion OCPP21 and OcppInterface Any for a 2.1 station', () => {
+      const m = keyMap(buildCssConfigDefaults(baseInput()));
+      expect(m.get('NetworkConfiguration.OcppVersion#1')).toBe('OCPP21');
+      expect(m.get('NetworkConfiguration.OcppInterface#1')).toBe('Any');
+    });
+
+    it('names the downgrade switch AllowSecurityProfileDowngrade, as both specifications do', () => {
+      const m = keyMap(buildCssConfigDefaults(baseInput()));
+      expect(m.get('SecurityCtrlr.AllowSecurityProfileDowngrade')).toBe('false');
+      expect(m.has('SecurityCtrlr.AllowSecurityDowngrade')).toBe(false);
+    });
+  });
+
   describe('OCPP 1.6', () => {
     it('includes the spec-required core keys and identity fields from input', () => {
       const m = keyMap(buildCssConfigDefaults(baseInput({ ocppProtocol: 'ocpp1.6' })));

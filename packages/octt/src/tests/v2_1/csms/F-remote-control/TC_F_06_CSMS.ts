@@ -59,7 +59,7 @@ export const TC_F_06_CSMS: TestCase = {
           if (payload['connectorId'] != null) hasConnectorId = true;
           return { status: 'Unlocked' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

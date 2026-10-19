@@ -315,9 +315,13 @@ export function InvoiceDetail(): React.JSX.Element {
     });
   }
 
-  function renderLine(item: InvoiceLineItem): React.JSX.Element {
+  function renderLine(item: InvoiceLineItem, index: number): React.JSX.Element {
     return (
-      <TableRow key={item.id}>
+      <TableRow
+        key={item.id}
+        data-testid="invoice-line"
+        className={index % 2 === 1 ? 'bg-muted/30' : undefined}
+      >
         <TableCell>{describeInvoiceLine(item, t, i18n.language)}</TableCell>
         <TableCell>
           {item.sessionId != null ? (
@@ -759,7 +763,7 @@ export function InvoiceDetail(): React.JSX.Element {
                                 )}
                               </TableCell>
                             </TableRow>
-                            {group.items.map((item) => renderLine(item))}
+                            {group.items.map((item, i) => renderLine(item, i))}
                             <TableRow>
                               <TableCell colSpan={5} className="text-right text-muted-foreground">
                                 {t('invoices.driverSubtotal', { driver: name })}
@@ -771,7 +775,7 @@ export function InvoiceDetail(): React.JSX.Element {
                           </Fragment>
                         );
                       })
-                    : lineItems.map((item) => renderLine(item))}
+                    : lineItems.map((item, i) => renderLine(item, i))}
                   <TableRow className="hidden sm:table-row">
                     <TableCell colSpan={5} className="text-right text-muted-foreground">
                       {t('invoices.subtotalNet')}

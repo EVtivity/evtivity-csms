@@ -52,12 +52,17 @@ const MESSAGE = {
   createdAt: '2026-10-01T10:00:00.000Z',
 };
 
-function renderMessages(isOnline: boolean): void {
+function renderMessages(isOnline: boolean, ocppProtocol: string | null = null): void {
   getMock.mockResolvedValue({ data: [MESSAGE], total: 1 });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StationDisplayMessages stationId="sta_1" isOnline={isOnline} timezone="UTC" />
+      <StationDisplayMessages
+        stationId="sta_1"
+        isOnline={isOnline}
+        timezone="UTC"
+        ocppProtocol={ocppProtocol}
+      />
     </QueryClientProvider>,
   );
 }
@@ -79,6 +84,48 @@ async function clearMessage(): Promise<void> {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+});
+
+describe('StationDisplayMessages for an OCPP 2.0.1 station', () => {
+  async function openForm(protocol: string): Promise<void> {
+    renderMessages(true, protocol);
+    fireEvent.click(await screen.findByRole('button', { name: 'stations.sendMessage' }));
+  }
+
+  function option(selectId: string, value: string): HTMLOptionElement | null {
+    return document.querySelector(`#${selectId} option[value="${value}"]`);
+  }
+
+  it('disables QR codes and the 2.1-only states', async () => {
+    await openForm('ocpp2.0.1');
+
+    expect(option('display-msg-format', 'QRCODE')?.disabled).toBe(true);
+    expect(option('display-msg-format', 'QRCODE')?.title).toBe('stations.notAvailableOcpp201');
+    expect(option('display-msg-state', 'Suspended')?.disabled).toBe(true);
+    expect(option('display-msg-state', 'Discharging')?.disabled).toBe(true);
+    expect(option('display-msg-state', 'Charging')?.disabled).toBe(false);
+  });
+
+  it('refuses a message longer than 512 characters before sending', async () => {
+    await openForm('ocpp2.0.1');
+    fireEvent.change(document.getElementById('msg-content') as HTMLElement, {
+      target: { value: 'x'.repeat(513) },
+    });
+    const dialog = screen.getByRole('dialog', { name: 'stations.sendMessage' });
+    const send = Array.from(dialog.querySelectorAll('button[type="submit"]'))[0];
+    if (send == null) throw new Error('send button not found');
+    fireEvent.click(send);
+
+    expect(await screen.findByText('validation.maxLength')).toBeTruthy();
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps every option for an OCPP 2.1 station', async () => {
+    await openForm('ocpp2.1');
+
+    expect(option('display-msg-format', 'QRCODE')?.disabled).toBe(false);
+    expect(option('display-msg-state', 'Discharging')?.disabled).toBe(false);
+  });
 });
 
 describe('StationDisplayMessages', () => {

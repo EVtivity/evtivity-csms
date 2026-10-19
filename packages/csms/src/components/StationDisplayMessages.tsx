@@ -35,6 +35,12 @@ import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
 import { Select } from '@/components/ui/select';
 import { formatDateTime } from '@/lib/timezone';
+import {
+  OCPP201_MESSAGE_CONTENT_MAX_LENGTH,
+  OCPP21_ONLY_MESSAGE_FORMATS,
+  OCPP21_ONLY_MESSAGE_STATES,
+} from '@evtivity/lib/ocpp-version';
+import { Ocpp201Option } from '@/components/ocpp201-option';
 
 interface DisplayMessage {
   id: number;
@@ -57,6 +63,7 @@ interface StationDisplayMessagesProps {
   stationId: string;
   isOnline: boolean;
   timezone: string;
+  ocppProtocol?: string | null;
 }
 
 const PRIORITIES = ['AlwaysFront', 'InFront', 'NormalCycle'] as const;
@@ -90,8 +97,10 @@ export function StationDisplayMessages({
   stationId,
   isOnline,
   timezone,
+  ocppProtocol = null,
 }: StationDisplayMessagesProps): React.JSX.Element {
   const { t } = useTranslation();
+  const is201 = ocppProtocol === 'ocpp2.0.1';
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [page, setPage] = useState(1);
@@ -183,6 +192,8 @@ export function StationDisplayMessages({
     const errors: Record<string, string> = {};
     if (content.trim() === '') {
       errors.content = t('validation.required');
+    } else if (is201 && content.length > OCPP201_MESSAGE_CONTENT_MAX_LENGTH) {
+      errors.content = t('validation.maxLength', { max: OCPP201_MESSAGE_CONTENT_MAX_LENGTH });
     }
     return errors;
   }
@@ -330,9 +341,11 @@ export function StationDisplayMessages({
                   }}
                 >
                   {FORMATS.map((f) => (
-                    <option key={f} value={f}>
-                      {f}
-                    </option>
+                    <Ocpp201Option
+                      key={f}
+                      value={f}
+                      unavailable={is201 && OCPP21_ONLY_MESSAGE_FORMATS.includes(f)}
+                    />
                   ))}
                 </Select>
               </div>
@@ -383,9 +396,11 @@ export function StationDisplayMessages({
                 >
                   <option value="">-</option>
                   {STATES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
+                    <Ocpp201Option
+                      key={s}
+                      value={s}
+                      unavailable={is201 && OCPP21_ONLY_MESSAGE_STATES.includes(s)}
+                    />
                   ))}
                 </Select>
               </div>

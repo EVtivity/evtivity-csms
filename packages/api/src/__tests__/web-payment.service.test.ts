@@ -219,6 +219,12 @@ describe('enableWebPayments', () => {
     await expect(
       enableWebPayments('sta_1', { validitySeconds: 30, totpLength: 8 }, ctx),
     ).rejects.toMatchObject({ code: 'OCPP_VERSION_MISMATCH' });
+
+    dbResults = [[{ ...STATION, ocppProtocol: 'ocpp2.0.1' }]];
+    dbCallIndex = 0;
+    await expect(
+      enableWebPayments('sta_1', { validitySeconds: 30, totpLength: 8 }, ctx),
+    ).rejects.toMatchObject({ code: 'OCPP_VERSION_MISMATCH' });
     expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
   });
 });

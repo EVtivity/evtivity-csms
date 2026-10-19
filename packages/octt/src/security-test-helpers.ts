@@ -72,6 +72,62 @@ export function tryConnect(
   });
 }
 
+/** Outcome of an HTTP upgrade request offering a list of WebSocket subprotocols. */
+export interface SubprotocolAttempt {
+  /** The CSMS answered 101 Switching Protocols. */
+  upgraded: boolean;
+  /** HTTP status of the answer (101 when upgraded, 0 when there was none). */
+  status: number;
+  /** Sec-WebSocket-Protocol of the upgrade response, null when absent. */
+  protocol: string | null;
+}
+
+/**
+ * Opens a separate WebSocket for the test station offering `protocols` in
+ * Sec-WebSocket-Protocol (in that order) and reports whether the CSMS upgraded
+ * and which subprotocol its response selected. The socket is closed again.
+ */
+export function trySubprotocols(
+  ctx: TestContext,
+  protocols: string[],
+  timeoutMs = 10_000,
+): Promise<SubprotocolAttempt> {
+  return new Promise((resolve) => {
+    let upgrade: SubprotocolAttempt | null = null;
+    const ws = new WebSocket(`${ctx.config.serverUrl}/${ctx.stationId}`, protocols, {
+      rejectUnauthorized: resolveVerifyServerCertificate(undefined),
+      ...(ctx.config.tlsCaCert != null ? { ca: ctx.config.tlsCaCert } : {}),
+    });
+    const finish = (attempt: SubprotocolAttempt): void => {
+      clearTimeout(timer);
+      ws.terminate();
+      resolve(attempt);
+    };
+    const timer = setTimeout(() => {
+      finish(upgrade ?? { upgraded: false, status: 0, protocol: null });
+    }, timeoutMs);
+    // Emitted on the 101 response, before ws checks the selected subprotocol.
+    ws.on('upgrade', (res) => {
+      const header = res.headers['sec-websocket-protocol'];
+      upgrade = {
+        upgraded: true,
+        status: 101,
+        protocol: typeof header === 'string' ? header : null,
+      };
+    });
+    ws.on('open', () => {
+      finish(upgrade ?? { upgraded: true, status: 101, protocol: ws.protocol || null });
+    });
+    ws.on('unexpected-response', (_req, res) => {
+      res.resume();
+      finish({ upgraded: false, status: res.statusCode ?? 0, protocol: null });
+    });
+    ws.on('error', () => {
+      finish(upgrade ?? { upgraded: false, status: 0, protocol: null });
+    });
+  });
+}
+
 /**
  * Bound for waits on CSMS state a test station's message produces
  * asynchronously (connection record, EVSE rows). Generous because the wait

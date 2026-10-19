@@ -18,7 +18,7 @@ import {
 } from '@evtivity/database';
 import type { AccountInvoiceRecipient } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
-import { AppError } from '@evtivity/lib';
+import { AppError, OCPP_PROTOCOLS } from '@evtivity/lib';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -202,7 +202,7 @@ const fleetStationItem = z
       .nullable()
       .describe('OCPP security profile (0=none, 1=basic, 2=basic+TLS, 3=mTLS)'),
     ocppProtocol: z
-      .enum(['ocpp1.6', 'ocpp2.1'])
+      .enum(OCPP_PROTOCOLS)
       .nullable()
       .describe('OCPP protocol version negotiated with the station'),
     status: z

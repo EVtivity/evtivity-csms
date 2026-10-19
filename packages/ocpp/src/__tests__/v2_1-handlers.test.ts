@@ -402,6 +402,22 @@ describe('NotifyEVChargingNeeds handler', () => {
     );
   });
 
+  it('answers Accepted for dynamic control when the CSMS will send a schedule (K19.FR.03)', async () => {
+    vi.mocked(scheduledChargingTransaction).mockResolvedValueOnce('tx-1');
+    const { ctx, publishMock } = makeCtx('NotifyEVChargingNeeds', {
+      evseId: 1,
+      maxScheduleTuples: 3,
+      chargingNeeds: { requestedEnergyTransfer: 'AC_BPT', controlMode: 'DynamicControl' },
+    });
+    const response = await handleNotifyEVChargingNeeds(ctx);
+    expect(response).toEqual({ status: 'Accepted' });
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ transactionId: 'tx-1', maxScheduleTuples: 3 }),
+      }),
+    );
+  });
+
   it('answers NoChargingProfile, never Rejected, when the CSMS will not send one', async () => {
     vi.mocked(scheduledChargingTransaction).mockResolvedValueOnce(null);
     const { ctx, publishMock } = makeCtx('NotifyEVChargingNeeds', {

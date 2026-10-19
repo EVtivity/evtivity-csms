@@ -50,6 +50,7 @@ vi.mock('@evtivity/ocpp', () => ({
   ActionRegistry: {
     Reset: { validateRequest: vi.fn().mockReturnValue(true) },
     DataTransfer: { validateRequest: vi.fn().mockReturnValue(true) },
+    ClearTariffs: { validateRequest: vi.fn().mockReturnValue(true) },
     GetVariables: { validateRequest: vi.fn().mockReturnValue(true) },
     GetLocalListVersion: { validateRequest: vi.fn().mockReturnValue(true) },
   },
@@ -164,6 +165,39 @@ describe('OCPP command dispatch - uncovered paths', () => {
       error: 'This is an ocpp1.6 command but the station uses ocpp2.1',
       code: 'OCPP_VERSION_MISMATCH',
       action: 'Reset',
+    });
+    expect(publishOcppCommand).not.toHaveBeenCalled();
+  });
+
+  it('sends a shared v21 command to an OCPP 2.0.1 station', async () => {
+    results.push([{ ...station21, ocppProtocol: 'ocpp2.0.1' }]);
+    replies.push({ response: { status: 'Accepted' } });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/ocpp/commands/v21/Reset',
+      headers,
+      payload: { stationId: 'CS-1', type: 'Immediate' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(publishOcppCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: 'Reset', version: 'ocpp2.1' }),
+    );
+  });
+
+  it('refuses a 2.1-only command to an OCPP 2.0.1 station before publishing', async () => {
+    results.push([{ ...station21, ocppProtocol: 'ocpp2.0.1' }]);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/ocpp/commands/v21/ClearTariffs',
+      headers,
+      payload: { stationId: 'CS-1' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({
+      error: 'ClearTariffs is defined in OCPP 2.1 only and the station uses ocpp2.0.1',
+      code: 'OCPP_VERSION_MISMATCH',
+      action: 'ClearTariffs',
     });
     expect(publishOcppCommand).not.toHaveBeenCalled();
   });

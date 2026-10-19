@@ -36,7 +36,7 @@ export const TC_N_08_CSMS: TestCase = {
             ],
           };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -105,7 +105,7 @@ export const TC_N_09_CSMS: TestCase = {
             ),
           };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

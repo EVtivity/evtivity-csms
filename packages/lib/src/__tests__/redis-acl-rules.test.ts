@@ -128,6 +128,34 @@ describe('docker/redis/acl-rules.conf', () => {
     }
   });
 
+  it('grants the core set no channel the core packages do not use', () => {
+    const used = new Set<string>();
+    for (const pkg of ['api', 'ocpp', 'worker', 'lib', 'payments', 'database', 'services']) {
+      for (const channel of channelsUsedBy(pkg)) used.add(channel);
+    }
+    for (const channel of user('api').channels) {
+      expect(used.has(channel), `${channel} (granted, used nowhere)`).toBe(true);
+    }
+  });
+
+  it('no longer grants the pub/sub worker hand-offs that became queue jobs', () => {
+    // Since v0.1.46 the senders add these jobs to the worker queues themselves.
+    const retired = [
+      'fleet_billing_fanout',
+      'maintenance_fanout',
+      'payment_webhook_deliveries',
+      'station_message_refresh',
+      'station_message_repush',
+      'station_message_transaction',
+      'station_watch_available',
+    ];
+    for (const [name, acl] of users) {
+      for (const channel of retired) {
+        expect(acl.channels, `${name} ${channel}`).not.toContain(channel);
+      }
+    }
+  });
+
   it('grants ocpi and css exactly the channels their packages use', () => {
     expect([...user('ocpi').channels].sort()).toEqual([...channelsUsedBy('ocpi')].sort());
     expect([...user('css').channels].sort()).toEqual([...channelsUsedBy('css')].sort());

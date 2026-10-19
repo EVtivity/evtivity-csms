@@ -20,13 +20,18 @@ import { getHeartbeatIntervalSeconds } from '@evtivity/database';
 import type { Logger, EventBus, EventPersistence, PubSubClient, Subscription } from '@evtivity/lib';
 import { ConnectionManager } from './connection-manager.js';
 import { createSessionState } from './session-state.js';
-import { selectOcppSubprotocol } from './subprotocol.js';
+import { offeredSubprotocols, selectOcppSubprotocol, subprotocolsForLog } from './subprotocol.js';
 import type { SessionState } from './session-state.js';
 import { MessageCorrelator } from './message-correlator.js';
 import { MessageRouter } from './message-router.js';
 import { GracefulShutdown, SERVER_SHUTDOWN_DISCONNECT_REASON } from './graceful-shutdown.js';
 import { PingMonitor } from './ping-monitor.js';
-import { isTlsConnection, parseTrustedProxies, resolveClientIp } from './client-ip.js';
+import {
+  isTlsConnection,
+  parseTrustedProxies,
+  resolveClientIp,
+  stationEndpointUrl,
+} from './client-ip.js';
 import { MiddlewarePipeline } from './middleware/pipeline.js';
 import type { HandlerContext } from './middleware/pipeline.js';
 import { logMiddleware } from './middleware/log.js';
@@ -36,6 +41,7 @@ import { createDedupMiddleware } from './middleware/dedup.js';
 import { createBootGuardMiddleware } from './middleware/boot-guard.js';
 import {
   authenticateConnection,
+  extractStationId,
   rejectionFor,
   serviceUnavailable,
 } from './middleware/authenticate.js';
@@ -350,6 +356,20 @@ export class OcppServer {
   ): void {
     const remoteIp = resolveClientIp(req, this.trustedProxies) ?? 'unknown';
 
+    // A station that offers subprotocols but none the server supports is
+    // refused before any authentication work (OCTT TC_B_58 step 2: the CSMS
+    // does not upgrade the connection). A request without the header still
+    // connects and is treated as OCPP 2.1.
+    const offered = offeredSubprotocols(req.headers['sec-websocket-protocol']);
+    if (offered.size > 0 && selectOcppSubprotocol(offered) == null) {
+      this.logger.warn(
+        { stationId: extractStationId(req.url), remoteIp, offered: subprotocolsForLog(offered) },
+        'Connection rejected: no supported OCPP subprotocol offered',
+      );
+      callback(false, 400, 'Unsupported Sec-WebSocket-Protocol');
+      return;
+    }
+
     // Connections over the per-IP limit are closed right after the upgrade
     // in handleConnection; skip the station lookup for them.
     if ((ipConnectionCounts.get(remoteIp) ?? 0) >= MAX_CONNECTIONS_PER_IP) {
@@ -584,6 +604,7 @@ export class OcppServer {
         stationDbId: session.stationDbId,
         ocppProtocol: ws.protocol || null,
         remoteAddress: remoteIp,
+        endpointUrl: stationEndpointUrl(req, isTlsConnection(req, this.trustedProxies)),
       },
     });
 

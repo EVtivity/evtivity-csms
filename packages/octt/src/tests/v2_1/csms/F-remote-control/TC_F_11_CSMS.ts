@@ -65,7 +65,7 @@ export const TC_F_11_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -175,7 +175,7 @@ export const TC_F_12_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -288,7 +288,7 @@ export const TC_F_13_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -399,7 +399,7 @@ export const TC_F_14_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -498,7 +498,7 @@ export const TC_F_15_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -580,7 +580,7 @@ export const TC_F_18_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -662,7 +662,7 @@ export const TC_F_20_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -747,7 +747,7 @@ export const TC_F_23_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -856,7 +856,7 @@ export const TC_F_24_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -941,14 +941,16 @@ export const TC_F_27_CSMS: TestCase = {
           receivedTrigger = true;
           return { status: 'NotImplemented' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'TriggerMessage', {
         stationId: ctx.stationId,
-        requestedMessage: 'CustomTrigger',
+        // CustomTrigger is OCPP 2.1 only; any message the station does not implement serves.
+        requestedMessage:
+          ctx.version === 'ocpp2.0.1' ? 'PublishFirmwareStatusNotification' : 'CustomTrigger',
       });
     } else {
       await new Promise((resolve) => setTimeout(resolve, 10000));
@@ -1007,7 +1009,7 @@ export const TC_F_100_CSMS: TestCase = {
           requestedMessage = String(payload['requestedMessage'] ?? '');
           return { status: 'NotImplemented' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

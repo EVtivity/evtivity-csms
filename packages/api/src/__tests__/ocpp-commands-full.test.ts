@@ -383,6 +383,36 @@ describe('OCPP command routes - full coverage', () => {
     vi.useRealTimers();
   });
 
+  // ---- Refused for the station OCPP version (400) ----
+
+  it('returns 400 OCPP_VERSION_MISMATCH with the reason when the OCPP server refused the command for 2.0.1', async () => {
+    const responsePromise = app.inject({
+      method: 'POST',
+      url: '/ocpp/commands/v21/Reset',
+      headers: { authorization: `Bearer ${token}` },
+      payload: V21_RESET_PAYLOAD,
+    });
+
+    await vi.waitFor(() => {
+      expect(mockPublish).toHaveBeenCalled();
+    });
+
+    const published = JSON.parse(mockPublish.mock.calls[0]![1] as string);
+    const reason =
+      'Reset cannot be sent to an OCPP 2.0.1 station: type ImmediateAndResume is not defined in OCPP 2.0.1';
+    mockSubscribeCallbackRef.current!(
+      JSON.stringify({
+        commandId: published.commandId,
+        error: reason,
+        code: 'OCPP_VERSION_MISMATCH',
+      }),
+    );
+
+    const res = await responsePromise;
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toEqual({ error: reason, code: 'OCPP_VERSION_MISMATCH', action: 'Reset' });
+  });
+
   // ---- Error response from station (502) ----
 
   it('returns 502 COMMAND_ERROR when station returns an error', async () => {

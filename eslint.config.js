@@ -309,6 +309,7 @@ export default tseslint.config(
       '**/dist/',
       '**/node_modules/',
       '**/generated/',
+      'packages/codegen/.test-gen-*/',
       'eslint.config.js',
       'eslint-rules/',
       'vitest.workspace.ts',

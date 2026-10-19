@@ -742,6 +742,76 @@ describe('Event projections - coverage round 2', () => {
       expect(refresh.length).toBe(1);
     });
 
+    it('accepted 2.0.1 station: pushes the 2.x SetVariables config with 2.0.1 measurands', async () => {
+      mockGetMeterValueInterval.mockResolvedValue(60);
+      mockGetClockAlignedInterval.mockResolvedValue(900);
+      mockGetSampledMeasurands.mockResolvedValue(
+        'Energy.Active.Import.Register,Temperature,Power.Active.Setpoint',
+      );
+      mockGetAlignedMeasurands.mockResolvedValue('Voltage');
+      mockGetTxEndedMeasurands.mockResolvedValue('Energy.Active.Import.Register');
+      await setup();
+      setupSqlResults(
+        STA,
+        [{ onboarding_status: 'accepted' }],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [{ site_id: null }],
+        [{ ocpp_protocol: 'ocpp2.0.1' }], // SELECT protocol (config push)
+        [{ ocpp_protocol: 'ocpp2.0.1' }], // SELECT protocol (station message refresh)
+      );
+      await emit('ocpp.BootNotification', 'CS-1', {
+        firmwareVersion: '1.0',
+        model: 'M',
+        vendorName: 'Acme',
+      });
+      const cmds = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls
+        .filter((c) => c[0] === 'ocpp_commands')
+        .map((c) => JSON.parse(c[1] as string) as Record<string, unknown>);
+      expect(cmds).toHaveLength(5);
+      expect(cmds.every((c) => c['action'] === 'SetVariables')).toBe(true);
+      expect(cmds.every((c) => c['version'] === 'ocpp2.0.1')).toBe(true);
+      // Temperature is 1.6 only and Power.Active.Setpoint 2.1 only.
+      const txMeas = cmds.find((c) => JSON.stringify(c).includes('TxUpdatedMeasurands'));
+      expect(JSON.stringify(txMeas)).toContain('"attributeValue":"Energy.Active.Import.Register"');
+    });
+
+    it('accepted 2.0.1 station: sends no measurand list the 2.0.1 filter emptied', async () => {
+      mockGetMeterValueInterval.mockResolvedValue(60);
+      mockGetClockAlignedInterval.mockResolvedValue(900);
+      // Both 2.1 only (or 1.6 only): nothing a 2.0.1 station can take.
+      mockGetSampledMeasurands.mockResolvedValue('Power.Active.Setpoint,Temperature');
+      mockGetAlignedMeasurands.mockResolvedValue('Voltage');
+      mockGetTxEndedMeasurands.mockResolvedValue('Energy.Active.Import.Register');
+      await setup();
+      setupSqlResults(
+        STA,
+        [{ onboarding_status: 'accepted' }],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [{ site_id: null }],
+        [{ ocpp_protocol: 'ocpp2.0.1' }],
+        [{ ocpp_protocol: 'ocpp2.0.1' }],
+      );
+      await emit('ocpp.BootNotification', 'CS-1', {
+        firmwareVersion: '1.0',
+        model: 'M',
+        vendorName: 'Acme',
+      });
+      const cmds = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls
+        .filter((c) => c[0] === 'ocpp_commands')
+        .map((c) => JSON.stringify(JSON.parse(c[1] as string)));
+      expect(cmds).toHaveLength(4);
+      expect(cmds.some((c) => c.includes('TxUpdatedMeasurands'))).toBe(false);
+      expect(cmds.some((c) => c.includes('TxEndedMeasurands'))).toBe(true);
+    });
+
     it('pending station: updates hardware only, no availability change', async () => {
       await setup();
       setupSqlResults(
@@ -1785,6 +1855,35 @@ describe('Event projections - coverage round 2', () => {
       expect(cmds[0]?.[1]).toContain('GetBaseReport');
     });
 
+    it('auto-create publishes GetBaseReport for OCPP 2.0.1 station', async () => {
+      await setup();
+      setupSqlResults(
+        STA,
+        [],
+        [{ id: 'evs_new' }],
+        [{ id: 'con_new' }],
+        [],
+        [],
+        [{ site_id: null }],
+        [{ ocpp_protocol: 'ocpp2.0.1' }], // GetBaseReport branch
+        [{ ocpp_protocol: 'ocpp2.0.1' }], // station screen refresh branch
+      );
+      await emit('ocpp.StatusNotification', 'CS-1', {
+        evseId: 3,
+        connectorId: 1,
+        connectorStatus: 'Available',
+      });
+      const cmds = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c) => c[0] === 'ocpp_commands',
+      );
+      expect(cmds).toHaveLength(1);
+      expect(JSON.parse(cmds[0]?.[1] as string)).toMatchObject({
+        action: 'GetBaseReport',
+        payload: { reportBase: 'ConfigurationInventory' },
+        version: 'ocpp2.0.1',
+      });
+    });
+
     it('returns when auto-create EVSE insert hits stale station (WHERE EXISTS 0)', async () => {
       await setup();
       setupSqlResults(
@@ -2051,6 +2150,66 @@ describe('Event projections - coverage round 2', () => {
       expect(cost.length).toBe(1);
     });
 
+    it('inserts energy reading, updates cost, and dispatches CostUpdated (2.0.1)', async () => {
+      mockGetMeterValueInterval.mockResolvedValue(60);
+      await setup();
+      setupSqlResults(
+        STA, // 0 resolveStationUuid
+        [{ id: 'ses_1' }], // 1 resolveMeterValueSession by transactionId
+        [], // 2 INSERT meter_values (count 1, success)
+        [{ id: 'ses_mv', energy_delivered_wh: 100, meter_start: '50' }], // 3 prev energy/meter_start
+        [{ energy_delivered_wh: 100, meter_start: '50' }], // SELECT register state FOR UPDATE
+        [], // 5 UPDATE energy_delivered_wh
+        // existingMeterStart='50', prevEnergyWh=100 -> newEnergyWh=1000-50=950, |950-100|>=1 -> energy increased branch
+        [], // 6 UPDATE idle accrue (energy increased)
+        // active sessions cost loop:
+        [
+          {
+            id: 'ses_1',
+            transaction_id: 'tx-1',
+            tariff_id: 'trf_1',
+            driver_id: 'drv_1',
+            started_at: new Date(Date.now() - 3_600_000).toISOString(),
+            energy_delivered_wh: 950,
+            current_cost_cents: 0,
+            currency: 'USD',
+            tariff_price_per_kwh: '0.25',
+            tariff_price_per_minute: '0',
+            tariff_price_per_session: '0',
+            tariff_idle_fee_price_per_minute: '0',
+            tariff_tax_rate: '0',
+            idle_started_at: null,
+            idle_minutes: 0,
+            ocpp_protocol: 'ocpp2.0.1',
+          },
+        ], // 7 active sessions
+        [{ site_id: null }], // 8 resolveSiteId
+      );
+      mockPriceSessionAt.mockResolvedValueOnce(costBreakdown(24));
+      await emit('ocpp.MeterValues', 'CS-1', {
+        stationId: 'CS-1',
+        evseId: 0,
+        transactionId: 'tx-1',
+        source: 'TransactionEvent',
+        meterValues: [
+          {
+            timestamp: '2026-01-01T01:00:00Z',
+            sampledValue: [{ measurand: 'Energy.Active.Import.Register', value: 1000 }],
+          },
+        ],
+      });
+      expect(findSql(/INSERT INTO meter_values/)).toBeDefined();
+      expect(mockStoreRunningCost).toHaveBeenCalledWith(
+        expect.anything(),
+        'ses_1',
+        expect.objectContaining({ grossCents: 24 }),
+      );
+      const cost = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c) => c[0] === 'ocpp_commands' && (c[1] as string).includes('CostUpdated'),
+      );
+      expect(cost.length).toBe(1);
+    });
+
     describe('prepaid credit (cost ceiling)', () => {
       const costSession = (
         ocppProtocol: string,
@@ -2145,6 +2304,21 @@ describe('Event projections - coverage round 2', () => {
 
         expect(findSql(/stopped_reason IS NULL/)).toBeUndefined();
         expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('stops an OCPP 2.0.1 transaction once the cost reaches the credit (no transactionLimit)', async () => {
+        await setup();
+        setupSqlResults(
+          ...base,
+          [costSession('ocpp2.0.1', 20)],
+          [{ id: 'ses_1' }], // claim the stop
+          [{ site_id: null }],
+        );
+
+        await emitReading();
+
+        expect(findSql(/stopped_reason IS NULL/)?.values).toContain('PrepaidCreditExhausted');
+        expect(stopCommands()).toHaveLength(1);
       });
 
       it('leaves an OCPP 2.1 transaction to the station limit at the reading that reaches the credit', async () => {

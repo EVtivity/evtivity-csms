@@ -35,6 +35,8 @@ import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatEnergy, formatNumberUpTo } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
+import { OCPP21_ONLY_MONITOR_TYPES } from '@evtivity/lib/ocpp-version';
+import { Ocpp201Option } from '@/components/ocpp201-option';
 
 interface SchedulePeriod {
   startPeriod: number;
@@ -150,14 +152,17 @@ interface StationChargingNeedsTabProps {
   stationId: string;
   isOnline: boolean;
   timezone: string;
+  ocppProtocol?: string | null;
 }
 
 export function StationChargingNeedsTab({
   stationId,
   isOnline,
   timezone,
+  ocppProtocol = null,
 }: StationChargingNeedsTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  const is201 = ocppProtocol === 'ocpp2.0.1';
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const canWrite = useHasPermission('stations:write');
@@ -517,9 +522,11 @@ export function StationChargingNeedsTab({
                   }}
                 >
                   {MONITOR_TYPES.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
+                    <Ocpp201Option
+                      key={m}
+                      value={m}
+                      unavailable={is201 && OCPP21_ONLY_MONITOR_TYPES.includes(m)}
+                    />
                   ))}
                 </Select>
               </div>

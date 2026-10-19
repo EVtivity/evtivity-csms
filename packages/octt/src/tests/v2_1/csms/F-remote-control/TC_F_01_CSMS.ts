@@ -67,7 +67,7 @@ export const TC_F_01_CSMS: TestCase = {
           const txId = newTransactionId('OCTT-TX');
           return { status: 'Accepted', transactionId: txId };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

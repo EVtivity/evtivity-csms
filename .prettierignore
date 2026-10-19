@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 packages/ocpp/src/generated/
+packages/codegen/.test-gen-*/
 **/*.hbs
 packages/api/openapi.json
 # Golden test records are compared byte for byte with test output.

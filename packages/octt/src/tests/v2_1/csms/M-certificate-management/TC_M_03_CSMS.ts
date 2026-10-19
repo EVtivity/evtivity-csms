@@ -43,7 +43,7 @@ const makeCertRetrieveTest = (id: string, name: string, certType: string): TestC
         }
         if (action === 'InstallCertificate') return { status: 'Accepted' };
         if (action === 'DeleteCertificate') return { status: 'Accepted' };
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -131,7 +131,7 @@ const makeMultiCertRetrieveTest = (id: string, name: string, certTypes: string[]
         }
         if (action === 'InstallCertificate') return { status: 'Accepted' };
         if (action === 'DeleteCertificate') return { status: 'Accepted' };
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -209,7 +209,7 @@ export const TC_M_19_CSMS: TestCase = {
           received = true;
           return { status: 'NotFound' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

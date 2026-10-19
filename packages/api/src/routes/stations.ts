@@ -159,9 +159,17 @@ import {
   STATION_PASSWORD_HASH_OPTIONS,
   validateStationPassword,
   CLEARABLE_PROFILE_PURPOSES,
+  OCPP_PROTOCOLS,
+  OCPP201_NETWORK_INTERFACES,
+  isOcpp2x,
+  isOcpp21,
+  OCPP21_ONLY_MONITOR_TYPES,
+  OCPP21_ONLY_PROFILE_PURPOSES,
 } from '@evtivity/lib';
+import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 import { authorize } from '../middleware/rbac.js';
 import { assertNoCredentialVariables } from '../lib/station-credential-guard.js';
+import { chargingProfileOcpp201Refusal } from '../lib/template-protocols.js';
 import type { JwtPayload } from '../plugins/auth.js';
 
 // Statuses that mean a connector is actively in use and blocks deletion
@@ -298,10 +306,10 @@ const createStationBody = z.object({
   vendorId: ID_PARAMS.vendorId.optional().describe('Vendor ID'),
   siteId: ID_PARAMS.siteId.optional().describe('Site ID to assign the station to'),
   ocppProtocol: z
-    .enum(['ocpp1.6', 'ocpp2.1'])
+    .enum(OCPP_PROTOCOLS)
     .optional()
     .default('ocpp1.6')
-    .describe('OCPP protocol version (defaults to ocpp1.6)'),
+    .describe('OCPP protocol version: ocpp1.6, ocpp2.0.1 or ocpp2.1 (defaults to ocpp1.6)'),
   securityProfile: z
     .number()
     .int()
@@ -333,6 +341,12 @@ const updateStationBody = z.object({
     .optional()
     .describe('OCPP security profile (0=none, 1=basic auth, 2=TLS+basic auth, 3=mTLS)'),
   password: stationPassword.optional(),
+  ocppInterface: z
+    .enum(OCPP201_NETWORK_INTERFACES)
+    .optional()
+    .describe(
+      'Network interface of the new network profile when an online OCPP 2.0.1 station moves to a higher security profile (required there, ignored otherwise)',
+    ),
   isSimulator: z.boolean().optional().describe('Whether this station is a simulator'),
   latitude: z.string().max(20).optional().describe('Station latitude'),
   longitude: z.string().max(20).optional().describe('Station longitude'),
@@ -433,7 +447,7 @@ const stationItem = z
         'Security profile an upgrade was sent for; the station is moved to it when it connects with that profile',
       ),
     ocppProtocol: z
-      .enum(['ocpp1.6', 'ocpp2.1'])
+      .enum(OCPP_PROTOCOLS)
       .nullable()
       .describe('OCPP protocol version negotiated with the station'),
     hasPassword: z
@@ -564,7 +578,7 @@ const stationDetail = z
         'Security profile an upgrade was sent for; the station is moved to it when it connects with that profile',
       ),
     ocppProtocol: z
-      .enum(['ocpp1.6', 'ocpp2.1'])
+      .enum(OCPP_PROTOCOLS)
       .nullable()
       .describe('OCPP protocol version negotiated with the station'),
     hasPassword: z
@@ -1561,7 +1575,7 @@ export function stationRoutes(app: FastifyInstance): void {
             await enableCssPair(
               {
                 stationId: created.stationId,
-                ocppProtocol: created.ocppProtocol === 'ocpp2.1' ? 'ocpp2.1' : 'ocpp1.6',
+                ocppProtocol: isOcpp2x(created.ocppProtocol) ? created.ocppProtocol : 'ocpp1.6',
                 securityProfile: created.securityProfile,
                 serverUrl: process.env['OCPP_SERVER_URL'] ?? 'ws://ocpp:8080',
                 tlsServerUrl: process.env['OCPP_TLS_SERVER_URL'] ?? 'wss://ocpp:8443',
@@ -1625,6 +1639,7 @@ export function stationRoutes(app: FastifyInstance): void {
             ERROR_CODES.PASSWORD_REQUIRED,
             ERROR_CODES.SECURITY_PROFILE_DOWNGRADE,
             ERROR_CODES.STATION_TLS_URL_NOT_CONFIGURED,
+            ERROR_CODES.STATION_ENDPOINT_URL_UNKNOWN,
           ]),
           404: errorWith('Resource not found', [
             ERROR_CODES.SITE_NOT_FOUND,
@@ -1655,9 +1670,8 @@ export function stationRoutes(app: FastifyInstance): void {
           return;
         }
       }
-      const { password, securityProfile, availability, ...body } = request.body as z.infer<
-        typeof updateStationBody
-      >;
+      const { password, securityProfile, ocppInterface, availability, ...body } =
+        request.body as z.infer<typeof updateStationBody>;
       // Check access to the new site when the station moves. A site-restricted
       // user cannot remove a station from its site (siteId null): only
       // all-site users manage stations without a site.
@@ -1674,7 +1688,9 @@ export function stationRoutes(app: FastifyInstance): void {
       if (securityProfile != null || password != null) {
         const securityCtx = { actor: getAuditActor(request), log: request.log };
         if (securityProfile != null) {
-          await changeSecurityProfile(id, securityProfile, password, securityCtx);
+          await changeSecurityProfile(id, securityProfile, password, securityCtx, {
+            ocppInterface,
+          });
         } else if (password != null) {
           await changeStationPassword(id, password, securityCtx);
         }
@@ -1775,7 +1791,7 @@ export function stationRoutes(app: FastifyInstance): void {
             await enableCssPair(
               {
                 stationId: updated.stationId,
-                ocppProtocol: updated.ocppProtocol === 'ocpp2.1' ? 'ocpp2.1' : 'ocpp1.6',
+                ocppProtocol: isOcpp2x(updated.ocppProtocol) ? updated.ocppProtocol : 'ocpp1.6',
                 securityProfile: updated.securityProfile,
                 serverUrl: process.env['OCPP_SERVER_URL'] ?? 'ws://ocpp:8080',
                 tlsServerUrl: process.env['OCPP_TLS_SERVER_URL'] ?? 'wss://ocpp:8443',
@@ -5483,7 +5499,10 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(clearProfileBody),
         response: {
           200: itemResponse(clearChargingProfileResponse),
-          400: errorWith('Station offline', [ERROR_CODES.STATION_OFFLINE]),
+          400: errorWith('Station offline, or a purpose OCPP 2.0.1 does not define', [
+            ERROR_CODES.STATION_OFFLINE,
+            ERROR_CODES.OCPP_VERSION_MISMATCH,
+          ]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           502: errorWith('Ocpp command failed', [ERROR_CODES.OCPP_COMMAND_FAILED]),
         },
@@ -5533,12 +5552,16 @@ export function stationRoutes(app: FastifyInstance): void {
       // A 2.1 clear must name a profile id or at least one criterion
       // (K10.FR.02), so "clear all" goes as one clear per purpose the CSMS may
       // clear. A 1.6 clear without fields clears every profile.
-      const isOcpp21 = station.ocppProtocol !== 'ocpp1.6';
+      const is2x = isOcpp2x(station.ocppProtocol);
       // The OCPP server's ClearChargingProfile projection removes the stored
-      // copies of the profiles each Accepted clear removed.
+      // copies of the profiles each Accepted clear removed. A 2.0.1 station has
+      // no PriorityCharging purpose, so "clear all" leaves it out.
       const payloads: Record<string, unknown>[] =
-        Object.keys(ocppPayload).length === 0 && isOcpp21
-          ? CLEARABLE_PROFILE_PURPOSES.map((purpose) => ({
+        Object.keys(ocppPayload).length === 0 && is2x
+          ? CLEARABLE_PROFILE_PURPOSES.filter(
+              (purpose) =>
+                isOcpp21(station.ocppProtocol) || !OCPP21_ONLY_PROFILE_PURPOSES.includes(purpose),
+            ).map((purpose) => ({
               chargingProfileCriteria: { chargingProfilePurpose: purpose },
             }))
           : [ocppPayload];
@@ -5546,6 +5569,7 @@ export function stationRoutes(app: FastifyInstance): void {
       let accepted = false;
       let lastResponse: Record<string, unknown> | undefined;
       let firstError: string | undefined;
+      let refusal: string | null = null;
       for (const payload of payloads) {
         const result = await sendOcppCommandAndWait(
           station.stationId,
@@ -5554,6 +5578,7 @@ export function stationRoutes(app: FastifyInstance): void {
         );
         if (result.error != null) {
           firstError ??= result.error;
+          refusal ??= ocppVersionMismatchReason(result);
           continue;
         }
         const response = result.response;
@@ -5575,6 +5600,10 @@ export function stationRoutes(app: FastifyInstance): void {
         notes: `ClearChargingProfile (${clearOutcome})`,
       });
 
+      if (lastResponse == null && refusal != null) {
+        await reply.status(400).send({ error: refusal, code: 'OCPP_VERSION_MISMATCH' });
+        return;
+      }
       if (lastResponse == null && firstError != null) {
         await reply.status(502).send({ error: firstError, code: 'OCPP_COMMAND_FAILED' });
         return;
@@ -5584,7 +5613,7 @@ export function stationRoutes(app: FastifyInstance): void {
       // GetChargingProfiles so the projection re-mirrors the station's actual
       // current state. 1.6 has no equivalent command (and no ReportChargingProfiles
       // payload), so the explicit DELETE above is the only mechanism for 1.6.
-      if (accepted && isOcpp21) {
+      if (accepted && is2x) {
         void sendOcppCommandAndWait(
           station.stationId,
           'GetChargingProfiles',
@@ -5635,11 +5664,12 @@ export function stationRoutes(app: FastifyInstance): void {
               .passthrough(),
           ),
           400: errorWith(
-            'Station offline, profile id reserved by the station, or the profile would override load management',
+            'Station offline, profile id reserved by the station, the profile would override load management, or OCPP 2.0.1 cannot take the template',
             [
               ERROR_CODES.STATION_OFFLINE,
               ERROR_CODES.CHARGING_PROFILE_ID_RESERVED,
               ERROR_CODES.CHARGING_PROFILE_LOAD_MANAGED,
+              ERROR_CODES.OCPP_VERSION_MISMATCH,
             ],
           ),
           404: errorWith('Resource not found', [
@@ -5691,10 +5721,22 @@ export function stationRoutes(app: FastifyInstance): void {
 
       const version = station.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
 
-      // K01.FR.81: the station rejects an id at or below its MaxExternalConstraintsId.
-      const maxExternalId =
-        version === '2.1' ? (await maxExternalConstraintsIds([id])).get(id) : undefined;
-      if (version === '2.1') {
+      const templateRefusal =
+        station.ocppProtocol === 'ocpp2.0.1' ? chargingProfileOcpp201Refusal(template) : null;
+      if (templateRefusal != null) {
+        await reply.status(400).send({
+          error: `The template cannot be sent to an OCPP 2.0.1 station: ${templateRefusal}`,
+          code: 'OCPP_VERSION_MISMATCH',
+        });
+        return;
+      }
+
+      // K01.FR.81: an OCPP 2.1 station rejects an id at or below its
+      // MaxExternalConstraintsId. OCPP 2.0.1 has no such variable.
+      const maxExternalId = isOcpp21(station.ocppProtocol)
+        ? (await maxExternalConstraintsIds([id])).get(id)
+        : undefined;
+      if (isOcpp21(station.ocppProtocol)) {
         assertProfileIdAllowed(template.profileId, maxExternalId);
       }
       // A profile that would lift the load management limit of the station.
@@ -5744,6 +5786,11 @@ export function stationRoutes(app: FastifyInstance): void {
 
       const result = await sendOcppCommandAndWait(station.stationId, 'SetChargingProfile', payload);
 
+      const pushRefusal = ocppVersionMismatchReason(result);
+      if (pushRefusal != null) {
+        await reply.status(400).send({ error: pushRefusal, code: 'OCPP_VERSION_MISMATCH' });
+        return;
+      }
       if (result.error != null) {
         return { success: false, status: 'Failed', errorInfo: result.error };
       }
@@ -6282,9 +6329,10 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(createMonitoringRuleBody),
         response: {
           201: itemResponse(monitoringRuleItem),
-          400: errorWith('Station offline or not OCPP 2.1', [
+          400: errorWith('Station offline, OCPP 1.6, or a monitor OCPP 2.0.1 does not define', [
             ERROR_CODES.STATION_OFFLINE,
             ERROR_CODES.NOT_SUPPORTED,
+            ERROR_CODES.OCPP_VERSION_MISMATCH,
           ]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           502: errorWith('Station rejected the monitor or the command failed', [
@@ -6318,10 +6366,17 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       // Variable monitoring is OCPP 2.x device model only (use case N04).
-      if (station.ocppProtocol !== 'ocpp2.1') {
+      if (!isOcpp2x(station.ocppProtocol)) {
         await reply
           .status(400)
           .send({ error: 'Not supported for OCPP 1.6', code: 'NOT_SUPPORTED' });
+        return;
+      }
+      if (station.ocppProtocol === 'ocpp2.0.1' && OCPP21_ONLY_MONITOR_TYPES.includes(body.type)) {
+        await reply.status(400).send({
+          error: `Monitor type ${body.type} is not available in OCPP 2.0.1`,
+          code: 'OCPP_VERSION_MISMATCH',
+        });
         return;
       }
       // A monitor is only stored once the station confirms it: an offline
@@ -6407,6 +6462,11 @@ export function stationRoutes(app: FastifyInstance): void {
       );
       if (result.timedOut === true) {
         await reply.status(504).send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });
+        return;
+      }
+      const monitorRefusal = ocppVersionMismatchReason(result);
+      if (monitorRefusal != null) {
+        await reply.status(400).send({ error: monitorRefusal, code: 'OCPP_VERSION_MISMATCH' });
         return;
       }
       if (result.error != null) {

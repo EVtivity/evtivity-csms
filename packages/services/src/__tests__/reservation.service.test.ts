@@ -190,6 +190,7 @@ vi.mock('@evtivity/database', () => {
 vi.mock('@evtivity/lib', () => ({
   AppError: h.MockAppError,
   publishOcppCommand: h.publishOcppCommand,
+  OCPP_VERSION_MISMATCH: 'OCPP_VERSION_MISMATCH',
 }));
 vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish: h.publish }) }));
 vi.mock('../ocpp-command.js', () => ({ sendOcppCommandAndWait: h.sendOcppCommandAndWait }));
@@ -698,6 +699,23 @@ describe('dispatchReservation', () => {
       expect.objectContaining({ reason: 'station_no_response' }),
     );
     expect(h.publishOcppCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it('a ReserveNow refused for OCPP 2.0.1 cancels as a rejection and sends no CancelReservation', async () => {
+    const error =
+      'ReserveNow cannot be sent to an OCPP 2.0.1 station: idToken.type DirectPayment is not an OCPP 2.0.1 token type';
+    h.sendOcppCommandAndWait.mockResolvedValueOnce({
+      commandId: 'c1',
+      error,
+      code: 'OCPP_VERSION_MISMATCH',
+    });
+    const outcome = await dispatchReservation(row(), opts);
+    expect(outcome).toEqual({ kind: 'failed', error });
+    expect(h.applyCancel).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'station_rejected_other', note: error }),
+    );
+    // Nothing reached the station, so there is no hold to cancel there.
+    expect(h.publishOcppCommand).not.toHaveBeenCalled();
   });
 
   it('TC-RES-05: a scheduled reservation publishes reservation_schedule with its delay and sends no ReserveNow', async () => {

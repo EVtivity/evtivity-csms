@@ -3,10 +3,15 @@
 
 import type { OcppClient } from '@evtivity/css/ocpp-client';
 import type { Logger } from 'pino';
+import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
 import type { OcspTestService } from './ocsp-test-service.js';
 import type { NotApplicable } from './pics/types.js';
 
-export type OcppVersion = 'ocpp1.6' | 'ocpp2.1';
+/**
+ * OCPP version of a test case. OCPP 2.0.1 CSMS cases are variants of the 2.1
+ * cases with the same id (see the registry), run over the ocpp2.0.1 subprotocol.
+ */
+export type OcppVersion = OcppProtocol;
 export type SutType = 'csms' | 'cs';
 export type TestStatus = 'passed' | 'failed' | 'skipped' | 'error';
 
@@ -22,6 +27,12 @@ export interface TestCase {
   onboardingStatus?: 'accepted' | 'pending' | 'blocked' | undefined;
   /** Provision the test station with this security profile and Basic Auth password (default: profile 0). */
   provision?: { securityProfile: number; password?: string | undefined } | undefined;
+  /**
+   * CSMS settings this case needs other than the run's (key to JSON value). The
+   * runner runs such cases one at a time after every other case, waits for the
+   * CSMS settings caches, and puts the previous values back afterwards.
+   */
+  settings?: Record<string, unknown> | undefined;
   execute: (ctx: TestContext) => Promise<TestResult>;
 }
 
@@ -64,6 +75,8 @@ export interface TestTokens {
 
 export interface TestContext {
   client: OcppClient;
+  /** OCPP version of the case being run: the subprotocol of `client` and of every message it builds. */
+  version: OcppVersion;
   stationId: string;
   /** idTokens provisioned for this test. */
   tokens: TestTokens;
@@ -115,6 +128,11 @@ export interface RunConfig {
    * it, steps that need the responder are skipped.
    */
   ocspResponderUrl?: string | undefined;
+  /**
+   * Aborts the run: no new test starts, running tests get a short time to
+   * finish, then the run restores its settings, deletes its data and throws.
+   */
+  signal?: AbortSignal | undefined;
 }
 
 export interface RunSummary {

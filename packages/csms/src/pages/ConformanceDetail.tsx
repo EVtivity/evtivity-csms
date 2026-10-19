@@ -35,6 +35,12 @@ import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { api } from '@/lib/api';
 import { formatNumber } from '@/lib/formatting';
 
+const OCPP_VERSION_LABELS: Record<string, string> = {
+  'ocpp1.6': 'OCPP 1.6',
+  'ocpp2.0.1': 'OCPP 2.0.1',
+  'ocpp2.1': 'OCPP 2.1',
+};
+
 interface OcttRun {
   id: number;
   status: string;
@@ -247,11 +253,7 @@ export function ConformanceDetail(): React.JSX.Element {
                       return (
                         <div key={version}>
                           <h3 className="text-sm font-semibold text-muted-foreground mb-2">
-                            {version === 'ocpp1.6'
-                              ? 'OCPP 1.6'
-                              : version === 'ocpp2.1'
-                                ? 'OCPP 2.1'
-                                : version}
+                            {OCPP_VERSION_LABELS[version] ?? version}
                           </h3>
                           <Table>
                             <TableHeader>
@@ -392,6 +394,7 @@ export function ConformanceDetail(): React.JSX.Element {
                   <TableRow>
                     <TableHead className="w-8" />
                     <TableHead>{t('conformance.testId')}</TableHead>
+                    <TableHead>{t('conformance.version')}</TableHead>
                     <TableHead>{t('conformance.testName')}</TableHead>
                     <TableHead>{t('conformance.module')}</TableHead>
                     <TableHead>{t('conformance.status')}</TableHead>
@@ -464,6 +467,7 @@ function ResultRow({
     testId: string;
     testName: string;
     module: string;
+    ocppVersion: string;
     status: string;
     durationMs: number;
     steps:
@@ -488,6 +492,7 @@ function ResultRow({
           {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </TableCell>
         <TableCell>{result.testId}</TableCell>
+        <TableCell>{OCPP_VERSION_LABELS[result.ocppVersion] ?? result.ocppVersion}</TableCell>
         <TableCell>{result.testName}</TableCell>
         <TableCell>{result.module}</TableCell>
         <TableCell>{testStatusBadge(result.status, t)}</TableCell>

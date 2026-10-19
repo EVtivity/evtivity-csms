@@ -49,7 +49,7 @@ export const TC_C_125_CSMS: TestCase = {
         requestStartPayload = payload;
         return { status: 'Accepted' };
       }
-      return defaultReply('ocpp2.1', action, payload);
+      return defaultReply(ctx.version, action, payload);
     });
 
     // Manual Action: present a payment card to the payment terminal. The terminal

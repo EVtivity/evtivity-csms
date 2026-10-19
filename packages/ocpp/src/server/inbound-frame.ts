@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { tryParseJson } from '@evtivity/lib';
+import { isOcpp21, tryParseJson } from '@evtivity/lib';
 import type { Logger } from '@evtivity/lib';
 import {
   MESSAGE_TYPE_CALL,
@@ -158,7 +158,7 @@ export function parseInboundFrame(raw: string, protocolVersion: string): Inbound
   }
 
   if (
-    protocolVersion === 'ocpp2.1' &&
+    isOcpp21(protocolVersion) &&
     (messageType === MESSAGE_TYPE_CALLRESULTERROR || messageType === MESSAGE_TYPE_SEND)
   ) {
     return { kind: 'drop', reason: 'unanswered_type' };

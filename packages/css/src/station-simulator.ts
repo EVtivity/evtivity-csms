@@ -14,6 +14,7 @@ import {
   totpV1,
 } from '@evtivity/lib';
 import { validateStationPassword } from '@evtivity/lib/station-password';
+import { isOcpp2x, type OcppProtocol } from '@evtivity/lib/ocpp-version';
 import { OcppClient } from './ocpp-client.js';
 import { config as cssConfig } from './lib/config.js';
 import { logger } from './lib/logger.js';
@@ -30,7 +31,7 @@ import { OcmfMeterSigner } from './signed-meter-values.js';
 import { computeCompositeSchedule } from './composite-schedule.js';
 import { CSS_MANUFACTURER_ROOT_CA_PEM, parseFirmwareImage } from './lib/manufacturer-root.js';
 import { PersistedCache } from './lib/persisted-cache.js';
-import { endedTriggerFor21, faultStopReason, isStopReasonFor } from './lib/stop-reasons.js';
+import { endedTriggerFor2x, faultStopReason, isStopReasonFor } from './lib/stop-reasons.js';
 import {
   checkIso2Response,
   checkIso20Response,
@@ -139,7 +140,7 @@ type SampledValueRecord = Record<string, unknown>;
 export interface StationConfig {
   id: string;
   stationId: string;
-  ocppProtocol: 'ocpp1.6' | 'ocpp2.1';
+  ocppProtocol: OcppProtocol;
   securityProfile: number;
   targetUrl: string;
   password?: string;
@@ -933,8 +934,8 @@ export class StationSimulator {
       void this.onReconnect();
     });
 
-    // OCPP 2.1 Part 4 5.4: reconnect back-off from OCPPCommCtrlr.RetryBackOff*.
-    if (config.ocppProtocol === 'ocpp2.1') {
+    // OCPP 2.x Part 4 5.4: reconnect back-off from OCPPCommCtrlr.RetryBackOff*.
+    if (isOcpp2x(config.ocppProtocol)) {
       this.client.setReconnectBackOff(() => {
         const seconds = (key: string, fallback: number): number => {
           const n = Number(this.getConfigValue(`OCPPCommCtrlr.${key}`) ?? fallback);
@@ -1299,6 +1300,10 @@ export class StationSimulator {
    */
   private async autochargeAuthorize(evseId: number, ev: PluggedInEv): Promise<AutochargeResult> {
     const type = ev.autocharge ?? 'MacAddress';
+    const is201 = this.config.ocppProtocol === 'ocpp2.0.1';
+    if (is201 && type === 'VIN') {
+      throw new Error('Autocharge with VIN needs OCPP 2.1: 2.0.1 has no VIN idToken type');
+    }
     const raw = type === 'VIN' ? ev.vin : ev.evccid;
     if (raw == null || raw === '') {
       throw new Error(
@@ -1307,7 +1312,8 @@ export class StationSimulator {
     }
     const prefix = ev.idTagPrefix ?? (type === 'VIN' ? '' : 'VID:');
     const idToken = this.is16 ? `${prefix}${raw}` : raw;
-    const tokenType = this.is16 ? 'ISO14443' : type;
+    // 2.0.1 sends the EVCCID (the EV's MAC address) as type MacAddress.
+    const tokenType = this.is16 ? 'ISO14443' : is201 ? 'MacAddress' : type;
     const result = await this.authorize(evseId, idToken, tokenType);
     const info = result[this.is16 ? 'idTagInfo' : 'idTokenInfo'] as
       | Record<string, unknown>
@@ -1803,16 +1809,16 @@ export class StationSimulator {
   /**
    * Ends the transaction on the EVSE. The reason must be a stop reason of the station's
    * OCPP version (1.6 StopTransaction reason, 2.1 ReasonEnumType). On 2.1 the
-   * triggerReason follows the reason (`endedTriggerFor21`) unless `triggerReason` is given.
+   * triggerReason follows the reason (`endedTriggerFor2x`) unless `triggerReason` is given.
    */
   async stopCharging(
     evseId: number,
     reason: string = 'Local',
     triggerReasonOverride?: string,
   ): Promise<void> {
-    if (!isStopReasonFor(this.is16 ? 'ocpp1.6' : 'ocpp2.1', reason)) {
+    if (!isStopReasonFor(this.config.ocppProtocol, reason)) {
       throw new Error(
-        `Stop reason ${reason} is not an OCPP ${this.is16 ? '1.6' : '2.1'} stop reason`,
+        `Stop reason ${reason} is not an OCPP ${this.config.ocppProtocol.slice(4)} stop reason`,
       );
     }
     const tx = await this.getActiveTransaction(evseId);
@@ -1838,8 +1844,8 @@ export class StationSimulator {
     } else {
       const seqNo = (this.evseSeqNo.get(evseId) ?? 0) + 1;
       this.evseSeqNo.set(evseId, seqNo);
-      // Map stop reason to OCPP 2.1 triggerReason and chargingState
-      const mapped = endedTriggerFor21(reason);
+      // Map stop reason to the OCPP 2.x triggerReason and chargingState
+      const mapped = endedTriggerFor2x(this.config.ocppProtocol, reason);
       const triggerReason = triggerReasonOverride ?? mapped.triggerReason;
       const endChargingState = mapped.chargingState;
       // Generate Transaction.End meter values for Ended event
@@ -2231,10 +2237,7 @@ export class StationSimulator {
         await this.reportChargingState(evseId, faultCtx.transactionId as string, 'SuspendedEVSE');
       }
     } else if (faultCtx.transactionId != null) {
-      await this.stopCharging(
-        evseId,
-        faultStopReason(this.is16 ? 'ocpp1.6' : 'ocpp2.1', errorCode),
-      );
+      await this.stopCharging(evseId, faultStopReason(this.config.ocppProtocol, errorCode));
     }
     const connectorId = this.getConnectorId(evseId);
     this.evseConnectorStatus.set(evseId, 'Faulted');
@@ -3657,7 +3660,7 @@ export class StationSimulator {
     componentVariable?:
       | Array<{
           component: { name: string; evse?: { id: number }; instance?: string };
-          variable: { name: string; instance?: string };
+          variable?: { name: string; instance?: string };
         }>
       | undefined;
   }): number {
@@ -3687,9 +3690,11 @@ export class StationSimulator {
       if (filters?.componentVariable != null && filters.componentVariable.length > 0) {
         let matches = false;
         for (const cv of filters.componentVariable) {
+          // A componentVariable without a variable selects every variable of the component.
           const compMatches = cv.component.name === componentName;
-          const varMatches = cv.variable.name === variableName;
-          const instanceMatches = cv.variable.instance == null || cv.variable.instance === instance;
+          const varMatches = cv.variable == null || cv.variable.name === variableName;
+          const instanceMatches =
+            cv.variable?.instance == null || cv.variable.instance === instance;
           if (compMatches && varMatches && instanceMatches) {
             matches = true;
             break;
@@ -3710,7 +3715,7 @@ export class StationSimulator {
       componentVariable?:
         | Array<{
             component: { name: string; evse?: { id: number }; instance?: string };
-            variable: { name: string; instance?: string };
+            variable?: { name: string; instance?: string };
           }>
         | undefined;
     },
@@ -3745,10 +3750,12 @@ export class StationSimulator {
       if (filters?.componentVariable != null && filters.componentVariable.length > 0) {
         let matches = false;
         for (const cv of filters.componentVariable) {
+          // A componentVariable without a variable selects every variable of the component.
           const compMatches = cv.component.name === componentName;
-          const varMatches = cv.variable.name === variableName;
+          const varMatches = cv.variable == null || cv.variable.name === variableName;
           // If instance filter is specified, must match. If not specified, match all.
-          const instanceMatches = cv.variable.instance == null || cv.variable.instance === instance;
+          const instanceMatches =
+            cv.variable?.instance == null || cv.variable.instance === instance;
           if (compMatches && varMatches && instanceMatches) {
             matches = true;
             break;
@@ -5001,7 +5008,7 @@ export class StationSimulator {
           // A00.FR.205: BasicAuthPassword is a passwordString of 16 to 40 characters
           if (
             varName === 'BasicAuthPassword' &&
-            validateStationPassword(newValue, 'ocpp2.1') != null
+            validateStationPassword(newValue, this.config.ocppProtocol) != null
           ) {
             return {
               attributeStatus: 'Rejected',
@@ -5039,7 +5046,8 @@ export class StationSimulator {
               this.configVariables.get('SecurityCtrlr.SecurityProfile')?.value ?? '0',
             );
             const allowDowngrade =
-              this.configVariables.get('SecurityCtrlr.AllowSecurityDowngrade')?.value === 'true';
+              this.configVariables.get('SecurityCtrlr.AllowSecurityProfileDowngrade')?.value ===
+              'true';
             if (Number(newValue) < currentSecProfile && !allowDowngrade) {
               return {
                 attributeStatus: 'Rejected',
@@ -5240,7 +5248,7 @@ export class StationSimulator {
         const componentVariable = payload['componentVariable'] as
           | Array<{
               component: { name: string; evse?: { id: number }; instance?: string };
-              variable: { name: string; instance?: string };
+              variable?: { name: string; instance?: string };
             }>
           | undefined;
 
@@ -6249,7 +6257,7 @@ export class StationSimulator {
           this.configVariables.get('SecurityCtrlr.SecurityProfile')?.value ?? '0',
         );
         const allowDowngrade =
-          this.configVariables.get('SecurityCtrlr.AllowSecurityDowngrade')?.value === 'true';
+          this.configVariables.get('SecurityCtrlr.AllowSecurityProfileDowngrade')?.value === 'true';
 
         // Reject security downgrade unless explicitly allowed
         if (newSecProfile != null && newSecProfile < currentSecProfile && !allowDowngrade) {
@@ -10249,7 +10257,7 @@ export class StationSimulator {
 
   private seedDefaultConfigVariables(): void {
     const defaults = buildCssConfigDefaults({
-      ocppProtocol: this.is16 ? 'ocpp1.6' : 'ocpp2.1',
+      ocppProtocol: this.config.ocppProtocol,
       stationId: this.config.stationId,
       vendorName: this.config.vendorName,
       model: this.config.model,

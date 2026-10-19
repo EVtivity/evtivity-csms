@@ -208,9 +208,15 @@ describe('OcppServer integration', () => {
     const srv = await startServer(port);
     const eventBus = srv.getEventBus();
 
-    const connected = new Promise<{ stationId: string; ocppProtocol: string }>((resolve) => {
+    const connected = new Promise<{
+      stationId: string;
+      ocppProtocol: string;
+      endpointUrl: string | null;
+    }>((resolve) => {
       eventBus.subscribe('station.Connected', (event) => {
-        resolve(event.payload as { stationId: string; ocppProtocol: string });
+        resolve(
+          event.payload as { stationId: string; ocppProtocol: string; endpointUrl: string | null },
+        );
         return Promise.resolve();
       });
     });
@@ -220,6 +226,8 @@ describe('OcppServer integration', () => {
 
     expect(payload.stationId).toBe('TEST-PROTO');
     expect(payload.ocppProtocol).toBe('ocpp2.1');
+    // The URL the station connected on, without its identity path.
+    expect(payload.endpointUrl).toBe(`ws://127.0.0.1:${String(port)}`);
     ws.close();
   });
 

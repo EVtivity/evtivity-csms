@@ -52,7 +52,7 @@ export const TC_D_08_CSMS: TestCase = {
         if (action === 'SendLocalList') {
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -115,7 +115,7 @@ export const TC_D_09_CSMS: TestCase = {
         if (action === 'SendLocalList') {
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

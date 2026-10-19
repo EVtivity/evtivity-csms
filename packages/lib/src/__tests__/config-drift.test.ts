@@ -6,7 +6,42 @@ import {
   findTemplateTargetConfiguration,
   configTemplateTarget,
   configTemplateMatchesStation,
+  hasConfigDrift,
 } from '../config-drift.js';
+
+describe('hasConfigDrift', () => {
+  const tx = { component: 'TxCtrlr', variable: 'EVConnectionTimeOut', value: '60' };
+  const resumption = { component: 'TxCtrlr', variable: 'ResumptionTimeout', value: '60' };
+
+  it('counts a different or missing value as drift', () => {
+    expect(hasConfigDrift('ocpp2.1', tx, { value: '30' })).toBe(true);
+    expect(hasConfigDrift('ocpp2.1', tx, undefined)).toBe(true);
+    expect(hasConfigDrift('ocpp1.6', { ...tx, component: '' }, undefined)).toBe(true);
+    expect(hasConfigDrift('ocpp2.0.1', tx, { value: '30' })).toBe(true);
+    expect(hasConfigDrift('ocpp2.0.1', tx, { value: '60' })).toBe(false);
+  });
+
+  it('counts an unreported OCPP 2.0.1 variable as drift on a 2.0.1 station', () => {
+    expect(hasConfigDrift('ocpp2.0.1', tx, undefined)).toBe(true);
+  });
+
+  it('skips a 2.1-only variable an OCPP 2.0.1 station never reported', () => {
+    expect(hasConfigDrift('ocpp2.0.1', resumption, undefined)).toBe(false);
+    expect(
+      hasConfigDrift(
+        'ocpp2.0.1',
+        { component: 'V2XChargingCtrlr', variable: 'Enabled', value: 'true' },
+        undefined,
+      ),
+    ).toBe(false);
+    // A 2.0.1 station that reports it anyway is compared.
+    expect(hasConfigDrift('ocpp2.0.1', resumption, { value: '30' })).toBe(true);
+  });
+
+  it('keeps counting an unreported 2.1-only variable on a 2.1 station', () => {
+    expect(hasConfigDrift('ocpp2.1', resumption, undefined)).toBe(true);
+  });
+});
 import type { ReportedConfiguration } from '../config-drift.js';
 
 function row(overrides: Partial<ReportedConfiguration>): ReportedConfiguration {

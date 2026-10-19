@@ -10,7 +10,12 @@ import {
   ActionRegistry16,
   type ActionName16,
 } from '@evtivity/ocpp';
-import { awaitPubSubReply, OCPP_COMMAND_RESULTS_CHANNEL, publishOcppCommand } from '@evtivity/lib';
+import {
+  awaitPubSubReply,
+  isOcpp21OnlyAction,
+  OCPP_COMMAND_RESULTS_CHANNEL,
+  publishOcppCommand,
+} from '@evtivity/lib';
 import { eq, and, isNull } from 'drizzle-orm';
 import {
   db,
@@ -97,6 +102,7 @@ import {
   chargingRateUnitEnum as chargingRateUnitEnumV16,
 } from '../lib/ocpp-zod-types-v16.js';
 import { findCommandStation } from '../lib/command-station.js';
+import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 
 const RESPONSE_TIMEOUT_MS = 35_000;
 
@@ -132,6 +138,7 @@ interface CommandResult {
   error?: string;
   queued?: boolean;
   timedOut?: boolean;
+  code?: string;
 }
 
 const commandResponses = {
@@ -295,6 +302,18 @@ async function dispatchCommandRaw(
         },
       };
     }
+    // A 2.0.1 station takes the v21 command routes for the actions both
+    // versions define; an action only 2.1 defines would never reach it.
+    if (station.ocppProtocol === 'ocpp2.0.1' && isOcpp21OnlyAction(action)) {
+      return {
+        code: 400,
+        body: {
+          error: `${action} is defined in OCPP 2.1 only and the station uses ocpp2.0.1`,
+          code: 'OCPP_VERSION_MISMATCH',
+          action,
+        },
+      };
+    }
     stationInternalId = station.id;
   }
 
@@ -376,6 +395,21 @@ async function dispatchCommandRaw(
         code: 202,
         body: ocppCommandQueuedBody(stationId, action, result.error),
       };
+    }
+
+    // Refused by the OCPP server before sending: the station's OCPP version
+    // (2.0.1) cannot express the command. Not a station error.
+    const refusal = ocppVersionMismatchReason(result);
+    if (refusal != null) {
+      void recordCommandAudit(
+        app,
+        actor,
+        stationInternalId,
+        action,
+        payload,
+        `refused: ${refusal}`,
+      );
+      return { code: 400, body: { error: refusal, code: 'OCPP_VERSION_MISMATCH', action } };
     }
 
     if (result.error != null) {

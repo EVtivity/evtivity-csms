@@ -3,6 +3,7 @@
 
 import { mapCssToOcppConnectorType } from './css-connector-types.js';
 import type { CssConnectorType } from './css-connector-types.js';
+import type { OcppProtocol } from './ocpp-version.js';
 
 export interface CssConfigDefaultsEvse {
   evseId: number;
@@ -13,7 +14,7 @@ export interface CssConfigDefaultsEvse {
 }
 
 export interface CssConfigDefaultsInput {
-  ocppProtocol: 'ocpp1.6' | 'ocpp2.1';
+  ocppProtocol: OcppProtocol;
   stationId: string;
   vendorName: string;
   model: string;
@@ -123,6 +124,11 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
   }
 
   const sp = String(input.securityProfile);
+  // NetworkConfiguration OcppVersion: 2.0.1 stations name their version OCPP20.
+  const ocppVersion = input.ocppProtocol === 'ocpp2.0.1' ? 'OCPP20' : 'OCPP21';
+  // OcppInterface Any is a 2.1 value; the CSMS sends the slot's interface back in
+  // SetNetworkProfile, which a 2.0.1 station refuses with Any.
+  const ocppInterface = input.ocppProtocol === 'ocpp2.0.1' ? 'Wired0' : 'Any';
   const base: CssConfigDefault[] = [
     t('OCPPCommCtrlr.HeartbeatInterval', '300', false),
     t('OCPPCommCtrlr.NetworkConfigurationPriority', '1', false),
@@ -156,21 +162,21 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
     t('SecurityCtrlr.SecurityProfile', sp, true),
     t('SecurityCtrlr.Identity', input.stationId, false),
     t('SecurityCtrlr.BasicAuthPassword', '', false),
-    t('SecurityCtrlr.AllowSecurityDowngrade', 'false', false),
+    t('SecurityCtrlr.AllowSecurityProfileDowngrade', 'false', false),
     ...cssSecurityCtrlrDefaults(input.vendorName),
     t('NetworkConfiguration.OcppCsmsUrl#1', input.targetUrl, false),
-    t('NetworkConfiguration.OcppInterface#1', 'Any', false),
+    t('NetworkConfiguration.OcppInterface#1', ocppInterface, false),
     t('NetworkConfiguration.OcppTransport#1', 'JSON', false),
-    t('NetworkConfiguration.OcppVersion#1', 'OCPP21', false),
+    t('NetworkConfiguration.OcppVersion#1', ocppVersion, false),
     t('NetworkConfiguration.MessageTimeout#1', '30', false),
     t('NetworkConfiguration.SecurityProfile#1', sp, false),
     t('NetworkConfiguration.BasicAuthPassword#1', '', false),
     t('NetworkConfiguration.VpnEnabled#1', 'false', false),
     t('NetworkConfiguration.ApnEnabled#1', 'false', false),
     t('NetworkConfiguration.OcppCsmsUrl#2', '', false),
-    t('NetworkConfiguration.OcppInterface#2', 'Any', false),
+    t('NetworkConfiguration.OcppInterface#2', ocppInterface, false),
     t('NetworkConfiguration.OcppTransport#2', 'JSON', false),
-    t('NetworkConfiguration.OcppVersion#2', 'OCPP21', false),
+    t('NetworkConfiguration.OcppVersion#2', ocppVersion, false),
     t('NetworkConfiguration.MessageTimeout#2', '30', false),
     t('NetworkConfiguration.SecurityProfile#2', sp, false),
     t('NetworkConfiguration.BasicAuthPassword#2', '', false),

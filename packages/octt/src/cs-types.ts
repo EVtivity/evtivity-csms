@@ -14,11 +14,14 @@ import type { OcppClient } from '@evtivity/css/ocpp-client';
 import type { StationSimulator } from '@evtivity/css/station-simulator';
 import type { TestCertificate } from './cs-security-pki.js';
 
+/** OCPP versions of the CS test cases (the OCTT 2.0.1 CS cases are not implemented). */
+export type CsOcppVersion = Exclude<OcppVersion, 'ocpp2.0.1'>;
+
 export interface CsTestCase {
   id: string;
   name: string;
   module: string;
-  version: OcppVersion;
+  version: CsOcppVersion;
   sut: 'cs';
   description: string;
   purpose: string;
@@ -97,7 +100,7 @@ export interface CsTestCaseResult {
   testId: string;
   testName: string;
   module: string;
-  version: OcppVersion;
+  version: CsOcppVersion;
   result: ReportedTestResult;
 }
 

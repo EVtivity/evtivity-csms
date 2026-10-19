@@ -27,7 +27,7 @@ export const TC_N_16_CSMS: TestCase = {
           severity = (payload['severity'] as number) ?? -1;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -74,7 +74,7 @@ export const TC_N_17_CSMS: TestCase = {
           received = true;
           return { status: 'Rejected' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

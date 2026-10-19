@@ -88,7 +88,10 @@ vi.mock('drizzle-orm', () => ({
 
 const logger = pino({ level: 'silent' });
 
-function makeCtx(payload: Record<string, unknown>): {
+function makeCtx(
+  payload: Record<string, unknown>,
+  protocolVersion = 'ocpp2.1',
+): {
   ctx: HandlerContext;
   publishMock: ReturnType<typeof vi.fn>;
 } {
@@ -109,7 +112,7 @@ function makeCtx(payload: Record<string, unknown>): {
     },
     messageId: 'msg-1',
     action: 'TransactionEvent',
-    protocolVersion: 'ocpp2.1',
+    protocolVersion,
     payload,
     logger,
     eventBus: { publish: publishMock, subscribe: vi.fn(), drain: vi.fn(), track: vi.fn() },
@@ -545,6 +548,18 @@ describe('v2_1 TransactionEvent handler', () => {
       expect(findLimitMock).not.toHaveBeenCalled();
     });
 
+    it('sends a 2.0.1 station no transactionLimit (OCPP 2.1 only)', async () => {
+      const { clearPrepaidAuthorizations } = prepaidModule;
+      clearPrepaidAuthorizations();
+      whereResult = prepaidRow(1234);
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+
+      const response = await handleTransactionEvent(makeCtx(event('Started'), 'ocpp2.0.1').ctx);
+
+      expect(response['transactionLimit']).toBeUndefined();
+      expect((response['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
+    });
+
     it('sets cacheExpiryDateTime to now when the station did not authorize first', async () => {
       const { clearPrepaidAuthorizations } = prepaidModule;
       clearPrepaidAuthorizations();
@@ -626,6 +641,14 @@ describe('v2_1 TransactionEvent handler', () => {
       expect(accountCeilingMock).toHaveBeenCalledWith('CS-001', 'tx-acc');
       // Recorded as sent, so a grown ceiling follows on a later response.
       expect(markCeilingSentMock).toHaveBeenCalledWith('CS-001', 'tx-acc', 1250);
+    });
+
+    it('records no sent ceiling for a 2.0.1 station, which gets no transactionLimit', async () => {
+      accountCeilingMock.mockResolvedValue(1250);
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const response = await handleTransactionEvent(makeCtx(event('Started'), 'ocpp2.0.1').ctx);
+      expect(response['transactionLimit']).toBeUndefined();
+      expect(markCeilingSentMock).not.toHaveBeenCalled();
     });
 
     it('records no sent ceiling when the station does not support maxCost', async () => {

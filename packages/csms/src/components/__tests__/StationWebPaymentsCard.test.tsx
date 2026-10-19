@@ -93,12 +93,15 @@ afterEach(() => {
 });
 
 describe('StationWebPaymentsCard', () => {
-  it('explains that OCPP 1.6 stations are not supported', async () => {
-    mockGet(DISABLED);
-    renderCard('ocpp1.6');
-    expect(await screen.findByText('stations.dynamicQrOcpp21Only')).toBeTruthy();
-    expect(screen.queryByText('stations.dynamicQrEnable')).toBeNull();
-  });
+  it.each(['ocpp1.6', 'ocpp2.0.1'])(
+    'explains that %s stations are not supported (OCPP 2.1 only)',
+    async (protocol) => {
+      mockGet(DISABLED);
+      renderCard(protocol);
+      expect(await screen.findByText('stations.dynamicQrOcpp21Only')).toBeTruthy();
+      expect(screen.queryByText('stations.dynamicQrEnable')).toBeNull();
+    },
+  );
 
   it('enables dynamic QR codes with the entered validity and length', async () => {
     mockGet(DISABLED);

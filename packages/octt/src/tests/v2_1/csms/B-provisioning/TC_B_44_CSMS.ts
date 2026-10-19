@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { defaultReply } from '../../../../default-replies.js';
+import { networkProfileOcppVersion } from '../../../../csms-test-helpers.js';
 
 export const TC_B_44_CSMS: TestCase = {
   id: 'TC_B_44_CSMS',
@@ -31,7 +32,7 @@ export const TC_B_44_CSMS: TestCase = {
           // Respond with Failed
           return { status: 'Failed' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -40,7 +41,7 @@ export const TC_B_44_CSMS: TestCase = {
         stationId: ctx.stationId,
         configurationSlot: 1,
         connectionData: {
-          ocppVersion: 'OCPP21',
+          ocppVersion: networkProfileOcppVersion(ctx.version),
           ocppTransport: 'JSON',
           messageTimeout: 30,
           ocppCsmsUrl: 'ws://localhost:3003',

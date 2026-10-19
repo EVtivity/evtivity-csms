@@ -3,25 +3,10 @@
 
 import { OcppErrorCode } from '../../protocol/error-codes.js';
 import { OcppError } from '@evtivity/lib';
-import { ActionRegistry as Registry21 } from '../../generated/v2_1/registry.js';
-import { ActionRegistry as Registry16 } from '../../generated/v1_6/registry.js';
+import { actionSchemaEntry } from '../ocpp-registry.js';
+import type { AjvError } from '../ocpp-registry.js';
+import { ocpp201RequestBoundErrors, toOcpp201Reply } from '../ocpp201/to-ocpp201.js';
 import type { Middleware } from './pipeline.js';
-
-type RegistryEntry = {
-  validateRequest: (data: unknown) => boolean;
-  validateResponse: (data: unknown) => boolean;
-} & {
-  validateRequest: { errors?: AjvError[] | null };
-  validateResponse: { errors?: AjvError[] | null };
-};
-
-interface AjvError {
-  keyword?: string;
-  instancePath?: string;
-  schemaPath?: string;
-  params?: Record<string, unknown>;
-  message?: string;
-}
 
 // Maps AJV error keyword to the OCPP 2.1 Part 4 error code class for that
 // constraint kind. OCTT conformance suites assert on the specific code.
@@ -56,13 +41,10 @@ function ocppErrorCodeForAjvErrors(errors: AjvError[]): OcppErrorCode {
 }
 
 export const validateMiddleware: Middleware = async (ctx, next) => {
-  const registry = ctx.protocolVersion === 'ocpp1.6' ? Registry16 : Registry21;
-  // Own keys only: an action named after an Object.prototype member
-  // (`constructor`, `toString`) is not in the registry and reaches the router,
-  // which answers NotImplemented.
-  const entry = Object.hasOwn(registry, ctx.action)
-    ? (registry as Record<string, RegistryEntry | undefined>)[ctx.action]
-    : undefined;
+  // The registry of the connection's protocol (1.6, 2.0.1, else 2.1). An
+  // action it does not define (including Object.prototype names such as
+  // `constructor`) reaches the router, which answers NotImplemented.
+  const entry = actionSchemaEntry(ctx.protocolVersion, ctx.action);
 
   if (entry == null) {
     await next();
@@ -77,9 +59,23 @@ export const validateMiddleware: Middleware = async (ctx, next) => {
     });
   }
 
+  if (ctx.protocolVersion === 'ocpp2.0.1') {
+    const boundErrors = ocpp201RequestBoundErrors(ctx.action, ctx.payload);
+    if (boundErrors.length > 0) {
+      throw new OcppError(OcppErrorCode.PropertyConstraintViolation, 'Request validation failed', {
+        errors: boundErrors,
+      });
+    }
+  }
+
   await next();
 
   if (ctx.response != null) {
+    // A 2.0.1 station gets the 2.1 handler's reply without what 2.0.1 does not
+    // define, then checked strictly against the 2.0.1 schema below.
+    if (ctx.protocolVersion === 'ocpp2.0.1') {
+      ctx.response = toOcpp201Reply(ctx.action, ctx.response);
+    }
     const responseValid = entry.validateResponse(ctx.response);
     if (!responseValid) {
       const errors = entry.validateResponse.errors ?? [];

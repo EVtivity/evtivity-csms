@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { isOcpp21OnlyVariable } from './ocpp21-only-variables.js';
+
 /** The station_configurations columns that identify a reported value. */
 export interface ReportedConfiguration {
   component: string;
@@ -40,6 +42,26 @@ export function findTemplateTargetConfiguration<T extends ReportedConfiguration>
       r.variableInstance == null &&
       r.attributeType === 'Actual',
   );
+}
+
+/**
+ * Whether a station drifted from a template variable: a different value, or no
+ * reported value. A 2.1 template also targets OCPP 2.0.1 stations, which never
+ * have a variable only OCPP 2.1 defines (`isOcpp21OnlyVariable`): such a
+ * variable a 2.0.1 station never reported is not drift. Any other unreported
+ * variable is drift for every protocol.
+ */
+export function hasConfigDrift(
+  protocol: string | null,
+  expected: { component: string; variable: string; value: string },
+  actual: Pick<ReportedConfiguration, 'value'> | undefined,
+): boolean {
+  if (actual == null) {
+    return !(
+      protocol === 'ocpp2.0.1' && isOcpp21OnlyVariable(expected.component, expected.variable)
+    );
+  }
+  return actual.value !== expected.value;
 }
 
 /** The stations a config template targets, as the fields a station must match. */

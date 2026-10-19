@@ -17,7 +17,32 @@ import { getUserSiteIds, checkStationSiteAccess } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { authorize } from '../middleware/rbac.js';
 import { ocppCommandQueued, ocppCommandQueuedBody } from '../lib/ocpp-command-queued.js';
+import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 import { auditStationChange } from '../lib/station-audit.js';
+import {
+  OCPP201_MESSAGE_CONTENT_MAX_LENGTH,
+  OCPP21_ONLY_MESSAGE_FORMATS,
+  OCPP21_ONLY_MESSAGE_STATES,
+  isOcpp2x,
+} from '@evtivity/lib/ocpp-version';
+
+/** What of a display message an OCPP 2.0.1 station cannot show, or null. */
+export function ocpp201DisplayMessageProblem(body: {
+  format: string;
+  content: string;
+  state?: string | undefined;
+  messageExtra?: unknown[] | undefined;
+}): string | null {
+  if (OCPP21_ONLY_MESSAGE_FORMATS.includes(body.format)) return `Format ${body.format}`;
+  if (body.state != null && OCPP21_ONLY_MESSAGE_STATES.includes(body.state)) {
+    return `State ${body.state}`;
+  }
+  if (body.content.length > OCPP201_MESSAGE_CONTENT_MAX_LENGTH) {
+    return `Content over ${String(OCPP201_MESSAGE_CONTENT_MAX_LENGTH)} characters`;
+  }
+  if (body.messageExtra != null && body.messageExtra.length > 0) return 'messageExtra';
+  return null;
+}
 
 const displayMessageItem = z
   .object({
@@ -177,7 +202,12 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(displayMessageItem),
           202: itemResponse(ocppCommandQueued),
-          400: errorWith('Bad request', [ERROR_CODES.STATION_OFFLINE, ERROR_CODES.NOT_SUPPORTED]),
+          400: errorWith('Bad request', [
+            ERROR_CODES.STATION_OFFLINE,
+            ERROR_CODES.NOT_SUPPORTED,
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.OCPP_VERSION_MISMATCH,
+          ]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           500: errorWith('Internal server error', [ERROR_CODES.MESSAGE_CREATE_FAILED]),
           502: errorWith('Station rejected the command', [ERROR_CODES.MESSAGE_SEND_FAILED]),
@@ -218,13 +248,25 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // SetDisplayMessage is OCPP 2.1 only. Reject before INSERT so a 1.6
+      // SetDisplayMessage is OCPP 2.x only. Reject before INSERT so a 1.6
       // station does not leave an unresolvable pending row behind when the
       // command-translation layer downstream returns NotSupported.
-      if (station.ocppProtocol !== 'ocpp2.1') {
+      if (!isOcpp2x(station.ocppProtocol)) {
         await reply.status(400).send({
-          error: 'SetDisplayMessage requires OCPP 2.1',
+          error: 'SetDisplayMessage requires OCPP 2.0.1 or 2.1',
           code: 'NOT_SUPPORTED',
+        });
+        return;
+      }
+
+      // A 2.0.1 station cannot show these; refused before the INSERT so no
+      // pending row waits for a command the OCPP server would refuse.
+      const ocpp201Problem =
+        station.ocppProtocol === 'ocpp2.0.1' ? ocpp201DisplayMessageProblem(body) : null;
+      if (ocpp201Problem != null) {
+        await reply.status(400).send({
+          error: `${ocpp201Problem} is not available in OCPP 2.0.1`,
+          code: 'OCPP_VERSION_MISMATCH',
         });
         return;
       }
@@ -312,6 +354,19 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         await reply
           .status(202)
           .send(ocppCommandQueuedBody(station.stationId, 'SetDisplayMessage', result.error));
+        return;
+      }
+
+      // Refused by the OCPP server for the station's OCPP version: never sent,
+      // so the row is rejected instead of left pending.
+      const refusal = ocppVersionMismatchReason(result);
+      if (refusal != null) {
+        await db
+          .update(displayMessages)
+          .set({ status: 'rejected', updatedAt: new Date() })
+          .where(eq(displayMessages.id, message.id));
+        await auditSet(`refused: ${refusal}`);
+        await reply.status(400).send({ error: refusal, code: 'OCPP_VERSION_MISMATCH' });
         return;
       }
 

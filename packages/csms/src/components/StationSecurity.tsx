@@ -29,6 +29,16 @@ import {
   stationPasswordRules,
   validateStationPassword,
 } from '@evtivity/lib/station-password';
+import {
+  OCPP201_NETWORK_INTERFACES,
+  type Ocpp201NetworkInterface,
+} from '@evtivity/lib/ocpp-version';
+
+interface ProfileChangeBody {
+  securityProfile: number;
+  password?: string;
+  ocppInterface?: Ocpp201NetworkInterface;
+}
 
 interface StationSecurityProps {
   stationId: string;
@@ -113,6 +123,7 @@ export function StationSecurity({
   const [profileConfirmOpen, setProfileConfirmOpen] = useState(false);
   const [profilePassword, setProfilePassword] = useState('');
   const [profilePasswordConfirm, setProfilePasswordConfirm] = useState('');
+  const [networkInterface, setNetworkInterface] = useState<Ocpp201NetworkInterface>('Wired0');
   const [logsPage, setLogsPage] = useState(1);
   const [logsLimit, setLogsLimit] = useState(50);
   const [logsSource, setLogsSource] = useState<'' | 'connection' | 'security'>('');
@@ -162,7 +173,7 @@ export function StationSecurity({
   }
 
   const updateProfileMutation = useMutation({
-    mutationFn: (data: { securityProfile: number; password?: string }) =>
+    mutationFn: (data: ProfileChangeBody) =>
       api.patch<{ pendingSecurityProfile: number | null }>(`/v1/stations/${stationDbId}`, data),
     onError: showSecurityError,
     onSuccess: (station) => {
@@ -179,6 +190,7 @@ export function StationSecurity({
       setProfilePassword('');
       setProfilePasswordConfirm('');
       setHasSubmittedProfilePassword(false);
+      setNetworkInterface('Wired0');
     },
   });
 
@@ -236,11 +248,14 @@ export function StationSecurity({
 
   function handleProfileConfirm(): void {
     if (pendingProfile == null) return;
-    const data: { securityProfile: number; password?: string } = {
+    const data: ProfileChangeBody = {
       securityProfile: pendingProfile,
     };
     if (profilePassword.length >= 8) {
       data.password = profilePassword;
+    }
+    if (needsNetworkInterface) {
+      data.ocppInterface = networkInterface;
     }
     updateProfileMutation.mutate(data);
   }
@@ -259,6 +274,7 @@ export function StationSecurity({
     setProfilePassword('');
     setProfilePasswordConfirm('');
     setHasSubmittedProfilePassword(false);
+    setNetworkInterface('Wired0');
   }
 
   function resetPasswordForm(): void {
@@ -298,6 +314,36 @@ export function StationSecurity({
   const needsPassword =
     pendingProfile != null && pendingProfile >= 1 && pendingProfile < 3 && !hasPassword;
   const showProfileConfirm = pendingProfile != null && !needsPassword;
+  // An OCPP 2.0.1 station reports no network interface, so the operator picks it.
+  const needsNetworkInterface =
+    ocppProtocol === 'ocpp2.0.1' &&
+    isOnline &&
+    pendingProfile != null &&
+    pendingProfile > securityProfile;
+  const networkInterfaceField = needsNetworkInterface && (
+    <div className="space-y-2">
+      <Label htmlFor="network-interface" className="leading-6">
+        {t('stations.networkInterface')}
+      </Label>
+      <Select
+        id="network-interface"
+        value={networkInterface}
+        onChange={(e) => {
+          setNetworkInterface(e.target.value as Ocpp201NetworkInterface);
+        }}
+        disabled={updateProfileMutation.isPending}
+      >
+        {OCPP201_NETWORK_INTERFACES.map((value) => (
+          <option key={value} value={value}>
+            {value.startsWith('Wireless')
+              ? t('stations.networkInterfaceWireless', { n: value.slice(-1) })
+              : t('stations.networkInterfaceWired', { n: value.slice(-1) })}
+          </option>
+        ))}
+      </Select>
+      <p className="text-xs text-muted-foreground">{t('stations.networkInterfaceHelp')}</p>
+    </div>
+  );
 
   const logsTotalPages = Math.max(1, Math.ceil((logsResponse?.total ?? 0) / logsLimit));
 
@@ -454,6 +500,7 @@ export function StationSecurity({
                         </p>
                       )}
                   </div>
+                  {networkInterfaceField}
                   {!isOnline && (
                     <p className="text-xs text-destructive">
                       {t('stations.profileChangeOcppOffline')}
@@ -484,6 +531,7 @@ export function StationSecurity({
                       {t('stations.profileChangeOnline')}
                     </p>
                   )}
+                  {networkInterfaceField}
                   {!isOnline && (
                     <p className="text-xs text-destructive">
                       {t('stations.profileChangeOcppOffline')}

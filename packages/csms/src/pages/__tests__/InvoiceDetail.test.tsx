@@ -370,6 +370,16 @@ describe('InvoiceDetail', () => {
     expect(screen.getByText('€15.00')).toBeDefined();
   });
 
+  it('bands every second line within each driver group', async () => {
+    mockInvoice(fleetDetail());
+    renderPage();
+    await screen.findByTestId('invoice-bill-to');
+    const banded = screen
+      .getAllByTestId('invoice-line')
+      .map((row) => row.className.includes('bg-muted/30'));
+    expect(banded).toEqual([false, true, false]);
+  });
+
   it('emails a fleet invoice to the fleet billing contacts', async () => {
     mockInvoice(fleetDetail());
     h.post.mockResolvedValue({ success: true });

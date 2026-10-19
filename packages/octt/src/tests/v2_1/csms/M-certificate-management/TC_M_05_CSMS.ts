@@ -30,7 +30,7 @@ const makeInstallCertTest = (
           received = true;
           return { status: respondStatus };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

@@ -73,7 +73,7 @@ export const TC_E_29_CSMS: TestCase = {
           requestedTxId = String(payload['transactionId'] ?? '');
           return { ongoingIndicator: true, messagesInQueue: true };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -169,7 +169,7 @@ export const TC_E_30_CSMS: TestCase = {
           requestedTxId = String(payload['transactionId'] ?? '');
           return { ongoingIndicator: true, messagesInQueue: false };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -249,7 +249,7 @@ export const TC_E_31_CSMS: TestCase = {
           receivedGetTxStatus = true;
           return { ongoingIndicator: false, messagesInQueue: true };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -384,7 +384,7 @@ export const TC_E_33_CSMS: TestCase = {
           receivedGetTxStatus = true;
           return { messagesInQueue: true };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -475,7 +475,7 @@ export const TC_E_34_CSMS: TestCase = {
           transactionIdOmitted = payload['transactionId'] == null;
           return { messagesInQueue: false };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

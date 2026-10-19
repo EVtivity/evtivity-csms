@@ -12,6 +12,7 @@ import {
   deleteConformanceTestDriver,
 } from '@evtivity/database';
 import { createRedisClient } from '@evtivity/lib';
+import { restoreLeftoverRunSettings } from '@evtivity/octt';
 import { OCTT_RUN_LOCK_KEY } from './octt-runner.js';
 
 /**
@@ -33,6 +34,11 @@ export interface ConformanceSweepDeps {
   /** Whether a worker conformance run holds the run lock. */
   runLockHeld: () => Promise<boolean>;
   now: () => Date;
+  /**
+   * Puts back the settings a killed CSMS run left changed, when its run last
+   * refreshed them before `staleBefore`. Returns how many it restored.
+   */
+  restoreLeftoverSettings: (staleBefore: Date) => Promise<number>;
 }
 
 export interface ConformanceSweepResult {
@@ -40,6 +46,7 @@ export interface ConformanceSweepResult {
   crashedRuns: number;
   stationsDeleted: number;
   driverDeleted: boolean;
+  settingsRestored: number;
 }
 
 /**
@@ -47,8 +54,9 @@ export interface ConformanceSweepResult {
  * run whose worker crashed, a failed cleanup, a CLI run that was killed.
  * While a worker run holds the run lock nothing is touched (that run deletes
  * its own data at its end). Otherwise a run still marked running crashed and
- * is marked failed, idle conformance stations are deleted, and the test
- * driver once no run can be using it.
+ * is marked failed, settings a killed run left changed are restored, idle
+ * conformance stations are deleted, and the test driver once no run can be
+ * using it.
  */
 export async function sweepConformanceStations(
   log: Logger,
@@ -59,6 +67,7 @@ export async function sweepConformanceStations(
     crashedRuns: 0,
     stationsDeleted: 0,
     driverDeleted: false,
+    settingsRestored: 0,
   };
   if (await deps.runLockHeld()) {
     result.skipped = true;
@@ -76,6 +85,9 @@ export async function sweepConformanceStations(
   result.crashedRuns = crashed.length;
 
   const idleBefore = new Date(now - CONFORMANCE_SWEEP_IDLE_MS);
+  // A run refreshes its pending restore row every few minutes, a CLI run too.
+  result.settingsRestored = await deps.restoreLeftoverSettings(idleBefore);
+
   result.stationsDeleted = await deleteConformanceStations({
     includeCs: true,
     idleBefore,
@@ -90,7 +102,12 @@ export async function sweepConformanceStations(
     }
   }
 
-  if (result.crashedRuns > 0 || result.stationsDeleted > 0 || result.driverDeleted) {
+  if (
+    result.crashedRuns > 0 ||
+    result.stationsDeleted > 0 ||
+    result.driverDeleted ||
+    result.settingsRestored > 0
+  ) {
     log.info(result, 'Conformance leftovers removed');
   }
   return result;
@@ -113,5 +130,7 @@ export async function conformanceStationSweepHandler(log: Logger): Promise<void>
   await sweepConformanceStations(log, {
     runLockHeld: async () => (await lockStore().exists(OCTT_RUN_LOCK_KEY)) === 1,
     now: () => new Date(),
+    restoreLeftoverSettings: async (staleBefore) =>
+      (await restoreLeftoverRunSettings(log, { staleBefore })).length,
   });
 }

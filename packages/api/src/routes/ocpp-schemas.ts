@@ -6,23 +6,47 @@ import {
   ocppRequestSchemaPath,
   schemaToCommandDef,
   type CommandDef,
+  type OcppCommandVersion,
   type OcppRequestSchema,
 } from '@evtivity/lib/ocpp-command-schema';
 import type { FastifyInstance } from 'fastify';
-import {
-  ActionRegistry,
-  type ActionName,
-  ActionRegistry16,
-  type ActionName16,
-} from '@evtivity/ocpp';
+import { z } from 'zod';
+import { ActionRegistry, ActionRegistry16, ActionRegistry201 } from '@evtivity/ocpp';
 import { errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { readOcppSchemaFile } from '../lib/ocpp-schema-files.js';
+import { zodSchema } from '../lib/zod-schema.js';
 import { authorize } from '../middleware/rbac.js';
 
 // Processed CommandDefs per `version:action`. The schema files never change at
 // runtime, so the example's datetime fields carry the first request's time.
 const commandDefCache = new Map<string, CommandDef>();
+
+type SchemaEntry = { validateRequest: (p: unknown) => boolean };
+
+/** The generated entry of an action in a version, own keys only (`constructor` is not an action). */
+function schemaEntry(version: OcppCommandVersion, action: string): SchemaEntry | undefined {
+  const registry: Readonly<Record<string, SchemaEntry>> =
+    version === 'ocpp1.6'
+      ? ActionRegistry16
+      : version === 'ocpp2.0.1'
+        ? ActionRegistry201
+        : ActionRegistry;
+  return Object.hasOwn(registry, action) ? registry[action] : undefined;
+}
+
+function rawSchemaVersion(version: string | undefined): OcppCommandVersion {
+  return version === 'ocpp1.6' || version === 'ocpp2.0.1' ? version : 'ocpp2.1';
+}
+
+const v21SchemaQuery = z.object({
+  protocol: z
+    .enum(['ocpp2.0.1', 'ocpp2.1'])
+    .optional()
+    .describe(
+      'Protocol of the station the form is for: ocpp2.0.1 serves the OCPP 2.0.1 schema, which has no 2.1-only fields or actions (default ocpp2.1)',
+    ),
+});
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -49,24 +73,17 @@ export function ocppSchemaRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { action } = request.params as { action: string };
-      const { version } = request.query as { version?: string };
-      const is16 = version === 'ocpp1.6';
+      const { version: versionQuery } = request.query as { version?: string };
+      const version = rawSchemaVersion(versionQuery);
 
-      const registry = is16 ? ActionRegistry16 : ActionRegistry;
-      // Own keys only: an inherited name (`constructor`) is not an action.
-      const entry = (
-        Object.hasOwn(registry, action) ? registry[action as ActionName & ActionName16] : undefined
-      ) as { validateRequest: (p: unknown) => boolean } | undefined;
-      if (entry == null) {
+      if (schemaEntry(version, action) == null) {
         return reply.status(404).send({
           error: 'Unknown OCPP action',
           code: 'UNKNOWN_ACTION',
         });
       }
 
-      const content = await readOcppSchemaFile(
-        ocppRequestSchemaPath(is16 ? 'ocpp1.6' : 'ocpp2.1', action),
-      );
+      const content = await readOcppSchemaFile(ocppRequestSchemaPath(version, action));
       if (content == null) {
         return reply.status(404).send({
           error: 'Schema not found',
@@ -88,19 +105,16 @@ export function ocppSchemaRoutes(app: FastifyInstance): void {
       header: (name: string, value: string) => unknown;
       send: (body: unknown) => unknown;
     },
-    is16: boolean,
+    version: OcppCommandVersion,
   ): Promise<unknown> {
     const { action } = request.params as { action: string };
-    const version = is16 ? 'ocpp1.6' : 'ocpp2.1';
 
-    const registry = is16 ? ActionRegistry16 : ActionRegistry;
-    // Own keys only: an inherited name (`constructor`) is not an action.
-    const entry = (
-      Object.hasOwn(registry, action) ? registry[action as ActionName & ActionName16] : undefined
-    ) as { validateRequest: (p: unknown) => boolean } | undefined;
-    if (entry == null) {
+    if (schemaEntry(version, action) == null) {
       return reply.status(404).send({
-        error: 'Unknown OCPP action',
+        error:
+          version === 'ocpp2.0.1'
+            ? 'OCPP 2.0.1 does not define this action'
+            : 'Unknown OCPP action',
         code: 'UNKNOWN_ACTION',
       });
     }
@@ -139,6 +153,7 @@ export function ocppSchemaRoutes(app: FastifyInstance): void {
         summary: 'Get processed schema for an OCPP 2.1 command',
         operationId: 'getOcppV21CommandSchema',
         security: [{ bearerAuth: [] }],
+        querystring: zodSchema(v21SchemaQuery),
         response: {
           404: errorWith('Schema or action not found', [
             ERROR_CODES.SCHEMA_NOT_FOUND,
@@ -155,7 +170,7 @@ export function ocppSchemaRoutes(app: FastifyInstance): void {
           header: (name: string, value: string) => unknown;
           send: (body: unknown) => unknown;
         },
-        false,
+        (request.query as z.infer<typeof v21SchemaQuery>).protocol ?? 'ocpp2.1',
       ),
   );
 
@@ -184,7 +199,7 @@ export function ocppSchemaRoutes(app: FastifyInstance): void {
           header: (name: string, value: string) => unknown;
           send: (body: unknown) => unknown;
         },
-        true,
+        'ocpp1.6',
       ),
   );
 }

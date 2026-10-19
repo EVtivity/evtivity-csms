@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -153,7 +154,13 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { cssRoutes } from '../routes/css.js';
-import { ACTION_VERSIONS, HIGH_LEVEL_ACTIONS, STATION_MESSAGE_ACTIONS } from '../routes/css.js';
+import {
+  ACTION_VERSIONS,
+  cssActionFitsProtocol,
+  OCPP21_ONLY_CSS_ACTIONS,
+  HIGH_LEVEL_ACTIONS,
+  STATION_MESSAGE_ACTIONS,
+} from '../routes/css.js';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -301,6 +308,25 @@ describe('CSS routes', () => {
       expect(response.statusCode).toBe(400);
       const body = JSON.parse(response.payload);
       expect(body.code).toBe('OCPP_VERSION_MISMATCH');
+    });
+
+    it('refuses a 2.1-only action on a 2.0.1 station', async () => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-201', ocppProtocol: 'ocpp2.0.1' }]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/v21/sendBatterySwap',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          stationId: 'TEST-201',
+          eventType: 'BatteryIn',
+          requestId: 1,
+          idToken: { idToken: 'TOKEN-1', type: 'ISO14443' },
+          batteryData: [],
+        },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.payload).code).toBe('OCPP_VERSION_MISMATCH');
     });
 
     it('returns 400 for version mismatch (1.6 action on 2.1 station)', async () => {
@@ -568,5 +594,36 @@ describe('CSS routes', () => {
       });
       expect(response.statusCode).toBe(404);
     });
+  });
+});
+
+describe('cssActionFitsProtocol', () => {
+  it('runs the shared 2.x actions on 2.0.1 and 2.1 stations', () => {
+    expect(cssActionFitsProtocol('sendTransactionEvent', 'ocpp2.1', 'ocpp2.0.1')).toBe(true);
+    expect(cssActionFitsProtocol('sendTransactionEvent', 'ocpp2.1', 'ocpp2.1')).toBe(true);
+    expect(cssActionFitsProtocol('sendTransactionEvent', 'ocpp2.1', 'ocpp1.6')).toBe(false);
+  });
+
+  it('runs the 2.1-only actions on 2.1 stations only', () => {
+    expect(cssActionFitsProtocol('sendNotifyDERAlarm', 'ocpp2.1', 'ocpp2.0.1')).toBe(false);
+    expect(cssActionFitsProtocol('sendNotifyDERAlarm', 'ocpp2.1', 'ocpp2.1')).toBe(true);
+  });
+
+  it('lists as 2.1-only exactly the 2.1 actions whose message OCPP 2.0.1 does not define', () => {
+    const schemas201 = new URL('../../../../schemas/ocpp-2.0.1/', import.meta.url);
+    const in201 = (action: string): boolean =>
+      existsSync(new URL(`${action.replace(/^send/, '')}Request.json`, schemas201));
+    const actions21 = Object.entries(ACTION_VERSIONS)
+      .filter(([, version]) => version === 'ocpp2.1')
+      .map(([action]) => action);
+
+    expect(actions21.filter((a) => !in201(a)).sort()).toEqual([...OCPP21_ONLY_CSS_ACTIONS].sort());
+    expect(existsSync(new URL('TransactionEventRequest.json', schemas201))).toBe(true);
+  });
+
+  it('runs the 1.6 actions on 1.6 stations and the high-level actions anywhere', () => {
+    expect(cssActionFitsProtocol('sendStartTransaction', 'ocpp1.6', 'ocpp1.6')).toBe(true);
+    expect(cssActionFitsProtocol('sendStartTransaction', 'ocpp1.6', 'ocpp2.0.1')).toBe(false);
+    expect(cssActionFitsProtocol('plugIn', 'all', 'ocpp2.0.1')).toBe(true);
   });
 });

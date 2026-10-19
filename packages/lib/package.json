@@ -59,6 +59,9 @@
     "./uuid": {
       "import": "./src/uuid.ts"
     },
+    "./ocpp-version": {
+      "import": "./src/ocpp-version.ts"
+    },
     "./toast-durations": {
       "import": "./src/toast-durations.ts"
     },

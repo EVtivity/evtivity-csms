@@ -18,8 +18,10 @@
  */
 
 import { randomInt } from 'node:crypto';
+import { OCPP_PROTOCOLS, isOcpp21OnlyAction, type OcppProtocol } from '@evtivity/lib';
 import type { AiCatalogTool } from './catalog-types.js';
 
+/** The command tool family: the v16 routes, or the v21 routes that 2.0.1 and 2.1 stations take. */
 export type OcppVersion = 'ocpp1.6' | 'ocpp2.1';
 
 const COMMAND_PATH = /^\/v1\/ocpp\/commands\/v(16|21)\//;
@@ -31,9 +33,25 @@ export function toolOcppVersion(tool: Pick<AiCatalogTool, 'pathTemplate'>): Ocpp
   return match[1] === '16' ? 'ocpp1.6' : 'ocpp2.1';
 }
 
+/** The OCPP action of a station command tool (`Reset` for `/v1/ocpp/commands/v21/Reset`). */
+function toolAction(tool: Pick<AiCatalogTool, 'pathTemplate'>): string {
+  return tool.pathTemplate.replace(COMMAND_PATH, '');
+}
+
+/** The command tools a station protocol takes: 2.0.1 stations use the 2.1 routes. */
+export function stationToolVersion(protocol: OcppProtocol): OcppVersion {
+  return protocol === 'ocpp1.6' ? 'ocpp1.6' : 'ocpp2.1';
+}
+
+/** A station's stored protocol, or null for a station that never connected. */
+export function knownOcppProtocol(value: string | null): OcppProtocol | null {
+  return OCPP_PROTOCOLS.find((protocol) => protocol === value) ?? null;
+}
+
 /** `ocpp1.6` as "OCPP 1.6". */
-export function ocppVersionLabel(version: OcppVersion): string {
-  return version === 'ocpp1.6' ? 'OCPP 1.6' : 'OCPP 2.1';
+export function ocppVersionLabel(version: OcppProtocol): string {
+  if (version === 'ocpp1.6') return 'OCPP 1.6';
+  return version === 'ocpp2.0.1' ? 'OCPP 2.0.1' : 'OCPP 2.1';
 }
 
 /**
@@ -641,14 +659,25 @@ export function translatedOperationIds(): string[] {
 export function mapOcppCommand(
   tool: Pick<AiCatalogTool, 'name' | 'operationId' | 'pathTemplate'>,
   args: Args,
-  stationVersion: OcppVersion,
+  stationProtocol: OcppProtocol,
   options: MapOptions = {},
 ): OcppCommandMapping {
   const toolVersion = toolOcppVersion(tool);
-  if (toolVersion === null || toolVersion === stationVersion) return { kind: 'match' };
+  if (toolVersion === null) return { kind: 'match' };
+  // OCPP 2.0.1 stations take the 2.1 tools of the actions 2.0.1 defines.
+  const stationVersion = stationToolVersion(stationProtocol);
   const prefix = stationVersion === 'ocpp1.6' ? 'ocppv16_' : 'ocppv21_';
   const station = text(args['stationId']);
-  const intro = `Station ${station} uses ${ocppVersionLabel(stationVersion)}, but ${tool.name} is an ${ocppVersionLabel(toolVersion)} command.`;
+  const notIn201 = (action: string): OcppCommandMapping => ({
+    kind: 'unsupported',
+    message: `Station ${station} uses OCPP 2.0.1, but ${action} is defined in OCPP 2.1 only. Use only ${prefix} tools of actions OCPP 2.0.1 defines for this station.`,
+  });
+  if (toolVersion === stationVersion) {
+    return stationProtocol === 'ocpp2.0.1' && isOcpp21OnlyAction(toolAction(tool))
+      ? notIn201(tool.name)
+      : { kind: 'match' };
+  }
+  const intro = `Station ${station} uses ${ocppVersionLabel(stationProtocol)}, but ${tool.name} is an ${ocppVersionLabel(toolVersion)} command.`;
   const translate =
     toolVersion === 'ocpp1.6'
       ? translators16To21(options)[tool.operationId]
@@ -656,7 +685,7 @@ export function mapOcppCommand(
   if (translate === undefined) {
     return {
       kind: 'unsupported',
-      message: `${intro} It has no ${ocppVersionLabel(stationVersion)} equivalent. Use only ${prefix} tools for this station.`,
+      message: `${intro} It has no ${ocppVersionLabel(stationProtocol)} equivalent. Use only ${prefix} tools for this station.`,
     };
   }
   const result = translate(args);
@@ -665,6 +694,10 @@ export function mapOcppCommand(
       kind: 'unsupported',
       message: `${intro} It cannot be translated: ${result.unsupported}. Use only ${prefix} tools for this station.`,
     };
+  }
+  const mappedAction = result.operationId.replace(/^ocppv(16|21)_/, '');
+  if (stationProtocol === 'ocpp2.0.1' && isOcpp21OnlyAction(mappedAction)) {
+    return notIn201(mappedAction);
   }
   return { kind: 'mapped', operationId: result.operationId, args: result.args };
 }

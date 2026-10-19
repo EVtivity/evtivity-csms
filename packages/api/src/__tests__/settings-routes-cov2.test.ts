@@ -280,6 +280,7 @@ describe('settings routes (cov2)', () => {
     setupDbResults([
       { key: 'company.name', value: 'Acme' },
       { key: 'pnc.local.caEnc', value: 'secret-ca' },
+      { key: 'octt.pendingRestore', value: { changes: [] } },
     ]);
     const res = await app.inject({ method: 'GET', url: '/settings', headers: auth });
     expect(res.statusCode).toBe(200);
@@ -380,17 +381,20 @@ describe('settings routes (cov2)', () => {
     });
   });
 
-  it('PUT refuses a server-managed setting', async () => {
-    const res = await app.inject({
-      method: 'PUT',
-      url: '/settings/pnc.local.caEnc',
-      headers: auth,
-      payload: { value: 'x' },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json()).toEqual(SERVER_MANAGED);
-    expect(rec.values).toEqual([]);
-  });
+  it.each(['pnc.local.caEnc', 'octt.pendingRestore'])(
+    'PUT refuses the server-managed %s',
+    async (key) => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/settings/${key}`,
+        headers: auth,
+        payload: { value: 'x' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual(SERVER_MANAGED);
+      expect(rec.values).toEqual([]);
+    },
+  );
 
   it('DELETE refuses a server-managed setting', async () => {
     const res = await app.inject({

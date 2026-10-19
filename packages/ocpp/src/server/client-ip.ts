@@ -73,3 +73,26 @@ export function resolveClientIp(req: IncomingMessage, trusted: BlockList | null)
   }
   return peer;
 }
+
+const MAX_HOST_LENGTH = 255;
+
+// The OCPP-J endpoint URL the station connected on: the scheme and the Host
+// header. The server path is the station id alone, so the endpoint has no path.
+export function stationEndpointUrl(req: IncomingMessage, tls: boolean): string | null {
+  const host = req.headers.host;
+  if (host == null || host === '' || host.length > MAX_HOST_LENGTH) return null;
+  const scheme = tls ? 'wss' : 'ws';
+  const url = URL.parse(`${scheme}://${host}`);
+  if (
+    url == null ||
+    url.host === '' ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.pathname !== '/' ||
+    url.search !== '' ||
+    url.hash !== ''
+  ) {
+    return null;
+  }
+  return `${scheme}://${url.host}`;
+}

@@ -3,6 +3,7 @@
 
 import { OcppClient } from '@evtivity/css/ocpp-client';
 import type { OcppVersion } from './types.js';
+import { ocpp201MappingLosses } from './ocpp201-mapping-check.js';
 
 export interface TestClientOptions {
   serverUrl: string;
@@ -88,9 +89,42 @@ export class TransactionTracker {
   }
 }
 
-/** OcppClient that records the transactions the test station opens and closes. */
+/**
+ * OcppClient that records the transactions the test station opens and closes,
+ * and on OCPP 2.0.1 what the 2.0.1 edge removed or changed from a message the
+ * test built (`mappingLosses`, one entry per message: the executor fails the
+ * test when it is not empty).
+ */
 export class TestOcppClient extends OcppClient {
   readonly transactions = new TransactionTracker();
+  readonly mappingLosses: string[] = [];
+
+  override callPayload(
+    action: string,
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> | null {
+    const wire = super.callPayload(action, payload);
+    if (this.protocol === 'ocpp2.0.1') this.recordLosses(`${action}Request`, payload, wire);
+    return wire;
+  }
+
+  override callResultPayload(
+    action: string,
+    payload: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const wire = super.callResultPayload(action, payload);
+    if (this.protocol === 'ocpp2.0.1') this.recordLosses(`${action}Response`, payload, wire);
+    return wire;
+  }
+
+  private recordLosses(
+    message: string,
+    sent: Record<string, unknown>,
+    wire: Record<string, unknown> | null,
+  ): void {
+    const losses = ocpp201MappingLosses(sent, wire);
+    if (losses.length > 0) this.mappingLosses.push(`${message}: ${losses.join('; ')}`);
+  }
 
   override async sendCall(
     action: string,

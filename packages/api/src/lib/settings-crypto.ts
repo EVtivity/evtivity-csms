@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { encryptString, decryptString } from '@evtivity/lib';
+import { encryptString, decryptString, OCTT_PENDING_RESTORE_SETTING_KEY } from '@evtivity/lib';
 import { config as apiConfig } from './config.js';
 
 /**
@@ -24,9 +24,10 @@ export function isEncryptedAtRest(key: string): boolean {
 /**
  * Settings the CSMS generates and reads itself. The generic settings routes
  * never return or write them: pnc.local.caEnc holds the private keys of the
- * local ISO 15118 contract CA, created by POST /v1/pnc/settings/local-ca.
+ * local ISO 15118 contract CA, created by POST /v1/pnc/settings/local-ca;
+ * octt.pendingRestore holds the settings a conformance run must put back.
  */
-const SERVER_MANAGED_SETTING_KEYS = new Set(['pnc.local.caEnc']);
+const SERVER_MANAGED_SETTING_KEYS = new Set(['pnc.local.caEnc', OCTT_PENDING_RESTORE_SETTING_KEY]);
 
 export function isServerManagedSetting(key: string): boolean {
   return SERVER_MANAGED_SETTING_KEYS.has(key);

@@ -80,7 +80,7 @@ export const TC_B_26_CSMS: TestCase = {
           });
           return { status: 'Scheduled' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

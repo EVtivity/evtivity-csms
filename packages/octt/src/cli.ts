@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs';
 import pino from 'pino';
 import { runTests } from './runner.js';
+import { abortOnSignals, SIGNAL_EXIT_CODE } from './abort-on-signal.js';
 import type { OcppVersion, SutType } from './types.js';
 
 async function main(): Promise<void> {
@@ -35,7 +36,13 @@ async function main(): Promise<void> {
   }
   logger.info({ serverUrl, version, sut, module, concurrency }, 'Starting OCTT runner');
 
-  const summary = await runTests(
+  // 2.1 and 2.0.1 cases share ids, so each result line and count names its version.
+  const byVersion = new Map<string, Record<string, number>>();
+
+  const controller = new AbortController();
+  abortOnSignals(controller, { logger, exit: (code) => process.exit(code) });
+
+  const run = runTests(
     {
       serverUrl,
       version,
@@ -48,6 +55,7 @@ async function main(): Promise<void> {
       tlsServerUrl,
       tlsCaCert,
       ocspResponderUrl,
+      signal: controller.signal,
     },
     (result) => {
       const icons: Record<string, string> = {
@@ -64,11 +72,14 @@ async function main(): Promise<void> {
         error: '\x1b[31m',
         notApplicable: '\x1b[90m',
       };
+      const counts = byVersion.get(result.version) ?? {};
+      counts[result.result.status] = (counts[result.result.status] ?? 0) + 1;
+      byVersion.set(result.version, counts);
       const icon = icons[result.result.status] ?? 'FAIL';
       const color = colors[result.result.status] ?? '\x1b[31m';
       const reset = '\x1b[0m';
       console.log(
-        `${color}[${icon}]${reset} ${result.testId} - ${result.testName} (${String(result.result.durationMs)}ms)`,
+        `${color}[${icon}]${reset} ${result.testId} (${result.version}) - ${result.testName} (${String(result.result.durationMs)}ms)`,
       );
       if (result.result.error != null) {
         console.log(`       Error: ${result.result.error}`);
@@ -85,6 +96,14 @@ async function main(): Promise<void> {
       }
     },
   );
+  let summary: Awaited<typeof run>;
+  try {
+    summary = await run;
+  } catch (err) {
+    if (!controller.signal.aborted) throw err;
+    logger.warn({ err }, 'Run stopped by a signal after its cleanup');
+    process.exit(SIGNAL_EXIT_CODE);
+  }
 
   console.log('\n--- Summary ---');
   console.log(`Total: ${String(summary.total)}`);
@@ -94,6 +113,13 @@ async function main(): Promise<void> {
   console.log(`Errors: ${String(summary.errors)}`);
   console.log(`Not applicable (PICS): ${String(summary.notApplicable)}`);
   console.log(`Duration: ${String(summary.durationMs)}ms`);
+  for (const [v, counts] of byVersion) {
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const n = (status: string): string => String(counts[status] ?? 0);
+    console.log(
+      `Version ${v}: total ${String(total)}, passed ${n('passed')}, failed ${n('failed')}, skipped ${n('skipped')}, errors ${n('error')}, not applicable ${n('notApplicable')}`,
+    );
+  }
 
   process.exit(summary.failed + summary.errors > 0 ? 1 : 0);
 }

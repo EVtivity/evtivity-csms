@@ -175,4 +175,32 @@ describe('MessageRouter', () => {
       expect(ocppErr.errorDescription).toContain('ocpp1.6');
     }
   });
+
+  it('answers an OCPP 2.0.1 BootNotification with the 2.1 handler', async () => {
+    const router = new MessageRouter(logger);
+    const handler = vi.fn().mockResolvedValue({ status: 'Accepted' });
+    router.register('ocpp2.1', 'BootNotification', handler);
+    const ctx = makeCtx('BootNotification', 'ocpp2.0.1');
+    const next = vi.fn();
+
+    await router.asMiddleware()(ctx, next);
+
+    expect(handler).toHaveBeenCalledWith(ctx);
+    expect(ctx.response).toEqual({ status: 'Accepted' });
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('answers NotImplemented for a 2.1-only action from an OCPP 2.0.1 station', async () => {
+    const router = new MessageRouter(logger);
+    const handler = vi.fn().mockResolvedValue({});
+    router.register('ocpp2.1', 'NotifyDERAlarm', handler);
+
+    await expect(
+      router.asMiddleware()(makeCtx('NotifyDERAlarm', 'ocpp2.0.1'), vi.fn()),
+    ).rejects.toMatchObject({
+      errorCode: 'NotImplemented',
+      message: expect.stringContaining('Action NotifyDERAlarm is not defined in OCPP 2.0.1'),
+    });
+    expect(handler).not.toHaveBeenCalled();
+  });
 });

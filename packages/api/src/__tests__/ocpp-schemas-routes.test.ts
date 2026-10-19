@@ -46,6 +46,11 @@ vi.mock('@evtivity/ocpp', () => ({
       validateRequest: vi.fn().mockReturnValue(true),
     },
   },
+  ActionRegistry201: {
+    Reset: {
+      validateRequest: vi.fn().mockReturnValue(true),
+    },
+  },
   ActionRegistry16: {
     Reset: {
       validateRequest: vi.fn().mockReturnValue(true),
@@ -347,6 +352,58 @@ describe('OCPP command schema routes', () => {
     expect(body.fields[0].type).toBe('enum');
     expect(body.fields[0].values).toEqual(['Hard', 'Soft']);
     expect(body.example).toHaveProperty('type', 'Hard');
+  });
+
+  it('serves the OCPP 2.0.1 schema to a 2.0.1 station form', async () => {
+    const schemaJson = JSON.stringify({
+      type: 'object',
+      properties: { type: { type: 'string', enum: ['Immediate', 'OnIdle'] } },
+      required: ['type'],
+    });
+    mockReadFile.mockResolvedValueOnce(schemaJson);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/ocpp/commands/v21/Reset/schema?protocol=ocpp2.0.1',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(String(mockReadFile.mock.calls.at(-1)?.[0])).toMatch(
+      /ocpp-2\.0\.1[/\\]ResetRequest\.json$/,
+    );
+    const body = JSON.parse(response.body);
+    expect(body.version).toBe('ocpp2.0.1');
+    expect(body.fields[0].values).toEqual(['Immediate', 'OnIdle']);
+  });
+
+  it('answers UNKNOWN_ACTION for an action OCPP 2.0.1 does not define', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/ocpp/commands/v21/GetBaseReport/schema?protocol=ocpp2.0.1',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(JSON.parse(response.body)).toMatchObject({
+      code: 'UNKNOWN_ACTION',
+      error: 'OCPP 2.0.1 does not define this action',
+    });
+  });
+
+  it('serves the raw OCPP 2.0.1 schema', async () => {
+    mockReadFile.mockResolvedValueOnce('{"comment":"OCPP 2.0.1 FINAL"}');
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/ocpp/schemas/Reset?version=ocpp2.0.1',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(String(mockReadFile.mock.calls.at(-1)?.[0])).toMatch(
+      /ocpp-2\.0\.1[/\\]ResetRequest\.json$/,
+    );
   });
 
   it('GET /ocpp/commands/v16/:action/schema returns 404 for unknown 1.6 action', async () => {

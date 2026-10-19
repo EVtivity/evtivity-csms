@@ -403,6 +403,37 @@ describe('station-message.service', () => {
       expect(mockPublish).not.toHaveBeenCalled();
     });
 
+    it('sends an OCPP 2.0.1 station content cut to 512 characters', async () => {
+      mockRenderStationMessage.mockResolvedValue('x'.repeat(600));
+      setupDbResults([STATION_ROW], [], [], [], [], [], [], []);
+
+      await pushAllStationMessages(STATION_OCPP_ID, INTERNAL_STATION_ID, 'ocpp2.0.1', mockLogger);
+
+      expect(mockPublish).toHaveBeenCalledTimes(3);
+      for (const call of mockPublish.mock.calls) {
+        const body = JSON.parse(call[1] as string) as {
+          payload: { message: { message: { content: string } } };
+        };
+        expect(body.payload.message.message.content).toBe('x'.repeat(512));
+      }
+    });
+
+    it('compares the hash of the cut content for an OCPP 2.0.1 station', async () => {
+      mockRenderStationMessage.mockResolvedValue('x'.repeat(600));
+      const sentHash = nodeCryptoModule.createHash('sha256').update('x'.repeat(512)).digest('hex');
+      setupDbResults(
+        [STATION_ROW],
+        [],
+        [{ contentHash: sentHash }],
+        [{ contentHash: sentHash }],
+        [{ contentHash: sentHash }],
+      );
+
+      await pushAllStationMessages(STATION_OCPP_ID, INTERNAL_STATION_ID, 'ocpp2.0.1', mockLogger);
+
+      expect(mockPublish).not.toHaveBeenCalled();
+    });
+
     it('uses reserved template when connector is reserved with active reservation', async () => {
       const reservationRow = {
         expiresAt: new Date('2026-05-06T15:45:00Z'),
@@ -499,6 +530,31 @@ describe('station-message.service', () => {
       await pushStationMessageSlot(STATION_OCPP_ID, 'ocpp1.6', 9004, 'Faulted', 'Fault');
 
       expect(mockPublish).not.toHaveBeenCalled();
+    });
+
+    it.each(['Suspended', 'Discharging'] as const)(
+      'sends the %s slot to an OCPP 2.0.1 station in the 2.0.1 Charging state',
+      async (state) => {
+        await pushStationMessageSlot(STATION_OCPP_ID, 'ocpp2.0.1', 9002, state, 'Paused');
+
+        const body = JSON.parse(mockPublish.mock.calls[0]![1] as string) as {
+          action: string;
+          version: string;
+          payload: { message: { state: string } };
+        };
+        expect(body.action).toBe('SetDisplayMessage');
+        expect(body.version).toBe('ocpp2.0.1');
+        expect(body.payload.message.state).toBe('Charging');
+      },
+    );
+
+    it('keeps the Suspended state for an OCPP 2.1 station', async () => {
+      await pushStationMessageSlot(STATION_OCPP_ID, 'ocpp2.1', 9002, 'Suspended', 'Paused');
+
+      const body = JSON.parse(mockPublish.mock.calls[0]![1] as string) as {
+        payload: { message: { state: string } };
+      };
+      expect(body.payload.message.state).toBe('Suspended');
     });
   });
 

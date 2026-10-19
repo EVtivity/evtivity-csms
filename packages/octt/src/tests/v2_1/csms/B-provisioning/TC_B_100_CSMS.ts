@@ -84,7 +84,7 @@ export const TC_B_100_CSMS: TestCase = {
         });
       }
       if (action === 'Reset') return Promise.resolve({ status: 'Accepted' });
-      return defaultReply('ocpp2.1', action, payload);
+      return defaultReply(ctx.version, action, payload);
     });
 
     // Manual action: a network profile with identity and password.

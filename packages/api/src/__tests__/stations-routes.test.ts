@@ -545,6 +545,54 @@ describe('Station routes - handler logic', () => {
       expect(response.json().hasPassword).toBe(false);
     });
 
+    it('creates an OCPP 2.0.1 station', async () => {
+      const created = {
+        id: VALID_STATION_ID,
+        stationId: 'NEW-201',
+        siteId: null,
+        vendorId: null,
+        model: null,
+        serialNumber: null,
+        firmwareVersion: null,
+        availability: 'available',
+        reportedStatus: null,
+        statusReason: null,
+        onboardingStatus: 'pending',
+        isOnline: false,
+        isSimulator: false,
+        loadPriority: 0,
+        securityProfile: 0,
+        pendingSecurityProfile: null,
+        ocppProtocol: 'ocpp2.0.1',
+        createdAt: '2024-01-01T00:00:00.000Z',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      };
+      setupDbResults([], [created]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/stations',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { stationId: 'NEW-201', ocppProtocol: 'ocpp2.0.1' },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(response.json().ocppProtocol).toBe('ocpp2.0.1');
+    });
+
+    it('refuses an unknown OCPP protocol', async () => {
+      setupDbResults([]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/stations',
+        headers: { authorization: 'Bearer ' + token },
+        payload: { stationId: 'NEW-20', ocppProtocol: 'ocpp2.0' },
+      });
+
+      expect(response.statusCode).toBe(400);
+    });
+
     it('creates a station with password and sets hasPassword true', async () => {
       const created = {
         id: VALID_STATION_ID,
@@ -2295,7 +2343,7 @@ describe('Station routes - handler logic', () => {
         method: 'PATCH',
         url: `/stations/${VALID_STATION_ID}`,
         headers: { authorization: 'Bearer ' + token },
-        payload: { securityProfile: 2 },
+        payload: { securityProfile: 2, ocppInterface: 'Wireless0' },
       });
 
       expect(response.statusCode).toBe(200);
@@ -2305,8 +2353,21 @@ describe('Station routes - handler logic', () => {
         2,
         undefined,
         expect.any(Object),
+        { ocppInterface: 'Wireless0' },
       );
       expect(mockPublish).not.toHaveBeenCalled();
+    });
+
+    it('refuses a network interface OCPP 2.0.1 does not define', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/stations/${VALID_STATION_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { securityProfile: 2, ocppInterface: 'Any' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(changeSecurityProfileMock).not.toHaveBeenCalled();
     });
 
     it('hands a password-only change to the password flow', async () => {
@@ -2679,6 +2740,48 @@ describe('Station routes - handler logic', () => {
             },
           ],
         },
+        '2.1',
+      );
+    });
+
+    it('sends SetVariableMonitoring to an OCPP 2.0.1 station too (device model is 2.x)', async () => {
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
+      const sendMock = vi.mocked(sendOcppCommandAndWait);
+      sendMock.mockResolvedValueOnce({
+        commandId: 'c',
+        response: { setMonitoringResult: [{ id: 42, status: 'Accepted' }] },
+      });
+      setupDbResults(
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.0.1',
+          },
+        ],
+        [ruleRow],
+        [{ ...ruleRow, status: 'active' }],
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/monitoring-rules`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: {
+          component: 'EVSE',
+          variable: 'Power',
+          type: 'UpperThreshold',
+          value: 11000,
+          severity: 3,
+        },
+      });
+
+      expect(response.statusCode).toBe(201);
+      expect(sendMock).toHaveBeenCalledWith(
+        'STATION-001',
+        'SetVariableMonitoring',
+        expect.any(Object),
         '2.1',
       );
     });

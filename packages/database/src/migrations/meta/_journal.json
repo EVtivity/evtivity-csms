@@ -1625,6 +1625,13 @@
       "when": 1791000047800,
       "tag": "0477_release_0_1_47",
       "breakpoints": true
+    },
+    {
+      "idx": 232,
+      "version": "7",
+      "when": 1791000047900,
+      "tag": "0478_release_0_1_47_indexes",
+      "breakpoints": true
     }
   ]
 }

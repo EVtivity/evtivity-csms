@@ -17,6 +17,17 @@ export interface OcttJobData {
   sutType: string;
 }
 
+/** Runs in progress in this process, aborted on shutdown so each restores its settings first. */
+const activeRuns = new Set<AbortController>();
+
+/**
+ * Aborts the conformance runs of this process. Each stops starting tests,
+ * restores the settings it changed, deletes its data and is marked failed.
+ */
+export function abortOcttRuns(reason: string): void {
+  for (const controller of activeRuns) controller.abort(new Error(reason));
+}
+
 export async function octtRunnerHandler(
   data: OcttJobData,
   log: Logger,
@@ -33,6 +44,8 @@ export async function octtRunnerHandler(
   const serverUrl = config.OCPP_SERVER_URL;
   const apiUrl = config.API_BASE_URL;
 
+  const controller = new AbortController();
+  activeRuns.add(controller);
   try {
     const summary = await runTests(
       {
@@ -42,6 +55,7 @@ export async function octtRunnerHandler(
         sut: sutType as SutType,
         concurrency: 3,
         ocspResponderUrl: config.OCTT_OCSP_RESPONDER_URL,
+        signal: controller.signal,
       },
       (result) => {
         // Insert each test result as it completes. Wrapped to surface errors;
@@ -100,12 +114,18 @@ export async function octtRunnerHandler(
     log.info({ runId, summary }, 'OCTT run completed');
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
-    log.error({ runId, error: errorMessage }, 'OCTT run failed');
+    if (controller.signal.aborted) {
+      log.warn({ runId, error: errorMessage }, 'OCTT run aborted');
+    } else {
+      log.error({ runId, error: errorMessage }, 'OCTT run failed');
+    }
 
     await db
       .update(octtRuns)
       .set({ status: 'failed', completedAt: new Date() })
       .where(eq(octtRuns.id, runId));
+  } finally {
+    activeRuns.delete(controller);
   }
 }
 

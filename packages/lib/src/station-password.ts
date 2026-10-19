@@ -5,13 +5,15 @@
  * Basic Auth password rules for charging stations (security profiles 1 and 2).
  * Browser-safe, so the CSMS imports it via `@evtivity/lib/station-password`.
  *
- * OCPP 2.1 (A00.FR.205): a passwordString of 16 to 40 characters (a station's
- * maxLimit is at least 40). OCPP 1.6 (Security Whitepaper, OCTT TC_073): the
+ * OCPP 2.0.1 and 2.1 (A00.FR.205): a passwordString of 16 to 40 characters (a
+ * station's maxLimit is at least 40). OCPP 1.6 (Security Whitepaper, OCTT TC_073): the
  * AuthorizationKey is 16 to 20 bytes, sent hex-encoded. The charset is ASCII,
  * so characters equal bytes.
  */
 
-export type StationOcppProtocol = 'ocpp1.6' | 'ocpp2.1';
+import type { OcppProtocol } from './ocpp-version.js';
+
+export type StationOcppProtocol = OcppProtocol;
 
 export const STATION_PASSWORD_CHARSET =
   'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789*-_=:+|@.';

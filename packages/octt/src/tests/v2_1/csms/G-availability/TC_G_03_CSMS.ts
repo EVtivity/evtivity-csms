@@ -64,7 +64,7 @@ export const TC_G_03_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -169,7 +169,7 @@ export const TC_G_04_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -262,7 +262,7 @@ export const TC_G_07_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -363,7 +363,7 @@ export const TC_G_08_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -461,7 +461,7 @@ export const TC_G_11_CSMS: TestCase = {
           operationalStatus = String(payload['operationalStatus'] ?? '');
           return { status: 'Scheduled' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -576,7 +576,7 @@ export const TC_G_17_CSMS: TestCase = {
           operationalStatus = String(payload['operationalStatus'] ?? '');
           return { status: 'Scheduled' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

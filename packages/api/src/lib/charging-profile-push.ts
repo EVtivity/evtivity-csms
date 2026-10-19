@@ -201,15 +201,10 @@ export async function processChargingProfilePush(
                 // set without requiring a manual Refresh. 1.6 has no
                 // GetChargingProfiles command. Fire-and-forget.
                 if (ocppVersion === '2.1') {
-                  void sendOcppCommandAndWait(
-                    station.stationId,
-                    'GetChargingProfiles',
-                    {
-                      requestId: Math.floor(Math.random() * 2147483647),
-                      chargingProfile: {},
-                    },
-                    'ocpp2.1',
-                  ).catch((err: unknown) => {
+                  void sendOcppCommandAndWait(station.stationId, 'GetChargingProfiles', {
+                    requestId: Math.floor(Math.random() * 2147483647),
+                    chargingProfile: {},
+                  }).catch((err: unknown) => {
                     logger.warn(
                       { err, pushId, stationId: station.stationId },
                       'GetChargingProfiles refresh after the push failed',
@@ -373,12 +368,10 @@ export async function processChargingProfileClear(
               // GetChargingProfiles command (and no ReportChargingProfiles
               // payload); the ClearChargingProfile projection updates the copy.
               if (ocppVersion === '2.1') {
-                void sendOcppCommandAndWait(
-                  station.stationId,
-                  'GetChargingProfiles',
-                  { requestId: Math.floor(Math.random() * 2147483647), chargingProfile: {} },
-                  'ocpp2.1',
-                ).catch((err: unknown) => {
+                void sendOcppCommandAndWait(station.stationId, 'GetChargingProfiles', {
+                  requestId: Math.floor(Math.random() * 2147483647),
+                  chargingProfile: {},
+                }).catch((err: unknown) => {
                   // Best-effort; do not block clear bookkeeping on refresh failure.
                   logger.warn(
                     { err, pushId, stationId: station.stationId },

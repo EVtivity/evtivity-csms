@@ -1061,9 +1061,16 @@ describe('authenticateConnection stores the negotiated OCPP protocol', () => {
     expect(protocolUpdates(queries)).toHaveLength(0);
   });
 
+  it('stores the protocol the upgrade selects: 2.0.1 over 1.6', async () => {
+    const { sql, queries } = protocolSql(sp0Station('ocpp1.6'));
+    await authenticateConnection(requestOffering('ocpp1.6, ocpp2.0.1'), createMockLogger(), sql);
+
+    expect(protocolUpdates(queries)[0]?.values[0]).toBe('ocpp2.0.1');
+  });
+
   it('writes nothing when no supported subprotocol is offered', async () => {
     const { sql, queries } = protocolSql(sp0Station(null));
-    await authenticateConnection(requestOffering('ocpp2.0.1'), createMockLogger(), sql);
+    await authenticateConnection(requestOffering('ocpp2.0'), createMockLogger(), sql);
 
     expect(protocolUpdates(queries)).toHaveLength(0);
   });

@@ -51,6 +51,7 @@ function makeCtx(
     callApi,
     ctx: {
       client: {} as TestContext['client'],
+      version: 'ocpp2.1',
       stationId: 'OCTT-TEST-1',
       tokens: {} as TestContext['tokens'],
       stationDbId: 'sta_1',

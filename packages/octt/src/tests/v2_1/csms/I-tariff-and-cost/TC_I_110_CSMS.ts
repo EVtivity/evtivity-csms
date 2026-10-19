@@ -57,7 +57,7 @@ export const TC_I_110_CSMS: TestCase = {
             clearTariffsResult: [{ status: 'NoTariff' }],
           };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

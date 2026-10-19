@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { client } from '@evtivity/database';
+import { isOcpp21 } from '@evtivity/lib/ocpp-version';
 import { vehicleIdFromTypedToken } from '@evtivity/lib/vehicle-id';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { TransactionEventRequest } from '../../generated/v2_1/types/messages/TransactionEventRequest.js';
 import type { TransactionEventResponse } from '../../generated/v2_1/types/messages/TransactionEventResponse.js';
 import { prepaidCacheExpiry, prepaidMaxCost } from '../../authorization/prepaid.js';
 import type { AuthorizeTokenInput } from '../../authorization/authorize-context.js';
+import { authorizeOcppVersion } from '../../authorization/authorize-context.js';
 import {
   ACCOUNT_CREDIT_LIMIT_REASON,
   authorizeToken,
@@ -198,7 +200,7 @@ export async function handleTransactionEvent(
       evseId: request.evse?.id ?? null,
       token: { value: idToken, type: tokenType },
       context: request.eventType === 'Started' ? 'tx_start' : 'tx_update',
-      ocppVersion: 'ocpp2.1',
+      ocppVersion: authorizeOcppVersion(ctx.protocolVersion),
       transactionId: request.transactionInfo.transactionId,
       vehicleId,
     };
@@ -317,7 +319,8 @@ export async function handleTransactionEvent(
       accountLimitCents = accountCeilingCents;
     }
 
-    if (transactionLimit != null) {
+    // transactionLimit is OCPP 2.1 only: a 2.0.1 station gets none, so nothing is recorded as sent.
+    if (transactionLimit != null && isOcpp21(ctx.protocolVersion)) {
       const sent = await supportedTransactionLimit(ctx, request, transactionLimit);
       if (sent != null) response.transactionLimit = sent;
       // The station got the account ceiling: a grown ceiling follows on a

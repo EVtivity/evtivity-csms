@@ -31,13 +31,30 @@ export interface PicsItem {
   reason?: string | undefined;
 }
 
+/** One condition on one item: supported (`requires: true`) or not supported (`false`). */
+export interface PicsCondition {
+  item: string;
+  requires: boolean;
+}
+
 /**
  * A test condition. `{ item, requires: true }` needs the item supported,
  * `{ item, requires: false }` needs a product without it (for example
  * TC_B_28_CS needs a station that cannot reset a single EVSE), and
- * `{ anyOf }` needs at least one of the items supported.
+ * `{ anyOf }` needs at least one alternative to hold: an item id (supported)
+ * or a condition (OCPP 2.0.1 TC_B_30: C-44 or NOT AQ-16).
  */
-export type PicsPrerequisite = { item: string; requires: boolean } | { anyOf: string[] };
+export type PicsPrerequisite = PicsCondition | { anyOf: (string | PicsCondition)[] };
+
+/** Whether a certification profile requires a test case: mandatory or conditional (Part 5 M and C). */
+export type ProfileRequirement = 'mandatory' | 'conditional';
+
+/** A certification profile that lists a test case for the Device Under Test (Part 5 chapter 4). */
+export interface TestProfile {
+  /** Profile item id, such as `Core` or `SmartCharging`. */
+  profile: string;
+  requirement: ProfileRequirement;
+}
 
 export interface Pics {
   /** Device Under Test the PICS describes: the CSMS or the charging station simulator. */
@@ -46,6 +63,14 @@ export interface Pics {
   items: Record<string, PicsItem>;
   /** Test case id -> conditions that must all hold for the test to apply. */
   testPrerequisites: Record<string, PicsPrerequisite[]>;
+  /**
+   * Test case id -> the certification profiles that list it for the Device
+   * Under Test. An empty list means the test is informative: it runs, but no
+   * profile requires it (OCPP 2.0.1: a Part 6 case Part 5 does not list, or
+   * lists for the charging station only). Absent when the PICS does not map
+   * profiles.
+   */
+  profiles?: Record<string, TestProfile[]> | undefined;
 }
 
 export interface NotApplicable {

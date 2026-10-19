@@ -10,6 +10,13 @@ export const OCPP_COMMANDS_CHANNEL = 'ocpp_commands';
 /** Channel the OCPP server publishes each command's result on, keyed by `commandId`. */
 export const OCPP_COMMAND_RESULTS_CHANNEL = 'ocpp_command_results';
 
+/**
+ * Result `code` of a command the OCPP server refused before sending it, because
+ * the station's OCPP version cannot express it (a 2.1-only action or value sent
+ * to an OCPP 2.0.1 station). The station never saw the command.
+ */
+export const OCPP_VERSION_MISMATCH = 'OCPP_VERSION_MISMATCH';
+
 export interface OcppCommand {
   /** The station's OCPP identity (charging_stations.station_id). */
   stationId: string;

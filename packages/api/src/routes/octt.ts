@@ -21,13 +21,15 @@ const ALL_SITES_OCTT_RUN_NOT_FOUND = {
 } as const;
 
 const TEST_STATUSES = ['passed', 'failed', 'skipped', 'error', 'notApplicable'] as const;
+// OCPP 2.0.1 runs the CSMS cases only (the 2.1 cases with the same ids over ocpp2.0.1).
+const OCTT_VERSIONS = ['ocpp2.1', 'ocpp2.0.1', 'ocpp1.6'] as const;
 type OcttTestStatus = (typeof TEST_STATUSES)[number];
 
 const runResponseSchema = z
   .object({
     id: z.number().int().min(1).describe('Run ID'),
     status: z.enum(['pending', 'running', 'completed', 'failed']).describe('Run status'),
-    ocppVersion: z.enum(['ocpp2.1', 'ocpp1.6', 'all']).describe('OCPP version filter'),
+    ocppVersion: z.enum([...OCTT_VERSIONS, 'all']).describe('OCPP version filter'),
     sutType: z.enum(['csms', 'cs']).describe('System under test'),
     totalTests: z.number().int().min(0).describe('Total number of tests in this run'),
     passed: z.number().int().min(0).describe('Number of passed tests'),
@@ -54,7 +56,7 @@ const testResultSchema = z
     testId: z.string().max(100).describe('OCTT test case ID'),
     testName: z.string().max(500).describe('Human-readable test case name'),
     module: z.string().max(100).describe('OCTT module name'),
-    ocppVersion: z.enum(['ocpp2.1', 'ocpp1.6']).describe('OCPP version for this test'),
+    ocppVersion: z.enum(OCTT_VERSIONS).describe('OCPP version for this test'),
     status: z
       .enum(TEST_STATUSES)
       .describe('Test status. notApplicable: the CSMS PICS excludes the test, so it never ran'),
@@ -78,7 +80,7 @@ const testResultSchema = z
 const moduleSummarySchema = z
   .object({
     module: z.string().max(100).describe('OCTT module name'),
-    ocppVersion: z.enum(['ocpp2.1', 'ocpp1.6']).describe('OCPP version covered by this module'),
+    ocppVersion: z.enum(OCTT_VERSIONS).describe('OCPP version covered by this module'),
     total: z.number().int().min(0).describe('Total test cases in this module'),
     passed: z.number().int().min(0).describe('Number of passed tests'),
     failed: z.number().int().min(0).describe('Number of failed tests'),
@@ -102,7 +104,7 @@ export function octtRoutes(app: FastifyInstance): void {
         body: zodSchema(
           z.object({
             ocppVersion: z
-              .enum(['ocpp2.1', 'ocpp1.6', 'all'])
+              .enum([...OCTT_VERSIONS, 'all'])
               .optional()
               .default('all')
               .describe('OCPP version filter'),
@@ -110,7 +112,9 @@ export function octtRoutes(app: FastifyInstance): void {
               .enum(['csms', 'cs'])
               .optional()
               .default('csms')
-              .describe('System under test: csms or cs'),
+              .describe(
+                'System under test: csms or cs. cs has no OCPP 2.0.1 suite, so cs with ocpp2.0.1 answers 400',
+              ),
           }),
         ),
         response: {
@@ -127,6 +131,17 @@ export function octtRoutes(app: FastifyInstance): void {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_OCTT_RUN_NOT_FOUND))) return;
       const { userId } = request.user as JwtPayload;
       const body = request.body as { ocppVersion: string; sutType: string };
+
+      // OCPP 2.0.1 runs the CSMS cases only: there is no 2.0.1 charging station
+      // suite, so a CS run for that version would run nothing.
+      if (body.sutType === 'cs' && body.ocppVersion === 'ocpp2.0.1') {
+        await reply.status(400).send({
+          error:
+            'OCPP 2.0.1 has no charging station suite: run it with sutType csms, or pick ocpp2.1 or ocpp1.6',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
 
       const [run] = await db
         .insert(octtRuns)

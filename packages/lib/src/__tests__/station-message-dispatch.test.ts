@@ -434,6 +434,26 @@ describe('dispatchOneShotStationMessage', () => {
     vi.restoreAllMocks();
   });
 
+  it('cuts the content to 512 characters for an OCPP 2.0.1 station', async () => {
+    const sqlMock = createSqlMock();
+    sqlMock.setProtocol('ocpp2.0.1');
+    mockRenderStationMessage.mockResolvedValueOnce('y'.repeat(700));
+    const { pubsub, publish } = createPubSubMock();
+
+    const result = await dispatchOneShotStationMessage(pubsub, sqlMock.sql, {
+      stationOcppId: 'CS-201',
+      stationDbId: 'sta_201',
+      state: 'payment_failed',
+      context: baseContext,
+    });
+
+    expect(result).toBe(true);
+    const body = JSON.parse((publish.mock.calls[0] as [string, string])[1]) as {
+      payload: { message: { message: { content: string } } };
+    };
+    expect(body.payload.message.message.content).toBe('y'.repeat(512));
+  });
+
   it('applies custom slotId, priority, and ttlSeconds on the ocpp2.1 path', async () => {
     const sqlMock = createSqlMock();
     sqlMock.setProtocol('ocpp2.0.1');

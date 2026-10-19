@@ -22,6 +22,7 @@ import {
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { config } from '../lib/config.js';
+import { isOcpp21 } from '@evtivity/lib/ocpp-version';
 
 // The only writer of station_web_payment_configs. Dynamic QR codes (OCPP 2.1
 // C25): the CSMS sets WebPaymentsCtrlr on the station (URL template, TOTP
@@ -121,7 +122,7 @@ async function loadStation(stationDbId: string) {
 
 function assertReachable(station: { isOnline: boolean; ocppProtocol: string | null }): void {
   if (!station.isOnline) throw new AppError('Station is offline', 409, 'STATION_OFFLINE');
-  if (station.ocppProtocol !== 'ocpp2.1') {
+  if (!isOcpp21(station.ocppProtocol)) {
     throw new AppError(
       'Dynamic QR codes need a station that uses OCPP 2.1',
       400,
@@ -296,7 +297,7 @@ export async function disableWebPayments(
   ctx: WebPaymentContext,
 ): Promise<WebPaymentConfigView> {
   const station = await loadStation(stationDbId);
-  if (station.isOnline && station.ocppProtocol === 'ocpp2.1') {
+  if (station.isOnline && isOcpp21(station.ocppProtocol)) {
     await setWebPaymentVariables(station.stationId, [['Enabled', 'false']]);
   }
   const removed = await db
@@ -453,7 +454,7 @@ export async function checkWebPaymentSupport(
   nowMs: number = Date.now(),
 ): Promise<WebPaymentSupportView> {
   const station = await loadStation(stationDbId);
-  if (station.ocppProtocol !== 'ocpp2.1') return unchecked('not_supported', 'ocpp_version');
+  if (!isOcpp21(station.ocppProtocol)) return unchecked('not_supported', 'ocpp_version');
   if (options.live && station.isOnline) {
     return liveSupport(station.stationId, options.log, nowMs);
   }

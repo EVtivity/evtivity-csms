@@ -4,7 +4,9 @@
 import type { Logger } from '@evtivity/lib';
 import type { ConnectionManager } from './connection-manager.js';
 import type { MessageCorrelator, SendCallOptions } from './message-correlator.js';
+import { isOcpp21OnlyAction } from '@evtivity/lib';
 import { translateCommand, translateResponse } from './command-translation.js';
+import { Ocpp201CommandError } from './ocpp201/to-ocpp201.js';
 
 export class CommandDispatcher {
   private readonly connectionManager: ConnectionManager;
@@ -30,11 +32,17 @@ export class CommandDispatcher {
 
     this.logger.info({ stationId, action }, 'Dispatching command to station');
 
+    // A ready-made 2.x payload reaches a 2.0.1 station only through the 2.0.1 check.
+    const call =
+      connection.session.ocppProtocol === 'ocpp2.0.1'
+        ? this.translateOrRefuse(action, connection.session.ocppProtocol, payload)
+        : { action, payload };
+
     const response = await this.correlator.sendCall(
       connection.ws,
       connection.session,
-      action,
-      payload,
+      call.action,
+      call.payload,
       options,
     );
 
@@ -54,20 +62,7 @@ export class CommandDispatcher {
     }
 
     const version = connection.session.ocppProtocol;
-    const translated = translateCommand(commandName, version, payload);
-    if (translated == null) {
-      throw new Error(`Command ${commandName} is not supported for ${version}`);
-    }
-
-    // The translation layer returns { action: 'NotSupported' } for commands
-    // that exist in newer OCPP versions but have no equivalent in this
-    // station's version. Dispatching that literal string as an OCPP action
-    // makes the station reply with CALLERROR (unknown action), which the API
-    // caller sees as an opaque protocol error. Translate it here into a
-    // clear, version-aware rejection at the dispatcher.
-    if (translated.action === 'NotSupported') {
-      throw new Error(`Command ${commandName} is not supported on ${version} stations`);
-    }
+    const translated = this.translateOrRefuse(commandName, version, payload);
 
     this.logger.info(
       { stationId, commandName, translatedAction: translated.action, version },
@@ -83,6 +78,41 @@ export class CommandDispatcher {
     );
 
     return translateResponse(commandName, version, response, payload);
+  }
+
+  /**
+   * The station's form of a 2.1 command. Throws when the station's version has
+   * none: for OCPP 2.0.1, a 2.1-only action, or a payload that fails the 2.0.1
+   * mapping or strict schema check (the error names the reason).
+   */
+  private translateOrRefuse(
+    commandName: string,
+    version: string,
+    payload: Record<string, unknown>,
+  ): { action: string; payload: Record<string, unknown> } {
+    const translated = translateCommand(commandName, version, payload);
+    if (translated == null) {
+      if (version === 'ocpp2.0.1') {
+        throw new Ocpp201CommandError(
+          commandName,
+          isOcpp21OnlyAction(commandName)
+            ? 'the action is defined in OCPP 2.1 only'
+            : 'the action is not defined in OCPP 2.0.1',
+        );
+      }
+      throw new Error(`Command ${commandName} is not supported for ${version}`);
+    }
+
+    // The translation layer returns { action: 'NotSupported' } for commands
+    // that exist in newer OCPP versions but have no equivalent in this
+    // station's version. Dispatching that literal string as an OCPP action
+    // makes the station reply with CALLERROR (unknown action), which the API
+    // caller sees as an opaque protocol error. Translate it here into a
+    // clear, version-aware rejection at the dispatcher.
+    if (translated.action === 'NotSupported') {
+      throw new Error(`Command ${commandName} is not supported on ${version} stations`);
+    }
+    return translated;
   }
 
   async requestStartTransaction(

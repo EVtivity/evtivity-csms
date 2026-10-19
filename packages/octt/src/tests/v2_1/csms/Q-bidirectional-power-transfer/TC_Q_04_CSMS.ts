@@ -36,7 +36,7 @@ export const TC_Q_109_CSMS: TestCase = {
           clearReceived = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -121,7 +121,7 @@ export const TC_Q_110_CSMS: TestCase = {
           profileId = (p?.['id'] as number) ?? 1;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

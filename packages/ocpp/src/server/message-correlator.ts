@@ -7,8 +7,7 @@ import type { Logger } from '@evtivity/lib';
 import { createCall, isCallResult, isCallError } from '../protocol/message-types.js';
 import type { CallResult, CallError } from '../protocol/message-types.js';
 import type { SessionState } from './session-state.js';
-import { ActionRegistry as Registry21 } from '../generated/v2_1/registry.js';
-import { ActionRegistry as Registry16 } from '../generated/v1_6/registry.js';
+import { actionSchemaEntry } from './ocpp-registry.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -66,23 +65,12 @@ interface CallLane {
   queue: QueuedCall[];
 }
 
-interface RegistryEntry {
-  validateResponse: (data: unknown) => boolean;
-}
-interface RegistryEntryWithErrors extends RegistryEntry {
-  validateResponse: { errors?: unknown[] | null } & ((data: unknown) => boolean);
-}
-
 function validateCallResultPayload(
   protocolVersion: string,
   action: string,
   payload: unknown,
 ): { ok: true } | { ok: false; errors: unknown[] } {
-  const registry = (protocolVersion === 'ocpp1.6' ? Registry16 : Registry21) as Record<
-    string,
-    RegistryEntryWithErrors | undefined
-  >;
-  const entry = registry[action];
+  const entry = actionSchemaEntry(protocolVersion, action);
   if (entry == null) return { ok: true };
   if (entry.validateResponse(payload)) return { ok: true };
   return { ok: false, errors: entry.validateResponse.errors ?? [] };

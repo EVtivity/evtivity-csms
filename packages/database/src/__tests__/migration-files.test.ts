@@ -13,6 +13,10 @@ import {
 
 const MIGRATIONS_DIR = new URL('../migrations/', import.meta.url);
 const INDEX_FILE = readFileSync(new URL('0476_release_0_1_46_indexes.sql', MIGRATIONS_DIR), 'utf8');
+const INDEX_FILE_0147 = readFileSync(
+  new URL('0478_release_0_1_47_indexes.sql', MIGRATIONS_DIR),
+  'utf8',
+);
 
 type Call = { kind: 'unsafe' | 'insert' | 'begin' | 'commit'; inTx: boolean; text: string };
 
@@ -204,5 +208,15 @@ describe('0476_release_0_1_46_indexes.sql', () => {
 
   it('keeps the old meter values index for pods of the previous release', () => {
     expect(INDEX_FILE).not.toMatch(/DROP INDEX[^;]*meter_values_dedup_idx/);
+  });
+});
+
+describe('0478_release_0_1_47_indexes.sql', () => {
+  it('runs outside a transaction and only drops the old meter values index', () => {
+    expect(isNoTransaction(INDEX_FILE_0147)).toBe(true);
+    expect(splitStatements(INDEX_FILE_0147).map((s) => s.trim())).toEqual([
+      expect.stringMatching(/DROP INDEX CONCURRENTLY IF EXISTS meter_values_dedup_idx;$/),
+    ]);
+    expect(migrationFileProblems(INDEX_FILE_0147)).toEqual([]);
   });
 });

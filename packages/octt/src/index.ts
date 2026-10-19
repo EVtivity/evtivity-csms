@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 export { runTests } from './runner.js';
+export { restoreLeftoverRunSettings } from './run-settings.js';
 export type {
   TestCase,
   TestContext,

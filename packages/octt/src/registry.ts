@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { TestCase } from './types.js';
+import type { OcppVersion, TestCase } from './types.js';
+import { OCPP201_CSMS_TEST_IDS, OCPP201_CSMS_TEST_NAMES } from './ocpp201-csms-cases.js';
 
 // OCPP 2.1 CSMS tests - A-security
 import { TC_A_01_CSMS } from './tests/v2_1/csms/A-security/TC_A_01_CSMS.js';
@@ -950,12 +951,32 @@ const ALL_TESTS: TestCase[] = [
   TC_088_CSMS,
 ];
 
-const TEST_MAP = new Map<string, TestCase>(ALL_TESTS.map((tc) => [tc.id, tc]));
+const OCPP21_TESTS = new Map(
+  ALL_TESTS.filter((tc) => tc.version === 'ocpp2.1').map((tc) => [tc.id, tc]),
+);
 
-export function getRegistry(): TestCase[] {
-  return [...ALL_TESTS];
+/**
+ * The OCPP 2.0.1 CSMS cases: the 2.1 case of each id run as 2.0.1 (the test
+ * station negotiates ocpp2.0.1 and the case reads the version from its context).
+ */
+const OCPP201_TESTS: TestCase[] = OCPP201_CSMS_TEST_IDS.map((id) => {
+  const tc = OCPP21_TESTS.get(id);
+  if (tc == null) throw new Error(`OCPP 2.0.1 case ${id} has no OCPP 2.1 case`);
+  return { ...tc, version: 'ocpp2.0.1', name: OCPP201_CSMS_TEST_NAMES[id] ?? tc.name };
+});
+
+const REGISTRY: TestCase[] = [...ALL_TESTS, ...OCPP201_TESTS];
+
+const testKey = (version: OcppVersion, id: string): string => `${version}:${id}`;
+
+const TEST_MAP = new Map<string, TestCase>(REGISTRY.map((tc) => [testKey(tc.version, tc.id), tc]));
+
+/** Every CSMS test case, of every version (filter by `version`). */
+export function getRegistry(version?: OcppVersion): TestCase[] {
+  return version == null ? [...REGISTRY] : REGISTRY.filter((tc) => tc.version === version);
 }
 
-export function getTestById(id: string): TestCase | undefined {
-  return TEST_MAP.get(id);
+/** A test case by id and version: an id names one case per version (2.1 and 2.0.1 share ids). */
+export function getTestById(id: string, version: OcppVersion): TestCase | undefined {
+  return TEST_MAP.get(testKey(version, id));
 }

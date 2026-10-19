@@ -346,7 +346,7 @@ export const TC_E_108_CSMS: TestCase = {
           receivedSetTariff = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -379,7 +379,7 @@ export const TC_E_108_CSMS: TestCase = {
 
     // Clear handler before continuing
     ctx.client.setIncomingCallHandler(async (_messageId, action, payload) =>
-      defaultReply('ocpp2.1', action, payload),
+      defaultReply(ctx.version, action, payload),
     );
 
     // EnergyTransferStarted
@@ -530,7 +530,7 @@ export const TC_E_109_CSMS: TestCase = {
           costUpdated = payload;
           return {};
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

@@ -413,6 +413,39 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
       expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
     });
 
+    it('moves a simulator station to OCPP 2.0.1 and refuses an unknown protocol', async () => {
+      setupDbResults(
+        [{ id: 'css_1', targetUrl: 'ws://localhost:3003', enabled: true }],
+        [
+          {
+            id: 'cs_1',
+            ocppProtocol: 'ocpp2.1',
+            model: 'M1',
+            serialNumber: null,
+            firmwareVersion: '1.0',
+          },
+        ],
+        [],
+        [{ ...STATION_ROW }],
+      );
+      const ok = await app.inject({
+        method: 'PATCH',
+        url: '/css/stations/SIM-1',
+        headers: headers(),
+        payload: { ocppProtocol: 'ocpp2.0.1' },
+      });
+      expect(ok.statusCode).toBe(200);
+      expect(setCalls()[0]).toMatchObject({ ocppProtocol: 'ocpp2.0.1' });
+
+      const bad = await app.inject({
+        method: 'PATCH',
+        url: '/css/stations/SIM-1',
+        headers: headers(),
+        payload: { ocppProtocol: 'ocpp2.0' },
+      });
+      expect(bad.statusCode).toBe(400);
+    });
+
     it('routes protocol fields to charging_stations, credentials to the security service and the rest to css_stations', async () => {
       // existing lookup, paired charging_stations lookup, charging_stations update,
       // css_stations update returning
@@ -438,6 +471,7 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
         payload: {
           ocppProtocol: 'ocpp2.1',
           securityProfile: 2,
+          ocppInterface: 'Wired1',
           model: 'M2',
           serialNumber: null,
           firmwareVersion: '2.0',
@@ -457,6 +491,7 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
         2,
         'pw-1234567890abcd',
         expect.objectContaining({ log: expect.anything() }),
+        { ocppInterface: 'Wired1' },
       );
       expect(vi.mocked(changeStationPassword)).not.toHaveBeenCalled();
       const [csSet, cssSet] = setCalls() as Record<string, unknown>[];

@@ -16,6 +16,7 @@ import {
   priceForDisplay,
   resolvePriceDisplay,
   resolveTaxBasis,
+  isOcpp2x,
 } from '@evtivity/lib';
 import { enqueueStationTransaction } from '@evtivity/services/station-message.service';
 import {
@@ -260,7 +261,7 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
     kind: 'started' | 'updated' | 'ended',
     chargingState: string | null,
   ): Promise<void> {
-    if (screen.protocol == null || !screen.protocol.startsWith('ocpp2')) return;
+    if (!isOcpp2x(screen.protocol)) return;
     try {
       await enqueueStationTransaction({
         sessionId,

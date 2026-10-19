@@ -61,7 +61,7 @@ export const TC_G_05_CSMS: TestCase = {
           if (payload['evse'] != null) hasEvse = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -160,7 +160,7 @@ export const TC_G_06_CSMS: TestCase = {
           operationalStatus = String(payload['operationalStatus'] ?? '');
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -257,7 +257,7 @@ export const TC_G_14_CSMS: TestCase = {
           operationalStatus = String(payload['operationalStatus'] ?? '');
           return { status: 'Scheduled' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

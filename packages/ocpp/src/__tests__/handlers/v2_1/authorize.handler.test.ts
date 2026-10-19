@@ -103,7 +103,10 @@ vi.mock('drizzle-orm', () => ({
 
 const logger = pino({ level: 'silent' });
 
-function makeCtx(payload: Record<string, unknown>): {
+function makeCtx(
+  payload: Record<string, unknown>,
+  protocolVersion = 'ocpp2.1',
+): {
   ctx: HandlerContext;
   publishMock: ReturnType<typeof vi.fn>;
 } {
@@ -124,7 +127,7 @@ function makeCtx(payload: Record<string, unknown>): {
     },
     messageId: 'msg-1',
     action: 'Authorize',
-    protocolVersion: 'ocpp2.1',
+    protocolVersion,
     payload,
     logger,
     eventBus: { publish: publishMock, subscribe: vi.fn(), drain: vi.fn(), track: vi.fn() },
@@ -478,6 +481,28 @@ describe('v2_1 Authorize handler', () => {
     expect(buildStationOcppTariffMock).toHaveBeenCalledWith(clientMock, {
       stationUuid: 'sta_cs001',
       driverUuid: 'drv_8',
+    });
+  });
+
+  it('sends a 2.0.1 station no tariff and records the attempt as ocpp2.0.1', async () => {
+    whereQueue = [
+      [{ id: 'dtk_9', driverId: 'drv_9', isActive: true, expiresAt: null, revokedAt: null }],
+      [],
+    ];
+    buildStationOcppTariffMock.mockResolvedValue(builtTariff);
+    const { ctx } = makeCtx(
+      { idToken: { idToken: 'tariff-rfid-201', type: 'ISO14443' } },
+      'ocpp2.0.1',
+    );
+    const response = await handleAuthorize(ctx);
+
+    expect((response['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
+    expect(response['tariff']).toBeUndefined();
+    expect(buildStationOcppTariffMock).not.toHaveBeenCalled();
+    await vi.waitFor(() => {
+      expect(insertValuesFn).toHaveBeenCalledWith(
+        expect.objectContaining({ ocppVersion: 'ocpp2.0.1' }),
+      );
     });
   });
 

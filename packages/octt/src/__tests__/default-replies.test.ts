@@ -4,7 +4,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect } from 'vitest';
 import { Ajv } from 'ajv';
+import { OcppClient } from '@evtivity/css/ocpp-client';
 import { DEFAULT_REPLY_ACTIONS, defaultReply } from '../default-replies.js';
+import { ocpp201MappingLosses } from '../ocpp201-mapping-check.js';
 import type { OcppVersion } from '../types.js';
 
 // The default replies carry no formatted strings (date-time, uri).
@@ -17,6 +19,7 @@ const ajv = new Ajv({
 
 const SCHEMA_DIRS: Record<OcppVersion, string> = {
   'ocpp1.6': '../../../../schemas/ocpp-1.6/',
+  'ocpp2.0.1': '../../../../schemas/ocpp-2.0.1/',
   'ocpp2.1': '../../../../schemas/ocpp-2.1/',
 };
 
@@ -66,6 +69,30 @@ describe('defaultReply', () => {
       });
     }
   }
+
+  // A 2.0.1 test station sends the 2.1 reply through its 2.0.1 edge: the reply on
+  // the wire must be valid 2.0.1 and unchanged.
+  const station201 = new OcppClient({
+    serverUrl: 'ws://localhost:1',
+    stationId: 'OCTT-REPLIES',
+    ocppProtocol: 'ocpp2.0.1',
+  });
+  for (const action of DEFAULT_REPLY_ACTIONS['ocpp2.0.1']) {
+    it(`ocpp2.0.1 ${action} is valid against the 2.0.1 ${action}Response.json, unchanged`, async () => {
+      const validate = ajv.compile(responseSchema('ocpp2.0.1', action));
+      const reply = await defaultReply('ocpp2.0.1', action, REQUESTS[action] ?? {});
+      const wire = station201.callResultPayload(action, reply);
+      expect(validate(wire), JSON.stringify(validate.errors)).toBe(true);
+      expect(ocpp201MappingLosses(reply, wire)).toEqual([]);
+    });
+  }
+
+  it('answers a 2.1-only action with NotImplemented on 2.0.1', async () => {
+    expect(DEFAULT_REPLY_ACTIONS['ocpp2.0.1']).not.toContain('SetDefaultTariff');
+    await expect(defaultReply('ocpp2.0.1', 'SetDefaultTariff', {})).rejects.toThrow(
+      'NotImplemented',
+    );
+  });
 
   it('rejects the replies test handlers used to fall back to (the check is real)', () => {
     expect(ajv.compile(responseSchema('ocpp2.1', 'SetVariables'))({ status: 'NotSupported' })).toBe(

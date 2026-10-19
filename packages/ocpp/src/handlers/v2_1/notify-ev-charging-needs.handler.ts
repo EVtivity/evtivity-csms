@@ -23,15 +23,12 @@ export async function handleNotifyEVChargingNeeds(
   );
 
   // The projection sends the computed TxProfile for this transaction within
-  // seconds (K15.FR.08), so the CSMS answers Accepted (K15.FR.03, K18.FR.03).
+  // seconds (K15.FR.08), so the CSMS answers Accepted, for scheduled and
+  // dynamic control alike (K15.FR.03, K18.FR.03, K19.FR.03).
   // Without one it answers NoChargingProfile: the station then uses its
   // TxDefaultProfile (K18.FR.04, K19.FR.04). Never Rejected, which tells an
   // ISO 15118-20 station to stop the transaction (K18.FR.22, Q01.FR.06).
-  const transactionId = await scheduledChargingTransaction(
-    ctx.stationDbId,
-    request.evseId,
-    request.chargingNeeds,
-  );
+  const transactionId = await scheduledChargingTransaction(ctx.stationDbId, request.evseId);
 
   await ctx.eventBus.publish({
     eventType: 'ocpp.NotifyEVChargingNeeds',

@@ -98,11 +98,16 @@ function mockData(): void {
   });
 }
 
-function renderTab(isOnline = true): void {
+function renderTab(isOnline = true, ocppProtocol: string | null = null): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StationChargingNeedsTab stationId="sta_1" isOnline={isOnline} timezone="UTC" />
+      <StationChargingNeedsTab
+        stationId="sta_1"
+        isOnline={isOnline}
+        timezone="UTC"
+        ocppProtocol={ocppProtocol}
+      />
     </QueryClientProvider>,
   );
 }
@@ -146,6 +151,29 @@ describe('StationChargingNeedsTab', () => {
     await screen.findByText('stationChargingNeeds.status.active');
     expect(screen.queryByText('stationChargingNeeds.addMonitor')).toBeNull();
     expect(screen.queryByRole('button', { name: 'stationChargingNeeds.clearMonitor' })).toBeNull();
+  });
+
+  it('disables the 2.1-only monitor types for an OCPP 2.0.1 station', async () => {
+    mockData();
+    renderTab(true, 'ocpp2.0.1');
+    fireEvent.click(await screen.findByText('stationChargingNeeds.addMonitor'));
+    const select = screen.getByLabelText('stationChargingNeeds.monitorType');
+    const option = (value: string): HTMLOptionElement | null =>
+      select.querySelector(`option[value="${value}"]`);
+
+    expect(option('TargetDelta')?.disabled).toBe(true);
+    expect(option('TargetDelta')?.title).toBe('stations.notAvailableOcpp201');
+    expect(option('TargetDeltaRelative')?.disabled).toBe(true);
+    expect(option('Delta')?.disabled).toBe(false);
+  });
+
+  it('offers every monitor type to an OCPP 2.1 station', async () => {
+    mockData();
+    renderTab(true, 'ocpp2.1');
+    fireEvent.click(await screen.findByText('stationChargingNeeds.addMonitor'));
+    const select = screen.getByLabelText('stationChargingNeeds.monitorType');
+
+    expect(select.querySelectorAll('option:disabled')).toHaveLength(0);
   });
 
   it('refuses a Delta monitor with a value of 0 before sending', async () => {

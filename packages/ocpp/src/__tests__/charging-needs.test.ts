@@ -34,26 +34,21 @@ describe('scheduledChargingTransaction', () => {
   });
 
   it('returns the active transaction of the EVSE', async () => {
-    await expect(
-      scheduledChargingTransaction('sta_1', 1, { requestedEnergyTransfer: 'DC' }),
-    ).resolves.toBe('tx-1');
+    await expect(scheduledChargingTransaction('sta_1', 1)).resolves.toBe('tx-1');
   });
 
   it('returns null when the EVSE has no active transaction', async () => {
     mocks.rows = [];
-    await expect(scheduledChargingTransaction('sta_1', 1, {})).resolves.toBeNull();
+    await expect(scheduledChargingTransaction('sta_1', 1)).resolves.toBeNull();
   });
 
   it('returns null when ISO 15118 smart charging is turned off', async () => {
     mocks.enabled.mockResolvedValue(false);
-    await expect(scheduledChargingTransaction('sta_1', 1, {})).resolves.toBeNull();
+    await expect(scheduledChargingTransaction('sta_1', 1)).resolves.toBeNull();
   });
 
-  it('returns null for dynamic control and for an unknown station', async () => {
-    await expect(
-      scheduledChargingTransaction('sta_1', 1, { controlMode: 'DynamicControl' }),
-    ).resolves.toBeNull();
-    await expect(scheduledChargingTransaction(null, 1, {})).resolves.toBeNull();
+  it('returns null for an unknown station', async () => {
+    await expect(scheduledChargingTransaction(null, 1)).resolves.toBeNull();
   });
 });
 

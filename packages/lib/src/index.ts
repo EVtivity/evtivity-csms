@@ -72,6 +72,7 @@ export {
   publishOcppCommand,
   OCPP_COMMANDS_CHANNEL,
   OCPP_COMMAND_RESULTS_CHANNEL,
+  OCPP_VERSION_MISMATCH,
 } from './ocpp-command-publish.js';
 export type { OcppCommand } from './ocpp-command-publish.js';
 export { buildOcppTariff, ocppTariffConditions } from './ocpp-tariff.js';
@@ -554,9 +555,15 @@ export type { MobileAppConfig } from './mobile-app.js';
 
 export {
   findTemplateTargetConfiguration,
+  hasConfigDrift,
   configTemplateTarget,
   configTemplateMatchesStation,
 } from './config-drift.js';
+export {
+  OCPP21_ONLY_COMPONENTS,
+  OCPP21_ONLY_VARIABLES,
+  isOcpp21OnlyVariable,
+} from './ocpp21-only-variables.js';
 export type { ReportedConfiguration, ConfigTemplateTarget } from './config-drift.js';
 
 export { storedCostBreakdown, storedSessionCostTax } from './session-tax.js';
@@ -566,7 +573,7 @@ export {
   SIMULATOR_CONNECTION_HEADER_VALUE,
 } from './simulator-connection.js';
 
-export { OCTT_TEST_DRIVER_EMAIL } from './octt-test-driver.js';
+export { OCTT_TEST_DRIVER_EMAIL, OCTT_PENDING_RESTORE_SETTING_KEY } from './octt-test-driver.js';
 
 export { tryParseJson } from './safe-json.js';
 
@@ -650,3 +657,29 @@ export type {
   ChargingProfileClearCriteria,
   ChargingProfileClearFilter,
 } from './charging-profile-clear.js';
+export {
+  OCPP_PROTOCOLS,
+  OCPP21_ONLY_ACTIONS,
+  OCPP21_ONLY_MESSAGE_FORMATS,
+  OCPP21_ONLY_MESSAGE_STATES,
+  OCPP21_ONLY_MONITOR_TYPES,
+  OCPP21_ONLY_PROFILE_PURPOSES,
+  OCPP201_MESSAGE_CONTENT_MAX_LENGTH,
+  OCPP201_NETWORK_INTERFACES,
+  stationMessageContentFor,
+  isOcpp2x,
+  isOcpp21,
+  isOcpp21OnlyAction,
+  isOcpp21OnlyMessage,
+  OCPP21_ONLY_SEND_MESSAGES,
+  ocpp2xActionFitsProtocol,
+} from './ocpp-version.js';
+export {
+  OCPP21_ONLY_PERIOD_FIELDS,
+  OCPP21_ONLY_PROFILE_FIELDS,
+  OCPP21_ONLY_SCHEDULE_FIELDS,
+  chargingProfileForOcpp201,
+  ocpp201ChargingProfileRefusal,
+} from './ocpp201-charging-profile.js';
+export type { Ocpp201Refuse } from './ocpp201-charging-profile.js';
+export type { Ocpp201NetworkInterface, OcppProtocol } from './ocpp-version.js';

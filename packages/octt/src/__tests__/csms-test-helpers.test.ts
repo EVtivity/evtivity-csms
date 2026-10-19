@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
+  networkProfileOcppVersion,
   newTransactionId,
   startStationSequence,
   waitForStationSequence,
@@ -67,5 +68,13 @@ describe('station sequences', () => {
     expect(await waitForStationSequence(null)).toBe(
       'Station sequence not started (no ResetRequest received)',
     );
+  });
+});
+
+describe('networkProfileOcppVersion', () => {
+  it('names OCPP20 for a 2.0.1 station (2.0.1 has no OCPP21 value)', () => {
+    expect(networkProfileOcppVersion('ocpp2.0.1')).toBe('OCPP20');
+    expect(networkProfileOcppVersion('ocpp2.1')).toBe('OCPP21');
+    expect(networkProfileOcppVersion('ocpp1.6')).toBe('OCPP16');
   });
 });

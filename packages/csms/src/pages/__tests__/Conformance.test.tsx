@@ -87,4 +87,48 @@ describe('Conformance page', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'common.cancel' }));
     expect(postMock).not.toHaveBeenCalled();
   });
+
+  it('starts an OCPP 2.0.1 run', async () => {
+    renderPage();
+    fireEvent.change(await screen.findByLabelText('conformance.ocppVersion'), {
+      target: { value: 'ocpp2.0.1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'conformance.runTests' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'conformance.runTests' }));
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith('/v1/octt/runs', {
+        ocppVersion: 'ocpp2.0.1',
+        sutType: 'csms',
+      });
+    });
+  });
+
+  // The API refuses a charging station run for OCPP 2.0.1: the form runs the CSMS suite only.
+  it('offers only CSMS runs, with no system under test choice', async () => {
+    renderPage();
+    const versions = await screen.findByLabelText('conformance.ocppVersion');
+    expect(screen.getAllByRole('combobox')).toEqual([versions]);
+    const values = within(versions)
+      .getAllByRole('option')
+      .map((option) => (option as HTMLOptionElement).value);
+    expect(values).toContain('ocpp2.0.1');
+    for (const value of values) {
+      cleanup();
+      postMock.mockClear();
+      renderPage();
+      fireEvent.change(await screen.findByLabelText('conformance.ocppVersion'), {
+        target: { value },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'conformance.runTests' }));
+      const dialog = await screen.findByRole('dialog');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'conformance.runTests' }));
+      await waitFor(() => {
+        expect(postMock).toHaveBeenCalledWith('/v1/octt/runs', {
+          ocppVersion: value,
+          sutType: 'csms',
+        });
+      });
+    }
+  });
 });

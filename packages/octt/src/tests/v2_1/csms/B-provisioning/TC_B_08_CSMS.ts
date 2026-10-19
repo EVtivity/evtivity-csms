@@ -160,7 +160,7 @@ export const TC_B_08_CSMS: TestCase = {
           receivedRequests.push(keys);
           return { getVariableResult };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

@@ -1,0 +1,93 @@
+import type { ValidateFunction } from 'ajv';
+import { ajv } from './_ajv.js';
+import { ajvFit } from './_ajv-fit.js';
+
+const schema = {
+  "$id": "urn:OCPP:Cp:2:2020:3:DataTransferResponse",
+  "comment": "OCPP 2.0.1 FINAL",
+  "definitions": {
+    "CustomDataType": {
+      "description": "This class does not get 'AdditionalProperties = false' in the schema generation, so it can be extended with arbitrary JSON properties to allow adding custom data.",
+      "javaType": "CustomData",
+      "type": "object",
+      "properties": {
+        "vendorId": {
+          "type": "string",
+          "maxLength": 255
+        }
+      },
+      "required": [
+        "vendorId"
+      ]
+    },
+    "DataTransferStatusEnumType": {
+      "description": "This indicates the success or failure of the data transfer.\r\n",
+      "javaType": "DataTransferStatusEnum",
+      "type": "string",
+      "additionalProperties": false,
+      "enum": [
+        "Accepted",
+        "Rejected",
+        "UnknownMessageId",
+        "UnknownVendorId"
+      ]
+    },
+    "StatusInfoType": {
+      "description": "Element providing more information about the status.\r\n",
+      "javaType": "StatusInfo",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "customData": {
+          "$ref": "#/definitions/CustomDataType"
+        },
+        "reasonCode": {
+          "description": "A predefined code for the reason why the status is returned in this response. The string is case-insensitive.\r\n",
+          "type": "string",
+          "maxLength": 20
+        },
+        "additionalInfo": {
+          "description": "Additional text to provide detailed information.\r\n",
+          "type": "string",
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "reasonCode"
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "customData": {
+      "$ref": "#/definitions/CustomDataType"
+    },
+    "status": {
+      "$ref": "#/definitions/DataTransferStatusEnumType"
+    },
+    "statusInfo": {
+      "$ref": "#/definitions/StatusInfoType"
+    },
+    "data": {
+      "description": "Data without specified length or format, in response to request.\r\n"
+    }
+  },
+  "required": [
+    "status"
+  ]
+} as const;
+
+export const validateDataTransferResponse: ValidateFunction = ajv.compile(schema);
+
+const removeAdditionalDataTransferResponse: ValidateFunction = ajvFit.compile(schema);
+
+/**
+ * Returns a deep copy of the payload without the properties this schema does not allow.
+ * The input is not changed. The copy is not validated: call validateDataTransferResponse for that.
+ */
+export function fitDataTransferResponse(payload: Record<string, unknown>): Record<string, unknown> {
+  const copy = structuredClone(payload);
+  removeAdditionalDataTransferResponse(copy);
+  return copy;
+}

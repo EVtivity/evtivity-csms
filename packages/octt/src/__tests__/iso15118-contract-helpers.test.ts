@@ -34,6 +34,7 @@ function ctxWith(
     calls,
     ctx: {
       client: {} as TestContext['client'],
+      version: 'ocpp2.1',
       stationId: 'OCTT-1',
       tokens: {} as TestContext['tokens'],
       stationDbId: 'sta_1',

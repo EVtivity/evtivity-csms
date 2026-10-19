@@ -109,6 +109,7 @@ vi.mock('@evtivity/database', async () => {
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(() => ({})),
   and: vi.fn(() => ({})),
+  inArray: vi.fn(() => ({})),
 }));
 
 import { processConfigPush, pushTemplateToSiteStations } from '../lib/config-push.js';

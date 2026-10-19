@@ -76,6 +76,7 @@ function setStation(overrides: Record<string, unknown>): void {
     pendingSecurityProfile: null,
     isOnline: true,
     basicAuthPasswordHash: 'old-hash',
+    ocppEndpointUrl: null,
     ...overrides,
   });
 }
@@ -379,6 +380,201 @@ describe('changeSecurityProfile', () => {
       };
       expect(profile.connectionData['basicAuthPassword']).toBe(PW);
       expect(profile.connectionData).not.toHaveProperty('identity');
+    });
+
+    describe('OCPP 2.0.1 stations (no NetworkConfiguration component)', () => {
+      const ENDPOINT = 'ws://csms.example.com:7103';
+
+      function acceptPassword(): void {
+        const replies = sendMock.getMockImplementation();
+        sendMock.mockImplementation(
+          (id: string, action: string, payload: Record<string, unknown>) => {
+            const data = payload['setVariableData'] as { variable: { name: string } }[] | undefined;
+            if (data?.[0]?.variable.name === 'BasicAuthPassword') {
+              return Promise.resolve(accepted);
+            }
+            return replies?.(id, action, payload);
+          },
+        );
+      }
+
+      it('moves 0 to 1 with the password first and a network profile built from CSMS data', async () => {
+        setStation({
+          ocppProtocol: 'ocpp2.0.1',
+          securityProfile: 0,
+          basicAuthPasswordHash: null,
+          ocppEndpointUrl: ENDPOINT,
+        });
+        stationReplies('1');
+        acceptPassword();
+
+        await expect(
+          changeSecurityProfile('sta_1', 1, PW, ctx, { ocppInterface: 'Wireless1' }),
+        ).resolves.toEqual({ status: 'pending' });
+
+        expect(actions()).toEqual([
+          'GetVariables',
+          'SetVariables',
+          'SetNetworkProfile',
+          'SetVariables',
+          'Reset',
+        ]);
+        // Only OCPPCommCtrlr variables: a 2.0.1 station has no NetworkConfiguration.
+        expect(sendMock.mock.calls[0]?.[2]).toEqual({
+          getVariableData: [
+            {
+              component: { name: 'OCPPCommCtrlr' },
+              variable: { name: 'NetworkConfigurationPriority' },
+            },
+            {
+              component: { name: 'OCPPCommCtrlr' },
+              variable: { name: 'MessageTimeout', instance: 'Default' },
+            },
+          ],
+        });
+        expect(sendMock.mock.calls[1]?.[2]).toEqual({
+          setVariableData: [
+            {
+              component: { name: 'SecurityCtrlr' },
+              variable: { name: 'BasicAuthPassword' },
+              attributeValue: PW,
+            },
+          ],
+        });
+        expect(sendMock.mock.calls[2]?.[2]).toEqual({
+          configurationSlot: 2,
+          connectionData: {
+            ocppVersion: 'OCPP20',
+            ocppTransport: 'JSON',
+            ocppCsmsUrl: ENDPOINT,
+            messageTimeout: 45,
+            securityProfile: 1,
+            ocppInterface: 'Wireless1',
+          },
+        });
+        // The old slot stays second: the station falls back to it if the new one fails.
+        expect(sendMock.mock.calls[3]?.[2]).toMatchObject({
+          setVariableData: [{ attributeValue: '2,1' }],
+        });
+        expect(sendMock.mock.calls[4]?.[2]).toEqual({ type: 'OnIdle' });
+        expect(hashUpdates()).toEqual([`hash(${PW})`]);
+        expect(updates.at(-1)).toMatchObject({ pendingSecurityProfile: 1 });
+      });
+
+      it('requires the network interface and sends nothing without it', async () => {
+        setStation({ ocppProtocol: 'ocpp2.0.1', securityProfile: 1, ocppEndpointUrl: ENDPOINT });
+        configState.OCPP_STATION_TLS_URL = 'wss://ocpp.example.com';
+        stationReplies('1');
+
+        await expect(changeSecurityProfile('sta_1', 2, PW, ctx)).rejects.toMatchObject({
+          statusCode: 400,
+          code: 'VALIDATION_ERROR',
+        });
+        expect(sendMock).not.toHaveBeenCalled();
+        expect(hashUpdates()).toEqual([]);
+      });
+
+      it('refuses when the CSMS has not recorded the endpoint URL, before sending anything', async () => {
+        setStation({ ocppProtocol: 'ocpp2.0.1', securityProfile: 0, basicAuthPasswordHash: null });
+        stationReplies('1');
+
+        await expect(
+          changeSecurityProfile('sta_1', 1, PW, ctx, { ocppInterface: 'Wired0' }),
+        ).rejects.toMatchObject({ statusCode: 400, code: 'STATION_ENDPOINT_URL_UNKNOWN' });
+        expect(sendMock).not.toHaveBeenCalled();
+      });
+
+      it('moves to TLS over the public TLS address and uses 30 s when MessageTimeout is not reported', async () => {
+        setStation({ ocppProtocol: 'ocpp2.0.1', securityProfile: 1, ocppEndpointUrl: ENDPOINT });
+        configState.OCPP_STATION_TLS_URL = 'wss://ocpp.example.com';
+        sendMock.mockImplementation((_id: string, action: string) => {
+          if (action === 'GetVariables') {
+            return Promise.resolve({
+              commandId: 'c',
+              response: {
+                getVariableResult: [
+                  {
+                    attributeStatus: 'Accepted',
+                    attributeValue: '1',
+                    component: { name: 'OCPPCommCtrlr' },
+                    variable: { name: 'NetworkConfigurationPriority' },
+                  },
+                  {
+                    attributeStatus: 'UnknownVariable',
+                    component: { name: 'OCPPCommCtrlr' },
+                    variable: { name: 'MessageTimeout', instance: 'Default' },
+                  },
+                ],
+              },
+            });
+          }
+          if (action === 'SetNetworkProfile' || action === 'Reset') {
+            return Promise.resolve({ commandId: 'c', response: { status: 'Accepted' } });
+          }
+          return Promise.resolve(accepted);
+        });
+
+        await changeSecurityProfile('sta_1', 2, undefined, ctx, { ocppInterface: 'Wired0' });
+
+        const profile = sendMock.mock.calls.find((c) => c[1] === 'SetNetworkProfile')?.[2] as {
+          connectionData: Record<string, unknown>;
+        };
+        expect(profile.connectionData).toMatchObject({
+          ocppCsmsUrl: 'wss://ocpp.example.com',
+          messageTimeout: 30,
+          securityProfile: 2,
+          ocppInterface: 'Wired0',
+        });
+      });
+
+      it('keeps the old state when the station refuses the password before the upgrade', async () => {
+        setStation({
+          ocppProtocol: 'ocpp2.0.1',
+          securityProfile: 0,
+          basicAuthPasswordHash: null,
+          ocppEndpointUrl: ENDPOINT,
+        });
+        stationReplies('1');
+
+        await expect(
+          changeSecurityProfile('sta_1', 1, PW, ctx, { ocppInterface: 'Wired0' }),
+        ).rejects.toMatchObject({ code: 'STATION_SECURITY_CHANGE_REJECTED' });
+        expect(actions()).not.toContain('SetNetworkProfile');
+        expect(hashUpdates()).toEqual([]);
+      });
+
+      it('does not need the interface for an offline station (provisioning)', async () => {
+        setStation({ ocppProtocol: 'ocpp2.0.1', securityProfile: 0, isOnline: false });
+
+        await expect(changeSecurityProfile('sta_1', 1, PW, ctx)).resolves.toEqual({
+          status: 'updated',
+        });
+        expect(sendMock).not.toHaveBeenCalled();
+      });
+    });
+
+    it('ignores ocppInterface for a 2.1 station and keeps the slot interface it reports', async () => {
+      configState.OCPP_STATION_TLS_URL = 'wss://ocpp.example.com/ocpp';
+      stationReplies('1');
+
+      await changeSecurityProfile('sta_1', 2, undefined, ctx, { ocppInterface: 'Wired3' });
+
+      const profile = sendMock.mock.calls.find((c) => c[1] === 'SetNetworkProfile')?.[2] as {
+        connectionData: Record<string, unknown>;
+      };
+      expect(profile.connectionData['ocppInterface']).toBe('Wireless0');
+    });
+
+    it('accepts a 40-character password for a 2.0.1 station (2.0.1 A00.FR.205 rule)', async () => {
+      setStation({ ocppProtocol: 'ocpp2.0.1' });
+      sendMock.mockResolvedValue({
+        commandId: 'c',
+        response: { setVariableResult: [{ attributeStatus: 'Accepted' }] },
+      });
+
+      await changeStationPassword('sta_1', 'p'.repeat(40), ctx);
+
+      expect(hashUpdates()).toEqual([`hash(${'p'.repeat(40)})`]);
     });
 
     it('does not mark the upgrade pending when the station rejects the priority (no root certificate)', async () => {

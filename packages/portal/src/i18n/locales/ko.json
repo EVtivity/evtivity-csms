@@ -870,6 +870,7 @@
     "STATUS_CHECK_TIMEOUT": "상태 확인 시간이 초과되었습니다. 커넥터를 다시 연결한 후 다시 시도해 주세요.",
     "SECURITY_PROFILE_DOWNGRADE": "연결된 충전소는 더 낮은 보안 프로필로 변경할 수 없습니다",
     "STATION_TLS_URL_NOT_CONFIGURED": "충전소용 공개 TLS 주소(OCPP_STATION_TLS_URL)가 설정되지 않았습니다",
+    "STATION_ENDPOINT_URL_UNKNOWN": "이 충전소가 연결하는 주소를 아직 알 수 없습니다. 충전소가 다음에 연결할 때 기록됩니다.",
     "STATION_SECURITY_CHANGE_REJECTED": "충전소가 보안 변경을 수락하지 않았습니다. 현재 설정은 변경되지 않았습니다",
     "STATION_CREDENTIALS_ROUTE_REQUIRED": "충전소 비밀번호는 일반 OCPP 명령이 아니라 POST /v1/stations/:id/credentials로 변경합니다",
     "WEB_PAYMENTS_NOT_SUPPORTED": "충전소가 동적 QR 코드를 지원하지 않습니다",

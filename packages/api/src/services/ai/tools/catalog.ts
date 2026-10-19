@@ -5062,8 +5062,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         ocppProtocol: {
           type: ['string', 'null'],
-          enum: ['ocpp1.6', 'ocpp2.1', null],
-          description: 'OCPP protocol version (defaults to ocpp1.6)',
+          enum: ['ocpp1.6', 'ocpp2.0.1', 'ocpp2.1', null],
+          description: 'OCPP protocol version: ocpp1.6, ocpp2.0.1 or ocpp2.1 (defaults to ocpp1.6)',
         },
         isSimulator: {
           type: ['boolean', 'null'],
@@ -5105,8 +5105,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         ocppProtocol: {
           type: 'string',
-          enum: ['ocpp1.6', 'ocpp2.1'],
-          description: 'OCPP protocol version (defaults to ocpp1.6)',
+          enum: ['ocpp1.6', 'ocpp2.0.1', 'ocpp2.1'],
+          description: 'OCPP protocol version: ocpp1.6, ocpp2.0.1 or ocpp2.1 (defaults to ocpp1.6)',
         },
         isSimulator: { type: 'boolean', description: 'Whether this station is a simulator' },
         latitude: { type: 'string', maxLength: 20, description: 'Station latitude' },
@@ -7918,18 +7918,34 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/ocpp/commands/v21/{action}/schema',
     pathParams: ['action'],
-    queryParams: [],
+    queryParams: ['protocol'],
     bodyParams: [],
     parameters: {
       type: 'object',
-      properties: { action: { type: 'string' } },
-      required: ['action'],
+      properties: {
+        protocol: {
+          type: ['string', 'null'],
+          enum: ['ocpp2.0.1', 'ocpp2.1', null],
+          description:
+            'Protocol of the station the form is for: ocpp2.0.1 serves the OCPP 2.0.1 schema, which has no 2.1-only fields or actions (default ocpp2.1)',
+        },
+        action: { type: 'string' },
+      },
+      required: ['protocol', 'action'],
       additionalProperties: false,
     },
     strict: true,
     validation: {
       type: 'object',
-      properties: { action: { type: 'string' } },
+      properties: {
+        protocol: {
+          type: 'string',
+          enum: ['ocpp2.0.1', 'ocpp2.1'],
+          description:
+            'Protocol of the station the form is for: ocpp2.0.1 serves the OCPP 2.0.1 schema, which has no 2.1-only fields or actions (default ocpp2.1)',
+        },
+        action: { type: 'string' },
+      },
       required: ['action'],
       additionalProperties: false,
     },
@@ -27074,6 +27090,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'serialNumber',
       'availability',
       'siteId',
+      'ocppInterface',
       'isSimulator',
       'latitude',
       'longitude',
@@ -27096,6 +27113,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           pattern: '^sit_[a-z0-9]{12}$',
           description: 'Site ID to assign the station to',
         },
+        ocppInterface: {
+          type: ['string', 'null'],
+          enum: [
+            'Wired0',
+            'Wired1',
+            'Wired2',
+            'Wired3',
+            'Wireless0',
+            'Wireless1',
+            'Wireless2',
+            'Wireless3',
+            null,
+          ],
+          description:
+            'Network interface of the new network profile when an online OCPP 2.0.1 station moves to a higher security profile (required there, ignored otherwise)',
+        },
         isSimulator: {
           type: ['boolean', 'null'],
           description: 'Whether this station is a simulator',
@@ -27113,6 +27146,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'serialNumber',
         'availability',
         'siteId',
+        'ocppInterface',
         'isSimulator',
         'latitude',
         'longitude',
@@ -27138,6 +27172,21 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           pattern: '^sit_[a-z0-9]{12}$',
           nullable: true,
           description: 'Site ID to assign the station to',
+        },
+        ocppInterface: {
+          type: 'string',
+          enum: [
+            'Wired0',
+            'Wired1',
+            'Wired2',
+            'Wired3',
+            'Wireless0',
+            'Wireless1',
+            'Wireless2',
+            'Wireless3',
+          ],
+          description:
+            'Network interface of the new network profile when an online OCPP 2.0.1 station moves to a higher security profile (required there, ignored otherwise)',
         },
         isSimulator: { type: 'boolean', description: 'Whether this station is a simulator' },
         latitude: { type: 'string', maxLength: 20, description: 'Station latitude' },

@@ -27,6 +27,7 @@ vi.mock('@evtivity/database', () => {
 });
 
 vi.mock('@evtivity/lib', () => ({ createRedisClient: vi.fn() }));
+vi.mock('@evtivity/octt', () => ({ restoreLeftoverRunSettings: vi.fn() }));
 vi.mock('../../handlers/octt-runner.js', () => ({ OCTT_RUN_LOCK_KEY: 'wkl:octt-run' }));
 
 import {
@@ -36,6 +37,7 @@ import {
 } from '../../handlers/conformance-station-sweep.js';
 
 const log = { info: vi.fn(), warn: vi.fn() } as unknown as Logger;
+const restoreLeftoverSettings = vi.fn<(staleBefore: Date) => Promise<number>>();
 const now = new Date('2026-10-15T12:00:00Z');
 
 describe('sweepConformanceStations', () => {
@@ -44,6 +46,7 @@ describe('sweepConformanceStations', () => {
     mocks.returning.mockResolvedValue([]);
     mocks.deleteConformanceStations.mockResolvedValue(0);
     mocks.conformanceTestDriverInUse.mockResolvedValue(false);
+    restoreLeftoverSettings.mockResolvedValue(0);
     mocks.deleteConformanceTestDriver.mockResolvedValue({
       driverDeleted: false,
       pricingGroupsDeleted: 0,
@@ -56,11 +59,13 @@ describe('sweepConformanceStations', () => {
     const result = await sweepConformanceStations(log, {
       runLockHeld: () => Promise.resolve(true),
       now: () => now,
+      restoreLeftoverSettings,
     });
     expect(result.skipped).toBe(true);
     expect(mocks.returning).not.toHaveBeenCalled();
     expect(mocks.deleteConformanceStations).not.toHaveBeenCalled();
     expect(mocks.deleteConformanceTestDriver).not.toHaveBeenCalled();
+    expect(restoreLeftoverSettings).not.toHaveBeenCalled();
   });
 
   it('fails crashed runs and deletes idle stations, CS stations only past their age', async () => {
@@ -76,6 +81,7 @@ describe('sweepConformanceStations', () => {
     const result = await sweepConformanceStations(log, {
       runLockHeld: () => Promise.resolve(false),
       now: () => now,
+      restoreLeftoverSettings,
     });
 
     expect(result).toEqual({
@@ -83,6 +89,7 @@ describe('sweepConformanceStations', () => {
       crashedRuns: 1,
       stationsDeleted: 12,
       driverDeleted: true,
+      settingsRestored: 0,
     });
     expect(mocks.deleteConformanceStations).toHaveBeenCalledWith({
       includeCs: true,
@@ -99,8 +106,26 @@ describe('sweepConformanceStations', () => {
     const result = await sweepConformanceStations(log, {
       runLockHeld: () => Promise.resolve(false),
       now: () => now,
+      restoreLeftoverSettings,
     });
     expect(result.driverDeleted).toBe(false);
     expect(mocks.deleteConformanceTestDriver).not.toHaveBeenCalled();
+  });
+
+  it('restores the settings of a killed run once its run stopped refreshing them', async () => {
+    restoreLeftoverSettings.mockResolvedValue(2);
+    const result = await sweepConformanceStations(log, {
+      runLockHeld: () => Promise.resolve(false),
+      now: () => now,
+      restoreLeftoverSettings,
+    });
+    expect(result.settingsRestored).toBe(2);
+    expect(restoreLeftoverSettings).toHaveBeenCalledWith(
+      new Date(now.getTime() - CONFORMANCE_SWEEP_IDLE_MS),
+    );
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({ settingsRestored: 2 }),
+      'Conformance leftovers removed',
+    );
   });
 });

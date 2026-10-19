@@ -52,6 +52,8 @@ vi.mock('@evtivity/database', () => {
     pricingGroupDrivers: { id: 'id' },
     OCTT_API_KEY_NAME: 'OCTT conformance run',
     PNC_SETTINGS_CACHE_TTL_MS: 60_000,
+    // Longer than the PnC cache, so a test shows which cache a wait follows.
+    OCPP_SETTINGS_CACHE_TTL_MS: 90_000,
     deleteConformanceStations: vi.fn(() => Promise.resolve(0)),
     deleteConformanceTestDriver: vi.fn(() =>
       Promise.resolve({
@@ -161,10 +163,12 @@ import { eq } from 'drizzle-orm';
 import {
   db,
   PNC_SETTINGS_CACHE_TTL_MS,
+  OCPP_SETTINGS_CACHE_TTL_MS,
   deleteConformanceStations,
   deleteConformanceTestDriver,
 } from '@evtivity/database';
-import { runTests } from '../runner.js';
+import { OCTT_PENDING_RESTORE_SETTING_KEY } from '@evtivity/lib';
+import { runTests, RUN_ABORT_WAIT_MS } from '../runner.js';
 import { executeTest } from '../executor.js';
 import { getRegistry } from '../registry.js';
 import { getNotApplicable } from '../pics/index.js';
@@ -202,6 +206,37 @@ describe('runTests', () => {
     const onResult = vi.fn();
     await runTests(config, onResult);
     expect(onResult).toHaveBeenCalledTimes(3);
+  });
+
+  it('runs the 2.0.1 variant of a case by version, checking the 2.0.1 PICS', async () => {
+    const variant = (version: 'ocpp2.1' | 'ocpp2.0.1'): TestCase => ({
+      id: 'TC_B_01_CSMS',
+      name: 'Cold Boot Charging Station - Accepted',
+      module: 'B-provisioning',
+      version,
+      sut: 'csms',
+      description: 'test',
+      purpose: 'test',
+      execute: vi.fn(),
+    });
+    const registry = [variant('ocpp2.1'), variant('ocpp2.0.1')];
+    vi.mocked(getRegistry).mockReturnValueOnce(registry).mockReturnValueOnce(registry);
+    vi.mocked(executeTest).mockClear();
+    vi.mocked(getNotApplicable).mockClear();
+    const only201 = await runTests({ ...config, version: 'ocpp2.0.1' }, vi.fn());
+    expect(only201.total).toBe(1);
+    expect(vi.mocked(executeTest).mock.calls.map((c) => c[0].version)).toEqual(['ocpp2.0.1']);
+    expect(vi.mocked(getNotApplicable)).toHaveBeenCalledWith('TC_B_01_CSMS', 'ocpp2.0.1', 'csms');
+
+    vi.mocked(executeTest).mockClear();
+    const both = await runTests({ ...config, version: undefined }, vi.fn());
+    expect(both.total).toBe(2);
+    expect(
+      vi
+        .mocked(executeTest)
+        .mock.calls.map((c) => c[0].version)
+        .sort(),
+    ).toEqual(['ocpp2.0.1', 'ocpp2.1']);
   });
 
   it('creates the API key for an active admin-role user', async () => {
@@ -288,10 +323,13 @@ describe('runTests', () => {
           Promise.resolve(
             query.text.includes('SELECT key, value FROM settings') ? rows : [],
           )) as never);
+    const allQueries = (): Query[] =>
+      vi.mocked(db.execute).mock.calls.map((call) => call[0] as unknown as Query);
+    const isMarker = (q: Query): boolean => q.values.includes(OCTT_PENDING_RESTORE_SETTING_KEY);
+    // The settings queries, without the pending restore row the run keeps.
+    const settingQueries = (): Query[] => allQueries().filter((q) => !isMarker(q));
     const writes = (): string[] =>
-      vi
-        .mocked(db.execute)
-        .mock.calls.map((call) => call[0] as unknown as Query)
+      settingQueries()
         .filter((q) => /INSERT INTO settings|UPDATE settings|DELETE FROM settings/.test(q.text))
         .map((q) => `${q.text.split(' ')[0] ?? ''} ${String(q.values[0])}`.trim());
 
@@ -353,10 +391,7 @@ describe('runTests', () => {
       await outcome;
 
       expect(vi.mocked(deleteConformanceStations)).toHaveBeenCalledTimes(2);
-      const restores = vi
-        .mocked(db.execute)
-        .mock.calls.map((call) => call[0] as unknown as Query)
-        .filter((q) => q.text.includes('UPDATE settings'));
+      const restores = settingQueries().filter((q) => q.text.includes('UPDATE settings'));
       expect(restores.map((q) => [q.values[1], q.values[0]])).toEqual([['pnc.enabled', 'false']]);
     });
 
@@ -392,18 +427,12 @@ describe('runTests', () => {
       await vi.advanceTimersByTimeAsync(PNC_SETTINGS_CACHE_TTL_MS + 1_000);
       await run;
 
-      const inserts = vi
-        .mocked(db.execute)
-        .mock.calls.map((call) => call[0] as unknown as Query)
-        .filter((q) => q.text.includes('INSERT INTO settings'));
+      const inserts = settingQueries().filter((q) => q.text.includes('INSERT INTO settings'));
       expect(inserts.map((q) => [q.values[0], q.values[1]])).toEqual([
         ['pnc.enabled', 'true'],
         ['pnc.ocsp.allowedPrivateHosts', '["ocsp.internal","worker"]'],
       ]);
-      const restores = vi
-        .mocked(db.execute)
-        .mock.calls.map((call) => call[0] as unknown as Query)
-        .filter((q) => q.text.includes('UPDATE settings'));
+      const restores = settingQueries().filter((q) => q.text.includes('UPDATE settings'));
       expect(restores.map((q) => [q.values[1], q.values[0]])).toEqual([
         ['pnc.enabled', 'false'],
         ['pnc.ocsp.allowedPrivateHosts', '["ocsp.internal"]'],
@@ -424,13 +453,83 @@ describe('runTests', () => {
       const summary = await run;
 
       expect(summary.total).toBe(3);
-      const restores = vi
-        .mocked(db.execute)
-        .mock.calls.map((call) => call[0] as unknown as Query)
-        .filter((q) => q.text.includes('UPDATE settings'));
+      const restores = settingQueries().filter((q) => q.text.includes('UPDATE settings'));
       expect(restores.map((q) => [q.values[1], q.values[0]])).toEqual([['pnc.enabled', 'false']]);
       expect(vi.mocked(deleteConformanceTestDriver)).toHaveBeenCalledTimes(2);
       vi.mocked(deleteConformanceStations).mockResolvedValue(0);
+    });
+
+    it('turns ISO 15118 smart charging on for the run when the operator turned it off', async () => {
+      vi.useFakeTimers();
+      settingsSelect([
+        { key: 'pnc.enabled', value: true },
+        { key: 'pnc.provider', value: 'local' },
+        { key: 'pnc.local.emaidCountry', value: 'DE' },
+        { key: 'pnc.local.emaidProviderId', value: 'EVT' },
+        { key: 'smartCharging.iso15118Enabled', value: false },
+      ]);
+      const run = runTests({ ...config, provisionStations: true }, vi.fn());
+      // smartCharging.* is read through the OCPP settings cache, not the PnC one.
+      await vi.advanceTimersByTimeAsync(PNC_SETTINGS_CACHE_TTL_MS + 1_000);
+      expect(vi.mocked(executeTest)).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(OCPP_SETTINGS_CACHE_TTL_MS - PNC_SETTINGS_CACHE_TTL_MS);
+      await run;
+      expect(writes()).toEqual(['smartCharging.iso15118Enabled', 'UPDATE false']);
+    });
+
+    it('runs a case with its own settings after the others, after the caches expire, and restores them', async () => {
+      vi.useFakeTimers();
+      settingsSelect([
+        { key: 'pnc.enabled', value: true },
+        { key: 'pnc.provider', value: 'local' },
+        { key: 'pnc.local.emaidCountry', value: 'DE' },
+        { key: 'pnc.local.emaidProviderId', value: 'EVT' },
+      ]);
+      const own = (id: string, settings?: Record<string, unknown>): TestCase => ({
+        id,
+        name: id,
+        module: 'K-smart-charging',
+        version: 'ocpp2.1',
+        sut: 'csms',
+        description: 'test',
+        purpose: 'test',
+        settings,
+        execute: vi.fn(),
+      });
+      vi.mocked(getRegistry).mockReturnValueOnce([
+        own('TC_K_126_CSMS', { 'smartCharging.iso15118Enabled': false }),
+        own('TC_K_115_CSMS'),
+        own('TC_K_114_CSMS'),
+      ]);
+      const order: string[] = [];
+      vi.mocked(executeTest).mockImplementation(async (tc) => {
+        order.push(`${tc.id} ${writes().join(',')}`);
+        return {
+          testId: tc.id,
+          testName: tc.name,
+          module: tc.module,
+          version: tc.version,
+          result: { status: 'passed', durationMs: 0, steps: [] },
+        };
+      });
+
+      const run = runTests({ ...config, provisionStations: true }, vi.fn());
+      await vi.advanceTimersByTimeAsync(0);
+      // The shared cases ran with the run settings; the CSMS caches still hold the old value.
+      expect(order).toEqual(['TC_K_115_CSMS ', 'TC_K_114_CSMS ']);
+      // The case's setting is read through the OCPP settings cache, the longer one here.
+      await vi.advanceTimersByTimeAsync(OCPP_SETTINGS_CACHE_TTL_MS);
+      expect(order).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await run;
+
+      expect(order[2]).toBe('TC_K_126_CSMS smartCharging.iso15118Enabled');
+      // A setting that did not exist is deleted again.
+      expect(writes()).toEqual([
+        'smartCharging.iso15118Enabled',
+        'DELETE smartCharging.iso15118Enabled',
+      ]);
+      vi.mocked(executeTest).mockReset();
     });
 
     it('sets the local provider and the test eMAID prefix when none is set, and restores them', async () => {
@@ -444,25 +543,172 @@ describe('runTests', () => {
       await vi.advanceTimersByTimeAsync(PNC_SETTINGS_CACHE_TTL_MS + 1_000);
       await run;
 
-      const inserts = vi
-        .mocked(db.execute)
-        .mock.calls.map((call) => call[0] as unknown as Query)
-        .filter((q) => q.text.includes('INSERT INTO settings'));
+      const inserts = settingQueries().filter((q) => q.text.includes('INSERT INTO settings'));
       expect(inserts.map((q) => [q.values[0], q.values[1]])).toEqual([
         ['pnc.provider', '"local"'],
         ['pnc.local.emaidCountry', '"US"'],
         ['pnc.local.emaidProviderId', '"OCT"'],
       ]);
       // Previous values come back; a setting that did not exist is deleted.
-      const restores = vi
-        .mocked(db.execute)
-        .mock.calls.map((call) => call[0] as unknown as Query)
-        .filter((q) => /UPDATE settings|DELETE FROM settings/.test(q.text));
+      const restores = settingQueries().filter((q) =>
+        /UPDATE settings|DELETE FROM settings/.test(q.text),
+      );
       expect(restores.map((q) => q.values)).toEqual([
         ['"manual"', 'pnc.provider'],
         ['""', 'pnc.local.emaidCountry'],
         ['pnc.local.emaidProviderId'],
       ]);
+    });
+
+    it('records each change in the pending restore row before writing it, and removes the row at the end', async () => {
+      vi.useFakeTimers();
+      settingsSelect([
+        { key: 'pnc.enabled', value: false },
+        { key: 'pnc.provider', value: 'manual' },
+        { key: 'pnc.local.emaidCountry', value: 'DE' },
+        { key: 'pnc.local.emaidProviderId', value: 'EVT' },
+      ]);
+      const run = runTests({ ...config, provisionStations: true }, vi.fn());
+      await vi.advanceTimersByTimeAsync(PNC_SETTINGS_CACHE_TTL_MS + 1_000);
+      await run;
+
+      const steps = allQueries()
+        .filter((q) => /INSERT INTO settings|UPDATE settings|DELETE FROM settings/.test(q.text))
+        .map((q) =>
+          isMarker(q)
+            ? `${q.text.trim().split(' ')[0] ?? ''} marker ${q.text.includes('INSERT') ? String(q.values[1]) : ''}`.trim()
+            : `${q.text.trim().split(' ')[0] ?? ''} ${String(q.text.includes('INSERT') ? q.values[0] : q.values[1])}`,
+        );
+      expect(steps).toEqual([
+        'INSERT marker {"changes":[{"key":"pnc.enabled","previous":false}]}',
+        'INSERT pnc.enabled',
+        'INSERT marker {"changes":[{"key":"pnc.enabled","previous":false},{"key":"pnc.provider","previous":"manual"}]}',
+        'INSERT pnc.provider',
+        'UPDATE pnc.enabled',
+        'UPDATE pnc.provider',
+        'DELETE marker',
+      ]);
+    });
+
+    it('restores the settings written before a write that failed', async () => {
+      vi.useFakeTimers();
+      vi.mocked(db.execute).mockImplementation(((query: Query) => {
+        if (query.text.includes('SELECT key, value FROM settings')) {
+          return Promise.resolve([
+            { key: 'pnc.enabled', value: false },
+            { key: 'pnc.provider', value: 'manual' },
+            { key: 'pnc.local.emaidCountry', value: 'DE' },
+            { key: 'pnc.local.emaidProviderId', value: 'EVT' },
+          ]);
+        }
+        if (query.text.includes('INSERT INTO settings') && query.values[0] === 'pnc.provider') {
+          return Promise.reject(new Error('connection lost'));
+        }
+        return Promise.resolve([]);
+      }) as never);
+
+      await expect(runTests({ ...config, provisionStations: true }, vi.fn())).rejects.toThrow(
+        'connection lost',
+      );
+
+      expect(vi.mocked(executeTest)).not.toHaveBeenCalled();
+      const restores = settingQueries().filter((q) => q.text.includes('UPDATE settings'));
+      expect(restores.map((q) => [q.values[1], q.values[0]])).toEqual([
+        ['pnc.enabled', 'false'],
+        ['pnc.provider', '"manual"'],
+      ]);
+      expect(allQueries().filter(isMarker).at(-1)?.text).toContain('DELETE FROM settings');
+    });
+
+    it('restores the settings a killed run left before changing any setting', async () => {
+      vi.useFakeTimers();
+      const leftover = {
+        changes: [
+          { key: 'smartCharging.iso15118Enabled', previous: true },
+          { key: 'pnc.enabled', previous: false },
+          { key: 'pnc.local.emaidProviderId', unset: true },
+        ],
+      };
+      vi.mocked(db.execute).mockImplementation(((query: Query) => {
+        if (query.text.includes('SELECT value FROM settings') && isMarker(query)) {
+          return Promise.resolve([{ value: leftover }]);
+        }
+        if (query.text.includes('SELECT key, value FROM settings')) {
+          return Promise.resolve([
+            { key: 'pnc.enabled', value: true },
+            { key: 'pnc.provider', value: 'local' },
+            { key: 'pnc.local.emaidCountry', value: 'DE' },
+            { key: 'pnc.local.emaidProviderId', value: 'EVT' },
+          ]);
+        }
+        return Promise.resolve([]);
+      }) as never);
+
+      const run = runTests({ ...config, provisionStations: true }, vi.fn());
+      await vi.advanceTimersByTimeAsync(0);
+      await run;
+
+      expect(writes()).toEqual(['UPDATE true', 'UPDATE false', 'DELETE pnc.local.emaidProviderId']);
+      const markerDelete = allQueries().find(
+        (q) => isMarker(q) && q.text.includes('DELETE FROM settings'),
+      );
+      // Only the row read, so a row a newer run wrote stays.
+      expect(markerDelete?.values).toEqual([
+        OCTT_PENDING_RESTORE_SETTING_KEY,
+        JSON.stringify(leftover),
+      ]);
+    });
+
+    it('stops waiting, runs no test and restores the settings when the run is aborted', async () => {
+      vi.useFakeTimers();
+      settingsSelect([{ key: 'pnc.enabled', value: false }]);
+      const controller = new AbortController();
+
+      const run = runTests(
+        { ...config, provisionStations: true, signal: controller.signal },
+        vi.fn(),
+      );
+      const outcome = expect(run).rejects.toThrow('OCTT run aborted');
+      await vi.advanceTimersByTimeAsync(1_000);
+      controller.abort(new Error('Received SIGINT'));
+      await vi.advanceTimersByTimeAsync(0);
+      await outcome;
+
+      expect(vi.mocked(executeTest)).not.toHaveBeenCalled();
+      const restores = settingQueries().filter((q) => q.text.includes('UPDATE settings'));
+      expect(restores.map((q) => [q.values[1], q.values[0]])).toEqual([['pnc.enabled', 'false']]);
+      expect(vi.mocked(deleteConformanceStations)).toHaveBeenCalledTimes(2);
+    });
+
+    it('waits a bounded time for running tests when aborted, then cleans up', async () => {
+      vi.useFakeTimers();
+      settingsSelect([
+        { key: 'pnc.enabled', value: true },
+        { key: 'pnc.provider', value: 'local' },
+        { key: 'pnc.local.emaidCountry', value: 'DE' },
+        { key: 'pnc.local.emaidProviderId', value: 'EVT' },
+        { key: 'smartCharging.iso15118Enabled', value: false },
+      ]);
+      // Tests that never finish on their own.
+      vi.mocked(executeTest).mockImplementation(() => new Promise(() => undefined));
+      const controller = new AbortController();
+
+      const run = runTests(
+        { ...config, provisionStations: true, signal: controller.signal },
+        vi.fn(),
+      );
+      const outcome = expect(run).rejects.toThrow('OCTT run aborted');
+      await vi.advanceTimersByTimeAsync(OCPP_SETTINGS_CACHE_TTL_MS + 1_000);
+      expect(vi.mocked(executeTest)).toHaveBeenCalledTimes(2);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(RUN_ABORT_WAIT_MS - 1);
+      expect(writes()).toEqual(['smartCharging.iso15118Enabled']);
+      await vi.advanceTimersByTimeAsync(1);
+      await outcome;
+
+      expect(vi.mocked(executeTest)).toHaveBeenCalledTimes(2);
+      expect(writes()).toEqual(['smartCharging.iso15118Enabled', 'UPDATE false']);
+      vi.mocked(executeTest).mockReset();
     });
   });
 });

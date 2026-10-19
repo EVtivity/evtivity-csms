@@ -66,7 +66,7 @@ export const TC_A_09_CSMS: TestCase = {
           ],
         });
       }
-      return defaultReply('ocpp2.1', action, payload);
+      return defaultReply(ctx.version, action, payload);
     });
 
     // Manual action: update the Basic Auth password on the CSMS.

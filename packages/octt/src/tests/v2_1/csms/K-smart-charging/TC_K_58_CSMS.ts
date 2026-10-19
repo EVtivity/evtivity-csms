@@ -50,7 +50,7 @@ export const TC_K_58_CSMS: TestCase = {
           receivedProfile = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -157,7 +157,7 @@ export const TC_K_59_CSMS: TestCase = {
           profileCount++;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -303,7 +303,7 @@ export const TC_K_113_CSMS: TestCase = {
           receivedProfile = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

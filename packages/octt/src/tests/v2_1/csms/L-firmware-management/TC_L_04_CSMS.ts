@@ -25,7 +25,7 @@ export const TC_L_21_CSMS: TestCase = {
           received = true;
           return { status: 'Unpublished' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -79,7 +79,7 @@ export const TC_L_22_CSMS: TestCase = {
           received = true;
           return { status: 'NoFirmware' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -126,7 +126,7 @@ export const TC_L_23_CSMS: TestCase = {
           received = true;
           return { status: 'NoFirmware' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

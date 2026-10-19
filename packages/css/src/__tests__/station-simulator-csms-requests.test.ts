@@ -310,7 +310,7 @@ describe('SetVariables (B05)', () => {
     const h = await makeHarness();
     setVar(h, 'SecurityCtrlr.SecurityProfile', '2');
     setVar(h, 'NetworkConfiguration.SecurityProfile', '2');
-    setVar(h, 'SecurityCtrlr.AllowSecurityDowngrade', 'false');
+    setVar(h, 'SecurityCtrlr.AllowSecurityProfileDowngrade', 'false');
     const down = await h.invoke('SetVariables', {
       setVariableData: [sv({ name: 'NetworkConfiguration' }, { name: 'SecurityProfile' }, '1')],
     });
@@ -319,7 +319,7 @@ describe('SetVariables (B05)', () => {
     ).toBe('Rejected');
     expect(config(h).get('NetworkConfiguration.SecurityProfile')?.value).toBe('2');
 
-    setVar(h, 'SecurityCtrlr.AllowSecurityDowngrade', 'true');
+    setVar(h, 'SecurityCtrlr.AllowSecurityProfileDowngrade', 'true');
     const allowed = await h.invoke('SetVariables', {
       setVariableData: [sv({ name: 'NetworkConfiguration' }, { name: 'SecurityProfile' }, '1')],
     });
@@ -611,7 +611,7 @@ describe('SetNetworkProfile (B09)', () => {
   it('rejects a lower security profile unless downgrades are allowed', async () => {
     const h = await makeHarness();
     setVar(h, 'SecurityCtrlr.SecurityProfile', '2');
-    setVar(h, 'SecurityCtrlr.AllowSecurityDowngrade', 'false');
+    setVar(h, 'SecurityCtrlr.AllowSecurityProfileDowngrade', 'false');
     expect(
       await h.invoke('SetNetworkProfile', {
         configurationSlot: 2,

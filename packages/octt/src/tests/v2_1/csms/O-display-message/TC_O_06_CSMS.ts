@@ -25,7 +25,7 @@ export const TC_O_12_CSMS: TestCase = {
           received = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

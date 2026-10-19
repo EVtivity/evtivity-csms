@@ -32,6 +32,7 @@ import { processConfigPush } from '../lib/config-push.js';
 import { assertNoCredentialVariables } from '../lib/station-credential-guard.js';
 import {
   findTemplateTargetConfiguration,
+  hasConfigDrift,
   configTemplateTarget,
   configTemplateMatchesStation,
 } from '@evtivity/lib';
@@ -48,6 +49,7 @@ import {
 } from '../lib/fleet-operation-scope.js';
 import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { templateProtocolCondition, templateReachesProtocol } from '../lib/template-protocols.js';
 
 const templateVariableSchema = z
   .object({
@@ -361,7 +363,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       const data = await Promise.all(
         rows.map(async (template) => {
           const conds = [
-            eq(chargingStations.ocppProtocol, `ocpp${template.ocppVersion}`),
+            templateProtocolCondition(template.ocppVersion),
             ...templateTargetConditions(template),
           ];
           if (accessibleSiteIds != null) {
@@ -732,13 +734,12 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       }
 
       const ocppVersion = template.ocppVersion;
-      const expectedProtocol = `ocpp${ocppVersion}`;
 
       // Show all stations matching the filter (online + offline) so this list
       // agrees with the matchingStationsCount shown on the templates list page.
       // The push endpoint applies its own isOnline check separately.
       const conditions = [
-        eq(chargingStations.ocppProtocol, expectedProtocol),
+        templateProtocolCondition(ocppVersion),
         ...templateTargetConditions(template),
       ];
       if (query.status === 'online') conditions.push(eq(chargingStations.isOnline, true));
@@ -827,13 +828,12 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       assertNoCredentialVariables(variables);
 
       const ocppVersion = template.ocppVersion;
-      const expectedProtocol = `ocpp${ocppVersion}`;
 
       // Resolve target stations, filtered by OCPP protocol. A template bound
       // to a station reaches that station only.
       const conditions = [
         eq(chargingStations.isOnline, true),
-        eq(chargingStations.ocppProtocol, expectedProtocol),
+        templateProtocolCondition(ocppVersion),
         ...templateTargetConditions(template),
       ];
 
@@ -1159,7 +1159,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       // cannot drift either.
       const matchingTemplates = templates.filter(
         (t) =>
-          `ocpp${t.ocppVersion}` === station.ocppProtocol &&
+          templateReachesProtocol(t.ocppVersion, station.ocppProtocol) &&
           configTemplateMatchesStation(t, station),
       );
 
@@ -1185,13 +1185,12 @@ export function configTemplateRoutes(app: FastifyInstance): void {
             expected.component,
             expected.variable,
           );
-          const actualValue = actual?.value ?? null;
-          if (actualValue !== expected.value) {
+          if (hasConfigDrift(station.ocppProtocol, expected, actual)) {
             drifts.push({
               component: expected.component,
               variable: expected.variable,
               expectedValue: expected.value,
-              actualValue,
+              actualValue: actual?.value ?? null,
               hasDrift: true,
             });
           }

@@ -18,10 +18,11 @@ import {
   buildCssConfigDefaults,
 } from '@evtivity/lib';
 import type { CssConnectorType } from '@evtivity/lib';
+import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
 
 interface PairOptions {
   stationId: string;
-  ocppProtocol: 'ocpp1.6' | 'ocpp2.1';
+  ocppProtocol: OcppProtocol;
   securityProfile: number;
   serverUrl: string;
   tlsServerUrl: string;

@@ -19,9 +19,9 @@ const BATCH_SIZE = 500;
 
 /**
  * Inserts the demo meter values in batches. Two random sample times of one
- * session can coincide on the same measurand, and meter_values_dedup_idx
- * (migration 0044, NULLS NOT DISTINCT) keeps one row per (session, EVSE,
- * timestamp, measurand, phase, location), so a duplicate is skipped the way
+ * session can coincide on the same measurand, and meter_values_station_dedup_idx
+ * (migration 0476, NULLS NOT DISTINCT) keeps one row per (station, session,
+ * EVSE, timestamp, measurand, phase, location), so a duplicate is skipped the way
  * the OCPP insert path skips a retransmit (P7). Returns the rows inserted.
  */
 export async function insertDemoMeterValues(

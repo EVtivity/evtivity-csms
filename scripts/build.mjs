@@ -76,7 +76,7 @@ export const embedWasmPlugin = {
   },
 };
 
-// The API reads the OCPP request schemas (schemas/ocpp-2.1/<Action>Request.json,
+// The API reads the OCPP request schemas (schemas/ocpp-2.1/ and ocpp-2.0.1/<Action>Request.json,
 // schemas/ocpp-1.6/<Action>.json) through packages/api/src/lib/ocpp-schema-files.ts.
 // In the bundles that module is replaced by one that embeds them, so the
 // service images need no schemas folder next to the bundle.
@@ -86,6 +86,7 @@ export function embeddedOcppSchemas() {
   const files = {};
   for (const [dir, isRequest] of [
     ['ocpp-2.1', (name) => name.endsWith('Request.json')],
+    ['ocpp-2.0.1', (name) => name.endsWith('Request.json')],
     ['ocpp-1.6', (name) => name.endsWith('.json') && !name.endsWith('Response.json')],
   ]) {
     const names = readdirSync(resolve(root, 'schemas', dir))

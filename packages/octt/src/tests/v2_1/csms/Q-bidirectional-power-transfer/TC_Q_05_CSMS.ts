@@ -25,7 +25,7 @@ const makeExternalV2XTest = (id: string, name: string, desc: string): TestCase =
           profileCount++;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

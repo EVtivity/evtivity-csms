@@ -30,7 +30,7 @@ export const TC_Q_120_CSMS: TestCase = {
           afrrReceived = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -127,7 +127,7 @@ export const TC_Q_121_CSMS: TestCase = {
           profileCount++;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

@@ -44,7 +44,7 @@ export const TC_M_20_CSMS: TestCase = {
           return { status: 'Accepted' };
         }
         if (action === 'InstallCertificate') return { status: 'Accepted' };
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -126,7 +126,7 @@ export const TC_M_21_CSMS: TestCase = {
           return { status: 'Failed' };
         }
         if (action === 'InstallCertificate') return { status: 'Accepted' };
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

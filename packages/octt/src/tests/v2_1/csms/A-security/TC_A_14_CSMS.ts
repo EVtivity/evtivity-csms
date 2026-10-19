@@ -48,7 +48,7 @@ export const TC_A_14_CSMS: TestCase = {
         // Step 6: Reject the certificate as invalid
         return { status: 'Rejected' };
       }
-      return defaultReply('ocpp2.1', action, payload);
+      return defaultReply(ctx.version, action, payload);
     });
 
     // Wait for the CSMS to send TriggerMessage

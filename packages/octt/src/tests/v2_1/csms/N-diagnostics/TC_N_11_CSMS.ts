@@ -44,7 +44,7 @@ export const TC_N_105_CSMS: TestCase = {
           adjustReceived = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

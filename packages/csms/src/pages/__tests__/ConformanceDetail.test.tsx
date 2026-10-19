@@ -75,11 +75,11 @@ const SUMMARY = [
   },
 ];
 
-function renderPage(tab?: string): void {
+function renderPage(tab?: string, summary: typeof SUMMARY = SUMMARY): void {
   getMock.mockImplementation((url: string) =>
     Promise.resolve(
       url.endsWith('/summary')
-        ? SUMMARY
+        ? summary
         : {
             run: RUN,
             results: [
@@ -108,6 +108,14 @@ afterEach(() => {
 });
 
 describe('ConformanceDetail', () => {
+  it('names the OCPP 2.0.1 modules by their version', async () => {
+    renderPage(
+      'modules',
+      SUMMARY.map((m) => ({ ...m, ocppVersion: 'ocpp2.0.1' })),
+    );
+    expect(await screen.findByText('OCPP 2.0.1')).toBeTruthy();
+  });
+
   it('shows the notApplicable count and a pass rate over the applicable tests', async () => {
     renderPage();
     expect(await screen.findByText('conformance.runDetail', { exact: false })).toBeTruthy();
@@ -140,5 +148,12 @@ describe('ConformanceDetail', () => {
     await vi.waitFor(() => {
       expect(getMock).toHaveBeenCalledWith('/v1/octt/runs/7?status=notApplicable');
     });
+  });
+
+  it('names the OCPP version of each result (2.1 and 2.0.1 cases share ids)', async () => {
+    renderPage('results');
+    const row = await screen.findByTestId('conformance-result-row-TC_M_24_CSMS');
+    expect(within(row).getByText('OCPP 2.1')).toBeTruthy();
+    expect(screen.getByText('conformance.version')).toBeTruthy();
   });
 });

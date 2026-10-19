@@ -168,6 +168,9 @@ export const chargingStations = pgTable(
     securityProfile: integer('security_profile').notNull().default(1),
     pendingSecurityProfile: integer('pending_security_profile'),
     ocppProtocol: varchar('ocpp_protocol', { length: 20 }),
+    // The OCPP-J endpoint URL (scheme and host, no station id) of the station's
+    // last connection, written at connect. An OCPP 2.0.1 profile upgrade sends it back.
+    ocppEndpointUrl: varchar('ocpp_endpoint_url', { length: 512 }),
     basicAuthPasswordHash: varchar('basic_auth_password_hash', { length: 512 }),
     // AI insight suppression set by an operator (station-ai-insights.service.ts
     // is the only writer): no new insight or worker action for the station

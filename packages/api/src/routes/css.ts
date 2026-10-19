@@ -58,7 +58,14 @@ import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
 import type { JwtPayload } from '../plugins/auth.js';
-import { generateStationPassword, tryParseJson } from '@evtivity/lib';
+import {
+  generateStationPassword,
+  isOcpp21,
+  isOcpp2x,
+  OCPP_PROTOCOLS,
+  OCPP201_NETWORK_INTERFACES,
+  tryParseJson,
+} from '@evtivity/lib';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { auditStationChange } from '../lib/station-audit.js';
 import {
@@ -209,6 +216,38 @@ export const ACTION_VERSIONS: Record<string, 'all' | 'ocpp1.6' | 'ocpp2.1'> = {
   sendDiagnosticsStatusNotification: 'ocpp1.6',
 };
 
+const ACTION_ROUTE_PREFIX: Record<'all' | 'ocpp1.6' | 'ocpp2.1', string> = {
+  all: '',
+  'ocpp1.6': 'v16/',
+  'ocpp2.1': 'v21/',
+};
+
+// The 2.1 actions whose message OCPP 2.0.1 does not define; the others also run on 2.0.1.
+export const OCPP21_ONLY_CSS_ACTIONS: ReadonlySet<string> = new Set([
+  'sendNotifySettlement',
+  'sendNotifyPriorityCharging',
+  'sendNotifyAllowedEnergyTransfer',
+  'sendGetCertificateChainStatus',
+  'sendNotifyPeriodicEventStream',
+  'sendNotifyDERAlarm',
+  'sendNotifyDERStartStop',
+  'sendReportDERControl',
+  'sendBatterySwap',
+  'sendPullDynamicScheduleUpdate',
+  'sendVatNumberValidation',
+]);
+
+/** Whether a simulator action of an OCPP version runs on a station of a protocol. */
+export function cssActionFitsProtocol(
+  actionName: string,
+  version: 'all' | 'ocpp1.6' | 'ocpp2.1',
+  protocol: string | null,
+): boolean {
+  if (version === 'all') return true;
+  if (version === 'ocpp1.6') return protocol === 'ocpp1.6';
+  return OCPP21_ONLY_CSS_ACTIONS.has(actionName) ? isOcpp21(protocol) : isOcpp2x(protocol);
+}
+
 // ---------------------------------------------------------------------------
 // Default config variables seeded per protocol
 // ---------------------------------------------------------------------------
@@ -233,7 +272,7 @@ const createStationEvse = z.object({
 
 const createStationBody = z.object({
   stationId: z.string().min(1).describe('Station identifier string'),
-  ocppProtocol: z.enum(['ocpp1.6', 'ocpp2.1']).optional().describe('OCPP protocol version'),
+  ocppProtocol: z.enum(OCPP_PROTOCOLS).optional().describe('OCPP protocol version'),
   securityProfile: z.number().int().min(0).max(3).optional().describe('Security profile (0-3)'),
   targetUrl: z.string().url().describe('Target OCPP WebSocket URL'),
   password: z.string().optional().describe('Basic auth password'),
@@ -254,8 +293,14 @@ const createStationBody = z.object({
 });
 
 const updateStationBody = z.object({
-  ocppProtocol: z.enum(['ocpp1.6', 'ocpp2.1']).optional(),
+  ocppProtocol: z.enum(OCPP_PROTOCOLS).optional(),
   securityProfile: z.number().int().min(0).max(3).optional(),
+  ocppInterface: z
+    .enum(OCPP201_NETWORK_INTERFACES)
+    .optional()
+    .describe(
+      'Network interface of the new network profile when an online OCPP 2.0.1 station moves to a higher security profile (required there, ignored otherwise)',
+    ),
   targetUrl: z.string().url().optional(),
   password: z.string().optional(),
   model: z.string().optional(),
@@ -951,7 +996,7 @@ function actionRoute(
   summary: string,
   bodySchema: z.ZodObject<z.ZodRawShape>,
 ): void {
-  const versionPrefix = version === 'ocpp1.6' ? 'v16/' : version === 'ocpp2.1' ? 'v21/' : '';
+  const versionPrefix = ACTION_ROUTE_PREFIX[version];
   const tag =
     version === 'all'
       ? 'CSS Actions'
@@ -1016,7 +1061,7 @@ function actionRoute(
         return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
 
-      if (version !== 'all' && version !== station.ocppProtocol) {
+      if (!cssActionFitsProtocol(actionName, version, station.ocppProtocol)) {
         return reply.status(400).send({
           error: `Action ${actionName} requires ${version}, station ${station.stationId} is ${station.ocppProtocol ?? 'unknown'}`,
           code: 'OCPP_VERSION_MISMATCH',
@@ -1565,6 +1610,7 @@ export function cssRoutes(app: FastifyInstance): void {
             ERROR_CODES.PASSWORD_REQUIRED,
             ERROR_CODES.SECURITY_PROFILE_DOWNGRADE,
             ERROR_CODES.STATION_TLS_URL_NOT_CONFIGURED,
+            ERROR_CODES.STATION_ENDPOINT_URL_UNKNOWN,
           ]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           502: errorWith('The station did not accept the change', [
@@ -1618,6 +1664,7 @@ export function cssRoutes(app: FastifyInstance): void {
             body.securityProfile,
             body.password,
             securityCtx,
+            { ocppInterface: body.ocppInterface },
           );
         } else if (body.password != null) {
           await changeStationPassword(pairedCs.id, body.password, securityCtx);

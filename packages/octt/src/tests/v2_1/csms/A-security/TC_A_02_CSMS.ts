@@ -36,7 +36,7 @@ export const TC_A_02_CSMS: TestCase = {
     const badClient = new OcppClient({
       serverUrl: ctx.config.serverUrl,
       stationId: ctx.stationId,
-      ocppProtocol: 'ocpp2.1',
+      ocppProtocol: ctx.version,
       password: 'invalid-password-' + wrongPasswordSuffix,
       securityProfile: 1,
     });
@@ -71,7 +71,7 @@ export const TC_A_02_CSMS: TestCase = {
     const validClient = new OcppClient({
       serverUrl: ctx.config.serverUrl,
       stationId: ctx.stationId,
-      ocppProtocol: 'ocpp2.1',
+      ocppProtocol: ctx.version,
       password: KNOWN_PASSWORD,
       securityProfile: 1,
     });

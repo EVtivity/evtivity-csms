@@ -140,17 +140,15 @@ export async function findActiveTransactionId(
 
 /**
  * The transaction the CSMS computes an ISO 15118 schedule for, or null when it
- * will not send one: the `smartCharging.iso15118Enabled` setting is off, the
- * EV asks for dynamic control (the CSMS computes schedules only, K19), or the
- * EVSE has no active transaction to address a TxProfile to.
+ * will not send one: the `smartCharging.iso15118Enabled` setting is off, or the
+ * EVSE has no active transaction to address a TxProfile to. Scheduled and
+ * dynamic control get the same TxProfile (K17.FR.19, K19.FR.07).
  */
 export async function scheduledChargingTransaction(
   stationDbId: string | null,
   evseId: number,
-  chargingNeeds: Record<string, unknown>,
 ): Promise<string | null> {
   if (stationDbId == null) return null;
-  if (chargingNeeds.controlMode === 'DynamicControl') return null;
   if (!(await isIso15118Enabled())) return null;
   return findActiveTransactionId(stationDbId, evseId);
 }

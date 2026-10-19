@@ -316,6 +316,13 @@ describe('POST /v1/ad-hoc-payments', () => {
     expect(response.json().code).toBe('OCPP_VERSION_MISMATCH');
   });
 
+  it('returns 400 OCPP_VERSION_MISMATCH for an OCPP 2.0.1 station (OCPP 2.1 only)', async () => {
+    setupDbResults([{ ...STATION, ocppProtocol: 'ocpp2.0.1' }]);
+    const response = await post();
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('OCPP_VERSION_MISMATCH');
+  });
+
   it('returns 409 MAINTENANCE_ACTIVE during maintenance', async () => {
     getActiveMaintenanceForStation.mockResolvedValue({ plannedEndAt: new Date() });
     setupDbResults([STATION]);

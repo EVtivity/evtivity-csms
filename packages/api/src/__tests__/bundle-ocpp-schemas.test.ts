@@ -17,10 +17,12 @@ const readerTs = path.join(repoRoot, 'packages/api/src/lib/ocpp-schema-files.ts'
 const ENTRY = `
 import { readOcppSchemaFile } from ${JSON.stringify(readerTs)};
 const v21 = await readOcppSchemaFile('ocpp-2.1/RequestStartTransactionRequest.json');
+const v201 = await readOcppSchemaFile('ocpp-2.0.1/ResetRequest.json');
 const v16 = await readOcppSchemaFile('ocpp-1.6/RemoteStartTransaction.json');
 const missing = await readOcppSchemaFile('ocpp-2.1/NoSuchActionRequest.json');
 process.stdout.write(JSON.stringify({
   v21: v21 == null ? null : Object.keys(JSON.parse(v21).properties),
+  v201: v201 == null ? null : JSON.parse(v201).comment,
   v16: v16 == null ? null : JSON.parse(v16).required,
   missing,
 }));
@@ -55,16 +57,22 @@ describe('production bundle', () => {
     const config = (await import(buildScript)) as { embedOcppSchemasPlugin: esbuild.Plugin };
     await expect(bundleAndRun([config.embedOcppSchemasPlugin])).resolves.toEqual({
       v21: expect.arrayContaining(['idToken', 'remoteStartId']) as unknown,
+      v201: 'OCPP 2.0.1 FINAL',
       v16: ['idTag'],
       missing: null,
     });
   }, 30_000);
 
   it('finds no schema without the embedding plugin (the v0.1.42 404)', async () => {
-    await expect(bundleAndRun([])).resolves.toEqual({ v21: null, v16: null, missing: null });
+    await expect(bundleAndRun([])).resolves.toEqual({
+      v21: null,
+      v201: null,
+      v16: null,
+      missing: null,
+    });
   }, 30_000);
 
-  it('embeds every request schema of both versions and no response schema', async () => {
+  it('embeds every request schema of the three versions and no response schema', async () => {
     const config = (await import(buildScript)) as {
       embeddedOcppSchemas: () => Record<string, string>;
     };
@@ -72,12 +80,20 @@ describe('production bundle', () => {
     const v21 = readdirSync(path.join(repoRoot, 'schemas/ocpp-2.1')).filter((f) =>
       f.endsWith('Request.json'),
     );
+    const v201 = readdirSync(path.join(repoRoot, 'schemas/ocpp-2.0.1')).filter((f) =>
+      f.endsWith('Request.json'),
+    );
     const v16 = readdirSync(path.join(repoRoot, 'schemas/ocpp-1.6')).filter(
       (f) => !f.endsWith('Response.json'),
     );
 
+    expect(v201.length).toBeGreaterThan(0);
     expect(embedded.sort()).toEqual(
-      [...v21.map((f) => `ocpp-2.1/${f}`), ...v16.map((f) => `ocpp-1.6/${f}`)].sort(),
+      [
+        ...v21.map((f) => `ocpp-2.1/${f}`),
+        ...v201.map((f) => `ocpp-2.0.1/${f}`),
+        ...v16.map((f) => `ocpp-1.6/${f}`),
+      ].sort(),
     );
   });
 });

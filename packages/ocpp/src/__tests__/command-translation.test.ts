@@ -5,6 +5,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { translateCommand, translateResponse } from '../server/command-translation.js';
+import { OCPP21_ONLY_ACTIONS } from '@evtivity/lib';
+import { ocpp21OnlyRegistryActions } from '../server/ocpp-registry.js';
+import { ActionRegistry as Registry21 } from '../generated/v2_1/registry.js';
+import { ActionRegistry as Registry201 } from '../generated/v2_0_1/registry.js';
 import { validateSetChargingProfile } from '../generated/v1_6/validators/SetChargingProfile.validator.js';
 import { validateClearChargingProfile } from '../generated/v1_6/validators/ClearChargingProfile.validator.js';
 import { validateSendLocalList } from '../generated/v1_6/validators/SendLocalList.validator.js';
@@ -1258,5 +1262,82 @@ describe('command-translation', () => {
         }),
       ).toEqual({ action: 'DeleteCertificate', payload: { certificateHashData: hash } });
     });
+  });
+});
+
+describe('translateCommand for OCPP 2.0.1', () => {
+  const only21 = Object.keys(Registry21).filter((action) => !Object.hasOwn(Registry201, action));
+  const relativeProfile = (period: Record<string, unknown>): Record<string, unknown> => ({
+    evseId: 1,
+    chargingProfile: {
+      id: 1,
+      stackLevel: 0,
+      chargingProfilePurpose: 'TxDefaultProfile',
+      chargingProfileKind: 'Relative',
+      chargingSchedule: [{ id: 1, chargingRateUnit: 'A', chargingSchedulePeriod: [period] }],
+    },
+  });
+
+  it('knows the 26 actions only OCPP 2.1 defines, the list lib holds', () => {
+    expect(only21).toHaveLength(26);
+    expect([...only21].sort()).toEqual([...OCPP21_ONLY_ACTIONS].sort());
+    expect(ocpp21OnlyRegistryActions()).toEqual(only21);
+    expect(only21).toEqual(
+      expect.arrayContaining([
+        'GetTariffs',
+        'SetDERControl',
+        'RequestBatterySwap',
+        'OpenPeriodicEventStream',
+      ]),
+    );
+  });
+
+  it('refuses every 2.1-only action', () => {
+    for (const action of only21) {
+      expect(translateCommand(action, 'ocpp2.0.1', {}), action).toBeNull();
+    }
+  });
+
+  it('refuses a 1.6 action and a command with only a 1.6 translation', () => {
+    expect(translateCommand('ChangeConfiguration', 'ocpp2.0.1', { key: 'a' })).toBeNull();
+    expect(translateCommand('ExtendedTriggerMessage', 'ocpp2.0.1', {})).toBeNull();
+  });
+
+  it('maps and fits a shared command, which then passes the strict 2.0.1 check', () => {
+    const payload = {
+      ...relativeProfile({ startPeriod: 0, limit: 16, operationMode: 'ChargingOnly' }),
+      customData: { vendorId: 'v' },
+    };
+
+    const result = translateCommand('SetChargingProfile', 'ocpp2.0.1', payload);
+
+    expect(result).toEqual({
+      action: 'SetChargingProfile',
+      payload: { ...relativeProfile({ startPeriod: 0, limit: 16 }), customData: { vendorId: 'v' } },
+    });
+    expect(Registry201.SetChargingProfile.validateRequest(result?.payload)).toBe(true);
+  });
+
+  it('throws with the reason for a profile that only has a setpoint', () => {
+    expect(() =>
+      translateCommand(
+        'SetChargingProfile',
+        'ocpp2.0.1',
+        relativeProfile({ startPeriod: 0, setpoint: 10 }),
+      ),
+    ).toThrow(/SetChargingProfile cannot be sent to an OCPP 2\.0\.1 station: .*setpoint/);
+  });
+
+  it('keeps the 2.1 command for a 2.1 station', () => {
+    const payload = { type: 'ImmediateAndResume' };
+
+    expect(translateCommand('Reset', 'ocpp2.1', payload)).toEqual({ action: 'Reset', payload });
+    expect(() => translateCommand('Reset', 'ocpp2.0.1', payload)).toThrow(/ImmediateAndResume/);
+  });
+
+  it('leaves a 2.0.1 station answer unchanged', () => {
+    const response = { status: 'Accepted' };
+
+    expect(translateResponse('Reset', 'ocpp2.0.1', response)).toBe(response);
   });
 });

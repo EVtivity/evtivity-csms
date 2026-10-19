@@ -6,6 +6,7 @@ import {
   awaitPubSubReply,
   createLogger,
   OCPP_COMMAND_RESULTS_CHANNEL,
+  type OCPP_VERSION_MISMATCH,
   publishOcppCommand,
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -31,6 +32,12 @@ export interface CommandResult {
    * apart from a failure by this flag, never by the error text.
    */
   timedOut?: boolean;
+  /**
+   * `OCPP_VERSION_MISMATCH` when the OCPP server refused the command before
+   * sending it because the station's OCPP version cannot express it (a 2.1-only
+   * action or value for an OCPP 2.0.1 station). `error` then holds the reason.
+   */
+  code?: typeof OCPP_VERSION_MISMATCH;
 }
 
 /**

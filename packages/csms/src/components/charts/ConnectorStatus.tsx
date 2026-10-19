@@ -38,6 +38,7 @@ import { PORTAL_BASE_URL } from '@/lib/config';
 import { api } from '@/lib/api';
 import { Select } from '@/components/ui/select';
 import { connectorStatusVariant } from '@/lib/status-variants';
+import { isOcpp2x } from '@evtivity/lib/ocpp-version';
 
 // Connector types grouped by region for the create/edit dropdowns. Tesla is
 // dropped because NACS is the same connector. Standard names and their
@@ -500,7 +501,7 @@ export function ConnectorStatus({
           <AlertDescription>
             {ocppProtocol === 'ocpp1.6'
               ? t('charts.ocpp16EvseNote')
-              : ocppProtocol === 'ocpp2.1'
+              : isOcpp2x(ocppProtocol)
                 ? t('charts.ocpp21EvseNote')
                 : t('charts.evseProtocolNote')}
           </AlertDescription>

@@ -233,6 +233,47 @@ describe('command.ReserveNow answer', () => {
     );
   });
 
+  it('cancels a hold whose ReserveNow the OCPP server refused for OCPP 2.0.1, with the reason', async () => {
+    route = (text) => (text.includes('station_ack_at IS NULL') ? [holdRow] : []);
+    const error =
+      'ReserveNow cannot be sent to an OCPP 2.0.1 station: idToken.type DirectPayment is not an OCPP 2.0.1 token type';
+
+    await projectReserveNowResult(
+      deps,
+      event('command.ReserveNow', {
+        request: { id: 42 },
+        error,
+        code: 'OCPP_VERSION_MISMATCH',
+      }),
+    );
+
+    expect(mockApplyReservationCancellation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reservationDbId: 'rsv_1',
+        actor: 'system',
+        reason: 'station_rejected_other',
+        auditAction: 'station_rejected',
+        note: error,
+        chargeFee: false,
+      }),
+    );
+    expect(mockNotifyReservationDriver).toHaveBeenCalledWith(
+      'reservation.Cancelled',
+      expect.objectContaining({ reservationDbId: 'rsv_1' }),
+      { cancellationFeeFormatted: '' },
+      expect.anything(),
+    );
+  });
+
+  it('ignores a ReserveNow error that is not a version refusal', async () => {
+    await projectReserveNowResult(
+      deps,
+      event('command.ReserveNow', { request: { id: 42 }, error: 'CALLERROR InternalError' }),
+    );
+
+    expect(sqlCalls).toHaveLength(0);
+  });
+
   it('TC-RES-22: a refused edit re-send leaves the hold the station already accepted', async () => {
     // The lookup requires station_ack_at IS NULL, so an acknowledged hold is not found.
     route = () => [];

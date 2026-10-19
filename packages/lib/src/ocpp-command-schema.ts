@@ -12,7 +12,9 @@
  * payload: every required field, at the smallest value the schema accepts.
  */
 
-export type OcppCommandVersion = 'ocpp1.6' | 'ocpp2.1';
+import type { OcppProtocol } from './ocpp-version.js';
+
+export type OcppCommandVersion = OcppProtocol;
 
 export type CommandFieldType =
   | 'string'
@@ -77,7 +79,10 @@ export interface OcppRequestSchema {
 
 /** The schema file of an action's request, relative to the repo `schemas/` folder. */
 export function ocppRequestSchemaPath(version: OcppCommandVersion, action: string): string {
-  return version === 'ocpp1.6' ? `ocpp-1.6/${action}.json` : `ocpp-2.1/${action}Request.json`;
+  if (version === 'ocpp1.6') return `ocpp-1.6/${action}.json`;
+  return version === 'ocpp2.0.1'
+    ? `ocpp-2.0.1/${action}Request.json`
+    : `ocpp-2.1/${action}Request.json`;
 }
 
 function cleanDescription(desc: string | undefined): string {

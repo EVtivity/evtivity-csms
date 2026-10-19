@@ -252,15 +252,24 @@ interface Column {
   align: 'left' | 'right';
 }
 
-function drawRow(doc: PDFKit.PDFDocument, columns: Column[], values: string[], y: number): number {
+/** The height drawRow gives a row of these values, in the current font. */
+function rowHeight(doc: PDFKit.PDFDocument, columns: Column[], values: string[]): number {
   let height = 0;
   columns.forEach((col, i) => {
-    const text = values[i] ?? '';
-    doc.text(text, MARGIN + col.x, y, { width: col.width, align: col.align });
-    height = Math.max(height, doc.heightOfString(text, { width: col.width }));
+    height = Math.max(height, doc.heightOfString(values[i] ?? '', { width: col.width }));
   });
   return Math.max(16, height + 4);
 }
+
+function drawRow(doc: PDFKit.PDFDocument, columns: Column[], values: string[], y: number): number {
+  columns.forEach((col, i) => {
+    doc.text(values[i] ?? '', MARGIN + col.x, y, { width: col.width, align: col.align });
+  });
+  return rowHeight(doc, columns, values);
+}
+
+/** Line item rows alternate a light band, starting with the second row. */
+export const INVOICE_ROW_BAND_COLOR = '#f5f7fa';
 
 function drawRule(doc: PDFKit.PDFDocument, y: number, fromX = MARGIN): void {
   doc
@@ -542,22 +551,25 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
   );
   drawRule(doc, y - 4);
 
-  const drawItem = (item: LineItem): void => {
+  const drawItem = (item: LineItem, index: number): void => {
     y = ensure(y, 30);
     const qty = Number(item.quantity);
-    doc.font(fonts.regular).fontSize(10).fillColor(COLOR_TEXT);
-    y += drawRow(
-      doc,
-      itemColumns,
-      [
-        describeLineItem(labels, item.description, item.metadata),
-        Number.isNaN(qty) ? item.quantity : qty.toString(),
-        money(item.unitPriceCents),
-        rate(item.taxRate),
-        money(item.totalCents),
-      ],
-      y,
-    );
+    const values = [
+      describeLineItem(labels, item.description, item.metadata),
+      Number.isNaN(qty) ? item.quantity : qty.toString(),
+      money(item.unitPriceCents),
+      rate(item.taxRate),
+      money(item.totalCents),
+    ];
+    doc.font(fonts.regular).fontSize(10);
+    if (index % 2 === 1) {
+      // The band spans the row's text plus half the row gap above and below.
+      doc
+        .rect(MARGIN - 4, y - 2, CONTENT_WIDTH + 8, rowHeight(doc, itemColumns, values))
+        .fill(INVOICE_ROW_BAND_COLOR);
+    }
+    doc.fillColor(COLOR_TEXT);
+    y += drawRow(doc, itemColumns, values, y);
   };
 
   if (isFleetInvoice) {
@@ -570,7 +582,9 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
         width: CONTENT_WIDTH,
       });
       y += 16;
-      for (const item of group.items) drawItem(item);
+      group.items.forEach((item, i) => {
+        drawItem(item, i);
+      });
       y = ensure(y, 20);
       drawRule(doc, y - 2, MARGIN + CONTENT_WIDTH / 2);
       doc.font(fonts.bold).fontSize(10).fillColor(COLOR_TEXT);
@@ -583,7 +597,9 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
       y += 6;
     }
   } else {
-    for (const item of lineItems) drawItem(item);
+    lineItems.forEach((item, i) => {
+      drawItem(item, i);
+    });
   }
 
   y += 10;

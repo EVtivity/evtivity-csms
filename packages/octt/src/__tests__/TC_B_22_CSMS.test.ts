@@ -39,6 +39,7 @@ function makeContext(endedDelayMs: number): TestContext {
         handler = h;
       }),
     } as unknown as TestContext['client'],
+    version: 'ocpp2.1',
     stationId: 'OCTT-B-provisioning-TC_B_22_CSMS-test',
     tokens: { valid: 'OCTTVALID0000001' } as TestContext['tokens'],
     stationDbId: 'sta_test',

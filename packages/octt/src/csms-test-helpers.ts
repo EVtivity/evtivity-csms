@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { randomBytes } from 'node:crypto';
-import type { StepResult } from './types.js';
+import type { OcppVersion, StepResult } from './types.js';
 
 /**
  * A transactionId for a test station, unique across the tests of a run. The CSMS
@@ -81,4 +81,14 @@ export async function waitForStationSequence(
     return `Station sequence not finished within ${String(timeoutMs / 1000)} s`;
   }
   return sequence.error != null ? `Station sequence failed: ${sequence.error}` : null;
+}
+
+/**
+ * SetNetworkProfile `connectionData.ocppVersion` for the case's OCPP version:
+ * OCPP 2.0.1 has no OCPP21 value (its OCPPVersionEnumType ends at OCPP20, which
+ * also names 2.0.1).
+ */
+export function networkProfileOcppVersion(version: OcppVersion): 'OCPP16' | 'OCPP20' | 'OCPP21' {
+  if (version === 'ocpp1.6') return 'OCPP16';
+  return version === 'ocpp2.0.1' ? 'OCPP20' : 'OCPP21';
 }

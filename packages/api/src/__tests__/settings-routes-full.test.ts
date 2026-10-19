@@ -152,6 +152,7 @@ vi.mock('drizzle-orm', () => ({
 vi.mock('@evtivity/lib', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@evtivity/lib')>();
   return {
+    OCTT_PENDING_RESTORE_SETTING_KEY: actual.OCTT_PENDING_RESTORE_SETTING_KEY,
     encryptString: vi.fn((_val: string, _key: string) => 'encrypted-value'),
     clearNotificationSettingsCache: vi.fn(),
     createLogger: actual.createLogger,

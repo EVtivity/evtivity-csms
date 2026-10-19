@@ -870,6 +870,7 @@
     "STATUS_CHECK_TIMEOUT": "状态检查超时。请重新插入连接器后重试。",
     "SECURITY_PROFILE_DOWNGRADE": "已连接的充电站不能降级到更低的安全配置文件",
     "STATION_TLS_URL_NOT_CONFIGURED": "未配置充电站的公共 TLS 地址 (OCPP_STATION_TLS_URL)",
+    "STATION_ENDPOINT_URL_UNKNOWN": "尚不知道此充电站的连接地址。充电站下次连接时会记录该地址。",
     "STATION_SECURITY_CHANGE_REJECTED": "充电站未接受安全更改，当前设置保持不变",
     "STATION_CREDENTIALS_ROUTE_REQUIRED": "充电站密码须通过 POST /v1/stations/:id/credentials 更改，不能使用通用 OCPP 命令",
     "WEB_PAYMENTS_NOT_SUPPORTED": "充电站不支持动态二维码",

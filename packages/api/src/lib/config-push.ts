@@ -12,6 +12,7 @@ import {
 } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
+import { templateProtocolCondition } from './template-protocols.js';
 
 const logger = createLogger('config-push');
 
@@ -248,14 +249,13 @@ export async function pushTemplateToSiteStations(
   }>;
   if (variables.length === 0) return '';
 
-  const expectedProtocol = `ocpp${template.ocppVersion}`;
   const targetStations = await db
     .select({ id: chargingStations.id, stationId: chargingStations.stationId })
     .from(chargingStations)
     .where(
       and(
         eq(chargingStations.isOnline, true),
-        eq(chargingStations.ocppProtocol, expectedProtocol),
+        templateProtocolCondition(template.ocppVersion),
         eq(chargingStations.siteId, siteId),
         // Conformance test stations are never a push target.
         isOperatorStation(),

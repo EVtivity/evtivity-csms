@@ -4,6 +4,7 @@
 import { readFileSync } from 'node:fs';
 import type postgres from 'postgres';
 import { CSS_RECONNECT_SPREAD_S, tryParseJson, type PubSubClient } from '@evtivity/lib';
+import { isOcpp2x, type OcppProtocol } from '@evtivity/lib/ocpp-version';
 import {
   StationSimulator,
   type PluggedInEv,
@@ -362,8 +363,8 @@ export class SimulatorManager {
       const clientCertVal = rowClientCert ?? envBundle?.clientCert ?? null;
       const clientKeyVal = rowClientKey ?? envBundle?.clientKey ?? null;
       const caCertVal = rowCaCert ?? envBundle?.caCert ?? null;
-      const ocppProtocol: 'ocpp1.6' | 'ocpp2.1' =
-        row.ocpp_protocol === 'ocpp2.1' ? 'ocpp2.1' : 'ocpp1.6';
+      const rowProtocol = row.ocpp_protocol as string | null;
+      const ocppProtocol: OcppProtocol = isOcpp2x(rowProtocol) ? rowProtocol : 'ocpp1.6';
       const config: StationConfig = {
         id: stationPk,
         stationId,

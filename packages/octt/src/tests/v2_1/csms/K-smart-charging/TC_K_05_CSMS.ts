@@ -35,14 +35,14 @@ export const TC_K_05_CSMS: TestCase = {
           reqPayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'ClearChargingProfile', {
         stationId: ctx.stationId,
-        id: 1,
+        chargingProfileId: 1,
       });
     } else {
       await new Promise((resolve) => setTimeout(resolve, 15000));
@@ -97,7 +97,7 @@ export const TC_K_06_CSMS: TestCase = {
           received = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -158,14 +158,14 @@ export const TC_K_08_CSMS: TestCase = {
           received = true;
           return { status: 'Unknown' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
     if (ctx.triggerCommand != null) {
       await ctx.triggerCommand('v21', 'ClearChargingProfile', {
         stationId: ctx.stationId,
-        id: 999,
+        chargingProfileId: 999,
       });
     } else {
       await new Promise((resolve) => setTimeout(resolve, 15000));

@@ -10,6 +10,7 @@ import {
   isIssuedCentralToken,
 } from '../authorization/issued-central-tokens.js';
 import { CommandTimeoutError } from '../server/message-correlator.js';
+import { Ocpp201CommandError } from '../server/ocpp201/to-ocpp201.js';
 
 vi.mock('../protocol/message-types.js', () => ({
   MESSAGE_TYPE_CALL: 2,
@@ -290,6 +291,88 @@ describe('CommandListener', () => {
     expect(mockPublish).toHaveBeenCalledWith(
       'ocpp_command_results',
       JSON.stringify({ commandId: 'cmd-2', error: 'Station not connected' }),
+    );
+  });
+
+  it('answers a command refused for an OCPP 2.0.1 station as a version mismatch, not a station error', async () => {
+    const refusal = new Ocpp201CommandError(
+      'SetDisplayMessage',
+      'message.message.format QRCODE is not defined in OCPP 2.0.1',
+    );
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(refusal);
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-201',
+        stationId: 'CS-201',
+        action: 'SetDisplayMessage',
+        payload: { message: { id: 1 } },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockPublish).toHaveBeenCalledWith(
+      'ocpp_command_results',
+      JSON.stringify({
+        commandId: 'cmd-201',
+        error: refusal.message,
+        code: 'OCPP_VERSION_MISMATCH',
+      }),
+    );
+    // Nothing reached the station, so the OCPP log holds no station CALLERROR.
+    expect(eventBus.publish).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ocpp.MessageLog',
+        payload: expect.objectContaining({ messageType: 4 }) as unknown,
+      }),
+    );
+  });
+
+  it('still ends a firmware update refused for an OCPP 2.0.1 station', async () => {
+    const refusal = new Ocpp201CommandError('UpdateFirmware', 'the payload does not match');
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(refusal);
+    await createAndStart();
+    const payload = { requestId: 4, firmware: { location: 'https://fw' } };
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-fw201',
+        stationId: 'CS-201',
+        action: 'UpdateFirmware',
+        payload,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'command.UpdateFirmware',
+        payload: { request: payload, error: refusal.message },
+      }),
+    );
+  });
+
+  it('publishes command.ReserveNow with the refusal so the projection cancels the hold', async () => {
+    const refusal = new Ocpp201CommandError(
+      'ReserveNow',
+      'idToken.type DirectPayment is not an OCPP 2.0.1 token type',
+    );
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(refusal);
+    await createAndStart();
+    const payload = {
+      id: 7,
+      expiryDateTime: '2026-10-17T12:00:00Z',
+      idToken: { idToken: 'X', type: 'DirectPayment' },
+    };
+    // Fire-and-forget, as the worker activation sends it: no commandId.
+    subscribeHandler!(JSON.stringify({ stationId: 'CS-201', action: 'ReserveNow', payload }));
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'command.ReserveNow',
+        aggregateId: 'CS-201',
+        payload: { request: payload, error: refusal.message, code: 'OCPP_VERSION_MISMATCH' },
+      }),
     );
   });
 

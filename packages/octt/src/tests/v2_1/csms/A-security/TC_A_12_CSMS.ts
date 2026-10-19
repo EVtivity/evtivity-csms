@@ -47,7 +47,7 @@ export const TC_A_12_CSMS: TestCase = {
         certificateSignedReceived = true;
         return { status: 'Accepted' };
       }
-      return defaultReply('ocpp2.1', action, payload);
+      return defaultReply(ctx.version, action, payload);
     });
 
     // Wait for the CSMS to send TriggerMessage

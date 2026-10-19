@@ -164,7 +164,8 @@ describe('processChargingProfilePush', () => {
     await processChargingProfilePush('cpp_1', stations, template, '2.1');
     const get = sendMock.mock.calls.find((c) => c[1] === 'GetChargingProfiles');
     expect(get?.[0]).toBe('CS-1');
-    expect(get?.[3]).toBe('ocpp2.1');
+    // Without a version: the OCPP server sends a 2.0.1 station the 2.0.1 form.
+    expect(get).toHaveLength(3);
     expect((get?.[2] as { chargingProfile: unknown }).chargingProfile).toEqual({});
     expect(stationSets()[0]).toMatchObject({ status: 'accepted' });
   });
@@ -282,7 +283,9 @@ describe('processChargingProfileClear', () => {
     );
     await processChargingProfileClear('cpp_2', stations, target, '2.1');
     expect(deleteCalls).toEqual([]);
-    expect(sendMock.mock.calls.some((c) => c[1] === 'GetChargingProfiles')).toBe(true);
+    const get = sendMock.mock.calls.find((c) => c[1] === 'GetChargingProfiles');
+    // Without a version: the OCPP server sends a 2.0.1 station the 2.0.1 form.
+    expect(get).toHaveLength(3);
     expect(stationSets()[0]).toMatchObject({ status: 'accepted' });
     expect(stationSets()[0]).not.toHaveProperty('errorInfo');
   });

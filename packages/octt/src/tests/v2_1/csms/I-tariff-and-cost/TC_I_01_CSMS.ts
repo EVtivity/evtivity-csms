@@ -136,7 +136,7 @@ export const TC_I_01_CSMS: TestCase = {
           costValue = payload['totalCost'];
           return {};
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

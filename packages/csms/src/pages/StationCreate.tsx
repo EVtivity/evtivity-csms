@@ -19,6 +19,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { stationPasswordRules, validateStationPassword } from '@evtivity/lib/station-password';
+import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
 
 interface Station {
   id: string;
@@ -39,7 +40,7 @@ export function StationCreate(): React.JSX.Element {
   const [stationId, setStationId] = useState('');
   const [model, setModel] = useState('');
   const [siteId, setSiteId] = useState(searchParams.get('siteId') ?? '');
-  const [ocppProtocol, setOcppProtocol] = useState<'ocpp1.6' | 'ocpp2.1'>('ocpp1.6');
+  const [ocppProtocol, setOcppProtocol] = useState<OcppProtocol>('ocpp1.6');
   const [securityProfile, setSecurityProfile] = useState('1');
   const [password, setPassword] = useState('');
   const [isSimulator, setIsSimulator] = useState(false);
@@ -60,7 +61,7 @@ export function StationCreate(): React.JSX.Element {
       stationId: string;
       model?: string;
       siteId?: string;
-      ocppProtocol?: 'ocpp1.6' | 'ocpp2.1';
+      ocppProtocol?: OcppProtocol;
       securityProfile?: number;
       password?: string;
       isSimulator?: boolean;
@@ -193,10 +194,11 @@ export function StationCreate(): React.JSX.Element {
                 id="ocppProtocol"
                 value={ocppProtocol}
                 onChange={(e) => {
-                  setOcppProtocol(e.target.value as 'ocpp1.6' | 'ocpp2.1');
+                  setOcppProtocol(e.target.value as OcppProtocol);
                 }}
               >
                 <option value="ocpp1.6">OCPP 1.6</option>
+                <option value="ocpp2.0.1">OCPP 2.0.1</option>
                 <option value="ocpp2.1">OCPP 2.1</option>
               </Select>
             </div>

@@ -71,6 +71,7 @@ function makeContext(extra: (password: string) => Record<string, unknown>): {
   });
   const ctx: TestContext = {
     client: client as unknown as TestContext['client'],
+    version: 'ocpp2.1',
     stationId: STATION_ID,
     tokens: {} as TestContext['tokens'],
     stationDbId: 'sta_test',

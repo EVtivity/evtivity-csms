@@ -4,6 +4,8 @@
 // CSMS-initiated OCPP commands offered by the Advanced Command form of the
 // station Commands tab, per OCPP version.
 
+import { isOcpp21OnlyAction } from '@evtivity/lib/ocpp-version';
+
 export const CSMS_ACTIONS = [
   'AdjustPeriodicEventStream',
   'AFRRSignal',
@@ -62,6 +64,11 @@ export const CSMS_ACTIONS = [
   'UpdateFirmware',
   'UsePriorityCharging',
 ] as const;
+
+/** The 2.1 commands an OCPP 2.0.1 station takes: every one but the 2.1-only actions. */
+export const CSMS_ACTIONS_201: readonly string[] = CSMS_ACTIONS.filter(
+  (action) => !isOcpp21OnlyAction(action),
+);
 
 export const CSMS_ACTIONS_16 = [
   'CancelReservation',

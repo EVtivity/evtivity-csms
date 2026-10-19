@@ -3,10 +3,12 @@
 
 import { vi, type Mock } from 'vitest';
 import type postgres from 'postgres';
+import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
 import { StationSimulator, type StationConfig } from '../station-simulator.js';
 import { makeConfig } from './sim-test-helpers.js';
+import { assertOcpp201 } from './ocpp201-schema.js';
 
-export type Protocol = 'ocpp1.6' | 'ocpp2.1';
+export type Protocol = OcppProtocol;
 
 export type SqlResponder = (query: string, values: unknown[]) => unknown[] | undefined;
 
@@ -33,6 +35,8 @@ export interface Harness {
   sent(action: string): Array<Record<string, unknown>>;
   /** Actions of every CALL the station sent, in order. */
   actions(): string[];
+  /** OCPP 2.0.1 schema failures of every message sent or received (the simulator may swallow the throw). */
+  violations: string[];
 }
 
 export interface HarnessOptions {
@@ -67,14 +71,69 @@ export function defaultResponse(action: string): unknown {
   }
 }
 
+// Default CSMS answers in their 2.0.1 form (no 1.6 idTagInfo next to idTokenInfo).
+export function defaultResponse201(action: string): unknown {
+  switch (action) {
+    case 'Authorize':
+      return { idTokenInfo: { status: 'Accepted' } };
+    case 'TransactionEvent':
+      return {};
+    case 'BootNotification':
+      return { status: 'Accepted', interval: 300, currentTime: new Date().toISOString() };
+    case 'Heartbeat':
+      return { currentTime: new Date().toISOString() };
+    case 'DataTransfer':
+    case 'SignCertificate':
+    case 'NotifyEVChargingNeeds':
+    case 'NotifyEVChargingSchedule':
+    case 'GetCertificateStatus':
+      return { status: 'Accepted' };
+    case 'Get15118EVCertificate':
+      return { status: 'Accepted', exiResponse: 'AA==' };
+    case 'GetTransactionStatus':
+      return { messagesInQueue: false };
+    default:
+      // StatusNotification, MeterValues, the Notify* reports and status notifications.
+      return {};
+  }
+}
+
 export async function makeHarness(opts: HarnessOptions = {}): Promise<Harness> {
   const protocol = opts.protocol ?? 'ocpp2.1';
   const sim = new StationSimulator(
     makeConfig({ ocppProtocol: protocol, ...opts.config }),
     opts.sql ?? stubSql(),
   );
-  const respond = opts.respond ?? defaultResponse;
+  const is201 = protocol === 'ocpp2.0.1';
+  const respond = opts.respond ?? (is201 ? defaultResponse201 : defaultResponse);
+  // OCPP 2.0.1: every CALL goes through the client's own 2.0.1 edge and must pass the
+  // strict 2.0.1 schema, as a 2.0.1 CSMS would check it; the recorded payload is the wire one.
+  const toWire = sim.client.callPayload.bind(sim.client);
+  const toWireResult = sim.client.callResultPayload.bind(sim.client);
+  const violations: string[] = [];
+  const check = (action: string, kind: 'request' | 'response', pl: Record<string, unknown>) => {
+    try {
+      assertOcpp201(action, kind, pl);
+    } catch (err) {
+      violations.push(err instanceof Error ? err.message : String(err));
+      throw err;
+    }
+  };
   const sendCall = vi.fn(async (action: string, payload: Record<string, unknown>) => {
+    if (is201) {
+      let wire: Record<string, unknown> | null;
+      try {
+        wire = toWire(action, payload);
+      } catch (err) {
+        violations.push(err instanceof Error ? err.message : String(err));
+        throw err;
+      }
+      if (wire == null) return {};
+      check(action, 'request', wire);
+      const r = (respond(action, wire) ?? defaultResponse201(action)) as Record<string, unknown>;
+      check(action, 'response', r);
+      return r;
+    }
     const r = respond(action, payload);
     return (r ?? defaultResponse(action)) as Record<string, unknown>;
   });
@@ -97,24 +156,43 @@ export async function makeHarness(opts: HarnessOptions = {}): Promise<Harness> {
   } else if (opts.load !== false) {
     await (p['loadConfigVariables'] as () => Promise<void>).call(sim);
   }
-  const calls = (): Array<[string, Record<string, unknown>]> => sendCall.mock.calls;
+  const calls = (): Array<[string, Record<string, unknown>]> =>
+    is201
+      ? sendCall.mock.calls.flatMap(([a, pl]: [string, Record<string, unknown>]) => {
+          let wire: Record<string, unknown> | null;
+          try {
+            wire = toWire(a, pl);
+          } catch {
+            // fail-open: a message the 2.0.1 edge refused never left the station, see violations
+            return [];
+          }
+          return wire == null ? [] : [[a, wire] as [string, Record<string, unknown>]];
+        })
+      : sendCall.mock.calls;
+  const handle = p['handleCsmsCommand'] as (
+    id: string,
+    action: string,
+    payload: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>;
   return {
     sim,
     sendCall,
     p,
-    invoke: (action, payload) =>
-      (
-        p['handleCsmsCommand'] as (
-          id: string,
-          action: string,
-          payload: Record<string, unknown>,
-        ) => Promise<Record<string, unknown>>
-      ).call(sim, 'm1', action, payload),
+    invoke: async (action, payload) => {
+      if (!is201) return handle.call(sim, 'm1', action, payload);
+      // A 2.0.1 station validates the CSMS call (a 2.1-only field fails here) and answers in 2.0.1.
+      check(action, 'request', payload);
+      const reply = await handle.call(sim, 'm1', action, payload);
+      const wire = toWireResult(action, reply);
+      check(action, 'response', wire);
+      return wire;
+    },
     sent: (action) =>
       calls()
         .filter((c) => c[0] === action)
         .map((c) => c[1]),
     actions: () => calls().map((c) => c[0]),
+    violations,
   };
 }
 

@@ -103,7 +103,7 @@ export const TC_I_113_CSMS: TestCase = {
           receivedTariff = payload['tariff'] as Record<string, unknown> | undefined;
           return { status: 'TooManyElements' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -198,7 +198,7 @@ export const TC_I_114_CSMS: TestCase = {
           receivedTxId = String(payload['transactionId'] ?? '');
           return { status: 'ConditionNotSupported' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -282,7 +282,7 @@ export const TC_I_115_CSMS: TestCase = {
           tariffPayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

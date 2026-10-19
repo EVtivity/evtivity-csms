@@ -211,6 +211,7 @@ describe('sendSessionTariffChange', () => {
   it.each([
     ['without local cost', session, []],
     ['on OCPP 1.6', { ...session, ocpp_protocol: 'ocpp1.6' }, [['Enabled', 'true']]],
+    ['on OCPP 2.0.1', { ...session, ocpp_protocol: 'ocpp2.0.1' }, [['Enabled', 'true']]],
     ['offline', { ...session, is_online: false }, [['Enabled', 'true']]],
     ['ended', { ...session, status: 'completed' }, [['Enabled', 'true']]],
   ] as Array<[string, typeof session, Array<[string, string]>]>)(

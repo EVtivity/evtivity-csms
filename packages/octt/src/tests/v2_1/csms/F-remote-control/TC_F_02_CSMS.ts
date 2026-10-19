@@ -71,7 +71,7 @@ export const TC_F_02_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -199,7 +199,7 @@ export const TC_F_03_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -311,7 +311,7 @@ export const TC_F_04_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

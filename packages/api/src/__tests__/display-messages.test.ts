@@ -290,6 +290,58 @@ describe('Display message routes', () => {
       expect(body.code).toBe('STATION_OFFLINE');
     });
 
+    it.each([
+      ['ocpp1.6', 400],
+      ['ocpp2.0.1', 500],
+    ])('a %s station: SetDisplayMessage is OCPP 2.x (status %i)', async (ocppProtocol, status) => {
+      // A 2.0.1 station passes the version check and reaches the insert, which returns null here.
+      setupDbResults(
+        [{ id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, ocppProtocol }],
+        [{ maxId: 5 }],
+        [],
+      );
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/display-messages`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: basePayload,
+      });
+      expect(response.statusCode).toBe(status);
+      if (status === 400) expect(JSON.parse(response.body).code).toBe('NOT_SUPPORTED');
+    });
+
+    it.each([
+      [{ format: 'QRCODE' }, 'Format QRCODE is not available in OCPP 2.0.1'],
+      [{ state: 'Suspended' }, 'State Suspended is not available in OCPP 2.0.1'],
+      [{ state: 'Discharging' }, 'State Discharging is not available in OCPP 2.0.1'],
+      [{ content: 'x'.repeat(513) }, 'Content over 512 characters is not available in OCPP 2.0.1'],
+      [
+        { messageExtra: [{ format: 'UTF8', content: 'Hallo', language: 'de' }] },
+        'messageExtra is not available in OCPP 2.0.1',
+      ],
+    ])('refuses %o for an OCPP 2.0.1 station before the insert', async (extra, error) => {
+      setupDbResults([
+        {
+          id: VALID_STATION_ID,
+          stationId: 'STATION-001',
+          isOnline: true,
+          ocppProtocol: 'ocpp2.0.1',
+        },
+      ]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/display-messages`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { ...basePayload, ...extra },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({ error, code: 'OCPP_VERSION_MISMATCH' });
+      expect(mockPublish).not.toHaveBeenCalled();
+    });
+
     it('returns 500 when message insert returns null', async () => {
       setupDbResults(
         // 1. station lookup

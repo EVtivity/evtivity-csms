@@ -363,6 +363,20 @@ describe('local auth list routes - uncovered paths', () => {
       expect(res.json()).toEqual({ error: 'Station not connected', code: 'COMMAND_FAILED' });
     });
 
+    it('returns 400 OCPP_VERSION_MISMATCH when the OCPP server refused the list for 2.0.1', async () => {
+      queuePush([]);
+      const error =
+        'SendLocalList cannot be sent to an OCPP 2.0.1 station: idToken type MacAddress is not defined in OCPP 2.0.1';
+      sendOcppCommandAndWait.mockResolvedValue({ error, code: 'OCPP_VERSION_MISMATCH' });
+      const res = await app.inject({
+        method: 'POST',
+        url: `/stations/${STATION_ID}/local-auth-list/push`,
+        headers,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error, code: 'OCPP_VERSION_MISMATCH' });
+    });
+
     it('returns 502 PUSH_REJECTED when the station does not accept the list', async () => {
       queuePush([]);
       sendOcppCommandAndWait.mockResolvedValue({ response: { status: 'VersionMismatch' } });

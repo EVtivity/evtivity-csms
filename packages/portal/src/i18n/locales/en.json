@@ -870,6 +870,7 @@
     "STATUS_CHECK_TIMEOUT": "Status check timed out. Replug the connector and try again.",
     "SECURITY_PROFILE_DOWNGRADE": "A connected station cannot be moved to a lower security profile",
     "STATION_TLS_URL_NOT_CONFIGURED": "The public TLS address for stations (OCPP_STATION_TLS_URL) is not configured",
+    "STATION_ENDPOINT_URL_UNKNOWN": "The address this station connects on is not known yet. It is recorded when the station next connects.",
     "STATION_SECURITY_CHANGE_REJECTED": "The station did not accept the security change; its current settings are unchanged",
     "STATION_CREDENTIALS_ROUTE_REQUIRED": "Station passwords are changed with POST /v1/stations/:id/credentials, not with a generic OCPP command",
     "WEB_PAYMENTS_NOT_SUPPORTED": "The station does not support dynamic QR codes",

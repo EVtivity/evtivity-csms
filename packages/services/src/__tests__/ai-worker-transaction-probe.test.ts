@@ -44,6 +44,14 @@ describe('stuck session transaction probe (GetTransactionStatus)', () => {
     expect(log.warn).not.toHaveBeenCalled();
   });
 
+  it('asks an online 2.0.1 station too (GetTransactionStatus is OCPP 2.x)', async () => {
+    const send = sender({ commandId: 'c', response: { ongoingIndicator: true } });
+    expect(
+      await probeTransactionOngoing({ ...session, ocppProtocol: 'ocpp2.0.1' }, logger(), send),
+    ).toBe(true);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it('reports a transaction the station no longer runs', async () => {
     const send = sender({
       commandId: 'c',

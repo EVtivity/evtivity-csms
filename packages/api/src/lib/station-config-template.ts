@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { db, configTemplates } from '@evtivity/database';
+import { isOcpp2x } from '@evtivity/lib/ocpp-version';
 
 // Either the shared db instance or a Drizzle transaction.
 type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -27,7 +28,7 @@ export async function createStationConfigTemplate(
   exec: Executor,
   station: NewStation,
 ): Promise<void> {
-  const ocppVersion = station.ocppProtocol === 'ocpp2.1' ? '2.1' : '1.6';
+  const ocppVersion = isOcpp2x(station.ocppProtocol) ? '2.1' : '1.6';
   const targetFilter: { stationId: string; siteId?: string; vendorId?: string; model?: string } = {
     stationId: station.id,
   };

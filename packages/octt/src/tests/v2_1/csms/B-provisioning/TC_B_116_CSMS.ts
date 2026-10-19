@@ -106,7 +106,7 @@ export const TC_B_116_CSMS: TestCase = {
           });
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

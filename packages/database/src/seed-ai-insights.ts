@@ -119,6 +119,8 @@ export interface AiInsightDemoInput {
 interface DemoStation {
   id: string;
   ocppId: string;
+  /** OCPP 2.0.1 or 2.1: the demo insights pick 2.x stations. */
+  protocol: string;
   siteId: string | null;
   siteName: string | null;
   evseUuid: string | null;
@@ -189,7 +191,7 @@ interface Context {
 const TEXT_LANGUAGE = 'en';
 
 function workerAction(kind: AiWorkerActionKind): AiWorkerAction {
-  // Every demo station speaks OCPP 2.1.
+  // Every demo insight station speaks OCPP 2.x, whose actions are labelled 2.1.
   const action = AI_WORKER_ACTIONS.find(
     (a) => a.kind === kind && (a.ocppVersion === null || a.ocppVersion === '2.1'),
   );
@@ -369,16 +371,16 @@ async function insertAction(ctx: Context, a: DemoActionRow): Promise<void> {
 
 async function insertConnectionLog(
   sql: postgres.Sql,
-  stationId: string,
+  station: DemoStation,
   event: 'connected' | 'disconnected',
   at: Date,
 ): Promise<number> {
   const [row] = await sql<{ id: number }[]>`
     INSERT INTO connection_logs (station_id, event, protocol, remote_address, created_at)
-    VALUES (${stationId}, ${event}, ${event === 'connected' ? 'ocpp2.1' : null}, '10.20.0.14', ${at})
+    VALUES (${station.id}, ${event}, ${event === 'connected' ? station.protocol : null}, '10.20.0.14', ${at})
     RETURNING id
   `;
-  if (row == null) throw new Error(`Demo connection log for ${stationId} not written`);
+  if (row == null) throw new Error(`Demo connection log for ${station.ocppId} not written`);
   return row.id;
 }
 
@@ -423,6 +425,7 @@ async function demoStations(sql: postgres.Sql): Promise<DemoStation[]> {
     {
       id: string;
       station_id: string;
+      ocpp_protocol: string;
       site_id: string | null;
       site_name: string | null;
       evse_uuid: string | null;
@@ -430,7 +433,7 @@ async function demoStations(sql: postgres.Sql): Promise<DemoStation[]> {
       connector_number: number | null;
     }[]
   >`
-    SELECT cs.id, cs.station_id, cs.site_id, s.name AS site_name,
+    SELECT cs.id, cs.station_id, cs.ocpp_protocol, cs.site_id, s.name AS site_name,
       e.id AS evse_uuid, e.evse_id AS evse_number, c.connector_id AS connector_number
     FROM charging_stations cs
     LEFT JOIN sites s ON s.id = cs.site_id
@@ -441,7 +444,7 @@ async function demoStations(sql: postgres.Sql): Promise<DemoStation[]> {
       SELECT connector_id FROM connectors WHERE evse_id = e.id ORDER BY connector_id LIMIT 1
     ) c ON true
     WHERE cs.security_profile = 3 AND cs.is_simulator AND NOT cs.is_online
-      AND cs.disabled_reason IS NULL AND cs.ocpp_protocol = 'ocpp2.1'
+      AND cs.disabled_reason IS NULL AND cs.ocpp_protocol <> 'ocpp1.6'
       AND NOT EXISTS (
         SELECT 1 FROM charging_sessions cx
         WHERE cx.station_id = cs.id AND cx.status = 'active' AND cx.id NOT LIKE 'ses_aidemo%'
@@ -454,6 +457,7 @@ async function demoStations(sql: postgres.Sql): Promise<DemoStation[]> {
   return rows.map((r) => ({
     id: r.id,
     ocppId: r.station_id,
+    protocol: r.ocpp_protocol,
     siteId: r.site_id,
     siteName: r.site_name,
     evseUuid: r.evse_uuid,
@@ -496,8 +500,8 @@ const scopeOf = (ctx: Context, siteId: string | null, stoppedReason?: string) =>
 async function seedStationOffline(ctx: Context, st: DemoStation): Promise<void> {
   const id = AI_INSIGHT_DEMO_IDS.stationOffline;
   if (await insightExists(ctx.sql, id)) return;
-  const connected = await insertConnectionLog(ctx.sql, st.id, 'connected', ctx.ago(9 * 60));
-  const disconnected = await insertConnectionLog(ctx.sql, st.id, 'disconnected', ctx.ago(5 * 60));
+  const connected = await insertConnectionLog(ctx.sql, st, 'connected', ctx.ago(9 * 60));
+  const disconnected = await insertConnectionLog(ctx.sql, st, 'disconnected', ctx.ago(5 * 60));
   const basisAt = ctx.ago(5 * 60 - 2);
   await insertInsight(ctx, {
     id,
@@ -533,8 +537,8 @@ async function seedConnectionDrops(ctx: Context, st: DemoStation): Promise<void>
   let lastDisconnect = 0;
   // Four short sessions on the socket in the last 80 minutes.
   for (const start of [80, 58, 37, 16]) {
-    const c = await insertConnectionLog(ctx.sql, st.id, 'connected', ctx.ago(start));
-    lastDisconnect = await insertConnectionLog(ctx.sql, st.id, 'disconnected', ctx.ago(start - 6));
+    const c = await insertConnectionLog(ctx.sql, st, 'connected', ctx.ago(start));
+    lastDisconnect = await insertConnectionLog(ctx.sql, st, 'disconnected', ctx.ago(start - 6));
     refs.unshift(`conn:${String(c)}`);
     refs.unshift(`conn:${String(lastDisconnect)}`);
   }
@@ -723,8 +727,8 @@ async function seedSiteIncident(ctx: Context, members: readonly DemoStation[]): 
   for (const [n, st] of members.slice(0, 3).entries()) {
     const memberId = memberIds[n];
     if (memberId === undefined) continue;
-    await insertConnectionLog(ctx.sql, st.id, 'connected', ctx.ago(12 * 60 + n));
-    const disconnected = await insertConnectionLog(ctx.sql, st.id, 'disconnected', ctx.ago(47 - n));
+    await insertConnectionLog(ctx.sql, st, 'connected', ctx.ago(12 * 60 + n));
+    const disconnected = await insertConnectionLog(ctx.sql, st, 'disconnected', ctx.ago(47 - n));
     refs.push(`station:${st.id}`, `conn:${String(disconnected)}`);
     memberRows.push({
       id: memberId,
@@ -849,9 +853,11 @@ async function seedAuthorizationRefused(ctx: Context): Promise<void> {
     WHERE NOT is_active AND revoked_at IS NULL AND driver_id IS NOT NULL
     ORDER BY id_token LIMIT 1
   `;
-  const [station] = await ctx.sql<{ id: string; station_id: string; site_id: string | null }[]>`
-    SELECT id, station_id, site_id FROM charging_stations
-    WHERE security_profile <> 3 AND ocpp_protocol = 'ocpp2.1' AND disabled_reason IS NULL
+  const [station] = await ctx.sql<
+    { id: string; station_id: string; ocpp_protocol: string; site_id: string | null }[]
+  >`
+    SELECT id, station_id, ocpp_protocol, site_id FROM charging_stations
+    WHERE security_profile <> 3 AND ocpp_protocol <> 'ocpp1.6' AND disabled_reason IS NULL
       AND site_id IS NOT NULL
     ORDER BY station_id LIMIT 1
   `;
@@ -872,7 +878,7 @@ async function seedAuthorizationRefused(ctx: Context): Promise<void> {
       )
       VALUES (
         ${station.station_id}, ${token.id_token}, ${token.token_type}, ${token.id},
-        ${token.driver_id}, 'blocked', 'ocpp2.1', 'inactive',
+        ${token.driver_id}, 'blocked', ${station.ocpp_protocol}, 'inactive',
         ${new Date(hourStart.getTime() + minute * MINUTE_MS)}
       )
       RETURNING id

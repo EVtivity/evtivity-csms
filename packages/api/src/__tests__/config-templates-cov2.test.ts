@@ -231,7 +231,12 @@ describe('config template routes, uncovered paths', () => {
       expect(res.json().data[0].matchingStationsCount).toBe(4);
       expect(allWheres()).toContainEqual({
         and: [
-          { eq: ['cs.ocppProtocol', 'ocpp2.1'] },
+          {
+            and: [
+              { inArray: ['cs.ocppProtocol', ['ocpp2.0.1', 'ocpp2.1']] },
+              { conformancePredicate: 'isOperatorStation' },
+            ],
+          },
           { conformancePredicate: 'isOperatorStation' },
           { eq: ['cs.id', 'sta_1'] },
           { eq: ['cs.siteId', 'sit_1'] },
@@ -314,7 +319,12 @@ describe('config template routes, uncovered paths', () => {
       expect(res.json()).toEqual({ data: [station], total: 1 });
       expect(allWheres()).toContainEqual({
         and: [
-          { eq: ['cs.ocppProtocol', 'ocpp2.1'] },
+          {
+            and: [
+              { inArray: ['cs.ocppProtocol', ['ocpp2.0.1', 'ocpp2.1']] },
+              { conformancePredicate: 'isOperatorStation' },
+            ],
+          },
           { conformancePredicate: 'isOperatorStation' },
           { eq: ['cs.id', 'sta_1'] },
           { eq: ['cs.siteId', 'sit_1'] },
@@ -369,7 +379,12 @@ describe('config template routes, uncovered paths', () => {
       expect(allWheres()).toContainEqual({
         and: [
           { eq: ['cs.isOnline', true] },
-          { eq: ['cs.ocppProtocol', 'ocpp1.6'] },
+          {
+            and: [
+              { inArray: ['cs.ocppProtocol', ['ocpp1.6']] },
+              { conformancePredicate: 'isOperatorStation' },
+            ],
+          },
           { conformancePredicate: 'isOperatorStation' },
           { eq: ['cs.id', 'sta_1'] },
           { eq: ['cs.siteId', 'sit_1'] },
@@ -431,7 +446,12 @@ describe('config template routes, uncovered paths', () => {
       expect(allWheres()).toContainEqual({
         and: [
           { eq: ['cs.isOnline', true] },
-          { eq: ['cs.ocppProtocol', 'ocpp2.1'] },
+          {
+            and: [
+              { inArray: ['cs.ocppProtocol', ['ocpp2.0.1', 'ocpp2.1']] },
+              { conformancePredicate: 'isOperatorStation' },
+            ],
+          },
           { conformancePredicate: 'isOperatorStation' },
           { eq: ['cs.id', 'sta_1'] },
           { inArray: ['cs.siteId', ['sit_1']] },

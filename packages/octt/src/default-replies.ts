@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { isOcpp21OnlyAction } from '@evtivity/lib/ocpp-version';
 import type { OcppVersion } from './types.js';
 
 /**
@@ -18,7 +19,8 @@ export function defaultReply(
   action: string,
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const reply = (version === 'ocpp1.6' ? REPLIES_16 : REPLIES_21)[action]?.(payload);
+  const known = version !== 'ocpp2.0.1' || !isOcpp21OnlyAction(action);
+  const reply = known ? (version === 'ocpp1.6' ? REPLIES_16 : REPLIES_21)[action]?.(payload) : null;
   // OcppClient sends an Error whose message is an OCPP error code as that CALLERROR.
   return reply != null ? Promise.resolve(reply) : Promise.reject(new Error('NotImplemented'));
 }
@@ -132,5 +134,7 @@ const REPLIES_16: Record<string, Reply> = {
 /** Actions with a default reply, per version (for tests of this module). */
 export const DEFAULT_REPLY_ACTIONS: Record<OcppVersion, string[]> = {
   'ocpp1.6': Object.keys(REPLIES_16),
+  // 2.1-only actions never reach a 2.0.1 test station's handler (answered NotImplemented).
+  'ocpp2.0.1': Object.keys(REPLIES_21).filter((action) => !isOcpp21OnlyAction(action)),
   'ocpp2.1': Object.keys(REPLIES_21),
 };

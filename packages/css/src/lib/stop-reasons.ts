@@ -1,9 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
+import { TRIGGER_REASONS_TO_201 } from './ocpp201.js';
+
 // Stop reasons per OCPP version, taken from the schemas:
 // - 1.6: StopTransaction.json `reason`
-// - 2.1: TransactionEventRequest.json `ReasonEnumType`
+// - 2.0.1 and 2.1: TransactionEventRequest.json `ReasonEnumType`
 export const STOP_REASONS_16 = [
   'EmergencyStop',
   'EVDisconnected',
@@ -41,15 +44,21 @@ export const STOP_REASONS_21 = [
   'ReqEnergyTransferRejected',
 ] as const;
 
+/** 2.1 adds ReqEnergyTransferRejected. */
+export const STOP_REASONS_201 = STOP_REASONS_21.filter((r) => r !== 'ReqEnergyTransferRejected');
+
 export type StopReason16 = (typeof STOP_REASONS_16)[number];
 export type StopReason21 = (typeof STOP_REASONS_21)[number];
 
-export type OcppProtocol = 'ocpp1.6' | 'ocpp2.1';
+function stopReasonsOf(protocol: OcppProtocol): readonly string[] {
+  if (protocol === 'ocpp1.6') return STOP_REASONS_16;
+  if (protocol === 'ocpp2.0.1') return STOP_REASONS_201;
+  return STOP_REASONS_21;
+}
 
 /** True when the reason is in the stop reason set of the protocol. */
 export function isStopReasonFor(protocol: OcppProtocol, reason: string): boolean {
-  const reasons: readonly string[] = protocol === 'ocpp1.6' ? STOP_REASONS_16 : STOP_REASONS_21;
-  return reasons.includes(reason);
+  return stopReasonsOf(protocol).includes(reason);
 }
 
 // Stop reasons that report a station fault (2.1 triggerReason AbnormalCondition).
@@ -63,10 +72,25 @@ const ABNORMAL_STOP_REASONS_21: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * OCPP 2.1 TransactionEvent Ended: the triggerReason and the chargingState the station
+ * OCPP 2.x TransactionEvent Ended: the triggerReason and the chargingState the station
  * reports for a stop reason. Reasons without a specific trigger end with StopAuthorized.
+ * 2.0.1 lacks SoCLimitReached and CostLimitReached and reports EnergyLimitReached.
  */
-export function endedTriggerFor21(reason: string): {
+export function endedTriggerFor2x(
+  protocol: OcppProtocol,
+  reason: string,
+): { triggerReason: string; chargingState: string } {
+  const ended = endedTriggerFor21(reason);
+  if (protocol === 'ocpp2.0.1') {
+    return {
+      ...ended,
+      triggerReason: TRIGGER_REASONS_TO_201[ended.triggerReason] ?? ended.triggerReason,
+    };
+  }
+  return ended;
+}
+
+function endedTriggerFor21(reason: string): {
   triggerReason: string;
   chargingState: string;
 } {

@@ -5,6 +5,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
+import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
 
 const { getMock, postMock } = vi.hoisted(() => {
   // The auth store reads the color scheme when it loads.
@@ -52,7 +53,7 @@ function renderCreate(): void {
   );
 }
 
-async function fillRequired(protocol: 'ocpp1.6' | 'ocpp2.1', password: string): Promise<void> {
+async function fillRequired(protocol: OcppProtocol, password: string): Promise<void> {
   fireEvent.change(screen.getByLabelText('stations.stationId'), { target: { value: 'CS-1' } });
   await screen.findByRole('option', { name: 'Depot' });
   fireEvent.change(screen.getByLabelText('stations.site'), { target: { value: 'sit_1' } });
@@ -111,6 +112,20 @@ describe('StationCreate password rules', () => {
     submit();
     expect(await screen.findByText('stations.passwordInvalidCharacters')).toBeTruthy();
     expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('offers OCPP 2.0.1 and sends it with the 2.x password rules', async () => {
+    postMock.mockResolvedValue({ id: 'sta_1', stationId: 'CS-1' });
+    renderCreate();
+    expect(screen.getByRole('option', { name: 'OCPP 2.0.1' })).toBeTruthy();
+    await fillRequired('ocpp2.0.1', 'a'.repeat(30));
+    submit();
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        '/v1/stations',
+        expect.objectContaining({ ocppProtocol: 'ocpp2.0.1', password: 'a'.repeat(30) }),
+      );
+    });
   });
 
   it('submits a valid OCPP 2.1 password', async () => {

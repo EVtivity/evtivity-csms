@@ -11,7 +11,11 @@ import {
 } from '@evtivity/database';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
-import { findTemplateTargetConfiguration, configTemplateTarget } from '@evtivity/lib';
+import {
+  findTemplateTargetConfiguration,
+  configTemplateTarget,
+  hasConfigDrift,
+} from '@evtivity/lib';
 
 export async function configDriftDetectionHandler(log: Logger): Promise<void> {
   const templates = await db.select().from(configTemplates);
@@ -38,7 +42,11 @@ export async function configDriftDetectionHandler(log: Logger): Promise<void> {
     if (target.model != null) conditions.push(eq(chargingStations.model, target.model));
 
     const targetStations = await db
-      .select({ id: chargingStations.id, siteId: chargingStations.siteId })
+      .select({
+        id: chargingStations.id,
+        siteId: chargingStations.siteId,
+        ocppProtocol: chargingStations.ocppProtocol,
+      })
       .from(chargingStations)
       .where(and(...conditions));
 
@@ -65,7 +73,7 @@ export async function configDriftDetectionHandler(log: Logger): Promise<void> {
           expected.component,
           expected.variable,
         );
-        if (actual == null || actual.value !== expected.value) {
+        if (hasConfigDrift(station.ocppProtocol, expected, actual)) {
           driftCount++;
           try {
             await pubsub.publish(

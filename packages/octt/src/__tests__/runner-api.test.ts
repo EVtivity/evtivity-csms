@@ -81,6 +81,7 @@ vi.mock('@evtivity/database', () => {
     client: vi.fn(),
     OCTT_API_KEY_NAME: 'OCTT conformance run',
     PNC_SETTINGS_CACHE_TTL_MS: 60_000,
+    OCPP_SETTINGS_CACHE_TTL_MS: 60_000,
   };
 });
 
@@ -351,9 +352,17 @@ describe('runTests with the CSMS API', () => {
         : { status: 409, body: { code: postCode } };
     await runTests({ ...baseConfig, apiUrl: 'http://api:7102', provisionStations: true }, vi.fn());
     expect(paths()).toEqual(expected);
+    const isMarker = (q: Query): boolean => q.values.includes('octt.pendingRestore');
     expect(
-      h.state.executes.filter((q: Query) => /UPDATE settings|DELETE FROM settings/.test(q.text)),
+      h.state.executes.filter(
+        (q: Query) => !isMarker(q) && /UPDATE settings|DELETE FROM settings/.test(q.text),
+      ),
     ).toEqual([]);
+    // A CA change recorded before the create request is dropped from the restore row again.
+    const marker = h.state.executes.filter(isMarker).map((q: Query) => q.text.trim().split(' ')[0]);
+    expect(marker.filter((w) => w !== 'SELECT')).toEqual(
+      expected.length === 2 ? ['INSERT', 'DELETE'] : [],
+    );
   });
 
   it('leaves installedMoRootId null when the MO root cannot be installed', async () => {

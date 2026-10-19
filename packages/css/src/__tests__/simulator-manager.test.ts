@@ -605,6 +605,27 @@ describe('SimulatorManager station sync', () => {
     expect(factory).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps an OCPP 2.0.1 station on 2.0.1 and an unknown protocol on 1.6', async () => {
+    const SimulatorManager = await loadManagerClass();
+    const sql = makeSql({
+      rows: [
+        { id: 'pk1', station_id: 'CS-201', ocpp_protocol: 'ocpp2.0.1' },
+        { id: 'pk2', station_id: 'CS-X', ocpp_protocol: 'ocpp9' },
+      ],
+      evses: [],
+    });
+    const created: SimStub[] = [];
+    const manager = new SimulatorManager(sql, undefined, (config: StationConfig) => {
+      const s = makeSim(config);
+      created.push(s);
+      return s as unknown as StationSimulator;
+    });
+
+    await sync(manager);
+
+    expect(created.map((s) => s.config.ocppProtocol)).toEqual(['ocpp2.0.1', 'ocpp1.6']);
+  });
+
   it('removes a station whose start failed and stops its client, then retries next sync', async () => {
     const SimulatorManager = await loadManagerClass();
     const sql = makeSql({ rows: [{ id: 'pk1', station_id: 'CS-1' }], evses: [] });

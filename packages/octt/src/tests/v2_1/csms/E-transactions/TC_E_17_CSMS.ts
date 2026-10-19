@@ -253,7 +253,7 @@ export const TC_E_117_CSMS: TestCase = {
           setProfileCount++;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

@@ -446,6 +446,7 @@ export {
   getTxEndedMeasurands,
   isIso15118Enabled,
   getDefaultMaxPowerW,
+  OCPP_SETTINGS_CACHE_TTL_MS,
 } from './lib/ocpp-settings.js';
 export {
   getRegistrationPolicy,

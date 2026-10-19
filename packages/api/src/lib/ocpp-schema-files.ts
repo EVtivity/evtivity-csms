@@ -12,9 +12,10 @@ import { isMissingFileError } from './fs-errors.js';
 // request schema (embedOcppSchemasPlugin), so the API image reads no file.
 const SCHEMAS_ROOT = resolve(fileURLToPath(new URL('../../../../schemas/', import.meta.url)));
 
-// The only names a request schema has: `ocpp-2.1/<Action>Request.json` and
+// The only names a request schema has: `ocpp-2.1/<Action>Request.json`,
+// `ocpp-2.0.1/<Action>Request.json` and
 // `ocpp-1.6/<Action>.json`, the action in letters and digits.
-const SCHEMA_PATH_PATTERN = /^ocpp-(?:2\.1|1\.6)\/[A-Za-z0-9]{1,100}\.json$/;
+const SCHEMA_PATH_PATTERN = /^ocpp-(?:2\.1|2\.0\.1|1\.6)\/[A-Za-z0-9]{1,100}\.json$/;
 
 /**
  * The absolute path of a schema file, or null when the relative path is not a

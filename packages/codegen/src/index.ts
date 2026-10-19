@@ -13,7 +13,11 @@ import {
   generateMessageTypeFile,
   generateCommonTypeFile,
 } from './generators/typescript-generator.js';
-import { generateValidatorFile, generateAjvSetupFile } from './generators/validator-generator.js';
+import {
+  generateValidatorFile,
+  generateAjvSetupFile,
+  generateAjvFitSetupFile,
+} from './generators/validator-generator.js';
 import { generateRegistryFile } from './generators/registry-generator.js';
 import { generateHandlerFile } from './generators/handler-stub-generator.js';
 import {
@@ -107,19 +111,26 @@ function runWithVersion(version: string): void {
   writeFile(path.join(messagesDir, 'index.ts'), generateMessagesIndex(actionPairs));
 
   console.log('Generating validators...');
+  const fit = config.fitFunctions;
   writeFile(path.join(validatorsDir, '_ajv.ts'), generateAjvSetupFile());
+  if (fit) {
+    writeFile(path.join(validatorsDir, '_ajv-fit.ts'), generateAjvFitSetupFile());
+  }
   for (const schema of schemas) {
     const messageName = schema.fileName.replace('.json', '');
     writeFile(
       path.join(validatorsDir, `${messageName}.validator.ts`),
-      generateValidatorFile(schema),
+      generateValidatorFile(schema, { fit }),
     );
   }
-  writeFile(path.join(validatorsDir, 'index.ts'), generateValidatorsIndex(actionPairs));
+  writeFile(path.join(validatorsDir, 'index.ts'), generateValidatorsIndex(actionPairs, { fit }));
 
   console.log('Generating registry...');
-  writeFile(path.join(config.outputDir, 'registry.ts'), generateRegistryFile(actionPairs));
+  writeFile(path.join(config.outputDir, 'registry.ts'), generateRegistryFile(actionPairs, { fit }));
 
+  // handlers.ts holds types only (request and response type maps, the ActionHandler interface),
+  // no handler implementations. No handler set exists per generated version: 2.0.1 messages
+  // run through the 2.1 handlers, so the 2.0.1 copy is a type reference only.
   console.log('Generating handler interfaces...');
   writeFile(path.join(config.outputDir, 'handlers.ts'), generateHandlerFile(actionPairs));
 

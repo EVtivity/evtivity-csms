@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { defaultReply } from '../../../../default-replies.js';
+import { trySubprotocols } from '../../../../security-test-helpers.js';
 
 // B02/B03: Cold Boot Charging Station - Pending/Rejected - SecurityError
 export const TC_B_30_CSMS: TestCase = {
@@ -155,7 +156,7 @@ export const TC_B_31_CSMS: TestCase = {
           receivedTrigger = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -200,7 +201,7 @@ export const TC_B_31_CSMS: TestCase = {
   },
 };
 
-// Part 4 JSON/WebSocket: WebSocket Subprotocol validation
+// Part 4 JSON/WebSocket: WebSocket Subprotocol validation (OCPP-J 3.1.2)
 export const TC_B_58_CSMS: TestCase = {
   id: 'TC_B_58_CSMS',
   name: 'WebSocket Subprotocol validation',
@@ -213,59 +214,35 @@ export const TC_B_58_CSMS: TestCase = {
     'To verify whether the CSMS is able to select a supported OCPP version when also a different unsupported subprotocol is offered.',
   execute: async (ctx) => {
     const steps: StepResult[] = [];
+    // The case's own version: ocpp2.1, or ocpp2.0.1 for the 2.0.1 case.
+    const selected = ctx.version;
 
-    // First boot to confirm connection is established with the correct subprotocol
-    const bootRes = await ctx.client.sendCall('BootNotification', {
-      chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
-      reason: 'PowerUp',
-    });
-
-    steps.push({
-      step: 1,
-      description: 'CSMS accepts connection with supported OCPP subprotocol (ocpp2.1)',
-      status: bootRes['status'] === 'Accepted' ? 'passed' : 'failed',
-      expected: 'Connection accepted with ocpp2.1 subprotocol',
-      actual: `BootNotification status = ${String(bootRes['status'])}`,
-    });
-
-    // The test verifies that when CSMS receives SetNetworkProfileRequest response of Failed,
-    // it handles it gracefully. In CSMS-as-SUT: wait for SetNetworkProfile from CSMS.
-    let receivedSetNetwork = false;
-    ctx.client.setIncomingCallHandler(
-      async (_messageId: string, action: string, payload: Record<string, unknown>) => {
-        if (action === 'SetNetworkProfile') {
-          receivedSetNetwork = true;
-          return { status: 'Failed' };
-        }
-        return defaultReply('ocpp2.1', action, payload);
-      },
-    );
-
-    if (ctx.triggerCommand != null) {
-      await ctx.triggerCommand('v21', 'SetNetworkProfile', {
-        stationId: ctx.stationId,
-        configurationSlot: 1,
-        connectionData: {
-          ocppVersion: 'OCPP21',
-          ocppTransport: 'JSON',
-          messageTimeout: 30,
-          ocppCsmsUrl: 'ws://localhost:3003',
-          securityProfile: 0,
-          ocppInterface: 'Wired0',
-        },
-      });
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
-
+    // Step 1-2: the Test System disconnects and reconnects offering only an
+    // unsupported subprotocol; the CSMS must not upgrade the connection.
+    ctx.client.setDisconnectedHandler(() => {});
+    ctx.client.disconnect();
+    const unsupported = await trySubprotocols(ctx, ['ocpp0.1']);
     steps.push({
       step: 2,
-      description: 'CSMS may send SetNetworkProfile; respond with Failed status',
-      status: 'passed',
-      expected: 'SetNetworkProfile handled or not sent',
-      actual: receivedSetNetwork
-        ? 'SetNetworkProfile received, responded Failed'
-        : 'No SetNetworkProfile received',
+      description: 'CSMS rejects the upgrade offering only Sec-WebSocket-Protocol: ocpp0.1',
+      status: unsupported.upgraded ? 'failed' : 'passed',
+      expected: 'Upgrade rejected (no 101 Switching Protocols)',
+      actual: unsupported.upgraded
+        ? `Upgraded (101) with Sec-WebSocket-Protocol ${unsupported.protocol ?? '(none)'}`
+        : `Rejected (HTTP ${String(unsupported.status)})`,
+    });
+
+    // Step 3-4: reconnect offering ocpp0.1 and the case's version; the CSMS must
+    // upgrade and select the supported one.
+    const mixed = await trySubprotocols(ctx, ['ocpp0.1', selected]);
+    steps.push({
+      step: 4,
+      description: `CSMS upgrades the connection offering ocpp0.1,${selected} and selects ${selected}`,
+      status: mixed.upgraded && mixed.protocol === selected ? 'passed' : 'failed',
+      expected: `101 with Sec-WebSocket-Protocol: ${selected}`,
+      actual: mixed.upgraded
+        ? `101 with Sec-WebSocket-Protocol: ${mixed.protocol ?? '(none)'}`
+        : `Not upgraded (HTTP ${String(mixed.status)})`,
     });
 
     return {
@@ -318,7 +295,7 @@ export const TC_B_105_CSMS: TestCase = {
         if (action === 'Reset') {
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

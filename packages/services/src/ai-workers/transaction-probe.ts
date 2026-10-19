@@ -14,6 +14,7 @@
  */
 
 import type { Logger } from '@evtivity/lib';
+import { isOcpp2x } from '@evtivity/lib';
 import { sendOcppCommandAndWait } from '../ocpp-command.js';
 import type { StuckSession } from './stuck-sessions.js';
 
@@ -33,7 +34,7 @@ export type ProbeSender = typeof sendOcppCommandAndWait;
 
 /**
  * Whether the station still runs the session's transaction. Only an online
- * OCPP 2.1 station is asked (OCPP 1.6 has no GetTransactionStatus with this
+ * OCPP 2.x station is asked (OCPP 1.6 has no GetTransactionStatus with this
  * meaning); any other session, and any failure, gives null.
  */
 export async function probeTransactionOngoing(
@@ -46,8 +47,8 @@ export async function probeTransactionOngoing(
 ): Promise<TransactionProbeResult> {
   const context = { sessionId: session.sessionId, stationId: session.ocppStationId };
   if (session.reason === 'station_offline') return null;
-  if (session.ocppProtocol !== 'ocpp2.1') {
-    log.debug(context, 'Stuck session probe skipped: the station does not use OCPP 2.1');
+  if (!isOcpp2x(session.ocppProtocol)) {
+    log.debug(context, 'Stuck session probe skipped: the station does not use OCPP 2.x');
     return null;
   }
   try {

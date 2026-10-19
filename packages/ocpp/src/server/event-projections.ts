@@ -74,11 +74,14 @@ import {
 import type { SessionLifecycleState } from './session-lifecycle/state.js';
 import { TransactionProjector } from './session-lifecycle/transaction-projector.js';
 import { getString } from './projection-support/payload.js';
+import { MeasurandEnum as MEASURAND_ENUM_201 } from '../generated/v2_0_1/enums/MeasurandEnum.js';
 import { SESSION_ENDED_BY_CSMS } from './csms-session-end.js';
 import {
   createLogger,
   FREE_VEND_OCPP_21_VARIABLES,
   FREE_VEND_OCPP_16_KEYS,
+  isOcpp21,
+  isOcpp2x,
   LIVENESS_WRITE_INTERVAL_SECONDS,
 } from '@evtivity/lib';
 import {
@@ -116,6 +119,8 @@ import {
   overallValue,
 } from './meter-units.js';
 import type { PhaseSample } from './meter-units.js';
+
+const MEASURANDS_201: ReadonlySet<string> = new Set(Object.values(MEASURAND_ENUM_201));
 
 const OCPP_STATUS_MAP: Record<string, string> = {
   // OCPP 2.1 connector statuses
@@ -434,11 +439,13 @@ export function registerProjections(
 
       const ocppProtocol = (event.payload as { ocppProtocol?: string }).ocppProtocol ?? null;
       const remoteAddress = (event.payload as { remoteAddress?: string }).remoteAddress ?? null;
+      const endpointUrl = (event.payload as { endpointUrl?: string | null }).endpointUrl ?? null;
 
       await sql`
         UPDATE charging_stations
         SET is_online = true, last_heartbeat = now(), updated_at = now(),
-            ocpp_protocol = COALESCE(${ocppProtocol}, ocpp_protocol)
+            ocpp_protocol = COALESCE(${ocppProtocol}, ocpp_protocol),
+            ocpp_endpoint_url = ${endpointUrl}
         WHERE id = ${stationUuid}
       `;
 
@@ -784,16 +791,21 @@ export function registerProjections(
       const publishCmd = (action: string, payload: Record<string, unknown>, version: string) =>
         publishOcppCommand(pubsub, { stationId: stationOcppId, action, payload, version });
 
-      // Measurands valid only in OCPP 1.6 (not in 2.1 MeasurandEnumType)
+      // Measurands valid only in OCPP 1.6 (not in 2.1 MeasurandEnumType); a 2.0.1
+      // station also gets only the measurands of its own, shorter enum.
       const OCPP_16_ONLY = new Set(['Temperature', 'RPM']);
       const filter21 = (csv: string) =>
         csv
           .split(',')
-          .filter((m) => !OCPP_16_ONLY.has(m.trim()))
+          .filter(
+            (m) =>
+              !OCPP_16_ONLY.has(m.trim()) &&
+              (protocol !== 'ocpp2.0.1' || MEASURANDS_201.has(m.trim())),
+          )
           .join(',');
 
-      if (protocol === 'ocpp2.1') {
-        // OCPP 2.1: SetVariables (one command per variable)
+      if (isOcpp2x(protocol)) {
+        // OCPP 2.x: SetVariables (one command per variable)
         if (meterValueInterval > 0) {
           await publishCmd(
             'SetVariables',
@@ -806,10 +818,11 @@ export function registerProjections(
                 },
               ],
             },
-            'ocpp2.1',
+            protocol,
           );
         }
-        if (sampledMeasurands) {
+        // A list the 2.0.1 filter emptied is not sent: an empty value would clear the station's list.
+        if (sampledMeasurands && filter21(sampledMeasurands) !== '') {
           await publishCmd(
             'SetVariables',
             {
@@ -821,10 +834,10 @@ export function registerProjections(
                 },
               ],
             },
-            'ocpp2.1',
+            protocol,
           );
         }
-        if (txEndedMeasurands) {
+        if (txEndedMeasurands && filter21(txEndedMeasurands) !== '') {
           await publishCmd(
             'SetVariables',
             {
@@ -836,7 +849,7 @@ export function registerProjections(
                 },
               ],
             },
-            'ocpp2.1',
+            protocol,
           );
         }
         if (clockAlignedInterval > 0) {
@@ -851,9 +864,9 @@ export function registerProjections(
                 },
               ],
             },
-            'ocpp2.1',
+            protocol,
           );
-          if (alignedMeasurands) {
+          if (alignedMeasurands && filter21(alignedMeasurands) !== '') {
             await publishCmd(
               'SetVariables',
               {
@@ -865,7 +878,7 @@ export function registerProjections(
                   },
                 ],
               },
-              'ocpp2.1',
+              protocol,
             );
           }
         }
@@ -917,7 +930,7 @@ export function registerProjections(
       // manually re-pushes the config template.
       const siteFreeVendEnabled = await isSiteFreeVendEnabledByStation(stationOcppId);
       if (siteFreeVendEnabled) {
-        if (protocol === 'ocpp2.1') {
+        if (isOcpp2x(protocol)) {
           await publishCmd(
             'SetVariables',
             {
@@ -927,7 +940,7 @@ export function registerProjections(
                 attributeValue: v.value,
               })),
             },
-            'ocpp2.1',
+            protocol,
           );
         } else if (protocol === 'ocpp1.6') {
           // OCPP 1.6 has no standard "disable auth" key. The closest
@@ -1117,7 +1130,7 @@ export function registerProjections(
           SELECT ocpp_protocol FROM charging_stations WHERE id = ${stationUuid}
         `;
             const ocppProtocol = stationRow?.['ocpp_protocol'] as string | undefined;
-            if (ocppProtocol === 'ocpp2.1') {
+            if (isOcpp2x(ocppProtocol)) {
               // event.aggregateId is the station's OCPP string id (set by the
               // StatusNotification handler), so we can publish directly without
               // another DB lookup.
@@ -1128,7 +1141,7 @@ export function registerProjections(
                   requestId: Math.floor(Math.random() * 2_000_000_000),
                   reportBase: 'ConfigurationInventory',
                 },
-                version: 'ocpp2.1',
+                version: ocppProtocol,
               });
             }
           } catch (err) {
@@ -1865,7 +1878,7 @@ export function registerProjections(
         // by the Started projection, or the fleet credit an account session
         // reserved at the payment gate (plan S8). The cost assembly bills at most
         // cost_ceiling_cents, so energy, time and idle fees past it are not
-        // paid for. OCPP 1.6 has no transaction limit: the CSMS stops the
+        // paid for. OCPP 1.6 and 2.0.1 have no transaction limit: the CSMS stops the
         // transaction once the cost reaches the ceiling. An OCPP 2.1 station
         // got the ceiling as transactionLimit.maxCost and suspends itself
         // (E16.FR.05), keeping the transaction open until the driver unplugs;
@@ -1877,7 +1890,7 @@ export function registerProjections(
         const ceilingTxId = session.transaction_id as string | null;
         if (ceilingCents != null && ceilingTxId != null && totalCents >= ceilingCents) {
           const stopNow =
-            session.ocpp_protocol === 'ocpp1.6' ||
+            !isOcpp21(session.ocpp_protocol as string | null) ||
             (previousCostCents != null &&
               previousCostCents >= ceilingCents &&
               !(await costLimitReported(sql, sessionId)));
@@ -1913,7 +1926,7 @@ export function registerProjections(
           }
         }
 
-        // Send CostUpdated to station when cost changes (OCPP 2.1 only).
+        // Send CostUpdated to station when cost changes (OCPP 2.x).
         // Throttled per session via state.costUpdated to keep dispatch volume
         // bounded under high MeterValues cadence.
         if (previousCostCents !== totalCents) {
@@ -1921,7 +1934,7 @@ export function registerProjections(
           if (state.costUpdated.due(sessionId, nowMs)) {
             const txId = session.transaction_id as string | null;
             const protocol = session.ocpp_protocol as string | null;
-            if (txId != null && protocol === 'ocpp2.1') {
+            if (txId != null && isOcpp2x(protocol)) {
               try {
                 await publishOcppCommand(pubsub, {
                   stationId,

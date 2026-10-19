@@ -15,6 +15,14 @@ describe('OCPP schema file reader', () => {
     expect(ocppSchemaFilePath('ocpp-1.6/Reset.json')).toBe(
       path.join(schemasRoot, 'ocpp-1.6', 'Reset.json'),
     );
+    expect(ocppSchemaFilePath('ocpp-2.0.1/ResetRequest.json')).toBe(
+      path.join(schemasRoot, 'ocpp-2.0.1', 'ResetRequest.json'),
+    );
+  });
+
+  it('reads an OCPP 2.0.1 schema file', async () => {
+    const content = await readOcppSchemaFile('ocpp-2.0.1/ResetRequest.json');
+    expect(JSON.parse(content ?? '{}')).toHaveProperty('comment', 'OCPP 2.0.1 FINAL');
   });
 
   it('refuses anything that is not a schema name, traversal included', async () => {

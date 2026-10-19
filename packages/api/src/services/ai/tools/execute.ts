@@ -33,8 +33,7 @@ import { findCommandStation } from '../../../lib/command-station.js';
 import type { CommandStation } from '../../../lib/command-station.js';
 import type { AiCatalogTool, AiToolMethod } from './catalog-types.js';
 import { AI_TOOL_CATALOG } from './catalog.js';
-import { mapOcppCommand, toolOcppVersion } from './ocpp-version.js';
-import type { OcppVersion } from './ocpp-version.js';
+import { knownOcppProtocol, mapOcppCommand, toolOcppVersion } from './ocpp-version.js';
 import { surfaceOffers, toolPolicy } from './policy.js';
 import type { AiSurface } from './policy.js';
 import { redactToolText, redactToolValue } from '@evtivity/ai/redact';
@@ -479,10 +478,6 @@ function confirmableEntry(operationId: string): ToolsetEntry | null {
   };
 }
 
-function isOcppVersion(value: string | null): value is OcppVersion {
-  return value === 'ocpp1.6' || value === 'ocpp2.1';
-}
-
 function excerpt(value: unknown, text: string): unknown {
   return text.length > MAX_CONFIRMED_RESULT_CHARS
     ? `${text.slice(0, MAX_CONFIRMED_RESULT_CHARS)} [truncated]`
@@ -537,8 +532,9 @@ export async function executeConfirmedToolCall(
     (await caller.hasPermission('stations:read'))
   ) {
     const station = await (deps.findStation ?? findCommandStation)(caller.userId, stationId);
-    if (station !== null && isOcppVersion(station.ocppProtocol)) {
-      const mapping = mapOcppCommand(entry.tool, args, station.ocppProtocol);
+    const stationProtocol = station === null ? null : knownOcppProtocol(station.ocppProtocol);
+    if (stationProtocol !== null) {
+      const mapping = mapOcppCommand(entry.tool, args, stationProtocol);
       if (mapping.kind === 'unsupported') {
         return { kind: 'refused', reason: 'ocpp_version_mismatch' };
       }

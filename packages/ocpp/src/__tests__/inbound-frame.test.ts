@@ -157,6 +157,11 @@ describe('parseInboundFrame', () => {
       kind: 'refuse',
       errorCode: 'MessageTypeNotSupported',
     });
+    // Message types 5 and 6 are OCPP 2.1 only.
+    expect(parseInboundFrame('[6,"a",{}]', 'ocpp2.0.1')).toMatchObject({
+      kind: 'refuse',
+      errorCode: 'MessageTypeNotSupported',
+    });
     expect(parseInboundFrame('["2","a",{}]', 'ocpp2.1')).toMatchObject({ kind: 'refuse' });
     expect(parseInboundFrame('[7,{},{}]', 'ocpp2.1')).toEqual({
       kind: 'drop',

@@ -24,6 +24,7 @@ import type { ConfigTemplateVariable, FreeVendRestoreKey16 } from '@evtivity/lib
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { pushTemplateToSiteStations } from '../lib/config-push.js';
 import { publishOcpiLocationPush } from '../lib/ocpi-location-push.js';
+import { templateProtocolCondition } from '../lib/template-protocols.js';
 
 type SiteRow = typeof sites.$inferSelect;
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -125,7 +126,7 @@ async function reportedValue(
     .where(
       and(
         eq(chargingStations.siteId, siteId),
-        eq(chargingStations.ocppProtocol, protocol),
+        templateProtocolCondition(protocol === 'ocpp1.6' ? '1.6' : '2.1'),
         eq(stationConfigurations.component, component),
         eq(stationConfigurations.variable, variable),
         eq(stationConfigurations.attributeType, 'Actual'),

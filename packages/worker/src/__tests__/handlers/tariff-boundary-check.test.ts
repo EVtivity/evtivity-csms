@@ -330,6 +330,21 @@ describe('tariffBoundaryCheckHandler', () => {
     expect(mockPublish).not.toHaveBeenCalled();
   });
 
+  it('publishes CostUpdated to an OCPP 2.0.1 station (the message is OCPP 2.x)', async () => {
+    activeSessions = [activeSession({ ocppProtocol: 'ocpp2.0.1' })];
+    mockResolveTariff.mockResolvedValue(newTariff());
+
+    const { tariffBoundaryCheckHandler } = mod;
+    await tariffBoundaryCheckHandler(makeLog());
+
+    const bodies = mockPublish.mock.calls.map(
+      (call) => JSON.parse(call[1] as string) as Record<string, unknown>,
+    );
+    expect(bodies).toContainEqual(
+      expect.objectContaining({ action: 'CostUpdated', version: 'ocpp2.0.1' }),
+    );
+  });
+
   it('splits the session but skips CostUpdated for OCPP 1.6 stations', async () => {
     activeSessions = [activeSession({ ocppProtocol: 'ocpp1.6' })];
     mockResolveTariff.mockResolvedValue(newTariff());

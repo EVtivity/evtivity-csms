@@ -15,6 +15,7 @@ import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { isOcpp21 } from '@evtivity/lib/ocpp-version';
 
 export type WebPaymentSupportStatus = 'supported' | 'not_supported' | 'unknown';
 
@@ -116,7 +117,7 @@ export function StationWebPaymentsCard({
     onError,
   });
 
-  const supported = ocppProtocol === 'ocpp2.1';
+  const supported = isOcpp21(ocppProtocol);
   const supportKey = ['stations', stationId, 'web-payments', 'support'];
   const { data: support } = useQuery({
     queryKey: supportKey,

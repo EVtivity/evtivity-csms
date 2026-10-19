@@ -12,7 +12,7 @@ import {
   validateStationPassword,
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
-import type { StationOcppProtocol } from '@evtivity/lib';
+import type { Ocpp201NetworkInterface, StationOcppProtocol } from '@evtivity/lib';
 import {
   db,
   chargingStations,
@@ -48,6 +48,7 @@ interface StationRow {
   pendingSecurityProfile: number | null;
   isOnline: boolean;
   hasPassword: boolean;
+  ocppEndpointUrl: string | null;
 }
 
 const PASSWORD_ERRORS: Record<string, string> = {
@@ -66,6 +67,7 @@ async function loadStation(stationDbId: string): Promise<StationRow> {
       pendingSecurityProfile: chargingStations.pendingSecurityProfile,
       isOnline: chargingStations.isOnline,
       basicAuthPasswordHash: chargingStations.basicAuthPasswordHash,
+      ocppEndpointUrl: chargingStations.ocppEndpointUrl,
     })
     .from(chargingStations)
     .where(eq(chargingStations.id, stationDbId));
@@ -75,7 +77,8 @@ async function loadStation(stationDbId: string): Promise<StationRow> {
 }
 
 function protocolOf(station: StationRow): StationOcppProtocol {
-  return station.ocppProtocol === 'ocpp1.6' ? 'ocpp1.6' : 'ocpp2.1';
+  const protocol = station.ocppProtocol;
+  return protocol === 'ocpp1.6' || protocol === 'ocpp2.0.1' ? protocol : 'ocpp2.1';
 }
 
 function assertValidPassword(password: string, station: StationRow): void {
@@ -286,11 +289,18 @@ async function setPendingProfile(station: StationRow, profile: number | null): P
     .where(eq(chargingStations.id, station.id));
 }
 
+export interface ProfileChangeOptions {
+  // Network interface of the new network profile. Required for an online
+  // OCPP 2.0.1 upgrade, ignored otherwise.
+  ocppInterface?: Ocpp201NetworkInterface | undefined;
+}
+
 export async function changeSecurityProfile(
   stationDbId: string,
   profile: number,
   password: string | undefined,
   ctx: SecurityChangeContext,
+  options: ProfileChangeOptions = {},
 ): Promise<ProfileChangeResult> {
   const station = await loadStation(stationDbId);
   const needsPassword = profile === 1 || profile === 2;
@@ -347,6 +357,12 @@ export async function changeSecurityProfile(
     );
   }
 
+  // Checked before anything is sent, so a refused request changes nothing.
+  const network201 =
+    protocolOf(station) === 'ocpp2.0.1'
+      ? ocpp201NetworkTarget(station, profile, options.ocppInterface)
+      : null;
+
   // A station that already uses a password keeps authenticating with it until
   // the upgrade completes, so a new password is applied first, on its own.
   const currentUsesPassword = station.securityProfile === 1 || station.securityProfile === 2;
@@ -357,6 +373,8 @@ export async function changeSecurityProfile(
 
   if (protocolOf(station) === 'ocpp1.6') {
     await upgrade16(station, profile, passwordForUpgrade);
+  } else if (network201 != null) {
+    await upgrade201(station, profile, passwordForUpgrade, network201);
   } else {
     await upgrade21(station, profile, passwordForUpgrade);
   }
@@ -393,12 +411,15 @@ async function reset(station: StationRow, type: 'Immediate' | 'OnIdle'): Promise
 
 async function getVariables(
   station: StationRow,
-  items: { component: string; instance?: string; variable: string }[],
+  items: { component: string; instance?: string; variable: string; variableInstance?: string }[],
 ): Promise<(string | undefined)[]> {
   const result = await sendOcppCommandAndWait(station.stationId, 'GetVariables', {
     getVariableData: items.map((i) => ({
       component: { name: i.component, ...(i.instance != null ? { instance: i.instance } : {}) },
-      variable: { name: i.variable },
+      variable: {
+        name: i.variable,
+        ...(i.variableInstance != null ? { instance: i.variableInstance } : {}),
+      },
     })),
   });
   if (result.error != null) throw commandError('GetVariables', result);
@@ -434,67 +455,61 @@ function basicAuthCredentials(
     : { basicAuthPassword: password };
 }
 
-// OCPP 2.1 A05: SetNetworkProfile into a free slot, put it first in
-// NetworkConfigurationPriority, then Reset(OnIdle). The station connects with
-// the new profile and drops the lower ones (A05.FR.06).
-async function upgrade21(
-  station: StationRow,
-  profile: number,
-  password: string | undefined,
-): Promise<void> {
-  const [priority] = await getVariables(station, [
-    { component: 'OCPPCommCtrlr', variable: 'NetworkConfigurationPriority' },
-  ]);
+function prioritySlots(priority: string | undefined): string[] {
   const slots = (priority ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s !== '');
-  const activeSlot = slots[0];
-  if (activeSlot == null) {
+  if (slots.length === 0) {
     throw new AppError(
       'The station did not report NetworkConfigurationPriority',
       502,
       'STATION_SECURITY_CHANGE_REJECTED',
     );
   }
-  const [currentUrl, ocppInterface, messageTimeout] = await getVariables(station, [
-    { component: 'NetworkConfiguration', instance: activeSlot, variable: 'OcppCsmsUrl' },
-    { component: 'NetworkConfiguration', instance: activeSlot, variable: 'OcppInterface' },
-    { component: 'NetworkConfiguration', instance: activeSlot, variable: 'MessageTimeout' },
-  ]);
+  return slots;
+}
 
-  // Profiles 2 and 3 need TLS. Moving from plain WebSocket to TLS needs the
-  // public wss:// address; otherwise the station keeps its current address.
-  const needsTlsUrl = profile >= 2 && station.securityProfile < 2;
-  const ocppCsmsUrl = needsTlsUrl ? config.OCPP_STATION_TLS_URL : currentUrl;
-  if (ocppCsmsUrl == null || ocppCsmsUrl === '') {
-    throw needsTlsUrl
-      ? new AppError(
-          'OCPP_STATION_TLS_URL is not configured, so the station cannot be moved to TLS',
-          400,
-          'STATION_TLS_URL_NOT_CONFIGURED',
-        )
-      : new AppError(
-          'The station did not report its CSMS URL',
-          502,
-          'STATION_SECURITY_CHANGE_REJECTED',
-        );
+// Profiles 2 and 3 need TLS. Moving from plain WebSocket to TLS needs the
+// public wss:// address; otherwise the station keeps its current address.
+function needsTlsUrl(station: StationRow, profile: number): boolean {
+  return profile >= 2 && station.securityProfile < 2;
+}
+
+function tlsUrl(): string {
+  const url = config.OCPP_STATION_TLS_URL;
+  if (url == null || url === '') {
+    throw new AppError(
+      'OCPP_STATION_TLS_URL is not configured, so the station cannot be moved to TLS',
+      400,
+      'STATION_TLS_URL_NOT_CONFIGURED',
+    );
   }
+  return url;
+}
 
+// NetworkConnectionProfileType.messageTimeout guideline (OCPP 2.0.1 and 2.1).
+const DEFAULT_MESSAGE_TIMEOUT_SECONDS = 30;
+
+function messageTimeoutSeconds(reported: string | undefined): number {
+  const value = Number(reported ?? DEFAULT_MESSAGE_TIMEOUT_SECONDS);
+  return Number.isInteger(value) && value > 0 ? value : DEFAULT_MESSAGE_TIMEOUT_SECONDS;
+}
+
+// SetNetworkProfile into the lowest free slot, put it first in
+// NetworkConfigurationPriority with the old slots after it, then Reset(OnIdle).
+// The station falls back to the old slots when the new one fails (B10.FR.03)
+// and drops the lower profiles once it connects with the new one (A05.FR.06).
+async function applyNetworkProfile(
+  station: StationRow,
+  slots: string[],
+  connectionData: Record<string, unknown>,
+): Promise<void> {
   let newSlot = 1;
   while (slots.includes(String(newSlot))) newSlot++;
   const result = await sendOcppCommandAndWait(station.stationId, 'SetNetworkProfile', {
     configurationSlot: newSlot,
-    connectionData: {
-      // Ignored by 2.1 stations; kept for 2.0.1 stations and OCTT TC_A_19.
-      ocppVersion: 'OCPP20',
-      ocppInterface: ocppInterface ?? 'Wired0',
-      ocppTransport: 'JSON',
-      messageTimeout: Number(messageTimeout ?? 30) || 30,
-      ocppCsmsUrl,
-      securityProfile: profile,
-      ...(password != null ? basicAuthCredentials(station.stationId, password) : {}),
-    },
+    connectionData,
   });
   if (result.error != null) throw commandError('SetNetworkProfile', result);
   const status = result.response?.['status'] as string | undefined;
@@ -510,4 +525,95 @@ async function upgrade21(
     ['Accepted', 'RebootRequired'],
   );
   await reset(station, 'OnIdle');
+}
+
+// OCPP 2.1 A05: the new profile copies the active slot's NetworkConfiguration.
+async function upgrade21(
+  station: StationRow,
+  profile: number,
+  password: string | undefined,
+): Promise<void> {
+  const [priority] = await getVariables(station, [
+    { component: 'OCPPCommCtrlr', variable: 'NetworkConfigurationPriority' },
+  ]);
+  const slots = prioritySlots(priority);
+  const activeSlot = slots[0] ?? '';
+  const [currentUrl, ocppInterface, messageTimeout] = await getVariables(station, [
+    { component: 'NetworkConfiguration', instance: activeSlot, variable: 'OcppCsmsUrl' },
+    { component: 'NetworkConfiguration', instance: activeSlot, variable: 'OcppInterface' },
+    { component: 'NetworkConfiguration', instance: activeSlot, variable: 'MessageTimeout' },
+  ]);
+
+  const ocppCsmsUrl = needsTlsUrl(station, profile) ? tlsUrl() : currentUrl;
+  if (ocppCsmsUrl == null || ocppCsmsUrl === '') {
+    throw new AppError(
+      'The station did not report its CSMS URL',
+      502,
+      'STATION_SECURITY_CHANGE_REJECTED',
+    );
+  }
+
+  await applyNetworkProfile(station, slots, {
+    // Ignored by 2.1 stations; required by OCTT TC_A_19.
+    ocppVersion: 'OCPP20',
+    ocppInterface: ocppInterface ?? 'Wired0',
+    ocppTransport: 'JSON',
+    messageTimeout: messageTimeoutSeconds(messageTimeout),
+    ocppCsmsUrl,
+    securityProfile: profile,
+    ...(password != null ? basicAuthCredentials(station.stationId, password) : {}),
+  });
+}
+
+interface Ocpp201NetworkTarget {
+  ocppCsmsUrl: string;
+  ocppInterface: Ocpp201NetworkInterface;
+}
+
+// OCPP 2.0.1 has no NetworkConfiguration component to read the active slot
+// from, so the new profile is built from what the CSMS knows: the address the
+// station connects on (or the public TLS address) and the operator's interface.
+function ocpp201NetworkTarget(
+  station: StationRow,
+  profile: number,
+  ocppInterface: Ocpp201NetworkInterface | undefined,
+): Ocpp201NetworkTarget {
+  if (ocppInterface == null) {
+    throw new ValidationError(
+      'ocppInterface is required to upgrade the security profile of a connected OCPP 2.0.1 station',
+    );
+  }
+  if (needsTlsUrl(station, profile)) return { ocppCsmsUrl: tlsUrl(), ocppInterface };
+  if (station.ocppEndpointUrl == null || station.ocppEndpointUrl === '') {
+    throw new AppError(
+      'The address this station connects on is not known yet. It is recorded when the station next connects.',
+      400,
+      'STATION_ENDPOINT_URL_UNKNOWN',
+    );
+  }
+  return { ocppCsmsUrl: station.ocppEndpointUrl, ocppInterface };
+}
+
+// OCPP 2.0.1 A05: 2.0.1 profiles carry no identity or password, so the
+// password goes first through SetVariables; the username is the station id.
+async function upgrade201(
+  station: StationRow,
+  profile: number,
+  password: string | undefined,
+  target: Ocpp201NetworkTarget,
+): Promise<void> {
+  const [priority, messageTimeout] = await getVariables(station, [
+    { component: 'OCPPCommCtrlr', variable: 'NetworkConfigurationPriority' },
+    { component: 'OCPPCommCtrlr', variable: 'MessageTimeout', variableInstance: 'Default' },
+  ]);
+  const slots = prioritySlots(priority);
+  if (password != null) await sendPassword(station, password);
+  await applyNetworkProfile(station, slots, {
+    ocppVersion: 'OCPP20',
+    ocppTransport: 'JSON',
+    ocppCsmsUrl: target.ocppCsmsUrl,
+    messageTimeout: messageTimeoutSeconds(messageTimeout),
+    securityProfile: profile,
+    ocppInterface: target.ocppInterface,
+  });
 }

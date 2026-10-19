@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { OCPP_VERSION_MISMATCH } from '@evtivity/lib';
 import type { DomainEvent } from '@evtivity/lib';
 import { toDate, toDateOrNull, writeReservationAudit } from '@evtivity/database';
 import type { RawTimestamp } from '@evtivity/database';
@@ -76,6 +77,11 @@ type UnackedHoldRow = {
  * `station_rejected` audit row and the `reservation.changed` SSE, and the
  * driver is told (no fee).
  *
+ * A ReserveNow the OCPP server refused for the station's OCPP version (2.0.1)
+ * never reached the station: the event carries `code: OCPP_VERSION_MISMATCH`
+ * and the error, and the hold is cancelled the same way, with the reason as
+ * the note.
+ *
  * The worker builds the payload in the 2.1 shape and the command listener
  * translates it to 1.6 on the wire; the event keeps the 2.1 form, so `id` is
  * the OCPP reservation id.
@@ -88,7 +94,11 @@ export async function projectReserveNowResult(
   const request = event.payload.request as Record<string, unknown>;
   const response = event.payload.response as Record<string, unknown> | undefined;
   const status = response != null ? (response['status'] as string | undefined) : undefined;
-  if (status == null) return;
+  const refusal =
+    event.payload.code === OCPP_VERSION_MISMATCH && typeof event.payload.error === 'string'
+      ? event.payload.error
+      : null;
+  if (status == null && refusal == null) return;
   const reservationOcppId = reserveNowOcppId(request);
   if (reservationOcppId == null) return;
   const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
@@ -141,14 +151,17 @@ export async function projectReserveNowResult(
     actor: 'system',
     reason,
     auditAction: 'station_rejected',
+    ...(refusal != null ? { note: refusal } : {}),
     chargeFee: false,
     pubsub: deps.pubsub,
     logger,
   });
   if (!result.cancelled) return;
   logger.warn(
-    { stationId: event.aggregateId, reservationOcppId, status, cancelReason: reason },
-    'Station rejected ReserveNow; reservation cancelled',
+    { stationId: event.aggregateId, reservationOcppId, status, refusal, cancelReason: reason },
+    refusal != null
+      ? 'ReserveNow refused for the station OCPP version; reservation cancelled'
+      : 'Station rejected ReserveNow; reservation cancelled',
   );
   await notifyReservationDriver(
     'reservation.Cancelled',

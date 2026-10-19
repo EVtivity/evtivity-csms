@@ -364,6 +364,49 @@ describe('octtRunnerHandler', () => {
     );
     expect(updateSets[1]).toMatchObject({ status: 'failed' });
   });
+
+  it('aborts a run in progress on shutdown and marks it failed after its cleanup', async () => {
+    // runTests ends, after restoring its settings, once its signal aborts.
+    mockRunTests.mockImplementation(
+      (config: RunConfig) =>
+        new Promise((_resolve, reject) => {
+          config.signal?.addEventListener('abort', () => {
+            reject(new Error('OCTT run aborted'));
+          });
+        }),
+    );
+    const log = makeLogger();
+
+    const { octtRunnerHandler, abortOcttRuns } = octtRunnerModule;
+    const run = octtRunnerHandler(
+      { runId: 13, ocppVersion: 'ocpp2.1', sutType: 'csms' },
+      log,
+      pubsub,
+    );
+    await vi.waitFor(() => {
+      expect(mockRunTests).toHaveBeenCalled();
+    });
+    const config = mockRunTests.mock.calls[0]?.[0] as RunConfig;
+    expect(config.signal?.aborted).toBe(false);
+
+    abortOcttRuns('Worker shutting down');
+    await run;
+
+    expect(config.signal?.aborted).toBe(true);
+    expect(updateSets[1]).toMatchObject({ status: 'failed' });
+    expect(log.warn).toHaveBeenCalledWith(
+      { runId: 13, error: 'OCTT run aborted' },
+      'OCTT run aborted',
+    );
+    expect(log.error).not.toHaveBeenCalled();
+
+    // A finished run is no longer aborted by a later shutdown.
+    mockRunTests.mockResolvedValue(summary);
+    await octtRunnerHandler({ runId: 14, ocppVersion: 'ocpp2.1', sutType: 'csms' }, log, pubsub);
+    abortOcttRuns('Worker shutting down');
+    const second = mockRunTests.mock.calls[1]?.[0] as RunConfig;
+    expect(second.signal?.aborted).toBe(false);
+  });
 });
 
 describe('octtRunnerJob', () => {

@@ -301,8 +301,10 @@ describe('certificateExpirationCheckHandler', () => {
     expect(text).toContain(
       "sc.certificate_type IN ('ChargingStationCertificate', 'V2GCertificate', 'V2G20Certificate')",
     );
+    // V2G20Certificate (ISO 15118-20) is OCPP 2.1 only; 2.0.1 renews like 1.6.
+    expect(text).toContain("(cs.ocpp_protocol = 'ocpp2.1'");
     expect(text).toContain(
-      "sc.certificate_type IN ('ChargingStationCertificate', 'V2GCertificate'))",
+      "cs.ocpp_protocol IN ('ocpp1.6', 'ocpp2.0.1')\n          AND sc.certificate_type IN ('ChargingStationCertificate', 'V2GCertificate'))",
     );
     // A newer certificate of the type replaced it.
     expect(text).toContain('n.valid_to > ?');

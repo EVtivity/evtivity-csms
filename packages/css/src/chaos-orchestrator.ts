@@ -5,7 +5,9 @@ import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import { OCTT_TEST_DRIVER_EMAIL } from '@evtivity/lib';
 import type { PubSubClient } from '@evtivity/lib';
+import { isOcpp21, isOcpp2x, type OcppProtocol } from '@evtivity/lib/ocpp-version';
 import { ChaosJourneys } from './chaos-journey.js';
+import { isOcpp201Action } from './lib/ocpp201.js';
 import { logger } from './lib/logger.js';
 
 interface DriverToken {
@@ -135,11 +137,13 @@ export function filterChaosActions<T extends { name: string }>(
   return actions.filter((a) => !CHAOS_STATE_MUTATING.has(a.name) || stateActions.has(a.name));
 }
 
-// Actions available for all OCPP versions
-const GLOBAL_ACTIONS: Array<{
+interface ChaosAction {
   name: string;
   params: (tokens: DriverToken[]) => Record<string, unknown>;
-}> = [
+}
+
+// Actions available for all OCPP versions
+const GLOBAL_ACTIONS: ChaosAction[] = [
   { name: 'plugIn', params: () => ({ evseId: 1 }) },
   {
     name: 'authorize',
@@ -189,10 +193,7 @@ const GLOBAL_ACTIONS: Array<{
 ];
 
 // Actions available only for OCPP 2.1
-const OCPP21_ACTIONS: Array<{
-  name: string;
-  params: (tokens: DriverToken[]) => Record<string, unknown>;
-}> = [
+const OCPP21_ACTIONS: ChaosAction[] = [
   // OCPP 2.1 injectFault: no errorCode field on StatusNotification; the error code picks
   // the stop reason when the fault ends the session (GroundFault, OvercurrentFault, Other)
   {
@@ -446,10 +447,7 @@ const OCPP21_ACTIONS: Array<{
 ];
 
 // Actions available only for OCPP 1.6
-const OCPP16_ACTIONS: Array<{
-  name: string;
-  params: (tokens: DriverToken[]) => Record<string, unknown>;
-}> = [
+const OCPP16_ACTIONS: ChaosAction[] = [
   {
     name: 'sendDiagnosticsStatusNotification',
     params: () => ({ status: pick(['Idle', 'Uploaded', 'UploadFailed']) }),
@@ -497,6 +495,19 @@ const REFRESH_INTERVAL_MS = 30_000;
 // Share of ticks that take a due session step instead of a random action.
 const JOURNEY_TICK_SHARE = 0.5;
 
+/**
+ * The chaos actions of a protocol. A 2.0.1 station gets the 2.x actions whose
+ * message 2.0.1 defines (`sendNotifySettlement` and the other 2.1-only messages are left out).
+ */
+export function chaosActionsFor(protocol: OcppProtocol): ChaosAction[] {
+  if (!isOcpp2x(protocol)) return [...GLOBAL_ACTIONS, ...OCPP16_ACTIONS];
+  if (isOcpp21(protocol)) return [...GLOBAL_ACTIONS, ...OCPP21_ACTIONS];
+  const v201 = OCPP21_ACTIONS.filter((a) =>
+    isOcpp201Action(a.name.startsWith('send') ? a.name.slice(4) : a.name),
+  );
+  return [...GLOBAL_ACTIONS, ...v201];
+}
+
 export class ChaosOrchestrator {
   private readonly sql: postgres.Sql;
   private readonly pubsub: PubSubClient;
@@ -506,7 +517,7 @@ export class ChaosOrchestrator {
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private stationIds: string[] = [];
   private tokens: DriverToken[] = [];
-  private stationProtocols: Map<string, 'ocpp1.6' | 'ocpp2.1'> = new Map();
+  private stationProtocols: Map<string, OcppProtocol> = new Map();
   private offlineStations: Set<string> = new Set();
   private chargingStations: Set<string> = new Set();
   private chargingTokenByStation: Map<string, string> = new Map();
@@ -573,7 +584,7 @@ export class ChaosOrchestrator {
     for (const station of stations) {
       this.stationProtocols.set(
         station.station_id,
-        station.ocpp_protocol === 'ocpp1.6' ? 'ocpp1.6' : 'ocpp2.1',
+        isOcpp2x(station.ocpp_protocol) ? station.ocpp_protocol : 'ocpp1.6',
       );
     }
 
@@ -695,13 +706,7 @@ export class ChaosOrchestrator {
       return;
     }
 
-    // Build action list based on protocol
-    let actions = [...GLOBAL_ACTIONS];
-    if (protocol === 'ocpp2.1') {
-      actions = [...actions, ...OCPP21_ACTIONS];
-    } else {
-      actions = [...actions, ...OCPP16_ACTIONS];
-    }
+    let actions = chaosActionsFor(protocol);
 
     // State-aware action filter. Read css_stations.status, the connector
     // status, and active-transaction existence in one query, then call the

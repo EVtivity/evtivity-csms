@@ -17,7 +17,12 @@ import {
   switchTariffSegment,
 } from '@evtivity/database';
 import type { Logger } from 'pino';
-import { isStationLiveForSegmentSwitch, isTariffFree, publishOcppCommand } from '@evtivity/lib';
+import {
+  isOcpp2x,
+  isStationLiveForSegmentSwitch,
+  isTariffFree,
+  publishOcppCommand,
+} from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { pushAllMessagesToAllStations } from '@evtivity/services/station-message.service';
 
@@ -163,7 +168,7 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
         'Tariff boundary: split session at new tariff',
       );
 
-      // Notify OCPP 2.1 stations of cost update (fire-and-forget). OCPP
+      // Notify OCPP 2.x stations of cost update (fire-and-forget). OCPP
       // CostUpdated.transactionId is the OCPP-level transaction identifier
       // the station chose, NOT our internal session UUID. The earlier
       // payload used session.sessionId (our internal nanoid PK) so stations
@@ -172,12 +177,7 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
       // Only a live station gets here (the liveness gate above), so the
       // command is never queued for an offline station and replayed later
       // with a stale cost.
-      if (
-        breakdown != null &&
-        stored &&
-        session.ocppProtocol != null &&
-        session.ocppProtocol.startsWith('ocpp2')
-      ) {
+      if (breakdown != null && stored && isOcpp2x(session.ocppProtocol)) {
         await publishOcppCommand(pubsub, {
           stationId: session.stationOcppId,
           action: 'CostUpdated',

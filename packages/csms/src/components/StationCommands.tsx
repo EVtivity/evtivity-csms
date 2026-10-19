@@ -33,7 +33,7 @@ import {
   validatePayload,
 } from '@/lib/ocpp-schema';
 import type { ValidationErrors } from '@/lib/ocpp-schema';
-import { CSMS_ACTIONS, CSMS_ACTIONS_16 } from '@/lib/ocpp-command-actions';
+import { CSMS_ACTIONS, CSMS_ACTIONS_16, CSMS_ACTIONS_201 } from '@/lib/ocpp-command-actions';
 import { SchemaForm } from '@/components/SchemaForm';
 import { OCPP_21_VARIABLES, OCPP_16_KEYS } from '@/lib/ocpp-variables';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -1126,7 +1126,7 @@ export function StationCommands({
   const [schemaFormValues, setSchemaFormValues] = useState<Record<string, unknown>>({});
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
 
-  const schemaVersion = is16 ? 'ocpp1.6' : undefined;
+  const schemaVersion = is16 ? 'ocpp1.6' : ocppProtocol === 'ocpp2.0.1' ? 'ocpp2.0.1' : undefined;
   const {
     data: schemaData,
     isLoading: schemaLoading,
@@ -1308,7 +1308,11 @@ export function StationCommands({
   }
 
   const quickActions = is16 ? QUICK_ACTIONS_16 : QUICK_ACTIONS;
-  const csmsActions = is16 ? CSMS_ACTIONS_16 : CSMS_ACTIONS;
+  const csmsActions = is16
+    ? CSMS_ACTIONS_16
+    : ocppProtocol === 'ocpp2.0.1'
+      ? CSMS_ACTIONS_201
+      : CSMS_ACTIONS;
 
   return (
     <Card>

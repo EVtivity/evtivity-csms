@@ -27,7 +27,7 @@ const makeClearCustomerTest = (id: string, name: string, desc: string): TestCase
           return { status: 'Accepted' };
         }
         if (action === 'SendLocalList') return { status: 'Accepted' };
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

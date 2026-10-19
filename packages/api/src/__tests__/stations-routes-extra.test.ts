@@ -1747,6 +1747,29 @@ describe('Station routes - extra coverage', () => {
       expect(chainsOf('delete')).toHaveLength(0);
     });
 
+    it('clears all on an OCPP 2.0.1 station without the 2.1-only PriorityCharging purpose', async () => {
+      queue([{ stationId: 'CS-201', isOnline: true, ocppProtocol: 'ocpp2.0.1' }], []);
+      const res = await inject('POST', `/stations/${STATION}/charging-profiles/clear`, {});
+      expect(res.statusCode).toBe(200);
+      expect(ocppCalls('ClearChargingProfile').map((c) => c[2])).toEqual([
+        { chargingProfileCriteria: { chargingProfilePurpose: 'ChargingStationMaxProfile' } },
+        { chargingProfileCriteria: { chargingProfilePurpose: 'TxDefaultProfile' } },
+        { chargingProfileCriteria: { chargingProfilePurpose: 'TxProfile' } },
+      ]);
+    });
+
+    it('answers 400 OCPP_VERSION_MISMATCH when the OCPP server refused the clear for 2.0.1', async () => {
+      queue([{ stationId: 'CS-201', isOnline: true, ocppProtocol: 'ocpp2.0.1' }]);
+      const error =
+        'ClearChargingProfile cannot be sent to an OCPP 2.0.1 station: PriorityCharging is not defined in OCPP 2.0.1';
+      mocks.sendOcpp.mockResolvedValue({ commandId: 'c', error, code: 'OCPP_VERSION_MISMATCH' });
+      const res = await inject('POST', `/stations/${STATION}/charging-profiles/clear`, {
+        chargingProfilePurpose: 'PriorityCharging',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error, code: 'OCPP_VERSION_MISMATCH' });
+    });
+
     it('refuses a purpose the CSMS must not clear (K10.FR.06)', async () => {
       const res = await inject('POST', `/stations/${STATION}/charging-profiles/clear`, {
         chargingProfilePurpose: 'ChargingStationExternalConstraints',
@@ -1843,6 +1866,19 @@ describe('Station routes - extra coverage', () => {
       expect(res.statusCode).toBe(400);
     });
 
+    it('refuses a 2.1-only purpose template for an OCPP 2.0.1 station before sending', async () => {
+      queue(
+        [{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.0.1' }],
+        [{ ...template, profilePurpose: 'PriorityCharging', targetFilter: null }],
+      );
+      const res = await inject('POST', `/stations/${STATION}/charging-profiles/push`, {
+        templateId: 'tpl-1',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('OCPP_VERSION_MISMATCH');
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
+    });
+
     it('returns 404 TEMPLATE_NOT_FOUND for an unknown template', async () => {
       queue([{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }], []);
       const res = await inject('POST', `/stations/${STATION}/charging-profiles/push`, {
@@ -1878,6 +1914,24 @@ describe('Station routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(ocppCalls('SetChargingProfile')).toHaveLength(1);
+    });
+
+    it('answers 400 OCPP_VERSION_MISMATCH when the OCPP server refused the profile for 2.0.1', async () => {
+      queue([{ stationId: 'CS-201', isOnline: true, ocppProtocol: 'ocpp2.0.1' }], [template]);
+      const error =
+        'SetChargingProfile cannot be sent to an OCPP 2.0.1 station: limit_L2 is not defined in OCPP 2.0.1';
+      mocks.sendOcpp.mockImplementation((_s: string, action: string) =>
+        Promise.resolve(
+          action === 'SetChargingProfile'
+            ? { commandId: 'c', error, code: 'OCPP_VERSION_MISMATCH' }
+            : { commandId: 'c', response: { status: 'Accepted' } },
+        ),
+      );
+      const res = await inject('POST', `/stations/${STATION}/charging-profiles/push`, {
+        templateId: 'tpl-1',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error, code: 'OCPP_VERSION_MISMATCH' });
     });
 
     it('clears, sets the profile, refreshes, and audits on Accepted (2.1)', async () => {
@@ -2322,6 +2376,24 @@ describe('Station routes - extra coverage', () => {
       expect(chainsOf('insert')).toHaveLength(0);
       expect(mocks.sendOcpp).not.toHaveBeenCalled();
     });
+
+    it.each(['TargetDelta', 'TargetDeltaRelative'])(
+      'refuses a %s monitor for an OCPP 2.0.1 station before storing anything',
+      async (type) => {
+        queue([{ ...online21, ocppProtocol: 'ocpp2.0.1' }]);
+        const res = await inject('POST', `/stations/${STATION}/monitoring-rules`, {
+          ...body,
+          type,
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toEqual({
+          error: `Monitor type ${type} is not available in OCPP 2.0.1`,
+          code: 'OCPP_VERSION_MISMATCH',
+        });
+        expect(chainsOf('insert')).toHaveLength(0);
+        expect(mocks.sendOcpp).not.toHaveBeenCalled();
+      },
+    );
 
     it('refuses an offline station before storing anything', async () => {
       queue([{ ...online21, isOnline: false }]);

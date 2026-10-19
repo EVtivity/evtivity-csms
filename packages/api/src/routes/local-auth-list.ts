@@ -39,6 +39,7 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
+import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { authorize } from '../middleware/rbac.js';
@@ -501,7 +502,10 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         params: zodSchema(stationIdParams),
         response: {
           200: itemResponse(pushResponse),
-          400: errorWith('Station offline', [ERROR_CODES.STATION_OFFLINE]),
+          400: errorWith('Station offline, or an entry OCPP 2.0.1 cannot hold', [
+            ERROR_CODES.STATION_OFFLINE,
+            ERROR_CODES.OCPP_VERSION_MISMATCH,
+          ]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           502: errorWith('Push rejected or command failed', [
             ERROR_CODES.PUSH_REJECTED,
@@ -574,6 +578,14 @@ export function localAuthListRoutes(app: FastifyInstance): void {
       }
 
       const result = await sendOcppCommandAndWait(station.stationId, 'SendLocalList', payload);
+
+      // Refused by the OCPP server for the station's OCPP version (a token
+      // type or id OCPP 2.0.1 cannot hold): never sent.
+      const refusal = ocppVersionMismatchReason(result);
+      if (refusal != null) {
+        await reply.status(400).send({ error: refusal, code: 'OCPP_VERSION_MISMATCH' });
+        return;
+      }
 
       if (result.error != null) {
         const isTimeout = result.timedOut === true;

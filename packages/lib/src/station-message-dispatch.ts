@@ -5,6 +5,7 @@ import type { Sql } from 'postgres';
 import type { PubSubClient } from './pubsub.js';
 import { publishOcppCommand } from './ocpp-command-publish.js';
 import { createLogger } from './logger.js';
+import { isOcpp2x, stationMessageContentFor } from './ocpp-version.js';
 import {
   renderStationMessage,
   type StationMessageContext,
@@ -97,7 +98,7 @@ export async function clearStationMessage(
   if (protocol == null) return false;
 
   try {
-    if (protocol.startsWith('ocpp2')) {
+    if (isOcpp2x(protocol)) {
       await publishOcppCommand(pubsub, {
         stationId: args.stationOcppId,
         action: 'ClearDisplayMessage',
@@ -202,7 +203,7 @@ export async function dispatchOneShotStationMessage(
   let published = false;
 
   try {
-    if (protocol.startsWith('ocpp2')) {
+    if (isOcpp2x(protocol)) {
       await publishOcppCommand(pubsub, {
         stationId: args.stationOcppId,
         action: 'SetDisplayMessage',
@@ -210,7 +211,7 @@ export async function dispatchOneShotStationMessage(
           message: {
             id: slotId,
             priority,
-            message: { format: 'UTF8', content },
+            message: { format: 'UTF8', content: stationMessageContentFor(protocol, content) },
             endDateTime,
           },
         },

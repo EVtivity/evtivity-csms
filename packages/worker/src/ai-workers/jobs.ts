@@ -18,6 +18,7 @@ import {
   getStaleSessionTimeoutHours,
 } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
+import { isOcpp2x } from '@evtivity/lib';
 import { AI_PROPOSAL_TTL_MS } from '@evtivity/lib/ai-proposals';
 import type { AiWorkerJob } from '@evtivity/lib/ai-proposals';
 import { suggestWorkerAction } from '@evtivity/services/ai-workers/suggest';
@@ -271,13 +272,13 @@ export async function runStuckSessions(
     let rationales = 0;
     let probes = 0;
     for (const session of sessions) {
-      // One GetTransactionStatus per stuck session of an online 2.1 station and
+      // One GetTransactionStatus per stuck session of an online 2.x station and
       // run, at most MAX_TRANSACTION_PROBES, never retried. A session with a
       // pending or rejected action is not found again, so it is not asked again.
       let transactionOngoing: boolean | null = null;
       if (
         session.reason !== 'station_offline' &&
-        session.ocppProtocol === 'ocpp2.1' &&
+        isOcpp2x(session.ocppProtocol) &&
         session.ocppEvseId !== null &&
         probes < MAX_TRANSACTION_PROBES
       ) {

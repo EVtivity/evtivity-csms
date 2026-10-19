@@ -10,6 +10,11 @@ export interface CodegenConfig {
   schemasDir: string;
   outputDir: string;
   version: string;
+  /**
+   * Emit fit functions (validator files, validators index, registry). Only OCPP 2.0.1: the CSMS
+   * builds its payloads in the 2.1 shape and fits them to the 2.0.1 schema for a 2.0.1 station.
+   */
+  fitFunctions: boolean;
 }
 
 export function resolveConfig(version: string): CodegenConfig {
@@ -19,5 +24,6 @@ export function resolveConfig(version: string): CodegenConfig {
     schemasDir: path.join(root, 'schemas', `ocpp-${version}`),
     outputDir: path.join(root, 'packages', 'ocpp', 'src', 'generated', `v${versionSlug}`),
     version,
+    fitFunctions: version === '2.0.1',
   };
 }

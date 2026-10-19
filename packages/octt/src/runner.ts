@@ -10,13 +10,7 @@ import {
   deleteConformanceStations,
   deleteConformanceTestDriver,
 } from '@evtivity/database';
-import {
-  refreshTokens,
-  roles,
-  users,
-  OCTT_API_KEY_NAME,
-  PNC_SETTINGS_CACHE_TTL_MS,
-} from '@evtivity/database';
+import { refreshTokens, roles, users, OCTT_API_KEY_NAME } from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
 import { OCTT_TEST_DRIVER_EMAIL } from '@evtivity/lib';
 import { and, asc, eq, sql } from 'drizzle-orm';
@@ -35,16 +29,53 @@ import { executeTest } from './executor.js';
 import { createApiClient } from './api-client.js';
 import { startOcspTestService, type OcspTestService } from './ocsp-test-service.js';
 import { getNotApplicable } from './pics/index.js';
+import {
+  PendingSettingsRestore,
+  restoreLeftoverRunSettings,
+  settingsCacheTtlMs,
+  writeSettings,
+  type SettingChange,
+} from './run-settings.js';
 
 const DEFAULT_CONCURRENCY = 3;
 /** Added to the CSMS settings cache TTL before the run relies on a changed setting. */
 const SETTINGS_CACHE_MARGIN_MS = 1_000;
+/** How long an aborted run waits for its running tests before it cleans up. */
+export const RUN_ABORT_WAIT_MS = 10_000;
+
+function settingsEffectiveAt(changes: readonly SettingChange[]): number {
+  if (changes.length === 0) return 0;
+  return Date.now() + settingsCacheTtlMs(changes.map((c) => c.key)) + SETTINGS_CACHE_MARGIN_MS;
+}
+
+/** Resolves when the running tests settle or after `ms`, whichever comes first. */
+async function settleWithin(running: Promise<void>[], ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    Promise.allSettled(running),
+    new Promise((resolve) => {
+      timer = setTimeout(resolve, ms);
+    }),
+  ]);
+  clearTimeout(timer);
+}
 
 export async function runTests(
   config: RunConfig,
   onResult: (result: TestCaseResult) => void,
 ): Promise<RunSummary> {
   const logger = pino({ level: config.logLevel ?? 'info' });
+  const signal = config.signal;
+  const aborted = (): boolean => signal?.aborted === true;
+  const abortSeen = new Promise<void>((resolve) => {
+    signal?.addEventListener(
+      'abort',
+      () => {
+        resolve();
+      },
+      { once: true },
+    );
+  });
   const allTests = getRegistry();
   const concurrency = config.concurrency ?? DEFAULT_CONCURRENCY;
 
@@ -52,6 +83,10 @@ export async function runTests(
   if (provisionStations) {
     // Remove the stations, test driver and pricing group a crashed run left.
     await deleteRunData(logger);
+    // Settings a killed run left changed. Two CSMS runs never overlap, so any row is a leftover.
+    await bestEffort(logger, 'Failed to restore the settings of an earlier run', () =>
+      restoreLeftoverRunSettings(logger),
+    );
     logger.info('Stations will be auto-provisioned per test');
   }
 
@@ -76,7 +111,7 @@ export async function runTests(
   // Everything the run changes, undone in the finally block below whatever
   // happens during the run.
   let testDriverId = createId('driver');
-  let settingsChanges: SettingChange[] = [];
+  const pendingSettings = new PendingSettingsRestore(logger);
   let triggerCommand: TriggerCommandFn | undefined;
   let callApi: CallApiFn | undefined;
   let apiKeyId: number | undefined;
@@ -85,9 +120,9 @@ export async function runTests(
   let ocsp: OcspTestService | undefined;
 
   try {
-    // Each CSMS process caches the pnc.* settings for PNC_SETTINGS_CACHE_TTL_MS,
-    // so a changed value takes effect only after that (see waitForSettings).
-    let settingsEffectiveAt = 0;
+    // Each CSMS process caches the settings it reads (settingsCacheTtlMs), so a
+    // changed value takes effect only after that (see waitForSettings).
+    let runSettingsEffectiveAt = 0;
     if (provisionStations) {
       // The test driver that owns the per-test tokens (see executeTest)
       testDriverId = await provisionTestDriver(testDriverId);
@@ -101,14 +136,11 @@ export async function runTests(
       // manual provider and issues ISO 15118 contract certificates: TC_M_26,
       // TC_M_28, TC_M_100), the test eMAID prefix unless the operator set one,
       // and the Test System OCSP responder host allowed (TC_C_50/51/52, TC_M_24).
-      settingsChanges = await applyRunSettings(config.ocspResponderUrl);
-      if (settingsChanges.length > 0) {
-        settingsEffectiveAt = Date.now() + PNC_SETTINGS_CACHE_TTL_MS + SETTINGS_CACHE_MARGIN_MS;
-      }
-      logger.info(
-        { changed: settingsChanges.map((c) => c.key) },
-        'PnC settings set for certificate management tests',
+      const runChanges = await applyRunSettings(config.ocspResponderUrl, (change) =>
+        pendingSettings.record('run', change),
       );
+      runSettingsEffectiveAt = settingsEffectiveAt(runChanges);
+      logger.info({ changed: runChanges.map((c) => c.key) }, 'Run settings set');
     }
 
     // Create a temporary API key for triggering CSMS-initiated commands
@@ -166,19 +198,18 @@ export async function runTests(
     }
 
     // Tests and the MO root upload below need the CSMS to see the settings.
-    await waitForSettings(settingsEffectiveAt, logger);
+    await waitForSettings(runSettingsEffectiveAt, logger, signal);
 
     // The local contract CA the contract certificate tests need. Created through
     // the operator route when the CSMS has none; the run end restores the
     // previous setting, which removes it again.
-    if (callApi != null && provisionStations) {
-      const caChange = await ensureLocalContractCa(callApi, logger);
-      if (caChange != null) settingsChanges.push(caChange);
+    if (callApi != null && provisionStations && !aborted()) {
+      await ensureLocalContractCa(callApi, logger, pendingSettings);
     }
 
     // The Test System OCSP service: a test PKI whose certificates name this
     // responder, for the OCSP-backed certificate tests (TC_C_50/51, TC_M_24).
-    if (config.ocspResponderUrl != null) {
+    if (config.ocspResponderUrl != null && !aborted()) {
       ocsp = await startOcspTestService(config.ocspResponderUrl);
       logger.info({ url: config.ocspResponderUrl }, 'OCSP test responder started');
       if (callApi != null) {
@@ -188,11 +219,16 @@ export async function runTests(
 
     const start = Date.now();
 
-    // Process tests with controlled concurrency
-    const queue = [...tests];
+    // Process tests with controlled concurrency. Cases that need other settings
+    // than the run's run afterwards, one at a time, below.
+    const queue = tests.filter((tc) => tc.settings == null);
     const running: Promise<void>[] = [];
 
     while (queue.length > 0 || running.length > 0) {
+      if (aborted()) {
+        await settleWithin(running, RUN_ABORT_WAIT_MS);
+        break;
+      }
       while (running.length < concurrency && queue.length > 0) {
         const testCase = queue.shift();
         if (testCase == null) break;
@@ -213,12 +249,61 @@ export async function runTests(
         running.push(promise);
       }
       if (running.length > 0) {
-        await Promise.race(running);
+        await Promise.race([...running, abortSeen]);
+      }
+    }
+
+    let settingsStaleUntil = 0;
+    for (const testCase of tests.filter((tc) => tc.settings != null)) {
+      if (aborted()) break;
+      if (provisionStations && testCase.settings != null) {
+        const caseChanges = await applyCaseSettings(testCase.settings, (change) =>
+          pendingSettings.record('case', change),
+        );
+        settingsStaleUntil = Math.max(settingsStaleUntil, settingsEffectiveAt(caseChanges));
+        logger.info(
+          { testId: testCase.id, changed: caseChanges.map((c) => c.key) },
+          'Settings set for one test case',
+        );
+      } else {
+        logger.warn(
+          { testId: testCase.id },
+          'Test case needs settings the run does not change without station provisioning',
+        );
+      }
+      await waitForSettings(settingsStaleUntil, logger, signal);
+      if (aborted()) break;
+      await processTest(
+        testCase,
+        config,
+        logger,
+        summary,
+        onResult,
+        triggerCommand,
+        callApi,
+        provisionStations ? testDriverId : undefined,
+        ocsp,
+      );
+      const restored = [...pendingSettings.caseChanges];
+      if (restored.length > 0) {
+        await pendingSettings.restoreCase();
+        // The next case must not see this case's values from a CSMS cache.
+        settingsStaleUntil = Math.max(settingsStaleUntil, settingsEffectiveAt(restored));
       }
     }
 
     summary.durationMs = Date.now() - start;
+    if (aborted()) throw new Error('OCTT run aborted', { cause: signal?.reason });
   } finally {
+    pendingSettings.stopHeartbeat();
+    if (provisionStations) {
+      // First, so a cleanup cut short still leaves the CSMS settings as they were.
+      await bestEffort(logger, 'Failed to restore the run settings', async () => {
+        await pendingSettings.restoreAll();
+        logger.info('Run settings restored');
+      });
+    }
+
     // Each step on its own, so a failed one (the CSMS API unreachable at the
     // end) never leaves the test stations, the driver or the settings behind.
     const moRootId = ocsp?.installedMoRootId;
@@ -254,10 +339,6 @@ export async function runTests(
       // projections finish before the rows are deleted. A step that fails is
       // retried by the worker sweep (`conformance-station-sweep`).
       await deleteRunData(logger);
-      await bestEffort(logger, 'Failed to restore the PnC settings', async () => {
-        await restoreRunSettings(settingsChanges);
-        logger.info('PnC settings restored');
-      });
     }
   }
 
@@ -370,39 +451,37 @@ const OCTT_EMAID_PROVIDER = 'OCT';
 
 /**
  * Creates the local contract CA through the operator route when the CSMS has
- * none. Returns the change to undo at run end (the previous `pnc.local.caEnc`)
- * when it created one.
+ * none, recording the previous `pnc.local.caEnc` first so the run end (or the
+ * next run, after a kill) removes the CA again.
  */
 async function ensureLocalContractCa(
   callApi: CallApiFn,
   logger: pino.Logger,
-): Promise<SettingChange | null> {
+  pendingSettings: PendingSettingsRestore,
+): Promise<void> {
   const status = await callApi('GET', '/pnc/settings/local-ca');
   if (status.status >= 300) {
     logger.warn({ status: status.status }, 'Could not read the local contract CA');
-    return null;
+    return;
   }
-  if (status.body['configured'] === true) return null;
+  if (status.body['configured'] === true) return;
   const rows = (await db.execute(sql`
     SELECT value FROM settings WHERE key = 'pnc.local.caEnc'
   `)) as unknown as { value: unknown }[];
+  const change: SettingChange = { key: 'pnc.local.caEnc', previous: rows[0]?.value };
+  await pendingSettings.record('run', change);
   const created = await callApi('POST', '/pnc/settings/local-ca');
   if (created.status < 300) {
     logger.info('Local contract CA ready for the ISO 15118 contract certificate tests');
-    return { key: 'pnc.local.caEnc', previous: rows[0]?.value };
+    return;
   }
+  // Not created by this run: a CA that exists now belongs to someone else.
+  await pendingSettings.discard(change);
   if (created.body['code'] === 'LOCAL_CA_EXISTS') {
     logger.info('Local contract CA ready for the ISO 15118 contract certificate tests');
   } else {
     logger.warn({ status: created.status }, 'Could not create the local contract CA');
   }
-  return null;
-}
-
-/** A setting the run changed: its key and the value before the run (undefined when unset). */
-export interface SettingChange {
-  key: string;
-  previous: unknown;
 }
 
 /**
@@ -413,14 +492,20 @@ export interface SettingChange {
  * and, with an OCSP responder, its host in `pnc.ocsp.allowedPrivateHosts` (the
  * CSMS refuses OCSP requests to private addresses that are not listed). The
  * tariff tests need split billing (`pricing.splitBillingEnabled`), which is
- * on by default; the run leaves the operator's value alone.
- * Returns the settings it changed, for restoreRunSettings.
+ * on by default; the run leaves the operator's value alone. The ISO 15118
+ * smart charging tests (TC_K_53, TC_K_57, TC_K_114, TC_K_115) need the CSMS to
+ * provide charging profiles: `smartCharging.iso15118Enabled` is turned on when
+ * the operator turned it off (unset or any other value reads as on).
+ * Each change goes to `record` before it is written. Returns the settings it changed.
  */
-export async function applyRunSettings(ocspResponderUrl?: string): Promise<SettingChange[]> {
+export async function applyRunSettings(
+  ocspResponderUrl: string | undefined,
+  record: (change: SettingChange) => Promise<void>,
+): Promise<SettingChange[]> {
   const rows = (await db.execute(sql`
     SELECT key, value FROM settings
     WHERE key IN ('pnc.enabled', 'pnc.provider', 'pnc.ocsp.allowedPrivateHosts',
-      'pnc.local.emaidCountry', 'pnc.local.emaidProviderId')
+      'pnc.local.emaidCountry', 'pnc.local.emaidProviderId', 'smartCharging.iso15118Enabled')
   `)) as unknown as { key: string; value: unknown }[];
   const current = new Map(rows.map((row) => [row.key, row.value]));
 
@@ -428,6 +513,9 @@ export async function applyRunSettings(ocspResponderUrl?: string): Promise<Setti
     ['pnc.enabled', true],
     ['pnc.provider', 'local'],
   ]);
+  if (current.get('smartCharging.iso15118Enabled') === false) {
+    wanted.set('smartCharging.iso15118Enabled', true);
+  }
   // The eMAID prefix of the test contracts, unless the operator set one.
   for (const [key, value] of [
     ['pnc.local.emaidCountry', OCTT_EMAID_COUNTRY],
@@ -447,46 +535,54 @@ export async function applyRunSettings(ocspResponderUrl?: string): Promise<Setti
     }
   }
 
-  const changes: SettingChange[] = [];
-  for (const [key, value] of wanted) {
-    if (JSON.stringify(current.get(key)) === JSON.stringify(value)) continue;
-    const json = JSON.stringify(value);
-    await db.execute(sql`
-      INSERT INTO settings (key, value) VALUES (${key}, ${json}::jsonb)
-      ON CONFLICT (key) DO UPDATE SET value = ${json}::jsonb, updated_at = now()
-    `);
-    changes.push({ key, previous: current.get(key) });
-  }
-  return changes;
+  return writeSettings(wanted, current, record);
 }
 
-/** Puts back the settings applyRunSettings changed. */
-export async function restoreRunSettings(changes: SettingChange[]): Promise<void> {
-  for (const { key, previous } of changes) {
-    if (previous === undefined) {
-      await db.execute(sql`DELETE FROM settings WHERE key = ${key}`);
-    } else {
-      const json = JSON.stringify(previous);
-      await db.execute(
-        sql`UPDATE settings SET value = ${json}::jsonb, updated_at = now() WHERE key = ${key}`,
-      );
-    }
+/**
+ * Sets the settings one test case needs (`TestCase.settings`), such as
+ * `smartCharging.iso15118Enabled` off for TC_K_126 (the CSMS turns off
+ * providing a charging profile). Each change goes to `record` before it is
+ * written. Returns the settings it changed.
+ */
+export async function applyCaseSettings(
+  settings: Record<string, unknown>,
+  record: (change: SettingChange) => Promise<void>,
+): Promise<SettingChange[]> {
+  const current = new Map<string, unknown>();
+  for (const key of Object.keys(settings)) {
+    const rows = (await db.execute(sql`
+      SELECT value FROM settings WHERE key = ${key}
+    `)) as unknown as { value: unknown }[];
+    if (rows[0] != null) current.set(key, rows[0].value);
   }
+  return writeSettings(new Map(Object.entries(settings)), current, record);
 }
 
 /**
  * Waits until every CSMS process sees settings the run changed. The OCPP
- * server and the API cache pnc.* settings per process for
- * PNC_SETTINGS_CACHE_TTL_MS and the run cannot clear another process's cache,
- * so a test started earlier can get the old value: SignCertificate for a V2G
- * certificate is Rejected while the OCPP server still has PnC disabled
- * cached (TC_A_12_CSMS failed this way).
+ * server and the API cache settings per process (settingsCacheTtlMs) and the
+ * run cannot clear another process's cache, so a test started earlier can get
+ * the old value: SignCertificate for a V2G certificate is Rejected while the
+ * OCPP server still has PnC disabled cached (TC_A_12_CSMS failed this way).
+ * An aborted run stops waiting.
  */
-export async function waitForSettings(effectiveAt: number, logger: pino.Logger): Promise<void> {
+export async function waitForSettings(
+  effectiveAt: number,
+  logger: pino.Logger,
+  signal?: AbortSignal,
+): Promise<void> {
   const waitMs = effectiveAt - Date.now();
-  if (waitMs <= 0) return;
-  logger.info({ waitMs }, 'Waiting for the CSMS settings caches to pick up the PnC settings');
-  await new Promise((resolve) => setTimeout(resolve, waitMs));
+  if (waitMs <= 0 || signal?.aborted === true) return;
+  logger.info({ waitMs }, 'Waiting for the CSMS settings caches to pick up the changed settings');
+  await new Promise<void>((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, waitMs);
+    signal?.addEventListener('abort', done, { once: true });
+  });
 }
 
 async function provisionTestDriver(driverId: string): Promise<string> {

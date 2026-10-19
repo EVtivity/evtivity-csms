@@ -9,9 +9,15 @@ import type {
   Subscription,
   ConnectionRegistry,
 } from '@evtivity/lib';
-import { OCPP_COMMANDS_CHANNEL, OCPP_COMMAND_RESULTS_CHANNEL, tryParseJson } from '@evtivity/lib';
+import {
+  OCPP_COMMANDS_CHANNEL,
+  OCPP_COMMAND_RESULTS_CHANNEL,
+  OCPP_VERSION_MISMATCH,
+  tryParseJson,
+} from '@evtivity/lib';
 import type { CommandDispatcher } from './command-dispatcher.js';
 import { CommandTimeoutError } from './message-correlator.js';
+import { Ocpp201CommandError } from './ocpp201/to-ocpp201.js';
 import { publishMessageLog } from './message-log.js';
 import { holdsStationCredential, maskStationCredentials } from '@evtivity/lib/secret-config';
 import {
@@ -341,18 +347,29 @@ export class CommandListener {
         return;
       }
 
-      this.logger.error({ stationId, action, error: errorMessage }, 'Command failed');
+      // A command OCPP 2.0.1 cannot express was refused before it was sent:
+      // the station never saw it, so no station CALLERROR is logged and the
+      // caller gets a version mismatch, not a station error.
+      const versionMismatch = err instanceof Ocpp201CommandError;
+      if (versionMismatch) {
+        this.logger.warn(
+          { stationId, action, error: errorMessage },
+          'Command refused for OCPP 2.0.1',
+        );
+      } else {
+        this.logger.error({ stationId, action, error: errorMessage }, 'Command failed');
 
-      // Log inbound CALLERROR from station
-      publishMessageLog(this.eventBus, {
-        stationId,
-        direction: 'inbound',
-        messageType: MESSAGE_TYPE_CALLERROR,
-        messageId,
-        action,
-        errorCode: 'InternalError',
-        errorDescription: errorMessage,
-      });
+        // Log inbound CALLERROR from station
+        publishMessageLog(this.eventBus, {
+          stationId,
+          direction: 'inbound',
+          messageType: MESSAGE_TYPE_CALLERROR,
+          messageId,
+          action,
+          errorCode: 'InternalError',
+          errorDescription: errorMessage,
+        });
+      }
 
       // A CommandQueueTimeoutError (the CALL waited behind an unanswered one
       // and was never sent) is a plain failure, not a timeout: the station
@@ -361,6 +378,17 @@ export class CommandListener {
       // A firmware update the station answered with an error, or that could not
       // be sent, never starts: the projection ends it so its campaign can
       // complete. A timeout stays open, the station may still report it.
+      // A reservation the 2.0.1 check refused never reached the station: the
+      // projection cancels the hold, as for a station rejection, so a
+      // fire-and-forget activation does not leave it active.
+      if (action === 'ReserveNow' && versionMismatch) {
+        void this.eventBus.publish({
+          eventType: 'command.ReserveNow',
+          aggregateType: 'ChargingStation',
+          aggregateId: stationId,
+          payload: { request: payload, error: errorMessage, code: OCPP_VERSION_MISMATCH },
+        });
+      }
       if ((action === 'UpdateFirmware' || action === 'SignedUpdateFirmware') && !timedOut) {
         void this.eventBus.publish({
           eventType: 'command.UpdateFirmware',
@@ -394,7 +422,9 @@ export class CommandListener {
           JSON.stringify(
             timedOut
               ? { commandId, error: errorMessage, timedOut }
-              : { commandId, error: errorMessage },
+              : versionMismatch
+                ? { commandId, error: errorMessage, code: OCPP_VERSION_MISMATCH }
+                : { commandId, error: errorMessage },
           ),
         );
       }

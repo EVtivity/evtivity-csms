@@ -26,7 +26,7 @@ const makeMonitoringReportTest = (id: string, name: string, description: string)
           received = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -62,7 +62,10 @@ const makeMonitoringReportTest = (id: string, name: string, description: string)
                   value: 1,
                   type: 'Delta',
                   severity: 8,
-                  eventNotificationType: 'CustomMonitor',
+                  // OCPP 2.1 added eventNotificationType to the monitoring report.
+                  ...(ctx.version === 'ocpp2.0.1'
+                    ? {}
+                    : { eventNotificationType: 'CustomMonitor' }),
                 },
               ],
             },

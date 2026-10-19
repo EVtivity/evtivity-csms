@@ -4,6 +4,7 @@
 import type { Logger } from '@evtivity/lib';
 import { OcppError } from '@evtivity/lib';
 import { OcppErrorCode } from '../protocol/error-codes.js';
+import { handlerProtocolFor } from './ocpp-registry.js';
 import type { HandlerContext, Middleware } from './middleware/pipeline.js';
 
 export type ActionHandlerFn = (ctx: HandlerContext) => Promise<Record<string, unknown>>;
@@ -54,8 +55,16 @@ export class MessageRouter {
   asMiddleware(): Middleware {
     return async (ctx, next) => {
       const version = ctx.protocolVersion;
-      const handler = this.handlers.get(version)?.get(ctx.action);
+      const handlerVersion = handlerProtocolFor(version, ctx.action);
+      const handler =
+        handlerVersion == null ? undefined : this.handlers.get(handlerVersion)?.get(ctx.action);
       if (handler == null) {
+        if (handlerVersion == null) {
+          throw new OcppError(
+            OcppErrorCode.NotImplemented,
+            `Action ${ctx.action} is not defined in OCPP 2.0.1`,
+          );
+        }
         throw new OcppError(
           OcppErrorCode.NotImplemented,
           `No handler registered for action: ${ctx.action} (version: ${version})`,

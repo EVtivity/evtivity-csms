@@ -27,8 +27,13 @@ import { chatbotToolset } from '../surfaces/toolsets.js';
 import { AI_TOOL_CATALOG } from './catalog.js';
 import { createToolset, prepareToolCall } from './execute.js';
 import type { ToolsetEntry } from './execute.js';
-import { mapOcppCommand, ocppVersionLabel, toolOcppVersion } from './ocpp-version.js';
-import type { MapOptions, OcppVersion } from './ocpp-version.js';
+import {
+  knownOcppProtocol,
+  mapOcppCommand,
+  ocppVersionLabel,
+  toolOcppVersion,
+} from './ocpp-version.js';
+import type { MapOptions } from './ocpp-version.js';
 import { redactToolValue } from '@evtivity/ai/redact';
 
 export interface OcppCheckCaller {
@@ -38,10 +43,6 @@ export interface OcppCheckCaller {
 
 export interface OcppCheckDeps extends MapOptions {
   findStation?: (userId: string, ocppStationId: string) => Promise<CommandStation | null>;
-}
-
-function isOcppVersion(value: string | null): value is OcppVersion {
-  return value === 'ocpp1.6' || value === 'ocpp2.1';
 }
 
 export async function checkOcppCommandVersion(
@@ -66,8 +67,8 @@ export async function checkOcppCommandVersion(
     };
   }
   // A station that never connected has no version yet; the route accepts both.
-  if (!isOcppVersion(station.ocppProtocol)) return unchanged;
-  const stationVersion = station.ocppProtocol;
+  const stationVersion = knownOcppProtocol(station.ocppProtocol);
+  if (stationVersion === null) return unchanged;
 
   const mapping = mapOcppCommand(call.entry.tool, call.args, stationVersion, deps);
   if (mapping.kind === 'match') return unchanged;

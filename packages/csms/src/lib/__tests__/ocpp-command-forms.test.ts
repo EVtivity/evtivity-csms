@@ -9,7 +9,7 @@ import {
   type OcppCommandVersion,
   type OcppRequestSchema,
 } from '@evtivity/lib/ocpp-command-schema';
-import { CSMS_ACTIONS, CSMS_ACTIONS_16 } from '../ocpp-command-actions';
+import { CSMS_ACTIONS, CSMS_ACTIONS_16, CSMS_ACTIONS_201 } from '../ocpp-command-actions';
 import {
   formToPayloadJson,
   formValuesToPayload,
@@ -63,8 +63,23 @@ function fillValue(field: CommandFieldDef, value: unknown): unknown {
 
 const commands = [
   ...CSMS_ACTIONS.map((action) => ['ocpp2.1' as const, action] as const),
+  ...CSMS_ACTIONS_201.map((action) => ['ocpp2.0.1' as const, action] as const),
   ...CSMS_ACTIONS_16.map((action) => ['ocpp1.6' as const, action] as const),
 ];
+
+describe('OCPP 2.0.1 command list', () => {
+  it('offers every 2.1 command OCPP 2.0.1 defines and no 2.1-only one', () => {
+    expect(CSMS_ACTIONS_201).toContain('SetChargingProfile');
+    expect(CSMS_ACTIONS_201).not.toContain('SetDefaultTariff');
+    expect(CSMS_ACTIONS_201).not.toContain('RequestBatterySwap');
+    for (const action of CSMS_ACTIONS_201) {
+      expect(
+        SCHEMAS[`../../../../../schemas/ocpp-2.0.1/${action}Request.json`],
+        action,
+      ).toBeDefined();
+    }
+  });
+});
 
 describe.each(commands)('Advanced Command %s %s', (version, action) => {
   const def = commandDef(version, action);

@@ -18,6 +18,12 @@ describe('stationPasswordRules', () => {
   it('uses 16-40 characters for OCPP 2.1 (A00.FR.205)', () => {
     expect(stationPasswordRules('ocpp2.1')).toEqual({ min: 16, max: 40 });
   });
+
+  it('uses 16-40 characters for OCPP 2.0.1 (A00.FR.205)', () => {
+    expect(stationPasswordRules('ocpp2.0.1')).toEqual({ min: 16, max: 40 });
+    expect(validateStationPassword('a'.repeat(40), 'ocpp2.0.1')).toBeNull();
+    expect(validateStationPassword('a'.repeat(41), 'ocpp2.0.1')).toBe('tooLong');
+  });
 });
 
 describe('validateStationPassword', () => {

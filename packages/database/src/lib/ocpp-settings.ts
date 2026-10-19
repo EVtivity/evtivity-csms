@@ -14,11 +14,12 @@ let cachedHeartbeatAt = 0;
 let cachedOfflineTtl: number | undefined;
 let cachedOfflineTtlAt = 0;
 
-const TTL_MS = 60_000;
+/** How long each process caches the ocpp.* and smartCharging.* settings it reads. */
+export const OCPP_SETTINGS_CACHE_TTL_MS = 60_000;
 
 export async function getHeartbeatIntervalSeconds(): Promise<number> {
   const now = Date.now();
-  if (cachedHeartbeat !== undefined && now - cachedHeartbeatAt < TTL_MS) {
+  if (cachedHeartbeat !== undefined && now - cachedHeartbeatAt < OCPP_SETTINGS_CACHE_TTL_MS) {
     return cachedHeartbeat;
   }
 
@@ -42,7 +43,7 @@ export async function getHeartbeatIntervalSeconds(): Promise<number> {
 
 export async function getOfflineCommandTtlHours(): Promise<number> {
   const now = Date.now();
-  if (cachedOfflineTtl !== undefined && now - cachedOfflineTtlAt < TTL_MS) {
+  if (cachedOfflineTtl !== undefined && now - cachedOfflineTtlAt < OCPP_SETTINGS_CACHE_TTL_MS) {
     return cachedOfflineTtl;
   }
 
@@ -71,7 +72,10 @@ let cachedMeterValueIntervalAt = 0;
 
 export async function getMeterValueIntervalSeconds(): Promise<number> {
   const now = Date.now();
-  if (cachedMeterValueInterval !== undefined && now - cachedMeterValueIntervalAt < TTL_MS) {
+  if (
+    cachedMeterValueInterval !== undefined &&
+    now - cachedMeterValueIntervalAt < OCPP_SETTINGS_CACHE_TTL_MS
+  ) {
     return cachedMeterValueInterval;
   }
 
@@ -100,7 +104,10 @@ let cachedClockAlignedIntervalAt = 0;
 
 export async function getClockAlignedIntervalSeconds(): Promise<number> {
   const now = Date.now();
-  if (cachedClockAlignedInterval !== undefined && now - cachedClockAlignedIntervalAt < TTL_MS) {
+  if (
+    cachedClockAlignedInterval !== undefined &&
+    now - cachedClockAlignedIntervalAt < OCPP_SETTINGS_CACHE_TTL_MS
+  ) {
     return cachedClockAlignedInterval;
   }
 
@@ -141,7 +148,10 @@ const DEFAULT_TX_ENDED_MEASURANDS = 'Energy.Active.Import.Register';
 
 export async function getSampledMeasurands(): Promise<string> {
   const now = Date.now();
-  if (cachedSampledMeasurands !== undefined && now - cachedSampledMeasurandsAt < TTL_MS) {
+  if (
+    cachedSampledMeasurands !== undefined &&
+    now - cachedSampledMeasurandsAt < OCPP_SETTINGS_CACHE_TTL_MS
+  ) {
     return cachedSampledMeasurands;
   }
 
@@ -166,7 +176,10 @@ export async function getSampledMeasurands(): Promise<string> {
 
 export async function getAlignedMeasurands(): Promise<string> {
   const now = Date.now();
-  if (cachedAlignedMeasurands !== undefined && now - cachedAlignedMeasurandsAt < TTL_MS) {
+  if (
+    cachedAlignedMeasurands !== undefined &&
+    now - cachedAlignedMeasurandsAt < OCPP_SETTINGS_CACHE_TTL_MS
+  ) {
     return cachedAlignedMeasurands;
   }
 
@@ -191,7 +204,10 @@ export async function getAlignedMeasurands(): Promise<string> {
 
 export async function getTxEndedMeasurands(): Promise<string> {
   const now = Date.now();
-  if (cachedTxEndedMeasurands !== undefined && now - cachedTxEndedMeasurandsAt < TTL_MS) {
+  if (
+    cachedTxEndedMeasurands !== undefined &&
+    now - cachedTxEndedMeasurandsAt < OCPP_SETTINGS_CACHE_TTL_MS
+  ) {
     return cachedTxEndedMeasurands;
   }
 
@@ -227,7 +243,10 @@ let cachedRetryMaxDelayMsAt = 0;
 
 export async function getCommandRetryMaxAttempts(): Promise<number> {
   const now = Date.now();
-  if (cachedRetryMaxAttempts !== undefined && now - cachedRetryMaxAttemptsAt < TTL_MS) {
+  if (
+    cachedRetryMaxAttempts !== undefined &&
+    now - cachedRetryMaxAttemptsAt < OCPP_SETTINGS_CACHE_TTL_MS
+  ) {
     return cachedRetryMaxAttempts;
   }
 
@@ -251,7 +270,10 @@ export async function getCommandRetryMaxAttempts(): Promise<number> {
 
 export async function getCommandRetryBaseDelayMs(): Promise<number> {
   const now = Date.now();
-  if (cachedRetryBaseDelayMs !== undefined && now - cachedRetryBaseDelayMsAt < TTL_MS) {
+  if (
+    cachedRetryBaseDelayMs !== undefined &&
+    now - cachedRetryBaseDelayMsAt < OCPP_SETTINGS_CACHE_TTL_MS
+  ) {
     return cachedRetryBaseDelayMs;
   }
 
@@ -275,7 +297,10 @@ export async function getCommandRetryBaseDelayMs(): Promise<number> {
 
 export async function getCommandRetryMaxDelayMs(): Promise<number> {
   const now = Date.now();
-  if (cachedRetryMaxDelayMs !== undefined && now - cachedRetryMaxDelayMsAt < TTL_MS) {
+  if (
+    cachedRetryMaxDelayMs !== undefined &&
+    now - cachedRetryMaxDelayMsAt < OCPP_SETTINGS_CACHE_TTL_MS
+  ) {
     return cachedRetryMaxDelayMs;
   }
 
@@ -307,7 +332,10 @@ let cachedDefaultMaxPowerWAt = 0;
 
 export async function isIso15118Enabled(): Promise<boolean> {
   const now = Date.now();
-  if (cachedIso15118Enabled !== undefined && now - cachedIso15118EnabledAt < TTL_MS) {
+  if (
+    cachedIso15118Enabled !== undefined &&
+    now - cachedIso15118EnabledAt < OCPP_SETTINGS_CACHE_TTL_MS
+  ) {
     return cachedIso15118Enabled;
   }
 
@@ -331,7 +359,10 @@ export async function isIso15118Enabled(): Promise<boolean> {
 
 export async function getDefaultMaxPowerW(): Promise<number> {
   const now = Date.now();
-  if (cachedDefaultMaxPowerW !== undefined && now - cachedDefaultMaxPowerWAt < TTL_MS) {
+  if (
+    cachedDefaultMaxPowerW !== undefined &&
+    now - cachedDefaultMaxPowerWAt < OCPP_SETTINGS_CACHE_TTL_MS
+  ) {
     return cachedDefaultMaxPowerW;
   }
 

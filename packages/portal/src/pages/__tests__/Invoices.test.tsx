@@ -167,6 +167,15 @@ describe('InvoiceDetail', () => {
     expect(getMock).toHaveBeenCalledWith('/v1/portal/invoices/1');
   });
 
+  it('bands every second line item', async () => {
+    const [line] = detail.lineItems;
+    getMock.mockResolvedValue({ ...detail, lineItems: [line, { ...line, id: 8 }] });
+    renderAt('/account/invoices/1');
+    const first = await screen.findByTestId('invoice-line-7');
+    expect(first.className).toContain('even:bg-muted/40');
+    expect(first.parentElement?.children).toHaveLength(2);
+  });
+
   it('shows not found for an invoice the driver may not read', async () => {
     getMock.mockRejectedValue(new ApiError(404, { code: 'INVOICE_NOT_FOUND' }));
     renderAt('/account/invoices/inv_other');

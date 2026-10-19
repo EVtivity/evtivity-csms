@@ -53,7 +53,7 @@ import {
   setAiInsightQueue,
   startAiInsightBridge,
 } from './ai-insight-worker.js';
-import { octtRunnerJob } from './handlers/octt-runner.js';
+import { abortOcttRuns, octtRunnerJob } from './handlers/octt-runner.js';
 import type { OcttJobData } from './handlers/octt-runner.js';
 import { probeWorkerLockGrants } from './lib/redis-acl-probe.js';
 
@@ -278,6 +278,8 @@ async function start(): Promise<void> {
 
   const shutdown = async (): Promise<void> => {
     log.info('Worker shutting down...');
+    // A conformance run restores the CSMS settings it changed before the worker closes.
+    abortOcttRuns('Worker shutting down');
     await redisRecoveryWatch.stop();
     await stopGuestBridge();
     await stopReservationBridge();

@@ -25,7 +25,7 @@ export const TC_N_05_CSMS: TestCase = {
           bases.push(payload['monitoringBase'] as string);
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

@@ -28,7 +28,7 @@ export const TC_N_25_CSMS: TestCase = {
           requestId = (payload['requestId'] as number) ?? 0;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -101,7 +101,7 @@ export const TC_N_34_CSMS: TestCase = {
           received = true;
           return { status: 'Rejected' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -152,7 +152,7 @@ export const TC_N_35_CSMS: TestCase = {
           logType = (payload['logType'] as string) ?? '';
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -201,7 +201,7 @@ export const TC_N_36_CSMS: TestCase = {
           logRequestCount++;
           return { status: logRequestCount === 1 ? 'Accepted' : 'AcceptedCanceled' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -319,7 +319,7 @@ export const TC_N_102_CSMS: TestCase = {
           received = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {
@@ -368,7 +368,7 @@ export const TC_N_102_2_CSMS: TestCase = {
           received = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
     if (ctx.triggerCommand != null) {

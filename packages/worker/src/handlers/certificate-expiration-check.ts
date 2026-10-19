@@ -6,7 +6,7 @@ import type { Logger } from 'pino';
 import { publishOcppCommand } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
-/** 2.1 TriggerMessage for each certificate type the station renews itself. */
+/** 2.x TriggerMessage for each certificate type the station renews itself. */
 const TRIGGER_FOR_TYPE: Record<string, string> = {
   ChargingStationCertificate: 'SignChargingStationCertificate',
   V2GCertificate: 'SignV2GCertificate',
@@ -14,7 +14,7 @@ const TRIGGER_FOR_TYPE: Record<string, string> = {
 };
 
 /**
- * The renewal trigger: 2.1 TriggerMessage with the message of the type
+ * The renewal trigger: 2.x TriggerMessage with the message of the type
  * (F06); on 1.6 the station certificate through ExtendedTriggerMessage
  * SignChargePointCertificate (Security Whitepaper) and the V2G certificate
  * through TriggerMessage SignV2GCertificate, which the command translation
@@ -121,7 +121,7 @@ export async function certificateExpirationCheckHandler(log: Logger): Promise<vo
       AND (
         (cs.ocpp_protocol = 'ocpp2.1'
           AND sc.certificate_type IN ('ChargingStationCertificate', 'V2GCertificate', 'V2G20Certificate'))
-        OR (cs.ocpp_protocol = 'ocpp1.6'
+        OR (cs.ocpp_protocol IN ('ocpp1.6', 'ocpp2.0.1')
           AND sc.certificate_type IN ('ChargingStationCertificate', 'V2GCertificate'))
       )
       AND (${pncEnabled} OR sc.certificate_type = 'ChargingStationCertificate')

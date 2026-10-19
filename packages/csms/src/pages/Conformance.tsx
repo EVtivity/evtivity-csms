@@ -145,6 +145,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
             >
               <option value="all">{t('conformance.runAll')}</option>
               <option value="ocpp2.1">OCPP 2.1</option>
+              <option value="ocpp2.0.1">OCPP 2.0.1</option>
               <option value="ocpp1.6">OCPP 1.6</option>
             </Select>
             <Button

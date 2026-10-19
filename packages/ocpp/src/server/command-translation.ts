@@ -1,7 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { toAuthorizationKeyHex, unwrapPnc16Answer, wrapPnc16 } from '@evtivity/lib';
+import { isOcpp21, toAuthorizationKeyHex, unwrapPnc16Answer, wrapPnc16 } from '@evtivity/lib';
+import { ocpp201ActionSchemaEntry } from './ocpp-registry.js';
+import { prepareOcpp201Command } from './ocpp201/to-ocpp201.js';
 
 export interface CommandTranslation {
   action: string;
@@ -862,10 +864,20 @@ export function translateCommand(
   version: string,
   payload: Record<string, unknown>,
 ): { action: string; payload: Record<string, unknown> } | null {
+  // OCPP 2.0.1 takes the 2.1 command, then the 2.0.1 map, fit and strict check.
+  if (version === 'ocpp2.0.1') {
+    const command21 = translateCommand(commandName, 'ocpp2.1', payload);
+    if (command21 == null || ocpp201ActionSchemaEntry(command21.action) == null) return null;
+    return {
+      action: command21.action,
+      payload: prepareOcpp201Command(command21.action, command21.payload),
+    };
+  }
+
   const translations = commandMap[commandName];
   if (translations == null) {
     // No translation entry: only supported in the version that defines it
-    if (version === 'ocpp2.1') {
+    if (isOcpp21(version)) {
       return { action: commandName, payload };
     }
     return null;

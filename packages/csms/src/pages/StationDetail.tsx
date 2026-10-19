@@ -51,6 +51,7 @@ import { StationStatusBadge } from '@/components/StationStatusBadge';
 import { StationChargingNeedsTab } from '@/components/StationChargingNeedsTab';
 import { useHasPermission } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
+import { isOcpp2x } from '@evtivity/lib/ocpp-version';
 
 interface Station {
   id: string;
@@ -371,7 +372,7 @@ export function StationDetail(): React.JSX.Element {
           <TabsTrigger value="commands">{t('stations.ocppCommands')}</TabsTrigger>
           {station.isSimulator && <TabsTrigger value="simulate">{t('simulate.tab')}</TabsTrigger>}
           <TabsTrigger value="security">{t('stations.security')}</TabsTrigger>
-          {station.ocppProtocol === 'ocpp2.1' && (
+          {isOcpp2x(station.ocppProtocol) && (
             <TabsTrigger value="certificates">{t('pnc.certificates')}</TabsTrigger>
           )}
           {station.ocppProtocol !== 'ocpp1.6' && (
@@ -449,7 +450,7 @@ export function StationDetail(): React.JSX.Element {
           />
         </TabsContent>
 
-        {station.ocppProtocol === 'ocpp2.1' && (
+        {isOcpp2x(station.ocppProtocol) && (
           <TabsContent value="certificates">
             <StationCertificates stationId={station.id} />
           </TabsContent>
@@ -461,6 +462,7 @@ export function StationDetail(): React.JSX.Element {
               stationId={station.id}
               isOnline={station.isOnline}
               timezone={siteTimezone}
+              ocppProtocol={station.ocppProtocol}
             />
           </TabsContent>
         )}
@@ -505,6 +507,7 @@ export function StationDetail(): React.JSX.Element {
               stationId={station.id}
               isOnline={station.isOnline}
               timezone={siteTimezone}
+              ocppProtocol={station.ocppProtocol}
             />
           </TabsContent>
         )}

@@ -53,7 +53,7 @@ export const TC_B_06_CSMS: TestCase = {
             })),
           };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

@@ -357,28 +357,14 @@ export const meterValues = pgTable(
       .where(sql`evse_id IS NOT NULL`),
     // Dedup retransmits: OCPP allows the station to resend a MeterValues batch
     // if the CALLRESULT is lost. Without this, duplicate rows inflate energy
-    // sums in dashboards, cost calculations, and OCPI CDRs. The backing
-    // migration 0044_meter_values_dedup_unique.sql creates this index with
-    // NULLS NOT DISTINCT (PG 15+) so null phase/location compare equal; the
-    // drizzle schema can't express NULLS NOT DISTINCT in this version, so the
-    // schema declaration is for drift detection only and the migration is the
-    // source of truth.
-    // It leaves out station_id, so station-wide readings (no session, no EVSE)
-    // of two stations with the same timestamp and measurand collide. v0.1.46
-    // builds meter_values_station_dedup_idx (below) CONCURRENTLY; this index
-    // stays until v0.1.47 because v0.1.45 pods name its columns in their
-    // ON CONFLICT. Inserts use a targetless ON CONFLICT DO NOTHING, so the
-    // swap needs no code change.
-    uniqueIndex('meter_values_dedup_idx').on(
-      table.sessionId,
-      table.evseId,
-      table.timestamp,
-      table.measurand,
-      table.phase,
-      table.location,
-    ),
-    // The dedup key with the station (NULLS NOT DISTINCT in the migration,
-    // 0476_release_0_1_46_indexes.sql).
+    // sums in dashboards, cost calculations, and OCPI CDRs. The key includes
+    // station_id, so station-wide readings (no session, no EVSE) of two
+    // stations with the same timestamp and measurand are both kept. The
+    // migration (0476_release_0_1_46_indexes.sql) creates it with NULLS NOT
+    // DISTINCT (PG 15+) so null phase/location compare equal; the drizzle
+    // schema can't express NULLS NOT DISTINCT in this version, so this
+    // declaration is for drift detection only and the migration is the source
+    // of truth. Inserts use a targetless ON CONFLICT DO NOTHING.
     uniqueIndex('meter_values_station_dedup_idx').on(
       table.stationId,
       table.sessionId,

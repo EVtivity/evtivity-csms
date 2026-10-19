@@ -19,7 +19,7 @@ import {
   snapshotReservationFeeTerms,
   writeReservationAudit,
 } from '@evtivity/database';
-import { AppError, publishOcppCommand } from '@evtivity/lib';
+import { AppError, OCPP_VERSION_MISMATCH, publishOcppCommand } from '@evtivity/lib';
 import type { PubSubClient, ServiceLogger } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { assertNoMaintenanceConflict } from './maintenance-check.js';
@@ -688,10 +688,14 @@ export async function dispatchReservation(
   }
 
   const noAnswer = result.error != null && (result.queued === true || result.timedOut === true);
+  // Refused by the OCPP server for the station's OCPP version (2.0.1): never
+  // sent, and it never will be, so it is a rejection, not a missing answer.
+  const versionRefused = result.code === OCPP_VERSION_MISMATCH;
   // A command that never reached the station (send error) has no station
   // answer either: no_response, not a station rejection.
-  const reason: ReservationCancelReason =
-    result.error != null
+  const reason: ReservationCancelReason = versionRefused
+    ? 'station_rejected_other'
+    : result.error != null
       ? 'station_no_response'
       : status === 'Occupied'
         ? 'station_rejected_occupied'
@@ -710,7 +714,7 @@ export async function dispatchReservation(
     pubsub,
     logger: options.logger,
   });
-  if (result.error != null) {
+  if (result.error != null && !versionRefused) {
     // A late Accepted would leave the EVSE held on the station (G3).
     await publishCancelReservation(
       pubsub,

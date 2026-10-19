@@ -260,7 +260,7 @@ export const TC_E_21_CSMS: TestCase = {
           requestStopTxId = String(payload['transactionId'] ?? '');
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

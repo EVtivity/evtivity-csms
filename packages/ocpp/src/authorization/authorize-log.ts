@@ -4,6 +4,7 @@
 import { eq } from 'drizzle-orm';
 import { db, authorizeAttempts, chargingStations } from '@evtivity/database';
 import type { Logger, PubSubClient } from '@evtivity/lib';
+import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
 
 // Set once at OCPP server startup so the forensic insert can fan out an SSE
 // notification. Null in tests and until the server wires it up; publish is
@@ -47,7 +48,7 @@ export async function logAuthorizeAttempt(
     matchedTokenId?: string | null;
     matchedDriverId?: string | null;
     outcome: AuthorizeOutcome;
-    ocppVersion: 'ocpp1.6' | 'ocpp2.1';
+    ocppVersion: OcppProtocol;
     reason?: string | null;
     vehicleIdValue?: string | null;
     vehicleIdType?: string | null;

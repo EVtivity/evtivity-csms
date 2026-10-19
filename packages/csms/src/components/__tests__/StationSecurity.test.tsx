@@ -105,6 +105,48 @@ describe('StationSecurity', () => {
     });
   });
 
+  it('asks an online OCPP 2.0.1 station upgrade for the network interface and sends it', async () => {
+    patchMock.mockResolvedValueOnce({ pendingSecurityProfile: 2 });
+    renderSecurity({ ocppProtocol: 'ocpp2.0.1' });
+
+    fireEvent.change(screen.getByLabelText(/stations.changeProfile/), { target: { value: '2' } });
+    const select = screen.getByLabelText<HTMLSelectElement>('stations.networkInterface');
+    expect(select.value).toBe('Wired0');
+    expect(Array.from(select.options).map((o) => o.value)).toEqual([
+      'Wired0',
+      'Wired1',
+      'Wired2',
+      'Wired3',
+      'Wireless0',
+      'Wireless1',
+      'Wireless2',
+      'Wireless3',
+    ]);
+    expect(screen.getByText('stations.networkInterfaceHelp')).toBeTruthy();
+
+    fireEvent.change(select, { target: { value: 'Wireless1' } });
+    fireEvent.click(screen.getByText('common.save'));
+    fireEvent.click(screen.getAllByText('stations.changeProfile').at(-1) as HTMLElement);
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith('/v1/stations/sta_1', {
+        securityProfile: 2,
+        ocppInterface: 'Wireless1',
+      });
+    });
+  });
+
+  it('shows no network interface for a 2.1 station or an offline 2.0.1 station', () => {
+    renderSecurity();
+    fireEvent.change(screen.getByLabelText(/stations.changeProfile/), { target: { value: '2' } });
+    expect(screen.queryByLabelText('stations.networkInterface')).toBeNull();
+    cleanup();
+
+    renderSecurity({ ocppProtocol: 'ocpp2.0.1', isOnline: false });
+    fireEvent.change(screen.getByLabelText(/stations.changeProfile/), { target: { value: '2' } });
+    expect(screen.queryByLabelText('stations.networkInterface')).toBeNull();
+  });
+
   it('rejects a password with characters OCPP does not allow', () => {
     renderSecurity();
     fireEvent.click(screen.getByText('stations.changePassword'));

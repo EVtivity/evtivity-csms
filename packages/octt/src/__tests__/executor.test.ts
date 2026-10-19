@@ -33,6 +33,7 @@ vi.mock('@evtivity/database/src/lib/id.js', () => ({
 }));
 
 const mockClient = {
+  mappingLosses: [] as string[],
   connect: vi.fn().mockResolvedValue(undefined),
   disconnect: vi.fn(),
   sendCall: vi.fn().mockResolvedValue({ status: 'Accepted' }),
@@ -269,5 +270,60 @@ describe('executeTest', () => {
         { id: 4, status: 'Accepted' },
       ],
     });
+  });
+
+  it('runs a 2.0.1 case with ctx.version ocpp2.0.1 and a 2.0.1 client', async () => {
+    const { createTestClient } = await import('../client.js');
+    let seenVersion: string | undefined;
+    const testCase: TestCase = {
+      id: 'TC_B_01_CSMS',
+      name: 'Boot Notification',
+      module: 'B-provisioning',
+      version: 'ocpp2.0.1',
+      sut: 'csms',
+      description: 'Test boot notification',
+      purpose: 'Verify CSMS accepts boot',
+      execute: (ctx) => {
+        seenVersion = ctx.version;
+        return Promise.resolve({ status: 'passed', durationMs: 0, steps: [] });
+      },
+    };
+    const result = await executeTest(testCase, { ...config, version: 'ocpp2.0.1' }, logger);
+    expect(seenVersion).toBe('ocpp2.0.1');
+    expect(result.version).toBe('ocpp2.0.1');
+    expect(vi.mocked(createTestClient)).toHaveBeenLastCalledWith(
+      expect.objectContaining({ version: 'ocpp2.0.1' }),
+    );
+    expect(result.result.status).toBe('passed');
+  });
+
+  it('fails a passed case whose message the OCPP 2.0.1 mapping changed', async () => {
+    mockClient.mappingLosses.push('NotifyEventRequest: eventData[0].severity removed');
+    try {
+      const testCase: TestCase = {
+        id: 'TC_N_21_CSMS',
+        name: 'Alert Event - HardWiredMonitor',
+        module: 'N-diagnostics',
+        version: 'ocpp2.0.1',
+        sut: 'csms',
+        description: 'd',
+        purpose: 'p',
+        execute: () =>
+          Promise.resolve({
+            status: 'passed',
+            durationMs: 0,
+            steps: [{ step: 1, description: 'Send NotifyEvent', status: 'passed' }],
+          }),
+      };
+      const result = await executeTest(testCase, config, logger);
+      expect(result.result.status).toBe('failed');
+      expect(result.result.steps.at(-1)).toMatchObject({
+        step: 2,
+        status: 'failed',
+        actual: 'NotifyEventRequest: eventData[0].severity removed',
+      });
+    } finally {
+      mockClient.mappingLosses.length = 0;
+    }
   });
 });

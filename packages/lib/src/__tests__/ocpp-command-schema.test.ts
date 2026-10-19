@@ -14,6 +14,7 @@ describe('ocppRequestSchemaPath', () => {
   it('names the request schema file of each version', () => {
     expect(ocppRequestSchemaPath('ocpp2.1', 'Reset')).toBe('ocpp-2.1/ResetRequest.json');
     expect(ocppRequestSchemaPath('ocpp1.6', 'Reset')).toBe('ocpp-1.6/Reset.json');
+    expect(ocppRequestSchemaPath('ocpp2.0.1', 'Reset')).toBe('ocpp-2.0.1/ResetRequest.json');
   });
 });
 

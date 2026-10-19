@@ -6,6 +6,7 @@ import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/AuthorizeRequest.js';
 import type { AuthorizeResponse } from '../../generated/v2_1/types/messages/AuthorizeResponse.js';
 import type { Logger } from '@evtivity/lib';
+import { isOcpp21 } from '@evtivity/lib/ocpp-version';
 import { vehicleIdFromTypedToken } from '@evtivity/lib/vehicle-id';
 import {
   applyContractCertificateVerdict,
@@ -14,6 +15,7 @@ import {
 } from '../../services/pki/contract-certificate-validation.js';
 import { rememberPrepaidAuthorization } from '../../authorization/prepaid.js';
 import type { AuthorizeTokenInput } from '../../authorization/authorize-context.js';
+import { authorizeOcppVersion } from '../../authorization/authorize-context.js';
 import {
   authorizeToken,
   logAuthorizeDecision,
@@ -47,7 +49,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     token: { value: idToken, type: tokenType },
     context: 'authorize',
     // The 1.6 Plug and Charge DataTransfer (OCA application note) runs here too.
-    ocppVersion: ctx.protocolVersion === 'ocpp1.6' ? 'ocpp1.6' : 'ocpp2.1',
+    ocppVersion: authorizeOcppVersion(ctx.protocolVersion),
     vehicleId: vehicleIdFromTypedToken(request.idToken),
   };
   let decision = await authorizeToken(input, ctx.logger);
@@ -125,7 +127,8 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
   logAuthorizeDecision(input, decision, ctx.logger);
 
   let tariff: Record<string, unknown> | undefined;
-  if (status === 'Accepted' && tokenType !== 'NoAuthorization') {
+  // The Authorize tariff is OCPP 2.1 only.
+  if (status === 'Accepted' && tokenType !== 'NoAuthorization' && isOcpp21(ctx.protocolVersion)) {
     try {
       tariff = await resolveDriverTariff(
         decision.matchedDriverId,

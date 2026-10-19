@@ -80,7 +80,7 @@ export const TC_K_52_CSMS: TestCase = {
           requestId = (payload['requestId'] as number) ?? 1;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

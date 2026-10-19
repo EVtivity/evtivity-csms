@@ -62,7 +62,7 @@ export const TC_C_131_CSMS: TestCase = {
         requestStartPayload = payload;
         return { status: 'Accepted' };
       }
-      return defaultReply('ocpp2.1', action, payload);
+      return defaultReply(ctx.version, action, payload);
     });
 
     // Prerequisite: the CSMS configures the station's dynamic QR code

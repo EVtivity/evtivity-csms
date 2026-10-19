@@ -72,7 +72,7 @@ export const TC_K_04_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -169,7 +169,7 @@ export const TC_K_70_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -267,7 +267,7 @@ export const TC_K_118_CSMS: TestCase = {
           activateValue = payload['activate'] as boolean;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -364,7 +364,7 @@ export const TC_K_121_CSMS: TestCase = {
           dynamicProfileId = profile?.['id'] as number | null;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

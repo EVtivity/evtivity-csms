@@ -77,7 +77,7 @@ export const TC_I_101_CSMS: TestCase = {
           tariffPayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -182,7 +182,7 @@ export const TC_I_102_CSMS: TestCase = {
           receivedSetDefaultTariff = true;
           return { status: 'TooManyElements' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -251,7 +251,7 @@ export const TC_I_105_CSMS: TestCase = {
           receivedSetDefaultTariff = true;
           return { status: 'ConditionNotSupported' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -358,7 +358,7 @@ export const TC_I_106_CSMS: TestCase = {
             ],
           };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

@@ -29,7 +29,7 @@ export const TC_L_17_CSMS: TestCase = {
           receivedPublishFirmware = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -117,7 +117,7 @@ export const TC_L_24_CSMS: TestCase = {
           receivedPublishFirmware = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -203,7 +203,7 @@ export const TC_L_19_CSMS: TestCase = {
           receivedPublishFirmware = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -289,7 +289,7 @@ export const TC_L_20_CSMS: TestCase = {
           receivedPublishFirmware = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

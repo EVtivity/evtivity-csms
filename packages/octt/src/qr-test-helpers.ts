@@ -170,7 +170,7 @@ export async function runInvalidQrTest(
       seen.requestStart = true;
       return Promise.resolve({ status: 'Accepted' });
     }
-    return defaultReply('ocpp2.1', action, payload);
+    return defaultReply(ctx.version, action, payload);
   });
 
   // Prerequisite: the CSMS configured the station's dynamic QR code.

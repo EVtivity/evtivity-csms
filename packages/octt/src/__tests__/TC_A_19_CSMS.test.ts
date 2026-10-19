@@ -3,7 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import pino from 'pino';
-import type { TestContext } from '../types.js';
+import type { OcppVersion, TestContext } from '../types.js';
 
 const tryConnect = vi.hoisted(() => vi.fn<() => Promise<number>>());
 
@@ -21,11 +21,15 @@ type IncomingHandler = (
 ) => Promise<Record<string, unknown>>;
 
 /** A CSMS that upgrades the station to profile 2 the way the station-security service does. */
-function makeContext(serverUrl: string, tlsServerUrl: string): TestContext {
+function makeContext(
+  serverUrl: string,
+  tlsServerUrl: string,
+  version: OcppVersion = 'ocpp2.1',
+): TestContext {
   let handler: IncomingHandler | null = null;
   let onConnected: (() => void) | null = null;
   const client = {
-    protocol: 'ocpp2.1',
+    protocol: version,
     isConnected: true,
     sendCall: vi.fn(() => Promise.resolve({ status: 'Accepted' })),
     setIncomingCallHandler: vi.fn((h: IncomingHandler) => {
@@ -68,6 +72,7 @@ function makeContext(serverUrl: string, tlsServerUrl: string): TestContext {
   });
   return {
     client: client as unknown as TestContext['client'],
+    version,
     stationId: 'OCTT-A-security-TC_A_19_CSMS-test',
     tokens: {} as TestContext['tokens'],
     stationDbId: 'sta_test',
@@ -114,5 +119,25 @@ describe('TC_A_19_CSMS step 10 (A05.FR.07)', () => {
     });
     expect(result.steps.find((s) => s.step === 7)?.status).toBe('passed');
     expect(result.status).toBe('passed');
+  });
+});
+
+describe('TC_A_19_CSMS operator action', () => {
+  it('names the network interface for an OCPP 2.0.1 station (no NetworkConfiguration)', async () => {
+    tryConnect.mockResolvedValue(401);
+    const ctx = makeContext('ws://ocpp.example:7103', 'wss://ocpp.example:7443', 'ocpp2.0.1');
+    const result = await TC_A_19_CSMS.execute(ctx);
+    expect(ctx.callApi).toHaveBeenCalledWith('PATCH', '/stations/sta_test', {
+      securityProfile: 2,
+      ocppInterface: 'Wired0',
+    });
+    expect(result.status).toBe('passed');
+  });
+
+  it('sends only the profile for OCPP 2.1 (the CSMS reads the interface from the station)', async () => {
+    tryConnect.mockResolvedValue(401);
+    const ctx = makeContext('ws://ocpp.example:7103', 'wss://ocpp.example:7443');
+    await TC_A_19_CSMS.execute(ctx);
+    expect(ctx.callApi).toHaveBeenCalledWith('PATCH', '/stations/sta_test', { securityProfile: 2 });
   });
 });

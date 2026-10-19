@@ -124,9 +124,10 @@ function handshake(
   port: number,
   stationId: string,
   authorization?: string,
+  protocols: string[] = ['ocpp1.6'],
 ): Promise<HandshakeResult> {
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${String(port)}/${stationId}`, ['ocpp1.6'], {
+    const ws = new WebSocket(`ws://127.0.0.1:${String(port)}/${stationId}`, protocols, {
       headers: authorization != null ? { authorization } : {},
     });
     ws.on('open', () => {
@@ -275,6 +276,48 @@ describe('OcppServer authentication before the WebSocket upgrade', () => {
     expect(message[0]).toBe(3);
     expect(message[1]).toBe('hb-open');
     ws.close();
+  });
+});
+
+describe('OcppServer subprotocol negotiation (OCPP-J 3.1.2, OCTT TC_B_58)', () => {
+  it('answers 400 to an upgrade that offers only unsupported subprotocols, before the station lookup', async () => {
+    const port = await startServer();
+
+    const result = await handshake(port, 'AUTH-OK', basic('AUTH-OK', 'secret-password'), [
+      'ocpp0.1',
+      'ocpp9.9',
+    ]);
+
+    expect(result.opened).toBe(false);
+    if (result.opened) return;
+    expect(result.status).toBe(400);
+    expect(lookups.peak).toBe(0);
+    expect(server?.getConnectionManager().count()).toBe(0);
+  });
+
+  it('selects the supported subprotocol when an unsupported one is offered with it', async () => {
+    const port = await startServer();
+
+    const result = await handshake(port, 'AUTH-OK', basic('AUTH-OK', 'secret-password'), [
+      'ocpp0.1',
+      'ocpp2.0.1',
+    ]);
+
+    expect(result.opened).toBe(true);
+    if (!result.opened) return;
+    expect(result.ws.protocol).toBe('ocpp2.0.1');
+    result.ws.close();
+  });
+
+  it('accepts an upgrade without a Sec-WebSocket-Protocol header', async () => {
+    const port = await startServer();
+
+    const result = await handshake(port, 'AUTH-OK', basic('AUTH-OK', 'secret-password'), []);
+
+    expect(result.opened).toBe(true);
+    if (!result.opened) return;
+    expect(result.ws.protocol).toBe('');
+    result.ws.close();
   });
 });
 

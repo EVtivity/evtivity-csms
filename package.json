@@ -14,6 +14,7 @@
   },
   "scripts": {
     "codegen:2.1": "npm run build --workspace=@evtivity/codegen && node packages/codegen/dist/index.js --version 2.1",
+    "codegen:2.0.1": "npm run build --workspace=@evtivity/codegen && node packages/codegen/dist/index.js --version 2.0.1",
     "codegen:1.6": "npm run build --workspace=@evtivity/codegen && node packages/codegen/dist/index.js --version 1.6",
     "dev:ocpp": "node --env-file-if-exists=.env --import tsx --watch packages/ocpp/src/start.ts",
     "dev:api": "node --env-file-if-exists=.env --import tsx --watch packages/api/src/index.ts",
@@ -40,7 +41,7 @@
     "test": "vitest run --config vitest.workspace.ts",
     "test:integration": "vitest run --config vitest.integration.ts",
     "test:release": "bash scripts/release-version.test.sh",
-    "lint": "node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js .",
+    "lint": "node scripts/lint.mjs",
     "typecheck": "tsc -b && node scripts/typecheck-e2e.mjs",
     "build:prod": "node scripts/build.mjs all",
     "format": "prettier --write .",

@@ -241,6 +241,44 @@ describe('computeAndSendChargingProfile', () => {
     expect(sqlValues[2]).toContainEqual({ unsafe: 'st.is_conformance = false' });
   });
 
+  it('sends dynamic control needs one TxProfile schedule within maxScheduleTuples (K19.FR.07)', async () => {
+    const sql = createSqlMock([], []);
+    await computeAndSendChargingProfile(
+      sql as never,
+      pubsub,
+      {
+        stationUuid: 'sta_1',
+        stationOcppId: 'CS-1',
+        evseId: 1,
+        transactionId: 'tx-1',
+        chargingNeeds: {
+          requestedEnergyTransfer: 'AC_BPT',
+          controlMode: 'DynamicControl',
+          v2xChargingParameters: { maxChargePower: 5000, maxDischargePower: 5000 },
+        },
+        maxScheduleTuples: 1,
+      },
+      NOW,
+    );
+    const payload = sentCommand(pubsub).payload as {
+      evseId: number;
+      chargingProfile: {
+        chargingProfilePurpose: string;
+        transactionId: string;
+        chargingSchedule: Array<Record<string, unknown>>;
+      };
+    };
+    expect(payload.evseId).toBe(1);
+    expect(payload.chargingProfile.chargingProfilePurpose).toBe('TxProfile');
+    expect(payload.chargingProfile.transactionId).toBe('tx-1');
+    expect(payload.chargingProfile.chargingSchedule).toHaveLength(1);
+    const schedule = payload.chargingProfile.chargingSchedule[0]!;
+    expect(schedule['chargingSchedulePeriod']).toEqual([{ startPeriod: 0, limit: 5000 }]);
+    // No price schedule, so no list can exceed maxScheduleTuples (K17.FR.19).
+    expect(schedule['absolutePriceSchedule']).toBeUndefined();
+    expect(schedule['priceLevelSchedule']).toBeUndefined();
+  });
+
   it('uses the configured default power for an EV without parameters', async () => {
     const sql = createSqlMock([], []);
     await computeAndSendChargingProfile(

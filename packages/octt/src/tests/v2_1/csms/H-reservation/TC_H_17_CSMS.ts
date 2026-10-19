@@ -59,7 +59,7 @@ export const TC_H_17_CSMS: TestCase = {
           cancelReservationId = Number(payload['reservationId'] ?? 0);
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

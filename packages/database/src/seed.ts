@@ -101,6 +101,7 @@ import {
   seedSessionElectricityCostCents,
 } from './seed-electricity-rates.js';
 import { mapSeedSettings, seedSettingRows } from './seed-settings.js';
+import { demoStationProtocol } from './seed-station-defs.js';
 import argon2 from 'argon2';
 import {
   calculateCo2AvoidedKg,
@@ -118,6 +119,7 @@ import {
   LOAD_ALLOCATION_STRATEGIES,
 } from '@evtivity/lib';
 import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
+import { isOcpp2x } from '@evtivity/lib/ocpp-version';
 import type {
   ElectricityRatePeriod,
   ElectricityRatePeriodRestrictions,
@@ -1069,7 +1071,8 @@ async function seed(): Promise<void> {
   const stationModels: Array<{ model: string; power: number; type: string; amps: number }> = [];
   const stationJitter = () => (Math.random() - 0.5) * 0.004; // ~200m offset
   const stationRows = Array.from({ length: 2000 }, (_, i) => {
-    const is16 = i >= 1000;
+    const ocppProtocol = demoStationProtocol(i);
+    const is16 = !isOcpp2x(ocppProtocol);
     const siteRef = pick(createdSites);
     const modelInfo = is16 ? pick(STATION_MODELS_16) : pick(STATION_MODELS);
     stationModels.push(modelInfo);
@@ -1080,7 +1083,7 @@ async function seed(): Promise<void> {
     let loadPriority = 5;
     if (i % 7 === 0) loadPriority = randomInt(8, 10);
     else if (i % 7 === 1) loadPriority = randomInt(1, 3);
-    // 2.1 stations: SP0 (1-200), SP1 (201-900), SP2 (901-950), SP3 (951-1000)
+    // 2.x stations (every third 2.0.1, the rest 2.1): SP0 (1-200), SP1 (201-900), SP2 (901-950), SP3 (951-1000)
     // 1.6 stations: SP0 (1001-1500), SP1 (1501-2000)
     let securityProfile = 1;
     let passwordHash: string | null = stationPasswordHash;
@@ -1093,7 +1096,7 @@ async function seed(): Promise<void> {
         securityProfile = 1;
       }
     } else {
-      // 2.1 stations: SP0 for indices 0-199, SP1 for 200-899, SP2 for 900-949, SP3 for 950-999
+      // 2.x stations: SP0 for indices 0-199, SP1 for 200-899, SP2 for 900-949, SP3 for 950-999
       if (i < 200) {
         securityProfile = 0;
         passwordHash = null;
@@ -1130,7 +1133,7 @@ async function seed(): Promise<void> {
       lastHeartbeat: null,
       loadPriority,
       securityProfile,
-      ocppProtocol: is16 ? 'ocpp1.6' : 'ocpp2.1',
+      ocppProtocol,
       basicAuthPasswordHash: passwordHash,
       isSimulator: true,
       latitude:
@@ -1306,11 +1309,11 @@ async function seed(): Promise<void> {
   // simulator hardware, so the simulator reports them and CSMS auto-creates.
   const autoCreateGapEvses: Array<{ stationIdx: number; evseId: number }> = [];
   for (let i = 0; i < createdStations.length; i++) {
-    const is16 = at(stationRows, i).ocppProtocol === 'ocpp1.6';
+    const is16 = !isOcpp2x(at(stationRows, i).ocppProtocol);
     // 1.6 stations get 1-2 connectors, each with its own EVSE (EVSE N / connector N)
-    // 2.1 stations get 2-3 EVSEs
+    // 2.x stations get 2-3 EVSEs
     const numEvses = is16 ? randomInt(1, 2) : i % 5 === 0 ? 3 : 2;
-    // For every 10th 2.1 station, skip the last EVSE so the simulator triggers auto-creation
+    // For every 10th 2.x station, skip the last EVSE so the simulator triggers auto-creation
     const maxEvse = !is16 && i % 10 === 0 ? numEvses - 1 : numEvses;
     if (!is16 && i % 10 === 0) {
       autoCreateGapCount++;
@@ -1347,13 +1350,13 @@ async function seed(): Promise<void> {
   }> = [];
   for (let i = 0; i < createdEvses.length; i++) {
     const stationIdx = at(evseStationIdx, i);
-    const is16 = at(stationRows, stationIdx).ocppProtocol === 'ocpp1.6';
+    const is16 = !isOcpp2x(at(stationRows, stationIdx).ocppProtocol);
     const modelInfo = at(stationModels, stationIdx);
     const evse = at(createdEvses, i);
 
     // Primary connector. OCPP 1.6 connector N is EVSE N / connector N, the
     // numbering the 1.6 StatusNotification handler and the simulator use.
-    // 2.1 connectors start at 1 per EVSE.
+    // 2.x connectors start at 1 per EVSE.
     connectorRows.push({
       evseId: evse.id,
       connectorId: is16 ? at(evseRows, i).evseId : 1,
@@ -1366,7 +1369,7 @@ async function seed(): Promise<void> {
     // 1.6 stations: 1 connector per EVSE (1:1 mapping), no secondary connectors
     if (is16) continue;
 
-    // Secondary connector for multi-connector EVSEs (2.1 only). CHAdeMO is rare
+    // Secondary connector for multi-connector EVSEs (2.x only). CHAdeMO is rare
     // in the US and being phased out, so only a small share of DC fast chargers
     // carry one as a legacy second plug.
     if (modelInfo.type === 'CCS1' && modelInfo.power >= 50 && i % 17 === 0) {
@@ -1911,9 +1914,10 @@ async function seed(): Promise<void> {
       evseId: evse.id,
       connectorId: at(connectorRows, createdEvses.indexOf(evse)).evseId,
       driverId: driver.id,
-      // What a real station sends: an integer on OCPP 1.6, a UUID on 2.1.
-      transactionId:
-        at(stationRows, stationIdx).ocppProtocol === 'ocpp1.6' ? String(100000 + i) : randomUUID(),
+      // What a real station sends: an integer on OCPP 1.6, a UUID on 2.x.
+      transactionId: isOcpp2x(at(stationRows, stationIdx).ocppProtocol)
+        ? randomUUID()
+        : String(100000 + i),
       status,
       startedAt,
       endedAt,
@@ -2944,7 +2948,7 @@ async function seed(): Promise<void> {
   console.log('  Portal test driver invoices created.');
 
   // ------ Operational demo data (station tabs and roaming pages) ------
-  // Local auth lists: curate tokens onto the first five 2.1 stations so the
+  // Local auth lists: curate tokens onto the first five 2.x stations so the
   // station Local Auth List tab has entries. One station keeps unpushed
   // changes (lastModifiedAt > lastSyncAt) so the banner state is visible.
   const seededTokens = await db
@@ -3011,7 +3015,7 @@ async function seed(): Promise<void> {
   await db.insert(firmwareUpdates).values(firmwareRows);
   console.log(`  ${String(firmwareRows.length)} firmware update history rows created.`);
 
-  // Display messages on the first two 2.1 stations (Messages tab).
+  // Display messages on the first two 2.x stations (Messages tab).
   const displayMessageRows = createdStations.slice(0, 2).flatMap((station, i) => [
     {
       stationId: station.id,
@@ -3543,7 +3547,7 @@ async function seed(): Promise<void> {
   // Look up one OCPP 1.6 demo station's filter fields so its per-station
   // template can carry a fully-populated targetFilter (site, vendor, model,
   // station).
-  const qrStationIdx = stationRows.findIndex((r) => r.ocppProtocol === 'ocpp1.6');
+  const qrStationIdx = stationRows.findIndex((r) => !isOcpp2x(r.ocppProtocol));
   const qrStationId = qrStationIdx >= 0 ? at(stationRows, qrStationIdx).stationId : '';
   const qrStationDbId = qrStationIdx >= 0 ? (createdStations[qrStationIdx]?.id ?? null) : null;
   const [qrStationDetails] =

@@ -46,6 +46,11 @@ vi.mock('@evtivity/ocpp', () => ({
       validateRequest: vi.fn().mockReturnValue(true),
     },
   },
+  ActionRegistry201: {
+    Reset: {
+      validateRequest: vi.fn().mockReturnValue(true),
+    },
+  },
   ActionRegistry16: {
     Reset: {
       validateRequest: vi.fn().mockReturnValue(true),

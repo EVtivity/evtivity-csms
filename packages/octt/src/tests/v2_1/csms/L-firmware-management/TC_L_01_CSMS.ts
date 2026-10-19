@@ -40,7 +40,7 @@ export const TC_L_01_CSMS: TestCase = {
           updateFirmwarePayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -193,7 +193,7 @@ export const TC_L_02_CSMS: TestCase = {
           updateFirmwarePayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -301,7 +301,7 @@ export const TC_L_03_CSMS: TestCase = {
           updateFirmwarePayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -404,7 +404,7 @@ export const TC_L_04_CSMS: TestCase = {
           receivedUpdateFirmware = true;
           return { status: 'RevokedCertificate' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -460,7 +460,7 @@ export const TC_L_05_CSMS: TestCase = {
           receivedUpdateFirmware = true;
           return { status: 'InvalidCertificate' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -507,7 +507,7 @@ export const TC_L_06_CSMS: TestCase = {
           receivedUpdateFirmware = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -601,7 +601,7 @@ export const TC_L_07_CSMS: TestCase = {
           receivedUpdateFirmware = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -679,7 +679,7 @@ export const TC_L_08_CSMS: TestCase = {
           receivedUpdateFirmware = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -763,7 +763,7 @@ export const TC_L_09_CSMS: TestCase = {
           receivedUpdateFirmware = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -858,7 +858,7 @@ export const TC_L_10_CSMS: TestCase = {
           requestId = payload['requestId'] as number | null;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -934,7 +934,7 @@ export const TC_L_11_CSMS: TestCase = {
           if (updateCount === 1) return { status: 'Accepted' };
           return { status: 'Rejected' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -1033,7 +1033,7 @@ export const TC_L_13_CSMS: TestCase = {
           requestId = payload['requestId'] as number | null;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

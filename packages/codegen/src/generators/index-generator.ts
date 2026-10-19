@@ -44,17 +44,27 @@ export function generateMessagesIndex(actionPairs: Map<string, ActionPair>): str
   return lines.join('\n') + '\n';
 }
 
-export function generateValidatorsIndex(actionPairs: Map<string, ActionPair>): string {
+export function generateValidatorsIndex(
+  actionPairs: Map<string, ActionPair>,
+  options: { fit?: boolean } = {},
+): string {
+  const fit = options.fit === true;
   const lines: string[] = [];
   const actions = [...actionPairs.entries()].sort(([a], [b]) => a.localeCompare(b));
 
   for (const [action, pair] of actions) {
     if (pair.request != null) {
       const suffix = pair.request.messageType === 'Standalone' ? '' : 'Request';
-      lines.push(`export { validate${action}${suffix} } from './${action}${suffix}.validator.js';`);
+      const names = fit
+        ? `validate${action}${suffix}, fit${action}${suffix}`
+        : `validate${action}${suffix}`;
+      lines.push(`export { ${names} } from './${action}${suffix}.validator.js';`);
     }
     if (pair.response != null) {
-      lines.push(`export { validate${action}Response } from './${action}Response.validator.js';`);
+      const names = fit
+        ? `validate${action}Response, fit${action}Response`
+        : `validate${action}Response`;
+      lines.push(`export { ${names} } from './${action}Response.validator.js';`);
     }
   }
 

@@ -8,3 +8,11 @@
  * driver and tariff referenced and the run's cleanup fails.
  */
 export const OCTT_TEST_DRIVER_EMAIL = 'octt-test@evtivity.local';
+
+/**
+ * Settings row holding the settings a running CSMS conformance run changed and
+ * their values before it, written before each change. A run killed before it
+ * restored them leaves the row, and the next run or the worker sweep puts the
+ * values back. Server-managed: the generic settings routes never show or write it.
+ */
+export const OCTT_PENDING_RESTORE_SETTING_KEY = 'octt.pendingRestore';

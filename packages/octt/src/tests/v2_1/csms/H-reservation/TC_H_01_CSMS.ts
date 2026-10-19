@@ -66,7 +66,7 @@ export const TC_H_01_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -159,7 +159,7 @@ export const TC_H_07_CSMS: TestCase = {
           reservationId = Number(payload['id'] ?? 0);
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -259,7 +259,7 @@ export const TC_H_08_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -350,7 +350,7 @@ export const TC_H_14_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -441,7 +441,7 @@ export const TC_H_15_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -534,7 +534,7 @@ export const TC_H_19_CSMS: TestCase = {
           }
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -620,7 +620,7 @@ export const TC_H_20_CSMS: TestCase = {
           reservationId = Number(payload['id'] ?? 0);
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -738,7 +738,7 @@ export const TC_H_22_CSMS: TestCase = {
           }
           return { status: 'Rejected' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

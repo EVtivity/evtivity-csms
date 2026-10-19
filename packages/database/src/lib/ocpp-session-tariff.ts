@@ -9,7 +9,7 @@
 // (tariff boundary job).
 
 import type postgres from 'postgres';
-import { buildOcppTariff, createLogger, publishOcppCommand } from '@evtivity/lib';
+import { buildOcppTariff, createLogger, isOcpp21, publishOcppCommand } from '@evtivity/lib';
 import type { OcppTariff, OcppTariffStationSupport, PubSubClient } from '@evtivity/lib';
 import { getIdlingGracePeriodMinutes } from './idling-setting.js';
 import { isSplitBillingEnabled } from './pricing-settings.js';
@@ -172,7 +172,7 @@ export async function sendSessionTariffChange(
       session == null ||
       session.status !== 'active' ||
       session.transaction_id == null ||
-      session.ocpp_protocol !== 'ocpp2.1' ||
+      !isOcpp21(session.ocpp_protocol) ||
       session.is_online !== true
     ) {
       return 'skipped';

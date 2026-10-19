@@ -115,6 +115,7 @@ vi.mock('../middleware/rbac.js', () => ({
 }));
 
 vi.mock('@evtivity/lib', () => ({
+  OCTT_PENDING_RESTORE_SETTING_KEY: 'octt.pendingRestore',
   encryptString: vi.fn((value: string) => `encrypted:${value}`),
   decryptString: vi.fn((value: string) =>
     value.startsWith('encrypted:') ? value.slice('encrypted:'.length) : value,

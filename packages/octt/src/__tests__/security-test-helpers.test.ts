@@ -21,6 +21,7 @@ function makeContext(pollsUntilCreated: number): {
     callApi,
     ctx: {
       client: {} as TestContext['client'],
+      version: 'ocpp2.1',
       stationId: 'OCTT-C-authorization-TC_C_131_CSMS-test',
       tokens: {} as TestContext['tokens'],
       stationDbId: 'sta_test',

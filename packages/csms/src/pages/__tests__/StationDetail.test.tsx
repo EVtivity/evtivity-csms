@@ -60,9 +60,9 @@ const STATION = {
   ocppProtocol: 'ocpp2.1',
 };
 
-function renderPage(): void {
+function renderPage(station: Record<string, unknown> = STATION): void {
   apiMock.get.mockImplementation((url: string) => {
-    if (url === '/v1/stations/st1') return Promise.resolve(STATION);
+    if (url === '/v1/stations/st1') return Promise.resolve(station);
     return Promise.resolve({ data: [], total: 0 });
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -117,5 +117,19 @@ describe('station header actions (ISSUES items 10 and 17)', () => {
     expect(disable.querySelector('svg')).not.toBeNull();
     const explain = within(row).getByTestId('ai-explain');
     expect(explain.querySelector('svg')?.getAttribute('class')).toContain('text-link');
+  });
+});
+
+describe('station tabs by OCPP version', () => {
+  it.each([
+    ['ocpp2.0.1', true],
+    ['ocpp2.1', true],
+    ['ocpp1.6', false],
+  ])('a %s station shows the 2.x tabs: %s', async (ocppProtocol, shown) => {
+    renderPage({ ...STATION, ocppProtocol });
+    await screen.findByTestId('station-header-actions');
+    for (const tab of ['pnc.certificates', 'stations.displayMessages', 'stations.events']) {
+      expect(screen.queryByRole('tab', { name: tab }) != null).toBe(shown);
+    }
   });
 });

@@ -870,6 +870,7 @@
     "STATUS_CHECK_TIMEOUT": "La verificación de estado expiró. Vuelva a conectar el conector e inténtelo de nuevo.",
     "SECURITY_PROFILE_DOWNGRADE": "Una estación conectada no puede pasar a un perfil de seguridad inferior",
     "STATION_TLS_URL_NOT_CONFIGURED": "La dirección TLS pública para estaciones (OCPP_STATION_TLS_URL) no está configurada",
+    "STATION_ENDPOINT_URL_UNKNOWN": "Aún no se conoce la dirección con la que se conecta esta estación. Se registra en la próxima conexión de la estación.",
     "STATION_SECURITY_CHANGE_REJECTED": "La estación no aceptó el cambio de seguridad; su configuración actual no cambió",
     "STATION_CREDENTIALS_ROUTE_REQUIRED": "Las contraseñas de la estación se cambian con POST /v1/stations/:id/credentials, no con un comando OCPP genérico",
     "WEB_PAYMENTS_NOT_SUPPORTED": "La estación no admite códigos QR dinámicos",

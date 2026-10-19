@@ -9,6 +9,12 @@ import {
   SIMULATOR_CONNECTION_HEADER_VALUE,
   tryParseJson,
 } from '@evtivity/lib';
+import { isOcpp21, type OcppProtocol } from '@evtivity/lib/ocpp-version';
+import {
+  isOcpp201Action,
+  toOcpp201StationRequest,
+  toOcpp201StationResponse,
+} from './lib/ocpp201.js';
 
 // Errors a TLS client raises when it does not accept the server certificate.
 const SERVER_CERTIFICATE_ERRORS = new Set([
@@ -106,7 +112,7 @@ type PendingCall = {
 export interface OcppClientOptions {
   serverUrl: string;
   stationId: string;
-  ocppProtocol: 'ocpp1.6' | 'ocpp2.1';
+  ocppProtocol: OcppProtocol;
   password?: string | undefined;
   securityProfile?: number | undefined;
   clientCert?: string | undefined;
@@ -185,7 +191,7 @@ export class OcppClient {
   private onDisconnectedCallback: (() => void) | null = null;
 
   private readonly _stationId: string;
-  private readonly _protocol: 'ocpp1.6' | 'ocpp2.1';
+  private readonly _protocol: OcppProtocol;
   private serverUrl: string;
   private password: string;
   private securityProfile: number;
@@ -251,7 +257,7 @@ export class OcppClient {
     return this._stationId;
   }
 
-  get protocol(): 'ocpp1.6' | 'ocpp2.1' {
+  get protocol(): OcppProtocol {
     return this._protocol;
   }
 
@@ -384,6 +390,22 @@ export class OcppClient {
     });
   }
 
+  /**
+   * The CALL payload as the station's protocol sends it. OCPP 2.0.1: throws for
+   * a 2.1-only message, drops or maps 2.1-only fields and values, and returns null
+   * when nothing of the message exists in 2.0.1 (nothing is sent).
+   */
+  callPayload(action: string, payload: Record<string, unknown>): Record<string, unknown> | null {
+    if (this._protocol !== 'ocpp2.0.1') return payload;
+    if (!isOcpp201Action(action)) throw new Error(`${action} is not defined in OCPP 2.0.1`);
+    return toOcpp201StationRequest(action, payload);
+  }
+
+  /** The CALLRESULT payload of a CSMS call as the station's protocol sends it. */
+  callResultPayload(action: string, payload: Record<string, unknown>): Record<string, unknown> {
+    return this._protocol === 'ocpp2.0.1' ? toOcpp201StationResponse(action, payload) : payload;
+  }
+
   sendCall(action: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     return new Promise<Record<string, unknown>>((resolve, reject) => {
       const ws = this.openSocket();
@@ -392,8 +414,21 @@ export class OcppClient {
         return;
       }
 
+      let wirePayload: Record<string, unknown> | null;
+      try {
+        wirePayload = this.callPayload(action, payload);
+      } catch (err) {
+        reject(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
+      if (wirePayload == null) {
+        // Nothing of the message exists in 2.0.1: the empty answer every such message has.
+        resolve({});
+        return;
+      }
+
       const messageId = randomUUID();
-      const call: OcppCall = [2, messageId, action, payload];
+      const call: OcppCall = [2, messageId, action, wirePayload];
 
       const timeout = setTimeout(() => {
         this.pending.delete(messageId);
@@ -415,9 +450,10 @@ export class OcppClient {
   /**
    * OCPP 2.1 SEND (MessageTypeId 6, Part 4 4.2.4): an unconfirmed message that
    * expects no response, e.g. NotifyPeriodicEventStream. Returns false when
-   * not connected (nothing is sent).
+   * not connected or on OCPP 1.6 and 2.0.1, which have no SEND (nothing is sent).
    */
   sendSend(action: string, payload: Record<string, unknown>): boolean {
+    if (!isOcpp21(this._protocol)) return false;
     const ws = this.openSocket();
     if (ws == null) return false;
     ws.send(JSON.stringify([6, randomUUID(), action, payload]));
@@ -590,13 +626,18 @@ export class OcppClient {
         return;
       }
 
+      if (this._protocol === 'ocpp2.0.1' && !isOcpp201Action(action)) {
+        this.sendCallError(messageId, 'NotImplemented', `${action} is not defined in OCPP 2.0.1`);
+        return;
+      }
+
       this.onIncomingCall(messageId, action, payload)
         .then((response) => {
           if (response == null) {
             console.log(`[${this._stationId}] ${action} left unanswered on purpose`);
             return;
           }
-          this.sendCallResult(messageId, response);
+          this.sendCallResult(messageId, this.callResultPayload(action, response));
         })
         .catch((err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);

@@ -41,6 +41,9 @@ import {
   type StationMessageContext,
   formatCurrencyAmount,
   publishOcppCommand,
+  isOcpp2x,
+  isOcpp21,
+  stationMessageContentFor,
   resolveTaxBasis,
 } from '@evtivity/lib';
 import type { ServiceLogger } from '@evtivity/lib';
@@ -100,6 +103,15 @@ export const STATION_MESSAGE_SLOT_UNAVAILABLE = 9005;
 
 type DispatchState = 'Idle' | 'Charging' | 'Suspended' | 'Discharging' | 'Faulted' | 'Unavailable';
 
+/**
+ * OCPP 2.0.1 has no Suspended or Discharging message state (MessageStateEnumType:
+ * Charging, Faulted, Idle, Unavailable); both happen during a transaction, which
+ * 2.0.1 shows as Charging.
+ */
+export function ocpp201DisplayState(state: DispatchState): DispatchState {
+  return state === 'Suspended' || state === 'Discharging' ? 'Charging' : state;
+}
+
 export async function pushStationMessageSlot(
   stationOcppId: string,
   ocppProtocol: string | null,
@@ -109,7 +121,7 @@ export async function pushStationMessageSlot(
 ): Promise<void> {
   const pubsub = getPubSub();
 
-  if (ocppProtocol != null && ocppProtocol.startsWith('ocpp2')) {
+  if (isOcpp2x(ocppProtocol)) {
     await publishOcppCommand(pubsub, {
       stationId: stationOcppId,
       action: 'SetDisplayMessage',
@@ -117,8 +129,8 @@ export async function pushStationMessageSlot(
         message: {
           id: slot,
           priority: 'NormalCycle',
-          state,
-          message: { format: 'UTF8', content },
+          state: isOcpp21(ocppProtocol) ? state : ocpp201DisplayState(state),
+          message: { format: 'UTF8', content: stationMessageContentFor(ocppProtocol, content) },
         },
       },
       version: ocppProtocol,
@@ -145,7 +157,7 @@ export async function clearStationMessageSlot(
   ocppProtocol: string | null,
   slot: number,
 ): Promise<void> {
-  if (ocppProtocol == null || !ocppProtocol.startsWith('ocpp2')) return;
+  if (!isOcpp2x(ocppProtocol)) return;
 
   await publishOcppCommand(getPubSub(), {
     stationId: stationOcppId,
@@ -204,10 +216,6 @@ async function getStationSiteLanguage(internalStationId: string): Promise<string
   return row?.language ?? null;
 }
 
-function isOcpp2(ocppProtocol: string): boolean {
-  return ocppProtocol.startsWith('ocpp2');
-}
-
 async function dispatchAndUpsert(
   internalStationId: string,
   stationOcppId: string,
@@ -215,11 +223,13 @@ async function dispatchAndUpsert(
   slot: number,
   state: DispatchState,
   templateState: StationMessageState,
-  content: string,
+  rendered: string,
   log: ServiceLogger,
 ): Promise<void> {
-  if (content.length === 0) return;
+  if (rendered.length === 0) return;
 
+  // The hash is of what the station gets (2.0.1 content is cut to its limit).
+  const content = stationMessageContentFor(ocppProtocol, rendered);
   const contentHash = sha256Hex(content);
 
   const [existing] = await db
@@ -341,7 +351,7 @@ export async function pushAllStationMessages(
 ): Promise<void> {
   // OCPP 1.6 has no SetDisplayMessage: it gets the Idle screen only, through
   // the vendor DataTransfer in pushStationMessageSlot.
-  if (ocppProtocol == null || (!isOcpp2(ocppProtocol) && ocppProtocol !== 'ocpp1.6')) return;
+  if (!isOcpp2x(ocppProtocol) && ocppProtocol !== 'ocpp1.6') return;
 
   const enabled = await isStationMessageEnabled();
   if (!enabled) return;
@@ -415,7 +425,7 @@ export async function pushAllStationMessages(
       log,
     );
 
-    if (!isOcpp2(ocppProtocol)) return;
+    if (!isOcpp2x(ocppProtocol)) return;
 
     const faultedContent = await renderStationMessage('faulted', baseCtx, language);
     await dispatchAndUpsert(
@@ -559,7 +569,7 @@ export async function pushTransactionMessage(
   sessionRow: TransactionSessionRow,
   log: ServiceLogger,
 ): Promise<void> {
-  if (ocppProtocol == null || !ocppProtocol.startsWith('ocpp2')) return;
+  if (!isOcpp2x(ocppProtocol)) return;
 
   const enabled = await isStationMessageEnabled();
   if (!enabled) return;
@@ -671,9 +681,9 @@ export async function pushTransactionMessage(
     ctx.driverFirstName = driverFirstName;
   }
 
-  let content: string;
+  let rendered: string;
   try {
-    content = await renderStationMessage(mapping.templateState, ctx, language);
+    rendered = await renderStationMessage(mapping.templateState, ctx, language);
   } catch (err: unknown) {
     log.warn(
       { stationId: stationOcppId, templateState: mapping.templateState, error: err },
@@ -682,7 +692,9 @@ export async function pushTransactionMessage(
     return;
   }
 
-  if (content.length === 0) return;
+  if (rendered.length === 0) return;
+  // The hash is of what the station gets (2.0.1 content is cut to its limit).
+  const content = stationMessageContentFor(ocppProtocol, rendered);
   const contentHash = sha256Hex(content);
 
   if (existingBySlot.get(mapping.slot) !== contentHash) {
@@ -760,7 +772,7 @@ export async function clearAllTransactionMessages(
   ocppProtocol: string | null,
   log: ServiceLogger,
 ): Promise<void> {
-  if (ocppProtocol == null || !ocppProtocol.startsWith('ocpp2')) return;
+  if (!isOcpp2x(ocppProtocol)) return;
 
   const transactionSlots = [
     STATION_MESSAGE_SLOT_CHARGING,

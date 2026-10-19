@@ -120,6 +120,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 vi.mock('@evtivity/lib', async () => ({
+  OCTT_PENDING_RESTORE_SETTING_KEY: 'octt.pendingRestore',
   formatCurrencyAmount: (
     await vi.importActual<typeof import('@evtivity/lib/currency')>('@evtivity/lib/currency')
   ).formatCurrencyAmount,

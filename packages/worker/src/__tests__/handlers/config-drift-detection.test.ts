@@ -216,6 +216,44 @@ describe('configDriftDetectionHandler', () => {
     );
   });
 
+  it('does not count a 2.1-only variable an OCPP 2.0.1 station never reported as drift', async () => {
+    setupDbResults(
+      [
+        {
+          id: 'tpl_1',
+          variables: [{ component: 'TxCtrlr', variable: 'ResumptionTimeout', value: '60' }],
+          targetFilter: null,
+        },
+      ],
+      [{ id: 'sta_201', ocppProtocol: 'ocpp2.0.1' }],
+      [],
+    );
+
+    const { configDriftDetectionHandler } = mod;
+    await configDriftDetectionHandler(log);
+
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it('counts an OCPP 2.0.1 variable a 2.0.1 station never reported as drift', async () => {
+    setupDbResults(
+      [
+        {
+          id: 'tpl_1',
+          variables: [{ component: 'TxCtrlr', variable: 'TxStartPoint', value: 'EVConnected' }],
+          targetFilter: null,
+        },
+      ],
+      [{ id: 'sta_201', ocppProtocol: 'ocpp2.0.1' }],
+      [],
+    );
+
+    const { configDriftDetectionHandler } = mod;
+    await configDriftDetectionHandler(log);
+
+    expect(mockPublish).toHaveBeenCalledTimes(1);
+  });
+
   it('does not emit drift when all station values match', async () => {
     setupDbResults(
       [

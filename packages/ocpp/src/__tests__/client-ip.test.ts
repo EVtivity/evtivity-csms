@@ -3,7 +3,12 @@
 
 import { describe, it, expect } from 'vitest';
 import type { IncomingMessage } from 'node:http';
-import { isTlsConnection, parseTrustedProxies, resolveClientIp } from '../server/client-ip.js';
+import {
+  isTlsConnection,
+  parseTrustedProxies,
+  resolveClientIp,
+  stationEndpointUrl,
+} from '../server/client-ip.js';
 
 function req(remoteAddress: string | undefined, xff?: string | string[]): IncomingMessage {
   return {
@@ -110,5 +115,28 @@ describe('isTlsConnection', () => {
   it('treats a plain or missing scheme as not TLS', () => {
     expect(isTlsConnection(make('10.10.3.4', 'http'), trusted)).toBe(false);
     expect(isTlsConnection(make('10.10.3.4'), trusted)).toBe(false);
+  });
+});
+
+describe('stationEndpointUrl', () => {
+  const withHost = (host?: string): IncomingMessage =>
+    ({ headers: host === undefined ? {} : { host } }) as unknown as IncomingMessage;
+
+  it('is the scheme and the Host header, without the station id path', () => {
+    expect(stationEndpointUrl(withHost('csms.example.com:7103'), false)).toBe(
+      'ws://csms.example.com:7103',
+    );
+    expect(stationEndpointUrl(withHost('ocpp.example.com'), true)).toBe('wss://ocpp.example.com');
+    expect(stationEndpointUrl(withHost('[::1]:8443'), true)).toBe('wss://[::1]:8443');
+  });
+
+  it('is null without a usable Host header', () => {
+    expect(stationEndpointUrl(withHost(), false)).toBeNull();
+    expect(stationEndpointUrl(withHost(''), false)).toBeNull();
+    expect(stationEndpointUrl(withHost('user:pw@host'), false)).toBeNull();
+    expect(stationEndpointUrl(withHost('host/path'), false)).toBeNull();
+    expect(stationEndpointUrl(withHost('host?x=1'), false)).toBeNull();
+    expect(stationEndpointUrl(withHost('a b'), false)).toBeNull();
+    expect(stationEndpointUrl(withHost(`${'h'.repeat(256)}.com`), false)).toBeNull();
   });
 });

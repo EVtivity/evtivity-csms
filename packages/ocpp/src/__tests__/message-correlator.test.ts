@@ -188,6 +188,26 @@ describe('MessageCorrelator', () => {
       await expect(promise).resolves.toEqual({ status: 'Accepted' });
     });
 
+    it('validates against the ocpp2.0.1 registry for 2.0.1 sessions', async () => {
+      // A negative monitor id is valid in 2.0.1; 2.1 added a minimum of 0.
+      const reply = { clearMonitoringResult: [{ id: -1, status: 'Accepted' }] };
+      const results: Record<string, unknown> = {};
+      for (const protocol of ['ocpp2.0.1', 'ocpp2.1']) {
+        correlator = new MessageCorrelator(logger);
+        const ws = mockWs();
+        const session = createSessionState('CS-001', protocol);
+        const promise = correlator.sendCall(ws, session, 'ClearVariableMonitoring', { id: [-1] });
+        const sentData = JSON.parse(vi.mocked(ws.send).mock.calls[0]?.[0] as string) as unknown[];
+        correlator.handleResponse(session, [3, sentData[1] as string, reply]);
+        results[protocol] = await promise.then(
+          () => 'resolved',
+          () => 'rejected',
+        );
+      }
+
+      expect(results).toEqual({ 'ocpp2.0.1': 'resolved', 'ocpp2.1': 'rejected' });
+    });
+
     it('clears timeout on successful response', async () => {
       correlator = new MessageCorrelator(logger, 5000);
       const ws = mockWs();

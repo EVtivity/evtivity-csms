@@ -66,7 +66,7 @@ export const TC_K_01_CSMS: TestCase = {
           received = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -136,7 +136,7 @@ export const TC_K_02_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Rejected' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -210,7 +210,7 @@ export const TC_K_03_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -284,7 +284,7 @@ export const TC_K_10_CSMS: TestCase = {
           received = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -351,7 +351,7 @@ export const TC_K_15_CSMS: TestCase = {
           received = true;
           throw new Error('NotSupported');
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -419,7 +419,7 @@ export const TC_K_19_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -497,7 +497,7 @@ export const TC_K_60_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -569,7 +569,7 @@ export const TC_K_100_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -642,7 +642,7 @@ export const TC_K_101_CSMS: TestCase = {
           receivedProfile = true;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -732,7 +732,7 @@ export const TC_K_102_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -805,7 +805,7 @@ export const TC_K_104_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -877,7 +877,7 @@ export const TC_K_106_CSMS: TestCase = {
           profilePayload = payload;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 
@@ -982,7 +982,7 @@ export const TC_K_109_CSMS: TestCase = {
           receivedProfileId = profile?.id ?? null;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

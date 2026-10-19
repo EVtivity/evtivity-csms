@@ -9,13 +9,21 @@
  * response. Nothing here imports generated OCPP types.
  */
 
+import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
 import type { VehicleIdCapture } from '@evtivity/lib/vehicle-id';
 import type { AuthorizeOutcome } from './authorize-log.js';
 
 /** Why the token is checked: an Authorize request, a transaction start, or a later transaction event. */
 export type AuthorizeContext = 'authorize' | 'tx_start' | 'tx_update';
 
-export type AuthorizeOcppVersion = 'ocpp1.6' | 'ocpp2.1';
+export type AuthorizeOcppVersion = OcppProtocol;
+
+/** The protocol a 2.x handler records for an attempt (the 1.6 Plug and Charge DataTransfer runs there too). */
+export function authorizeOcppVersion(protocolVersion: string): AuthorizeOcppVersion {
+  return protocolVersion === 'ocpp1.6' || protocolVersion === 'ocpp2.0.1'
+    ? protocolVersion
+    : 'ocpp2.1';
+}
 
 export interface AuthorizeTokenInput {
   stationId: string;

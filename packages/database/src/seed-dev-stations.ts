@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // docker-build.sh dev fixture (npm run db:seed:dev). Runs after `db:seed` and
-// adds 1 site + 4 stations (IOCHARGER-001 / IOCHARGER-002 OCPP 2.1 real,
-// CS-0001 OCPP 1.6 simulator, CS-0002 OCPP 2.1 simulator) so a fresh Docker
+// adds 1 site + 5 stations (IOCHARGER-001 OCPP 1.6 / IOCHARGER-002 OCPP 2.1 real,
+// CS-0001 OCPP 1.6, CS-0002 OCPP 2.1 and CS-9001 OCPP 2.0.1 simulators) so a fresh Docker
 // stack has something to exercise without the full 2000-station demo dataset.
 // Idempotent; no-op when those station IDs already exist (e.g. when
 // SEED_DEMO=true already created them).
@@ -13,6 +13,7 @@ import { eq } from 'drizzle-orm';
 import { db, client } from './config.js';
 import { acceptPendingFixtureStations } from './lib/fixture-stations.js';
 import { ensureSiteElectricityRates } from './seed-electricity-rates.js';
+import { configTemplateVersion, devStationDefs } from './seed-station-defs.js';
 import {
   sites,
   vendors,
@@ -73,44 +74,7 @@ async function ensureVendor(name: string): Promise<string> {
 const ioVendorId = await ensureVendor('IoCharger');
 const evtivityVendorId = await ensureVendor('EVtivity');
 
-const stationDefs = [
-  {
-    stationId: 'IOCHARGER-001',
-    vendorId: ioVendorId,
-    model: 'IOCAH10-50',
-    serialNumber: 'A10E231922830',
-    ocppProtocol: 'ocpp1.6',
-    isSimulator: false,
-    connector: { type: 'Type1', power: '7.68', amps: 32 },
-  },
-  {
-    stationId: 'IOCHARGER-002',
-    vendorId: ioVendorId,
-    model: 'IOCAH10-50',
-    serialNumber: 'A10E231922831',
-    ocppProtocol: 'ocpp2.1',
-    isSimulator: false,
-    connector: { type: 'Type1', power: '7.68', amps: 32 },
-  },
-  {
-    stationId: 'CS-0001',
-    vendorId: evtivityVendorId,
-    model: 'DCFC-150',
-    serialNumber: 'SN-2026-0001',
-    ocppProtocol: 'ocpp1.6',
-    isSimulator: true,
-    connector: { type: 'CCS2', power: '150', amps: 375 },
-  },
-  {
-    stationId: 'CS-0002',
-    vendorId: evtivityVendorId,
-    model: 'DCFC-150',
-    serialNumber: 'SN-2026-0002',
-    ocppProtocol: 'ocpp2.1',
-    isSimulator: true,
-    connector: { type: 'CCS2', power: '150', amps: 375 },
-  },
-];
+const stationDefs = devStationDefs({ ioCharger: ioVendorId, evtivity: evtivityVendorId });
 
 let createdCount = 0;
 for (const def of stationDefs) {
@@ -149,7 +113,7 @@ for (const def of stationDefs) {
 
   if (def.vendorId !== ioVendorId) {
     const tplName = `${def.stationId} - Configurations`;
-    const tplOcppVersion = def.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
+    const tplOcppVersion = configTemplateVersion(def.ocppProtocol);
     const tplFilter = {
       stationId: inserted.id,
       siteId,

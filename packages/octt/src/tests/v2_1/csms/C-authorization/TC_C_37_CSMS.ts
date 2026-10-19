@@ -37,7 +37,7 @@ export const TC_C_37_CSMS: TestCase = {
         clearCacheReceived = true;
         return { status: 'Accepted' };
       }
-      return defaultReply('ocpp2.1', action, payload);
+      return defaultReply(ctx.version, action, payload);
     });
 
     // Wait for the CSMS to send ClearCache

@@ -164,33 +164,35 @@ export function InvoiceDetail(): React.JSX.Element {
           <CardTitle className="text-sm">{t('invoices.items')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          {invoice.lineItems.map((line) => (
-            <div
-              key={line.id}
-              className="flex justify-between gap-4 text-sm"
-              data-testid={`invoice-line-${String(line.id)}`}
-            >
-              <div className="min-w-0">
-                <p className="font-medium">{line.description}</p>
-                {(line.sessionDate != null ||
-                  line.stationName != null ||
-                  line.energyWh != null) && (
-                  <p className="text-xs text-muted-foreground">
-                    {[
-                      line.sessionDate != null ? formatDay(line.sessionDate) : null,
-                      line.stationName,
-                      line.energyWh != null ? formatEnergy(line.energyWh) : null,
-                    ]
-                      .filter((part) => part != null)
-                      .join(' · ')}
-                  </p>
-                )}
+          <div className="-mx-2">
+            {invoice.lineItems.map((line) => (
+              <div
+                key={line.id}
+                className="flex justify-between gap-4 rounded-md px-2 py-2 text-sm even:bg-muted/40"
+                data-testid={`invoice-line-${String(line.id)}`}
+              >
+                <div className="min-w-0">
+                  <p className="font-medium">{line.description}</p>
+                  {(line.sessionDate != null ||
+                    line.stationName != null ||
+                    line.energyWh != null) && (
+                    <p className="text-xs text-muted-foreground">
+                      {[
+                        line.sessionDate != null ? formatDay(line.sessionDate) : null,
+                        line.stationName,
+                        line.energyWh != null ? formatEnergy(line.energyWh) : null,
+                      ]
+                        .filter((part) => part != null)
+                        .join(' · ')}
+                    </p>
+                  )}
+                </div>
+                <span className="shrink-0 font-medium">
+                  {formatCents(line.totalCents, invoice.currency)}
+                </span>
               </div>
-              <span className="shrink-0 font-medium">
-                {formatCents(line.totalCents, invoice.currency)}
-              </span>
-            </div>
-          ))}
+            ))}
+          </div>
           <div className="space-y-2 border-t border-border pt-3">
             <Row
               label={t('invoices.net')}

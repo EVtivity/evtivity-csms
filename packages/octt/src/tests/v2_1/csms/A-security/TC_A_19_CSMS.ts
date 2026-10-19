@@ -94,12 +94,17 @@ export const TC_A_19_CSMS: TestCase = {
         resetReceived = true;
         return Promise.resolve({ status: 'Accepted' });
       }
-      return defaultReply('ocpp2.1', action, payload);
+      return defaultReply(ctx.version, action, payload);
     });
 
     // Manual actions: new NetworkConnectionProfile one level higher, priority, reboot.
+    // OCPP 2.0.1 has no NetworkConfiguration component: the operator names the
+    // station's network interface (the CSMS ignores it for 2.1, which reads it).
     await waitForOnline(ctx);
-    const api = await ctx.callApi('PATCH', `/stations/${ctx.stationDbId}`, { securityProfile: 2 });
+    const api = await ctx.callApi('PATCH', `/stations/${ctx.stationDbId}`, {
+      securityProfile: 2,
+      ...(ctx.version === 'ocpp2.0.1' ? { ocppInterface: OCPP_INTERFACE } : {}),
+    });
 
     const profile = networkProfile as Record<string, unknown> | null;
     const connectionData = (profile?.['connectionData'] ?? {}) as Record<string, unknown>;

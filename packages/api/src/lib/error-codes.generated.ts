@@ -304,6 +304,7 @@ export const ERROR_CODES = {
   STATION_ALREADY_AVAILABLE: 'STATION_ALREADY_AVAILABLE',
   STATION_ALREADY_IN_FLEET: 'STATION_ALREADY_IN_FLEET',
   STATION_CREDENTIALS_ROUTE_REQUIRED: 'STATION_CREDENTIALS_ROUTE_REQUIRED',
+  STATION_ENDPOINT_URL_UNKNOWN: 'STATION_ENDPOINT_URL_UNKNOWN',
   STATION_HAS_ACTIVE_SESSION: 'STATION_HAS_ACTIVE_SESSION',
   STATION_ID_EXISTS: 'STATION_ID_EXISTS',
   STATION_NOT_FOUND: 'STATION_NOT_FOUND',
@@ -650,6 +651,7 @@ export type ErrorCode =
   | 'STATION_ALREADY_AVAILABLE'
   | 'STATION_ALREADY_IN_FLEET'
   | 'STATION_CREDENTIALS_ROUTE_REQUIRED'
+  | 'STATION_ENDPOINT_URL_UNKNOWN'
   | 'STATION_HAS_ACTIVE_SESSION'
   | 'STATION_ID_EXISTS'
   | 'STATION_NOT_FOUND'
@@ -1035,6 +1037,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   STATION_ALREADY_IN_FLEET: 'Station is already in this fleet',
   STATION_CREDENTIALS_ROUTE_REQUIRED:
     'Station passwords are changed with POST /v1/stations/:id/credentials, not with a generic OCPP command',
+  STATION_ENDPOINT_URL_UNKNOWN:
+    'The address this station connects on is not known yet. It is recorded when the station next connects.',
   STATION_HAS_ACTIVE_SESSION:
     'The station has an active charging session. Stop it before deleting the station.',
   STATION_ID_EXISTS: 'A station with this ID already exists',

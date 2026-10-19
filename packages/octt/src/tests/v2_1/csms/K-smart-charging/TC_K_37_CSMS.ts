@@ -45,7 +45,7 @@ export const TC_K_37_CSMS: TestCase = {
           remoteStartId = (payload['remoteStartId'] as number) ?? 1;
           return { status: 'Accepted' };
         }
-        return defaultReply('ocpp2.1', action, payload);
+        return defaultReply(ctx.version, action, payload);
       },
     );
 

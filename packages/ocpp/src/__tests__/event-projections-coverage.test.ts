@@ -458,6 +458,31 @@ describe('Event projections - coverage expansion', () => {
     });
   });
 
+  describe('station.Connected - endpoint URL', () => {
+    it('stores the endpoint URL of the connection, and null when the event has none', async () => {
+      await setup();
+
+      setupSqlResults([{ id: 'sta_000000000001' }], [], EMPTY_INSERT);
+      await eventBus.emit(
+        'station.Connected',
+        makeDomainEvent('station.Connected', 'CS-URL', {
+          ocppProtocol: 'ocpp2.0.1',
+          endpointUrl: 'ws://csms.example.com:7103',
+        }),
+      );
+      const update = findSql(/UPDATE charging_stations[\s\S]*ocpp_endpoint_url/);
+      expect(update?.values).toContain('ws://csms.example.com:7103');
+
+      setupSqlResults([{ id: 'sta_000000000001' }], [], EMPTY_INSERT);
+      await eventBus.emit(
+        'station.Connected',
+        makeDomainEvent('station.Connected', 'CS-URL', { ocppProtocol: 'ocpp2.0.1' }),
+      );
+      const second = findSql(/UPDATE charging_stations[\s\S]*ocpp_endpoint_url/);
+      expect(second?.values.at(-2)).toBeNull();
+    });
+  });
+
   describe('station.Connected - OCPI push with siteId', () => {
     it('pushes OCPI location update when siteId is present and roaming enabled', async () => {
       mockIsRoamingEnabled.mockResolvedValueOnce(true);

@@ -11,7 +11,7 @@ import {
   toolOcppVersion,
   translatedOperationIds,
 } from '../services/ai/tools/ocpp-version.js';
-import type { OcppVersion } from '../services/ai/tools/ocpp-version.js';
+import type { OcppProtocol } from '@evtivity/lib';
 import { checkOcppCommandVersion } from '../services/ai/tools/ocpp-command-check.js';
 import type { CommandStation } from '../lib/command-station.js';
 
@@ -28,7 +28,7 @@ function ocppEntry(name: string): ToolsetEntry {
   return found;
 }
 
-function mapTo(name: string, args: Record<string, unknown>, version: OcppVersion) {
+function mapTo(name: string, args: Record<string, unknown>, version: OcppProtocol) {
   return mapOcppCommand(ocppEntry(name).tool, { stationId: 'CS-1', ...args }, version, {
     remoteStartId: () => 4242,
   });
@@ -64,6 +64,22 @@ describe('AI OCPP version mapping', () => {
     expect(ocppEntry('ocppv21_reset').definition.description).toContain(
       'For OCPP 2.1 stations: check',
     );
+  });
+
+  it('gives an OCPP 2.0.1 station the 2.1 tools of the actions 2.0.1 defines only', () => {
+    expect(mapTo('ocppv21_reset', { type: 'OnIdle' }, 'ocpp2.0.1')).toEqual({ kind: 'match' });
+    const tariffs = mapTo('ocppv21_get_tariffs', { evseId: 0 }, 'ocpp2.0.1');
+    expect(tariffs.kind).toBe('unsupported');
+    expect(tariffs).toMatchObject({
+      message: expect.stringContaining(
+        'uses OCPP 2.0.1, but ocppv21_get_tariffs is defined in OCPP 2.1 only',
+      ) as unknown,
+    });
+    expect(mapTo('ocppv16_reset', { type: 'Soft' }, 'ocpp2.0.1')).toMatchObject({
+      kind: 'mapped',
+      operationId: 'ocppv21_Reset',
+      args: { type: 'OnIdle' },
+    });
   });
 
   it('a tool of the station version matches', () => {
@@ -296,6 +312,26 @@ describe('AI OCPP command version check', () => {
         reason: 'station_not_found',
         modelText: 'Station not found: IOCHARGER-002. Check the station ID with a station lookup.',
       },
+    });
+  });
+
+  it('refuses a 2.1-only command for an OCPP 2.0.1 station and keeps a shared one', async () => {
+    const findStation = async (): Promise<CommandStation> => station('ocpp2.0.1');
+    const refused = await checkOcppCommandVersion(
+      caller(),
+      { entry: ocppEntry('ocppv21_get_tariffs'), args: { stationId: 'CS-201', evseId: 0 } },
+      { findStation },
+    );
+    expect(refused).toMatchObject({ ok: false, refusal: { reason: 'ocpp_version_mismatch' } });
+
+    const call = {
+      entry: ocppEntry('ocppv21_reset'),
+      args: { stationId: 'CS-201', type: 'OnIdle' },
+    };
+    await expect(checkOcppCommandVersion(caller(), call, { findStation })).resolves.toEqual({
+      ok: true,
+      entry: call.entry,
+      args: call.args,
     });
   });
 
