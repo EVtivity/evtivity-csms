@@ -764,6 +764,32 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
       },
     );
 
+    it('startCharging dispatches when only the second connector of the EVSE is plugged', async () => {
+      pubsubState.reply = { kind: 'success', data: { transactionId: 'tx-2' } };
+      setupDbResults([SIM], [{ id: 'evs_1' }], [{ status: 'available' }, { status: 'occupied' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/css/actions/startCharging',
+        headers: headers(),
+        payload: { stationId: 'SIM-1', evseId: 1, idToken: 'TAG' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(pubsubState.publishCalls).toHaveLength(1);
+    });
+
+    it('startCharging refuses when no connector of a two-connector EVSE is plugged', async () => {
+      setupDbResults([SIM], [{ id: 'evs_1' }], [{ status: 'available' }, { status: 'faulted' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/css/actions/startCharging',
+        headers: headers(),
+        payload: { stationId: 'SIM-1', evseId: 1, idToken: 'TAG' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'CONNECTOR_NOT_AVAILABLE' });
+      expect(pubsubState.publishCalls).toEqual([]);
+    });
+
     it('startCharging dispatches when the EVSE has no connector row', async () => {
       setupDbResults([SIM], [{ id: 'evs_1' }], []);
       const res = await app.inject({

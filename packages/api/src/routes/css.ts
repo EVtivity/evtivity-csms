@@ -1107,13 +1107,20 @@ function actionRoute(
           if (evse == null) {
             return reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
           }
-          const [connector] = await db
+          // The request names an EVSE, not a connector, and an EVSE can have
+          // several connectors (the simulator plugs one of them). Read every
+          // connector of the EVSE: the start is valid when any one of them has
+          // a cable connected. Reading a single unordered row refused a start
+          // on a two-connector EVSE whose plugged connector was not the row read.
+          const evseConnectors = await db
             .select({ status: connectors.status })
             .from(connectors)
-            .where(eq(connectors.evseId, evse.id))
-            .limit(1);
+            .where(eq(connectors.evseId, evse.id));
           const startableStatuses = ['preparing', 'occupied', 'ev_connected', 'finishing'];
-          if (connector != null && !startableStatuses.includes(connector.status)) {
+          if (
+            evseConnectors.length > 0 &&
+            !evseConnectors.some((c) => startableStatuses.includes(c.status))
+          ) {
             return reply.status(400).send({
               error: 'Connector is not available for charging',
               code: 'CONNECTOR_NOT_AVAILABLE',
