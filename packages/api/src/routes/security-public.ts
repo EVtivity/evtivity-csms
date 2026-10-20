@@ -9,8 +9,22 @@ import {
   isRoamingEnabled,
   getSsoConfig,
   isSupportAiEnabled,
+  getPasswordPolicy,
 } from '@evtivity/database';
 import { itemResponse } from '../lib/response-schemas.js';
+
+const passwordPolicyResponse = z
+  .object({
+    minLength: z.number().int().describe('Minimum password length'),
+    requireUppercase: z.boolean().describe('Whether a password needs an uppercase letter'),
+    requireLowercase: z.boolean().describe('Whether a password needs a lowercase letter'),
+    requireNumber: z.boolean().describe('Whether a password needs a digit'),
+    requireSymbol: z
+      .boolean()
+      .describe('Whether a password needs an ASCII character that is not a letter, digit or space'),
+  })
+  .passthrough()
+  .describe('Rules a new operator or driver password must meet');
 
 const publicSecurityResponse = z
   .object({
@@ -26,6 +40,7 @@ const publicSecurityResponse = z
     roamingEnabled: z.boolean().describe('Whether OCPI roaming is enabled'),
     ssoEnabled: z.boolean().describe('Whether SSO login is enabled'),
     supportAiEnabled: z.boolean().describe('Whether the support case AI assist feature is enabled'),
+    passwordPolicy: passwordPolicyResponse,
   })
   .passthrough();
 
@@ -42,12 +57,13 @@ export function securityPublicRoutes(app: FastifyInstance): void {
       },
     },
     async () => {
-      const [recaptcha, mfa, roaming, ssoConfig, supportAi] = await Promise.all([
+      const [recaptcha, mfa, roaming, ssoConfig, supportAi, passwordPolicy] = await Promise.all([
         getRecaptchaConfig(),
         getMfaConfig(),
         isRoamingEnabled(),
         getSsoConfig(),
         isSupportAiEnabled(),
+        getPasswordPolicy(),
       ]);
 
       const mfaMethods: string[] = [];
@@ -62,6 +78,13 @@ export function securityPublicRoutes(app: FastifyInstance): void {
         roamingEnabled: roaming,
         ssoEnabled: ssoConfig != null,
         supportAiEnabled: supportAi,
+        passwordPolicy: {
+          minLength: passwordPolicy.minLength,
+          requireUppercase: passwordPolicy.requireUppercase,
+          requireLowercase: passwordPolicy.requireLowercase,
+          requireNumber: passwordPolicy.requireNumber,
+          requireSymbol: passwordPolicy.requireSymbol,
+        },
       };
     },
   );

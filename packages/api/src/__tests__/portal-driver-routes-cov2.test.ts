@@ -31,6 +31,13 @@ function makeChain(kind: string): Chain {
 const { getMfaConfigMock } = vi.hoisted(() => ({ getMfaConfigMock: vi.fn() }));
 
 vi.mock('@evtivity/database', () => ({
+  getPasswordPolicy: vi.fn().mockResolvedValue({
+    minLength: 12,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireNumber: true,
+    requireSymbol: false,
+  }),
   writeAudit: vi.fn(() => Promise.resolve()),
   userAuditLog: { _table: 'user_audit_log' },
   driverAuditLog: { _table: 'driver_audit_log' },
@@ -88,7 +95,7 @@ vi.mock('../lib/config.js', async (importOriginal) => {
 });
 
 vi.mock('../services/refresh-token.service.js', () => ({
-  revokeAllDriverRefreshTokens: vi.fn().mockResolvedValue(undefined),
+  endDriverSessions: vi.fn().mockResolvedValue(undefined),
 }));
 
 import argon2 from 'argon2';
@@ -104,7 +111,7 @@ import {
 import { writeAudit } from '@evtivity/database';
 import { registerAuth } from '../plugins/auth.js';
 import { portalDriverRoutes } from '../routes/portal/driver.js';
-import { revokeAllDriverRefreshTokens } from '../services/refresh-token.service.js';
+import { endDriverSessions } from '../services/refresh-token.service.js';
 
 const DRIVER_ID = 'drv_000000000001';
 
@@ -251,9 +258,10 @@ describe('Portal driver routes, uncovered paths', () => {
       expect(res.json()).toEqual({
         error: 'Password must contain an uppercase letter',
         code: 'WEAK_PASSWORD',
+        missing: ['uppercase'],
       });
       expect(updates).toHaveLength(0);
-      expect(revokeAllDriverRefreshTokens).not.toHaveBeenCalled();
+      expect(endDriverSessions).not.toHaveBeenCalled();
     });
   });
 

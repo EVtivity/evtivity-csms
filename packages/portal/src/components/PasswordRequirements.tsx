@@ -3,30 +3,36 @@
 
 import { Check, Circle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { passwordRuleResults } from '@evtivity/lib/password-policy';
+import type { PasswordPolicy, PasswordRule } from '@evtivity/lib/password-policy';
 import { cn } from '@/lib/utils';
-import { passwordRuleLabel } from '@/lib/password-rules';
+import { passwordChecklist, passwordRuleLabel } from '@/lib/password-rules';
 
 interface PasswordRequirementsProps {
   /** Referenced by the password input's `aria-describedby`. */
   id: string;
   password: string;
+  /** The live policy, from `usePasswordPolicy()`. */
+  policy: PasswordPolicy;
   /** After a submit attempt, unmet rules turn destructive. */
   showUnmet: boolean;
+  /** The rules a WEAK_PASSWORD reply named; shown unmet until the password changes. */
+  serverMissing?: readonly PasswordRule[] | null;
 }
 
 // The password rules of the API, checked live as the driver types.
 export function PasswordRequirements({
   id,
   password,
+  policy,
   showUnmet,
+  serverMissing,
 }: PasswordRequirementsProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
     <div id={id} className="space-y-1 text-xs" data-testid="password-requirements">
       <p className="text-muted-foreground">{t('validation.passwordNeeds')}</p>
       <ul className="space-y-1">
-        {passwordRuleResults(password).map(({ rule, met }) => (
+        {passwordChecklist(password, policy, serverMissing).map(({ rule, met }) => (
           <li
             key={rule}
             data-rule={rule}
@@ -41,7 +47,7 @@ export function PasswordRequirements({
             ) : (
               <Circle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             )}
-            <span>{passwordRuleLabel(rule, t)}</span>
+            <span>{passwordRuleLabel(rule, policy, t)}</span>
             <span className="sr-only">
               {met ? t('validation.passwordRuleMet') : t('validation.passwordRuleNotMet')}
             </span>

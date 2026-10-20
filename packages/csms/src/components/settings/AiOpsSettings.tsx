@@ -42,7 +42,7 @@ import { API_BASE_URL } from '@/lib/config';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatNumber } from '@/lib/formatting';
 import { AiAdvancedOptions, AiPromptSummary } from './AiAdvancedOptions';
-import { useLoadedValues } from './ai-settings-save';
+import { useLoadedValues } from '@/hooks/use-loaded-values';
 
 /**
  * Settings > AI panels: the system-initiated surface (`opsAi.*`), automatic insights (`aiInsights.*`),

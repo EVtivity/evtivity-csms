@@ -10,10 +10,14 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { api, getApiErrorCode } from '@/lib/api';
 import { passwordRulesMessage } from '@/lib/password-rules';
+import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
+import type { PasswordRule } from '@evtivity/lib/password-policy';
 
 export function ProfilePassword(): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  const passwordPolicy = usePasswordPolicy();
+  const weakPasswordReply = useWeakPasswordReply();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -21,8 +25,8 @@ export function ProfilePassword(): React.JSX.Element {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
-  // The API refused the new password (WEAK_PASSWORD). Translated at render, cleared on edit.
-  const [serverWeakPassword, setServerWeakPassword] = useState(false);
+  // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
+  const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
 
   const changePasswordMutation = useMutation({
     mutationFn: (body: { currentPassword: string; newPassword: string }) =>
@@ -40,7 +44,7 @@ export function ProfilePassword(): React.JSX.Element {
     },
     onError: (err: unknown) => {
       if (getApiErrorCode(err) === 'WEAK_PASSWORD') {
-        setServerWeakPassword(true);
+        setServerMissing(weakPasswordReply(err) ?? []);
       } else if (err != null && typeof err === 'object' && 'body' in err) {
         const body = (err as { body: { error?: string } }).body;
         setPasswordError(body.error ?? t('profile.passwordChangeFailed'));
@@ -58,9 +62,14 @@ export function ProfilePassword(): React.JSX.Element {
     if (newPassword.trim() === '') {
       errors.newPassword = t('validation.required');
     } else {
-      const rulesError = passwordRulesMessage(newPassword, t, i18n.language);
+      const rulesError = passwordRulesMessage(
+        newPassword,
+        passwordPolicy,
+        t,
+        i18n.language,
+        serverMissing,
+      );
       if (rulesError != null) errors.newPassword = rulesError;
-      else if (serverWeakPassword) errors.newPassword = t('errors.WEAK_PASSWORD');
     }
     if (confirmPassword.trim() === '') {
       errors.confirmPassword = t('validation.required');
@@ -121,10 +130,17 @@ export function ProfilePassword(): React.JSX.Element {
             <PasswordInput
               id="new-password"
               value={newPassword}
-              aria-describedby="new-password-requirements"
+              aria-invalid={
+                hasSubmittedPassword && passwordValidationErrors.newPassword ? true : undefined
+              }
+              aria-describedby={
+                hasSubmittedPassword && passwordValidationErrors.newPassword
+                  ? 'new-password-error new-password-requirements'
+                  : 'new-password-requirements'
+              }
               onChange={(e) => {
                 setNewPassword(e.target.value);
-                setServerWeakPassword(false);
+                setServerMissing(null);
               }}
               autoComplete="new-password"
               className={
@@ -134,9 +150,13 @@ export function ProfilePassword(): React.JSX.Element {
               }
             />
             {hasSubmittedPassword && passwordValidationErrors.newPassword && (
-              <p className="text-sm text-destructive">{passwordValidationErrors.newPassword}</p>
+              <p id="new-password-error" className="text-sm text-destructive">
+                {passwordValidationErrors.newPassword}
+              </p>
             )}
             <PasswordRequirements
+              policy={passwordPolicy}
+              serverMissing={serverMissing}
               id="new-password-requirements"
               password={newPassword}
               showUnmet={hasSubmittedPassword}

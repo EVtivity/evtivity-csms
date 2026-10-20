@@ -2887,7 +2887,29 @@
     "autocharge": "Autocharge",
     "autochargeDescription": "Laden durch Einstecken: Eine Ladestation, die FIN, EVCCID oder MAC-Adresse eines Fahrzeugs sendet, startet einen Ladevorgang für den Fahrer des Fahrzeugs, wenn der Fahrer Autocharge dafür eingeschaltet hat. Ein Standort kann es für seine eigenen Ladestationen ein- oder ausschalten.",
     "autochargeEnabled": "Autocharge aktiviert",
-    "autochargeEnabledDesc": "Standardmäßig aus. Fahrer schalten Autocharge im Portal pro Fahrzeug ein; jeder Start sendet dem Fahrer eine Benachrichtigung."
+    "autochargeEnabledDesc": "Standardmäßig aus. Fahrer schalten Autocharge im Portal pro Fahrzeug ein; jeder Start sendet dem Fahrer eine Benachrichtigung.",
+    "passwordSessions": {
+      "tab": "Passwörter und Sitzungen",
+      "description": "Legen Sie die Regeln für neue Passwörter fest und wie lange Betreiber und Fahrer angemeldet bleiben.",
+      "passwordsTitle": "Passwörter",
+      "passwordsNote": "Gilt, wenn das nächste Mal jemand ein Passwort festlegt. Bestehende Passwörter funktionieren weiter.",
+      "minLength": "Mindestlänge",
+      "minLengthHint": "Zeichen, von {{min}} bis {{max}}.",
+      "requireUppercase": "Großbuchstaben verlangen",
+      "requireLowercase": "Kleinbuchstaben verlangen",
+      "requireNumber": "Ziffer verlangen",
+      "requireSymbol": "Sonderzeichen verlangen",
+      "requireSymbolHint": "Jedes Tastaturzeichen, das kein Buchstabe, keine Ziffer und kein Leerzeichen ist, etwa ! oder #.",
+      "sessionsTitle": "Sitzungen",
+      "sessionsNote": "Gilt, wenn sich jemand anmeldet oder die App die Anmeldung erneuert. Aktive Sitzungen übernehmen die neuen Werte innerhalb eines Prüfintervalls. Eine Sitzung, die niemand nutzt, behält ihren alten Ablauf.",
+      "operatorAccessMinutes": "Prüfintervall der Anmeldung für Betreiber",
+      "operatorRefreshDays": "Abmeldung nach Inaktivität für Betreiber",
+      "driverAccessMinutes": "Prüfintervall der Anmeldung für Fahrer",
+      "driverRefreshDays": "Abmeldung nach Inaktivität für Fahrer",
+      "accessHint": "Minuten, von {{min}} bis {{max}}. Die App prüft die Anmeldung in diesem Abstand im Hintergrund erneut, ohne nachzufragen. Ein deaktiviertes Konto wird unabhängig von diesem Intervall innerhalb einer Minute abgemeldet.",
+      "refreshHint": "Tage, von {{min}} bis {{max}}. Wer die App so lange nicht nutzt, muss sich erneut anmelden.",
+      "saveFailed": "Speichern fehlgeschlagen. Bitte versuchen Sie es erneut."
+    }
   },
   "pnc": {
     "certificates": "Zertifikate",
@@ -4114,7 +4136,9 @@
       "minLength": "mindestens {{min}} Zeichen",
       "uppercase": "einen Großbuchstaben",
       "lowercase": "einen Kleinbuchstaben",
-      "number": "eine Ziffer"
+      "number": "eine Ziffer",
+      "symbol": "ein Sonderzeichen",
+      "maxLength": "höchstens {{max}} Zeichen"
     },
     "minItems": "Mindestens {{min}} Einträge hinzufügen",
     "maxItems": "Höchstens {{max}} Einträge verwenden",

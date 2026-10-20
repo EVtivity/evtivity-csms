@@ -199,8 +199,6 @@
     "setDefaultFailed": "Standard-Zahlungsmethode konnte nicht festgelegt werden. Bitte erneut versuchen."
   },
   "profile": {
-    "title": "Profil",
-    "personalInfo": "Persönliche Daten",
     "email": "E-Mail",
     "firstName": "Vorname",
     "lastName": "Nachname",
@@ -215,7 +213,6 @@
     "passwordChangeFailed": "Passwort konnte nicht geändert werden.",
     "signOut": "Abmelden",
     "language": "Sprache",
-    "notificationPreferences": "Benachrichtigungseinstellungen",
     "emailNotifications": "E-Mail-Benachrichtigungen",
     "smsNotifications": "SMS-Benachrichtigungen",
     "preferencesSaved": "Benachrichtigungseinstellungen gespeichert.",
@@ -927,7 +924,9 @@
       "minLength": "mindestens {{min}} Zeichen",
       "uppercase": "einen Großbuchstaben",
       "lowercase": "einen Kleinbuchstaben",
-      "number": "eine Ziffer"
+      "number": "eine Ziffer",
+      "symbol": "ein Sonderzeichen",
+      "maxLength": "höchstens {{max}} Zeichen"
     }
   },
   "activity": {

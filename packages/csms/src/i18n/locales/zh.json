@@ -2887,7 +2887,29 @@
     "autocharge": "Autocharge",
     "autochargeDescription": "插枪即充：当充电站发送车辆的 VIN、EVCCID 或 MAC 地址，且驾驶员已为该车辆开启 Autocharge 时，即为该驾驶员开始充电会话。站点可为其自有充电站开启或关闭此功能。",
     "autochargeEnabled": "启用 Autocharge",
-    "autochargeEnabledDesc": "默认关闭。驾驶员在门户中按车辆开启 Autocharge；每次启动都会向驾驶员发送通知。"
+    "autochargeEnabledDesc": "默认关闭。驾驶员在门户中按车辆开启 Autocharge；每次启动都会向驾驶员发送通知。",
+    "passwordSessions": {
+      "tab": "密码和会话",
+      "description": "设置新密码的规则，以及运营人员和驾驶员保持登录的时长。",
+      "passwordsTitle": "密码",
+      "passwordsNote": "在下次有人设置密码时生效。现有密码仍可使用。",
+      "minLength": "最小长度",
+      "minLengthHint": "字符数，{{min}} 到 {{max}}。",
+      "requireUppercase": "必须包含大写字母",
+      "requireLowercase": "必须包含小写字母",
+      "requireNumber": "必须包含数字",
+      "requireSymbol": "必须包含特殊字符",
+      "requireSymbolHint": "除字母、数字和空格以外的任意键盘字符，例如 ! 或 #。",
+      "sessionsTitle": "会话",
+      "sessionsNote": "在有人登录或应用续期其登录时生效。活动会话会在一个检查间隔内采用新值。无人使用的会话保留原来的过期时间。",
+      "operatorAccessMinutes": "运营人员登录检查间隔",
+      "operatorRefreshDays": "运营人员闲置超时",
+      "driverAccessMinutes": "驾驶员登录检查间隔",
+      "driverRefreshDays": "驾驶员闲置超时",
+      "accessHint": "分钟，{{min}} 到 {{max}}。应用按此间隔在后台重新检查登录，无需用户操作。无论此间隔多长，停用的账户都会在一分钟内退出登录。",
+      "refreshHint": "天，{{min}} 到 {{max}}。连续这么长时间未使用应用的用户需要重新登录。",
+      "saveFailed": "保存失败，请重试。"
+    }
   },
   "pnc": {
     "certificates": "证书",
@@ -4114,7 +4136,9 @@
       "minLength": "至少 {{min}} 个字符",
       "uppercase": "至少一个大写字母",
       "lowercase": "至少一个小写字母",
-      "number": "至少一个数字"
+      "number": "至少一个数字",
+      "symbol": "至少一个特殊字符",
+      "maxLength": "最多 {{max}} 个字符"
     },
     "minItems": "至少添加 {{min}} 项",
     "maxItems": "最多使用 {{max}} 项",

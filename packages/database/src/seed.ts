@@ -642,6 +642,15 @@ async function seed(): Promise<void> {
     'security.mfa.emailEnabled': true,
     'security.mfa.totpEnabled': true,
     'security.mfa.smsEnabled': false,
+    'security.password.minLength': 12,
+    'security.password.requireUppercase': true,
+    'security.password.requireLowercase': true,
+    'security.password.requireNumber': true,
+    'security.password.requireSymbol': false,
+    'security.session.operatorAccessMinutes': 60,
+    'security.session.operatorRefreshDays': 30,
+    'security.session.driverAccessMinutes': 60,
+    'security.session.driverRefreshDays': 30,
     // Driver self-registration via /v1/portal/auth/register. Operators of
     // closed/managed deployments (drivers admin-provisioned) can flip this
     // off so the portal Register page returns 403 PORTAL_REGISTRATION_DISABLED.

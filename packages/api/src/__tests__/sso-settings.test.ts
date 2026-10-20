@@ -81,6 +81,15 @@ vi.mock('@evtivity/database', () => ({
   ),
   isRoamingEnabled: vi.fn(() => Promise.resolve(false)),
   isSupportAiEnabled: vi.fn(() => Promise.resolve(false)),
+  getPasswordPolicy: vi.fn(() =>
+    Promise.resolve({
+      minLength: 14,
+      requireUppercase: true,
+      requireLowercase: false,
+      requireNumber: true,
+      requireSymbol: true,
+    }),
+  ),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -388,5 +397,20 @@ describe('SSO Settings routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.ssoEnabled).toBe(false);
+  });
+
+  it('GET /security/public returns the password policy and no session lifetimes', async () => {
+    const response = await app.inject({ method: 'GET', url: '/security/public' });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body.passwordPolicy).toEqual({
+      minLength: 14,
+      requireUppercase: true,
+      requireLowercase: false,
+      requireNumber: true,
+      requireSymbol: true,
+    });
+    expect(body.sessionLifetimes).toBeUndefined();
+    expect(JSON.stringify(body)).not.toMatch(/AccessMinutes|RefreshDays/);
   });
 });

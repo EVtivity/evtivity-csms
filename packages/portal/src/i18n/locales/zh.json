@@ -199,8 +199,6 @@
     "setDefaultFailed": "设置默认支付方式失败，请重试。"
   },
   "profile": {
-    "title": "个人资料",
-    "personalInfo": "个人信息",
     "email": "邮箱",
     "firstName": "名",
     "lastName": "姓",
@@ -215,7 +213,6 @@
     "passwordChangeFailed": "修改密码失败。",
     "signOut": "退出登录",
     "language": "语言",
-    "notificationPreferences": "通知偏好",
     "emailNotifications": "邮件通知",
     "smsNotifications": "短信通知",
     "preferencesSaved": "通知偏好已保存。",
@@ -927,7 +924,9 @@
       "minLength": "至少 {{min}} 个字符",
       "uppercase": "至少一个大写字母",
       "lowercase": "至少一个小写字母",
-      "number": "至少一个数字"
+      "number": "至少一个数字",
+      "symbol": "至少一个特殊字符",
+      "maxLength": "最多 {{max}} 个字符"
     }
   },
   "activity": {

@@ -204,12 +204,23 @@ export {
   type Pnc16MessageId,
 } from './iso15118-pnc16.js';
 export {
-  PASSWORD_MIN_LENGTH,
-  PASSWORD_RULES,
+  DEFAULT_PASSWORD_POLICY,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH_CEILING,
+  PASSWORD_MIN_LENGTH_FLOOR,
+  PASSWORD_RULE_IDS,
+  activePasswordRules,
   passwordRuleResults,
   missingPasswordRules,
+  normalizePasswordPolicy,
 } from './password-policy.js';
-export type { PasswordRule } from './password-policy.js';
+export type { PasswordPolicy, PasswordRule, PolicyRule } from './password-policy.js';
+export {
+  DEFAULT_SESSION_LIFETIMES,
+  SESSION_LIFETIME_LIMITS,
+  normalizeSessionLifetimes,
+} from './session-lifetimes.js';
+export type { SessionLifetimes } from './session-lifetimes.js';
 export { UI_LANGUAGES, isUiLanguage, toUiLanguage } from './languages.js';
 export type { UiLanguage } from './languages.js';
 export {

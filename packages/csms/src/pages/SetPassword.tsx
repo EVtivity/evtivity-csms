@@ -12,8 +12,10 @@ import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBran
 import { api, ApiError } from '@/lib/api';
 import { rateLimitedMessage } from '@/lib/error-message';
 import { passwordRulesMessage } from '@/lib/password-rules';
+import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
 import { useAuth } from '@/lib/auth';
+import type { PasswordRule } from '@evtivity/lib/password-policy';
 
 interface ForceChangePasswordUserResponse {
   token: string;
@@ -40,6 +42,8 @@ type ForceChangePasswordResponse = ForceChangePasswordUserResponse | ForceChange
 
 export function SetPassword(): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  const passwordPolicy = usePasswordPolicy();
+  const weakPasswordReply = useWeakPasswordReply();
   const navigate = useNavigate();
   const location = useLocation();
   const completeMfaLogin = useAuth((s) => s.completeMfaLogin);
@@ -54,8 +58,8 @@ export function SetPassword(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
-  // The API refused the password (WEAK_PASSWORD). Translated at render, cleared on edit.
-  const [serverWeakPassword, setServerWeakPassword] = useState(false);
+  // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
+  const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
 
   const { companyName, companyLogo } = useAuthBranding();
 
@@ -66,9 +70,14 @@ export function SetPassword(): React.JSX.Element {
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (currentPassword === '') errors.currentPassword = t('validation.required');
-    const rulesError = passwordRulesMessage(newPassword, t, i18n.language);
+    const rulesError = passwordRulesMessage(
+      newPassword,
+      passwordPolicy,
+      t,
+      i18n.language,
+      serverMissing,
+    );
     if (rulesError != null) errors.newPassword = rulesError;
-    else if (serverWeakPassword) errors.newPassword = t('errors.WEAK_PASSWORD');
     if (confirmPassword !== newPassword) errors.confirmPassword = t('auth.passwordsMustMatch');
     return errors;
   }
@@ -116,7 +125,7 @@ export function SetPassword(): React.JSX.Element {
         if (body?.code === 'INVALID_CREDENTIALS') {
           setError(t('auth.invalidCredentials'));
         } else if (body?.code === 'WEAK_PASSWORD') {
-          setServerWeakPassword(true);
+          setServerMissing(weakPasswordReply(err) ?? []);
         } else if (body?.code === 'VALIDATION_ERROR' && body.error) {
           setError(body.error);
         } else {
@@ -180,19 +189,28 @@ export function SetPassword(): React.JSX.Element {
                 <PasswordInput
                   id="newPassword"
                   value={newPassword}
-                  aria-describedby="password-requirements"
+                  aria-invalid={hasSubmitted && validationErrors.newPassword ? true : undefined}
+                  aria-describedby={
+                    hasSubmitted && validationErrors.newPassword
+                      ? 'new-password-error password-requirements'
+                      : 'password-requirements'
+                  }
                   onChange={(e) => {
                     setNewPassword(e.target.value);
-                    setServerWeakPassword(false);
+                    setServerMissing(null);
                   }}
                   className={
                     hasSubmitted && validationErrors.newPassword ? 'border-destructive' : ''
                   }
                 />
                 {hasSubmitted && validationErrors.newPassword && (
-                  <p className="text-sm text-destructive">{validationErrors.newPassword}</p>
+                  <p id="new-password-error" className="text-sm text-destructive">
+                    {validationErrors.newPassword}
+                  </p>
                 )}
                 <PasswordRequirements
+                  policy={passwordPolicy}
+                  serverMissing={serverMissing}
                   id="password-requirements"
                   password={newPassword}
                   showUnmet={hasSubmitted}

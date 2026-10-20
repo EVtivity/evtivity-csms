@@ -5,16 +5,17 @@ import crypto from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { config } from './config.js';
 
-const ACCESS_COOKIE_MAX_AGE = 60 * 60; // 1 hour in seconds
-const CSMS_REFRESH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60; // 30 days
-const PORTAL_REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
-
 interface RealmConfig {
   tokenCookie: string;
   refreshCookie: string;
   csrfCookie: string;
   tokenPath: string;
-  refreshMaxAge: number;
+}
+
+/** Cookie max ages in seconds: the access token and CSRF cookies, and the refresh cookie. */
+export interface AuthCookieAges {
+  accessSeconds: number;
+  refreshSeconds: number;
 }
 
 const REALM_CONFIGS = {
@@ -23,14 +24,12 @@ const REALM_CONFIGS = {
     refreshCookie: 'csms_refresh',
     csrfCookie: 'csms_csrf',
     tokenPath: '/',
-    refreshMaxAge: CSMS_REFRESH_COOKIE_MAX_AGE,
   },
   portal: {
     tokenCookie: 'portal_token',
     refreshCookie: 'portal_refresh',
     csrfCookie: 'portal_csrf',
     tokenPath: '/v1/portal',
-    refreshMaxAge: PORTAL_REFRESH_COOKIE_MAX_AGE,
   },
 } as const satisfies Record<string, RealmConfig>;
 
@@ -50,6 +49,7 @@ export function setAuthCookies(
   accessToken: string,
   refreshToken: string,
   secure: boolean,
+  ages: AuthCookieAges,
 ): void {
   const cfg = REALM_CONFIGS[realm];
   const csrfToken = crypto.randomBytes(32).toString('hex');
@@ -61,7 +61,7 @@ export function setAuthCookies(
     signed: true,
     sameSite: 'lax',
     path: cfg.tokenPath,
-    maxAge: ACCESS_COOKIE_MAX_AGE,
+    maxAge: ages.accessSeconds,
     ...domainOpts,
   });
 
@@ -71,7 +71,7 @@ export function setAuthCookies(
     signed: true,
     sameSite: 'lax',
     path: '/',
-    maxAge: cfg.refreshMaxAge,
+    maxAge: ages.refreshSeconds,
     ...domainOpts,
   });
 
@@ -80,7 +80,7 @@ export function setAuthCookies(
     secure,
     sameSite: 'lax',
     path: '/',
-    maxAge: ACCESS_COOKIE_MAX_AGE,
+    maxAge: ages.accessSeconds,
     ...domainOpts,
   });
 }

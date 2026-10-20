@@ -11,12 +11,14 @@ import {
   readSignedCookie,
 } from '../lib/auth-cookies.js';
 
+const AGES = { accessSeconds: 3600, refreshSeconds: 30 * 24 * 60 * 60 };
+
 describe('CSMS cookie helpers', () => {
   it('setAuthCookies sets csms_token and csms_refresh as httpOnly and csms_csrf as readable', async () => {
     const app = Fastify();
     await app.register(cookie, { secret: 'test-cookie-secret-12345' });
     app.get('/test', (_req, reply) => {
-      setAuthCookies('csms', reply, 'jwt-value', 'refresh-value', true);
+      setAuthCookies('csms', reply, 'jwt-value', 'refresh-value', true, AGES);
       return { ok: true };
     });
     await app.ready();
@@ -72,11 +74,14 @@ describe('CSMS cookie helpers', () => {
     await app.close();
   });
 
-  it('portal realm uses portal_token path /v1/portal and 7-day refresh', async () => {
+  it('portal realm uses portal_token path /v1/portal and the refresh age it is given', async () => {
     const app = Fastify();
     await app.register(cookie, { secret: 'test-cookie-secret-12345' });
     app.get('/test', (_req, reply) => {
-      setAuthCookies('portal', reply, 'jwt-value', 'refresh-value', true);
+      setAuthCookies('portal', reply, 'jwt-value', 'refresh-value', true, {
+        accessSeconds: 1800,
+        refreshSeconds: 60 * 24 * 60 * 60,
+      });
       return { ok: true };
     });
     await app.ready();
@@ -88,7 +93,8 @@ describe('CSMS cookie helpers', () => {
     expect(authCookie?.path).toBe('/v1/portal');
 
     const refreshCookie = cookies.find((c) => c.name === 'portal_refresh');
-    expect(refreshCookie?.maxAge).toBe(7 * 24 * 60 * 60);
+    expect(refreshCookie?.maxAge).toBe(60 * 24 * 60 * 60);
+    expect(authCookie?.maxAge).toBe(1800);
 
     await app.close();
   });
@@ -99,8 +105,8 @@ describe('readSignedCookie / readRefreshCookie', () => {
     const app = Fastify();
     await app.register(cookie, { secret: 'test-cookie-secret-12345' });
     app.get('/set', (_req, reply) => {
-      setAuthCookies('csms', reply, 'jwt-value', 'csms-refresh-value', false);
-      setAuthCookies('portal', reply, 'jwt-value', 'portal-refresh-value', false);
+      setAuthCookies('csms', reply, 'jwt-value', 'csms-refresh-value', false, AGES);
+      setAuthCookies('portal', reply, 'jwt-value', 'portal-refresh-value', false, AGES);
       return { ok: true };
     });
     app.get('/read', (request) => ({

@@ -52,6 +52,16 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  getSessionLifetimes: vi.fn(async () => ({
+    ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
+  })),
+  getPasswordPolicy: vi.fn().mockResolvedValue({
+    minLength: 12,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireNumber: true,
+    requireSymbol: false,
+  }),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),

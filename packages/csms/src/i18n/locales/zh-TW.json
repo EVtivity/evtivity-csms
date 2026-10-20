@@ -2887,7 +2887,29 @@
     "autocharge": "Autocharge",
     "autochargeDescription": "插槍即充：當充電站傳送車輛的 VIN、EVCCID 或 MAC 位址，且駕駛員已為該車輛開啟 Autocharge 時，即為該駕駛員開始充電工作階段。站點可為其自有充電站開啟或關閉此功能。",
     "autochargeEnabled": "啟用 Autocharge",
-    "autochargeEnabledDesc": "預設關閉。駕駛員在入口網站中依車輛開啟 Autocharge；每次啟動都會傳送通知給駕駛員。"
+    "autochargeEnabledDesc": "預設關閉。駕駛員在入口網站中依車輛開啟 Autocharge；每次啟動都會傳送通知給駕駛員。",
+    "passwordSessions": {
+      "tab": "密碼和工作階段",
+      "description": "設定新密碼的規則，以及營運人員和駕駛員保持登入的時長。",
+      "passwordsTitle": "密碼",
+      "passwordsNote": "在下次有人設定密碼時生效。現有密碼仍可使用。",
+      "minLength": "最小長度",
+      "minLengthHint": "字元數，{{min}} 到 {{max}}。",
+      "requireUppercase": "必須包含大寫字母",
+      "requireLowercase": "必須包含小寫字母",
+      "requireNumber": "必須包含數字",
+      "requireSymbol": "必須包含特殊字元",
+      "requireSymbolHint": "字母、數字和空格以外的任何鍵盤字元，例如 ! 或 #。",
+      "sessionsTitle": "工作階段",
+      "sessionsNote": "在有人登入或應用程式續期其登入時生效。使用中的工作階段會在一個檢查間隔內採用新值。無人使用的工作階段保留原本的到期時間。",
+      "operatorAccessMinutes": "營運人員登入檢查間隔",
+      "operatorRefreshDays": "營運人員閒置逾時",
+      "driverAccessMinutes": "駕駛員登入檢查間隔",
+      "driverRefreshDays": "駕駛員閒置逾時",
+      "accessHint": "分鐘，{{min}} 到 {{max}}。應用程式依此間隔在背景重新檢查登入，不需使用者操作。無論此間隔多長，停用的帳戶都會在一分鐘內登出。",
+      "refreshHint": "天，{{min}} 到 {{max}}。連續這麼長時間未使用應用程式的使用者需要重新登入。",
+      "saveFailed": "儲存失敗，請再試一次。"
+    }
   },
   "pnc": {
     "certificates": "憑證",
@@ -4114,7 +4136,9 @@
       "minLength": "至少 {{min}} 個字元",
       "uppercase": "至少一個大寫字母",
       "lowercase": "至少一個小寫字母",
-      "number": "至少一個數字"
+      "number": "至少一個數字",
+      "symbol": "至少一個特殊字元",
+      "maxLength": "最多 {{max}} 個字元"
     },
     "minItems": "至少新增 {{min}} 項",
     "maxItems": "最多使用 {{max}} 項",

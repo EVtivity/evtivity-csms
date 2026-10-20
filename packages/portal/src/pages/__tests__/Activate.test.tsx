@@ -119,4 +119,19 @@ describe('Activate', () => {
       expect(screen.getByText('translated:errors.WEAK_PASSWORD')).toBeTruthy();
     });
   });
+
+  it('marks the rules a WEAK_PASSWORD reply names', async () => {
+    postMock.mockRejectedValueOnce(
+      new ApiError(400, { error: 'x', code: 'WEAK_PASSWORD', missing: ['minLength', 'symbol'] }),
+    );
+    renderPage();
+    submit();
+
+    await waitFor(() => {
+      expect(screen.getByText('validation.passwordMissing')).toBeTruthy();
+    });
+    const list = screen.getByTestId('password-requirements');
+    expect(list.querySelector<HTMLElement>('[data-rule="minLength"]')?.dataset.met).toBe('false');
+    expect(list.querySelector<HTMLElement>('[data-rule="symbol"]')?.dataset.met).toBe('false');
+  });
 });

@@ -94,12 +94,13 @@ function endClient(client: PortalSseClient, reason: string): void {
 
 /**
  * Ends every open portal event stream of the driver on this pod (a driver
- * deactivation, `cache_invalidate` kind `driver_active`). A reconnect is
- * refused by `driverTokenRejection`.
+ * deactivation or an ended session, `cache_invalidate` kind `driver_active`).
+ * A reconnect with a token of an ended session is refused by
+ * `driverTokenRejection`.
  */
 export function closeDriverEventStreams(driverId: string): void {
   for (const client of [...clients]) {
-    if (client.driverId === driverId) endClient(client, 'driver deactivated');
+    if (client.driverId === driverId) endClient(client, 'driver session ended');
   }
 }
 
@@ -122,7 +123,7 @@ export function portalEventRoutes(app: FastifyInstance): void {
         return await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
       }
       // The same checks as app.authenticateDriver: driver token, not
-      // MFA-pending, active driver.
+      // MFA-pending, active driver, current session version.
       const rejection = await driverTokenRejection(request.user);
       if (rejection != null) {
         const { status, ...body } = rejection;

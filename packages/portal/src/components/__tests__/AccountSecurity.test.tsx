@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const { patchMock } = vi.hoisted(() => ({ patchMock: vi.fn() }));
 
@@ -39,6 +40,15 @@ vi.mock('react-i18next', () => ({
 import { ApiError } from '@/lib/api';
 import { AccountSecurity } from '../account/AccountSecurity';
 
+function renderSecurity(): void {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <AccountSecurity />
+    </QueryClientProvider>,
+  );
+}
+
 function submitPasswordChange(newPassword = 'New-Password-123'): void {
   fireEvent.change(screen.getByLabelText('profile.currentPassword'), {
     target: { value: 'old-password' },
@@ -57,13 +67,13 @@ afterEach(() => {
 describe('AccountSecurity password change', () => {
   it('shows the translated API error', async () => {
     patchMock.mockRejectedValue(new ApiError(400, { error: 'x', code: 'INVALID_PASSWORD' }));
-    render(<AccountSecurity />);
+    renderSecurity();
     submitPasswordChange();
     expect(await screen.findByText('translated:errors.INVALID_PASSWORD')).toBeTruthy();
   });
 
   it('shows the password requirements and names the missing rules before calling the API', () => {
-    render(<AccountSecurity />);
+    renderSecurity();
     expect(screen.getByTestId('password-requirements')).toBeTruthy();
     submitPasswordChange('lowercaseonly');
     expect(screen.getByText('validation.passwordMissing')).toBeTruthy();
@@ -72,14 +82,27 @@ describe('AccountSecurity password change', () => {
 
   it('explains a WEAK_PASSWORD reply at the field', async () => {
     patchMock.mockRejectedValue(new ApiError(400, { error: 'x', code: 'WEAK_PASSWORD' }));
-    render(<AccountSecurity />);
+    renderSecurity();
     submitPasswordChange();
     expect(await screen.findByText('translated:errors.WEAK_PASSWORD')).toBeTruthy();
   });
 
+  it('marks the rules a WEAK_PASSWORD reply names', async () => {
+    patchMock.mockRejectedValue(
+      new ApiError(400, { error: 'x', code: 'WEAK_PASSWORD', missing: ['symbol'] }),
+    );
+    renderSecurity();
+    submitPasswordChange();
+    expect(await screen.findByText('validation.passwordMissing')).toBeTruthy();
+    const symbol = screen
+      .getByTestId('password-requirements')
+      .querySelector<HTMLElement>('[data-rule="symbol"]');
+    expect(symbol?.dataset.met).toBe('false');
+  });
+
   it('falls back to the generic text when the request does not reach the API', async () => {
     patchMock.mockRejectedValue(new TypeError('Failed to fetch'));
-    render(<AccountSecurity />);
+    renderSecurity();
     submitPasswordChange();
     expect(await screen.findByText('profile.passwordChangeFailed')).toBeTruthy();
   });

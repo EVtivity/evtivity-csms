@@ -2887,7 +2887,29 @@
     "autocharge": "Autocharge",
     "autochargeDescription": "Cargar al conectar: un cargador que envía el VIN, el EVCCID o la dirección MAC de un vehículo inicia una sesión para su conductor cuando este ha activado Autocharge. Un sitio puede activarlo o desactivarlo para sus propias estaciones.",
     "autochargeEnabled": "Autocharge activado",
-    "autochargeEnabledDesc": "Desactivado por defecto. Los conductores activan Autocharge por vehículo en el portal; cada inicio envía un aviso al conductor."
+    "autochargeEnabledDesc": "Desactivado por defecto. Los conductores activan Autocharge por vehículo en el portal; cada inicio envía un aviso al conductor.",
+    "passwordSessions": {
+      "tab": "Contraseñas y sesiones",
+      "description": "Defina las reglas de las contraseñas nuevas y cuánto tiempo permanecen conectados los operadores y conductores.",
+      "passwordsTitle": "Contraseñas",
+      "passwordsNote": "Se aplica la próxima vez que alguien establezca una contraseña. Las contraseñas actuales siguen funcionando.",
+      "minLength": "Longitud mínima",
+      "minLengthHint": "Caracteres, de {{min}} a {{max}}.",
+      "requireUppercase": "Exigir una letra mayúscula",
+      "requireLowercase": "Exigir una letra minúscula",
+      "requireNumber": "Exigir un número",
+      "requireSymbol": "Exigir un carácter especial",
+      "requireSymbolHint": "Cualquier carácter del teclado que no sea una letra, un dígito ni un espacio, como ! o #.",
+      "sessionsTitle": "Sesiones",
+      "sessionsNote": "Se aplica cuando alguien inicia sesión o la aplicación renueva su inicio de sesión. Las sesiones activas adoptan los nuevos valores en un intervalo de comprobación como máximo. Una sesión que nadie usa conserva su vencimiento anterior.",
+      "operatorAccessMinutes": "Intervalo de comprobación del inicio de sesión de operadores",
+      "operatorRefreshDays": "Cierre por inactividad de operadores",
+      "driverAccessMinutes": "Intervalo de comprobación del inicio de sesión de conductores",
+      "driverRefreshDays": "Cierre por inactividad de conductores",
+      "accessHint": "Minutos, de {{min}} a {{max}}. La aplicación vuelve a comprobar el inicio de sesión con esta frecuencia, en segundo plano, sin preguntar a la persona. La sesión de una cuenta desactivada se cierra en menos de un minuto, sea cual sea este intervalo.",
+      "refreshHint": "Días, de {{min}} a {{max}}. Quien no use la aplicación durante este tiempo debe iniciar sesión de nuevo.",
+      "saveFailed": "No se pudo guardar. Inténtelo de nuevo."
+    }
   },
   "pnc": {
     "certificates": "Certificados",
@@ -4114,7 +4136,9 @@
       "minLength": "al menos {{min}} caracteres",
       "uppercase": "una letra mayúscula",
       "lowercase": "una letra minúscula",
-      "number": "un número"
+      "number": "un número",
+      "symbol": "un carácter especial",
+      "maxLength": "como máximo {{max}} caracteres"
     },
     "minItems": "Agregue al menos {{min}} elementos",
     "maxItems": "Use como máximo {{max}} elementos",

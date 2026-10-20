@@ -27,7 +27,8 @@ import {
 } from '@/components/ai/AiConfigFields';
 import { AiDataNotice } from '@/components/ai/AiDataNotice';
 import { AI_STATUS_KEY } from '@/components/ai/use-ai-status';
-import { useLoadedValues, useSaveKeys } from './ai-settings-save';
+import { useLoadedValues } from '@/hooks/use-loaded-values';
+import { useSaveKeys } from './ai-settings-save';
 import type { Values } from './ai-settings-save';
 import { AiAdvancedOptions, AiPromptSummary } from './AiAdvancedOptions';
 import { AiInsightsSettings, AiMcpSettings } from './AiOpsSettings';

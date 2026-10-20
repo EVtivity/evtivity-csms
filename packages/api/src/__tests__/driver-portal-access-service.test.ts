@@ -21,7 +21,7 @@ vi.mock('argon2', () => ({
 vi.mock('../lib/config.js', () => ({ config: { PORTAL_URL: 'https://portal.test' } }));
 vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: ['templates'] }));
 vi.mock('../services/refresh-token.service.js', () => ({
-  revokeAllDriverRefreshTokens: revokeRefreshMock,
+  endDriverSessions: revokeRefreshMock,
 }));
 vi.mock('@evtivity/lib', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -58,6 +58,13 @@ vi.mock('@evtivity/database', () => {
     transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(db),
   };
   return {
+    getPasswordPolicy: vi.fn().mockResolvedValue({
+      minLength: 12,
+      requireUppercase: true,
+      requireLowercase: true,
+      requireNumber: true,
+      requireSymbol: false,
+    }),
     db,
     client: {},
     drivers: {},

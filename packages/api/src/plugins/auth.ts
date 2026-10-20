@@ -10,7 +10,7 @@ import { config } from '../lib/config.js';
 import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
 import { hashToken } from '../lib/token-hash.js';
 import { authRequestOrigin } from '../lib/auth-audit.js';
-import { isDriverActive } from '../lib/driver-active.js';
+import { getDriverSessionState } from '../lib/driver-active.js';
 import { getUserSessionState } from '../lib/user-active.js';
 import { isAiToolRequest } from '../services/ai/tools/execute.js';
 
@@ -57,6 +57,12 @@ export interface DriverJwtPayload {
   type: 'driver';
   /** Same as JwtPayload.mfaPending but for the driver portal flow. */
   mfaPending?: boolean;
+  /**
+   * The driver's session version when the token was issued
+   * (`signDriverAccessToken`). A token of another version is refused; a
+   * token without it counts as version 0.
+   */
+  sv?: number;
 }
 
 /** Why a verified operator JWT may not be used, or null when it may. */
@@ -99,15 +105,16 @@ export async function operatorTokenRejection(
 export interface DriverTokenRejection {
   status: 401 | 403;
   error: string;
-  code: 'FORBIDDEN_DRIVER_TOKEN' | 'MFA_REQUIRED' | 'ACCOUNT_DEACTIVATED';
+  code: 'FORBIDDEN_DRIVER_TOKEN' | 'MFA_REQUIRED' | 'ACCOUNT_DEACTIVATED' | 'UNAUTHORIZED';
 }
 
 /**
  * The checks every driver route applies to a JWT after its signature and
  * expiry verified: an operator token is refused (the two realms share a
  * signing key), an MFA-pending token is refused (it is valid only for the
- * portal MFA verify and resend routes), and a deactivated driver is refused.
- * Used by `app.authenticateDriver` and by the portal SSE stream, which
+ * portal MFA verify and resend routes), a deactivated driver is refused, and
+ * a token issued under an earlier session version (sign-out, password reset
+ * or change, deactivation) is refused. Used by `app.authenticateDriver` and by the portal SSE stream, which
  * verifies its token itself.
  */
 export async function driverTokenRejection(payload: unknown): Promise<DriverTokenRejection | null> {
@@ -123,8 +130,16 @@ export async function driverTokenRejection(payload: unknown): Promise<DriverToke
     return { status: 401, error: 'MFA verification required', code: 'MFA_REQUIRED' };
   }
   const driverId = record['driverId'];
-  if (typeof driverId !== 'string' || !(await isDriverActive(driverId))) {
+  if (typeof driverId !== 'string') {
     return { status: 401, error: 'Account deactivated', code: 'ACCOUNT_DEACTIVATED' };
+  }
+  const state = await getDriverSessionState(driverId);
+  if (!state.active) {
+    return { status: 401, error: 'Account deactivated', code: 'ACCOUNT_DEACTIVATED' };
+  }
+  const sv = typeof record['sv'] === 'number' ? record['sv'] : 0;
+  if (sv !== state.sessionVersion) {
+    return { status: 401, error: 'Session ended', code: 'UNAUTHORIZED' };
   }
   return null;
 }

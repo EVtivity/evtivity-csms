@@ -21,8 +21,11 @@ import {
 } from '@evtivity/lib';
 import QRCode from 'qrcode';
 import { zodSchema } from '../../lib/zod-schema.js';
-import { validatePasswordComplexity } from '../../lib/password-validation.js';
-import { PASSWORD_MIN_LENGTH } from '@evtivity/lib/password-policy';
+import {
+  newPasswordSchema,
+  validatePassword,
+  weakPasswordFields,
+} from '../../lib/password-validation.js';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
@@ -34,7 +37,8 @@ import {
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 import { config as apiConfig } from '../../lib/config.js';
-import { revokeAllDriverRefreshTokens } from '../../services/refresh-token.service.js';
+import { endDriverSessions } from '../../services/refresh-token.service.js';
+import { issueDriverTokens } from '../../lib/driver-session.js';
 import { updateDriverBillingAddress } from '../../services/driver-billing.service.js';
 import {
   driverBillingAddressBody,
@@ -137,7 +141,7 @@ const updateProfileBody = z.object({
 
 const changePasswordBody = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(PASSWORD_MIN_LENGTH),
+  newPassword: newPasswordSchema,
 });
 
 export function portalDriverRoutes(app: FastifyInstance): void {
@@ -286,15 +290,18 @@ export function portalDriverRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Driver'],
         summary: 'Change the authenticated driver password',
+        description:
+          'Changes the password and ends every session of the driver, then starts a new session for this client: new auth cookies for the web, or { success, token, refreshToken, expiresIn } for a mobile client (X-Client: mobile). Other devices sign in again.',
         operationId: 'portalChangePassword',
         security: [{ bearerAuth: [] }],
         body: zodSchema(changePasswordBody),
         response: {
           200: successResponse,
-          400: errorWith('Weak or wrong password', [
-            ERROR_CODES.WEAK_PASSWORD,
-            ERROR_CODES.INVALID_PASSWORD,
-          ]),
+          400: errorWith(
+            'Weak or wrong password',
+            [ERROR_CODES.WEAK_PASSWORD, ERROR_CODES.INVALID_PASSWORD],
+            weakPasswordFields,
+          ),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
         },
       },
@@ -324,9 +331,9 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const complexityError = validatePasswordComplexity(body.newPassword);
-      if (complexityError != null) {
-        await reply.status(400).send({ error: complexityError, code: 'WEAK_PASSWORD' });
+      const weakPassword = await validatePassword(body.newPassword);
+      if (weakPassword != null) {
+        await reply.status(400).send(weakPassword);
         return;
       }
 
@@ -336,8 +343,10 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         .set({ passwordHash: newHash, updatedAt: new Date() })
         .where(eq(drivers.id, driverId));
 
-      // Revoke all existing refresh tokens to invalidate other sessions
-      await revokeAllDriverRefreshTokens(driverId);
+      // End every session, then give this client a new one, like the
+      // operator password change: other devices sign in again.
+      await endDriverSessions(driverId);
+      const tokens = await issueDriverTokens(app, request, reply, driverId);
 
       await writeAudit(
         { table: driverAuditLog, idColumn: 'driver_id' },
@@ -361,7 +370,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         getPubSub(),
       );
 
-      return { success: true };
+      return tokens == null ? { success: true } : { success: true, ...tokens };
     },
   );
 

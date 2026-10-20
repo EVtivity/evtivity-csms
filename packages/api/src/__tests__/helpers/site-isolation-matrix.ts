@@ -3923,6 +3923,37 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   c('PUT', '/security/mfa', 'settings.security:write', () => '/security/mfa', 'SETTING_NOT_FOUND', {
     body: () => ({ emailEnabled: false, totpEnabled: false, smsEnabled: false }),
   }),
+  c(
+    'PUT',
+    '/security/password-policy',
+    'settings.security:write',
+    () => '/security/password-policy',
+    'SETTING_NOT_FOUND',
+    {
+      body: () => ({
+        minLength: 12,
+        requireUppercase: true,
+        requireLowercase: true,
+        requireNumber: true,
+        requireSymbol: false,
+      }),
+    },
+  ),
+  c(
+    'PUT',
+    '/security/sessions',
+    'settings.security:write',
+    () => '/security/sessions',
+    'SETTING_NOT_FOUND',
+    {
+      body: () => ({
+        operatorAccessMinutes: 60,
+        operatorRefreshDays: 30,
+        driverAccessMinutes: 60,
+        driverRefreshDays: 30,
+      }),
+    },
+  ),
   c('GET', '/sso/settings', 'settings.security:read', () => '/sso/settings', 'SETTING_NOT_FOUND'),
   c('PUT', '/sso/settings', 'settings.security:write', () => '/sso/settings', 'SETTING_NOT_FOUND', {
     body: () => ({

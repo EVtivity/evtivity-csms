@@ -25,6 +25,11 @@
     "description": "OCTT test case results for the Charging Station Simulator on OCPP 1.6, by module, with its PICS."
   },
   {
+    "path": "/docs/conformance/charging-station-ocpp201",
+    "title": "OCPP 2.0.1 Charging Station Results",
+    "description": "OCTT test case results for the Charging Station Simulator on OCPP 2.0.1, by module, with its PICS."
+  },
+  {
     "path": "/docs/conformance/charging-station-ocpp21",
     "title": "OCPP 2.1 Charging Station Results",
     "description": "OCTT test case results for the Charging Station Simulator on OCPP 2.1, by module, with its PICS."
@@ -35,6 +40,11 @@
     "description": "OCTT test case results for the EVtivity CSMS on OCPP 1.6, by module."
   },
   {
+    "path": "/docs/conformance/csms-ocpp201",
+    "title": "OCPP 2.0.1 CSMS Results",
+    "description": "OCTT test case results for the EVtivity CSMS on OCPP 2.0.1, by certification profile and module."
+  },
+  {
     "path": "/docs/conformance/csms-ocpp21",
     "title": "OCPP 2.1 CSMS Results",
     "description": "OCTT test case results for the EVtivity CSMS on OCPP 2.1, by module."
@@ -42,7 +52,7 @@
   {
     "path": "/docs/conformance/overview",
     "title": "OCPP Conformance Testing",
-    "description": "How EVtivity tests the CSMS against the OCTT test cases for OCPP 1.6, 2.0.1 and 2.1, and the Charging Station Simulator for OCPP 1.6 and 2.1."
+    "description": "How EVtivity tests the CSMS and the Charging Station Simulator against the OCTT test cases for OCPP 1.6, 2.0.1 and 2.1."
   },
   {
     "path": "/docs/csms/access-logs",

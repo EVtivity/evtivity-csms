@@ -9,33 +9,26 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { missingPasswordRules } from '@evtivity/lib/password-policy';
 import { api, getApiErrorCode } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { generateRandomPassword } from '@/lib/generate-password';
 import { passwordRulesMessage } from '@/lib/password-rules';
+import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
+import type { PasswordRule } from '@evtivity/lib/password-policy';
 
 export interface UserSecurityTabProps {
   userId: string;
 }
 
-// Draws until the password meets every rule of the API (`@evtivity/lib/password-policy`).
-function generateRandomPassword(): string {
-  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
-  for (;;) {
-    const array = new Uint8Array(16);
-    crypto.getRandomValues(array);
-    const password = Array.from(array, (b) => chars[b % chars.length]).join('');
-    if (missingPasswordRules(password).length === 0) return password;
-  }
-}
-
 export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  const passwordPolicy = usePasswordPolicy();
+  const weakPasswordReply = useWeakPasswordReply();
   const [newPassword, setNewPassword] = useState('');
   const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
-  // The API refused the password (WEAK_PASSWORD). Translated at render, cleared on edit.
-  const [serverWeakPassword, setServerWeakPassword] = useState(false);
+  // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
+  const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
 
   const resetPasswordMutation = useMutation({
     mutationFn: (body: { password: string }) =>
@@ -45,7 +38,7 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
       setHasSubmittedPassword(false);
     },
     onError: (err: unknown) => {
-      if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerWeakPassword(true);
+      if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerMissing(weakPasswordReply(err) ?? []);
     },
   });
 
@@ -54,9 +47,14 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
     if (newPassword.trim() === '') {
       errors.newPassword = t('validation.required');
     } else {
-      const rulesError = passwordRulesMessage(newPassword, t, i18n.language);
+      const rulesError = passwordRulesMessage(
+        newPassword,
+        passwordPolicy,
+        t,
+        i18n.language,
+        serverMissing,
+      );
       if (rulesError != null) errors.newPassword = rulesError;
-      else if (serverWeakPassword) errors.newPassword = t('errors.WEAK_PASSWORD');
     }
     return errors;
   }
@@ -86,10 +84,15 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
               <PasswordInput
                 id="new-password"
                 value={newPassword}
-                aria-describedby="new-password-requirements"
+                aria-invalid={hasSubmittedPassword && passwordErrors.newPassword ? true : undefined}
+                aria-describedby={
+                  hasSubmittedPassword && passwordErrors.newPassword
+                    ? 'new-password-error new-password-requirements'
+                    : 'new-password-requirements'
+                }
                 onChange={(e) => {
                   setNewPassword(e.target.value);
-                  setServerWeakPassword(false);
+                  setServerMissing(null);
                 }}
                 className={
                   hasSubmittedPassword && passwordErrors.newPassword ? 'border-destructive' : ''
@@ -99,8 +102,8 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
                 type="button"
                 variant="outline"
                 onClick={() => {
-                  setNewPassword(generateRandomPassword());
-                  setServerWeakPassword(false);
+                  setNewPassword(generateRandomPassword(passwordPolicy));
+                  setServerMissing(null);
                 }}
               >
                 <RefreshCw className="h-4 w-4" />
@@ -108,9 +111,13 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
               </Button>
             </div>
             {hasSubmittedPassword && passwordErrors.newPassword && (
-              <p className="text-sm text-destructive">{passwordErrors.newPassword}</p>
+              <p id="new-password-error" className="text-sm text-destructive">
+                {passwordErrors.newPassword}
+              </p>
             )}
             <PasswordRequirements
+              policy={passwordPolicy}
+              serverMissing={serverMissing}
               id="new-password-requirements"
               password={newPassword}
               showUnmet={hasSubmittedPassword}

@@ -199,8 +199,6 @@
     "setDefaultFailed": "Failed to set default payment method. Please try again."
   },
   "profile": {
-    "title": "Profile",
-    "personalInfo": "Personal info",
     "email": "Email",
     "firstName": "First name",
     "lastName": "Last name",
@@ -215,7 +213,6 @@
     "passwordChangeFailed": "Failed to change password.",
     "signOut": "Sign out",
     "language": "Language",
-    "notificationPreferences": "Notification Preferences",
     "emailNotifications": "Email notifications",
     "smsNotifications": "SMS notifications",
     "preferencesSaved": "Notification preferences saved.",
@@ -927,7 +924,9 @@
       "minLength": "at least {{min}} characters",
       "uppercase": "an uppercase letter",
       "lowercase": "a lowercase letter",
-      "number": "a number"
+      "number": "a number",
+      "symbol": "a special character",
+      "maxLength": "at most {{max}} characters"
     }
   },
   "activity": {

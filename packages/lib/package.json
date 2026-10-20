@@ -71,6 +71,9 @@
     "./password-policy": {
       "import": "./src/password-policy.ts"
     },
+    "./session-lifetimes": {
+      "import": "./src/session-lifetimes.ts"
+    },
     "./firmware-signature": {
       "import": "./src/firmware-signature.ts"
     },

@@ -11,7 +11,15 @@ import {
   writeAudit,
   settingAuditLog,
 } from '@evtivity/database';
-import { createLogger, encryptString } from '@evtivity/lib';
+import {
+  createLogger,
+  encryptString,
+  normalizePasswordPolicy,
+  normalizeSessionLifetimes,
+  PASSWORD_MIN_LENGTH_CEILING,
+  PASSWORD_MIN_LENGTH_FLOOR,
+  SESSION_LIFETIME_LIMITS,
+} from '@evtivity/lib';
 import { decryptForRead } from '../lib/settings-crypto.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
@@ -92,7 +100,111 @@ const SECURITY_KEYS = [
   'security.mfa.emailEnabled',
   'security.mfa.totpEnabled',
   'security.mfa.smsEnabled',
+  'security.password.minLength',
+  'security.password.requireUppercase',
+  'security.password.requireLowercase',
+  'security.password.requireNumber',
+  'security.password.requireSymbol',
+  'security.session.operatorAccessMinutes',
+  'security.session.operatorRefreshDays',
+  'security.session.driverAccessMinutes',
+  'security.session.driverRefreshDays',
 ];
+
+const passwordPolicyBody = z.object({
+  minLength: z
+    .number()
+    .int()
+    .min(PASSWORD_MIN_LENGTH_FLOOR)
+    .max(PASSWORD_MIN_LENGTH_CEILING)
+    .describe(
+      `Minimum password length (${String(PASSWORD_MIN_LENGTH_FLOOR)} to ${String(PASSWORD_MIN_LENGTH_CEILING)})`,
+    ),
+  requireUppercase: z.boolean().describe('Require at least one uppercase letter'),
+  requireLowercase: z.boolean().describe('Require at least one lowercase letter'),
+  requireNumber: z.boolean().describe('Require at least one digit'),
+  requireSymbol: z
+    .boolean()
+    .describe('Require at least one ASCII character that is not a letter, digit or space'),
+});
+
+function lifetimeField(field: keyof typeof SESSION_LIFETIME_LIMITS, text: string) {
+  const { min, max } = SESSION_LIFETIME_LIMITS[field];
+  return z
+    .number()
+    .int()
+    .min(min)
+    .max(max)
+    .describe(`${text} (${String(min)} to ${String(max)})`);
+}
+
+const sessionLifetimesBody = z.object({
+  operatorAccessMinutes: lifetimeField(
+    'operatorAccessMinutes',
+    'Operator access token lifetime in minutes',
+  ),
+  operatorRefreshDays: lifetimeField(
+    'operatorRefreshDays',
+    'Operator refresh token lifetime in days',
+  ),
+  driverAccessMinutes: lifetimeField(
+    'driverAccessMinutes',
+    'Driver access token lifetime in minutes',
+  ),
+  driverRefreshDays: lifetimeField('driverRefreshDays', 'Driver refresh token lifetime in days'),
+});
+
+const securitySettingsResponse = z
+  .object({
+    passwordPolicy: passwordPolicyBody.describe(
+      'Password policy in effect, with defaults for unset keys',
+    ),
+    sessionLifetimes: sessionLifetimesBody.describe(
+      'Access and refresh token lifetimes in effect, with defaults for unset keys',
+    ),
+  })
+  .passthrough()
+  .describe('Stored security.* setting keys, plus the parsed password and session groups');
+
+const PASSWORD_KEYS: Record<keyof z.infer<typeof passwordPolicyBody>, string> = {
+  minLength: 'security.password.minLength',
+  requireUppercase: 'security.password.requireUppercase',
+  requireLowercase: 'security.password.requireLowercase',
+  requireNumber: 'security.password.requireNumber',
+  requireSymbol: 'security.password.requireSymbol',
+};
+
+const SESSION_KEYS: Record<keyof z.infer<typeof sessionLifetimesBody>, string> = {
+  operatorAccessMinutes: 'security.session.operatorAccessMinutes',
+  operatorRefreshDays: 'security.session.operatorRefreshDays',
+  driverAccessMinutes: 'security.session.driverAccessMinutes',
+  driverRefreshDays: 'security.session.driverRefreshDays',
+};
+
+function withPrefix(rows: Array<{ key: string; value: unknown }>, prefix: string) {
+  const result: Record<string, unknown> = {};
+  for (const row of rows) {
+    if (row.key.startsWith(prefix)) result[row.key.slice(prefix.length)] = row.value;
+  }
+  return result;
+}
+
+function upsertSetting(executor: Pick<typeof db, 'insert'>, key: string, value: unknown) {
+  return executor
+    .insert(settings)
+    .values({ key, value })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value, updatedAt: new Date() },
+    });
+}
+
+// One transaction per save: a failed write leaves every key of the form as it was.
+async function writeSettings(written: Array<{ key: string; value: unknown }>): Promise<void> {
+  await db.transaction(async (tx) => {
+    for (const w of written) await upsertSetting(tx, w.key, w.value);
+  });
+}
 
 const recaptchaBody = z.object({
   enabled: z.boolean().describe('Enable or disable reCAPTCHA v3'),
@@ -130,7 +242,7 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
         operationId: 'getSecuritySettings',
         security: [{ bearerAuth: [] }],
         response: {
-          200: itemResponse(z.record(z.unknown())),
+          200: itemResponse(securitySettingsResponse),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
         },
       },
@@ -143,7 +255,77 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
         if (!SECURITY_KEYS.includes(row.key)) continue;
         result[row.key] = decryptForRead(row.key, row.value);
       }
-      return result;
+      return {
+        ...result,
+        passwordPolicy: normalizePasswordPolicy(withPrefix(rows, 'security.password.')),
+        sessionLifetimes: normalizeSessionLifetimes(withPrefix(rows, 'security.session.')),
+      };
+    },
+  );
+
+  app.put(
+    '/security/password-policy',
+    {
+      onRequest: [authorize('settings.security:write')],
+      schema: {
+        tags: ['Settings'],
+        summary: 'Update the password policy',
+        description:
+          'Applies at the next password set. Sign-in never checks the policy, so a stricter policy locks nobody out.',
+        operationId: 'updatePasswordPolicySettings',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(passwordPolicyBody),
+        response: {
+          200: successResponse,
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
+      const body = request.body as z.infer<typeof passwordPolicyBody>;
+      const written = (Object.keys(PASSWORD_KEYS) as Array<keyof typeof PASSWORD_KEYS>).map(
+        (field) => ({ key: PASSWORD_KEYS[field], value: body[field] }),
+      );
+
+      const before = await loadCurrentValues(written.map((w) => w.key));
+      await writeSettings(written);
+      await invalidateSecuritySettings();
+      await auditSettingChanges(request, before, written);
+      return { success: true };
+    },
+  );
+
+  app.put(
+    '/security/sessions',
+    {
+      onRequest: [authorize('settings.security:write')],
+      schema: {
+        tags: ['Settings'],
+        summary: 'Update the operator and driver session lifetimes',
+        description:
+          'Applies to tokens issued after the change, renewals included, so active sessions take on the new lifetimes at their next background renewal.',
+        operationId: 'updateSessionLifetimeSettings',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(sessionLifetimesBody),
+        response: {
+          200: successResponse,
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
+      const body = request.body as z.infer<typeof sessionLifetimesBody>;
+      const written = (Object.keys(SESSION_KEYS) as Array<keyof typeof SESSION_KEYS>).map(
+        (field) => ({ key: SESSION_KEYS[field], value: body[field] }),
+      );
+
+      const before = await loadCurrentValues(written.map((w) => w.key));
+      await writeSettings(written);
+      await invalidateSecuritySettings();
+      await auditSettingChanges(request, before, written);
+      return { success: true };
     },
   );
 
@@ -187,15 +369,6 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
         }
       }
 
-      const upsert = (key: string, value: unknown) =>
-        db
-          .insert(settings)
-          .values({ key, value })
-          .onConflictDoUpdate({
-            target: settings.key,
-            set: { value, updatedAt: new Date() },
-          });
-
       const written: Array<{ key: string; value: unknown }> = [
         { key: 'security.recaptcha.enabled', value: body.enabled },
         { key: 'security.recaptcha.siteKey', value: body.siteKey },
@@ -220,7 +393,7 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
       }
 
       const before = await loadCurrentValues(written.map((w) => w.key));
-      await Promise.all(written.map((w) => upsert(w.key, w.value)));
+      await writeSettings(written);
       await invalidateSecuritySettings();
       await auditSettingChanges(request, before, written);
       return { success: true };
@@ -247,15 +420,6 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof mfaBody>;
 
-      const upsert = (key: string, value: unknown) =>
-        db
-          .insert(settings)
-          .values({ key, value })
-          .onConflictDoUpdate({
-            target: settings.key,
-            set: { value, updatedAt: new Date() },
-          });
-
       const written: Array<{ key: string; value: unknown }> = [
         { key: 'security.mfa.emailEnabled', value: body.emailEnabled },
         { key: 'security.mfa.totpEnabled', value: body.totpEnabled },
@@ -263,7 +427,7 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
       ];
 
       const before = await loadCurrentValues(written.map((w) => w.key));
-      await Promise.all(written.map((w) => upsert(w.key, w.value)));
+      await writeSettings(written);
       await invalidateSecuritySettings();
       await auditSettingChanges(request, before, written);
       return { success: true };

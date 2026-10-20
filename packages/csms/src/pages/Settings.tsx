@@ -26,6 +26,7 @@ import { IntegrationsSettings } from '@/components/settings/IntegrationsSettings
 import { SecurityRecaptchaSettings } from '@/components/settings/SecurityRecaptchaSettings';
 import { SecurityMfaSettings } from '@/components/settings/SecurityMfaSettings';
 import { SecuritySsoSettings } from '@/components/settings/SecuritySsoSettings';
+import { SecurityPasswordSessionSettings } from '@/components/settings/SecurityPasswordSessionSettings';
 import { ApiKeysSettings } from '@/components/settings/ApiKeysSettings';
 import { AiSettings } from '@/components/settings/AiSettings';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
@@ -106,11 +107,16 @@ export function Settings(): React.JSX.Element {
 
   const canReadSecurity =
     hasAllSiteAccess && hasPermissionCheck(permissions, 'settings.security:read');
-  const { data: securitySettings } = useQuery({
+  const {
+    data: securitySettings,
+    isError: securitySettingsFailed,
+    refetch: refetchSecuritySettings,
+  } = useQuery({
     queryKey: ['security-settings'],
     queryFn: () => api.get<Record<string, unknown>>('/v1/security/settings'),
     enabled: canReadSecurity,
   });
+  const canWriteSecurity = hasPermissionCheck(permissions, 'settings.security:write');
 
   const { svgDataUri } = useQrIcon();
 
@@ -251,6 +257,7 @@ export function Settings(): React.JSX.Element {
                 <TabsTrigger value="recaptcha">{t('settings.recaptcha')}</TabsTrigger>
                 <TabsTrigger value="mfa">{t('settings.mfa')}</TabsTrigger>
                 <TabsTrigger value="sso">{t('settings.sso')}</TabsTrigger>
+                <TabsTrigger value="passwords">{t('settings.passwordSessions.tab')}</TabsTrigger>
               </TabsList>
               <TabsContent value="recaptcha" className="mt-4">
                 <SecurityRecaptchaSettings settings={securitySettings} />
@@ -260,6 +267,16 @@ export function Settings(): React.JSX.Element {
               </TabsContent>
               <TabsContent value="sso" className="mt-4">
                 <SecuritySsoSettings settings={securitySettings} />
+              </TabsContent>
+              <TabsContent value="passwords" className="mt-4">
+                <SecurityPasswordSessionSettings
+                  settings={securitySettings}
+                  canWrite={canWriteSecurity}
+                  loadFailed={securitySettingsFailed}
+                  onRetry={() => {
+                    void refetchSecuritySettings();
+                  }}
+                />
               </TabsContent>
             </Tabs>
           </TabsContent>

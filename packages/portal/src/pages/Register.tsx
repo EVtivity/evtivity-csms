@@ -15,7 +15,9 @@ import { getErrorMessage } from '@/lib/error-message';
 import { api, getApiErrorCode } from '@/lib/api';
 import { executeRecaptcha } from '@/lib/recaptcha';
 import { passwordRulesMessage } from '@/lib/password-rules';
+import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
+import type { PasswordRule } from '@evtivity/lib/password-policy';
 
 interface SecurityPublic {
   recaptchaEnabled: boolean;
@@ -24,6 +26,8 @@ interface SecurityPublic {
 
 export function Register(): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  const passwordPolicy = usePasswordPolicy();
+  const weakPasswordReply = useWeakPasswordReply();
   const navigate = useNavigate();
   const register = useAuth((s) => s.register);
   const [firstName, setFirstName] = useState('');
@@ -34,8 +38,8 @@ export function Register(): React.JSX.Element {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
-  // The API refused the password (WEAK_PASSWORD). Translated at render, cleared on edit.
-  const [serverWeakPassword, setServerWeakPassword] = useState(false);
+  // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
+  const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
   // Set once the API accepted the request: the page then asks to check the inbox.
   const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
 
@@ -54,9 +58,14 @@ export function Register(): React.JSX.Element {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors['email'] = t('validation.email');
     if (password === '') errors['password'] = t('validation.required');
     else {
-      const rulesError = passwordRulesMessage(password, t, i18n.language);
+      const rulesError = passwordRulesMessage(
+        password,
+        passwordPolicy,
+        t,
+        i18n.language,
+        serverMissing,
+      );
       if (rulesError != null) errors['password'] = rulesError;
-      else if (serverWeakPassword) errors['password'] = t('errors.WEAK_PASSWORD');
     }
     return errors;
   }
@@ -86,7 +95,7 @@ export function Register(): React.JSX.Element {
       });
       setSubmittedEmail(email);
     } catch (err: unknown) {
-      if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerWeakPassword(true);
+      if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerMissing(weakPasswordReply(err) ?? []);
       else setError(getErrorMessage(err, t, 'auth.registrationFailed'));
     } finally {
       setLoading(false);
@@ -211,17 +220,26 @@ export function Register(): React.JSX.Element {
                 id="password"
                 autoComplete="off"
                 value={password}
-                aria-describedby="password-requirements"
+                aria-invalid={hasSubmitted && validationErrors['password'] ? true : undefined}
+                aria-describedby={
+                  hasSubmitted && validationErrors['password']
+                    ? 'password-error password-requirements'
+                    : 'password-requirements'
+                }
                 onChange={(e) => {
                   setPassword(e.target.value);
-                  setServerWeakPassword(false);
+                  setServerMissing(null);
                 }}
                 className={hasSubmitted && validationErrors['password'] ? 'border-destructive' : ''}
               />
               {hasSubmitted && validationErrors['password'] && (
-                <p className="text-xs text-destructive">{validationErrors['password']}</p>
+                <p id="password-error" className="text-xs text-destructive">
+                  {validationErrors['password']}
+                </p>
               )}
               <PasswordRequirements
+                policy={passwordPolicy}
+                serverMissing={serverMissing}
                 id="password-requirements"
                 password={password}
                 showUnmet={hasSubmitted}

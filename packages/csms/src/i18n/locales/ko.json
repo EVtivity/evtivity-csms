@@ -2887,7 +2887,29 @@
     "autocharge": "Autocharge",
     "autochargeDescription": "플러그를 꽂아 충전: 충전기가 차량의 VIN, EVCCID 또는 MAC 주소를 보내면 운전자가 해당 차량에 Autocharge를 켠 경우 운전자의 세션이 시작됩니다. 사이트는 자체 충전소에 대해 이 기능을 켜거나 끌 수 있습니다.",
     "autochargeEnabled": "Autocharge 사용",
-    "autochargeEnabledDesc": "기본값은 꺼짐입니다. 운전자는 포털에서 차량별로 Autocharge를 켜며, 시작할 때마다 운전자에게 알림이 전송됩니다."
+    "autochargeEnabledDesc": "기본값은 꺼짐입니다. 운전자는 포털에서 차량별로 Autocharge를 켜며, 시작할 때마다 운전자에게 알림이 전송됩니다.",
+    "passwordSessions": {
+      "tab": "비밀번호 및 세션",
+      "description": "새 비밀번호 규칙과 운영자 및 운전자의 로그인 유지 기간을 설정합니다.",
+      "passwordsTitle": "비밀번호",
+      "passwordsNote": "다음에 누군가 비밀번호를 설정할 때 적용됩니다. 기존 비밀번호는 계속 사용할 수 있습니다.",
+      "minLength": "최소 길이",
+      "minLengthHint": "문자 수, {{min}}~{{max}}.",
+      "requireUppercase": "대문자 필수",
+      "requireLowercase": "소문자 필수",
+      "requireNumber": "숫자 필수",
+      "requireSymbol": "특수 문자 필수",
+      "requireSymbolHint": "문자, 숫자, 공백이 아닌 키보드 문자(예: ! 또는 #).",
+      "sessionsTitle": "세션",
+      "sessionsNote": "로그인할 때나 앱이 로그인을 갱신할 때 적용됩니다. 활성 세션은 확인 간격 한 번 안에 새 값을 적용받습니다. 아무도 사용하지 않는 세션은 이전 만료 시간을 유지합니다.",
+      "operatorAccessMinutes": "운영자 로그인 확인 간격",
+      "operatorRefreshDays": "운영자 비활동 시간 제한",
+      "driverAccessMinutes": "운전자 로그인 확인 간격",
+      "driverRefreshDays": "운전자 비활동 시간 제한",
+      "accessHint": "분, {{min}}~{{max}}. 앱이 이 간격마다 백그라운드에서 사용자에게 묻지 않고 로그인을 다시 확인합니다. 비활성화된 계정은 이 간격과 관계없이 1분 안에 로그아웃됩니다.",
+      "refreshHint": "일, {{min}}~{{max}}. 이 기간 동안 앱을 사용하지 않으면 다시 로그인해야 합니다.",
+      "saveFailed": "저장하지 못했습니다. 다시 시도하세요."
+    }
   },
   "pnc": {
     "certificates": "인증서",
@@ -4114,7 +4136,9 @@
       "minLength": "{{min}}자 이상",
       "uppercase": "영문 대문자 1개 이상",
       "lowercase": "영문 소문자 1개 이상",
-      "number": "숫자 1개 이상"
+      "number": "숫자 1개 이상",
+      "symbol": "특수 문자 1개 이상",
+      "maxLength": "{{max}}자 이하"
     },
     "minItems": "항목을 {{min}}개 이상 추가하세요",
     "maxItems": "항목은 최대 {{max}}개까지 사용할 수 있습니다",

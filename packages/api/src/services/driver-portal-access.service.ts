@@ -6,11 +6,11 @@ import { and, desc, eq, gt, isNotNull, isNull } from 'drizzle-orm';
 import { AppError, dispatchSystemNotification } from '@evtivity/lib';
 import { db, client, drivers, userTokens, driverAuditLog, writeAudit } from '@evtivity/database';
 import { generateUserToken, hashUserToken } from '../lib/user-token.js';
-import { validatePasswordComplexity } from '../lib/password-validation.js';
+import { assertPassword } from '../lib/password-validation.js';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { config } from '../lib/config.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
-import { revokeAllDriverRefreshTokens } from './refresh-token.service.js';
+import { endDriverSessions } from './refresh-token.service.js';
 
 // The only writer of `portal_invite` tokens and of the first password on a
 // driver that has none. Operators grant portal access to operator-created
@@ -131,8 +131,7 @@ export async function activateDriverPortal(
   password: string,
   log: Logger,
 ): Promise<void> {
-  const complexityError = validatePasswordComplexity(password);
-  if (complexityError != null) throw new AppError(complexityError, 400, 'WEAK_PASSWORD');
+  await assertPassword(password);
 
   // Hashed before the token lookup so a valid and an invalid token take the
   // same time.
@@ -196,7 +195,7 @@ export async function activateDriverPortal(
     db,
     log,
   );
-  await revokeAllDriverRefreshTokens(driverId);
+  await endDriverSessions(driverId);
 }
 
 export async function getPortalAccess(

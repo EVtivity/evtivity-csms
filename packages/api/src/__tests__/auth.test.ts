@@ -5,9 +5,11 @@ import { describe, it, expect, beforeAll, vi } from 'vitest';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import type { FastifyInstance } from 'fastify';
-import { registerAuth } from '../plugins/auth.js';
+import { driverTokenRejection, registerAuth } from '../plugins/auth.js';
 import { healthRoutes } from '../routes/health.js';
 import { getUserSessionState } from '../lib/user-active.js';
+import { getDriverSessionState } from '../lib/driver-active.js';
+import { signDriverAccessToken } from '../lib/driver-session.js';
 
 describe('Auth plugin', () => {
   let app: FastifyInstance;
@@ -119,6 +121,51 @@ describe('Auth plugin', () => {
     });
     expect(response.statusCode).toBe(401);
     expect(response.json()).toEqual({ error: 'Session ended', code: 'UNAUTHORIZED' });
+  });
+});
+
+describe('Driver session version (driverTokenRejection)', () => {
+  it('accepts a token of the current version and a token without one at version 0', async () => {
+    vi.mocked(getDriverSessionState).mockResolvedValueOnce({ active: true, sessionVersion: 2 });
+    expect(await driverTokenRejection({ driverId: 'drv_sv', type: 'driver', sv: 2 })).toBeNull();
+    vi.mocked(getDriverSessionState).mockResolvedValueOnce({ active: true, sessionVersion: 0 });
+    expect(await driverTokenRejection({ driverId: 'drv_old', type: 'driver' })).toBeNull();
+  });
+
+  it('refuses a token issued before the version moved on, and a pre-release token after a bump', async () => {
+    vi.mocked(getDriverSessionState).mockResolvedValueOnce({ active: true, sessionVersion: 3 });
+    expect(await driverTokenRejection({ driverId: 'drv_sv', type: 'driver', sv: 2 })).toEqual({
+      status: 401,
+      error: 'Session ended',
+      code: 'UNAUTHORIZED',
+    });
+    vi.mocked(getDriverSessionState).mockResolvedValueOnce({ active: true, sessionVersion: 1 });
+    expect(await driverTokenRejection({ driverId: 'drv_old', type: 'driver' })).toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    expect(getDriverSessionState).toHaveBeenCalledWith('drv_old');
+  });
+
+  it('answers ACCOUNT_DEACTIVATED before the version for a deactivated driver', async () => {
+    vi.mocked(getDriverSessionState).mockResolvedValueOnce({ active: false, sessionVersion: 0 });
+    expect(await driverTokenRejection({ driverId: 'drv_off', type: 'driver', sv: 5 })).toEqual({
+      status: 401,
+      error: 'Account deactivated',
+      code: 'ACCOUNT_DEACTIVATED',
+    });
+  });
+
+  it('signs driver tokens with sv', async () => {
+    const app = Fastify();
+    await registerAuth(app);
+    await app.ready();
+    const token = signDriverAccessToken(app, { id: 'drv_sv', sessionVersion: 7 }, 60);
+    expect(app.jwt.decode<Record<string, unknown>>(token)).toMatchObject({
+      driverId: 'drv_sv',
+      type: 'driver',
+      sv: 7,
+    });
+    await app.close();
   });
 });
 

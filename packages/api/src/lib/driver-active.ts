@@ -6,27 +6,37 @@ import { db, drivers } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
-/**
- * Whether the driver exists and is active. Read on every driver request
- * (`driverTokenRejection`), uncached, so a deactivation applies to the next
- * request at once.
- */
-export async function isDriverActive(driverId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ isActive: drivers.isActive })
-    .from(drivers)
-    .where(eq(drivers.id, driverId));
-  return row?.isActive === true;
+/** What every driver request checks about its driver. */
+export interface DriverSessionState {
+  /** False for a deactivated or unknown driver. */
+  active: boolean;
+  /** `drivers.session_version`: access tokens of another version are refused. */
+  sessionVersion: number;
 }
 
 /**
- * Announces a driver deactivation on `cache_invalidate` (`{ kind:
- * 'driver_active', driverId }`). Every API pod, the publishing one included,
- * ends the driver's open portal event streams (`closeDriverEventStreams`); a
- * reconnect is refused by `driverTokenRejection`. A failed publish is logged
- * at warn: the streams then end at the token expiry (P9).
+ * Whether the driver exists and is active, and the session version its
+ * access tokens must carry. Read on every driver request
+ * (`driverTokenRejection`), uncached (one primary key read), so a
+ * deactivation or an ended session applies to the next request at once.
  */
-export function announceDriverDeactivated(driverId: string): void {
+export async function getDriverSessionState(driverId: string): Promise<DriverSessionState> {
+  const [row] = await db
+    .select({ isActive: drivers.isActive, sessionVersion: drivers.sessionVersion })
+    .from(drivers)
+    .where(eq(drivers.id, driverId));
+  return { active: row?.isActive === true, sessionVersion: row?.sessionVersion ?? 0 };
+}
+
+/**
+ * Announces a driver deactivation or an ended session on `cache_invalidate`
+ * (`{ kind: 'driver_active', driverId }`). Every API pod, the publishing one
+ * included, ends the driver's open portal event streams
+ * (`closeDriverEventStreams`); a reconnect with a token of an ended session
+ * is refused by `driverTokenRejection`. A failed publish is logged at warn:
+ * the streams then end at the token expiry (P9).
+ */
+export function announceDriverSessionChange(driverId: string): void {
   void getPubSub()
     .publish('cache_invalidate', JSON.stringify({ kind: 'driver_active', driverId }))
     .catch((err: unknown) => {

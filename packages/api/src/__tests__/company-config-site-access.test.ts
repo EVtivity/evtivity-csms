@@ -111,6 +111,8 @@ const cases: Array<[string, string, string]> = [
   ['GET', '/security/settings', 'SETTING_NOT_FOUND'],
   ['PUT', '/security/recaptcha', 'SETTING_NOT_FOUND'],
   ['PUT', '/security/mfa', 'SETTING_NOT_FOUND'],
+  ['PUT', '/security/password-policy', 'SETTING_NOT_FOUND'],
+  ['PUT', '/security/sessions', 'SETTING_NOT_FOUND'],
   ['GET', '/pnc/settings', 'SETTING_NOT_FOUND'],
   ['PUT', '/pnc/settings', 'SETTING_NOT_FOUND'],
   ['POST', '/pnc/settings/test-provider', 'SETTING_NOT_FOUND'],

@@ -50,6 +50,13 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  getPasswordPolicy: vi.fn().mockResolvedValue({
+    minLength: 12,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireNumber: true,
+    requireSymbol: false,
+  }),
   writeAudit: vi.fn(() => Promise.resolve()),
   userAuditLog: { _table: 'user_audit_log' },
   driverAuditLog: { _table: 'driver_audit_log' },
@@ -124,8 +131,13 @@ vi.mock('@evtivity/services/template-dirs', () => ({
 }));
 
 vi.mock('../services/refresh-token.service.js', () => ({
-  revokeAllDriverRefreshTokens: vi.fn().mockResolvedValue(undefined),
+  endDriverSessions: vi.fn().mockResolvedValue(undefined),
   createRefreshToken: vi.fn().mockResolvedValue({ rawToken: 'mock', expiresAt: new Date() }),
+}));
+
+// The session issuer is tested in session-token-lifetimes.test.ts.
+vi.mock('../lib/driver-session.js', () => ({
+  issueDriverTokens: vi.fn().mockResolvedValue(null),
 }));
 
 const { updateDriverBillingAddressMock } = vi.hoisted(() => ({
@@ -149,6 +161,8 @@ import { portalDriverRoutes } from '../routes/portal/driver.js';
 import * as argon2Module from 'argon2';
 import * as databaseModule from '@evtivity/database';
 import { writeAudit } from '@evtivity/database';
+import { endDriverSessions } from '../services/refresh-token.service.js';
+import { issueDriverTokens } from '../lib/driver-session.js';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -469,6 +483,43 @@ describe('Portal driver routes - handler logic', () => {
         expect.anything(),
       );
       expect(JSON.stringify(vi.mocked(writeAudit).mock.calls)).not.toContain('NewPassword1');
+      // Every session ends, then this client gets a new one.
+      expect(vi.mocked(endDriverSessions)).toHaveBeenCalledWith(DRIVER_ID);
+      expect(vi.mocked(issueDriverTokens)).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        DRIVER_ID,
+      );
+      expect(vi.mocked(endDriverSessions).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(issueDriverTokens).mock.invocationCallOrder[0] ?? 0,
+      );
+      expect(response.json()).toEqual({ success: true });
+    });
+
+    it('returns new tokens in the body for a mobile client', async () => {
+      const argon2 = argon2Module;
+      vi.mocked(argon2.default.verify).mockResolvedValueOnce(true);
+      vi.mocked(issueDriverTokens).mockResolvedValueOnce({
+        token: 'new-access',
+        refreshToken: 'mock',
+        expiresIn: 3600,
+      });
+
+      setupDbResults([{ passwordHash: '$argon2id$hashed' }], []);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/password',
+        headers: { authorization: `Bearer ${driverToken}`, 'x-client': 'mobile' },
+        payload: { currentPassword: 'OldPassword1', newPassword: 'NewPassword1' },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json<Record<string, unknown>>();
+      expect(body['success']).toBe(true);
+      expect(body['token']).toBe('new-access');
+      expect(body['refreshToken']).toBe('mock');
+      expect(body['expiresIn']).toBe(3600);
+      expect(vi.mocked(endDriverSessions)).toHaveBeenCalledWith(DRIVER_ID);
     });
 
     it('returns 400 when new password is too short', async () => {

@@ -52,6 +52,16 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  getSessionLifetimes: vi.fn(async () => ({
+    ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
+  })),
+  getPasswordPolicy: vi.fn().mockResolvedValue({
+    minLength: 12,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireNumber: true,
+    requireSymbol: false,
+  }),
   writeAudit: vi.fn(() => Promise.resolve()),
   userAuditLog: { _table: 'user_audit_log' },
   driverAuditLog: { _table: 'driver_audit_log' },
@@ -124,7 +134,8 @@ vi.mock('../services/refresh-token.service.js', () => ({
     .mockResolvedValue({ rawToken: 'new-refresh-token', expiresAt: new Date() }),
   validateAndRotateRefreshToken: vi.fn().mockResolvedValue(null),
   revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
-  revokeAllDriverRefreshTokens: vi.fn().mockResolvedValue(undefined),
+  endDriverSessions: vi.fn().mockResolvedValue(undefined),
+  bumpDriverSessionVersion: vi.fn().mockResolvedValue(1),
 }));
 
 vi.mock('../lib/device-attestation/index.js', () => ({
@@ -176,7 +187,8 @@ import {
   createRefreshToken,
   validateAndRotateRefreshToken,
   revokeRefreshToken,
-  revokeAllDriverRefreshTokens,
+  endDriverSessions,
+  bumpDriverSessionVersion,
 } from '../services/refresh-token.service.js';
 import {
   issueChallenge,
@@ -186,6 +198,7 @@ import {
 import { hashUserToken } from '../lib/user-token.js';
 import { registerAuth } from '../plugins/auth.js';
 import { portalAuthRoutes } from '../routes/portal/auth.js';
+import { DEFAULT_SESSION_LIFETIMES } from '@evtivity/lib/session-lifetimes';
 import * as libModule from '@evtivity/lib';
 
 const DRIVER_ID = 'drv_000000000001';
@@ -338,6 +351,7 @@ describe('Portal auth routes - extra coverage', () => {
       expect(res.json()).toEqual({
         error: 'Password must contain a number',
         code: 'WEAK_PASSWORD',
+        missing: ['number'],
       });
       expect(db.insert).not.toHaveBeenCalled();
     });
@@ -575,6 +589,9 @@ describe('Portal auth routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(204);
       expect(revokeRefreshToken).toHaveBeenCalledWith('web-refresh');
+      // Every access token issued before ends, like the operator logout.
+      expect(bumpDriverSessionVersion).toHaveBeenCalledWith(DRIVER_ID);
+      expect(endDriverSessions).not.toHaveBeenCalled();
       expect(cookieMap(res).get('portal_refresh')).toBe('');
     });
 
@@ -700,7 +717,7 @@ describe('Portal auth routes - extra coverage', () => {
       expect(res.statusCode).toBe(200);
       const json = res.json();
       expect(json.refreshToken).toBe('new-refresh-token');
-      expect(json.expiresIn).toBe(3600);
+      expect(json.expiresIn).toBe(DEFAULT_SESSION_LIFETIMES.driverAccessMinutes * 60);
       expect(app.jwt.verify<{ driverId: string }>(json.token).driverId).toBe(DRIVER_ID);
       expect(validateAndRotateRefreshToken).toHaveBeenCalledWith('valid', {
         deviceId: 'device-123',
@@ -708,6 +725,7 @@ describe('Portal auth routes - extra coverage', () => {
       expect(createRefreshToken).toHaveBeenCalledWith({
         driverId: DRIVER_ID,
         deviceId: 'device-123',
+        lifetimeDays: DEFAULT_SESSION_LIFETIMES.driverRefreshDays,
       });
       expect(cookieMap(res).size).toBe(0);
     });
@@ -1083,8 +1101,33 @@ describe('Portal auth routes - extra coverage', () => {
       expect(res.json()).toEqual({
         error: 'Password must contain an uppercase letter',
         code: 'WEAK_PASSWORD',
+        missing: ['uppercase'],
       });
       expect(db.select).not.toHaveBeenCalled();
+    });
+
+    it('refuses a password over 128 characters in the schema before looking up the token', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/reset-password',
+        payload: { token: 'abc', password: `Aa1${'x'.repeat(126)}` },
+      });
+      expect(res.statusCode).toBe(400);
+      // This test app has no validation mapping, so Fastify's own code shows; the real app
+      // answers VALIDATION_ERROR (integration file 59 checks it).
+      expect(res.json().code).toBe('FST_ERR_VALIDATION');
+      expect(db.select).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('accepts a password of exactly 128 characters past the schema', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/reset-password',
+        payload: { token: 'abc', password: `Aa1${'x'.repeat(125)}` },
+      });
+      expect(res.json().code).not.toBe('FST_ERR_VALIDATION');
+      expect(res.json().code).not.toBe('WEAK_PASSWORD');
     });
 
     it('returns 400 INVALID_TOKEN for an unknown, used or expired token', async () => {
@@ -1100,7 +1143,7 @@ describe('Portal auth routes - extra coverage', () => {
       // Only the token consume ran: no password was written.
       expect(setWrites()).toHaveLength(1);
       expect(setWrites()[0]?.['passwordHash']).toBeUndefined();
-      expect(revokeAllDriverRefreshTokens).not.toHaveBeenCalled();
+      expect(endDriverSessions).not.toHaveBeenCalled();
     });
 
     it('hashes the password before the token lookup, so both answers take as long', async () => {
@@ -1122,7 +1165,7 @@ describe('Portal auth routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('INVALID_TOKEN');
-      expect(revokeAllDriverRefreshTokens).not.toHaveBeenCalled();
+      expect(endDriverSessions).not.toHaveBeenCalled();
       expect(writeAudit).not.toHaveBeenCalled();
     });
 
@@ -1140,7 +1183,7 @@ describe('Portal auth routes - extra coverage', () => {
       expect(tokenSet?.['revokedAt']).toBeInstanceOf(Date);
       expect(driverSet?.['passwordHash']).toBe('$argon2id$hashed_password');
       expect(driverSet?.['emailVerified']).toBe(true);
-      expect(revokeAllDriverRefreshTokens).toHaveBeenCalledWith(DRIVER_ID);
+      expect(endDriverSessions).toHaveBeenCalledWith(DRIVER_ID);
       expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
         expect.objectContaining({ idColumn: 'driver_id' }),
         expect.objectContaining({

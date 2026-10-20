@@ -4,7 +4,17 @@
 import { like } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
-import { createLogger } from '@evtivity/lib';
+import {
+  createLogger,
+  DEFAULT_PASSWORD_POLICY,
+  DEFAULT_SESSION_LIFETIMES,
+  PASSWORD_MIN_LENGTH_CEILING,
+  PASSWORD_MIN_LENGTH_FLOOR,
+  SESSION_LIFETIME_LIMITS,
+  normalizePasswordPolicy,
+  normalizeSessionLifetimes,
+} from '@evtivity/lib';
+import type { PasswordPolicy, SessionLifetimes } from '@evtivity/lib';
 
 const logger = createLogger('security-settings');
 
@@ -24,6 +34,8 @@ export interface MfaConfig {
 interface ParsedSecurity {
   recaptcha: RecaptchaConfig;
   mfa: MfaConfig;
+  passwordPolicy: PasswordPolicy;
+  sessionLifetimes: SessionLifetimes;
 }
 
 let cache: ParsedSecurity | undefined;
@@ -31,11 +43,52 @@ let cachedAt = 0;
 const TTL_MS = 60_000;
 const MFA_FALLBACK: MfaConfig = { emailEnabled: true, totpEnabled: true, smsEnabled: false };
 
+function withPrefix(map: Map<string, unknown>, prefix: string): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of map) {
+    if (key.startsWith(prefix)) out[key.slice(prefix.length)] = value;
+  }
+  return out;
+}
+
+function inRange(value: unknown, min: number, max: number): boolean {
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+}
+
+/** Whether a stored password policy or session lifetime value is usable as stored. */
+const STORED_VALUE_CHECKS: Record<string, (value: unknown) => boolean> = {
+  'security.password.minLength': (value) =>
+    inRange(value, PASSWORD_MIN_LENGTH_FLOOR, PASSWORD_MIN_LENGTH_CEILING),
+  'security.password.requireUppercase': (value) => typeof value === 'boolean',
+  'security.password.requireLowercase': (value) => typeof value === 'boolean',
+  'security.password.requireNumber': (value) => typeof value === 'boolean',
+  'security.password.requireSymbol': (value) => typeof value === 'boolean',
+  ...Object.fromEntries(
+    Object.entries(SESSION_LIFETIME_LIMITS).map(([field, { min, max }]) => [
+      `security.session.${field}`,
+      (value: unknown) => inRange(value, min, max),
+    ]),
+  ),
+};
+
+function warnOnInvalidStoredValues(map: Map<string, unknown>): void {
+  for (const [key, check] of Object.entries(STORED_VALUE_CHECKS)) {
+    if (map.has(key) && !check(map.get(key))) {
+      // The value is not logged: only its key, so a mistyped row is found without echoing data.
+      logger.warn(
+        { key },
+        'Stored security setting has the wrong type or is out of range, using the fallback',
+      );
+    }
+  }
+}
+
 function parseSecuritySettings(rows: { key: string; value: unknown }[]): ParsedSecurity {
   const map = new Map<string, unknown>();
   for (const row of rows) {
     map.set(row.key, row.value);
   }
+  warnOnInvalidStoredValues(map);
 
   return {
     recaptcha: {
@@ -58,6 +111,8 @@ function parseSecuritySettings(rows: { key: string; value: unknown }[]): ParsedS
       totpEnabled: map.get('security.mfa.totpEnabled') !== false,
       smsEnabled: map.get('security.mfa.smsEnabled') === true,
     },
+    passwordPolicy: normalizePasswordPolicy(withPrefix(map, 'security.password.')),
+    sessionLifetimes: normalizeSessionLifetimes(withPrefix(map, 'security.session.')),
   };
 }
 
@@ -93,6 +148,18 @@ export async function getRecaptchaConfig(): Promise<RecaptchaConfig | null> {
 export async function getMfaConfig(): Promise<MfaConfig> {
   const parsed = await loadSecuritySettings();
   return parsed?.mfa ?? MFA_FALLBACK;
+}
+
+/** The password rules every password set checks. Login never checks them. */
+export async function getPasswordPolicy(): Promise<PasswordPolicy> {
+  const parsed = await loadSecuritySettings();
+  return parsed?.passwordPolicy ?? { ...DEFAULT_PASSWORD_POLICY };
+}
+
+/** Access and refresh token lifetimes, applied to tokens issued after a change. */
+export async function getSessionLifetimes(): Promise<SessionLifetimes> {
+  const parsed = await loadSecuritySettings();
+  return parsed?.sessionLifetimes ?? { ...DEFAULT_SESSION_LIFETIMES };
 }
 
 export function clearSecuritySettingsCache(): void {

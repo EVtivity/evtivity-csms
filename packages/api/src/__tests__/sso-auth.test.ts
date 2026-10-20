@@ -77,6 +77,9 @@ const {
 }));
 
 vi.mock('@evtivity/database', () => ({
+  getSessionLifetimes: vi.fn(async () => ({
+    ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
+  })),
   writeAudit: vi.fn(() => Promise.resolve()),
   userAuditLog: { _table: 'user_audit_log' },
   driverAuditLog: { _table: 'driver_audit_log' },
@@ -160,6 +163,7 @@ vi.mock('../lib/auth-cookies.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { ssoAuthRoutes } from '../routes/sso-auth.js';
+import { DEFAULT_SESSION_LIFETIMES } from '@evtivity/lib/session-lifetimes';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -246,7 +250,10 @@ describe('SSO auth routes', () => {
       expect(res.statusCode).toBe(302);
       expect(res.headers['location']).toBe('/');
       expect(mockSetAuthCookies).toHaveBeenCalled();
-      expect(mockCreateRefreshToken).toHaveBeenCalledWith({ userId: 'usr_001' });
+      expect(mockCreateRefreshToken).toHaveBeenCalledWith({
+        userId: 'usr_001',
+        lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays,
+      });
       const { writeAudit } = await import('@evtivity/database');
       expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
         expect.objectContaining({ idColumn: 'user_id' }),
@@ -381,7 +388,10 @@ describe('SSO auth routes', () => {
       expect(res.statusCode).toBe(302);
       expect(res.headers['location']).toBe('/');
       expect(mockSetAuthCookies).toHaveBeenCalled();
-      expect(mockCreateRefreshToken).toHaveBeenCalledWith({ userId: 'usr_new001' });
+      expect(mockCreateRefreshToken).toHaveBeenCalledWith({
+        userId: 'usr_new001',
+        lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays,
+      });
       expect(mockGenerateId).toHaveBeenCalledWith('user');
     });
   });

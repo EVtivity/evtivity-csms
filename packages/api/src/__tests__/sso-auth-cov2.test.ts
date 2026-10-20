@@ -75,6 +75,9 @@ const {
 }));
 
 vi.mock('@evtivity/database', () => ({
+  getSessionLifetimes: vi.fn(async () => ({
+    ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
+  })),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -151,6 +154,7 @@ vi.mock('../lib/auth-cookies.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { ssoAuthRoutes } from '../routes/sso-auth.js';
+import { DEFAULT_SESSION_LIFETIMES } from '@evtivity/lib/session-lifetimes';
 import { db } from '@evtivity/database';
 
 async function buildApp(): Promise<FastifyInstance> {
@@ -260,7 +264,10 @@ describe('SSO callback error and provisioning paths', () => {
     setupDbResults([{ id: 'usr_9', roleId: 'rol_9', isActive: true }], []);
     const res = await callback('SAMLResponse=abc');
     expect(res.headers['location']).toBe('/');
-    expect(mockCreateRefreshToken).toHaveBeenCalledWith({ userId: 'usr_9' });
+    expect(mockCreateRefreshToken).toHaveBeenCalledWith({
+      userId: 'usr_9',
+      lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays,
+    });
   });
 
   it('falls back to the lowercase attribute name', async () => {
@@ -269,7 +276,10 @@ describe('SSO callback error and provisioning paths', () => {
     setupDbResults([{ id: 'usr_8', roleId: 'rol_8', isActive: true }], []);
     const res = await callback('SAMLResponse=abc');
     expect(res.headers['location']).toBe('/');
-    expect(mockCreateRefreshToken).toHaveBeenCalledWith({ userId: 'usr_8' });
+    expect(mockCreateRefreshToken).toHaveBeenCalledWith({
+      userId: 'usr_8',
+      lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays,
+    });
   });
 
   it('refuses auto-provisioning for an email domain outside the allowed list', async () => {
@@ -323,13 +333,20 @@ describe('SSO callback error and provisioning paths', () => {
       expect.anything(),
       expect.anything(),
     );
-    expect(mockCreateRefreshToken).toHaveBeenCalledWith({ userId: 'usr_new' });
+    expect(mockCreateRefreshToken).toHaveBeenCalledWith({
+      userId: 'usr_new',
+      lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays,
+    });
     expect(mockSetAuthCookies).toHaveBeenCalledWith(
       'csms',
       expect.anything(),
       expect.any(String),
       'refresh_raw',
       false,
+      {
+        accessSeconds: DEFAULT_SESSION_LIFETIMES.operatorAccessMinutes * 60,
+        refreshSeconds: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays * 24 * 60 * 60,
+      },
     );
   });
 

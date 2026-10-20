@@ -37,16 +37,16 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn((col: unknown) => ({ isNull: col })),
 }));
 
-const { bulkSetActiveMock, revokeAllMock, announceMock } = vi.hoisted(() => ({
+const { bulkSetActiveMock, endSessionsMock } = vi.hoisted(() => ({
   bulkSetActiveMock: vi.fn(),
-  revokeAllMock: vi.fn(),
-  announceMock: vi.fn(),
+  endSessionsMock: vi.fn(),
 }));
 vi.mock('../services/token.service.js', () => ({ bulkSetActive: bulkSetActiveMock }));
+// endDriverSessions raises the session version, revokes the refresh tokens
+// and ends the open streams (refresh-token-service.test.ts).
 vi.mock('../services/refresh-token.service.js', () => ({
-  revokeAllDriverRefreshTokens: revokeAllMock,
+  endDriverSessions: endSessionsMock,
 }));
-vi.mock('../lib/driver-active.js', () => ({ announceDriverDeactivated: announceMock }));
 
 import { inArray } from 'drizzle-orm';
 import {
@@ -72,7 +72,7 @@ describe('driver-status.service', () => {
     dbCallIndex = 0;
     chains.length = 0;
     bulkSetActiveMock.mockResolvedValue({ updated: 2 });
-    revokeAllMock.mockResolvedValue(undefined);
+    endSessionsMock.mockResolvedValue(undefined);
   });
 
   describe('revokeDriverEmailLinks', () => {
@@ -94,8 +94,7 @@ describe('driver-status.service', () => {
       // 1: revoke links, 2: active token lookup
       dbResults = [[], [{ id: 'dtk_000000000001' }, { id: 'dtk_000000000002' }]];
       const result = await applyDriverDeactivation(DRIVER_ID, { actor: operator, log });
-      expect(announceMock).toHaveBeenCalledWith(DRIVER_ID);
-      expect(revokeAllMock).toHaveBeenCalledWith(DRIVER_ID);
+      expect(endSessionsMock).toHaveBeenCalledWith(DRIVER_ID);
       expect(bulkSetActiveMock).toHaveBeenCalledWith(
         ['dtk_000000000001', 'dtk_000000000002'],
         false,
@@ -138,7 +137,7 @@ describe('driver-status.service', () => {
     });
 
     it('still deactivates the tokens when revoking the sessions fails (fail-open)', async () => {
-      revokeAllMock.mockRejectedValueOnce(new Error('db down'));
+      endSessionsMock.mockRejectedValueOnce(new Error('db down'));
       dbResults = [[{ id: 'dtk_000000000001' }]];
       const result = await applyDriverDeactivation(DRIVER_ID, { actor: operator, log });
       expect(log.warn).toHaveBeenCalled();

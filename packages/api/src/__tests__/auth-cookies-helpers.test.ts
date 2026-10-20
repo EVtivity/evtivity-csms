@@ -12,6 +12,8 @@ vi.mock('../lib/config.js', () => ({
 
 import { isSecureRequest, setAuthCookies, clearAuthCookies } from '../lib/auth-cookies.js';
 
+const AGES = { accessSeconds: 3600, refreshSeconds: 30 * 24 * 60 * 60 };
+
 beforeEach(() => {
   configState.COOKIE_DOMAIN = undefined;
 });
@@ -60,7 +62,7 @@ describe('setAuthCookies / clearAuthCookies COOKIE_DOMAIN handling', () => {
 
   it('does not include a domain option when COOKIE_DOMAIN is unset', () => {
     const { reply, setCookie } = makeReply();
-    setAuthCookies('csms', reply, 'access', 'refresh', true);
+    setAuthCookies('csms', reply, 'access', 'refresh', true, AGES);
 
     expect(setCookie).toHaveBeenCalledTimes(3);
     for (const call of setCookie.mock.calls) {
@@ -71,7 +73,7 @@ describe('setAuthCookies / clearAuthCookies COOKIE_DOMAIN handling', () => {
   it('includes the configured domain on every cookie when COOKIE_DOMAIN is set', () => {
     configState.COOKIE_DOMAIN = '.evtivity.com';
     const { reply, setCookie } = makeReply();
-    setAuthCookies('portal', reply, 'access', 'refresh', false);
+    setAuthCookies('portal', reply, 'access', 'refresh', false, AGES);
 
     expect(setCookie).toHaveBeenCalledTimes(3);
     for (const call of setCookie.mock.calls) {
@@ -85,6 +87,19 @@ describe('setAuthCookies / clearAuthCookies COOKIE_DOMAIN handling', () => {
       secure: false,
       path: '/v1/portal',
     });
+  });
+
+  it('sets the access and CSRF cookies to the access age and the refresh cookie to the refresh age', () => {
+    const { reply, setCookie } = makeReply();
+    setAuthCookies('csms', reply, 'access', 'refresh', true, {
+      accessSeconds: 900,
+      refreshSeconds: 7 * 24 * 60 * 60,
+    });
+    const ageOf = (name: string): unknown =>
+      (setCookie.mock.calls.find((c) => c[0] === name)?.[2] as { maxAge?: number }).maxAge;
+    expect(ageOf('csms_token')).toBe(900);
+    expect(ageOf('csms_csrf')).toBe(900);
+    expect(ageOf('csms_refresh')).toBe(7 * 24 * 60 * 60);
   });
 
   it('clearAuthCookies includes the domain when COOKIE_DOMAIN is set', () => {

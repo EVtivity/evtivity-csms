@@ -48,8 +48,9 @@ interface CacheInvalidateMessage {
  * Twilio, MFA, or reCAPTCHA credentials. The settings clear functions are
  * inherently local-only (no re-publish), so the listener calls them directly.
  *
- * `driver_active` comes from announceDriverDeactivated (driver PATCH
- * `isActive: false` and DELETE): every pod ends the driver's portal streams.
+ * `driver_active` comes from announceDriverSessionChange (a driver
+ * deactivation or an ended driver session): every pod ends the driver's
+ * portal streams.
  *
  * `station_message` comes from requestStationMessageRepush after a station
  * message setting, company setting, or state template changes: the listeners
@@ -85,8 +86,8 @@ export async function startCacheInvalidateListener(
         clearSystemSettingsCache();
         return;
       case 'driver_active':
-        // A deactivated driver's open portal streams end on every pod; the
-        // reconnect is refused (`driverTokenRejection`).
+        // A deactivated driver's or ended session's portal streams end on
+        // every pod; a reconnect with an old token is refused.
         if (typeof msg.driverId !== 'string' || msg.driverId === '') return;
         closeDriverEventStreams(msg.driverId);
         return;

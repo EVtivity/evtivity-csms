@@ -63,23 +63,30 @@ vi.mock('@evtivity/database', () => ({
     revokedAt: 'revokedAt',
     createdAt: 'createdAt',
   },
+  drivers: { id: 'id', sessionVersion: 'sessionVersion' },
 }));
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ type: 'eq', val })),
   and: vi.fn((...args: unknown[]) => ({ type: 'and', args })),
   isNull: vi.fn((col: unknown) => ({ type: 'isNull', col })),
+  sql: vi.fn(() => ({ type: 'sql' })),
 }));
+
+vi.mock('../lib/driver-active.js', () => ({ announceDriverSessionChange: vi.fn() }));
 
 import {
   createRefreshToken,
   validateAndRotateRefreshToken,
   revokeRefreshToken,
   revokeAllUserRefreshTokens,
-  revokeAllDriverRefreshTokens,
+  bumpDriverSessionVersion,
+  endDriverSessions,
   revokeAllUserSessions,
 } from '../services/refresh-token.service.js';
-import { db } from '@evtivity/database';
+import { db, drivers, refreshTokens } from '@evtivity/database';
+import { announceDriverSessionChange } from '../lib/driver-active.js';
+import { DEFAULT_SESSION_LIFETIMES } from '@evtivity/lib/session-lifetimes';
 
 beforeEach(() => {
   dbResults = [];
@@ -88,31 +95,42 @@ beforeEach(() => {
 });
 
 describe('createRefreshToken', () => {
-  it('returns rawToken and expiresAt approximately 30 days out', async () => {
-    setupDbResults([]);
+  const DAY_MS = 24 * 60 * 60 * 1000;
 
+  async function expectExpiresInDays(
+    opts: Parameters<typeof createRefreshToken>[0],
+    days: number,
+  ): Promise<void> {
     const before = Date.now();
-    const result = await createRefreshToken({ userId: 'usr_abc123' });
+    const result = await createRefreshToken(opts);
     const after = Date.now();
-
-    expect(result.rawToken).toBeDefined();
-    expect(result.rawToken).toHaveLength(64); // 32 bytes -> 64 hex chars
     expect(result.expiresAt).toBeInstanceOf(Date);
+    expect(result.expiresAt.getTime()).toBeGreaterThanOrEqual(before + days * DAY_MS);
+    expect(result.expiresAt.getTime()).toBeLessThanOrEqual(after + days * DAY_MS);
+    const chain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(chain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'session', expiresAt: result.expiresAt }),
+    );
+  }
 
-    const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
-    expect(result.expiresAt.getTime()).toBeGreaterThanOrEqual(before + thirtyDaysMs);
-    expect(result.expiresAt.getTime()).toBeLessThanOrEqual(after + thirtyDaysMs);
-
-    expect(db.insert).toHaveBeenCalled();
+  it('returns a 64-character raw token and a row that expires after the default operator days', async () => {
+    setupDbResults([]);
+    const result = await createRefreshToken({
+      userId: 'usr_abc123',
+      lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays,
+    });
+    expect(result.rawToken).toHaveLength(64); // 32 bytes -> 64 hex chars
+    await expectExpiresInDays(
+      { userId: 'usr_abc123', lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays },
+      30,
+    );
   });
 
-  it('creates a token for a driver', async () => {
-    setupDbResults([]);
-
-    const result = await createRefreshToken({ driverId: 'drv_xyz789' });
-
-    expect(result.rawToken).toHaveLength(64);
-    expect(db.insert).toHaveBeenCalled();
+  it('stores the expiry the caller gives: 7 days for an operator, 60 for a driver', async () => {
+    await expectExpiresInDays({ userId: 'usr_abc123', lifetimeDays: 7 }, 7);
+    await expectExpiresInDays({ driverId: 'drv_xyz789', deviceId: 'dev-1', lifetimeDays: 60 }, 60);
   });
 });
 
@@ -288,7 +306,11 @@ describe('validateAndRotateRefreshToken', () => {
     const result = await validateAndRotateRefreshToken('stolen-driver-token');
 
     expect(result).toBeNull();
-    expect(db.update).toHaveBeenCalledTimes(1);
+    // The session version (access tokens) and every refresh token.
+    expect(db.update).toHaveBeenCalledTimes(2);
+    expect(db.update).toHaveBeenCalledWith(drivers);
+    expect(db.update).toHaveBeenCalledWith(refreshTokens);
+    expect(announceDriverSessionChange).toHaveBeenCalledWith('drv_theft');
   });
 });
 
@@ -322,12 +344,38 @@ describe('revokeAllUserRefreshTokens', () => {
   });
 });
 
-describe('revokeAllDriverRefreshTokens', () => {
-  it('revokes all tokens for a driver', async () => {
+describe('bumpDriverSessionVersion', () => {
+  it('raises the session version and ends the open streams', async () => {
+    setupDbResults([{ sessionVersion: 3 }]);
+
+    expect(await bumpDriverSessionVersion('drv_xyz789')).toBe(3);
+
+    expect(db.update).toHaveBeenCalledTimes(1);
+    expect(db.update).toHaveBeenCalledWith(drivers);
+    expect(announceDriverSessionChange).toHaveBeenCalledWith('drv_xyz789');
+  });
+
+  it('returns null for an unknown driver', async () => {
     setupDbResults([]);
+    expect(await bumpDriverSessionVersion('drv_gone')).toBeNull();
+  });
 
-    await revokeAllDriverRefreshTokens('drv_xyz789');
+  it('still ends the open streams when the update fails', async () => {
+    vi.mocked(db.update).mockImplementationOnce(() => {
+      throw new Error('db down');
+    });
+    await expect(bumpDriverSessionVersion('drv_xyz789')).rejects.toThrow('db down');
+    expect(announceDriverSessionChange).toHaveBeenCalledWith('drv_xyz789');
+  });
+});
 
-    expect(db.update).toHaveBeenCalled();
+describe('endDriverSessions', () => {
+  it('raises the session version, then revokes every refresh token', async () => {
+    setupDbResults([{ sessionVersion: 1 }], []);
+
+    await endDriverSessions('drv_xyz789');
+
+    expect(vi.mocked(db.update).mock.calls.map((c) => c[0])).toEqual([drivers, refreshTokens]);
+    expect(announceDriverSessionChange).toHaveBeenCalledWith('drv_xyz789');
   });
 });

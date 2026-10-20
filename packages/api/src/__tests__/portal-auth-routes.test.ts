@@ -51,6 +51,16 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  getSessionLifetimes: vi.fn(async () => ({
+    ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
+  })),
+  getPasswordPolicy: vi.fn().mockResolvedValue({
+    minLength: 12,
+    requireUppercase: true,
+    requireLowercase: true,
+    requireNumber: true,
+    requireSymbol: false,
+  }),
   writeAudit: vi.fn(() => Promise.resolve()),
   userAuditLog: { _table: 'user_audit_log' },
   driverAuditLog: { _table: 'driver_audit_log' },
@@ -129,6 +139,8 @@ vi.mock('../services/refresh-token.service.js', () => ({
     .mockResolvedValue({ rawToken: 'mock-refresh-token', expiresAt: new Date() }),
   validateAndRotateRefreshToken: vi.fn().mockResolvedValue(null),
   revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
+  endDriverSessions: vi.fn().mockResolvedValue(undefined),
+  bumpDriverSessionVersion: vi.fn().mockResolvedValue(1),
 }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({

@@ -25,6 +25,7 @@ import { registerRateLimit } from './plugins/rate-limit.js';
 import { registerAiToolCallContext } from './services/ai/tools/execute.js';
 import { registerAuth } from './plugins/auth.js';
 import { config } from './lib/config.js';
+import { WeakPasswordError } from './lib/password-validation.js';
 import { registerOpenApi } from './plugins/openapi.js';
 import { registerResponseCache, cacheRoutes } from './plugins/response-cache.js';
 import { healthRoutes } from './routes/health.js';
@@ -142,6 +143,12 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
 
   // Error handler
   app.setErrorHandler((error: unknown, _request, reply) => {
+    if (error instanceof WeakPasswordError) {
+      void reply
+        .status(error.statusCode)
+        .send({ error: error.message, code: error.code, missing: error.missing });
+      return;
+    }
     if (error instanceof AppError) {
       void reply.status(error.statusCode).send({ error: error.message, code: error.code });
       return;

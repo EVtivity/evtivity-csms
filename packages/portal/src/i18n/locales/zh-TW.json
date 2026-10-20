@@ -199,8 +199,6 @@
     "setDefaultFailed": "設定預設支付方式失敗，請重試。"
   },
   "profile": {
-    "title": "個人資料",
-    "personalInfo": "個人資訊",
     "email": "電子郵件",
     "firstName": "名",
     "lastName": "姓",
@@ -215,7 +213,6 @@
     "passwordChangeFailed": "修改密碼失敗。",
     "signOut": "登出",
     "language": "語言",
-    "notificationPreferences": "通知偏好",
     "emailNotifications": "郵件通知",
     "smsNotifications": "簡訊通知",
     "preferencesSaved": "通知偏好已儲存。",
@@ -927,7 +924,9 @@
       "minLength": "至少 {{min}} 個字元",
       "uppercase": "至少一個大寫字母",
       "lowercase": "至少一個小寫字母",
-      "number": "至少一個數字"
+      "number": "至少一個數字",
+      "symbol": "至少一個特殊字元",
+      "maxLength": "最多 {{max}} 個字元"
     }
   },
   "activity": {

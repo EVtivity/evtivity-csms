@@ -413,6 +413,8 @@ export type { InvoicePaymentSettings } from './lib/system-settings.js';
 export {
   getRecaptchaConfig,
   getMfaConfig,
+  getPasswordPolicy,
+  getSessionLifetimes,
   clearSecuritySettingsCache,
 } from './lib/security-settings.js';
 export type { RecaptchaConfig, MfaConfig } from './lib/security-settings.js';

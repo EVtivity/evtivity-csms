@@ -555,7 +555,9 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'PUT /ocpp-event-settings': { audited: 'notification_template' },
   'PUT /pnc/settings': { audited: 'setting' },
   'PUT /security/mfa': { audited: 'setting' },
+  'PUT /security/password-policy': { audited: 'setting' },
   'PUT /security/recaptcha': { audited: 'setting' },
+  'PUT /security/sessions': { audited: 'setting' },
   'PUT /settings/:key': { audited: 'setting' },
   'PUT /settings/adyen': { audited: 'setting', service: 'api/src/lib/payment-settings-writes.ts' },
   'PUT /settings/payments': {

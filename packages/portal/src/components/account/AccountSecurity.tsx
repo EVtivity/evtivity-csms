@@ -11,18 +11,22 @@ import { Select } from '@/components/ui/select';
 import { api, getApiErrorCode } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { passwordRulesMessage } from '@/lib/password-rules';
+import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
+import type { PasswordRule } from '@evtivity/lib/password-policy';
 
 export function AccountSecurity(): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  const passwordPolicy = usePasswordPolicy();
+  const weakPasswordReply = useWeakPasswordReply();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [passwordMsg, setPasswordMsg] = useState('');
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
-  // The API refused the new password (WEAK_PASSWORD). Translated at render, cleared on edit.
-  const [serverWeakPassword, setServerWeakPassword] = useState(false);
+  // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
+  const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
 
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [mfaMethod, setMfaMethod] = useState<string | null>(null);
@@ -37,6 +41,7 @@ export function AccountSecurity(): React.JSX.Element {
   const [mfaMsg, setMfaMsg] = useState('');
   const [mfaLoading, setMfaLoading] = useState(false);
   const [disablePassword, setDisablePassword] = useState('');
+  const [hasSubmittedMfa, setHasSubmittedMfa] = useState(false);
 
   useEffect(() => {
     void api
@@ -58,14 +63,32 @@ export function AccountSecurity(): React.JSX.Element {
     if (currentPassword === '') errors.currentPassword = t('validation.required');
     if (newPassword === '') errors.newPassword = t('validation.required');
     else {
-      const rulesError = passwordRulesMessage(newPassword, t, i18n.language);
+      const rulesError = passwordRulesMessage(
+        newPassword,
+        passwordPolicy,
+        t,
+        i18n.language,
+        serverMissing,
+      );
       if (rulesError != null) errors.newPassword = rulesError;
-      else if (serverWeakPassword) errors.newPassword = t('errors.WEAK_PASSWORD');
     }
     return errors;
   }
 
   const passwordErrors = getPasswordErrors();
+
+  function getMfaErrors(): Record<string, string> {
+    const errors: Record<string, string> = {};
+    if (mfaEnabled) {
+      if (disablePassword === '') errors.disablePassword = t('validation.required');
+    } else if (mfaSetupData != null) {
+      if (mfaCode.trim() === '') errors.mfaCode = t('validation.required');
+      else if (!/^\d{6}$/.test(mfaCode.trim())) errors.mfaCode = t('profile.mfaEnterCode');
+    }
+    return errors;
+  }
+
+  const mfaErrors = getMfaErrors();
 
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   async function handlePasswordChange(e: React.FormEvent): Promise<void> {
@@ -81,7 +104,7 @@ export function AccountSecurity(): React.JSX.Element {
       setNewPassword('');
       setHasSubmittedPassword(false);
     } catch (err) {
-      if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerWeakPassword(true);
+      if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerMissing(weakPasswordReply(err) ?? []);
       else setPasswordMsg(getErrorMessage(err, t, 'profile.passwordChangeFailed'));
     } finally {
       setPasswordLoading(false);
@@ -91,6 +114,7 @@ export function AccountSecurity(): React.JSX.Element {
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   async function handleMfaSetup(e: React.FormEvent): Promise<void> {
     e.preventDefault();
+    setHasSubmittedMfa(false);
     setMfaMsg('');
     setMfaLoading(true);
     try {
@@ -109,18 +133,21 @@ export function AccountSecurity(): React.JSX.Element {
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   async function handleMfaConfirm(e: React.FormEvent): Promise<void> {
     e.preventDefault();
+    setHasSubmittedMfa(true);
+    if (Object.keys(mfaErrors).length > 0) return;
     setMfaMsg('');
     setMfaLoading(true);
     try {
       await api.post('/v1/portal/driver/mfa/confirm', {
         method: selectedMfaMethod,
-        code: mfaCode,
+        code: mfaCode.trim(),
         challengeId: mfaSetupData?.challengeId,
       });
       setMfaEnabled(true);
       setMfaMethod(selectedMfaMethod);
       setMfaSetupData(null);
       setMfaCode('');
+      setHasSubmittedMfa(false);
     } catch (err) {
       setMfaMsg(getErrorMessage(err, t, 'profile.mfaVerifyFailed'));
     } finally {
@@ -131,6 +158,8 @@ export function AccountSecurity(): React.JSX.Element {
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   async function handleMfaDisable(e: React.FormEvent): Promise<void> {
     e.preventDefault();
+    setHasSubmittedMfa(true);
+    if (Object.keys(mfaErrors).length > 0) return;
     setMfaMsg('');
     setMfaLoading(true);
     try {
@@ -138,6 +167,7 @@ export function AccountSecurity(): React.JSX.Element {
       setMfaEnabled(false);
       setMfaMethod(null);
       setDisablePassword('');
+      setHasSubmittedMfa(false);
     } catch (err) {
       setMfaMsg(getErrorMessage(err, t, 'profile.mfaDisableFailed'));
     } finally {
@@ -176,19 +206,28 @@ export function AccountSecurity(): React.JSX.Element {
           <PasswordInput
             id="secNewPw"
             value={newPassword}
-            aria-describedby="sec-password-requirements"
+            aria-invalid={hasSubmittedPassword && passwordErrors.newPassword ? true : undefined}
+            aria-describedby={
+              hasSubmittedPassword && passwordErrors.newPassword
+                ? 'sec-new-password-error sec-password-requirements'
+                : 'sec-password-requirements'
+            }
             onChange={(e) => {
               setNewPassword(e.target.value);
-              setServerWeakPassword(false);
+              setServerMissing(null);
             }}
             className={
               hasSubmittedPassword && passwordErrors.newPassword ? 'border-destructive' : ''
             }
           />
           {hasSubmittedPassword && passwordErrors.newPassword && (
-            <p className="text-sm text-destructive">{passwordErrors.newPassword}</p>
+            <p id="sec-new-password-error" className="text-sm text-destructive">
+              {passwordErrors.newPassword}
+            </p>
           )}
           <PasswordRequirements
+            policy={passwordPolicy}
+            serverMissing={serverMissing}
             id="sec-password-requirements"
             password={newPassword}
             showUnmet={hasSubmittedPassword}
@@ -218,7 +257,7 @@ export function AccountSecurity(): React.JSX.Element {
                 </span>{' '}
                 ({t('profile.mfaEnabled')})
               </p>
-              <form onSubmit={(e) => void handleMfaDisable(e)} className="space-y-3">
+              <form onSubmit={(e) => void handleMfaDisable(e)} noValidate className="space-y-3">
                 <label htmlFor="secDisablePw" className="text-sm text-muted-foreground">
                   {t('profile.mfaDisableConfirm')}
                 </label>
@@ -228,8 +267,21 @@ export function AccountSecurity(): React.JSX.Element {
                   onChange={(e) => {
                     setDisablePassword(e.target.value);
                   }}
-                  required
+                  aria-invalid={hasSubmittedMfa && mfaErrors.disablePassword ? true : undefined}
+                  aria-describedby={
+                    hasSubmittedMfa && mfaErrors.disablePassword
+                      ? 'sec-disable-pw-error'
+                      : undefined
+                  }
+                  className={
+                    hasSubmittedMfa && mfaErrors.disablePassword ? 'border-destructive' : ''
+                  }
                 />
+                {hasSubmittedMfa && mfaErrors.disablePassword && (
+                  <p id="sec-disable-pw-error" className="text-sm text-destructive">
+                    {mfaErrors.disablePassword}
+                  </p>
+                )}
                 <Button
                   type="submit"
                   variant="destructive"
@@ -248,7 +300,7 @@ export function AccountSecurity(): React.JSX.Element {
               </form>
             </div>
           ) : mfaSetupData == null ? (
-            <form onSubmit={(e) => void handleMfaSetup(e)} className="space-y-4">
+            <form onSubmit={(e) => void handleMfaSetup(e)} noValidate className="space-y-4">
               <p className="text-sm text-muted-foreground">{t('profile.mfaDisabled')}</p>
               <div className="space-y-2">
                 <label htmlFor="secMfaMethod" className="block text-sm font-medium leading-6">
@@ -284,7 +336,7 @@ export function AccountSecurity(): React.JSX.Element {
               </Button>
             </form>
           ) : (
-            <form onSubmit={(e) => void handleMfaConfirm(e)} className="space-y-4">
+            <form onSubmit={(e) => void handleMfaConfirm(e)} noValidate className="space-y-4">
               {selectedMfaMethod === 'totp' && mfaSetupData.qrDataUri != null && (
                 <div className="space-y-3">
                   <p className="text-sm font-medium">{t('profile.mfaScanQr')}</p>
@@ -313,11 +365,19 @@ export function AccountSecurity(): React.JSX.Element {
                   onChange={(e) => {
                     setMfaCode(e.target.value);
                   }}
-                  maxLength={6}
                   inputMode="numeric"
-                  pattern="[0-9]{6}"
-                  required
+                  autoComplete="one-time-code"
+                  aria-invalid={hasSubmittedMfa && mfaErrors.mfaCode ? true : undefined}
+                  aria-describedby={
+                    hasSubmittedMfa && mfaErrors.mfaCode ? 'sec-mfa-code-error' : undefined
+                  }
+                  className={hasSubmittedMfa && mfaErrors.mfaCode ? 'border-destructive' : ''}
                 />
+                {hasSubmittedMfa && mfaErrors.mfaCode && (
+                  <p id="sec-mfa-code-error" className="text-sm text-destructive">
+                    {mfaErrors.mfaCode}
+                  </p>
+                )}
               </div>
               <Button type="submit" className="w-full" disabled={mfaLoading}>
                 {mfaLoading ? (

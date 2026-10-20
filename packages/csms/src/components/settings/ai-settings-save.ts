@@ -1,34 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useRef, useState } from 'react';
-import type { Dispatch, SetStateAction } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AI_STATUS_KEY } from '@/components/ai/use-ai-status';
 import { api } from '@/lib/api';
 
 export type Values = Record<string, string>;
-
-/**
- * Form values loaded from the settings. A settings refetch (another card's
- * save, a toggle, window focus) replaces them only while the form is clean,
- * so edits in progress survive it; after this form's own save they equal
- * the new values.
- */
-export function useLoadedValues<T extends Record<string, unknown>>(
-  loaded: T,
-): [T, Dispatch<SetStateAction<T>>] {
-  const [values, setValues] = useState<T>(loaded);
-  const loadedKey = JSON.stringify(loaded);
-  const previous = useRef(loadedKey);
-  useEffect(() => {
-    if (previous.current === loadedKey) return;
-    const before = previous.current;
-    previous.current = loadedKey;
-    setValues((current) => (JSON.stringify(current) === before ? loaded : current));
-  }, [loadedKey, loaded]);
-  return [values, setValues];
-}
 
 /** Writes only the keys whose value changed, through the generic settings PUT. */
 export function useSaveKeys(

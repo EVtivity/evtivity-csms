@@ -95,12 +95,14 @@ describe('operator sessions', () => {
   it('signs the session version into the access token', async () => {
     const app = Fastify();
     await app.register((await import('@fastify/jwt')).default, { secret: 'x'.repeat(32) });
-    const token = signOperatorAccessToken(app, { id: 'usr_1', roleId: 'rol_1', sessionVersion: 7 });
-    expect(app.jwt.verify<Record<string, unknown>>(token)).toMatchObject({
-      userId: 'usr_1',
-      roleId: 'rol_1',
-      sv: 7,
-    });
+    const token = signOperatorAccessToken(
+      app,
+      { id: 'usr_1', roleId: 'rol_1', sessionVersion: 7 },
+      900,
+    );
+    const claims = app.jwt.verify<Record<string, number | string>>(token);
+    expect(claims).toMatchObject({ userId: 'usr_1', roleId: 'rol_1', sv: 7 });
+    expect(Number(claims['exp']) - Number(claims['iat'])).toBe(900);
     await app.close();
   });
 

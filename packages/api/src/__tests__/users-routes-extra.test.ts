@@ -113,6 +113,9 @@ vi.mock('@evtivity/database', () => {
   // A transaction runs its callback on the same recording mock.
   db['transaction'] = vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn(db));
   return {
+    getSessionLifetimes: vi.fn(async () => ({
+      ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
+    })),
     db,
     client: vi.fn(() => Promise.resolve([])),
     users: table('users'),
@@ -133,6 +136,7 @@ vi.mock('@evtivity/database', () => {
       totpEnabled: true,
       smsEnabled: true,
     }),
+    getPasswordPolicy: vi.fn(),
     writeAudit: vi.fn().mockResolvedValue(undefined),
   };
 });
@@ -312,7 +316,14 @@ vi.mock('../lib/config.js', async (importOriginal) => {
 });
 
 import argon2 from 'argon2';
-import { client, getMfaConfig, getRecaptchaConfig, writeAudit } from '@evtivity/database';
+import {
+  client,
+  getMfaConfig,
+  getPasswordPolicy,
+  getRecaptchaConfig,
+  writeAudit,
+} from '@evtivity/database';
+import { DEFAULT_PASSWORD_POLICY } from '@evtivity/lib/password-policy';
 import {
   getNotificationSettings,
   sendEmail,
@@ -356,6 +367,7 @@ import {
 import { hashUserToken } from '../lib/user-token.js';
 import { registerAuth } from '../plugins/auth.js';
 import { userRoutes } from '../routes/users.js';
+import { DEFAULT_SESSION_LIFETIMES } from '@evtivity/lib/session-lifetimes';
 import { defaultSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
 
 // postgres.js Sql type is too deep for vi.mocked(); treat the tag function as a plain mock.
@@ -447,6 +459,9 @@ describe('User routes (extended coverage)', () => {
     state.cfg['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key';
     vi.mocked(argon2.verify).mockReset().mockResolvedValue(true);
     vi.mocked(getRecaptchaConfig).mockReset().mockResolvedValue(null);
+    vi.mocked(getPasswordPolicy)
+      .mockReset()
+      .mockResolvedValue({ ...DEFAULT_PASSWORD_POLICY });
     vi.mocked(getMfaConfig)
       .mockReset()
       .mockResolvedValue({ emailEnabled: true, totpEnabled: true, smsEnabled: true });
@@ -648,7 +663,10 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json().role).toBeNull();
-      expect(createRefreshToken).toHaveBeenCalledWith({ userId: OTHER });
+      expect(createRefreshToken).toHaveBeenCalledWith({
+        userId: OTHER,
+        lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays,
+      });
       expect(cookieNames(res)).toEqual(expect.arrayContaining(['csms_token', 'csms_refresh']));
       const update = opsFor('update', 'users')[0];
       expect(argOf(update, 'set')).toEqual({ lastLoginAt: expect.any(Date) });
@@ -798,7 +816,10 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });
-      expect(createRefreshToken).toHaveBeenCalledWith({ userId: OTHER });
+      expect(createRefreshToken).toHaveBeenCalledWith({
+        userId: OTHER,
+        lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays,
+      });
       const refresh = res.cookies.find((c) => c.name === 'csms_refresh');
       // Cookies are signed: value is '<raw>.<signature>'.
       expect(refresh?.value).toMatch(/^new-refresh\./);
@@ -2231,6 +2252,70 @@ describe('User routes (extended coverage)', () => {
       expect(opsFor('update', 'users')).toHaveLength(0);
     });
 
+    it('change-password takes the minimum length from the configured policy', async () => {
+      vi.mocked(getPasswordPolicy).mockResolvedValue({ ...DEFAULT_PASSWORD_POLICY, minLength: 10 });
+      setupDbResults([{ id: ME, passwordHash: '$argon2id$h' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/change-password',
+        headers: auth,
+        payload: { currentPassword: 'Current1', newPassword: 'NewPass123x' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(opsFor('update', 'users')).toHaveLength(1);
+    });
+
+    it('change-password names the missing rules of the configured policy', async () => {
+      vi.mocked(getPasswordPolicy).mockResolvedValue({
+        ...DEFAULT_PASSWORD_POLICY,
+        minLength: 16,
+        requireSymbol: true,
+      });
+      setupDbResults([{ id: ME, passwordHash: '$argon2id$h' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/change-password',
+        headers: auth,
+        payload: { currentPassword: 'Current1', newPassword: 'NewPassword123' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: 'Password must be at least 16 characters and contain a special character',
+        code: 'WEAK_PASSWORD',
+        missing: ['minLength', 'symbol'],
+      });
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('change-password refuses a password over 128 characters in the schema', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/change-password',
+        headers: auth,
+        payload: { currentPassword: 'Current1', newPassword: `Aa1${'x'.repeat(126)}` },
+      });
+      expect(res.statusCode).toBe(400);
+      // The schema refuses it. This test app has no error handler, so Fastify's own code shows;
+      // the real app answers VALIDATION_ERROR (integration file 59 checks it).
+      expect(res.json().code).toBe('FST_ERR_VALIDATION');
+      expect(state.ops).toHaveLength(0);
+    });
+
+    it('change-password refuses a password under the fixed floor of 8 in the schema', async () => {
+      vi.mocked(getPasswordPolicy).mockResolvedValue({ ...DEFAULT_PASSWORD_POLICY, minLength: 8 });
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/change-password',
+        headers: auth,
+        payload: { currentPassword: 'Current1', newPassword: 'Abc123x' },
+      });
+      expect(res.statusCode).toBe(400);
+      // The schema refuses it. This test app has no error handler, so Fastify's own code shows;
+      // the real app answers VALIDATION_ERROR (integration file 59 checks it).
+      expect(res.json().code).toBe('FST_ERR_VALIDATION');
+      expect(state.ops).toHaveLength(0);
+    });
+
     it('change-password updates the hash, revokes sessions and audits', async () => {
       setupDbResults([{ id: ME, passwordHash: '$argon2id$h' }]);
       const res = await app.inject({
@@ -2577,7 +2662,10 @@ describe('User routes (extended coverage)', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().role).toBeNull();
       expect(clearSignInFailures).toHaveBeenCalledWith(OTHER, 'mfa');
-      expect(createRefreshToken).toHaveBeenCalledWith({ userId: OTHER });
+      expect(createRefreshToken).toHaveBeenCalledWith({
+        userId: OTHER,
+        lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays,
+      });
     });
   });
 

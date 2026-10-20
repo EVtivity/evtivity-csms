@@ -24,17 +24,15 @@ import {
   verifyMfaChallenge,
   verifyTotpCode,
 } from '@evtivity/lib';
-import {
-  setAuthCookies,
-  clearAuthCookies,
-  isSecureRequest,
-  readRefreshCookie,
-} from '../../lib/auth-cookies.js';
+import { clearAuthCookies, isSecureRequest, readRefreshCookie } from '../../lib/auth-cookies.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { emailEquals } from '../../lib/email-match.js';
 import { generateUserToken, hashUserToken } from '../../lib/user-token.js';
-import { validatePasswordComplexity } from '../../lib/password-validation.js';
-import { PASSWORD_MIN_LENGTH } from '@evtivity/lib/password-policy';
+import {
+  newPasswordSchema,
+  validatePassword,
+  weakPasswordFields,
+} from '../../lib/password-validation.js';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { itemResponse, successResponse, errorWith } from '../../lib/response-schemas.js';
@@ -49,10 +47,10 @@ import {
 } from '../../lib/signup-limits.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 import {
-  createRefreshToken,
   validateAndRotateRefreshToken,
   revokeRefreshToken,
-  revokeAllDriverRefreshTokens,
+  bumpDriverSessionVersion,
+  endDriverSessions,
 } from '../../services/refresh-token.service.js';
 import { config as apiConfig } from '../../lib/config.js';
 import { driverBillingSchema, toDriverBilling } from '../../lib/portal-billing.js';
@@ -64,6 +62,7 @@ import { sendDriverEmailVerification } from '../../lib/driver-email-verification
 import { mfaCodeRecipient } from '../../lib/mfa-contact.js';
 import {
   issueDriverSession,
+  issueDriverTokens,
   isMobileClient,
   deviceIdFromRequest,
 } from '../../lib/driver-session.js';
@@ -137,7 +136,7 @@ const registerBody = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   email: z.string().email().max(255),
-  password: z.string().min(PASSWORD_MIN_LENGTH),
+  password: newPasswordSchema,
   phone: z.string().max(50).optional(),
   recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
 });
@@ -310,7 +309,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         body: zodSchema(registerBody),
         response: {
           202: successResponse,
-          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD]),
+          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD], weakPasswordFields),
           403: errorWith('Forbidden', [
             ERROR_CODES.PORTAL_REGISTRATION_DISABLED,
             ERROR_CODES.ATTESTATION_FAILED,
@@ -344,9 +343,9 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const complexityError = validatePasswordComplexity(body.password);
-      if (complexityError != null) {
-        await reply.status(400).send({ error: complexityError, code: 'WEAK_PASSWORD' });
+      const weakPassword = await validatePassword(body.password);
+      if (weakPassword != null) {
+        await reply.status(400).send(weakPassword);
         return;
       }
 
@@ -604,7 +603,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         tags: ['Portal Auth'],
         summary: 'Log out',
         description:
-          'Revokes the refresh token and clears auth cookies. Web clients use the portal_refresh cookie; mobile clients (X-Client: mobile) send { refreshToken } in the body to revoke it server-side.',
+          'Revokes the refresh token, ends every access token the driver holds (other devices renew with their own refresh token), and clears auth cookies. Web clients use the portal_refresh cookie; mobile clients (X-Client: mobile) send { refreshToken } in the body to revoke it server-side.',
         operationId: 'portalLogout',
         security: [{ bearerAuth: [] }],
         response: { 204: { type: 'null' as const } },
@@ -622,6 +621,9 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       if (rawRefreshToken) {
         await revokeRefreshToken(rawRefreshToken);
       }
+      // End the access tokens issued before, on every device, like the
+      // operator logout. Other devices renew with their own refresh token.
+      await bumpDriverSessionVersion((request.user as DriverJwtPayload).driverId);
       if (!mobile) clearAuthCookies('portal', reply, isSecureRequest(request));
       await reply.status(204).send();
     },
@@ -692,17 +694,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const accessToken = app.jwt.sign(
-        { driverId: driver.id, type: 'driver' } satisfies DriverJwtPayload,
-        { expiresIn: '1h' },
-      );
-      const newRefresh = await createRefreshToken({ driverId: driver.id, deviceId });
-
-      if (mobile) {
-        return { token: accessToken, refreshToken: newRefresh.rawToken, expiresIn: 3600 };
-      }
-      setAuthCookies('portal', reply, accessToken, newRefresh.rawToken, isSecureRequest(request));
-      return { success: true };
+      const tokens = await issueDriverTokens(app, request, reply, driver.id);
+      return tokens ?? { success: true };
     },
   );
 
@@ -1129,7 +1122,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
 
   const activateBody = z.object({
     token: z.string().min(1).describe('Invitation token from the portal invite email link'),
-    password: z.string().min(PASSWORD_MIN_LENGTH).describe('New portal password'),
+    password: newPasswordSchema,
   });
 
   app.post(
@@ -1145,10 +1138,11 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         body: zodSchema(activateBody),
         response: {
           200: successResponse,
-          400: errorWith('Invalid invitation or weak password', [
-            ERROR_CODES.INVALID_TOKEN,
-            ERROR_CODES.WEAK_PASSWORD,
-          ]),
+          400: errorWith(
+            'Invalid invitation or weak password',
+            [ERROR_CODES.INVALID_TOKEN, ERROR_CODES.WEAK_PASSWORD],
+            weakPasswordFields,
+          ),
         },
       },
       config: {
@@ -1168,7 +1162,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
   // Reset password with token
   const resetPasswordBody = z.object({
     token: z.string().min(1),
-    password: z.string().min(PASSWORD_MIN_LENGTH),
+    password: newPasswordSchema,
     recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
   });
 
@@ -1185,11 +1179,11 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         body: zodSchema(resetPasswordBody),
         response: {
           200: successResponse,
-          400: errorWith('Bad request', [
-            ERROR_CODES.WEAK_PASSWORD,
-            ERROR_CODES.INVALID_TOKEN,
-            ERROR_CODES.RECAPTCHA_REQUIRED,
-          ]),
+          400: errorWith(
+            'Bad request',
+            [ERROR_CODES.WEAK_PASSWORD, ERROR_CODES.INVALID_TOKEN, ERROR_CODES.RECAPTCHA_REQUIRED],
+            weakPasswordFields,
+          ),
           403: errorWith('Forbidden', [
             ERROR_CODES.RECAPTCHA_FAILED,
             ERROR_CODES.ATTESTATION_FAILED,
@@ -1206,9 +1200,9 @@ export function portalAuthRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { token, password, recaptchaToken } = request.body as z.infer<typeof resetPasswordBody>;
 
-      const complexityError = validatePasswordComplexity(password);
-      if (complexityError != null) {
-        await reply.status(400).send({ error: complexityError, code: 'WEAK_PASSWORD' });
+      const weakPassword = await validatePassword(password);
+      if (weakPassword != null) {
+        await reply.status(400).send(weakPassword);
         return;
       }
 
@@ -1270,10 +1264,10 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       }
 
       // Forgot-password is the recovery path after credential compromise.
-      // Revoke every outstanding refresh token so an attacker holding a
-      // stolen portal_refresh cookie cannot keep using the account after
-      // the legitimate driver completes the reset.
-      await revokeAllDriverRefreshTokens(driverId);
+      // End every session so an attacker holding a stolen access token or
+      // portal_refresh cookie cannot keep using the account after the
+      // legitimate driver completes the reset.
+      await endDriverSessions(driverId);
 
       await recordAuthAudit(request, {
         kind: 'driver',

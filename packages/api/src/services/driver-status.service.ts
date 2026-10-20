@@ -4,9 +4,8 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { db, driverTokens, userTokens } from '@evtivity/database';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
-import { announceDriverDeactivated } from '../lib/driver-active.js';
 import * as tokenService from './token.service.js';
-import { revokeAllDriverRefreshTokens } from './refresh-token.service.js';
+import { endDriverSessions } from './refresh-token.service.js';
 
 /**
  * The emailed single-use links of a driver: portal invitation, password
@@ -58,9 +57,9 @@ export async function revokeDriverEmailLinks(driverId: string): Promise<void> {
  * by PATCH /v1/drivers/:id or DELETE /v1/drivers/:id. Idempotent: a repeated
  * call finds nothing left to change.
  *
- * - Ends the driver's open portal streams on every API pod.
- * - Revokes every refresh token, so a reactivation does not bring old
- *   sessions back.
+ * - Ends every session (`endDriverSessions`): raises the session version so
+ *   no access token issued before works after a reactivation, revokes every
+ *   refresh token, and ends the driver's open portal streams on every pod.
  * - Revokes the open emailed links (invitation, reset, verification).
  * - Deactivates every active token of the driver through the token service
  *   (audit, local auth list bump, driver notification). OCPP authorization
@@ -74,10 +73,8 @@ export async function applyDriverDeactivation(
   driverId: string,
   ctx: DriverStatusContext,
 ): Promise<{ tokensDeactivated: number }> {
-  announceDriverDeactivated(driverId);
-
   try {
-    await revokeAllDriverRefreshTokens(driverId);
+    await endDriverSessions(driverId);
     await revokeDriverEmailLinks(driverId);
   } catch (err) {
     // fail-open: the driver is already inactive, so every portal request,

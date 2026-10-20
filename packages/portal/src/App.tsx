@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Outlet, Routes, Route, useSearchParams } from 'react-router';
+import { BrowserRouter, Navigate, Outlet, Routes, Route, useSearchParams } from 'react-router';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/lib/query';
 import { useAuth } from '@/lib/auth';
@@ -51,7 +51,6 @@ const HomeScreen = lazy(() =>
 const PaymentMethods = lazy(() =>
   import('@/pages/PaymentMethods').then((m) => ({ default: m.PaymentMethods })),
 );
-const Profile = lazy(() => import('@/pages/Profile').then((m) => ({ default: m.Profile })));
 const QrLanding = lazy(() => import('@/pages/QrLanding').then((m) => ({ default: m.QrLanding })));
 const ChargerLanding = lazy(() =>
   import('@/pages/ChargerLanding').then((m) => ({ default: m.ChargerLanding })),
@@ -209,7 +208,7 @@ export function App(): React.JSX.Element {
                     <Route path="vehicles" element={<Vehicles />} />
                     <Route path="favorites" element={<Favorites />} />
                     <Route path="station-watches" element={<Watching />} />
-                    <Route path="profile" element={<Profile />} />
+                    <Route path="profile" element={<Navigate to="/account/security" replace />} />
                     <Route path="start" element={<ChargerSearch />} />
                     <Route path="start/:stationId" element={<ChargerDetail />} />
                     <Route path="scan" element={<ScanQr />} />

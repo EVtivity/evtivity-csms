@@ -2,27 +2,33 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
-import { db } from '@evtivity/database';
+import { db, drivers } from '@evtivity/database';
 import { refreshTokens } from '@evtivity/database';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import { hashToken } from '../lib/token-hash.js';
+import { announceDriverSessionChange } from '../lib/driver-active.js';
 
 const REFRESH_TOKEN_BYTES = 32;
-const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface CreateRefreshTokenResult {
   rawToken: string;
   expiresAt: Date;
 }
 
+/**
+ * Stores a new session refresh token that expires `lifetimeDays` from now: the operator or
+ * driver refresh days of the session settings. A rotation issues a new one, so the window slides.
+ */
 export async function createRefreshToken(opts: {
   userId?: string;
   driverId?: string;
   deviceId?: string | undefined;
+  lifetimeDays: number;
 }): Promise<CreateRefreshTokenResult> {
   const raw = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('hex');
   const tokenHash = hashToken(raw);
-  const expiresAt = new Date(Date.now() + SESSION_EXPIRY_MS);
+  const expiresAt = new Date(Date.now() + opts.lifetimeDays * DAY_MS);
 
   await db.insert(refreshTokens).values({
     userId: opts.userId,
@@ -80,7 +86,7 @@ export async function validateAndRotateRefreshToken(
         await revokeAllUserSessions(row.userId);
       }
       if (row.driverId != null) {
-        await revokeAllDriverRefreshTokens(row.driverId);
+        await endDriverSessions(row.driverId);
       }
     }
     return null;
@@ -157,9 +163,39 @@ export async function revokeAllUserRefreshTokens(userId: string): Promise<void> 
     .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
 }
 
-export async function revokeAllDriverRefreshTokens(driverId: string): Promise<void> {
+async function revokeAllDriverRefreshTokens(driverId: string): Promise<void> {
   await db
     .update(refreshTokens)
     .set({ revokedAt: new Date() })
     .where(and(eq(refreshTokens.driverId, driverId), isNull(refreshTokens.revokedAt)));
+}
+
+/**
+ * Ends the driver's access tokens: raises the session version, so every
+ * driver access token issued before is refused at its next request, and ends
+ * the driver's open portal streams on every pod. Refresh tokens stay, so
+ * another device renews with its own (portal sign-out, like the operator one).
+ */
+export async function bumpDriverSessionVersion(driverId: string): Promise<number | null> {
+  try {
+    const [row] = await db
+      .update(drivers)
+      .set({ sessionVersion: sql`${drivers.sessionVersion} + 1` })
+      .where(eq(drivers.id, driverId))
+      .returning({ sessionVersion: drivers.sessionVersion });
+    return row?.sessionVersion ?? null;
+  } finally {
+    announceDriverSessionChange(driverId);
+  }
+}
+
+/**
+ * Ends every session of the driver: the access tokens
+ * (`bumpDriverSessionVersion`) and every refresh token. Password reset and
+ * change, portal activation, deactivation, erasure and a replayed refresh
+ * token call it; never revoke driver refresh tokens without it.
+ */
+export async function endDriverSessions(driverId: string): Promise<void> {
+  await bumpDriverSessionVersion(driverId);
+  await revokeAllDriverRefreshTokens(driverId);
 }

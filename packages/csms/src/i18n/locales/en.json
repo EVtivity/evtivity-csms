@@ -2887,7 +2887,29 @@
     "autocharge": "Autocharge",
     "autochargeDescription": "Charge by plugging in: a charger that sends a vehicle's VIN, EVCCID or MAC address starts a session for the vehicle's driver when the driver turned Autocharge on for it. A site can turn it on or off for its own stations.",
     "autochargeEnabled": "Autocharge Enabled",
-    "autochargeEnabledDesc": "Off by default. Drivers turn Autocharge on per vehicle in the portal; each start sends the driver a notice."
+    "autochargeEnabledDesc": "Off by default. Drivers turn Autocharge on per vehicle in the portal; each start sends the driver a notice.",
+    "passwordSessions": {
+      "tab": "Passwords and Sessions",
+      "description": "Set the rules for new passwords and how long operators and drivers stay signed in.",
+      "passwordsTitle": "Passwords",
+      "passwordsNote": "Applies the next time someone sets a password. Current passwords keep working.",
+      "minLength": "Minimum Length",
+      "minLengthHint": "Characters, from {{min}} to {{max}}.",
+      "requireUppercase": "Require an Uppercase Letter",
+      "requireLowercase": "Require a Lowercase Letter",
+      "requireNumber": "Require a Number",
+      "requireSymbol": "Require a Special Character",
+      "requireSymbolHint": "Any keyboard character that is not a letter, digit or space, such as ! or #.",
+      "sessionsTitle": "Sessions",
+      "sessionsNote": "Applies when someone signs in or the app renews their sign-in. Active sessions take on the new values within one check interval. A session no one uses keeps its old expiry.",
+      "operatorAccessMinutes": "Operator Sign-In Check Interval",
+      "operatorRefreshDays": "Operator Inactivity Timeout",
+      "driverAccessMinutes": "Driver Sign-In Check Interval",
+      "driverRefreshDays": "Driver Inactivity Timeout",
+      "accessHint": "Minutes, from {{min}} to {{max}}. The app checks the sign-in again this often, in the background, without asking the person. A deactivated account is signed out within a minute, whatever this interval.",
+      "refreshHint": "Days, from {{min}} to {{max}}. Someone who does not use the app for this long has to sign in again.",
+      "saveFailed": "Failed to save. Please try again."
+    }
   },
   "pnc": {
     "certificates": "Certificates",
@@ -4114,7 +4136,9 @@
       "minLength": "at least {{min}} characters",
       "uppercase": "an uppercase letter",
       "lowercase": "a lowercase letter",
-      "number": "a number"
+      "number": "a number",
+      "symbol": "a special character",
+      "maxLength": "at most {{max}} characters"
     },
     "minItems": "Add at least {{min}} items",
     "maxItems": "Use at most {{max}} items",

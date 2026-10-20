@@ -56,6 +56,11 @@ export const drivers = pgTable(
     mfaMethod: varchar('mfa_method', { length: 20 }),
     totpSecretEnc: varchar('totp_secret_enc', { length: 500 }),
     isActive: boolean('is_active').notNull().default(true),
+    // Raised by every change that must end the access tokens issued before it
+    // (sign-out, password reset or change, portal activation, deactivation,
+    // erasure, a replayed refresh token). An access token carries the version
+    // it was issued under (`sv`).
+    sessionVersion: integer('session_version').notNull().default(0),
     emailVerified: boolean('email_verified').notNull().default(false),
     lastNotificationReadAt: timestamp('last_notification_read_at', { withTimezone: true }),
     // The driver's billing address, the bill-to block of a member invoice (a

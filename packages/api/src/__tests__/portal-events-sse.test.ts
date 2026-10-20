@@ -38,7 +38,7 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
 }));
 
 import { registerAuth } from '../plugins/auth.js';
-import { isDriverActive } from '../lib/driver-active.js';
+import { getDriverSessionState } from '../lib/driver-active.js';
 import { closeDriverEventStreams, portalEventRoutes } from '../routes/portal/events.js';
 import { portalStationEventRoutes } from '../routes/portal/station-events.js';
 
@@ -109,19 +109,19 @@ describe('portal event streams', () => {
   });
 
   afterEach(async () => {
-    vi.mocked(isDriverActive).mockReset();
+    vi.mocked(getDriverSessionState).mockReset();
     await app.close();
   });
 
   it('refuses a deactivated driver on the stream and on authenticateDriver', async () => {
-    vi.mocked(isDriverActive).mockResolvedValue(false);
+    vi.mocked(getDriverSessionState).mockResolvedValue({ active: false, sessionVersion: 0 });
     const token = app.jwt.sign({ driverId: 'drv_off', type: 'driver' });
 
     const stream = await open(port, '/portal/events', token);
     await stream.ended;
     expect(stream.status).toBe(401);
     expect(stream.body()).toContain('ACCOUNT_DEACTIVATED');
-    expect(isDriverActive).toHaveBeenCalledWith('drv_off');
+    expect(getDriverSessionState).toHaveBeenCalledWith('drv_off');
 
     const guarded = Fastify();
     await registerAuth(guarded);

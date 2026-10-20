@@ -97,8 +97,11 @@ import {
 } from '../lib/user-management-scope.js';
 import { permissionCatalog, AI_EFFORTS, AI_PROVIDER_IDS, isAiEffort } from '@evtivity/lib';
 import { isValidTimezone } from '@evtivity/lib/timezone';
-import { validatePasswordComplexity } from '../lib/password-validation.js';
-import { PASSWORD_MIN_LENGTH } from '@evtivity/lib/password-policy';
+import {
+  newPasswordSchema,
+  validatePassword,
+  weakPasswordFields,
+} from '../lib/password-validation.js';
 import { config as apiConfig } from '../lib/config.js';
 import { recordAuthAudit } from '../lib/auth-audit.js';
 import { storedSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
@@ -223,12 +226,12 @@ const updateMeBody = z.object({
 });
 
 const resetPasswordBody = z.object({
-  password: z.string().min(PASSWORD_MIN_LENGTH),
+  password: newPasswordSchema,
 });
 
 const changePasswordBody = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(PASSWORD_MIN_LENGTH),
+  newPassword: newPasswordSchema,
 });
 
 const forgotPasswordBody = z.object({
@@ -238,13 +241,13 @@ const forgotPasswordBody = z.object({
 
 const resetPasswordWithTokenBody = z.object({
   token: z.string().min(1).describe('Password reset token from email link'),
-  password: z.string().min(PASSWORD_MIN_LENGTH),
+  password: newPasswordSchema,
 });
 
 const forceChangePasswordBody = z.object({
   email: z.string().email(),
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(PASSWORD_MIN_LENGTH),
+  newPassword: newPasswordSchema,
 });
 
 const userSelect = {
@@ -895,7 +898,7 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(resetPasswordWithTokenBody),
         response: {
           200: successResponse,
-          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD]),
+          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD], weakPasswordFields),
         },
       },
       config: {
@@ -908,9 +911,9 @@ export function userRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { token, password } = request.body as z.infer<typeof resetPasswordWithTokenBody>;
 
-      const complexityError = validatePasswordComplexity(password);
-      if (complexityError != null) {
-        await reply.status(400).send({ error: complexityError, code: 'WEAK_PASSWORD' });
+      const weakPassword = await validatePassword(password);
+      if (weakPassword != null) {
+        await reply.status(400).send(weakPassword);
         return;
       }
 
@@ -997,7 +1000,7 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(forceChangePasswordBody),
         response: {
           200: zodSchema(loginResponse),
-          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD]),
+          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD], weakPasswordFields),
           401: errorWith('Invalid credentials', [ERROR_CODES.INVALID_CREDENTIALS]),
         },
       },
@@ -1054,9 +1057,9 @@ export function userRoutes(app: FastifyInstance): void {
       }
       await clearSignInFailures(user.id, 'password');
 
-      const complexityError = validatePasswordComplexity(newPassword);
-      if (complexityError != null) {
-        await reply.status(400).send({ error: complexityError, code: 'WEAK_PASSWORD' });
+      const weakPassword = await validatePassword(newPassword);
+      if (weakPassword != null) {
+        await reply.status(400).send(weakPassword);
         return;
       }
 
@@ -1886,7 +1889,7 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(resetPasswordBody),
         response: {
           200: successResponse,
-          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD]),
+          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD], weakPasswordFields),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
           409: errorWith('The user signs in with SSO', [ERROR_CODES.USER_SSO_MANAGED]),
         },
@@ -1896,9 +1899,9 @@ export function userRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof userParams>;
       const { password } = request.body as z.infer<typeof resetPasswordBody>;
 
-      const complexityError = validatePasswordComplexity(password);
-      if (complexityError != null) {
-        await reply.status(400).send({ error: complexityError, code: 'WEAK_PASSWORD' });
+      const weakPassword = await validatePassword(password);
+      if (weakPassword != null) {
+        await reply.status(400).send(weakPassword);
         return;
       }
 
@@ -1970,10 +1973,11 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(changePasswordBody),
         response: {
           200: successResponse,
-          400: errorWith('Weak password', [
-            ERROR_CODES.WEAK_PASSWORD,
-            ERROR_CODES.INVALID_PASSWORD,
-          ]),
+          400: errorWith(
+            'Weak password',
+            [ERROR_CODES.WEAK_PASSWORD, ERROR_CODES.INVALID_PASSWORD],
+            weakPasswordFields,
+          ),
           403: errorWith('API keys cannot change the password', [ERROR_CODES.SESSION_REQUIRED]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
@@ -2010,9 +2014,9 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const complexityError = validatePasswordComplexity(newPassword);
-      if (complexityError != null) {
-        await reply.status(400).send({ error: complexityError, code: 'WEAK_PASSWORD' });
+      const weakPassword = await validatePassword(newPassword);
+      if (weakPassword != null) {
+        await reply.status(400).send(weakPassword);
         return;
       }
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { z } from 'zod';
-import type { ZodTypeAny } from 'zod';
+import type { ZodRawShape, ZodTypeAny } from 'zod';
 import { zodSchema } from './zod-schema.js';
 import { ERROR_MESSAGES, type ErrorCode } from './error-codes.generated.js';
 
@@ -43,6 +43,7 @@ export const successResponse = zodSchema(successSchema);
 export function errorWith(
   description: string,
   codes: readonly [ErrorCode, ...ErrorCode[]],
+  extraFields: ZodRawShape = {},
 ): Record<string, unknown> {
   const codeEnum =
     codes.length === 1
@@ -65,6 +66,7 @@ export function errorWith(
       .object({
         error: z.string().describe(errorDesc),
         code: codeEnum,
+        ...extraFields,
       })
       .passthrough()
       .describe(description),

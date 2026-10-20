@@ -13,14 +13,12 @@ import {
   userAuditLog,
 } from '@evtivity/database';
 import { generateId, permissionCatalog } from '@evtivity/lib';
-import { setAuthCookies, isSecureRequest } from '../lib/auth-cookies.js';
-import { createRefreshToken } from '../services/refresh-token.service.js';
 import { config as apiConfig } from '../lib/config.js';
 import { errorWith } from '../lib/response-schemas.js';
 import { emailEquals } from '../lib/email-match.js';
 import { recordAuthAudit } from '../lib/auth-audit.js';
 import { beginOperatorMfa, type OperatorMfaPending } from '../lib/operator-mfa.js';
-import { signOperatorAccessToken } from '../lib/operator-session.js';
+import { issueOperatorSession } from '../lib/operator-session.js';
 import {
   RedisSamlRequestCache,
   buildSaml,
@@ -184,9 +182,7 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         }
 
         // Issue JWT and set cookies
-        const token = signOperatorAccessToken(app, existingUser);
-        const refreshResult = await createRefreshToken({ userId: existingUser.id });
-        setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
+        await issueOperatorSession(app, request, reply, existingUser);
 
         await db
           .update(users)
@@ -277,13 +273,11 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         );
       }
 
-      const token = signOperatorAccessToken(app, {
+      await issueOperatorSession(app, request, reply, {
         id: newUserId,
         roleId: defaultRole.id,
         sessionVersion: newUser?.sessionVersion ?? 0,
       });
-      const refreshResult = await createRefreshToken({ userId: newUserId });
-      setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
       await recordAuthAudit(request, {
         kind: 'user',
         accountId: newUserId,

@@ -199,8 +199,6 @@
     "setDefaultFailed": "No se pudo establecer el método de pago predeterminado. Intente nuevamente."
   },
   "profile": {
-    "title": "Perfil",
-    "personalInfo": "Información personal",
     "email": "Correo electrónico",
     "firstName": "Nombre",
     "lastName": "Apellido",
@@ -215,7 +213,6 @@
     "passwordChangeFailed": "Error al cambiar la contraseña.",
     "signOut": "Cerrar sesión",
     "language": "Idioma",
-    "notificationPreferences": "Preferencias de notificaciones",
     "emailNotifications": "Notificaciones por correo electrónico",
     "smsNotifications": "Notificaciones por SMS",
     "preferencesSaved": "Preferencias de notificaciones guardadas.",
@@ -927,7 +924,9 @@
       "minLength": "al menos {{min}} caracteres",
       "uppercase": "una letra mayúscula",
       "lowercase": "una letra minúscula",
-      "number": "un número"
+      "number": "un número",
+      "symbol": "un carácter especial",
+      "maxLength": "como máximo {{max}} caracteres"
     }
   },
   "activity": {

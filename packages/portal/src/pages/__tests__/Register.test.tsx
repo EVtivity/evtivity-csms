@@ -111,6 +111,45 @@ describe('Register', () => {
     expect(await screen.findByText('translated:errors.WEAK_PASSWORD')).toBeTruthy();
   });
 
+  it('marks the rules a WEAK_PASSWORD reply names', async () => {
+    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    registerMock.mockRejectedValue(
+      new ApiError(400, { error: 'x', code: 'WEAK_PASSWORD', missing: ['symbol'] }),
+    );
+    renderPage();
+    fill('Abcdefghijk1');
+    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    expect(await screen.findByText('missing: symbol')).toBeTruthy();
+    const symbol = screen
+      .getByTestId('password-requirements')
+      .querySelector<HTMLElement>('[data-rule="symbol"]');
+    expect(symbol?.dataset.met).toBe('false');
+  });
+
+  it('checks the policy the API publishes', async () => {
+    getMock.mockResolvedValue({
+      recaptchaEnabled: false,
+      recaptchaSiteKey: '',
+      passwordPolicy: {
+        minLength: 14,
+        requireUppercase: true,
+        requireLowercase: true,
+        requireNumber: true,
+        requireSymbol: true,
+      },
+    });
+    renderPage();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('password-requirements').querySelector('[data-rule="symbol"]'),
+      ).toBeTruthy();
+    });
+    fill('Abcdefghijk1');
+    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    expect(screen.getByText('missing: minLength and symbol')).toBeTruthy();
+    expect(registerMock).not.toHaveBeenCalled();
+  });
+
   it('sends a reCAPTCHA token when reCAPTCHA is on', async () => {
     getMock.mockResolvedValue({ recaptchaEnabled: true, recaptchaSiteKey: 'site-key' });
     recaptchaMock.mockResolvedValue('captcha-token');

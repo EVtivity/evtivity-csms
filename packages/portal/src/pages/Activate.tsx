@@ -11,7 +11,9 @@ import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBran
 import { api, ApiError } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { passwordRulesMessage } from '@/lib/password-rules';
+import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
+import type { PasswordRule } from '@evtivity/lib/password-policy';
 
 function isInvalidLink(err: unknown): boolean {
   if (!(err instanceof ApiError)) return false;
@@ -21,6 +23,8 @@ function isInvalidLink(err: unknown): boolean {
 
 export function Activate(): React.JSX.Element {
   const { t, i18n } = useTranslation();
+  const passwordPolicy = usePasswordPolicy();
+  const weakPasswordReply = useWeakPasswordReply();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 
@@ -31,16 +35,21 @@ export function Activate(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
-  // The API refused the password (WEAK_PASSWORD). Translated at render, cleared on edit.
-  const [serverWeakPassword, setServerWeakPassword] = useState(false);
+  // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
+  const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
 
   const { companyName, companyLogo, branding } = useAuthBranding();
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
-    const rulesError = passwordRulesMessage(password, t, i18n.language);
+    const rulesError = passwordRulesMessage(
+      password,
+      passwordPolicy,
+      t,
+      i18n.language,
+      serverMissing,
+    );
     if (rulesError != null) errors.password = rulesError;
-    else if (serverWeakPassword) errors.password = t('errors.WEAK_PASSWORD');
     if (confirmPassword !== password) errors.confirmPassword = t('auth.passwordsMustMatch');
     return errors;
   }
@@ -64,7 +73,7 @@ export function Activate(): React.JSX.Element {
         err instanceof ApiError &&
         (err.body as { code?: string } | null)?.code === 'WEAK_PASSWORD'
       ) {
-        setServerWeakPassword(true);
+        setServerMissing(weakPasswordReply(err) ?? []);
       } else {
         setError(getErrorMessage(err, t));
       }
@@ -120,17 +129,26 @@ export function Activate(): React.JSX.Element {
                 <PasswordInput
                   id="password"
                   value={password}
-                  aria-describedby="password-requirements"
+                  aria-invalid={hasSubmitted && validationErrors.password ? true : undefined}
+                  aria-describedby={
+                    hasSubmitted && validationErrors.password
+                      ? 'password-error password-requirements'
+                      : 'password-requirements'
+                  }
                   onChange={(e) => {
                     setPassword(e.target.value);
-                    setServerWeakPassword(false);
+                    setServerMissing(null);
                   }}
                   className={hasSubmitted && validationErrors.password ? 'border-destructive' : ''}
                 />
                 {hasSubmitted && validationErrors.password && (
-                  <p className="text-sm text-destructive">{validationErrors.password}</p>
+                  <p id="password-error" className="text-sm text-destructive">
+                    {validationErrors.password}
+                  </p>
                 )}
                 <PasswordRequirements
+                  policy={passwordPolicy}
+                  serverMissing={serverMissing}
                   id="password-requirements"
                   password={password}
                   showUnmet={hasSubmitted}

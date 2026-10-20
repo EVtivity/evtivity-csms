@@ -3,7 +3,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
-import { db, getSsoConfig, users } from '@evtivity/database';
+import { db, getSessionLifetimes, getSsoConfig, users } from '@evtivity/database';
 import { invalidateUserActiveCache } from './user-active.js';
 import { isSecureRequest, setAuthCookies } from './auth-cookies.js';
 import {
@@ -11,6 +11,8 @@ import {
   revokeAllUserRefreshTokens,
   revokeAllUserSessions,
 } from '../services/refresh-token.service.js';
+
+const DAY_SECONDS = 24 * 60 * 60;
 
 type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -22,22 +24,26 @@ export interface OperatorTokenUser {
 }
 
 /**
- * Signs a 1-hour operator access token. It carries the user's session version
- * (`sv`): `operatorTokenRejection` refuses it once the version moves on
- * (logout, password, MFA, role or permission change, deactivation). A token
- * without `sv` counts as version 0.
+ * Signs an operator access token valid for `expiresInSeconds`. It carries the user's session
+ * version (`sv`): `operatorTokenRejection` refuses it once the version moves on (logout,
+ * password, MFA, role or permission change, deactivation). A token without `sv` counts as 0.
  */
-export function signOperatorAccessToken(app: FastifyInstance, user: OperatorTokenUser): string {
+export function signOperatorAccessToken(
+  app: FastifyInstance,
+  user: OperatorTokenUser,
+  expiresInSeconds: number,
+): string {
   return app.jwt.sign(
     { userId: user.id, roleId: user.roleId, sv: user.sessionVersion },
-    { expiresIn: '1h' },
+    { expiresIn: expiresInSeconds },
   );
 }
 
 /**
- * Issues a CSMS session: a signed access token at the user's session version,
- * a new refresh token, and the auth cookies. Returns the access token (login
- * responses still carry it).
+ * Issues a CSMS session with the operator lifetimes of the session settings: a signed access
+ * token at the user's session version, a new refresh token, and the auth cookies. Every
+ * operator sign-in, refresh, SSO and MFA path goes through it. Returns the access token
+ * (login responses still carry it).
  */
 export async function issueOperatorSession(
   app: FastifyInstance,
@@ -45,9 +51,17 @@ export async function issueOperatorSession(
   reply: FastifyReply,
   user: OperatorTokenUser,
 ): Promise<string> {
-  const token = signOperatorAccessToken(app, user);
-  const refresh = await createRefreshToken({ userId: user.id });
-  setAuthCookies('csms', reply, token, refresh.rawToken, isSecureRequest(request));
+  const lifetimes = await getSessionLifetimes();
+  const accessSeconds = lifetimes.operatorAccessMinutes * 60;
+  const token = signOperatorAccessToken(app, user, accessSeconds);
+  const refresh = await createRefreshToken({
+    userId: user.id,
+    lifetimeDays: lifetimes.operatorRefreshDays,
+  });
+  setAuthCookies('csms', reply, token, refresh.rawToken, isSecureRequest(request), {
+    accessSeconds,
+    refreshSeconds: lifetimes.operatorRefreshDays * DAY_SECONDS,
+  });
   return token;
 }
 
