@@ -12,6 +12,7 @@ import {
   PICS_CSMS_V2_0_1,
   PICS_CSMS_V2_1,
   PICS_V1_6,
+  PICS_V2_0_1,
   PICS_V2_1,
 } from '../pics/index.js';
 import type { Pics } from '../pics/index.js';
@@ -21,7 +22,14 @@ import { OCPP201_CSMS_TEST_IDS } from '../ocpp201-csms-cases.js';
 describe('PICS', () => {
   const testsBySut = { cs: getCsRegistry(), csms: getRegistry() };
 
-  for (const pics of [PICS_V2_1, PICS_V1_6, PICS_CSMS_V2_1, PICS_CSMS_V2_0_1, PICS_CSMS_V1_6]) {
+  for (const pics of [
+    PICS_V2_1,
+    PICS_V2_0_1,
+    PICS_V1_6,
+    PICS_CSMS_V2_1,
+    PICS_CSMS_V2_0_1,
+    PICS_CSMS_V1_6,
+  ]) {
     describe(`${pics.sut} ${pics.version}`, () => {
       it('every unsupported item states a reason', () => {
         for (const item of Object.values(pics.items)) {
@@ -61,7 +69,7 @@ describe('PICS', () => {
     expect(getPics('ocpp2.1', 'csms')).toBe(PICS_CSMS_V2_1);
     expect(getPics('ocpp1.6', 'csms')).toBe(PICS_CSMS_V1_6);
     expect(getPics('ocpp2.0.1', 'csms')).toBe(PICS_CSMS_V2_0_1);
-    expect(() => getPics('ocpp2.0.1', 'cs')).toThrow(/simulator/);
+    expect(getPics('ocpp2.0.1', 'cs')).toBe(PICS_V2_0_1);
   });
 
   it('applies an anyOf alternative that needs an item unsupported', () => {

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { CsTestCase, StepResult } from '../../../../cs-types.js';
+import { certificateHashDataOf, sameHashData } from '../../../../cs-security-pki.js';
+import { expiredRootCertificate, testRootCertificate } from '../../../../test-certificates.js';
 
 const defaultHandler = async (action: string) => {
   if (action === 'BootNotification')
@@ -30,9 +32,10 @@ const createInstallCertTest = (
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     ctx.server.setMessageHandler(defaultHandler);
+    const { root } = await testRootCertificate(`OCTT ${certType}`);
     const installRes = await ctx.server.sendCommand('InstallCertificate', {
       certificateType: certType,
-      certificate: 'MIIBkTCB+wIJAL...',
+      certificate: root.pem,
     });
     const status = installRes['status'] as string;
     steps.push({
@@ -96,9 +99,11 @@ export const TC_M_07_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     ctx.server.setMessageHandler(defaultHandler);
+    const expired = await expiredRootCertificate('OCTT Expired CSMS Root CA');
+    const expiredHash = certificateHashDataOf(expired.cert, expired.cert);
     const installRes = await ctx.server.sendCommand('InstallCertificate', {
       certificateType: 'CSMSRootCertificate',
-      certificate: 'EXPIRED_CERTIFICATE_PEM',
+      certificate: expired.pem,
     });
     const status = installRes['status'] as string;
     steps.push({
@@ -113,12 +118,23 @@ export const TC_M_07_CS: CsTestCase = {
       certificateType: ['CSMSRootCertificate'],
     });
     const getStatus = getRes['status'] as string;
+    const chain = Array.isArray(getRes['certificateHashDataChain'])
+      ? (getRes['certificateHashDataChain'] as Record<string, unknown>[])
+      : [];
+    const listed = chain.some(
+      (entry) =>
+        entry['certificateType'] === 'CSMSRootCertificate' &&
+        sameHashData((entry['certificateHashData'] as Record<string, unknown> | undefined) ?? {}, {
+          ...expiredHash,
+        }),
+    );
     steps.push({
       step: 2,
       description: 'GetInstalledCertificateIds - expired cert not installed',
-      status: getStatus === 'NotFound' || getStatus === 'Accepted' ? 'passed' : 'failed',
-      expected: 'status = NotFound or Accepted (without the expired cert)',
-      actual: `status = ${getStatus}`,
+      status:
+        getStatus === 'NotFound' || (getStatus === 'Accepted' && !listed) ? 'passed' : 'failed',
+      expected: 'status = NotFound, or Accepted without the expired certificate',
+      actual: `status = ${getStatus}${listed ? ', expired certificate listed' : ''}`,
     });
 
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -138,9 +154,10 @@ export const TC_M_09_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     ctx.server.setMessageHandler(defaultHandler);
+    const { root: unrelatedRoot } = await testRootCertificate('OCTT Unrelated CSMS Root CA');
     const installRes = await ctx.server.sendCommand('InstallCertificate', {
       certificateType: 'CSMSRootCertificate',
-      certificate: 'UNSIGNED_ROOT_CERT_PEM',
+      certificate: unrelatedRoot.pem,
     });
     const status = installRes['status'] as string;
     steps.push({

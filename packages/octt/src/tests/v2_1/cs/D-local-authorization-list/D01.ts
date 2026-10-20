@@ -190,7 +190,7 @@ export const TC_D_04_CS: CsTestCase = {
     const sendRes = await ctx.server.sendCommand('SendLocalList', {
       versionNumber,
       updateType: 'Full',
-      localAuthorizationList: [],
+      // <Empty> list: localAuthorizationList omitted (the schema requires at least one entry when present).
     });
     const sendStatus = sendRes['status'] as string;
     steps.push({
@@ -240,7 +240,7 @@ export const TC_D_05_CS: CsTestCase = {
     const sendRes = await ctx.server.sendCommand('SendLocalList', {
       versionNumber,
       updateType: 'Differential',
-      localAuthorizationList: [],
+      // <Empty> list: localAuthorizationList omitted (the schema requires at least one entry when present).
     });
     const sendStatus = sendRes['status'] as string;
     steps.push({

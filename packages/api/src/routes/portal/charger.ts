@@ -2101,7 +2101,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           : null;
       // The start of a held reservation carries the token the hold was made
       // for (the one ReserveNow sent): a station enforcing the hold (OCPP H01)
-      // refuses any other with ReservedForOtherToken. Without a hold, the
+      // refuses any other token. Without a hold, the
       // driver id as a Central token.
       const startIdToken =
         heldReservationId != null && activeReservation != null

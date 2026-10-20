@@ -181,7 +181,11 @@ export const TC_O_18_CS: CsTestCase = {
     const setRes = await ctx.server.sendCommand('SetDisplayMessage', {
       message: {
         id: 1005,
-        state: 'UnsupportedState',
+        priority: 'NormalCycle',
+        // <Configured unsupported state>: a 2.1 state the simulator does not support
+        // (DisplayMessageCtrlr.SupportedStates). A 2.0.1 simulator supports every
+        // 2.0.1 state, so the 2.0.1 case is not applicable (PICS).
+        state: 'Suspended',
         message: { format: 'UTF8', content: 'Test' },
       },
     });

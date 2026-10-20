@@ -21,6 +21,10 @@ export const TC_023_5_CS: CsTestCase = {
       if (action === 'StatusNotification') return {};
       if (action === 'Authorize') return { idTagInfo: { status: 'Invalid' } };
       if (action === 'Heartbeat') return { currentTime: new Date().toISOString() };
+      // A station that starts without Authorize gets the same verdict on its StartTransaction.
+      if (action === 'StartTransaction') {
+        return { idTagInfo: { status: 'Invalid' }, transactionId: 1 };
+      }
       return {};
     });
 

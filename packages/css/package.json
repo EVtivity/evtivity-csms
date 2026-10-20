@@ -28,6 +28,12 @@
         "types": "./src/lib/iso15118-test-ev.ts",
         "default": "./dist/lib/iso15118-test-ev.js"
       }
+    },
+    "./signed-meter-values": {
+      "import": {
+        "types": "./src/signed-meter-values.ts",
+        "default": "./dist/signed-meter-values.js"
+      }
     }
   },
   "scripts": {

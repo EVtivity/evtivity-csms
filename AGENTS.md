@@ -6,7 +6,7 @@ To set up, troubleshoot, or report an issue with a running EVtivity install, use
 
 ## Project
 
-An OCPP 1.6 and 2.1 Charging Station Management System. npm workspaces, TypeScript (strict, ESM), Node.js 24 or later.
+An OCPP 1.6, 2.0.1 and 2.1 Charging Station Management System. npm workspaces, TypeScript (strict, ESM), Node.js 24 or later.
 
 | Package                                                  | Purpose                                                                                                                    |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
@@ -38,7 +38,7 @@ Run `npm run typecheck && npm run lint && npm test` before opening a pull reques
 ## Rules
 
 - Every `.ts` and `.tsx` source file starts with the BSL 1.1 license header (`npm run license:fix` adds it).
-- OCPP field names, types and behavior come from `schemas/ocpp-2.1/` and `schemas/ocpp-1.6/`. Do not guess them.
+- OCPP field names, types and behavior come from `schemas/ocpp-2.1/`, `schemas/ocpp-2.0.1/` and `schemas/ocpp-1.6/`. Do not guess them.
 - A database schema change ships with a new hand-written, idempotent migration in `packages/database/src/migrations/` plus its `meta/_journal.json` entry. Never edit a migration that has shipped. Check with `npm run check:migrations`.
 - API routes guard operator endpoints with `authorize('resource:action')`, define Zod schemas with `.describe()` on response fields, and return errors as `{ error, code }`.
 - UI text changes update all six locale files (en, de, es, ko, zh, zh-TW) of the package.

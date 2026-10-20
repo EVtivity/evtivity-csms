@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { CsTestCase, StepResult } from '../../../../cs-types.js';
+import { contractCertificateHashData } from '../../../../test-certificates.js';
 
 export const TC_N_30_CS: CsTestCase = {
   id: 'TC_N_30_CS',
@@ -195,12 +196,8 @@ export const TC_N_63_CS: CsTestCase = {
   purpose: 'To verify if the Charging Station clears customer certificate data.',
   execute: async (ctx) => {
     const steps: StepResult[] = [];
-    const certHash = {
-      hashAlgorithm: 'SHA256',
-      issuerNameHash: 'AAAA',
-      issuerKeyHash: 'BBBB',
-      serialNumber: '111111',
-    };
+    // <certificate hash data of contract certificate>: a contract certificate of a test MO root.
+    const certHash = await contractCertificateHashData();
     const res1 = await ctx.server.sendCommand('CustomerInformation', {
       requestId: 9,
       report: true,

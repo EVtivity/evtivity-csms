@@ -375,8 +375,8 @@ export const TC_E_103_CS: CsTestCase = {
       tariff: {
         tariffId: 'Tariff1',
         currency: 'EUR',
-        chargingTime: { taxRate: [{ type: 'MyTax1', tax: 0 }], prices: [{ priceMinute: 60 }] },
-        idleTime: { taxRate: [{ type: 'MyTax2', tax: 0 }], prices: [{ priceMinute: 60 }] },
+        chargingTime: { taxRates: [{ type: 'MyTax1', tax: 0 }], prices: [{ priceMinute: 60 }] },
+        idleTime: { taxRates: [{ type: 'MyTax2', tax: 0 }], prices: [{ priceMinute: 60 }] },
       },
     });
     steps.push({

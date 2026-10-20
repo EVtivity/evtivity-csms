@@ -4,8 +4,8 @@
 import type { Logger } from 'pino';
 import { eq } from 'drizzle-orm';
 import { db, octtRuns, octtTestResults } from '@evtivity/database';
-import { runTests } from '@evtivity/octt';
-import type { OcppVersion, SutType } from '@evtivity/octt';
+import { runCsTests, runTests } from '@evtivity/octt';
+import type { OcppVersion, RunSummary, TestCaseResult } from '@evtivity/octt';
 import type { Redis } from 'ioredis';
 import { withLock } from '@evtivity/lib';
 import type { RedisPubSubClient } from '@evtivity/lib';
@@ -44,56 +44,68 @@ export async function octtRunnerHandler(
   const serverUrl = config.OCPP_SERVER_URL;
   const apiUrl = config.API_BASE_URL;
 
+  const version = ocppVersion === 'all' ? undefined : (ocppVersion as OcppVersion);
   const controller = new AbortController();
   activeRuns.add(controller);
   try {
-    const summary = await runTests(
-      {
-        serverUrl,
-        apiUrl,
-        version: ocppVersion === 'all' ? undefined : (ocppVersion as OcppVersion),
-        sut: sutType as SutType,
-        concurrency: 3,
-        ocspResponderUrl: config.OCTT_OCSP_RESPONDER_URL,
-        signal: controller.signal,
-      },
-      (result) => {
-        // Insert each test result as it completes. Wrapped to surface errors;
-        // the insert + publish are non-critical to the run loop itself.
-        void db
-          .insert(octtTestResults)
-          .values({
-            runId,
-            testId: result.testId,
-            testName: result.testName,
-            module: result.module,
-            ocppVersion: result.version,
-            status: result.result.status,
-            durationMs: result.result.durationMs,
-            steps: result.result.steps,
-            error: result.result.error ?? null,
-            notApplicableItem: result.result.notApplicable?.item ?? null,
-            notApplicableReason: result.result.notApplicable?.reason ?? null,
-          })
-          .then(() =>
-            pubsub.publish(
-              'csms_events',
-              JSON.stringify({
-                eventType: 'octt.progress',
-                runId,
-                testId: result.testId,
-                status: result.result.status,
-              }),
-            ),
+    const onResult = (result: TestCaseResult): void => {
+      // Insert each test result as it completes. Wrapped to surface errors;
+      // the insert + publish are non-critical to the run loop itself.
+      void db
+        .insert(octtTestResults)
+        .values({
+          runId,
+          testId: result.testId,
+          testName: result.testName,
+          module: result.module,
+          ocppVersion: result.version,
+          status: result.result.status,
+          durationMs: result.result.durationMs,
+          steps: result.result.steps,
+          error: result.result.error ?? null,
+          notApplicableItem: result.result.notApplicable?.item ?? null,
+          notApplicableReason: result.result.notApplicable?.reason ?? null,
+        })
+        .then(() =>
+          pubsub.publish(
+            'csms_events',
+            JSON.stringify({
+              eventType: 'octt.progress',
+              runId,
+              testId: result.testId,
+              status: result.result.status,
+            }),
+          ),
+        )
+        .catch((err: unknown) => {
+          log.warn(
+            { err, runId, testId: result.testId },
+            'Failed to persist OCTT test result or publish progress',
+          );
+        });
+    };
+
+    // A CS run tests the charging station simulator: each case starts its own
+    // Test System server and simulator station in this process, as the CS CLI
+    // does. A CSMS run drives the CSMS at OCPP_SERVER_URL and API_BASE_URL.
+    const summary: RunSummary =
+      sutType === 'cs'
+        ? await runCsTests(
+            { serverUrl: '', version, sut: 'cs', concurrency: 3, signal: controller.signal },
+            onResult,
           )
-          .catch((err: unknown) => {
-            log.warn(
-              { err, runId, testId: result.testId },
-              'Failed to persist OCTT test result or publish progress',
-            );
-          });
-      },
-    );
+        : await runTests(
+            {
+              serverUrl,
+              apiUrl,
+              version,
+              sut: 'csms',
+              concurrency: 3,
+              ocspResponderUrl: config.OCTT_OCSP_RESPONDER_URL,
+              signal: controller.signal,
+            },
+            onResult,
+          );
 
     // Update run with final counts
     await db

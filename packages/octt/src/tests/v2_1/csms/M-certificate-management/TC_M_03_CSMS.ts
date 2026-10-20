@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { defaultReply } from '../../../../default-replies.js';
+import { installedCertificateHashData } from '../../../../test-certificates.js';
 
 const makeCertRetrieveTest = (id: string, name: string, certType: string): TestCase => ({
   id,
@@ -18,6 +19,7 @@ const makeCertRetrieveTest = (id: string, name: string, certType: string): TestC
       chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
       reason: 'PowerUp',
     });
+    const hashData = await installedCertificateHashData(certType);
     let received = false;
     let requestedType: string | undefined;
     ctx.client.setIncomingCallHandler(
@@ -31,12 +33,7 @@ const makeCertRetrieveTest = (id: string, name: string, certType: string): TestC
             certificateHashDataChain: [
               {
                 certificateType: certType,
-                certificateHashData: {
-                  hashAlgorithm: 'SHA256',
-                  issuerNameHash: 'aabbcc',
-                  issuerKeyHash: 'ddeeff',
-                  serialNumber: '01',
-                },
+                certificateHashData: hashData,
               },
             ],
           };
@@ -108,6 +105,7 @@ const makeMultiCertRetrieveTest = (id: string, name: string, certTypes: string[]
       chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
       reason: 'PowerUp',
     });
+    const hashData = await Promise.all(certTypes.map((ct) => installedCertificateHashData(ct)));
     let received = false;
     let requestedTypes: string[] = [];
     ctx.client.setIncomingCallHandler(
@@ -118,14 +116,9 @@ const makeMultiCertRetrieveTest = (id: string, name: string, certTypes: string[]
           if (Array.isArray(types)) requestedTypes = types;
           return {
             status: 'Accepted',
-            certificateHashDataChain: certTypes.map((ct) => ({
+            certificateHashDataChain: certTypes.map((ct, i) => ({
               certificateType: ct,
-              certificateHashData: {
-                hashAlgorithm: 'SHA256',
-                issuerNameHash: 'aabbcc',
-                issuerKeyHash: 'ddeeff',
-                serialNumber: '01',
-              },
+              certificateHashData: hashData[i],
             })),
           };
         }

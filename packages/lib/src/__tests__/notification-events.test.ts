@@ -11,6 +11,7 @@ import {
   isRequiredDriverEventType,
   ocppNotificationEventsFor,
 } from '../notification-events.js';
+import { isOcpp21OnlyMessage } from '../ocpp-version.js';
 
 describe('OCPP notification events', () => {
   it('lists every event once, in the order of the map', () => {
@@ -18,16 +19,41 @@ describe('OCPP notification events', () => {
     expect(new Set(OCPP_NOTIFICATION_EVENT_TYPES).size).toBe(OCPP_NOTIFICATION_EVENT_TYPES.length);
   });
 
-  it('splits the list into the common, OCPP 1.6 and OCPP 2.1 groups', () => {
+  it('splits the list into the common, OCPP 1.6, OCPP 2.x and OCPP 2.1 groups', () => {
     const common = ocppNotificationEventsFor('common');
     const v16 = ocppNotificationEventsFor('1.6');
+    const v2x = ocppNotificationEventsFor('2.x');
     const v21 = ocppNotificationEventsFor('2.1');
     expect(common).toContain('ocpp.BootNotification');
     expect(common).toContain('station.Connected');
-    expect(v21).toContain('ocpp.NotifyReport');
-    expect(v21).not.toContain('ocpp.BootNotification');
+    expect(v2x).toContain('ocpp.NotifyReport');
+    expect(v21).toContain('ocpp.NotifyDERAlarm');
     expect(v16).toEqual(['ocpp.DiagnosticsStatus']);
-    expect([...common, ...v16, ...v21].sort()).toEqual([...OCPP_NOTIFICATION_EVENT_TYPES].sort());
+    expect([...common, ...v16, ...v2x, ...v21].sort()).toEqual(
+      [...OCPP_NOTIFICATION_EVENT_TYPES].sort(),
+    );
+  });
+
+  it('puts an event in the OCPP 2.1 group only when OCPP 2.0.1 lacks its message', () => {
+    for (const eventType of OCPP_NOTIFICATION_EVENT_TYPES) {
+      if (!eventType.startsWith('ocpp.')) continue;
+      const action = eventType.slice('ocpp.'.length);
+      expect(OCPP_NOTIFICATION_EVENTS[eventType] === '2.1', eventType).toBe(
+        isOcpp21OnlyMessage(action),
+      );
+    }
+  });
+
+  it('lists the messages OCPP 1.6 stations send through the Security Whitepaper and PnC as common', () => {
+    for (const eventType of [
+      'ocpp.SecurityEventNotification',
+      'ocpp.LogStatusNotification',
+      'ocpp.SignCertificate',
+      'ocpp.Get15118EVCertificate',
+      'ocpp.GetCertificateStatus',
+    ] as const) {
+      expect(OCPP_NOTIFICATION_EVENTS[eventType], eventType).toBe('common');
+    }
   });
 
   it('holds only station and ocpp events', () => {

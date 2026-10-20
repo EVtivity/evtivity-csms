@@ -10,6 +10,7 @@ import type { SecureContextOptions, SecureVersion, TLSSocket } from 'node:tls';
 import { randomUUID, type X509Certificate } from 'node:crypto';
 import { tryParseJson } from '@evtivity/lib';
 import type { OcppVersion } from './types.js';
+import { ocppSchemaError, ocppVersionLabel, type OcppMessageKind } from './ocpp-schema-check.js';
 
 /** The station did not send the awaited message within the wait. */
 export class MessageTimeoutError extends Error {
@@ -27,6 +28,7 @@ type OcppCallResult = [3, string, Record<string, unknown>];
 type OcppCallError = [4, string, string, string, Record<string, unknown>];
 
 type PendingCall = {
+  action: string;
   resolve: (value: Record<string, unknown>) => void;
   reject: (reason: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
@@ -132,6 +134,16 @@ export interface TlsHandshake {
 const DEFAULT_COMMAND_TIMEOUT_MS = 15_000;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
 
+export interface SendCommandOptions {
+  /**
+   * Why the case document prescribes a request outside the schema of the
+   * connection's version (a value below the schema minimum the station must
+   * reject). The request is then not recorded as a schema violation; the
+   * station's response still is checked.
+   */
+  outsideSchema?: string;
+}
+
 /**
  * Mini OCPP WebSocket server that acts as a CSMS for CS conformance testing.
  * Accepts exactly one station connection per test.
@@ -151,6 +163,7 @@ export class OcppTestServer {
   private _stationId: string | null = null;
   private _protocol: OcppVersion | null = null;
   private _isConnected = false;
+  private readonly _schemaViolations: string[] = [];
 
   private readonly pending = new Map<string, PendingCall>();
   private messageHandler: MessageHandler | null = null;
@@ -177,6 +190,29 @@ export class OcppTestServer {
 
   get protocol(): OcppVersion | null {
     return this._protocol;
+  }
+
+  /**
+   * Messages that are not valid for the OCPP version of the connection, in
+   * either direction: a Test System command or reply built with a field, value
+   * or action the version does not define (a 2.1-only one on 2.0.1), or a
+   * station message that fails the strict schema of its version. The CS
+   * executor fails a case that has any, since a real peer refuses such a
+   * message.
+   */
+  get schemaViolations(): readonly string[] {
+    return this._schemaViolations;
+  }
+
+  private checkSchema(
+    sender: 'Test System' | 'Station',
+    action: string,
+    kind: OcppMessageKind,
+    payload: unknown,
+  ): void {
+    if (this._protocol == null) return;
+    const error = ocppSchemaError(this._protocol, action, kind, payload);
+    if (error != null) this._schemaViolations.push(`${sender} ${kind}: ${error}`);
   }
 
   /** HTTP upgrade requests received, oldest first. */
@@ -227,6 +263,7 @@ export class OcppTestServer {
         server: this.httpServer,
         handleProtocols: (protocols) => {
           if (protocols.has('ocpp2.1')) return 'ocpp2.1';
+          if (protocols.has('ocpp2.0.1')) return 'ocpp2.0.1';
           if (protocols.has('ocpp1.6')) return 'ocpp1.6';
           return false;
         },
@@ -428,12 +465,24 @@ export class OcppTestServer {
     action: string,
     payload: Record<string, unknown>,
     timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS,
+    options: SendCommandOptions = {},
   ): Promise<Record<string, unknown>> {
     if (this.ws == null || !this._isConnected) {
       return Promise.reject(new Error('No station connected'));
     }
     const messageId = randomUUID();
     const call: OcppCall = [2, messageId, action, payload];
+    if (options.outsideSchema == null) {
+      this.checkSchema('Test System', action, 'request', payload);
+    } else if (
+      this._protocol != null &&
+      ocppSchemaError(this._protocol, action, 'request', payload) == null
+    ) {
+      // The allowance holds only for a message that really is outside the schema.
+      this._schemaViolations.push(
+        `Test System request: ${action} is marked outside the schema (${options.outsideSchema}) but is valid`,
+      );
+    }
 
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -441,7 +490,7 @@ export class OcppTestServer {
         reject(new Error(`Command ${action} timed out after ${String(timeoutMs)}ms`));
       }, timeoutMs);
 
-      this.pending.set(messageId, { resolve, reject, timeout });
+      this.pending.set(messageId, { action, resolve, reject, timeout });
       this.ws?.send(JSON.stringify(call));
     });
   }
@@ -581,6 +630,8 @@ export class OcppTestServer {
     const proto = socket.protocol;
     if (proto === 'ocpp2.1') {
       this._protocol = 'ocpp2.1';
+    } else if (proto === 'ocpp2.0.1') {
+      this._protocol = 'ocpp2.0.1';
     } else if (proto === 'ocpp1.6') {
       this._protocol = 'ocpp1.6';
     } else {
@@ -643,6 +694,7 @@ export class OcppTestServer {
       if (pending != null) {
         clearTimeout(pending.timeout);
         this.pending.delete(messageId);
+        this.checkSchema('Station', pending.action, 'response', payload);
         pending.resolve(payload);
       }
     } else if (messageType === 4) {
@@ -662,6 +714,7 @@ export class OcppTestServer {
     action: string,
     payload: Record<string, unknown>,
   ): void {
+    this.checkSchema('Station', action, 'request', payload);
     // Check waiters first
     const waiterIdx = this.messageWaiters.findIndex((w) => w.action === action);
     if (waiterIdx !== -1) {
@@ -672,16 +725,16 @@ export class OcppTestServer {
       if (this.messageHandler != null) {
         this.messageHandler(action, payload)
           .then((response) => {
-            this.sendCallResult(messageId, response);
+            this.sendCallResult(messageId, response, action);
             waiter.resolve(payload);
           })
           .catch(() => {
-            this.sendCallResult(messageId, {});
+            this.sendCallResult(messageId, {}, action);
             waiter.resolve(payload);
           });
       } else {
         // Auto-respond with empty payload and resolve the waiter
-        this.sendCallResult(messageId, {});
+        this.sendCallResult(messageId, {}, action);
         waiter.resolve(payload);
       }
       return;
@@ -694,7 +747,7 @@ export class OcppTestServer {
     if (this.messageHandler != null) {
       this.messageHandler(action, payload)
         .then((response) => {
-          this.sendCallResult(messageId, response);
+          this.sendCallResult(messageId, response, action);
         })
         .catch((err: unknown) => {
           const desc = err instanceof Error ? err.message : String(err);
@@ -702,11 +755,19 @@ export class OcppTestServer {
         });
     } else {
       // No handler: auto-accept with empty payload
-      this.sendCallResult(messageId, {});
+      this.sendCallResult(messageId, {}, action);
     }
   }
 
   private handleIncomingSend(action: string, payload: Record<string, unknown>): void {
+    // SEND (message type 6) is new in OCPP 2.1.
+    if (this._protocol === 'ocpp2.1') {
+      this.checkSchema('Station', action, 'send', payload);
+    } else if (this._protocol != null) {
+      this._schemaViolations.push(
+        `Station sent ${action} as a SEND message, which ${ocppVersionLabel(this._protocol)} does not define`,
+      );
+    }
     const waiterIdx = this.messageWaiters.findIndex((w) => w.action === action);
     if (waiterIdx !== -1) {
       const waiter = this.messageWaiters[waiterIdx] as MessageWaiter;
@@ -718,8 +779,13 @@ export class OcppTestServer {
     this.receivedMessages.push({ action, payload });
   }
 
-  private sendCallResult(messageId: string, payload: Record<string, unknown>): void {
+  private sendCallResult(
+    messageId: string,
+    payload: Record<string, unknown>,
+    action: string,
+  ): void {
     if (this.ws == null || !this._isConnected) return;
+    this.checkSchema('Test System', action, 'response', payload);
     const result: OcppCallResult = [3, messageId, payload];
     this.ws.send(JSON.stringify(result));
   }

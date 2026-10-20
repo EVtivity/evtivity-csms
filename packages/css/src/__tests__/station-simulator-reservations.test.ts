@@ -83,7 +83,7 @@ describe('ReserveNow (OCPP 2.1)', () => {
     });
     expect(res).toEqual({
       status: 'Rejected',
-      statusInfo: { reasonCode: 'UnavailableReservation' },
+      statusInfo: { reasonCode: 'NotEnabled' },
     });
     expect(reservations(h).size).toBe(0);
   });
@@ -106,7 +106,7 @@ describe('ReserveNow (OCPP 2.1)', () => {
     expect(reservations(h).has(2)).toBe(false);
   });
 
-  it('answers Occupied with TransactionInProgress when a transaction is active', async () => {
+  it('answers Occupied with TxInProgress when a transaction is active', async () => {
     const sql = stubSql((q) =>
       q.includes('transaction_id') && q.includes("status = 'active'")
         ? [{ transaction_id: 'tx-9', meter_start_wh: 0, id_token: 'X' }]
@@ -121,7 +121,7 @@ describe('ReserveNow (OCPP 2.1)', () => {
     });
     expect(res).toEqual({
       status: 'Occupied',
-      statusInfo: { reasonCode: 'TransactionInProgress' },
+      statusInfo: { reasonCode: 'TxInProgress' },
     });
   });
 

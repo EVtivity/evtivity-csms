@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { CsTestCase } from './cs-types.js';
+import type { CsOcppVersion, CsTestCase } from './cs-types.js';
+import { OCPP201_CS_TEST_IDS, OCPP201_CS_TEST_NAMES } from './ocpp201-cs-cases.js';
 
 // v2.1 CS test cases
 import * as A from './tests/v2_1/cs/A-security/index.js';
@@ -45,7 +46,7 @@ function collectTests(...modules: Record<string, unknown>[]): CsTestCase[] {
   return tests;
 }
 
-const ALL_CS_TESTS: CsTestCase[] = collectTests(
+const BASE_CS_TESTS: CsTestCase[] = collectTests(
   A,
   B,
   C,
@@ -68,12 +69,27 @@ const ALL_CS_TESTS: CsTestCase[] = collectTests(
   V16,
 );
 
+/**
+ * The OCPP 2.0.1 CS cases: the 2.1 case of each id, run with the simulator as
+ * an OCPP 2.0.1 station (the executor sets its protocol from the case version
+ * and the case reads the version from its context).
+ */
+const OCPP201_CS_TESTS: CsTestCase[] = OCPP201_CS_TEST_IDS.map((id) => {
+  const tc = BASE_CS_TESTS.find((t) => t.id === id && t.version === 'ocpp2.1');
+  if (tc == null) throw new Error(`OCPP 2.0.1 CS case ${id} has no OCPP 2.1 case`);
+  return { ...tc, version: 'ocpp2.0.1', name: OCPP201_CS_TEST_NAMES[id] ?? tc.name };
+});
+
+const ALL_CS_TESTS: CsTestCase[] = [...BASE_CS_TESTS, ...OCPP201_CS_TESTS];
+
+const csKey = (version: CsOcppVersion, id: string): string => `${version}:${id}`;
+
 const testIndex = new Map<string, CsTestCase>();
 
 function buildIndex(): void {
   if (testIndex.size > 0) return;
   for (const tc of ALL_CS_TESTS) {
-    testIndex.set(tc.id, tc);
+    testIndex.set(csKey(tc.version, tc.id), tc);
   }
 }
 
@@ -81,7 +97,8 @@ export function getCsRegistry(): CsTestCase[] {
   return ALL_CS_TESTS;
 }
 
-export function getCsTestById(id: string): CsTestCase | undefined {
+/** A CS test case by id and version: 2.1 and 2.0.1 cases share ids. */
+export function getCsTestById(id: string, version: CsOcppVersion): CsTestCase | undefined {
   buildIndex();
-  return testIndex.get(id);
+  return testIndex.get(csKey(version, id));
 }

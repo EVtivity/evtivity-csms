@@ -25,6 +25,7 @@ async function setNetworkProfile(
       ocppCsmsUrl,
       ocppInterface: 'Wired0',
       ocppVersion: 'OCPP20',
+      ocppTransport: 'JSON',
       securityProfile,
     },
   });

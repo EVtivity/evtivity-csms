@@ -198,8 +198,11 @@ export const TC_I_114_CS: CsTestCase = {
             },
           ],
         },
+        // priceFixed is required by TariffFixedPriceType; the case document lists the conditions only.
         fixedFee: {
-          prices: [{ conditions: { paymentBrand: 'PayMe', paymentRecognition: 'Debit' } }],
+          prices: [
+            { priceFixed: 1.0, conditions: { paymentBrand: 'PayMe', paymentRecognition: 'Debit' } },
+          ],
         },
       },
     });

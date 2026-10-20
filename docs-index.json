@@ -42,7 +42,7 @@
   {
     "path": "/docs/conformance/overview",
     "title": "OCPP Conformance Testing",
-    "description": "How EVtivity tests the CSMS and the Charging Station Simulator against the OCTT test cases for OCPP 1.6 and OCPP 2.1."
+    "description": "How EVtivity tests the CSMS against the OCTT test cases for OCPP 1.6, 2.0.1 and 2.1, and the Charging Station Simulator for OCPP 1.6 and 2.1."
   },
   {
     "path": "/docs/csms/access-logs",

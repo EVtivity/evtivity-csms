@@ -7,6 +7,7 @@ import type { CsTestCase, CsTestCaseResult } from './cs-types.js';
 import { getCsRegistry } from './cs-registry.js';
 import { executeCsTest, closeCsSql } from './cs-executor.js';
 import { getNotApplicable } from './pics/index.js';
+import { assertOcppSchemasAvailable } from './ocpp-schema-check.js';
 
 const DEFAULT_CONCURRENCY = 3;
 
@@ -15,6 +16,7 @@ export async function runCsTests(
   onResult: (result: CsTestCaseResult) => void,
 ): Promise<RunSummary> {
   const logger = pino({ level: config.logLevel ?? 'info' });
+  const aborted = (): boolean => config.signal?.aborted === true;
   const allTests = getCsRegistry();
   const concurrency = config.concurrency ?? DEFAULT_CONCURRENCY;
 
@@ -25,6 +27,8 @@ export async function runCsTests(
     return true;
   });
 
+  // The schema check reads the schemas of every version the run selects.
+  assertOcppSchemasAvailable([...new Set(tests.map((tc) => tc.version))]);
   logger.info({ total: tests.length, concurrency }, 'Starting CS test run');
 
   const summary: RunSummary = {
@@ -42,8 +46,9 @@ export async function runCsTests(
   const queue = [...tests];
   const running: Promise<void>[] = [];
 
-  while (queue.length > 0 || running.length > 0) {
-    while (running.length < concurrency && queue.length > 0) {
+  // An abort starts no new test; the running ones finish and clean up their stations.
+  while ((queue.length > 0 && !aborted()) || running.length > 0) {
+    while (running.length < concurrency && queue.length > 0 && !aborted()) {
       const testCase = queue.shift();
       if (testCase == null) break;
       const promise = processTest(testCase, config, logger, summary, onResult).then(() => {
@@ -59,6 +64,7 @@ export async function runCsTests(
 
   summary.durationMs = Date.now() - start;
   await closeCsSql();
+  if (aborted()) throw new Error('OCTT CS run aborted', { cause: config.signal?.reason });
   return summary;
 }
 

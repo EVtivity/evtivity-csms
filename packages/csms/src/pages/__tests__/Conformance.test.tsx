@@ -104,29 +104,61 @@ describe('Conformance page', () => {
     });
   });
 
-  // The API refuses a charging station run for OCPP 2.0.1: the form runs the CSMS suite only.
-  it('offers only CSMS runs, with no system under test choice', async () => {
+  it('shows the system under test of each run', async () => {
+    const run = {
+      ocppVersion: 'ocpp2.0.1',
+      status: 'completed',
+      totalTests: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      errors: 0,
+      notApplicable: 0,
+      durationMs: 10,
+      createdAt: '2026-10-19T00:00:00Z',
+    };
+    getMock.mockResolvedValue({
+      data: [
+        { ...run, id: 1, sutType: 'cs' },
+        { ...run, id: 2, sutType: 'csms' },
+      ],
+      total: 2,
+    });
+    renderPage();
+    expect(
+      within(await screen.findByTestId('conformance-run-row-1')).getByText('conformance.sutCs'),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId('conformance-run-row-2')).getByText('conformance.sutCsms'),
+    ).toBeTruthy();
+  });
+
+  // Every version has a CSMS and a charging station suite.
+  it('starts a charging station run for every version', async () => {
     renderPage();
     const versions = await screen.findByLabelText('conformance.ocppVersion');
-    expect(screen.getAllByRole('combobox')).toEqual([versions]);
     const values = within(versions)
       .getAllByRole('option')
       .map((option) => (option as HTMLOptionElement).value);
-    expect(values).toContain('ocpp2.0.1');
+    expect(values).toEqual(['all', 'ocpp2.1', 'ocpp2.0.1', 'ocpp1.6']);
     for (const value of values) {
       cleanup();
       postMock.mockClear();
       renderPage();
-      fireEvent.change(await screen.findByLabelText('conformance.ocppVersion'), {
+      fireEvent.change(await screen.findByLabelText('conformance.systemUnderTest'), {
+        target: { value: 'cs' },
+      });
+      fireEvent.change(screen.getByLabelText('conformance.ocppVersion'), {
         target: { value },
       });
       fireEvent.click(screen.getByRole('button', { name: 'conformance.runTests' }));
       const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText('conformance.startRunCsDescription')).toBeTruthy();
       fireEvent.click(within(dialog).getByRole('button', { name: 'conformance.runTests' }));
       await waitFor(() => {
         expect(postMock).toHaveBeenCalledWith('/v1/octt/runs', {
           ocppVersion: value,
-          sutType: 'csms',
+          sutType: 'cs',
         });
       });
     }

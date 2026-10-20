@@ -23,6 +23,7 @@ export const TC_B_46_CS: CsTestCase = {
         ocppCsmsUrl: 'ws://127.0.0.1:9997',
         ocppInterface: 'Wired0',
         ocppVersion: 'OCPP20',
+        ocppTransport: 'JSON',
         securityProfile: 0,
       },
     });

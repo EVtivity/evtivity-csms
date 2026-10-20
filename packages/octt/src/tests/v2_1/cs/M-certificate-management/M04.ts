@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { CsTestCase, StepResult } from '../../../../cs-types.js';
+import { testRootCertificate } from '../../../../test-certificates.js';
 
 const defaultHandler = async (action: string) => {
   if (action === 'BootNotification')
@@ -94,13 +95,10 @@ export const TC_M_22_CS: CsTestCase = {
   execute: async (ctx) => {
     const steps: StepResult[] = [];
     ctx.server.setMessageHandler(defaultHandler);
+    // Hash data of a real root the station never installed.
+    const { hashData } = await testRootCertificate('OCTT Not Installed Root CA');
     const delRes = await ctx.server.sendCommand('DeleteCertificate', {
-      certificateHashData: {
-        hashAlgorithm: 'SHA256',
-        issuerNameHash: 'AAAA',
-        issuerKeyHash: 'BBBB',
-        serialNumber: '999999',
-      },
+      certificateHashData: hashData,
     });
     const status = delRes['status'] as string;
     steps.push({

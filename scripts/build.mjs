@@ -120,6 +120,47 @@ export const embedOcppSchemasPlugin = {
   },
 };
 
+// The conformance runner (worker) checks every Test System and station message
+// against the OCPP schemas (packages/octt/src/ocpp-schema-check.ts), reading
+// them through packages/octt/src/ocpp-schema-files.ts. In the bundles that
+// module is replaced by one that embeds every request, response and SEND
+// schema of the three versions, so the worker image needs no schemas folder.
+const OCTT_SCHEMA_FILES_MODULE = resolve(root, 'packages/octt/src/ocpp-schema-files.ts');
+
+export function embeddedOcttSchemas() {
+  const files = {};
+  for (const dir of ['ocpp-2.1', 'ocpp-2.0.1', 'ocpp-1.6']) {
+    const names = readdirSync(resolve(root, 'schemas', dir))
+      .filter((name) => name.endsWith('.json'))
+      .sort();
+    // Fail the build when the schemas are missing (a Docker build stage without them).
+    if (names.length === 0) throw new Error(`No OCPP schemas in schemas/${dir}`);
+    for (const name of names) {
+      const content = readFileSync(resolve(root, 'schemas', dir, name), 'utf8');
+      files[`${dir}/${name}`] = JSON.stringify(JSON.parse(content));
+    }
+  }
+  return files;
+}
+
+export const embedOcttSchemasPlugin = {
+  name: 'embed-octt-schemas',
+  setup(build) {
+    build.onLoad({ filter: /ocpp-schema-files\.ts$/ }, (args) => {
+      if (args.path !== OCTT_SCHEMA_FILES_MODULE) return undefined;
+      return {
+        contents:
+          `const FILES: Record<string, string> = ${JSON.stringify(embeddedOcttSchemas())};\n` +
+          'export function readOcppSchemaText(relativePath: string): string | null {\n' +
+          '  return Object.hasOwn(FILES, relativePath) ? FILES[relativePath] : null;\n' +
+          '}\n',
+        loader: 'ts',
+        resolveDir: dirname(args.path),
+      };
+    });
+  },
+};
+
 // The source .ts file a workspace package exports for a subpath, from the
 // "types" (or a .ts "import") condition of its package.json "exports" entry.
 function exportedSource(pkgDir, subpath) {
@@ -193,7 +234,7 @@ async function main() {
       minify: true,
       treeShaking: true,
       external: EXTERNAL,
-      plugins: [workspacePlugin, embedWasmPlugin, embedOcppSchemasPlugin],
+      plugins: [workspacePlugin, embedWasmPlugin, embedOcppSchemasPlugin, embedOcttSchemasPlugin],
       loader: { '.wasm': 'binary' },
       banner: { js: BANNER },
     });

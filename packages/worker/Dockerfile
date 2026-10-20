@@ -30,6 +30,8 @@ FROM deps AS build
 
 COPY tsconfig.base.json tsconfig.json ./
 COPY scripts/build.mjs scripts/build.mjs
+# The bundle embeds the OCPP schemas of the conformance runner (embedOcttSchemasPlugin).
+COPY schemas/ schemas/
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
 COPY packages/payments/ packages/payments/

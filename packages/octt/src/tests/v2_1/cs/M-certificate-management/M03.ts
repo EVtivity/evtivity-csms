@@ -215,8 +215,23 @@ export const TC_M_19_CS: CsTestCase = {
       if (action === 'TransactionEvent') return { idTokenInfo: { status: 'Accepted' } };
       return {};
     });
+    // Prerequisite: no MORootCertificate installed, or it can be removed. The
+    // simulator ships one, so the Test System removes every one first.
+    const installed = await ctx.server.sendCommand('GetInstalledCertificateIds', {
+      certificateType: ['MORootCertificate'],
+    });
+    const installedChains =
+      (installed['certificateHashDataChain'] as
+        | Array<{ certificateHashData: Record<string, unknown> }>
+        | undefined) ?? [];
+    for (const chain of installedChains) {
+      await ctx.server.sendCommand('DeleteCertificate', {
+        certificateHashData: chain.certificateHashData,
+      });
+    }
+
     const res = await ctx.server.sendCommand('GetInstalledCertificateIds', {
-      certificateType: ['OEMRootCertificate'],
+      certificateType: ['MORootCertificate'],
     });
     const status = res['status'] as string;
     const chains = res['certificateHashDataChain'];

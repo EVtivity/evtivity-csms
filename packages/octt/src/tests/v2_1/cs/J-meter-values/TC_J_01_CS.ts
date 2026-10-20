@@ -57,38 +57,29 @@ export const TC_J_01_CS: CsTestCase = {
     // Explicitly start the timer in case it wasn't running
     ctx.station.startClockAlignedTimer();
 
-    // Send MeterValues directly via client to test the path
+    // The station sends its clock-aligned MeterValues (AlignedDataCtrlr.Interval 2 s).
     for (let i = 0; i < 3; i++) {
-      await ctx.client.sendCall('MeterValues', {
-        evseId: 0,
-        meterValue: [
-          {
-            timestamp: new Date().toISOString(),
-            sampledValue: [
-              {
-                value: String(i * 100),
-                measurand: 'Energy.Active.Import.Register',
-                context: 'Sample.Clock',
-              },
-              { value: '230', measurand: 'Voltage', context: 'Sample.Clock' },
-            ],
-          },
-        ],
-      });
-      const mvPayload = await ctx.server.waitForMessage('MeterValues', 5000);
-      const meterValue = (mvPayload as Record<string, unknown>).meterValue as
+      const mvPayload = await ctx.server.waitForMessageOrNull('MeterValues', 10_000);
+      const meterValue = mvPayload?.['meterValue'] as Array<Record<string, unknown>> | undefined;
+      const sampledValue = meterValue?.[0]?.['sampledValue'] as
         | Array<Record<string, unknown>>
         | undefined;
-      const sampledValue = meterValue?.[0]?.sampledValue as
-        | Array<Record<string, unknown>>
-        | undefined;
-      const context = sampledValue?.[0]?.context;
+      const context = sampledValue?.[0]?.['context'];
+      const measurands = (sampledValue ?? []).map(
+        (sv) => sv['measurand'] ?? 'Energy.Active.Import.Register',
+      );
+      const hasAll =
+        measurands.includes('Energy.Active.Import.Register') && measurands.includes('Voltage');
       steps.push({
         step: i + 1,
-        description: `MeterValuesRequest #${String(i + 1)} with context Sample.Clock`,
-        status: context === 'Sample.Clock' ? 'passed' : 'failed',
-        expected: 'sampledValue[0].context = Sample.Clock',
-        actual: `context: ${String(context)}`,
+        description: `MeterValuesRequest #${String(i + 1)} with context Sample.Clock and every configured measurand`,
+        status: context === 'Sample.Clock' && hasAll ? 'passed' : 'failed',
+        expected:
+          'sampledValue[0].context = Sample.Clock, Energy.Active.Import.Register and Voltage sampled',
+        actual:
+          mvPayload == null
+            ? 'no MeterValuesRequest within 10 s'
+            : `context: ${String(context)}, measurands: ${measurands.map(String).join(',')}`,
       });
     }
 

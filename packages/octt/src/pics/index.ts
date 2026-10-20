@@ -7,6 +7,7 @@ import { PICS_CSMS_V1_6 } from './csms-v1_6.js';
 import { PICS_CSMS_V2_0_1 } from './csms-v2_0_1.js';
 import { PICS_CSMS_V2_1 } from './csms-v2_1.js';
 import { PICS_V1_6 } from './v1_6.js';
+import { PICS_V2_0_1 } from './v2_0_1.js';
 import { PICS_V2_1 } from './v2_1.js';
 
 export type {
@@ -22,6 +23,7 @@ export { PICS_CSMS_V1_6 } from './csms-v1_6.js';
 export { PICS_CSMS_V2_0_1 } from './csms-v2_0_1.js';
 export { PICS_CSMS_V2_1 } from './csms-v2_1.js';
 export { PICS_V1_6 } from './v1_6.js';
+export { PICS_V2_0_1 } from './v2_0_1.js';
 export { PICS_V2_1 } from './v2_1.js';
 
 /** PICS of the Device Under Test: the CSMS (`csms`) or the charging station simulator (`cs`). */
@@ -30,10 +32,8 @@ export function getPics(version: OcppVersion, sut: SutType): Pics {
     if (version === 'ocpp1.6') return PICS_CSMS_V1_6;
     return version === 'ocpp2.0.1' ? PICS_CSMS_V2_0_1 : PICS_CSMS_V2_1;
   }
-  if (version === 'ocpp2.0.1') {
-    throw new Error('No OCPP 2.0.1 PICS for the charging station simulator');
-  }
-  return version === 'ocpp1.6' ? PICS_V1_6 : PICS_V2_1;
+  if (version === 'ocpp1.6') return PICS_V1_6;
+  return version === 'ocpp2.0.1' ? PICS_V2_0_1 : PICS_V2_1;
 }
 
 /**

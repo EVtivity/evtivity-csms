@@ -11,7 +11,7 @@
   <a href="https://github.com/EVtivity/evtivity-csms/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/License-BUSL--1.1-blue.svg" alt="License: BUSL-1.1" /></a>
   <img src="https://img.shields.io/badge/TypeScript-6.x-3178C6.svg" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Node.js-%3E%3D24-339933.svg" alt="Node.js" />
-  <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.1-4ade80.svg" alt="OCPP" />
+  <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.0.1%20%7C%202.1-4ade80.svg" alt="OCPP" />
   <img src="https://img.shields.io/badge/OCPI-2.2.1%20%7C%202.3.0-4ade80.svg" alt="OCPI" />
 </p>
 
@@ -24,7 +24,7 @@
   <a href="README.zh-TW.md">繁體中文</a>
 </p>
 
-EVtivity는 AI 기반 EV 충전 플랫폼입니다. 핵심은 EV 충전 인프라를 위한 OCPP 1.6 및 2.1 호환 충전소 관리 시스템(CSMS)입니다. 충전소와의 실시간 WebSocket 통신, OCPI 2.2.1/2.3.0 로밍, ISO 15118 Plug and Charge, 운영자용 REST API, 그리고 운영자와 운전자를 위한 두 개의 React 프런트엔드를 제공합니다.
+EVtivity는 AI 기반 EV 충전 플랫폼입니다. 핵심은 EV 충전 인프라를 위한 OCPP 1.6, 2.0.1 및 2.1 호환 충전소 관리 시스템(CSMS)입니다. 충전소와의 실시간 WebSocket 통신, OCPI 2.2.1/2.3.0 로밍, ISO 15118 Plug and Charge, 운영자용 REST API, 그리고 운영자와 운전자를 위한 두 개의 React 프런트엔드를 제공합니다.
 
 AI는 운영자 대시보드에 내장되어 있습니다. AI 어시스턴트는 충전소, 세션, 매출, 운영에 대한 질문에 답하고, 충전기 화면 사진, PDF, 로그 같은 첨부 파일을 읽으며, 운영자가 확인한 후에만 실행되는 변경 사항을 제안합니다. 지원 어시스트는 운전자의 언어로 지원 케이스 답변 초안을 작성합니다. 두 기능 모두 Anthropic, OpenAI, Gemini, DeepSeek와 함께 작동하며, 비밀 정보와 개인 데이터는 모델에 전달되기 전에 마스킹됩니다.
 
@@ -64,7 +64,7 @@ graph TB
     API --> DB
     OCPP --> DB
     OCPI --> DB
-    Stations -->|OCPP 1.6/2.1| OCPP
+    Stations -->|OCPP 1.6/2.0.1/2.1| OCPP
     Partners <-->|OCPI 2.2.1/2.3.0| OCPI
 ```
 
@@ -87,7 +87,7 @@ graph TB
 
 | 기능            | 설명                                                                                                                     |
 | --------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| 프로토콜 지원   | OCPP 1.6 및 2.1 동시 다중 버전 운용                                                                                      |
+| 프로토콜 지원   | OCPP 1.6, 2.0.1 및 2.1 동시 다중 버전 운용                                                                               |
 | 보안 프로파일   | SP0~SP3, mTLS 클라이언트 인증서 인증 포함                                                                                |
 | 원격 제어       | 세션 시작/중지, 리셋, 커넥터 잠금 해제, 충전 프로파일 설정                                                               |
 | 로컬 인증       | 운영자가 관리하는 푸시 동기화 기반의 스테이션별 인증 목록                                                                |
@@ -206,18 +206,18 @@ graph TB
 
 ### 배포와 운영
 
-| 기능             | 설명                                                                                               |
-| ---------------- | -------------------------------------------------------------------------------------------------- |
-| 배포 옵션        | Docker Compose, Kubernetes Helm 차트(Istio/Envoy Gateway), AWS CDK (ECS)                           |
-| 수평 확장        | 무상태 서비스와 파드 간 Redis 기반 OCPP 연결 레지스트리                                            |
-| 오토스케일링     | WebSocket을 고려한 스케일다운 안정화를 갖춘 API/OCPP용 Kubernetes HPA                              |
-| 레이트 리미팅    | 전역/엔드포인트별 레이트 리미트와 인증용 별도 한도 구성                                            |
-| 관찰가능성       | Prometheus 메트릭, Grafana 대시보드, Loki 로그 수집                                                |
-| 컨포먼스 테스트  | CSMS 및 충전소 SUT를 대상으로 한 내장 OCTT 1.6/2.1 테스트 러너, 대시보드 리포트와 모듈별 결과 제공 |
-| 다국어 UI        | 6개 언어: 영어, 독일어, 스페인어, 한국어, 간체/번체 중국어                                         |
-| 반응형 필터      | 모든 목록 페이지의 필터가 태블릿/모바일에서 드롭다운으로 접힘                                      |
-| 서버 다운 페이지 | API 미응답 시 CSMS/포털에서 재시도 가능한 친절한 에러 페이지                                       |
-| 릴리스 관리      | stable, alpha, beta 채널. 각 stable 릴리스가 Helm 차트와 AWS CDK 앱을 해당 버전으로 올림           |
+| 기능             | 설명                                                                                                                                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 배포 옵션        | Docker Compose, Kubernetes Helm 차트(Istio/Envoy Gateway), AWS CDK (ECS)                                                            |
+| 수평 확장        | 무상태 서비스와 파드 간 Redis 기반 OCPP 연결 레지스트리                                                                             |
+| 오토스케일링     | WebSocket을 고려한 스케일다운 안정화를 갖춘 API/OCPP용 Kubernetes HPA                                                               |
+| 레이트 리미팅    | 전역/엔드포인트별 레이트 리미트와 인증용 별도 한도 구성                                                                             |
+| 관찰가능성       | Prometheus 메트릭, Grafana 대시보드, Loki 로그 수집                                                                                 |
+| 컨포먼스 테스트  | CSMS SUT(OCPP 2.1, 2.0.1, 1.6) 및 충전소 SUT(OCPP 2.1, 1.6)를 대상으로 한 내장 OCTT 테스트 러너, 대시보드 리포트와 모듈별 결과 제공 |
+| 다국어 UI        | 6개 언어: 영어, 독일어, 스페인어, 한국어, 간체/번체 중국어                                                                          |
+| 반응형 필터      | 모든 목록 페이지의 필터가 태블릿/모바일에서 드롭다운으로 접힘                                                                       |
+| 서버 다운 페이지 | API 미응답 시 CSMS/포털에서 재시도 가능한 친절한 에러 페이지                                                                        |
+| 릴리스 관리      | stable, alpha, beta 채널. 각 stable 릴리스가 Helm 차트와 AWS CDK 앱을 해당 버전으로 올림                                            |
 
 ## 배포
 
@@ -262,7 +262,7 @@ Helm 차트를 사용하면 각 서비스는 Gateway API를 통해 자체 하위
 | `evtivity-guides`          | 충전소 등록, 멈춘 세션 같은 단계별 가이드 따르기          |
 | `evtivity-integrations`    | Stripe, Adyen, 테스트 결제 제공자, 정산 설정              |
 | `evtivity-api`             | REST API 호출: API 키, 오류 코드, OCPP 명령 경로          |
-| `evtivity-simulator`       | 시뮬레이션 OCPP 1.6 및 2.1 충전소와 충전 세션 실행        |
+| `evtivity-simulator`       | 시뮬레이션 OCPP 1.6, 2.0.1 및 2.1 충전소와 충전 세션 실행 |
 | `evtivity-conformance`     | OCPP 명령 전송, 메시지 로그 확인, OCTT 적합성 테스트 실행 |
 | `evtivity-troubleshoot`    | 장애가 난 서비스, 충전소 연결, 로그인 문제를 찾아 해결    |
 | `evtivity-report-issue`    | 버전과 민감 정보를 지운 로그를 모아 GitHub 이슈 초안 작성 |

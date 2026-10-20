@@ -12,11 +12,14 @@ export interface TemplateVariable {
 }
 
 // OCPP events, from the shared list the OCPP server subscribes and the API lists.
-// Common to OCPP 1.6 and 2.1:
+// Common to OCPP 1.6, 2.0.1 and 2.1:
 export const OCPP_COMMON_EVENTS = ocppNotificationEventsFor('common');
 
 // OCPP 1.6 only:
 export const OCPP_16_EVENTS = ocppNotificationEventsFor('1.6');
+
+// OCPP 2.0.1 and 2.1:
+export const OCPP_2X_EVENTS = ocppNotificationEventsFor('2.x');
 
 // OCPP 2.1 only:
 export const OCPP_21_EVENTS = ocppNotificationEventsFor('2.1');

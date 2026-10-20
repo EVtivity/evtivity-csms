@@ -2094,19 +2094,14 @@ export class StationSimulator {
   }
 
   /**
-   * OCPP 2.1: Simulate parking bay becoming occupied (vehicle detected).
-   * Sends TransactionEvent Started with triggerReason ParkingBayOccupancy.
+   * OCPP 2.x: Simulate parking bay becoming occupied (vehicle detected).
+   * Sends TransactionEvent Started with triggerReason EVDetected (TxStartPoint
+   * ParkingBayOccupancy; TriggerReasonEnumType has no ParkingBayOccupancy, OCTT
+   * reusable state ParkingBayOccupied).
    */
   async occupyParkingBay(evseId: number, idToken: string): Promise<void> {
     if (this.is16) return;
-    await this.beginTransaction(
-      evseId,
-      idToken,
-      'ISO14443',
-      undefined,
-      undefined,
-      'ParkingBayOccupancy',
-    );
+    await this.beginTransaction(evseId, idToken, 'ISO14443', undefined, undefined, 'EVDetected');
   }
 
   /** The suspended state of the EVSE's transaction, or null while it charges. */
@@ -3191,6 +3186,7 @@ export class StationSimulator {
               actualValue: 'true',
               component: { name: 'TariffCostCtrlr' },
               variable: { name: 'Problem' },
+              eventNotificationType: 'HardWiredNotification',
             },
           ]).catch(() => {});
           // Deauthorize if configured to do so (I08.FR.31)
@@ -4369,9 +4365,13 @@ export class StationSimulator {
             const tokenMatch = res.idToken === startTokenStr;
             const groupMatch = res.groupIdToken != null && res.groupIdToken === startTokenStr;
             if (!tokenMatch && !groupMatch) {
+              // reasonCode is a CiString20 (StatusInfoType): the token is not valid for the reservation.
               return {
                 status: 'Rejected',
-                statusInfo: { reasonCode: 'ReservedForOtherToken' },
+                statusInfo: {
+                  reasonCode: 'InvalidIdToken',
+                  additionalInfo: 'EVSE reserved for another token',
+                },
               };
             }
           }
@@ -4429,10 +4429,11 @@ export class StationSimulator {
           }
           return { status: 'Accepted' };
         } catch (err: unknown) {
-          const reason = err instanceof Error ? err.message : 'InternalError';
+          // reasonCode is a CiString20 (StatusInfoType): the error text goes in additionalInfo.
+          const reason = err instanceof Error ? err.message : String(err);
           return {
             status: 'Rejected',
-            statusInfo: { reasonCode: reason },
+            statusInfo: { reasonCode: 'InternalError', additionalInfo: reason.slice(0, 512) },
           };
         }
       }
@@ -4581,7 +4582,7 @@ export class StationSimulator {
           this.pendingReset = resetType;
           return {
             status: 'Scheduled',
-            statusInfo: { reasonCode: 'TransactionInProgress' },
+            statusInfo: { reasonCode: 'TxInProgress' },
           };
         }
 
@@ -5609,7 +5610,7 @@ export class StationSimulator {
         } else {
           const resEnabled = this.getConfigValue('ReservationCtrlr.Enabled');
           if (resEnabled === 'false') {
-            return { status: 'Rejected', statusInfo: { reasonCode: 'UnavailableReservation' } };
+            return { status: 'Rejected', statusInfo: { reasonCode: 'NotEnabled' } };
           }
         }
 
@@ -5725,7 +5726,7 @@ export class StationSimulator {
         if (activeTx != null) {
           const occupiedResponse: Record<string, unknown> = { status: 'Occupied' };
           if (!this.is16) {
-            occupiedResponse['statusInfo'] = { reasonCode: 'TransactionInProgress' };
+            occupiedResponse['statusInfo'] = { reasonCode: 'TxInProgress' };
           }
           return occupiedResponse;
         }
@@ -9497,15 +9498,24 @@ export class StationSimulator {
 
     const seqNo = (this.evseSeqNo.get(evseId) ?? 0) + 1;
     this.evseSeqNo.set(evseId, seqNo);
+    const startTime = this.evseTransactionStartTime.get(evseId) ?? Date.now();
+    // OCPP 2.1 CostDetailsType (I12): tariff prices exclude tax, so the total does too.
     await this.sendTransactionEvent(evseId, 'Updated', {
       triggerReason: 'RunningCost',
       transactionId: txId,
       chargingState: this.evseChargingState.get(evseId) ?? 'Charging',
       seqNo,
       costDetails: {
-        totalCost: Math.round(localCost * 100) / 100,
-        currency,
-        totalEnergy: Math.round((gen.energyWh / 1000) * 100) / 100,
+        totalCost: {
+          currency,
+          typeOfCost: 'NormalCost',
+          total: { exclTax: Math.round(localCost * 100) / 100 },
+        },
+        totalUsage: {
+          energy: Math.round(gen.energyWh),
+          chargingTime: Math.round((Date.now() - startTime) / 1000),
+          idleTime: 0,
+        },
       },
     });
   }

@@ -37,6 +37,7 @@ export const TC_F_01_CS: CsTestCase = {
 
     // Step 1: Execute Reusable State Authorized (remote) - CSMS sends RequestStartTransaction
     const startRes = await ctx.server.sendCommand('RequestStartTransaction', {
+      remoteStartId: Math.floor(Math.random() * 1_000_000),
       idToken: { idToken, type: idTokenType },
       evseId,
     });

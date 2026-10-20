@@ -224,6 +224,13 @@ export default defineConfig({
                 'packages/css/src/lib/iso15118-test-ev.ts',
               ),
             },
+            {
+              find: '@evtivity/css/signed-meter-values',
+              replacement: path.resolve(
+                import.meta.dirname,
+                'packages/css/src/signed-meter-values.ts',
+              ),
+            },
           ],
         },
         test: {

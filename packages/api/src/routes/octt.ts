@@ -113,7 +113,7 @@ export function octtRoutes(app: FastifyInstance): void {
               .optional()
               .default('csms')
               .describe(
-                'System under test: csms or cs. cs has no OCPP 2.0.1 suite, so cs with ocpp2.0.1 answers 400',
+                'System under test: csms runs the CSMS cases against this CSMS, cs runs the charging station cases against the station simulator',
               ),
           }),
         ),
@@ -131,17 +131,6 @@ export function octtRoutes(app: FastifyInstance): void {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_OCTT_RUN_NOT_FOUND))) return;
       const { userId } = request.user as JwtPayload;
       const body = request.body as { ocppVersion: string; sutType: string };
-
-      // OCPP 2.0.1 runs the CSMS cases only: there is no 2.0.1 charging station
-      // suite, so a CS run for that version would run nothing.
-      if (body.sutType === 'cs' && body.ocppVersion === 'ocpp2.0.1') {
-        await reply.status(400).send({
-          error:
-            'OCPP 2.0.1 has no charging station suite: run it with sutType csms, or pick ocpp2.1 or ocpp1.6',
-          code: 'VALIDATION_ERROR',
-        });
-        return;
-      }
 
       const [run] = await db
         .insert(octtRuns)

@@ -93,6 +93,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
   // Starting a run is company-wide: the API answers 404 to a site-restricted user.
   const canRun = useHasCompanyWidePermission('conformance:write');
   const [selectedVersion, setSelectedVersion] = useState('all');
+  const [selectedSut, setSelectedSut] = useState<'csms' | 'cs'>('csms');
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -135,6 +136,17 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
 
         {canRun && (
           <div className="flex items-center gap-2 ml-auto">
+            <Select
+              aria-label={t('conformance.systemUnderTest')}
+              className="w-[220px]"
+              value={selectedSut}
+              onChange={(e) => {
+                setSelectedSut(e.target.value === 'cs' ? 'cs' : 'csms');
+              }}
+            >
+              <option value="csms">{t('conformance.sutCsms')}</option>
+              <option value="cs">{t('conformance.sutCs')}</option>
+            </Select>
             <Select
               aria-label={t('conformance.ocppVersion')}
               className="w-[140px]"
@@ -181,12 +193,16 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         title={t('conformance.startRunTitle')}
-        description={t('conformance.startRunDescription')}
+        description={
+          selectedSut === 'cs'
+            ? t('conformance.startRunCsDescription')
+            : t('conformance.startRunDescription')
+        }
         confirmLabel={t('conformance.runTests')}
         confirmIcon={<Play className="h-4 w-4" />}
         variant="default"
         onConfirm={() => {
-          triggerRun.mutate({ ocppVersion: selectedVersion, sutType: 'csms' });
+          triggerRun.mutate({ ocppVersion: selectedVersion, sutType: selectedSut });
         }}
       >
         <EnvironmentWarning />
@@ -209,6 +225,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
                   <TableRow>
                     <TableHead>{t('conformance.date')}</TableHead>
                     <TableHead>{t('conformance.version')}</TableHead>
+                    <TableHead>{t('conformance.systemUnderTest')}</TableHead>
                     <TableHead>{t('conformance.status')}</TableHead>
                     <TableHead className="text-right">{t('conformance.passed')}</TableHead>
                     <TableHead className="text-right">{t('conformance.failed')}</TableHead>
@@ -233,6 +250,9 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
                       </TableCell>
                       <TableCell>
                         <Badge variant="outline">{run.ocppVersion}</Badge>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {run.sutType === 'cs' ? t('conformance.sutCs') : t('conformance.sutCsms')}
                       </TableCell>
                       <TableCell>{statusBadge(run.status)}</TableCell>
                       <TableCell className="text-right text-success">{run.passed}</TableCell>

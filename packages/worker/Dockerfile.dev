@@ -40,6 +40,8 @@ COPY packages/payments/ packages/payments/
 COPY packages/services/ packages/services/
 COPY packages/ai/ packages/ai/
 COPY packages/api/src/templates/ packages/api/src/templates/
+# The conformance runner checks every message against the OCPP schemas (packages/octt).
+COPY schemas/ schemas/
 COPY packages/octt/ packages/octt/
 COPY packages/css/ packages/css/
 COPY packages/v2g-exi/ packages/v2g-exi/

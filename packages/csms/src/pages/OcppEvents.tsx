@@ -8,7 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { EventSettingsLayout } from '@/components/EventSettingsLayout';
 import { api } from '@/lib/api';
-import { OCPP_COMMON_EVENTS, OCPP_16_EVENTS, OCPP_21_EVENTS } from '@/lib/template-variables';
+import {
+  OCPP_COMMON_EVENTS,
+  OCPP_16_EVENTS,
+  OCPP_2X_EVENTS,
+  OCPP_21_EVENTS,
+} from '@/lib/template-variables';
 
 const CHANNELS = ['email', 'webhook'] as const;
 
@@ -57,6 +62,7 @@ export function OcppEvents(): React.JSX.Element {
       sections={[
         { title: t('notifications.ocppCommonEvents'), events: OCPP_COMMON_EVENTS },
         { title: t('notifications.ocpp16Events'), events: OCPP_16_EVENTS },
+        { title: t('notifications.ocpp2xEvents'), events: OCPP_2X_EVENTS },
         { title: t('notifications.ocpp21Events'), events: OCPP_21_EVENTS },
       ]}
       channels={CHANNELS}

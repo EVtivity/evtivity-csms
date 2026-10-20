@@ -50,6 +50,14 @@ const items: Record<string, PicsItem> = {
     description: 'Support for Reset per EVSE (AllowReset)',
     supported: true,
   },
+  'C-28': {
+    id: 'C-28',
+    description:
+      'Support for AlignedDataCtrlr.SendDuringIdle (clock-aligned meter values only when idle)',
+    supported: false,
+    reason:
+      'The simulator has no AlignedDataCtrlr.SendDuringIdle: its clock-aligned meter values continue during a transaction (TransactionEvent MeterValueClock)',
+  },
   'C-42': {
     id: 'C-42',
     description: 'Signed Metervalues (SampledDataSignReadings, AlignedDataSignReadings)',
@@ -221,6 +229,21 @@ const items: Record<string, PicsItem> = {
     supported: false,
     reason: 'The simulator display shows ASCII and UTF8 text only',
   },
+  'UI-1.1': {
+    id: 'UI-1.1',
+    description: 'Supported message priority AlwaysFront (DisplayMessageCtrlr.SupportedPriorities)',
+    supported: true,
+  },
+  'UI-1.2': {
+    id: 'UI-1.2',
+    description: 'Supported message priority InFront (DisplayMessageCtrlr.SupportedPriorities)',
+    supported: true,
+  },
+  'UI-1.3': {
+    id: 'UI-1.3',
+    description: 'Supported message priority NormalCycle (DisplayMessageCtrlr.SupportedPriorities)',
+    supported: true,
+  },
   'UI-3': {
     id: 'UI-3',
     description: 'Multi-language support (DisplayMessageCtrlr.Language valuesList)',
@@ -271,6 +294,43 @@ const items: Record<string, PicsItem> = {
     reason:
       'The simulator supports local cost calculation (P-0). With TariffCostCtrlr.Enabled[Tariff] false it still accepts a default tariff, as TC_I_107_CS (Part 5, P-0) requires; Part 5 does not list TC_I_103',
   },
+  AdditionalRootCertificateCheck: {
+    id: 'AdditionalRootCertificateCheck',
+    description:
+      'SecurityCtrlr.AdditionalRootCertificateCheck is true: a new CSMSRootCertificate must be signed by the installed one, which stays as fallback (M05.FR.10, M05.FR.11, M05.FR.13, M05.FR.14; TC_M_09_CS, TC_M_30_CS, TC_M_31_CS)',
+    supported: false,
+    reason:
+      'The simulator has no SecurityCtrlr.AdditionalRootCertificateCheck: it installs any valid CSMSRootCertificate next to the installed ones and keeps no fallback root',
+  },
+  UnsupportedComponentCriteria: {
+    id: 'UnsupportedComponentCriteria',
+    description:
+      'The Charging Station has one or more not supported componentCriteria (TC_B_19_CS prerequisite)',
+    supported: false,
+    reason:
+      'The simulator supports every ComponentCriterionEnumType value (Active, Available, Enabled, Problem) in GetReport, so it has no unsupported componentCriteria to report NotSupported for',
+  },
+  UnsupportedMonitoringCriteria: {
+    id: 'UnsupportedMonitoringCriteria',
+    description:
+      'The Charging Station has a <Configured Unsupported monitoringCriteria> (TC_N_04_CS)',
+    supported: false,
+    reason:
+      'The simulator supports every MonitoringCriterionEnumType value (ThresholdMonitoring, DeltaMonitoring, PeriodicMonitoring) in GetMonitoringReport',
+  },
+  UnsupportedMonitoringBase: {
+    id: 'UnsupportedMonitoringBase',
+    description: 'The Charging Station has a <Configured unsupported_monitoringBase> (TC_N_07_CS)',
+    supported: false,
+    reason:
+      'The simulator supports every MonitoringBaseEnumType value (All, FactoryDefault, HardWiredOnly) in SetMonitoringBase',
+  },
+  UnsupportedDisplayMessageState: {
+    id: 'UnsupportedDisplayMessageState',
+    description:
+      'The Charging Station does not support all message states of the OCPP version (TC_O_18_CS prerequisite)',
+    supported: true,
+  },
   NoLogInformationAvailable: {
     id: 'NoLogInformationAvailable',
     description:
@@ -295,7 +355,8 @@ const range = (prefix: string, from: number, to: number): string[] =>
   Array.from({ length: to - from + 1 }, (_v, i) => `${prefix}_${String(from + i)}_CS`);
 
 const testPrerequisites: Record<string, PicsPrerequisite[]> = {
-  // B: Part 5 runs one side of each variant
+  // B: Part 5 runs one side of each variant; TC_B_19 has a Part 6 prerequisite
+  TC_B_19_CS: needs('UnsupportedComponentCriteria'),
   TC_B_15_CS: lacks('C-56'),
   TC_B_28_CS: lacks('C-13'),
   TC_B_29_CS: lacks('C-13'),
@@ -320,6 +381,8 @@ const testPrerequisites: Record<string, PicsPrerequisite[]> = {
 
   // J: signed meter values
   ...each(['TC_J_04_CS', 'TC_J_11_CS'], needs('C-42')),
+  // J: clock-aligned values only while idle (Part 5: C-28)
+  TC_J_06_CS: needs('C-28'),
 
   // K: ISO 15118 HLC, priority charging, dynamic profiles, local EMS
   ...each(
@@ -353,6 +416,8 @@ const testPrerequisites: Record<string, PicsPrerequisite[]> = {
   ...each(['TC_L_12_CS', 'TC_L_13_CS'], lacks('AQ-7')),
   TC_L_16_CS: needs('C-43'),
 
+  // M: CSMS root replacement with AdditionalRootCertificateCheck (Part 6 note at M05)
+  ...each(['TC_M_09_CS', 'TC_M_30_CS', 'TC_M_31_CS'], needs('AdditionalRootCertificateCheck')),
   // M: ISO 15118 V2G certificate status and EV certificate installation
   ...each([...range('TC_M', 24, 29), 'TC_M_100_CS'], needs('ISO15118Support')),
 
@@ -369,10 +434,24 @@ const testPrerequisites: Record<string, PicsPrerequisite[]> = {
   ),
   ...each(['TC_N_22_CS', 'TC_N_23_CS'], [...needs('DM-0'), ...needs('DM-3')]),
   TC_N_34_CS: needs('NoLogInformationAvailable'),
+  // N: Part 6 prerequisites, a configured unsupported value
+  TC_N_04_CS: needs('UnsupportedMonitoringCriteria'),
+  TC_N_07_CS: needs('UnsupportedMonitoringBase'),
   TC_N_48_CS: [...needs('DM-0'), ...needs('AQ-10')],
 
   // O: display message variants (Part 5: TC_O_19 needs a station without all formats)
   TC_O_19_CS: lacks('UI-2.2'),
+  // O: TC_O_17 needs a station without one of the priorities (Part 5: NOT (UI-1.1 and UI-1.2 and UI-1.3))
+  TC_O_17_CS: [
+    {
+      anyOf: [
+        { item: 'UI-1.1', requires: false },
+        { item: 'UI-1.2', requires: false },
+        { item: 'UI-1.3', requires: false },
+      ],
+    },
+  ],
+  TC_O_18_CS: needs('UnsupportedDisplayMessageState'),
   TC_O_100_CS: needs('AQ-19'),
   TC_O_101_CS: needs('UI-3'),
 

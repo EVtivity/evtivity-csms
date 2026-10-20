@@ -45,7 +45,16 @@ export const TC_N_17_CS: CsTestCase = {
       actual: `status = ${res1['status']}`,
     });
 
-    const res2 = await ctx.server.sendCommand('SetMonitoringLevel', { severity: -1 });
+    // The case document sends severity -1, below the 2.1 schema minimum of 0
+    // (2.0.1 has no minimum): the station must reject it.
+    const res2 = await ctx.server.sendCommand(
+      'SetMonitoringLevel',
+      { severity: -1 },
+      undefined,
+      ctx.version === 'ocpp2.1'
+        ? { outsideSchema: 'TC_N_17_CS step 3 sends severity -1, below the minimum 0' }
+        : {},
+    );
     steps.push({
       step: 2,
       description: 'SetMonitoringLevelResponse Rejected for severity -1',

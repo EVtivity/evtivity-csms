@@ -11,7 +11,7 @@
   <a href="https://github.com/EVtivity/evtivity-csms/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/License-BUSL--1.1-blue.svg" alt="License: BUSL-1.1" /></a>
   <img src="https://img.shields.io/badge/TypeScript-6.x-3178C6.svg" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Node.js-%3E%3D24-339933.svg" alt="Node.js" />
-  <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.1-4ade80.svg" alt="OCPP" />
+  <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.0.1%20%7C%202.1-4ade80.svg" alt="OCPP" />
   <img src="https://img.shields.io/badge/OCPI-2.2.1%20%7C%202.3.0-4ade80.svg" alt="OCPI" />
 </p>
 
@@ -24,7 +24,7 @@
   <a href="README.zh-TW.md">繁體中文</a>
 </p>
 
-EVtivity is an AI-powered EV charging platform. At its core is an OCPP 1.6 and 2.1 compliant Charging Station Management System (CSMS) for EV charging infrastructure. It handles real-time WebSocket communication with charging stations, OCPI 2.2.1/2.3.0 roaming, ISO 15118 Plug and Charge, a REST API for operators, and two React frontends for operators and drivers.
+EVtivity is an AI-powered EV charging platform. At its core is an OCPP 1.6, 2.0.1 and 2.1 compliant Charging Station Management System (CSMS) for EV charging infrastructure. It handles real-time WebSocket communication with charging stations, OCPI 2.2.1/2.3.0 roaming, ISO 15118 Plug and Charge, a REST API for operators, and two React frontends for operators and drivers.
 
 AI is built into the operator dashboard. The AI assistant answers questions about stations, sessions, revenue, and operations, reads attachments such as a photo of a charger screen, a PDF, or a log, and proposes changes that run only after the operator confirms. The support assist drafts replies to support cases in the driver's language. Both work with Anthropic, OpenAI, Gemini, or DeepSeek, and secrets and personal data are masked before they reach the model.
 
@@ -64,7 +64,7 @@ graph TB
     API --> DB
     OCPP --> DB
     OCPI --> DB
-    Stations -->|OCPP 1.6/2.1| OCPP
+    Stations -->|OCPP 1.6/2.0.1/2.1| OCPP
     Partners <-->|OCPI 2.2.1/2.3.0| OCPI
 ```
 
@@ -87,7 +87,7 @@ graph TB
 
 | Feature             | Description                                                                                                                                                               |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Protocol Support    | OCPP 1.6 and 2.1 with simultaneous multi-version operation                                                                                                                |
+| Protocol Support    | OCPP 1.6, 2.0.1 and 2.1 with simultaneous multi-version operation                                                                                                         |
 | Security Profiles   | SP0 through SP3, including mTLS client certificate authentication                                                                                                         |
 | Remote Control      | Start/stop sessions, reset, unlock connector, set charging profile                                                                                                        |
 | Local Authorization | Per-station authorization lists with operator-managed push sync                                                                                                           |
@@ -206,18 +206,18 @@ graph TB
 
 ### Deployment and Operations
 
-| Feature             | Description                                                                                                                         |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Deployment Options  | Docker Compose, Kubernetes Helm chart (Istio/Envoy Gateway), and AWS CDK (ECS)                                                      |
-| Horizontal Scaling  | Stateless services with Redis-backed OCPP connection registry across pods                                                           |
-| Auto-scaling        | Kubernetes HPA for API and OCPP with WebSocket-aware scale-down stabilization                                                       |
-| Rate Limiting       | Configurable global and per-endpoint rate limiting with separate auth rate limits                                                   |
-| Observability       | Prometheus metrics, Grafana dashboards, Loki log aggregation                                                                        |
-| Conformance Testing | Built-in OCTT 1.6 and 2.1 conformance test runner for CSMS and Charging Station SUT with dashboard reporting and per-module results |
-| Multi-language UI   | 6 languages: English, German, Spanish, Korean, Simplified and Traditional Chinese                                                   |
-| Responsive Filters  | Filter controls collapse into dropdown on tablet and mobile for all list pages                                                      |
-| Server-down Page    | Friendly error page with retry when API is unreachable, on both CSMS and Portal                                                     |
-| Release Management  | Stable, alpha and beta channels. Each stable release bumps the Helm chart and AWS CDK app to its version                            |
+| Feature             | Description                                                                                                                                                              |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Deployment Options  | Docker Compose, Kubernetes Helm chart (Istio/Envoy Gateway), and AWS CDK (ECS)                                                                                           |
+| Horizontal Scaling  | Stateless services with Redis-backed OCPP connection registry across pods                                                                                                |
+| Auto-scaling        | Kubernetes HPA for API and OCPP with WebSocket-aware scale-down stabilization                                                                                            |
+| Rate Limiting       | Configurable global and per-endpoint rate limiting with separate auth rate limits                                                                                        |
+| Observability       | Prometheus metrics, Grafana dashboards, Loki log aggregation                                                                                                             |
+| Conformance Testing | Built-in OCTT conformance test runner for CSMS SUT (OCPP 2.1, 2.0.1 and 1.6) and Charging Station SUT (OCPP 2.1 and 1.6) with dashboard reporting and per-module results |
+| Multi-language UI   | 6 languages: English, German, Spanish, Korean, Simplified and Traditional Chinese                                                                                        |
+| Responsive Filters  | Filter controls collapse into dropdown on tablet and mobile for all list pages                                                                                           |
+| Server-down Page    | Friendly error page with retry when API is unreachable, on both CSMS and Portal                                                                                          |
+| Release Management  | Stable, alpha and beta channels. Each stable release bumps the Helm chart and AWS CDK app to its version                                                                 |
 
 ## Deployment
 
@@ -262,7 +262,7 @@ All hostnames share a single load balancer IP. DNS records for each hostname mus
 | `evtivity-guides`          | Follow step-by-step guides such as station onboarding and stuck sessions    |
 | `evtivity-integrations`    | Set up Stripe, Adyen, the test payment provider and payouts                 |
 | `evtivity-api`             | Call the REST API: API keys, error codes, OCPP command routes               |
-| `evtivity-simulator`       | Run simulated OCPP 1.6 and 2.1 stations and charging sessions               |
+| `evtivity-simulator`       | Run simulated OCPP 1.6, 2.0.1 and 2.1 stations and charging sessions        |
 | `evtivity-conformance`     | Send OCPP commands, read message logs and run OCTT conformance tests        |
 | `evtivity-troubleshoot`    | Find and fix a failing service, station connection or sign-in               |
 | `evtivity-report-issue`    | Collect the version and redacted logs and draft a GitHub issue              |

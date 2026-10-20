@@ -11,7 +11,7 @@
   <a href="https://github.com/EVtivity/evtivity-csms/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/License-BUSL--1.1-blue.svg" alt="License: BUSL-1.1" /></a>
   <img src="https://img.shields.io/badge/TypeScript-6.x-3178C6.svg" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Node.js-%3E%3D24-339933.svg" alt="Node.js" />
-  <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.1-4ade80.svg" alt="OCPP" />
+  <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.0.1%20%7C%202.1-4ade80.svg" alt="OCPP" />
   <img src="https://img.shields.io/badge/OCPI-2.2.1%20%7C%202.3.0-4ade80.svg" alt="OCPI" />
 </p>
 
@@ -24,7 +24,7 @@
   <strong>繁體中文</strong>
 </p>
 
-EVtivity 是一個 AI 驅動的電動車充電平台。其核心是一套相容 OCPP 1.6 與 2.1 的充電樁管理系統（CSMS），用於電動車充電基礎設施。系統支援與充電樁的即時 WebSocket 通訊、OCPI 2.2.1/2.3.0 漫遊、ISO 15118 隨插即充，並提供營運者 REST API 以及供營運者與駕駛員使用的兩個 React 前端。
+EVtivity 是一個 AI 驅動的電動車充電平台。其核心是一套相容 OCPP 1.6、2.0.1 與 2.1 的充電樁管理系統（CSMS），用於電動車充電基礎設施。系統支援與充電樁的即時 WebSocket 通訊、OCPI 2.2.1/2.3.0 漫遊、ISO 15118 隨插即充，並提供營運者 REST API 以及供營運者與駕駛員使用的兩個 React 前端。
 
 AI 內建於營運者儀表板中。AI 助理回答關於充電樁、工作階段、營收與營運的問題，讀取充電樁螢幕照片、PDF 或日誌等附件，並提出只有在營運者確認後才會執行的變更。客服輔助以駕駛員的語言起草案件回覆。兩者皆支援 Anthropic、OpenAI、Gemini 或 DeepSeek，機密與個人資料在傳送給模型前會被遮蔽。
 
@@ -64,7 +64,7 @@ graph TB
     API --> DB
     OCPP --> DB
     OCPI --> DB
-    Stations -->|OCPP 1.6/2.1| OCPP
+    Stations -->|OCPP 1.6/2.0.1/2.1| OCPP
     Partners <-->|OCPI 2.2.1/2.3.0| OCPI
 ```
 
@@ -87,7 +87,7 @@ graph TB
 
 | 功能         | 說明                                                                                          |
 | ------------ | --------------------------------------------------------------------------------------------- |
-| 通訊協定支援 | OCPP 1.6 與 2.1 同時多版本運作                                                                |
+| 通訊協定支援 | OCPP 1.6、2.0.1 與 2.1 同時多版本運作                                                         |
 | 安全設定檔   | SP0 至 SP3，包含 mTLS 用戶端憑證認證                                                          |
 | 遠端控制     | 啟動/停止工作階段、重置、解鎖連接器、設定充電曲線                                             |
 | 本地授權     | 由營運者管理推送同步的樁級授權清單                                                            |
@@ -206,18 +206,18 @@ graph TB
 
 ### 部署與運維
 
-| 功能           | 說明                                                                                    |
-| -------------- | --------------------------------------------------------------------------------------- |
-| 部署選項       | Docker Compose、Kubernetes Helm Chart（Istio/Envoy Gateway）與 AWS CDK（ECS）           |
-| 水平擴展       | 無狀態服務，跨 Pod 使用 Redis 為基礎的 OCPP 連線註冊                                    |
-| 自動擴縮       | 對 API 與 OCPP 的 Kubernetes HPA，含可感知 WebSocket 的縮容穩定化                       |
-| 速率限制       | 可設定全域與按端點的速率限制，並對驗證設獨立限額                                        |
-| 可觀測性       | Prometheus 指標、Grafana 儀表板、Loki 日誌彙整                                          |
-| 一致性測試     | 內建 OCTT 1.6/2.1 測試執行器，可對 CSMS 與充電樁 SUT 執行並輸出儀表板報告與模組結果     |
-| 多語言 UI      | 6 種語言：英文、德文、西班牙文、韓文、簡體與繁體中文                                    |
-| 響應式篩選     | 所有列表頁面的篩選控制項在平板與行動上摺疊為下拉                                        |
-| 伺服器離線頁面 | 當 API 無法連線時，CSMS 與入口顯示可重試的友善錯誤頁                                    |
-| 發行管理       | stable、alpha 與 beta 通道。每個 stable 版本會將 Helm Chart 與 AWS CDK 應用提升至其版本 |
+| 功能           | 說明                                                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| 部署選項       | Docker Compose、Kubernetes Helm Chart（Istio/Envoy Gateway）與 AWS CDK（ECS）                                              |
+| 水平擴展       | 無狀態服務，跨 Pod 使用 Redis 為基礎的 OCPP 連線註冊                                                                       |
+| 自動擴縮       | 對 API 與 OCPP 的 Kubernetes HPA，含可感知 WebSocket 的縮容穩定化                                                          |
+| 速率限制       | 可設定全域與按端點的速率限制，並對驗證設獨立限額                                                                           |
+| 可觀測性       | Prometheus 指標、Grafana 儀表板、Loki 日誌彙整                                                                             |
+| 一致性測試     | 內建 OCTT 測試執行器，可對 CSMS SUT（OCPP 2.1、2.0.1 與 1.6）與充電樁 SUT（OCPP 2.1 與 1.6）執行並輸出儀表板報告與模組結果 |
+| 多語言 UI      | 6 種語言：英文、德文、西班牙文、韓文、簡體與繁體中文                                                                       |
+| 響應式篩選     | 所有列表頁面的篩選控制項在平板與行動上摺疊為下拉                                                                           |
+| 伺服器離線頁面 | 當 API 無法連線時，CSMS 與入口顯示可重試的友善錯誤頁                                                                       |
+| 發行管理       | stable、alpha 與 beta 通道。每個 stable 版本會將 Helm Chart 與 AWS CDK 應用提升至其版本                                    |
 
 ## 部署
 
@@ -262,7 +262,7 @@ Helm Chart 與 AWS CDK 應用只跟隨 stable 版本。每個 stable 版本會�
 | `evtivity-guides`          | 依步驟操作，例如充電樁上線與卡住的工作階段               |
 | `evtivity-integrations`    | 設定 Stripe、Adyen、測試付款服務商與撥款                 |
 | `evtivity-api`             | 呼叫 REST API：API 金鑰、錯誤碼、OCPP 命令路由           |
-| `evtivity-simulator`       | 執行模擬的 OCPP 1.6 與 2.1 充電樁及充電工作階段          |
+| `evtivity-simulator`       | 執行模擬的 OCPP 1.6、2.0.1 與 2.1 充電樁及充電工作階段   |
 | `evtivity-conformance`     | 傳送 OCPP 命令、查看訊息日誌並執行 OCTT 一致性測試       |
 | `evtivity-troubleshoot`    | 找出並修復故障服務、充電樁連線或登入問題                 |
 | `evtivity-report-issue`    | 收集版本與已去除敏感資訊的日誌，起草 GitHub issue        |

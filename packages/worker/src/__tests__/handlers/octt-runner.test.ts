@@ -65,8 +65,10 @@ const workerConfig = vi.hoisted(() => ({
 vi.mock('../../lib/config.js', () => ({ config: workerConfig }));
 
 const mockRunTests = vi.fn();
+const mockRunCsTests = vi.fn();
 vi.mock('@evtivity/octt', () => ({
   runTests: (...args: unknown[]) => mockRunTests(...args),
+  runCsTests: (...args: unknown[]) => mockRunCsTests(...args),
 }));
 
 const mockPublish = vi.fn().mockResolvedValue(undefined);
@@ -116,6 +118,7 @@ describe('octtRunnerHandler', () => {
     insertShouldReject = false;
     insertRejectError = new Error('insert boom');
     mockRunTests.mockReset();
+    mockRunCsTests.mockReset();
     mockPublish.mockClear();
     workerConfig.OCPP_SERVER_URL = 'ws://localhost:7103';
     workerConfig.API_BASE_URL = 'http://localhost:7102';
@@ -151,17 +154,57 @@ describe('octtRunnerHandler', () => {
     mockRunTests.mockResolvedValue(summary);
 
     const { octtRunnerHandler } = octtRunnerModule;
-    await octtRunnerHandler({ runId: 1, ocppVersion: 'all', sutType: 'cs' }, makeLogger(), pubsub);
+    await octtRunnerHandler(
+      { runId: 1, ocppVersion: 'all', sutType: 'csms' },
+      makeLogger(),
+      pubsub,
+    );
 
+    expect(mockRunCsTests).not.toHaveBeenCalled();
     const config = mockRunTests.mock.calls[0]?.[0] as RunConfig;
     expect(config.version).toBeUndefined();
-    expect(config.sut).toBe('cs');
+    expect(config.sut).toBe('csms');
     expect(config.concurrency).toBe(3);
     expect(config.serverUrl).toBe('ws://localhost:7103');
     expect(config.apiUrl).toBe('http://localhost:7102');
     // No responder configured: the OCSP tests are skipped.
     expect(config.ocspResponderUrl).toBeUndefined();
   });
+
+  it.each([
+    ['ocpp2.1', 'ocpp2.1'],
+    ['ocpp2.0.1', 'ocpp2.0.1'],
+    ['ocpp1.6', 'ocpp1.6'],
+    ['all', undefined],
+  ])(
+    'runs a charging station run with %s through the CS runner and stores its results',
+    async (ocppVersion, version) => {
+      mockRunCsTests.mockImplementation(
+        (_config: RunConfig, onResult: (r: TestCaseResult) => void) => {
+          onResult(makeResult({ testId: 'TC_B_01_CS', version: 'ocpp2.0.1' }));
+          return Promise.resolve(summary);
+        },
+      );
+
+      const { octtRunnerHandler } = octtRunnerModule;
+      await octtRunnerHandler({ runId: 9, ocppVersion, sutType: 'cs' }, makeLogger(), pubsub);
+      await vi.waitFor(() => {
+        expect(mockPublish).toHaveBeenCalledTimes(1);
+      });
+
+      expect(mockRunTests).not.toHaveBeenCalled();
+      const config = mockRunCsTests.mock.calls[0]?.[0] as RunConfig;
+      expect(config).toMatchObject({ sut: 'cs', concurrency: 3 });
+      expect(config.version).toBe(version);
+      expect(config.signal).toBeInstanceOf(AbortSignal);
+      expect(insertValues[0]).toMatchObject({
+        runId: 9,
+        testId: 'TC_B_01_CS',
+        ocppVersion: 'ocpp2.0.1',
+      });
+      expect(updateSets[1]).toMatchObject({ status: 'completed', totalTests: 6, passed: 3 });
+    },
+  );
 
   it('starts the Test System OCSP responder at OCTT_OCSP_RESPONDER_URL', async () => {
     workerConfig.OCTT_OCSP_RESPONDER_URL = 'http://worker:7110/ocsp';

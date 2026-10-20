@@ -39,6 +39,7 @@ export const TC_F_02_CS: CsTestCase = {
 
     // Step 1: Execute Reusable State Authorized (remote) - CSMS sends RequestStartTransaction first
     const startRes = await ctx.server.sendCommand('RequestStartTransaction', {
+      remoteStartId: Math.floor(Math.random() * 1_000_000),
       idToken: { idToken, type: idTokenType },
       evseId,
     });
@@ -91,6 +92,7 @@ export const TC_F_03_CS: CsTestCase = {
 
     // Step 1: Execute Reusable State Authorized (remote) - CSMS sends RequestStartTransaction first
     const startRes = await ctx.server.sendCommand('RequestStartTransaction', {
+      remoteStartId: Math.floor(Math.random() * 1_000_000),
       idToken: { idToken, type: idTokenType },
       evseId,
     });
@@ -181,6 +183,7 @@ export const TC_F_04_CS: CsTestCase = {
 
     // Before: State is Authorized (remote) - send RequestStartTransaction but do NOT plug in
     const startRes = await ctx.server.sendCommand('RequestStartTransaction', {
+      remoteStartId: Math.floor(Math.random() * 1_000_000),
       idToken: { idToken, type: idTokenType },
       evseId,
     });
@@ -209,6 +212,7 @@ export const TC_F_04_CS: CsTestCase = {
 
     // Step 3: Execute Reusable State Authorized (remote) to verify EVSE ready for new session
     const retryRes = await ctx.server.sendCommand('RequestStartTransaction', {
+      remoteStartId: Math.floor(Math.random() * 1_000_000),
       idToken: { idToken, type: idTokenType },
       evseId,
     });

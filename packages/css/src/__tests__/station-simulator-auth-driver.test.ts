@@ -702,10 +702,10 @@ describe('EV and parking bay events (2.1 only)', () => {
     expect(infoOf(ended)['stoppedReason']).toBe('Local');
   });
 
-  it('occupyParkingBay starts a transaction with ParkingBayOccupancy', async () => {
+  it('occupyParkingBay starts a transaction with EVDetected', async () => {
     const h = await liveHarness('ocpp2.1');
     await h.sim.occupyParkingBay(1, 'TAG-1');
-    expect(txEvents(h, 'Started')[0]?.['triggerReason']).toBe('ParkingBayOccupancy');
+    expect(txEvents(h, 'Started')[0]?.['triggerReason']).toBe('EVDetected');
   });
 
   it('all are no-ops without a transaction or on 1.6', async () => {

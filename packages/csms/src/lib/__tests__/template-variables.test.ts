@@ -6,6 +6,7 @@ import { OCPP_NOTIFICATION_EVENT_TYPES } from '@evtivity/lib/notification-events
 import {
   OCPP_16_EVENTS,
   OCPP_21_EVENTS,
+  OCPP_2X_EVENTS,
   OCPP_COMMON_EVENTS,
   OCPP_EVENT_TYPES,
   OPERATOR_AI_EVENTS,
@@ -123,10 +124,13 @@ function templateEvent(path: string): { language: string; event: string } {
 }
 
 describe('OCPP event groups', () => {
-  it('split the shared OCPP event list into the common, 1.6 and 2.1 groups', () => {
-    expect([...OCPP_COMMON_EVENTS, ...OCPP_16_EVENTS, ...OCPP_21_EVENTS].sort()).toEqual(
-      [...OCPP_NOTIFICATION_EVENT_TYPES].sort(),
-    );
+  it('split the shared OCPP event list into the common, 1.6, 2.x and 2.1 groups', () => {
+    expect(
+      [...OCPP_COMMON_EVENTS, ...OCPP_16_EVENTS, ...OCPP_2X_EVENTS, ...OCPP_21_EVENTS].sort(),
+    ).toEqual([...OCPP_NOTIFICATION_EVENT_TYPES].sort());
+    expect(OCPP_COMMON_EVENTS).toContain('ocpp.SecurityEventNotification');
+    expect(OCPP_2X_EVENTS).toContain('ocpp.NotifyReport');
+    expect(OCPP_21_EVENTS).not.toContain('ocpp.NotifyReport');
     expect(OCPP_EVENT_TYPES).toEqual(OCPP_NOTIFICATION_EVENT_TYPES);
   });
 

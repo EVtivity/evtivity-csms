@@ -117,7 +117,11 @@ describe('RequestStartTransaction (F01/F02)', () => {
     });
     expect(res).toEqual({
       status: 'Rejected',
-      statusInfo: { reasonCode: 'Authorization rejected: Blocked' },
+      // reasonCode is a CiString20; the error text goes in additionalInfo.
+      statusInfo: {
+        reasonCode: 'InternalError',
+        additionalInfo: 'Authorization rejected: Blocked',
+      },
     });
     expect(h.sent('TransactionEvent').filter((e) => e['eventType'] === 'Started')).toHaveLength(0);
   });

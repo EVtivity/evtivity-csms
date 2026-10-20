@@ -3,6 +3,11 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
+import {
+  createTestMeterSigner,
+  pushValidResponseStep,
+  signedTransactionEndMeterValues,
+} from '../../../../signed-meter-test-helpers.js';
 
 /**
  * TC_J_07_CSMS: Sampled Meter Values - EventType Started - EVSE known
@@ -323,6 +328,7 @@ export const TC_J_11_CSMS: TestCase = {
     'To verify if the CSMS is able to handle a Charging Station sending sampled Meter Values with signed values.',
   execute: async (ctx) => {
     const steps: StepResult[] = [];
+    const signer = createTestMeterSigner(ctx.stationId);
 
     await ctx.client.sendCall('BootNotification', {
       chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
@@ -357,40 +363,7 @@ export const TC_J_11_CSMS: TestCase = {
         stoppedReason: 'EVDisconnected',
       },
       evse: { id: 1, connectorId: 1 },
-      meterValue: [
-        {
-          timestamp: new Date().toISOString(),
-          sampledValue: [
-            {
-              value: 5000,
-              context: 'Sample.Periodic',
-              measurand: 'Energy.Active.Import.Register',
-              signedMeterValue: {
-                signedMeterData: 'OCTT-SIGNED-DATA',
-                signingMethod: 'OCTT-METHOD',
-                encodingMethod: 'OCTT-ENCODING',
-                publicKey: 'OCTT-PUBLIC-KEY',
-              },
-            },
-          ],
-        },
-        {
-          timestamp: new Date().toISOString(),
-          sampledValue: [
-            {
-              value: 5000,
-              context: 'Transaction.End',
-              measurand: 'Energy.Active.Import.Register',
-              signedMeterValue: {
-                signedMeterData: 'OCTT-SIGNED-DATA-END',
-                signingMethod: 'OCTT-METHOD',
-                encodingMethod: 'OCTT-ENCODING',
-                publicKey: 'OCTT-PUBLIC-KEY',
-              },
-            },
-          ],
-        },
-      ],
+      meterValue: signedTransactionEndMeterValues(signer, 'Sample.Periodic'),
     });
 
     pushSendAckStep(
@@ -401,6 +374,7 @@ export const TC_J_11_CSMS: TestCase = {
       'TransactionEventResponse received',
       `Response keys: ${Object.keys(endRes).join(', ')}`,
     );
+    pushValidResponseStep(steps, 2, ctx.version, 'TransactionEvent', endRes);
 
     return {
       status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',

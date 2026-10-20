@@ -320,6 +320,7 @@ export const TC_E_13_CS: CsTestCase = {
     // StatusNotification(Occupied), TransactionEvent(Started, EVConnected),
     // and TransactionEvent(Updated, Charging).
     const reqStartResp = await ctx.server.sendCommand('RequestStartTransaction', {
+      remoteStartId: Math.floor(Math.random() * 1_000_000),
       idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
       evseId: 1,
     });
@@ -475,12 +476,13 @@ export const TC_E_12_CS: CsTestCase = {
     const txParkMsg = await ctx.server.waitForMessage('TransactionEvent', 10000);
     const txParkPayload = txParkMsg as Record<string, unknown> | null;
     const parkEvtType = txParkPayload?.['eventType'] as string | undefined;
+    const parkTrigger = txParkPayload?.['triggerReason'] as string | undefined;
     steps.push({
       step: 1,
-      description: 'ParkingBayOccupied - TransactionEvent Started',
-      status: parkEvtType === 'Started' ? 'passed' : 'failed',
-      expected: 'TransactionEvent Started',
-      actual: `eventType=${parkEvtType}`,
+      description: 'ParkingBayOccupied - TransactionEvent Started, triggerReason EVDetected',
+      status: parkEvtType === 'Started' && parkTrigger === 'EVDetected' ? 'passed' : 'failed',
+      expected: 'TransactionEvent Started, triggerReason EVDetected',
+      actual: `eventType=${parkEvtType}, triggerReason=${parkTrigger}`,
     });
 
     // Step 2: Execute Reusable State Authorized - present idToken

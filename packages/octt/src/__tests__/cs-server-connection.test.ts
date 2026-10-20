@@ -50,6 +50,10 @@ class FakeStation {
   }
 }
 
+function now(): string {
+  return new Date().toISOString();
+}
+
 function connect(url: string, protocols: string[] = ['ocpp2.1']): Promise<FakeStation> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(url, protocols, { headers: { authorization: 'Basic abc' } });
@@ -108,6 +112,126 @@ describe('OcppTestServer (ws://)', () => {
     await station('/CS002', ['ocpp1.6', 'ocpp2.1']);
     await server.waitForConnection(2000);
     expect(server.protocol).toBe('ocpp2.1');
+  });
+
+  it('accepts ocpp2.0.1 and prefers it over ocpp1.6, below ocpp2.1', async () => {
+    await station('/CS003', ['ocpp1.6', 'ocpp2.0.1']);
+    await server.waitForConnection(2000);
+    expect(server.protocol).toBe('ocpp2.0.1');
+  });
+
+  it('records what is not valid OCPP 2.0.1 on a 2.0.1 connection, in both directions', async () => {
+    const s = await station('/CS201', ['ocpp2.0.1']);
+    await server.waitForConnection(2000);
+    server.setMessageHandler((action) =>
+      Promise.resolve(
+        action === 'Heartbeat'
+          ? { currentTime: new Date().toISOString() }
+          : { idTokenInfo: { status: 'Accepted' }, transactionLimit: { maxCost: 1 } },
+      ),
+    );
+
+    // Valid both ways: nothing recorded.
+    s.send([2, 'h1', 'Heartbeat', {}]);
+    expect((await s.next())[0]).toBe(3);
+    const reset = server.sendCommand('Reset', { type: 'Immediate' }, 2000);
+    const resetCall = await s.next();
+    s.send([3, resetCall[1], { status: 'Accepted' }]);
+    await reset;
+    expect(server.schemaViolations).toEqual([]);
+
+    // A 2.1-only Test System command, a 2.1-only reply field, a station request
+    // and response that fail the 2.0.1 schemas, and a SEND message.
+    const cmd = server.sendCommand('SetDefaultTariff', { evseId: 0, tariff: {} }, 2000);
+    const cmdCall = await s.next();
+    s.send([3, cmdCall[1], { status: 'Accepted', extra: 1 }]);
+    await cmd;
+    s.send([2, 't1', 'TransactionEvent', { eventType: 'Started' }]);
+    await s.next();
+    s.send([6, 's1', 'NotifyPeriodicEventStream', { id: 1 }]);
+    s.send([2, 'h2', 'Heartbeat', {}]);
+    await s.next();
+
+    const v = server.schemaViolations;
+    expect(v).toHaveLength(5);
+    expect(v[0]).toBe('Test System request: SetDefaultTariff is not defined in OCPP 2.0.1');
+    expect(v[1]).toBe('Station response: SetDefaultTariff is not defined in OCPP 2.0.1');
+    expect(v[2]).toMatch(
+      /^Station request: TransactionEvent request fails the OCPP 2.0.1 schema: /,
+    );
+    expect(v[3]).toMatch(
+      /^Test System response: TransactionEvent response fails the OCPP 2.0.1 schema: .*transactionLimit/,
+    );
+    expect(v[4]).toBe(
+      'Station sent NotifyPeriodicEventStream as a SEND message, which OCPP 2.0.1 does not define',
+    );
+  });
+
+  it('checks a 2.1 connection against the 2.1 schemas, SEND messages included', async () => {
+    const s = await station('/CS21', ['ocpp2.1']);
+    await server.waitForConnection(2000);
+    server.setMessageHandler(() => Promise.resolve({ currentTime: now() }));
+    // A 2.1-only command, its valid reply and a valid SEND message.
+    const cmd = server.sendCommand(
+      'SetDefaultTariff',
+      { evseId: 0, tariff: { tariffId: 't1', currency: 'EUR' } },
+      2000,
+    );
+    const call = await s.next();
+    s.send([3, call[1], { status: 'Accepted' }]);
+    await cmd;
+    s.send([
+      6,
+      's1',
+      'NotifyPeriodicEventStream',
+      { id: 1, pending: 0, basetime: now(), data: [{ t: 0, v: '1' }] },
+    ]);
+    s.send([2, 'h1', 'Heartbeat', {}]);
+    await s.next();
+    expect(server.schemaViolations).toEqual([]);
+
+    // An unknown field, a 1.6 action and an incomplete SEND message.
+    const bad = server.sendCommand('Reset', { type: 'Immediate', extra: 1 }, 2000);
+    const badCall = await s.next();
+    s.send([3, badCall[1], { status: 'Accepted' }]);
+    await bad;
+    s.send([6, 's2', 'NotifyPeriodicEventStream', { id: 1 }]);
+    s.send([2, 'h2', 'Heartbeat', {}]);
+    await s.next();
+    const v = server.schemaViolations;
+    expect(v).toHaveLength(2);
+    expect(v[0]).toBe(
+      'Test System request: Reset request fails the OCPP 2.1 schema: / must NOT have additional properties (extra)',
+    );
+    expect(v[1]).toMatch(
+      /^Station send: NotifyPeriodicEventStream send fails the OCPP 2.1 schema: \/ must have required property/,
+    );
+  });
+
+  it('checks a 1.6 connection against the 1.6 schemas, SEND messages included', async () => {
+    const s = await station('/CS16', ['ocpp1.6']);
+    await server.waitForConnection(2000);
+    server.setMessageHandler(() => Promise.resolve({ currentTime: now() }));
+    s.send([2, 'h1', 'Heartbeat', {}]);
+    await s.next();
+    const ok = server.sendCommand('RemoteStartTransaction', { idTag: 'A' }, 2000);
+    const okCall = await s.next();
+    s.send([3, okCall[1], { status: 'Accepted' }]);
+    await ok;
+    expect(server.schemaViolations).toEqual([]);
+
+    const bad = server.sendCommand('RequestStartTransaction', { idToken: {} }, 2000);
+    const badCall = await s.next();
+    s.send([3, badCall[1], { status: 'Accepted' }]);
+    await bad;
+    s.send([6, 's1', 'Heartbeat', {}]);
+    s.send([2, 'h2', 'Heartbeat', {}]);
+    await s.next();
+    expect(server.schemaViolations).toEqual([
+      'Test System request: RequestStartTransaction is not defined in OCPP 1.6',
+      'Station response: RequestStartTransaction is not defined in OCPP 1.6',
+      'Station sent Heartbeat as a SEND message, which OCPP 1.6 does not define',
+    ]);
   });
 
   it('rejects the connection wait when no station connects in time', async () => {

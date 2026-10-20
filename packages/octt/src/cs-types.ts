@@ -14,8 +14,11 @@ import type { OcppClient } from '@evtivity/css/ocpp-client';
 import type { StationSimulator } from '@evtivity/css/station-simulator';
 import type { TestCertificate } from './cs-security-pki.js';
 
-/** OCPP versions of the CS test cases (the OCTT 2.0.1 CS cases are not implemented). */
-export type CsOcppVersion = Exclude<OcppVersion, 'ocpp2.0.1'>;
+/**
+ * OCPP versions of the CS test cases. The 2.0.1 cases are the 2.1 cases with
+ * the same id, run with the simulator as an OCPP 2.0.1 station (`ocpp201-cs-cases.ts`).
+ */
+export type CsOcppVersion = OcppVersion;
 
 export interface CsTestCase {
   id: string;
@@ -49,6 +52,8 @@ export interface CsTestContext {
    *  when the simulator doesn't have a built-in method. */
   client: OcppClient;
   stationId: string;
+  /** The OCPP version this run of the case tests (a 2.1 case also runs as 2.0.1). */
+  version: CsOcppVersion;
   logger: Logger;
   config: RunConfig;
   /** Test System PKI, set when the test case has `tls`. */

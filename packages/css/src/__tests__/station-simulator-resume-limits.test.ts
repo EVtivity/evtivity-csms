@@ -929,10 +929,17 @@ describe('local cost calculation (E16.FR.16)', () => {
     const last = running.at(-1);
     expect(last).toMatchObject({
       transactionInfo: { transactionId: txId },
-      costDetails: { currency: 'SEK' },
+      costDetails: {
+        totalCost: { currency: 'SEK', typeOfCost: 'NormalCost' },
+        totalUsage: { idleTime: 0 },
+      },
     });
+    const usage = (last?.['costDetails'] as { totalUsage: Record<string, unknown> }).totalUsage;
+    expect(Number.isInteger(usage['energy'])).toBe(true);
+    expect(Number.isInteger(usage['chargingTime'])).toBe(true);
     const costs = running.map(
-      (e) => (e['costDetails'] as Record<string, number>)['totalCost'] as number,
+      (e) =>
+        (e['costDetails'] as { totalCost: { total: { exclTax: number } } }).totalCost.total.exclTax,
     );
     expect(costs.at(-1)).toBeGreaterThanOrEqual(1);
     expect(costs).toEqual([...costs].sort((a, b) => a - b));

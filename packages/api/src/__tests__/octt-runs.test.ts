@@ -102,20 +102,10 @@ describe('POST /octt/runs', () => {
     });
   }
 
-  it('refuses a charging station run for OCPP 2.0.1 with 400 VALIDATION_ERROR', async () => {
-    const response = await post({ sutType: 'cs', ocppVersion: 'ocpp2.0.1' });
-
-    expect(response.statusCode).toBe(400);
-    const body = response.json<{ error: string; code: string }>();
-    expect(body.code).toBe('VALIDATION_ERROR');
-    expect(body.error).toContain('no charging station suite');
-    expect(insertValues).not.toHaveBeenCalled();
-    expect(publish).not.toHaveBeenCalled();
-  });
-
   it.each([
     ['csms', 'ocpp2.0.1'],
     ['cs', 'ocpp2.1'],
+    ['cs', 'ocpp2.0.1'],
     ['cs', 'ocpp1.6'],
     ['cs', 'all'],
   ])('accepts sutType %s with %s', async (sutType, ocppVersion) => {

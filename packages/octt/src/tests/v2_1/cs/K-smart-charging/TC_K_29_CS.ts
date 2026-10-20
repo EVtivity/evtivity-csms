@@ -36,7 +36,6 @@ async function installProfile(
 
 const txDefaultProfile = {
   id: 1,
-  chargingProfileId: 1,
   stackLevel: 0,
   chargingProfilePurpose: 'TxDefaultProfile',
   chargingProfileKind: 'Absolute',
@@ -51,7 +50,6 @@ const txDefaultProfile = {
 
 const stationMaxProfile = {
   id: 2,
-  chargingProfileId: 2,
   stackLevel: 0,
   chargingProfilePurpose: 'ChargingStationMaxProfile',
   chargingProfileKind: 'Absolute',
@@ -169,7 +167,11 @@ export const TC_K_30_CS: CsTestCase = {
     });
 
     try {
-      const res = await ctx.server.sendCommand('GetChargingProfiles', { requestId: 1, evseId: 1 });
+      const res = await ctx.server.sendCommand('GetChargingProfiles', {
+        requestId: 1,
+        evseId: 1,
+        chargingProfile: {},
+      });
       const status = (res as Record<string, unknown>).status;
       steps.push({
         step: 2,
@@ -238,7 +240,10 @@ export const TC_K_31_CS: CsTestCase = {
     });
 
     try {
-      const res = await ctx.server.sendCommand('GetChargingProfiles', { requestId: 1 });
+      const res = await ctx.server.sendCommand('GetChargingProfiles', {
+        requestId: 1,
+        chargingProfile: {},
+      });
       const status = (res as Record<string, unknown>).status;
       steps.push({
         step: 2,
@@ -309,7 +314,7 @@ export const TC_K_32_CS: CsTestCase = {
     try {
       const res = await ctx.server.sendCommand('GetChargingProfiles', {
         requestId: 1,
-        chargingProfile: { chargingProfileId: 1 },
+        chargingProfile: { chargingProfileId: [1] },
       });
       const status = (res as Record<string, unknown>).status;
       steps.push({
@@ -456,7 +461,7 @@ export const TC_K_34_CS: CsTestCase = {
       const res = await ctx.server.sendCommand('GetChargingProfiles', {
         requestId: 1,
         evseId: 1,
-        chargingProfile: { chargingLimitSource: 'CSO' },
+        chargingProfile: { chargingLimitSource: ['CSO'] },
       });
       const status = (res as Record<string, unknown>).status;
       steps.push({
@@ -498,7 +503,7 @@ export const TC_K_34_CS: CsTestCase = {
       const res = await ctx.server.sendCommand('GetChargingProfiles', {
         requestId: 2,
         evseId: 1,
-        chargingProfile: { chargingLimitSource: 'EMS' },
+        chargingProfile: { chargingLimitSource: ['EMS'] },
       });
       const status = (res as Record<string, unknown>).status;
       steps.push({

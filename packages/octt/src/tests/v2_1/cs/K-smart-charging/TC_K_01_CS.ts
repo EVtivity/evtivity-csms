@@ -75,7 +75,7 @@ export const TC_K_01_CS: CsTestCase = {
     try {
       const res = await ctx.server.sendCommand('GetChargingProfiles', {
         requestId: 1,
-        chargingProfile: { chargingProfileId: 1 },
+        chargingProfile: { chargingProfileId: [1] },
       });
       const status = (res as Record<string, unknown>).status;
       steps.push({

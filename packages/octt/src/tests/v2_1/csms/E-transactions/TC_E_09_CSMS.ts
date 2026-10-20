@@ -3,6 +3,10 @@
 
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
+import {
+  createTestMeterSigner,
+  signedEnergySample,
+} from '../../../../signed-meter-test-helpers.js';
 
 // E01(S2): Start transaction options - EVConnected
 export const TC_E_09_CSMS: TestCase = {
@@ -95,6 +99,7 @@ export const TC_E_11_CSMS: TestCase = {
     'To verify if the CSMS is able to handle a Charging Station that starts a transaction when the signed meter data is received (SignedDataReceived trigger).',
   execute: async (ctx) => {
     const steps: StepResult[] = [];
+    const signer = createTestMeterSigner(ctx.stationId);
 
     await ctx.client.sendCall('BootNotification', {
       chargingStation: { model: 'OCTT-Virtual', vendorName: 'OCTT' },
@@ -136,10 +141,11 @@ export const TC_E_11_CSMS: TestCase = {
 
     // Step 3: Send TransactionEvent Started with SignedDataReceived trigger
     const txId = newTransactionId('OCTT-TX');
+    const startedAt = new Date().toISOString();
     try {
       const txRes = await ctx.client.sendCall('TransactionEvent', {
         eventType: 'Started',
-        timestamp: new Date().toISOString(),
+        timestamp: startedAt,
         triggerReason: 'SignedDataReceived',
         seqNo: 0,
         transactionInfo: {
@@ -150,20 +156,8 @@ export const TC_E_11_CSMS: TestCase = {
         idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
         meterValue: [
           {
-            timestamp: new Date().toISOString(),
-            sampledValue: [
-              {
-                value: 0,
-                context: 'Transaction.Begin',
-                measurand: 'Energy.Active.Import.Register',
-                signedMeterValue: {
-                  signedMeterData: 'OCTT-SIGNED-DATA',
-                  signingMethod: 'RSASSA-PKCS1-v1_5',
-                  encodingMethod: 'UTF8',
-                  publicKey: 'OCTT-PUBLIC-KEY',
-                },
-              },
-            ],
+            timestamp: startedAt,
+            sampledValue: [signedEnergySample(signer, 0, 'Transaction.Begin', startedAt)],
           },
         ],
       });
@@ -172,8 +166,8 @@ export const TC_E_11_CSMS: TestCase = {
       steps.push({
         step: 2,
         description: 'Send TransactionEvent Started with SignedDataReceived trigger',
-        status: txStatus === 'Accepted' || txStatus === undefined ? 'passed' : 'failed',
-        expected: 'TransactionEventResponse received',
+        status: txStatus === 'Accepted' ? 'passed' : 'failed',
+        expected: 'idTokenInfo.status = Accepted',
         actual: `idTokenInfo.status = ${String(txStatus ?? 'not present')}`,
       });
     } catch (err) {

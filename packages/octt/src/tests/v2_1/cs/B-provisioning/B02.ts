@@ -127,6 +127,7 @@ export const TC_B_02_CS: CsTestCase = {
 
     // Step 11: CSMS sends RequestStartTransaction (should be rejected during Pending)
     const startTxRes = await ctx.server.sendCommand('RequestStartTransaction', {
+      remoteStartId: Math.floor(Math.random() * 1_000_000),
       idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
       evseId: 1,
     });

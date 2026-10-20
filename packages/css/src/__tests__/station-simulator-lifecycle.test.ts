@@ -208,7 +208,13 @@ describe('charging session OCPP 2.1', () => {
         remoteStartId: 1,
         evseId: 1,
       }),
-    ).toEqual({ status: 'Rejected', statusInfo: { reasonCode: 'ReservedForOtherToken' } });
+    ).toEqual({
+      status: 'Rejected',
+      statusInfo: {
+        reasonCode: 'InvalidIdToken',
+        additionalInfo: 'EVSE reserved for another token',
+      },
+    });
   });
 
   it('RequestStopTransaction for an unknown transaction is rejected', async () => {
@@ -262,7 +268,7 @@ describe('charging session OCPP 2.1', () => {
     const txId = await h.sim.startCharging(1, 'TAG-1');
     expect(await h.invoke('Reset', { type: 'OnIdle' })).toEqual({
       status: 'Scheduled',
-      statusInfo: { reasonCode: 'TransactionInProgress' },
+      statusInfo: { reasonCode: 'TxInProgress' },
     });
     expect(await h.invoke('Reset', { type: 'Immediate' })).toEqual({ status: 'Accepted' });
     expect(h.sent('TransactionEvent').at(-1)).toMatchObject({

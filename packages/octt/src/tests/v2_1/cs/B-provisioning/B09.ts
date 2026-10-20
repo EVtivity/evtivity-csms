@@ -22,6 +22,7 @@ export const TC_B_43_CS: CsTestCase = {
         ocppCsmsUrl: 'ws://127.0.0.1:9999',
         ocppInterface: 'Wired0',
         ocppVersion: 'OCPP20',
+        ocppTransport: 'JSON',
         securityProfile: 0,
       },
     });
@@ -60,6 +61,7 @@ export const TC_B_45_CS: CsTestCase = {
         ocppCsmsUrl: 'ws://127.0.0.1:9998',
         ocppInterface: 'Wired0',
         ocppVersion: 'OCPP20',
+        ocppTransport: 'JSON',
         securityProfile: 0,
       },
     });

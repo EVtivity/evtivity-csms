@@ -49,7 +49,7 @@ async function main(): Promise<void> {
       const color = colors[result.result.status] ?? '\x1b[31m';
       const reset = '\x1b[0m';
       console.log(
-        `${color}[${icon}]${reset} ${result.testId} - ${result.testName} (${String(result.result.durationMs)}ms)`,
+        `${color}[${icon}]${reset} ${result.testId} (${result.version}) - ${result.testName} (${String(result.result.durationMs)}ms)`,
       );
       if (result.result.error != null) {
         console.log(`       Error: ${result.result.error}`);

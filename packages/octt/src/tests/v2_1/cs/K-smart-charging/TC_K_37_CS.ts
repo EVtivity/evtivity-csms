@@ -38,6 +38,7 @@ export const TC_K_37_CS: CsTestCase = {
     // Step 1-2: RequestStartTransaction with TxProfile
     try {
       const res = await ctx.server.sendCommand('RequestStartTransaction', {
+        remoteStartId: Math.floor(Math.random() * 1_000_000),
         idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
         evseId: 1,
         chargingProfile: {
@@ -106,7 +107,7 @@ export const TC_K_37_CS: CsTestCase = {
     try {
       const res = await ctx.server.sendCommand('GetChargingProfiles', {
         requestId: 1,
-        chargingProfile: { chargingProfileId: 1 },
+        chargingProfile: { chargingProfileId: [1] },
       });
       const status = (res as Record<string, unknown>).status;
       steps.push({
@@ -182,6 +183,7 @@ export const TC_K_38_CS: CsTestCase = {
 
     try {
       const res = await ctx.server.sendCommand('RequestStartTransaction', {
+        remoteStartId: Math.floor(Math.random() * 1_000_000),
         idToken: { idToken: 'OCTT-TOKEN-001', type: 'ISO14443' },
         evseId: 1,
         chargingProfile: {

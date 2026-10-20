@@ -11,7 +11,7 @@
   <a href="https://github.com/EVtivity/evtivity-csms/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/License-BUSL--1.1-blue.svg" alt="License: BUSL-1.1" /></a>
   <img src="https://img.shields.io/badge/TypeScript-6.x-3178C6.svg" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Node.js-%3E%3D24-339933.svg" alt="Node.js" />
-  <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.1-4ade80.svg" alt="OCPP" />
+  <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.0.1%20%7C%202.1-4ade80.svg" alt="OCPP" />
   <img src="https://img.shields.io/badge/OCPI-2.2.1%20%7C%202.3.0-4ade80.svg" alt="OCPI" />
 </p>
 
@@ -24,7 +24,7 @@
   <a href="README.zh-TW.md">繁體中文</a>
 </p>
 
-EVtivity ist eine KI-gestützte Plattform für das Laden von Elektrofahrzeugen. Ihr Kern ist ein OCPP-1.6- und 2.1-konformes Charging Station Management System (CSMS) für EV-Ladeinfrastruktur. Es übernimmt die Echtzeit-WebSocket-Kommunikation mit Ladestationen, OCPI-2.2.1/2.3.0-Roaming, ISO 15118 Plug and Charge, eine REST-API für Betreiber und zwei React-Frontends für Betreiber und Fahrer.
+EVtivity ist eine KI-gestützte Plattform für das Laden von Elektrofahrzeugen. Ihr Kern ist ein OCPP-1.6-, 2.0.1- und 2.1-konformes Charging Station Management System (CSMS) für EV-Ladeinfrastruktur. Es übernimmt die Echtzeit-WebSocket-Kommunikation mit Ladestationen, OCPI-2.2.1/2.3.0-Roaming, ISO 15118 Plug and Charge, eine REST-API für Betreiber und zwei React-Frontends für Betreiber und Fahrer.
 
 KI ist in das Betreiber-Dashboard integriert. Der KI-Assistent beantwortet Fragen zu Stationen, Ladevorgängen, Umsatz und Betrieb, liest Anhänge wie das Foto eines Ladestationsdisplays, eine PDF-Datei oder ein Log und schlägt Änderungen vor, die erst nach Bestätigung durch den Betreiber ausgeführt werden. Die Support-Unterstützung entwirft Antworten auf Supportfälle in der Sprache des Fahrers. Beide arbeiten mit Anthropic, OpenAI, Gemini oder DeepSeek, und Geheimnisse und personenbezogene Daten werden maskiert, bevor sie das Modell erreichen.
 
@@ -64,7 +64,7 @@ graph TB
     API --> DB
     OCPP --> DB
     OCPI --> DB
-    Stations -->|OCPP 1.6/2.1| OCPP
+    Stations -->|OCPP 1.6/2.0.1/2.1| OCPP
     Partners <-->|OCPI 2.2.1/2.3.0| OCPI
 ```
 
@@ -87,7 +87,7 @@ graph TB
 
 | Funktion               | Beschreibung                                                                                                                                                |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Protokollunterstützung | OCPP 1.6 und 2.1 mit gleichzeitigem Multi-Version-Betrieb                                                                                                   |
+| Protokollunterstützung | OCPP 1.6, 2.0.1 und 2.1 mit gleichzeitigem Multi-Version-Betrieb                                                                                            |
 | Security Profiles      | SP0 bis SP3, einschließlich mTLS-Client-Zertifikat-Authentifizierung                                                                                        |
 | Fernsteuerung          | Sitzungen starten/stoppen, Reset, Stecker entriegeln, Ladeprofil setzen                                                                                     |
 | Lokale Autorisierung   | Stationsbezogene Autorisierungslisten mit betreiberseitig verwaltetem Push-Sync                                                                             |
@@ -206,18 +206,18 @@ graph TB
 
 ### Deployment und Betrieb
 
-| Funktion               | Beschreibung                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| Deployment-Optionen    | Docker Compose, Kubernetes-Helm-Chart (Istio/Envoy Gateway) und AWS CDK (ECS)                           |
-| Horizontale Skalierung | Zustandslose Dienste mit Redis-basiertem OCPP-Verbindungs-Register über Pods hinweg                     |
-| Auto-Scaling           | Kubernetes-HPA für API und OCPP mit WebSocket-fähiger Scale-down-Stabilisierung                         |
-| Rate-Limiting          | Konfigurierbares globales und endpunktbasiertes Rate-Limiting mit separaten Auth-Limits                 |
-| Observability          | Prometheus-Metriken, Grafana-Dashboards, Loki-Log-Aggregation                                           |
-| Konformitäts-Tests     | Integrierter OCTT-1.6/2.1-Testrunner für CSMS- und Ladestations-SUT mit Dashboard und Modul-Ergebnissen |
-| Mehrsprachige UI       | 6 Sprachen: Englisch, Deutsch, Spanisch, Koreanisch, vereinfachtes und traditionelles Chinesisch        |
-| Responsive Filter      | Filtersteuerung klappt auf Tablet und Mobil in ein Dropdown für alle Listenseiten ein                   |
-| Server-Down-Seite      | Freundliche Fehlerseite mit Retry bei unerreichbarer API in CSMS und Portal                             |
-| Release-Management     | Kanäle Stable, Alpha und Beta. Jedes Stable-Release hebt Helm-Chart und AWS-CDK-App auf seine Version   |
+| Funktion               | Beschreibung                                                                                                                                    |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Deployment-Optionen    | Docker Compose, Kubernetes-Helm-Chart (Istio/Envoy Gateway) und AWS CDK (ECS)                                                                   |
+| Horizontale Skalierung | Zustandslose Dienste mit Redis-basiertem OCPP-Verbindungs-Register über Pods hinweg                                                             |
+| Auto-Scaling           | Kubernetes-HPA für API und OCPP mit WebSocket-fähiger Scale-down-Stabilisierung                                                                 |
+| Rate-Limiting          | Konfigurierbares globales und endpunktbasiertes Rate-Limiting mit separaten Auth-Limits                                                         |
+| Observability          | Prometheus-Metriken, Grafana-Dashboards, Loki-Log-Aggregation                                                                                   |
+| Konformitäts-Tests     | Integrierter OCTT-Testrunner für CSMS-SUT (OCPP 2.1, 2.0.1 und 1.6) und Ladestations-SUT (OCPP 2.1 und 1.6) mit Dashboard und Modul-Ergebnissen |
+| Mehrsprachige UI       | 6 Sprachen: Englisch, Deutsch, Spanisch, Koreanisch, vereinfachtes und traditionelles Chinesisch                                                |
+| Responsive Filter      | Filtersteuerung klappt auf Tablet und Mobil in ein Dropdown für alle Listenseiten ein                                                           |
+| Server-Down-Seite      | Freundliche Fehlerseite mit Retry bei unerreichbarer API in CSMS und Portal                                                                     |
+| Release-Management     | Kanäle Stable, Alpha und Beta. Jedes Stable-Release hebt Helm-Chart und AWS-CDK-App auf seine Version                                           |
 
 ## Deployment
 
@@ -262,7 +262,7 @@ Alle Hostnamen teilen sich eine einzige Load-Balancer-IP. DNS-Einträge für jed
 | `evtivity-guides`          | Schritt-für-Schritt-Anleitungen wie Stationseinrichtung und hängende Sitzungen            |
 | `evtivity-integrations`    | Stripe, Adyen, den Test-Zahlungsanbieter und Auszahlungen einrichten                      |
 | `evtivity-api`             | Die REST-API aufrufen: API-Schlüssel, Fehlercodes, OCPP-Befehlsrouten                     |
-| `evtivity-simulator`       | Simulierte OCPP-1.6- und 2.1-Stationen und Ladevorgänge ausführen                         |
+| `evtivity-simulator`       | Simulierte OCPP-1.6-, 2.0.1- und 2.1-Stationen und Ladevorgänge ausführen                 |
 | `evtivity-conformance`     | OCPP-Befehle senden, Nachrichtenlogs lesen und OCTT-Konformitätstests ausführen           |
 | `evtivity-troubleshoot`    | Einen fehlerhaften Dienst, eine Stationsverbindung oder eine Anmeldung finden und beheben |
 | `evtivity-report-issue`    | Version und bereinigte Logs sammeln und ein GitHub-Issue entwerfen                        |

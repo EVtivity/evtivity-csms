@@ -121,6 +121,7 @@ export const TC_H_02_CS: CsTestCase = {
 
     // Step 2: Try to start with different token - should be Rejected
     const startRes = await ctx.server.sendCommand('RequestStartTransaction', {
+      remoteStartId: Math.floor(Math.random() * 1_000_000),
       idToken: { idToken: 'OCTT-TOKEN-002', type: 'ISO14443' },
       evseId,
     });

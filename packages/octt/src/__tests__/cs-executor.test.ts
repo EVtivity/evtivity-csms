@@ -231,6 +231,61 @@ describe('executeCsTest', () => {
     expect(replies['DiagnosticsStatusNotification']).toEqual({});
   });
 
+  it('runs a 2.0.1 case with a 2.0.1 station and passes it when every message is 2.0.1', async () => {
+    let version: string | null = null;
+    const replies: Record<string, unknown> = {};
+    const out = await executeCsTest(
+      testCase(
+        async (ctx) => {
+          version = ctx.version;
+          const station = ctx.station as unknown as FakeStation;
+          for (const action of ['Heartbeat', 'Authorize']) {
+            const payload =
+              action === 'Authorize' ? { idToken: { idToken: 'A', type: 'ISO14443' } } : {};
+            const frame = await station.send([2, action, action, payload]);
+            replies[action] = frame[2];
+          }
+          return passed();
+        },
+        { version: 'ocpp2.0.1' },
+      ),
+      config,
+      logger,
+    );
+    expect(version).toBe('ocpp2.0.1');
+    expect(stations[0]?.config['ocppProtocol']).toBe('ocpp2.0.1');
+    expect(replies['Authorize']).toEqual({ idTokenInfo: { status: 'Accepted' } });
+    expect(out.result.status).toBe('passed');
+  });
+
+  it('fails a 2.0.1 case with a message that is not valid OCPP 2.0.1', async () => {
+    const out = await executeCsTest(
+      testCase(
+        async (ctx) => {
+          const station = ctx.station as unknown as FakeStation;
+          await station.send([2, 'n1', 'NotifyPeriodicEventStream', {}]);
+          await station.send([2, 'h1', 'Heartbeat', { extra: true }]);
+          return passed();
+        },
+        { version: 'ocpp2.0.1' },
+      ),
+      config,
+      logger,
+    );
+    expect(out.result.status).toBe('failed');
+    const step = out.result.steps.at(-1);
+    expect(step).toMatchObject({
+      description: 'Every message of the test is valid OCPP 2.0.1',
+      status: 'failed',
+    });
+    expect(step?.actual).toContain(
+      'Station request: NotifyPeriodicEventStream is not defined in OCPP 2.0.1',
+    );
+    expect(step?.actual).toContain(
+      'Station request: Heartbeat request fails the OCPP 2.0.1 schema',
+    );
+  });
+
   it('does not boot the station when the test controls the boot', async () => {
     const out = await executeCsTest(
       testCase(

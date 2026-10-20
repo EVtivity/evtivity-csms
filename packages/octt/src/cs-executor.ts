@@ -6,11 +6,12 @@ import postgres from 'postgres';
 import { connectionName } from '@evtivity/lib';
 import { createId } from '@evtivity/database/src/lib/id.js';
 import { StationSimulator, type StationConfig } from '@evtivity/css/station-simulator';
-import type { RunConfig } from './types.js';
-import type { CsTestCase, CsTestCaseResult, CsTlsMaterial } from './cs-types.js';
+import type { RunConfig, TestResult } from './types.js';
+import type { CsOcppVersion, CsTestCase, CsTestCaseResult, CsTlsMaterial } from './cs-types.js';
 import { OcppTestServer, type TestServerTls } from './cs-server.js';
 import { createRootCertificate, issueCertificate } from './cs-security-pki.js';
 import { newTestPassword } from './security-test-helpers.js';
+import { ocppVersionLabel } from './ocpp-schema-check.js';
 
 /** wss:// settings of a test server for a security profile, or undefined for ws://. */
 function serverTlsFor(
@@ -66,7 +67,7 @@ export async function closeCsSql(): Promise<void> {
  * Returns valid responses for station-initiated messages based on OCPP version.
  */
 function createDefaultMessageHandler(
-  version: 'ocpp1.6' | 'ocpp2.1',
+  version: CsOcppVersion,
 ): (action: string) => Promise<Record<string, unknown>> {
   const handler = (action: string): Record<string, unknown> => {
     if (action === 'BootNotification') {
@@ -99,6 +100,31 @@ function createDefaultMessageHandler(
     return {};
   };
   return (action: string) => Promise.resolve(handler(action));
+}
+
+/**
+ * Fails a case when a message of its run was not valid for the case's OCPP
+ * version (`OcppTestServer.schemaViolations`, every test server of the case):
+ * a Test System message that fails the schemas tests the station with a
+ * message no CSMS of that version sends (a 2.1-only action, field or value on
+ * 2.0.1), and a station message that fails them is a conformance failure on
+ * its own.
+ */
+export function failOnSchemaViolations(
+  result: TestResult,
+  version: CsOcppVersion,
+  violations: readonly string[],
+): void {
+  if (violations.length === 0) return;
+  const label = ocppVersionLabel(version);
+  result.status = 'failed';
+  result.steps.push({
+    step: Math.max(0, ...result.steps.map((s) => s.step)) + 1,
+    description: `Every message of the test is valid ${label}`,
+    status: 'failed',
+    expected: `No message that fails the ${label} schemas, in either direction`,
+    actual: [...new Set(violations)].join(' | '),
+  });
 }
 
 export async function executeCsTest(
@@ -278,6 +304,7 @@ export async function executeCsTest(
         station,
         client: station.client,
         stationId,
+        version: testCase.version,
         logger: log,
         config,
         tls,
@@ -302,6 +329,10 @@ export async function executeCsTest(
     ]);
 
     result.durationMs = Date.now() - start;
+    failOnSchemaViolations(result, testCase.version, [
+      ...server.schemaViolations,
+      ...extraServers.flatMap((extra) => extra.schemaViolations),
+    ]);
     log.debug({ status: result.status, durationMs: result.durationMs }, 'Test completed');
 
     return {
