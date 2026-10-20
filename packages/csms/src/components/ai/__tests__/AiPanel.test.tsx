@@ -153,15 +153,20 @@ describe('AiPanel', () => {
     await screen.findByTestId('ai-stop');
     const panel = screen.getByTestId('ai-panel');
     fireEvent.keyDown(panel, { key: 'Escape' });
-    await screen.findByText('ai.stopped');
+    // The abort settles through the stream reader; under coverage on a busy CI runner that
+    // took longer than the default 1 s wait, so both waits allow 5 s.
+    await screen.findByText('ai.stopped', {}, { timeout: 5000 });
     expect(onClose).not.toHaveBeenCalled();
     // The stream has ended only when Stop is gone; before that, Esc still means stop.
-    await waitFor(() => {
-      expect(screen.queryByTestId('ai-stop')).toBeNull();
-    });
+    await waitFor(
+      () => {
+        expect(screen.queryByTestId('ai-stop')).toBeNull();
+      },
+      { timeout: 5000 },
+    );
     fireEvent.keyDown(panel, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
-  });
+  }, 15_000);
 
   it('Esc closes the panel wherever focus is: a panel button, or nothing focused', () => {
     const { onClose } = renderPanel();
