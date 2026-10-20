@@ -28,7 +28,11 @@ const packages = readdirSync(packagesDir)
   .sort();
 
 const runs = [
-  { label: 'root', args: ['.', '--ignore-pattern', 'packages/**'] },
+  // A checkout with nothing to lint outside packages/ (the public repo has no e2e/) is not an error.
+  {
+    label: 'root',
+    args: ['--no-error-on-unmatched-pattern', '.', '--ignore-pattern', 'packages/**'],
+  },
   ...packages.map((name) => ({ label: name, args: [join('packages', name)] })),
 ];
 
