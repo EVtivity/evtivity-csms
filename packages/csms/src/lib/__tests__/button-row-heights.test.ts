@@ -225,13 +225,14 @@ describe('control rows', () => {
     expect(Object.keys(PORTAL_SOURCES).length).toBeGreaterThan(30);
   });
 
+  // Each scan parses every source file of the app; under coverage in CI it outgrew the 5 s default.
   it('give the controls of one CSMS row the same height', () => {
     expect(mixedRows(CSMS_SOURCES, CSMS_SCALE)).toEqual([]);
-  });
+  }, 30_000);
 
   it('give the controls of one portal row the same height', () => {
     expect(mixedRows(PORTAL_SOURCES, PORTAL_SCALE)).toEqual([]);
-  });
+  }, 30_000);
 
   it('flag a field next to a compact button', () => {
     const rows = mixedRows(
