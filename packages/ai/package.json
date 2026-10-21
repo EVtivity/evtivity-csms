@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/ai",
-  "version": "0.1.48-beta.1",
+  "version": "0.1.48-beta.2",
   "private": true,
   "type": "module",
   "exports": {
