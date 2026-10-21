@@ -3,6 +3,7 @@
 
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { routePath } from './encoded-path-guard.js';
 
 /** Constant-time comparison of the CSRF cookie and the `x-csrf-token` header. */
 export function csrfTokensMatch(a: string, b: string): boolean {
@@ -25,6 +26,10 @@ const PORTAL_CSRF_SKIP_PATHS = new Set([
   '/v1/portal/payout-onboarding/status',
   '/v1/portal/auth/mfa/verify',
   '/v1/portal/auth/mfa/resend',
+  '/v1/portal/auth/webauthn/options',
+  '/v1/portal/auth/webauthn/verify',
+  '/v1/portal/auth/passkey/options',
+  '/v1/portal/auth/passkey/verify',
   '/v1/portal/auth/attest/challenge',
   '/v1/portal/auth/attest/register',
 ]);
@@ -40,7 +45,7 @@ export const CSRF_SKIP_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'O
  */
 export function registerPortalCsrf(app: FastifyInstance): void {
   app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
+    const url = routePath(request);
     if (!url.startsWith('/v1/portal/')) return;
     if (CSRF_SKIP_METHODS.has(request.method)) return;
     if (PORTAL_CSRF_SKIP_PATHS.has(url)) return;

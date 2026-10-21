@@ -15,6 +15,8 @@ import { passwordRulesMessage } from '@/lib/password-rules';
 import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
 import { useAuth } from '@/lib/auth';
+import { mfaPendingFromReply, type MfaPendingReply } from '@/lib/mfa-pending';
+import { mfaEnrollmentFromReply, type MfaEnrollmentReply } from '@/lib/mfa-enrollment';
 import type { PasswordRule } from '@evtivity/lib/password-policy';
 
 interface ForceChangePasswordUserResponse {
@@ -31,14 +33,10 @@ interface ForceChangePasswordUserResponse {
   role: { id: string; name: string } | null;
 }
 
-interface ForceChangePasswordMfaResponse {
-  mfaRequired: true;
-  mfaMethod: string;
-  mfaToken: string;
-  challengeId?: number;
-}
-
-type ForceChangePasswordResponse = ForceChangePasswordUserResponse | ForceChangePasswordMfaResponse;
+type ForceChangePasswordResponse =
+  | ForceChangePasswordUserResponse
+  | MfaPendingReply
+  | MfaEnrollmentReply;
 
 export function SetPassword(): React.JSX.Element {
   const { t, i18n } = useTranslation();
@@ -48,6 +46,7 @@ export function SetPassword(): React.JSX.Element {
   const location = useLocation();
   const completeMfaLogin = useAuth((s) => s.completeMfaLogin);
   const setMfaPending = useAuth((s) => s.setMfaPending);
+  const setMfaEnrollment = useAuth((s) => s.setMfaEnrollment);
 
   const email = (location.state as { email?: string } | null)?.email;
 
@@ -103,13 +102,15 @@ export function SetPassword(): React.JSX.Element {
       // (rendered by Login when mfaPending is set) so the user completes
       // /auth/mfa/verify before getting a real session.
       if ('mfaRequired' in data) {
-        setMfaPending({
-          mfaRequired: true,
-          mfaMethod: data.mfaMethod,
-          mfaToken: data.mfaToken,
-          ...(data.challengeId != null ? { challengeId: String(data.challengeId) } : {}),
-        });
+        setMfaPending(mfaPendingFromReply(data));
         void navigate('/login');
+        return;
+      }
+
+      // Required MFA: set up a method before the session is issued.
+      if ('mfaEnrollmentRequired' in data) {
+        setMfaEnrollment(mfaEnrollmentFromReply(data));
+        void navigate('/mfa-setup');
         return;
       }
 
@@ -124,6 +125,10 @@ export function SetPassword(): React.JSX.Element {
         const body = err.body as { error?: string; code?: string } | null;
         if (body?.code === 'INVALID_CREDENTIALS') {
           setError(t('auth.invalidCredentials'));
+        } else if (body?.code === 'MFA_SETUP_UNAVAILABLE') {
+          setError(t('errors.MFA_SETUP_UNAVAILABLE'));
+        } else if (body?.code === 'MFA_POLICY_UNAVAILABLE') {
+          setError(t('errors.MFA_POLICY_UNAVAILABLE'));
         } else if (body?.code === 'WEAK_PASSWORD') {
           setServerMissing(weakPasswordReply(err) ?? []);
         } else if (body?.code === 'VALIDATION_ERROR' && body.error) {

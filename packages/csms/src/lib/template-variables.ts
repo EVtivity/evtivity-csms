@@ -3,6 +3,7 @@
 
 import {
   OCPP_NOTIFICATION_EVENT_TYPES,
+  SECURITY_NOTICE_EVENT_TYPES,
   ocppNotificationEventsFor,
 } from '@evtivity/lib/notification-events';
 
@@ -168,6 +169,9 @@ export const OPERATOR_AI_EVENTS = [
   'ai.BudgetExhausted',
 ] as const;
 
+// Account security notices: sent to operators and drivers when the account's security changes
+export const SECURITY_NOTICE_EVENTS = SECURITY_NOTICE_EVENT_TYPES;
+
 export const OPERATOR_EVENT_TYPES = [
   ...OPERATOR_ACCOUNT_EVENTS,
   ...OPERATOR_SUPPORT_EVENTS,
@@ -176,6 +180,7 @@ export const OPERATOR_EVENT_TYPES = [
   ...FLEET_BILLING_SYSTEM_EVENTS,
   ...FLEET_INVOICE_EVENTS,
   ...OPERATOR_AI_EVENTS,
+  ...SECURITY_NOTICE_EVENTS,
 ] as const;
 
 export const COMMON_VARIABLES: TemplateVariable[] = [
@@ -1204,5 +1209,61 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'firstName', description: 'User first name' },
     { name: 'lastName', description: 'User last name' },
     { name: 'email', description: 'User email address' },
+  ],
+  'security.FactorAdded': [
+    { name: 'firstName', description: 'Account first name' },
+    { name: 'lastName', description: 'Account last name' },
+    { name: 'email', description: 'Account email address' },
+    { name: 'isDriver', description: 'True for a driver, false for an operator' },
+    {
+      name: 'mfaTurnedOn',
+      description: 'True when this factor turned two-factor authentication on',
+    },
+    { name: 'factorPasskey', description: 'True for a passkey or security key' },
+    { name: 'factorTotp', description: 'True for an authenticator app' },
+    { name: 'factorSms', description: 'True for codes by text message' },
+    { name: 'factorEmail', description: 'True for codes by email' },
+  ],
+  'security.FactorRemoved': [
+    { name: 'firstName', description: 'Account first name' },
+    { name: 'lastName', description: 'Account last name' },
+    { name: 'email', description: 'Account email address' },
+    { name: 'isDriver', description: 'True for a driver, false for an operator' },
+    { name: 'mfaTurnedOff', description: 'True when two-factor authentication is now off' },
+    { name: 'byAdmin', description: 'True when an administrator reset two-factor authentication' },
+  ],
+  'security.RecoveryCodesRegenerated': [
+    { name: 'firstName', description: 'Account first name' },
+    { name: 'lastName', description: 'Account last name' },
+    { name: 'email', description: 'Account email address' },
+    { name: 'isDriver', description: 'True for a driver, false for an operator' },
+  ],
+  'security.RecoveryCodeUsed': [
+    { name: 'firstName', description: 'Account first name' },
+    { name: 'lastName', description: 'Account last name' },
+    { name: 'email', description: 'Account email address' },
+    { name: 'isDriver', description: 'True for a driver, false for an operator' },
+    { name: 'remaining', description: 'Recovery codes left' },
+  ],
+  'security.PhoneChanged': [
+    { name: 'firstName', description: 'Account first name' },
+    { name: 'lastName', description: 'Account last name' },
+    { name: 'email', description: 'Account email address' },
+    { name: 'isDriver', description: 'True for a driver, false for an operator' },
+    { name: 'byAdmin', description: 'True when an administrator changed the number' },
+    { name: 'phoneRemoved', description: 'True when the number was removed' },
+  ],
+  'security.EmailChanged': [
+    { name: 'firstName', description: 'Account first name' },
+    { name: 'lastName', description: 'Account last name' },
+    { name: 'email', description: 'Account email address' },
+    { name: 'isDriver', description: 'True for a driver, false for an operator' },
+  ],
+  'security.ApiKeyCreated': [
+    { name: 'firstName', description: 'User first name' },
+    { name: 'lastName', description: 'User last name' },
+    { name: 'email', description: 'User email address' },
+    { name: 'keyName', description: 'Name of the new API key' },
+    { name: 'expiresAt', description: 'When the key expires (empty when it never expires)' },
   ],
 };

@@ -1,13 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { parseMfaFactors, type MfaPendingState } from './mfa-pending';
+
 /** The MFA pending state an SSO login hands to the login page. */
-export interface SsoMfaPending {
-  mfaRequired: true;
-  mfaMethod: string;
-  mfaToken: string;
-  challengeId?: string;
-}
+export type SsoMfaPending = MfaPendingState;
 
 /**
  * Reads the MFA pending state from the URL fragment the SSO callback
@@ -20,10 +17,13 @@ export function readSsoMfaFragment(hash: string): SsoMfaPending | null {
   const mfaMethod = params.get('ssoMfaMethod');
   if (mfaToken == null || mfaToken === '' || mfaMethod == null || mfaMethod === '') return null;
   const challengeId = params.get('ssoMfaChallengeId');
+  const factors = params.get('ssoMfaFactors');
   return {
     mfaRequired: true,
     mfaMethod,
     mfaToken,
     ...(challengeId != null && challengeId !== '' ? { challengeId } : {}),
+    ...(factors != null ? { factors: parseMfaFactors(factors.split(',').filter(Boolean)) } : {}),
+    ...(params.get('ssoMfaMethodDisabled') === '1' ? { mfaMethodDisabled: true } : {}),
   };
 }

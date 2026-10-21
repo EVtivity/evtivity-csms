@@ -12,6 +12,7 @@ import { requestAccessScope } from '../lib/access-scope.js';
 import { successResponse, errorWith } from '../lib/response-schemas.js';
 import { optionalDriverId } from '../lib/optional-driver.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { routePath } from './encoded-path-guard.js';
 
 const logger = createLogger('response-cache');
 
@@ -301,7 +302,7 @@ export function registerResponseCache(app: FastifyInstance): void {
   // and unauthenticated requests were already rejected.
   app.addHook('preHandler', async (request, reply) => {
     if (request.method !== 'GET') return;
-    const pathname = request.url.split('?')[0] ?? request.url;
+    const pathname = routePath(request);
     const rule = matchCacheRule(pathname);
     if (rule == null) return;
     // Public portal charger pages answer per caller for a signed-in driver
@@ -344,7 +345,7 @@ export function registerResponseCache(app: FastifyInstance): void {
   app.addHook('onResponse', async (request, reply) => {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return;
     if (reply.statusCode >= 400) return;
-    const pathname = request.url.split('?')[0] ?? request.url;
+    const pathname = routePath(request);
     const resource = extractWriteResource(pathname);
     if (resource == null) return;
     const tags = new Set([

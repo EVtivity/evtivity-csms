@@ -49,7 +49,47 @@ function makeChain() {
   return chain;
 }
 
+vi.mock('../lib/phone-change.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/phone-change.js')>()),
+  checkPhoneChange: vi.fn(async () => null),
+}));
+vi.mock('../lib/sign-in-backoff.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/sign-in-backoff.js')>();
+  return {
+    ...actual,
+    clearSignInFailures: vi.fn().mockResolvedValue(undefined),
+    takeSignInAttempt: vi.fn(async (account: unknown, factor: unknown) => ({
+      granted: true,
+      account,
+      factor,
+      failures: 1,
+      lockedUntil: null,
+    })),
+    recordAttemptFailure: vi.fn().mockResolvedValue(null),
+    acceptTotpStep: vi.fn().mockResolvedValue(true),
+  };
+});
+vi.mock('../services/mfa-factor.service.js', () => {
+  const countRecoveryCodes = vi.fn(async (_account: unknown) => 0);
+  return {
+    countRecoveryCodes,
+    // The gates read both counts; tests set the recovery code count.
+    mfaFactorCounts: vi.fn(async (account: unknown) => ({
+      recoveryCodesRemaining: await countRecoveryCodes(account),
+      passkeyCount: 0,
+    })),
+    recoveryCodesUsedUp: vi.fn(async () => false),
+    consumeRecoveryCode: vi.fn(async () => ({ used: false, remaining: 0 })),
+    issueRecoveryCodes: vi.fn(async () => []),
+    deleteRecoveryCodes: vi.fn(async () => undefined),
+    deleteWebauthnCredentials: vi.fn(async () => undefined),
+  };
+});
 vi.mock('@evtivity/database', () => ({
+  readMfaConfig: async () => ({
+    config: await (await import('@evtivity/database')).getMfaConfig(),
+    fallback: false,
+  }),
   getPasswordPolicy: vi.fn().mockResolvedValue({
     minLength: 12,
     requireUppercase: true,
@@ -112,8 +152,12 @@ vi.mock('@evtivity/lib', () => ({
   decryptString: vi.fn().mockReturnValue('decrypted'),
   generateTotpSecret: vi.fn().mockReturnValue('secret'),
   generateTotpUri: vi.fn().mockReturnValue('otpauth://totp/test'),
-  verifyTotpCode: vi.fn().mockReturnValue(true),
+  matchTotpStep: vi.fn().mockReturnValue(1),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 1, code: '123456' }),
+  createCappedMfaChallenge: vi.fn(async (c: unknown, o: unknown) =>
+    (await import('@evtivity/lib')).createMfaChallenge(c as never, o as never),
+  ),
+  isMfaChallengeLimited: (r: object) => 'limited' in r,
   verifyMfaChallenge: vi.fn().mockResolvedValue('verified'),
 }));
 
@@ -138,6 +182,7 @@ vi.mock('../services/refresh-token.service.js', () => ({
 // The session issuer is tested in session-token-lifetimes.test.ts.
 vi.mock('../lib/driver-session.js', () => ({
   issueDriverTokens: vi.fn().mockResolvedValue(null),
+  isMobileSession: vi.fn(() => false),
 }));
 
 const { updateDriverBillingAddressMock } = vi.hoisted(() => ({
@@ -158,6 +203,7 @@ vi.mock('../services/driver-billing.service.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { portalDriverRoutes } from '../routes/portal/driver.js';
+import { checkPhoneChange } from '../lib/phone-change.js';
 import * as argon2Module from 'argon2';
 import * as databaseModule from '@evtivity/database';
 import { writeAudit } from '@evtivity/database';
@@ -227,13 +273,41 @@ describe('Portal driver routes - handler logic', () => {
       expect(response.json().code).toBe('DRIVER_NOT_FOUND');
     });
 
+    it('refuses a phone change the check refuses, naming the mobile session', async () => {
+      vi.mocked(checkPhoneChange).mockResolvedValueOnce({
+        status: 400,
+        body: { error: 'Use the portal', code: 'VALIDATION_ERROR' },
+      });
+      setupDbResults([
+        { firstName: 'John', phone: '+12015550100', mfaEnabled: true, mfaMethod: 'sms' },
+      ]);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/profile',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { phone: '+12015550199' },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(checkPhoneChange).toHaveBeenCalledWith(
+        expect.anything(),
+        { driverId: DRIVER_ID },
+        {
+          current: '+12015550100',
+          next: '+12015550199',
+          proof: undefined,
+          verification: undefined,
+          mobileSession: false,
+        },
+      );
+    });
+
     it('updates driver profile successfully', async () => {
       const updatedDriver = {
         id: DRIVER_ID,
         firstName: 'Jane',
         lastName: 'Doe',
         email: 'jane@example.com',
-        phone: '555-9999',
+        phone: '+12015550199',
         language: 'en',
         timezone: 'America/New_York',
         themePreference: 'light',
@@ -248,12 +322,12 @@ describe('Portal driver routes - handler logic', () => {
         method: 'PATCH',
         url: '/portal/driver/profile',
         headers: { authorization: `Bearer ${driverToken}` },
-        payload: { firstName: 'Jane', phone: '555-9999' },
+        payload: { firstName: 'Jane', phone: '+12015550199' },
       });
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.firstName).toBe('Jane');
-      expect(body.phone).toBe('555-9999');
+      expect(body.phone).toBe('+12015550199');
       // Audited with the changed fields only, the driver as actor.
       expect(vi.mocked(databaseModule.writeAudit)).toHaveBeenCalledWith(
         expect.objectContaining({ idColumn: 'driver_id' }),
@@ -263,7 +337,7 @@ describe('Portal driver routes - handler logic', () => {
           actor: 'driver',
           actorDriverId: DRIVER_ID,
           before: { firstName: 'John', phone: null },
-          after: { firstName: 'Jane', phone: '555-9999' },
+          after: { firstName: 'Jane', phone: '+12015550199' },
         }),
         expect.anything(),
         expect.anything(),

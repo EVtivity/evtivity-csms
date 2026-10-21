@@ -30,6 +30,8 @@ interface MockState {
 const state = vi.hoisted(
   (): MockState => ({ results: [], index: 0, ops: [], cfg: {}, publish: null }),
 );
+// When true, readMfaConfig answers the code defaults with fallback set: the settings read failed.
+const mfaRead = vi.hoisted(() => ({ fails: false }));
 
 function setupDbResults(...results: unknown[][]): void {
   state.results = results;
@@ -91,6 +93,30 @@ function argOf(op: DbOp | undefined, method: string): unknown {
   return op?.calls.find((c) => c.method === method)?.args[0];
 }
 
+// Security notices are fire-and-forget; their dispatch has its own test.
+vi.mock('../lib/security-notice.js', () => ({
+  sendSecurityNotice: vi.fn(),
+  notifySecurityChange: vi.fn(async () => null),
+  factorFlags: (factor: string) => ({ factorPasskey: factor === 'passkey' }),
+}));
+
+vi.mock('../services/mfa-factor.service.js', () => {
+  const countRecoveryCodes = vi.fn(async (_account: unknown) => 0);
+  return {
+    countRecoveryCodes,
+    // The gates read both counts; tests set the recovery code count.
+    mfaFactorCounts: vi.fn(async (account: unknown) => ({
+      recoveryCodesRemaining: await countRecoveryCodes(account),
+      passkeyCount: 0,
+    })),
+    recoveryCodesUsedUp: vi.fn(async () => false),
+    countWebauthnCredentials: vi.fn(async () => 0),
+    consumeRecoveryCode: vi.fn(async () => ({ used: false, remaining: 0 })),
+    issueRecoveryCodes: vi.fn(async () => []),
+    deleteRecoveryCodes: vi.fn(async () => undefined),
+    deleteWebauthnCredentials: vi.fn(async () => undefined),
+  };
+});
 vi.mock('@evtivity/database', () => {
   const table = (name: string) =>
     new Proxy(
@@ -113,6 +139,10 @@ vi.mock('@evtivity/database', () => {
   // A transaction runs its callback on the same recording mock.
   db['transaction'] = vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn(db));
   return {
+    readMfaConfig: async () => ({
+      config: await (await import('@evtivity/database')).getMfaConfig(),
+      fallback: mfaRead.fails,
+    }),
     getSessionLifetimes: vi.fn(async () => ({
       ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
     })),
@@ -135,6 +165,11 @@ vi.mock('@evtivity/database', () => {
       emailEnabled: true,
       totpEnabled: true,
       smsEnabled: true,
+      required: 'off',
+      requiredRoles: [],
+      webauthnEnabled: true,
+      passkeyLoginEnabled: false,
+      requireDrivers: false,
     }),
     getPasswordPolicy: vi.fn(),
     writeAudit: vi.fn().mockResolvedValue(undefined),
@@ -176,6 +211,10 @@ vi.mock('@evtivity/lib', () => ({
   verifyTotpCode: vi.fn(),
   matchTotpStep: vi.fn(),
   createMfaChallenge: vi.fn(),
+  createCappedMfaChallenge: vi.fn(async (c: unknown, o: unknown) =>
+    (await import('@evtivity/lib')).createMfaChallenge(c as never, o as never),
+  ),
+  isMfaChallengeLimited: (r: object) => 'limited' in r,
   verifyMfaChallenge: vi.fn(),
   verifyRecaptcha: vi.fn().mockResolvedValue({ success: true }),
   redactSensitiveNotificationContent: vi.fn((s: string) => `redacted(${s})`),
@@ -224,6 +263,7 @@ vi.mock('../services/refresh-token.service.js', () => ({
   revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
   revokeAllUserRefreshTokens: vi.fn().mockResolvedValue(undefined),
   revokeAllUserSessions: vi.fn().mockResolvedValue(undefined),
+  sessionRefreshTokenUserId: vi.fn().mockResolvedValue(null),
 }));
 
 const ALL_MOCK_PERMISSIONS = ['users:read', 'users:write', 'stations:read', 'stations:write'];
@@ -241,7 +281,7 @@ vi.mock('../middleware/rbac.js', () => ({
       try {
         await request.jwtVerify();
       } catch {
-        await reply.status(401).send({ error: 'Unauthorized' });
+        await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
       }
     },
   selfService:
@@ -253,7 +293,7 @@ vi.mock('../middleware/rbac.js', () => ({
       try {
         await request.jwtVerify();
       } catch {
-        await reply.status(401).send({ error: 'Unauthorized' });
+        await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
         return;
       }
       if (request.user?.isApiKey === true && opts?.allowApiKey !== true) {
@@ -279,13 +319,23 @@ vi.mock('../lib/operator-session.js', async (importOriginal) => {
   };
 });
 
+vi.mock('../lib/phone-change.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/phone-change.js')>()),
+  checkPhoneChange: vi.fn(async () => null),
+}));
 vi.mock('../lib/sign-in-backoff.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/sign-in-backoff.js')>();
   return {
     ...actual,
-    recordSignInFailure: vi.fn().mockResolvedValue(null),
+    takeSignInAttempt: vi.fn(async (account: unknown, factor: unknown) => ({
+      granted: true,
+      account,
+      factor,
+      failures: 1,
+      lockedUntil: null,
+    })),
+    recordAttemptFailure: vi.fn(async () => null),
     clearSignInFailures: vi.fn().mockResolvedValue(undefined),
-    mfaResendRetryAfter: vi.fn().mockResolvedValue(null),
     acceptTotpStep: vi.fn().mockResolvedValue(true),
   };
 });
@@ -314,8 +364,30 @@ vi.mock('../lib/config.js', async (importOriginal) => {
   });
   return { ...actual, config: state.cfg };
 });
+// The proof checks are covered in mfa-factor-proof.test.ts; here only the routes' use of them.
+vi.mock('../lib/mfa-factor-proof.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/mfa-factor-proof.js')>()),
+  checkFactorProof: vi.fn(async () => null),
+  factorProofKinds: vi.fn(async () => []),
+  proofAccountOf: vi.fn(async () => null),
+}));
+// The ceremony itself is covered in webauthn-routes.test.ts; here only its outcome matters.
+vi.mock('../lib/webauthn-http.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/webauthn-http.js')>()),
+  verifyRecoveryCodesPasskey: vi.fn(async () => 'failed'),
+}));
 
 import argon2 from 'argon2';
+import { verifyRecoveryCodesPasskey } from '../lib/webauthn-http.js';
+import { checkFactorProof } from '../lib/mfa-factor-proof.js';
+import {
+  consumeRecoveryCode,
+  countRecoveryCodes,
+  deleteRecoveryCodes,
+  deleteWebauthnCredentials,
+  issueRecoveryCodes,
+  mfaFactorCounts,
+} from '../services/mfa-factor.service.js';
 import {
   client,
   getMfaConfig,
@@ -333,14 +405,15 @@ import {
   verifyTotpCode,
   matchTotpStep,
   createMfaChallenge,
+  createCappedMfaChallenge,
   verifyMfaChallenge,
   recordNotificationAttempt,
 } from '@evtivity/lib';
 import {
   acceptTotpStep,
   clearSignInFailures,
-  mfaResendRetryAfter,
-  recordSignInFailure,
+  recordAttemptFailure,
+  takeSignInAttempt,
 } from '../lib/sign-in-backoff.js';
 import {
   announceSessionChange,
@@ -357,6 +430,7 @@ import {
   revokeRefreshToken,
   revokeAllUserRefreshTokens,
   revokeAllUserSessions,
+  sessionRefreshTokenUserId,
 } from '../services/refresh-token.service.js';
 import { invalidatePermissionCache } from '../middleware/rbac.js';
 import {
@@ -367,6 +441,7 @@ import {
 import { hashUserToken } from '../lib/user-token.js';
 import { registerAuth } from '../plugins/auth.js';
 import { userRoutes } from '../routes/users.js';
+import { checkPhoneChange } from '../lib/phone-change.js';
 import { DEFAULT_SESSION_LIFETIMES } from '@evtivity/lib/session-lifetimes';
 import { defaultSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
 
@@ -384,7 +459,7 @@ function userRow(over: Record<string, unknown> = {}): Record<string, unknown> {
     email: 'op@example.com',
     firstName: 'Op',
     lastName: 'Erator',
-    phone: '+15550001111',
+    phone: '+12015550111',
     roleId: ROLE,
     isActive: true,
     mustResetPassword: false,
@@ -458,13 +533,25 @@ describe('User routes (extended coverage)', () => {
     };
     state.cfg['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key';
     vi.mocked(argon2.verify).mockReset().mockResolvedValue(true);
+    vi.mocked(countRecoveryCodes).mockReset().mockResolvedValue(0);
+    vi.mocked(consumeRecoveryCode).mockReset().mockResolvedValue({ used: false, remaining: 0 });
+    vi.mocked(issueRecoveryCodes).mockReset().mockResolvedValue(['abcde-fghjk']);
     vi.mocked(getRecaptchaConfig).mockReset().mockResolvedValue(null);
     vi.mocked(getPasswordPolicy)
       .mockReset()
       .mockResolvedValue({ ...DEFAULT_PASSWORD_POLICY });
     vi.mocked(getMfaConfig)
       .mockReset()
-      .mockResolvedValue({ emailEnabled: true, totpEnabled: true, smsEnabled: true });
+      .mockResolvedValue({
+        emailEnabled: true,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
     vi.mocked(decryptString)
       .mockReset()
       .mockImplementation((v: string) => `dec(${v})`);
@@ -478,6 +565,8 @@ describe('User routes (extended coverage)', () => {
       .mockReset()
       .mockResolvedValue({ rawToken: 'new-refresh', expiresAt: new Date() });
     vi.mocked(validateAndRotateRefreshToken).mockReset().mockResolvedValue(null);
+    vi.mocked(sessionRefreshTokenUserId).mockReset().mockResolvedValue(null);
+    mfaRead.fails = false;
     vi.mocked(getNotificationSettings)
       .mockReset()
       .mockResolvedValue({
@@ -536,11 +625,17 @@ describe('User routes (extended coverage)', () => {
         url: '/auth/login',
         payload: { email: 'op@example.com', password: 'WrongPass1' },
       });
-      expect(recordSignInFailure).toHaveBeenCalledWith(expect.anything(), OTHER, 'password');
+      expect(recordAttemptFailure).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ account: { userId: OTHER }, factor: 'password' }),
+      );
     });
 
     it('answers a locked account as a wrong password without checking it', async () => {
-      setupDbResults([fullUser({ loginLockedUntil: new Date(Date.now() + 60_000) })]);
+      const lockedUntil = new Date(Date.now() + 60_000);
+      // The guarded UPDATE that takes the try matches no row while the lock holds.
+      vi.mocked(takeSignInAttempt).mockResolvedValueOnce({ granted: false, lockedUntil });
+      setupDbResults([fullUser({ loginLockedUntil: lockedUntil })]);
       const res = await app.inject({
         method: 'POST',
         url: '/auth/login',
@@ -549,7 +644,7 @@ describe('User routes (extended coverage)', () => {
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('INVALID_CREDENTIALS');
       expect(createRefreshToken).not.toHaveBeenCalled();
-      expect(recordSignInFailure).not.toHaveBeenCalled();
+      expect(recordAttemptFailure).not.toHaveBeenCalled();
       expect(auditCall()).toMatchObject({ action: 'login_failed', notes: 'locked' });
     });
 
@@ -627,7 +722,11 @@ describe('User routes (extended coverage)', () => {
       expect(body.token).toBeUndefined();
       const decoded = app.jwt.verify<Record<string, unknown>>(body.mfaToken as string);
       expect(decoded).toMatchObject({ userId: OTHER, roleId: ROLE, mfaPending: true });
-      expect(createMfaChallenge).toHaveBeenCalledWith(client, { userId: OTHER, method: 'email' });
+      expect(createMfaChallenge).toHaveBeenCalledWith(client, {
+        userId: OTHER,
+        method: 'email',
+        purpose: 'sign_in',
+      });
       expect(dispatchSystemNotification).toHaveBeenCalledWith(
         client,
         'mfa.VerificationCode',
@@ -638,6 +737,58 @@ describe('User routes (extended coverage)', () => {
       );
       expect(createRefreshToken).not.toHaveBeenCalled();
       expect(cookieNames(res)).not.toContain('csms_token');
+    });
+
+    it('still sends the code of a switched-off email method that is the only factor', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'Correct1' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ mfaRequired: true, mfaMethod: 'email', challengeId: 42 });
+      expect(createMfaChallenge).toHaveBeenCalledWith(client, {
+        userId: OTHER,
+        method: 'email',
+        purpose: 'sign_in',
+      });
+    });
+
+    it('sends no code for a switched-off method when the account has another factor', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      vi.mocked(countRecoveryCodes).mockResolvedValue(3);
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'Correct1' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().mfaRequired).toBe(true);
+      expect(res.json().challengeId).toBeUndefined();
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+      expect(dispatchSystemNotification).not.toHaveBeenCalled();
+      expect(createRefreshToken).not.toHaveBeenCalled();
     });
 
     it('does not create a challenge for TOTP MFA', async () => {
@@ -1206,7 +1357,13 @@ describe('User routes (extended coverage)', () => {
         action: 'password_reset',
         notes: 'User changed own password (forced reset)',
       });
-      expect(createMfaChallenge).toHaveBeenCalledWith(client, { userId: OTHER, method: 'sms' });
+      // A sign-in code is bound to the account's confirmed number.
+      expect(createMfaChallenge).toHaveBeenCalledWith(client, {
+        userId: OTHER,
+        method: 'sms',
+        purpose: 'sign_in',
+        destination: '+12015550111',
+      });
       expect(createRefreshToken).not.toHaveBeenCalled();
     });
 
@@ -1250,12 +1407,36 @@ describe('User routes (extended coverage)', () => {
   });
 
   describe('PATCH /users/me', () => {
+    it('checks a phone change with its proof and refuses what the check refuses', async () => {
+      vi.mocked(checkPhoneChange).mockResolvedValueOnce({
+        status: 400,
+        body: { error: 'Confirm', code: 'VALIDATION_ERROR', proofKinds: ['totp'] },
+      });
+      setupDbResults([{ phone: '+12015550111' }]);
+      const proof = { kind: 'totp', code: '123456' };
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/users/me',
+        headers: auth,
+        payload: { phone: ' +12015550122 ', proof },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR', proofKinds: ['totp'] });
+      expect(checkPhoneChange).toHaveBeenCalledWith(
+        expect.anything(),
+        { userId: ME },
+        { current: '+12015550111', next: '+12015550122', proof, verification: undefined },
+      );
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
     it('updates only the supplied profile fields and writes an audit row', async () => {
       const before = userRow({ id: ME, firstName: 'Old' });
       const after = userRow({ id: ME, firstName: 'New', phone: null, language: 'zh-TW' });
-      // 1: the SMS factor check of the phone removal
+      // 1: the SMS factor check of the phone removal, 2: the current phone
       setupDbResults(
         [{ mfaEnabled: false, mfaMethod: null }],
+        [{ phone: '+12015550111' }],
         [before],
         [after],
         [{ id: ROLE, name: 'operator' }],
@@ -1633,6 +1814,20 @@ describe('User routes (extended coverage)', () => {
   // ------------------------------------------------------- PATCH /users/:id
 
   describe('PATCH /users/:id', () => {
+    it('sends the own phone and email to the profile route, which asks for the proof', async () => {
+      for (const payload of [{ phone: '+12015550122' }, { email: 'me@example.com' }]) {
+        const res = await app.inject({
+          method: 'PATCH',
+          url: `/users/${ME}`,
+          headers: auth,
+          payload,
+        });
+        expect(res.statusCode).toBe(403);
+        expect(res.json().code).toBe('SELF_EDIT_FORBIDDEN');
+      }
+      expect(state.ops).toHaveLength(0);
+    });
+
     it('blocks self-edit of siteIds', async () => {
       const res = await app.inject({
         method: 'PATCH',
@@ -2211,6 +2406,39 @@ describe('User routes (extended coverage)', () => {
       expect(endUserSessions).not.toHaveBeenCalled();
     });
 
+    it('change-password counts a wrong current password toward the password backoff', async () => {
+      setupDbResults([{ id: ME, passwordHash: '$argon2id$h', loginLockedUntil: null }]);
+      vi.mocked(argon2.verify).mockResolvedValue(false);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/change-password',
+        headers: auth,
+        payload: { currentPassword: 'wrong', newPassword: 'NewPassword123' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(recordAttemptFailure).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ account: { userId: ME }, factor: 'password' }),
+      );
+    });
+
+    it('change-password refuses the current password unchecked while the password backoff locks the user', async () => {
+      setupDbResults([
+        { id: ME, passwordHash: '$argon2id$h', loginLockedUntil: new Date(Date.now() + 60_000) },
+      ]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/change-password',
+        headers: auth,
+        payload: { currentPassword: 'Correct1', newPassword: 'NewPassword123' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('INVALID_PASSWORD');
+      expect(argon2.verify).not.toHaveBeenCalled();
+      expect(recordAttemptFailure).not.toHaveBeenCalled();
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
     it('change-password answers INVALID_PASSWORD for an SSO account while SSO is enabled', async () => {
       setupDbResults([{ id: ME, passwordHash: '$argon2id$h', authSource: 'sso' }]);
       vi.mocked(passwordAuthBlocked).mockResolvedValueOnce(true);
@@ -2454,7 +2682,7 @@ describe('User routes (extended coverage)', () => {
   // --------------------------------------------------------- MFA verify
 
   describe('POST /auth/mfa/verify', () => {
-    function mfaToken(extra: Record<string, unknown> = { mfaPending: true }): string {
+    function mfaToken(extra: Record<string, unknown> = { mfaPending: true, sv: 0 }): string {
       return app.jwt.sign({ userId: OTHER, roleId: ROLE, ...extra });
     }
 
@@ -2479,6 +2707,25 @@ describe('User routes (extended coverage)', () => {
       expect(state.ops).toHaveLength(0);
     });
 
+    it('returns 400 MFA_TOKEN_INVALID for a driver MFA-pending token', async () => {
+      // The realms share a signing key: a driver token carries no userId to look up.
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: {
+          mfaToken: app.jwt.sign({
+            driverId: 'drv_000000000001',
+            type: 'driver',
+            mfaPending: true,
+          }),
+          code: '123456',
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('MFA_TOKEN_INVALID');
+      expect(state.ops).toHaveLength(0);
+    });
+
     it('returns 400 MFA_CHALLENGE_EXHAUSTED when the challenge has no tries left', async () => {
       setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })]);
       vi.mocked(verifyMfaChallenge).mockResolvedValue('exhausted');
@@ -2489,12 +2736,25 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CHALLENGE_EXHAUSTED');
-      expect(verifyMfaChallenge).toHaveBeenCalledWith(client, 9, '123456', { userId: OTHER });
-      expect(recordSignInFailure).toHaveBeenCalledWith(expect.anything(), OTHER, 'mfa');
+      expect(verifyMfaChallenge).toHaveBeenCalledWith(client, 9, '123456', {
+        userId: OTHER,
+        method: 'email',
+        purpose: 'sign_in',
+        destination: undefined,
+      });
+      expect(recordAttemptFailure).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ account: { userId: OTHER }, factor: 'mfa' }),
+      );
       expect(createRefreshToken).not.toHaveBeenCalled();
     });
 
     it('returns 429 MFA_LOCKED with Retry-After while the account is locked', async () => {
+      // The guarded UPDATE that takes the try matches no row while the lock holds.
+      vi.mocked(takeSignInAttempt).mockResolvedValueOnce({
+        granted: false,
+        lockedUntil: new Date(Date.now() + 60_000),
+      });
       setupDbResults([
         fullUser({
           mfaEnabled: true,
@@ -2523,8 +2783,31 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CODE_INVALID');
-      expect(acceptTotpStep).toHaveBeenCalledWith(OTHER, 1);
+      expect(acceptTotpStep).toHaveBeenCalledWith({ userId: OTHER }, 1);
       expect(createRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it('refuses a pending token of an earlier session version (password changed since)', async () => {
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'totp', sessionVersion: 1 })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), code: '123456' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('MFA_TOKEN_EXPIRED');
+      expect(res.cookies.find((c) => c.name === 'csms_token')).toBeUndefined();
+    });
+
+    it('refuses a pending token without a session version', async () => {
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'totp' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken({ mfaPending: true }), code: '123456' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('MFA_TOKEN_EXPIRED');
     });
 
     it('returns 400 MFA_NOT_CONFIGURED when the user has MFA off', async () => {
@@ -2608,13 +2891,13 @@ describe('User routes (extended coverage)', () => {
       expect(decoded['userId']).toBe(OTHER);
       expect(decryptString).toHaveBeenCalledWith('cipher', 'test-encryption-key');
       expect(matchTotpStep).toHaveBeenCalledWith('dec(cipher)', '123456');
-      expect(acceptTotpStep).toHaveBeenCalledWith(OTHER, 1);
+      expect(acceptTotpStep).toHaveBeenCalledWith({ userId: OTHER }, 1);
       expect(decoded['sv']).toBe(0);
       expect(cookieNames(res)).toEqual(expect.arrayContaining(['csms_token', 'csms_refresh']));
       expect(argOf(opsFor('update', 'users')[0], 'set')).toEqual({
         lastLoginAt: expect.any(Date),
       });
-      expect(clearSignInFailures).toHaveBeenCalledWith(OTHER, 'mfa');
+      expect(clearSignInFailures).toHaveBeenCalledWith({ userId: OTHER }, 'mfa');
       expect(auditCall()).toMatchObject({
         entityId: OTHER,
         action: 'login_succeeded',
@@ -2634,8 +2917,16 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CODE_INVALID');
-      expect(verifyMfaChallenge).toHaveBeenCalledWith(client, 5, '000000', { userId: OTHER });
-      expect(recordSignInFailure).toHaveBeenCalledWith(expect.anything(), OTHER, 'mfa');
+      expect(verifyMfaChallenge).toHaveBeenCalledWith(client, 5, '000000', {
+        userId: OTHER,
+        method: 'email',
+        purpose: 'sign_in',
+        destination: undefined,
+      });
+      expect(recordAttemptFailure).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ account: { userId: OTHER }, factor: 'mfa' }),
+      );
       expect(createRefreshToken).not.toHaveBeenCalled();
     });
 
@@ -2649,7 +2940,115 @@ describe('User routes (extended coverage)', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CODE_INVALID');
       expect(verifyMfaChallenge).not.toHaveBeenCalled();
-      expect(recordSignInFailure).toHaveBeenCalledWith(expect.anything(), OTHER, 'mfa');
+      expect(recordAttemptFailure).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ account: { userId: OTHER }, factor: 'mfa' }),
+      );
+    });
+
+    it('verifies a switched-off TOTP method that is the only factor, then hands out the enrollment token', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: true,
+        totpEnabled: false,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      setupDbResults(
+        [fullUser({ mfaEnabled: true, mfaMethod: 'totp', totpSecretEnc: 'cipher' })],
+        [{ id: ROLE, name: 'admin' }],
+        [],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), code: '123456' },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.mfaEnrollmentRequired).toBe(true);
+      expect(body.availableMethods).toEqual(expect.arrayContaining(['email']));
+      expect(body.availableMethods).not.toContain('totp');
+      expect(body.token).toBeUndefined();
+      expect(body.user).toBeUndefined();
+      expect(cookieNames(res)).not.toContain('csms_token');
+      expect(createRefreshToken).not.toHaveBeenCalled();
+      expect(app.jwt.verify<Record<string, unknown>>(body.enrollmentToken)).toMatchObject({
+        userId: OTHER,
+        mfaEnrollment: true,
+      });
+    });
+
+    it('refuses a wrong code of a switched-off only factor without an enrollment token', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: true,
+        totpEnabled: false,
+        smsEnabled: false,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      vi.mocked(matchTotpStep).mockReturnValueOnce(null);
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'totp', totpSecretEnc: 'cipher' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), code: '000000' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('MFA_CODE_INVALID');
+      expect(res.json().enrollmentToken).toBeUndefined();
+    });
+
+    it('does not flag enrollment while the method is switched on', async () => {
+      setupDbResults(
+        [fullUser({ mfaEnabled: true, mfaMethod: 'totp', totpSecretEnc: 'cipher' })],
+        [{ id: ROLE, name: 'admin' }],
+        [],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), code: '123456' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().mfaEnrollmentRequired).toBeUndefined();
+    });
+
+    it('refuses a switched-off method with 403 MFA_METHOD_DISABLED when another factor exists', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      vi.mocked(countRecoveryCodes).mockResolvedValue(3);
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), code: '123456', challengeId: 5 },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('MFA_METHOD_DISABLED');
+      expect(countRecoveryCodes).toHaveBeenCalledWith({ userId: OTHER });
+      expect(verifyMfaChallenge).not.toHaveBeenCalled();
+      expect(recordAttemptFailure).not.toHaveBeenCalled();
+      expect(createRefreshToken).not.toHaveBeenCalled();
+      expect(auditCall()).toMatchObject({
+        entityId: OTHER,
+        action: 'login_failed',
+        notes: 'mfa_method_disabled',
+      });
     });
 
     it('clears the failure counter and returns role null after a valid SMS code', async () => {
@@ -2661,10 +3060,134 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json().role).toBeNull();
-      expect(clearSignInFailures).toHaveBeenCalledWith(OTHER, 'mfa');
+      expect(clearSignInFailures).toHaveBeenCalledWith({ userId: OTHER }, 'mfa');
       expect(createRefreshToken).toHaveBeenCalledWith({
         userId: OTHER,
         lifetimeDays: DEFAULT_SESSION_LIFETIMES.operatorRefreshDays,
+      });
+    });
+
+    it.each([
+      ['neither', {}],
+      ['both', { code: '123456', recoveryCode: 'abcde-fghjk' }],
+    ] as [string, Record<string, string>][])(
+      'answers 400 VALIDATION_ERROR when the body has %s',
+      async (_label, extra) => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/auth/mfa/verify',
+          payload: { mfaToken: mfaToken(), ...extra },
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().code).toBe('VALIDATION_ERROR');
+        expect(consumeRecoveryCode).not.toHaveBeenCalled();
+      },
+    );
+
+    it('signs in with a recovery code while the method is switched off and returns the count left', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      vi.mocked(countRecoveryCodes).mockResolvedValue(3);
+      vi.mocked(consumeRecoveryCode).mockResolvedValue({ used: true, remaining: 2 });
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })], [], []);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), recoveryCode: 'abcde-fghjk' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().recoveryCodesRemaining).toBe(2);
+      expect(res.json().mfaEnrollmentRequired).toBeUndefined();
+      expect(consumeRecoveryCode).toHaveBeenCalledWith(
+        { userId: OTHER },
+        'abcde-fghjk',
+        expect.objectContaining({
+          actor: expect.objectContaining({ actor: 'operator', actorUserId: OTHER }),
+        }),
+      );
+      expect(verifyMfaChallenge).not.toHaveBeenCalled();
+      expect(clearSignInFailures).toHaveBeenCalledWith({ userId: OTHER }, 'mfa');
+      expect(cookieNames(res)).toContain('csms_token');
+    });
+
+    it('takes a recovery code from an account whose only factor is a passkey, and refuses a code', async () => {
+      vi.mocked(mfaFactorCounts).mockResolvedValue({ recoveryCodesRemaining: 4, passkeyCount: 1 });
+      vi.mocked(consumeRecoveryCode).mockResolvedValue({ used: true, remaining: 3 });
+      setupDbResults([fullUser({ mfaEnabled: false, mfaMethod: null })], [], []);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), recoveryCode: 'abcde-fghjk' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().recoveryCodesRemaining).toBe(3);
+
+      setupDbResults([fullUser({ mfaEnabled: false, mfaMethod: null })]);
+      const code = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), code: '123456', challengeId: 1 },
+      });
+      expect(code.statusCode).toBe(400);
+      expect(code.json().code).toBe('MFA_NOT_CONFIGURED');
+      vi.mocked(mfaFactorCounts).mockReset();
+      vi.mocked(mfaFactorCounts).mockImplementation(async (account) => ({
+        recoveryCodesRemaining: await countRecoveryCodes(account),
+        passkeyCount: 0,
+      }));
+    });
+
+    it('asks for enrollment after the last recovery code of a switched-off method', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      vi.mocked(countRecoveryCodes).mockResolvedValue(1);
+      vi.mocked(consumeRecoveryCode).mockResolvedValue({ used: true, remaining: 0 });
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })], [], []);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), recoveryCode: 'abcde-fghjk' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ recoveryCodesRemaining: 0, mfaEnrollmentRequired: true });
+    });
+
+    it('counts a wrong recovery code toward the backoff and issues no session', async () => {
+      vi.mocked(countRecoveryCodes).mockResolvedValue(3);
+      vi.mocked(consumeRecoveryCode).mockResolvedValue({ used: false, remaining: 3 });
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'totp' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/verify',
+        payload: { mfaToken: mfaToken(), recoveryCode: 'wrong-codes' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('MFA_CODE_INVALID');
+      expect(recordAttemptFailure).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ account: { userId: OTHER }, factor: 'mfa' }),
+      );
+      expect(createRefreshToken).not.toHaveBeenCalled();
+      expect(auditCall()).toMatchObject({
+        action: 'login_failed',
+        after: expect.objectContaining({ method: 'recovery_code' }),
+        notes: 'mfa_code_invalid',
       });
     });
   });
@@ -2672,7 +3195,7 @@ describe('User routes (extended coverage)', () => {
   // --------------------------------------------------------- MFA resend
 
   describe('POST /auth/mfa/resend', () => {
-    function mfaToken(extra: Record<string, unknown> = { mfaPending: true }): string {
+    function mfaToken(extra: Record<string, unknown> = { mfaPending: true, sv: 0 }): string {
       return app.jwt.sign({ userId: OTHER, roleId: ROLE, ...extra });
     }
 
@@ -2691,6 +3214,22 @@ describe('User routes (extended coverage)', () => {
         method: 'POST',
         url: '/auth/mfa/resend',
         payload: { mfaToken: mfaToken({}) },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('MFA_TOKEN_INVALID');
+    });
+
+    it('returns 400 MFA_TOKEN_INVALID for a driver MFA-pending token', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/resend',
+        payload: {
+          mfaToken: app.jwt.sign({
+            driverId: 'drv_000000000001',
+            type: 'driver',
+            mfaPending: true,
+          }),
+        },
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_TOKEN_INVALID');
@@ -2733,7 +3272,11 @@ describe('User routes (extended coverage)', () => {
 
     it('returns 429 MFA_RESEND_LIMITED with Retry-After over the cap', async () => {
       setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })]);
-      vi.mocked(mfaResendRetryAfter).mockResolvedValueOnce(120);
+      vi.mocked(createCappedMfaChallenge).mockResolvedValueOnce({
+        limited: true,
+        retryAfterSeconds: 120,
+        openChallengeId: null,
+      });
       const res = await app.inject({
         method: 'POST',
         url: '/auth/mfa/resend',
@@ -2745,8 +3288,41 @@ describe('User routes (extended coverage)', () => {
       expect(createMfaChallenge).not.toHaveBeenCalled();
     });
 
-    it('creates a new challenge and sends the code', async () => {
-      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'sms', phone: '+15550001111' })]);
+    it('refuses to resend for a switched-off SMS method when another factor exists', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: true,
+        totpEnabled: true,
+        smsEnabled: false,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      vi.mocked(countRecoveryCodes).mockResolvedValue(3);
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'sms', phone: '+12015550111' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/resend',
+        payload: { mfaToken: mfaToken() },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('MFA_METHOD_DISABLED');
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+    });
+
+    it('still resends for a switched-off email method that is the only factor', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'email' })]);
       const res = await app.inject({
         method: 'POST',
         url: '/auth/mfa/resend',
@@ -2754,12 +3330,34 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ challengeId: 42 });
-      expect(createMfaChallenge).toHaveBeenCalledWith(client, { userId: OTHER, method: 'sms' });
+    });
+
+    it('creates a new challenge and sends the code', async () => {
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'sms', phone: '+12015550111' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/resend',
+        payload: { mfaToken: mfaToken() },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ challengeId: 42 });
+      expect(createMfaChallenge).toHaveBeenCalledWith(client, {
+        userId: OTHER,
+        method: 'sms',
+        purpose: 'sign_in',
+        destination: '+12015550111',
+      });
+      // The account's own confirmed number: only other accounts count toward its cap.
+      expect(createCappedMfaChallenge).toHaveBeenCalledWith(
+        client,
+        expect.anything(),
+        expect.objectContaining({ destinationScope: 'other_accounts' }),
+      );
       // The SMS method sends the code by SMS only.
       expect(dispatchSystemNotification).toHaveBeenCalledWith(
         client,
         'mfa.VerificationCode',
-        { phone: '+15550001111', firstName: 'Op', language: 'de' },
+        { phone: '+12015550111', firstName: 'Op', language: 'de' },
         { code: '654321' },
         expect.any(String),
       );
@@ -2767,6 +3365,240 @@ describe('User routes (extended coverage)', () => {
   });
 
   // ------------------------------------------------------ admin MFA reset
+
+  describe('POST /users/me/mfa/recovery-codes', () => {
+    const totpUser = {
+      mfaEnabled: true,
+      mfaMethod: 'totp',
+      totpSecretEnc: 'enc',
+      email: 'op@example.com',
+      phone: null,
+      firstName: 'Op',
+      language: 'en',
+    };
+
+    it('answers 400 MFA_NOT_CONFIGURED without MFA', async () => {
+      setupDbResults([{ ...totpUser, mfaEnabled: false, mfaMethod: null }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/recovery-codes',
+        headers: auth,
+        payload: { code: '123456' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('MFA_NOT_CONFIGURED');
+      expect(issueRecoveryCodes).not.toHaveBeenCalled();
+    });
+
+    it('replaces the codes after a valid TOTP code, once per time step', async () => {
+      setupDbResults([totpUser]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/recovery-codes',
+        headers: auth,
+        payload: { code: '123456' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ recoveryCodes: ['abcde-fghjk'] });
+      expect(acceptTotpStep).toHaveBeenCalledWith({ userId: ME }, 1);
+      expect(issueRecoveryCodes).toHaveBeenCalledWith(
+        { userId: ME },
+        'regenerated',
+        expect.objectContaining({ actor: expect.objectContaining({ actorUserId: ME }) }),
+      );
+    });
+
+    it('refuses a TOTP code already used and a TOTP call without a code', async () => {
+      vi.mocked(acceptTotpStep).mockResolvedValueOnce(false);
+      setupDbResults([totpUser], [totpUser]);
+      const replay = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/recovery-codes',
+        headers: auth,
+        payload: { code: '123456' },
+      });
+      expect(replay.statusCode).toBe(400);
+      expect(replay.json().code).toBe('MFA_CODE_INVALID');
+      const noCode = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/recovery-codes',
+        headers: auth,
+        payload: {},
+      });
+      expect(noCode.statusCode).toBe(400);
+      expect(noCode.json().code).toBe('VALIDATION_ERROR');
+      expect(issueRecoveryCodes).not.toHaveBeenCalled();
+    });
+
+    it('sends an email code first, then replaces the codes with it', async () => {
+      const emailUser = { ...totpUser, mfaMethod: 'email', totpSecretEnc: null };
+      setupDbResults([emailUser], [emailUser]);
+      const first = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/recovery-codes',
+        headers: auth,
+        payload: {},
+      });
+      expect(first.statusCode).toBe(200);
+      expect(first.json()).toEqual({ challengeId: 42 });
+      expect(createMfaChallenge).toHaveBeenCalledWith(client, {
+        userId: ME,
+        method: 'email',
+        purpose: 'proof',
+      });
+      expect(issueRecoveryCodes).not.toHaveBeenCalled();
+
+      const second = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/recovery-codes',
+        headers: auth,
+        payload: { code: '654321', challengeId: 42 },
+      });
+      expect(second.statusCode).toBe(200);
+      expect(verifyMfaChallenge).toHaveBeenCalledWith(client, 42, '654321', {
+        userId: ME,
+        method: 'email',
+        purpose: 'proof',
+        destination: undefined,
+      });
+      expect(second.json().recoveryCodes).toEqual(['abcde-fghjk']);
+    });
+
+    it('counts a wrong code toward the proof backoff, apart from sign-in', async () => {
+      const emailUser = { ...totpUser, mfaMethod: 'email', totpSecretEnc: null };
+      vi.mocked(verifyMfaChallenge).mockResolvedValueOnce('invalid');
+      setupDbResults([emailUser]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/recovery-codes',
+        headers: auth,
+        payload: { code: '111111', challengeId: 42 },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('MFA_CODE_INVALID');
+      expect(recordAttemptFailure).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ account: { userId: ME }, factor: 'proof' }),
+      );
+      expect(issueRecoveryCodes).not.toHaveBeenCalled();
+    });
+
+    it('refuses even a right code while the MFA backoff locks the account', async () => {
+      const lockedUntil = new Date(Date.now() + 60_000);
+      const emailUser = { ...totpUser, mfaMethod: 'email', totpSecretEnc: null };
+      // The guarded UPDATE that takes the try matches no row while the lock holds.
+      vi.mocked(takeSignInAttempt)
+        .mockResolvedValueOnce({ granted: false, lockedUntil })
+        .mockResolvedValueOnce({ granted: false, lockedUntil });
+      setupDbResults(
+        [{ ...emailUser, mfaLockedUntil: lockedUntil }],
+        [{ ...totpUser, mfaLockedUntil: lockedUntil }],
+      );
+      for (const payload of [{ code: '654321', challengeId: 42 }, { code: '123456' }]) {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/users/me/mfa/recovery-codes',
+          headers: auth,
+          payload,
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toEqual({
+          error: 'Invalid verification code',
+          code: 'MFA_CODE_INVALID',
+        });
+      }
+      expect(verifyMfaChallenge).not.toHaveBeenCalled();
+      expect(acceptTotpStep).not.toHaveBeenCalled();
+      expect(recordAttemptFailure).not.toHaveBeenCalled();
+      expect(issueRecoveryCodes).not.toHaveBeenCalled();
+    });
+
+    it('answers 429 MFA_RESEND_LIMITED beyond the code cap', async () => {
+      vi.mocked(createCappedMfaChallenge).mockResolvedValueOnce({
+        limited: true,
+        retryAfterSeconds: 120,
+        openChallengeId: null,
+      });
+      setupDbResults([{ ...totpUser, mfaMethod: 'sms', phone: '+12015550111' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/recovery-codes',
+        headers: auth,
+        payload: {},
+      });
+      expect(res.statusCode).toBe(429);
+      expect(res.json().code).toBe('MFA_RESEND_LIMITED');
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+    });
+
+    describe('with a passkey as the proof', () => {
+      const credential = {
+        id: 'cred1',
+        rawId: 'cred1',
+        type: 'public-key',
+        response: { clientDataJSON: 'abc', authenticatorData: 'def', signature: 'ghi' },
+        clientExtensionResults: {},
+      };
+
+      it('replaces the codes of a passkey-only account after its passkey verifies', async () => {
+        vi.mocked(verifyRecoveryCodesPasskey).mockResolvedValueOnce('verified');
+        const res = await app.inject({
+          method: 'POST',
+          url: '/users/me/mfa/recovery-codes',
+          headers: auth,
+          payload: { credential },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json().recoveryCodes).toEqual(['abcde-fghjk']);
+        expect(verifyRecoveryCodesPasskey).toHaveBeenCalledWith(
+          expect.anything(),
+          { userId: ME },
+          expect.objectContaining({ id: 'cred1' }),
+        );
+        expect(issueRecoveryCodes).toHaveBeenCalledWith(
+          { userId: ME },
+          'regenerated',
+          expect.anything(),
+        );
+      });
+
+      it('refuses an expired challenge and an assertion that does not verify', async () => {
+        vi.mocked(verifyRecoveryCodesPasskey).mockResolvedValueOnce('challenge_expired');
+        const expired = await app.inject({
+          method: 'POST',
+          url: '/users/me/mfa/recovery-codes',
+          headers: auth,
+          payload: { credential },
+        });
+        expect(expired.statusCode).toBe(400);
+        expect(expired.json().code).toBe('WEBAUTHN_CHALLENGE_EXPIRED');
+
+        vi.mocked(verifyRecoveryCodesPasskey).mockResolvedValueOnce('failed');
+        const failed = await app.inject({
+          method: 'POST',
+          url: '/users/me/mfa/recovery-codes',
+          headers: auth,
+          payload: { credential },
+        });
+        expect(failed.statusCode).toBe(400);
+        expect(failed.json().code).toBe('WEBAUTHN_VERIFICATION_FAILED');
+        expect(issueRecoveryCodes).not.toHaveBeenCalled();
+      });
+
+      it('refuses a code and a passkey together', async () => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/users/me/mfa/recovery-codes',
+          headers: auth,
+          payload: { code: '123456', credential },
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().code).toBe('VALIDATION_ERROR');
+        expect(verifyRecoveryCodesPasskey).not.toHaveBeenCalled();
+        expect(issueRecoveryCodes).not.toHaveBeenCalled();
+      });
+    });
+  });
 
   describe('POST /users/:id/mfa/reset', () => {
     it('turns off the MFA of a user, ends the sessions and audits mfa_reset', async () => {
@@ -2788,6 +3620,8 @@ describe('User routes (extended coverage)', () => {
         updatedAt: expect.any(Date),
       });
       expect(endUserSessions).toHaveBeenCalledWith(OTHER, { apiKeys: false });
+      expect(deleteRecoveryCodes).toHaveBeenCalledWith({ userId: OTHER }, expect.anything());
+      expect(deleteWebauthnCredentials).toHaveBeenCalledWith({ userId: OTHER }, expect.anything());
       expect(auditCall()).toMatchObject({
         entityId: OTHER,
         action: 'mfa_reset',
@@ -2867,15 +3701,560 @@ describe('User routes (extended coverage)', () => {
 
   // ------------------------------------------------------ MFA profile
 
+  describe('required MFA', () => {
+    const REQUIRED_ALL = {
+      emailEnabled: true,
+      totpEnabled: true,
+      smsEnabled: false,
+      required: 'all' as const,
+      requiredRoles: [] as string[],
+      webauthnEnabled: true,
+      passkeyLoginEnabled: false,
+      requireDrivers: false,
+    };
+
+    function enrollmentToken(sv = 0): string {
+      return app.jwt.sign({ userId: OTHER, roleId: ROLE, mfaEnrollment: true, sv });
+    }
+
+    it('login of a required operator without MFA hands out the enrollment token and no session', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue(REQUIRED_ALL);
+      setupDbResults([fullUser()], [{ name: 'viewer' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'Whatever1' },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body).toEqual({
+        mfaEnrollmentRequired: true,
+        enrollmentToken: expect.any(String),
+        availableMethods: ['email', 'totp'],
+        webauthnAvailable: true,
+      });
+      expect(cookieNames(res)).not.toContain('csms_token');
+      expect(createRefreshToken).not.toHaveBeenCalled();
+      const decoded = app.jwt.verify<Record<string, unknown>>(body.enrollmentToken);
+      expect(decoded).toMatchObject({ userId: OTHER, mfaEnrollment: true, sv: 0 });
+      // 10 minutes.
+      expect(Number(decoded['exp']) - Number(decoded['iat'])).toBe(600);
+    });
+
+    it('login of a role outside the required list signs in as before', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        ...REQUIRED_ALL,
+        required: 'roles',
+        requiredRoles: ['admin'],
+      });
+      setupDbResults([fullUser()], [{ name: 'operator' }], [{ id: ROLE, name: 'operator' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'Whatever1' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().mfaEnrollmentRequired).toBeUndefined();
+      expect(res.json().token).toEqual(expect.any(String));
+      expect(cookieNames(res)).toEqual(expect.arrayContaining(['csms_token', 'csms_refresh']));
+    });
+
+    it('login of a listed role without MFA gets the enrollment token', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        ...REQUIRED_ALL,
+        required: 'roles',
+        requiredRoles: ['admin'],
+      });
+      setupDbResults([fullUser()], [{ name: 'admin' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'Whatever1' },
+      });
+      expect(res.json().mfaEnrollmentRequired).toBe(true);
+      expect(cookieNames(res)).not.toContain('csms_token');
+    });
+
+    it('a user with MFA gets the MFA step, not enrollment', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue(REQUIRED_ALL);
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'totp', totpSecretEnc: 'c' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'Whatever1' },
+      });
+      expect(res.json().mfaRequired).toBe(true);
+      expect(res.json().mfaEnrollmentRequired).toBeUndefined();
+    });
+
+    it('setup takes the enrollment token as the subject', async () => {
+      setupDbResults([{ mfaEnabled: false, mfaMethod: null }], [userRow({ mfaEnabled: false })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/setup',
+        headers: { authorization: `Bearer ${enrollmentToken()}` },
+        payload: { method: 'email' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ challengeId: 42 });
+      expect(createMfaChallenge).toHaveBeenCalledWith(client, {
+        userId: OTHER,
+        method: 'email',
+        purpose: 'setup',
+      });
+    });
+
+    it('setup answers 429 and sends no code over the resend cap', async () => {
+      vi.mocked(createCappedMfaChallenge).mockResolvedValueOnce({
+        limited: true,
+        retryAfterSeconds: 300,
+        openChallengeId: null,
+      });
+      setupDbResults([{ mfaEnabled: false, mfaMethod: null }], [userRow({ mfaEnabled: false })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/setup',
+        headers: { authorization: `Bearer ${enrollmentToken()}` },
+        payload: { method: 'email' },
+      });
+      expect(res.statusCode).toBe(429);
+      expect(res.json()).toMatchObject({ code: 'MFA_RESEND_LIMITED', retryAfterSeconds: 300 });
+      expect(res.headers['retry-after']).toBe('300');
+      expect(dispatchSystemNotification).not.toHaveBeenCalled();
+    });
+
+    it('setup replaces a switched-off method that was the only factor', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({ ...REQUIRED_ALL, totpEnabled: false });
+      setupDbResults([{ mfaEnabled: true, mfaMethod: 'totp' }], [userRow({ mfaEnabled: true })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/setup',
+        headers: { authorization: `Bearer ${enrollmentToken()}` },
+        payload: { method: 'email' },
+      });
+      expect(res.statusCode).toBe(200);
+    });
+
+    it('setup refuses the enrollment token once MFA is usable', async () => {
+      setupDbResults([{ mfaEnabled: true, mfaMethod: 'totp' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/setup',
+        headers: { authorization: `Bearer ${enrollmentToken()}` },
+        payload: { method: 'email' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('UNAUTHORIZED');
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+    });
+
+    it('setup refuses an enrollment token of an earlier session version', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/setup',
+        headers: { authorization: `Bearer ${enrollmentToken(3)}` },
+        payload: { method: 'email' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: 'Session ended', code: 'UNAUTHORIZED' });
+    });
+
+    it('setup refuses an expired enrollment token', async () => {
+      const expired = app.jwt.sign({
+        userId: OTHER,
+        roleId: ROLE,
+        mfaEnrollment: true,
+        sv: 0,
+        exp: Math.floor(Date.now() / 1000) - 60,
+      } as never);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/setup',
+        headers: { authorization: `Bearer ${expired}` },
+        payload: { method: 'email' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+    });
+
+    it('confirm with the enrollment token signs the user in and returns the recovery codes', async () => {
+      setupDbResults(
+        [{ mfaEnabled: false, mfaMethod: null }],
+        [{ totpSecretEnc: 'cipher', mfaEnabled: false }],
+        [{ sessionVersion: 1 }],
+        [],
+        [
+          {
+            id: OTHER,
+            email: 'op@example.com',
+            firstName: 'Op',
+            lastName: 'Erator',
+            language: 'de',
+            timezone: 'UTC',
+            themePreference: 'light',
+            roleId: ROLE,
+            roleName: 'viewer',
+          },
+        ],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/confirm',
+        headers: { authorization: `Bearer ${enrollmentToken()}` },
+        payload: { method: 'totp', code: '123456' },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.success).toBe(true);
+      expect(body.recoveryCodes).toEqual(['abcde-fghjk']);
+      expect(body.user).toMatchObject({ id: OTHER, email: 'op@example.com' });
+      expect(body.role).toEqual({ id: ROLE, name: 'viewer' });
+      expect(cookieNames(res)).toEqual(expect.arrayContaining(['csms_token', 'csms_refresh']));
+      // One UPDATE enables MFA and raises the session version while it is still the
+      // token's, which ends the enrollment token.
+      const update = opsFor('update', 'users')[0];
+      expect(argOf(update, 'set')).toMatchObject({ mfaEnabled: true, sessionVersion: 'sql' });
+      expect(argOf(update, 'where')).toEqual([
+        'and',
+        ['eq', 'users.id', OTHER],
+        ['eq', 'users.sessionVersion', 0],
+      ]);
+      expect(revokeAllUserSessions).toHaveBeenCalledWith(OTHER);
+      expect(announceSessionChange).toHaveBeenCalledWith(OTHER);
+      expect(endUserSessions).not.toHaveBeenCalled();
+      const session = app.jwt.verify<Record<string, unknown>>(String(body.token));
+      expect(session['mfaEnrollment']).toBeUndefined();
+      expect(session['sv']).toBe(1);
+      // The enrollment token is the proof: the sign-in that issued it checked the password.
+      expect(checkFactorProof).not.toHaveBeenCalled();
+    });
+
+    it('of two parallel confirms with one enrollment token, the second issues no session', async () => {
+      // The first confirm already raised the session version, so the guarded UPDATE
+      // matches no row.
+      setupDbResults(
+        [{ mfaEnabled: false, mfaMethod: null }],
+        [{ totpSecretEnc: 'cipher', mfaEnabled: false }],
+        [],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/confirm',
+        headers: { authorization: `Bearer ${enrollmentToken()}` },
+        payload: { method: 'totp', code: '123456' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json()).toEqual({ error: 'Session ended', code: 'UNAUTHORIZED' });
+      expect(cookieNames(res)).not.toContain('csms_token');
+      expect(createRefreshToken).not.toHaveBeenCalled();
+      expect(revokeAllUserSessions).not.toHaveBeenCalled();
+      expect(issueRecoveryCodes).not.toHaveBeenCalled();
+      expect(writeAudit).not.toHaveBeenCalled();
+    });
+
+    it('login of a required operator answers 403 MFA_SETUP_UNAVAILABLE when no method can be set up', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        ...REQUIRED_ALL,
+        emailEnabled: false,
+        totpEnabled: false,
+        smsEnabled: true,
+      });
+      // SMS only and no phone: nothing can be set up.
+      setupDbResults([fullUser({ phone: null })], [{ name: 'viewer' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'Whatever1' },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('MFA_SETUP_UNAVAILABLE');
+      expect(cookieNames(res)).not.toContain('csms_token');
+      expect(createRefreshToken).not.toHaveBeenCalled();
+    });
+
+    describe('fail closed when the MFA settings cannot be read', () => {
+      beforeEach(() => {
+        mfaRead.fails = true;
+      });
+
+      it('login of an operator without MFA answers 503 MFA_POLICY_UNAVAILABLE with no session', async () => {
+        setupDbResults([fullUser()]);
+        const res = await app.inject({
+          method: 'POST',
+          url: '/auth/login',
+          payload: { email: 'op@example.com', password: 'Whatever1' },
+        });
+        expect(res.statusCode).toBe(503);
+        expect(res.json().code).toBe('MFA_POLICY_UNAVAILABLE');
+        expect(cookieNames(res)).not.toContain('csms_token');
+        expect(createRefreshToken).not.toHaveBeenCalled();
+      });
+
+      it('login of an operator with MFA still gets the MFA step', async () => {
+        setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'totp', totpSecretEnc: 'c' })]);
+        const res = await app.inject({
+          method: 'POST',
+          url: '/auth/login',
+          payload: { email: 'op@example.com', password: 'Whatever1' },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json().mfaRequired).toBe(true);
+      });
+
+      it('the forced password change keeps the new password and answers 503', async () => {
+        setupDbResults([fullUser({ mustResetPassword: true })]);
+        const res = await app.inject({
+          method: 'POST',
+          url: '/auth/force-change-password',
+          payload: {
+            email: 'op@example.com',
+            currentPassword: 'Temp1',
+            newPassword: 'NewPassword123',
+          },
+        });
+        expect(res.statusCode).toBe(503);
+        expect(res.json().code).toBe('MFA_POLICY_UNAVAILABLE');
+        expect(argOf(opsFor('update', 'users')[0], 'set')).toMatchObject({
+          mustResetPassword: false,
+        });
+        expect(createRefreshToken).not.toHaveBeenCalled();
+      });
+
+      it('disable answers 503 before any check or write', async () => {
+        setupDbResults([
+          { roleId: ROLE, passwordHash: '$argon2id$h', mfaEnabled: true, mfaMethod: 'totp' },
+        ]);
+        const res = await app.inject({
+          method: 'DELETE',
+          url: '/users/me/mfa',
+          headers: auth,
+          payload: { proof: { kind: 'totp', code: '123456' } },
+        });
+        expect(res.statusCode).toBe(503);
+        expect(res.json().code).toBe('MFA_POLICY_UNAVAILABLE');
+        expect(checkFactorProof).not.toHaveBeenCalled();
+        expect(opsFor('update', 'users')).toHaveLength(0);
+        expect(deleteRecoveryCodes).not.toHaveBeenCalled();
+      });
+
+      it('refresh answers 503 for a user without MFA and keeps the refresh token', async () => {
+        vi.mocked(sessionRefreshTokenUserId).mockResolvedValue(OTHER);
+        setupDbResults([
+          { id: OTHER, roleId: ROLE, isActive: true, mfaEnabled: false, mfaMethod: null },
+        ]);
+        const res = await app.inject({
+          method: 'POST',
+          url: '/auth/refresh',
+          cookies: { csms_refresh: app.signCookie('good') },
+        });
+        expect(res.statusCode).toBe(503);
+        expect(res.json().code).toBe('MFA_POLICY_UNAVAILABLE');
+        expect(validateAndRotateRefreshToken).not.toHaveBeenCalled();
+        expect(revokeRefreshToken).not.toHaveBeenCalled();
+        expect(cookieNames(res)).not.toContain('csms_refresh');
+      });
+
+      it('refresh renews a user with MFA', async () => {
+        vi.mocked(sessionRefreshTokenUserId).mockResolvedValue(OTHER);
+        vi.mocked(validateAndRotateRefreshToken).mockResolvedValue({ userId: OTHER } as never);
+        setupDbResults(
+          [{ id: OTHER, roleId: ROLE, isActive: true, mfaEnabled: true, mfaMethod: 'email' }],
+          [{ id: OTHER, roleId: ROLE, isActive: true }],
+        );
+        const res = await app.inject({
+          method: 'POST',
+          url: '/auth/refresh',
+          cookies: { csms_refresh: app.signCookie('good') },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(cookieNames(res)).toContain('csms_token');
+      });
+    });
+
+    it('refresh of a required operator without MFA revokes the token and answers MFA_ENROLLMENT_REQUIRED', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue(REQUIRED_ALL);
+      vi.mocked(sessionRefreshTokenUserId).mockResolvedValue(OTHER);
+      setupDbResults(
+        [{ id: OTHER, roleId: ROLE, isActive: true, mfaEnabled: false, mfaMethod: null }],
+        [{ name: 'viewer' }],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/refresh',
+        cookies: { csms_refresh: app.signCookie('good') },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('MFA_ENROLLMENT_REQUIRED');
+      expect(sessionRefreshTokenUserId).toHaveBeenCalledWith('good');
+      expect(revokeRefreshToken).toHaveBeenCalledWith('good');
+      expect(validateAndRotateRefreshToken).not.toHaveBeenCalled();
+      expect(createRefreshToken).not.toHaveBeenCalled();
+      // The cookies are cleared, so the browser holds no session.
+      expect(cookieNames(res)).toEqual(expect.arrayContaining(['csms_token', 'csms_refresh']));
+    });
+
+    it('refresh of a required operator with recovery codes left renews', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({ ...REQUIRED_ALL, totpEnabled: false });
+      vi.mocked(countRecoveryCodes).mockResolvedValue(2);
+      vi.mocked(sessionRefreshTokenUserId).mockResolvedValue(OTHER);
+      vi.mocked(validateAndRotateRefreshToken).mockResolvedValue({ userId: OTHER } as never);
+      setupDbResults(
+        [{ id: OTHER, roleId: ROLE, isActive: true, mfaEnabled: true, mfaMethod: 'totp' }],
+        [{ id: OTHER, roleId: ROLE, isActive: true }],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/refresh',
+        cookies: { csms_refresh: app.signCookie('good') },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(revokeRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it('refresh of an operator whose role required MFA does not cover renews', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        ...REQUIRED_ALL,
+        required: 'roles',
+        requiredRoles: ['admin'],
+      });
+      vi.mocked(sessionRefreshTokenUserId).mockResolvedValue(OTHER);
+      vi.mocked(validateAndRotateRefreshToken).mockResolvedValue({ userId: OTHER } as never);
+      setupDbResults(
+        [{ id: OTHER, roleId: ROLE, isActive: true, mfaEnabled: false, mfaMethod: null }],
+        [{ name: 'viewer' }],
+        [{ id: OTHER, roleId: ROLE, isActive: true }],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/refresh',
+        cookies: { csms_refresh: app.signCookie('good') },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(revokeRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it('GET /users/me/mfa reports required MFA for the role', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue(REQUIRED_ALL);
+      setupDbResults(
+        [
+          {
+            roleId: ROLE,
+            mfaEnabled: true,
+            mfaMethod: 'totp',
+            email: 'op@example.com',
+            phone: null,
+          },
+        ],
+        [{ name: 'viewer' }],
+      );
+      const res = await app.inject({ method: 'GET', url: '/users/me/mfa', headers: auth });
+      expect(res.json().requiredByPolicy).toBe(true);
+    });
+
+    it('disable answers 409 MFA_REQUIRED_BY_POLICY while required MFA covers the role', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue(REQUIRED_ALL);
+      setupDbResults(
+        [{ roleId: ROLE, passwordHash: '$argon2id$h', mfaEnabled: true, mfaMethod: 'totp' }],
+        [{ name: 'viewer' }],
+      );
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/users/me/mfa',
+        headers: auth,
+        payload: { proof: { kind: 'totp', code: '123456' } },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('MFA_REQUIRED_BY_POLICY');
+      expect(checkFactorProof).not.toHaveBeenCalled();
+      expect(opsFor('update', 'users')).toHaveLength(0);
+      expect(deleteRecoveryCodes).not.toHaveBeenCalled();
+      expect(endUserSessions).not.toHaveBeenCalled();
+    });
+
+    it('disable still works for a role outside the required list', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        ...REQUIRED_ALL,
+        required: 'roles',
+        requiredRoles: ['admin'],
+      });
+      setupDbResults(
+        [{ roleId: ROLE, passwordHash: '$argon2id$h', mfaEnabled: true, mfaMethod: 'totp' }],
+        [{ name: 'viewer' }],
+      );
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/users/me/mfa',
+        headers: auth,
+        payload: { proof: { kind: 'totp', code: '123456' } },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(opsFor('update', 'users')).toHaveLength(1);
+    });
+
+    it('disable never takes the password alone while the account holds a factor', async () => {
+      vi.mocked(checkFactorProof).mockResolvedValueOnce({
+        status: 400,
+        body: {
+          error: 'Confirm with a factor you have or a recovery code',
+          code: 'VALIDATION_ERROR',
+          proofKinds: ['totp', 'recovery_code'],
+        },
+      });
+      setupDbResults(
+        [{ roleId: ROLE, passwordHash: '$argon2id$h', mfaEnabled: true, mfaMethod: 'totp' }],
+        [{ name: 'viewer' }],
+      );
+      const res = await app.inject({
+        method: 'DELETE',
+        url: '/users/me/mfa',
+        headers: auth,
+        payload: { password: 'Correct1' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        proofKinds: ['totp', 'recovery_code'],
+      });
+      // The password field is not part of the body: the removal check gets no proof.
+      expect(checkFactorProof).toHaveBeenCalledWith(
+        expect.anything(),
+        { userId: ME },
+        undefined,
+        'remove',
+      );
+      expect(argon2.verify).not.toHaveBeenCalled();
+      expect(opsFor('update', 'users')).toHaveLength(0);
+      expect(deleteRecoveryCodes).not.toHaveBeenCalled();
+      expect(endUserSessions).not.toHaveBeenCalled();
+    });
+
+    it('an API key is not affected by required MFA', async () => {
+      // API keys never pass a sign-in, so the setting never reaches them; the
+      // self-service setup refuses them as before.
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/setup',
+        headers: { authorization: `Bearer ${'a'.repeat(64)}` },
+        payload: { method: 'email' },
+      });
+      expect(res.json().code).not.toBe('MFA_ENROLLMENT_REQUIRED');
+    });
+  });
+
   describe('MFA profile endpoints', () => {
     it('GET /users/me/mfa lists only the enabled methods', async () => {
       vi.mocked(getMfaConfig).mockResolvedValue({
         emailEnabled: false,
         totpEnabled: true,
         smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
       });
       setupDbResults([
-        { mfaEnabled: true, mfaMethod: 'totp', email: 'op@example.com', phone: '+15550001111' },
+        { mfaEnabled: true, mfaMethod: 'totp', email: 'op@example.com', phone: '+12015550111' },
       ]);
       const res = await app.inject({ method: 'GET', url: '/users/me/mfa', headers: auth });
       expect(res.statusCode).toBe(200);
@@ -2883,7 +4262,27 @@ describe('User routes (extended coverage)', () => {
         mfaEnabled: true,
         mfaMethod: 'totp',
         availableMethods: ['totp', 'sms'],
+        recoveryCodesRemaining: 0,
+        recoveryCodesUsedUp: false,
+        requiredByPolicy: false,
+        passkeyCount: 0,
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        factorProofKinds: [],
+        lastFactorIsPasskey: false,
+        lastFactorProofKinds: [],
+        ssoProofUntil: null,
       });
+    });
+
+    it('GET /users/me/mfa counts the unused recovery codes', async () => {
+      vi.mocked(countRecoveryCodes).mockResolvedValue(7);
+      setupDbResults([
+        { mfaEnabled: true, mfaMethod: 'totp', email: 'op@example.com', phone: null },
+      ]);
+      const res = await app.inject({ method: 'GET', url: '/users/me/mfa', headers: auth });
+      expect(res.json().recoveryCodesRemaining).toBe(7);
+      expect(countRecoveryCodes).toHaveBeenCalledWith({ userId: ME });
     });
 
     it('GET /users/me/mfa leaves out SMS without a phone number', async () => {
@@ -2891,6 +4290,11 @@ describe('User routes (extended coverage)', () => {
         emailEnabled: true,
         totpEnabled: true,
         smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
       });
       setupDbResults([
         { mfaEnabled: false, mfaMethod: null, email: 'op@example.com', phone: null },
@@ -2904,6 +4308,11 @@ describe('User routes (extended coverage)', () => {
         emailEnabled: true,
         totpEnabled: true,
         smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
       });
       setupDbResults([
         {
@@ -2930,6 +4339,11 @@ describe('User routes (extended coverage)', () => {
         emailEnabled: true,
         totpEnabled: true,
         smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
       });
       setupDbResults([{ totpSecretEnc: null, mfaEnabled: true }]);
       const res = await app.inject({
@@ -2960,13 +4374,29 @@ describe('User routes (extended coverage)', () => {
         emailEnabled: true,
         totpEnabled: false,
         smsEnabled: false,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
       });
       setupDbResults([]);
       const res = await app.inject({ method: 'GET', url: '/users/me/mfa', headers: auth });
+      // Without a row there is no email address to send a code to, so email is not offered.
       expect(res.json()).toEqual({
         mfaEnabled: false,
         mfaMethod: null,
-        availableMethods: ['email'],
+        availableMethods: [],
+        recoveryCodesRemaining: 0,
+        recoveryCodesUsedUp: false,
+        requiredByPolicy: false,
+        passkeyCount: 0,
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        factorProofKinds: [],
+        lastFactorIsPasskey: false,
+        lastFactorProofKinds: [],
+        ssoProofUntil: null,
       });
     });
 
@@ -2975,6 +4405,11 @@ describe('User routes (extended coverage)', () => {
         emailEnabled: true,
         totpEnabled: false,
         smsEnabled: false,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
       });
       const res = await app.inject({
         method: 'POST',
@@ -3051,7 +4486,11 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ challengeId: 42 });
-      expect(createMfaChallenge).toHaveBeenCalledWith(client, { userId: ME, method: 'email' });
+      expect(createMfaChallenge).toHaveBeenCalledWith(client, {
+        userId: ME,
+        method: 'email',
+        purpose: 'setup',
+      });
       expect(dispatchSystemNotification).toHaveBeenCalledWith(
         client,
         'mfa.VerificationCode',
@@ -3067,6 +4506,11 @@ describe('User routes (extended coverage)', () => {
         emailEnabled: false,
         totpEnabled: false,
         smsEnabled: false,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
       });
       const res = await app.inject({
         method: 'POST',
@@ -3132,9 +4576,66 @@ describe('User routes (extended coverage)', () => {
         action: 'mfa_enabled',
         after: { mfaMethod: 'totp' },
       });
+      expect(issueRecoveryCodes).toHaveBeenCalledWith(
+        { userId: ME },
+        'generated',
+        expect.anything(),
+      );
+      expect(res.json()).toEqual({ success: true, recoveryCodes: ['abcde-fghjk'] });
+    });
+
+    it('confirm with a session refuses a missing proof before checking the code', async () => {
+      vi.mocked(checkFactorProof).mockResolvedValueOnce({
+        status: 400,
+        body: {
+          error: 'Confirm with your current password to add a second factor',
+          code: 'VALIDATION_ERROR',
+          proofKinds: ['password'],
+        },
+      });
+      setupDbResults([{ totpSecretEnc: 'cipher' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/confirm',
+        headers: auth,
+        payload: { method: 'totp', code: '123456' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR', proofKinds: ['password'] });
+      expect(checkFactorProof).toHaveBeenCalledWith(expect.anything(), { userId: ME }, undefined);
+      expect(matchTotpStep).not.toHaveBeenCalled();
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('confirm passes the proof of the body to the check', async () => {
+      setupDbResults([{ totpSecretEnc: 'cipher' }]);
+      const proof = { kind: 'password', password: 'secret' };
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/confirm',
+        headers: auth,
+        payload: { method: 'totp', code: '123456', proof },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(checkFactorProof).toHaveBeenCalledWith(expect.anything(), { userId: ME }, proof);
+    });
+
+    it('confirm keeps the recovery codes of an account that has some (passkeys only)', async () => {
+      vi.mocked(countRecoveryCodes).mockResolvedValue(8);
+      setupDbResults([{ totpSecretEnc: 'cipher' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/confirm',
+        headers: auth,
+        payload: { method: 'totp', code: '123456' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ success: true });
+      expect(issueRecoveryCodes).not.toHaveBeenCalled();
     });
 
     it('confirm verifies an SMS code against its challenge', async () => {
+      setupDbResults([{ totpSecretEnc: null, mfaEnabled: false, phone: '+12015550111' }]);
       const res = await app.inject({
         method: 'POST',
         url: '/users/me/mfa/confirm',
@@ -3142,7 +4643,13 @@ describe('User routes (extended coverage)', () => {
         payload: { method: 'sms', code: '123456', challengeId: 3 },
       });
       expect(res.statusCode).toBe(200);
-      expect(verifyMfaChallenge).toHaveBeenCalledWith(client, 3, '123456', { userId: ME });
+      // A setup code confirms only the number the user has now.
+      expect(verifyMfaChallenge).toHaveBeenCalledWith(client, 3, '123456', {
+        userId: ME,
+        method: 'sms',
+        purpose: 'setup',
+        destination: '+12015550111',
+      });
       expect(argOf(opsFor('update', 'users')[0], 'set')).toMatchObject({ mfaMethod: 'sms' });
     });
 
@@ -3177,36 +4684,49 @@ describe('User routes (extended coverage)', () => {
         method: 'DELETE',
         url: '/users/me/mfa',
         headers: auth,
-        payload: { password: 'x' },
+        payload: { proof: { kind: 'totp', code: '123456' } },
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('USER_NOT_FOUND');
     });
 
-    it('disable returns 400 INVALID_PASSWORD for a wrong password', async () => {
-      setupDbResults([{ passwordHash: '$argon2id$h', mfaEnabled: true, mfaMethod: 'totp' }]);
-      vi.mocked(argon2.verify).mockResolvedValue(false);
+    it('disable keeps MFA on when the proof is refused', async () => {
+      vi.mocked(checkFactorProof).mockResolvedValueOnce({
+        status: 400,
+        body: { error: 'Invalid verification code', code: 'MFA_CODE_INVALID' },
+      });
+      setupDbResults([{ mfaEnabled: true, mfaMethod: 'totp' }]);
       const res = await app.inject({
         method: 'DELETE',
         url: '/users/me/mfa',
         headers: auth,
-        payload: { password: 'wrong' },
+        payload: { proof: { kind: 'totp', code: '000000' } },
       });
       expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('INVALID_PASSWORD');
+      expect(res.json().code).toBe('MFA_CODE_INVALID');
       expect(opsFor('update', 'users')).toHaveLength(0);
+      expect(deleteRecoveryCodes).not.toHaveBeenCalled();
+      expect(deleteWebauthnCredentials).not.toHaveBeenCalled();
+      expect(endUserSessions).not.toHaveBeenCalled();
     });
 
     it('disable clears MFA fields, revokes sessions and audits the before state', async () => {
-      setupDbResults([{ passwordHash: '$argon2id$h', mfaEnabled: true, mfaMethod: 'email' }]);
+      setupDbResults([{ mfaEnabled: true, mfaMethod: 'email' }]);
+      const proof = { kind: 'recovery_code', recoveryCode: 'abcde-fghjk' };
       const res = await app.inject({
         method: 'DELETE',
         url: '/users/me/mfa',
         headers: auth,
-        payload: { password: 'Correct1' },
+        payload: { proof },
       });
       expect(res.statusCode).toBe(200);
-      expect(argon2.verify).toHaveBeenCalledWith('$argon2id$h', 'Correct1');
+      expect(checkFactorProof).toHaveBeenCalledWith(
+        expect.anything(),
+        { userId: ME },
+        expect.objectContaining(proof),
+        'remove',
+      );
+      expect(argon2.verify).not.toHaveBeenCalled();
       expect(argOf(opsFor('update', 'users')[0], 'set')).toEqual({
         mfaEnabled: false,
         mfaMethod: null,
@@ -3215,6 +4735,8 @@ describe('User routes (extended coverage)', () => {
         updatedAt: expect.any(Date),
       });
       expect(endUserSessions).toHaveBeenCalledWith(ME, { apiKeys: false });
+      expect(deleteRecoveryCodes).toHaveBeenCalledWith({ userId: ME }, expect.anything());
+      expect(deleteWebauthnCredentials).toHaveBeenCalledWith({ userId: ME }, expect.anything());
       expect(auditCall()).toMatchObject({
         action: 'mfa_disabled',
         before: { mfaEnabled: true, mfaMethod: 'email' },

@@ -18,6 +18,7 @@ import { Register } from '@/pages/Register';
 import { ForgotPassword } from '@/pages/ForgotPassword';
 import { ResetPassword } from '@/pages/ResetPassword';
 import { Activate } from '@/pages/Activate';
+import { MfaSetup } from '@/pages/MfaSetup';
 import { PaymentReturn } from '@/pages/PaymentReturn';
 import { PayoutOnboarding, PayoutOnboardingReturn } from '@/pages/PayoutOnboarding';
 
@@ -159,6 +160,7 @@ export function App(): React.JSX.Element {
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/activate" element={<Activate />} />
+                <Route path="/mfa-setup" element={<MfaSetup />} />
                 <Route path="/payments/return" element={<PaymentReturn />} />
                 <Route path="/payout-onboarding" element={<PayoutOnboarding />} />
                 <Route path="/payout-onboarding/return" element={<PayoutOnboardingReturn />} />

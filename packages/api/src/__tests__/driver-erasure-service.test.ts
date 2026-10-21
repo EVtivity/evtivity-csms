@@ -49,9 +49,17 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn(),
 }));
 
-const { eraseMethodsMock, deactivateMock } = vi.hoisted(() => ({
-  eraseMethodsMock: vi.fn(),
-  deactivateMock: vi.fn(),
+const { eraseMethodsMock, deactivateMock, deleteCodesMock, deleteCredentialsMock } = vi.hoisted(
+  () => ({
+    eraseMethodsMock: vi.fn(),
+    deactivateMock: vi.fn(),
+    deleteCodesMock: vi.fn(),
+    deleteCredentialsMock: vi.fn(),
+  }),
+);
+vi.mock('../services/mfa-factor.service.js', () => ({
+  deleteRecoveryCodes: deleteCodesMock,
+  deleteWebauthnCredentials: deleteCredentialsMock,
 }));
 vi.mock('@evtivity/payments', () => ({ eraseDriverMethods: eraseMethodsMock }));
 vi.mock('../lib/payments.js', () => ({ paymentContext: vi.fn(() => ({ ctx: true })) }));
@@ -123,6 +131,9 @@ describe('eraseDriver', () => {
       erasedAt: expect.any(Date),
     });
     expect(chains.filter((c) => c.kind === 'delete')).toHaveLength(5);
+    // The recovery codes go in the same transaction as the anonymized row.
+    expect(deleteCodesMock).toHaveBeenCalledWith({ driverId: DRIVER_ID }, expect.anything());
+    expect(deleteCredentialsMock).toHaveBeenCalledWith({ driverId: DRIVER_ID }, expect.anything());
     expect(eraseMethodsMock).toHaveBeenCalledWith(DRIVER_ID, { ctx: true });
     expect(deactivateMock).toHaveBeenCalledWith(DRIVER_ID, { actor, log });
     // The audit row holds counts only, never the erased data.

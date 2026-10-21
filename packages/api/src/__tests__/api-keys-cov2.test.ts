@@ -86,6 +86,31 @@ vi.mock('@evtivity/database', () => ({
   localAuthListAuditLog: {},
 }));
 
+// The fresh proof and the notice: their own tests cover the checks; here only the wiring.
+const proofCheck = vi.hoisted(() => ({
+  checkFactorProof: vi.fn(),
+  sendSecurityNotice: vi.fn(),
+}));
+vi.mock('../lib/mfa-factor-proof.js', async () => {
+  const { z } = await import('zod');
+  return {
+    FACTOR_PROOF_KINDS: ['totp', 'code', 'passkey', 'password'],
+    factorProof: z
+      .object({ kind: z.string(), password: z.string().optional(), code: z.string().optional() })
+      .passthrough(),
+    checkFactorProof: proofCheck.checkFactorProof,
+    sendFactorProofRefusal: async (
+      reply: { status: (n: number) => { send: (body: unknown) => Promise<unknown> } },
+      refused: { status: number; body: unknown },
+    ) => {
+      await reply.status(refused.status).send(refused.body);
+    },
+  };
+});
+vi.mock('../lib/security-notice.js', () => ({
+  sendSecurityNotice: proofCheck.sendSecurityNotice,
+}));
+
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),

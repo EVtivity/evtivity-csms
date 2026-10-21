@@ -158,6 +158,7 @@ describe('validateAndRotateRefreshToken', () => {
       userId: 'usr_abc123',
       driverId: null,
       tokenId: 42,
+      client: null,
     });
     expect(db.update).toHaveBeenCalled();
   });
@@ -231,6 +232,7 @@ describe('validateAndRotateRefreshToken', () => {
       driverId: 'drv_xyz789',
       tokenHash: 'somehash',
       type: 'api_key',
+      client: 'mobile',
       expiresAt: null,
       revokedAt: null,
       createdAt: new Date(),
@@ -245,6 +247,7 @@ describe('validateAndRotateRefreshToken', () => {
       userId: null,
       driverId: 'drv_xyz789',
       tokenId: 99,
+      client: 'mobile',
     });
   });
 

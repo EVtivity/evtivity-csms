@@ -245,6 +245,42 @@ describe('getCompanyCountry', () => {
   });
 });
 
+describe('getCompanyName', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mockSelect.mockReset();
+  });
+
+  it('returns the stored name, trimmed', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: '  Acme Charging ' }]));
+    const { getCompanyName } = await import('../lib/system-settings.js');
+    expect(await getCompanyName()).toBe('Acme Charging');
+  });
+
+  it('falls back to the default for a missing, empty or non-string value', async () => {
+    const { getCompanyName, clearSystemSettingsCache } = await import('../lib/system-settings.js');
+    for (const rows of [[], [{ value: '  ' }], [{ value: 42 }]]) {
+      clearSystemSettingsCache();
+      mockSelect.mockReturnValue(makeChain(rows));
+      expect(await getCompanyName()).toBe('EVtivity');
+    }
+  });
+
+  it('serves the cached name until the cache is cleared, and on a failed read', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'First' }]));
+    const { getCompanyName, clearSystemSettingsCache } = await import('../lib/system-settings.js');
+    expect(await getCompanyName()).toBe('First');
+    mockSelect.mockReturnValue(makeChain([{ value: 'Second' }]));
+    expect(await getCompanyName()).toBe('First');
+    clearSystemSettingsCache();
+    expect(await getCompanyName()).toBe('Second');
+    clearSystemSettingsCache();
+    mockSelect.mockReturnValue(makeFailingChain());
+    expect(await getCompanyName()).toBe('EVtivity');
+  });
+});
+
 describe('getInvoicePaymentSettings', () => {
   beforeEach(() => {
     vi.resetModules();

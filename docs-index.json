@@ -155,6 +155,11 @@
     "description": "Configure tariffs with time-of-day restrictions, split billing, holidays, and multi-level assignment."
   },
   {
+    "path": "/docs/csms/profile",
+    "title": "Profile",
+    "description": "Manage your own operator account, password, two-factor authentication, passkeys, and recovery codes."
+  },
+  {
     "path": "/docs/csms/reports",
     "title": "Reports",
     "description": "Generate financial, energy, and sustainability reports, with carbon footprint tracking and revenue split by tax."

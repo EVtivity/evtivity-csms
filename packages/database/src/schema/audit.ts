@@ -142,6 +142,16 @@ export const driverAuditActionEnum = pgEnum('driver_audit_action', [
   'mfa_disabled',
   'roaming_session_started',
   'erased',
+  // MFA recovery codes (v0.1.48, 0479).
+  'recovery_codes_generated',
+  'recovery_codes_regenerated',
+  'recovery_code_used',
+  // WebAuthn credentials (v0.1.48, 0479).
+  'webauthn_credential_added',
+  'webauthn_credential_renamed',
+  'webauthn_credential_removed',
+  // Driver sign-in backoff (v0.1.48, 0479).
+  'account_locked',
 ]);
 
 export const driverAuditLog = pgTable(
@@ -224,6 +234,14 @@ export const userAuditActionEnum = pgEnum('user_audit_action', [
   // Operator access hardening (v0.1.46, 0475).
   'mfa_reset',
   'account_locked',
+  // MFA recovery codes (v0.1.48, 0479).
+  'recovery_codes_generated',
+  'recovery_codes_regenerated',
+  'recovery_code_used',
+  // WebAuthn credentials (v0.1.48, 0479).
+  'webauthn_credential_added',
+  'webauthn_credential_renamed',
+  'webauthn_credential_removed',
 ]);
 
 export const userAuditLog = pgTable(

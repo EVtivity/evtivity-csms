@@ -5,6 +5,12 @@ import { create } from 'zustand';
 import { api, ApiError } from './api';
 import { loadLanguage } from '../i18n';
 import { applyTheme, resolveInitialTheme, type Theme } from './theme';
+import { mfaPendingFromReply, type MfaPendingReply, type MfaPendingState } from './mfa-pending';
+import {
+  mfaEnrollmentFromReply,
+  type MfaEnrollmentReply,
+  type MfaEnrollmentState,
+} from './mfa-enrollment';
 
 export class MustResetPasswordError extends Error {
   constructor() {
@@ -13,7 +19,7 @@ export class MustResetPasswordError extends Error {
   }
 }
 
-interface User {
+export interface User {
   id: string;
   email: string;
   firstName: string | null;
@@ -61,20 +67,6 @@ async function fetchAccessInfo(): Promise<AccessInfo> {
   }
 }
 
-interface MfaPendingResponse {
-  mfaRequired: true;
-  mfaMethod: string;
-  mfaToken: string;
-  challengeId?: string;
-}
-
-interface MfaPendingState {
-  mfaRequired: true;
-  mfaMethod: string;
-  mfaToken: string;
-  challengeId?: string;
-}
-
 interface AuthState {
   user: User | null;
   role: string | null;
@@ -88,13 +80,19 @@ interface AuthState {
   hasAllSiteAccess: boolean;
   theme: Theme;
   isAuthenticated: boolean;
+  /** The user chose Log Out: the next sign-in opens the dashboard, not the page they left. */
+  signedOut: boolean;
   isHydrating: boolean;
   apiDown: boolean;
   mfaPending: MfaPendingState | null;
+  /** The MFA setup a sign-in requires before its session (the /mfa-setup page). Memory only. */
+  mfaEnrollment: MfaEnrollmentState | null;
   login: (email: string, password: string, recaptchaToken?: string) => Promise<void>;
   completeMfaLogin: (user: User, role: string | null) => Promise<void>;
   setMfaPending: (state: MfaPendingState) => void;
   clearMfaPending: () => void;
+  setMfaEnrollment: (state: MfaEnrollmentState) => void;
+  clearMfaEnrollment: () => void;
   logout: () => Promise<void>;
   hydrate: () => void;
   retryConnection: () => void;
@@ -177,31 +175,30 @@ export const useAuth = create<AuthState>((set, get) => ({
   hasAllSiteAccess: false,
   theme: initial.theme,
   isAuthenticated: initial.isAuthenticated,
+  signedOut: false,
   isHydrating: true,
   apiDown: false,
   mfaPending: null,
+  mfaEnrollment: null,
 
   login: async (email: string, password: string, recaptchaToken?: string) => {
     const body: Record<string, string> = { email, password };
     if (recaptchaToken != null) body['recaptchaToken'] = recaptchaToken;
-    const data = await api.post<LoginResponse | MfaPendingResponse | MustResetPasswordResponse>(
-      '/v1/auth/login',
-      body,
-    );
+    const data = await api.post<
+      LoginResponse | MfaPendingReply | MfaEnrollmentReply | MustResetPasswordResponse
+    >('/v1/auth/login', body);
 
     if ('mustResetPassword' in data) {
       throw new MustResetPasswordError();
     }
 
+    if ('mfaEnrollmentRequired' in data) {
+      set({ mfaEnrollment: mfaEnrollmentFromReply(data), mfaPending: null });
+      return;
+    }
+
     if ('mfaRequired' in data) {
-      set({
-        mfaPending: {
-          mfaRequired: true,
-          mfaMethod: data.mfaMethod,
-          mfaToken: data.mfaToken,
-          ...(data.challengeId != null ? { challengeId: data.challengeId } : {}),
-        },
-      });
+      set({ mfaPending: mfaPendingFromReply(data) });
       return;
     }
 
@@ -222,6 +219,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       hasAllSiteAccess: access.hasAllSiteAccess,
       theme: loginData.user.themePreference,
       isAuthenticated: true,
+      signedOut: false,
       mfaPending: null,
     });
     api.post('/v1/access-logs', { action: 'login' }).catch(() => {});
@@ -244,7 +242,9 @@ export const useAuth = create<AuthState>((set, get) => ({
       hasAllSiteAccess: access.hasAllSiteAccess,
       theme: user.themePreference,
       isAuthenticated: true,
+      signedOut: false,
       mfaPending: null,
+      mfaEnrollment: null,
     });
     api.post('/v1/access-logs', { action: 'login' }).catch(() => {});
   },
@@ -255,6 +255,14 @@ export const useAuth = create<AuthState>((set, get) => ({
 
   clearMfaPending: () => {
     set({ mfaPending: null });
+  },
+
+  setMfaEnrollment: (state: MfaEnrollmentState) => {
+    set({ mfaEnrollment: state, mfaPending: null });
+  },
+
+  clearMfaEnrollment: () => {
+    set({ mfaEnrollment: null });
   },
 
   logout: async () => {
@@ -278,6 +286,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       permissions: [],
       hasAllSiteAccess: false,
       isAuthenticated: false,
+      signedOut: true,
     });
   },
 
@@ -307,6 +316,7 @@ export const useAuth = create<AuthState>((set, get) => ({
           permissions: me.permissions,
           hasAllSiteAccess: me.hasAllSiteAccess,
           isAuthenticated: true,
+          signedOut: false,
           isHydrating: false,
         });
       })

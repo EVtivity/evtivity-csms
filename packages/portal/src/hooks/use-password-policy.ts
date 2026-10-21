@@ -29,7 +29,7 @@ function selectPolicy(data: Record<string, unknown>): PasswordPolicy {
 export function usePasswordPolicy(): PasswordPolicy {
   const { data, error } = useQuery({
     queryKey: SECURITY_PUBLIC_QUERY_KEY,
-    queryFn: () => api.get<Record<string, unknown>>('/v1/security/public'),
+    queryFn: () => api.get<Record<string, unknown>>('/v1/security/public?app=portal'),
     staleTime: 60_000,
     select: selectPolicy,
   });

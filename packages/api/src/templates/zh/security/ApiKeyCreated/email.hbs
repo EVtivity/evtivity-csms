@@ -1,0 +1,12 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}{{firstName}}，您好，{{else}}您好，{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>已创建 API 密钥</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>您的账户已创建新的 API 密钥：{{keyName}}。{{#if expiresAt}}该密钥将于 {{expiresAt}} 过期。{{else}}该密钥永不过期。{{/if}}</p>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>如果此密钥不是您创建的，请在“设置 &gt; API 密钥”中撤销该密钥，更改密码并立即联系您的管理员。</p>

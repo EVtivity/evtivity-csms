@@ -25,6 +25,8 @@ interface ConfirmDialogProps {
   variant?: 'destructive' | 'default';
   cancelLabel?: string;
   isPending?: boolean;
+  /** Puts the children in a form whose submit is the confirm button, so Enter in a field confirms. */
+  asForm?: boolean;
   children?: React.ReactNode;
 }
 
@@ -39,9 +41,56 @@ export function ConfirmDialog({
   variant = 'destructive',
   cancelLabel,
   isPending = false,
+  asForm = false,
   children,
 }: ConfirmDialogProps): React.JSX.Element {
   const { t } = useTranslation();
+
+  function confirm(): void {
+    const result = onConfirm();
+    if (result !== false) {
+      onOpenChange(false);
+    }
+  }
+
+  const body = (
+    <>
+      <div className="space-y-4">
+        <DialogDescription>{description}</DialogDescription>
+        {children}
+      </div>
+      <DialogFooter className="flex-col-reverse md:flex-row">
+        <Button
+          type="button"
+          variant="outline"
+          className="gap-1.5 w-full md:w-auto"
+          onClick={() => {
+            onOpenChange(false);
+          }}
+        >
+          <X className="h-4 w-4" />
+          {cancelLabel ?? t('common.cancel')}
+        </Button>
+        <Button
+          type={asForm ? 'submit' : 'button'}
+          variant={variant}
+          disabled={isPending}
+          className="relative gap-1.5 w-full md:w-auto"
+          {...(asForm ? {} : { onClick: confirm })}
+        >
+          {isPending && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Spinner className="h-4 w-4" />
+            </div>
+          )}
+          <span className={`inline-flex items-center gap-1.5 ${isPending ? 'invisible' : ''}`}>
+            {confirmIcon}
+            {confirmLabel}
+          </span>
+        </Button>
+      </DialogFooter>
+    </>
+  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} dismissible={!isPending}>
@@ -49,43 +98,20 @@ export function ConfirmDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <DialogDescription>{description}</DialogDescription>
-          {children}
-        </div>
-        <DialogFooter className="flex-col-reverse md:flex-row">
-          <Button
-            variant="outline"
-            className="gap-1.5 w-full md:w-auto"
-            onClick={() => {
-              onOpenChange(false);
+        {asForm ? (
+          <form
+            noValidate
+            className="grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!isPending) confirm();
             }}
           >
-            <X className="h-4 w-4" />
-            {cancelLabel ?? t('common.cancel')}
-          </Button>
-          <Button
-            variant={variant}
-            disabled={isPending}
-            className="relative gap-1.5 w-full md:w-auto"
-            onClick={() => {
-              const result = onConfirm();
-              if (result !== false) {
-                onOpenChange(false);
-              }
-            }}
-          >
-            {isPending && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Spinner className="h-4 w-4" />
-              </div>
-            )}
-            <span className={`inline-flex items-center gap-1.5 ${isPending ? 'invisible' : ''}`}>
-              {confirmIcon}
-              {confirmLabel}
-            </span>
-          </Button>
-        </DialogFooter>
+            {body}
+          </form>
+        ) : (
+          body
+        )}
       </DialogContent>
     </Dialog>
   );

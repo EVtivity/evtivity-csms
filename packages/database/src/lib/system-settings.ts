@@ -42,6 +42,9 @@ let cachedTaxBasisAt = 0;
 let cachedCountry: string | null | undefined;
 let cachedCountryAt = 0;
 
+let cachedCompanyName: string | undefined;
+let cachedCompanyNameAt = 0;
+
 let cachedInvoicePayment: InvoicePaymentSettings | undefined;
 let cachedInvoicePaymentAt = 0;
 
@@ -194,6 +197,39 @@ export async function getCompanyCountry(): Promise<string | null> {
   }
 }
 
+/** The company name shown when nothing is stored. */
+export const DEFAULT_COMPANY_NAME = 'EVtivity';
+
+/**
+ * Cached reader for the `company.name` setting (Settings > Company), the name
+ * passkey prompts show. Falls back to DEFAULT_COMPANY_NAME when unset or empty,
+ * and on error without a cached value.
+ */
+export async function getCompanyName(): Promise<string> {
+  const now = Date.now();
+  if (cachedCompanyName !== undefined && now - cachedCompanyNameAt < TTL_MS) {
+    return cachedCompanyName;
+  }
+
+  try {
+    const [row] = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'company.name'));
+
+    const name = typeof row?.value === 'string' ? row.value.trim() : '';
+    cachedCompanyName = name !== '' ? name : DEFAULT_COMPANY_NAME;
+    cachedCompanyNameAt = now;
+    return cachedCompanyName;
+  } catch (err) {
+    logger.warn(
+      { err, key: 'company.name' },
+      'getCompanyName failed, using the cached value or default',
+    );
+    return cachedCompanyName ?? DEFAULT_COMPANY_NAME;
+  }
+}
+
 /** The bank details printed in the invoice PDF payment block. Unset values are null. */
 export interface InvoicePaymentSettings {
   accountHolder: string | null;
@@ -286,4 +322,6 @@ export function clearSystemSettingsCache(): void {
   cachedTaxBasisAt = 0;
   cachedCountry = undefined;
   cachedCountryAt = 0;
+  cachedCompanyName = undefined;
+  cachedCompanyNameAt = 0;
 }

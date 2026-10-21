@@ -24,6 +24,9 @@ import {
   type TemplateRenderer,
 } from './template-safety.js';
 import type { PubSubClient } from './pubsub.js';
+import { canonicalPhone, normalizeE164 } from './phone.js';
+
+export { normalizeE164 };
 
 const logger = createLogger('notification-dispatch');
 
@@ -699,22 +702,6 @@ export async function sendEmail(
   }
 }
 
-/**
- * Best-effort E.164 normalization. Strips whitespace and punctuation
- * (`( ) - .`), keeps the leading `+` if present, and tags a US country code
- * onto bare 10-digit / `1`-prefixed 11-digit numbers (the operator's most
- * common formatting mistake on a US driver row). Anything else is returned
- * with just the cosmetic punctuation stripped, so an obviously international
- * number passes through untouched and Twilio can apply its own normalization.
- */
-export function normalizeE164(phone: string): string {
-  const cleaned = phone.replace(/[\s().-]/g, '');
-  if (cleaned.startsWith('+')) return cleaned;
-  if (/^[0-9]{10}$/.test(cleaned)) return `+1${cleaned}`;
-  if (/^1[0-9]{10}$/.test(cleaned)) return `+${cleaned}`;
-  return cleaned;
-}
-
 /** What the notification test sink records next to each SMS. */
 export interface SmsSendContext {
   eventType?: string | undefined;
@@ -732,7 +719,8 @@ export async function sendSms(
   body: string,
   context: SmsSendContext = {},
 ): Promise<boolean> {
-  const normalizedTo = normalizeE164(to);
+  // The stored and compared form; a number that does not parse keeps the old cleanup.
+  const normalizedTo = canonicalPhone(to) ?? normalizeE164(to);
   const sinkUrl = getNotificationTestSinkUrl();
   if (sinkUrl != null) {
     return postToNotificationTestSink(sinkUrl, {

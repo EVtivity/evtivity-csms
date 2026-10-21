@@ -45,6 +45,7 @@ import {
 } from '../lib/response-schemas.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { routePath } from '../plugins/encoded-path-guard.js';
 
 // The V2G root trust store serves every station: changing it is company-wide,
 // so a site-restricted user gets this 404 before any write
@@ -277,8 +278,9 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
   // Without this gate, an operator with certificates:write can still manage
   // CA certs and CSRs even after PnC has been disabled.
   app.addHook('preHandler', async (request, reply) => {
-    if (!request.url.startsWith('/v1/pnc/')) return;
-    if (request.url.startsWith('/v1/pnc/settings')) return;
+    const url = routePath(request);
+    if (!url.startsWith('/v1/pnc/')) return;
+    if (url.startsWith('/v1/pnc/settings')) return;
     const enabled = await isPncEnabled();
     if (!enabled) {
       await reply.status(403).send({

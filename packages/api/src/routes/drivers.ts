@@ -31,6 +31,13 @@ import {
   pricingAssignmentAuditLog,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
+import {
+  INVALID_PHONE_REPLY,
+  normalizedPhone,
+  phoneToStore,
+  readPhoneInput,
+} from '../lib/phone-input.js';
+import { sendSecurityNotice } from '../lib/security-notice.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -700,12 +707,22 @@ export function driverRoutes(app: FastifyInstance): void {
         body: zodSchema(createDriverBody),
         response: {
           201: itemResponse(driverItem),
+          400: errorWith('Invalid phone number', [ERROR_CODES.VALIDATION_ERROR]),
           409: errorWith('Duplicate email', [ERROR_CODES.DUPLICATE_EMAIL]),
         },
       },
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createDriverBody>;
+
+      // Stored, compared and texted in E.164 only.
+      const createPhoneIn = readPhoneInput(body.phone);
+      if (createPhoneIn.kind === 'invalid') {
+        await reply.status(400).send(INVALID_PHONE_REPLY);
+        return;
+      }
+      const createPhone = phoneToStore(createPhoneIn);
+      if (createPhone !== undefined) body.phone = createPhone ?? undefined;
 
       if (body.email !== undefined) {
         body.email = body.email.toLowerCase();
@@ -800,12 +817,12 @@ export function driverRoutes(app: FastifyInstance): void {
           : body.email === null
             ? null
             : body.email.toLowerCase();
-      const phone =
-        body.phone === undefined
-          ? undefined
-          : body.phone === null || body.phone.trim() === ''
-            ? null
-            : body.phone;
+      const phoneIn = readPhoneInput(body.phone);
+      if (phoneIn.kind === 'invalid') {
+        await reply.status(400).send(INVALID_PHONE_REPLY);
+        return;
+      }
+      const phone = phoneToStore(phoneIn);
 
       if (email === null && before.passwordHash != null) {
         await reply.status(400).send({
@@ -889,6 +906,23 @@ export function driverRoutes(app: FastifyInstance): void {
             request.log,
           );
         }
+      }
+
+      // An operator changed the address or number the driver's links and codes go to:
+      // tell the driver at the previous one.
+      if (emailChanged && before.email != null && before.email !== '') {
+        sendSecurityNotice({ driverId: id }, 'security.EmailChanged', {}, request.log, {
+          email: before.email,
+        });
+      }
+      if (phone !== undefined && normalizedPhone(before.phone) !== normalizedPhone(phone)) {
+        sendSecurityNotice(
+          { driverId: id },
+          'security.PhoneChanged',
+          { byAdmin: true, phoneRemoved: phone == null },
+          request.log,
+          { phone: before.phone },
+        );
       }
 
       // Runs on every isActive: false, also for a driver already inactive, so

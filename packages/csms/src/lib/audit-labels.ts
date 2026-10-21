@@ -151,6 +151,9 @@ export const AUDIT_ACTIONS = [
   'pulled',
   'pushed',
   'rebilled',
+  'recovery_code_used',
+  'recovery_codes_generated',
+  'recovery_codes_regenerated',
   'refund_issued',
   'refunded',
   'regenerated',
@@ -200,6 +203,9 @@ export const AUDIT_ACTIONS = [
   'vehicle_changed',
   'vehicle_id_claimed',
   'voided',
+  'webauthn_credential_added',
+  'webauthn_credential_removed',
+  'webauthn_credential_renamed',
 ] as const;
 
 /** A code the locale files do not know, made readable: `invoice_sent` -> `Invoice sent`. */

@@ -51,7 +51,27 @@ function makeChain() {
   return chain;
 }
 
+vi.mock('../services/mfa-factor.service.js', () => {
+  const countRecoveryCodes = vi.fn(async (_account: unknown) => 0);
+  return {
+    countRecoveryCodes,
+    // The gates read both counts; tests set the recovery code count.
+    mfaFactorCounts: vi.fn(async (account: unknown) => ({
+      recoveryCodesRemaining: await countRecoveryCodes(account),
+      passkeyCount: 0,
+    })),
+    recoveryCodesUsedUp: vi.fn(async () => false),
+    consumeRecoveryCode: vi.fn(async () => ({ used: false, remaining: 0 })),
+    issueRecoveryCodes: vi.fn(async () => []),
+    deleteRecoveryCodes: vi.fn(async () => undefined),
+    deleteWebauthnCredentials: vi.fn(async () => undefined),
+  };
+});
 vi.mock('@evtivity/database', () => ({
+  readMfaConfig: async () => ({
+    config: await (await import('@evtivity/database')).getMfaConfig(),
+    fallback: false,
+  }),
   getSessionLifetimes: vi.fn(async () => ({
     ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
   })),
@@ -87,7 +107,13 @@ vi.mock('@evtivity/database', () => ({
   userSiteAssignments: {},
   userPermissions: {},
   getRecaptchaConfig: vi.fn().mockResolvedValue(null),
-  getMfaConfig: vi.fn().mockResolvedValue(null),
+  getMfaConfig: vi.fn().mockResolvedValue({
+    emailEnabled: true,
+    totpEnabled: true,
+    smsEnabled: false,
+    required: 'off',
+    requiredRoles: [],
+  }),
   writeAudit: vi.fn().mockResolvedValue(undefined),
   siteAuditLog: {},
   stationAuditLog: {},
@@ -160,6 +186,10 @@ vi.mock('@evtivity/lib', () => ({
   verifyTotpCode: vi.fn().mockReturnValue(true),
   matchTotpStep: vi.fn().mockReturnValue(1),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 1, code: '123456' }),
+  createCappedMfaChallenge: vi.fn(async (c: unknown, o: unknown) =>
+    (await import('@evtivity/lib')).createMfaChallenge(c as never, o as never),
+  ),
+  isMfaChallengeLimited: (r: object) => 'limited' in r,
   verifyMfaChallenge: vi.fn().mockResolvedValue('verified'),
   AI_EFFORTS: ['low', 'medium', 'high'],
   AI_PROVIDER_IDS: ['anthropic', 'openai', 'gemini', 'deepseek'],
@@ -229,13 +259,23 @@ vi.mock('../lib/operator-session.js', async (importOriginal) => {
   };
 });
 
+vi.mock('../lib/phone-change.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/phone-change.js')>()),
+  checkPhoneChange: vi.fn(async () => null),
+}));
 vi.mock('../lib/sign-in-backoff.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/sign-in-backoff.js')>();
   return {
     ...actual,
-    recordSignInFailure: vi.fn().mockResolvedValue(null),
+    takeSignInAttempt: vi.fn(async (account: unknown, factor: unknown) => ({
+      granted: true,
+      account,
+      factor,
+      failures: 1,
+      lockedUntil: null,
+    })),
+    recordAttemptFailure: vi.fn().mockResolvedValue(null),
     clearSignInFailures: vi.fn().mockResolvedValue(undefined),
-    mfaResendRetryAfter: vi.fn().mockResolvedValue(null),
     acceptTotpStep: vi.fn().mockResolvedValue(true),
   };
 });

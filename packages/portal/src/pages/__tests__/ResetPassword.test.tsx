@@ -58,7 +58,7 @@ const STRICT = {
 };
 
 function securityCalls(): number {
-  return getMock.mock.calls.filter(([path]) => path === '/v1/security/public').length;
+  return getMock.mock.calls.filter(([path]) => path === '/v1/security/public?app=portal').length;
 }
 
 function rule(name: string): HTMLElement {

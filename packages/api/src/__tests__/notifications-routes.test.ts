@@ -438,7 +438,7 @@ describe('Notification routes', () => {
       method: 'POST',
       url: '/notifications/test',
       headers: { authorization: `Bearer ${token}` },
-      payload: { channel: 'sms', recipient: '+15551234567' },
+      payload: { channel: 'sms', recipient: '+12015550134' },
     });
     expect(response.statusCode).toBe(400);
     const body = JSON.parse(response.body);

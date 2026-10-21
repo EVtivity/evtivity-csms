@@ -47,6 +47,7 @@ function resetStore(): void {
     hasAllSiteAccess: false,
     theme: 'light',
     isAuthenticated: false,
+    signedOut: false,
     isHydrating: true,
     apiDown: false,
     mfaPending: null,
@@ -235,6 +236,7 @@ describe('useAuth', () => {
 
   describe('MFA state', () => {
     it('completeMfaLogin signs in and clears the pending challenge', async () => {
+      useAuth.setState({ signedOut: true });
       useAuth.getState().setMfaPending({ mfaRequired: true, mfaMethod: 'totp', mfaToken: 'mt' });
       mockGet.mockResolvedValueOnce({ permissions: ['users:read'], hasAllSiteAccess: true });
 
@@ -243,6 +245,8 @@ describe('useAuth', () => {
       const s = useAuth.getState();
       expect(s.mfaPending).toBeNull();
       expect(s.isAuthenticated).toBe(true);
+      // A sign-in after Log Out keeps the page of a later expired session again.
+      expect(s.signedOut).toBe(false);
       expect(s.role).toBe('operator');
       expect(s.permissions).toEqual(['users:read']);
       expect(s.hasAllSiteAccess).toBe(true);
@@ -295,6 +299,8 @@ describe('useAuth', () => {
       expect(s.permissions).toEqual([]);
       expect(s.hasAllSiteAccess).toBe(false);
       expect(s.isAuthenticated).toBe(false);
+      // The sign-in page then gets no returnTo of the page the user left.
+      expect(s.signedOut).toBe(true);
     });
 
     it('clears local state even when the server call fails', async () => {

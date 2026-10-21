@@ -55,12 +55,24 @@ export const drivers = pgTable(
     mfaEnabled: boolean('mfa_enabled').notNull().default(false),
     mfaMethod: varchar('mfa_method', { length: 20 }),
     totpSecretEnc: varchar('totp_secret_enc', { length: 500 }),
+    // The last TOTP time step a portal sign-in or proof accepted: a code of that
+    // step or an earlier one is refused, so an observed code cannot be replayed.
+    totpLastStep: bigint('totp_last_step', { mode: 'number' }),
     isActive: boolean('is_active').notNull().default(true),
     // Raised by every change that must end the access tokens issued before it
     // (sign-out, password reset or change, portal activation, deactivation,
     // erasure, a replayed refresh token). An access token carries the version
     // it was issued under (`sv`).
     sessionVersion: integer('session_version').notNull().default(0),
+    // Per-account sign-in backoff, as on users: failed portal sign-ins in a row
+    // and the time until which the next one is refused, then the same for MFA.
+    failedLoginCount: integer('failed_login_count').notNull().default(0),
+    loginLockedUntil: timestamp('login_locked_until', { withTimezone: true }),
+    mfaFailedCount: integer('mfa_failed_count').notNull().default(0),
+    mfaLockedUntil: timestamp('mfa_locked_until', { withTimezone: true }),
+    // The same for factor proofs from a signed-in session, apart from sign-in.
+    proofFailedCount: integer('proof_failed_count').notNull().default(0),
+    proofLockedUntil: timestamp('proof_locked_until', { withTimezone: true }),
     emailVerified: boolean('email_verified').notNull().default(false),
     lastNotificationReadAt: timestamp('last_notification_read_at', { withTimezone: true }),
     // The driver's billing address, the bill-to block of a member invoice (a

@@ -103,6 +103,23 @@ export function isRequiredDriverEventType(eventType: string): boolean {
 }
 
 /**
+ * Account security notices (system events, always on): sent to operators and drivers
+ * when a sign-in method, recovery codes, the phone or email of the account change, or
+ * an operator creates an API key. They hold no secret.
+ */
+export const SECURITY_NOTICE_EVENT_TYPES = [
+  'security.FactorAdded',
+  'security.FactorRemoved',
+  'security.RecoveryCodesRegenerated',
+  'security.RecoveryCodeUsed',
+  'security.PhoneChanged',
+  'security.EmailChanged',
+  'security.ApiKeyCreated',
+] as const;
+
+export type SecurityNoticeEventType = (typeof SECURITY_NOTICE_EVENT_TYPES)[number];
+
+/**
  * Protocol versions whose stations emit an OCPP notification event: `common` for OCPP 1.6,
  * 2.0.1 and 2.1, `1.6` for OCPP 1.6 only, `2.x` for OCPP 2.0.1 and 2.1, `2.1` for OCPP 2.1
  * only (a message `isOcpp21OnlyMessage` names). OCPP 1.6 stations send the security and

@@ -13,11 +13,13 @@ interface ProtectedRouteProps {
 /**
  * Sends a signed-out user to the sign-in page with the page they asked for
  * as `returnTo`. After an SSO login (which comes back to `/`), the
- * remembered page opens once.
+ * remembered page opens once. After Log Out the sign-in page gets no
+ * `returnTo`, so the next sign-in opens the dashboard.
  */
 export function ProtectedRoute({ children }: ProtectedRouteProps): React.JSX.Element | null {
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
   const isHydrating = useAuth((s) => s.isHydrating);
+  const signedOut = useAuth((s) => s.signedOut);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -37,7 +39,11 @@ export function ProtectedRoute({ children }: ProtectedRouteProps): React.JSX.Ele
   if (!isAuthenticated) {
     return (
       <Navigate
-        to={loginPathFor(`${location.pathname}${location.search}${location.hash}`)}
+        to={
+          signedOut
+            ? '/login'
+            : loginPathFor(`${location.pathname}${location.search}${location.hash}`)
+        }
         replace
       />
     );

@@ -25,9 +25,14 @@ export async function issueChallenge(): Promise<string> {
   return nonce;
 }
 
+// What issueChallenge makes: 32 bytes as base64url. The prefix is shared with the
+// WebAuthn challenges and SAML request ids (`attest:nonce:webauthn:`, `attest:nonce:saml-req:`),
+// so a client nonce with a colon could otherwise delete one of those keys.
+const NONCE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
 // Returns true and removes the nonce if it was issued and not yet used.
 export async function consumeChallenge(nonce: string): Promise<boolean> {
-  if (nonce === '') return false;
+  if (!NONCE_PATTERN.test(nonce)) return false;
   const deleted = await client().del(`${PREFIX}${nonce}`);
   return deleted === 1;
 }

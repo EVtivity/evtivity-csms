@@ -48,10 +48,36 @@ export function signDriverAccessToken(
   app: FastifyInstance,
   driver: DriverTokenDriver,
   expiresInSeconds: number,
+  client: DriverClient = null,
 ): string {
-  return app.jwt.sign(
-    { driverId: driver.id, type: 'driver', sv: driver.sessionVersion } satisfies DriverJwtPayload,
-    { expiresIn: expiresInSeconds },
+  const payload: DriverJwtPayload = {
+    driverId: driver.id,
+    type: 'driver',
+    sv: driver.sessionVersion,
+    ...(client === 'mobile' ? { client } : {}),
+  };
+  return app.jwt.sign(payload, { expiresIn: expiresInSeconds });
+}
+
+/** The client a driver token is issued to: the mobile app, or none (the portal). */
+export type DriverClient = 'mobile' | null;
+
+/**
+ * The client claim of tokens issued for this request. A request signed in with a driver token
+ * keeps that token's claim, so a cookie session never turns into a mobile one; a sign-in step
+ * takes it from `X-Client: mobile`.
+ */
+export function issuedDriverClient(request: FastifyRequest): DriverClient {
+  if (request.driverAuthSource != null) {
+    return (request.user as DriverJwtPayload).client === 'mobile' ? 'mobile' : null;
+  }
+  return isMobileClient(request) ? 'mobile' : null;
+}
+
+/** Whether the request was signed in with an access token issued to the mobile app. */
+export function isMobileSession(request: FastifyRequest): boolean {
+  return (
+    request.driverAuthSource === 'bearer' && (request.user as DriverJwtPayload).client === 'mobile'
   );
 }
 
@@ -60,23 +86,28 @@ export function signDriverAccessToken(
  * settings. The access token carries the driver's current session version, read here so a
  * caller cannot sign one under a version an earlier read saw. A mobile client (`X-Client: mobile`) gets them back for the response body, with
  * the refresh token bound to its device. A web client gets the auth cookies and `null`.
+ * The access token carries the client claim of `issuedDriverClient`, or `opts.client` (a
+ * renewal passes the client its refresh token was issued to).
  */
 export async function issueDriverTokens(
   app: FastifyInstance,
   request: FastifyRequest,
   reply: FastifyReply,
   driverId: string,
+  opts?: { client?: DriverClient },
 ): Promise<DriverMobileTokens | null> {
   const lifetimes = await getSessionLifetimes();
   const accessSeconds = lifetimes.driverAccessMinutes * 60;
   const lifetimeDays = lifetimes.driverRefreshDays;
   const { sessionVersion } = await getDriverSessionState(driverId);
-  const token = signDriverAccessToken(app, { id: driverId, sessionVersion }, accessSeconds);
+  const client = opts?.client !== undefined ? opts.client : issuedDriverClient(request);
+  const token = signDriverAccessToken(app, { id: driverId, sessionVersion }, accessSeconds, client);
 
   if (isMobileClient(request)) {
     const refresh = await createRefreshToken({
       driverId,
       deviceId: deviceIdFromRequest(request),
+      client,
       lifetimeDays,
     });
     return { token, refreshToken: refresh.rawToken, expiresIn: accessSeconds };
@@ -88,6 +119,17 @@ export async function issueDriverTokens(
     refreshSeconds: lifetimeDays * DAY_SECONDS,
   });
   return null;
+}
+
+/** Fields a sign-in reply may add next to the driver. Never a token field: those come from the issuer. */
+export interface DriverSessionExtra {
+  mfaEnrollmentRequired?: true;
+  recoveryCodesRemaining?: number;
+  /** A required MFA enrollment that signs the driver in: MFA is on and the codes show once. */
+  success?: true;
+  recoveryCodes?: string[];
+  /** A passkey registered as the enrolled factor. */
+  credential?: Record<string, unknown>;
 }
 
 /**
@@ -102,9 +144,12 @@ export async function issueDriverSession(
   request: FastifyRequest,
   reply: FastifyReply,
   driver: { id: string } & Record<string, unknown>,
-  opts?: { status?: number },
+  opts?: { status?: number; extra?: DriverSessionExtra },
 ): Promise<void> {
   const status = opts?.status ?? 200;
   const tokens = await issueDriverTokens(app, request, reply, driver.id);
-  await reply.status(status).send(tokens == null ? { driver } : { driver, ...tokens });
+  // The tokens go last, so nothing in extra can replace them.
+  await reply
+    .status(status)
+    .send(tokens == null ? { driver, ...opts?.extra } : { driver, ...opts?.extra, ...tokens });
 }

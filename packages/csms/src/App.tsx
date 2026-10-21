@@ -18,6 +18,7 @@ import { Login } from '@/pages/Login';
 import { ForgotPassword } from '@/pages/ForgotPassword';
 import { ResetPassword } from '@/pages/ResetPassword';
 import { SetPassword } from '@/pages/SetPassword';
+import { MfaSetup } from '@/pages/MfaSetup';
 
 const Dashboard = lazy(() => import('@/pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 const Sites = lazy(() => import('@/pages/Sites').then((m) => ({ default: m.Sites })));
@@ -290,6 +291,7 @@ export function App(): React.JSX.Element {
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/set-password" element={<SetPassword />} />
+                <Route path="/mfa-setup" element={<MfaSetup />} />
                 <Route path="/privacy-policy" element={<PrivacyPolicy />} />
                 <Route path="/terms-of-service" element={<TermsOfService />} />
                 <Route

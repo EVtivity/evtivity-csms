@@ -57,7 +57,7 @@ describe('usePasswordPolicy', () => {
     await waitFor(() => {
       expect(result.current).toEqual(policy);
     });
-    expect(getMock).toHaveBeenCalledWith('/v1/security/public');
+    expect(getMock).toHaveBeenCalledWith('/v1/security/public?app=portal');
     expect(SECURITY_PUBLIC_QUERY_KEY).toEqual(['security-public']);
     expect(client.getQueryData(['security-public'])).toEqual({
       recaptchaEnabled: false,

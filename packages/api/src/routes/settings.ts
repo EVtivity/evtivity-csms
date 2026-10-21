@@ -175,6 +175,7 @@ const COMPANY_TAX_BASIS_KEY = 'company.taxBasis';
 function isCachedSystemSetting(key: string): boolean {
   return (
     key === COMPANY_CURRENCY_KEY ||
+    key === 'company.name' ||
     key === COMPANY_PRICE_DISPLAY_KEY ||
     key === COMPANY_TAX_BASIS_KEY ||
     key === INVOICE_EPC_QR_ENABLED_KEY ||

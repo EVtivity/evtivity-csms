@@ -35,6 +35,14 @@ import { useAuth } from '@/lib/auth';
 import { useToast } from '@/components/ui/toast';
 import { PermissionEditor } from '@/components/PermissionEditor';
 import { formatDate, useUserTimezone } from '@/lib/timezone';
+import { getErrorMessage } from '@/lib/error-message';
+import {
+  FactorProofField,
+  proofRejection,
+  type FactorProof,
+  type ProofRejection,
+} from '@/components/FactorProofField';
+import { useMfaStatus } from '@/components/profile/mfa-status';
 
 const CODE_TABS = ['cURL', 'JavaScript', 'Python'] as const;
 type CodeTab = (typeof CODE_TABS)[number];
@@ -55,6 +63,15 @@ interface CreateApiKeyResponse {
   rawToken: string;
   expiresAt: string | null;
   createdAt: string;
+}
+
+/** Whether new permissions give a key anything its scope did not (null: every permission). */
+export function widensKeyScope(stored: string[] | null, next: readonly string[]): boolean {
+  if (stored == null) return false;
+  return next.some(
+    (p) =>
+      !stored.includes(p) && !(p.endsWith(':read') && stored.includes(`${p.slice(0, -5)}:write`)),
+  );
 }
 
 const EXPIRY_OPTIONS = [
@@ -90,14 +107,40 @@ export function ApiKeysSettings(): React.JSX.Element {
   const [editPerms, setEditPerms] = useState<string[]>([]);
   const [codeTab, setCodeTab] = useState<CodeTab>('cURL');
 
+  // A signed-in session proves the account again to create or widen a key.
+  const { data: mfaStatus } = useMfaStatus();
+  const proofKinds = mfaStatus?.factorProofKinds ?? [];
+  const [proof, setProof] = useState<FactorProof | null>(null);
+  const [proofFailure, setProofFailure] = useState<ProofRejection | null>(null);
+  const [proofAsked, setProofAsked] = useState(false);
+  const [dialogError, setDialogError] = useState('');
+  // Remounts the proof field for each dialog, so a proof never carries over.
+  const [proofRound, setProofRound] = useState(0);
+
+  function resetProof(): void {
+    setProof(null);
+    setProofFailure(null);
+    setProofAsked(false);
+    setDialogError('');
+    setProofRound((n) => n + 1);
+  }
+
   const { data: keys = [] } = useQuery({
     queryKey: ['api-keys'],
     queryFn: () => api.get<ApiKey[]>('/v1/api-keys'),
   });
 
   const createMutation = useMutation({
-    mutationFn: (body: { name: string; expiresInDays: number | null; permissions: string[] }) =>
-      api.post<CreateApiKeyResponse>('/v1/api-keys', body),
+    mutationFn: (body: {
+      name: string;
+      expiresInDays: number | null;
+      permissions: string[];
+      proof?: FactorProof;
+    }) => api.post<CreateApiKeyResponse>('/v1/api-keys', body),
+    onError: (err: unknown) => {
+      setProofFailure(proofRejection(err));
+      setDialogError(getErrorMessage(err, t));
+    },
     onSuccess: (data) => {
       void queryClient.invalidateQueries({ queryKey: ['api-keys'] });
       setCreateOpen(false);
@@ -118,8 +161,23 @@ export function ApiKeysSettings(): React.JSX.Element {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, permissions }: { id: string; permissions: string[] }) =>
-      api.patch<{ success: boolean }>(`/v1/api-keys/${id}`, { permissions }),
+    mutationFn: ({
+      id,
+      permissions,
+      proof: keyProof,
+    }: {
+      id: string;
+      permissions: string[];
+      proof?: FactorProof;
+    }) =>
+      api.patch<{ success: boolean }>(`/v1/api-keys/${id}`, {
+        permissions,
+        ...(keyProof != null ? { proof: keyProof } : {}),
+      }),
+    onError: (err: unknown) => {
+      setProofFailure(proofRejection(err));
+      setDialogError(getErrorMessage(err, t));
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['api-keys'] });
       setEditKey(null);
@@ -130,6 +188,7 @@ export function ApiKeysSettings(): React.JSX.Element {
   function handleOpenCreate(): void {
     // Default: all user permissions selected
     setSelectedKeyPerms([...userPermissions]);
+    resetProof();
     setCreateOpen(true);
   }
 
@@ -144,13 +203,22 @@ export function ApiKeysSettings(): React.JSX.Element {
     }
 
     if (selectedKeyPerms.length === 0) return;
+    if (proofKinds.length > 0 && proof == null) {
+      setProofAsked(true);
+      return;
+    }
+    setDialogError('');
 
     createMutation.mutate({
       name: name.trim(),
       expiresInDays,
       permissions: selectedKeyPerms,
+      ...(proof != null ? { proof } : {}),
     });
   }
+
+  const editWidens =
+    editKey != null && proofKinds.length > 0 && widensKeyScope(editKey.permissions, editPerms);
 
   function isExpired(expiresAt: string | null): boolean {
     if (expiresAt == null) return false;
@@ -252,6 +320,7 @@ print(data)`;
                           size="icon"
                           aria-label={t('settings.apiKeyEditPermissions')}
                           onClick={() => {
+                            resetProof();
                             setEditKey(key);
                             setEditPerms(
                               Array.isArray(key.permissions)
@@ -357,6 +426,23 @@ print(data)`;
                   )}
                 </div>
               )}
+              {proofKinds.length > 0 && (
+                <FactorProofField
+                  key={`create-${String(proofRound)}`}
+                  idPrefix="api-key-create-proof"
+                  kinds={proofKinds}
+                  codeMethod={mfaStatus?.mfaMethod ?? null}
+                  description={t('settings.apiKeyProofHint')}
+                  onChange={setProof}
+                  rejection={proofFailure}
+                  showMissing={proofAsked}
+                />
+              )}
+              {dialogError !== '' && (
+                <p className="text-sm text-destructive" role="alert">
+                  {dialogError}
+                </p>
+              )}
               <DialogFooter>
                 <Button
                   variant="outline"
@@ -457,6 +543,23 @@ print(data)`;
               {editPerms.length === 0 && (
                 <p className="text-sm text-destructive">{t('settings.apiKeyNoPermissions')}</p>
               )}
+              {editWidens && (
+                <FactorProofField
+                  key={`edit-${String(proofRound)}`}
+                  idPrefix="api-key-edit-proof"
+                  kinds={proofKinds}
+                  codeMethod={mfaStatus?.mfaMethod ?? null}
+                  description={t('settings.apiKeyWidenProofHint')}
+                  onChange={setProof}
+                  rejection={proofFailure}
+                  showMissing={proofAsked}
+                />
+              )}
+              {dialogError !== '' && (
+                <p className="text-sm text-destructive" role="alert">
+                  {dialogError}
+                </p>
+              )}
             </div>
             <DialogFooter>
               <Button
@@ -470,12 +573,17 @@ print(data)`;
               <Button
                 disabled={updateMutation.isPending || editPerms.length === 0}
                 onClick={() => {
-                  if (editKey != null) {
-                    updateMutation.mutate({
-                      id: editKey.id,
-                      permissions: editPerms,
-                    });
+                  if (editKey == null) return;
+                  if (editWidens && proof == null) {
+                    setProofAsked(true);
+                    return;
                   }
+                  setDialogError('');
+                  updateMutation.mutate({
+                    id: editKey.id,
+                    permissions: editPerms,
+                    ...(editWidens && proof != null ? { proof } : {}),
+                  });
                 }}
               >
                 {t('common.save')}

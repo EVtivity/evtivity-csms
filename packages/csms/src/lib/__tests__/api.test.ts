@@ -132,6 +132,40 @@ describe('api', () => {
       expect(window.location.href).toBe('/login?returnTo=%2Fai%2Finsights%2Fi1%3Fa%3D1');
     });
 
+    it('sends the user to sign in, keeping the page, when the renewal answers MFA_ENROLLMENT_REQUIRED', async () => {
+      Object.assign(window.location, { pathname: '/sessions', search: '', hash: '' });
+      fetchMock
+        .mockResolvedValueOnce(createMockResponse({ ok: false, status: 401, jsonData: null }))
+        .mockResolvedValueOnce(
+          createMockResponse({
+            ok: false,
+            status: 401,
+            jsonData: { error: 'Set up MFA to continue', code: 'MFA_ENROLLMENT_REQUIRED' },
+          }),
+        );
+
+      await expect(api.get('/v1/stations')).rejects.toThrow(DynApiError);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/v1/auth/refresh');
+      expect(window.location.href).toBe('/login?returnTo=%2Fsessions');
+    });
+
+    it('treats a renewal refused with MFA_POLICY_UNAVAILABLE as a failed refresh too', async () => {
+      Object.assign(window.location, { pathname: '/sessions', search: '', hash: '' });
+      fetchMock
+        .mockResolvedValueOnce(createMockResponse({ ok: false, status: 401, jsonData: null }))
+        .mockResolvedValueOnce(
+          createMockResponse({
+            ok: false,
+            status: 503,
+            jsonData: { error: 'Unavailable', code: 'MFA_POLICY_UNAVAILABLE' },
+          }),
+        );
+
+      await expect(api.get('/v1/stations')).rejects.toThrow(DynApiError);
+      expect(window.location.href).toBe('/login?returnTo=%2Fsessions');
+    });
+
     it('does not redirect on 401 from /auth/login endpoint', async () => {
       window.location.href = '/login';
       fetchMock.mockResolvedValue(
@@ -142,6 +176,37 @@ describe('api', () => {
         api.post('/v1/auth/login', { email: 'a@b.com', password: 'wrong' }),
       ).rejects.toThrow(DynApiError);
       expect(window.location.href).toBe('/login');
+    });
+
+    it('answers a 401 of a passkey sign-in step without a refresh or a redirect', async () => {
+      window.location.href = '/login';
+      fetchMock.mockResolvedValue(
+        createMockResponse({ ok: false, status: 401, jsonData: { code: 'INVALID_CREDENTIALS' } }),
+      );
+
+      await expect(api.post('/v1/auth/passkey/verify', { credential: {} })).rejects.toThrow(
+        DynApiError,
+      );
+      await expect(api.post('/v1/auth/webauthn/verify', { mfaToken: 'x' })).rejects.toThrow(
+        DynApiError,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain('/v1/auth/refresh');
+      expect(window.location.href).toBe('/login');
+    });
+
+    it('renews the session on a 401 of the signed-in passkey list, which is no sign-in step', async () => {
+      window.location.href = '/profile';
+      fetchMock
+        .mockResolvedValueOnce(createMockResponse({ ok: false, status: 401, jsonData: null }))
+        .mockResolvedValueOnce(createMockResponse({ ok: true, status: 200, jsonData: {} }))
+        .mockResolvedValueOnce(createMockResponse({ ok: true, status: 200, jsonData: [] }));
+
+      await expect(api.get('/v1/users/me/webauthn')).resolves.toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(String(fetchMock.mock.calls[1]?.[0])).toContain('/v1/auth/refresh');
+      expect(String(fetchMock.mock.calls[2]?.[0])).toContain('/v1/users/me/webauthn');
+      expect(window.location.href).toBe('/profile');
     });
 
     it('does not redirect on non-401 errors', async () => {

@@ -6,7 +6,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 
 const { state } = vi.hoisted(() => ({
-  state: { isAuthenticated: false, isHydrating: false },
+  state: { isAuthenticated: false, isHydrating: false, signedOut: false },
 }));
 
 vi.mock('@/lib/auth', () => ({
@@ -42,6 +42,7 @@ afterEach(() => {
   cleanup();
   sessionStorage.clear();
   state.isAuthenticated = false;
+  state.signedOut = false;
 });
 
 describe('ProtectedRoute return-to', () => {
@@ -50,6 +51,12 @@ describe('ProtectedRoute return-to', () => {
     expect(screen.getByTestId('where').textContent).toBe(
       '/login?returnTo=%2Fai%2Finsights%2Fi1%3Fx%3D1',
     );
+  });
+
+  it('after Log Out sends the user to sign in without the page they left', () => {
+    state.signedOut = true;
+    renderAt('/profile?tab=mfa');
+    expect(screen.getByTestId('where').textContent).toBe('/login');
   });
 
   it('after an SSO login (which lands on /) opens the remembered page once', () => {

@@ -15,6 +15,7 @@ import {
   check,
   unique,
   uniqueIndex,
+  customType,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
@@ -73,6 +74,9 @@ export const users = pgTable(
     // The same for MFA codes after the password step.
     mfaFailedCount: integer('mfa_failed_count').notNull().default(0),
     mfaLockedUntil: timestamp('mfa_locked_until', { withTimezone: true }),
+    // The same for factor proofs from a signed-in session, apart from sign-in.
+    proofFailedCount: integer('proof_failed_count').notNull().default(0),
+    proofLockedUntil: timestamp('proof_locked_until', { withTimezone: true }),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -127,6 +131,8 @@ export const refreshTokens = pgTable(
     permissions: jsonb('permissions'),
     tokenSuffix: varchar('token_suffix', { length: 8 }),
     deviceId: varchar('device_id', { length: 64 }),
+    // 'mobile' for a driver refresh token issued to the app, else null.
+    client: varchar('client', { length: 16 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -164,6 +170,10 @@ export const mfaChallenges = pgTable(
     driverId: text('driver_id').references(() => drivers.id, { onDelete: 'cascade' }),
     codeHash: varchar('code_hash', { length: 255 }).notNull(),
     method: varchar('method', { length: 20 }).notNull(),
+    // sign_in, proof or setup: a code confirms only its own purpose.
+    purpose: varchar('purpose', { length: 16 }).notNull().default('sign_in'),
+    // SHA-256 of the phone number an SMS code was sent to, else null.
+    destinationHash: varchar('destination_hash', { length: 64 }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     usedAt: timestamp('used_at', { withTimezone: true }),
     // Codes tried against this challenge: a guarded UPDATE counts each try
@@ -174,8 +184,72 @@ export const mfaChallenges = pgTable(
   (table) => [
     index('idx_mfa_challenges_user_id').on(table.userId),
     index('idx_mfa_challenges_driver_id').on(table.driverId),
+    index('idx_mfa_challenges_destination_hash').on(table.destinationHash),
     check(
       'mfa_challenges_exactly_one_actor',
+      sql`("user_id" IS NOT NULL AND "driver_id" IS NULL) OR ("user_id" IS NULL AND "driver_id" IS NOT NULL)`,
+    ),
+  ],
+);
+
+// Single-use MFA recovery codes, stored as argon2id hashes. Written only by
+// the API's MFA factor service.
+export const mfaRecoveryCodes = pgTable(
+  'mfa_recovery_codes',
+  {
+    id: serial('id').primaryKey(),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    driverId: text('driver_id').references(() => drivers.id, { onDelete: 'cascade' }),
+    codeHash: varchar('code_hash', { length: 255 }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_mfa_recovery_codes_user_id').on(table.userId),
+    index('idx_mfa_recovery_codes_driver_id').on(table.driverId),
+    check(
+      'mfa_recovery_codes_exactly_one_account',
+      sql`("user_id" IS NOT NULL AND "driver_id" IS NULL) OR ("user_id" IS NULL AND "driver_id" IS NOT NULL)`,
+    ),
+  ],
+);
+
+const bytea = customType<{ data: Buffer; driverParam: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
+
+/**
+ * WebAuthn credentials (passkeys and FIDO2 security keys) of an operator or a
+ * driver: a second factor, and a passwordless sign-in when allowed.
+ */
+export const webauthnCredentials = pgTable(
+  'webauthn_credentials',
+  {
+    id: serial('id').primaryKey(),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    driverId: text('driver_id').references(() => drivers.id, { onDelete: 'cascade' }),
+    credentialId: text('credential_id').notNull().unique(),
+    publicKey: bytea('public_key').notNull(),
+    counter: bigint('counter', { mode: 'number' }).notNull().default(0),
+    transports: text('transports')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    deviceType: varchar('device_type', { length: 20 }).notNull(),
+    backedUp: boolean('backed_up').notNull().default(false),
+    aaguid: varchar('aaguid', { length: 36 }),
+    userHandle: text('user_handle').notNull(),
+    name: varchar('name', { length: 100 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }),
+  },
+  (table) => [
+    index('idx_webauthn_credentials_user_id').on(table.userId),
+    index('idx_webauthn_credentials_driver_id').on(table.driverId),
+    check(
+      'webauthn_credentials_exactly_one_account',
       sql`("user_id" IS NOT NULL AND "driver_id" IS NULL) OR ("user_id" IS NULL AND "driver_id" IS NOT NULL)`,
     ),
   ],

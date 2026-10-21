@@ -22,6 +22,20 @@ describe('readSsoMfaFragment', () => {
     });
   });
 
+  it('reads the factors and a switched-off method', () => {
+    expect(
+      readSsoMfaFragment(
+        '#ssoMfaToken=tok&ssoMfaMethod=sms&ssoMfaFactors=recovery_code,bogus&ssoMfaMethodDisabled=1',
+      ),
+    ).toEqual({
+      mfaRequired: true,
+      mfaMethod: 'sms',
+      mfaToken: 'tok',
+      factors: ['recovery_code'],
+      mfaMethodDisabled: true,
+    });
+  });
+
   it('returns null without a token or a method', () => {
     expect(readSsoMfaFragment('')).toBeNull();
     expect(readSsoMfaFragment('#ssoMfaMethod=email')).toBeNull();

@@ -86,6 +86,31 @@ vi.mock('@evtivity/database', () => ({
   localAuthListAuditLog: {},
 }));
 
+// The fresh proof and the notice: their own tests cover the checks; here only the wiring.
+const proofCheck = vi.hoisted(() => ({
+  checkFactorProof: vi.fn(),
+  sendSecurityNotice: vi.fn(),
+}));
+vi.mock('../lib/mfa-factor-proof.js', async () => {
+  const { z } = await import('zod');
+  return {
+    FACTOR_PROOF_KINDS: ['totp', 'code', 'passkey', 'password'],
+    factorProof: z
+      .object({ kind: z.string(), password: z.string().optional(), code: z.string().optional() })
+      .passthrough(),
+    checkFactorProof: proofCheck.checkFactorProof,
+    sendFactorProofRefusal: async (
+      reply: { status: (n: number) => { send: (body: unknown) => Promise<unknown> } },
+      refused: { status: number; body: unknown },
+    ) => {
+      await reply.status(refused.status).send(refused.body);
+    },
+  };
+});
+vi.mock('../lib/security-notice.js', () => ({
+  sendSecurityNotice: proofCheck.sendSecurityNotice,
+}));
+
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
@@ -144,6 +169,113 @@ describe('API key routes', () => {
     vi.clearAllMocks();
     dbResults = [];
     dbCallIndex = 0;
+    proofCheck.checkFactorProof.mockResolvedValue(null);
+  });
+
+  describe('fresh proof and notice (security review M4)', () => {
+    const created = {
+      id: 9,
+      rawToken: 'b'.repeat(64),
+      name: 'Script',
+      expiresAt: null,
+      createdAt: new Date().toISOString(),
+    };
+    const refusal = {
+      status: 400 as const,
+      body: {
+        error: 'Confirm with your current password to add a second factor',
+        code: 'VALIDATION_ERROR' as const,
+        proofKinds: ['password'],
+      },
+    };
+
+    it('refuses a session create without a valid proof and creates nothing', async () => {
+      proofCheck.checkFactorProof.mockResolvedValue(refusal);
+      setupDbResults([]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api-keys',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { name: 'Script', permissions: ['stations:read'] },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR', proofKinds: ['password'] });
+      expect(mockApiKeyService.createApiKey).not.toHaveBeenCalled();
+      expect(proofCheck.sendSecurityNotice).not.toHaveBeenCalled();
+    });
+
+    it('creates with a proof and tells the user once', async () => {
+      mockApiKeyService.createApiKey.mockResolvedValue(created);
+      setupDbResults([]);
+      const proof = { kind: 'password', password: 'Secret1!' };
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api-keys',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { name: 'Script', permissions: ['stations:read'], proof },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(proofCheck.checkFactorProof).toHaveBeenCalledWith(
+        expect.anything(),
+        { userId: VALID_USER_ID },
+        proof,
+      );
+      expect(proofCheck.sendSecurityNotice).toHaveBeenCalledTimes(1);
+      expect(proofCheck.sendSecurityNotice).toHaveBeenCalledWith(
+        { userId: VALID_USER_ID },
+        'security.ApiKeyCreated',
+        { keyName: 'Script', expiresAt: '' },
+        expect.anything(),
+      );
+    });
+
+    it('needs no proof through an API key', async () => {
+      mockApiKeyService.createApiKey.mockResolvedValue(created);
+      setupDbResults([]);
+      const keyToken = app.jwt.sign({
+        userId: VALID_USER_ID,
+        roleId: VALID_ROLE_ID,
+        isApiKey: true,
+        apiKeyPermissions: ['stations:read'],
+      });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api-keys',
+        headers: { authorization: `Bearer ${keyToken}` },
+        payload: { name: 'Script', permissions: ['stations:read'] },
+      });
+      expect(response.statusCode).toBe(201);
+      expect(proofCheck.checkFactorProof).not.toHaveBeenCalled();
+      expect(proofCheck.sendSecurityNotice).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses widening a key from a session without a proof', async () => {
+      effectivePermissions.value = ['stations:read', 'stations:write'];
+      proofCheck.checkFactorProof.mockResolvedValue(refusal);
+      const { db } = await import('@evtivity/database');
+      setupDbResults([{ id: 7, permissions: ['stations:read'] }]);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/api-keys/7',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { permissions: ['stations:write'] },
+      });
+      effectivePermissions.value = ['stations:read'];
+      expect(response.statusCode).toBe(400);
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('narrows a key from a session without a proof', async () => {
+      setupDbResults([{ id: 7, permissions: ['stations:read', 'stations:write'] }]);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/api-keys/7',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { permissions: ['stations:read'] },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(proofCheck.checkFactorProof).not.toHaveBeenCalled();
+    });
   });
 
   describe('GET /api-keys', () => {
@@ -439,5 +571,15 @@ describe('API key routes', () => {
       const response = await app.inject({ method: 'DELETE', url: '/api-keys/1' });
       expect(response.statusCode).toBe(401);
     });
+  });
+});
+
+describe('widensKeyScope', () => {
+  it('reads write as covering read and a key without a scope as every permission', async () => {
+    const { widensKeyScope } = await import('../routes/api-keys.js');
+    expect(widensKeyScope(['stations:write'], ['stations:read'])).toBe(false);
+    expect(widensKeyScope(['stations:read'], ['stations:write'])).toBe(true);
+    expect(widensKeyScope(['stations:read'], ['stations:read', 'sites:read'])).toBe(true);
+    expect(widensKeyScope(null, ['stations:write'])).toBe(false);
   });
 });

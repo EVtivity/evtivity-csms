@@ -3,7 +3,7 @@
 
 import { and, asc, count, eq, gte } from 'drizzle-orm';
 import { db, drivers, userTokens } from '@evtivity/database';
-import { normalizeE164 } from '@evtivity/lib';
+import { canonicalPhone } from '@evtivity/lib/phone';
 
 /**
  * Per-account and per-contact limits on driver sign-up, on top of the per-IP route rate limits.
@@ -22,11 +22,10 @@ export const VERIFICATION_EMAILS_PER_DAY = 5;
  */
 export const PHONE_REGISTRATIONS_PER_DAY = 3;
 
-/** The phone as stored on a portal registration, or null for none. */
+/** The phone as stored on a portal registration (E.164), or null for none or one that does not parse. */
 export function registrationPhone(phone: string | undefined): string | null {
   if (phone == null) return null;
-  const normalized = normalizeE164(phone.trim());
-  return normalized === '' ? null : normalized;
+  return canonicalPhone(phone);
 }
 
 /** True when the phone was used in too many portal registrations in the last 24 hours. */

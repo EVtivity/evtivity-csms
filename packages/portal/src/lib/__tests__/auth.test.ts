@@ -61,6 +61,7 @@ describe('portal useAuth', () => {
       apiDown: false,
       theme: 'light',
       mfaPending: null,
+      mfaEnrollment: null,
     });
     localStorage.clear();
     sessionStorage.clear();
@@ -137,6 +138,32 @@ describe('portal useAuth', () => {
         mfaToken: 'mt',
       });
     });
+  });
+
+  it('keeps the enrollment of required MFA in memory and signs nobody in', async () => {
+    mockPost.mockResolvedValueOnce({
+      mfaEnrollmentRequired: true,
+      enrollmentToken: 'enroll',
+      availableMethods: ['totp'],
+      webauthnAvailable: true,
+    });
+    await useAuth.getState().login('g@h.io', 'pw');
+    expect(useAuth.getState().mfaEnrollment).toEqual({
+      enrollmentToken: 'enroll',
+      availableMethods: ['totp'],
+      webauthnAvailable: true,
+    });
+    expect(useAuth.getState().isAuthenticated).toBe(false);
+    expect(useAuth.getState().mfaPending).toBeNull();
+    // The token never reaches storage.
+    for (const store of [localStorage, sessionStorage]) {
+      for (let i = 0; i < store.length; i++) {
+        const key = store.key(i) ?? '';
+        expect(store.getItem(key)).not.toContain('enroll');
+      }
+    }
+    await useAuth.getState().completeMfaLogin(driver);
+    expect(useAuth.getState().mfaEnrollment).toBeNull();
   });
 
   it('register sends the request and signs nobody in', async () => {

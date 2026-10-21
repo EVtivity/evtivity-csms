@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { normalizedPhone } from './phone-input.js';
+
 /** The contact fields of a driver or an operator user that MFA codes go to. */
 export interface MfaContact {
   email: string | null;
@@ -54,4 +56,18 @@ export function removesSmsMfaPhone(
   if (nextPhone === undefined) return false;
   const removed = nextPhone == null || nextPhone.trim() === '';
   return removed && account.mfaEnabled && account.mfaMethod === 'sms';
+}
+
+/**
+ * The destination an MFA code of the method is bound to: the account's phone
+ * number (in its compared form) for an SMS code, else none. The send and the
+ * check pass the same value, so an SMS code confirms only the number it went
+ * to, and the per-number cap counts it.
+ */
+export function mfaCodeDestination(
+  method: string | null,
+  contact: { phone: string | null },
+): string | undefined {
+  if (method !== 'sms') return undefined;
+  return normalizedPhone(contact.phone) ?? undefined;
 }

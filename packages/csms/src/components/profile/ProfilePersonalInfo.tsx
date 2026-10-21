@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { EditButton } from '@/components/edit-button';
@@ -17,6 +17,20 @@ import { useAuth } from '@/lib/auth';
 import { formatDateTime, TIMEZONE_OPTIONS } from '@/lib/timezone';
 import { LANGUAGES, LanguageSelect } from '@/components/ui/language-select';
 import type { UserMe } from '@/pages/Profile';
+import { proofRejection, type ProofRejection } from '@/components/FactorProofField';
+import { getErrorMessage } from '@/lib/error-message';
+import { useMfaStatus } from './mfa-status';
+import {
+  PhoneChangeProof,
+  phoneChangeNeedsProof,
+  type PhoneChangeExtras,
+} from './PhoneChangeProof';
+
+/** A phone number as the API compares it: trimmed, empty is none. */
+function comparablePhone(phone: string | null | undefined): string | null {
+  const trimmed = (phone ?? '').trim();
+  return trimmed === '' ? null : trimmed;
+}
 
 const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -37,19 +51,38 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
   const [phone, setPhone] = useState('');
   const [editLanguage, setEditLanguage] = useState('en');
   const [editTimezone, setEditTimezone] = useState('America/New_York');
+  const [phoneExtras, setPhoneExtras] = useState<PhoneChangeExtras | null>(null);
+  const [phoneRejection, setPhoneRejection] = useState<ProofRejection | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const { data: mfaStatus } = useMfaStatus();
+  const onPhoneExtras = useCallback((extras: PhoneChangeExtras | null) => {
+    setPhoneExtras(extras);
+  }, []);
+
+  // SMS codes go to this number: changing it on an account with a factor needs a confirmation.
+  const phoneChanged = comparablePhone(phone) !== comparablePhone(user.phone);
+  const phoneNeedsProof = editing && phoneChanged && phoneChangeNeedsProof(mfaStatus);
 
   const updateMutation = useMutation({
-    mutationFn: (body: {
-      firstName?: string;
-      lastName?: string;
-      phone?: string | null;
-      language?: string;
-      timezone?: string;
-    }) => api.patch('/v1/users/me', body),
+    mutationFn: (
+      body: {
+        firstName?: string;
+        lastName?: string;
+        phone?: string | null;
+        language?: string;
+        timezone?: string;
+      } & PhoneChangeExtras,
+    ) => api.patch('/v1/users/me', body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['users', 'me'] });
       setEditing(false);
       hydrate();
+    },
+    onError: (err: unknown, body) => {
+      // Each proof works once: the confirmation asks for what the failure used up.
+      if (body.proof != null || body.phoneVerification != null) {
+        setPhoneRejection(proofRejection(err));
+      }
     },
   });
 
@@ -59,11 +92,17 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
     setPhone(user.phone ?? '');
     setEditLanguage(user.language);
     setEditTimezone(user.timezone);
+    setPhoneExtras(null);
+    setPhoneRejection(null);
+    setHasSubmitted(false);
+    updateMutation.reset();
     setEditing(true);
   }
 
   function handleSave(e: React.SyntheticEvent): void {
     e.preventDefault();
+    setHasSubmitted(true);
+    if (phoneNeedsProof && phoneExtras == null) return;
     updateMutation.mutate(
       {
         firstName,
@@ -71,6 +110,7 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
         phone: phone.trim() || null,
         language: editLanguage,
         timezone: editTimezone,
+        ...(phoneNeedsProof && phoneExtras != null ? phoneExtras : {}),
       },
       {
         onSuccess: () => {
@@ -135,6 +175,15 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
                 }}
                 placeholder={t('users.phonePlaceholder')}
               />
+              {phoneNeedsProof && mfaStatus != null && (
+                <PhoneChangeProof
+                  phone={phone}
+                  status={mfaStatus}
+                  onChange={onPhoneExtras}
+                  rejection={phoneRejection}
+                  showMissing={hasSubmitted}
+                />
+              )}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -166,6 +215,11 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
                 </Select>
               </div>
             </div>
+            {updateMutation.isError && (
+              <p className="text-sm text-destructive" role="alert">
+                {getErrorMessage(updateMutation.error, t, 'profile.profileUpdateFailed')}
+              </p>
+            )}
             <div className="flex justify-end gap-2">
               <CancelButton
                 onClick={() => {

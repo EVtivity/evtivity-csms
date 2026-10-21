@@ -1,0 +1,12 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}{{firstName}}，您好，{{else}}您好，{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>已建立 API 金鑰</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>您的帳戶已建立新的 API 金鑰：{{keyName}}。{{#if expiresAt}}此金鑰將於 {{expiresAt}} 到期。{{else}}此金鑰永不到期。{{/if}}</p>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>如果此金鑰不是您建立的，請在「設定 &gt; API 金鑰」中撤銷該金鑰，變更密碼並立即聯絡您的管理員。</p>

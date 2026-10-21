@@ -156,7 +156,7 @@ describe('Register', () => {
     registerMock.mockResolvedValue(undefined);
     renderPage();
     await waitFor(() => {
-      expect(getMock).toHaveBeenCalledWith('/v1/security/public');
+      expect(getMock).toHaveBeenCalledWith('/v1/security/public?app=portal');
     });
     // Let the security query settle before submitting.
     await new Promise((resolve) => setTimeout(resolve, 0));

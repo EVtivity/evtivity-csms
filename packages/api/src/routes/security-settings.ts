@@ -3,9 +3,10 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { like, inArray } from 'drizzle-orm';
+import { asc, like, inArray } from 'drizzle-orm';
 import {
   db,
+  roles,
   settings,
   clearSecuritySettingsCache,
   writeAudit,
@@ -14,6 +15,9 @@ import {
 import {
   createLogger,
   encryptString,
+  MFA_REQUIRED_MODES,
+  normalizeMfaConfig,
+  normalizeMfaRequiredRoles,
   normalizePasswordPolicy,
   normalizeSessionLifetimes,
   PASSWORD_MIN_LENGTH_CEILING,
@@ -100,6 +104,11 @@ const SECURITY_KEYS = [
   'security.mfa.emailEnabled',
   'security.mfa.totpEnabled',
   'security.mfa.smsEnabled',
+  'security.mfa.required',
+  'security.mfa.requiredRoles',
+  'security.mfa.webauthnEnabled',
+  'security.mfa.passkeyLoginEnabled',
+  'security.mfa.requireDrivers',
   'security.password.minLength',
   'security.password.requireUppercase',
   'security.password.requireLowercase',
@@ -154,17 +163,85 @@ const sessionLifetimesBody = z.object({
   driverRefreshDays: lifetimeField('driverRefreshDays', 'Driver refresh token lifetime in days'),
 });
 
+const mfaSwitches = {
+  emailEnabled: z.boolean().describe('Allow MFA via email code'),
+  totpEnabled: z.boolean().describe('Allow MFA via authenticator app (TOTP)'),
+  smsEnabled: z.boolean().describe('Allow MFA via SMS code'),
+};
+
+const MAX_REQUIRED_ROLES = 50;
+
+const webauthnSwitches = {
+  webauthnEnabled: z
+    .boolean()
+    .describe(
+      'Allow passkeys and security keys (WebAuthn) as a second factor. Off stops new registrations and, at sign-in, refuses them while the account has another factor',
+    ),
+  passkeyLoginEnabled: z
+    .boolean()
+    .describe(
+      'Allow passwordless sign-in with a passkey (user verification required) in the CSMS and the portal; it counts as both factors. Needs webauthnEnabled',
+    ),
+};
+
+const mfaBody = z.object({
+  ...mfaSwitches,
+  webauthnEnabled: webauthnSwitches.webauthnEnabled
+    .optional()
+    .describe(
+      'Allow passkeys and security keys as a second factor. Omitted keeps the stored value',
+    ),
+  passkeyLoginEnabled: webauthnSwitches.passkeyLoginEnabled
+    .optional()
+    .describe(
+      'Allow passwordless sign-in with a passkey in the CSMS and the portal. Needs webauthnEnabled. Omitted keeps the stored value',
+    ),
+  requireDrivers: z
+    .boolean()
+    .optional()
+    .describe(
+      'Every driver must have MFA at portal sign-in: a driver without one sets it up before a session is issued. Needs email or TOTP switched on. Omitted keeps the stored value',
+    ),
+  required: z
+    .enum(MFA_REQUIRED_MODES)
+    .optional()
+    .describe(
+      'Who must have MFA at operator sign-in: off, all (every operator) or roles (the roles in requiredRoles). Applies at the next sign-in; open sessions keep working. Needs email or TOTP switched on unless off. Omitted keeps the stored value',
+    ),
+  requiredRoles: z
+    .array(z.string().min(1).max(100))
+    .max(MAX_REQUIRED_ROLES)
+    .optional()
+    .describe(
+      'Role names (roleNames of GET /v1/security/settings) that must have MFA when required is roles. An unknown name answers 400 VALIDATION_ERROR. Omitted keeps the stored value, which is not checked again',
+    ),
+});
+
+const mfaResponse = z.object({
+  ...mfaSwitches,
+  ...webauthnSwitches,
+  required: z.enum(MFA_REQUIRED_MODES).describe('Who must have MFA at operator sign-in'),
+  requiredRoles: z
+    .array(z.string())
+    .describe('Role names that must have MFA when required is roles'),
+  requireDrivers: z.boolean().describe('Every driver must have MFA at portal sign-in'),
+});
+
 const securitySettingsResponse = z
   .object({
+    mfa: mfaResponse.describe(
+      'MFA settings in effect, with defaults for unset keys (email and TOTP on, SMS off, MFA not required)',
+    ),
     passwordPolicy: passwordPolicyBody.describe(
       'Password policy in effect, with defaults for unset keys',
     ),
     sessionLifetimes: sessionLifetimesBody.describe(
       'Access and refresh token lifetimes in effect, with defaults for unset keys',
     ),
+    roleNames: z.array(z.string()).describe('Every role name, the choices of mfa.requiredRoles'),
   })
   .passthrough()
-  .describe('Stored security.* setting keys, plus the parsed password and session groups');
+  .describe('Stored security.* setting keys, plus the parsed MFA, password and session groups');
 
 const PASSWORD_KEYS: Record<keyof z.infer<typeof passwordPolicyBody>, string> = {
   minLength: 'security.password.minLength',
@@ -217,18 +294,44 @@ const recaptchaBody = z.object({
     .describe('Score threshold (0.0 to 1.0). Requests below this score are rejected.'),
 });
 
-const mfaBody = z.object({
-  emailEnabled: z.boolean().describe('Allow MFA via email code'),
-  totpEnabled: z.boolean().describe('Allow MFA via authenticator app (TOTP)'),
-  smsEnabled: z.boolean().describe('Allow MFA via SMS code'),
-});
-
 function getEncryptionKey(): string {
   const key = apiConfig.SETTINGS_ENCRYPTION_KEY;
   if (key === '') {
     throw new Error('SETTINGS_ENCRYPTION_KEY environment variable is required');
   }
   return key;
+}
+
+/**
+ * Why the required MFA settings cannot be saved, or null: roles needs at
+ * least one role, every role the save sends must exist, and an operator must
+ * be able to set up a method without a phone (email or TOTP on) while MFA is
+ * required. Stored names the save keeps are not checked again, so a role
+ * deleted since never blocks another change.
+ */
+async function mfaRequirementProblem(
+  switches: { emailEnabled: boolean; totpEnabled: boolean },
+  required: (typeof MFA_REQUIRED_MODES)[number],
+  requiredRoles: string[],
+  sentRoles: string[],
+  requireDrivers: boolean,
+): Promise<string | null> {
+  if (required === 'roles' && requiredRoles.length === 0) {
+    return 'Choose at least one role that must use MFA';
+  }
+  if (sentRoles.length > 0) {
+    const known = await db
+      .select({ name: roles.name })
+      .from(roles)
+      .where(inArray(roles.name, sentRoles));
+    const knownNames = new Set(known.map((r) => r.name));
+    const unknown = sentRoles.filter((name) => !knownNames.has(name));
+    if (unknown.length > 0) return `Unknown role: ${unknown.join(', ')}`;
+  }
+  if ((required !== 'off' || requireDrivers) && !switches.emailEnabled && !switches.totpEnabled) {
+    return 'Required MFA needs email or authenticator app codes switched on';
+  }
+  return null;
 }
 
 export function securitySettingsRoutes(app: FastifyInstance): void {
@@ -249,7 +352,10 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
-      const rows = await db.select().from(settings).where(like(settings.key, 'security.%'));
+      const [rows, roleRows] = await Promise.all([
+        db.select().from(settings).where(like(settings.key, 'security.%')),
+        db.select({ name: roles.name }).from(roles).orderBy(asc(roles.name)),
+      ]);
       const result: Record<string, unknown> = {};
       for (const row of rows) {
         if (!SECURITY_KEYS.includes(row.key)) continue;
@@ -257,8 +363,10 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
       }
       return {
         ...result,
+        mfa: normalizeMfaConfig(withPrefix(rows, 'security.mfa.')),
         passwordPolicy: normalizePasswordPolicy(withPrefix(rows, 'security.password.')),
         sessionLifetimes: normalizeSessionLifetimes(withPrefix(rows, 'security.session.')),
+        roleNames: roleRows.map((r) => r.name),
       };
     },
   );
@@ -406,12 +514,15 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
       onRequest: [authorize('settings.security:write')],
       schema: {
         tags: ['Settings'],
-        summary: 'Update MFA method availability',
+        summary: 'Update MFA method availability, passkeys and required MFA',
+        description:
+          'Required MFA applies at the next sign-in: an operator it covers (required, requiredRoles) or a driver (requireDrivers) without MFA must set it up before a session is issued. Signed-in accounts are reached at their next session renewal. API keys keep working.',
         operationId: 'updateMfaSettings',
         security: [{ bearerAuth: [] }],
         body: zodSchema(mfaBody),
         response: {
           200: successResponse,
+          400: errorWith('Invalid required MFA settings', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
         },
       },
@@ -420,10 +531,56 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof mfaBody>;
 
+      const stored = normalizeMfaConfig(
+        withPrefix(
+          await db.select().from(settings).where(like(settings.key, 'security.mfa.%')),
+          'security.mfa.',
+        ),
+      );
+      const required = body.required ?? stored.required;
+      const requiredRoles =
+        body.requiredRoles != null
+          ? normalizeMfaRequiredRoles(body.requiredRoles)
+          : stored.requiredRoles;
+      const webauthnEnabled = body.webauthnEnabled ?? stored.webauthnEnabled;
+      const passkeyLoginEnabled = body.passkeyLoginEnabled ?? stored.passkeyLoginEnabled;
+      const requireDrivers = body.requireDrivers ?? stored.requireDrivers;
+      if (passkeyLoginEnabled && !webauthnEnabled) {
+        await reply.status(400).send({
+          error: 'Passkey sign-in needs passkeys and security keys switched on',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+      const invalid = await mfaRequirementProblem(
+        body,
+        required,
+        requiredRoles,
+        body.requiredRoles != null ? requiredRoles : [],
+        requireDrivers,
+      );
+      if (invalid != null) {
+        await reply.status(400).send({ error: invalid, code: 'VALIDATION_ERROR' });
+        return;
+      }
+
       const written: Array<{ key: string; value: unknown }> = [
         { key: 'security.mfa.emailEnabled', value: body.emailEnabled },
         { key: 'security.mfa.totpEnabled', value: body.totpEnabled },
         { key: 'security.mfa.smsEnabled', value: body.smsEnabled },
+        ...(body.required != null ? [{ key: 'security.mfa.required', value: required }] : []),
+        ...(body.requiredRoles != null
+          ? [{ key: 'security.mfa.requiredRoles', value: requiredRoles }]
+          : []),
+        ...(body.webauthnEnabled != null
+          ? [{ key: 'security.mfa.webauthnEnabled', value: webauthnEnabled }]
+          : []),
+        ...(body.passkeyLoginEnabled != null
+          ? [{ key: 'security.mfa.passkeyLoginEnabled', value: passkeyLoginEnabled }]
+          : []),
+        ...(body.requireDrivers != null
+          ? [{ key: 'security.mfa.requireDrivers', value: requireDrivers }]
+          : []),
       ];
 
       const before = await loadCurrentValues(written.map((w) => w.key));

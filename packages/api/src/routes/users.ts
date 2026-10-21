@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 import type { JwtPayload } from '../plugins/auth.js';
 import crypto from 'node:crypto';
 import { resolve, dirname } from 'node:path';
@@ -9,7 +10,14 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { eq, and, or, isNull, ilike, sql, inArray, desc, ne } from 'drizzle-orm';
 import argon2 from 'argon2';
-import { db, client, getMfaConfig, writeAudit, userAuditLog } from '@evtivity/database';
+import {
+  db,
+  client,
+  getMfaConfig,
+  readMfaConfig,
+  writeAudit,
+  userAuditLog,
+} from '@evtivity/database';
 import {
   users,
   roles,
@@ -20,7 +28,18 @@ import {
   chatbotAiConfigs,
   userPermissions,
 } from '@evtivity/database';
-import { getAuditActor } from '../lib/audit-actor.js';
+import { accountAuditActor, getAuditActor } from '../lib/audit-actor.js';
+import { factorFlags, sendSecurityNotice } from '../lib/security-notice.js';
+import {
+  consumeRecoveryCode,
+  countRecoveryCodes,
+  countWebauthnCredentials,
+  recoveryCodesUsedUp,
+  deleteRecoveryCodes,
+  deleteWebauthnCredentials,
+  issueRecoveryCodes,
+  mfaFactorCounts,
+} from '../services/mfa-factor.service.js';
 import { changedFields } from '../lib/audit-diff.js';
 import {
   getNotificationSettings,
@@ -33,7 +52,7 @@ import {
   generateTotpSecret,
   generateTotpUri,
   matchTotpStep,
-  createMfaChallenge,
+  isMfaChallengeLimited,
   verifyMfaChallenge,
   redactSensitiveNotificationContent,
   recordNotificationAttempt,
@@ -46,6 +65,7 @@ import {
   revokeRefreshToken,
   revokeAllUserRefreshTokens,
   revokeAllUserSessions,
+  sessionRefreshTokenUserId,
 } from '../services/refresh-token.service.js';
 import {
   announceSessionChange,
@@ -57,19 +77,26 @@ import {
 } from '../lib/operator-session.js';
 import { sendPasswordChangedNotice } from '../lib/password-changed-notice.js';
 import { verifyPassword } from '../lib/password-verify.js';
+import { checkCurrentPassword } from '../lib/current-password.js';
 import {
   clearSignInFailures,
   acceptTotpStep,
-  isLocked,
-  mfaResendRetryAfter,
-  recordSignInFailure,
+  createAccountMfaChallenge,
+  sendMfaResendLimited,
+  recordAttemptFailure,
   secondsUntil,
+  takeSignInAttempt,
 } from '../lib/sign-in-backoff.js';
 import { applyUserDeactivation, revokeUserEmailLinks } from '../services/user-status.service.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { emailEquals } from '../lib/email-match.js';
 import { verifyAgainstDummyHash } from '../lib/dummy-password-hash.js';
-import { hasMfaContact, mfaCodeRecipient, removesSmsMfaPhone } from '../lib/mfa-contact.js';
+import {
+  hasMfaContact,
+  mfaCodeDestination,
+  mfaCodeRecipient,
+  removesSmsMfaPhone,
+} from '../lib/mfa-contact.js';
 import { generateUserToken, hashUserToken } from '../lib/user-token.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -84,6 +111,43 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { beginOperatorMfa } from '../lib/operator-mfa.js';
+import { verifyRecoveryCodesPasskey } from '../lib/webauthn-http.js';
+import {
+  FACTOR_PROOF_KINDS,
+  ssoProofUntil,
+  authenticationCredential,
+  checkFactorProof,
+  factorProof,
+  factorProofKindsOf,
+  lastFactorProofKindsOf,
+  proofAccountOf,
+  sendFactorProofRefusal,
+} from '../lib/mfa-factor-proof.js';
+import { loginResponse } from '../lib/login-response.js';
+import {
+  PHONE_CHANGE_METHOD,
+  checkPhoneChange,
+  INVALID_PHONE_REPLY,
+  normalizedPhone,
+  phoneToStore,
+  phoneVerification,
+  phoneVerificationRefusal,
+  readPhoneInput,
+} from '../lib/phone-change.js';
+import {
+  availableMfaMethods,
+  isMfaEnrollmentRequest,
+  isMfaPolicyUnavailable,
+  isMfaSetupUnavailable,
+  mfaPolicyForRole,
+  operatorMfaEnrollment,
+  renewalMfaGate,
+  selfServiceOrMfaEnrollment,
+  sendMfaPolicyUnavailable,
+  mfaPendingTokenCurrent,
+  sendMfaTokenExpired,
+} from '../lib/mfa-enrollment.js';
+import { hasMfa, mfaMethodGate, passkeyGate, usableFactors } from '../lib/mfa-factors.js';
 import { authorize, invalidatePermissionCache, selfService } from '../middleware/rbac.js';
 import { invalidateUserActiveCache } from '../lib/user-active.js';
 import { invalidateSiteAccessCache, assertSitesWithinScope } from '../lib/site-access.js';
@@ -213,7 +277,20 @@ const updateUserBody = z.object({
 const updateMeBody = z.object({
   firstName: z.string().max(100).optional(),
   lastName: z.string().max(100).optional(),
-  phone: z.string().max(50).nullable().optional().describe('Mobile phone number'),
+  phone: z
+    .string()
+    .max(50)
+    .nullable()
+    .optional()
+    .describe(
+      'Mobile phone number. For an account with a factor a change needs proof; with SMS codes as the sign-in method it needs phoneVerification instead',
+    ),
+  proof: factorProof
+    .optional()
+    .describe(
+      'A phone change of an account with a factor: fresh proof of the account (a factor it holds, as to add one)',
+    ),
+  phoneVerification: phoneVerification.optional(),
   language: userLanguageEnum.optional(),
   timezone: z
     .string()
@@ -270,55 +347,6 @@ const userSelect = {
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
 };
-
-const loginResponse = z
-  .object({
-    token: z
-      .string()
-      .optional()
-      .describe(
-        'Operator JWT (kept for backward compatibility; cookies are the primary transport)',
-      ),
-    user: z
-      .object({
-        id: z.string().describe('User identifier'),
-        email: z.string().describe('Email address'),
-        firstName: z.string().nullable().describe('First name'),
-        lastName: z.string().nullable().describe('Last name'),
-        language: z.string().describe('Preferred UI language code'),
-        timezone: z.string().optional().describe('IANA timezone identifier'),
-      })
-      .passthrough()
-      .optional()
-      .describe('Authenticated user, omitted when MFA is required'),
-    role: z
-      .object({
-        id: z.string().describe('Role identifier'),
-        name: z.string().describe('Role display name'),
-      })
-      .passthrough()
-      .nullable()
-      .optional()
-      .describe('Role assigned to the user'),
-    mfaRequired: z
-      .boolean()
-      .optional()
-      .describe('Whether the user must complete MFA before authentication finishes'),
-    mfaMethod: z.string().optional().describe('MFA method to use (email, sms, totp)'),
-    mfaToken: z
-      .string()
-      .optional()
-      .describe('Short-lived MFA pending token to send with the verify request'),
-    challengeId: z
-      .number()
-      .optional()
-      .describe('Identifier of the email/SMS challenge created for the user'),
-    mustResetPassword: z
-      .boolean()
-      .optional()
-      .describe('Whether the user must reset their password before continuing'),
-  })
-  .passthrough();
 
 const userItem = z
   .object({
@@ -519,7 +547,12 @@ export function userRoutes(app: FastifyInstance): void {
             ERROR_CODES.RECAPTCHA_REQUIRED,
           ]),
           401: errorWith('Invalid credentials', [ERROR_CODES.INVALID_CREDENTIALS]),
-          403: errorWith('Forbidden', [ERROR_CODES.ACCOUNT_DISABLED, ERROR_CODES.RECAPTCHA_FAILED]),
+          403: errorWith('Forbidden', [
+            ERROR_CODES.ACCOUNT_DISABLED,
+            ERROR_CODES.RECAPTCHA_FAILED,
+            ERROR_CODES.MFA_SETUP_UNAVAILABLE,
+          ]),
+          503: errorWith('MFA settings unavailable', [ERROR_CODES.MFA_POLICY_UNAVAILABLE]),
         },
       },
       config: {
@@ -546,9 +579,12 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       // A locked account (sign-in backoff) and an SSO account while SSO is
-      // enabled answer as for a wrong password, after the same time.
-      const locked = isLocked(user.loginLockedUntil);
-      if (locked || (await passwordAuthBlocked(user))) {
+      // enabled answer as for a wrong password, after the same time. The try is
+      // counted in the UPDATE that checks the lock, so parallel guesses cannot pass it.
+      const ssoBlocked = await passwordAuthBlocked(user);
+      const attempt = ssoBlocked ? null : await takeSignInAttempt({ userId: user.id }, 'password');
+      const locked = attempt?.granted === false;
+      if (attempt == null || !attempt.granted) {
         await verifyAgainstDummyHash(password);
         await recordAuthAudit(request, {
           kind: 'user',
@@ -570,11 +606,11 @@ export function userRoutes(app: FastifyInstance): void {
           method: 'password',
           reason: 'bad_password',
         });
-        await recordSignInFailure(request, user.id, 'password');
+        await recordAttemptFailure(request, attempt);
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
-      await clearSignInFailures(user.id, 'password');
+      await clearSignInFailures({ userId: user.id }, 'password');
 
       if (!user.isActive) {
         await recordAuthAudit(request, {
@@ -595,6 +631,31 @@ export function userRoutes(app: FastifyInstance): void {
 
       // MFA check
       const mfaPending = await beginOperatorMfa(app, user);
+      if (mfaPending != null && isMfaSetupUnavailable(mfaPending)) {
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'password',
+          reason: 'mfa_setup_unavailable',
+        });
+        await reply.status(403).send({
+          error: 'Required MFA cannot be set up: no MFA method is available',
+          code: 'MFA_SETUP_UNAVAILABLE',
+        });
+        return;
+      }
+      if (mfaPending != null && isMfaPolicyUnavailable(mfaPending)) {
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'password',
+          reason: 'mfa_policy_unavailable',
+        });
+        await sendMfaPolicyUnavailable(request, reply, user.id);
+        return;
+      }
       if (mfaPending != null) return mfaPending;
 
       const [role] = await db
@@ -664,6 +725,8 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Refresh access token using refresh token cookie',
+        description:
+          'Rotates the refresh token and issues new session cookies. While required MFA (Settings > Security > MFA) covers the user and the account has no usable factor (MFA method, recovery code or passkey), the refresh token is revoked and the answer is 401 MFA_ENROLLMENT_REQUIRED with no new session: signing in again leads to the MFA setup. When the MFA settings cannot be read, a user without a factor gets 503 MFA_POLICY_UNAVAILABLE and the refresh token is kept.',
         operationId: 'refreshToken',
         security: [],
         response: {
@@ -672,7 +735,9 @@ export function userRoutes(app: FastifyInstance): void {
             ERROR_CODES.ACCOUNT_DISABLED,
             ERROR_CODES.NO_REFRESH_TOKEN,
             ERROR_CODES.INVALID_REFRESH_TOKEN,
+            ERROR_CODES.MFA_ENROLLMENT_REQUIRED,
           ]),
+          503: errorWith('MFA settings unavailable', [ERROR_CODES.MFA_POLICY_UNAVAILABLE]),
         },
       },
       config: {
@@ -687,6 +752,44 @@ export function userRoutes(app: FastifyInstance): void {
       if (refreshCookie.status === 'absent') {
         await reply.status(401).send({ error: 'No refresh token', code: 'NO_REFRESH_TOKEN' });
         return;
+      }
+
+      // Required MFA reaches signed-in users here, before the token rotates, so a
+      // settings read failure keeps the refresh token for the next try.
+      if (refreshCookie.status === 'valid') {
+        const holderId = await sessionRefreshTokenUserId(refreshCookie.value);
+        const [holder] =
+          holderId == null
+            ? []
+            : await db
+                .select({
+                  id: users.id,
+                  roleId: users.roleId,
+                  isActive: users.isActive,
+                  mfaEnabled: users.mfaEnabled,
+                  mfaMethod: users.mfaMethod,
+                })
+                .from(users)
+                .where(eq(users.id, holderId));
+        if (holder?.isActive === true) {
+          const gate = await renewalMfaGate(holder);
+          if (gate === 'policy_unavailable') {
+            await sendMfaPolicyUnavailable(request, reply, holder.id);
+            return;
+          }
+          if (gate === 'enrollment_required') {
+            await revokeRefreshToken(refreshCookie.value);
+            clearAuthCookies('csms', reply, isSecureRequest(request));
+            request.log.info(
+              { userId: holder.id },
+              'Required MFA covers the user and no factor is set up, the session is not renewed',
+            );
+            await reply
+              .status(401)
+              .send({ error: 'Set up MFA to continue', code: 'MFA_ENROLLMENT_REQUIRED' });
+            return;
+          }
+        }
       }
 
       const result =
@@ -1002,6 +1105,8 @@ export function userRoutes(app: FastifyInstance): void {
           200: zodSchema(loginResponse),
           400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD], weakPasswordFields),
           401: errorWith('Invalid credentials', [ERROR_CODES.INVALID_CREDENTIALS]),
+          403: errorWith('Required MFA cannot be set up', [ERROR_CODES.MFA_SETUP_UNAVAILABLE]),
+          503: errorWith('MFA settings unavailable', [ERROR_CODES.MFA_POLICY_UNAVAILABLE]),
         },
       },
       config: {
@@ -1022,7 +1127,10 @@ export function userRoutes(app: FastifyInstance): void {
       // email), and every refusal answers the same 401, so the route tells
       // nothing about the account: not whether it exists, is active, needs
       // a reset, is locked or signs in with SSO.
-      const locked = user != null && isLocked(user.loginLockedUntil);
+      // The try is counted in the UPDATE that checks the lock, so parallel guesses cannot pass it.
+      const attempt =
+        user != null ? await takeSignInAttempt({ userId: user.id }, 'password') : null;
+      const locked = attempt?.granted === false;
       const valid =
         user != null && !locked
           ? await verifyPassword(user.passwordHash, currentPassword, request.log)
@@ -1050,12 +1158,16 @@ export function userRoutes(app: FastifyInstance): void {
             method: 'password',
             reason: refusal,
           });
-          if (refusal === 'bad_password') await recordSignInFailure(request, user.id, 'password');
+          if (refusal === 'bad_password' && attempt?.granted === true) {
+            await recordAttemptFailure(request, attempt);
+          } else if (valid && !locked) {
+            await clearSignInFailures({ userId: user.id }, 'password');
+          }
         }
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
-      await clearSignInFailures(user.id, 'password');
+      await clearSignInFailures({ userId: user.id }, 'password');
 
       const weakPassword = await validatePassword(newPassword);
       if (weakPassword != null) {
@@ -1097,7 +1209,35 @@ export function userRoutes(app: FastifyInstance): void {
       // existing /auth/mfa/verify flow before getting a real session. The
       // login handler does the same thing for normal logins; we route the
       // forced-reset path through the same gate.
-      const mfaPending = await beginOperatorMfa(app, user);
+      // The new session version: the enrollment JWT must outlive the sessions just ended.
+      const mfaPending = await beginOperatorMfa(app, { ...user, sessionVersion });
+      if (mfaPending != null && isMfaSetupUnavailable(mfaPending)) {
+        // The password change stands; only the session is refused.
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'password',
+          reason: 'mfa_setup_unavailable',
+        });
+        await reply.status(403).send({
+          error: 'Required MFA cannot be set up: no MFA method is available',
+          code: 'MFA_SETUP_UNAVAILABLE',
+        });
+        return;
+      }
+      if (mfaPending != null && isMfaPolicyUnavailable(mfaPending)) {
+        // The password change stands; only the session is refused.
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'password',
+          reason: 'mfa_policy_unavailable',
+        });
+        await sendMfaPolicyUnavailable(request, reply, user.id);
+        return;
+      }
       if (mfaPending != null) return mfaPending;
 
       const [role] = await db
@@ -1180,15 +1320,31 @@ export function userRoutes(app: FastifyInstance): void {
         tags: ['Users'],
         summary: 'Update the authenticated user&#39;s own profile fields',
         description:
-          'Self-service update of safe profile fields (name, phone, language, timezone, theme). Auth-only, not RBAC-gated, so non-admin operators can save their own Profile page without holding the users:write permission. Sensitive fields (roleId, isActive, hasAllSiteAccess, siteIds) are intentionally not part of this body; admins use PATCH /v1/users/:id for those.',
+          'Self-service update of safe profile fields (name, phone, language, timezone, theme). Auth-only, not RBAC-gated, so non-admin operators can save their own Profile page without holding the users:write permission. Sensitive fields (roleId, isActive, hasAllSiteAccess, siteIds) are intentionally not part of this body; admins use PATCH /v1/users/:id for those. A phone change of an account with a second factor needs proof (a factor it holds; 400 VALIDATION_ERROR with proofKinds otherwise); an account that signs in with SMS codes instead confirms the new number with phoneVerification, the code POST /v1/users/me/phone-verification sent to it.',
         operationId: 'updateCurrentUser',
         security: [{ bearerAuth: [] }],
         body: zodSchema(updateMeBody),
         response: {
           200: itemResponse(userWithRole),
           400: errorWith(
-            'Invalid timezone, or the phone of an SMS second factor cannot be removed',
-            [ERROR_CODES.VALIDATION_ERROR],
+            'Invalid timezone, the phone of an SMS second factor cannot be removed, or a phone change lacks its proof or verification',
+            [
+              ERROR_CODES.VALIDATION_ERROR,
+              ERROR_CODES.MFA_CODE_INVALID,
+              ERROR_CODES.MFA_CHALLENGE_EXHAUSTED,
+              ERROR_CODES.WEBAUTHN_CHALLENGE_EXPIRED,
+              ERROR_CODES.WEBAUTHN_VERIFICATION_FAILED,
+            ],
+            {
+              proofKinds: z
+                .array(z.enum(FACTOR_PROOF_KINDS))
+                .optional()
+                .describe('A missing or wrong proof: the proof kinds the account accepts'),
+              phoneVerificationRequired: z
+                .boolean()
+                .optional()
+                .describe('An SMS sign-in account must confirm the new number with its code'),
+            },
           ),
           403: errorWith('API keys cannot change the profile', [ERROR_CODES.SESSION_REQUIRED]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
@@ -1205,15 +1361,45 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      if (body.phone !== undefined && (await smsMfaNeedsPhone(userId, body.phone))) {
+      // Stored, compared and texted in E.164 only.
+      const phoneIn = readPhoneInput(body.phone);
+      if (phoneIn.kind === 'invalid') {
+        await reply.status(400).send(INVALID_PHONE_REPLY);
+        return;
+      }
+      const nextPhone = phoneToStore(phoneIn);
+
+      if (nextPhone !== undefined && (await smsMfaNeedsPhone(userId, nextPhone))) {
         await reply.status(400).send(SMS_MFA_PHONE_REQUIRED);
         return;
+      }
+
+      // SMS codes go to this number: a stolen session must not be able to move them.
+      if (nextPhone !== undefined) {
+        const [current] = await db
+          .select({ phone: users.phone })
+          .from(users)
+          .where(eq(users.id, userId));
+        const refused = await checkPhoneChange(
+          request,
+          { userId },
+          {
+            current: normalizedPhone(current?.phone),
+            next: nextPhone,
+            proof: body.proof,
+            verification: body.phoneVerification,
+          },
+        );
+        if (refused != null) {
+          await reply.status(refused.status).send(refused.body);
+          return;
+        }
       }
 
       const fields: Record<string, unknown> = { updatedAt: new Date() };
       if (body.firstName !== undefined) fields['firstName'] = body.firstName;
       if (body.lastName !== undefined) fields['lastName'] = body.lastName;
-      if (body.phone !== undefined) fields['phone'] = body.phone;
+      if (nextPhone !== undefined) fields['phone'] = nextPhone;
       if (body.language !== undefined) fields['language'] = body.language;
       if (body.timezone !== undefined) fields['timezone'] = body.timezone;
       if (body.themePreference !== undefined) fields['themePreference'] = body.themePreference;
@@ -1245,6 +1431,22 @@ export function userRoutes(app: FastifyInstance): void {
         request.log,
       );
 
+      // Tell the user, and text the previous number when SMS codes went there.
+      if (
+        nextPhone !== undefined &&
+        normalizedPhone(before?.phone) !== normalizedPhone(updated.phone)
+      ) {
+        sendSecurityNotice(
+          { userId },
+          'security.PhoneChanged',
+          { byAdmin: false, phoneRemoved: updated.phone == null },
+          request.log,
+          {
+            phone: before?.mfaEnabled === true && before.mfaMethod === 'sms' ? before.phone : null,
+          },
+        );
+      }
+
       const [role] = updated.roleId
         ? await db
             .select({ id: roles.id, name: roles.name })
@@ -1253,6 +1455,114 @@ export function userRoutes(app: FastifyInstance): void {
         : [];
 
       return { ...updated, role: role ?? null };
+    },
+  );
+
+  const phoneVerificationStartBody = z.object({
+    phone: z.string().min(1).max(50).describe('The new mobile phone number'),
+    proof: factorProof
+      .optional()
+      .describe(
+        'Fresh proof of the account: a factor it holds, else its password, else a fresh SSO sign-in; an account with none of them is refused',
+      ),
+  });
+
+  app.post(
+    '/users/me/phone-verification',
+    {
+      onRequest: [selfService()],
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Users'],
+        summary: 'Send a code to confirm a new phone number',
+        description:
+          'For an account that signs in with SMS codes (any other account, or the current number, answers 400 VALIDATION_ERROR): after the fresh proof of the account, texts a code to the new number and returns its challengeId. Send it as phoneVerification with the phone on PATCH /v1/users/me. The code is bound to that number and works once, for 5 minutes; at most 5 codes in 15 minutes per account and 3 an hour per number across accounts (429 MFA_RESEND_LIMITED).',
+        operationId: 'startPhoneVerification',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(phoneVerificationStartBody),
+        response: {
+          200: itemResponse(
+            z
+              .object({ challengeId: z.number().int().describe('Send it back with the code') })
+              .passthrough(),
+          ),
+          400: errorWith(
+            'No number, or the proof is missing or wrong',
+            [
+              ERROR_CODES.VALIDATION_ERROR,
+              ERROR_CODES.INVALID_PASSWORD,
+              ERROR_CODES.MFA_CODE_INVALID,
+              ERROR_CODES.MFA_CHALLENGE_EXHAUSTED,
+              ERROR_CODES.WEBAUTHN_CHALLENGE_EXPIRED,
+              ERROR_CODES.WEBAUTHN_VERIFICATION_FAILED,
+            ],
+            {
+              proofKinds: z
+                .array(z.enum(FACTOR_PROOF_KINDS))
+                .optional()
+                .describe('A missing or wrong proof: the proof kinds the account accepts'),
+            },
+          ),
+          403: errorWith('API keys cannot change the profile', [ERROR_CODES.SESSION_REQUIRED]),
+          404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
+          429: errorWith('Too many codes sent', [ERROR_CODES.MFA_RESEND_LIMITED]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { userId } = request.user as JwtPayload;
+      const body = request.body as z.infer<typeof phoneVerificationStartBody>;
+      const phoneIn = readPhoneInput(body.phone);
+      if (phoneIn.kind !== 'number') {
+        await reply.status(400).send(INVALID_PHONE_REPLY);
+        return;
+      }
+      const { phone } = phoneIn;
+      const [user] = await db
+        .select({
+          firstName: users.firstName,
+          language: users.language,
+          phone: users.phone,
+          mfaEnabled: users.mfaEnabled,
+          mfaMethod: users.mfaMethod,
+        })
+        .from(users)
+        .where(eq(users.id, userId));
+      if (user == null) {
+        await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        return;
+      }
+      // Checked before the proof, so a refused request spends none.
+      const notSent = phoneVerificationRefusal(user, phone);
+      if (notSent != null) {
+        await reply.status(400).send({ error: notSent, code: 'VALIDATION_ERROR' });
+        return;
+      }
+      const refused = await checkFactorProof(request, { userId }, body.proof);
+      if (refused != null) {
+        await sendFactorProofRefusal(reply, refused);
+        return;
+      }
+      const challenge = await createAccountMfaChallenge({ userId }, PHONE_CHANGE_METHOD, {
+        purpose: 'setup',
+        destination: phone,
+      });
+      if (isMfaChallengeLimited(challenge)) {
+        await sendMfaResendLimited(reply, challenge.retryAfterSeconds);
+        return;
+      }
+      await dispatchSystemNotification(
+        client,
+        'mfa.VerificationCode',
+        {
+          phone,
+          language: user.language,
+          ...(user.firstName != null ? { firstName: user.firstName } : {}),
+        },
+        { code: challenge.code },
+        TEMPLATES_DIR,
+      );
+      return { challengeId: challenge.challengeId };
     },
   );
 
@@ -1446,6 +1756,13 @@ export function userRoutes(app: FastifyInstance): void {
         }
       }
 
+      const createPhoneIn = readPhoneInput(body.phone);
+      if (createPhoneIn.kind === 'invalid') {
+        await reply.status(400).send(INVALID_PHONE_REPLY);
+        return;
+      }
+      const createPhone = phoneToStore(createPhoneIn);
+
       // Generate unknown random password — user must set via email link
       const passwordHash = await argon2.hash(crypto.randomBytes(32).toString('hex'));
 
@@ -1456,7 +1773,7 @@ export function userRoutes(app: FastifyInstance): void {
           passwordHash,
           firstName: body.firstName,
           lastName: body.lastName,
-          phone: body.phone,
+          phone: createPhone,
           roleId: body.roleId,
           mustResetPassword: true,
         })
@@ -1648,6 +1965,15 @@ export function userRoutes(app: FastifyInstance): void {
           });
           return;
         }
+        // The own phone and email change only through PATCH /v1/users/me, which asks for
+        // the fresh proof: SMS and email codes go there.
+        if (body.phone !== undefined || body.email !== undefined) {
+          await reply.status(403).send({
+            error: 'Change your own phone or email in your profile (PATCH /v1/users/me)',
+            code: 'SELF_EDIT_FORBIDDEN',
+          });
+          return;
+        }
       }
 
       // A site-restricted operator manages only users within its sites. Any
@@ -1690,7 +2016,13 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       // SMS codes need the phone: removing it would lock the user out.
-      if (body.phone !== undefined && (await smsMfaNeedsPhone(id, body.phone))) {
+      const adminPhoneIn = readPhoneInput(body.phone);
+      if (adminPhoneIn.kind === 'invalid') {
+        await reply.status(400).send(INVALID_PHONE_REPLY);
+        return;
+      }
+      const adminPhone = phoneToStore(adminPhoneIn);
+      if (adminPhone !== undefined && (await smsMfaNeedsPhone(id, adminPhone))) {
         await reply.status(400).send(SMS_MFA_PHONE_REQUIRED);
         return;
       }
@@ -1761,7 +2093,7 @@ export function userRoutes(app: FastifyInstance): void {
       if (body.email !== undefined) fields['email'] = body.email;
       if (body.firstName !== undefined) fields['firstName'] = body.firstName;
       if (body.lastName !== undefined) fields['lastName'] = body.lastName;
-      if (body.phone !== undefined) fields['phone'] = body.phone;
+      if (adminPhone !== undefined) fields['phone'] = adminPhone;
       if (body.roleId !== undefined) fields['roleId'] = body.roleId;
       if (body.isActive !== undefined) fields['isActive'] = body.isActive;
       if (body.language !== undefined) fields['language'] = body.language;
@@ -1810,6 +2142,26 @@ export function userRoutes(app: FastifyInstance): void {
       if (updated == null) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
+      }
+
+      // An admin changed the address or number the user's sign-in links and codes go
+      // to: tell the user at the previous one.
+      if (emailChanged) {
+        sendSecurityNotice({ userId: id }, 'security.EmailChanged', {}, request.log, {
+          email: before.email,
+        });
+      }
+      if (
+        adminPhone !== undefined &&
+        normalizedPhone(before.phone) !== normalizedPhone(adminPhone)
+      ) {
+        sendSecurityNotice(
+          { userId: id },
+          'security.PhoneChanged',
+          { byAdmin: true, phoneRemoved: adminPhone == null },
+          request.log,
+          { phone: before.phone },
+        );
       }
 
       // Invalidate site access cache when site access fields change
@@ -1993,6 +2345,7 @@ export function userRoutes(app: FastifyInstance): void {
           roleId: users.roleId,
           passwordHash: users.passwordHash,
           authSource: users.authSource,
+          loginLockedUntil: users.loginLockedUntil,
         })
         .from(users)
         .where(eq(users.id, userId));
@@ -2005,8 +2358,8 @@ export function userRoutes(app: FastifyInstance): void {
       // An SSO account while SSO is enabled has no password to change: it
       // answers as for a wrong current password.
       const valid =
-        (await verifyPassword(user.passwordHash, currentPassword, request.log)) &&
-        !(await passwordAuthBlocked(user));
+        !(await passwordAuthBlocked(user)) &&
+        (await checkCurrentPassword(request, { userId }, user, currentPassword));
       if (!valid) {
         await reply
           .status(400)
@@ -2240,7 +2593,18 @@ export function userRoutes(app: FastifyInstance): void {
   // MFA verify endpoint
   const mfaVerifyBody = z.object({
     mfaToken: z.string().min(1).describe('Short-lived MFA pending JWT'),
-    code: z.string().min(6).max(6).describe('6-digit verification code'),
+    code: z
+      .string()
+      .min(6)
+      .max(6)
+      .optional()
+      .describe('6-digit verification code; send either code or recoveryCode'),
+    recoveryCode: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe('A single-use recovery code (xxxxx-xxxxx), instead of code'),
     challengeId: z.coerce
       .number()
       .int()
@@ -2256,7 +2620,7 @@ export function userRoutes(app: FastifyInstance): void {
         tags: ['Users'],
         summary: 'Verify MFA code and complete login',
         description:
-          'Validates the short-lived MFA pending JWT, verifies the supplied TOTP code or email/SMS challenge code (single-use, 5-minute TTL), and on success issues the real access JWT plus refresh token cookies. Returns 401 if the code is invalid, expired, or already used.',
+          'Validates the short-lived MFA pending JWT, verifies the supplied TOTP code or email/SMS challenge code (single-use, 5-minute TTL) or a single-use recovery code, and on success issues the real access JWT plus refresh token cookies. A recovery code works even when the method is switched off, uses the code up and returns recoveryCodesRemaining. A wrong code or recovery code counts toward the per-account backoff.',
         operationId: 'verifyMfa',
         security: [],
         body: zodSchema(mfaVerifyBody),
@@ -2268,9 +2632,13 @@ export function userRoutes(app: FastifyInstance): void {
             ERROR_CODES.MFA_NOT_CONFIGURED,
             ERROR_CODES.MFA_TOKEN_INVALID,
             ERROR_CODES.TOTP_NOT_CONFIGURED,
+            ERROR_CODES.VALIDATION_ERROR,
           ]),
           401: errorWith('Unauthorized', [ERROR_CODES.UNAUTHORIZED, ERROR_CODES.MFA_TOKEN_EXPIRED]),
-          403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
+          403: errorWith('Forbidden', [
+            ERROR_CODES.ACCOUNT_DISABLED,
+            ERROR_CODES.MFA_METHOD_DISABLED,
+          ]),
           429: errorWith('Too many wrong codes', [ERROR_CODES.MFA_LOCKED]),
         },
       },
@@ -2282,9 +2650,17 @@ export function userRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { mfaToken, code, challengeId } = request.body as z.infer<typeof mfaVerifyBody>;
+      const { mfaToken, code, recoveryCode, challengeId } = request.body as z.infer<
+        typeof mfaVerifyBody
+      >;
+      if ((code == null) === (recoveryCode == null)) {
+        await reply
+          .status(400)
+          .send({ error: 'Send either code or recoveryCode', code: 'VALIDATION_ERROR' });
+        return;
+      }
 
-      let payload: { userId: string; roleId: string; mfaPending?: boolean };
+      let payload: { userId?: unknown; roleId: string; mfaPending?: boolean };
       try {
         payload = app.jwt.verify(mfaToken);
       } catch (err) {
@@ -2295,13 +2671,28 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      if (!payload.mfaPending) {
+      // A driver's MFA-pending token shares the signing key: it carries no userId.
+      if (payload.mfaPending !== true || typeof payload.userId !== 'string') {
         await reply.status(400).send({ error: 'Invalid MFA token', code: 'MFA_TOKEN_INVALID' });
         return;
       }
 
       const [user] = await db.select().from(users).where(eq(users.id, payload.userId));
-      if (user == null || !user.mfaEnabled || user.mfaMethod == null) {
+      if (user != null && !mfaPendingTokenCurrent(payload, user.sessionVersion)) {
+        await sendMfaTokenExpired(reply);
+        return;
+      }
+      const factorCounts =
+        user != null
+          ? await mfaFactorCounts({ userId: user.id })
+          : { recoveryCodesRemaining: 0, passkeyCount: 0 };
+      // A code needs a primary method; a recovery code also serves a passkey-only account.
+      const primaryMethod = user?.mfaEnabled === true ? user.mfaMethod : null;
+      if (
+        user == null ||
+        !hasMfa({ ...user, ...factorCounts }) ||
+        (code != null && primaryMethod == null)
+      ) {
         await reply.status(400).send({ error: 'MFA not configured', code: 'MFA_NOT_CONFIGURED' });
         return;
       }
@@ -2317,9 +2708,34 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Per-account backoff after repeated wrong codes (sign-in-backoff.ts).
-      if (user.mfaLockedUntil != null && isLocked(user.mfaLockedUntil)) {
-        const retryAfterSeconds = secondsUntil(user.mfaLockedUntil);
+      const mfaReading = await readMfaConfig();
+      const recoveryCodesBefore = factorCounts.recoveryCodesRemaining;
+      const gate = mfaMethodGate({ ...user, ...factorCounts }, mfaReading);
+      // A recovery code has no method switch: it works whatever the gate says.
+      if (recoveryCode == null && gate === 'refused') {
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'mfa',
+          reason: 'mfa_method_disabled',
+        });
+        await reply
+          .status(403)
+          .send({ error: 'MFA method is disabled', code: 'MFA_METHOD_DISABLED' });
+        return;
+      }
+
+      if (recoveryCode == null && user.mfaMethod === 'totp' && user.totpSecretEnc == null) {
+        await reply.status(400).send({ error: 'TOTP not set up', code: 'TOTP_NOT_CONFIGURED' });
+        return;
+      }
+
+      // Per-account backoff after repeated wrong codes: the try is counted before the
+      // check, in the UPDATE that checks the lock, so parallel guesses cannot pass it.
+      const attempt = await takeSignInAttempt({ userId: user.id }, 'mfa');
+      if (!attempt.granted) {
+        const retryAfterSeconds = secondsUntil(attempt.lockedUntil ?? new Date());
         await recordAuthAudit(request, {
           kind: 'user',
           accountId: user.id,
@@ -2338,11 +2754,17 @@ export function userRoutes(app: FastifyInstance): void {
 
       let verified = false;
       let exhausted = false;
-      if (user.mfaMethod === 'totp') {
-        if (user.totpSecretEnc == null) {
-          await reply.status(400).send({ error: 'TOTP not set up', code: 'TOTP_NOT_CONFIGURED' });
-          return;
-        }
+      let recoveryCodesRemaining: number | undefined;
+      if (recoveryCode != null) {
+        const result = await consumeRecoveryCode({ userId: user.id }, recoveryCode, {
+          actor: accountAuditActor({ userId: user.id }),
+          log: request.log,
+        });
+        verified = result.used;
+        if (result.used) recoveryCodesRemaining = result.remaining;
+      } else if (code == null) {
+        verified = false;
+      } else if (user.mfaMethod === 'totp' && user.totpSecretEnc != null) {
         const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
         let step: number | null = null;
         try {
@@ -2355,11 +2777,16 @@ export function userRoutes(app: FastifyInstance): void {
           request.log.warn({ err, userId: payload.userId }, 'TOTP secret decrypt failed');
         }
         // A code is accepted once (replay guard, sign-in-backoff.ts).
-        if (step != null) verified = await acceptTotpStep(user.id, step);
+        if (step != null) verified = await acceptTotpStep({ userId: user.id }, step);
       } else if (challengeId != null) {
         // Tries are counted on the challenge row (MFA_CHALLENGE_MAX_ATTEMPTS),
         // shared by every API process, and the challenge is single use.
-        const result = await verifyMfaChallenge(client, challengeId, code, { userId: user.id });
+        const result = await verifyMfaChallenge(client, challengeId, code, {
+          userId: user.id,
+          method: user.mfaMethod ?? '',
+          purpose: 'sign_in',
+          destination: mfaCodeDestination(user.mfaMethod, user),
+        });
         verified = result === 'verified';
         exhausted = result === 'exhausted';
       }
@@ -2369,10 +2796,10 @@ export function userRoutes(app: FastifyInstance): void {
           kind: 'user',
           accountId: user.id,
           action: 'login_failed',
-          method: 'mfa',
+          method: recoveryCode != null ? 'recovery_code' : 'mfa',
           reason: exhausted ? 'mfa_challenge_exhausted' : 'mfa_code_invalid',
         });
-        await recordSignInFailure(request, user.id, 'mfa');
+        await recordAttemptFailure(request, attempt);
         if (exhausted) {
           await reply.status(400).send({
             error: 'Too many failed attempts. Request a new code.',
@@ -2385,12 +2812,33 @@ export function userRoutes(app: FastifyInstance): void {
           .send({ error: 'Invalid verification code', code: 'MFA_CODE_INVALID' });
         return;
       }
-      await clearSignInFailures(user.id, 'mfa');
+      await clearSignInFailures({ userId: user.id }, 'mfa');
 
       const [role] = await db
         .select({ id: roles.id, name: roles.name })
         .from(roles)
         .where(eq(roles.id, user.roleId));
+
+      // A switched-off method that was the only factor, or the last recovery code of such
+      // an account, leaves no factor: the user proved the old one and now sets up another.
+      const factorsAfter = {
+        ...user,
+        ...factorCounts,
+        recoveryCodesRemaining: recoveryCodesRemaining ?? recoveryCodesBefore,
+      };
+      const enrollmentRequired =
+        usableFactors(factorsAfter, mfaReading).length === 0 &&
+        (mfaMethodGate(factorsAfter, mfaReading) === 'enrollment_required' ||
+          passkeyGate(factorsAfter, mfaReading) === 'enrollment_required');
+      const enrollment = enrollmentRequired
+        ? operatorMfaEnrollment(app, user, mfaReading.config)
+        : null;
+      if (enrollment != null) {
+        return {
+          ...enrollment,
+          ...(recoveryCodesRemaining != null ? { recoveryCodesRemaining } : {}),
+        };
+      }
 
       const token = await issueOperatorSession(app, request, reply, user);
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
@@ -2398,7 +2846,7 @@ export function userRoutes(app: FastifyInstance): void {
         kind: 'user',
         accountId: user.id,
         action: 'login_succeeded',
-        method: 'mfa',
+        method: recoveryCode != null ? 'recovery_code' : 'mfa',
       });
 
       return {
@@ -2413,6 +2861,7 @@ export function userRoutes(app: FastifyInstance): void {
           themePreference: user.themePreference,
         },
         role: role ? { id: role.id, name: role.name } : null,
+        ...(recoveryCodesRemaining != null ? { recoveryCodesRemaining } : {}),
       };
     },
   );
@@ -2451,7 +2900,10 @@ export function userRoutes(app: FastifyInstance): void {
             ERROR_CODES.MFA_TOTP_NO_RESEND,
           ]),
           401: errorWith('Unauthorized', [ERROR_CODES.UNAUTHORIZED, ERROR_CODES.MFA_TOKEN_EXPIRED]),
-          403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
+          403: errorWith('Forbidden', [
+            ERROR_CODES.ACCOUNT_DISABLED,
+            ERROR_CODES.MFA_METHOD_DISABLED,
+          ]),
           429: errorWith('Too many codes sent', [ERROR_CODES.MFA_RESEND_LIMITED]),
         },
       },
@@ -2465,7 +2917,7 @@ export function userRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { mfaToken } = request.body as z.infer<typeof mfaResendBody>;
 
-      let payload: { userId: string; roleId: string; mfaPending?: boolean };
+      let payload: { userId?: unknown; roleId: string; mfaPending?: boolean };
       try {
         payload = app.jwt.verify(mfaToken);
       } catch (err) {
@@ -2476,12 +2928,17 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      if (!payload.mfaPending) {
+      // A driver's MFA-pending token shares the signing key: it carries no userId.
+      if (payload.mfaPending !== true || typeof payload.userId !== 'string') {
         await reply.status(400).send({ error: 'Invalid MFA token', code: 'MFA_TOKEN_INVALID' });
         return;
       }
 
       const [user] = await db.select().from(users).where(eq(users.id, payload.userId));
+      if (user != null && !mfaPendingTokenCurrent(payload, user.sessionVersion)) {
+        await sendMfaTokenExpired(reply);
+        return;
+      }
       if (user == null || !user.mfaEnabled || user.mfaMethod == null) {
         await reply.status(400).send({ error: 'MFA not configured', code: 'MFA_NOT_CONFIGURED' });
         return;
@@ -2499,23 +2956,29 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // A cap on the codes sent to one user (sign-in-backoff.ts), counted
-      // from the challenge rows so every process sees the same count.
-      const retryAfterSeconds = await mfaResendRetryAfter(user.id);
-      if (retryAfterSeconds != null) {
-        void reply.header('Retry-After', String(retryAfterSeconds));
-        await reply.status(429).send({
-          error: 'Too many codes sent. Try again later.',
-          code: 'MFA_RESEND_LIMITED',
-          retryAfterSeconds,
-        });
+      if (
+        mfaMethodGate(
+          { ...user, ...(await mfaFactorCounts({ userId: user.id })) },
+          await readMfaConfig(),
+        ) === 'refused'
+      ) {
+        await reply
+          .status(403)
+          .send({ error: 'MFA method is disabled', code: 'MFA_METHOD_DISABLED' });
         return;
       }
 
-      const challenge = await createMfaChallenge(client, {
-        userId: user.id,
-        method: user.mfaMethod,
+      // A cap on the codes sent to one user, counted from the challenge rows
+      // under a per-account lock so every process sees the same count.
+      const challenge = await createAccountMfaChallenge({ userId: user.id }, user.mfaMethod, {
+        purpose: 'sign_in',
+        destination: mfaCodeDestination(user.mfaMethod, user),
+        destinationProven: true,
       });
+      if (isMfaChallengeLimited(challenge)) {
+        await sendMfaResendLimited(reply, challenge.retryAfterSeconds);
+        return;
+      }
 
       await dispatchSystemNotification(
         client,
@@ -2539,7 +3002,7 @@ export function userRoutes(app: FastifyInstance): void {
         tags: ['Users'],
         summary: 'Turn off the MFA of a user',
         description:
-          'Clears the MFA method and TOTP secret of the user, ends every session of the user (API keys stay) and writes an mfa_reset audit row. For a user who lost the second factor. Requires users:write and every permission of the target user. Never available to the AI assistant or MCP.',
+          'Clears the MFA method, TOTP secret, recovery codes and passkeys of the user, ends every session of the user (API keys stay) and writes an mfa_reset audit row. For a user who lost the second factor. Requires users:write and every permission of the target user. Never available to the AI assistant or MCP.',
         operationId: 'resetUserMfa',
         security: [{ bearerAuth: [] }],
         params: zodSchema(userParams),
@@ -2573,20 +3036,34 @@ export function userRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
       }
+      const beforeCounts = await mfaFactorCounts({ userId: id });
 
-      await db
-        .update(users)
-        .set({
-          mfaEnabled: false,
-          mfaMethod: null,
-          totpSecretEnc: null,
-          totpLastStep: null,
-          mfaFailedCount: 0,
-          mfaLockedUntil: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, id));
+      await db.transaction(async (tx) => {
+        await tx
+          .update(users)
+          .set({
+            mfaEnabled: false,
+            mfaMethod: null,
+            totpSecretEnc: null,
+            totpLastStep: null,
+            mfaFailedCount: 0,
+            mfaLockedUntil: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, id));
+        await deleteRecoveryCodes({ userId: id }, tx);
+        await deleteWebauthnCredentials({ userId: id }, tx);
+      });
       await endUserSessions(id, { apiKeys: false });
+      if (before.mfaEnabled || beforeCounts.passkeyCount > 0) {
+        sendSecurityNotice(
+          { userId: id },
+          'security.FactorRemoved',
+          { mfaTurnedOff: true, byAdmin: true },
+          request.log,
+          { textAccountPhone: before.mfaEnabled && before.mfaMethod === 'sms' },
+        );
+      }
 
       await writeAudit(
         { table: userAuditLog, idColumn: 'user_id' },
@@ -2615,6 +3092,53 @@ export function userRoutes(app: FastifyInstance): void {
       availableMethods: z
         .array(z.string())
         .describe('MFA methods the system has enabled and the user may enroll in'),
+      recoveryCodesRemaining: z
+        .number()
+        .int()
+        .describe('Unused recovery codes of the user (0 without MFA)'),
+      recoveryCodesUsedUp: z
+        .boolean()
+        .describe(
+          'True when the user used every recovery code it was given (time to generate new ones); false when there are codes left or there never were any',
+        ),
+      requiredByPolicy: z
+        .boolean()
+        .describe(
+          'True when required MFA (Settings > Security > MFA) covers the user role: MFA cannot be turned off',
+        ),
+      passkeyCount: z
+        .number()
+        .int()
+        .describe('Passkeys and security keys the user registered (GET /v1/users/me/webauthn)'),
+      webauthnEnabled: z
+        .boolean()
+        .describe(
+          'Whether passkeys and security keys can be registered and used as a second factor',
+        ),
+      passkeyLoginEnabled: z
+        .boolean()
+        .describe('Whether a passkey can sign in without a password (Settings > Security > MFA)'),
+      factorProofKinds: z
+        .array(z.enum(FACTOR_PROOF_KINDS))
+        .describe(
+          'Proofs that adding a factor (passkey registration, MFA confirm) accepts with a session: the factors of the account, else password, else sso; empty for an account with none of them, which cannot add a factor',
+        ),
+      lastFactorIsPasskey: z
+        .boolean()
+        .describe(
+          'True when the only factor is one passkey (no email, SMS or TOTP method): removing it turns MFA off and needs a proof (lastFactorProofKinds)',
+        ),
+      lastFactorProofKinds: z
+        .array(z.enum(FACTOR_PROOF_KINDS))
+        .describe(
+          'Proofs that removing a factor (DELETE /v1/users/me/webauthn/:id) or turning MFA off (DELETE /v1/users/me/mfa) accepts: the factor kinds of factorProofKinds plus recovery_code while recovery codes remain; never password while the account holds a factor',
+        ),
+      ssoProofUntil: z
+        .string()
+        .nullable()
+        .describe(
+          'Until when this session can send the sso proof (ISO 8601): 10 minutes after its SSO sign-in; null without a recent SSO sign-in',
+        ),
     })
     .passthrough();
 
@@ -2634,6 +3158,7 @@ export function userRoutes(app: FastifyInstance): void {
       const { userId } = request.user as { userId: string; roleId: string };
       const [user] = await db
         .select({
+          roleId: users.roleId,
           mfaEnabled: users.mfaEnabled,
           mfaMethod: users.mfaMethod,
           email: users.email,
@@ -2643,17 +3168,33 @@ export function userRoutes(app: FastifyInstance): void {
         .where(eq(users.id, userId));
 
       const mfaConfig = await getMfaConfig();
-      const contact = { email: user?.email ?? null, phone: user?.phone ?? null };
-      const availableMethods: string[] = [];
-      if (mfaConfig.emailEnabled) availableMethods.push('email');
-      if (mfaConfig.totpEnabled) availableMethods.push('totp');
       // SMS codes need a phone number on the profile.
-      if (mfaConfig.smsEnabled && hasMfaContact('sms', contact)) availableMethods.push('sms');
+      const availableMethods = availableMfaMethods(mfaConfig, {
+        email: user?.email ?? null,
+        phone: user?.phone ?? null,
+      });
 
+      const counts = await mfaFactorCounts({ userId });
+      const withMfa = user != null && hasMfa({ ...user, passkeyCount: counts.passkeyCount });
+      const proofAccount = await proofAccountOf({ userId });
       return {
         mfaEnabled: user?.mfaEnabled ?? false,
         mfaMethod: user?.mfaMethod ?? null,
         availableMethods,
+        recoveryCodesRemaining: withMfa ? counts.recoveryCodesRemaining : 0,
+        recoveryCodesUsedUp: withMfa ? await recoveryCodesUsedUp({ userId }) : false,
+        passkeyCount: counts.passkeyCount,
+        webauthnEnabled: mfaConfig.webauthnEnabled,
+        passkeyLoginEnabled: mfaConfig.passkeyLoginEnabled,
+        factorProofKinds: proofAccount != null ? factorProofKindsOf(proofAccount) : [],
+        // The rule of the removal service: no primary method and one passkey.
+        lastFactorIsPasskey:
+          user != null && !(user.mfaEnabled && user.mfaMethod != null) && counts.passkeyCount === 1,
+        lastFactorProofKinds: proofAccount != null ? lastFactorProofKindsOf(proofAccount) : [],
+        ssoProofUntil: ssoProofUntil(request)?.toISOString() ?? null,
+        // Unreadable settings count as required: turning MFA off is refused then too.
+        requiredByPolicy:
+          user != null ? (await mfaPolicyForRole(user.roleId)) !== 'not_required' : false,
       };
     },
   );
@@ -2679,12 +3220,13 @@ export function userRoutes(app: FastifyInstance): void {
   app.post(
     '/users/me/mfa/setup',
     {
-      onRequest: [selfService()],
+      onRequest: [selfServiceOrMfaEnrollment()],
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
       schema: {
         tags: ['Users'],
         summary: 'Start MFA setup',
         description:
-          'Begins MFA enrollment for the requested method. For TOTP, returns the new secret and otpauth URI plus a QR code data URL. For email/SMS, dispatches a verification code to the user contact and returns a challengeId. Setup is not active until confirmed via the confirm endpoint.',
+          'Begins MFA enrollment for the requested method. For TOTP, returns the new secret and otpauth URI plus a QR code data URL. For email/SMS, dispatches a verification code to the user contact and returns a challengeId. Setup is not active until confirmed via the confirm endpoint, which takes the fresh proof of the account when called with a session. An account with a primary method answers 409 MFA_ALREADY_ENABLED; an account with passkeys only may add one. Takes a session, or the enrollmentToken of a sign-in that answered mfaEnrollmentRequired.',
         operationId: 'setupMfa',
         security: [{ bearerAuth: [] }],
         body: zodSchema(mfaSetupBody),
@@ -2694,14 +3236,20 @@ export function userRoutes(app: FastifyInstance): void {
             ERROR_CODES.USER_NOT_FOUND,
             ERROR_CODES.VALIDATION_ERROR,
           ]),
+          401: errorWith('Unauthorized', [
+            ERROR_CODES.UNAUTHORIZED,
+            ERROR_CODES.ACCOUNT_DEACTIVATED,
+          ]),
           403: errorWith('MFA method disabled', [ERROR_CODES.MFA_METHOD_DISABLED]),
-          409: errorResponse,
+          409: errorWith('MFA is already enabled', [ERROR_CODES.MFA_ALREADY_ENABLED]),
+          429: errorWith('Too many codes sent', [ERROR_CODES.MFA_RESEND_LIMITED]),
         },
       },
     },
     async (request, reply) => {
       const { userId } = request.user as { userId: string; roleId: string };
       const { method } = request.body as z.infer<typeof mfaSetupBody>;
+      const enrolling = isMfaEnrollmentRequest(request);
 
       const mfaConfig = await getMfaConfig();
       const methodEnabled =
@@ -2734,8 +3282,10 @@ export function userRoutes(app: FastifyInstance): void {
       // `totpSecretEnc` here without a follow-up confirm would replace the
       // live secret the operator's authenticator app still trusts, locking
       // them out at next login. Force the password-gated disable flow
-      // first. Mirrors the same guard on the portal driver endpoint.
-      if (user.mfaEnabled) {
+      // first. Mirrors the same guard on the portal driver endpoint. An
+      // enrollment token is accepted only while the account has no usable
+      // factor (a method switched off), so its old secret is no longer trusted.
+      if (user.mfaEnabled && !enrolling) {
         await reply
           .status(409)
           .send({ error: 'MFA is already enabled', code: 'MFA_ALREADY_ENABLED' });
@@ -2767,8 +3317,17 @@ export function userRoutes(app: FastifyInstance): void {
         return { qrDataUri, secret };
       }
 
-      // Email or SMS: send verification code
-      const challenge = await createMfaChallenge(client, { userId, method });
+      // Email or SMS: send verification code, under the resend cap. An SMS code goes
+      // to a number the user has not proven yet: the code is bound to it and every
+      // account's codes to that number count toward its cap.
+      const challenge = await createAccountMfaChallenge({ userId }, method, {
+        purpose: 'setup',
+        destination: mfaCodeDestination(method, user),
+      });
+      if (isMfaChallengeLimited(challenge)) {
+        await sendMfaResendLimited(reply, challenge.retryAfterSeconds);
+        return;
+      }
 
       await dispatchSystemNotification(
         client,
@@ -2786,34 +3345,94 @@ export function userRoutes(app: FastifyInstance): void {
     method: z.enum(['email', 'totp', 'sms']),
     code: z.string().min(6).max(6),
     challengeId: z.coerce.number().int().min(1).optional(),
+    proof: factorProof
+      .optional()
+      .describe(
+        'With a session: fresh proof of the account (its current factor, else its password). Not needed with the enrollmentToken',
+      ),
   });
+
+  const mfaConfirmResponse = z
+    .object({
+      success: z.literal(true).describe('MFA is on'),
+      recoveryCodes: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Ten single-use recovery codes (xxxxx-xxxxx), returned this once; absent when the account already has codes (a passkey-only account), which stay valid',
+        ),
+      token: z.string().optional().describe('Access JWT of the new session, also set as a cookie'),
+      user: z
+        .object({
+          id: z.string().describe('User identifier'),
+          email: z.string().describe('Email address'),
+          firstName: z.string().nullable().describe('First name'),
+          lastName: z.string().nullable().describe('Last name'),
+          language: z.string().describe('Preferred UI language code'),
+          timezone: z.string().optional().describe('IANA timezone identifier'),
+        })
+        .passthrough()
+        .optional()
+        .describe('With an enrollmentToken: the user now signed in'),
+      role: z
+        .object({
+          id: z.string().describe('Role identifier'),
+          name: z.string().describe('Role display name'),
+        })
+        .passthrough()
+        .nullable()
+        .optional()
+        .describe('With an enrollmentToken: the role of the user now signed in'),
+    })
+    .passthrough();
 
   app.post(
     '/users/me/mfa/confirm',
     {
-      onRequest: [selfService()],
+      onRequest: [selfServiceOrMfaEnrollment()],
       schema: {
         tags: ['Users'],
         summary: 'Confirm MFA setup with verification code',
         description:
-          'Verifies the supplied code against the in-flight MFA setup (TOTP secret or email/SMS challenge). On success, persists the secret (encrypted for TOTP) and flips mfaEnabled=true on the user. Returns 400 if the code is invalid or the setup has expired.',
+          'Verifies the supplied code against the in-flight MFA setup (TOTP secret or email/SMS challenge). With a session it first needs a fresh proof of the account in proof: its current factor when it has one (a passkey, see POST /v1/users/me/mfa/factor-proof), else its password, else a fresh SSO sign-in (sso); an account with none of them is refused, and a missing or wrong kind of proof answers 400 VALIDATION_ERROR with the accepted proofKinds. On success, persists the secret (encrypted for TOTP), flips mfaEnabled=true on the user and returns ten single-use recovery codes, shown this once; an account that already has recovery codes keeps them and gets none. Returns 400 if the code is invalid or the setup has expired. With the enrollmentToken of a sign-in that answered mfaEnrollmentRequired, it also signs the user in (session cookies, token, user and role) and the token stops working.',
         operationId: 'confirmMfa',
         security: [{ bearerAuth: [] }],
         body: zodSchema(mfaConfirmBody),
         response: {
-          200: successResponse,
-          400: errorWith('Bad request', [
-            ERROR_CODES.MFA_CODE_INVALID,
-            ERROR_CODES.TOTP_NOT_CONFIGURED,
+          200: itemResponse(mfaConfirmResponse),
+          400: errorWith(
+            'Bad request, or the proof is missing or wrong',
+            [
+              ERROR_CODES.INVALID_PASSWORD,
+              ERROR_CODES.MFA_CHALLENGE_EXHAUSTED,
+              ERROR_CODES.MFA_CODE_INVALID,
+              ERROR_CODES.TOTP_NOT_CONFIGURED,
+              ERROR_CODES.VALIDATION_ERROR,
+              ERROR_CODES.WEBAUTHN_CHALLENGE_EXPIRED,
+              ERROR_CODES.WEBAUTHN_VERIFICATION_FAILED,
+            ],
+            {
+              proofKinds: z
+                .array(z.enum(FACTOR_PROOF_KINDS))
+                .optional()
+                .describe(
+                  'VALIDATION_ERROR of a missing or wrong proof: the proof kinds the account accepts',
+                ),
+            },
+          ),
+          401: errorWith('Unauthorized', [
+            ERROR_CODES.UNAUTHORIZED,
+            ERROR_CODES.ACCOUNT_DEACTIVATED,
           ]),
-          403: errorResponse,
+          403: errorWith('MFA method disabled', [ERROR_CODES.MFA_METHOD_DISABLED]),
           409: errorWith('MFA is already enabled', [ERROR_CODES.MFA_ALREADY_ENABLED]),
         },
       },
     },
     async (request, reply) => {
       const { userId } = request.user as { userId: string; roleId: string };
-      const { method, code, challengeId } = request.body as z.infer<typeof mfaConfirmBody>;
+      const { method, code, challengeId, proof } = request.body as z.infer<typeof mfaConfirmBody>;
+      const enrolling = isMfaEnrollmentRequest(request);
 
       const mfaConfig = await getMfaConfig();
       const methodEnabled =
@@ -2828,16 +3447,30 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       const [user] = await db
-        .select({ totpSecretEnc: users.totpSecretEnc, mfaEnabled: users.mfaEnabled })
+        .select({
+          totpSecretEnc: users.totpSecretEnc,
+          mfaEnabled: users.mfaEnabled,
+          phone: users.phone,
+        })
         .from(users)
         .where(eq(users.id, userId));
       // Switching the method of an active MFA goes through the password-gated
-      // disable and a new setup, like the setup step itself.
-      if (user?.mfaEnabled === true) {
+      // disable and a new setup, like the setup step itself. An enrollment
+      // token replaces a switched-off method that was the only factor.
+      if (user?.mfaEnabled === true && !enrolling) {
         await reply
           .status(409)
           .send({ error: 'MFA is already enabled', code: 'MFA_ALREADY_ENABLED' });
         return;
+      }
+
+      // A stolen session cannot add a factor: it must prove the account first.
+      if (!enrolling) {
+        const refused = await checkFactorProof(request, { userId }, proof);
+        if (refused != null) {
+          await sendFactorProofRefusal(reply, refused);
+          return;
+        }
       }
 
       let verified = false;
@@ -2860,7 +3493,15 @@ export function userRoutes(app: FastifyInstance): void {
           verified = false;
         }
       } else if (challengeId != null) {
-        verified = (await verifyMfaChallenge(client, challengeId, code, { userId })) === 'verified';
+        // The code must have been sent for the method being confirmed, and an SMS
+        // code to the number the user has now.
+        verified =
+          (await verifyMfaChallenge(client, challengeId, code, {
+            userId,
+            method,
+            purpose: 'setup',
+            destination: mfaCodeDestination(method, { phone: user?.phone ?? null }),
+          })) === 'verified';
       }
 
       if (!verified) {
@@ -2870,8 +3511,12 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // The confirming TOTP code cannot be replayed at the next sign-in.
-      await db
+      // The confirming TOTP code cannot be replayed at the next sign-in. With
+      // an enrollment token the same UPDATE raises the session version only
+      // while it is still the token's, so of two parallel confirms one wins
+      // and the new version ends the token.
+      const enrollmentVersion = enrolling ? (request.user as { sv?: unknown }).sv : undefined;
+      const [enabled] = await db
         .update(users)
         .set({
           mfaEnabled: true,
@@ -2880,13 +3525,37 @@ export function userRoutes(app: FastifyInstance): void {
           mfaFailedCount: 0,
           mfaLockedUntil: null,
           updatedAt: new Date(),
+          ...(enrolling ? { sessionVersion: sql`${users.sessionVersion} + 1` } : {}),
         })
-        .where(eq(users.id, userId));
+        .where(
+          enrolling
+            ? and(
+                eq(users.id, userId),
+                eq(
+                  users.sessionVersion,
+                  typeof enrollmentVersion === 'number' ? enrollmentVersion : 0,
+                ),
+              )
+            : eq(users.id, userId),
+        )
+        .returning({ sessionVersion: users.sessionVersion });
 
       // End every other session (session version and refresh tokens) and
       // give this browser a new one; API keys stay.
-      const sessionVersion = (await endUserSessions(userId, { apiKeys: false })) ?? 0;
-      await issueOperatorSession(app, request, reply, {
+      let sessionVersion: number;
+      if (enrolling) {
+        // Another confirm with the same token won: it already issued the session.
+        if (enabled == null) {
+          await reply.status(401).send({ error: 'Session ended', code: 'UNAUTHORIZED' });
+          return;
+        }
+        await revokeAllUserSessions(userId);
+        announceSessionChange(userId);
+        sessionVersion = enabled.sessionVersion;
+      } else {
+        sessionVersion = (await endUserSessions(userId, { apiKeys: false })) ?? 0;
+      }
+      const token = await issueOperatorSession(app, request, reply, {
         id: userId,
         roleId: (request.user as JwtPayload).roleId,
         sessionVersion,
@@ -2905,43 +3574,128 @@ export function userRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      // A passkey-only account already had MFA: the method is an added factor.
+      const passkeysBefore = await countWebauthnCredentials({ userId });
+      sendSecurityNotice(
+        { userId },
+        'security.FactorAdded',
+        { mfaTurnedOn: passkeysBefore === 0, ...factorFlags(method) },
+        request.log,
+      );
 
-      return { success: true };
+      // An account with passkeys already holds recovery codes: they stay valid.
+      const recoveryCodes =
+        (await countRecoveryCodes({ userId })) > 0
+          ? undefined
+          : await issueRecoveryCodes({ userId }, 'generated', { actor, log: request.log });
+      if (!enrolling) {
+        return { success: true as const, ...(recoveryCodes != null ? { recoveryCodes } : {}) };
+      }
+
+      // The enrollment finishes the sign-in that required it.
+      await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, userId));
+      await recordAuthAudit(request, {
+        kind: 'user',
+        accountId: userId,
+        action: 'login_succeeded',
+        method: 'mfa_enrollment',
+      });
+      const [signedIn] = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          firstName: users.firstName,
+          lastName: users.lastName,
+          language: users.language,
+          timezone: users.timezone,
+          themePreference: users.themePreference,
+          roleId: roles.id,
+          roleName: roles.name,
+        })
+        .from(users)
+        .leftJoin(roles, eq(roles.id, users.roleId))
+        .where(eq(users.id, userId));
+      return {
+        success: true as const,
+        ...(recoveryCodes != null ? { recoveryCodes } : {}),
+        token,
+        ...(signedIn != null
+          ? {
+              user: {
+                id: signedIn.id,
+                email: signedIn.email,
+                firstName: signedIn.firstName,
+                lastName: signedIn.lastName,
+                language: signedIn.language,
+                timezone: signedIn.timezone,
+                themePreference: signedIn.themePreference,
+              },
+              role:
+                signedIn.roleId != null && signedIn.roleName != null
+                  ? { id: signedIn.roleId, name: signedIn.roleName }
+                  : null,
+            }
+          : {}),
+      };
     },
   );
 
   const mfaDisableBody = z.object({
-    password: z.string().min(1).describe('Current password for confirmation'),
+    proof: factorProof
+      .optional()
+      .describe(
+        'Fresh proof of a factor the account holds (TOTP, an emailed or texted code, a passkey) or one of its recovery codes: the kinds GET /v1/users/me/mfa lists in lastFactorProofKinds. The password alone is not enough while the account holds a factor',
+      ),
   });
 
   app.delete(
     '/users/me/mfa',
     {
       onRequest: [selfService()],
-      // Throttle so a stolen session cookie can't be used to brute-force the
-      // password (each request hits argon2.verify with the supplied value).
+      // Throttle so a stolen session cookie can't be used to guess the proof.
       config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
       schema: {
         tags: ['Users'],
         summary: 'Disable MFA',
         description:
-          'Requires the user current password (verified via argon2), then clears mfaEnabled, mfaMethod, and the encrypted TOTP secret. The next login will skip the MFA challenge. Returns 401 if the password is wrong.',
+          'Requires a fresh proof of a factor the account holds or a recovery code (proof, kinds in lastFactorProofKinds of GET /v1/users/me/mfa), then clears mfaEnabled, mfaMethod, the encrypted TOTP secret, the recovery codes and the passkeys and security keys. The next login will skip the MFA challenge. The password alone is not accepted while the account holds a factor. Returns 400 VALIDATION_ERROR with proofKinds for a missing proof, MFA_CODE_INVALID or MFA_CHALLENGE_EXHAUSTED for a wrong code, WEBAUTHN_CHALLENGE_EXPIRED or WEBAUTHN_VERIFICATION_FAILED for a passkey, 409 MFA_REQUIRED_BY_POLICY while required MFA (Settings > Security > MFA) covers the user role, and 503 MFA_POLICY_UNAVAILABLE when the MFA settings cannot be read.',
         operationId: 'disableMfa',
         security: [{ bearerAuth: [] }],
         body: zodSchema(mfaDisableBody),
         response: {
           200: successResponse,
-          400: errorWith('Bad request', [ERROR_CODES.INVALID_PASSWORD, ERROR_CODES.USER_NOT_FOUND]),
+          400: errorWith(
+            'Bad request',
+            [
+              ERROR_CODES.VALIDATION_ERROR,
+              ERROR_CODES.INVALID_PASSWORD,
+              ERROR_CODES.MFA_CODE_INVALID,
+              ERROR_CODES.MFA_CHALLENGE_EXHAUSTED,
+              ERROR_CODES.WEBAUTHN_CHALLENGE_EXPIRED,
+              ERROR_CODES.WEBAUTHN_VERIFICATION_FAILED,
+              ERROR_CODES.USER_NOT_FOUND,
+            ],
+            {
+              proofKinds: z
+                .array(z.enum(FACTOR_PROOF_KINDS))
+                .optional()
+                .describe(
+                  'VALIDATION_ERROR of a missing or wrong proof: the proof kinds the account accepts',
+                ),
+            },
+          ),
+          409: errorWith('Required MFA covers the user', [ERROR_CODES.MFA_REQUIRED_BY_POLICY]),
+          503: errorWith('MFA settings unavailable', [ERROR_CODES.MFA_POLICY_UNAVAILABLE]),
         },
       },
     },
     async (request, reply) => {
       const { userId } = request.user as { userId: string; roleId: string };
-      const { password } = request.body as z.infer<typeof mfaDisableBody>;
+      const { proof } = request.body as z.infer<typeof mfaDisableBody>;
 
       const [user] = await db
         .select({
-          passwordHash: users.passwordHash,
+          roleId: users.roleId,
           mfaEnabled: users.mfaEnabled,
           mfaMethod: users.mfaMethod,
         })
@@ -2953,22 +3707,42 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const valid = await verifyPassword(user.passwordHash, password, request.log);
-      if (!valid) {
-        await reply.status(400).send({ error: 'Invalid password', code: 'INVALID_PASSWORD' });
+      // Required MFA keeps MFA on; an admin MFA reset is the way to change the method.
+      const policy = await mfaPolicyForRole(user.roleId);
+      if (policy === 'unavailable') {
+        await sendMfaPolicyUnavailable(request, reply, userId);
+        return;
+      }
+      if (policy === 'required') {
+        await reply.status(409).send({
+          error: 'MFA is required for your role and cannot be turned off',
+          code: 'MFA_REQUIRED_BY_POLICY',
+        });
         return;
       }
 
-      await db
-        .update(users)
-        .set({
-          mfaEnabled: false,
-          mfaMethod: null,
-          totpSecretEnc: null,
-          totpLastStep: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, userId));
+      // A factor or a recovery code, never the password alone: a stolen session with a
+      // phished password must not strip the factors that protect the account.
+      const refused = await checkFactorProof(request, { userId }, proof, 'remove');
+      if (refused != null) {
+        await sendFactorProofRefusal(reply, refused);
+        return;
+      }
+
+      await db.transaction(async (tx) => {
+        await tx
+          .update(users)
+          .set({
+            mfaEnabled: false,
+            mfaMethod: null,
+            totpSecretEnc: null,
+            totpLastStep: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, userId));
+        await deleteRecoveryCodes({ userId }, tx);
+        await deleteWebauthnCredentials({ userId }, tx);
+      });
 
       // End every other session and give this browser a new one; API keys stay.
       const sessionVersion = (await endUserSessions(userId, { apiKeys: false })) ?? 0;
@@ -2992,8 +3766,214 @@ export function userRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      sendSecurityNotice(
+        { userId },
+        'security.FactorRemoved',
+        { mfaTurnedOff: true, byAdmin: false },
+        request.log,
+        { textAccountPhone: user.mfaEnabled && user.mfaMethod === 'sms' },
+      );
 
       return { success: true };
+    },
+  );
+
+  const recoveryCodesBody = z.object({
+    code: z
+      .string()
+      .min(6)
+      .max(6)
+      .optional()
+      .describe(
+        'Code of the current MFA method. For email or SMS, omit it first to have a code sent',
+      ),
+    challengeId: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .optional()
+      .describe('Challenge ID of the email or SMS code'),
+    credential: authenticationCredential
+      .optional()
+      .describe(
+        'A passkey or security key as the proof instead of a code: the navigator.credentials.get response to POST /v1/users/me/mfa/recovery-codes/webauthn-options',
+      ),
+  });
+
+  const recoveryCodesResponse = z
+    .object({
+      recoveryCodes: z
+        .array(z.string())
+        .optional()
+        .describe('Ten new single-use recovery codes (xxxxx-xxxxx), returned this once'),
+      challengeId: z
+        .number()
+        .int()
+        .optional()
+        .describe('Set when an email or SMS code was sent: send it back with the code'),
+    })
+    .passthrough();
+
+  app.post(
+    '/users/me/mfa/recovery-codes',
+    {
+      onRequest: [selfService()],
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Users'],
+        summary: 'Replace the MFA recovery codes',
+        description:
+          'Proves the current MFA method or a passkey, then replaces the recovery codes with ten new ones and returns them this once; the old codes stop working. TOTP: send the code. Email or SMS: a call without code sends one and returns its challengeId, then send code and challengeId. Passkey or security key: send credential, the response to POST /v1/users/me/mfa/recovery-codes/webauthn-options (400 WEBAUTHN_CHALLENGE_EXPIRED or WEBAUTHN_VERIFICATION_FAILED when it does not verify).',
+        operationId: 'regenerateMfaRecoveryCodes',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(recoveryCodesBody),
+        response: {
+          200: itemResponse(recoveryCodesResponse),
+          400: errorWith('Bad request', [
+            ERROR_CODES.MFA_CODE_INVALID,
+            ERROR_CODES.MFA_NOT_CONFIGURED,
+            ERROR_CODES.TOTP_NOT_CONFIGURED,
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.WEBAUTHN_CHALLENGE_EXPIRED,
+            ERROR_CODES.WEBAUTHN_VERIFICATION_FAILED,
+          ]),
+          429: errorWith('Too many codes sent', [ERROR_CODES.MFA_RESEND_LIMITED]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { userId } = request.user as JwtPayload;
+      const { code, challengeId, credential } = request.body as z.infer<typeof recoveryCodesBody>;
+
+      // A passkey-only account has no method to send or check a code: its passkey is the proof.
+      if (credential != null) {
+        if (code != null) {
+          await reply
+            .status(400)
+            .send({ error: 'Send a code or a passkey, not both', code: 'VALIDATION_ERROR' });
+          return;
+        }
+        const proof = await verifyRecoveryCodesPasskey(
+          request,
+          { userId },
+          credential as unknown as AuthenticationResponseJSON,
+        );
+        if (proof === 'challenge_expired') {
+          await reply.status(400).send({
+            error: 'The passkey request expired or was already used',
+            code: 'WEBAUTHN_CHALLENGE_EXPIRED',
+          });
+          return;
+        }
+        if (proof === 'failed') {
+          await reply.status(400).send({
+            error: 'The passkey or security key could not be verified',
+            code: 'WEBAUTHN_VERIFICATION_FAILED',
+          });
+          return;
+        }
+        const recoveryCodes = await issueRecoveryCodes({ userId }, 'regenerated', {
+          actor: getAuditActor(request),
+          log: request.log,
+        });
+        return { recoveryCodes };
+      }
+
+      const [user] = await db
+        .select({
+          mfaEnabled: users.mfaEnabled,
+          mfaMethod: users.mfaMethod,
+          totpSecretEnc: users.totpSecretEnc,
+          email: users.email,
+          phone: users.phone,
+          firstName: users.firstName,
+          language: users.language,
+        })
+        .from(users)
+        .where(eq(users.id, userId));
+      if (user == null || !user.mfaEnabled || user.mfaMethod == null) {
+        await reply.status(400).send({ error: 'MFA not configured', code: 'MFA_NOT_CONFIGURED' });
+        return;
+      }
+
+      if (code == null) {
+        if (user.mfaMethod === 'totp') {
+          await reply.status(400).send({
+            error: 'Send the code from your authenticator app',
+            code: 'VALIDATION_ERROR',
+          });
+          return;
+        }
+        const challenge = await createAccountMfaChallenge({ userId }, user.mfaMethod, {
+          purpose: 'proof',
+          destination: mfaCodeDestination(user.mfaMethod, user),
+          destinationProven: true,
+        });
+        if (isMfaChallengeLimited(challenge)) {
+          await sendMfaResendLimited(reply, challenge.retryAfterSeconds);
+          return;
+        }
+        await dispatchSystemNotification(
+          client,
+          'mfa.VerificationCode',
+          mfaCodeRecipient(user.mfaMethod, user),
+          { code: challenge.code },
+          TEMPLATES_DIR,
+        );
+        return { challengeId: challenge.challengeId };
+      }
+
+      if (user.mfaMethod === 'totp' && user.totpSecretEnc == null) {
+        await reply.status(400).send({ error: 'TOTP not set up', code: 'TOTP_NOT_CONFIGURED' });
+        return;
+      }
+      // While the proof backoff locks the account the code is not checked, as in the factor
+      // proof. The try is counted in the UPDATE that checks the lock, so parallel guesses
+      // cannot pass it; it counts apart from sign-in, so wrong guesses never lock the sign-in.
+      const attempt = await takeSignInAttempt({ userId }, 'proof');
+      if (!attempt.granted) {
+        await reply
+          .status(400)
+          .send({ error: 'Invalid verification code', code: 'MFA_CODE_INVALID' });
+        return;
+      }
+
+      let verified = false;
+      if (user.mfaMethod === 'totp' && user.totpSecretEnc != null) {
+        let step: number | null = null;
+        try {
+          step = matchTotpStep(
+            decryptString(user.totpSecretEnc, apiConfig.SETTINGS_ENCRYPTION_KEY),
+            code,
+          );
+        } catch (err: unknown) {
+          request.log.warn({ err, userId }, 'TOTP secret decrypt failed');
+        }
+        // A code is accepted once, as at sign-in.
+        if (step != null) verified = await acceptTotpStep({ userId }, step);
+      } else if (challengeId != null) {
+        verified =
+          (await verifyMfaChallenge(client, challengeId, code, {
+            userId,
+            method: user.mfaMethod,
+            purpose: 'proof',
+            destination: mfaCodeDestination(user.mfaMethod, user),
+          })) === 'verified';
+      }
+      if (!verified) {
+        await recordAttemptFailure(request, attempt);
+        await reply
+          .status(400)
+          .send({ error: 'Invalid verification code', code: 'MFA_CODE_INVALID' });
+        return;
+      }
+      await clearSignInFailures({ userId }, 'proof');
+
+      const recoveryCodes = await issueRecoveryCodes({ userId }, 'regenerated', {
+        actor: getAuditActor(request),
+        log: request.log,
+      });
+      return { recoveryCodes };
     },
   );
 

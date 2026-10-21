@@ -58,7 +58,7 @@ export async function guestStartExtras(
   evseId: string | number,
   language: string,
 ): Promise<GuestStartExtras> {
-  const security = await api.get<SecurityPublic>('/v1/security/public');
+  const security = await api.get<SecurityPublic>('/v1/security/public?app=portal');
   let recaptchaToken: string | undefined;
   if (security.recaptchaEnabled && security.recaptchaSiteKey !== '') {
     recaptchaToken = await executeRecaptcha(security.recaptchaSiteKey, 'guest_start');

@@ -22,6 +22,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { CodeBlock } from '@/components/ai/CodeBlock';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import { useOcppSchema } from '@/hooks/use-ocpp-schema';
@@ -1441,7 +1442,7 @@ export function StationCommands({
             <DialogHeader>
               <DialogTitle>{activeAction}</DialogTitle>
             </DialogHeader>
-            <div>
+            <div className="min-w-0" data-testid="quick-command-body">
               {activeAction != null &&
                 (is16 ? (
                   <QuickActionForm16
@@ -1470,9 +1471,10 @@ export function StationCommands({
                       <Badge variant="warning">{t('commands.queued')}</Badge>
                     )}
                   </div>
-                  <pre className="mt-1 rounded-md bg-muted p-3 text-xs overflow-auto max-h-60">
-                    {JSON.stringify(result, null, 2)}
-                  </pre>
+                  {/* w-0 min-w-full: a long line scrolls inside the block, never widens the dialog. */}
+                  <div className="mt-1 w-0 min-w-full" data-testid="quick-command-response">
+                    <CodeBlock code={JSON.stringify(result, null, 2)} language="JSON" bounded />
+                  </div>
                 </div>
               )}
             </div>
@@ -1516,7 +1518,7 @@ export function StationCommands({
             <DialogHeader>
               <DialogTitle>{advancedAction}</DialogTitle>
             </DialogHeader>
-            <div>
+            <div className="min-w-0" data-testid="advanced-command-body">
               {advancedMutation.isPending && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Spinner className="h-4 w-4" />
@@ -1531,9 +1533,14 @@ export function StationCommands({
                       <Badge variant="warning">{t('commands.queued')}</Badge>
                     )}
                   </div>
-                  <pre className="mt-1 rounded-md bg-muted p-3 text-xs overflow-auto max-h-60">
-                    {JSON.stringify(advancedResult, null, 2)}
-                  </pre>
+                  {/* w-0 min-w-full: a long line scrolls inside the block, never widens the dialog. */}
+                  <div className="mt-1 w-0 min-w-full" data-testid="advanced-command-response">
+                    <CodeBlock
+                      code={JSON.stringify(advancedResult, null, 2)}
+                      language="JSON"
+                      bounded
+                    />
+                  </div>
                 </div>
               )}
             </div>

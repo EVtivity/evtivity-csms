@@ -384,6 +384,32 @@ describe('api', () => {
       expect(window.location.href).toBe('/login?reason=session_expired');
     });
 
+    it('answers the 401 of a passkey sign-in step without a refresh or a redirect', async () => {
+      window.location.pathname = '/dashboard';
+      window.location.href = '/dashboard';
+      fetchMock.mockResolvedValue(
+        createMockResponse({ ok: false, status: 401, jsonData: { code: 'MFA_TOKEN_EXPIRED' } }),
+      );
+      for (const path of [
+        '/v1/portal/auth/passkey/verify',
+        '/v1/portal/auth/webauthn/options',
+        '/v1/portal/auth/webauthn/verify',
+      ]) {
+        fetchMock.mockClear();
+        await expect(api.post(path, {})).rejects.toThrow(DynApiError);
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      }
+      expect(window.location.href).toBe('/dashboard');
+    });
+
+    it('treats the MFA setup page as public: a failed renewal there does not redirect', async () => {
+      window.location.pathname = '/mfa-setup';
+      window.location.href = '/mfa-setup';
+      fetchMock.mockResolvedValue(createMockResponse({ ok: false, status: 401, jsonData: null }));
+      await expect(api.get('/v1/security/public')).rejects.toThrow(DynApiError);
+      expect(window.location.href).toBe('/mfa-setup');
+    });
+
     it('does not redirect on non-401 errors', async () => {
       window.location.pathname = '/dashboard';
       window.location.href = '/dashboard';

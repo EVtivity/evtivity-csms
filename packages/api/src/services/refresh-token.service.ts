@@ -24,6 +24,8 @@ export async function createRefreshToken(opts: {
   userId?: string;
   driverId?: string;
   deviceId?: string | undefined;
+  /** 'mobile' for a driver refresh token issued to the app: its renewals keep the claim. */
+  client?: 'mobile' | null;
   lifetimeDays: number;
 }): Promise<CreateRefreshTokenResult> {
   const raw = crypto.randomBytes(REFRESH_TOKEN_BYTES).toString('hex');
@@ -36,6 +38,7 @@ export async function createRefreshToken(opts: {
     tokenHash,
     type: 'session',
     deviceId: opts.deviceId,
+    client: opts.client ?? null,
     expiresAt,
   });
 
@@ -46,6 +49,8 @@ export interface ValidateRefreshTokenResult {
   userId: string | null;
   driverId: string | null;
   tokenId: number;
+  /** 'mobile' when the token was issued to the mobile app. */
+  client: 'mobile' | null;
 }
 
 // Grace window for distinguishing legitimate concurrent rotation (two
@@ -121,7 +126,55 @@ export async function validateAndRotateRefreshToken(
     userId: row.userId,
     driverId: row.driverId,
     tokenId: row.id,
+    client: row.client === 'mobile' ? 'mobile' : null,
   };
+}
+
+/**
+ * The operator of a web session refresh token that would rotate now (not
+ * revoked, not expired, bound to no device), without rotating it; null otherwise.
+ */
+export async function sessionRefreshTokenUserId(rawToken: string): Promise<string | null> {
+  const [row] = await db
+    .select({
+      userId: refreshTokens.userId,
+      deviceId: refreshTokens.deviceId,
+      revokedAt: refreshTokens.revokedAt,
+      expiresAt: refreshTokens.expiresAt,
+    })
+    .from(refreshTokens)
+    .where(
+      and(eq(refreshTokens.tokenHash, hashToken(rawToken)), eq(refreshTokens.type, 'session')),
+    );
+  if (row == null || row.revokedAt != null || row.deviceId != null) return null;
+  if (row.expiresAt != null && row.expiresAt < new Date()) return null;
+  return row.userId;
+}
+
+/**
+ * The driver of a session refresh token that would rotate now (not revoked,
+ * not expired, and bound to this device or to none, as the rotation checks),
+ * without rotating it; null otherwise.
+ */
+export async function sessionRefreshTokenDriverId(
+  rawToken: string,
+  deviceId: string | undefined,
+): Promise<string | null> {
+  const [row] = await db
+    .select({
+      driverId: refreshTokens.driverId,
+      deviceId: refreshTokens.deviceId,
+      revokedAt: refreshTokens.revokedAt,
+      expiresAt: refreshTokens.expiresAt,
+    })
+    .from(refreshTokens)
+    .where(
+      and(eq(refreshTokens.tokenHash, hashToken(rawToken)), eq(refreshTokens.type, 'session')),
+    );
+  if (row == null || row.revokedAt != null) return null;
+  if (row.deviceId != null && row.deviceId !== deviceId) return null;
+  if (row.expiresAt != null && row.expiresAt < new Date()) return null;
+  return row.driverId;
 }
 
 export async function revokeRefreshToken(rawToken: string): Promise<void> {

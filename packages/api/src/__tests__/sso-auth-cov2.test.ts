@@ -62,9 +62,11 @@ const {
   mockWriteAudit,
   mockSamlOptions,
   mockConsumeRead,
+  mockBindingMatches,
 } = vi.hoisted(() => ({
   mockSamlOptions: vi.fn(),
   mockConsumeRead: vi.fn(() => Promise.resolve(true)),
+  mockBindingMatches: vi.fn((_value: string | null) => Promise.resolve(true)),
   mockWriteAudit: vi.fn(),
   mockGetSsoConfig: vi.fn(),
   mockGenerateId: vi.fn(),
@@ -74,7 +76,32 @@ const {
   mockSetAuthCookies: vi.fn(),
 }));
 
+vi.mock('../services/mfa-factor.service.js', () => {
+  const countRecoveryCodes = vi.fn(async (_account: unknown) => 0);
+  return {
+    countRecoveryCodes,
+    // The gates read both counts; tests set the recovery code count.
+    mfaFactorCounts: vi.fn(async (account: unknown) => ({
+      recoveryCodesRemaining: await countRecoveryCodes(account),
+      passkeyCount: 0,
+    })),
+    consumeRecoveryCode: vi.fn(async () => ({ used: false, remaining: 0 })),
+    issueRecoveryCodes: vi.fn(async () => []),
+    deleteRecoveryCodes: vi.fn(async () => undefined),
+    deleteWebauthnCredentials: vi.fn(async () => undefined),
+  };
+});
 vi.mock('@evtivity/database', () => ({
+  readMfaConfig: async () => ({
+    config: {
+      emailEnabled: true,
+      totpEnabled: true,
+      smsEnabled: false,
+      required: 'off',
+      requiredRoles: [],
+    },
+    fallback: false,
+  }),
   getSessionLifetimes: vi.fn(async () => ({
     ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
   })),
@@ -133,12 +160,15 @@ vi.mock('@node-saml/node-saml', () => ({
 }));
 
 // The real SAML client builder and domain check; a request cache whose
-// single-use consume answers what the test sets.
+// single-use consume and browser binding answer what the test sets.
 vi.mock('../lib/saml-request-cache.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/saml-request-cache.js')>()),
   RedisSamlRequestCache: class {
     consumeRead() {
       return mockConsumeRead();
+    }
+    bindingMatches(value: string | null) {
+      return mockBindingMatches(value);
     }
   },
 }));
@@ -193,14 +223,38 @@ describe('SSO callback error and provisioning paths', () => {
     app = await buildApp();
   });
 
+  /** The IdP reply, posted by the browser that started the sign-in (its binding cookie). */
   function callback(form: string) {
     return app.inject({
       method: 'POST',
       url: '/auth/sso/callback',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: 'csms_sso_binding=this-browser',
+      },
       payload: form,
     });
   }
+
+  it('checks the binding of this browser only after the reply is consumed', async () => {
+    mockGetSsoConfig.mockResolvedValue(SSO_CONFIG);
+    mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'a@corp.com' } });
+    mockBindingMatches.mockResolvedValueOnce(false);
+    const res = await callback('SAMLResponse=abc');
+    expect(mockConsumeRead).toHaveBeenCalled();
+    expect(mockBindingMatches).toHaveBeenCalledWith('this-browser');
+    expect(res.headers['location']).toBe('/login?error=sso_session_mismatch');
+    expect(mockSetAuthCookies).not.toHaveBeenCalled();
+  });
+
+  it('refuses a replayed reply before its binding is read', async () => {
+    mockGetSsoConfig.mockResolvedValue(SSO_CONFIG);
+    mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'a@corp.com' } });
+    mockConsumeRead.mockResolvedValueOnce(false);
+    const res = await callback('SAMLResponse=abc');
+    expect(res.headers['location']).toBe('/login?error=sso_config_error');
+    expect(mockBindingMatches).not.toHaveBeenCalled();
+  });
 
   it('redirects with sso_config_error when SSO is not configured', async () => {
     mockGetSsoConfig.mockResolvedValue(null);

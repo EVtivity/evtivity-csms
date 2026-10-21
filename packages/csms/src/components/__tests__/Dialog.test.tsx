@@ -240,4 +240,51 @@ describe('Dialog', () => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
     });
   });
+
+  describe('ConfirmDialog as a form', () => {
+    function renderForm(isPending = false) {
+      const onConfirm = vi.fn(() => false);
+      const onOpenChange = vi.fn();
+      render(
+        <ConfirmDialog
+          open
+          onOpenChange={onOpenChange}
+          title="Rename"
+          description="Pick a name."
+          confirmLabel="Save"
+          onConfirm={onConfirm}
+          isPending={isPending}
+          asForm
+        >
+          <label htmlFor="name">Name</label>
+          <input id="name" />
+        </ConfirmDialog>,
+      );
+      return { onConfirm, onOpenChange };
+    }
+
+    it('confirms on Enter in a field: the confirm button submits the form', () => {
+      const { onConfirm, onOpenChange } = renderForm();
+      const save = screen.getByRole('button', { name: 'Save' });
+      expect(save.getAttribute('type')).toBe('submit');
+      expect(screen.getByRole('button', { name: /common\.cancel/ }).getAttribute('type')).toBe(
+        'button',
+      );
+      const form = screen.getByLabelText('Name').closest('form');
+      expect(form).not.toBeNull();
+      if (form != null) fireEvent.submit(form);
+      expect(onConfirm).toHaveBeenCalledTimes(1);
+      // onConfirm answered false: the dialog stays open.
+      expect(onOpenChange).not.toHaveBeenCalled();
+      fireEvent.click(save);
+      expect(onConfirm).toHaveBeenCalledTimes(2);
+    });
+
+    it('sends nothing while the action runs', () => {
+      const { onConfirm } = renderForm(true);
+      const form = screen.getByLabelText('Name').closest('form');
+      if (form != null) fireEvent.submit(form);
+      expect(onConfirm).not.toHaveBeenCalled();
+    });
+  });
 });

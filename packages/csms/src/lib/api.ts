@@ -87,6 +87,17 @@ function refreshOnce(): Promise<boolean> {
   return refreshPromise;
 }
 
+// Sign-in steps run without a session: their 401 is the answer (wrong credentials, an
+// expired MFA token), not an expired session to renew.
+function isSignInStep(path: string): boolean {
+  return (
+    path.endsWith('/auth/login') ||
+    path.endsWith('/auth/refresh') ||
+    path.startsWith('/v1/auth/passkey/') ||
+    path.startsWith('/v1/auth/webauthn/')
+  );
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
@@ -107,7 +118,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: 'include',
   });
 
-  if (res.status === 401 && !path.endsWith('/auth/login') && !path.endsWith('/auth/refresh')) {
+  if (res.status === 401 && !isSignInStep(path)) {
     const refreshed = await refreshOnce();
 
     if (refreshed) {

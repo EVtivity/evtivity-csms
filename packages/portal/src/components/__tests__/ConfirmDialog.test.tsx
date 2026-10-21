@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
@@ -45,5 +45,45 @@ describe('ConfirmDialog', () => {
       />,
     );
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('confirms on Enter in a field when it is a form, and stays open when confirm answers false', () => {
+    const onConfirm = vi.fn(() => false);
+    const onOpenChange = vi.fn();
+    render(
+      <ConfirmDialog
+        open
+        asForm
+        onOpenChange={onOpenChange}
+        title="Rename"
+        description="Pick a name."
+        confirmLabel="Save"
+        onConfirm={onConfirm}
+      >
+        <input aria-label="Name" />
+      </ConfirmDialog>,
+    );
+    const form = screen.getByLabelText('Name').closest('form');
+    expect(form).not.toBeNull();
+    if (form != null) fireEvent.submit(form);
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Save' }).getAttribute('type')).toBe('submit');
+  });
+
+  it('closes at once after a synchronous confirm', () => {
+    const onOpenChange = vi.fn();
+    render(
+      <ConfirmDialog
+        open
+        onOpenChange={onOpenChange}
+        title="Regenerate"
+        description="Old codes stop working."
+        confirmLabel="Regenerate"
+        onConfirm={() => undefined}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate' }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

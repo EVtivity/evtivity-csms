@@ -1,0 +1,12 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}Hola {{firstName}},{{else}}Hola,{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Método de inicio de sesión añadido</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if mfaTurnedOn}}Se activó la autenticación de dos factores en su cuenta.{{else}}Se añadió un método de inicio de sesión a su cuenta.{{/if}} {{#if factorPasskey}}Método: una llave de acceso o de seguridad.{{else if factorTotp}}Método: una aplicación de autenticación.{{else if factorSms}}Método: códigos enviados por SMS.{{else}}Método: códigos enviados por correo electrónico.{{/if}}</p>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if isDriver}}Si usted no realizó este cambio, inicie sesión y restablezca su contraseña de inmediato, o comuníquese con el soporte de {{companyName}}.{{else}}Si usted no realizó este cambio, inicie sesión, cambie su contraseña y comuníquese con su administrador de inmediato.{{/if}}</p>

@@ -16,6 +16,7 @@ vi.mock('@/components/profile/ProfilePersonalInfo', () => ({ ProfilePersonalInfo
 vi.mock('@/components/profile/ProfileAppearance', () => ({ ProfileAppearance: () => null }));
 vi.mock('@/components/profile/ProfilePassword', () => ({ ProfilePassword: () => null }));
 vi.mock('@/components/profile/ProfileMfa', () => ({ ProfileMfa: () => null }));
+vi.mock('@/components/profile/ProfilePasskeys', () => ({ ProfilePasskeys: () => null }));
 vi.mock('@/components/profile/ProfileNotifications', () => ({ ProfileNotifications: () => null }));
 vi.mock('@/components/profile/ProfileChatbotAi', () => ({ ProfileChatbotAi: () => null }));
 vi.mock('@/components/profile/ProfileSupportAi', () => ({ ProfileSupportAi: () => null }));

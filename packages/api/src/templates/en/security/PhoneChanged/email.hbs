@@ -1,0 +1,12 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}Hi {{firstName}},{{else}}Hello,{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Phone Number Changed</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if byAdmin}}{{#if phoneRemoved}}An administrator removed the phone number from your account.{{else}}An administrator changed the phone number of your account.{{/if}}{{else if phoneRemoved}}The phone number was removed from your account.{{else}}The phone number of your account was changed.{{/if}} Text messages for your account no longer go to the previous number.</p>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if isDriver}}If you did not make this change, sign in and reset your password at once, or contact {{companyName}} support.{{else}}If you did not make this change, sign in, change your password and contact your administrator at once.{{/if}}</p>

@@ -77,7 +77,14 @@ vi.mock('@evtivity/database', () => ({
   getSsoConfig: vi.fn(() => Promise.resolve(null)),
   getRecaptchaConfig: vi.fn(() => Promise.resolve(null)),
   getMfaConfig: vi.fn(() =>
-    Promise.resolve({ emailEnabled: false, totpEnabled: false, smsEnabled: false }),
+    Promise.resolve({
+      emailEnabled: false,
+      totpEnabled: false,
+      smsEnabled: false,
+      webauthnEnabled: true,
+      passkeyLoginEnabled: false,
+      requireDrivers: false,
+    }),
   ),
   isRoamingEnabled: vi.fn(() => Promise.resolve(false)),
   isSupportAiEnabled: vi.fn(() => Promise.resolve(false)),
@@ -136,7 +143,7 @@ process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
 import { registerAuth } from '../plugins/auth.js';
 import { ssoSettingsRoutes } from '../routes/sso-settings.js';
 import { securityPublicRoutes } from '../routes/security-public.js';
-import { getSsoConfig } from '@evtivity/database';
+import { getMfaConfig, getSsoConfig } from '@evtivity/database';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -397,6 +404,37 @@ describe('SSO Settings routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.ssoEnabled).toBe(false);
+  });
+
+  it('GET /security/public says whether passkeys and passkey sign-in are on', async () => {
+    const off = JSON.parse((await app.inject({ method: 'GET', url: '/security/public' })).body);
+    expect(off).toMatchObject({ webauthnEnabled: true, passkeyLoginEnabled: false });
+
+    const base = {
+      emailEnabled: true,
+      totpEnabled: true,
+      smsEnabled: false,
+      required: 'off' as const,
+      requiredRoles: [],
+    };
+    vi.mocked(getMfaConfig).mockResolvedValueOnce({
+      ...base,
+      webauthnEnabled: true,
+      passkeyLoginEnabled: true,
+      requireDrivers: false,
+    });
+    const on = JSON.parse((await app.inject({ method: 'GET', url: '/security/public' })).body);
+    expect(on).toMatchObject({ webauthnEnabled: true, passkeyLoginEnabled: true });
+
+    // Passkey sign-in needs passkeys switched on.
+    vi.mocked(getMfaConfig).mockResolvedValueOnce({
+      ...base,
+      webauthnEnabled: false,
+      passkeyLoginEnabled: true,
+      requireDrivers: false,
+    });
+    const blocked = JSON.parse((await app.inject({ method: 'GET', url: '/security/public' })).body);
+    expect(blocked).toMatchObject({ webauthnEnabled: false, passkeyLoginEnabled: false });
   });
 
   it('GET /security/public returns the password policy and no session lifetimes', async () => {

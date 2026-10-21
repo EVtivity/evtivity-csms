@@ -116,6 +116,7 @@ services:
       # Proxy IPs or CIDRs whose X-Forwarded-For is trusted. Empty: the ports are
       # published directly, so the socket address is the client.
       TRUST_PROXY: ${TRUST_PROXY:-}
+      WEBAUTHN_RP_ID: ${WEBAUTHN_RP_ID:-}
       LOG_LEVEL: info
       NODE_ENV: development
       RATE_LIMIT_MAX: ${RATE_LIMIT_MAX:-3000}

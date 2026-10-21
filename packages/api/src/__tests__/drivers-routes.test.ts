@@ -233,7 +233,7 @@ function makeDriver(overrides: Record<string, unknown> = {}) {
     firstName: 'John',
     lastName: 'Doe',
     email: 'john@example.com',
-    phone: '+15551234567',
+    phone: '+12015550134',
     language: 'en',
     isActive: true,
     createdAt: now,
@@ -751,7 +751,7 @@ describe('Driver routes (operator)', () => {
         firstName: 'Jane',
         lastName: 'Smith',
         email: 'jane@example.com',
-        phone: '+15559876543',
+        phone: '+12015550143',
         isActive: false,
       });
       // 1: before SELECT, 2: email-collision pre-check (no collision), 3: UPDATE returning
@@ -765,7 +765,7 @@ describe('Driver routes (operator)', () => {
           firstName: 'Jane',
           lastName: 'Smith',
           email: 'jane@example.com',
-          phone: '+15559876543',
+          phone: '+12015550143',
           isActive: false,
         },
       });
@@ -775,7 +775,7 @@ describe('Driver routes (operator)', () => {
       expect(body.firstName).toBe('Jane');
       expect(body.lastName).toBe('Smith');
       expect(body.email).toBe('jane@example.com');
-      expect(body.phone).toBe('+15559876543');
+      expect(body.phone).toBe('+12015550143');
       expect(body.isActive).toBe(false);
     });
 
@@ -826,18 +826,18 @@ describe('Driver routes (operator)', () => {
     });
 
     it('returns 200 with only phone', async () => {
-      const updated = makeDriver({ phone: '+15550000000' });
+      const updated = makeDriver({ phone: '+12015550100' });
       setupDbResults([updated], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',
         url: `/drivers/${VALID_DRIVER_ID}`,
         headers: { authorization: `Bearer ${token}` },
-        payload: { phone: '+15550000000' },
+        payload: { phone: '+12015550100' },
       });
 
       expect(res.statusCode).toBe(200);
-      expect(res.json().phone).toBe('+15550000000');
+      expect(res.json().phone).toBe('+12015550100');
     });
 
     it('returns 200 with only isActive', async () => {

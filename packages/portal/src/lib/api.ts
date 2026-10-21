@@ -5,7 +5,7 @@ import { API_BASE_URL } from './config';
 
 const BASE_URL = API_BASE_URL;
 
-function getCsrfToken(): string | null {
+export function getCsrfToken(): string | null {
   const match = document.cookie.match(/(?:^|;\s*)portal_csrf=([^;]*)/);
   return match?.[1] ?? null;
 }
@@ -67,6 +67,7 @@ const PUBLIC_PATHS = new Set([
   '/forgot-password',
   '/reset-password',
   '/activate',
+  '/mfa-setup',
   '/payments/return',
   '/payout-onboarding',
   '/payout-onboarding/return',
@@ -100,6 +101,18 @@ async function attemptRefresh(): Promise<boolean> {
   }
 }
 
+// Sign-in steps run without a session: their 401 is the answer (wrong credentials, an
+// expired MFA token), not an expired session to renew.
+export function isSignInStep(path: string): boolean {
+  return (
+    path.endsWith('/auth/login') ||
+    path.endsWith('/auth/refresh') ||
+    path.endsWith('/auth/register') ||
+    path.startsWith('/v1/portal/auth/passkey/') ||
+    path.startsWith('/v1/portal/auth/webauthn/')
+  );
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
@@ -120,12 +133,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     credentials: 'include',
   });
 
-  if (
-    res.status === 401 &&
-    !path.endsWith('/auth/login') &&
-    !path.endsWith('/auth/refresh') &&
-    !path.endsWith('/auth/register')
-  ) {
+  if (res.status === 401 && !isSignInStep(path)) {
     // Deduplicate concurrent refresh attempts
     if (refreshPromise == null) {
       refreshPromise = attemptRefresh().finally(() => {

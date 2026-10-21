@@ -16,6 +16,9 @@ import { isAiToolRequest } from '../services/ai/tools/execute.js';
 
 // A missing, expired or forged token is routine: log it at debug. Anything
 // else (a database error while checking the account) is logged at warn.
+/** An Authorization header of the Bearer scheme with one token, the only form @fastify/jwt reads. */
+export const BEARER_HEADER = /^Bearer\s+\S+$/i;
+
 function logAuthFailure(request: FastifyRequest, err: unknown, msg: string): void {
   const code = (err as { code?: unknown } | null)?.code;
   if (typeof code === 'string' && /^(FST_JWT|FAST_JWT)_/.test(code)) {
@@ -45,11 +48,24 @@ export interface JwtPayload {
    */
   mfaPending?: boolean;
   /**
+   * Set on the 10-minute JWT a sign-in hands out when the user must set up
+   * MFA first. Valid only for POST /v1/users/me/mfa/setup and /confirm
+   * (`selfServiceOrMfaEnrollment`); every other route answers 401
+   * MFA_ENROLLMENT_REQUIRED.
+   */
+  mfaEnrollment?: boolean;
+  /**
    * The user's session version when the token was issued
    * (`signOperatorAccessToken`). A token of another version is refused; a
    * token without it counts as version 0.
    */
   sv?: number;
+  /**
+   * Unix seconds of the SSO sign-in that issued this access token. Only the
+   * SSO callback sets it (a renewal drops it): the `sso` factor proof of an
+   * SSO account without a password or factor (`SSO_REAUTH_MAX_AGE_SECONDS`).
+   */
+  ssoAt?: number;
 }
 
 export interface DriverJwtPayload {
@@ -58,23 +74,37 @@ export interface DriverJwtPayload {
   /** Same as JwtPayload.mfaPending but for the driver portal flow. */
   mfaPending?: boolean;
   /**
+   * Set on the 10-minute JWT a portal sign-in hands out when the driver must
+   * set up MFA first. Valid only for the portal MFA setup and confirm routes
+   * and the passkey registration (`authenticateDriverOrMfaEnrollment`); every
+   * other route answers 401 MFA_ENROLLMENT_REQUIRED.
+   */
+  mfaEnrollment?: boolean;
+  /**
    * The driver's session version when the token was issued
    * (`signDriverAccessToken`). A token of another version is refused; a
    * token without it counts as version 0.
    */
   sv?: number;
+  /**
+   * Set on access tokens issued to the mobile app (a sign-in with `X-Client: mobile`, and its
+   * renewals through a refresh token issued to the app). The portal cookie never carries it,
+   * so a cookie value resent as a Bearer token is not a mobile session.
+   */
+  client?: 'mobile';
 }
 
 /** Why a verified operator JWT may not be used, or null when it may. */
 export interface OperatorTokenRejection {
   error: string;
-  code: 'UNAUTHORIZED' | 'MFA_REQUIRED' | 'ACCOUNT_DEACTIVATED';
+  code: 'UNAUTHORIZED' | 'MFA_REQUIRED' | 'MFA_ENROLLMENT_REQUIRED' | 'ACCOUNT_DEACTIVATED';
 }
 
 /**
  * The checks every operator route applies to a JWT after its signature and
  * expiry verified: a driver token (the two realms share a signing key) or a
- * token without a userId is refused, an MFA-pending token is refused, a
+ * token without a userId is refused, an MFA-pending or MFA enrollment token
+ * is refused, a
  * deactivated user is refused, and a token issued under an earlier session
  * version (logout, password, MFA, role or permission change) is refused.
  * Used by `app.authenticate` and by the SSE stream, which verifies its token
@@ -89,6 +119,9 @@ export async function operatorTokenRejection(
   }
   if (record['mfaPending'] === true) {
     return { error: 'MFA verification required', code: 'MFA_REQUIRED' };
+  }
+  if (record['mfaEnrollment'] === true) {
+    return { error: 'Set up MFA to sign in', code: 'MFA_ENROLLMENT_REQUIRED' };
   }
   const state = await getUserSessionState(record['userId']);
   if (!state.active) {
@@ -105,7 +138,12 @@ export async function operatorTokenRejection(
 export interface DriverTokenRejection {
   status: 401 | 403;
   error: string;
-  code: 'FORBIDDEN_DRIVER_TOKEN' | 'MFA_REQUIRED' | 'ACCOUNT_DEACTIVATED' | 'UNAUTHORIZED';
+  code:
+    | 'FORBIDDEN_DRIVER_TOKEN'
+    | 'MFA_REQUIRED'
+    | 'MFA_ENROLLMENT_REQUIRED'
+    | 'ACCOUNT_DEACTIVATED'
+    | 'UNAUTHORIZED';
 }
 
 /**
@@ -119,6 +157,9 @@ export interface DriverTokenRejection {
  */
 export async function driverTokenRejection(payload: unknown): Promise<DriverTokenRejection | null> {
   const record = (payload ?? {}) as Record<string, unknown>;
+  if (record['mfaEnrollment'] === true) {
+    return { status: 401, error: 'Set up MFA to sign in', code: 'MFA_ENROLLMENT_REQUIRED' };
+  }
   if (record['type'] !== 'driver') {
     return {
       status: 403,
@@ -335,7 +376,18 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     }
   });
 
+  app.decorateRequest('driverAuthSource', null);
+
   app.decorate('authenticateDriver', async (request: FastifyRequest, reply: FastifyReply) => {
+    // @fastify/jwt reads the header only for the Bearer scheme and otherwise falls back to the
+    // portal_token cookie, so another scheme would pass as a cookie session. Refuse it, as the
+    // operator guard refuses a cookie fallback when a header is present.
+    const authHeader = request.headers['authorization'];
+    const hasAuthHeader = authHeader != null && authHeader !== '';
+    if (hasAuthHeader && !BEARER_HEADER.test(authHeader)) {
+      await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+      return;
+    }
     try {
       await request.jwtVerify();
     } catch (err) {
@@ -347,11 +399,17 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     if (rejection != null) {
       const { status, ...body } = rejection;
       await reply.status(status).send(body);
+      return;
     }
+    request.driverAuthSource = hasAuthHeader ? 'bearer' : 'cookie';
   });
 }
 
 declare module 'fastify' {
+  interface FastifyRequest {
+    /** The credential `authenticateDriver` verified: a Bearer header or the portal_token cookie. */
+    driverAuthSource: 'bearer' | 'cookie' | null;
+  }
   interface FastifyInstance {
     authenticate: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
     authenticateDriver: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;

@@ -20,7 +20,9 @@ import { eq } from 'drizzle-orm';
 import { registerApiAccessLog } from './plugins/api-access-log.js';
 import { registerCors } from './plugins/cors.js';
 import { CSRF_SKIP_METHODS, csrfTokensMatch, registerPortalCsrf } from './plugins/csrf.js';
+import { registerEncodedPathGuard, routePath } from './plugins/encoded-path-guard.js';
 import { registerHelmet } from './plugins/helmet.js';
+import { registerAccountNoStore } from './plugins/account-no-store.js';
 import { registerRateLimit } from './plugins/rate-limit.js';
 import { registerAiToolCallContext } from './services/ai/tools/execute.js';
 import { registerAuth } from './plugins/auth.js';
@@ -33,6 +35,7 @@ import { siteRoutes } from './routes/sites.js';
 import { stationRoutes } from './routes/stations.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { userRoutes } from './routes/users.js';
+import { webauthnRoutes } from './routes/webauthn.js';
 import { driverRoutes } from './routes/drivers.js';
 import { pricingRoutes } from './routes/pricing.js';
 import { holidayRoutes } from './routes/holidays.js';
@@ -55,6 +58,7 @@ import { loadManagementRoutes } from './routes/load-management.js';
 import { notificationRoutes } from './routes/notifications.js';
 import { portalAuthRoutes } from './routes/portal/auth.js';
 import { portalDriverRoutes } from './routes/portal/driver.js';
+import { portalWebauthnRoutes } from './routes/portal/webauthn.js';
 import { portalPaymentRoutes } from './routes/portal/payments.js';
 import { portalPaymentProviderRoutes } from './routes/portal/payment-provider.js';
 import { portalSessionRoutes } from './routes/portal/sessions.js';
@@ -127,6 +131,10 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
   // (e.g., certificate PEM uploads, bulk imports).
   const app = Fastify({ bodyLimit: 1_048_576, ...opts });
 
+  // First: every later hook decides on the path, so an encoded path never reaches them.
+  registerEncodedPathGuard(app);
+  registerAccountNoStore(app);
+
   // Plugins
   await app.register(cookie, {
     secret: config.JWT_SECRET,
@@ -197,6 +205,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(stationRoutes);
       await v1.register(sessionRoutes);
       await v1.register(userRoutes);
+      await v1.register(webauthnRoutes);
       await v1.register(driverRoutes);
       await v1.register(pricingRoutes);
       await v1.register(holidayRoutes);
@@ -222,6 +231,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(maintenancePreviewRoutes);
       await v1.register(portalAuthRoutes);
       await v1.register(portalDriverRoutes);
+      await v1.register(portalWebauthnRoutes);
       await v1.register(portalPaymentRoutes);
       await v1.register(portalPaymentProviderRoutes);
       await v1.register(portalSessionRoutes);
@@ -292,7 +302,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
 
   // Block OCPI management and portal roaming routes when roaming is disabled
   app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
+    const url = routePath(request);
     if (!url.startsWith('/v1/ocpi/') && !url.startsWith('/v1/portal/chargers/roaming')) return;
     const enabled = await isRoamingEnabled();
     if (!enabled) {
@@ -302,7 +312,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
 
   // Block PnC certificate routes when PnC is disabled (allow settings)
   app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
+    const url = routePath(request);
     if (!url.startsWith('/v1/pnc/')) return;
     if (url.startsWith('/v1/pnc/settings')) return;
     const enabled = await isPncEnabled();
@@ -313,7 +323,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
 
   // Block reservation routes when Reservation feature is disabled
   app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
+    const url = routePath(request);
     if (
       !url.startsWith('/v1/reservations') &&
       !url.startsWith('/v1/portal/reservations') &&
@@ -332,7 +342,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
 
   // Block support routes when Support feature is disabled
   app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
+    const url = routePath(request);
     if (!url.startsWith('/v1/support-cases') && !url.startsWith('/v1/portal/support-cases')) return;
     const enabled = await isSupportEnabled();
     if (!enabled) {
@@ -342,7 +352,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
 
   // Block fleet routes when Fleet feature is disabled
   app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
+    const url = routePath(request);
     if (!url.startsWith('/v1/fleets') && !url.startsWith('/v1/fleet-reservations')) return;
     const enabled = await isFleetEnabled();
     if (!enabled) {
@@ -352,7 +362,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
 
   // Block guest charging routes when Guest Charging is disabled
   app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
+    const url = routePath(request);
     if (!url.startsWith('/v1/portal/guest/')) return;
     const enabled = await isGuestChargingEnabled();
     if (!enabled) {
@@ -372,13 +382,17 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
     '/v1/auth/force-change-password',
     '/v1/auth/mfa/verify',
     '/v1/auth/mfa/resend',
+    '/v1/auth/webauthn/options',
+    '/v1/auth/webauthn/verify',
+    '/v1/auth/passkey/options',
+    '/v1/auth/passkey/verify',
     '/v1/auth/forgot-password',
     '/v1/auth/reset-password',
     '/v1/health',
   ]);
 
   app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
+    const url = routePath(request);
     // Only apply to /v1/ routes that are NOT portal routes
     if (!url.startsWith('/v1/')) return;
     if (url.startsWith('/v1/portal/')) return;
@@ -413,7 +427,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
   const VERIFY_EXEMPT_PATHS = new Set(['/v1/portal/driver/notification-preferences']);
 
   app.addHook('preHandler', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
+    const url = routePath(request);
     if (!url.startsWith('/v1/portal/')) return;
     if (VERIFY_EXEMPT_PREFIXES.some((p) => url.startsWith(p))) return;
     if (VERIFY_EXEMPT_PATHS.has(url)) return;

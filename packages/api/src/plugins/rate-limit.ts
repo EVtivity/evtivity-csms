@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { config } from '../lib/config.js';
 import { isAiToolRequest } from '../services/ai/tools/execute.js';
+import { routePath } from './encoded-path-guard.js';
 
 export async function registerRateLimit(app: FastifyInstance): Promise<void> {
   await app.register(rateLimit, {
@@ -14,6 +15,7 @@ export async function registerRateLimit(app: FastifyInstance): Promise<void> {
     // AI tool calls are injected requests from 127.0.0.1: they would share
     // one bucket for every user. The AI limits count them instead (per user
     // and site per minute, and the per-turn tool call cap).
-    allowList: (request) => request.url.startsWith('/v1/ocpp/commands/') || isAiToolRequest(),
+    allowList: (request) =>
+      routePath(request).startsWith('/v1/ocpp/commands/') || isAiToolRequest(),
   });
 }

@@ -64,8 +64,22 @@ export type { RecaptchaResult } from './recaptcha.js';
 
 export { generateTotpSecret, generateTotpUri, verifyTotpCode, matchTotpStep } from './totp.js';
 
-export { createMfaChallenge, verifyMfaChallenge, MFA_CHALLENGE_MAX_ATTEMPTS } from './mfa.js';
-export type { CreateChallengeResult, MfaChallengeResult } from './mfa.js';
+export {
+  createCappedMfaChallenge,
+  createMfaChallenge,
+  isMfaChallengeLimited,
+  verifyMfaChallenge,
+  MFA_CHALLENGE_MAX_ATTEMPTS,
+  MFA_CHALLENGE_PURPOSES,
+} from './mfa.js';
+export type {
+  CreateChallengeResult,
+  MfaChallengeLimited,
+  MfaChallengeOptions,
+  MfaChallengePurpose,
+  MfaChallengeResult,
+  MfaSendCap,
+} from './mfa.js';
 
 export type { PubSubClient, Subscription } from './pubsub.js';
 export {
@@ -221,6 +235,15 @@ export {
   normalizeSessionLifetimes,
 } from './session-lifetimes.js';
 export type { SessionLifetimes } from './session-lifetimes.js';
+export {
+  DEFAULT_MFA_CONFIG,
+  MFA_REQUIRED_MODES,
+  isMfaRequiredForRole,
+  isMfaRequiredMode,
+  normalizeMfaConfig,
+  normalizeMfaRequiredRoles,
+} from './mfa-config.js';
+export type { MfaConfig, MfaRequiredMode } from './mfa-config.js';
 export { UI_LANGUAGES, isUiLanguage, toUiLanguage } from './languages.js';
 export type { UiLanguage } from './languages.js';
 export {
@@ -342,7 +365,6 @@ export {
   sendEmail,
   sendSms,
   sendWebhook,
-  normalizeE164,
   logNotification,
   dispatchDriverNotification,
   dispatchSystemNotification,
@@ -694,3 +716,5 @@ export {
 } from './ocpp201-charging-profile.js';
 export type { Ocpp201Refuse } from './ocpp201-charging-profile.js';
 export type { Ocpp201NetworkInterface, OcppProtocol } from './ocpp-version.js';
+export { hasAmbiguousPathEncoding } from './request-path.js';
+export { canonicalPhone, normalizeE164 } from './phone.js';

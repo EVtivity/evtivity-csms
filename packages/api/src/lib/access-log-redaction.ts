@@ -22,8 +22,22 @@ const TOKEN_NAME_PATTERN = /(^|[a-z])token$/i;
  */
 const NON_SECRET_TOKEN_NAMES = new Set(['idToken']);
 
-/** One-time codes and certificates (PEM bodies may carry private keys). */
-const SECRET_EXACT_NAMES = new Set(['code', 'certificate']);
+/**
+ * One-time codes, MFA recovery codes, certificates (PEM bodies may carry private keys) and
+ * WebAuthn responses (`credential`: a passkey registration or assertion, with the fields
+ * inside it in case one is sent elsewhere).
+ */
+const SECRET_EXACT_NAMES = new Set([
+  'code',
+  'recoveryCode',
+  'recoveryCodes',
+  'certificate',
+  'credential',
+  'clientDataJSON',
+  'attestationObject',
+  'authenticatorData',
+  'userHandle',
+]);
 
 const MAX_DEPTH = 8;
 

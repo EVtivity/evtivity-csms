@@ -27,6 +27,8 @@ interface ConfirmDialogProps {
   variant?: 'destructive' | 'default';
   isPending?: boolean;
   hideCancel?: boolean;
+  /** The children and buttons sit in a form whose submit is the confirm button, so Enter confirms. */
+  asForm?: boolean;
   children?: React.ReactNode;
 }
 
@@ -41,6 +43,7 @@ export function ConfirmDialog({
   variant = 'default',
   isPending = false,
   hideCancel = false,
+  asForm = false,
   children,
 }: ConfirmDialogProps): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -48,6 +51,50 @@ export function ConfirmDialog({
   const descriptionId = useId();
 
   if (!open) return null;
+
+  function confirm(): void {
+    const result = onConfirm();
+    // A synchronous confirm closes at once; an async one closes when it settles.
+    if (!(result instanceof Promise)) {
+      if (result !== false) onOpenChange(false);
+      return;
+    }
+    void result.then((settled) => {
+      if (settled !== false) onOpenChange(false);
+    });
+  }
+
+  const body = (
+    <>
+      {children}
+      <p id={descriptionId} className="text-sm text-muted-foreground">
+        {description}
+      </p>
+      <div className="flex justify-end gap-2">
+        {!hideCancel && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isPending}
+            onClick={() => {
+              onOpenChange(false);
+            }}
+          >
+            {cancelLabel ?? t('common.cancel')}
+          </Button>
+        )}
+        <Button
+          type={asForm ? 'submit' : 'button'}
+          variant={variant}
+          disabled={isPending}
+          {...(asForm ? {} : { onClick: confirm })}
+        >
+          {isPending && <Spinner className="mr-2 h-4 w-4" />}
+          {confirmLabel}
+        </Button>
+      </div>
+    </>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -68,37 +115,20 @@ export function ConfirmDialog({
         <h2 id={titleId} className="text-lg font-semibold">
           {title}
         </h2>
-        {children}
-        <p id={descriptionId} className="text-sm text-muted-foreground">
-          {description}
-        </p>
-        <div className="flex justify-end gap-2">
-          {!hideCancel && (
-            <Button
-              variant="outline"
-              disabled={isPending}
-              onClick={() => {
-                onOpenChange(false);
-              }}
-            >
-              {cancelLabel ?? t('common.cancel')}
-            </Button>
-          )}
-          <Button
-            variant={variant}
-            disabled={isPending}
-            onClick={() => {
-              void (async () => {
-                const result = await onConfirm();
-                if (result === false) return;
-                onOpenChange(false);
-              })();
+        {asForm ? (
+          <form
+            noValidate
+            className="space-y-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!isPending) confirm();
             }}
           >
-            {isPending && <Spinner className="mr-2 h-4 w-4" />}
-            {confirmLabel}
-          </Button>
-        </div>
+            {body}
+          </form>
+        ) : (
+          body
+        )}
       </div>
     </div>
   );

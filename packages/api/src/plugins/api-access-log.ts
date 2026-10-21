@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { db, accessLogs } from '@evtivity/database';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { redactAccessLogBody } from '../lib/access-log-redaction.js';
+import { routePath } from './encoded-path-guard.js';
 
 // Paths not recorded in the 'api' access-log category.
 const SKIP_LOG_PATHS = new Set([
@@ -34,9 +35,10 @@ export function registerApiAccessLog(app: FastifyInstance): void {
 
   app.addHook('onResponse', async (request, reply) => {
     const url = request.url;
-    if (!url.startsWith('/v1/')) return;
+    const route = routePath(request);
+    if (!route.startsWith('/v1/')) return;
     const pathOnly = url.split('?')[0] ?? url;
-    if (SKIP_LOG_PATHS.has(pathOnly)) return;
+    if (SKIP_LOG_PATHS.has(route)) return;
 
     let userId: string | null = null;
     let authType = 'anonymous';
@@ -57,7 +59,7 @@ export function registerApiAccessLog(app: FastifyInstance): void {
     if (hasBody && request.body != null && typeof request.body === 'object') {
       // Operators with access-log read must never see another operator's
       // newly-set credentials, so secret fields are redacted by name.
-      metadata = redactAccessLogBody(pathOnly, request.body as Record<string, unknown>);
+      metadata = redactAccessLogBody(route, request.body as Record<string, unknown>);
     }
 
     // Not awaited, so the onResponse hook does not keep the request alive

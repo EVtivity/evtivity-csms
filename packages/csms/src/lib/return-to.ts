@@ -43,7 +43,12 @@ export function loginPathFor(current: string): string {
 
 /** Keeps the `returnTo` of the sign-in URL for after the login (password, MFA or SSO). */
 export function rememberReturnTo(search: URLSearchParams): void {
-  const target = safeReturnTo(search.get(PARAM));
+  rememberReturnPath(search.get(PARAM));
+}
+
+/** Keeps a page to open after the next sign-in (an SSO round trip from a signed-in page). */
+export function rememberReturnPath(path: string | null): void {
+  const target = safeReturnTo(path);
   if (target == null) return;
   try {
     sessionStorage.setItem(RETURN_TO_KEY, target);

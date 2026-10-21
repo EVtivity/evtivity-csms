@@ -31,6 +31,47 @@ import {
 } from '@evtivity/database';
 import { eq, and, isNull } from 'drizzle-orm';
 import { getAuditActor } from '../lib/audit-actor.js';
+import {
+  FACTOR_PROOF_KINDS,
+  checkFactorProof,
+  factorProof,
+  sendFactorProofRefusal,
+} from '../lib/mfa-factor-proof.js';
+import { sendSecurityNotice } from '../lib/security-notice.js';
+
+const keyProof = factorProof
+  .optional()
+  .describe(
+    'Fresh proof of the account, required from a signed-in session (not from an API key): a factor it holds (factorProofKinds of GET /v1/users/me/mfa), else its password',
+  );
+
+const proofErrorFields = {
+  proofKinds: z
+    .array(z.enum(FACTOR_PROOF_KINDS))
+    .optional()
+    .describe('A missing or wrong proof: the proof kinds the account accepts'),
+};
+
+const PROOF_ERROR_CODES = [
+  ERROR_CODES.MFA_CODE_INVALID,
+  ERROR_CODES.MFA_CHALLENGE_EXHAUSTED,
+  ERROR_CODES.INVALID_PASSWORD,
+  ERROR_CODES.WEBAUTHN_CHALLENGE_EXPIRED,
+  ERROR_CODES.WEBAUTHN_VERIFICATION_FAILED,
+];
+
+/** Whether a scope grants a permission: the permission itself, or write for a read. */
+function scopeCovers(scope: readonly string[], permission: string): boolean {
+  if (scope.includes(permission)) return true;
+  return permission.endsWith(':read') && scope.includes(`${permission.slice(0, -5)}:write`);
+}
+
+/** Whether new permissions give a key anything its stored scope did not (null: every permission). */
+export function widensKeyScope(stored: unknown, next: readonly string[]): boolean {
+  if (!Array.isArray(stored)) return false;
+  const scope = stored.filter((p): p is string => typeof p === 'string');
+  return next.some((p) => !scopeCovers(scope, p));
+}
 
 const createApiKeyBody = z.object({
   name: z.string().min(1).max(255).describe('Display name for the API key'),
@@ -47,6 +88,7 @@ const createApiKeyBody = z.object({
     .min(1, 'At least one permission is required')
     .max(200)
     .describe('Permission scope. Must be a subset of your permissions.'),
+  proof: keyProof,
 });
 
 const updateApiKeyBody = z.object({
@@ -55,6 +97,9 @@ const updateApiKeyBody = z.object({
     .min(1, 'At least one permission is required')
     .max(200)
     .describe('Permission scope. Must be a subset of your permissions.'),
+  proof: keyProof.describe(
+    'Fresh proof of the account, required from a signed-in session when the new permissions widen the key',
+  ),
 });
 
 const apiKeyItem = z
@@ -174,16 +219,17 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         tags: ['API Keys'],
         summary: 'Create a new API key',
         description:
-          'Generates a 64-character hex API token. The raw token is shown ONLY in this response and cannot be retrieved later (only its SHA-256 hash is stored). Copy it immediately on the client. Optional `permissions` scopes the key to a subset of the creator current permissions; `expiresInDays` sets a hard expiry. Returns 403 if requested permissions exceed the creator permissions. Through an API key with an expiry, the new key expires no later than the calling key, and a request without `expiresInDays` answers 400 VALIDATION_ERROR.',
+          'Generates a 64-character hex API token. The raw token is shown ONLY in this response and cannot be retrieved later (only its SHA-256 hash is stored). Copy it immediately on the client. Optional `permissions` scopes the key to a subset of the creator current permissions; `expiresInDays` sets a hard expiry. Returns 403 if requested permissions exceed the creator permissions. Through an API key with an expiry, the new key expires no later than the calling key, and a request without `expiresInDays` answers 400 VALIDATION_ERROR. From a signed-in session the request carries `proof`, a fresh proof of the account (a factor it holds, else its password; 400 VALIDATION_ERROR with proofKinds without it). The user gets an email (and an SMS for an SMS sign-in account) about the new key.',
         operationId: 'createApiKey',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createApiKeyBody),
         response: {
           201: itemResponse(apiKeyCreatedItem),
-          400: errorWith('Invalid request', [
-            ERROR_CODES.INVALID_PERMISSIONS,
-            ERROR_CODES.VALIDATION_ERROR,
-          ]),
+          400: errorWith(
+            'Invalid request, or a missing or wrong proof',
+            [ERROR_CODES.INVALID_PERMISSIONS, ERROR_CODES.VALIDATION_ERROR, ...PROOF_ERROR_CODES],
+            proofErrorFields,
+          ),
           403: errorWith('Permissions exceed own', [ERROR_CODES.PERMISSIONS_EXCEED_OWN]),
           409: errorWith('Duplicate api key name', [ERROR_CODES.DUPLICATE_API_KEY_NAME]),
         },
@@ -262,6 +308,16 @@ export function apiKeyRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A stolen session alone must not mint a long-lived credential: the
+      // session proves the account again. A key already is one, so it does not.
+      if ((request.user as JwtPayload).isApiKey !== true) {
+        const refused = await checkFactorProof(request, { userId }, body.proof);
+        if (refused != null) {
+          await sendFactorProofRefusal(reply, refused);
+          return;
+        }
+      }
+
       const result = await createApiKey({
         userId,
         name: body.name.trim(),
@@ -286,6 +342,12 @@ export function apiKeyRoutes(app: FastifyInstance): void {
           },
         },
         db,
+        request.log,
+      );
+      sendSecurityNotice(
+        { userId },
+        'security.ApiKeyCreated',
+        { keyName: result.name, expiresAt: result.expiresAt ?? '' },
         request.log,
       );
 
@@ -353,13 +415,19 @@ export function apiKeyRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['API Keys'],
         summary: 'Update API key permissions',
+        description:
+          'Replaces the permission scope of a key. From a signed-in session, new permissions that widen the key need `proof`, a fresh proof of the account (400 VALIDATION_ERROR with proofKinds without it); narrowing needs none.',
         operationId: 'updateApiKey',
         security: [{ bearerAuth: [] }],
         params: zodSchema(idParams),
         body: zodSchema(updateApiKeyBody),
         response: {
           200: successResponse,
-          400: errorWith('Invalid permissions', [ERROR_CODES.INVALID_PERMISSIONS]),
+          400: errorWith(
+            'Invalid permissions, or a missing or wrong proof',
+            [ERROR_CODES.INVALID_PERMISSIONS, ERROR_CODES.VALIDATION_ERROR, ...PROOF_ERROR_CODES],
+            proofErrorFields,
+          ),
           403: errorWith('Permissions exceed own', [ERROR_CODES.PERMISSIONS_EXCEED_OWN]),
           404: errorWith('Api key not found', [ERROR_CODES.API_KEY_NOT_FOUND]),
         },
@@ -408,6 +476,17 @@ export function apiKeyRoutes(app: FastifyInstance): void {
           code: 'PERMISSIONS_EXCEED_OWN',
         });
         return;
+      }
+
+      if (
+        (request.user as JwtPayload).isApiKey !== true &&
+        widensKeyScope(key.permissions, body.permissions)
+      ) {
+        const refused = await checkFactorProof(request, { userId }, body.proof);
+        if (refused != null) {
+          await sendFactorProofRefusal(reply, refused);
+          return;
+        }
       }
 
       await db

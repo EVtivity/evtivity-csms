@@ -6,15 +6,17 @@ import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
 import {
   createLogger,
+  DEFAULT_MFA_CONFIG,
   DEFAULT_PASSWORD_POLICY,
   DEFAULT_SESSION_LIFETIMES,
   PASSWORD_MIN_LENGTH_CEILING,
   PASSWORD_MIN_LENGTH_FLOOR,
   SESSION_LIFETIME_LIMITS,
+  normalizeMfaConfig,
   normalizePasswordPolicy,
   normalizeSessionLifetimes,
 } from '@evtivity/lib';
-import type { PasswordPolicy, SessionLifetimes } from '@evtivity/lib';
+import type { MfaConfig, PasswordPolicy, SessionLifetimes } from '@evtivity/lib';
 
 const logger = createLogger('security-settings');
 
@@ -25,11 +27,7 @@ export interface RecaptchaConfig {
   threshold: number;
 }
 
-export interface MfaConfig {
-  emailEnabled: boolean;
-  totpEnabled: boolean;
-  smsEnabled: boolean;
-}
+export type { MfaConfig };
 
 interface ParsedSecurity {
   recaptcha: RecaptchaConfig;
@@ -41,7 +39,7 @@ interface ParsedSecurity {
 let cache: ParsedSecurity | undefined;
 let cachedAt = 0;
 const TTL_MS = 60_000;
-const MFA_FALLBACK: MfaConfig = { emailEnabled: true, totpEnabled: true, smsEnabled: false };
+const MFA_FALLBACK: MfaConfig = { ...DEFAULT_MFA_CONFIG };
 
 function withPrefix(map: Map<string, unknown>, prefix: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -106,11 +104,7 @@ function parseSecuritySettings(rows: { key: string; value: unknown }[]): ParsedS
           ? (map.get('security.recaptcha.threshold') as number)
           : 0.5,
     },
-    mfa: {
-      emailEnabled: map.get('security.mfa.emailEnabled') !== false,
-      totpEnabled: map.get('security.mfa.totpEnabled') !== false,
-      smsEnabled: map.get('security.mfa.smsEnabled') === true,
-    },
+    mfa: normalizeMfaConfig(withPrefix(map, 'security.mfa.')),
     passwordPolicy: normalizePasswordPolicy(withPrefix(map, 'security.password.')),
     sessionLifetimes: normalizeSessionLifetimes(withPrefix(map, 'security.session.')),
   };
@@ -146,8 +140,24 @@ export async function getRecaptchaConfig(): Promise<RecaptchaConfig | null> {
 }
 
 export async function getMfaConfig(): Promise<MfaConfig> {
+  return (await readMfaConfig()).config;
+}
+
+/** The MFA switches, and whether they are the code defaults because no settings could be read. */
+export interface MfaConfigReading {
+  config: MfaConfig;
+  fallback: boolean;
+}
+
+/**
+ * The MFA switches for the sign-in gate. `fallback` is true when the settings
+ * read failed with nothing cached, so the switches are the code defaults and
+ * say nothing about what the admin chose.
+ */
+export async function readMfaConfig(): Promise<MfaConfigReading> {
   const parsed = await loadSecuritySettings();
-  return parsed?.mfa ?? MFA_FALLBACK;
+  if (parsed == null) return { config: { ...MFA_FALLBACK }, fallback: true };
+  return { config: parsed.mfa, fallback: false };
 }
 
 /** The password rules every password set checks. Login never checks them. */

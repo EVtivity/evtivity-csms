@@ -64,3 +64,24 @@ export function getAuditActor(request: FastifyRequest): AuditActorInfo {
     actorLabel: null,
   };
 }
+
+/** The account itself as the actor, for a sign-in step where the request carries no session yet. */
+export function accountAuditActor(
+  account: { userId: string } | { driverId: string },
+): AuditActorInfo {
+  return 'userId' in account
+    ? {
+        actor: 'operator',
+        actorUserId: account.userId,
+        actorDriverId: null,
+        actorApiKeyId: null,
+        actorLabel: null,
+      }
+    : {
+        actor: 'driver',
+        actorUserId: null,
+        actorDriverId: account.driverId,
+        actorApiKeyId: null,
+        actorLabel: null,
+      };
+}

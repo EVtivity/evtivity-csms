@@ -19,6 +19,7 @@ import { eraseDriverMethods } from '@evtivity/payments';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { paymentContext } from '../lib/payments.js';
 import { applyDriverDeactivation } from './driver-status.service.js';
+import { deleteRecoveryCodes, deleteWebauthnCredentials } from './mfa-factor.service.js';
 
 interface Logger {
   warn: (obj: unknown, msg?: string) => void;
@@ -48,7 +49,7 @@ export function driverErasedError(): AppError {
  *   so sessions, payment records, invoices and credit notes keep their
  *   driver id and their own snapshots for accounting.
  * - Deletes the vehicles, notification preferences, push tokens, MFA
- *   challenges and emailed links.
+ *   challenges, recovery codes, passkeys and emailed links.
  * - Detaches and deletes the saved payment methods and provider customers
  *   through the payments methods service.
  * - Deactivates the tokens, revokes the sessions and ends the portal streams
@@ -126,6 +127,8 @@ export async function eraseDriver(
       .where(eq(driverNotificationPreferences.driverId, driverId));
     await tx.delete(driverPushTokens).where(eq(driverPushTokens.driverId, driverId));
     await tx.delete(mfaChallenges).where(eq(mfaChallenges.driverId, driverId));
+    await deleteRecoveryCodes({ driverId }, tx);
+    await deleteWebauthnCredentials({ driverId }, tx);
     await tx.delete(userTokens).where(eq(userTokens.driverId, driverId));
     return removedVehicles.length;
   });

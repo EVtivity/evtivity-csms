@@ -9,6 +9,7 @@ import { ProfilePersonalInfo } from '@/components/profile/ProfilePersonalInfo';
 import { ProfileAppearance } from '@/components/profile/ProfileAppearance';
 import { ProfilePassword } from '@/components/profile/ProfilePassword';
 import { ProfileMfa } from '@/components/profile/ProfileMfa';
+import { ProfilePasskeys } from '@/components/profile/ProfilePasskeys';
 import { ProfileNotifications } from '@/components/profile/ProfileNotifications';
 import { ProfileChatbotAi } from '@/components/profile/ProfileChatbotAi';
 import { ProfileSupportAi } from '@/components/profile/ProfileSupportAi';
@@ -86,7 +87,10 @@ export function Profile(): React.JSX.Element {
           <ProfilePassword />
         </TabsContent>
         <TabsContent value="mfa">
-          <ProfileMfa />
+          <div className="space-y-6">
+            <ProfileMfa />
+            <ProfilePasskeys />
+          </div>
         </TabsContent>
         <TabsContent value="notifications">
           <ProfileNotifications />

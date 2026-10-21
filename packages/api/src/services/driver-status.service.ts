@@ -6,6 +6,7 @@ import { db, driverTokens, userTokens } from '@evtivity/database';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import * as tokenService from './token.service.js';
 import { endDriverSessions } from './refresh-token.service.js';
+import { deleteWebauthnCredentials } from './mfa-factor.service.js';
 
 /**
  * The emailed single-use links of a driver: portal invitation, password
@@ -80,6 +81,13 @@ export async function applyDriverDeactivation(
     // fail-open: the driver is already inactive, so every portal request,
     // refresh and emailed link is refused by its own status check (P9).
     ctx.log.warn({ err, driverId }, 'Revoking the sessions of a deactivated driver failed');
+  }
+
+  try {
+    await deleteWebauthnCredentials({ driverId });
+  } catch (err) {
+    // fail-open: an inactive driver cannot sign in, so a passkey left behind signs nobody in.
+    ctx.log.warn({ err, driverId }, 'Removing the passkeys of a deactivated driver failed');
   }
 
   const activeTokens = await db

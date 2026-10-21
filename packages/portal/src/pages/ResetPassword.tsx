@@ -42,7 +42,7 @@ export function ResetPassword(): React.JSX.Element {
 
   const { data: securityPublic } = useQuery({
     queryKey: ['security-public'],
-    queryFn: () => api.get<SecurityPublic>('/v1/security/public'),
+    queryFn: () => api.get<SecurityPublic>('/v1/security/public?app=portal'),
   });
 
   function getValidationErrors(): Record<string, string> {

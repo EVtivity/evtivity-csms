@@ -8,6 +8,7 @@ import argon2 from 'argon2';
 import {
   db,
   client,
+  readMfaConfig,
   isPortalRegistrationEnabled,
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
@@ -20,12 +21,13 @@ import {
   dispatchDriverNotification,
   dispatchSystemNotification,
   decryptString,
-  createMfaChallenge,
+  isMfaChallengeLimited,
   verifyMfaChallenge,
-  verifyTotpCode,
+  matchTotpStep,
 } from '@evtivity/lib';
 import { clearAuthCookies, isSecureRequest, readRefreshCookie } from '../../lib/auth-cookies.js';
 import { zodSchema } from '../../lib/zod-schema.js';
+import { portalDriverItem } from '../../lib/portal-driver-item.js';
 import { emailEquals } from '../../lib/email-match.js';
 import { generateUserToken, hashUserToken } from '../../lib/user-token.js';
 import {
@@ -51,6 +53,7 @@ import {
   revokeRefreshToken,
   bumpDriverSessionVersion,
   endDriverSessions,
+  sessionRefreshTokenDriverId,
 } from '../../services/refresh-token.service.js';
 import { config as apiConfig } from '../../lib/config.js';
 import { driverBillingSchema, toDriverBilling } from '../../lib/portal-billing.js';
@@ -58,42 +61,54 @@ import { recordAuthAudit } from '../../lib/auth-audit.js';
 import { activateDriverPortal } from '../../services/driver-portal-access.service.js';
 import { verifyAgainstDummyHash } from '../../lib/dummy-password-hash.js';
 import { verifyPassword } from '../../lib/password-verify.js';
+import {
+  acceptTotpStep,
+  clearSignInFailures,
+  createAccountMfaChallenge,
+  sendMfaResendLimited,
+  recordAttemptFailure,
+  secondsUntil,
+  takeSignInAttempt,
+} from '../../lib/sign-in-backoff.js';
 import { sendDriverEmailVerification } from '../../lib/driver-email-verification.js';
-import { mfaCodeRecipient } from '../../lib/mfa-contact.js';
+import { mfaCodeDestination, mfaCodeRecipient } from '../../lib/mfa-contact.js';
+import {
+  beginDriverMfa,
+  driverMfaEnrollmentAfterVerify,
+  driverRenewalMfaGate,
+  isDriverMobileMfaUnsupported,
+  mobileMfaUnsupportedAuditReason,
+  sendMobileMfaUnsupported,
+} from '../../lib/driver-mfa.js';
+import {
+  isMfaPolicyUnavailable,
+  isMfaSetupUnavailable,
+  MFA_SETUP_METHODS,
+  mfaPendingTokenCurrent,
+  sendMfaTokenExpired,
+} from '../../lib/mfa-enrollment.js';
+import { INVALID_PHONE_REPLY, readPhoneInput } from '../../lib/phone-input.js';
+import {
+  MFA_FACTORS,
+  hasMfa,
+  mfaMethodGate,
+  passkeyGate,
+  usableFactors,
+} from '../../lib/mfa-factors.js';
+import { accountAuditActor } from '../../lib/audit-actor.js';
+import { consumeRecoveryCode, mfaFactorCounts } from '../../services/mfa-factor.service.js';
 import {
   issueDriverSession,
   issueDriverTokens,
   isMobileClient,
   deviceIdFromRequest,
 } from '../../lib/driver-session.js';
+import { driverSessionColumns } from '../../lib/driver-session-columns.js';
 import {
   issueChallenge,
   registerIosAttestation,
   verifyDeviceAttestation,
 } from '../../lib/device-attestation/index.js';
-
-const portalDriverItem = z
-  .object({
-    id: z.string(),
-    firstName: z.string().max(100).nullable(),
-    lastName: z.string().max(100).nullable(),
-    email: z.string().email().max(255).nullable(),
-    phone: z.string().max(50).nullable(),
-    language: z.string().max(10).nullable(),
-    timezone: z.string().max(50).nullable(),
-    themePreference: z.enum(['light', 'dark']),
-    distanceUnit: z.enum(['miles', 'km']),
-    priceDisplay: z
-      .enum(['gross', 'net'])
-      .nullable()
-      .describe(
-        'Whether prices are shown including (gross) or excluding (net) tax. Null follows the company setting.',
-      ),
-    isActive: z.boolean(),
-    emailVerified: z.boolean(),
-    createdAt: z.coerce.date(),
-  })
-  .passthrough();
 
 // GET /portal/auth/me also tells the portal and the app how the driver pays.
 const portalDriverMe = portalDriverItem
@@ -118,9 +133,44 @@ const portalAuthLoginResponse = z
   .object({
     driver: portalDriverItem.optional(),
     mfaRequired: z.boolean().optional(),
-    mfaMethod: z.enum(['email', 'sms', 'totp']).optional(),
+    mfaMethod: z
+      .enum(['email', 'sms', 'totp', 'passkey'])
+      .optional()
+      .describe('With mfaRequired: the primary method, or passkey for a driver with passkeys only'),
     mfaToken: z.string().optional(),
     challengeId: z.number().int().min(1).optional(),
+    factors: z
+      .array(z.enum(MFA_FACTORS))
+      .optional()
+      .describe(
+        'With mfaRequired: the factors the MFA step accepts (the method while it is usable, recovery_code while recovery codes are left)',
+      ),
+    mfaMethodDisabled: z
+      .boolean()
+      .optional()
+      .describe(
+        'With mfaRequired: the method is switched off by an admin and no code was sent; use a recovery code',
+      ),
+    mfaEnrollmentRequired: z
+      .boolean()
+      .optional()
+      .describe(
+        'Required MFA (Settings > Security > MFA) covers drivers and this driver has none: no session is issued; set up MFA with enrollmentToken. Web clients only: a mobile client gets 403 MFA_ENROLLMENT_REQUIRED instead',
+      ),
+    enrollmentToken: z
+      .string()
+      .optional()
+      .describe(
+        'With mfaEnrollmentRequired: a 10-minute Bearer token valid only for POST /v1/portal/driver/mfa/setup, /confirm and the passkey registration routes',
+      ),
+    availableMethods: z
+      .array(z.enum(MFA_SETUP_METHODS))
+      .optional()
+      .describe('With mfaEnrollmentRequired: the methods the driver can set up now'),
+    webauthnAvailable: z
+      .boolean()
+      .optional()
+      .describe('With mfaEnrollmentRequired: a passkey or security key can be the enrolled factor'),
     ...mobileSessionFields,
   })
   .passthrough();
@@ -156,22 +206,6 @@ const attestRegisterBody = z.object({
 const attestChallengeResponse = z
   .object({ challenge: z.string().describe('Single-use base64url nonce, valid 5 minutes') })
   .passthrough();
-
-const driverSelect = {
-  id: drivers.id,
-  firstName: drivers.firstName,
-  lastName: drivers.lastName,
-  email: drivers.email,
-  phone: drivers.phone,
-  language: drivers.language,
-  timezone: drivers.timezone,
-  themePreference: drivers.themePreference,
-  distanceUnit: drivers.distanceUnit,
-  priceDisplay: drivers.priceDisplay,
-  isActive: drivers.isActive,
-  emailVerified: drivers.emailVerified,
-  createdAt: drivers.createdAt,
-};
 
 /**
  * Records a portal login refused by the active-account lookup on the driver the
@@ -303,13 +337,17 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         tags: ['Portal Auth'],
         summary: 'Register a new driver account',
         description:
-          'Answers 202 { success: true } for a new and for an existing email alike, so the answer does not reveal whether an account exists, and signs nobody in. A new email gets a driver row (registrationSource=portal, argon2 password) and a verification email; the driver signs in after opening the link. An existing email (active or not, with or without portal access) changes nothing and gets driver.RegistrationAttempt, an email with the sign-in and password reset links. Verifies the reCAPTCHA token when enabled (web) or the device attestation (mobile apps). Returns 400 WEAK_PASSWORD, 429 PHONE_REGISTRATION_LIMITED when the phone number was used in three portal registrations in the last 24 hours, and 403 if portal registration is disabled by settings.',
+          'Answers 202 { success: true } for a new and for an existing email alike, so the answer does not reveal whether an account exists, and signs nobody in. A new email gets a driver row (registrationSource=portal, argon2 password) and a verification email; the driver signs in after opening the link. An existing email (active or not, with or without portal access) changes nothing and gets driver.RegistrationAttempt, an email with the sign-in and password reset links. Verifies the reCAPTCHA token when enabled (web) or the device attestation (mobile apps). Returns 400 WEAK_PASSWORD, 400 VALIDATION_ERROR for a phone number that does not parse (stored in E.164), 429 PHONE_REGISTRATION_LIMITED when the phone number was used in three portal registrations in the last 24 hours, and 403 if portal registration is disabled by settings.',
         operationId: 'portalRegister',
         security: [],
         body: zodSchema(registerBody),
         response: {
           202: successResponse,
-          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD], weakPasswordFields),
+          400: errorWith(
+            'Weak password or invalid phone number',
+            [ERROR_CODES.WEAK_PASSWORD, ERROR_CODES.VALIDATION_ERROR],
+            weakPasswordFields,
+          ),
           403: errorWith('Forbidden', [
             ERROR_CODES.PORTAL_REGISTRATION_DISABLED,
             ERROR_CODES.ATTESTATION_FAILED,
@@ -368,6 +406,10 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       // Per-contact cap on top of the per-IP rate limit, so one phone number cannot seed many
       // accounts. Stored normalized so formatting variants count as the same number. Checked
       // before the email lookup, so its answer says nothing about the email.
+      if (readPhoneInput(body.phone).kind === 'invalid') {
+        await reply.status(400).send(INVALID_PHONE_REPLY);
+        return;
+      }
       const phone = registrationPhone(body.phone);
       if (phone != null && (await isPhoneRegistrationLimited(phone))) {
         await reply.status(429).send({
@@ -410,7 +452,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
             passwordHash,
             registrationSource: 'portal',
           })
-          .returning(driverSelect);
+          .returning(driverSessionColumns);
       } catch (err) {
         // The email lookup above is non-transactional, so two concurrent
         // registrations with the same email both reach this INSERT. The partial
@@ -467,7 +509,22 @@ export function portalAuthRoutes(app: FastifyInstance): void {
             ERROR_CODES.RECAPTCHA_REQUIRED,
           ]),
           401: errorWith('Invalid credentials', [ERROR_CODES.INVALID_CREDENTIALS]),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN, ERROR_CODES.RECAPTCHA_FAILED]),
+          403: errorWith(
+            'Forbidden, or a mobile sign-in only the portal can finish (MFA_ENROLLMENT_REQUIRED, with portalUrl)',
+            [
+              ERROR_CODES.FORBIDDEN,
+              ERROR_CODES.MFA_ENROLLMENT_REQUIRED,
+              ERROR_CODES.MFA_SETUP_UNAVAILABLE,
+              ERROR_CODES.RECAPTCHA_FAILED,
+            ],
+            {
+              portalUrl: z
+                .string()
+                .optional()
+                .describe('MFA_ENROLLMENT_REQUIRED: the driver portal, where the driver finishes'),
+            },
+          ),
+          503: errorWith('MFA settings unavailable', [ERROR_CODES.MFA_POLICY_UNAVAILABLE]),
         },
       },
       config: {
@@ -523,6 +580,22 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A locked driver (sign-in backoff) answers as for a wrong password, after the same time.
+      // The try is counted in the UPDATE that checks the lock, so parallel guesses cannot pass it.
+      const attempt = await takeSignInAttempt({ driverId: driver.id }, 'password');
+      if (!attempt.granted) {
+        await verifyAgainstDummyHash(password);
+        await recordAuthAudit(request, {
+          kind: 'driver',
+          accountId: driver.id,
+          action: 'login_failed',
+          method: 'password',
+          reason: 'locked',
+        });
+        await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
+        return;
+      }
+
       const valid = await verifyPassword(driver.passwordHash, password, request.log);
       if (!valid) {
         await recordAuthAudit(request, {
@@ -532,40 +605,55 @@ export function portalAuthRoutes(app: FastifyInstance): void {
           method: 'password',
           reason: 'bad_password',
         });
+        await recordAttemptFailure(request, attempt);
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
+      await clearSignInFailures({ driverId: driver.id }, 'password');
 
-      // MFA check
-      if (driver.mfaEnabled && driver.mfaMethod != null) {
-        const mfaToken = app.jwt.sign(
-          { driverId: driver.id, type: 'driver', mfaPending: true } as unknown as DriverJwtPayload,
-          { expiresIn: '3m' },
-        );
-
-        let challengeId: number | undefined;
-        if (driver.mfaMethod === 'email' || driver.mfaMethod === 'sms') {
-          const challenge = await createMfaChallenge(client, {
-            driverId: driver.id,
-            method: driver.mfaMethod,
+      const gated = await beginDriverMfa(app, driver, { mobile: isMobileClient(request) });
+      if (gated != null) {
+        if (isMfaPolicyUnavailable(gated)) {
+          await recordAuthAudit(request, {
+            kind: 'driver',
+            accountId: driver.id,
+            action: 'login_failed',
+            method: 'password',
+            reason: 'mfa_policy_unavailable',
           });
-          challengeId = challenge.challengeId;
-
-          await dispatchSystemNotification(
-            client,
-            'mfa.VerificationCode',
-            mfaCodeRecipient(driver.mfaMethod, driver),
-            { code: challenge.code },
-            ALL_TEMPLATES_DIRS,
-          );
+          await reply.status(503).send({
+            error: 'The MFA policy could not be read. Try again later.',
+            code: 'MFA_POLICY_UNAVAILABLE',
+          });
+          return;
         }
-
-        return {
-          mfaRequired: true,
-          mfaMethod: driver.mfaMethod,
-          mfaToken,
-          challengeId,
-        };
+        if (isMfaSetupUnavailable(gated)) {
+          await recordAuthAudit(request, {
+            kind: 'driver',
+            accountId: driver.id,
+            action: 'login_failed',
+            method: 'password',
+            reason: 'mfa_setup_unavailable',
+          });
+          await reply.status(403).send({
+            error: 'MFA is required but no method can be set up. Contact the operator.',
+            code: 'MFA_SETUP_UNAVAILABLE',
+          });
+          return;
+        }
+        if (isDriverMobileMfaUnsupported(gated)) {
+          await recordAuthAudit(request, {
+            kind: 'driver',
+            accountId: driver.id,
+            action: 'login_failed',
+            method: 'password',
+            reason: mobileMfaUnsupportedAuditReason(gated.mobileMfaUnsupported),
+          });
+          await sendMobileMfaUnsupported(reply, gated.mobileMfaUnsupported, apiConfig.PORTAL_URL);
+          return;
+        }
+        // The MFA step, or the enrollment of required MFA: no session yet.
+        return gated;
       }
 
       // Written before the session reply goes out, so the row exists when the
@@ -636,7 +724,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         tags: ['Portal Auth'],
         summary: 'Refresh the access token',
         description:
-          'Rotates the refresh token and issues a new access token. Web clients use the portal_refresh cookie and receive new cookies. Mobile clients (X-Client: mobile) send { refreshToken } in the body and receive { token, refreshToken, expiresIn }; the token is device-bound via X-Device-Id. Rate limited to 30/min. Returns 401 if the token is missing, invalid, expired, revoked, the device does not match, or the driver is deactivated.',
+          'Rotates the refresh token and issues a new access token. Web clients use the portal_refresh cookie and receive new cookies. Mobile clients (X-Client: mobile) send { refreshToken } in the body and receive { token, refreshToken, expiresIn }; the token is device-bound via X-Device-Id. Rate limited to 30/min. Returns 401 if the token is missing, invalid, expired, revoked, the device does not match, or the driver is deactivated. While required MFA covers drivers, a driver without a usable factor gets 401 MFA_ENROLLMENT_REQUIRED and the refresh token is revoked (sign in again to set up MFA); 503 MFA_POLICY_UNAVAILABLE when the MFA settings cannot be read.',
         operationId: 'portalRefreshToken',
         security: [],
         response: {
@@ -645,7 +733,9 @@ export function portalAuthRoutes(app: FastifyInstance): void {
             ERROR_CODES.ACCOUNT_DISABLED,
             ERROR_CODES.NO_REFRESH_TOKEN,
             ERROR_CODES.INVALID_REFRESH_TOKEN,
+            ERROR_CODES.MFA_ENROLLMENT_REQUIRED,
           ]),
+          503: errorWith('MFA settings unavailable', [ERROR_CODES.MFA_POLICY_UNAVAILABLE]),
         },
       },
       config: {
@@ -672,6 +762,50 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Required MFA reaches signed-in drivers here, before the token rotates, so a
+      // settings read failure keeps the refresh token for the next try.
+      if (rawToken) {
+        const holderId = await sessionRefreshTokenDriverId(rawToken, deviceId);
+        const [holder] =
+          holderId == null
+            ? []
+            : await db
+                .select({
+                  id: drivers.id,
+                  isActive: drivers.isActive,
+                  mfaEnabled: drivers.mfaEnabled,
+                  mfaMethod: drivers.mfaMethod,
+                })
+                .from(drivers)
+                .where(eq(drivers.id, holderId));
+        if (holder?.isActive === true) {
+          const gate = await driverRenewalMfaGate(holder);
+          if (gate === 'policy_unavailable') {
+            request.log.error(
+              { driverId: holder.id },
+              'The MFA settings could not be read, so required MFA refuses the renewal',
+            );
+            await reply.status(503).send({
+              error: 'The MFA policy could not be read. Try again later.',
+              code: 'MFA_POLICY_UNAVAILABLE',
+            });
+            return;
+          }
+          if (gate === 'enrollment_required') {
+            await revokeRefreshToken(rawToken);
+            if (!mobile) clearAuthCookies('portal', reply, isSecureRequest(request));
+            request.log.info(
+              { driverId: holder.id },
+              'Required MFA covers drivers and no factor is set up, the session is not renewed',
+            );
+            await reply
+              .status(401)
+              .send({ error: 'Set up MFA to continue', code: 'MFA_ENROLLMENT_REQUIRED' });
+            return;
+          }
+        }
+      }
+
       // A portal_refresh cookie whose signature does not verify is refused
       // like an unknown token: 401 INVALID_REFRESH_TOKEN and cleared cookies.
       const result = rawToken ? await validateAndRotateRefreshToken(rawToken, { deviceId }) : null;
@@ -694,7 +828,10 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const tokens = await issueDriverTokens(app, request, reply, driver.id);
+      // The renewal keeps the client of the refresh token, never the one the request names.
+      const tokens = await issueDriverTokens(app, request, reply, driver.id, {
+        client: result.client,
+      });
       return tokens ?? { success: true };
     },
   );
@@ -718,7 +855,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
 
       const [row] = await db
-        .select({ ...driverSelect, ...driverBillingAddressColumns })
+        .select({ ...driverSessionColumns, ...driverBillingAddressColumns })
         .from(drivers)
         .where(eq(drivers.id, driverId));
 
@@ -754,11 +891,55 @@ export function portalAuthRoutes(app: FastifyInstance): void {
   // Portal MFA verify
   const mfaVerifyBody = z.object({
     mfaToken: z.string().min(1),
-    code: z.string().min(6).max(6),
+    code: z
+      .string()
+      .min(6)
+      .max(6)
+      .optional()
+      .describe('6-digit verification code; send either code or recoveryCode'),
+    recoveryCode: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe('A single-use recovery code (xxxxx-xxxxx), instead of code'),
     challengeId: z.coerce.number().int().min(1).optional(),
   });
 
-  const portalMfaLoginResponse = z.object({ driver: portalDriverItem }).passthrough();
+  const portalMfaLoginResponse = z
+    .object({
+      driver: portalDriverItem
+        .optional()
+        .describe('The driver now signed in; absent with mfaEnrollmentRequired'),
+      mfaEnrollmentRequired: z
+        .boolean()
+        .optional()
+        .describe(
+          'Set when the factor used is switched off by an admin and was the only one: no session is issued; set up another allowed method with enrollmentToken. Web clients only: a mobile client gets 403 MFA_ENROLLMENT_REQUIRED instead',
+        ),
+      enrollmentToken: z
+        .string()
+        .optional()
+        .describe(
+          'With mfaEnrollmentRequired: a 10-minute Bearer token valid only for POST /v1/portal/driver/mfa/setup, /confirm and the passkey registration routes',
+        ),
+      availableMethods: z
+        .array(z.enum(MFA_SETUP_METHODS))
+        .optional()
+        .describe('With mfaEnrollmentRequired: the methods the driver can set up now'),
+      webauthnAvailable: z
+        .boolean()
+        .optional()
+        .describe(
+          'With mfaEnrollmentRequired: a passkey or security key can be the enrolled factor',
+        ),
+      recoveryCodesRemaining: z
+        .number()
+        .int()
+        .optional()
+        .describe('After MFA with a recovery code: how many unused recovery codes are left'),
+    })
+    .passthrough();
 
   app.post(
     '/portal/auth/mfa/verify',
@@ -767,7 +948,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         tags: ['Portal Auth'],
         summary: 'Verify MFA code and complete portal login',
         description:
-          'Validates the short-lived MFA pending JWT, verifies the supplied TOTP code or email/SMS challenge code, and on success sets portal session and refresh cookies. Codes expire after 5 minutes and are single-use. Returns 401 on invalid code or expired pending JWT.',
+          'Validates the short-lived MFA pending JWT, verifies the supplied TOTP code or email/SMS challenge code or a single-use recovery code, and on success sets portal session and refresh cookies. Codes expire after 5 minutes and are single-use. A recovery code works even when the method is switched off, is used up and returns recoveryCodesRemaining. Wrong codes count toward a per-driver backoff: after 5 in a row the driver is locked for 30 s, doubling up to 15 minutes, and verify answers 429 MFA_LOCKED with Retry-After. When the factor used is switched off and was the only one, no session is issued: a web client gets mfaEnrollmentRequired with an enrollmentToken, a mobile client 403 MFA_ENROLLMENT_REQUIRED.',
         operationId: 'portalVerifyMfa',
         security: [],
         body: zodSchema(mfaVerifyBody),
@@ -779,9 +960,15 @@ export function portalAuthRoutes(app: FastifyInstance): void {
             ERROR_CODES.MFA_NOT_CONFIGURED,
             ERROR_CODES.MFA_TOKEN_INVALID,
             ERROR_CODES.TOTP_NOT_CONFIGURED,
+            ERROR_CODES.VALIDATION_ERROR,
           ]),
           401: errorWith('Unauthorized', [ERROR_CODES.UNAUTHORIZED, ERROR_CODES.MFA_TOKEN_EXPIRED]),
-          403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
+          403: errorWith('Forbidden', [
+            ERROR_CODES.ACCOUNT_DISABLED,
+            ERROR_CODES.MFA_ENROLLMENT_REQUIRED,
+            ERROR_CODES.MFA_METHOD_DISABLED,
+          ]),
+          429: errorWith('Too many wrong codes', [ERROR_CODES.MFA_LOCKED]),
         },
       },
       config: {
@@ -792,7 +979,15 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { mfaToken, code, challengeId } = request.body as z.infer<typeof mfaVerifyBody>;
+      const { mfaToken, code, recoveryCode, challengeId } = request.body as z.infer<
+        typeof mfaVerifyBody
+      >;
+      if ((code == null) === (recoveryCode == null)) {
+        await reply
+          .status(400)
+          .send({ error: 'Send either code or recoveryCode', code: 'VALIDATION_ERROR' });
+        return;
+      }
 
       let payload: { driverId: string; type: string; mfaPending?: boolean };
       try {
@@ -811,7 +1006,21 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       }
 
       const [driver] = await db.select().from(drivers).where(eq(drivers.id, payload.driverId));
-      if (driver == null || !driver.mfaEnabled || driver.mfaMethod == null) {
+      if (driver != null && !mfaPendingTokenCurrent(payload, driver.sessionVersion)) {
+        await sendMfaTokenExpired(reply);
+        return;
+      }
+      const factorCounts =
+        driver != null
+          ? await mfaFactorCounts({ driverId: driver.id })
+          : { recoveryCodesRemaining: 0, passkeyCount: 0 };
+      // A driver with passkeys only has no method to send a code for, but a recovery code works.
+      const primaryMethod = driver?.mfaEnabled === true ? driver.mfaMethod : null;
+      if (
+        driver == null ||
+        !hasMfa({ ...driver, ...factorCounts }) ||
+        (code != null && primaryMethod == null)
+      ) {
         await reply.status(400).send({ error: 'MFA not configured', code: 'MFA_NOT_CONFIGURED' });
         return;
       }
@@ -831,38 +1040,91 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      let verified = false;
-      if (driver.mfaMethod === 'totp') {
-        if (driver.totpSecretEnc == null) {
-          await reply.status(400).send({ error: 'TOTP not set up', code: 'TOTP_NOT_CONFIGURED' });
-          return;
-        }
-        const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
+      const mfaReading = await readMfaConfig();
+      const recoveryCodesBefore = factorCounts.recoveryCodesRemaining;
+      const gate = mfaMethodGate({ ...driver, ...factorCounts }, mfaReading);
+      // A recovery code has no method switch: it works whatever the gate says.
+      if (recoveryCode == null && gate === 'refused') {
+        await recordAuthAudit(request, {
+          kind: 'driver',
+          accountId: driver.id,
+          action: 'login_failed',
+          method: 'mfa',
+          reason: 'mfa_method_disabled',
+        });
+        await reply
+          .status(403)
+          .send({ error: 'MFA method is disabled', code: 'MFA_METHOD_DISABLED' });
+        return;
+      }
+
+      let totpSecret: string | null = null;
+      if (recoveryCode == null && driver.mfaMethod === 'totp') {
         try {
-          const secret = decryptString(driver.totpSecretEnc, encKey);
-          verified = verifyTotpCode(secret, code);
+          totpSecret =
+            driver.totpSecretEnc != null
+              ? decryptString(driver.totpSecretEnc, apiConfig.SETTINGS_ENCRYPTION_KEY)
+              : null;
         } catch (err: unknown) {
           // Corrupted ciphertext or rotated SETTINGS_ENCRYPTION_KEY would
           // crash the request with a raw 500. Return a clean 400 so the
           // driver sees a comprehensible error and root cause is logged.
           request.log.warn({ err, driverId: driver.id }, 'TOTP secret decrypt failed');
+        }
+        if (totpSecret == null) {
           await reply.status(400).send({ error: 'TOTP not set up', code: 'TOTP_NOT_CONFIGURED' });
           return;
         }
+      }
+
+      // Per-account backoff after repeated wrong codes, as for operators: the try is counted
+      // before the check, in the UPDATE that checks the lock, so parallel guesses cannot pass it.
+      const attempt = await takeSignInAttempt({ driverId: driver.id }, 'mfa');
+      if (!attempt.granted) {
+        const retryAfterSeconds = secondsUntil(attempt.lockedUntil ?? new Date());
+        await recordAuthAudit(request, {
+          kind: 'driver',
+          accountId: driver.id,
+          action: 'login_failed',
+          method: 'mfa',
+          reason: 'locked',
+        });
+        void reply.header('Retry-After', String(retryAfterSeconds));
+        await reply.status(429).send({
+          error: 'Too many wrong codes. Try again later.',
+          code: 'MFA_LOCKED',
+          retryAfterSeconds,
+        });
+        return;
+      }
+
+      let verified = false;
+      let exhausted = false;
+      let recoveryCodesRemaining: number | undefined;
+      if (recoveryCode != null) {
+        const result = await consumeRecoveryCode({ driverId: driver.id }, recoveryCode, {
+          actor: accountAuditActor({ driverId: driver.id }),
+          log: request.log,
+        });
+        verified = result.used;
+        if (result.used) recoveryCodesRemaining = result.remaining;
+      } else if (code == null) {
+        verified = false;
+      } else if (totpSecret != null) {
+        const step = matchTotpStep(totpSecret, code);
+        // A code is accepted once (replay guard, sign-in-backoff.ts).
+        if (step != null) verified = await acceptTotpStep({ driverId: driver.id }, step);
       } else if (challengeId != null) {
         // The tries are counted on the challenge row (single use, at most
         // MFA_CHALLENGE_MAX_ATTEMPTS codes), shared by every API process.
         const result = await verifyMfaChallenge(client, challengeId, code, {
           driverId: driver.id,
+          method: driver.mfaMethod ?? '',
+          purpose: 'sign_in',
+          destination: mfaCodeDestination(driver.mfaMethod, driver),
         });
-        if (result === 'exhausted') {
-          await reply.status(400).send({
-            error: 'Too many failed attempts. Request a new code.',
-            code: 'MFA_CHALLENGE_EXHAUSTED',
-          });
-          return;
-        }
         verified = result === 'verified';
+        exhausted = result === 'exhausted';
       }
 
       if (!verified) {
@@ -870,36 +1132,91 @@ export function portalAuthRoutes(app: FastifyInstance): void {
           kind: 'driver',
           accountId: driver.id,
           action: 'login_failed',
-          method: 'mfa',
-          reason: 'mfa_code_invalid',
+          method: recoveryCode != null ? 'recovery_code' : 'mfa',
+          reason: exhausted ? 'mfa_challenge_exhausted' : 'mfa_code_invalid',
         });
+        await recordAttemptFailure(request, attempt);
+        if (exhausted) {
+          await reply.status(400).send({
+            error: 'Too many failed attempts. Request a new code.',
+            code: 'MFA_CHALLENGE_EXHAUSTED',
+          });
+          return;
+        }
         await reply
           .status(400)
           .send({ error: 'Invalid verification code', code: 'MFA_CODE_INVALID' });
         return;
+      }
+      await clearSignInFailures({ driverId: driver.id }, 'mfa');
+
+      // A switched-off method that was the only factor, or the last recovery code of such a
+      // driver, leaves no factor: the driver proved the old one and now sets up another.
+      const factorsAfter = {
+        ...driver,
+        ...factorCounts,
+        recoveryCodesRemaining: recoveryCodesRemaining ?? recoveryCodesBefore,
+      };
+      const enrollmentRequired =
+        usableFactors(factorsAfter, mfaReading).length === 0 &&
+        (mfaMethodGate(factorsAfter, mfaReading) === 'enrollment_required' ||
+          passkeyGate(factorsAfter, mfaReading) === 'enrollment_required');
+      const enrollment = enrollmentRequired
+        ? driverMfaEnrollmentAfterVerify(app, driver, mfaReading.config, {
+            mobile: isMobileClient(request),
+          })
+        : null;
+      if (enrollment != null && isDriverMobileMfaUnsupported(enrollment)) {
+        await recordAuthAudit(request, {
+          kind: 'driver',
+          accountId: driver.id,
+          action: 'login_failed',
+          method: recoveryCode != null ? 'recovery_code' : 'mfa',
+          reason: mobileMfaUnsupportedAuditReason(enrollment.mobileMfaUnsupported),
+        });
+        await sendMobileMfaUnsupported(
+          reply,
+          enrollment.mobileMfaUnsupported,
+          apiConfig.PORTAL_URL,
+        );
+        return;
+      }
+      if (enrollment != null) {
+        // No session yet: the confirm of the new method signs the driver in.
+        return {
+          ...enrollment,
+          ...(recoveryCodesRemaining != null ? { recoveryCodesRemaining } : {}),
+        };
       }
 
       await recordAuthAudit(request, {
         kind: 'driver',
         accountId: driver.id,
         action: 'login_succeeded',
-        method: 'mfa',
+        method: recoveryCode != null ? 'recovery_code' : 'mfa',
       });
-      await issueDriverSession(app, request, reply, {
-        id: driver.id,
-        firstName: driver.firstName,
-        lastName: driver.lastName,
-        email: driver.email,
-        phone: driver.phone,
-        language: driver.language,
-        timezone: driver.timezone,
-        themePreference: driver.themePreference,
-        distanceUnit: driver.distanceUnit,
-        priceDisplay: driver.priceDisplay,
-        isActive: driver.isActive,
-        emailVerified: driver.emailVerified,
-        createdAt: driver.createdAt,
-      });
+      await issueDriverSession(
+        app,
+        request,
+        reply,
+        {
+          id: driver.id,
+          firstName: driver.firstName,
+          lastName: driver.lastName,
+          email: driver.email,
+          phone: driver.phone,
+          language: driver.language,
+          timezone: driver.timezone,
+          themePreference: driver.themePreference,
+          distanceUnit: driver.distanceUnit,
+          priceDisplay: driver.priceDisplay,
+          isActive: driver.isActive,
+          emailVerified: driver.emailVerified,
+          createdAt: driver.createdAt,
+        },
+        { extra: recoveryCodesRemaining != null ? { recoveryCodesRemaining } : {} },
+      );
+      return;
     },
   );
 
@@ -925,7 +1242,11 @@ export function portalAuthRoutes(app: FastifyInstance): void {
             ERROR_CODES.MFA_TOTP_NO_RESEND,
           ]),
           401: errorWith('Unauthorized', [ERROR_CODES.UNAUTHORIZED, ERROR_CODES.MFA_TOKEN_EXPIRED]),
-          403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
+          403: errorWith('Forbidden', [
+            ERROR_CODES.ACCOUNT_DISABLED,
+            ERROR_CODES.MFA_METHOD_DISABLED,
+          ]),
+          429: errorWith('Too many codes sent', [ERROR_CODES.MFA_RESEND_LIMITED]),
         },
       },
       config: {
@@ -955,6 +1276,10 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       }
 
       const [driver] = await db.select().from(drivers).where(eq(drivers.id, payload.driverId));
+      if (driver != null && !mfaPendingTokenCurrent(payload, driver.sessionVersion)) {
+        await sendMfaTokenExpired(reply);
+        return;
+      }
       if (driver == null || !driver.mfaEnabled || driver.mfaMethod == null) {
         await reply.status(400).send({ error: 'MFA not configured', code: 'MFA_NOT_CONFIGURED' });
         return;
@@ -973,10 +1298,29 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const challenge = await createMfaChallenge(client, {
-        driverId: driver.id,
-        method: driver.mfaMethod,
+      if (
+        mfaMethodGate(
+          { ...driver, ...(await mfaFactorCounts({ driverId: driver.id })) },
+          await readMfaConfig(),
+        ) === 'refused'
+      ) {
+        await reply
+          .status(403)
+          .send({ error: 'MFA method is disabled', code: 'MFA_METHOD_DISABLED' });
+        return;
+      }
+
+      // A cap on the codes sent to one driver, counted from the challenge rows
+      // under a per-account lock so every process sees the same count.
+      const challenge = await createAccountMfaChallenge({ driverId: driver.id }, driver.mfaMethod, {
+        purpose: 'sign_in',
+        destination: mfaCodeDestination(driver.mfaMethod, driver),
+        destinationProven: true,
       });
+      if (isMfaChallengeLimited(challenge)) {
+        await sendMfaResendLimited(reply, challenge.retryAfterSeconds);
+        return;
+      }
 
       await dispatchSystemNotification(
         client,
@@ -1249,7 +1593,13 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         // verified.
         const [updated] = await tx
           .update(drivers)
-          .set({ passwordHash, emailVerified: true, updatedAt: now })
+          .set({
+            passwordHash,
+            emailVerified: true,
+            failedLoginCount: 0,
+            loginLockedUntil: null,
+            updatedAt: now,
+          })
           .where(and(eq(drivers.id, consumed.driverId), eq(drivers.isActive, true)))
           .returning({ id: drivers.id });
         // The link stays used: it was valid, the account is not.

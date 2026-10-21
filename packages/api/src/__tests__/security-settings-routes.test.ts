@@ -5,23 +5,24 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
-const { storedRows, upserts, failing, mockClearCache, mockPublish, mockWriteAudit } = vi.hoisted(
-  () => ({
+const { storedRows, roleRows, upserts, failing, mockClearCache, mockPublish, mockWriteAudit } =
+  vi.hoisted(() => ({
     storedRows: [] as Array<{ key: string; value: unknown }>,
+    roleRows: [{ name: 'admin' }, { name: 'operator' }, { name: 'viewer' }],
     // Committed upserts only: a rolled-back transaction adds nothing.
     upserts: [] as Array<{ key: string; value: unknown }>,
     failing: { key: null as string | null },
     mockClearCache: vi.fn(),
     mockPublish: vi.fn(),
     mockWriteAudit: vi.fn((..._args: unknown[]) => Promise.resolve()),
-  }),
-);
+  }));
 
 vi.mock('../lib/site-access.js', async () =>
   (await import('./helpers/site-access-mock.js')).siteAccessMock(),
 );
 
 vi.mock('@evtivity/database', () => {
+  const ROLES_TABLE = { name: 'roles.name' };
   const insertInto = (target: Array<{ key: string; value: unknown }>) => () => ({
     values: (row: { key: string; value: unknown }) => ({
       onConflictDoUpdate: () => {
@@ -33,7 +34,12 @@ vi.mock('@evtivity/database', () => {
   });
   return {
     db: {
-      select: () => ({ from: () => ({ where: () => Promise.resolve(storedRows) }) }),
+      select: () => ({
+        from: (table: unknown) => ({
+          where: () => Promise.resolve(table === ROLES_TABLE ? roleRows : storedRows),
+          orderBy: () => Promise.resolve(table === ROLES_TABLE ? roleRows : []),
+        }),
+      }),
       insert: insertInto(upserts),
       transaction: async (fn: (tx: unknown) => Promise<void>) => {
         const pending: Array<{ key: string; value: unknown }> = [];
@@ -42,13 +48,14 @@ vi.mock('@evtivity/database', () => {
       },
     },
     settings: { key: 'key' },
+    roles: ROLES_TABLE,
     settingAuditLog: { name: 'setting_audit_log' },
     clearSecuritySettingsCache: mockClearCache,
     writeAudit: mockWriteAudit,
   };
 });
 
-vi.mock('drizzle-orm', () => ({ like: vi.fn(), inArray: vi.fn() }));
+vi.mock('drizzle-orm', () => ({ like: vi.fn(), inArray: vi.fn(), asc: vi.fn() }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: mockPublish }),
@@ -378,6 +385,166 @@ describe('password policy and session lifetime routes', () => {
       ]);
       expect(mockClearCache).toHaveBeenCalledTimes(1);
     });
+
+    const SWITCHES = { emailEnabled: true, totpEnabled: true, smsEnabled: false };
+
+    it('saves required MFA for chosen roles and audits both keys', async () => {
+      const res = await put('/security/mfa', {
+        ...SWITCHES,
+        required: 'roles',
+        requiredRoles: ['admin', ' admin', 'operator'],
+      });
+      expect(res.statusCode).toBe(200);
+      expect(upserts).toEqual(
+        expect.arrayContaining([
+          { key: 'security.mfa.required', value: 'roles' },
+          { key: 'security.mfa.requiredRoles', value: ['admin', 'operator'] },
+        ]),
+      );
+      expect(auditedKeys()).toEqual(
+        expect.arrayContaining(['security.mfa.required', 'security.mfa.requiredRoles']),
+      );
+      expect(mockClearCache).toHaveBeenCalledTimes(1);
+    });
+
+    it('saves required MFA for drivers and audits it', async () => {
+      const res = await put('/security/mfa', { ...SWITCHES, requireDrivers: true });
+      expect(res.statusCode).toBe(200);
+      expect(upserts).toEqual(
+        expect.arrayContaining([{ key: 'security.mfa.requireDrivers', value: true }]),
+      );
+      expect(auditedKeys()).toEqual(expect.arrayContaining(['security.mfa.requireDrivers']));
+    });
+
+    it('keeps the stored driver rule when the body omits it', async () => {
+      storedRows.push({ key: 'security.mfa.requireDrivers', value: true });
+      const res = await put('/security/mfa', SWITCHES);
+      expect(res.statusCode).toBe(200);
+      expect(upserts.map((u) => u.key)).not.toContain('security.mfa.requireDrivers');
+    });
+
+    it('refuses required MFA for drivers while email and TOTP are both off', async () => {
+      const res = await put('/security/mfa', {
+        emailEnabled: false,
+        totpEnabled: false,
+        smsEnabled: true,
+        requireDrivers: true,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(upserts).toEqual([]);
+      // A stored driver rule blocks switching both off too.
+      storedRows.push({ key: 'security.mfa.requireDrivers', value: true });
+      const off = await put('/security/mfa', {
+        emailEnabled: false,
+        totpEnabled: false,
+        smsEnabled: true,
+      });
+      expect(off.statusCode).toBe(400);
+    });
+
+    it('keeps the stored required MFA keys when the body omits them', async () => {
+      storedRows.push({ key: 'security.mfa.required', value: 'all' });
+      const res = await put('/security/mfa', SWITCHES);
+      expect(res.statusCode).toBe(200);
+      expect(upserts.map((u) => u.key)).not.toContain('security.mfa.required');
+    });
+
+    it.each([
+      ['roles without a role', { required: 'roles', requiredRoles: [] }],
+      ['an unknown role', { required: 'roles', requiredRoles: ['admin', 'auditor'] }],
+    ])('refuses %s with 400 VALIDATION_ERROR and writes nothing', async (_name, extra) => {
+      const res = await put('/security/mfa', { ...SWITCHES, ...extra });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(upserts).toHaveLength(0);
+      expect(mockWriteAudit).not.toHaveBeenCalled();
+    });
+
+    it('keeps a stored role name that no longer exists without checking it again', async () => {
+      storedRows.push(
+        { key: 'security.mfa.required', value: 'roles' },
+        { key: 'security.mfa.requiredRoles', value: ['admin', 'retired'] },
+      );
+      const res = await put('/security/mfa', { ...SWITCHES, smsEnabled: true });
+      expect(res.statusCode).toBe(200);
+      expect(upserts.map((u) => u.key)).not.toContain('security.mfa.requiredRoles');
+
+      const again = await put('/security/mfa', { ...SWITCHES, required: 'roles' });
+      expect(again.statusCode).toBe(200);
+    });
+
+    it('checks a role name the save sends even when the stored list is valid', async () => {
+      storedRows.push(
+        { key: 'security.mfa.required', value: 'roles' },
+        { key: 'security.mfa.requiredRoles', value: ['admin'] },
+      );
+      const res = await put('/security/mfa', { ...SWITCHES, requiredRoles: ['retired'] });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        error: 'Unknown role: retired',
+      });
+      expect(upserts).toHaveLength(0);
+    });
+
+    it('refuses an unknown mode in the schema', async () => {
+      const res = await put('/security/mfa', { ...SWITCHES, required: 'everyone' });
+      expect(res.statusCode).toBe(400);
+      expect(upserts).toHaveLength(0);
+    });
+
+    it('refuses roles mode when the stored role list is empty and the body sends none', async () => {
+      const res = await put('/security/mfa', { ...SWITCHES, required: 'roles' });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe('Choose at least one role that must use MFA');
+    });
+
+    it('refuses required MFA while email and authenticator app codes are both off', async () => {
+      const res = await put('/security/mfa', {
+        emailEnabled: false,
+        totpEnabled: false,
+        smsEnabled: true,
+        required: 'all',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(upserts).toHaveLength(0);
+    });
+
+    it('saves the passkey switches and keeps them when the body omits them', async () => {
+      const res = await put('/security/mfa', {
+        ...SWITCHES,
+        webauthnEnabled: true,
+        passkeyLoginEnabled: true,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(upserts).toEqual(
+        expect.arrayContaining([
+          { key: 'security.mfa.webauthnEnabled', value: true },
+          { key: 'security.mfa.passkeyLoginEnabled', value: true },
+        ]),
+      );
+      upserts.length = 0;
+      const again = await put('/security/mfa', SWITCHES);
+      expect(again.statusCode).toBe(200);
+      expect(upserts.map((u) => u.key)).not.toContain('security.mfa.passkeyLoginEnabled');
+    });
+
+    it('refuses passkey sign-in while passkeys are switched off, stored or sent', async () => {
+      const sent = await put('/security/mfa', {
+        ...SWITCHES,
+        webauthnEnabled: false,
+        passkeyLoginEnabled: true,
+      });
+      expect(sent.statusCode).toBe(400);
+      expect(sent.json().code).toBe('VALIDATION_ERROR');
+
+      storedRows.push({ key: 'security.mfa.webauthnEnabled', value: false });
+      const stored = await put('/security/mfa', { ...SWITCHES, passkeyLoginEnabled: true });
+      expect(stored.statusCode).toBe(400);
+      expect(upserts).toHaveLength(0);
+    });
   });
 
   describe('GET /security/settings', () => {
@@ -415,6 +582,55 @@ describe('password policy and session lifetime routes', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().passwordPolicy.minLength).toBe(12);
       expect(res.json().sessionLifetimes.driverAccessMinutes).toBe(60);
+    });
+
+    it('returns the MFA switches in effect, with email and TOTP on and SMS off by default', async () => {
+      const res = await app.inject({ method: 'GET', url: '/security/settings', headers: READ });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().mfa).toEqual({
+        emailEnabled: true,
+        totpEnabled: true,
+        smsEnabled: false,
+        required: 'off',
+        requiredRoles: [],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+    });
+
+    it('returns every role name for the required roles list', async () => {
+      const res = await app.inject({ method: 'GET', url: '/security/settings', headers: READ });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().roleNames).toEqual(['admin', 'operator', 'viewer']);
+    });
+
+    it('returns the stored required MFA rule', async () => {
+      storedRows.push(
+        { key: 'security.mfa.required', value: 'roles' },
+        { key: 'security.mfa.requiredRoles', value: ['admin'] },
+      );
+      const res = await app.inject({ method: 'GET', url: '/security/settings', headers: READ });
+      expect(res.json().mfa).toMatchObject({ required: 'roles', requiredRoles: ['admin'] });
+      expect(res.json()['security.mfa.required']).toBe('roles');
+    });
+
+    it('returns the stored MFA switches', async () => {
+      storedRows.push(
+        { key: 'security.mfa.emailEnabled', value: false },
+        { key: 'security.mfa.smsEnabled', value: true },
+      );
+      const res = await app.inject({ method: 'GET', url: '/security/settings', headers: READ });
+      expect(res.json().mfa).toEqual({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off',
+        requiredRoles: [],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
     });
 
     it('answers 404 SETTING_NOT_FOUND to a site-restricted user', async () => {

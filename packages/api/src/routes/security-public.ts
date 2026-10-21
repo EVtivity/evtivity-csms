@@ -12,6 +12,18 @@ import {
   getPasswordPolicy,
 } from '@evtivity/database';
 import { itemResponse } from '../lib/response-schemas.js';
+import { zodSchema } from '../lib/zod-schema.js';
+import { config as apiConfig } from '../lib/config.js';
+import { portalHostAllowsPasskeys } from '../lib/webauthn-rp.js';
+
+const publicSecurityQuery = z.object({
+  app: z
+    .enum(['csms', 'portal'])
+    .optional()
+    .describe(
+      'The app that asks. The portal sends portal: passkeys are reported off when PORTAL_URL is an IP address, since browsers refuse passkeys there',
+    ),
+});
 
 const passwordPolicyResponse = z
   .object({
@@ -37,6 +49,16 @@ const publicSecurityResponse = z
       .array(z.enum(['email', 'totp', 'sms']))
       .max(3)
       .describe('MFA methods available for users to enroll'),
+    webauthnEnabled: z
+      .boolean()
+      .describe(
+        'Whether passkeys and security keys can be used as a second factor (with app=portal: false while the portal host is an IP address)',
+      ),
+    passkeyLoginEnabled: z
+      .boolean()
+      .describe(
+        'Whether operators (with app=portal: drivers) can sign in with a passkey without a password',
+      ),
     roamingEnabled: z.boolean().describe('Whether OCPI roaming is enabled'),
     ssoEnabled: z.boolean().describe('Whether SSO login is enabled'),
     supportAiEnabled: z.boolean().describe('Whether the support case AI assist feature is enabled'),
@@ -53,10 +75,12 @@ export function securityPublicRoutes(app: FastifyInstance): void {
         summary: 'Get public security configuration for login pages',
         operationId: 'getPublicSecuritySettings',
         security: [],
+        querystring: zodSchema(publicSecurityQuery),
         response: { 200: itemResponse(publicSecurityResponse) },
       },
     },
-    async () => {
+    async (request) => {
+      const { app: client } = request.query as z.infer<typeof publicSecurityQuery>;
       const [recaptcha, mfa, roaming, ssoConfig, supportAi, passwordPolicy] = await Promise.all([
         getRecaptchaConfig(),
         getMfaConfig(),
@@ -65,6 +89,11 @@ export function securityPublicRoutes(app: FastifyInstance): void {
         isSupportAiEnabled(),
         getPasswordPolicy(),
       ]);
+
+      // Browsers refuse passkeys on a page served from an IP address.
+      const passkeysPossible =
+        client !== 'portal' || portalHostAllowsPasskeys(apiConfig.PORTAL_URL);
+      const webauthnEnabled = mfa.webauthnEnabled && passkeysPossible;
 
       const mfaMethods: string[] = [];
       if (mfa.emailEnabled) mfaMethods.push('email');
@@ -75,6 +104,8 @@ export function securityPublicRoutes(app: FastifyInstance): void {
         recaptchaEnabled: recaptcha != null,
         recaptchaSiteKey: recaptcha?.siteKey ?? '',
         mfaMethods,
+        webauthnEnabled,
+        passkeyLoginEnabled: webauthnEnabled && mfa.passkeyLoginEnabled,
         roamingEnabled: roaming,
         ssoEnabled: ssoConfig != null,
         supportAiEnabled: supportAi,

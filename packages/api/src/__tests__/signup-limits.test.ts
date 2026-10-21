@@ -45,8 +45,11 @@ describe('signup limits', () => {
   });
 
   it('normalizes the registration phone so formatting variants match', () => {
-    expect(registrationPhone('(555) 123-4567')).toBe('+15551234567');
-    expect(registrationPhone(' 555.123.4567 ')).toBe('+15551234567');
+    expect(registrationPhone('(201) 555-0134')).toBe('+12015550134');
+    expect(registrationPhone(' 201.555.0134 ')).toBe('+12015550134');
+    expect(registrationPhone('+1 201 555 0134')).toBe('+12015550134');
+    // A number that does not parse is none (the route refuses it first).
+    expect(registrationPhone('555-0134')).toBeNull();
     expect(registrationPhone('+49 30 1234567')).toBe('+49301234567');
     expect(registrationPhone('')).toBeNull();
     expect(registrationPhone(undefined)).toBeNull();
@@ -54,9 +57,9 @@ describe('signup limits', () => {
 
   it('limits a phone at the third registration in 24 hours', async () => {
     rowsQueue.push([{ n: 2 }]);
-    expect(await isPhoneRegistrationLimited('+15551234567', NOW)).toBe(false);
+    expect(await isPhoneRegistrationLimited('+12015550134', NOW)).toBe(false);
     rowsQueue.push([{ n: 3 }]);
-    expect(await isPhoneRegistrationLimited('+15551234567', NOW)).toBe(true);
+    expect(await isPhoneRegistrationLimited('+12015550134', NOW)).toBe(true);
   });
 
   it('allows a resend when no email went out in the last 24 hours', async () => {

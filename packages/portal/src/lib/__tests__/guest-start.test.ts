@@ -36,7 +36,7 @@ describe('guest start extras', () => {
       qrToken: 'v1.123.abc',
       recaptchaToken: 'rc-token',
     });
-    expect(mockGet).toHaveBeenCalledWith('/v1/security/public');
+    expect(mockGet).toHaveBeenCalledWith('/v1/security/public?app=portal');
     expect(mockExecuteRecaptcha).toHaveBeenCalledWith('site-key', 'guest_start');
   });
 

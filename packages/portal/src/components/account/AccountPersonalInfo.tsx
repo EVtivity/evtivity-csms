@@ -1,8 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -13,6 +14,19 @@ import { getErrorMessage } from '@/lib/error-message';
 import { TIMEZONE_OPTIONS } from '@/lib/timezone';
 import { useCompanyPriceDisplay } from '@/hooks/use-price-display';
 import { isPriceDisplay, type PriceDisplay } from '@evtivity/lib/price-display';
+import { proofRejection, type ProofRejection } from '@/components/FactorProofField';
+import { MFA_STATUS_KEY, type PortalMfaStatus } from '@/lib/mfa-status';
+import {
+  PhoneChangeProof,
+  phoneChangeNeedsProof,
+  type PhoneChangeExtras,
+} from './PhoneChangeProof';
+
+/** A phone number as the API compares it: trimmed, empty is none. */
+function comparablePhone(phone: string | null | undefined): string | null {
+  const trimmed = (phone ?? '').trim();
+  return trimmed === '' ? null : trimmed;
+}
 
 export function AccountPersonalInfo(): React.JSX.Element {
   const { t } = useTranslation();
@@ -40,11 +54,28 @@ export function AccountPersonalInfo(): React.JSX.Element {
   const companyPriceDisplay = useCompanyPriceDisplay();
   const [profileMsg, setProfileMsg] = useState('');
   const [profileLoading, setProfileLoading] = useState(false);
+  const [phoneExtras, setPhoneExtras] = useState<PhoneChangeExtras | null>(null);
+  const [phoneRejection, setPhoneRejection] = useState<ProofRejection | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const { data: mfaStatus } = useQuery({
+    queryKey: MFA_STATUS_KEY,
+    queryFn: () => api.get<PortalMfaStatus>('/v1/portal/driver/mfa'),
+  });
+  const onPhoneExtras = useCallback((extras: PhoneChangeExtras | null) => {
+    setPhoneExtras(extras);
+  }, []);
+
+  // SMS codes go to this number: changing it with a factor on the account needs a confirmation.
+  const phoneNeedsProof =
+    comparablePhone(phone) !== comparablePhone(driver?.phone) && phoneChangeNeedsProof(mfaStatus);
 
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   async function handleProfileUpdate(e: React.FormEvent): Promise<void> {
     e.preventDefault();
     setProfileMsg('');
+    setHasSubmitted(true);
+    if (phoneNeedsProof && phoneExtras == null) return;
+    const extras = phoneNeedsProof && phoneExtras != null ? phoneExtras : {};
     setProfileLoading(true);
     try {
       // Single PATCH persists everything; local-only Zustand updates run the
@@ -59,6 +90,7 @@ export function AccountPersonalInfo(): React.JSX.Element {
         themePreference: selectedTheme,
         distanceUnit: selectedDistanceUnit,
         priceDisplay: selectedPriceDisplay,
+        ...extras,
       });
       if (selectedLanguage !== driver?.language) {
         await applyLanguageLocal(selectedLanguage);
@@ -73,8 +105,14 @@ export function AccountPersonalInfo(): React.JSX.Element {
         applyDistanceUnitLocal(selectedDistanceUnit);
       }
       hydrate();
+      setHasSubmitted(false);
+      setPhoneExtras(null);
       setProfileMsg(t('profile.profileUpdated'));
     } catch (err) {
+      // Each proof works once: the confirmation asks for what the failure used up.
+      if ('proof' in extras || 'phoneVerification' in extras) {
+        setPhoneRejection(proofRejection(err));
+      }
       setProfileMsg(getErrorMessage(err, t, 'profile.profileUpdateFailed'));
     } finally {
       setProfileLoading(false);
@@ -127,6 +165,15 @@ export function AccountPersonalInfo(): React.JSX.Element {
             setPhone(e.target.value);
           }}
         />
+        {phoneNeedsProof && mfaStatus != null && (
+          <PhoneChangeProof
+            phone={phone}
+            status={mfaStatus}
+            onChange={onPhoneExtras}
+            rejection={phoneRejection}
+            showMissing={hasSubmitted}
+          />
+        )}
       </div>
 
       <hr className="border-border" />

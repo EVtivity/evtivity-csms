@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
-import { AppError } from '@evtivity/lib';
+import { AppError, hasAmbiguousPathEncoding } from '@evtivity/lib';
 import { isRoamingEnabled } from '@evtivity/database';
 import { ocpiResponse, OcpiStatusCode } from './lib/ocpi-response.js';
 import { versionRoutes } from './routes/versions.js';
@@ -15,6 +15,21 @@ import { OCPI_MODULES } from './modules.js';
 
 export async function buildOcpiApp(opts: FastifyServerOptions = {}): Promise<FastifyInstance> {
   const app = Fastify(opts);
+
+  // First: the roaming switch decides on the path, and the router decodes a path the
+  // switch would read raw (`/%6Fcpi/...` reaches `/ocpi/...`).
+  app.addHook('onRequest', async (request, reply) => {
+    if (!hasAmbiguousPathEncoding(request.url)) return;
+    await reply
+      .status(400)
+      .send(
+        ocpiResponse(
+          null,
+          OcpiStatusCode.CLIENT_ERROR,
+          'The request path encodes characters that must be sent as they are',
+        ),
+      );
+  });
 
   await app.register(cors, { origin: true });
   await app.register(helmet, { contentSecurityPolicy: false });
@@ -65,7 +80,7 @@ export async function buildOcpiApp(opts: FastifyServerOptions = {}): Promise<Fas
 
   // Block all OCPI endpoints when roaming is disabled
   app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
+    const url = request.routeOptions.url ?? request.url.split('?')[0] ?? request.url;
     if (!url.startsWith('/ocpi/')) return;
     const enabled = await isRoamingEnabled();
     if (!enabled) {

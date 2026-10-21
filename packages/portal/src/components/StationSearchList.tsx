@@ -239,7 +239,7 @@ export function StationSearchList({
 
   const { data: publicConfig } = useQuery({
     queryKey: ['security-public'],
-    queryFn: () => api.get<PublicConfig>('/v1/security/public'),
+    queryFn: () => api.get<PublicConfig>('/v1/security/public?app=portal'),
   });
 
   const roamingEnabled = !hideRoamingTab && publicConfig?.roamingEnabled === true;

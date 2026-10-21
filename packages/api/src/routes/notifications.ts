@@ -36,6 +36,7 @@ import {
   isRequiredDriverEventType,
   OCPP_NOTIFICATION_EVENT_TYPES,
   REQUIRED_DRIVER_EVENT_TYPES,
+  SECURITY_NOTICE_EVENT_TYPES,
 } from '@evtivity/lib/notification-events';
 
 const OCPP_CACHE_INVALIDATE_CHANNEL = 'cache_invalidate';
@@ -286,6 +287,9 @@ const ocppEventTemplateResponse = z
   })
   .passthrough();
 
+// The account variables every security notice has; `isDriver` picks the advice line.
+const SECURITY_NOTICE_VARIABLES = ['firstName', 'lastName', 'email', 'isDriver'];
+
 // Notifications sent to operators and site hosts. Matches the CSMS System Events tab.
 export const SYSTEM_EVENT_TYPES = [
   'operator.UserCreated',
@@ -305,6 +309,7 @@ export const SYSTEM_EVENT_TYPES = [
   'ai.ProviderQuotaExceeded',
   'ai.BudgetWarning',
   'ai.BudgetExhausted',
+  ...SECURITY_NOTICE_EVENT_TYPES,
 ];
 
 const ALL_EVENT_TYPES = [
@@ -790,6 +795,21 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'usedTokens',
     'limitTokens',
   ],
+  // Account security notices, to operators and drivers.
+  'security.FactorAdded': [
+    ...SECURITY_NOTICE_VARIABLES,
+    'mfaTurnedOn',
+    'factorPasskey',
+    'factorTotp',
+    'factorSms',
+    'factorEmail',
+  ],
+  'security.FactorRemoved': [...SECURITY_NOTICE_VARIABLES, 'mfaTurnedOff', 'byAdmin'],
+  'security.RecoveryCodesRegenerated': [...SECURITY_NOTICE_VARIABLES],
+  'security.RecoveryCodeUsed': [...SECURITY_NOTICE_VARIABLES, 'remaining'],
+  'security.PhoneChanged': [...SECURITY_NOTICE_VARIABLES, 'byAdmin', 'phoneRemoved'],
+  'security.EmailChanged': [...SECURITY_NOTICE_VARIABLES],
+  'security.ApiKeyCreated': ['firstName', 'lastName', 'email', 'keyName', 'expiresAt'],
 };
 
 // The default email subject is the event's `subject.hbs` in the template
@@ -1827,6 +1847,18 @@ export function notificationRoutes(app: FastifyInstance): void {
         firstName: 'John',
         lastName: 'Doe',
         email: 'john.doe@example.com',
+        isDriver: false,
+        mfaTurnedOn: true,
+        mfaTurnedOff: false,
+        byAdmin: false,
+        factorPasskey: true,
+        factorTotp: false,
+        factorSms: false,
+        factorEmail: false,
+        remaining: '9',
+        phoneRemoved: false,
+        keyName: 'Billing export',
+        expiresAt: new Date(Date.now() + 90 * 86_400_000).toISOString(),
       };
 
       // A disallowed or unparsable template is operator input, not a server error.

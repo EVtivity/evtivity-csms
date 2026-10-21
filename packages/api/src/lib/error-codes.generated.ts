@@ -173,11 +173,15 @@ export const ERROR_CODES = {
   MFA_ALREADY_ENABLED: 'MFA_ALREADY_ENABLED',
   MFA_CHALLENGE_EXHAUSTED: 'MFA_CHALLENGE_EXHAUSTED',
   MFA_CODE_INVALID: 'MFA_CODE_INVALID',
+  MFA_ENROLLMENT_REQUIRED: 'MFA_ENROLLMENT_REQUIRED',
   MFA_LOCKED: 'MFA_LOCKED',
   MFA_METHOD_DISABLED: 'MFA_METHOD_DISABLED',
   MFA_NOT_CONFIGURED: 'MFA_NOT_CONFIGURED',
+  MFA_POLICY_UNAVAILABLE: 'MFA_POLICY_UNAVAILABLE',
   MFA_REQUIRED: 'MFA_REQUIRED',
+  MFA_REQUIRED_BY_POLICY: 'MFA_REQUIRED_BY_POLICY',
   MFA_RESEND_LIMITED: 'MFA_RESEND_LIMITED',
+  MFA_SETUP_UNAVAILABLE: 'MFA_SETUP_UNAVAILABLE',
   MFA_TOKEN_EXPIRED: 'MFA_TOKEN_EXPIRED',
   MFA_TOKEN_INVALID: 'MFA_TOKEN_INVALID',
   MFA_TOTP_NO_RESEND: 'MFA_TOTP_NO_RESEND',
@@ -210,6 +214,8 @@ export const ERROR_CODES = {
   PARTNER_NOT_CONNECTED: 'PARTNER_NOT_CONNECTED',
   PARTNER_NOT_FOUND: 'PARTNER_NOT_FOUND',
   PARTNER_NOT_REGISTERED: 'PARTNER_NOT_REGISTERED',
+  PASSKEY_LIMIT_REACHED: 'PASSKEY_LIMIT_REACHED',
+  PASSKEY_NOT_FOUND: 'PASSKEY_NOT_FOUND',
   PASSWORD_REQUIRED: 'PASSWORD_REQUIRED',
   PAYMENT_CONFIG_NOT_FOUND: 'PAYMENT_CONFIG_NOT_FOUND',
   PAYMENT_FAILED: 'PAYMENT_FAILED',
@@ -351,6 +357,8 @@ export const ERROR_CODES = {
   VERIFICATION_RESEND_LIMITED: 'VERIFICATION_RESEND_LIMITED',
   WEAK_PASSWORD: 'WEAK_PASSWORD',
   WEB_PAYMENTS_NOT_SUPPORTED: 'WEB_PAYMENTS_NOT_SUPPORTED',
+  WEBAUTHN_CHALLENGE_EXPIRED: 'WEBAUTHN_CHALLENGE_EXPIRED',
+  WEBAUTHN_VERIFICATION_FAILED: 'WEBAUTHN_VERIFICATION_FAILED',
   WEBHOOK_NOT_CONFIGURED: 'WEBHOOK_NOT_CONFIGURED',
   WEBHOOK_SIGNATURE_INVALID: 'WEBHOOK_SIGNATURE_INVALID',
   WEBHOOK_SIGNATURE_MISSING: 'WEBHOOK_SIGNATURE_MISSING',
@@ -520,11 +528,15 @@ export type ErrorCode =
   | 'MFA_ALREADY_ENABLED'
   | 'MFA_CHALLENGE_EXHAUSTED'
   | 'MFA_CODE_INVALID'
+  | 'MFA_ENROLLMENT_REQUIRED'
   | 'MFA_LOCKED'
   | 'MFA_METHOD_DISABLED'
   | 'MFA_NOT_CONFIGURED'
+  | 'MFA_POLICY_UNAVAILABLE'
   | 'MFA_REQUIRED'
+  | 'MFA_REQUIRED_BY_POLICY'
   | 'MFA_RESEND_LIMITED'
+  | 'MFA_SETUP_UNAVAILABLE'
   | 'MFA_TOKEN_EXPIRED'
   | 'MFA_TOKEN_INVALID'
   | 'MFA_TOTP_NO_RESEND'
@@ -557,6 +569,8 @@ export type ErrorCode =
   | 'PARTNER_NOT_CONNECTED'
   | 'PARTNER_NOT_FOUND'
   | 'PARTNER_NOT_REGISTERED'
+  | 'PASSKEY_LIMIT_REACHED'
+  | 'PASSKEY_NOT_FOUND'
   | 'PASSWORD_REQUIRED'
   | 'PAYMENT_CONFIG_NOT_FOUND'
   | 'PAYMENT_FAILED'
@@ -698,6 +712,8 @@ export type ErrorCode =
   | 'VERIFICATION_RESEND_LIMITED'
   | 'WEAK_PASSWORD'
   | 'WEB_PAYMENTS_NOT_SUPPORTED'
+  | 'WEBAUTHN_CHALLENGE_EXPIRED'
+  | 'WEBAUTHN_VERIFICATION_FAILED'
   | 'WEBHOOK_NOT_CONFIGURED'
   | 'WEBHOOK_SIGNATURE_INVALID'
   | 'WEBHOOK_SIGNATURE_MISSING';
@@ -893,11 +909,16 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   MFA_ALREADY_ENABLED: 'MFA is already enabled. Disable it first before setting up a new method.',
   MFA_CHALLENGE_EXHAUSTED: 'Too many failed attempts. Request a new code.',
   MFA_CODE_INVALID: 'Invalid verification code',
+  MFA_ENROLLMENT_REQUIRED: 'Set up multi-factor authentication to sign in',
   MFA_LOCKED: 'Too many wrong codes. Wait before you try again.',
   MFA_METHOD_DISABLED: 'MFA method is disabled',
   MFA_NOT_CONFIGURED: 'MFA not configured',
+  MFA_POLICY_UNAVAILABLE: 'The MFA settings could not be checked. Try again in a few minutes',
   MFA_REQUIRED: 'MFA verification required',
+  MFA_REQUIRED_BY_POLICY: 'MFA is required for your role and cannot be turned off',
   MFA_RESEND_LIMITED: 'Too many codes sent. Wait before you request another one.',
+  MFA_SETUP_UNAVAILABLE:
+    'MFA is required to sign in, but no MFA method can be set up. Contact your administrator',
   MFA_TOKEN_EXPIRED: 'Invalid or expired MFA token',
   MFA_TOKEN_INVALID: 'Invalid MFA token',
   MFA_TOTP_NO_RESEND: 'Cannot resend TOTP codes',
@@ -932,6 +953,9 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PARTNER_NOT_CONNECTED: 'Partner must be connected to sync',
   PARTNER_NOT_FOUND: 'Partner not found',
   PARTNER_NOT_REGISTERED: 'A partner becomes connected through the OCPI credentials handshake',
+  PASSKEY_LIMIT_REACHED:
+    'You have registered the maximum number of passkeys and security keys. Remove one first',
+  PASSKEY_NOT_FOUND: 'Passkey or security key not found',
   PASSWORD_REQUIRED: 'Password required when upgrading to SP1 or SP2',
   PAYMENT_CONFIG_NOT_FOUND: 'No payment config for this site',
   PAYMENT_FAILED: 'Payment failed',
@@ -1094,6 +1118,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   VERIFICATION_RESEND_LIMITED: 'Too many verification emails. Wait before you request another one.',
   WEAK_PASSWORD: 'Password does not meet complexity requirements',
   WEB_PAYMENTS_NOT_SUPPORTED: 'The station does not support dynamic QR codes',
+  WEBAUTHN_CHALLENGE_EXPIRED: 'The passkey request expired or was already used. Try again',
+  WEBAUTHN_VERIFICATION_FAILED: 'The passkey or security key could not be verified',
   WEBHOOK_NOT_CONFIGURED: 'Webhook not configured',
   WEBHOOK_SIGNATURE_INVALID: 'Invalid signature',
   WEBHOOK_SIGNATURE_MISSING: 'Missing webhook signature or credentials',

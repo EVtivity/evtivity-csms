@@ -6,7 +6,7 @@ import { hasMfaContact, mfaCodeRecipient, removesSmsMfaPhone } from '../lib/mfa-
 
 const contact = {
   email: 'jane@example.com',
-  phone: '+15550001111',
+  phone: '+12015550111',
   firstName: 'Jane',
   language: 'de',
 };
@@ -14,7 +14,7 @@ const contact = {
 describe('mfaCodeRecipient', () => {
   it('sends an SMS code to the phone only', () => {
     expect(mfaCodeRecipient('sms', contact)).toEqual({
-      phone: '+15550001111',
+      phone: '+12015550111',
       firstName: 'Jane',
       language: 'de',
     });

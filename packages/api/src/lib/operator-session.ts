@@ -21,6 +21,11 @@ export interface OperatorTokenUser {
   id: string;
   roleId: string;
   sessionVersion: number;
+  /**
+   * Unix seconds of the SSO sign-in that issues this session: set by the SSO
+   * callback only, so a renewal drops it (`ssoAt` claim, the SSO proof).
+   */
+  ssoAuthAt?: number;
 }
 
 /**
@@ -34,7 +39,12 @@ export function signOperatorAccessToken(
   expiresInSeconds: number,
 ): string {
   return app.jwt.sign(
-    { userId: user.id, roleId: user.roleId, sv: user.sessionVersion },
+    {
+      userId: user.id,
+      roleId: user.roleId,
+      sv: user.sessionVersion,
+      ...(user.ssoAuthAt != null ? { ssoAt: user.ssoAuthAt } : {}),
+    },
     { expiresIn: expiresInSeconds },
   );
 }

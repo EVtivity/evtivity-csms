@@ -24,7 +24,10 @@ import { SustainabilitySettings } from '@/components/settings/SustainabilitySett
 import { PaymentSettings } from '@/components/settings/PaymentSettings';
 import { IntegrationsSettings } from '@/components/settings/IntegrationsSettings';
 import { SecurityRecaptchaSettings } from '@/components/settings/SecurityRecaptchaSettings';
-import { SecurityMfaSettings } from '@/components/settings/SecurityMfaSettings';
+import {
+  SecurityMfaSettings,
+  type SecuritySettingsResponse,
+} from '@/components/settings/SecurityMfaSettings';
 import { SecuritySsoSettings } from '@/components/settings/SecuritySsoSettings';
 import { SecurityPasswordSessionSettings } from '@/components/settings/SecurityPasswordSessionSettings';
 import { ApiKeysSettings } from '@/components/settings/ApiKeysSettings';
@@ -113,7 +116,7 @@ export function Settings(): React.JSX.Element {
     refetch: refetchSecuritySettings,
   } = useQuery({
     queryKey: ['security-settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/v1/security/settings'),
+    queryFn: () => api.get<SecuritySettingsResponse>('/v1/security/settings'),
     enabled: canReadSecurity,
   });
   const canWriteSecurity = hasPermissionCheck(permissions, 'settings.security:write');

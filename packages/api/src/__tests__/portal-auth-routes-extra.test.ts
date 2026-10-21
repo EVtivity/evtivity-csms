@@ -51,7 +51,42 @@ function makeChain() {
   return chain;
 }
 
+vi.mock('../lib/sign-in-backoff.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/sign-in-backoff.js')>();
+  return {
+    ...actual,
+    clearSignInFailures: vi.fn().mockResolvedValue(undefined),
+    takeSignInAttempt: vi.fn(async (account: unknown, factor: unknown) => ({
+      granted: true,
+      account,
+      factor,
+      failures: 1,
+      lockedUntil: null,
+    })),
+    recordAttemptFailure: vi.fn().mockResolvedValue(null),
+    acceptTotpStep: vi.fn().mockResolvedValue(true),
+  };
+});
+vi.mock('../services/mfa-factor.service.js', () => {
+  const countRecoveryCodes = vi.fn(async (_account: unknown) => 0);
+  return {
+    countRecoveryCodes,
+    // The gates read both counts; tests set the recovery code count.
+    mfaFactorCounts: vi.fn(async (account: unknown) => ({
+      recoveryCodesRemaining: await countRecoveryCodes(account),
+      passkeyCount: 0,
+    })),
+    consumeRecoveryCode: vi.fn(async () => ({ used: false, remaining: 0 })),
+    issueRecoveryCodes: vi.fn(async () => []),
+    deleteRecoveryCodes: vi.fn(async () => undefined),
+    deleteWebauthnCredentials: vi.fn(async () => undefined),
+  };
+});
 vi.mock('@evtivity/database', () => ({
+  readMfaConfig: async () => ({
+    config: await (await import('@evtivity/database')).getMfaConfig(),
+    fallback: false,
+  }),
   getSessionLifetimes: vi.fn(async () => ({
     ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
   })),
@@ -85,6 +120,7 @@ vi.mock('@evtivity/database', () => ({
   drivers: { id: 'drivers.id', passwordHash: 'drivers.password_hash' },
   userTokens: { id: 'user_tokens.id' },
   getRecaptchaConfig: vi.fn().mockResolvedValue(null),
+  getMfaConfig: vi.fn(),
   isPortalRegistrationEnabled: vi.fn().mockResolvedValue(true),
   pgErrorCode: (err: unknown) => (err as { code?: string } | null)?.code,
   PG_UNIQUE_VIOLATION: '23505',
@@ -124,8 +160,12 @@ vi.mock('@evtivity/lib', () => ({
   decryptString: vi.fn().mockReturnValue('decrypted-secret'),
   decryptSettingOrNull: vi.fn().mockReturnValue('decrypted-secret'),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 41, code: '654321' }),
+  createCappedMfaChallenge: vi.fn(async (c: unknown, o: unknown) =>
+    (await import('@evtivity/lib')).createMfaChallenge(c as never, o as never),
+  ),
+  isMfaChallengeLimited: (r: object) => 'limited' in r,
   verifyMfaChallenge: vi.fn().mockResolvedValue('verified'),
-  verifyTotpCode: vi.fn().mockReturnValue(true),
+  matchTotpStep: vi.fn().mockReturnValue(1),
 }));
 
 vi.mock('../services/refresh-token.service.js', () => ({
@@ -136,6 +176,7 @@ vi.mock('../services/refresh-token.service.js', () => ({
   revokeRefreshToken: vi.fn().mockResolvedValue(undefined),
   endDriverSessions: vi.fn().mockResolvedValue(undefined),
   bumpDriverSessionVersion: vi.fn().mockResolvedValue(1),
+  sessionRefreshTokenDriverId: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../lib/device-attestation/index.js', () => ({
@@ -170,19 +211,23 @@ vi.mock('../services/driver-portal-access.service.js', () => ({
 
 import argon2 from 'argon2';
 import { AppError } from '@evtivity/lib';
+import { acceptTotpStep } from '../lib/sign-in-backoff.js';
 import {
   dispatchSystemNotification,
   decryptString,
   createMfaChallenge,
+  createCappedMfaChallenge,
   verifyMfaChallenge,
-  verifyTotpCode,
+  matchTotpStep,
 } from '@evtivity/lib';
 import {
   db,
+  getMfaConfig,
   getRecaptchaConfig,
   isPortalRegistrationEnabled,
   writeAudit,
 } from '@evtivity/database';
+import { consumeRecoveryCode, countRecoveryCodes } from '../services/mfa-factor.service.js';
 import {
   createRefreshToken,
   validateAndRotateRefreshToken,
@@ -206,11 +251,12 @@ const STRONG = 'TestPassword1';
 const MOBILE = { 'x-client': 'mobile', 'x-device-id': 'device-123' };
 
 const driverRow = {
+  sessionVersion: 0,
   id: DRIVER_ID,
   firstName: 'John',
   lastName: 'Doe',
   email: 'john@example.com',
-  phone: '555-1234',
+  phone: '+12015550112',
   language: 'en',
   timezone: 'America/New_York',
   themePreference: 'light',
@@ -268,7 +314,12 @@ describe('Portal auth routes - extra coverage', () => {
   beforeAll(async () => {
     app = await buildApp();
     signedDriverToken = app.signCookie(app.jwt.sign({ driverId: DRIVER_ID, type: 'driver' }));
-    mfaToken = app.jwt.sign({ driverId: DRIVER_ID, type: 'driver', mfaPending: true } as never);
+    mfaToken = app.jwt.sign({
+      driverId: DRIVER_ID,
+      type: 'driver',
+      mfaPending: true,
+      sv: 0,
+    } as never);
   });
 
   afterAll(async () => {
@@ -279,6 +330,18 @@ describe('Portal auth routes - extra coverage', () => {
     vi.clearAllMocks();
     setupDbResults();
     writes.length = 0;
+    vi.mocked(getMfaConfig).mockResolvedValue({
+      emailEnabled: true,
+      totpEnabled: true,
+      smsEnabled: true,
+      required: 'off' as const,
+      requiredRoles: [] as string[],
+      webauthnEnabled: true,
+      passkeyLoginEnabled: false,
+      requireDrivers: false,
+    });
+    vi.mocked(countRecoveryCodes).mockResolvedValue(0);
+    vi.mocked(consumeRecoveryCode).mockResolvedValue({ used: false, remaining: 0 });
   });
 
   describe('POST /portal/auth/attest/challenge', () => {
@@ -427,7 +490,7 @@ describe('Portal auth routes - extra coverage', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/register',
-        payload: { ...body, phone: '555-1234' },
+        payload: { ...body, phone: '+12015550112' },
       });
       expect(res.statusCode).toBe(202);
       expect(res.json()).toEqual({ success: true });
@@ -438,7 +501,7 @@ describe('Portal auth routes - extra coverage', () => {
         firstName: 'John',
         lastName: 'Doe',
         email: 'john@example.com',
-        phone: '555-1234',
+        phone: '+12015550112',
         passwordHash: '$argon2id$hashed_password',
         registrationSource: 'portal',
       });
@@ -465,11 +528,11 @@ describe('Portal auth routes - extra coverage', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/register',
-        payload: { ...body, phone: '555-1234' },
+        payload: { ...body, phone: '+12015550112' },
       });
       expect(res.statusCode).toBe(429);
       expect(res.json().code).toBe('PHONE_REGISTRATION_LIMITED');
-      expect(signupLimits.isPhoneRegistrationLimited).toHaveBeenCalledWith('555-1234');
+      expect(signupLimits.isPhoneRegistrationLimited).toHaveBeenCalledWith('+12015550112');
       expect(valuesWrites()).toEqual([]);
       expect(dispatchSystemNotification).not.toHaveBeenCalled();
     });
@@ -561,10 +624,65 @@ describe('Portal auth routes - extra coverage', () => {
       expect(createMfaChallenge).toHaveBeenCalledWith(expect.anything(), {
         driverId: DRIVER_ID,
         method: 'email',
+        purpose: 'sign_in',
       });
       const call = vi.mocked(dispatchSystemNotification).mock.calls[0];
       expect(call?.[1]).toBe('mfa.VerificationCode');
       expect(call?.[3]).toEqual({ code: '654321' });
+    });
+
+    it('still sends the code of a switched-off email method that is the only factor', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'email' }]);
+      const res = await app.inject({ method: 'POST', url: '/portal/auth/login', payload: body });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ mfaRequired: true, mfaMethod: 'email', challengeId: 41 });
+      expect(createMfaChallenge).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends no code for a switched-off method when the driver has another factor', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: true,
+        totpEnabled: true,
+        smsEnabled: false,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      vi.mocked(countRecoveryCodes).mockResolvedValue(3);
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'sms' }]);
+      const res = await app.inject({ method: 'POST', url: '/portal/auth/login', payload: body });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().mfaRequired).toBe(true);
+      expect(res.json().factors).toEqual(['recovery_code']);
+      expect(res.json().challengeId).toBeUndefined();
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+      expect(dispatchSystemNotification).not.toHaveBeenCalled();
+
+      // The mobile app cannot enter a recovery code: it is told to finish in the portal.
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'sms' }]);
+      const mobile = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/login',
+        headers: MOBILE,
+        payload: body,
+      });
+      expect(mobile.statusCode).toBe(403);
+      expect(mobile.json()).toMatchObject({ code: 'MFA_ENROLLMENT_REQUIRED' });
+      expect(mobile.json().error).toMatch(/driver portal/);
+      expect(mobile.json().refreshToken).toBeUndefined();
+      expect(mobile.json().mfaToken).toBeUndefined();
     });
 
     it('requires TOTP MFA without creating a challenge or sending a code', async () => {
@@ -703,9 +821,10 @@ describe('Portal auth routes - extra coverage', () => {
       expect(cookies.get('portal_token')).toBeTruthy();
     });
 
-    it('returns device-bound tokens in the body for a mobile client', async () => {
+    it('returns device-bound tokens in the body for a mobile client and keeps the mobile claim', async () => {
       vi.mocked(validateAndRotateRefreshToken).mockResolvedValueOnce({
         driverId: DRIVER_ID,
+        client: 'mobile',
       } as never);
       setupDbResults([{ id: DRIVER_ID, isActive: true }]);
       const res = await app.inject({
@@ -718,16 +837,37 @@ describe('Portal auth routes - extra coverage', () => {
       const json = res.json();
       expect(json.refreshToken).toBe('new-refresh-token');
       expect(json.expiresIn).toBe(DEFAULT_SESSION_LIFETIMES.driverAccessMinutes * 60);
-      expect(app.jwt.verify<{ driverId: string }>(json.token).driverId).toBe(DRIVER_ID);
+      const claims = app.jwt.verify<{ driverId: string; client?: string }>(json.token);
+      expect(claims.driverId).toBe(DRIVER_ID);
+      expect(claims.client).toBe('mobile');
       expect(validateAndRotateRefreshToken).toHaveBeenCalledWith('valid', {
         deviceId: 'device-123',
       });
       expect(createRefreshToken).toHaveBeenCalledWith({
         driverId: DRIVER_ID,
         deviceId: 'device-123',
+        client: 'mobile',
         lifetimeDays: DEFAULT_SESSION_LIFETIMES.driverRefreshDays,
       });
       expect(cookieMap(res).size).toBe(0);
+    });
+
+    it('gives no mobile claim to a portal refresh token sent with X-Client: mobile', async () => {
+      vi.mocked(validateAndRotateRefreshToken).mockResolvedValueOnce({
+        driverId: DRIVER_ID,
+        client: null,
+      } as never);
+      setupDbResults([{ id: DRIVER_ID, isActive: true }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/refresh',
+        headers: MOBILE,
+        payload: { refreshToken: 'stolen-from-a-cookie' },
+      });
+      expect(res.statusCode).toBe(200);
+      const claims = app.jwt.verify<{ client?: string }>(res.json().token as string);
+      expect(claims.client).toBeUndefined();
+      expect(createRefreshToken).toHaveBeenCalledWith(expect.objectContaining({ client: null }));
     });
   });
 
@@ -756,6 +896,18 @@ describe('Portal auth routes - extra coverage', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_TOKEN_INVALID');
       expect(db.select).not.toHaveBeenCalled();
+    });
+
+    it('refuses a pending token of an earlier session version (signed out since)', async () => {
+      setupDbResults([{ ...mfaDriver, sessionVersion: 2 }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/verify',
+        payload: { mfaToken, code: '123456', challengeId: 9001 },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('MFA_TOKEN_EXPIRED');
+      expect(cookieMap(res).has('portal_token')).toBe(false);
     });
 
     it('returns 400 MFA_NOT_CONFIGURED when the driver has MFA off', async () => {
@@ -805,6 +957,9 @@ describe('Portal auth routes - extra coverage', () => {
       expect(res.json().driver.totpSecretEnc).toBeUndefined();
       expect(verifyMfaChallenge).toHaveBeenCalledWith(expect.anything(), 9003, '654321', {
         driverId: DRIVER_ID,
+        method: 'email',
+        purpose: 'sign_in',
+        destination: undefined,
       });
       expect(cookieMap(res).get('portal_refresh')).toMatch(/^new-refresh-token\./);
       expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
@@ -818,6 +973,63 @@ describe('Portal auth routes - extra coverage', () => {
         expect.anything(),
         expect.anything(),
       );
+    });
+
+    it('answers 400 VALIDATION_ERROR for a body with both a code and a recovery code', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/verify',
+        payload: { mfaToken, code: '123456', recoveryCode: 'abcde-fghjk' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+    });
+
+    it('signs in with a recovery code while the method is switched off', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      vi.mocked(countRecoveryCodes).mockResolvedValue(4);
+      vi.mocked(consumeRecoveryCode).mockResolvedValue({ used: true, remaining: 3 });
+      setupDbResults([mfaDriver]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/verify',
+        headers: MOBILE,
+        payload: { mfaToken, recoveryCode: 'abcde-fghjk' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ recoveryCodesRemaining: 3 });
+      expect(res.json().token).toEqual(expect.any(String));
+      expect(res.json().mfaEnrollmentRequired).toBeUndefined();
+      expect(consumeRecoveryCode).toHaveBeenCalledWith(
+        { driverId: DRIVER_ID },
+        'abcde-fghjk',
+        expect.objectContaining({
+          actor: expect.objectContaining({ actor: 'driver', actorDriverId: DRIVER_ID }),
+        }),
+      );
+      expect(verifyMfaChallenge).not.toHaveBeenCalled();
+    });
+
+    it('refuses a wrong recovery code without a session', async () => {
+      vi.mocked(countRecoveryCodes).mockResolvedValue(4);
+      setupDbResults([mfaDriver]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/verify',
+        payload: { mfaToken, recoveryCode: 'wrong-codes' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('MFA_CODE_INVALID');
+      expect(res.headers['set-cookie']).toBeUndefined();
     });
 
     it('rejects an email code sent without a challengeId', async () => {
@@ -853,10 +1065,13 @@ describe('Portal auth routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CHALLENGE_EXHAUSTED');
+      vi.mocked(verifyMfaChallenge).mockResolvedValue('verified');
       expect(verifyMfaChallenge).toHaveBeenCalledWith(expect.anything(), 9004, '654321', {
         driverId: mfaDriver.id,
+        method: 'email',
+        purpose: 'sign_in',
+        destination: undefined,
       });
-      vi.mocked(verifyMfaChallenge).mockResolvedValue('verified');
     });
 
     it('returns 400 TOTP_NOT_CONFIGURED when the TOTP secret is missing', async () => {
@@ -868,7 +1083,7 @@ describe('Portal auth routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('TOTP_NOT_CONFIGURED');
-      expect(verifyTotpCode).not.toHaveBeenCalled();
+      expect(matchTotpStep).not.toHaveBeenCalled();
     });
 
     it('returns 400 TOTP_NOT_CONFIGURED when the TOTP secret cannot be decrypted', async () => {
@@ -894,12 +1109,146 @@ describe('Portal auth routes - extra coverage', () => {
         payload: { mfaToken, code: '123456' },
       });
       expect(res.statusCode).toBe(200);
-      expect(verifyTotpCode).toHaveBeenCalledWith('decrypted-secret', '123456');
+      expect(matchTotpStep).toHaveBeenCalledWith('decrypted-secret', '123456');
       expect(res.json().driver.id).toBe(DRIVER_ID);
     });
 
+    it('accepts a switched-off TOTP method that is the only factor and hands out enrollment, not a session', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: true,
+        totpEnabled: false,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'totp', totpSecretEnc: 'enc' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/verify',
+        payload: { mfaToken, code: '123456' },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body).toMatchObject({ mfaEnrollmentRequired: true, webauthnAvailable: true });
+      expect(body.availableMethods).toContain('email');
+      expect(body.availableMethods).not.toContain('totp');
+      expect(body.driver).toBeUndefined();
+      expect(res.headers['set-cookie']).toBeUndefined();
+      const payload = app.jwt.verify<Record<string, unknown>>(body.enrollmentToken as string);
+      expect(payload).toMatchObject({ driverId: DRIVER_ID, type: 'driver', mfaEnrollment: true });
+      // No session yet: the confirm of the new method writes the sign-in.
+      expect(vi.mocked(writeAudit)).not.toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ action: 'login_succeeded' }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('refuses the mobile app with 403 MFA_ENROLLMENT_REQUIRED and the method_disabled message, never a token', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      setupDbResults([mfaDriver]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/verify',
+        headers: MOBILE,
+        payload: { mfaToken, code: '654321', challengeId: 9005 },
+      });
+      expect(res.statusCode).toBe(403);
+      const body = res.json();
+      expect(body.code).toBe('MFA_ENROLLMENT_REQUIRED');
+      expect(body.error).toMatch(/^Your sign-in method was turned off\. Set up another one/);
+      expect(body.enrollmentToken).toBeUndefined();
+      expect(body.refreshToken).toBeUndefined();
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'driver_id' }),
+        expect.objectContaining({ action: 'login_failed', notes: 'mfa_method_disabled' }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('issues the session when no method can be set up instead of locking the driver out', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: false,
+        smsEnabled: false,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'totp', totpSecretEnc: 'enc' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/verify',
+        payload: { mfaToken, code: '123456' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().driver.id).toBe(DRIVER_ID);
+      expect(res.json().mfaEnrollmentRequired).toBeUndefined();
+    });
+
+    it('does not flag enrollment while the method is switched on', async () => {
+      setupDbResults([mfaDriver]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/verify',
+        payload: { mfaToken, code: '654321', challengeId: 9006 },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().mfaEnrollmentRequired).toBeUndefined();
+    });
+
+    it('refuses a switched-off method with 403 MFA_METHOD_DISABLED when another factor exists', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      vi.mocked(countRecoveryCodes).mockResolvedValue(3);
+      setupDbResults([mfaDriver]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/verify',
+        payload: { mfaToken, code: '654321', challengeId: 9007 },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('MFA_METHOD_DISABLED');
+      expect(verifyMfaChallenge).not.toHaveBeenCalled();
+      expect(cookieMap(res).has('portal_token')).toBe(false);
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'driver_id' }),
+        expect.objectContaining({
+          entityId: DRIVER_ID,
+          action: 'login_failed',
+          notes: 'mfa_method_disabled',
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
     it('rejects a wrong TOTP code', async () => {
-      vi.mocked(verifyTotpCode).mockReturnValueOnce(false);
+      vi.mocked(matchTotpStep).mockReturnValueOnce(null);
       setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'totp', totpSecretEnc: 'enc' }]);
       const res = await app.inject({
         method: 'POST',
@@ -909,9 +1258,47 @@ describe('Portal auth routes - extra coverage', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CODE_INVALID');
     });
+
+    it('refuses a replayed TOTP code and issues no session', async () => {
+      vi.mocked(acceptTotpStep).mockResolvedValueOnce(false);
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'totp', totpSecretEnc: 'enc' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/verify',
+        payload: { mfaToken, code: '123456' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('MFA_CODE_INVALID');
+      expect(acceptTotpStep).toHaveBeenCalledWith({ driverId: DRIVER_ID }, 1);
+      expect(cookieMap(res).has('portal_token')).toBe(false);
+    });
   });
 
   describe('POST /portal/auth/mfa/resend', () => {
+    it('answers 429 MFA_RESEND_LIMITED and sends nothing beyond the code cap', async () => {
+      vi.mocked(createCappedMfaChallenge).mockResolvedValueOnce({
+        limited: true,
+        retryAfterSeconds: 120,
+        openChallengeId: null,
+      });
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'sms' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/resend',
+        payload: { mfaToken },
+      });
+      expect(res.statusCode).toBe(429);
+      expect(res.json()).toMatchObject({ code: 'MFA_RESEND_LIMITED', retryAfterSeconds: 120 });
+      expect(res.headers['retry-after']).toBe('120');
+      expect(createCappedMfaChallenge).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ driverId: DRIVER_ID }),
+        expect.anything(),
+      );
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+      expect(dispatchSystemNotification).not.toHaveBeenCalled();
+    });
+
     it('returns 401 MFA_TOKEN_EXPIRED for an unverifiable token', async () => {
       const res = await app.inject({
         method: 'POST',
@@ -964,14 +1351,17 @@ describe('Portal auth routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ challengeId: 41 });
+      // A sign-in code is bound to the driver's confirmed number.
       expect(createMfaChallenge).toHaveBeenCalledWith(expect.anything(), {
         driverId: DRIVER_ID,
         method: 'sms',
+        purpose: 'sign_in',
+        destination: '+12015550112',
       });
       const call = vi.mocked(dispatchSystemNotification).mock.calls[0];
       expect(call?.[1]).toBe('mfa.VerificationCode');
       // The SMS method sends the code by SMS only, never to the email address.
-      expect(call?.[2]).toEqual({ phone: '555-1234', firstName: 'John', language: 'en' });
+      expect(call?.[2]).toEqual({ phone: '+12015550112', firstName: 'John', language: 'en' });
       expect(call?.[3]).toEqual({ code: '654321' });
     });
 
@@ -985,6 +1375,50 @@ describe('Portal auth routes - extra coverage', () => {
       expect(res.statusCode).toBe(200);
       const call = vi.mocked(dispatchSystemNotification).mock.calls[0];
       expect(call?.[2]).toEqual({ email: 'john@example.com', firstName: 'John', language: 'en' });
+    });
+
+    it('refuses to resend for a switched-off email method when another factor exists', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: false,
+        totpEnabled: true,
+        smsEnabled: true,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      vi.mocked(countRecoveryCodes).mockResolvedValue(3);
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'email' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/resend',
+        payload: { mfaToken },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('MFA_METHOD_DISABLED');
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+    });
+
+    it('still resends for a switched-off SMS method that is the only factor', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: true,
+        totpEnabled: true,
+        smsEnabled: false,
+        required: 'off' as const,
+        requiredRoles: [] as string[],
+        webauthnEnabled: true,
+        passkeyLoginEnabled: false,
+        requireDrivers: false,
+      });
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'sms' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/resend',
+        payload: { mfaToken },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ challengeId: 41 });
     });
 
     it('returns 403 ACCOUNT_DISABLED and sends no code to a deactivated driver', async () => {

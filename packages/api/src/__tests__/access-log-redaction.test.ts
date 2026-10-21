@@ -66,6 +66,45 @@ describe('redactAccessLogBody', () => {
     });
   });
 
+  it('redacts MFA recovery codes in the verify body and any list of codes', () => {
+    const out = redactAccessLogBody('/v1/auth/mfa/verify', {
+      mfaToken: 'jwt',
+      recoveryCode: 'abcde-fghjk',
+      nested: { recoveryCodes: ['abcde-fghjk', 'mnpqr-stuvw'] },
+    });
+    expect(out).toEqual({
+      mfaToken: REDACTED,
+      recoveryCode: REDACTED,
+      nested: { recoveryCodes: REDACTED },
+    });
+  });
+
+  it('redacts WebAuthn registration and assertion bodies', () => {
+    expect(
+      redactAccessLogBody('/v1/auth/webauthn/verify', {
+        mfaToken: 'jwt',
+        credential: { id: 'cred', response: { signature: 'sig' } },
+      }),
+    ).toEqual({ mfaToken: REDACTED, credential: REDACTED });
+    expect(
+      redactAccessLogBody('/v1/other', {
+        response: {
+          clientDataJSON: 'a',
+          attestationObject: 'b',
+          authenticatorData: 'c',
+          userHandle: 'd',
+        },
+      }),
+    ).toEqual({
+      response: {
+        clientDataJSON: REDACTED,
+        attestationObject: REDACTED,
+        authenticatorData: REDACTED,
+        userHandle: REDACTED,
+      },
+    });
+  });
+
   it('keeps OCPP idToken identifiers and token metadata', () => {
     expect(
       redactAccessLogBody('/v1/tokens', {

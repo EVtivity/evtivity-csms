@@ -480,7 +480,7 @@ describe('Notification routes: validation, test sends, templates', () => {
     const twilioSettings = [
       { key: 'twilio.accountSid', value: 'AC123' },
       { key: 'twilio.authTokenEnc', value: 'cipher' },
-      { key: 'twilio.fromNumber', value: '+15550001111' },
+      { key: 'twilio.fromNumber', value: '+12015550111' },
     ];
 
     it('posts the SMS to Twilio with basic auth from the decrypted token', async () => {
@@ -500,7 +500,7 @@ describe('Notification routes: validation, test sends, templates', () => {
       );
       const params = new URLSearchParams(init.body);
       expect(params.get('To')).toBe('+1 555 123 4567');
-      expect(params.get('From')).toBe('+15550001111');
+      expect(params.get('From')).toBe('+12015550111');
     });
 
     it('returns 500 SMS_SEND_FAILED with the Twilio response text', async () => {
@@ -514,7 +514,7 @@ describe('Notification routes: validation, test sends, templates', () => {
       setupDbResults(twilioSettings);
       const res = await req('POST', '/notifications/test', {
         channel: 'sms',
-        recipient: '+15551234567',
+        recipient: '+12015550134',
       });
       expect(res.statusCode).toBe(500);
       expect(res.json()).toEqual({ error: 'invalid To', code: 'SMS_SEND_FAILED' });
@@ -525,7 +525,7 @@ describe('Notification routes: validation, test sends, templates', () => {
       setupDbResults([{ key: 'twilio.accountSid', value: 'AC1' }]);
       const res = await req('POST', '/notifications/test', {
         channel: 'sms',
-        recipient: '+15551234567',
+        recipient: '+12015550134',
       });
       expect(res.json()).toEqual({ error: 'timeout', code: 'SMS_SEND_FAILED' });
     });
@@ -535,7 +535,7 @@ describe('Notification routes: validation, test sends, templates', () => {
       setupDbResults([{ key: 'twilio.accountSid', value: 'AC1' }]);
       const res = await req('POST', '/notifications/test', {
         channel: 'sms',
-        recipient: '+15551234567',
+        recipient: '+12015550134',
       });
       expect(res.json()).toEqual({ error: 'Unknown error', code: 'SMS_SEND_FAILED' });
     });

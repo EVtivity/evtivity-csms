@@ -33,4 +33,10 @@ describe('OCPI health endpoint', () => {
     const res = await app.inject({ method: 'GET', url: '/ocpi/versions' });
     expect(res.statusCode).toBe(503);
   });
+
+  it('refuses an encoded path that the roaming switch would read as another path', async () => {
+    const res = await app.inject({ method: 'GET', url: '/%6Fcpi/versions' });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ status_code: 2000 });
+  });
 });

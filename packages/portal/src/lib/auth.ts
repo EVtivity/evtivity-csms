@@ -6,9 +6,16 @@ import { api, ApiError } from './api';
 import { queryClient } from './query';
 import { loadLanguage } from '../i18n/index';
 import { applyTheme, type Theme } from './theme';
+import { mfaPendingFromReply, type MfaPendingReply, type MfaPendingState } from './mfa-pending';
+import {
+  isMfaEnrollmentReply,
+  mfaEnrollmentFromReply,
+  type MfaEnrollmentReply,
+  type MfaEnrollmentState,
+} from './mfa-enrollment';
 import type { PriceDisplay } from '@evtivity/lib/price-display';
 
-interface Driver {
+export interface Driver {
   id: string;
   firstName: string;
   lastName: string;
@@ -28,20 +35,6 @@ interface LoginResponse {
   driver: Driver;
 }
 
-interface MfaPendingResponse {
-  mfaRequired: true;
-  mfaMethod: string;
-  mfaToken: string;
-  challengeId?: string;
-}
-
-interface MfaPendingState {
-  mfaRequired: true;
-  mfaMethod: string;
-  mfaToken: string;
-  challengeId?: string;
-}
-
 interface AuthState {
   driver: Driver | null;
   isAuthenticated: boolean;
@@ -49,6 +42,8 @@ interface AuthState {
   apiDown: boolean;
   theme: Theme;
   mfaPending: MfaPendingState | null;
+  /** Required MFA: the setup the sign-in asks for before it issues a session. Memory only. */
+  mfaEnrollment: MfaEnrollmentState | null;
   login: (email: string, password: string, recaptchaToken?: string) => Promise<void>;
   register: (data: {
     firstName: string;
@@ -60,6 +55,8 @@ interface AuthState {
   }) => Promise<void>;
   completeMfaLogin: (driver: Driver) => Promise<void>;
   clearMfaPending: () => void;
+  setMfaEnrollment: (state: MfaEnrollmentState) => void;
+  clearMfaEnrollment: () => void;
   logout: () => Promise<void>;
   hydrate: () => void;
   retryConnection: () => void;
@@ -80,21 +77,22 @@ export const useAuth = create<AuthState>((set, get) => ({
   apiDown: false,
   theme: localStorage.getItem('portal_theme') === 'dark' ? 'dark' : 'light',
   mfaPending: null,
+  mfaEnrollment: null,
 
   login: async (email: string, password: string, recaptchaToken?: string) => {
     const body: Record<string, string> = { email, password };
     if (recaptchaToken != null) body['recaptchaToken'] = recaptchaToken;
-    const data = await api.post<LoginResponse | MfaPendingResponse>('/v1/portal/auth/login', body);
+    const data = await api.post<LoginResponse | MfaPendingReply | MfaEnrollmentReply>(
+      '/v1/portal/auth/login',
+      body,
+    );
 
+    if (isMfaEnrollmentReply(data)) {
+      set({ mfaEnrollment: mfaEnrollmentFromReply(data), mfaPending: null });
+      return;
+    }
     if ('mfaRequired' in data) {
-      set({
-        mfaPending: {
-          mfaRequired: true,
-          mfaMethod: data.mfaMethod,
-          mfaToken: data.mfaToken,
-          ...(data.challengeId != null ? { challengeId: data.challengeId } : {}),
-        },
-      });
+      set({ mfaPending: mfaPendingFromReply(data) });
       return;
     }
 
@@ -132,12 +130,21 @@ export const useAuth = create<AuthState>((set, get) => ({
       theme: driver.themePreference,
       isAuthenticated: true,
       mfaPending: null,
+      mfaEnrollment: null,
     });
     api.post('/v1/portal/access-logs', { action: 'login' }).catch(() => {});
   },
 
   clearMfaPending: () => {
     set({ mfaPending: null });
+  },
+
+  setMfaEnrollment: (state: MfaEnrollmentState) => {
+    set({ mfaEnrollment: state, mfaPending: null });
+  },
+
+  clearMfaEnrollment: () => {
+    set({ mfaEnrollment: null });
   },
 
   logout: async () => {

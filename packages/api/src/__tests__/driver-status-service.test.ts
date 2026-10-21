@@ -37,9 +37,13 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn((col: unknown) => ({ isNull: col })),
 }));
 
-const { bulkSetActiveMock, endSessionsMock } = vi.hoisted(() => ({
+const { bulkSetActiveMock, endSessionsMock, deleteCredentialsMock } = vi.hoisted(() => ({
   bulkSetActiveMock: vi.fn(),
   endSessionsMock: vi.fn(),
+  deleteCredentialsMock: vi.fn(),
+}));
+vi.mock('../services/mfa-factor.service.js', () => ({
+  deleteWebauthnCredentials: deleteCredentialsMock,
 }));
 vi.mock('../services/token.service.js', () => ({ bulkSetActive: bulkSetActiveMock }));
 // endDriverSessions raises the session version, revokes the refresh tokens
@@ -65,6 +69,25 @@ const operator: AuditActorInfo = {
   actorLabel: null,
 };
 const log = { warn: vi.fn() };
+
+describe('driver-status.service passkeys', () => {
+  it('removes the passkeys of a deactivated driver, and goes on when that fails', async () => {
+    dbResults = [];
+    dbCallIndex = 0;
+    deleteCredentialsMock.mockResolvedValueOnce(undefined);
+    await applyDriverDeactivation(DRIVER_ID, { actor: operator, log });
+    expect(deleteCredentialsMock).toHaveBeenCalledWith({ driverId: DRIVER_ID });
+
+    deleteCredentialsMock.mockRejectedValueOnce(new Error('db down'));
+    await expect(applyDriverDeactivation(DRIVER_ID, { actor: operator, log })).resolves.toEqual({
+      tokensDeactivated: 0,
+    });
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ driverId: DRIVER_ID }),
+      'Removing the passkeys of a deactivated driver failed',
+    );
+  });
+});
 
 describe('driver-status.service', () => {
   beforeEach(() => {

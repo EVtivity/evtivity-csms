@@ -405,6 +405,8 @@ export {
   getCompanyPriceDisplay,
   getCompanyTaxBasis,
   getCompanyCountry,
+  getCompanyName,
+  DEFAULT_COMPANY_NAME,
   getInvoicePaymentSettings,
   readInvoicePaymentSettings,
   clearSystemSettingsCache,
@@ -413,11 +415,12 @@ export type { InvoicePaymentSettings } from './lib/system-settings.js';
 export {
   getRecaptchaConfig,
   getMfaConfig,
+  readMfaConfig,
   getPasswordPolicy,
   getSessionLifetimes,
   clearSecuritySettingsCache,
 } from './lib/security-settings.js';
-export type { RecaptchaConfig, MfaConfig } from './lib/security-settings.js';
+export type { RecaptchaConfig, MfaConfig, MfaConfigReading } from './lib/security-settings.js';
 export { isSplitBillingEnabled, clearPricingSettingsCache } from './lib/pricing-settings.js';
 export {
   buildStationOcppTariff,

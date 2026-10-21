@@ -8,10 +8,42 @@ import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Toggle } from '@/components/ui/toggle';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
+import type { MfaRequiredMode } from '@evtivity/lib/mfa-config';
+
+/** The MFA settings in effect: the `mfa` field of GET /v1/security/settings. */
+export interface SecurityMfaSwitches {
+  emailEnabled: boolean;
+  totpEnabled: boolean;
+  smsEnabled: boolean;
+  required?: MfaRequiredMode;
+  requiredRoles?: string[];
+  /** Passkeys and security keys as a second factor (default on). */
+  webauthnEnabled?: boolean;
+  /** Passwordless sign-in with a passkey (default off; needs webauthnEnabled). */
+  passkeyLoginEnabled?: boolean;
+  /** Every driver must have MFA at portal sign-in (default off). */
+  requireDrivers?: boolean;
+}
+
+const REQUIRED_LABELS: Record<MfaRequiredMode, string> = {
+  off: 'settings.mfaRequiredOff',
+  all: 'settings.mfaRequiredAll',
+  roles: 'settings.mfaRequiredRoles',
+};
+
+/** GET /v1/security/settings: the stored security.* keys plus the parsed values in effect. */
+export interface SecuritySettingsResponse extends Record<string, unknown> {
+  mfa?: SecurityMfaSwitches;
+  /** Every role name, the choices of the required roles list. */
+  roleNames?: string[];
+}
 
 interface Props {
-  settings: Record<string, unknown> | undefined;
+  settings: SecuritySettingsResponse | undefined;
 }
 
 function ToggleRow({
@@ -59,6 +91,12 @@ export function SecurityMfaSettings({ settings }: Props): React.JSX.Element {
   const [emailEnabled, setEmailEnabled] = useState(false);
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [smsEnabled, setSmsEnabled] = useState(false);
+  const [required, setRequired] = useState<MfaRequiredMode>('off');
+  const [requiredRoles, setRequiredRoles] = useState<string[]>([]);
+  const [webauthnEnabled, setWebauthnEnabled] = useState(true);
+  const [passkeyLoginEnabled, setPasskeyLoginEnabled] = useState(false);
+  const [requireDrivers, setRequireDrivers] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
   // Check if SMTP and Twilio are configured
   const { data: allSettings } = useQuery({
@@ -78,21 +116,68 @@ export function SecurityMfaSettings({ settings }: Props): React.JSX.Element {
 
   useEffect(() => {
     if (settings == null) return;
-    setEmailEnabled(settings['security.mfa.emailEnabled'] === true);
-    setTotpEnabled(settings['security.mfa.totpEnabled'] === true);
-    setSmsEnabled(settings['security.mfa.smsEnabled'] === true);
+    // The server sends the switches in effect, defaults for unset keys included.
+    const { mfa } = settings;
+    setEmailEnabled(mfa?.emailEnabled === true);
+    setTotpEnabled(mfa?.totpEnabled === true);
+    setSmsEnabled(mfa?.smsEnabled === true);
+    setRequired(mfa?.required ?? 'off');
+    setRequiredRoles(mfa?.requiredRoles ?? []);
+    setWebauthnEnabled(mfa?.webauthnEnabled !== false);
+    setPasskeyLoginEnabled(mfa?.passkeyLoginEnabled === true);
+    setRequireDrivers(mfa?.requireDrivers === true);
   }, [settings]);
 
   const mutation = useMutation({
-    mutationFn: (vals: { emailEnabled: boolean; totpEnabled: boolean; smsEnabled: boolean }) =>
-      api.put<{ success: boolean }>('/v1/security/mfa', vals),
+    mutationFn: (vals: {
+      emailEnabled: boolean;
+      totpEnabled: boolean;
+      smsEnabled: boolean;
+      required: MfaRequiredMode;
+      requiredRoles?: string[];
+      webauthnEnabled: boolean;
+      passkeyLoginEnabled: boolean;
+      requireDrivers: boolean;
+    }) => api.put<{ success: boolean }>('/v1/security/mfa', vals),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['security-settings'] });
+      // The sign-in page reads the passkey sign-in switch from the public settings.
+      void queryClient.invalidateQueries({ queryKey: ['security-public'] });
     },
   });
 
+  const validationErrors: Record<string, string> = {};
+  if (required === 'roles' && requiredRoles.length === 0) {
+    validationErrors['requiredRoles'] = t('settings.mfaRequiredRolesEmpty');
+  }
+  if (required !== 'off' && !emailEnabled && !totpEnabled) {
+    validationErrors['required'] = t('settings.mfaRequiredNoMethod');
+  }
+  if (requireDrivers && !emailEnabled && !totpEnabled) {
+    validationErrors['requireDrivers'] = t('settings.mfaRequiredNoMethod');
+  }
+
   function handleSave(): void {
-    mutation.mutate({ emailEnabled, totpEnabled, smsEnabled });
+    setHasSubmitted(true);
+    if (Object.keys(validationErrors).length > 0) return;
+    mutation.mutate({
+      emailEnabled,
+      totpEnabled,
+      smsEnabled,
+      required,
+      // Only the roles mode sends the list, so switching modes keeps the stored roles.
+      ...(required === 'roles' ? { requiredRoles } : {}),
+      webauthnEnabled,
+      // Passkey sign-in needs passkeys, so it is saved off while they are off.
+      passkeyLoginEnabled: webauthnEnabled && passkeyLoginEnabled,
+      requireDrivers,
+    });
+  }
+
+  function toggleRole(name: string, checked: boolean): void {
+    setRequiredRoles((prev) =>
+      checked ? [...prev.filter((r) => r !== name), name] : prev.filter((r) => r !== name),
+    );
   }
 
   return (
@@ -133,11 +218,89 @@ export function SecurityMfaSettings({ settings }: Props): React.JSX.Element {
             onChange={setSmsEnabled}
           />
 
+          <ToggleRow
+            label={t('settings.mfaWebauthn')}
+            description={t('settings.mfaWebauthnDescription')}
+            checked={webauthnEnabled}
+            onChange={setWebauthnEnabled}
+          />
+
+          <ToggleRow
+            label={t('settings.mfaPasskeyLogin')}
+            description={
+              webauthnEnabled
+                ? t('settings.mfaPasskeyLoginDescription')
+                : t('settings.mfaPasskeyLoginDisabledHint')
+            }
+            checked={webauthnEnabled && passkeyLoginEnabled}
+            disabled={!webauthnEnabled}
+            onChange={setPasskeyLoginEnabled}
+          />
+
+          <div className="space-y-2 rounded-lg border p-4">
+            <Label htmlFor="mfa-required-select" className="leading-6">
+              {t('settings.mfaRequired')}
+            </Label>
+            <p className="text-xs text-muted-foreground">{t('settings.mfaRequiredDescription')}</p>
+            <Select
+              id="mfa-required-select"
+              value={required}
+              onChange={(e) => {
+                setRequired(e.target.value as MfaRequiredMode);
+              }}
+              className={hasSubmitted && validationErrors['required'] ? 'border-destructive' : ''}
+            >
+              {(Object.keys(REQUIRED_LABELS) as MfaRequiredMode[]).map((mode) => (
+                <option key={mode} value={mode}>
+                  {t(REQUIRED_LABELS[mode] as never)}
+                </option>
+              ))}
+            </Select>
+            {hasSubmitted && validationErrors['required'] != null && (
+              <p className="text-sm text-destructive">{validationErrors['required']}</p>
+            )}
+            {required === 'roles' && (
+              <fieldset className="space-y-2 pt-2">
+                <legend className="text-sm font-medium leading-6">
+                  {t('settings.mfaRequiredRolesLabel')}
+                </legend>
+                {(settings?.roleNames ?? []).map((name) => (
+                  <label key={name} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={requiredRoles.includes(name)}
+                      onChange={(e) => {
+                        toggleRole(name, e.target.checked);
+                      }}
+                    />
+                    <span className="capitalize">{name}</span>
+                  </label>
+                ))}
+                {hasSubmitted && validationErrors['requiredRoles'] != null && (
+                  <p className="text-sm text-destructive">{validationErrors['requiredRoles']}</p>
+                )}
+              </fieldset>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <ToggleRow
+              label={t('settings.mfaRequireDrivers')}
+              description={t('settings.mfaRequireDriversDescription')}
+              checked={requireDrivers}
+              onChange={setRequireDrivers}
+            />
+            {hasSubmitted && validationErrors['requireDrivers'] != null && (
+              <p className="text-sm text-destructive">{validationErrors['requireDrivers']}</p>
+            )}
+          </div>
+
           <SaveButton isPending={mutation.isPending} />
 
           {mutation.isSuccess && <p className="text-sm text-green-600">{t('settings.mfaSaved')}</p>}
           {mutation.isError && (
-            <p className="text-sm text-destructive">{t('settings.mfaSaveFailed')}</p>
+            <p className="text-sm text-destructive">
+              {getErrorMessage(mutation.error, t, 'settings.mfaSaveFailed')}
+            </p>
           )}
         </form>
       </CardContent>

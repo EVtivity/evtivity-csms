@@ -17,6 +17,9 @@
     "./currency": {
       "import": "./src/currency.ts"
     },
+    "./phone": {
+      "import": "./src/phone.ts"
+    },
     "./load-allocation": {
       "import": "./src/load-allocation.ts"
     },
@@ -67,6 +70,9 @@
     },
     "./ocpp-command-schema": {
       "import": "./src/ocpp-command-schema.ts"
+    },
+    "./mfa-config": {
+      "import": "./src/mfa-config.ts"
     },
     "./password-policy": {
       "import": "./src/password-policy.ts"
@@ -149,6 +155,7 @@
     "handlebars": "^4.7.10",
     "html-to-text": "^10.0.1",
     "ioredis": "^5.9.3",
+    "libphonenumber-js": "^1.13.15",
     "nanoid": "^6.0.1",
     "nodemailer": "^10.0.11",
     "otpauth": "^9.5.0",

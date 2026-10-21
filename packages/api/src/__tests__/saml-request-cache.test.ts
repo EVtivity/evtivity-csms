@@ -8,12 +8,14 @@ vi.mock('@evtivity/lib', () => ({ createRedisClient: vi.fn() }));
 
 import {
   RedisSamlRequestCache,
+  SAML_BINDING_KEY_PREFIX,
   SAML_REQUEST_KEY_PREFIX,
   SAML_REQUEST_TTL_MS,
+  samlBindingHash,
   ssoEmailDomainAllowed,
 } from '../lib/saml-request-cache.js';
 
-/** A Redis stand-in with the three commands the cache uses. */
+/** A Redis stand-in with the commands the cache uses. */
 function fakeRedis() {
   const store = new Map<string, string>();
   const set = vi.fn((key: string, value: string) => {
@@ -22,8 +24,13 @@ function fakeRedis() {
   });
   const get = vi.fn((key: string) => Promise.resolve(store.get(key) ?? null));
   const del = vi.fn((key: string) => Promise.resolve(store.delete(key) ? 1 : 0));
-  const redis = { set, get, del } as unknown as Redis;
-  return { store, set, get, del, client: () => redis };
+  const getdel = vi.fn((key: string) => {
+    const value = store.get(key) ?? null;
+    store.delete(key);
+    return Promise.resolve(value);
+  });
+  const redis = { set, get, del, getdel } as unknown as Redis;
+  return { store, set, get, del, getdel, client: () => redis };
 }
 
 describe('RedisSamlRequestCache', () => {
@@ -82,6 +89,56 @@ describe('RedisSamlRequestCache', () => {
 
   it('consumes nothing when no id was read', async () => {
     expect(await new RedisSamlRequestCache(redis.client).consumeRead()).toBe(false);
+  });
+});
+
+describe('SAML browser binding (security review L1)', () => {
+  let redis: ReturnType<typeof fakeRedis>;
+
+  beforeEach(() => {
+    redis = fakeRedis();
+  });
+
+  it('stores the binding hash beside the request id, never the cookie value', async () => {
+    const login = new RedisSamlRequestCache(redis.client, samlBindingHash('cookie-value'));
+    await login.saveAsync('_req1', 'instant');
+    expect(redis.store.get(`${SAML_BINDING_KEY_PREFIX}_req1`)).toBe(
+      samlBindingHash('cookie-value'),
+    );
+    expect([...redis.store.values()]).not.toContain('cookie-value');
+  });
+
+  it('matches only the cookie of the browser that started the request, once', async () => {
+    await new RedisSamlRequestCache(redis.client, samlBindingHash('victim')).saveAsync(
+      '_req1',
+      'i',
+    );
+    const attacker = new RedisSamlRequestCache(redis.client);
+    await attacker.getAsync('_req1');
+    expect(await attacker.bindingMatches('attacker')).toBe(false);
+    // The binding was read once: even the right cookie cannot use it again.
+    const replay = new RedisSamlRequestCache(redis.client);
+    await replay.getAsync('_req1');
+    expect(await replay.bindingMatches('victim')).toBe(false);
+
+    await new RedisSamlRequestCache(redis.client, samlBindingHash('victim')).saveAsync(
+      '_req2',
+      'i',
+    );
+    const callback = new RedisSamlRequestCache(redis.client);
+    await callback.getAsync('_req2');
+    expect(await callback.bindingMatches('victim')).toBe(true);
+  });
+
+  it('refuses a request saved without a binding and a missing cookie', async () => {
+    await new RedisSamlRequestCache(redis.client).saveAsync('_req1', 'i');
+    const callback = new RedisSamlRequestCache(redis.client);
+    await callback.getAsync('_req1');
+    expect(await callback.bindingMatches('anything')).toBe(false);
+    await new RedisSamlRequestCache(redis.client, samlBindingHash('v')).saveAsync('_req2', 'i');
+    const noCookie = new RedisSamlRequestCache(redis.client);
+    await noCookie.getAsync('_req2');
+    expect(await noCookie.bindingMatches(null)).toBe(false);
   });
 });
 

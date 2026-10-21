@@ -5,7 +5,16 @@ import type { FastifyRequest } from 'fastify';
 import { db, writeAudit, userAuditLog, driverAuditLog } from '@evtivity/database';
 
 /** How the account proved its identity. */
-export type AuthMethod = 'password' | 'mfa' | 'sso' | 'reset_token' | 'verification_token';
+export type AuthMethod =
+  | 'password'
+  | 'mfa'
+  | 'recovery_code'
+  | 'webauthn'
+  | 'passkey'
+  | 'mfa_enrollment'
+  | 'sso'
+  | 'reset_token'
+  | 'verification_token';
 
 export type AuthAuditAction =
   | 'login_succeeded'
@@ -15,8 +24,11 @@ export type AuthAuditAction =
 
 export interface AuthAuditArgs {
   kind: 'user' | 'driver';
-  /** The account the request names. A login for an unknown email writes no row. */
-  accountId: string;
+  /**
+   * The account the request names. A login for an unknown email writes no row; null
+   * records a failure that names no account (an unknown passkey) with no account id.
+   */
+  accountId: string | null;
   action: AuthAuditAction;
   method: AuthMethod;
   /** Why a login failed (bad_password, inactive, mfa_code_invalid, ...). */
@@ -24,6 +36,9 @@ export interface AuthAuditArgs {
 }
 
 const USER_AGENT_MAX = 255;
+
+/** The account id snapshot of a failure that names no account. */
+const UNKNOWN_ACCOUNT = 'unknown';
 
 /**
  * The request origin recorded on an auth row: the client IP and user agent,
@@ -49,11 +64,13 @@ export function authRequestOrigin(request: FastifyRequest): {
  */
 export async function recordAuthAudit(request: FastifyRequest, args: AuthAuditArgs): Promise<void> {
   const failed = args.action === 'login_failed';
-  const actor = failed
-    ? ({ actor: 'system', actorLabel: 'login' } as const)
-    : args.kind === 'user'
-      ? ({ actor: 'operator', actorUserId: args.accountId } as const)
-      : ({ actor: 'driver', actorDriverId: args.accountId } as const);
+  if (!failed && args.accountId == null) return;
+  const actor =
+    failed || args.accountId == null
+      ? ({ actor: 'system', actorLabel: 'login' } as const)
+      : args.kind === 'user'
+        ? ({ actor: 'operator', actorUserId: args.accountId } as const)
+        : ({ actor: 'driver', actorDriverId: args.accountId } as const);
   const config =
     args.kind === 'user'
       ? { table: userAuditLog, idColumn: 'user_id' }
@@ -62,7 +79,7 @@ export async function recordAuthAudit(request: FastifyRequest, args: AuthAuditAr
     config,
     {
       entityId: args.accountId,
-      entityIdSnapshot: args.accountId,
+      entityIdSnapshot: args.accountId ?? UNKNOWN_ACCOUNT,
       action: args.action,
       ...actor,
       after: { method: args.method, ...authRequestOrigin(request) },

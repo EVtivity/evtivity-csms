@@ -1,7 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import crypto from 'node:crypto';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import {
   db,
@@ -18,14 +20,103 @@ import { errorWith } from '../lib/response-schemas.js';
 import { emailEquals } from '../lib/email-match.js';
 import { recordAuthAudit } from '../lib/auth-audit.js';
 import { beginOperatorMfa, type OperatorMfaPending } from '../lib/operator-mfa.js';
+import {
+  isMfaPolicyUnavailable,
+  isMfaSetupUnavailable,
+  type OperatorMfaEnrollment,
+  type MfaPolicyUnavailable,
+  type MfaSetupUnavailable,
+} from '../lib/mfa-enrollment.js';
 import { issueOperatorSession } from '../lib/operator-session.js';
+import { isSecureRequest } from '../lib/auth-cookies.js';
 import {
   RedisSamlRequestCache,
+  SAML_REQUEST_TTL_MS,
   buildSaml,
+  samlBindingHash,
   ssoEmailDomainAllowed,
 } from '../lib/saml-request-cache.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { zodSchema } from '../lib/zod-schema.js';
+
+const ssoLoginQuery = z.object({
+  state: z
+    .string()
+    .max(128)
+    .optional()
+    .describe(
+      'A random value (16 to 64 letters, digits, - or _) the CSMS keeps for this browser tab; it comes back in the URL fragment of an SSO sign-in that needs MFA, and the login page ignores a fragment without it',
+    ),
+});
+
+/**
+ * The value the CSMS keeps in sessionStorage before it starts SSO and sends as
+ * `state`: the IdP returns it as RelayState, and the callback puts it in the
+ * fragment it hands the login page, which ignores a fragment without its own
+ * value (a fragment planted by a link of someone else's sign-in).
+ */
+export const SSO_STATE_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
+
+/** The state of a login request or a callback body, when it has the expected form. */
+export function ssoState(value: unknown): string | null {
+  return typeof value === 'string' && SSO_STATE_PATTERN.test(value) ? value : null;
+}
+
+/**
+ * The cookie that binds an SSO sign-in to the browser that started it: the login
+ * sets a random value, stores its hash with the SAML request id, and the
+ * callback issues nothing unless the reply's request id has this browser's
+ * value. A SAML reply of someone else's sign-in posted from another page
+ * (login CSRF) finds no matching cookie.
+ */
+export const SSO_BINDING_COOKIE = 'csms_sso_binding';
+/**
+ * The same cookie bound to the API host: a sibling subdomain cannot set or
+ * overwrite a `__Host-` cookie. Browsers accept the prefix only with Secure,
+ * Path=/ and no Domain, so it is used over HTTPS without COOKIE_DOMAIN.
+ */
+export const SSO_BINDING_HOST_COOKIE = '__Host-csms_sso_binding';
+const SSO_BINDING_PATH = '/v1/auth/sso';
+
+interface SsoBindingCookie {
+  name: string;
+  options: {
+    httpOnly: true;
+    secure: boolean;
+    path: string;
+    sameSite: 'none' | false;
+    domain?: string;
+  };
+}
+
+/**
+ * The IdP posts the reply from its own site, so the cookie must travel on a
+ * cross-site POST: SameSite=None, which browsers accept only with Secure. Over
+ * plain HTTP (local development) the cookie has no SameSite attribute: Firefox
+ * and Safari send it, and Chrome sends it on a top-level POST within two minutes
+ * of setting it. An IdP on the same site (a local test IdP) works either way.
+ * With COOKIE_DOMAIN the cookie is shared with the subdomains of that domain.
+ */
+export function ssoBindingCookie(secure: boolean): SsoBindingCookie {
+  const domain = apiConfig.COOKIE_DOMAIN;
+  if (secure && domain == null) {
+    return {
+      name: SSO_BINDING_HOST_COOKIE,
+      options: { httpOnly: true, secure: true, path: '/', sameSite: 'none' },
+    };
+  }
+  return {
+    name: SSO_BINDING_COOKIE,
+    options: {
+      httpOnly: true,
+      secure,
+      path: SSO_BINDING_PATH,
+      sameSite: secure ? 'none' : false,
+      ...(domain != null ? { domain } : {}),
+    },
+  };
+}
 
 function getBaseUrl(): string {
   // Use the configured CSMS URL instead of trusting X-Forwarded-Host headers
@@ -41,6 +132,7 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         summary: 'Initiate SAML SSO login',
         operationId: 'ssoLogin',
         security: [],
+        querystring: zodSchema(ssoLoginQuery),
         response: { 400: errorWith('Sso disabled', [ERROR_CODES.SSO_DISABLED]) },
       },
     },
@@ -51,14 +143,23 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // The request id is stored so the callback accepts only a reply to it.
+      // The request id is stored so the callback accepts only a reply to it, with
+      // the hash of this browser's binding cookie.
+      const binding = crypto.randomBytes(32).toString('base64url');
       const saml = buildSaml(
         config,
         `${getBaseUrl()}/v1/auth/sso/callback`,
-        new RedisSamlRequestCache(),
+        new RedisSamlRequestCache(undefined, samlBindingHash(binding)),
       );
 
-      const loginUrl = await saml.getAuthorizeUrlAsync('/', request.hostname, {});
+      // The IdP returns RelayState unchanged; '/' when the CSMS sent no state.
+      const state = ssoState((request.query as z.infer<typeof ssoLoginQuery>).state);
+      const loginUrl = await saml.getAuthorizeUrlAsync(state ?? '/', request.hostname, {});
+      const bindingCookie = ssoBindingCookie(isSecureRequest(request));
+      void reply.setCookie(bindingCookie.name, binding, {
+        ...bindingCookie.options,
+        maxAge: SAML_REQUEST_TTL_MS / 1000,
+      });
       await reply.redirect(loginUrl);
     },
   );
@@ -86,8 +187,20 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
 
       const body = request.body as Record<string, string>;
       const samlResponse = body['SAMLResponse'];
+      const relayState = ssoState(body['RelayState']);
       if (typeof samlResponse !== 'string' || samlResponse === '') {
         await reply.redirect('/login?error=sso_config_error');
+        return;
+      }
+
+      // The binding cookie is used once, whatever the outcome.
+      const bindingCookie = ssoBindingCookie(isSecureRequest(request));
+      const bindingValue = request.cookies[bindingCookie.name];
+      const binding = bindingValue != null && bindingValue !== '' ? bindingValue : null;
+      void reply.clearCookie(bindingCookie.name, bindingCookie.options);
+      if (binding == null) {
+        request.log.warn('SSO reply without the binding cookie of this browser, refusing it');
+        await reply.redirect('/login?error=sso_session_mismatch');
         return;
       }
 
@@ -103,6 +216,12 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         if (!(await requestCache.consumeRead())) {
           request.log.warn('SAML reply was already used, redirecting to login');
           await reply.redirect('/login?error=sso_config_error');
+          return;
+        }
+        // Login CSRF: the reply must answer a sign-in this browser started.
+        if (!(await requestCache.bindingMatches(binding))) {
+          request.log.warn('SAML reply answers a sign-in another browser started, refusing it');
+          await reply.redirect('/login?error=sso_session_mismatch');
           return;
         }
         profile = result.profile;
@@ -177,12 +296,16 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         // fragment, which the browser never sends to a server.
         const mfaPending = await beginOperatorMfa(app, existingUser);
         if (mfaPending != null) {
-          await reply.redirect(`/login#${ssoMfaFragment(mfaPending)}`);
+          await redirectToMfa(request, reply, existingUser.id, mfaPending, relayState);
           return;
         }
 
-        // Issue JWT and set cookies
-        await issueOperatorSession(app, request, reply, existingUser);
+        // Issue JWT and set cookies. The SSO sign-in time proves the account
+        // for a security change (the `sso` proof) for the next 10 minutes.
+        await issueOperatorSession(app, request, reply, {
+          ...existingUser,
+          ssoAuthAt: Math.floor(Date.now() / 1000),
+        });
 
         await db
           .update(users)
@@ -273,10 +396,28 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         );
       }
 
+      // A new account has no MFA: required MFA sends it to set up a method first.
+      const newUserMfa = await beginOperatorMfa(app, {
+        id: newUserId,
+        roleId: defaultRole.id,
+        email,
+        phone: null,
+        firstName,
+        language: newUser?.language ?? 'en',
+        mfaEnabled: false,
+        mfaMethod: null,
+        sessionVersion: newUser?.sessionVersion ?? 0,
+      });
+      if (newUserMfa != null) {
+        await redirectToMfa(request, reply, newUserId, newUserMfa, relayState);
+        return;
+      }
+
       await issueOperatorSession(app, request, reply, {
         id: newUserId,
         roleId: defaultRole.id,
         sessionVersion: newUser?.sessionVersion ?? 0,
+        ssoAuthAt: Math.floor(Date.now() / 1000),
       });
       await recordAuthAudit(request, {
         kind: 'user',
@@ -291,15 +432,69 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
 }
 
 /**
- * The URL fragment that hands an SSO login's MFA pending state to the CSMS
- * login page, which shows the MFA challenge (`sso-mfa.ts` in the CSMS).
+ * Sends an SSO login that needs MFA to the login page: the MFA challenge or
+ * the MFA setup in the URL fragment, or an error when required MFA has no
+ * method to set up or the MFA settings could not be read. No session is issued.
  */
-export function ssoMfaFragment(pending: OperatorMfaPending): string {
+async function redirectToMfa(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  userId: string,
+  pending: OperatorMfaPending | OperatorMfaEnrollment | MfaSetupUnavailable | MfaPolicyUnavailable,
+  state: string | null,
+): Promise<void> {
+  if (isMfaPolicyUnavailable(pending)) {
+    // requiredMfaEnrollment logged the settings read failure at error.
+    await recordAuthAudit(request, {
+      kind: 'user',
+      accountId: userId,
+      action: 'login_failed',
+      method: 'sso',
+      reason: 'mfa_policy_unavailable',
+    });
+    await reply.redirect('/login?error=sso_mfa_policy_unavailable');
+    return;
+  }
+  if (isMfaSetupUnavailable(pending)) {
+    await recordAuthAudit(request, {
+      kind: 'user',
+      accountId: userId,
+      action: 'login_failed',
+      method: 'sso',
+      reason: 'mfa_setup_unavailable',
+    });
+    await reply.redirect('/login?error=sso_mfa_setup_unavailable');
+    return;
+  }
+  await reply.redirect(`/login#${ssoMfaFragment(pending, state)}`);
+}
+
+/**
+ * The URL fragment that hands an SSO login's MFA pending state to the CSMS
+ * login page, which shows the MFA challenge (`sso-mfa.ts` in the CSMS), or
+ * the enrollment token of required MFA, which opens the MFA setup page.
+ */
+export function ssoMfaFragment(
+  pending: OperatorMfaPending | OperatorMfaEnrollment,
+  state: string | null = null,
+): string {
+  if ('mfaEnrollmentRequired' in pending) {
+    // Required MFA: the login page sends the user to set up MFA with this token.
+    const enrollment = new URLSearchParams({
+      ssoMfaEnrollmentToken: pending.enrollmentToken,
+      ssoMfaEnrollmentMethods: pending.availableMethods.join(','),
+    });
+    if (state != null) enrollment.set('ssoState', state);
+    return enrollment.toString();
+  }
   const params = new URLSearchParams({
     ssoMfaToken: pending.mfaToken,
     ssoMfaMethod: pending.mfaMethod,
   });
   if (pending.challengeId != null) params.set('ssoMfaChallengeId', String(pending.challengeId));
+  params.set('ssoMfaFactors', pending.factors.join(','));
+  if (pending.mfaMethodDisabled === true) params.set('ssoMfaMethodDisabled', '1');
+  if (state != null) params.set('ssoState', state);
   return params.toString();
 }
 

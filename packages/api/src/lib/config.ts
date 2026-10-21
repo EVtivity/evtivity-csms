@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import { resolveNotificationTestSinkUrl } from '@evtivity/lib/notification-test-sink';
 import { parseTrustProxy } from '@evtivity/lib/trust-proxy';
+import { webauthnRpIdProblem } from './webauthn-rp.js';
 
 const schema = z.object({
   API_PORT: z.coerce.number().int().positive(),
@@ -26,6 +27,15 @@ const schema = z.object({
   CSMS_URL: z.string().default('http://localhost:7100'),
   PORTAL_URL: z.string().default('http://localhost:7101'),
   COOKIE_DOMAIN: z.string().optional(),
+  // WebAuthn relying party ID (a domain, no scheme or port) for passkeys and
+  // security keys. Empty (default) uses the host of CSMS_URL for operators and
+  // of PORTAL_URL for drivers. A parent domain of both hosts lets the CSMS and
+  // the portal share it; one that is not a parent of the portal host serves the
+  // CSMS only, and the portal keeps its own host.
+  WEBAUTHN_RP_ID: z.preprocess(
+    (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+    z.string().optional(),
+  ),
   // Proxies in front of the API (Fastify trustProxy): empty (default) trusts
   // none, else a comma-separated list of proxy IPs or CIDRs. Behind it, the client
   // address (rate limits, audit and access logs) and the protocol come from
@@ -69,6 +79,11 @@ const schema = z.object({
 
 export type ApiConfig = z.infer<typeof schema>;
 export const config = schema.parse(process.env);
+
+// A relying party ID the CSMS origin cannot use would fail every passkey
+// ceremony, so the process refuses to start instead.
+const rpIdProblem = webauthnRpIdProblem(config.WEBAUTHN_RP_ID, config.CSMS_URL);
+if (rpIdProblem != null) throw new Error(`WEBAUTHN_RP_ID: ${rpIdProblem}`);
 
 // Refuses the notification test sink unless NODE_ENV is development or test
 // (unset included), or without the allow flag, so the process does not start

@@ -50,7 +50,42 @@ function makeChain() {
   return chain;
 }
 
+vi.mock('../lib/sign-in-backoff.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/sign-in-backoff.js')>();
+  return {
+    ...actual,
+    clearSignInFailures: vi.fn().mockResolvedValue(undefined),
+    takeSignInAttempt: vi.fn(async (account: unknown, factor: unknown) => ({
+      granted: true,
+      account,
+      factor,
+      failures: 1,
+      lockedUntil: null,
+    })),
+    recordAttemptFailure: vi.fn().mockResolvedValue(null),
+    acceptTotpStep: vi.fn().mockResolvedValue(true),
+  };
+});
+vi.mock('../services/mfa-factor.service.js', () => {
+  const countRecoveryCodes = vi.fn(async (_account: unknown) => 0);
+  return {
+    countRecoveryCodes,
+    // The gates read both counts; tests set the recovery code count.
+    mfaFactorCounts: vi.fn(async (account: unknown) => ({
+      recoveryCodesRemaining: await countRecoveryCodes(account),
+      passkeyCount: 0,
+    })),
+    consumeRecoveryCode: vi.fn(async () => ({ used: false, remaining: 0 })),
+    issueRecoveryCodes: vi.fn(async () => []),
+    deleteRecoveryCodes: vi.fn(async () => undefined),
+    deleteWebauthnCredentials: vi.fn(async () => undefined),
+  };
+});
 vi.mock('@evtivity/database', () => ({
+  readMfaConfig: async () => ({
+    config: await (await import('@evtivity/database')).getMfaConfig(),
+    fallback: false,
+  }),
   getSessionLifetimes: vi.fn(async () => ({
     ...(await import('@evtivity/lib/session-lifetimes')).DEFAULT_SESSION_LIFETIMES,
   })),
@@ -88,6 +123,11 @@ vi.mock('@evtivity/database', () => ({
   drivers: { passwordHash: 'drivers.password_hash', registrationSource: 'drivers.source' },
   userTokens: {},
   getRecaptchaConfig: vi.fn().mockResolvedValue(null),
+  getMfaConfig: vi.fn().mockResolvedValue({
+    emailEnabled: true,
+    totpEnabled: true,
+    smsEnabled: false,
+  }),
   isPortalRegistrationEnabled: vi.fn().mockResolvedValue(true),
   resolveAccountBilling: vi.fn().mockResolvedValue(null),
 }));
@@ -129,8 +169,12 @@ vi.mock('@evtivity/lib', () => ({
   verifyRecaptcha: vi.fn().mockResolvedValue({ success: true }),
   decryptString: vi.fn().mockReturnValue('decrypted'),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 1, code: '123456' }),
+  createCappedMfaChallenge: vi.fn(async (c: unknown, o: unknown) =>
+    (await import('@evtivity/lib')).createMfaChallenge(c as never, o as never),
+  ),
+  isMfaChallengeLimited: (r: object) => 'limited' in r,
   verifyMfaChallenge: vi.fn().mockResolvedValue('verified'),
-  verifyTotpCode: vi.fn().mockReturnValue(true),
+  matchTotpStep: vi.fn().mockReturnValue(1),
 }));
 
 vi.mock('../services/refresh-token.service.js', () => ({
