@@ -13,6 +13,7 @@ const packageAliases = Object.entries({
   '@evtivity/lib': 'packages/lib/src/index.ts',
   '@evtivity/database': 'packages/database/src/index.ts',
   '@evtivity/payments': 'packages/payments/src/index.ts',
+  '@evtivity/sim-providers': 'packages/sim-providers/src/index.ts',
   '@evtivity/configs': 'packages/configs/src/index.ts',
   '@evtivity/ocpp': 'packages/ocpp/src/index.ts',
   '@evtivity/octt': 'packages/octt/src/index.ts',
@@ -95,6 +96,14 @@ export default defineConfig({
         test: {
           name: '@evtivity/payments',
           root: 'packages/payments',
+          include: ['src/**/*.test.ts'],
+        },
+      },
+      {
+        resolve: { alias: workspaceAliases },
+        test: {
+          name: '@evtivity/sim-providers',
+          root: 'packages/sim-providers',
           include: ['src/**/*.test.ts'],
         },
       },

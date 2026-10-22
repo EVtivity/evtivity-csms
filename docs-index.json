@@ -210,6 +210,11 @@
     "description": "Standardized components and variables defined by OCPP 2.1, organized by functional block, with read/write semantics and per-EVSE scope."
   },
   {
+    "path": "/docs/csms/station-connectivity",
+    "title": "Station Connectivity",
+    "description": "See a cellular station's SIM status, data sessions, SIM alerts and modem signal, and reset its cellular connection."
+  },
+  {
     "path": "/docs/csms/station-images",
     "title": "Station Images",
     "description": "Upload, tag, and manage photos for each charging station."
@@ -378,6 +383,11 @@
     "path": "/docs/integrations/payment-providers",
     "title": "Payment Providers",
     "description": "Overview of the payment providers. Stripe, Adyen, and the test provider, how the active provider is chosen, provider pinning, the payment lifecycle, webhooks, statuses, and reconciliation."
+  },
+  {
+    "path": "/docs/integrations/sim-providers",
+    "title": "SIM Providers",
+    "description": "Connect the SIM provider of your cellular stations to see their SIM status, data sessions and SIM alerts."
   },
   {
     "path": "/docs/integrations/stripe",

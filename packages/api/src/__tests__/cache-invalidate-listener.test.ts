@@ -17,6 +17,7 @@ const { handlers, mocks } = vi.hoisted(() => ({
     clearMaintenanceCheckCacheLocal: vi.fn(),
     closeUserEventStreams: vi.fn(),
     closeDriverEventStreams: vi.fn(),
+    clearSimCaches: vi.fn(),
   },
 }));
 
@@ -52,6 +53,9 @@ vi.mock('../routes/events.js', () => ({
 vi.mock('../routes/portal/events.js', () => ({
   closeDriverEventStreams: mocks.closeDriverEventStreams,
 }));
+vi.mock('../lib/sim.js', () => ({
+  clearSimCaches: mocks.clearSimCaches,
+}));
 vi.mock('@evtivity/services/maintenance-check', () => ({
   clearMaintenanceCheckCacheLocal: mocks.clearMaintenanceCheckCacheLocal,
 }));
@@ -78,6 +82,13 @@ describe('startCacheInvalidateListener', () => {
     expect(mocks.clearStationMessageSettingsCache).toHaveBeenCalledTimes(1);
     expect(mocks.clearSystemSettingsCache).toHaveBeenCalledTimes(1);
     expect(mocks.clearNotificationSettingsCache).not.toHaveBeenCalled();
+  });
+
+  it('drops the SIM settings and provider caches on sim_settings', async () => {
+    await deliver({ kind: 'sim_settings' });
+
+    expect(mocks.clearSimCaches).toHaveBeenCalledTimes(1);
+    expect(mocks.clearStationMessageCache).not.toHaveBeenCalled();
   });
 
   it('clears one user entry for a per-user kind', async () => {

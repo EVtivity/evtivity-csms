@@ -963,7 +963,19 @@
     "PASSKEY_LIMIT_REACHED": "您注册的通行密钥和安全密钥已达上限。请先删除一个。",
     "PASSKEY_NOT_FOUND": "未找到通行密钥或安全密钥。",
     "WEBAUTHN_CHALLENGE_EXPIRED": "通行密钥请求已过期或已被使用。请重试。",
-    "WEBAUTHN_VERIFICATION_FAILED": "无法验证通行密钥或安全密钥。"
+    "WEBAUTHN_VERIFICATION_FAILED": "无法验证通行密钥或安全密钥。",
+    "SIM_ACTION_UNSUPPORTED": "SIM 提供商不支持对此 SIM 执行此操作",
+    "SIM_CONFIRMED_ELSEWHERE": "另一个充电站已确认匹配此 SIM",
+    "SIM_FEATURE_DISABLED": "SIM 提供商和充电站信号读取已关闭",
+    "SIM_MATCHED_ELSEWHERE": "此 SIM 已匹配到另一个充电站",
+    "SIM_MATCH_CHANGED": "SIM 匹配在显示后已更改。请检查 SIM 后重新确认",
+    "SIM_MATCH_NOT_CONFIRMED": "请先确认 SIM，再重置其网络",
+    "SIM_NOT_FOUND": "此充电站未匹配 SIM",
+    "SIM_PROVIDER_ERROR": "SIM 提供商请求失败",
+    "SIM_PROVIDER_NOT_CONFIGURED": "未配置 SIM 提供商",
+    "SIM_PROVIDER_RATE_LIMITED": "SIM 请求过多，请稍后再试",
+    "SIM_RESET_UNAVAILABLE": "目前无法启动网络重置。请一分钟后重试",
+    "SIM_TEST_UNAVAILABLE": "目前无法运行连接测试。请一分钟后重试"
   },
   "validation": {
     "required": "此字段为必填项",

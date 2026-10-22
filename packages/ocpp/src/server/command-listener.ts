@@ -29,6 +29,30 @@ import { rememberIssuedCentralToken } from '../authorization/issued-central-toke
 
 const CHANNEL = OCPP_COMMANDS_CHANNEL;
 
+/** A SetVariableMonitoring request with a DataLink.SignalStrength item (the low signal monitor). */
+function holdsSignalStrengthMonitor(payload: Record<string, unknown>): boolean {
+  const data = payload['setMonitoringData'];
+  return (
+    Array.isArray(data) &&
+    data.some((item: unknown) => {
+      const entry = item as { component?: { name?: unknown }; variable?: { name?: unknown } };
+      return entry.component?.name === 'DataLink' && entry.variable?.name === 'SignalStrength';
+    })
+  );
+}
+
+/** A GetMonitoringReport that reads a DataLink.SignalStrength monitor back (the low signal monitor). */
+function readsSignalStrengthMonitor(payload: Record<string, unknown>): boolean {
+  const list = payload['componentVariable'];
+  return (
+    Array.isArray(list) &&
+    list.some((item: unknown) => {
+      const entry = item as { component?: { name?: unknown }; variable?: { name?: unknown } };
+      return entry.component?.name === 'DataLink' && entry.variable?.name === 'SignalStrength';
+    })
+  );
+}
+
 const RESULTS_CHANNEL = OCPP_COMMAND_RESULTS_CHANNEL;
 
 interface CommandPayload {
@@ -280,6 +304,24 @@ export class CommandListener {
           aggregateId: stationId,
           payload: { request: payload, response },
         });
+      } else if (action === 'SetVariableMonitoring' && holdsSignalStrengthMonitor(payload)) {
+        // The low signal monitors are published without a waiting caller: the
+        // projection records the monitor ids the station returns.
+        void this.eventBus.publish({
+          eventType: 'command.SetVariableMonitoring',
+          aggregateType: 'ChargingStation',
+          aggregateId: stationId,
+          payload: { request: payload, response },
+        });
+      } else if (action === 'GetMonitoringReport' && readsSignalStrengthMonitor(payload)) {
+        // The read of a low signal monitor's id: the projection handles a
+        // refusal; the monitors arrive with NotifyMonitoringReport.
+        void this.eventBus.publish({
+          eventType: 'command.GetMonitoringReport',
+          aggregateType: 'ChargingStation',
+          aggregateId: stationId,
+          payload: { request: payload, response },
+        });
       } else if (action === 'SetDisplayMessage' || action === 'ClearDisplayMessage') {
         // A display message command queued for an offline station is sent on
         // reconnect with no API caller waiting: the projection records the reply.
@@ -323,10 +365,20 @@ export class CommandListener {
       // with no one waiting for it.
       if (errorMessage.includes('is not connected') && noQueue) {
         this.logger.warn({ stationId, commandId, action }, 'Station offline, command not queued');
+        this.publishMonitorFailure(
+          stationId,
+          action,
+          payload,
+          'Station offline, command not queued',
+        );
         if (commandId != null) {
           await this.pubsub.publish(
             RESULTS_CHANNEL,
-            JSON.stringify({ commandId, error: 'Station offline, command not queued' }),
+            JSON.stringify({
+              commandId,
+              error: 'Station offline, command not queued',
+              offline: true,
+            }),
           );
         }
         return;
@@ -389,6 +441,9 @@ export class CommandListener {
           payload: { request: payload, error: errorMessage, code: OCPP_VERSION_MISMATCH },
         });
       }
+      // A low signal monitor without an answer is read back (a timeout: the
+      // station may hold it) or marked error, so it never stays pending.
+      this.publishMonitorFailure(stationId, action, payload, errorMessage, timedOut);
       if ((action === 'UpdateFirmware' || action === 'SignedUpdateFirmware') && !timedOut) {
         void this.eventBus.publish({
           eventType: 'command.UpdateFirmware',
@@ -429,6 +484,28 @@ export class CommandListener {
         );
       }
     }
+  }
+
+  private publishMonitorFailure(
+    stationId: string,
+    action: string,
+    payload: Record<string, unknown>,
+    error: string,
+    timedOut = false,
+  ): void {
+    const eventType =
+      action === 'SetVariableMonitoring' && holdsSignalStrengthMonitor(payload)
+        ? 'command.SetVariableMonitoring'
+        : action === 'GetMonitoringReport' && readsSignalStrengthMonitor(payload)
+          ? 'command.GetMonitoringReport'
+          : null;
+    if (eventType == null) return;
+    void this.eventBus.publish({
+      eventType,
+      aggregateType: 'ChargingStation',
+      aggregateId: stationId,
+      payload: { request: payload, error, ...(timedOut ? { timedOut: true } : {}) },
+    });
   }
 
   async stop(): Promise<void> {

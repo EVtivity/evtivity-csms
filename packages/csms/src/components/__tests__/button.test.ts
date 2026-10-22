@@ -36,6 +36,7 @@ describe('buttonVariants sizes', () => {
     ['chip', ['h-6', 'rounded-full', 'text-xs']],
     ['row', ['h-auto', 'w-full', 'justify-start', 'text-left']],
     ['row-sm', ['h-auto', 'w-full', 'justify-start', 'text-xs']],
+    ['cell', ['h-auto', 'p-0', 'whitespace-normal']],
     ['fab', ['h-12', 'w-12', 'rounded-full', 'shadow-lg']],
   ] as const)('%s has its shared classes and keeps the focus ring', (size, expected) => {
     const classes = buttonVariants({ size }).split(' ');

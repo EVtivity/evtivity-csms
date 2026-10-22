@@ -963,7 +963,19 @@
     "PASSKEY_LIMIT_REACHED": "You have registered the maximum number of passkeys and security keys. Remove one first.",
     "PASSKEY_NOT_FOUND": "Passkey or security key not found.",
     "WEBAUTHN_CHALLENGE_EXPIRED": "The passkey request expired or was already used. Try again.",
-    "WEBAUTHN_VERIFICATION_FAILED": "The passkey or security key could not be verified."
+    "WEBAUTHN_VERIFICATION_FAILED": "The passkey or security key could not be verified.",
+    "SIM_ACTION_UNSUPPORTED": "The SIM provider does not support this action for this SIM",
+    "SIM_CONFIRMED_ELSEWHERE": "Another station already has a confirmed match for this SIM",
+    "SIM_FEATURE_DISABLED": "SIM providers and station signal reads are turned off",
+    "SIM_MATCHED_ELSEWHERE": "This SIM is matched to another station",
+    "SIM_MATCH_CHANGED": "The SIM match changed since it was shown. Check the SIM and confirm again",
+    "SIM_MATCH_NOT_CONFIRMED": "Confirm the SIM before resetting its network",
+    "SIM_NOT_FOUND": "No SIM is matched to this station",
+    "SIM_PROVIDER_ERROR": "The SIM provider request failed",
+    "SIM_PROVIDER_NOT_CONFIGURED": "No SIM provider is configured",
+    "SIM_PROVIDER_RATE_LIMITED": "Too many SIM requests, try again later",
+    "SIM_RESET_UNAVAILABLE": "The network reset cannot be started right now. Try again in a minute",
+    "SIM_TEST_UNAVAILABLE": "The connection test cannot run right now. Try again in a minute"
   },
   "validation": {
     "required": "This field is required",

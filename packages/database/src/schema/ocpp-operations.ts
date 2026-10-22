@@ -171,6 +171,10 @@ export const stationConfigurations = pgTable(
     value: text('value'),
     attributeType: varchar('attribute_type', { length: 20 }).notNull().default('Actual'),
     source: varchar('source', { length: 30 }).notNull(),
+    // The variable's unit and whether it can be monitored, from NotifyReport
+    // (variableCharacteristics); null until the station reports them.
+    unit: varchar('unit', { length: 16 }),
+    supportsMonitoring: boolean('supports_monitoring'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -322,18 +326,33 @@ export const variableMonitoringRules = pgTable(
       .references(() => chargingStations.id, { onDelete: 'cascade' }),
     monitoringId: integer('monitoring_id'),
     component: varchar('component', { length: 100 }).notNull(),
+    componentInstance: varchar('component_instance', { length: 50 }),
     variable: varchar('variable', { length: 100 }).notNull(),
     type: varchar('type', { length: 50 }).notNull(),
     value: numeric('value').notNull(),
     severity: integer('severity').notNull().default(0),
     status: variableMonitorStatusEnum('status').notNull().default('pending'),
     errorInfo: text('error_info'),
+    // Who set the monitor: `operator` (the monitoring rules route) or
+    // `low_signal` (the low signal alert of the SIM settings).
+    source: varchar('source', { length: 32 }).notNull().default('operator'),
+    // The GetMonitoringReport request a low signal monitor waits for while its
+    // monitor id is read back from the station.
+    reportRequestId: integer('report_request_id'),
+    // Why a low signal monitor id is read back: `timeout` (a send got no answer)
+    // or `duplicate` (the station answered Duplicate); `resent` marks the one send
+    // after a timeout read found no monitor, whose read never sends it again.
+    reportReason: varchar('report_reason', { length: 16 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_variable_monitoring_rules_station_id').on(table.stationId),
     index('idx_variable_monitoring_rules_status').on(table.status),
+    // One low signal monitor per station and DataLink modem.
+    uniqueIndex('uq_variable_monitoring_rules_low_signal')
+      .using('btree', table.stationId, sql`COALESCE(component_instance, '')`)
+      .where(sql`source = 'low_signal'`),
   ],
 );
 

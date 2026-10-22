@@ -90,6 +90,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'DELETE /stations/:id/evses/:evseId/connectors/:connectorId': { audited: 'station' },
   'DELETE /stations/:id/images/:imageId': { audited: 'station_image' },
   'DELETE /stations/:id/monitoring-rules/:ruleId': { audited: 'station' },
+  'DELETE /stations/:id/sim/match': {
+    audited: 'station',
+    service: 'database/src/lib/station-sim-match.ts',
+  },
   'DELETE /stations/:id/pricing-groups/:pricingGroupId': { audited: 'pricing_assignment' },
   'DELETE /stations/:id/web-payments': {
     audited: 'station',
@@ -387,6 +391,7 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'api/src/services/vehicle.service.ts',
   },
   'POST /settings/adyen/test': { allow: 'connection test, no stored state' },
+  'POST /settings/sim-providers/:provider/test': { allow: 'connection test, no stored state' },
   'POST /settings/adyen/webhook': {
     audited: 'setting',
     service: 'api/src/lib/payment-settings-writes.ts',
@@ -512,6 +517,15 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'station',
     service: 'api/src/services/station-onboarding.service.ts',
   },
+  'POST /stations/:id/sim/match/confirm': {
+    audited: 'station',
+    service: 'database/src/lib/station-sim-match.ts',
+  },
+  'POST /stations/:id/sim/network-reset': { audited: 'station' },
+  'POST /stations/:id/sim/refresh': {
+    audited: 'station',
+    service: 'database/src/lib/station-sim-match.ts',
+  },
   'POST /stations/:id/rotate-credentials': {
     audited: 'station',
     service: 'api/src/services/station-security.service.ts',
@@ -589,6 +603,7 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'PUT /security/sessions': { audited: 'setting' },
   'PUT /settings/:key': { audited: 'setting' },
   'PUT /settings/adyen': { audited: 'setting', service: 'api/src/lib/payment-settings-writes.ts' },
+  'PUT /settings/sim-providers': { audited: 'setting' },
   'PUT /settings/payments': {
     audited: 'setting',
     service: 'api/src/lib/payment-settings-writes.ts',

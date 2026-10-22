@@ -44,6 +44,10 @@ export const CSS_STATUS_REPORTING_DEFAULT: CssStatusReporting = 'Both';
 // random delay up to it to their first attempt (OcppClient reconnectSpreadMs).
 export const CSS_RECONNECT_SPREAD_S = 15;
 
+/** The simulated modem's signal strength (dBm, DataLink.SignalStrength), 2.x only. */
+export const CSS_SIGNAL_STRENGTH_KEY = 'DataLink.SignalStrength';
+export const CSS_SIGNAL_STRENGTH_DEFAULT_DBM = -71;
+
 // Factory reconnect back-off of a 2.1 simulator (OCPPCommCtrlr.RetryBackOff*, 2.1
 // Part 4 5.4): the first attempt after 2 s plus a random part up to 15 s, the wait
 // doubled after a failed attempt at most 3 times. The random range is the fleet
@@ -254,6 +258,14 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
     t('WebPaymentsCtrlr.ValidityTime', '60', false),
     t('WebPaymentsCtrlr.Length', '8', false),
     t(CSS_STATUS_REPORTING_KEY, CSS_STATUS_REPORTING_DEFAULT, false),
+    // The cellular modem (DataLink, 2.0.1 and 2.1 Referenced Components). The
+    // signal strength is in dBm and can be monitored (the CSMS low signal alert).
+    t('DataLink.Enabled', 'true', false),
+    t('DataLink.Active', 'true', true),
+    t('DataLink.Fallback', 'false', true),
+    t('DataLink.Problem', 'false', true),
+    t('DataLink.NetworkAddress', '10.170.0.2', true),
+    t(CSS_SIGNAL_STRENGTH_KEY, String(CSS_SIGNAL_STRENGTH_DEFAULT_DBM), true),
   ];
 
   for (const evse of input.evses) {

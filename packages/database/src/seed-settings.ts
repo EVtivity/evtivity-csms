@@ -42,6 +42,7 @@ export const SEED_ENCRYPTED_KEY_MAP: Readonly<Record<string, string>> = {
   'ftp.password': 'ftp.passwordEnc',
   'googleMaps.apiKey': 'googleMaps.apiKeyEnc',
   'mobile.attestation.android.serviceAccount': 'mobile.attestation.android.serviceAccountEnc',
+  'sim.hologram.apiKey': 'sim.hologram.apiKeyEnc',
 };
 
 /**

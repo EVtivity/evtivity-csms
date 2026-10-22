@@ -7,6 +7,7 @@ import {
   buildCssConfigDefaults,
   CSS_RETRY_BACK_OFF_DEFAULTS,
   CSS_STATUS_REPORTING_DEFAULT,
+  CSS_SIGNAL_STRENGTH_KEY,
   CSS_STATUS_REPORTING_KEY,
   CSS_STATUS_REPORTING_VALUES,
   cssSecurityCtrlrDefaults,
@@ -2187,6 +2188,22 @@ export class StationSimulator {
   }
 
   /**
+   * The modem's signal changes to `dbm`: DataLink.SignalStrength reports it and
+   * the threshold monitors on it fire (Alerting, and cleared on the way back,
+   * N07). OCPP 2.0.1 and 2.1 only.
+   */
+  setSignalStrength(dbm: number): void {
+    if (this.is16) throw new Error('DataLink.SignalStrength is an OCPP 2.x variable');
+    if (!Number.isFinite(dbm)) throw new Error('The signal strength must be a number of dBm');
+    const existing = this.configVariables.get(CSS_SIGNAL_STRENGTH_KEY);
+    this.configVariables.set(CSS_SIGNAL_STRENGTH_KEY, {
+      value: String(dbm),
+      readonly: existing?.readonly ?? true,
+    });
+    this.dispatchMonitorEvents(this.evaluateMonitors({ name: 'DataLink' }, 'SignalStrength', dbm));
+  }
+
+  /**
    * The EV battery is full. 2.1: SuspendedEV, then TransactionEvent Ended with
    * stoppedReason SOCLimitReached (triggerReason SoCLimitReached). 1.6: SuspendedEV, then
    * the EV unplugs. A no-op without a transaction.
@@ -3789,10 +3806,12 @@ export class StationSimulator {
                 maxLimit: Number(entry.value),
                 supportsMonitoring: false,
               }
-            : {
-                dataType: 'string',
-                supportsMonitoring: false,
-              },
+            : componentName === 'DataLink' && variableName === 'SignalStrength'
+              ? { unit: 'dBm', dataType: 'decimal', supportsMonitoring: true }
+              : {
+                  dataType: 'string',
+                  supportsMonitoring: false,
+                },
       });
     }
 

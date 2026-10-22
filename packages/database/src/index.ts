@@ -517,6 +517,35 @@ export {
 export type { AiProviderAlert } from './lib/ai-provider-alerts.js';
 export { getSsoConfig, clearSsoSettingsCache } from './lib/sso-settings.js';
 export type { SsoConfig } from './lib/sso-settings.js';
+export {
+  getSimProviderSettings,
+  getSimGeneralSettings,
+  clearSimSettingsCache,
+  parseSimSettings,
+} from './lib/sim-settings.js';
+export type { SimSettings, SimHologramSettings } from './lib/sim-settings.js';
+export {
+  getStationSimMatch,
+  setStationSimMatch,
+  recordSimLookupMiss,
+  confirmStationSimMatch,
+  clearStationSimMatch,
+  recordEnteredIccid,
+  recordSimStatus,
+  recordSimSessionsSynced,
+  recordSimAlertsSynced,
+  compareRecordIds,
+} from './lib/station-sim-match.js';
+export type {
+  SimAuditActor,
+  SimLookupMissReason,
+  SimMatchMeta,
+  StationSimMatch,
+  StoredSimStatus,
+  SetStationSimMatchResult,
+  ConfirmStationSimMatchResult,
+  SimMatchDb,
+} from './lib/station-sim-match.js';
 export { getAttestationConfig, clearAttestationConfigCache } from './lib/attestation-settings.js';
 export type { AttestationConfig } from './lib/attestation-settings.js';
 export { getMobileAppConfig, clearMobileAppConfigCache } from './lib/mobile-app-settings.js';

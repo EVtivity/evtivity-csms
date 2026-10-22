@@ -963,7 +963,19 @@
     "PASSKEY_LIMIT_REACHED": "您註冊的密碼金鑰和安全金鑰已達上限。請先移除一個。",
     "PASSKEY_NOT_FOUND": "找不到密碼金鑰或安全金鑰。",
     "WEBAUTHN_CHALLENGE_EXPIRED": "密碼金鑰請求已過期或已被使用。請重試。",
-    "WEBAUTHN_VERIFICATION_FAILED": "無法驗證密碼金鑰或安全金鑰。"
+    "WEBAUTHN_VERIFICATION_FAILED": "無法驗證密碼金鑰或安全金鑰。",
+    "SIM_ACTION_UNSUPPORTED": "SIM 供應商不支援對此 SIM 執行此操作",
+    "SIM_CONFIRMED_ELSEWHERE": "另一個充電站已確認配對此 SIM",
+    "SIM_FEATURE_DISABLED": "SIM 供應商與充電站訊號讀取已關閉",
+    "SIM_MATCHED_ELSEWHERE": "此 SIM 已配對到另一個充電站",
+    "SIM_MATCH_CHANGED": "SIM 配對在顯示後已變更。請檢查 SIM 後重新確認",
+    "SIM_MATCH_NOT_CONFIRMED": "請先確認 SIM，再重設其網路",
+    "SIM_NOT_FOUND": "此充電站未配對 SIM",
+    "SIM_PROVIDER_ERROR": "SIM 供應商請求失敗",
+    "SIM_PROVIDER_NOT_CONFIGURED": "尚未設定 SIM 供應商",
+    "SIM_PROVIDER_RATE_LIMITED": "SIM 請求過多，請稍後再試",
+    "SIM_RESET_UNAVAILABLE": "目前無法啟動網路重設。請一分鐘後再試",
+    "SIM_TEST_UNAVAILABLE": "目前無法執行連線測試。請一分鐘後再試"
   },
   "validation": {
     "required": "此欄位為必填項",

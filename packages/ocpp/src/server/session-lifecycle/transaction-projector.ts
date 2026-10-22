@@ -69,6 +69,16 @@ const CHARGING_STATE_TO_STATUS: Record<string, string> = {
   Discharging: 'discharging',
 };
 
+/**
+ * A TransactionEvent the station queued while offline and sent after it
+ * reconnected (E04.FR.03). It bills its session but never sets the live
+ * connector status: the station reports its current state after the
+ * reconnect (B04), and its newer timestamp would hide those reports.
+ */
+function isOfflineEvent(payload: DomainEvent['payload']): boolean {
+  return payload['offline'] === true;
+}
+
 const SESSION_UPDATE_THROTTLE_MS = 15 * 60 * 1000;
 
 // How long a transaction projection waits for the station lane to create an
@@ -595,6 +605,7 @@ export class TransactionProjector {
     // Skip when EVConnectTimeout: the EV was never actually connected.
     if (
       triggerReason !== 'EVConnectTimeout' &&
+      !isOfflineEvent(payload) &&
       (payload.chargingState as string | undefined) === 'EVConnected'
     ) {
       const startEvseRows = await this.deps.sql`
@@ -1744,7 +1755,7 @@ export class TransactionProjector {
       // Update connector status from chargingState (OCPP 2.1 enrichment).
       // Portal SSE forwarder only relays 'station.status', so the
       // 'session.updated' notify below isn't enough -- we publish here too.
-      if (chargingState != null && sessionActive) {
+      if (chargingState != null && sessionActive && !isOfflineEvent(payload)) {
         const connectorStatus = CHARGING_STATE_TO_STATUS[chargingState];
         if (connectorStatus != null && sessionEvseUuid != null) {
           await applyEvseChargingState(this.deps.sql, sessionEvseUuid, connectorStatus, timestamp);
@@ -1976,7 +1987,7 @@ export class TransactionProjector {
       // behaviour so the connector badge transitions out of 'charging' even when the
       // station does not send a follow-up StatusNotification.
       const endedChargingState = getString(payload, 'chargingState');
-      if (endedChargingState != null) {
+      if (endedChargingState != null && !isOfflineEvent(payload)) {
         const endedConnectorStatus = CHARGING_STATE_TO_STATUS[endedChargingState];
         if (endedConnectorStatus != null && endedEvseUuid != null) {
           await applyEvseChargingState(

@@ -125,6 +125,14 @@ describe('matchCacheRule', () => {
     expect(matchCacheRule('/v1/dashboard/stats')?.tags).toEqual(['dashboard']);
   });
 
+  it('never caches the SIM status and timeline of a station', () => {
+    expect(matchCacheRule('/v1/stations/:id/sim')).toBeNull();
+    expect(matchCacheRule('/v1/stations/:id/sim/timeline')).toBeNull();
+    expect(matchCacheRule('/v1/stations/sta_abc/sim')).toBeNull();
+    expect(matchCacheRule('/v1/stations/sta_abc/sim/timeline')).toBeNull();
+    expect(matchCacheRule('/v1/stations/sta_abc/simulator')?.ttlSeconds).toBe(5);
+  });
+
   it('does not match uncacheable routes', () => {
     expect(matchCacheRule('/v1/events')).toBeNull();
     expect(matchCacheRule('/v1/auth/login')).toBeNull();

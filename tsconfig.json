@@ -5,6 +5,7 @@
     { "path": "packages/database" },
     { "path": "packages/lib" },
     { "path": "packages/ai" },
+    { "path": "packages/sim-providers" },
     { "path": "packages/payments" },
     { "path": "packages/services" },
     { "path": "packages/api" },

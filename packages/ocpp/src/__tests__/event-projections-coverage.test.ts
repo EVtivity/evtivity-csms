@@ -4139,6 +4139,41 @@ describe('Event projections - coverage expansion', () => {
       // resolveStationId + INSERT station_events + resolveSiteId (no alert queries)
       expect(sqlCalls.length).toBe(3);
     });
+
+    it('opens no alert for a cleared item, whatever its severity', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [{ id: 43 }], // INSERT station_events RETURNING id
+        [{ site_id: 'sit_test' }], // resolveSiteId
+      );
+
+      await eventBus.emit(
+        'ocpp.NotifyEvent',
+        makeDomainEvent('ocpp.NotifyEvent', 'CS-TEST', {
+          generatedAt: '2026-03-01T10:05:00Z',
+          seqNo: 1,
+          tbc: false,
+          eventData: [
+            {
+              eventId: 2,
+              trigger: 'Alerting',
+              severity: 0,
+              cleared: true,
+              component: { name: 'Connector' },
+              variable: { name: 'Temperature' },
+              actualValue: '40',
+            },
+          ],
+        }),
+      );
+
+      // The event is stored; no rule lookup, no alert insert, no alert update.
+      expect(sqlCalls.length).toBe(3);
+      expect(sqlCalls.some((c) => c.strings.join('').includes('event_alerts'))).toBe(false);
+      expect(sqlCalls[1]?.strings.join('')).toContain('station_events');
+    });
   });
 
   // ---- EVConnectTimeout on TransactionEvent Started ----

@@ -72,6 +72,8 @@ describe('useFeatureFlags', () => {
       guestChargingEnabled: false,
       chatbotAiEnabled: true,
       aiInsightsEnabled: true,
+      simEnabled: true,
+      simStationSignalEnabled: true,
     };
     getMock.mockResolvedValue(flags);
     const { result } = renderHook(() => useFeatureFlags(), { wrapper });
@@ -100,6 +102,18 @@ describe('useFeatureFlags', () => {
       guestChargingEnabled: true,
       chatbotAiEnabled: false,
       aiInsightsEnabled: false,
+      simEnabled: false,
+      simStationSignalEnabled: false,
     });
+  });
+
+  it('counts the SIM features as off while the reply leaves their keys out', async () => {
+    getMock.mockResolvedValue({ reservationEnabled: true });
+    const { result } = renderHook(() => useFeatureFlags(), { wrapper });
+    await waitFor(() => {
+      expect(result.current.isLoaded).toBe(true);
+    });
+    expect(result.current.flags.simEnabled).toBe(false);
+    expect(result.current.flags.simStationSignalEnabled).toBe(false);
   });
 });

@@ -115,6 +115,24 @@ const TABLE_DEFAULTS = [
     defaultDays: 90,
     cutoffColumn: 'created_at',
   },
+  {
+    table: 'sim_sessions',
+    settingKey: 'sim.sessions.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'started_at',
+  },
+  {
+    table: 'sim_alerts',
+    settingKey: 'sim.sessions.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'received_at',
+  },
+  {
+    table: 'sim_fetch_coverage',
+    settingKey: 'sim.sessions.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'covered_to',
+  },
 ];
 
 beforeEach(() => {
@@ -137,6 +155,32 @@ describe('logRetentionPruneHandler', () => {
         retentionDays: TABLE_DEFAULTS[i]!.defaultDays,
       });
     });
+  });
+
+  it('prunes the SIM sessions, alerts and fetched ranges with the SIM retention', async () => {
+    settingRows = [{ key: 'sim.sessions.retentionDays', value: 30 }];
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
+    await logRetentionPruneHandler(makeLog());
+    const simCalls = mockPruneOldRows.mock.calls
+      .map((c) => c[0] as { table: string; retentionDays: number; cutoffColumn: string })
+      .filter((c) => c.table.startsWith('sim_'));
+    expect(simCalls).toEqual([
+      expect.objectContaining({
+        table: 'sim_sessions',
+        retentionDays: 30,
+        cutoffColumn: 'started_at',
+      }),
+      expect.objectContaining({
+        table: 'sim_alerts',
+        retentionDays: 30,
+        cutoffColumn: 'received_at',
+      }),
+      expect.objectContaining({
+        table: 'sim_fetch_coverage',
+        retentionDays: 30,
+        cutoffColumn: 'covered_to',
+      }),
+    ]);
   });
 
   it('targets every log table in declaration order', async () => {

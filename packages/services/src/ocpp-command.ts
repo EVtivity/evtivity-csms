@@ -38,6 +38,11 @@ export interface CommandResult {
    * action or value for an OCPP 2.0.1 station). `error` then holds the reason.
    */
   code?: typeof OCPP_VERSION_MISMATCH;
+  /**
+   * True when the command was sent with `noQueue` and the station was not
+   * connected: the OCPP server neither sent nor queued it.
+   */
+  offline?: boolean;
 }
 
 /**
@@ -49,14 +54,16 @@ export interface CommandResult {
  * `version` only when `action` and `payload` are already in that version's
  * native format; the command is then sent unchanged. `timeoutMs` shortens the
  * wait (default 35 s) for a caller that must not hold on a slow station; the
- * result is then `timedOut` after that time.
+ * result is then `timedOut` after that time. `noQueue` never holds the command
+ * for a station that is not connected (result `offline`), for a command that
+ * means nothing on a later reconnect.
  */
 export async function sendOcppCommandAndWait(
   stationOcppId: string,
   action: string,
   payload: Record<string, unknown>,
   version?: string,
-  options: { timeoutMs?: number } = {},
+  options: { timeoutMs?: number; noQueue?: boolean } = {},
 ): Promise<CommandResult> {
   const timeoutMs = options.timeoutMs ?? RESPONSE_TIMEOUT_MS;
   const commandId = crypto.randomUUID();
@@ -74,6 +81,7 @@ export async function sendOcppCommandAndWait(
           action,
           payload,
           version,
+          noQueue: options.noQueue,
         }),
     });
     return (

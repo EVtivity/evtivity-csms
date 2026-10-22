@@ -963,7 +963,19 @@
     "PASSKEY_LIMIT_REACHED": "Sie haben die maximale Anzahl an Passkeys und Sicherheitsschlüsseln registriert. Entfernen Sie zuerst einen.",
     "PASSKEY_NOT_FOUND": "Passkey oder Sicherheitsschlüssel nicht gefunden.",
     "WEBAUTHN_CHALLENGE_EXPIRED": "Die Passkey-Anfrage ist abgelaufen oder wurde bereits verwendet. Versuchen Sie es erneut.",
-    "WEBAUTHN_VERIFICATION_FAILED": "Der Passkey oder Sicherheitsschlüssel konnte nicht überprüft werden."
+    "WEBAUTHN_VERIFICATION_FAILED": "Der Passkey oder Sicherheitsschlüssel konnte nicht überprüft werden.",
+    "SIM_ACTION_UNSUPPORTED": "Der SIM-Anbieter unterstützt diese Aktion für diese SIM nicht",
+    "SIM_CONFIRMED_ELSEWHERE": "Eine andere Station hat bereits eine bestätigte Zuordnung zu dieser SIM",
+    "SIM_FEATURE_DISABLED": "SIM-Anbieter und das Auslesen des Stationssignals sind ausgeschaltet",
+    "SIM_MATCHED_ELSEWHERE": "Diese SIM ist einer anderen Station zugeordnet",
+    "SIM_MATCH_CHANGED": "Die SIM-Zuordnung hat sich seit der Anzeige geändert. Prüfen Sie die SIM und bestätigen Sie erneut",
+    "SIM_MATCH_NOT_CONFIRMED": "Bestätigen Sie die SIM, bevor Sie ihr Netz zurücksetzen",
+    "SIM_NOT_FOUND": "Dieser Station ist keine SIM zugeordnet",
+    "SIM_PROVIDER_ERROR": "Die Anfrage an den SIM-Anbieter ist fehlgeschlagen",
+    "SIM_PROVIDER_NOT_CONFIGURED": "Kein SIM-Anbieter konfiguriert",
+    "SIM_PROVIDER_RATE_LIMITED": "Zu viele SIM-Anfragen, versuchen Sie es später erneut",
+    "SIM_RESET_UNAVAILABLE": "Der Netzwerk-Reset kann gerade nicht gestartet werden. Versuchen Sie es in einer Minute erneut",
+    "SIM_TEST_UNAVAILABLE": "Der Verbindungstest kann gerade nicht ausgeführt werden. Versuchen Sie es in einer Minute erneut"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",

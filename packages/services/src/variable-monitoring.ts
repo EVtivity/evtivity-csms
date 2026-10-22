@@ -1,7 +1,73 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { CommandResult } from '@evtivity/services/ocpp-command';
+import { db, variableMonitoringRules } from '@evtivity/database';
+import type { CommandResult } from './ocpp-command.js';
+
+/** Who set a monitor: an operator through the monitoring rules route, or the low signal alert. */
+export type MonitorRuleSource = 'operator' | 'low_signal';
+
+export interface NewMonitorRule {
+  stationId: string;
+  component: string;
+  componentInstance: string | null;
+  variable: string;
+  type: string;
+  value: number;
+  severity: number;
+  source: MonitorRuleSource;
+}
+
+export type MonitorRuleRow = typeof variableMonitoringRules.$inferSelect;
+
+/**
+ * Stores a monitor as pending before SetVariableMonitoring is sent, so the
+ * station's answer always finds its row. The insert of operator rules; the low
+ * signal monitors insert theirs against their unique index (one per modem).
+ */
+export async function insertPendingMonitorRule(rule: NewMonitorRule): Promise<MonitorRuleRow> {
+  const [row] = await db
+    .insert(variableMonitoringRules)
+    .values({
+      stationId: rule.stationId,
+      component: rule.component,
+      componentInstance: rule.componentInstance,
+      variable: rule.variable,
+      type: rule.type,
+      value: String(rule.value),
+      severity: rule.severity,
+      source: rule.source,
+      status: 'pending',
+    })
+    .returning();
+  if (row == null) throw new Error('Monitoring rule insert returned no row');
+  return row;
+}
+
+/**
+ * One SetMonitoringData item for a stored rule. `replaceId` replaces the
+ * station's monitor with that id (N04.FR.12); without it the station creates
+ * one and returns its id (N04.FR.11).
+ */
+export function setMonitoringDataItem(
+  rule: Pick<
+    MonitorRuleRow,
+    'component' | 'componentInstance' | 'variable' | 'type' | 'value' | 'severity'
+  >,
+  replaceId?: number,
+): Record<string, unknown> {
+  return {
+    ...(replaceId != null ? { id: replaceId } : {}),
+    component: {
+      name: rule.component,
+      ...(rule.componentInstance != null ? { instance: rule.componentInstance } : {}),
+    },
+    variable: { name: rule.variable },
+    type: rule.type,
+    value: Number(rule.value),
+    severity: rule.severity,
+  };
+}
 
 /** The stored state of a variable monitoring rule after SetVariableMonitoring. */
 export interface MonitorSetOutcome {
@@ -33,6 +99,13 @@ export function monitorSetOutcome(result: CommandResult): MonitorSetOutcome {
   }
   const results = result.response?.setMonitoringResult;
   const entry = Array.isArray(results) ? (results[0] as Record<string, unknown> | undefined) : null;
+  return monitorResultOutcome(entry);
+}
+
+/** The rule state for one SetMonitoringResult entry of the station's reply. */
+export function monitorResultOutcome(
+  entry: Record<string, unknown> | null | undefined,
+): MonitorSetOutcome {
   if (entry == null || typeof entry.status !== 'string') {
     return {
       status: 'error',

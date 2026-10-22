@@ -300,6 +300,18 @@ export const ERROR_CODES = {
   SESSION_REQUIRED: 'SESSION_REQUIRED',
   SESSION_STOP_REJECTED: 'SESSION_STOP_REJECTED',
   SETTING_NOT_FOUND: 'SETTING_NOT_FOUND',
+  SIM_ACTION_UNSUPPORTED: 'SIM_ACTION_UNSUPPORTED',
+  SIM_CONFIRMED_ELSEWHERE: 'SIM_CONFIRMED_ELSEWHERE',
+  SIM_FEATURE_DISABLED: 'SIM_FEATURE_DISABLED',
+  SIM_MATCH_CHANGED: 'SIM_MATCH_CHANGED',
+  SIM_MATCH_NOT_CONFIRMED: 'SIM_MATCH_NOT_CONFIRMED',
+  SIM_MATCHED_ELSEWHERE: 'SIM_MATCHED_ELSEWHERE',
+  SIM_NOT_FOUND: 'SIM_NOT_FOUND',
+  SIM_PROVIDER_ERROR: 'SIM_PROVIDER_ERROR',
+  SIM_PROVIDER_NOT_CONFIGURED: 'SIM_PROVIDER_NOT_CONFIGURED',
+  SIM_PROVIDER_RATE_LIMITED: 'SIM_PROVIDER_RATE_LIMITED',
+  SIM_RESET_UNAVAILABLE: 'SIM_RESET_UNAVAILABLE',
+  SIM_TEST_UNAVAILABLE: 'SIM_TEST_UNAVAILABLE',
   SITE_HAS_STATIONS: 'SITE_HAS_STATIONS',
   SITE_NOT_FOUND: 'SITE_NOT_FOUND',
   SITE_PAYMENT_CONFIG_IN_USE: 'SITE_PAYMENT_CONFIG_IN_USE',
@@ -655,6 +667,18 @@ export type ErrorCode =
   | 'SESSION_REQUIRED'
   | 'SESSION_STOP_REJECTED'
   | 'SETTING_NOT_FOUND'
+  | 'SIM_ACTION_UNSUPPORTED'
+  | 'SIM_CONFIRMED_ELSEWHERE'
+  | 'SIM_FEATURE_DISABLED'
+  | 'SIM_MATCH_CHANGED'
+  | 'SIM_MATCH_NOT_CONFIRMED'
+  | 'SIM_MATCHED_ELSEWHERE'
+  | 'SIM_NOT_FOUND'
+  | 'SIM_PROVIDER_ERROR'
+  | 'SIM_PROVIDER_NOT_CONFIGURED'
+  | 'SIM_PROVIDER_RATE_LIMITED'
+  | 'SIM_RESET_UNAVAILABLE'
+  | 'SIM_TEST_UNAVAILABLE'
   | 'SITE_HAS_STATIONS'
   | 'SITE_NOT_FOUND'
   | 'SITE_PAYMENT_CONFIG_IN_USE'
@@ -1049,6 +1073,18 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   SESSION_REQUIRED: 'This action needs a signed-in session. API keys cannot use it.',
   SESSION_STOP_REJECTED: 'The station rejected the stop request. The session is still charging.',
   SETTING_NOT_FOUND: 'Setting not found',
+  SIM_ACTION_UNSUPPORTED: 'The SIM provider does not support this action for this SIM',
+  SIM_CONFIRMED_ELSEWHERE: 'Another station already has a confirmed match for this SIM',
+  SIM_FEATURE_DISABLED: 'SIM providers and station signal reads are turned off',
+  SIM_MATCH_CHANGED: 'The SIM match changed since it was shown. Check the SIM and confirm again',
+  SIM_MATCH_NOT_CONFIRMED: 'Confirm the SIM before resetting its network',
+  SIM_MATCHED_ELSEWHERE: 'This SIM is matched to another station',
+  SIM_NOT_FOUND: 'No SIM is matched to this station',
+  SIM_PROVIDER_ERROR: 'The SIM provider request failed',
+  SIM_PROVIDER_NOT_CONFIGURED: 'No SIM provider is configured',
+  SIM_PROVIDER_RATE_LIMITED: 'Too many SIM requests, try again later',
+  SIM_RESET_UNAVAILABLE: 'The network reset cannot be started right now. Try again in a minute',
+  SIM_TEST_UNAVAILABLE: 'The connection test cannot run right now. Try again in a minute',
   SITE_HAS_STATIONS: 'Cannot delete site with stations. Remove or reassign stations first.',
   SITE_NOT_FOUND: 'Site not found',
   SITE_PAYMENT_CONFIG_IN_USE:

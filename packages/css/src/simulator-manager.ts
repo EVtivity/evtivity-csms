@@ -468,6 +468,9 @@ export class SimulatorManager {
         case 'evFull':
           await sim.evFull(params.evseId as number);
           break;
+        case 'setSignalStrength':
+          sim.setSignalStrength(params.dbm as number);
+          break;
         case 'powerCycle': {
           const powerOffMs = (params.powerOffMs as number | undefined) ?? 0;
           if (params.preserveTransactions === false) {

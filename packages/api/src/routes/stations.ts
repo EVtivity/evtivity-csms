@@ -39,6 +39,7 @@ import {
   stationInsightSuppressionSourcesSql,
   stationUnderActiveMaintenanceSql,
   isOperatorStation,
+  recordEnteredIccid,
 } from '@evtivity/database';
 import type { StationInsightSuppressionSource } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -101,7 +102,12 @@ import {
   revenueItem,
 } from '@evtivity/services/session-revenue';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { getUserSiteIds, checkStationSiteAccess, userCanAccessSite } from '../lib/site-access.js';
+import {
+  getUserSiteIds,
+  checkStationSiteAccess,
+  isAllSiteUser,
+  userCanAccessSite,
+} from '../lib/site-access.js';
 import { circuitIdAfterSiteChange } from '../lib/station-circuit.js';
 import { siteInScope } from '../lib/site-scope.js';
 import {
@@ -114,7 +120,12 @@ import {
 import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
 import { enumerateLocalDays, zeroFillDays } from '../lib/daily-series.js';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
-import { monitorClearOutcome, monitorSetOutcome } from '../lib/variable-monitoring.js';
+import {
+  insertPendingMonitorRule,
+  monitorClearOutcome,
+  monitorSetOutcome,
+  setMonitoringDataItem,
+} from '@evtivity/services/variable-monitoring';
 import { sendStatusCheckError, triggerAndWaitForStatus } from '../lib/station-status-check.js';
 import {
   buildDerivedStatusSubquery,
@@ -165,6 +176,8 @@ import {
   isOcpp21,
   OCPP21_ONLY_MONITOR_TYPES,
   OCPP21_ONLY_PROFILE_PURPOSES,
+  iccidChanged,
+  normalizeIccid,
 } from '@evtivity/lib';
 import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 import { authorize } from '../middleware/rbac.js';
@@ -354,6 +367,20 @@ const updateStationBody = z.object({
     .boolean()
     .optional()
     .describe('Whether reservations are allowed at this station'),
+  iccid: z
+    .string()
+    .regex(/^([0-9]{19}[Ff]?|[0-9]{20})$/)
+    .nullable()
+    .optional()
+    .describe(
+      'SIM card ICCID of a station that does not report one: 19 or 20 digits, a 19-digit ICCID may end in an F; null removes it. A later BootNotification with another ICCID replaces it.',
+    ),
+  imsi: z
+    .string()
+    .regex(/^[0-9]{1,15}$/)
+    .nullable()
+    .optional()
+    .describe('SIM card IMSI (up to 15 digits); null removes it'),
 });
 
 const confirmRealStationResponse = z
@@ -1753,9 +1780,17 @@ export function stationRoutes(app: FastifyInstance): void {
         );
       }
 
-      // Run the chargingStations UPDATE and any css_stations sync atomically so
-      // a failure in pairing rolls the parent update back instead of leaving
-      // the two tables out of sync.
+      const iccidEntry =
+        body.iccid !== undefined
+          ? {
+              by: (request.user as JwtPayload).userId,
+              withAllSites: await isAllSiteUser((request.user as JwtPayload).userId),
+            }
+          : null;
+
+      // Run the chargingStations UPDATE, any css_stations sync and the entered
+      // ICCID atomically so a failure rolls the whole update back instead of
+      // leaving the tables out of sync.
       const station = await db.transaction(async (tx) => {
         const [updated] = await tx
           .update(chargingStations)
@@ -1803,6 +1838,21 @@ export function stationRoutes(app: FastifyInstance): void {
           } else {
             await disableCssPair(updated.stationId, tx);
           }
+        }
+
+        // An entered ICCID is the operator's word for the SIM: another SIM than
+        // the station held clears its match. The next Refresh confirms the entered
+        // one only when the person who entered it had access to every site.
+        if (iccidEntry != null) {
+          await recordEnteredIccid(
+            updated.id,
+            normalizeIccid(body.iccid),
+            iccidChanged(beforeStation?.iccid, body.iccid),
+            iccidEntry,
+            getAuditActor(request),
+            request.log,
+            tx,
+          );
         }
 
         return updated;
@@ -5026,7 +5076,22 @@ export function stationRoutes(app: FastifyInstance): void {
 
       const [data, countResult] = await Promise.all([
         db
-          .select()
+          // The columns the reply had before the unit and monitoring support were added.
+          .select({
+            id: stationConfigurations.id,
+            stationId: stationConfigurations.stationId,
+            component: stationConfigurations.component,
+            instance: stationConfigurations.instance,
+            evseId: stationConfigurations.evseId,
+            connectorId: stationConfigurations.connectorId,
+            variable: stationConfigurations.variable,
+            variableInstance: stationConfigurations.variableInstance,
+            value: stationConfigurations.value,
+            attributeType: stationConfigurations.attributeType,
+            source: stationConfigurations.source,
+            createdAt: stationConfigurations.createdAt,
+            updatedAt: stationConfigurations.updatedAt,
+          })
           .from(stationConfigurations)
           .where(where)
           .orderBy(stationConfigurations.component, stationConfigurations.variable)
@@ -6242,6 +6307,45 @@ export function stationRoutes(app: FastifyInstance): void {
     })
     .passthrough();
 
+  // The reply keeps the columns it had before the low signal monitor columns
+  // (component instance, source) were added.
+  const MONITORING_RULE_COLUMNS = {
+    id: variableMonitoringRules.id,
+    stationId: variableMonitoringRules.stationId,
+    monitoringId: variableMonitoringRules.monitoringId,
+    component: variableMonitoringRules.component,
+    variable: variableMonitoringRules.variable,
+    type: variableMonitoringRules.type,
+    value: variableMonitoringRules.value,
+    severity: variableMonitoringRules.severity,
+    status: variableMonitoringRules.status,
+    errorInfo: variableMonitoringRules.errorInfo,
+    createdAt: variableMonitoringRules.createdAt,
+    updatedAt: variableMonitoringRules.updatedAt,
+  };
+
+  function monitoringRuleReply(
+    row: typeof variableMonitoringRules.$inferSelect,
+  ): Omit<
+    typeof variableMonitoringRules.$inferSelect,
+    'componentInstance' | 'source' | 'reportRequestId' | 'reportReason'
+  > {
+    return {
+      id: row.id,
+      stationId: row.stationId,
+      monitoringId: row.monitoringId,
+      component: row.component,
+      variable: row.variable,
+      type: row.type,
+      value: row.value,
+      severity: row.severity,
+      status: row.status,
+      errorInfo: row.errorInfo,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
   const createMonitoringRuleBody = z
     .object({
       component: z.string().min(1).max(50).describe('OCPP component name'),
@@ -6292,14 +6396,18 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const where = eq(variableMonitoringRules.stationId, id);
+      // The low signal monitors of the SIM settings are not operator rules.
+      const where = and(
+        eq(variableMonitoringRules.stationId, id),
+        eq(variableMonitoringRules.source, 'operator'),
+      );
       const page = query.page;
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
       const [data, countResult] = await Promise.all([
         db
-          .select()
+          .select(MONITORING_RULE_COLUMNS)
           .from(variableMonitoringRules)
           .where(where)
           .orderBy(desc(variableMonitoringRules.createdAt), desc(variableMonitoringRules.id))
@@ -6386,36 +6494,21 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [rule] = await db
-        .insert(variableMonitoringRules)
-        .values({
-          stationId: id,
-          component: body.component,
-          variable: body.variable,
-          type: body.type,
-          value: String(body.value),
-          severity: body.severity,
-          status: 'pending',
-        })
-        .returning();
-      if (rule == null) {
-        throw new Error('Monitoring rule insert returned no row');
-      }
+      const rule = await insertPendingMonitorRule({
+        stationId: id,
+        component: body.component,
+        componentInstance: null,
+        variable: body.variable,
+        type: body.type,
+        value: body.value,
+        severity: body.severity,
+        source: 'operator',
+      });
 
       const result = await sendOcppCommandAndWait(
         station.stationId,
         'SetVariableMonitoring',
-        {
-          setMonitoringData: [
-            {
-              component: { name: body.component },
-              variable: { name: body.variable },
-              type: body.type,
-              value: body.value,
-              severity: body.severity,
-            },
-          ],
-        },
+        { setMonitoringData: [setMonitoringDataItem(rule)] },
         '2.1',
       );
 
@@ -6435,7 +6528,7 @@ export function stationRoutes(app: FastifyInstance): void {
             eq(variableMonitoringRules.status, 'pending'),
           ),
         )
-        .returning();
+        .returning(MONITORING_RULE_COLUMNS);
 
       // The rule row exists whatever the station answered (active or error).
       await auditStationChange(request, id, 'monitoring_changed', {
@@ -6454,7 +6547,7 @@ export function stationRoutes(app: FastifyInstance): void {
       });
 
       if (outcome.status === 'active') {
-        return reply.status(201).send(stored ?? rule);
+        return reply.status(201).send(stored ?? monitoringRuleReply(rule));
       }
       request.log.warn(
         { ruleId: rule.id, stationId: station.stationId, errorInfo: outcome.errorInfo },
@@ -6524,7 +6617,11 @@ export function stationRoutes(app: FastifyInstance): void {
         .select()
         .from(variableMonitoringRules)
         .where(
-          and(eq(variableMonitoringRules.id, ruleId), eq(variableMonitoringRules.stationId, id)),
+          and(
+            eq(variableMonitoringRules.id, ruleId),
+            eq(variableMonitoringRules.stationId, id),
+            eq(variableMonitoringRules.source, 'operator'),
+          ),
         );
       if (rule == null) {
         await reply

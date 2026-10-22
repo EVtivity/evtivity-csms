@@ -30,7 +30,11 @@ import {
   clearNotificationSettingsCache,
   clearStationMessageCache,
 } from '@evtivity/lib';
-import { clearAutochargeCache, clearStationMessageSettingsCache } from '@evtivity/database';
+import {
+  clearAutochargeCache,
+  clearSimSettingsCache,
+  clearStationMessageSettingsCache,
+} from '@evtivity/database';
 import { clearContractValidationCaCache } from '../services/pki/contract-certificate-validation.js';
 import { clearLocalContractCaCache } from '../services/pki/local-ca-store.js';
 import { clearOemTrustCache } from '../services/pki/local-contract-provider.js';
@@ -128,6 +132,10 @@ export async function subscribeOcppEventSettingsInvalidation(
         // One-shot station messages render here.
         clearStationMessageCache();
         clearStationMessageSettingsCache();
+      }
+      if (msg.kind === 'sim_settings') {
+        // The low signal monitor sync after a boot reads them.
+        clearSimSettingsCache();
       }
     } catch (err: unknown) {
       log.warn({ err }, 'Bad cache_invalidate payload');

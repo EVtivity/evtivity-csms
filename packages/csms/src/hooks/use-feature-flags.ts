@@ -23,6 +23,10 @@ export interface NavFeatureFlags {
 export interface FeatureFlags extends NavFeatureFlags {
   guestChargingEnabled: boolean;
   chatbotAiEnabled: boolean;
+  /** A SIM provider or station signal reads are on: the station Connectivity tab and ICCID field. */
+  simEnabled: boolean;
+  /** Station signal reads are on: a SIM Refresh also sends one OCPP request to the station. */
+  simStationSignalEnabled: boolean;
 }
 
 export interface FeatureFlagsResult {
@@ -37,7 +41,7 @@ type FeaturesResponse = Partial<Record<keyof FeatureFlags, unknown>>;
 
 /**
  * The flags from `GET /v1/portal/features`. Until it answers (or when it
- * fails), roaming, Plug and Charge, the AI assistant and AI insights count as off and the
+ * fails), roaming, Plug and Charge, the AI assistant, AI insights and the SIM features count as off and the
  * others as on.
  */
 export function resolveFeatureFlags(features: FeaturesResponse | undefined): FeatureFlags {
@@ -50,6 +54,8 @@ export function resolveFeatureFlags(features: FeaturesResponse | undefined): Fea
     guestChargingEnabled: features?.guestChargingEnabled !== false,
     chatbotAiEnabled: features?.chatbotAiEnabled === true,
     aiInsightsEnabled: features?.aiInsightsEnabled === true,
+    simEnabled: features?.simEnabled === true,
+    simStationSignalEnabled: features?.simStationSignalEnabled === true,
   };
 }
 

@@ -15,6 +15,7 @@ import { clearUserActiveCacheLocal } from '../lib/user-active.js';
 import { closeUserEventStreams } from '../routes/events.js';
 import { closeDriverEventStreams } from '../routes/portal/events.js';
 import { clearMaintenanceCheckCacheLocal } from '@evtivity/services/maintenance-check';
+import { clearSimCaches } from '../lib/sim.js';
 
 interface CacheInvalidateMessage {
   kind:
@@ -25,6 +26,7 @@ interface CacheInvalidateMessage {
     | 'security_settings'
     | 'maintenance'
     | 'station_message'
+    | 'sim_settings'
     | 'driver_active';
   userId?: string;
   driverId?: string;
@@ -51,6 +53,9 @@ interface CacheInvalidateMessage {
  * `driver_active` comes from announceDriverSessionChange (a driver
  * deactivation or an ended driver session): every pod ends the driver's
  * portal streams.
+ *
+ * `sim_settings` comes from the SIM provider settings save: every pod reads the
+ * new settings and rebuilds its provider adapters.
  *
  * `station_message` comes from requestStationMessageRepush after a station
  * message setting, company setting, or state template changes: the listeners
@@ -84,6 +89,9 @@ export async function startCacheInvalidateListener(
         clearStationMessageCache();
         clearStationMessageSettingsCache();
         clearSystemSettingsCache();
+        return;
+      case 'sim_settings':
+        clearSimCaches();
         return;
       case 'driver_active':
         // A deactivated driver's or ended session's portal streams end on

@@ -158,6 +158,7 @@ import {
   ACTION_VERSIONS,
   cssActionFitsProtocol,
   OCPP21_ONLY_CSS_ACTIONS,
+  SIMULATED_DEVICE_ACTIONS,
   HIGH_LEVEL_ACTIONS,
   STATION_MESSAGE_ACTIONS,
 } from '../routes/css.js';
@@ -410,6 +411,44 @@ describe('CSS routes', () => {
       expect(JSON.parse(published?.[1] ?? '{}')).toMatchObject({ action, params });
     });
 
+    it.each(['ocpp2.1', 'ocpp2.0.1'])(
+      'publishes setSignalStrength for a %s station',
+      async (ocppProtocol) => {
+        setupDbResults([{ id: 'id-1', stationId: 'TEST-SIG', ocppProtocol }]);
+        const response = await app.inject({
+          method: 'POST',
+          url: '/css/actions/v21/setSignalStrength',
+          headers: { authorization: `Bearer ${token}` },
+          payload: { stationId: 'TEST-SIG', dbm: -104 },
+        });
+        expect(response.statusCode).toBe(200);
+        const published = mockState.publishCalls.find(([ch]) => ch === 'css_commands');
+        expect(JSON.parse(published?.[1] ?? '{}')).toMatchObject({
+          action: 'setSignalStrength',
+          params: { dbm: -104 },
+        });
+      },
+    );
+
+    it('refuses setSignalStrength out of range and on an OCPP 1.6 station', async () => {
+      const outOfRange = await app.inject({
+        method: 'POST',
+        url: '/css/actions/v21/setSignalStrength',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-SIG', dbm: -20 },
+      });
+      expect(outOfRange.statusCode).toBe(400);
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-16', ocppProtocol: 'ocpp1.6' }]);
+      const v16 = await app.inject({
+        method: 'POST',
+        url: '/css/actions/v21/setSignalStrength',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-16', dbm: -90 },
+      });
+      expect(v16.statusCode).toBe(400);
+      expect(v16.json<{ code: string }>().code).toBe('OCPP_VERSION_MISMATCH');
+    });
+
     it.each([
       ['ocpp2.1', 'NoReply'],
       ['ocpp1.6', 'Occupied'],
@@ -615,7 +654,8 @@ describe('cssActionFitsProtocol', () => {
       existsSync(new URL(`${action.replace(/^send/, '')}Request.json`, schemas201));
     const actions21 = Object.entries(ACTION_VERSIONS)
       .filter(([, version]) => version === 'ocpp2.1')
-      .map(([action]) => action);
+      .map(([action]) => action)
+      .filter((action) => !SIMULATED_DEVICE_ACTIONS.includes(action));
 
     expect(actions21.filter((a) => !in201(a)).sort()).toEqual([...OCPP21_ONLY_CSS_ACTIONS].sort());
     expect(existsSync(new URL('TransactionEventRequest.json', schemas201))).toBe(true);

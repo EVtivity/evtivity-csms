@@ -4,6 +4,7 @@
 import type { FastifyServerOptions } from 'fastify';
 import { RedisPubSubClient, createLogger, initSentry, logFormatOptions } from '@evtivity/lib';
 import { client, getSentryConfig, guardPgConnectionRejections } from '@evtivity/database';
+import { closeSimKeyStore } from './lib/sim-keys.js';
 import { createShutdownHandler } from './lib/process-shutdown.js';
 import { closeJobQueues, initJobQueues } from '@evtivity/lib/job-queues';
 import { buildApp } from './app.js';
@@ -78,6 +79,7 @@ async function start(): Promise<void> {
     await stopMetricsServer();
     await cacheInvalidateSubscription.unsubscribe();
     await closeJobQueues();
+    await closeSimKeyStore();
     await pubsub.close();
   });
 

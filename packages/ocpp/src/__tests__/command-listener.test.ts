@@ -605,8 +605,131 @@ describe('CommandListener', () => {
     expect(types).not.toContain('command.Queued');
     expect(mockPublish).toHaveBeenCalledWith(
       'ocpp_command_results',
-      JSON.stringify({ commandId: 'cmd-ocpi', error: 'Station offline, command not queued' }),
+      JSON.stringify({
+        commandId: 'cmd-ocpi',
+        error: 'Station offline, command not queued',
+        offline: true,
+      }),
     );
+  });
+
+  describe('SetVariableMonitoring', () => {
+    const signalItem = {
+      component: { name: 'DataLink', instance: 'Modem1' },
+      variable: { name: 'SignalStrength' },
+      type: 'LowerThreshold',
+      value: -100,
+      severity: 6,
+    };
+    const powerItem = {
+      component: { name: 'EVSE' },
+      variable: { name: 'Power' },
+      type: 'UpperThreshold',
+      value: 22000,
+      severity: 5,
+    };
+    const send = (items: unknown[], extra: Record<string, unknown> = {}): void => {
+      subscribeHandler!(
+        JSON.stringify({
+          commandId: 'cmd-mon',
+          stationId: 'CS-001',
+          action: 'SetVariableMonitoring',
+          payload: { setMonitoringData: items },
+          ...extra,
+        }),
+      );
+    };
+    const monitorEvents = (): Array<Record<string, unknown>> =>
+      eventBus.publish.mock.calls
+        .map((c) => c[0] as { eventType: string; payload: Record<string, unknown> })
+        .filter((e) => e.eventType === 'command.SetVariableMonitoring')
+        .map((e) => e.payload);
+
+    it('publishes the answer only for a request with a DataLink.SignalStrength item', async () => {
+      await createAndStart();
+      dispatcher.sendVersionAwareCommand.mockResolvedValueOnce({ setMonitoringResult: [] });
+      send([powerItem]);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(monitorEvents()).toEqual([]);
+
+      dispatcher.sendVersionAwareCommand.mockResolvedValueOnce({ setMonitoringResult: [] });
+      send([signalItem]);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(monitorEvents()).toEqual([
+        { request: { setMonitoringData: [signalItem] }, response: { setMonitoringResult: [] } },
+      ]);
+    });
+
+    it('publishes the failure of a low signal monitor: no answer, or a station not connected', async () => {
+      await createAndStart();
+      dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+        new CommandTimeoutError('SetVariableMonitoring', 'msg-1'),
+      );
+      send([signalItem]);
+      await new Promise((r) => setTimeout(r, 10));
+      dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+        new Error('Station CS-001 is not connected'),
+      );
+      send([signalItem], { noQueue: true });
+      await new Promise((r) => setTimeout(r, 10));
+      dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(new Error('CALLERROR boom'));
+      send([powerItem]);
+      await new Promise((r) => setTimeout(r, 10));
+
+      const events = monitorEvents();
+      expect(events).toHaveLength(2);
+      expect(events[0]).toMatchObject({
+        request: { setMonitoringData: [signalItem] },
+        timedOut: true,
+      });
+      expect(typeof events[0]?.['error']).toBe('string');
+      expect(events[1]).toEqual({
+        request: { setMonitoringData: [signalItem] },
+        error: 'Station offline, command not queued',
+      });
+    });
+
+    it('publishes the answer or failure of a GetMonitoringReport that reads a low signal monitor', async () => {
+      await createAndStart();
+      const read = {
+        requestId: 7,
+        monitoringCriteria: ['ThresholdMonitoring'],
+        componentVariable: [
+          {
+            component: { name: 'DataLink', instance: 'Modem1' },
+            variable: { name: 'SignalStrength' },
+          },
+        ],
+      };
+      const report = (payload: Record<string, unknown>, extra: Record<string, unknown> = {}) => {
+        subscribeHandler!(
+          JSON.stringify({ stationId: 'CS-001', action: 'GetMonitoringReport', payload, ...extra }),
+        );
+      };
+      const reportEvents = (): Array<Record<string, unknown>> =>
+        eventBus.publish.mock.calls
+          .map((c) => c[0] as { eventType: string; payload: Record<string, unknown> })
+          .filter((e) => e.eventType === 'command.GetMonitoringReport')
+          .map((e) => e.payload);
+
+      dispatcher.sendVersionAwareCommand.mockResolvedValueOnce({ status: 'Accepted' });
+      report({ requestId: 8, monitoringCriteria: ['DeltaMonitoring'] });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(reportEvents()).toEqual([]);
+
+      dispatcher.sendVersionAwareCommand.mockResolvedValueOnce({ status: 'EmptyResultSet' });
+      report(read);
+      await new Promise((r) => setTimeout(r, 10));
+      dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+        new CommandTimeoutError('GetMonitoringReport', 'msg-2'),
+      );
+      report(read, { noQueue: true });
+      await new Promise((r) => setTimeout(r, 10));
+      expect(reportEvents()).toEqual([
+        { request: read, response: { status: 'EmptyResultSet' } },
+        expect.objectContaining({ request: read, timedOut: true }),
+      ]);
+    });
   });
 
   it('sends queued result via pubsub when station offline', async () => {

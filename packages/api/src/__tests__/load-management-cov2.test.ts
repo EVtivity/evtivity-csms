@@ -299,6 +299,47 @@ describe('Load management routes (hierarchy and site scope)', () => {
     expect(stations.find((s) => s.id === 'sit_000000000002')?.allocatedLimitKw).toBeNull();
   });
 
+  it('builds its route schemas without a recursive reference warning', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fresh = Fastify();
+    try {
+      await registerAuth(fresh);
+      loadManagementRoutes(fresh);
+      await fresh.ready();
+    } finally {
+      await fresh.close();
+      warn.mockRestore();
+    }
+    const recursive = warn.mock.calls.filter((args) =>
+      String(args[0]).includes('Recursive reference'),
+    );
+    expect(recursive).toEqual([]);
+  });
+
+  it('returns sub-panels nested below a sub-panel with every field', async () => {
+    const grandchild = node({ id: 'pnl_3', name: 'Sub Sub', maxContinuousKw: 6 });
+    const child = node({ id: 'pnl_2', name: 'Sub', children: [grandchild] });
+    vi.mocked(buildSiteHierarchy).mockResolvedValue([node({ children: [child] })] as never);
+    setupDbResults([]);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/sites/${SITE}/load-management`,
+      headers: auth(),
+    });
+    expect(res.statusCode).toBe(200);
+    const nested = res.json().hierarchy[0].childPanels[0].childPanels[0];
+    expect(nested).toMatchObject({
+      id: 'pnl_3',
+      name: 'Sub Sub',
+      maxContinuousKw: 6,
+      circuits: [],
+      childPanels: [],
+      unmanagedLoads: [],
+    });
+    expect(typeof nested.availableKw).toBe('number');
+    expect(typeof nested.utilization).toBe('number');
+  });
+
   it('caps utilization at 1 when the panel is over its effective capacity', async () => {
     vi.mocked(buildSiteHierarchy).mockResolvedValue([
       node({ maxContinuousKw: 50, safetyMarginKw: 0, unmanagedLoadKw: 0, currentDrawKw: 80 }),

@@ -48,10 +48,12 @@ import {
   alertStationWatchersIfAvailable,
   markLoadManagementStale,
   recordLoadManagementProfileReply,
+  clearStationSimMatch,
+  getSimGeneralSettings,
 } from '@evtivity/database';
 import { getSecuritySeverity } from '../lib/security-severity.js';
 import { paymentContext } from '../lib/payments.js';
-import { upsertStationConfiguration } from './station-configurations.js';
+import { reportedCharacteristics, upsertStationConfiguration } from './station-configurations.js';
 import { CACHE_MAX_SIZE } from './projection-support/ttl-cache.js';
 import { createProjectionLookups } from './projection-support/lookups.js';
 import { createProjectionNotifier } from './projection-support/notify.js';
@@ -80,6 +82,7 @@ import {
   createLogger,
   FREE_VEND_OCPP_21_VARIABLES,
   FREE_VEND_OCPP_16_KEYS,
+  iccidChanged,
   isOcpp21,
   isOcpp2x,
   LIVENESS_WRITE_INTERVAL_SECONDS,
@@ -92,6 +95,13 @@ import {
 } from '@evtivity/lib';
 import { enqueueMaintenanceFanout } from '@evtivity/services/maintenance.service';
 import { enqueueStationRefresh } from '@evtivity/services/station-message.service';
+import {
+  recordLowSignalMonitorFailure,
+  recordLowSignalMonitorReport,
+  recordLowSignalMonitorResults,
+  recordLowSignalReportResult,
+  syncStationLowSignalMonitor,
+} from '@evtivity/services/station-signal-monitor.service';
 import {
   LOAD_MANAGEMENT_PROFILE_ID,
   LOAD_MANAGEMENT_STACK_LEVEL,
@@ -530,6 +540,21 @@ export function registerProjections(
       logger.warn({ err, stationOcppId }, 'Firmware campaign dispatch on connect failed');
     }
 
+    // The low signal monitors of the SIM settings are sent again after a boot
+    // (configuration, not a read). With the alert off, only monitors marked for
+    // clearing while the station was offline are cleared.
+    try {
+      const signal = await getSimGeneralSettings();
+      await syncStationLowSignalMonitor(
+        { id: stationUuid, stationId: stationOcppId, ocppProtocol, isOnline: true },
+        signal,
+        { pubsub, log: logger },
+        { afterBoot: true },
+      );
+    } catch (err) {
+      logger.warn({ err, stationOcppId }, 'Low signal monitor not sent after boot');
+    }
+
     // Both versions: OCPP 1.6 stations get the Idle screen through the
     // vendor DataTransfer (station-message.service.ts).
     if (ocppProtocol != null) {
@@ -685,13 +710,14 @@ export function registerProjections(
     const firmwareVersion = getString(payload, 'firmwareVersion');
     const model = getString(payload, 'model');
     const serialNumber = getString(payload, 'serialNumber');
-    const iccid = getString(payload, 'iccid');
-    const imsi = getString(payload, 'imsi');
+    // An empty ICCID or IMSI is none: it neither replaces the stored one nor clears the SIM match.
+    const iccid = getString(payload, 'iccid')?.trim() || null;
+    const imsi = getString(payload, 'imsi')?.trim() || null;
     const vendorName = getString(payload, 'vendorName');
 
     // Check if station is pending onboarding
     const [current] = await sql`
-      SELECT onboarding_status FROM charging_stations WHERE id = ${stationUuid}
+      SELECT onboarding_status, iccid FROM charging_stations WHERE id = ${stationUuid}
     `;
 
     // Persist the booted vendor string in metadata.bootVendor for diagnostic
@@ -744,6 +770,24 @@ export function registerProjections(
           updated_at = now()
         WHERE id = ${stationUuid}
       `;
+    }
+
+    // The ICCID is stored as reported. A SIM match is for the SIM the station
+    // held, so another SIM (a trailing F does not count) clears it.
+    if (iccid != null && iccidChanged(current?.iccid as string | null | undefined, iccid)) {
+      try {
+        await clearStationSimMatch(
+          stationUuid,
+          { actor: 'ocpp', actorLabel: 'BootNotification' },
+          { forgetEnteredIccid: true },
+          logger,
+        );
+      } catch (err: unknown) {
+        logger.error(
+          { err, stationId: event.aggregateId },
+          'SIM match not cleared after an ICCID change; clear it on the Connectivity tab',
+        );
+      }
     }
 
     const siteId = await lookups.resolveSiteId(stationUuid);
@@ -2510,6 +2554,9 @@ export function registerProjections(
 
     // Alerting: check for alerting/critical events
     for (const item of eventData) {
+      // A cleared item reports the return to normal: it opens no alert and
+      // leaves the open one unacknowledged (acknowledging is the operator's).
+      if (item.cleared === true) continue;
       const trigger = (item.trigger as string | undefined) ?? '';
       const severity = (item.severity as number | undefined) ?? 9;
       const component = item.component as Record<string, unknown> | undefined;
@@ -2568,6 +2615,11 @@ export function registerProjections(
       INSERT INTO monitoring_reports (station_id, request_id, seq_no, generated_at, tbc, monitor)
       VALUES (${stationUuid}, ${requestId}, ${seqNo}, ${generatedAt}, ${tbc}, ${monitor != null ? sql.json(asJson(monitor)) : null})
     `;
+    // A low signal read: the monitor ids the station holds.
+    await recordLowSignalMonitorReport({ id: stationUuid, stationId: event.aggregateId }, payload, {
+      pubsub,
+      log: logger,
+    });
   });
 
   safeSubscribe('ocpp.ReportChargingProfiles', async (event: DomainEvent) => {
@@ -2626,6 +2678,7 @@ export function registerProjections(
         | Array<Record<string, unknown>>
         | undefined;
       if (variableAttribute == null) continue;
+      const characteristics = reportedCharacteristics(entry.variableCharacteristics);
 
       for (const attr of variableAttribute) {
         const attrType = (attr.type as string | undefined) ?? 'Actual';
@@ -2647,6 +2700,7 @@ export function registerProjections(
           value,
           attributeType: attrType,
           source: 'NotifyReport',
+          ...(characteristics != null ? { characteristics } : {}),
         });
 
         // Spec-defined path for learning a connector's plug shape: the
@@ -3007,6 +3061,44 @@ export function registerProjections(
         source: 'GetVariables',
       });
     }
+  });
+
+  safeSubscribe('command.SetVariableMonitoring', async (event: DomainEvent) => {
+    const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
+    if (stationUuid == null) return;
+    const request = event.payload.request as Record<string, unknown> | undefined;
+    const error = event.payload.error;
+    if (typeof error === 'string') {
+      await recordLowSignalMonitorFailure(
+        { id: stationUuid, stationId: event.aggregateId },
+        request,
+        error,
+        { pubsub, log: logger },
+        { timedOut: event.payload.timedOut === true },
+      );
+      return;
+    }
+    const response = event.payload.response as Record<string, unknown> | undefined;
+    await recordLowSignalMonitorResults(
+      { id: stationUuid, stationId: event.aggregateId },
+      request,
+      response,
+      { pubsub, log: logger },
+    );
+  });
+
+  safeSubscribe('command.GetMonitoringReport', async (event: DomainEvent) => {
+    const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
+    if (stationUuid == null) return;
+    const error = event.payload.error;
+    await recordLowSignalReportResult(
+      { id: stationUuid, stationId: event.aggregateId },
+      event.payload.request as Record<string, unknown> | undefined,
+      typeof error === 'string'
+        ? { error }
+        : { response: event.payload.response as Record<string, unknown> | undefined },
+      { pubsub, log: logger },
+    );
   });
 
   safeSubscribe('command.GetConfiguration', async (event: DomainEvent) => {

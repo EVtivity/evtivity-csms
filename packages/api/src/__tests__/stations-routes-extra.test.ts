@@ -2432,10 +2432,12 @@ describe('Station routes - extra coverage', () => {
       expect(argsOf(chainsOf('insert')[0], 'values')?.[0]).toEqual({
         stationId: STATION,
         component: 'EVSE',
+        componentInstance: null,
         variable: 'Power',
         type: 'UpperThreshold',
         value: '7.5',
         severity: 0,
+        source: 'operator',
         status: 'pending',
       });
       expect(mocks.sendOcpp).toHaveBeenCalledWith(

@@ -112,6 +112,8 @@ services:
       # driver SMS and push then go to the notify-sink dev tool, not Twilio and Expo.
       NOTIFICATIONS_ALLOW_TEST_SINK: ${NOTIFICATIONS_ALLOW_TEST_SINK:-false}
       NOTIFICATIONS_TEST_SINK_URL: ${NOTIFICATIONS_TEST_SINK_URL:-}
+      # Off by default: SIM provider calls go to the vendor hosts.
+      SIM_PROVIDER_TEST_BASE_URL: ${SIM_PROVIDER_TEST_BASE_URL:-}
       CORS_ORIGIN: local
       # Proxy IPs or CIDRs whose X-Forwarded-For is trusted. Empty: the ports are
       # published directly, so the socket address is the client.

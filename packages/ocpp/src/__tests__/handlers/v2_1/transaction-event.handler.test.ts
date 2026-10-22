@@ -185,6 +185,35 @@ describe('v2_1 TransactionEvent handler', () => {
     });
   });
 
+  it('marks an event queued while offline (E04.FR.03) and only that one', async () => {
+    const { handleTransactionEvent } = transactionEventHandlerModule;
+    const offline = makeCtx({
+      eventType: 'Updated',
+      timestamp: '2026-06-04T00:00:00Z',
+      triggerReason: 'ChargingStateChanged',
+      seqNo: 1,
+      offline: true,
+      transactionInfo: { transactionId: 'tx-off', chargingState: 'Idle' },
+    });
+    await handleTransactionEvent(offline.ctx);
+    expect(offline.publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ offline: true }) }),
+    );
+
+    const online = makeCtx({
+      eventType: 'Updated',
+      timestamp: '2026-06-04T00:00:00Z',
+      triggerReason: 'ChargingStateChanged',
+      seqNo: 1,
+      offline: false,
+      transactionInfo: { transactionId: 'tx-on', chargingState: 'Idle' },
+    });
+    await handleTransactionEvent(online.ctx);
+    const payload = (online.publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> })
+      .payload;
+    expect(payload).not.toHaveProperty('offline');
+  });
+
   it('passes the remoteStartId of the event after a remote start (F01.FR.25)', async () => {
     const { handleTransactionEvent } = transactionEventHandlerModule;
     const { ctx, publishMock } = makeCtx({

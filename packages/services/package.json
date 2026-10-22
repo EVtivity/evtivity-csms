@@ -136,6 +136,9 @@
     "./station-message.service": {
       "import": "./src/station-message.service.ts"
     },
+    "./station-sim.service": {
+      "import": "./src/station-sim.service.ts"
+    },
     "./support-case-notify": {
       "import": "./src/support-case-notify.ts"
     },
@@ -144,6 +147,12 @@
     },
     "./template-dirs": {
       "import": "./src/template-dirs.ts"
+    },
+    "./variable-monitoring": {
+      "import": "./src/variable-monitoring.ts"
+    },
+    "./station-signal-monitor.service": {
+      "import": "./src/station-signal-monitor.service.ts"
     }
   },
   "scripts": {
@@ -156,6 +165,7 @@
     "@evtivity/database": "*",
     "@evtivity/lib": "*",
     "@evtivity/payments": "*",
+    "@evtivity/sim-providers": "*",
     "@resvg/resvg-js": "^2.6.2",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^3.4.0",

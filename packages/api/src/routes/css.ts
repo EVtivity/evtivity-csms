@@ -161,6 +161,10 @@ export const STATION_MESSAGE_ACTIONS = [
   'sendDataTransfer',
 ] as const;
 
+// OCPP 2.x simulator actions that change the simulated device and send no
+// message of their own (the station reports through its monitors).
+export const SIMULATED_DEVICE_ACTIONS: readonly string[] = ['setSignalStrength'];
+
 export const ACTION_VERSIONS: Record<string, 'all' | 'ocpp1.6' | 'ocpp2.1'> = {
   // High-level actions (all versions, no version prefix)
   plugIn: 'all',
@@ -183,6 +187,7 @@ export const ACTION_VERSIONS: Record<string, 'all' | 'ocpp1.6' | 'ocpp2.1'> = {
   sendLogStatusNotification: 'ocpp2.1',
   sendSecurityEventNotification: 'ocpp2.1',
   sendNotifyEvent: 'ocpp2.1',
+  setSignalStrength: 'ocpp2.1',
   sendNotifyReport: 'ocpp2.1',
   sendNotifyMonitoringReport: 'ocpp2.1',
   sendNotifyChargingLimit: 'ocpp2.1',
@@ -687,6 +692,15 @@ const sendSecurityEventNotificationBody = z.object({
     ),
   timestamp: z.string().describe('ISO 8601 timestamp'),
   techInfo: z.string().optional().describe('Additional information about the security event'),
+});
+
+const setSignalStrengthBody = z.object({
+  dbm: z
+    .number()
+    .int()
+    .min(-140)
+    .max(-40)
+    .describe('The new DataLink.SignalStrength in dBm; low signal monitors fire on a crossing'),
 });
 
 const sendNotifyEventBody = z.object({
@@ -2030,6 +2044,13 @@ export function cssRoutes(app: FastifyInstance): void {
     );
   }
   actionRoute(app, 'sendNotifyEvent', 'ocpp2.1', 'Send NotifyEvent', sendNotifyEventBody);
+  actionRoute(
+    app,
+    'setSignalStrength',
+    'ocpp2.1',
+    'Change the simulated modem signal strength (DataLink.SignalStrength)',
+    setSignalStrengthBody,
+  );
   actionRoute(app, 'sendNotifyReport', 'ocpp2.1', 'Send NotifyReport', sendNotifyReportBody);
   actionRoute(
     app,

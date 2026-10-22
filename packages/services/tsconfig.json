@@ -9,6 +9,7 @@
     { "path": "../lib" },
     { "path": "../ai" },
     { "path": "../database" },
-    { "path": "../payments" }
+    { "path": "../payments" },
+    { "path": "../sim-providers" }
   ]
 }

@@ -34,6 +34,7 @@ import { StationChargingProfilesTab } from '@/components/StationChargingProfiles
 import { StationImages } from '@/components/StationImages';
 import { StationSimulate } from '@/components/StationSimulate';
 import { StationInfoTab } from '@/components/station/StationInfoTab';
+import { StationConnectivityTab } from '@/components/station/StationConnectivityTab';
 import { StationMetricsTab } from '@/components/station/StationMetricsTab';
 import { StationSessionsTab } from '@/components/station/StationSessionsTab';
 import { StationQrTab } from '@/components/station/StationQrTab';
@@ -118,7 +119,13 @@ export function StationDetail(): React.JSX.Element {
   const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
 
   const {
-    flags: { guestChargingEnabled, reservationEnabled, aiInsightsEnabled },
+    flags: {
+      guestChargingEnabled,
+      reservationEnabled,
+      aiInsightsEnabled,
+      simEnabled,
+      simStationSignalEnabled,
+    },
   } = useFeatureFlags();
   const showInsightsTab = useHasPermission('aiInsights:read') && aiInsightsEnabled;
 
@@ -372,6 +379,7 @@ export function StationDetail(): React.JSX.Element {
           <TabsTrigger value="commands">{t('stations.ocppCommands')}</TabsTrigger>
           {station.isSimulator && <TabsTrigger value="simulate">{t('simulate.tab')}</TabsTrigger>}
           <TabsTrigger value="security">{t('stations.security')}</TabsTrigger>
+          {simEnabled && <TabsTrigger value="connectivity">{t('stations.sim.tab')}</TabsTrigger>}
           {isOcpp2x(station.ocppProtocol) && (
             <TabsTrigger value="certificates">{t('pnc.certificates')}</TabsTrigger>
           )}
@@ -404,7 +412,12 @@ export function StationDetail(): React.JSX.Element {
         </TabsList>
 
         <TabsContent value="info" className="space-y-6">
-          <StationInfoTab station={station} stationId={id ?? ''} siteTimezone={siteTimezone} />
+          <StationInfoTab
+            station={station}
+            stationId={id ?? ''}
+            siteTimezone={siteTimezone}
+            simEnabled={simEnabled}
+          />
         </TabsContent>
 
         <TabsContent value="images">
@@ -436,6 +449,17 @@ export function StationDetail(): React.JSX.Element {
           <StationCommands stationId={station.stationId} ocppProtocol={station.ocppProtocol} />
           <OcppMessageLog stationDbId={station.id} timezone={siteTimezone} />
         </TabsContent>
+
+        {simEnabled && (
+          <TabsContent value="connectivity">
+            <StationConnectivityTab
+              stationId={id ?? ''}
+              iccid={station.iccid}
+              timezone={siteTimezone}
+              stationSignalEnabled={simStationSignalEnabled}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="security">
           <StationSecurity

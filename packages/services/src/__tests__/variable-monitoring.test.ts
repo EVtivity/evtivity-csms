@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { monitorClearOutcome, monitorSetOutcome } from '../lib/variable-monitoring.js';
+import { monitorClearOutcome, monitorSetOutcome } from '../variable-monitoring.js';
 
 const base = { commandId: 'c' };
 

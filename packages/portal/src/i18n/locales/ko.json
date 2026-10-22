@@ -963,7 +963,19 @@
     "PASSKEY_LIMIT_REACHED": "패스키와 보안 키를 최대 개수까지 등록했습니다. 먼저 하나를 제거하세요.",
     "PASSKEY_NOT_FOUND": "패스키 또는 보안 키를 찾을 수 없습니다.",
     "WEBAUTHN_CHALLENGE_EXPIRED": "패스키 요청이 만료되었거나 이미 사용되었습니다. 다시 시도하세요.",
-    "WEBAUTHN_VERIFICATION_FAILED": "패스키 또는 보안 키를 확인할 수 없습니다."
+    "WEBAUTHN_VERIFICATION_FAILED": "패스키 또는 보안 키를 확인할 수 없습니다.",
+    "SIM_ACTION_UNSUPPORTED": "SIM 제공업체가 이 SIM에 대해 이 작업을 지원하지 않습니다",
+    "SIM_CONFIRMED_ELSEWHERE": "다른 충전소에 이 SIM의 확인된 연결이 이미 있습니다",
+    "SIM_FEATURE_DISABLED": "SIM 제공업체와 충전소 신호 읽기가 꺼져 있습니다",
+    "SIM_MATCHED_ELSEWHERE": "이 SIM은 다른 충전소에 연결되어 있습니다",
+    "SIM_MATCH_CHANGED": "표시된 후 SIM 매칭이 변경되었습니다. SIM을 확인하고 다시 확인하세요",
+    "SIM_MATCH_NOT_CONFIRMED": "네트워크를 재설정하기 전에 SIM을 확인하세요",
+    "SIM_NOT_FOUND": "이 충전소에 연결된 SIM이 없습니다",
+    "SIM_PROVIDER_ERROR": "SIM 제공업체 요청이 실패했습니다",
+    "SIM_PROVIDER_NOT_CONFIGURED": "구성된 SIM 제공업체가 없습니다",
+    "SIM_PROVIDER_RATE_LIMITED": "SIM 요청이 너무 많습니다. 나중에 다시 시도하세요",
+    "SIM_RESET_UNAVAILABLE": "지금은 네트워크 재설정을 시작할 수 없습니다. 1분 후에 다시 시도하세요",
+    "SIM_TEST_UNAVAILABLE": "지금은 연결 테스트를 실행할 수 없습니다. 1분 후에 다시 시도하세요"
   },
   "validation": {
     "required": "필수 항목입니다",

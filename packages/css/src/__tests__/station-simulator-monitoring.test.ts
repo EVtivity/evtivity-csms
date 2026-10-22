@@ -346,6 +346,45 @@ describe('monitor evaluation (N07)', () => {
     });
   });
 
+  it('a low signal monitor on DataLink.SignalStrength fires below the threshold and clears above it', async () => {
+    const h = await makeHarness({ boot: true });
+    const r = await setMonitor(h, {
+      component: { name: 'DataLink' },
+      variable: { name: 'SignalStrength' },
+      type: 'LowerThreshold',
+      value: -100,
+      severity: 6,
+    });
+    expect(r.status).toBe('Accepted');
+    h.sendCall.mockClear();
+    h.sim.setSignalStrength(-95);
+    h.sim.setSignalStrength(-104);
+    h.sim.setSignalStrength(-90);
+    await vi.advanceTimersByTimeAsync(0);
+    const events = h
+      .sent('NotifyEvent')
+      .flatMap((p) => p['eventData'] as Array<Record<string, unknown>>);
+    expect(events).toEqual([
+      expect.objectContaining({
+        trigger: 'Alerting',
+        actualValue: '-104',
+        variableMonitoringId: r.id,
+        component: { name: 'DataLink' },
+        variable: { name: 'SignalStrength' },
+        severity: 6,
+      }),
+      expect.objectContaining({ trigger: 'Alerting', actualValue: '-90', cleared: true }),
+    ]);
+    expect(call(h, 'getConfigValue', 'DataLink.SignalStrength')).toBe('-90');
+  });
+
+  it('refuses a signal change on an OCPP 1.6 station', async () => {
+    const h16 = await makeHarness({ protocol: 'ocpp1.6' });
+    expect(() => {
+      h16.sim.setSignalStrength(-80);
+    }).toThrow('OCPP 2.x');
+  });
+
   it('offline: queues events at or below OfflineQueuingSeverity and drops the rest', async () => {
     const h = await makeHarness({ connected: false });
     h.sim.setConfigValue('MonitoringCtrlr.OfflineQueuingSeverity', '3');

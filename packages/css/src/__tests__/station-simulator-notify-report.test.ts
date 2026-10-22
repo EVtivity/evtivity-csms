@@ -46,4 +46,36 @@ describe('StationSimulator NotifyReport', () => {
       supportsMonitoring: false,
     });
   });
+
+  it('reports the modem signal in dBm and as monitorable', async () => {
+    const sim = new StationSimulator(makeConfig(), noopSql());
+    const sendCall = vi.fn(async (_action: string, _payload: unknown) => ({}));
+    Object.defineProperty(sim.client, 'sendCall', { value: sendCall, writable: true });
+    const configVariables = (
+      sim as unknown as { configVariables: Map<string, { value: string; readonly: boolean }> }
+    ).configVariables;
+    configVariables.set('DataLink.SignalStrength', { value: '-71', readonly: true });
+    configVariables.set('DataLink.Active', { value: 'true', readonly: true });
+
+    await sim.sendNotifyReport(1);
+
+    const call = sendCall.mock.calls.find((c) => c[0] === 'NotifyReport');
+    const reportData =
+      (call?.[1] as { reportData: Array<Record<string, unknown>> } | undefined)?.reportData ?? [];
+    const of = (name: string): Record<string, unknown> | undefined =>
+      reportData.find(
+        (r) =>
+          (r['component'] as { name: string }).name === 'DataLink' &&
+          (r['variable'] as { name: string }).name === name,
+      );
+    expect(of('SignalStrength')?.['variableCharacteristics']).toEqual({
+      unit: 'dBm',
+      dataType: 'decimal',
+      supportsMonitoring: true,
+    });
+    expect(of('Active')?.['variableCharacteristics']).toEqual({
+      dataType: 'string',
+      supportsMonitoring: false,
+    });
+  });
 });

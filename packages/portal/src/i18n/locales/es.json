@@ -963,7 +963,19 @@
     "PASSKEY_LIMIT_REACHED": "Ha registrado el número máximo de llaves de acceso y llaves de seguridad. Elimine una primero.",
     "PASSKEY_NOT_FOUND": "No se encontró la llave de acceso o la llave de seguridad.",
     "WEBAUTHN_CHALLENGE_EXPIRED": "La solicitud de llave de acceso caducó o ya se usó. Inténtelo de nuevo.",
-    "WEBAUTHN_VERIFICATION_FAILED": "No se pudo verificar la llave de acceso o la llave de seguridad."
+    "WEBAUTHN_VERIFICATION_FAILED": "No se pudo verificar la llave de acceso o la llave de seguridad.",
+    "SIM_ACTION_UNSUPPORTED": "El proveedor de SIM no admite esta acción para esta SIM",
+    "SIM_CONFIRMED_ELSEWHERE": "Otra estación ya tiene una asociación confirmada con esta SIM",
+    "SIM_FEATURE_DISABLED": "Los proveedores de SIM y la lectura de señal de las estaciones están desactivados",
+    "SIM_MATCHED_ELSEWHERE": "Esta SIM está asociada a otra estación",
+    "SIM_MATCH_CHANGED": "La coincidencia de la SIM cambió desde que se mostró. Compruebe la SIM y confírmela de nuevo",
+    "SIM_MATCH_NOT_CONFIRMED": "Confirme la SIM antes de restablecer su red",
+    "SIM_NOT_FOUND": "No hay ninguna SIM asociada a esta estación",
+    "SIM_PROVIDER_ERROR": "La solicitud al proveedor de SIM falló",
+    "SIM_PROVIDER_NOT_CONFIGURED": "No hay ningún proveedor de SIM configurado",
+    "SIM_PROVIDER_RATE_LIMITED": "Demasiadas solicitudes de SIM, inténtelo más tarde",
+    "SIM_RESET_UNAVAILABLE": "El restablecimiento de red no se puede iniciar ahora. Inténtelo de nuevo en un minuto",
+    "SIM_TEST_UNAVAILABLE": "La prueba de conexión no se puede ejecutar ahora. Inténtelo de nuevo en un minuto"
   },
   "validation": {
     "required": "Este campo es obligatorio",

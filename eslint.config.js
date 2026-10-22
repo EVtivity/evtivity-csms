@@ -146,8 +146,8 @@ export default tseslint.config(
       ],
     },
   },
-  // lib is the base of every package: it imports no app package and not @evtivity/ai,
-  // which depends on lib (an import back would be a cycle).
+  // lib is the base of every package: it imports no app package and not @evtivity/ai
+  // or @evtivity/sim-providers, which depend on lib (an import back would be a cycle).
   {
     files: ['packages/lib/src/**/*.ts'],
     rules: {
@@ -167,9 +167,11 @@ export default tseslint.config(
                 '@evtivity/worker/*',
                 '@evtivity/ai',
                 '@evtivity/ai/*',
+                '@evtivity/sim-providers',
+                '@evtivity/sim-providers/*',
               ],
               message:
-                'Do not import another process package (P8), and not @evtivity/ai, which depends on lib. Move shared code to @evtivity/lib.',
+                'Do not import another process package (P8), and not @evtivity/ai or @evtivity/sim-providers, which depend on lib. Move shared code to @evtivity/lib.',
             },
           ],
         },
@@ -189,6 +191,25 @@ export default tseslint.config(
               regex: '^@evtivity/(?!lib(/|$))',
               message:
                 '@evtivity/ai imports no other workspace package but @evtivity/lib (P8): the API and the worker both load it.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  // @evtivity/sim-providers (the SIM provider interface and adapters) is loaded by
+  // the services package and depends on @evtivity/lib only (design principle P8).
+  {
+    files: ['packages/sim-providers/src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^@evtivity/(?!lib(/|$))',
+              message:
+                '@evtivity/sim-providers imports no other workspace package but @evtivity/lib (P8).',
             },
           ],
         },

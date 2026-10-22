@@ -49,6 +49,8 @@ const buttonVariants = cva(
         row: 'h-auto w-full justify-start gap-2 whitespace-normal px-3 py-2 text-left font-normal',
         'row-sm':
           'h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-xs font-normal',
+        // A cell in a strip of day cells: the cell inside carries its own box and padding.
+        cell: 'h-auto whitespace-normal p-0 font-normal',
         // Floating action button.
         fab: 'h-12 w-12 rounded-full shadow-lg',
       },

@@ -25,6 +25,7 @@ import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { StationMessageSettings } from '@/components/settings/StationMessageSettings';
 import { PncLocalCaSection } from '@/components/settings/PncLocalCaSection';
 import { FleetCreditReservationSettings } from '@/components/settings/FleetCreditReservationSettings';
+import { SimProvidersSettings } from '@/components/settings/SimProvidersSettings';
 
 interface IntegrationsSettingsProps {
   settings: Record<string, unknown> | undefined;
@@ -435,6 +436,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
         <TabsTrigger value="session">{t('settings.session')}</TabsTrigger>
         <TabsTrigger value="pricing">{t('settings.pricingSettings')}</TabsTrigger>
         <TabsTrigger value="messages">{t('settings.messagesTab')}</TabsTrigger>
+        <TabsTrigger value="simProviders">{t('settings.sim.tab')}</TabsTrigger>
         <TabsTrigger value="s3">{t('settings.s3')}</TabsTrigger>
         <TabsTrigger value="ftp">{t('settings.ftpServer')}</TabsTrigger>
         <TabsTrigger value="googleMaps">{t('settings.googleMaps')}</TabsTrigger>
@@ -1220,6 +1222,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
       </TabsContent>
       <TabsContent value="messages" className="mt-4">
         <StationMessageSettings settings={settings} />
+      </TabsContent>
+      <TabsContent value="simProviders" className="mt-4">
+        <SimProvidersSettings />
       </TabsContent>
       <TabsContent value="googleMaps" className="mt-4">
         <Card>

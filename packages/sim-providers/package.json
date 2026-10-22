@@ -1,0 +1,23 @@
+{
+  "name": "@evtivity/sim-providers",
+  "version": "0.1.48-beta.2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@evtivity/lib": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.2"
+  }
+}

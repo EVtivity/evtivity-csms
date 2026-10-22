@@ -33,6 +33,7 @@ import { registerResponseCache, cacheRoutes } from './plugins/response-cache.js'
 import { healthRoutes } from './routes/health.js';
 import { siteRoutes } from './routes/sites.js';
 import { stationRoutes } from './routes/stations.js';
+import { stationSimRoutes } from './routes/station-sim.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { userRoutes } from './routes/users.js';
 import { webauthnRoutes } from './routes/webauthn.js';
@@ -93,6 +94,7 @@ import { ocpiSessionRoutes } from './routes/ocpi-sessions.js';
 import { ocpiCdrRoutes } from './routes/ocpi-cdrs.js';
 import { ocpiTariffRoutes } from './routes/ocpi-tariffs.js';
 import { pncSettingsRoutes } from './routes/pnc-settings.js';
+import { simProviderSettingsRoutes } from './routes/sim-provider-settings.js';
 import { pncCertificateRoutes } from './routes/pnc-certificates.js';
 import { pncLocalRoutes } from './routes/pnc-local.js';
 import { securitySettingsRoutes } from './routes/security-settings.js';
@@ -203,6 +205,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
     async function v1Routes(v1) {
       await v1.register(siteRoutes);
       await v1.register(stationRoutes);
+      await v1.register(stationSimRoutes);
       await v1.register(sessionRoutes);
       await v1.register(userRoutes);
       await v1.register(webauthnRoutes);
@@ -264,6 +267,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(ocpiCdrRoutes);
       await v1.register(ocpiTariffRoutes);
       await v1.register(pncSettingsRoutes);
+      await v1.register(simProviderSettingsRoutes);
       await v1.register(pncCertificateRoutes);
       await v1.register(pncLocalRoutes);
       await v1.register(securitySettingsRoutes);

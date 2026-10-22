@@ -16,6 +16,11 @@ export interface StationConfigurationValue {
   value: string | null;
   attributeType: string;
   source: 'NotifyReport' | 'GetVariables' | 'GetConfiguration';
+  /**
+   * The unit and monitoring support a NotifyReport gave in its
+   * variableCharacteristics. Without it the stored ones are kept.
+   */
+  characteristics?: { unit: string | null; supportsMonitoring: boolean | null };
 }
 
 /**
@@ -34,10 +39,42 @@ export async function upsertStationConfiguration(
     reported.value != null && reported.value !== '' && isCredentialName(reported.variable)
       ? { ...reported, value: REDACTED }
       : reported;
+  if (v.characteristics == null) {
+    await sql`
+      INSERT INTO station_configurations (station_id, component, instance, evse_id, connector_id, variable, variable_instance, value, attribute_type, source)
+      VALUES (${v.stationUuid}, ${v.component}, ${v.componentInstance}, ${v.evseId}, ${v.connectorId}, ${v.variable}, ${v.variableInstance}, ${v.value}, ${v.attributeType}, ${v.source})
+      ON CONFLICT (station_id, component, (COALESCE(instance, '')), variable, (COALESCE(variable_instance, '')), (COALESCE(evse_id, -1)), (COALESCE(connector_id, -1)), attribute_type)
+      DO UPDATE SET value = EXCLUDED.value, source = EXCLUDED.source, updated_at = now()
+    `;
+    return;
+  }
+  const { unit, supportsMonitoring } = v.characteristics;
   await sql`
-    INSERT INTO station_configurations (station_id, component, instance, evse_id, connector_id, variable, variable_instance, value, attribute_type, source)
-    VALUES (${v.stationUuid}, ${v.component}, ${v.componentInstance}, ${v.evseId}, ${v.connectorId}, ${v.variable}, ${v.variableInstance}, ${v.value}, ${v.attributeType}, ${v.source})
+    INSERT INTO station_configurations (station_id, component, instance, evse_id, connector_id, variable, variable_instance, value, attribute_type, source, unit, supports_monitoring)
+    VALUES (${v.stationUuid}, ${v.component}, ${v.componentInstance}, ${v.evseId}, ${v.connectorId}, ${v.variable}, ${v.variableInstance}, ${v.value}, ${v.attributeType}, ${v.source}, ${unit}, ${supportsMonitoring})
     ON CONFLICT (station_id, component, (COALESCE(instance, '')), variable, (COALESCE(variable_instance, '')), (COALESCE(evse_id, -1)), (COALESCE(connector_id, -1)), attribute_type)
-    DO UPDATE SET value = EXCLUDED.value, source = EXCLUDED.source, updated_at = now()
+    DO UPDATE SET value = EXCLUDED.value, source = EXCLUDED.source, unit = EXCLUDED.unit,
+      supports_monitoring = EXCLUDED.supports_monitoring, updated_at = now()
   `;
+}
+
+/**
+ * The unit and monitoring support of a NotifyReport entry's
+ * variableCharacteristics, or null when the entry has none.
+ */
+export function reportedCharacteristics(
+  value: unknown,
+): { unit: string | null; supportsMonitoring: boolean | null } | null {
+  if (value == null || typeof value !== 'object') return null;
+  const characteristics = value as { unit?: unknown; supportsMonitoring?: unknown };
+  return {
+    unit:
+      typeof characteristics.unit === 'string' && characteristics.unit !== ''
+        ? characteristics.unit
+        : null,
+    supportsMonitoring:
+      typeof characteristics.supportsMonitoring === 'boolean'
+        ? characteristics.supportsMonitoring
+        : null,
+  };
 }

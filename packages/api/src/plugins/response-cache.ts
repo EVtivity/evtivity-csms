@@ -80,7 +80,12 @@ export const CROSS_INVALIDATION: Record<string, string[]> = {
   tokens: ['drivers'],
 };
 
+// A station's SIM status and timeline change with every Refresh of that
+// station, which the 5 s station rule would hide. Checked before CACHE_RULES.
+const UNCACHED_PATHS: readonly RegExp[] = [/^\/v1\/stations\/[^/]+\/sim(?:\/|$)/];
+
 export function matchCacheRule(pathname: string): CacheRule | null {
+  if (UNCACHED_PATHS.some((pattern) => pattern.test(pathname))) return null;
   for (const rule of CACHE_RULES) {
     if (rule.pattern.endsWith('*')) {
       if (pathname.startsWith(rule.pattern.slice(0, -1))) return rule;

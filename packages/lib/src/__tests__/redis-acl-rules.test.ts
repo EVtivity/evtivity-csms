@@ -310,6 +310,21 @@ describe('docker/redis/acl-rules.conf', () => {
     expect(grantsKey(user('worker'), 'ai:rl:user:usr_1:1', 'r')).toBe(false);
   });
 
+  it('grants the SIM keys to the api only', () => {
+    for (const key of [
+      'sim:lock:sta_1',
+      'sim:backoff:hologram',
+      'sim:refresh:sta_1',
+      'sim:reset:sta_1',
+      'sim:signalread:sta_1',
+    ]) {
+      expect(grantsKey(user('api'), key, 'rw')).toBe(true);
+      for (const other of ['ocpp', 'worker', 'ocpi', 'css']) {
+        expect(grantsKey(user(other), key, 'r')).toBe(false);
+      }
+    }
+  });
+
   it('creates every Redis client through the TLS-aware factory', () => {
     // new Redis(...) outside redis-client.ts would skip REDIS_TLS_CA_PEM. The
     // response cache keeps its own client and spreads redisTlsOptions into it.

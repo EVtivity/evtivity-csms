@@ -122,6 +122,26 @@ const LOG_TABLES: readonly LogTable[] = [
     cutoffColumn: 'created_at',
     filter: LOGIN_AUDIT_FILTER,
   },
+  // SIM sessions, alerts and the fetched ranges, stored only when someone
+  // clicks Refresh on a station's Connectivity tab.
+  {
+    table: 'sim_sessions',
+    settingKey: 'sim.sessions.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'started_at',
+  },
+  {
+    table: 'sim_alerts',
+    settingKey: 'sim.sessions.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'received_at',
+  },
+  {
+    table: 'sim_fetch_coverage',
+    settingKey: 'sim.sessions.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'covered_to',
+  },
 ];
 
 export async function logRetentionPruneHandler(log: Logger): Promise<void> {

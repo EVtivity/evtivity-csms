@@ -43,3 +43,4 @@ export * from './audit.js';
 export * from './maintenance.js';
 export * from './attestation.js';
 export * from './ai-usage.js';
+export * from './sim.js';

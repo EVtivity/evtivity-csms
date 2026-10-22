@@ -20,13 +20,16 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Select } from '@/components/ui/select';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { FileViewerDialog } from '@/components/FileViewerDialog';
+import { isValidIccid } from '@evtivity/lib/iccid';
 import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
 import { OCPP_BASE_URL } from '@/lib/config';
 import { formatDateTime } from '@/lib/timezone';
 import { StationAiInsightsRow } from './StationAiInsightsRow';
 import type { StationAiInsightsState } from './StationAiInsightsRow';
+import { stationSimKey } from './sim-connectivity';
 
 interface Site {
   id: string;
@@ -84,12 +87,17 @@ export interface StationInfoTabProps {
   station: Station;
   stationId: string;
   siteTimezone: string;
+  /** A SIM provider or station signal reads are on: show the ICCID and IMSI. */
+  simEnabled?: boolean;
 }
+
+const IMSI_PATTERN = /^\d{1,15}$/;
 
 export function StationInfoTab({
   station,
   stationId,
   siteTimezone,
+  simEnabled = false,
 }: StationInfoTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -102,6 +110,11 @@ export function StationInfoTab({
   const [isSimulator, setIsSimulator] = useState(false);
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
+  const [iccid, setIccid] = useState('');
+  const [imsi, setImsi] = useState('');
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const canWriteStations = useHasPermission('stations:write');
+  const canEditSim = simEnabled && canWriteStations;
   const [mainImageUrl, setMainImageUrl] = useState<string | null>(null);
   const [headerViewerOpen, setHeaderViewerOpen] = useState(false);
 
@@ -143,9 +156,15 @@ export function StationInfoTab({
       isSimulator?: boolean;
       latitude?: string;
       longitude?: string;
+      iccid?: string | null;
+      imsi?: string | null;
     }) => api.patch<Station>(`/v1/stations/${stationId}`, body),
-    onSuccess: () => {
+    onSuccess: (_data, body) => {
       void queryClient.invalidateQueries({ queryKey: ['stations'] });
+      // A new ICCID can change or clear the SIM match.
+      if ('iccid' in body || 'imsi' in body) {
+        void queryClient.invalidateQueries({ queryKey: stationSimKey(stationId) });
+      }
       setEditing(false);
     },
   });
@@ -170,12 +189,37 @@ export function StationInfoTab({
     setIsSimulator(station.isSimulator);
     setLatitude(station.latitude ?? '');
     setLongitude(station.longitude ?? '');
+    setIccid(station.iccid ?? '');
+    setImsi(station.imsi ?? '');
+    setHasSubmitted(false);
     setEditing(true);
+  }
+
+  const simErrors: { iccid?: string; imsi?: string } = {};
+  if (canEditSim && iccid.trim() !== '' && !isValidIccid(iccid.trim())) {
+    simErrors.iccid = t('stations.sim.iccidInvalid');
+  }
+  if (canEditSim && imsi.trim() !== '' && !IMSI_PATTERN.test(imsi.trim())) {
+    simErrors.imsi = t('stations.sim.imsiInvalid');
+  }
+
+  // Sent only when changed, so saving other fields never re-enters the ICCID.
+  function simChanges(): { iccid?: string | null; imsi?: string | null } {
+    if (!canEditSim) return {};
+    const changes: { iccid?: string | null; imsi?: string | null } = {};
+    if (iccid.trim() !== (station.iccid ?? ''))
+      changes.iccid = iccid.trim() === '' ? null : iccid.trim();
+    if (imsi.trim() !== (station.imsi ?? ''))
+      changes.imsi = imsi.trim() === '' ? null : imsi.trim();
+    return changes;
   }
 
   function handleSave(e: React.SyntheticEvent): void {
     e.preventDefault();
+    setHasSubmitted(true);
+    if (Object.keys(simErrors).length > 0) return;
     updateMutation.mutate({
+      ...simChanges(),
       ...(model !== '' ? { model } : {}),
       ...(serialNumber !== '' ? { serialNumber } : {}),
       siteId: siteId !== '' ? siteId : null,
@@ -279,6 +323,46 @@ export function StationInfoTab({
                   />
                 </div>
               </div>
+              {canEditSim && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-iccid">{t('stations.iccid')}</Label>
+                    <Input
+                      id="edit-iccid"
+                      value={iccid}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      className={
+                        hasSubmitted && simErrors.iccid != null ? 'border-destructive' : ''
+                      }
+                      onChange={(e) => {
+                        setIccid(e.target.value);
+                      }}
+                    />
+                    {hasSubmitted && simErrors.iccid != null && (
+                      <p className="text-sm text-destructive">{simErrors.iccid}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">{t('stations.sim.iccidHint')}</p>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-imsi">{t('stations.imsi')}</Label>
+                    <Input
+                      id="edit-imsi"
+                      value={imsi}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      className={hasSubmitted && simErrors.imsi != null ? 'border-destructive' : ''}
+                      onChange={(e) => {
+                        setImsi(e.target.value);
+                      }}
+                    />
+                    {hasSubmitted && simErrors.imsi != null && (
+                      <p className="text-sm text-destructive">{simErrors.imsi}</p>
+                    )}
+                    <p className="text-xs text-muted-foreground">{t('stations.sim.imsiHint')}</p>
+                  </div>
+                </div>
+              )}
               <GoogleMapPicker
                 latitude={latitude}
                 longitude={longitude}
@@ -359,6 +443,18 @@ export function StationInfoTab({
                 <dt className="text-muted-foreground">{t('stations.ocppProtocol')}</dt>
                 <dd className="font-medium">{station.ocppProtocol ?? '-'}</dd>
               </div>
+              {simEnabled && (
+                <>
+                  <div>
+                    <dt className="text-muted-foreground">{t('stations.iccid')}</dt>
+                    <dd className="font-medium break-all">{station.iccid ?? t('common.na')}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('stations.imsi')}</dt>
+                    <dd className="font-medium break-all">{station.imsi ?? t('common.na')}</dd>
+                  </div>
+                </>
+              )}
               <div>
                 <dt className="text-muted-foreground">{t('stations.simulator')}</dt>
                 <dd className="font-medium">

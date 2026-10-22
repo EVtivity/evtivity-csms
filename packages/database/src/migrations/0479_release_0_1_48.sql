@@ -207,3 +207,214 @@ ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'account_locked';
 INSERT INTO "settings" ("key", "value") VALUES
   ('security.mfa.requireDrivers', 'false'::jsonb)
 ON CONFLICT ("key") DO NOTHING;
+
+--> statement-breakpoint
+-- SIM providers (discussion #40): off by default, so nothing calls a provider
+-- or reads a station until an admin turns it on in Settings > Integrations.
+-- An empty low signal alert is off.
+INSERT INTO "settings" ("key", "value") VALUES
+  ('sim.hologram.enabled', 'false'::jsonb),
+  ('sim.hologram.orgId', '""'::jsonb),
+  ('sim.hologram.apiKeyEnc', '""'::jsonb),
+  ('sim.sessions.retentionDays', '90'::jsonb),
+  ('sim.sessions.fetchDays', '7'::jsonb),
+  ('sim.stationSignal.enabled', 'false'::jsonb),
+  ('sim.signal.alertBelowDbm', '""'::jsonb),
+  ('sim.ocpp16.signalKeys', '[]'::jsonb),
+  ('sim.signal.goodDbm', '-65'::jsonb),
+  ('sim.signal.fairDbm', '-85'::jsonb)
+ON CONFLICT ("key") DO NOTHING;
+
+--> statement-breakpoint
+-- A station's SIM at its provider (discussion #40), apart from
+-- charging_stations so no station reply or audit snapshot changes. A row
+-- without a provider holds an operator-entered ICCID or a cached lookup miss.
+CREATE TABLE IF NOT EXISTS "station_sim_matches" (
+  "station_id" text PRIMARY KEY NOT NULL,
+  "provider" varchar(32),
+  "provider_ref" varchar(128),
+  "meta" jsonb,
+  "entered_iccid" varchar(20),
+  "matched_at" timestamp with time zone,
+  "confirmed_at" timestamp with time zone,
+  "confirmed_by" text,
+  "lookup_missed_at" timestamp with time zone,
+  "lookup_miss_reason" varchar(32),
+  "sessions_synced_at" timestamp with time zone,
+  "last_record_id" varchar(64),
+  "alerts_synced_at" timestamp with time zone,
+  "open_session_began_at" timestamp with time zone,
+  "last_status" jsonb,
+  "status_fetched_at" timestamp with time zone,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "station_sim_matches" ADD CONSTRAINT "station_sim_matches_station_id_charging_stations_id_fk"
+    FOREIGN KEY ("station_id") REFERENCES "public"."charging_stations"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "station_sim_matches" ADD CONSTRAINT "station_sim_matches_confirmed_by_users_id_fk"
+    FOREIGN KEY ("confirmed_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+--> statement-breakpoint
+-- Who entered the ICCID and whether that person had access to every site
+-- then: only such an entry confirms the match at the lookup.
+ALTER TABLE "station_sim_matches" ADD COLUMN IF NOT EXISTS "entered_by" text;
+
+--> statement-breakpoint
+ALTER TABLE "station_sim_matches" ADD COLUMN IF NOT EXISTS "entered_with_all_sites" boolean DEFAULT false NOT NULL;
+
+--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "station_sim_matches" ADD CONSTRAINT "station_sim_matches_entered_by_users_id_fk"
+    FOREIGN KEY ("entered_by") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+--> statement-breakpoint
+-- One provider SIM has one confirmed station; unconfirmed matches never block another station.
+DROP INDEX IF EXISTS "uq_station_sim_matches_provider_ref";
+
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_station_sim_matches_confirmed_ref" ON "station_sim_matches" USING btree ("provider", "provider_ref") WHERE "confirmed_at" IS NOT NULL;
+
+--> statement-breakpoint
+-- Closed cellular data sessions and SIM alerts fetched by a person's Refresh
+-- (never in the background), and the time ranges fetched. Deleted after
+-- sim.sessions.retentionDays by the log-retention-prune job.
+CREATE TABLE IF NOT EXISTS "sim_sessions" (
+  "id" bigserial PRIMARY KEY NOT NULL,
+  "station_id" text NOT NULL,
+  "provider" varchar(32) NOT NULL,
+  "provider_sim_id" varchar(128) NOT NULL,
+  "provider_session_id" varchar(64) NOT NULL,
+  "started_at" timestamp with time zone NOT NULL,
+  "ended_at" timestamp with time zone NOT NULL,
+  "bytes" bigint,
+  "network_name" varchar(128),
+  "radio_access_technology" varchar(32),
+  "cell_id" varchar(64),
+  "apn" varchar(128),
+  "fetched_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "sim_sessions" ADD CONSTRAINT "sim_sessions_station_id_charging_stations_id_fk"
+    FOREIGN KEY ("station_id") REFERENCES "public"."charging_stations"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_sim_sessions_provider_session" ON "sim_sessions" USING btree ("provider", "provider_session_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_sim_sessions_station_started" ON "sim_sessions" USING btree ("station_id", "started_at");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_sim_sessions_started" ON "sim_sessions" USING btree ("started_at");
+
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "sim_alerts" (
+  "id" bigserial PRIMARY KEY NOT NULL,
+  "station_id" text NOT NULL,
+  "provider" varchar(32) NOT NULL,
+  "provider_alert_id" varchar(64) NOT NULL,
+  "kind" varchar(32) NOT NULL,
+  "received_at" timestamp with time zone NOT NULL,
+  "fetched_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "sim_alerts" ADD CONSTRAINT "sim_alerts_station_id_charging_stations_id_fk"
+    FOREIGN KEY ("station_id") REFERENCES "public"."charging_stations"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_sim_alerts_provider_alert" ON "sim_alerts" USING btree ("provider", "provider_alert_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_sim_alerts_station_received" ON "sim_alerts" USING btree ("station_id", "received_at");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_sim_alerts_received" ON "sim_alerts" USING btree ("received_at");
+
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "sim_fetch_coverage" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "station_id" text NOT NULL,
+  "provider" varchar(32) NOT NULL,
+  "covered_from" timestamp with time zone NOT NULL,
+  "covered_to" timestamp with time zone NOT NULL,
+  "fetched_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "sim_fetch_coverage" ADD CONSTRAINT "sim_fetch_coverage_station_id_charging_stations_id_fk"
+    FOREIGN KEY ("station_id") REFERENCES "public"."charging_stations"("id") ON DELETE cascade ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_sim_fetch_coverage_station_from" ON "sim_fetch_coverage" USING btree ("station_id", "covered_from");
+
+--> statement-breakpoint
+-- Station signal reads (discussion #40): the unit of a reported variable and
+-- whether the station can monitor it, from NotifyReport variableCharacteristics.
+-- Null until a station reports them.
+ALTER TABLE "station_configurations" ADD COLUMN IF NOT EXISTS "unit" varchar(16);
+--> statement-breakpoint
+ALTER TABLE "station_configurations" ADD COLUMN IF NOT EXISTS "supports_monitoring" boolean;
+
+--> statement-breakpoint
+-- The component instance of a monitored variable (a DataLink modem), and who
+-- set the monitor: an operator, or the low signal alert of the SIM settings.
+-- Existing rules are the operator's.
+ALTER TABLE "variable_monitoring_rules" ADD COLUMN IF NOT EXISTS "component_instance" varchar(50);
+--> statement-breakpoint
+ALTER TABLE "variable_monitoring_rules" ADD COLUMN IF NOT EXISTS "source" varchar(32) DEFAULT 'operator' NOT NULL;
+
+--> statement-breakpoint
+-- One low signal monitor per station and modem. An earlier build of this file
+-- could store two under a race; the newest is kept, once, before the index exists.
+DO $$
+BEGIN
+  IF to_regclass('public.uq_variable_monitoring_rules_low_signal') IS NULL THEN
+    DELETE FROM "variable_monitoring_rules" r
+    USING "variable_monitoring_rules" newer
+    WHERE r.source = 'low_signal'
+      AND newer.source = 'low_signal'
+      AND r.station_id = newer.station_id
+      AND COALESCE(r.component_instance, '') = COALESCE(newer.component_instance, '')
+      AND r.id < newer.id;
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_variable_monitoring_rules_low_signal" ON "variable_monitoring_rules" USING btree ("station_id", COALESCE(component_instance, '')) WHERE source = 'low_signal';
+
+--> statement-breakpoint
+-- The GetMonitoringReport request a low signal monitor waits for, while its
+-- monitor id is read back from the station. Null otherwise.
+ALTER TABLE "variable_monitoring_rules" ADD COLUMN IF NOT EXISTS "report_request_id" integer;
+
+--> statement-breakpoint
+-- Why a low signal monitor id is read back (timeout, duplicate), or `resent` for
+-- the one send after a timeout read found no monitor. Null otherwise.
+ALTER TABLE "variable_monitoring_rules" ADD COLUMN IF NOT EXISTS "report_reason" varchar(16);
+
+--> statement-breakpoint
+-- The SIM (the match's provider_ref) each fetched alert and coverage range
+-- belongs to, so after a SIM swap the timeline, the offline causes and the SIM
+-- status show only the current confirmed SIM. Sessions carry it already
+-- (provider_sim_id). The feature is new in this release, so no backfill: a row
+-- an earlier build of this file stored keeps a null ref and shows for no SIM.
+ALTER TABLE "sim_alerts" ADD COLUMN IF NOT EXISTS "provider_ref" varchar(128);
+--> statement-breakpoint
+ALTER TABLE "sim_fetch_coverage" ADD COLUMN IF NOT EXISTS "provider_ref" varchar(128);

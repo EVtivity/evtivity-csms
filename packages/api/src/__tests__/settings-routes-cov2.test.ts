@@ -30,6 +30,7 @@ const { state, rec, mocks } = vi.hoisted(() => ({
     clearAiSettingsCache: vi.fn(),
     getReservationSettings: vi.fn(),
     clearS3ConfigCache: vi.fn(),
+    readSimSettings: vi.fn(),
   },
 }));
 
@@ -58,6 +59,15 @@ function makeChain(): Record<string, unknown> {
     return Promise.resolve([]).then(resolve, reject);
   };
   return chain;
+}
+
+vi.mock('../lib/sim.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/sim.js')>()),
+  readSimSettings: mocks.readSimSettings,
+}));
+
+function simSettings(hologram: boolean, stationSignal: boolean): unknown {
+  return { hologram: { enabled: hologram }, stationSignalEnabled: stationSignal };
 }
 
 vi.mock('../lib/site-access.js', async () =>
@@ -238,6 +248,7 @@ describe('settings routes (cov2)', () => {
     mocks.publish.mockResolvedValue(undefined);
     mocks.writeAudit.mockResolvedValue(undefined);
     mocks.assertWritable.mockResolvedValue(undefined);
+    mocks.readSimSettings.mockResolvedValue(simSettings(false, false));
   });
 
   it('GET /portal/features answers the public feature flags and reservation limits', async () => {
@@ -274,6 +285,42 @@ describe('settings routes (cov2)', () => {
       reservationMaxHours: 4,
       currency: 'EUR',
     });
+  });
+
+  it('GET /portal/features adds the SIM switches only while they are on', async () => {
+    for (const flag of [
+      mocks.isReservationEnabled,
+      mocks.isSupportEnabled,
+      mocks.isRoamingEnabled,
+      mocks.isPncEnabled,
+      mocks.isFleetEnabled,
+      mocks.isGuestChargingEnabled,
+      mocks.isChatbotAiEnabled,
+      mocks.isAiInsightsEnabled,
+    ]) {
+      flag.mockResolvedValue(false);
+    }
+    mocks.getReservationSettings.mockResolvedValue({
+      cancellationFeeCents: 0,
+      cancellationWindowMinutes: 0,
+      maxHours: 1,
+    });
+    const keys = async (): Promise<Record<string, unknown>> => {
+      const res = await app.inject({ method: 'GET', url: '/portal/features' });
+      expect(res.statusCode).toBe(200);
+      return res.json();
+    };
+    const off = await keys();
+    expect(off).not.toHaveProperty('simEnabled');
+    expect(off).not.toHaveProperty('simStationSignalEnabled');
+    mocks.readSimSettings.mockResolvedValue(simSettings(true, false));
+    const provider = await keys();
+    expect(provider['simEnabled']).toBe(true);
+    expect(provider).not.toHaveProperty('simStationSignalEnabled');
+    mocks.readSimSettings.mockResolvedValue(simSettings(false, true));
+    const signal = await keys();
+    expect(signal['simEnabled']).toBe(true);
+    expect(signal['simStationSignalEnabled']).toBe(true);
   });
 
   it('GET /settings leaves out server-managed settings', async () => {

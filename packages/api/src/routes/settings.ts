@@ -155,6 +155,7 @@ import { storedSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { publishOcpiTariffSettingChange } from '../lib/ocpi-tariff-push.js';
 import { readDriverAiAvailability } from '../lib/driver-ai-availability.js';
+import { isSimFeatureOn, readSimSettings } from '../lib/sim.js';
 import { DRIVER_AI_NOTICE_VERSION } from '@evtivity/lib/driver-ai';
 import { decryptForRead, encryptForWrite, isServerManagedSetting } from '../lib/settings-crypto.js';
 
@@ -386,11 +387,12 @@ const serverManagedSettingError = {
  * settings.security permissions and all-site access), never the generic ones.
  */
 function isDedicatedRouteSetting(key: string): boolean {
-  return key.startsWith('sso.') || key.startsWith('security.');
+  return key.startsWith('sso.') || key.startsWith('security.') || key.startsWith('sim.');
 }
 
 const dedicatedRouteSettingError = {
-  error: 'This setting is written through /v1/sso/settings or /v1/security/*',
+  error:
+    'This setting is written through /v1/sso/settings, /v1/security/* or /v1/settings/sim-providers',
   code: 'VALIDATION_ERROR',
 };
 
@@ -689,6 +691,18 @@ export function settingsRoutes(app: FastifyInstance): void {
                   .describe(
                     'Company currency (ISO 4217) used to format any monetary value in this response, including the reservation cancellation fee',
                   ),
+                simEnabled: z
+                  .literal(true)
+                  .optional()
+                  .describe(
+                    'Present (true) only while a SIM provider or station signal reads are on, so the CSMS shows the station Connectivity tab. Absent while both are off',
+                  ),
+                simStationSignalEnabled: z
+                  .literal(true)
+                  .optional()
+                  .describe(
+                    'Present (true) only while station signal reads are on (a Refresh also sends one OCPP request to the station). Absent while they are off',
+                  ),
               })
               .passthrough(),
           ),
@@ -708,6 +722,12 @@ export function settingsRoutes(app: FastifyInstance): void {
       const driverAi = await readDriverAiAvailability();
       const reservationConfig = await getReservationSettings();
       const currency = await getCompanyCurrency();
+      const simSettings = await readSimSettings();
+      // Left out while off, so the reply stays as it was before SIM providers existed.
+      const simFlags = {
+        ...(isSimFeatureOn(simSettings) ? { simEnabled: true as const } : {}),
+        ...(simSettings.stationSignalEnabled ? { simStationSignalEnabled: true as const } : {}),
+      };
       return {
         reservationEnabled,
         supportEnabled,
@@ -724,6 +744,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         reservationCancellationWindowMinutes: reservationConfig.cancellationWindowMinutes,
         reservationMaxHours: reservationConfig.maxHours,
         currency,
+        ...simFlags,
       };
     },
   );

@@ -106,31 +106,35 @@ const hierarchyCircuitSchema = z
 // Mirrors the shape annotateHierarchy() emits: panels carry `circuits` and
 // `childPanels`, never `stations`/`children`. A mismatch here makes
 // fast-json-stringify reject the response (500) for any site with panels.
-const hierarchyNodeSchema: z.ZodType = z.lazy(() =>
-  z
-    .object({
-      type: z.enum(['panel', 'circuit']).describe('Hierarchy node type'),
-      id: z.string().describe('Node ID'),
-      name: z.string().describe('Node name'),
-      maxContinuousKw: z.number().describe('Maximum continuous power capacity in kW'),
-      safetyMarginKw: z.number().describe('Safety margin reserved from capacity in kW'),
-      unmanagedLoadKw: z.number().describe('Unmanaged load drawing from this node in kW'),
-      currentDrawKw: z.number().describe('Current power draw in kW'),
-      availableKw: z.number().describe('Available power capacity in kW'),
-      utilization: z.number().describe('Utilization ratio (0 to 1)'),
-      totalConnectedKw: z.number().describe('Sum of connected station capacity in kW'),
-      phaseConnections: z
-        .string()
-        .nullable()
-        .describe(
-          'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown',
-        ),
-      circuits: z.array(hierarchyCircuitSchema).describe('Circuits on this panel'),
-      childPanels: z.array(hierarchyNodeSchema).describe('Nested sub-panels'),
-      unmanagedLoads: z.array(z.record(z.unknown())).describe('Unmanaged loads on this panel'),
-    })
-    .passthrough(),
-);
+// Route schemas are inlined JSON Schema without $ref, which cannot express
+// recursion, so a sub-panel is an open object with the same fields.
+const hierarchyNodeSchema = z
+  .object({
+    type: z.enum(['panel', 'circuit']).describe('Hierarchy node type'),
+    id: z.string().describe('Node ID'),
+    name: z.string().describe('Node name'),
+    maxContinuousKw: z.number().describe('Maximum continuous power capacity in kW'),
+    safetyMarginKw: z.number().describe('Safety margin reserved from capacity in kW'),
+    unmanagedLoadKw: z.number().describe('Unmanaged load drawing from this node in kW'),
+    currentDrawKw: z.number().describe('Current power draw in kW'),
+    availableKw: z.number().describe('Available power capacity in kW'),
+    utilization: z.number().describe('Utilization ratio (0 to 1)'),
+    totalConnectedKw: z.number().describe('Sum of connected station capacity in kW'),
+    phaseConnections: z
+      .string()
+      .nullable()
+      .describe(
+        'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown',
+      ),
+    circuits: z.array(hierarchyCircuitSchema).describe('Circuits on this panel'),
+    childPanels: z
+      .array(z.record(z.unknown()))
+      .describe(
+        'Nested sub-panels, each with the fields of this node, its own childPanels included',
+      ),
+    unmanagedLoads: z.array(z.record(z.unknown())).describe('Unmanaged loads on this panel'),
+  })
+  .passthrough();
 
 const loadStationItem = z
   .object({

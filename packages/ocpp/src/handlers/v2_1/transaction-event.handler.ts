@@ -121,6 +121,9 @@ export async function handleTransactionEvent(
         ? { remoteStartId: request.transactionInfo.remoteStartId }
         : {}),
       ...(meterStopWh != null ? { meterStop: meterStopWh } : {}),
+      // Queued while offline (E04.FR.03): history that never sets the live
+      // connector status.
+      ...(request.offline === true ? { offline: true } : {}),
       ...(request.eventType === 'Ended' && cost?.calculated === true
         ? { finalCostCents: cost.totalCostCents }
         : {}),

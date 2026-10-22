@@ -1970,6 +1970,51 @@ describe('Event projections', () => {
       expect(updateConnectorCall?.values).toContainEqual(new Date('2024-01-01T01:00:00Z'));
     });
 
+    it('leaves the connector status alone for an Ended event replayed from the offline queue', async () => {
+      // E04.FR.03: an event queued while offline is history. Its newer
+      // timestamp would otherwise hide the station's current status reports.
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
+        [], // UPDATE charging_sessions SET status=completed
+        [
+          {
+            id: 'session-1',
+            evse_id: 'evs_000000000001',
+            tariff_id: null,
+            current_cost_cents: 0,
+            started_at: '2024-01-01T00:00:00Z',
+            ended_at: '2024-01-01T01:00:00Z',
+            energy_delivered_wh: 5000,
+            currency: 'USD',
+          },
+        ], // SELECT session row
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Ended',
+          stationId: 'CS-001',
+          transactionId: 'tx-ended-offline',
+          seqNo: 2,
+          triggerReason: 'EVDeparted',
+          timestamp: '2024-01-01T01:00:00Z',
+          stoppedReason: 'EVDisconnected',
+          chargingState: 'Idle',
+          offline: true,
+        }),
+      );
+
+      expect(sqlCalls.some((c) => c.strings.join('').includes('UPDATE charging_sessions'))).toBe(
+        true,
+      );
+      expect(sqlCalls.some((c) => c.strings.join('').includes('UPDATE connectors'))).toBe(false);
+    });
+
     it('completes session and computes cost on Ended', async () => {
       await setup();
 

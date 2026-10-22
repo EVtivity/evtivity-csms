@@ -88,6 +88,46 @@ describe('sendOcppCommandAndWait', () => {
     await promise;
   });
 
+  it('publishes noQueue only when asked, and returns the offline result as is', async () => {
+    const ref: { handler: ((raw: string) => void) | null } = { handler: null };
+    subscribeMock.mockImplementation(async (_channel: string, cb: (raw: string) => void) => {
+      ref.handler = cb;
+      return { unsubscribe: unsubscribeMock };
+    });
+
+    const promise = sendOcppCommandAndWait('CS-8', 'GetVariables', {}, undefined, {
+      noQueue: true,
+    });
+    await vi.waitFor(() => {
+      expect(publishMock).toHaveBeenCalledTimes(1);
+    });
+    const sent = JSON.parse((publishMock.mock.calls[0] as [string, string])[1]) as Record<
+      string,
+      unknown
+    >;
+    expect(sent['noQueue']).toBe(true);
+    const offline = {
+      commandId: sent['commandId'],
+      error: 'Station offline, command not queued',
+      offline: true,
+    };
+    ref.handler?.(JSON.stringify(offline));
+    expect(await promise).toEqual(offline);
+
+    publishMock.mockClear();
+    const plain = sendOcppCommandAndWait('CS-8', 'GetVariables', {});
+    await vi.waitFor(() => {
+      expect(publishMock).toHaveBeenCalledTimes(1);
+    });
+    const second = JSON.parse((publishMock.mock.calls[0] as [string, string])[1]) as Record<
+      string,
+      unknown
+    >;
+    expect('noQueue' in second).toBe(false);
+    ref.handler?.(JSON.stringify({ commandId: second['commandId'], response: {} }));
+    await plain;
+  });
+
   it('ignores results with a non-matching commandId and unparseable JSON', async () => {
     const ref: { handler: ((raw: string) => void) | null } = { handler: null };
     subscribeMock.mockImplementation(async (_channel: string, cb: (raw: string) => void) => {

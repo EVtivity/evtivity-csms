@@ -131,6 +131,18 @@
     "./notification-test-sink": {
       "import": "./src/notification-test-sink.ts"
     },
+    "./iccid": {
+      "import": "./src/iccid.ts"
+    },
+    "./sim-test-base-url": {
+      "import": "./src/sim-test-base-url.ts"
+    },
+    "./sim-settings": {
+      "import": "./src/sim-settings.ts"
+    },
+    "./signal-grade": {
+      "import": "./src/signal-grade.ts"
+    },
     "./trust-proxy": {
       "import": "./src/trust-proxy.ts"
     },

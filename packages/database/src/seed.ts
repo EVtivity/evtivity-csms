@@ -656,6 +656,17 @@ async function seed(): Promise<void> {
     'security.session.operatorRefreshDays': 30,
     'security.session.driverAccessMinutes': 60,
     'security.session.driverRefreshDays': 30,
+    // SIM providers (off by default) and station signal reads.
+    'sim.hologram.enabled': false,
+    'sim.hologram.orgId': '',
+    'sim.hologram.apiKeyEnc': '',
+    'sim.sessions.retentionDays': 90,
+    'sim.sessions.fetchDays': 7,
+    'sim.stationSignal.enabled': false,
+    'sim.signal.alertBelowDbm': '',
+    'sim.ocpp16.signalKeys': [],
+    'sim.signal.goodDbm': -65,
+    'sim.signal.fairDbm': -85,
     // Driver self-registration via /v1/portal/auth/register. Operators of
     // closed/managed deployments (drivers admin-provisioned) can flip this
     // off so the portal Register page returns 403 PORTAL_REGISTRATION_DISABLED.

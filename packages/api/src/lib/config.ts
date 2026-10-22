@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { resolveNotificationTestSinkUrl } from '@evtivity/lib/notification-test-sink';
+import { resolveSimProviderTestBaseUrl } from '@evtivity/lib/sim-test-base-url';
 import { parseTrustProxy } from '@evtivity/lib/trust-proxy';
 import { webauthnRpIdProblem } from './webauthn-rp.js';
 
@@ -75,6 +76,14 @@ const schema = z.object({
     (v) => (v === '' ? undefined : v),
     z.string().url().optional(),
   ),
+  // SIM provider mock (local development and tests only, off by default): the
+  // SIM provider adapters call this base URL instead of the vendor hosts. Only
+  // NODE_ENV development or test accepts it (resolveSimProviderTestBaseUrl
+  // below). Helm and CDK refuse it.
+  SIM_PROVIDER_TEST_BASE_URL: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().url().optional(),
+  ),
 });
 
 export type ApiConfig = z.infer<typeof schema>;
@@ -89,3 +98,7 @@ if (rpIdProblem != null) throw new Error(`WEBAUTHN_RP_ID: ${rpIdProblem}`);
 // (unset included), or without the allow flag, so the process does not start
 // (the senders check again, P11).
 resolveNotificationTestSinkUrl(process.env);
+
+// Refuses the SIM provider mock URL unless NODE_ENV is development or test, so
+// provider credentials can never be sent to it in production.
+resolveSimProviderTestBaseUrl(process.env);

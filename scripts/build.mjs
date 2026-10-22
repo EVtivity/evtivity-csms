@@ -41,6 +41,7 @@ export const BANNER =
 export const WORKSPACE_PACKAGES = {
   '@evtivity/lib': resolve(root, 'packages/lib'),
   '@evtivity/ai': resolve(root, 'packages/ai'),
+  '@evtivity/sim-providers': resolve(root, 'packages/sim-providers'),
   '@evtivity/database': resolve(root, 'packages/database'),
   '@evtivity/payments': resolve(root, 'packages/payments'),
   '@evtivity/services': resolve(root, 'packages/services'),
