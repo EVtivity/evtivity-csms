@@ -136,6 +136,7 @@ vi.mock('drizzle-orm', () => ({
   gte: vi.fn(),
   count: vi.fn(),
   inArray: vi.fn(),
+  ne: vi.fn(),
 }));
 
 vi.mock('@evtivity/lib', async (importOriginal) => {
@@ -276,9 +277,9 @@ describe('Driver Service', () => {
   describe('createDriverToken', () => {
     it('creates and returns token', async () => {
       const token = { id: 't1', driverId: 'd1', idToken: 'ABC', tokenType: 'ISO14443' };
-      // tokenService.createToken: dup-check (empty), the driver (active), then
-      // insert returning
-      setupDbResults([], [{ isActive: true }], [token]);
+      // tokenService.createToken: dup-check (empty), the driver (active), no
+      // vehicle of another driver with the value, then insert returning
+      setupDbResults([], [{ isActive: true }], [], [token]);
 
       const result = await createDriverToken('d1', { idToken: 'ABC', tokenType: 'ISO14443' });
 

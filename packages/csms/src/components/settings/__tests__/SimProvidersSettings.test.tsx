@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const { apiMock, perms, access } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), put: vi.fn(), post: vi.fn() },
@@ -56,9 +57,11 @@ function renderSettings(data: Record<string, unknown> = SETTINGS): void {
   });
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
-    <QueryClientProvider client={client}>
-      <SimProvidersSettings />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={client}>
+        <SimProvidersSettings />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -90,7 +93,11 @@ describe('SimProvidersSettings', () => {
     expect(screen.getByText('settings.sim.stationSignalTitle')).toBeTruthy();
     expect(screen.getByText('settings.sim.hologramApiKeyHint')).toBeTruthy();
     expect(screen.getByText('settings.sim.fetchDaysHint')).toBeTruthy();
-    expect(screen.getByText('settings.sim.retentionDaysHint')).toBeTruthy();
+    // The retention moved to Settings > Data Retention: the card links there.
+    expect(screen.queryByLabelText('settings.sim.retentionDays')).toBeNull();
+    expect(screen.getByTestId('data-retention-link').querySelector('a')?.getAttribute('href')).toBe(
+      '/settings?tab=dataRetention',
+    );
     expect(screen.getByText('settings.sim.sessionHistoryNote')).toBeTruthy();
     expect(screen.getByText('settings.sim.stationSignalHint')).toBeTruthy();
   });
@@ -205,9 +212,11 @@ describe('SimProvidersSettings', () => {
       );
       client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
       render(
-        <QueryClientProvider client={client}>
-          <SimProvidersSettings />
-        </QueryClientProvider>,
+        <MemoryRouter>
+          <QueryClientProvider client={client}>
+            <SimProvidersSettings />
+          </QueryClientProvider>
+        </MemoryRouter>,
       );
     }
 
@@ -354,28 +363,18 @@ describe('SimProvidersSettings', () => {
     expect(screen.getByText('settings.sim.testSaveFirst')).toBeTruthy();
   });
 
-  it('saves the Refresh period and the retention within their ranges', async () => {
+  it('saves the Refresh period within its range', async () => {
     renderSettings();
     const fetchDays = await screen.findByLabelText('settings.sim.fetchDays');
     fireEvent.change(fetchDays, { target: { value: '40' } });
-    fireEvent.change(screen.getByLabelText('settings.sim.retentionDays'), {
-      target: { value: '5' },
-    });
     fireEvent.submit(screen.getByTestId('sim-history-form'));
     expect(await screen.findByText('settings.sim.rangeError {"min":1,"max":31}')).toBeTruthy();
-    expect(screen.getByText('settings.sim.rangeError {"min":7,"max":730}')).toBeTruthy();
     expect(apiMock.put).not.toHaveBeenCalled();
 
     fireEvent.change(fetchDays, { target: { value: '14' } });
-    fireEvent.change(screen.getByLabelText('settings.sim.retentionDays'), {
-      target: { value: '120' },
-    });
     fireEvent.submit(screen.getByTestId('sim-history-form'));
     await waitFor(() => {
-      expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/sim-providers', {
-        fetchDays: 14,
-        retentionDays: 120,
-      });
+      expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/sim-providers', { fetchDays: 14 });
     });
   });
 

@@ -190,6 +190,12 @@ vi.mock('../lib/remote-start-timeout.js', () => ({
 
 vi.mock('../lib/payments.js', () => ({
   activePaymentProvider: mockActivePaymentProvider,
+  // Off without a provider, active with one; a test of a provider this
+  // process cannot use sets the state itself.
+  activePaymentState: vi.fn(async (logger: unknown) => {
+    const provider: unknown = await mockActivePaymentProvider(logger);
+    return provider == null ? { kind: 'off' } : { kind: 'active', provider };
+  }),
   paymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
 }));
 
@@ -267,6 +273,9 @@ vi.mock('../lib/rate-limiters.js', () => ({
   isStationCheckRateLimited: mockIsStationCheckRateLimited,
   getCachedConnectorStatus: mockGetCachedConnectorStatus,
   setCachedConnectorStatus: vi.fn(),
+  // A status check runs alone here: no check is in flight.
+  pendingStatusCheck: () => null,
+  shareStatusCheck: (_station: string, _evse: number, run: () => Promise<unknown>) => run(),
 }));
 
 import { registerAuth } from '../plugins/auth.js';
@@ -947,7 +956,7 @@ describe('Portal charger routes - remaining branches', () => {
       expect(insertValues()).toEqual([]);
     });
 
-    it('starts without a hold when the card provider is not configured', async () => {
+    it("refuses the start when the card's provider is not configured", async () => {
       mockActivePaymentProvider.mockResolvedValue({ id: 'stripe' });
       vi.mocked(isStationChargingFree).mockResolvedValue(false);
       mockAuthorizeSessionHold.mockResolvedValueOnce({
@@ -956,14 +965,12 @@ describe('Portal charger routes - remaining branches', () => {
       });
       setupStartRows([{ id: 7 }], [{ id: SESSION_ID }]);
       const response = await start({ paymentMethodId: 7 });
-      expect(response.statusCode).toBe(200);
-      expect(response.json()).toEqual({ chargingSessionId: SESSION_ID });
-      expect(updateSets()).toEqual([]);
-      expect(sendOcppCommandAndWait).toHaveBeenCalledWith(
-        'CS-001',
-        'RequestStartTransaction',
-        expect.objectContaining({ evseId: 1, idToken: { idToken: DRIVER_ID, type: 'Central' } }),
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('PAYMENT_METHOD_REQUIRED');
+      expect(updateSets()).toContainEqual(
+        expect.objectContaining({ status: 'failed', stoppedReason: 'PaymentProviderUnavailable' }),
       );
+      expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
     });
 
     it('answers 500 SESSION_CREATE_FAILED and sends nothing when the session insert returns no row', async () => {

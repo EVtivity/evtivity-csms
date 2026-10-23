@@ -1,0 +1,15 @@
+# Build context of the Compose simulator image (BuildKit reads this file instead
+# of the root .dockerignore for packages/css/Dockerfile.dev). The same rules,
+# except that the committed dev test certificates stay: the host seed puts their
+# CA and the SP3 client certificates into the database, so the simulator must
+# load the same files. The production images never get them.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.env
+.env.*
+**/seed.config.json
+*.log
+coverage
+.DS_Store

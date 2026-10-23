@@ -1,9 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { PRE_AUTH_AMOUNT_MAX_CENTS, PRE_AUTH_AMOUNT_MIN_CENTS } from '@evtivity/lib/currency';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, sql, and, inArray, like } from 'drizzle-orm';
+import { eq, desc, sql, and, inArray, like, isNull } from 'drizzle-orm';
 import {
   db,
   client,
@@ -341,8 +342,9 @@ const preAuthFailedResponse = z
     code: z.string().describe('Stable machine-readable error code'),
     paymentRecord: paymentRecordItem
       .nullable()
+      .optional()
       .describe(
-        'Payment record of the failed pre-authorization (the session already had one when not new)',
+        'Payment record of the failed pre-authorization (the session already had one when not new). Absent on a 400 VALIDATION_ERROR of the body',
       ),
   })
   .passthrough();
@@ -571,10 +573,11 @@ const upsertSitePaymentConfigBody = z.object({
   preAuthAmountCents: z
     .number()
     .int()
-    .min(0)
+    .min(PRE_AUTH_AMOUNT_MIN_CENTS)
+    .max(PRE_AUTH_AMOUNT_MAX_CENTS)
     .optional()
     .describe(
-      'Pre-authorization hold amount in cents. Omitted keeps the current amount (5000 on a new config)',
+      'Pre-authorization hold amount in cents, 1 to 1,000,000 like the default hold. Omitted keeps the current amount (5000 on a new config)',
     ),
   platformFeePercent: z
     .number()
@@ -583,7 +586,7 @@ const upsertSitePaymentConfigBody = z.object({
     .nullable()
     .optional()
     .describe(
-      'Site-level platform fee override (null = use global default). Omitted keeps the current override (none on a new config)',
+      'Site-level platform fee override (null = use global default). Omitted keeps the current override (none on a new config). Only a user with access to every site changes it: the platform fee is the platform share of destination charges, and a site-restricted user that sends another value gets 403 INSUFFICIENT_PERMISSIONS',
     ),
   isEnabled: z
     .boolean()
@@ -620,7 +623,14 @@ const savePaymentMethodBody = z.object({
 
 const preAuthorizeBody = z.object({
   paymentMethodId: z.coerce.number().int().min(1).describe('Payment method ID to charge'),
-  amountCents: z.number().int().min(0).optional().describe('Override pre-auth amount in cents'),
+  amountCents: z
+    .number()
+    .int()
+    // 1 to 1,000,000 like every other hold bound: a 0 hold is no hold (PP2 Info 6).
+    .min(1)
+    .max(PRE_AUTH_AMOUNT_MAX_CENTS)
+    .optional()
+    .describe('Override pre-auth amount in cents, 1 to 1,000,000'),
 });
 
 const captureBody = z.object({
@@ -629,7 +639,9 @@ const captureBody = z.object({
     .int()
     .min(0)
     .optional()
-    .describe('Amount to capture in cents, defaults to session cost'),
+    .describe(
+      'Amount to capture in cents, defaults to session cost. At most the held amount (400 VALIDATION_ERROR)',
+    ),
 });
 
 const refundBody = z.object({
@@ -922,6 +934,9 @@ export function paymentRoutes(app: FastifyInstance): void {
             'The body contains the removed stripeConnectedAccountId, or a site-restricted user sent a payoutAccountId that is not an account of this site (one the create flow or an earlier link put on the site) or that a site outside its access uses',
             [ERROR_CODES.VALIDATION_ERROR],
           ),
+          403: errorWith('A site-restricted user changed the platform fee', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           404: errorWith('Site or payment config not found', [
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.PAYMENT_CONFIG_NOT_FOUND,
@@ -997,6 +1012,23 @@ export function paymentRoutes(app: FastifyInstance): void {
         .from(sitePaymentConfigs)
         .where(eq(sitePaymentConfigs.siteId, id));
 
+      // The platform fee is the platform's share of the site's destination
+      // charges: only a user with access to every site changes it. A
+      // restricted user's save that sends the stored value passes.
+      const storedFee =
+        existing?.platformFeePercent != null ? Number(existing.platformFeePercent) : null;
+      if (
+        siteIds != null &&
+        body.platformFeePercent !== undefined &&
+        body.platformFeePercent !== storedFee
+      ) {
+        await reply.status(403).send({
+          error: 'Only a user with access to every site changes the platform fee',
+          code: 'INSUFFICIENT_PERMISSIONS',
+        });
+        return;
+      }
+
       if (existing != null) {
         await db
           .update(sitePaymentConfigs)
@@ -1007,10 +1039,14 @@ export function paymentRoutes(app: FastifyInstance): void {
             ...(body.preAuthAmountCents !== undefined && {
               preAuthAmountCents: body.preAuthAmountCents,
             }),
-            ...(body.platformFeePercent !== undefined && {
-              platformFeePercent:
-                body.platformFeePercent != null ? String(body.platformFeePercent) : null,
-            }),
+            // A site-restricted save never writes the fee, even the value it
+            // checked above: an all-site change committed in between would
+            // otherwise be put back.
+            ...(siteIds == null &&
+              body.platformFeePercent !== undefined && {
+                platformFeePercent:
+                  body.platformFeePercent != null ? String(body.platformFeePercent) : null,
+              }),
             updatedAt: new Date(),
           })
           .where(eq(sitePaymentConfigs.siteId, id));
@@ -1075,6 +1111,9 @@ export function paymentRoutes(app: FastifyInstance): void {
         params: zodSchema(siteIdParams),
         response: {
           200: successResponse,
+          403: errorWith('A site-restricted user deleted a config with a platform fee', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           404: errorWith('Payment config not found', [ERROR_CODES.PAYMENT_CONFIG_NOT_FOUND]),
           409: errorWith('Payments were made with this config', [
             ERROR_CODES.SITE_PAYMENT_CONFIG_IN_USE,
@@ -1095,11 +1134,20 @@ export function paymentRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Deleting the config drops its platform fee override, which only an
+      // all-site user changes: a site-restricted user's
+      // delete matches only a config without one, in the same statement, so
+      // an override set meanwhile is never dropped.
       let deleted;
       try {
         [deleted] = await db
           .delete(sitePaymentConfigs)
-          .where(eq(sitePaymentConfigs.siteId, id))
+          .where(
+            and(
+              eq(sitePaymentConfigs.siteId, id),
+              siteIds != null ? isNull(sitePaymentConfigs.platformFeePercent) : undefined,
+            ),
+          )
           .returning();
       } catch (err) {
         // payment_records.site_payment_config_id references this row with no
@@ -1113,6 +1161,20 @@ export function paymentRoutes(app: FastifyInstance): void {
           return;
         }
         throw err;
+      }
+
+      if (deleted == null && siteIds != null) {
+        const [kept] = await db
+          .select({ platformFeePercent: sitePaymentConfigs.platformFeePercent })
+          .from(sitePaymentConfigs)
+          .where(eq(sitePaymentConfigs.siteId, id));
+        if (kept?.platformFeePercent != null) {
+          await reply.status(403).send({
+            error: 'Only a user with access to every site changes the platform fee',
+            code: 'INSUFFICIENT_PERMISSIONS',
+          });
+          return;
+        }
       }
 
       if (deleted == null) {
@@ -1136,7 +1198,7 @@ export function paymentRoutes(app: FastifyInstance): void {
   app.get(
     '/settings/stripe',
     {
-      onRequest: [authorize('payments:read')],
+      onRequest: [authorize('settings.payment:read')],
       schema: {
         tags: ['Payments'],
         summary: 'Get system Stripe settings',
@@ -1189,7 +1251,7 @@ export function paymentRoutes(app: FastifyInstance): void {
   app.put(
     '/settings/stripe',
     {
-      onRequest: [authorize('payments:write')],
+      onRequest: [authorize('settings.payment:write')],
       schema: {
         tags: ['Payments'],
         summary: 'Update system Stripe settings',
@@ -1242,7 +1304,7 @@ export function paymentRoutes(app: FastifyInstance): void {
   app.post(
     '/settings/stripe/test',
     {
-      onRequest: [authorize('payments:write')],
+      onRequest: [authorize('settings.payment:write')],
       schema: {
         tags: ['Payments'],
         summary: 'Test Stripe API connection',
@@ -1289,7 +1351,7 @@ export function paymentRoutes(app: FastifyInstance): void {
   app.get(
     '/settings/stripe/webhook',
     {
-      onRequest: [authorize('payments:read')],
+      onRequest: [authorize('settings.payment:read')],
       schema: {
         tags: ['Payments'],
         summary: 'Get the Stripe webhook setup',
@@ -1357,7 +1419,7 @@ export function paymentRoutes(app: FastifyInstance): void {
   app.post(
     '/settings/stripe/webhook',
     {
-      onRequest: [authorize('payments:write')],
+      onRequest: [authorize('settings.payment:write')],
       schema: {
         tags: ['Payments'],
         summary: 'Create the Stripe webhooks',
@@ -1911,6 +1973,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           400: errorWith('Bad request', [
             ERROR_CODES.MISSING_PAYMENT_INTENT,
             ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
+            ERROR_CODES.VALIDATION_ERROR,
           ]),
           404: errorWith('No pre auth', [ERROR_CODES.NO_PRE_AUTH]),
         },
@@ -1952,6 +2015,13 @@ export function paymentRoutes(app: FastifyInstance): void {
           await reply.status(400).send({
             error: 'No payment provider configured',
             code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+          });
+          return;
+        case 'exceeds_hold':
+          await reply.status(400).send({
+            error: `The capture is above the held amount (${String(outcome.holdCents)} cents)`,
+            code: 'VALIDATION_ERROR',
+            details: { amountCents: 'Above the held amount' },
           });
           return;
         default:

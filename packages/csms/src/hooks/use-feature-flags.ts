@@ -17,14 +17,17 @@ export interface NavFeatureFlags {
    * dashboard Active insights card.
    */
   aiInsightsEnabled: boolean;
+  /**
+   * A SIM provider or station signal reads are on: the SIMs nav entry and page,
+   * the station Connectivity tab and ICCID field.
+   */
+  simEnabled: boolean;
 }
 
 /** Every flag of `GET /v1/portal/features` the CSMS reads. */
 export interface FeatureFlags extends NavFeatureFlags {
   guestChargingEnabled: boolean;
   chatbotAiEnabled: boolean;
-  /** A SIM provider or station signal reads are on: the station Connectivity tab and ICCID field. */
-  simEnabled: boolean;
   /** Station signal reads are on: a SIM Refresh also sends one OCPP request to the station. */
   simStationSignalEnabled: boolean;
 }

@@ -100,7 +100,7 @@ export function ProfilePassword(): React.JSX.Element {
         <form onSubmit={handleChangePassword} noValidate className="space-y-4 max-w-md">
           {passwordError !== '' && <p className="text-sm text-destructive">{passwordError}</p>}
           {passwordSuccess && (
-            <p className="text-sm text-green-600">{t('profile.passwordChanged')}</p>
+            <p className="text-sm text-success">{t('profile.passwordChanged')}</p>
           )}
           <div className="space-y-2">
             <Label htmlFor="current-password" className="leading-6">

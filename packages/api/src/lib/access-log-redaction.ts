@@ -37,6 +37,12 @@ const SECRET_EXACT_NAMES = new Set([
   'attestationObject',
   'authenticatorData',
   'userHandle',
+  // A SIM's subscriber identity: kept out of every stored log, as out of the audit.
+  'imsi',
+  // The SAML reply of the SSO callback holds the user's email and attributes, and the
+  // RelayState its sign-in state.
+  'SAMLResponse',
+  'RelayState',
 ]);
 
 const MAX_DEPTH = 8;
@@ -74,6 +80,10 @@ export function redactAccessLogBody(
   const sanitized = redact(maskStationCredentials(body), 0) as Record<string, unknown>;
   if (path.startsWith('/v1/settings/') && 'value' in sanitized) {
     sanitized['value'] = REDACTED;
+  }
+  // A SIM import holds up to 10000 rows of ICCIDs and IMSIs: the log keeps the count.
+  if (path === '/v1/sims/import' && Array.isArray(body['rows'])) {
+    sanitized['rows'] = body['rows'].length;
   }
   return sanitized;
 }

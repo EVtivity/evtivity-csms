@@ -27,7 +27,7 @@ import type { DriverAiRequest } from '@evtivity/lib/driver-ai';
 import { createDriverAiAdapter, resolveDriverAiConfig } from '@evtivity/services/driver-ai-config';
 import { aiProviderGate } from '@evtivity/services/ai-alerts';
 import { logJobStarted, logJobCompleted, logJobFailed } from '../job-logger.js';
-import { config } from '../lib/config.js';
+import { allowsDevelopmentRelaxations, config } from '../lib/config.js';
 import { analyzeDriverAiCase, failDriverAiCase } from './analyze.js';
 import type { DriverAiJobDeps } from './analyze.js';
 
@@ -89,11 +89,14 @@ export async function startDriverAiBridge(pubsub: PubSubClient): Promise<() => P
 }
 
 export function defaultDriverAiJobDeps(): DriverAiJobDeps {
-  const nodeEnv = process.env['NODE_ENV'];
   return {
     getSettings: getAiSettings,
     resolveConfig: (settings) =>
-      resolveDriverAiConfig(settings, config.SETTINGS_ENCRYPTION_KEY, nodeEnv === 'development'),
+      resolveDriverAiConfig(
+        settings,
+        config.SETTINGS_ENCRYPTION_KEY,
+        allowsDevelopmentRelaxations(),
+      ),
     createAdapter: createDriverAiAdapter,
     checkBudgets: checkAiBudgets,
     providerGate: aiProviderGate,

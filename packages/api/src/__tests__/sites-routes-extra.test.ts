@@ -560,6 +560,7 @@ describe('Site routes - extra coverage', () => {
         stationMessageLanguage: null,
         autochargeEnabled: null,
         aiInsightsEnabled: true,
+        dataPlan: null,
         aiMonthlyTokenBudget: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',

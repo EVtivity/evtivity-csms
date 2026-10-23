@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { resolveNotificationTestSinkUrl } from '@evtivity/lib/notification-test-sink';
 import { resolveSimProviderTestBaseUrl } from '@evtivity/lib/sim-test-base-url';
 import { parseTrustProxy } from '@evtivity/lib/trust-proxy';
+import { isWeakJwtSecret, MIN_DEPLOYMENT_SECRET_LENGTH } from '@evtivity/lib/deployment-secrets';
 import { webauthnRpIdProblem } from './webauthn-rp.js';
 
 const schema = z.object({
@@ -13,7 +14,9 @@ const schema = z.object({
   JWT_SECRET: z.string().min(1).default('dev-secret-change-in-production'),
   CORS_ORIGIN: z.string().default('*'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
-  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  // Unset counts as production: every development relaxation (CORS `*`, private
+  // AI base URLs, the simulated payment provider) needs an explicit development.
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('production'),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(3000),
   RATE_LIMIT_WINDOW: z.string().default('1 minute'),
   AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(30),
@@ -56,13 +59,17 @@ const schema = z.object({
   // the station identity. Needed to move a connected 2.1 station from plain
   // WebSocket to TLS (OCPP 2.1 A05); unset disables that upgrade.
   OCPP_STATION_TLS_URL: z.string().url().optional(),
+  // The OCPP server endpoints the simulators connect to, plain and TLS: the
+  // URLs the simulator pairing stores and the only simulator targets the API
+  // accepts. The same defaults as the simulator's own config (local dev).
+  OCPP_SERVER_URL: z.string().url().default('ws://ocpp:8080'),
+  OCPP_TLS_SERVER_URL: z.string().url().default('wss://ocpp:8443'),
   // Allows the simulated (test) payment provider in this process (D-T1). Default:
-  // on when NODE_ENV is development (or unset) or test, off otherwise.
+  // on when NODE_ENV is development or test, off otherwise (unset included: the
+  // service images set production).
   PAYMENTS_ALLOW_SIMULATED: z
     .enum(['true', 'false'])
-    .default(
-      ['development', 'test'].includes(process.env['NODE_ENV'] ?? 'development') ? 'true' : 'false',
-    )
+    .default(['development', 'test'].includes(process.env['NODE_ENV'] ?? '') ? 'true' : 'false')
     .transform((v) => v === 'true'),
   // Notification test sink (local development only, off by default): driver SMS
   // and push go to NOTIFICATIONS_TEST_SINK_URL instead of Twilio and Expo. The
@@ -88,6 +95,14 @@ const schema = z.object({
 
 export type ApiConfig = z.infer<typeof schema>;
 export const config = schema.parse(process.env);
+
+// A JWT secret anyone can read signs tokens anyone can forge: refuse a short or
+// published value (the unit tests run with their own fixtures).
+if (config.NODE_ENV !== 'test' && isWeakJwtSecret(config.JWT_SECRET)) {
+  throw new Error(
+    `JWT_SECRET must be at least ${String(MIN_DEPLOYMENT_SECRET_LENGTH)} characters and not a published example value: generate one with openssl rand -hex 32`,
+  );
+}
 
 // A relying party ID the CSMS origin cannot use would fail every passkey
 // ceremony, so the process refuses to start instead.

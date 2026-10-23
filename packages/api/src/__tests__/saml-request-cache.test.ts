@@ -92,7 +92,7 @@ describe('RedisSamlRequestCache', () => {
   });
 });
 
-describe('SAML browser binding (security review L1)', () => {
+describe('SAML browser binding', () => {
   let redis: ReturnType<typeof fakeRedis>;
 
   beforeEach(() => {
@@ -143,6 +143,12 @@ describe('SAML browser binding (security review L1)', () => {
 });
 
 describe('ssoEmailDomainAllowed', () => {
+  it('refuses an address with more than one @', () => {
+    expect(ssoEmailDomainAllowed('x@allowed.com@evil.example', ['allowed.com'])).toBe(false);
+    expect(ssoEmailDomainAllowed('x@evil.example@allowed.com', ['allowed.com'])).toBe(false);
+    expect(ssoEmailDomainAllowed('x@allowed.com', ['allowed.com'])).toBe(true);
+  });
+
   it('allows every domain when the list is empty', () => {
     expect(ssoEmailDomainAllowed('a@any.com', [])).toBe(true);
   });

@@ -32,6 +32,8 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
   return {
     ...actual,
     decryptString: (...args: unknown[]) => decryptStringMock(...args) as string,
+    // The Hubject provider sends through safeFetch; the tests stub the global fetch.
+    safeFetch: (...args: unknown[]) => (globalThis.fetch as (...a: unknown[]) => unknown)(...args),
   };
 });
 
@@ -130,12 +132,14 @@ describe('getPkiProvider', () => {
 
     // Verify the decrypted secret is actually wired into the provider config by
     // exercising the OAuth path and inspecting the outbound token request body.
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: vi.fn().mockResolvedValue({ access_token: 't', expires_in: 3600 }),
-      text: vi.fn().mockResolvedValue('-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----'),
-    });
+    // The token call answers JSON, the cacerts call a PEM (read as bodies).
+    const fetchMock = vi.fn((url: string, _init?: RequestInit) =>
+      Promise.resolve(
+        url.endsWith('/cacerts')
+          ? new Response('-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----')
+          : new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })),
+      ),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     await provider.getRootCertificates('V2G');
@@ -264,12 +268,14 @@ describe('getPkiProvider', () => {
     expect(provider).toBeInstanceOf(HubjectProvider);
 
     // The non-string baseUrl coerced to '' means the EST URL is just the path.
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: vi.fn().mockResolvedValue({ access_token: 't', expires_in: 3600 }),
-      text: vi.fn().mockResolvedValue('-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----'),
-    });
+    // The token call answers JSON, the cacerts call a PEM (read as bodies).
+    const fetchMock = vi.fn((url: string, _init?: RequestInit) =>
+      Promise.resolve(
+        url.endsWith('/cacerts')
+          ? new Response('-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----')
+          : new Response(JSON.stringify({ access_token: 't', expires_in: 3600 })),
+      ),
+    );
     vi.stubGlobal('fetch', fetchMock);
 
     await provider.getRootCertificates('V2G');

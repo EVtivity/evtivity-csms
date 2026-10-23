@@ -202,6 +202,13 @@ vi.mock('../../../database/src/lib/audit.js', () => ({
   writeAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
+const mockFindLinkableStationTokens = vi.hoisted(() =>
+  vi.fn<(value: string, type?: string | null) => Promise<unknown[]>>().mockResolvedValue([]),
+);
+vi.mock('../authorization/station-token-match.js', () => ({
+  findLinkableStationTokens: mockFindLinkableStationTokens,
+}));
+
 vi.mock('@evtivity/database', async () => ({
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
@@ -243,6 +250,8 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-energy.js',
   )),
+  // The session meter summary UPDATE (tested on a real database, integration v21 64).
+  applySessionMeterSummary: vi.fn().mockResolvedValue(false),
   // The real tariff resolver, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
@@ -261,9 +270,16 @@ vi.mock('@evtivity/database', async () => ({
   getOfflineCommandTtlHours: vi.fn().mockResolvedValue(24),
   writeReservationAudit: vi.fn().mockResolvedValue(undefined),
   reservationDiffChanged: vi.fn().mockReturnValue(false),
-  getSampledMeasurands: vi.fn().mockResolvedValue([]),
-  getAlignedMeasurands: vi.fn().mockResolvedValue([]),
-  getTxEndedMeasurands: vi.fn().mockResolvedValue([]),
+  getDataPlanValues: vi.fn().mockResolvedValue({
+    heartbeatInterval: 900,
+    csmsPingInterval: 120,
+    clockAlignedInterval: -1,
+    alignedMeasurands: '',
+    txEndedMeasurands: '',
+    ac: { meterValueInterval: 0, sampledMeasurands: '' },
+    dc: { meterValueInterval: 0, sampledMeasurands: '' },
+  }),
+  readStationDataPlans: vi.fn().mockResolvedValue(new Map()),
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
   getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
@@ -889,6 +905,9 @@ describe('Event projections - coverage expansion', () => {
     it('skips idToken resolution when driver already assigned', async () => {
       await setup();
 
+      mockFindLinkableStationTokens.mockResolvedValueOnce([
+        { id: 'tok-1', driverId: 'existing-driver', prepaidBalanceCents: null },
+      ]);
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // eager OCPI roaming check (idToken present)
@@ -899,7 +918,6 @@ describe('Event projections - coverage expansion', () => {
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: 'existing-driver' }], // SELECT driver_id (already set)
-        [{ id: 'tok-1', driver_id: 'existing-driver' }], // SELECT id, driver_id FROM driver_tokens
         [], // UPDATE charging_sessions SET token_id
         // resolveTariff: driver-specific found
         [
@@ -954,7 +972,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT transaction_events
         [{ is_roaming: true }], // SELECT is_roaming (seeded true by eager check)
         [{ driver_id: null }], // SELECT driver_id (no driver)
-        [], // SELECT driver_tokens (not found)
         // (downstream redundant OCPI check + UPDATE is_roaming removed in Step 2)
         // resolveTariff: station pricing group found
         [],
@@ -1005,7 +1022,6 @@ describe('Event projections - coverage expansion', () => {
           [], // UPDATE stale sessions
           [], // INSERT transaction_events
           [{ driver_id: null }], // SELECT driver_id
-          [], // SELECT driver_tokens (not found)
           [], // SELECT ocpi_external_tokens will throw
           [], // SELECT guest_sessions (no match)
           [], // loadStationPricing: no pricing group applies
@@ -1188,7 +1204,6 @@ describe('Event projections - coverage expansion', () => {
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id
         // Token resolution chain: driver_tokens -> ocpi_external_tokens -> guest_sessions
-        [], // driver_tokens (empty)
         [], // external tokens (empty)
         [], // guest_sessions (empty)
         [], // loadStationPricing: no pricing group applies
@@ -2679,7 +2694,6 @@ describe('Event projections - coverage expansion', () => {
       [], // INSERT transaction_events
       [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
       [{ driver_id: 'driver-pay' }], // SELECT driver_id
-      [], // SELECT driver_tokens by idToken (no match for 'rfid-pay')
       [], // SELECT vehicle_id (no previous vehicle, auto-link skipped)
       [
         {
@@ -2774,7 +2788,7 @@ describe('Event projections - coverage expansion', () => {
       );
     });
 
-    it('leaves the session running when the payment provider is not configured', async () => {
+    it("stops and faults the session when the card's payment provider is gone", async () => {
       mockAuthorizeSessionHold.mockResolvedValueOnce({
         outcome: 'not_configured',
         providerId: 'stripe',
@@ -2784,10 +2798,10 @@ describe('Event projections - coverage expansion', () => {
 
       await emitDriverStarted('tx-not-configured');
 
-      // Payments are not configured: the session is neither stopped nor faulted.
-      expect(stopCommands()).toHaveLength(0);
-      expect(faultUpdate()).toBeUndefined();
-      expect(paymentNotifications()).toHaveLength(0);
+      // A provider is active (the hold ran), the card's is not: stop and ask
+      // for a card, as without a payment method.
+      expect(stopCommands()).toHaveLength(1);
+      expect(faultUpdate()?.values).toContain('MissingPaymentMethod');
     });
 
     it('stops and faults the session when the driver has no payment method', async () => {
@@ -3017,8 +3031,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT transaction_events
         [{ is_roaming: true }], // SELECT is_roaming (seeded true by eager check)
         [{ driver_id: null }], // SELECT driver_id (null)
-        // idToken + tokenType present -> SELECT driver_tokens (no match)
-        [], // driver_tokens (empty)
         // (redundant downstream OCPI check was removed in Step 2; no further
         //  ocpi_external_tokens lookup or is_roaming UPDATE here)
         [], // loadStationPricing: no pricing group applies
@@ -3075,12 +3087,10 @@ describe('Event projections - coverage expansion', () => {
         [], // 4: INSERT transaction_events
         [{ is_roaming: false }], // 6: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'drv_nopay' }], // 7: SELECT driver_id
-        // driver_tokens lookup runs because idToken='rfid-nopay'
-        [], // 8: SELECT driver_tokens (no match)
         [], // 9: SELECT vehicle_id (auto-link)
       );
       // loadStationPricing: the group, its tariffs and the site timezone
-      sqlResults[9] = [
+      sqlResults[8] = [
         {
           group_id: 'pg-1',
           group_name: 'Group',
@@ -3097,11 +3107,11 @@ describe('Event projections - coverage expansion', () => {
           is_default: true,
         },
       ];
-      sqlResults[10] = []; // pricing holidays
-      sqlResults[11] = []; // UPDATE session (tariff snapshot)
-      sqlResults[12] = []; // INSERT session_tariff_segments
-      sqlResults[13] = [{ site_id: null }]; // resolveSiteId
-      sqlResults[14] = [{ name: null }]; // resolveSiteName
+      sqlResults[9] = []; // pricing holidays
+      sqlResults[10] = []; // UPDATE session (tariff snapshot)
+      sqlResults[11] = []; // INSERT session_tariff_segments
+      sqlResults[12] = [{ site_id: null }]; // resolveSiteId
+      sqlResults[13] = [{ name: null }]; // resolveSiteName
 
       // runPaymentGate: paid tariff, the service finds no payment method
 
@@ -3148,7 +3158,6 @@ describe('Event projections - coverage expansion', () => {
         [], // 4: INSERT transaction_events
         [{ is_roaming: false }], // 6: SELECT is_roaming (eager-state seed)
         [{ driver_id: 'drv_free' }], // 7: SELECT driver_id
-        [], // 8: SELECT driver_tokens (no match)
         [], // 9: SELECT vehicle_id (auto-link)
       );
       // loadStationPricing: the group, its tariffs and the site timezone
@@ -3220,7 +3229,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT transaction_events
         [{ driver_id: null }], // SELECT driver_id (null)
         // Token resolution chain: driver_tokens -> ocpi_external_tokens -> guest_sessions
-        [], // driver_tokens (empty)
         [], // external tokens (empty)
         [], // guest_sessions (empty) -> anonymous
         [], // loadStationPricing: no pricing group applies
@@ -3270,7 +3278,6 @@ describe('Event projections - coverage expansion', () => {
         [{ driver_id: null }], // 7: SELECT driver_id (null)
         // Token resolution chain: driver_tokens -> guest_sessions
         // (downstream redundant OCPI check was removed in Step 2)
-        [], // 8: driver_tokens (empty)
         [{ status: 'payment_authorized', guest_email: 'g@test.com' }], // 9: guest_sessions (authorized)
         [], // loadStationPricing: no pricing group applies
         // resolveSiteId
@@ -3314,7 +3321,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT transaction_events
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id (null)
-        [], // driver_tokens (empty)
         [
           {
             status: 'payment_authorized',
@@ -3366,7 +3372,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT transaction_events
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id (null)
-        [], // driver_tokens (empty)
         [
           {
             status: 'charging',
@@ -3460,7 +3465,6 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT transaction_events
         [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
         [{ driver_id: null }], // SELECT driver_id (null)
-        [], // driver_tokens (empty)
         [{ status: 'pending', guest_email: 'g@test.com' }], // guest_sessions (not authorized)
         [], // loadStationPricing: no pricing group applies
         [{ site_id: null }], // resolveSiteId
@@ -4595,19 +4599,23 @@ describe('Event projections - coverage expansion', () => {
         idToken: 'PREPAID-1',
         tokenType: 'ISO14443',
       });
-    const startedResults = (prepaidBalanceCents: number, reservedCents = 0) => [
-      [{ id: 'sta_000000000001' }], // resolveStationId
-      [], // eager OCPI roaming check
-      [{ id: 'session-pp' }], // INSERT charging_sessions RETURNING id
-      [], // UPDATE stale sessions
-      [], // INSERT transaction_events
-      [{ is_roaming: false }], // SELECT is_roaming
-      [{ driver_id: null }], // SELECT driver_id
-      [{ id: 'dtk_pp', driver_id: 'drv_pp', prepaid_balance_cents: prepaidBalanceCents }], // driver_tokens
-      [{ prepaid_balance_cents: prepaidBalanceCents }], // driver_tokens FOR UPDATE
-      [{ reserved_cents: reservedCents }], // other active sessions of the token
-      [], // UPDATE charging_sessions SET token_id, cost_ceiling_cents
-    ];
+    const startedResults = (prepaidBalanceCents: number, reservedCents = 0) => {
+      mockFindLinkableStationTokens.mockResolvedValueOnce([
+        { id: 'dtk_pp', driverId: 'drv_pp', prepaidBalanceCents: prepaidBalanceCents },
+      ]);
+      return [
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // eager OCPI roaming check
+        [{ id: 'session-pp' }], // INSERT charging_sessions RETURNING id
+        [], // UPDATE stale sessions
+        [], // INSERT transaction_events
+        [{ is_roaming: false }], // SELECT is_roaming
+        [{ driver_id: null }], // SELECT driver_id
+        [{ prepaid_balance_cents: prepaidBalanceCents }], // driver_tokens FOR UPDATE
+        [{ reserved_cents: reservedCents }], // other active sessions of the token
+        [], // UPDATE charging_sessions SET token_id, cost_ceiling_cents
+      ];
+    };
     const stopCommands = (): unknown[][] =>
       (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls.filter(
         (c: unknown[]) =>
@@ -4684,7 +4692,7 @@ describe('Event projections - coverage expansion', () => {
       await setup();
       const results: unknown[][] = startedResults(5000);
       // The operator made the token postpaid between the lookup and the lock.
-      results.splice(8, 3, [{ prepaid_balance_cents: null }], []);
+      results.splice(7, 3, [{ prepaid_balance_cents: null }], []);
       setupSqlResults(...results);
 
       await eventBus.emit('ocpp.TransactionEvent', startedEvent('tx-pp-postpaid'));

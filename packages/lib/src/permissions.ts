@@ -33,6 +33,7 @@ export interface PermissionGroupDefinition {
 const BUILT_IN_GROUPS = [
   { resource: 'dashboard', kind: 'page' },
   { resource: 'stations', kind: 'page' },
+  { resource: 'sims', kind: 'page' },
   { resource: 'sites', kind: 'page' },
   { resource: 'sessions', kind: 'page' },
   { resource: 'drivers', kind: 'page' },
@@ -86,6 +87,8 @@ const OPERATOR_DEFAULTS: readonly Permission[] = [
   'dashboard:write',
   'stations:read',
   'stations:write',
+  'sims:read',
+  'sims:write',
   'sites:read',
   'sites:write',
   'sessions:read',
@@ -133,6 +136,7 @@ const OPERATOR_DEFAULTS: readonly Permission[] = [
 const VIEWER_DEFAULTS: readonly Permission[] = [
   'dashboard:read',
   'stations:read',
+  'sims:read',
   'sites:read',
   'sessions:read',
   'drivers:read',

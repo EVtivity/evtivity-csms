@@ -6,8 +6,16 @@ import pino from 'pino';
 import { ConnectionManager } from '../server/connection-manager.js';
 import { PingMonitor } from '../server/ping-monitor.js';
 import { createSessionState } from '../server/session-state.js';
+import { DATA_PLAN_DEFAULTS } from '@evtivity/lib';
 
 const logger = pino({ level: 'silent' });
+
+// A session whose station sent nothing for 10 minutes: due for a CSMS ping.
+function silentSession(id: string) {
+  const session = createSessionState(id);
+  session.lastInboundAt = new Date(Date.now() - 10 * 60 * 1000);
+  return session;
+}
 
 function mockWs() {
   return {
@@ -56,7 +64,7 @@ describe('PingMonitor', () => {
   });
 
   it('records pong latency correctly', () => {
-    cm.add('CS-001', mockWs(), createSessionState('CS-001'));
+    cm.add('CS-001', mockWs(), silentSession('CS-001'));
     monitor.start();
 
     // Trigger the ping interval
@@ -74,8 +82,8 @@ describe('PingMonitor', () => {
   });
 
   it('calculates success rate correctly with missing pongs', () => {
-    cm.add('CS-001', mockWs(), createSessionState('CS-001'));
-    cm.add('CS-002', mockWs(), createSessionState('CS-002'));
+    cm.add('CS-001', mockWs(), silentSession('CS-001'));
+    cm.add('CS-002', mockWs(), silentSession('CS-002'));
     monitor.start();
 
     // First ping cycle
@@ -90,8 +98,8 @@ describe('PingMonitor', () => {
   });
 
   it('tracks connected stations count', () => {
-    cm.add('CS-001', mockWs(), createSessionState('CS-001'));
-    cm.add('CS-002', mockWs(), createSessionState('CS-002'));
+    cm.add('CS-001', mockWs(), silentSession('CS-001'));
+    cm.add('CS-002', mockWs(), silentSession('CS-002'));
 
     const snapshot = monitor.getSnapshot();
     expect(snapshot.connectedStations).toBe(2);
@@ -104,8 +112,8 @@ describe('PingMonitor', () => {
   });
 
   it('computes max latency', () => {
-    cm.add('CS-001', mockWs(), createSessionState('CS-001'));
-    cm.add('CS-002', mockWs(), createSessionState('CS-002'));
+    cm.add('CS-001', mockWs(), silentSession('CS-001'));
+    cm.add('CS-002', mockWs(), silentSession('CS-002'));
     monitor.start();
 
     // First ping cycle
@@ -125,7 +133,7 @@ describe('PingMonitor', () => {
     monitor.start();
     await monitor.stop();
     // Advancing time should not trigger pings
-    cm.add('CS-001', mockWs(), createSessionState('CS-001'));
+    cm.add('CS-001', mockWs(), silentSession('CS-001'));
     vi.advanceTimersByTime(60_000);
     const snapshot = monitor.getSnapshot();
     expect(snapshot.totalPingsSent).toBe(0);
@@ -151,7 +159,13 @@ describe('PingMonitor', () => {
   });
 
   it('trims latency history when exceeding MAX_LATENCY_HISTORY', () => {
-    cm.add('CS-001', mockWs(), createSessionState('CS-001'));
+    const session = silentSession('CS-001');
+    cm.add('CS-001', mockWs(), session);
+    // A 30 s CSMS ping interval pings at every cycle.
+    monitor.setPlanValues({
+      wifi_or_wired: { ...DATA_PLAN_DEFAULTS.wifi_or_wired, csmsPingInterval: 30 },
+      cellular: DATA_PLAN_DEFAULTS.cellular,
+    });
     monitor.start();
 
     // Simulate many ping/pong cycles
@@ -159,6 +173,7 @@ describe('PingMonitor', () => {
       vi.advanceTimersByTime(30_000);
       vi.advanceTimersByTime(5);
       monitor.recordPong('CS-001');
+      session.lastInboundAt = new Date();
     }
 
     const snapshot = monitor.getSnapshot();
@@ -180,7 +195,7 @@ describe('PingMonitor', () => {
   });
 
   it('ignores pong for station where ping was already consumed', () => {
-    cm.add('CS-001', mockWs(), createSessionState('CS-001'));
+    cm.add('CS-001', mockWs(), silentSession('CS-001'));
     monitor.start();
 
     vi.advanceTimersByTime(30_000);
@@ -196,7 +211,7 @@ describe('PingMonitor', () => {
 
   it('does not ping stations that have been removed', () => {
     const ws = mockWs();
-    cm.add('CS-001', ws, createSessionState('CS-001'));
+    cm.add('CS-001', ws, silentSession('CS-001'));
     monitor.start();
 
     cm.remove('CS-001');
@@ -211,8 +226,8 @@ describe('PingMonitor', () => {
     it('closes connection when heartbeat times out', () => {
       const ws = mockWs();
       const session = createSessionState('CS-001');
-      // Set lastHeartbeat to 16 minutes ago (exceeds 15-minute timeout)
-      session.lastHeartbeat = new Date(Date.now() - 16 * 60 * 1000);
+      // 46 minutes ago exceeds 3 x the Wi-Fi or wired heartbeat (900 s).
+      session.lastHeartbeat = new Date(Date.now() - 46 * 60 * 1000);
       cm.add('CS-001', ws, session);
       monitor.start();
 
@@ -222,13 +237,13 @@ describe('PingMonitor', () => {
       expect(ws.close).toHaveBeenCalledWith(1000, 'Heartbeat timeout');
     });
 
-    it('scales the timeout with a longer heartbeat interval', () => {
+    it("follows the heartbeat of the station's plan", () => {
       const ws = mockWs();
       const session = createSessionState('CS-001');
-      // 16 minutes is within 3 x 600 s = 30 minutes.
-      session.lastHeartbeat = new Date(Date.now() - 16 * 60 * 1000);
+      // 46 minutes is within 3 x the Cellular heartbeat (3600 s).
+      session.lastHeartbeat = new Date(Date.now() - 46 * 60 * 1000);
+      session.dataPlan = 'cellular';
       cm.add('CS-001', ws, session);
-      monitor.setHeartbeatIntervalSeconds(600);
       monitor.start();
 
       vi.advanceTimersByTime(30_000);
@@ -568,6 +583,106 @@ describe('PingMonitor', () => {
       // The pending write should have been cancelled, so no new sql calls
       // (stop already wrote the shutdown snapshot, but no further calls)
       expect(sql).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('per-plan CSMS ping', () => {
+    // The cycle pings when the next 30 s tick would pass the interval, so a
+    // station silent for at most 90 s (interval 120 s minus one cycle) is
+    // never pinged.
+    it('sends no ping to a station that sends a frame every 80 s (Wi-Fi or wired, 120 s)', () => {
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+      cm.add('CS-001', ws, session);
+      monitor.start();
+      for (let t = 0; t < 12; t++) {
+        vi.advanceTimersByTime(80_000);
+        session.lastInboundAt = new Date();
+      }
+      expect(ws.ping).not.toHaveBeenCalled();
+      // Then silent: pinged at the cycle whose next tick passes 120 s.
+      vi.advanceTimersByTime(120_000);
+      expect(ws.ping).toHaveBeenCalledTimes(1);
+    });
+
+    it('pings a silent Cellular station once per 240 s', () => {
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+      session.dataPlan = 'cellular';
+      cm.add('CS-001', ws, session);
+      monitor.start();
+      // Each pong is a frame: the station answers every ping.
+      (ws.ping as ReturnType<typeof vi.fn>).mockImplementation(() => {
+        session.lastInboundAt = new Date();
+        monitor.recordPong('CS-001');
+      });
+      vi.advanceTimersByTime(240_000 * 4);
+      expect(ws.ping).toHaveBeenCalledTimes(4);
+    });
+
+    it('pings a station that never answers once per interval, not every cycle', () => {
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+      session.dataPlan = 'cellular';
+      cm.add('CS-001', ws, session);
+      monitor.start();
+      vi.advanceTimersByTime(240_000 * 4);
+      expect(ws.ping).toHaveBeenCalledTimes(4);
+    });
+
+    it('ignores a pong from a replaced socket of the station', () => {
+      const session = createSessionState('CS-001');
+      cm.add('CS-001', mockWs(), session);
+      monitor.recordPong('CS-001', mockWs());
+      expect(session.answeredPing).toBe(false);
+    });
+
+    it('closes a station that answered a ping and then went silent for 3 intervals', () => {
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+      session.dataPlan = 'cellular';
+      cm.add('CS-001', ws, session);
+      monitor.start();
+      (ws.ping as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+        session.lastInboundAt = new Date();
+        monitor.recordPong('CS-001');
+      });
+      vi.advanceTimersByTime(240_000);
+      expect(session.answeredPing).toBe(true);
+      vi.advanceTimersByTime(700_000);
+      expect(ws.close).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(60_000);
+      expect(ws.close).toHaveBeenCalledWith(1000, 'Ping timeout');
+    });
+
+    it('never closes on silence a station that never answered a ping', () => {
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+      cm.add('CS-001', ws, session);
+      monitor.start();
+      vi.advanceTimersByTime(20 * 60 * 1000);
+      expect(ws.close).not.toHaveBeenCalledWith(1000, 'Ping timeout');
+    });
+
+    it('keeps the registry refresh on the 30 s cycle', () => {
+      const refresh = vi.spyOn(cm, 'refreshRegistry');
+      cm.add('CS-001', mockWs(), createSessionState('CS-001'));
+      monitor.start();
+      vi.advanceTimersByTime(90_000);
+      expect(refresh).toHaveBeenCalledTimes(3);
+    });
+
+    it('follows plan values set later', () => {
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+      cm.add('CS-001', ws, session);
+      monitor.setPlanValues({
+        wifi_or_wired: { ...DATA_PLAN_DEFAULTS.wifi_or_wired, csmsPingInterval: 30 },
+        cellular: DATA_PLAN_DEFAULTS.cellular,
+      });
+      monitor.start();
+      vi.advanceTimersByTime(30_000);
+      expect(ws.ping).toHaveBeenCalledTimes(1);
     });
   });
 });

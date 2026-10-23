@@ -19,6 +19,7 @@ import type { AiSurface } from '../tools/policy.js';
 import { claimTurn, releaseTurn } from '../conversation.service.js';
 import { checkAiLimits } from './limits.js';
 import { hasAiAdapter } from './providers.js';
+import { readSignedCookie } from '../../../lib/auth-cookies.js';
 
 /** The permission that lets an operator chat with the assistant. */
 export const AI_ASSISTANT_PERMISSION = 'aiAssistant:write';
@@ -27,16 +28,16 @@ export const AI_ASSISTANT_READ_PERMISSION = 'aiAssistant:read';
 
 /**
  * The Authorization header tool calls run with: the request's own (a JWT or
- * an API key), or the CSMS session cookie as a bearer token. Tools then pass
+ * an API key), or the signed CSMS session cookie as a bearer token. Tools then pass
  * the same authentication, RBAC and site scope as the user's own requests.
  */
 export function callerAuthorization(request: FastifyRequest): string {
   const header = request.headers.authorization ?? '';
   if (header !== '') return header;
-  const raw = request.cookies['csms_token'] ?? '';
-  if (raw === '') return '';
-  const unsigned = request.unsignCookie(raw);
-  return `Bearer ${unsigned.valid ? unsigned.value : raw}`;
+  // The auth plugin refuses an unsigned or forged csms_token, so a cookie
+  // whose signature does not verify gives no authorization here either.
+  const cookie = readSignedCookie(request, 'csms_token');
+  return cookie.status === 'valid' ? `Bearer ${cookie.value}` : '';
 }
 
 /**

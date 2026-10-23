@@ -24,6 +24,10 @@ export interface StationSelection {
 }
 
 interface StationComboboxProps {
+  /** The input id, so a `Label htmlFor` names the field. */
+  id?: string | undefined;
+  /** Draws the field border in the error color (a form error after a submit). */
+  invalid?: boolean | undefined;
   value: StationSelection | null;
   onSelect: (station: StationSelection | null) => void;
   siteId?: string | undefined;
@@ -33,6 +37,8 @@ interface StationComboboxProps {
 }
 
 export function StationCombobox({
+  id,
+  invalid,
   value,
   onSelect,
   siteId,
@@ -81,7 +87,7 @@ export function StationCombobox({
   if (value) {
     return (
       <div className="relative">
-        <Input value={value.stationId} readOnly className="pr-9 cursor-default" />
+        <Input id={id} value={value.stationId} readOnly className="pr-9 cursor-default" />
         <button
           type="button"
           className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
@@ -99,6 +105,8 @@ export function StationCombobox({
     <div ref={containerRef} className="relative">
       <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
       <Input
+        id={id}
+        aria-invalid={invalid === true ? true : undefined}
         value={input}
         onChange={(e) => {
           setInput(e.target.value);
@@ -108,7 +116,7 @@ export function StationCombobox({
           if (input.length > 0) setOpen(true);
         }}
         placeholder={t('stations.searchPlaceholder')}
-        className="pl-9"
+        className={invalid === true ? 'pl-9 border-destructive' : 'pl-9'}
       />
       {open && filteredResults.length > 0 && (
         <ul className="absolute z-50 mt-1 w-full rounded-md border bg-popover p-1 shadow-md max-h-48 overflow-y-auto">

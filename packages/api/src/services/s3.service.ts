@@ -26,19 +26,6 @@ export async function getS3Config(): Promise<S3Config | null> {
   return loadS3Config(apiConfig.SETTINGS_ENCRYPTION_KEY);
 }
 
-export async function generateUploadUrl(
-  s3: S3Config,
-  key: string,
-  contentType: string,
-): Promise<string> {
-  const command = new PutObjectCommand({
-    Bucket: s3.bucket,
-    Key: key,
-    ContentType: contentType,
-  });
-  return getSignedUrl(s3.client, command, { expiresIn: UPLOAD_URL_EXPIRES_SECONDS });
-}
-
 export interface UploadPost {
   /** Form POST target. */
   url: string;
@@ -70,16 +57,21 @@ export async function generateUploadPost(
 }
 
 export interface DownloadOptions {
-  /** Served as `Content-Disposition: attachment` with this file name. */
+  /** Served in `Content-Disposition` with this file name. */
   fileName: string;
   /** Served as the response Content-Type. */
   contentType: string;
+  /**
+   * `attachment` (the default): a browser saves the file. `inline`: a
+   * browser may show it, only for a type that runs no script (a raster image).
+   */
+  disposition?: 'attachment' | 'inline';
 }
 
 /**
- * Presigned GET. With `options`, S3 answers with `Content-Disposition:
- * attachment` and the given type, so a browser saves the file instead of
- * rendering it.
+ * Presigned GET. With `options`, S3 answers with the given type and
+ * `Content-Disposition` (attachment unless `inline` is asked for), so a
+ * browser never renders the object as the type it was stored with.
  */
 export async function generateDownloadUrl(
   s3: S3Config,
@@ -92,7 +84,10 @@ export async function generateDownloadUrl(
     Key: key,
     ...(options != null
       ? {
-          ResponseContentDisposition: contentDispositionAttachment(options.fileName),
+          ResponseContentDisposition:
+            options.disposition === 'inline'
+              ? contentDispositionInline(options.fileName)
+              : contentDispositionAttachment(options.fileName),
           ResponseContentType: options.contentType,
         }
       : {}),
@@ -100,10 +95,19 @@ export async function generateDownloadUrl(
   return getSignedUrl(s3.client, command, { expiresIn: DOWNLOAD_URL_EXPIRES_SECONDS });
 }
 
+function dispositionFileName(fileName: string): string {
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return `filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
 /** RFC 6266 attachment header with an ASCII fallback and a UTF-8 name. */
 export function contentDispositionAttachment(fileName: string): string {
-  const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
-  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+  return `attachment; ${dispositionFileName(fileName)}`;
+}
+
+/** RFC 6266 inline header with an ASCII fallback and a UTF-8 name. */
+export function contentDispositionInline(fileName: string): string {
+  return `inline; ${dispositionFileName(fileName)}`;
 }
 
 export type ReadObjectResult =
@@ -181,6 +185,15 @@ export function buildSupportQuarantineKey(
   fileName: string,
 ): string {
   return `${QUARANTINE_PREFIX}support-cases/${caseId}/${String(messageId)}/${fileId}/${sanitizeFileName(fileName)}`;
+}
+
+/** Quarantine key of a station image upload; confirm re-encodes it to the station key. */
+export function buildStationImageQuarantineKey(
+  stationId: string,
+  fileId: string,
+  fileName: string,
+): string {
+  return `${QUARANTINE_PREFIX}stations/${stationId}/${fileId}/${sanitizeFileName(fileName, 'image')}`;
 }
 
 export function buildStationImageS3Key(

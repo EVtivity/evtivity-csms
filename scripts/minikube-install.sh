@@ -33,6 +33,7 @@ REDIS_PASSWORD="${REDIS_PASSWORD:-$(generate_secret)}"
 JWT_SECRET="${JWT_SECRET:-$(generate_secret)}"
 SETTINGS_ENCRYPTION_KEY="${SETTINGS_ENCRYPTION_KEY:-$(generate_secret)}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(generate_secret)}"
+GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$(generate_secret)}"
 
 POSTGRES_HOST="${RELEASE}-postgresql"
 POSTGRES_PORT="5432"
@@ -289,12 +290,14 @@ helm upgrade --install "$RELEASE" "$CHART_DIR" \
   --set secrets.settingsEncryptionKey="$SETTINGS_ENCRYPTION_KEY" \
   --set ocpp.tls.enabled=true \
   --set ocpp.tls.certSecret="$OCPP_TLS_SECRET" \
+  --set css.enabled=true \
   --set css.tls.enabled=true \
   --set css.tls.certSecret="$CSS_TLS_SECRET" \
   --set ocpi.enabled=true \
   --set ocpiSim.enabled=true \
   --set ocpiCpoSim.enabled=true \
   --set monitoring.enabled=true \
+  --set monitoring.grafana.adminPassword="$GRAFANA_ADMIN_PASSWORD" \
   --set initialAdmin.password="$ADMIN_PASSWORD" \
   --set api.env.cookieDomain=".evtivity.local" \
   > /dev/null 2>&1
@@ -303,5 +306,6 @@ echo "EVtivity CSMS ready."
 echo ""
 echo "Admin email: admin@evtivity.local"
 echo "Admin password: $ADMIN_PASSWORD (must be changed on first login)"
+echo "Grafana admin password: $GRAFANA_ADMIN_PASSWORD"
 echo ""
 echo "Run 'kubectl get pods -n $NAMESPACE' to check status."

@@ -65,6 +65,10 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
   const [expiresAt, setExpiresAt] = useState('');
   const [isPrepaid, setIsPrepaid] = useState(false);
   const [prepaidBalance, setPrepaidBalance] = useState('');
+  // The balance the form was opened with: a save sends a balance only when
+  // the operator changed it, with this value as the expected one, so a debit
+  // in between is never overwritten (409 PREPAID_BALANCE_CONFLICT).
+  const [loadedBalanceCents, setLoadedBalanceCents] = useState<number | null>(null);
   const [selectedDriver, setSelectedDriver] = useState<{ id: string; name: string } | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
@@ -77,6 +81,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
       isActive?: boolean;
       expiresAt?: string | null;
       prepaidBalanceCents?: number | null;
+      expectedPrepaidBalanceCents?: number | null;
     }) => api.patch<TokenData>(`/v1/tokens/${token.id}`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['tokens', token.id] });
@@ -104,6 +109,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
     setIsActive(token.isActive);
     setExpiresAt(token.expiresAt != null ? formatDateTimeLocal(new Date(token.expiresAt)) : '');
     setIsPrepaid(token.prepaidBalanceCents != null);
+    setLoadedBalanceCents(token.prepaidBalanceCents ?? null);
     setPrepaidBalance(
       token.prepaidBalanceCents != null ? centsToMajorInput(token.prepaidBalanceCents) : '',
     );
@@ -142,13 +148,16 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(validationErrors).length > 0) return;
+    const balanceCents = isPrepaid ? parseMajorInputToCents(prepaidBalance) : null;
     updateMutation.mutate({
       idToken,
       tokenType,
       driverId: selectedDriver?.id ?? null,
       isActive,
       expiresAt: expiresAt.trim() !== '' ? new Date(expiresAt).toISOString() : null,
-      prepaidBalanceCents: isPrepaid ? parseMajorInputToCents(prepaidBalance) : null,
+      ...(balanceCents !== loadedBalanceCents
+        ? { prepaidBalanceCents: balanceCents, expectedPrepaidBalanceCents: loadedBalanceCents }
+        : {}),
     });
   }
 

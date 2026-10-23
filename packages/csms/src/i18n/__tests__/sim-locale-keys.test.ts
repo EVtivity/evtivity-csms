@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// The SIM provider settings and the station Connectivity tab have every text in
+// The SIM provider settings, the station Connectivity tab and the SIM list have every text in
 // all six languages, with the same interpolation variables as English.
 
 import { describe, expect, it } from 'vitest';
@@ -14,7 +14,7 @@ import zhTW from '../locales/zh-TW.json';
 
 const OTHER_LOCALES: Record<string, unknown> = { de, es, ko, zh, 'zh-TW': zhTW };
 
-const ROOTS = ['settings.sim', 'stations.sim', 'stations.simCoverage'];
+const ROOTS = ['settings.sim', 'stations.sim', 'stations.simCoverage', 'sims', 'nav.sims'];
 
 function lookup(messages: unknown, key: string): unknown {
   return key

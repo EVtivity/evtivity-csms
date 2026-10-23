@@ -895,6 +895,31 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
   }
   const paymentId = record?.providerPaymentId ?? null;
   if (record == null || paymentId == null) {
+    // No hold to capture. A free session completes as free; a session that
+    // ended with a cost (the Started gate stops a free checkout at a paid
+    // tariff) is a shortfall: logged at error for the
+    // operator, the guest session failed, no receipt claiming a free charge.
+    const [ended] = await db
+      .select({ finalCostCents: chargingSessions.finalCostCents })
+      .from(chargingSessions)
+      .where(eq(chargingSessions.id, sessionId));
+    const shortfallCents = ended?.finalCostCents ?? 0;
+    if (shortfallCents > 0) {
+      deps.logger.error(
+        { guestSessionId: guest.id, chargingSessionId: sessionId, shortfallCents },
+        'Guest shortfall: the session ended with a cost and no card hold; uncollected',
+      );
+      await db
+        .update(guestSessions)
+        .set({ status: 'failed', updatedAt: new Date() })
+        .where(
+          and(
+            eq(guestSessions.id, guest.id),
+            sql`${guestSessions.status} NOT IN ('completed', 'failed', 'expired')`,
+          ),
+        );
+      return;
+    }
     await completeGuestSession(guest.id);
     deps.logger.info({ guestSessionId: guest.id }, 'Free guest session completed');
     await sendGuestReceipt(guest, sessionId, deps);

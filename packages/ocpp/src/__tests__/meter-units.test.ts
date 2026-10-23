@@ -8,6 +8,9 @@ import {
   energyToWh,
   isFlatEnergyReading,
   overallValue,
+  powerToW,
+  readingSummary,
+  socPercent,
 } from '../server/meter-units.js';
 
 describe('energyRegisterWh', () => {
@@ -204,5 +207,97 @@ describe('isFlatEnergyReading', () => {
         readingAt: new Date('not a date'),
       }),
     ).toBe(false);
+  });
+});
+
+describe('powerToW', () => {
+  it('reads W and a missing unit as W', () => {
+    expect(powerToW(7400, 'W')).toBe(7400);
+    expect(powerToW(7400, null)).toBe(7400);
+  });
+
+  it('converts kW to W', () => {
+    expect(powerToW(7.4, 'kW')).toBe(7400);
+  });
+
+  it('refuses another unit and a non-number', () => {
+    expect(powerToW(7400, 'A')).toBeNull();
+    expect(powerToW(Number.NaN, 'W')).toBeNull();
+  });
+});
+
+describe('socPercent', () => {
+  it('reads Percent and a missing unit', () => {
+    expect(socPercent(80, 'Percent')).toBe(80);
+    expect(socPercent(55.5, null)).toBe(55.5);
+  });
+
+  it('refuses a value out of range, a non-number or another unit', () => {
+    expect(socPercent(101, 'Percent')).toBeNull();
+    expect(socPercent(-1, null)).toBeNull();
+    expect(socPercent(Number.NaN, null)).toBeNull();
+    expect(socPercent(80, 'Wh')).toBeNull();
+  });
+});
+
+describe('readingSummary', () => {
+  it('reads OCPP 2.1 power with unitOfMeasure and multiplier', () => {
+    expect(
+      readingSummary([
+        { measurand: 'Power.Active.Import', value: 11, unitOfMeasure: { unit: 'kW' } },
+      ]),
+    ).toEqual({ powerW: 11000, socPercent: null });
+    expect(
+      readingSummary([
+        {
+          measurand: 'Power.Active.Import',
+          value: 22,
+          unitOfMeasure: { unit: 'W', multiplier: 3 },
+        },
+      ]),
+    ).toEqual({ powerW: 22000, socPercent: null });
+  });
+
+  it('reads OCPP 1.6 power with the unit field and a string value', () => {
+    expect(
+      readingSummary([{ measurand: 'Power.Active.Import', value: '7.2', unit: 'kW' }]),
+    ).toEqual({ powerW: 7200, socPercent: null });
+  });
+
+  it('sums the lines when there is no overall value, and ignores Inlet', () => {
+    expect(
+      readingSummary([
+        { measurand: 'Power.Active.Import', value: 3000, phase: 'L1', unit: 'W' },
+        { measurand: 'Power.Active.Import', value: 3, phase: 'L2-N', unit: 'kW' },
+        { measurand: 'Power.Active.Import', value: 3000, phase: 'L3', unit: 'W' },
+        { measurand: 'Power.Active.Import', value: 50000, location: 'Inlet', unit: 'W' },
+      ]),
+    ).toEqual({ powerW: 9000, socPercent: null });
+  });
+
+  it('prefers the overall value over the lines', () => {
+    expect(
+      readingSummary([
+        { measurand: 'Power.Active.Import', value: 3000, phase: 'L1', unit: 'W' },
+        { measurand: 'Power.Active.Import', value: 6500, unit: 'W' },
+      ]),
+    ).toEqual({ powerW: 6500, socPercent: null });
+  });
+
+  it('skips power in an unsupported unit and a reading without samples', () => {
+    expect(readingSummary([{ measurand: 'Power.Active.Import', value: 32, unit: 'A' }])).toEqual({
+      powerW: null,
+      socPercent: null,
+    });
+    expect(readingSummary(undefined)).toEqual({ powerW: null, socPercent: null });
+  });
+
+  it('reads SoC at the EV location', () => {
+    expect(
+      readingSummary([
+        { measurand: 'SoC', value: 64, location: 'EV', unitOfMeasure: { unit: 'Percent' } },
+        { measurand: 'Energy.Active.Import.Register', value: 1000 },
+      ]),
+    ).toEqual({ powerW: null, socPercent: 64 });
   });
 });

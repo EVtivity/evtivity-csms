@@ -61,7 +61,10 @@ vi.mock('@evtivity/database', () => ({
   chargingStations: { id: 'st.id', stationId: 'st.stationId', ocppProtocol: 'st.ocppProtocol' },
   isSplitBillingEnabled: mockIsSplitBillingEnabled,
   isStationMessageEnabled: mockIsStationMessageEnabled,
-  getHeartbeatIntervalSeconds: mockHeartbeat,
+  getDataPlanValues: vi.fn(async (plan: string) => ({
+    heartbeatInterval: (await mockHeartbeat(plan)) as number,
+  })),
+  effectiveDataPlanSql: 'effective-data-plan-sql',
   switchTariffSegment: mockSwitchTariffSegment,
   priceSessionAt: mockPriceSessionAt,
   storeRunningCost: mockStoreRunningCost,
@@ -106,6 +109,7 @@ function activeSession(overrides: Record<string, unknown> = {}): Record<string, 
     ocppProtocol: 'ocpp2.1',
     stationOnline: true,
     stationLastActivityAt: new Date(Date.now() - 30_000),
+    stationDataPlan: 'wifi_or_wired',
     ...overrides,
   };
 }
@@ -226,6 +230,25 @@ describe('tariffBoundaryCheckHandler', () => {
     expect(mockResolveTariff).not.toHaveBeenCalled();
     expect(mockSwitchTariffSegment).not.toHaveBeenCalled();
     expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it("judges liveness with the heartbeat of the station's data plan", async () => {
+    mockHeartbeat.mockImplementation((plan: string) =>
+      Promise.resolve(plan === 'cellular' ? 3600 : 300),
+    );
+    // Silent 10 minutes: within one Cellular heartbeat, not a 300 s one.
+    activeSessions = [
+      activeSession({
+        stationDataPlan: 'cellular',
+        stationLastActivityAt: new Date(Date.now() - 600_000),
+      }),
+    ];
+    mockResolveTariff.mockResolvedValue(null);
+
+    const { tariffBoundaryCheckHandler } = mod;
+    await tariffBoundaryCheckHandler(makeLog());
+
+    expect(mockResolveTariff).toHaveBeenCalledTimes(1);
   });
 
   it('does not split or publish when no tariff resolves (null)', async () => {

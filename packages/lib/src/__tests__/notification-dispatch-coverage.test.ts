@@ -17,13 +17,14 @@ vi.mock('node:fs/promises', () => ({
   readFile: (...args: unknown[]) => mockReadFile(...args),
 }));
 
+const logMock = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
 vi.mock('../logger.js', () => ({
-  createLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  }),
+  createLogger: () => logMock,
 }));
 
 const mockFetch = vi.fn().mockResolvedValue({ ok: true, text: () => Promise.resolve('') });
@@ -329,7 +330,69 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
   // sendWebhook — private URL block and timeout abort
   // -----------------------------------------------------------------------
 
+  describe('sendWebhook signature', () => {
+    it('signs the body with the webhook signing secret', async () => {
+      const { sendWebhook } = notificationDispatchModule;
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 200 });
+      const before = Math.floor(Date.now() / 1000);
+      const result = await sendWebhook(
+        'https://webhook.test.com/hook',
+        'Sub',
+        'Body',
+        { key: 'v' },
+        [],
+        'whsec_test_secret',
+      );
+      expect(result).toBe('ok');
+      const init = mockFetch.mock.calls.at(-1)?.[1] as {
+        headers: Record<string, string>;
+        body: string;
+      };
+      const header = init.headers['X-EVtivity-Signature'] ?? '';
+      const match = /^t=(\d+),v1=([0-9a-f]{64})$/.exec(header);
+      expect(match).not.toBeNull();
+      const t = Number(match?.[1]);
+      expect(t).toBeGreaterThanOrEqual(before);
+      const { createHmac } = await import('node:crypto');
+      const expected = createHmac('sha256', 'whsec_test_secret')
+        .update(`${String(t)}.${init.body}`)
+        .digest('hex');
+      expect(match?.[2]).toBe(expected);
+    });
+
+    it('sends no signature without a secret', async () => {
+      const { sendWebhook } = notificationDispatchModule;
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 200 });
+      await sendWebhook('https://webhook.test.com/hook', 'Sub', 'Body', {}, [], null);
+      const init = mockFetch.mock.calls.at(-1)?.[1] as { headers: Record<string, string> };
+      expect(init.headers['X-EVtivity-Signature']).toBeUndefined();
+    });
+  });
+
   describe('sendWebhook edge cases', () => {
+    it('logs at most 2 KiB of a large error reply', async () => {
+      const { sendWebhook } = notificationDispatchModule;
+      const pulled = { bytes: 0 };
+      const chunk = new Uint8Array(64 * 1024).fill(65);
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (pulled.bytes >= 5 * 1024 * 1024) {
+            controller.close();
+            return;
+          }
+          pulled.bytes += chunk.byteLength;
+          controller.enqueue(chunk);
+        },
+      });
+      mockFetch.mockResolvedValueOnce(new Response(stream, { status: 500 }));
+      logMock.error.mockClear();
+      const result = await sendWebhook('https://webhook.test.com/hook', 'Sub', 'Body', {});
+      expect(result).toBe('http_error');
+      const call = logMock.error.mock.calls.find((c) => c[1] === 'Webhook delivery failed');
+      expect((call?.[0] as { body: string }).body.length).toBeLessThanOrEqual(2048);
+      expect(pulled.bytes).toBeLessThan(5 * 1024 * 1024);
+    });
+
     it('blocks delivery to a private/internal URL without calling fetch', async () => {
       const { sendWebhook } = notificationDispatchModule;
       const result = await sendWebhook('http://127.0.0.1/hook', 'Sub', 'Body', {});

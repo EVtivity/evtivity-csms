@@ -17,6 +17,35 @@ vi.mock('@evtivity/database', async (importOriginal) => ({
 
 import { OcppServer } from '../server/ocpp-server.js';
 import type { ConnectionAuthLimits } from '../server/connection-auth-limiter.js';
+import {
+  StationAuthBackoff,
+  StationAuthCache,
+  StationPasswordVerifier,
+  type PasswordCheck,
+} from '../server/middleware/station-password-verifier.js';
+
+// A verifier whose checks of SLOW_PASSWORD wait until `release` runs: an
+// attacker's wrong passwords that hold their authentication slot.
+const SLOW_PASSWORD = 'slow-wrong-password';
+class SlowVerifier extends StationPasswordVerifier {
+  private hold: Promise<void>;
+  release: () => void = () => {};
+  constructor() {
+    super({ cache: new StationAuthCache(), backoff: null });
+    this.hold = new Promise<void>((resolve) => {
+      this.release = resolve;
+    });
+  }
+  override async verify(
+    ...args: Parameters<StationPasswordVerifier['verify']>
+  ): Promise<PasswordCheck> {
+    if (args[2] === SLOW_PASSWORD) {
+      await this.hold;
+      return { valid: false, cached: false };
+    }
+    return super.verify(...args);
+  }
+}
 
 interface StationRow {
   id: string;
@@ -104,9 +133,12 @@ afterEach(async () => {
   }
 });
 
-async function startServer(connectionAuthLimits?: Partial<ConnectionAuthLimits>): Promise<number> {
+async function startServer(
+  connectionAuthLimits?: Partial<ConnectionAuthLimits>,
+  extra: Partial<ConstructorParameters<typeof OcppServer>[0]> = {},
+): Promise<number> {
   const port = testPort++;
-  const srv = new OcppServer({ sql: createSql(), connectionAuthLimits });
+  const srv = new OcppServer({ sql: createSql(), connectionAuthLimits, ...extra });
   server = srv;
   await srv.start({ port, host: '127.0.0.1' });
   return port;
@@ -125,10 +157,14 @@ function handshake(
   stationId: string,
   authorization?: string,
   protocols: string[] = ['ocpp1.6'],
+  forwardedFor?: string,
 ): Promise<HandshakeResult> {
   return new Promise((resolve, reject) => {
+    const headers: Record<string, string> = {};
+    if (authorization != null) headers['authorization'] = authorization;
+    if (forwardedFor != null) headers['x-forwarded-for'] = forwardedFor;
     const ws = new WebSocket(`ws://127.0.0.1:${String(port)}/${stationId}`, protocols, {
-      headers: authorization != null ? { authorization } : {},
+      headers,
     });
     ws.on('open', () => {
       resolve({ opened: true, ws });
@@ -391,5 +427,200 @@ describe('OcppServer connection authentication limit', () => {
     const accepted = await first;
     expect(accepted.opened).toBe(true);
     if (accepted.opened) accepted.ws.close();
+  });
+});
+
+describe('OcppServer pending authentication per IP', () => {
+  const PROXY = { trustedProxyCidrs: '127.0.0.1/32' };
+
+  it('answers 429 past the per-IP pending cap while another IP still authenticates', async () => {
+    const verifier = new SlowVerifier();
+    const port = await startServer(undefined, {
+      ...PROXY,
+      maxPendingAuthPerIp: 3,
+      passwordVerifier: verifier,
+    });
+    const attacker = '203.0.113.7';
+    const held = Array.from({ length: 3 }, () =>
+      handshake(port, 'AUTH-OK', basic('AUTH-OK', SLOW_PASSWORD), ['ocpp1.6'], attacker),
+    );
+    await vi.waitFor(() => {
+      expect(server?.getConnectionAuthStats().active).toBe(3);
+    });
+    const extra = await handshake(
+      port,
+      'AUTH-OK',
+      basic('AUTH-OK', SLOW_PASSWORD),
+      ['ocpp1.6'],
+      attacker,
+    );
+    expect(extra.opened).toBe(false);
+    if (!extra.opened) expect(extra.status).toBe(429);
+
+    const other = await handshake(
+      port,
+      'AUTH-OK',
+      basic('AUTH-OK', 'secret-password'),
+      ['ocpp1.6'],
+      '198.51.100.20',
+    );
+    expect(other.opened).toBe(true);
+    if (other.opened) other.ws.close();
+
+    verifier.release();
+    const results = await Promise.all(held);
+    expect(results.every((r) => !r.opened && r.status === 401)).toBe(true);
+  });
+
+  it('counts IPv6 addresses of one /64 as one IP', async () => {
+    const verifier = new SlowVerifier();
+    const port = await startServer(undefined, {
+      ...PROXY,
+      maxPendingAuthPerIp: 2,
+      passwordVerifier: verifier,
+    });
+    const held = ['2001:db8:1:2::1', '2001:db8:1:2::2'].map((ip) =>
+      handshake(port, 'AUTH-OK', basic('AUTH-OK', SLOW_PASSWORD), ['ocpp1.6'], ip),
+    );
+    await vi.waitFor(() => {
+      expect(server?.getConnectionAuthStats().active).toBe(2);
+    });
+    const rotated = await handshake(
+      port,
+      'AUTH-OK',
+      basic('AUTH-OK', SLOW_PASSWORD),
+      ['ocpp1.6'],
+      '2001:db8:1:2:ffff::9',
+    );
+    expect(rotated.opened).toBe(false);
+    if (!rotated.opened) expect(rotated.status).toBe(429);
+
+    verifier.release();
+    await Promise.all(held);
+  });
+
+  it('lets a station with a cached success past a full authentication queue', async () => {
+    const verifier = new SlowVerifier();
+    const port = await startServer(
+      { maxConcurrent: 1, maxQueued: 1, maxWaitMs: 300 },
+      { ...PROXY, passwordVerifier: verifier },
+    );
+    // The station connects once, so its success is cached.
+    const first = await handshake(
+      port,
+      'AUTH-OK',
+      basic('AUTH-OK', 'secret-password'),
+      ['ocpp1.6'],
+      '198.51.100.20',
+    );
+    expect(first.opened).toBe(true);
+    if (first.opened) first.ws.close();
+
+    // An attacker holds the only slot and the only queue place.
+    const held = [0, 1].map(() =>
+      handshake(port, 'AUTH-OK', basic('AUTH-OK', SLOW_PASSWORD), ['ocpp1.6'], '203.0.113.7'),
+    );
+    await vi.waitFor(() => {
+      expect(server?.getConnectionAuthStats()).toMatchObject({ active: 1, queued: 1 });
+    });
+
+    const again = await handshake(
+      port,
+      'AUTH-OK',
+      basic('AUTH-OK', 'secret-password'),
+      ['ocpp1.6'],
+      '198.51.100.20',
+    );
+    expect(again.opened).toBe(true);
+    if (again.opened) again.ws.close();
+
+    verifier.release();
+    await Promise.all(held);
+  });
+  it('decides a cached success before the per-IP pending cap', async () => {
+    const verifier = new SlowVerifier();
+    const port = await startServer(undefined, {
+      maxPendingAuthPerIp: 1,
+      passwordVerifier: verifier,
+    });
+    const first = await handshake(port, 'AUTH-OK', basic('AUTH-OK', 'secret-password'));
+    expect(first.opened).toBe(true);
+    if (first.opened) first.ws.close();
+    // Another client on the same address takes the only pending place.
+    const held = handshake(port, 'AUTH-OK', basic('AUTH-OK', SLOW_PASSWORD));
+    await vi.waitFor(() => {
+      expect(server?.getConnectionAuthStats().active).toBe(1);
+    });
+    const again = await handshake(port, 'AUTH-OK', basic('AUTH-OK', 'secret-password'));
+    expect(again.opened).toBe(true);
+    if (again.opened) again.ws.close();
+    verifier.release();
+    await held;
+  });
+
+  it('still caps and locks a forged X-Forwarded-For without trusted proxies', async () => {
+    const verifier = new SlowVerifier();
+    const port = await startServer(undefined, {
+      maxPendingAuthPerIp: 1,
+      passwordVerifier: verifier,
+    });
+    const held = handshake(
+      port,
+      'AUTH-OK',
+      basic('AUTH-OK', SLOW_PASSWORD),
+      ['ocpp1.6'],
+      '198.51.100.1',
+    );
+    await vi.waitFor(() => {
+      expect(server?.getConnectionAuthStats().active).toBe(1);
+    });
+    // Another forged address changes nothing: the socket peer is the client.
+    const forged = await handshake(
+      port,
+      'AUTH-OK',
+      basic('AUTH-OK', SLOW_PASSWORD),
+      ['ocpp1.6'],
+      '198.51.100.2',
+    );
+    expect(forged.opened).toBe(false);
+    if (!forged.opened) expect(forged.status).toBe(429);
+    verifier.release();
+    await held;
+  });
+
+  it('locks the socket peer out across forged X-Forwarded-For values', async () => {
+    const verifier = new StationPasswordVerifier({
+      cache: new StationAuthCache(),
+      ipBackoff: new StationAuthBackoff({ limit: 1 }),
+    });
+    const port = await startServer(undefined, { passwordVerifier: verifier });
+    const first = await handshake(
+      port,
+      'AUTH-OK',
+      basic('AUTH-OK', 'wrong-password-01'),
+      ['ocpp1.6'],
+      '198.51.100.1',
+    );
+    expect(first.opened).toBe(false);
+    if (!first.opened) expect(first.status).toBe(401);
+    // Locked: one slow-lane verify (401), then throttled (429), whatever the header says.
+    const second = await handshake(
+      port,
+      'AUTH-OK',
+      basic('AUTH-OK', 'wrong-password-02'),
+      ['ocpp1.6'],
+      '198.51.100.2',
+    );
+    expect(second.opened).toBe(false);
+    if (!second.opened) expect(second.status).toBe(401);
+    const third = await handshake(
+      port,
+      'AUTH-OK',
+      basic('AUTH-OK', 'wrong-password-03'),
+      ['ocpp1.6'],
+      '198.51.100.3',
+    );
+    expect(third.opened).toBe(false);
+    if (!third.opened) expect(third.status).toBe(429);
   });
 });

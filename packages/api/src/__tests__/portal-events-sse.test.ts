@@ -40,7 +40,10 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { getDriverSessionState } from '../lib/driver-active.js';
 import { closeDriverEventStreams, portalEventRoutes } from '../routes/portal/events.js';
-import { portalStationEventRoutes } from '../routes/portal/station-events.js';
+import {
+  DEFAULT_STREAM_LIMITS,
+  portalStationEventRoutes,
+} from '../routes/portal/station-events.js';
 
 interface Response {
   status: number;
@@ -101,8 +104,8 @@ describe('portal event streams', () => {
     app = Fastify();
     await app.register(cookie);
     await registerAuth(app);
-    portalEventRoutes(app);
-    portalStationEventRoutes(app);
+    portalEventRoutes(app, { perDriver: 2 });
+    portalStationEventRoutes(app, { perClient: 2, total: 3, lifetimeMs: 300 });
     await app.listen({ port: 0, host: '127.0.0.1' });
     const address = app.server.address();
     port = typeof address === 'object' && address != null ? address.port : 0;
@@ -136,6 +139,27 @@ describe('portal event streams', () => {
     await guarded.close();
     expect(res.statusCode).toBe(401);
     expect(res.json().code).toBe('ACCOUNT_DEACTIVATED');
+  }, 5000);
+
+  it('ends the oldest stream of a driver over the per-driver cap (PP2 Info 5)', async () => {
+    const token = app.jwt.sign({ driverId: 'drv_many', type: 'driver' });
+    const other = await open(
+      port,
+      '/portal/events',
+      app.jwt.sign({ driverId: 'drv_other', type: 'driver' }),
+    );
+    const first = await open(port, '/portal/events', token);
+    const second = await open(port, '/portal/events', token);
+    await first.waitFor(': connected');
+    await second.waitFor(': connected');
+    const third = await open(port, '/portal/events', token);
+    await third.waitFor(': connected');
+    await first.ended;
+    expect(first.res.complete).toBe(true);
+    expect(second.res.complete).toBe(false);
+    expect(third.res.complete).toBe(false);
+    expect(other.res.complete).toBe(false);
+    for (const s of [second, third, other]) s.res.destroy();
   }, 5000);
 
   it("ends only the deactivated driver's open streams", async () => {
@@ -223,5 +247,51 @@ describe('portal event streams', () => {
     expect(stream.body()).not.toContain('sta_internal01');
     expect(stream.body()).not.toContain('sit_internal01');
     stream.res.destroy();
+  }, 5000);
+
+  // The public stream had no connection cap or lifetime.
+  it('refuses a stream over the per-client cap with 429 STREAM_LIMIT_REACHED', async () => {
+    stationRows.value = [{ id: 'sta_internal01' }];
+    const first = await open(port, '/portal/chargers/CS-1/events');
+    const second = await open(port, '/portal/chargers/CS-1/events');
+    expect([first.status, second.status]).toEqual([200, 200]);
+    const third = await open(port, '/portal/chargers/CS-1/events');
+    await third.ended;
+    expect(third.status).toBe(429);
+    expect(third.body()).toContain('STREAM_LIMIT_REACHED');
+    first.res.destroy();
+    second.res.destroy();
+  }, 5000);
+
+  it('refuses a stream over the total cap of the process with 429 STREAM_LIMIT_REACHED', async () => {
+    // 2000 streams per process by default, whatever the client.
+    expect(DEFAULT_STREAM_LIMITS.total).toBe(2000);
+    stationRows.value = [{ id: 'sta_internal01' }];
+    const wide = Fastify();
+    await wide.register(cookie);
+    await registerAuth(wide);
+    portalStationEventRoutes(wide, { perClient: 10, total: 3, lifetimeMs: 5_000 });
+    await wide.listen({ port: 0, host: '127.0.0.1' });
+    const address = wide.server.address();
+    const widePort = typeof address === 'object' && address != null ? address.port : 0;
+    const open3 = [
+      await open(widePort, '/portal/chargers/CS-1/events'),
+      await open(widePort, '/portal/chargers/CS-1/events'),
+      await open(widePort, '/portal/chargers/CS-1/events'),
+    ];
+    expect(open3.map((s) => s.status)).toEqual([200, 200, 200]);
+    const over = await open(widePort, '/portal/chargers/CS-1/events');
+    await over.ended;
+    expect(over.status).toBe(429);
+    expect(over.body()).toContain('STREAM_LIMIT_REACHED');
+    for (const s of open3) s.res.destroy();
+    await wide.close();
+  }, 5000);
+
+  it('ends a stream at its maximum lifetime', async () => {
+    stationRows.value = [{ id: 'sta_internal01' }];
+    const stream = await open(port, '/portal/chargers/CS-1/events');
+    expect(stream.status).toBe(200);
+    await stream.ended;
   }, 5000);
 });

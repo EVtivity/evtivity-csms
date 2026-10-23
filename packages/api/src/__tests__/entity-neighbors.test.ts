@@ -72,6 +72,19 @@ function fakeTable(name: string): { id: unknown; createdAt: unknown } {
   };
 }
 
+// The SIM target's gate and scope (`lib/sim-site-scope.ts`, 135 covers them for real).
+const simFeature = vi.hoisted(() => ({ on: true }));
+vi.mock('../lib/sim-site-scope.js', () => ({
+  requireSimFeature: vi.fn(
+    async (reply: { status: (code: number) => { send: (body: unknown) => unknown } }) => {
+      if (simFeature.on) return true;
+      await reply.status(400).send({ error: 'off', code: 'SIM_FEATURE_DISABLED' });
+      return false;
+    },
+  ),
+  simVisibleWhere: vi.fn(() => ({ simScope: true })),
+}));
+
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   db: { select: vi.fn(() => makeChain()) },
@@ -91,6 +104,7 @@ vi.mock('@evtivity/database', async () => ({
   chargingProfileTemplates: fakeTable('charging_profile_templates'),
   firmwareCampaigns: fakeTable('firmware_campaigns'),
   octtRuns: fakeTable('octt_runs'),
+  sims: fakeTable('sims'),
   aiInsights: {
     ...fakeTable('ai_insights'),
     siteId: { name: 'site_id' },
@@ -115,6 +129,7 @@ vi.mock('drizzle-orm', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { entityNeighborRoutes } from '../routes/entity-neighbors.js';
+import { simVisibleWhere } from '../lib/sim-site-scope.js';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -140,6 +155,7 @@ describe('Entity neighbor routes', () => {
   beforeEach(() => {
     setupDbResults();
     siteIdsResult = null;
+    simFeature.on = true;
   });
 
   it('returns prev and next ids around the current entity', async () => {
@@ -201,6 +217,32 @@ describe('Entity neighbor routes', () => {
     expect(res.json()).toEqual({ prevId: 'sta_p', nextId: 'sta_n' });
   });
 
+  it('answers the SIM neighbors with SIM_FEATURE_DISABLED while the SIM switches are off, before any read', async () => {
+    simFeature.on = false;
+    setupDbResults([{ id: 'sim_cur' }], [{ id: 'sim_p' }], [{ id: 'sim_n' }]);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/sims/sim_cur/neighbors',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: 'SIM_FEATURE_DISABLED' });
+    expect(dbCallIndex).toBe(0);
+  });
+
+  it('scopes the SIM neighbors to visible SIMs for a site-restricted user', async () => {
+    siteIdsResult = ['sit_allowed'];
+    setupDbResults([{ id: 'sim_cur' }], [{ id: 'sim_p' }], [{ id: 'sim_n' }]);
+    const res = await app.inject({
+      method: 'GET',
+      url: '/sims/sim_cur/neighbors',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ prevId: 'sim_p', nextId: 'sim_n' });
+    expect(vi.mocked(simVisibleWhere)).toHaveBeenCalledWith(['sit_allowed']);
+  });
+
   it('rejects unauthenticated requests', async () => {
     const res = await app.inject({ method: 'GET', url: '/sessions/ses_x/neighbors' });
     expect(res.statusCode).toBe(401);
@@ -222,6 +264,7 @@ describe('Entity neighbor routes', () => {
       '/firmware-campaigns/x/neighbors',
       '/octt/runs/1/neighbors',
       '/ai/insights/x/neighbors',
+      '/sims/x/neighbors',
     ]) {
       setupDbResults([]);
       const res = await app.inject({

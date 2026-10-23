@@ -167,8 +167,11 @@ export function lastFactorProofKindsOf(account: ProofAccount): FactorProofKind[]
   return kinds;
 }
 
-/** What a proof is for: adding a factor, or removing one. */
-export type FactorProofPurpose = 'add' | 'remove';
+/**
+ * What a proof is for: adding a factor, removing one, or confirming an account
+ * change that grants lasting access (`confirm`: the kinds of `add`).
+ */
+export type FactorProofPurpose = 'add' | 'remove' | 'confirm';
 
 /** The factors and password of an account, as the proof rules read them. */
 export interface ProofAccount {
@@ -238,9 +241,9 @@ export async function factorProofKinds(
 ): Promise<FactorProofKind[]> {
   const proofAccount = await proofAccountOf(account);
   if (proofAccount == null) return [];
-  return purpose === 'add'
-    ? factorProofKindsOf(proofAccount)
-    : lastFactorProofKindsOf(proofAccount);
+  return purpose === 'remove'
+    ? lastFactorProofKindsOf(proofAccount)
+    : factorProofKindsOf(proofAccount);
 }
 
 /** The stored password hash of an account. */
@@ -305,6 +308,11 @@ function proofMissingMessage(kinds: FactorProofKind[], purpose: FactorProofPurpo
       ? 'Confirm with a factor you have or a recovery code'
       : 'Confirm with your current password';
   }
+  if (purpose === 'confirm') {
+    return holdsFactor(kinds)
+      ? 'Confirm this change with a factor you have'
+      : 'Confirm this change with your current password';
+  }
   return kinds.includes('password')
     ? 'Confirm with your current password to add a second factor'
     : 'Confirm with a factor you already have to add another one';
@@ -325,9 +333,12 @@ export async function checkFactorProof(
   purpose: FactorProofPurpose = 'add',
 ): Promise<FactorProofRefusal | null> {
   const proofAccount = await proofAccountOf(account);
-  if (proofAccount == null) return null;
+  // Fail closed: an account that no longer exists proves nothing.
+  if (proofAccount == null) {
+    return refusal('VALIDATION_ERROR', 'This account cannot confirm the change', []);
+  }
   const kinds =
-    purpose === 'add' ? factorProofKindsOf(proofAccount) : lastFactorProofKindsOf(proofAccount);
+    purpose === 'remove' ? lastFactorProofKindsOf(proofAccount) : factorProofKindsOf(proofAccount);
   // Fail closed: an account without a factor, password or SSO sign-in (an SSO
   // account after SSO was turned off) has nothing to prove itself with.
   if (kinds.length === 0) {

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
@@ -40,7 +40,13 @@ vi.mock('@/lib/api', () => ({
 
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 
+import { useAuth } from '@/lib/auth';
 import { StationSecurity } from '../StationSecurity';
+
+// The profile change needs settings.stationConfig:write.
+beforeEach(() => {
+  useAuth.setState({ permissions: ['stations:write', 'settings.stationConfig:write'] });
+});
 
 function renderSecurity(overrides: Partial<Parameters<typeof StationSecurity>[0]> = {}): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -236,5 +242,21 @@ describe('StationSecurity', () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     expect(screen.queryByTestId('json-detail')).toBeNull();
+  });
+});
+
+describe('StationSecurity permissions', () => {
+  it('hides the profile change and its cancel without settings.stationConfig:write', () => {
+    useAuth.setState({ permissions: ['stations:write'] });
+    renderSecurity({ pendingSecurityProfile: 2 });
+    expect(screen.queryByLabelText(/stations.changeProfile/)).toBeNull();
+    expect(screen.queryByText('stations.cancelProfileUpgrade')).toBeNull();
+  });
+
+  it('keeps change and rotate password with stations:write alone', () => {
+    useAuth.setState({ permissions: ['stations:write'] });
+    renderSecurity();
+    expect(screen.getByText('stations.changePassword')).toBeTruthy();
+    expect(screen.getByText('stations.rotateCredentials')).toBeTruthy();
   });
 });

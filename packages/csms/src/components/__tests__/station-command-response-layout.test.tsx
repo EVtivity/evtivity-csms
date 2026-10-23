@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -28,7 +28,14 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return { ...actual, api: apiMock };
 });
 
+import { permissionCatalog } from '@evtivity/lib/permissions';
+import { useAuth } from '@/lib/auth';
 import { StationCommands } from '../StationCommands';
+
+// Every command is shown to a user who holds every permission.
+beforeEach(() => {
+  useAuth.setState({ permissions: permissionCatalog.defaultsFor('admin') });
+});
 
 afterEach(() => {
   cleanup();

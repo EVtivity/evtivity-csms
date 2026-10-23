@@ -638,6 +638,37 @@ describe('settings routes (cov2)', () => {
     });
 
     it.each([
+      ['pnc.hubject.tokenUrl', 'http://169.254.169.254/token'],
+      ['pnc.hubject.baseUrl', 'https://10.0.0.5'],
+      ['pnc.hubject.tokenUrl', 'ftp://hubject.example.com'],
+      ['pnc.hubject.baseUrl', 'https://user:pw@hubject.example.com'],
+    ])('refuses %s %s with PRIVATE_URL', async (key, url) => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/settings/${key}`,
+        headers: auth,
+        payload: { value: url },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'PRIVATE_URL' });
+      expect(rec.values).toEqual([]);
+    });
+
+    it('stores a public Hubject token URL', async () => {
+      setupDbResults(
+        [],
+        [{ key: 'pnc.hubject.tokenUrl', value: 'https://auth.hubject.example/token' }],
+      );
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/settings/pnc.hubject.tokenUrl',
+        headers: auth,
+        payload: { value: 'https://auth.hubject.example/token' },
+      });
+      expect(res.statusCode).toBe(200);
+    });
+
+    it.each([
       ['https://10.0.0.5'],
       ['http://api.example.com'],
       ['https://user:pass@api.example.com'],

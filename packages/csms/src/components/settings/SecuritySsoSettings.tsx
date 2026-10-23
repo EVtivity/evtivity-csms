@@ -14,6 +14,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { CopyButton } from '@/components/ui/copy-button';
 import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
+import {
+  FactorProofField,
+  proofRejection,
+  type FactorProof,
+  type ProofRejection,
+} from '@/components/FactorProofField';
+import { useMfaStatus } from '@/components/profile/mfa-status';
 
 interface Props {
   settings: Record<string, unknown> | undefined;
@@ -53,6 +61,33 @@ function ToggleRow({
   );
 }
 
+interface ProtectedSsoFields {
+  enabled: boolean;
+  entryPoint: string;
+  issuer: string;
+  autoProvision: boolean;
+  defaultRoleId: string;
+  attributeMapping: Record<string, string>;
+  allowedDomains: string[];
+}
+
+/** The SSO fields whose change needs a fresh proof (everything but the provider hint). */
+function protectedFields(fields: ProtectedSsoFields): ProtectedSsoFields {
+  return { ...fields, allowedDomains: [...fields.allowedDomains].sort() };
+}
+
+/** The allowed domains typed as a comma or space separated list, lowercased. */
+function parseDomains(text: string): string[] {
+  return [
+    ...new Set(
+      text
+        .split(/[\s,]+/)
+        .map((d) => d.trim().toLowerCase())
+        .filter((d) => d !== ''),
+    ),
+  ];
+}
+
 export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -68,6 +103,19 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
   const [attrEmail, setAttrEmail] = useState('email');
   const [attrFirstName, setAttrFirstName] = useState('firstName');
   const [attrLastName, setAttrLastName] = useState('lastName');
+  const [allowedDomains, setAllowedDomains] = useState('');
+  // The saved values, to tell whether the form changed what needs a fresh proof.
+  const [loadedCert, setLoadedCert] = useState('');
+  const [loadedFields, setLoadedFields] = useState('');
+
+  // A signed-in session proves the account again to change who signs in as whom.
+  const { data: mfaStatus } = useMfaStatus();
+  const proofKinds = mfaStatus?.factorProofKinds ?? [];
+  const [proof, setProof] = useState<FactorProof | null>(null);
+  const [proofFailure, setProofFailure] = useState<ProofRejection | null>(null);
+  const [proofAsked, setProofAsked] = useState(false);
+  const [proofRound, setProofRound] = useState(0);
+  const [saveError, setSaveError] = useState('');
 
   // Load SSO settings
   const { data: ssoSettings } = useQuery({
@@ -94,7 +142,9 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
 
     const certVal = s['sso.certEnc'];
     setCertSet(typeof certVal === 'string' && certVal !== '' && certVal !== '""');
-    setCert(typeof certVal === 'string' && certVal !== '""' ? certVal : '');
+    const loaded = typeof certVal === 'string' && certVal !== '""' ? certVal : '';
+    setCert(loaded);
+    setLoadedCert(loaded);
 
     let mapping: Record<string, string> = {
       email: 'email',
@@ -114,36 +164,76 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
     setAttrEmail(mapping['email'] ?? 'email');
     setAttrFirstName(mapping['firstName'] ?? 'firstName');
     setAttrLastName(mapping['lastName'] ?? 'lastName');
+    const rawDomains = s['sso.allowedDomains'];
+    const domains = Array.isArray(rawDomains)
+      ? rawDomains.map(String).join(', ')
+      : typeof rawDomains === 'string'
+        ? rawDomains
+        : '';
+    setAllowedDomains(domains);
+    setLoadedFields(
+      JSON.stringify(
+        protectedFields({
+          enabled: s['sso.enabled'] === true,
+          entryPoint: typeof s['sso.entryPoint'] === 'string' ? s['sso.entryPoint'] : '',
+          issuer: typeof s['sso.issuer'] === 'string' ? s['sso.issuer'] : 'evtivity-csms',
+          autoProvision: s['sso.autoProvision'] === true,
+          defaultRoleId: typeof s['sso.defaultRoleId'] === 'string' ? s['sso.defaultRoleId'] : '',
+          attributeMapping: {
+            email: mapping['email'] ?? 'email',
+            firstName: mapping['firstName'] ?? 'firstName',
+            lastName: mapping['lastName'] ?? 'lastName',
+          },
+          allowedDomains: parseDomains(domains),
+        }),
+      ),
+    );
   }, [ssoSettings, settings]);
 
   const mutation = useMutation({
     mutationFn: (vals: Record<string, unknown>) =>
       api.put<{ success: boolean }>('/v1/sso/settings', vals),
+    onError: (err: unknown) => {
+      setProofFailure(proofRejection(err));
+      setSaveError(getErrorMessage(err, t, 'settings.ssoSaveFailed'));
+    },
     onSuccess: () => {
+      setSaveError('');
+      setProof(null);
+      setProofAsked(false);
+      setProofFailure(null);
+      setProofRound((n) => n + 1);
       void queryClient.invalidateQueries({ queryKey: ['sso-settings'] });
       void queryClient.invalidateQueries({ queryKey: ['security-settings'] });
       void queryClient.invalidateQueries({ queryKey: ['security-public'] });
     },
   });
 
+  const current = {
+    enabled,
+    entryPoint,
+    issuer,
+    autoProvision,
+    defaultRoleId,
+    attributeMapping: { email: attrEmail, firstName: attrFirstName, lastName: attrLastName },
+    allowedDomains: parseDomains(allowedDomains),
+  };
+  const needsProof =
+    proofKinds.length > 0 &&
+    (JSON.stringify(protectedFields(current)) !== loadedFields ||
+      (cert !== '' && cert !== loadedCert));
+
   function handleSave(): void {
-    const payload: Record<string, unknown> = {
-      enabled,
-      provider,
-      entryPoint,
-      issuer,
-      autoProvision,
-      defaultRoleId,
-      attributeMapping: {
-        email: attrEmail,
-        firstName: attrFirstName,
-        lastName: attrLastName,
-      },
-    };
+    if (needsProof && proof == null) {
+      setProofAsked(true);
+      return;
+    }
+    const payload: Record<string, unknown> = { ...current, provider };
     // Only send cert when the user changed it
-    if (cert !== '') {
+    if (cert !== '' && cert !== loadedCert) {
       payload['cert'] = cert;
     }
+    if (needsProof && proof != null) payload['proof'] = proof;
     mutation.mutate(payload);
   }
 
@@ -266,6 +356,22 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
                 </div>
               )}
 
+              {/* Allowed Domains */}
+              <div className="grid gap-2">
+                <Label htmlFor="sso-allowed-domains">{t('settings.ssoAllowedDomains')}</Label>
+                <Input
+                  id="sso-allowed-domains"
+                  value={allowedDomains}
+                  onChange={(e) => {
+                    setAllowedDomains(e.target.value);
+                  }}
+                  placeholder="example.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.ssoAllowedDomainsHint')}
+                </p>
+              </div>
+
               {/* Attribute Mapping */}
               <div className="grid gap-4">
                 <Label className="text-base">{t('settings.ssoAttributeMapping')}</Label>
@@ -303,11 +409,26 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
             </div>
           )}
 
+          {needsProof && (
+            <FactorProofField
+              key={`sso-${String(proofRound)}`}
+              idPrefix="sso-proof"
+              kinds={proofKinds}
+              codeMethod={mfaStatus?.mfaMethod ?? null}
+              description={t('settings.ssoProofHint')}
+              onChange={setProof}
+              rejection={proofFailure}
+              showMissing={proofAsked}
+            />
+          )}
+
           <SaveButton isPending={mutation.isPending} />
 
           {mutation.isSuccess && <p className="text-sm text-green-600">{t('settings.ssoSaved')}</p>}
           {mutation.isError && (
-            <p className="text-sm text-destructive">{t('settings.ssoSaveFailed')}</p>
+            <p className="text-sm text-destructive" role="alert">
+              {saveError !== '' ? saveError : t('settings.ssoSaveFailed')}
+            </p>
           )}
         </form>
       </CardContent>

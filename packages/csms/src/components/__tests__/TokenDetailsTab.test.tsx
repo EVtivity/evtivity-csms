@@ -96,7 +96,45 @@ describe('TokenDetailsTab prepaid balance', () => {
     await waitFor(() => {
       expect(patchMock).toHaveBeenCalledWith(
         '/v1/tokens/dtk_1',
-        expect.objectContaining({ prepaidBalanceCents: 1234 }),
+        expect.objectContaining({ prepaidBalanceCents: 1234, expectedPrepaidBalanceCents: null }),
+      );
+    });
+  });
+
+  // A save that does not change the balance never writes it back, so a
+  // debit between loading the form and saving is kept.
+  it('sends no balance when only the expiry changes', async () => {
+    patchMock.mockResolvedValue({});
+    renderTab(5000);
+
+    fireEvent.click(screen.getByText('common.edit'));
+    fireEvent.change(screen.getByLabelText('tokens.expiresAt'), {
+      target: { value: '2031-01-01T00:00' },
+    });
+    submitForm('tokens.expiresAt');
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalled();
+    });
+    const body = patchMock.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body).not.toHaveProperty('prepaidBalanceCents');
+    expect(body).not.toHaveProperty('expectedPrepaidBalanceCents');
+  });
+
+  it('sends a changed balance with the balance it was loaded with', async () => {
+    patchMock.mockResolvedValue({});
+    renderTab(5000);
+
+    fireEvent.click(screen.getByText('common.edit'));
+    fireEvent.change(screen.getByLabelText('tokens.prepaidBalance (USD)'), {
+      target: { value: '60' },
+    });
+    submitForm('tokens.prepaidBalance (USD)');
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith(
+        '/v1/tokens/dtk_1',
+        expect.objectContaining({ prepaidBalanceCents: 6000, expectedPrepaidBalanceCents: 5000 }),
       );
     });
   });
@@ -123,7 +161,7 @@ describe('TokenDetailsTab prepaid balance', () => {
     await waitFor(() => {
       expect(patchMock).toHaveBeenCalledWith(
         '/v1/tokens/dtk_1',
-        expect.objectContaining({ prepaidBalanceCents: null }),
+        expect.objectContaining({ prepaidBalanceCents: null, expectedPrepaidBalanceCents: 500 }),
       );
     });
   });

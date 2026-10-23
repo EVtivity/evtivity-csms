@@ -22,17 +22,28 @@ export const OCPP_ID_TOKEN_TYPES = [
 
 export type OcppIdTokenType = (typeof OCPP_ID_TOKEN_TYPES)[number];
 
-/**
- * Types a driver registers from the portal or the mobile app. Central (a
- * CSMS-issued id), NoAuthorization (a system marker) and DirectPayment (a
- * payment terminal reference, never looked up on Authorize) are not something
- * a driver holds.
- */
-export const DRIVER_ID_TOKEN_TYPES = OCPP_ID_TOKEN_TYPES.filter(
-  (t) => t !== 'Central' && t !== 'NoAuthorization' && t !== 'DirectPayment',
-) as readonly Exclude<OcppIdTokenType, 'Central' | 'NoAuthorization' | 'DirectPayment'>[];
+/** Types a driver cannot register from the portal or the mobile app. */
+const NOT_PORTAL_ID_TOKEN_TYPES = [
+  // Not something a driver holds: a CSMS-issued id, a system marker, and a
+  // payment terminal reference never looked up on Authorize.
+  'Central',
+  'NoAuthorization',
+  'DirectPayment',
+  // Vehicle ids: a card with another car's VIN, EVCCID or MAC address would
+  // take over its Autocharge starts (a card wins over a vehicle on
+  // Authorize). They enter only through the vehicle service and the session
+  // vehicle id claim; operators keep every type.
+  'VIN',
+  'EVCCID',
+  'MacAddress',
+] as const;
 
-export type DriverIdTokenType = (typeof DRIVER_ID_TOKEN_TYPES)[number];
+/** Types a driver registers from the portal or the mobile app. */
+export const PORTAL_ID_TOKEN_TYPES = OCPP_ID_TOKEN_TYPES.filter(
+  (t) => !(NOT_PORTAL_ID_TOKEN_TYPES as readonly string[]).includes(t),
+) as readonly Exclude<OcppIdTokenType, (typeof NOT_PORTAL_ID_TOKEN_TYPES)[number]>[];
+
+export type PortalIdTokenType = (typeof PORTAL_ID_TOKEN_TYPES)[number];
 
 export function isOcppIdTokenType(value: string): value is OcppIdTokenType {
   return (OCPP_ID_TOKEN_TYPES as readonly string[]).includes(value);

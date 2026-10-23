@@ -196,7 +196,7 @@ describe('MFA enrollment token', () => {
     const cookieRes = await app.inject({
       method: 'GET',
       url: '/protected',
-      cookies: { csms_token: token },
+      cookies: { csms_token: app.signCookie(token) },
     });
     expect(cookieRes.statusCode).toBe(401);
     expect(cookieRes.json().code).toBe('MFA_ENROLLMENT_REQUIRED');

@@ -58,6 +58,7 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
         { name: 'Dashboard', description: 'Dashboard metrics and analytics' },
         { name: 'Reports', description: 'Scheduled and on-demand reports' },
         { name: 'Access Logs', description: 'Station access log tracking' },
+        { name: 'SIMs', description: 'SIM inventory and SIM provider data' },
         { name: 'Payments', description: 'Payment processing and refunds' },
         { name: 'Pricing', description: 'Tariff and pricing management' },
         { name: 'Fleets', description: 'Fleet management' },

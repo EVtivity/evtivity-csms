@@ -36,7 +36,7 @@ vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock })
 
 import { ApiError } from '@/lib/api';
 import { StationConnectivityTab } from '../StationConnectivityTab';
-import { zonedDate, type StationSimStatus } from '../sim-connectivity';
+import { zonedDate, type StationSimStatus } from '@/components/sim/sim-connectivity';
 
 const DAY = 86_400_000;
 const dayOffset = (days: number): string => zonedDate(new Date(Date.now() - days * DAY), 'UTC');
@@ -65,12 +65,13 @@ const MATCHED: StationSimStatus = {
   },
   statusFetchedAt: '2026-10-21T10:00:00Z',
   network: { name: 'T-Mobile', radioAccessTechnology: 'LTE', cellId: null, observedAt: 'x' },
-  match: {
-    confirmed: true,
+  attachment: {
+    id: 41,
+    simId: 'sim_1',
+    source: 'entered',
+    attachedAt: '2026-10-21T09:00:00.000Z',
+    attachedBy: { id: 'usr_1', name: 'Ada Admin' },
     confirmedAt: '2026-10-21T10:00:00Z',
-    matchedAt: '2026-10-21T09:00:00.000Z',
-    iccidSource: 'entered',
-    enteredBy: { id: 'usr_1', name: 'Ada Admin' },
   },
   lastFetchedAt: '2026-10-21T10:00:00Z',
   station: null,
@@ -81,17 +82,18 @@ const MATCHED: StationSimStatus = {
   retentionDays: 90,
 };
 
-const UNCONFIRMED: NonNullable<StationSimStatus['match']> = {
-  confirmed: false,
+const UNCONFIRMED: NonNullable<StationSimStatus['attachment']> = {
+  id: 42,
+  simId: 'sim_2',
+  source: 'reported',
+  attachedAt: '2026-10-21T09:30:00.000Z',
+  attachedBy: null,
   confirmedAt: null,
-  matchedAt: '2026-10-21T09:30:00.000Z',
-  iccidSource: 'station',
-  enteredBy: null,
 };
 
-/** A match nothing was fetched for yet: the provider part waits for Confirm SIM. */
+/** An attachment nothing was fetched for yet: the provider part waits for Confirm SIM. */
 const UNCONFIRMED_SIM: Partial<StationSimStatus> = {
-  match: UNCONFIRMED,
+  attachment: UNCONFIRMED,
   status: null,
   statusFetchedAt: null,
   network: null,
@@ -306,6 +308,38 @@ describe('StationConnectivityTab', () => {
     expect(await screen.findByText('tr:errors.SIM_FEATURE_DISABLED')).toBeTruthy();
   });
 
+  it('says a Refresh of an inactive SIM was refused and reloads the SIM status', async () => {
+    apiMock.post.mockRejectedValue(new ApiError(409, { error: 'x', code: 'SIM_INACTIVE' }));
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: /stations\.sim\.refresh$/ }));
+    const reads = getCalls().filter((url) => url === '/v1/stations/st1/sim').length;
+    expect(await screen.findByText('tr:errors.SIM_INACTIVE')).toBeTruthy();
+    await waitFor(() => {
+      expect(getCalls().filter((url) => url === '/v1/stations/st1/sim').length).toBeGreaterThan(
+        reads,
+      );
+    });
+  });
+
+  it('shows the result line of each provider part skip reason', async () => {
+    for (const [reason, key] of [
+      ['attached_elsewhere', 'attachedElsewhere'],
+      ['attach_conflict', 'attachConflict'],
+      ['no_iccid', 'noIccid'],
+    ]) {
+      apiMock.post.mockResolvedValue({
+        provider: { result: 'skipped', reason },
+        station: { result: 'skipped', reason: 'signal_off' },
+      });
+      renderTab();
+      fireEvent.click(await screen.findByRole('button', { name: /stations\.sim\.refresh$/ }));
+      expect((await screen.findByTestId('sim-refresh-result')).textContent).toContain(
+        `stations.sim.result.providerSkipped.${String(key)}`,
+      );
+      cleanup();
+    }
+  });
+
   it('shows the wait of a rate limited Refresh', async () => {
     apiMock.post.mockRejectedValue(
       new ApiError(429, { error: 'x', code: 'SIM_PROVIDER_RATE_LIMITED', retryAfter: 30 }),
@@ -334,6 +368,28 @@ describe('StationConnectivityTab', () => {
     expect(body.to).toBe(`${dayOffset(1)}T00:00:00.000Z`);
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).toBeNull();
+    });
+  });
+
+  it('shows a failed coverage read in the dialog with Retry', async () => {
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.customRange' }));
+    const dialog = await screen.findByRole('dialog');
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/v1/stations/st1/sim') return Promise.resolve(MATCHED);
+      if (url.includes('limit=1')) return Promise.reject(new Error('down'));
+      if (url.startsWith('/v1/stations/st1/sim/timeline')) return Promise.resolve(timeline);
+      return Promise.reject(new Error(`unexpected ${url}`));
+    });
+    fireEvent.change(within(dialog).getByLabelText('common.startDate'), {
+      target: { value: dayOffset(4) },
+    });
+    expect(await within(dialog).findByText('common.loadError')).toBeTruthy();
+    const coverageCalls = (): number => getCalls().filter((u) => u.includes('limit=1')).length;
+    const before = coverageCalls();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'common.retry' }));
+    await waitFor(() => {
+      expect(coverageCalls()).toBeGreaterThan(before);
     });
   });
 
@@ -371,7 +427,7 @@ describe('StationConnectivityTab', () => {
       capabilities: null,
       status: null,
       statusFetchedAt: null,
-      match: null,
+      attachment: null,
       lastFetchedAt: null,
     });
     const empty = await screen.findByTestId('sim-empty-not_looked_up');
@@ -384,7 +440,7 @@ describe('StationConnectivityTab', () => {
       reason: 'no_iccid',
       capabilities: null,
       status: null,
-      match: null,
+      attachment: null,
     });
     const link = await screen.findByRole('link', { name: 'stations.sim.goToDetails' });
     expect(link.getAttribute('href')).toBe('/?tab=info');
@@ -396,7 +452,7 @@ describe('StationConnectivityTab', () => {
       reason: 'no_provider_configured' as const,
       capabilities: null,
       status: null,
-      match: null,
+      attachment: null,
     };
     renderTab(off);
     const link = await screen.findByRole('link', { name: 'stations.sim.goToSettings' });
@@ -420,7 +476,7 @@ describe('StationConnectivityTab', () => {
       reason: 'not_found',
       capabilities: null,
       status: null,
-      match: null,
+      attachment: null,
     });
     fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.lookUpAgain' }));
     await waitFor(() => {
@@ -431,15 +487,49 @@ describe('StationConnectivityTab', () => {
     });
   });
 
-  it('explains a SIM matched to another station', async () => {
-    renderTab({
+  it('explains a SIM attached to another station, linking to it for all-site users with sims:read', async () => {
+    const elsewhere = {
       provider: null,
-      reason: 'sim_matched_elsewhere',
+      reason: 'attached_elsewhere' as const,
       capabilities: null,
       status: null,
-      match: null,
-    });
-    expect(await screen.findByText('stations.sim.emptyMatchedElsewhere')).toBeTruthy();
+      attachment: null,
+    };
+    perms.add('sims:read');
+    renderTab(elsewhere, '89012345678901234567');
+    expect(await screen.findByText('stations.sim.emptyAttachedElsewhere')).toBeTruthy();
+    const link = screen.getByRole('link', { name: 'stations.sim.findSim' });
+    expect(link.getAttribute('href')).toBe('/sims?search=89012345678901234567');
+    expect(link.className).toContain('text-link');
+    cleanup();
+    access.allSites = false;
+    renderTab(elsewhere, '89012345678901234567');
+    await screen.findByText('stations.sim.emptyAttachedElsewhere');
+    expect(screen.queryByRole('link', { name: 'stations.sim.findSim' })).toBeNull();
+    cleanup();
+    access.allSites = true;
+    perms.delete('sims:read');
+    renderTab(elsewhere, '89012345678901234567');
+    await screen.findByText('stations.sim.emptyAttachedElsewhere');
+    expect(screen.queryByRole('link', { name: 'stations.sim.findSim' })).toBeNull();
+  });
+
+  it('explains an inactive SIM', async () => {
+    perms.add('sims:read');
+    renderTab(
+      {
+        provider: null,
+        reason: 'sim_inactive',
+        capabilities: null,
+        status: null,
+        attachment: null,
+      },
+      '89012345678901234567',
+    );
+    expect(await screen.findByText('stations.sim.emptySimInactive')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'stations.sim.findSim' }).getAttribute('href')).toBe(
+      '/sims?search=89012345678901234567',
+    );
   });
 
   it('shows the stored status with its time and the provider state beside the badge', async () => {
@@ -470,7 +560,7 @@ describe('StationConnectivityTab', () => {
 
   it('confirms an unconfirmed SIM through a dialog naming the ICCID and provider', async () => {
     apiMock.post.mockResolvedValue({ confirmed: true, confirmedAt: '2026-10-22T00:00:00Z' });
-    renderTab({ match: UNCONFIRMED }, '89012345678901234567');
+    renderTab({ attachment: UNCONFIRMED }, '89012345678901234567');
     expect(await screen.findByText(/^stations\.sim\.unconfirmedNotice/)).toBeTruthy();
     const reset = screen.getByRole('button', { name: 'stations.sim.resetNetwork' });
     expect((reset as HTMLButtonElement).disabled).toBe(true);
@@ -480,22 +570,27 @@ describe('StationConnectivityTab', () => {
     expect(dialog.textContent).toContain('"provider":"Hologram"');
     fireEvent.click(within(dialog).getByRole('button', { name: 'stations.sim.confirmSim' }));
     await waitFor(() => {
-      expect(apiMock.post).toHaveBeenCalledWith('/v1/stations/st1/sim/match/confirm', {
-        matchedAt: '2026-10-21T09:30:00.000Z',
+      expect(apiMock.post).toHaveBeenCalledWith('/v1/stations/st1/sim/attachment/confirm', {
+        attachmentId: 42,
       });
     });
   });
 
-  it('reloads the SIM status when the match changed after the dialog opened', async () => {
-    apiMock.post.mockRejectedValue(new ApiError(409, { error: 'x', code: 'SIM_MATCH_CHANGED' }));
-    renderTab({ match: UNCONFIRMED }, '89012345678901234567');
+  it('reloads the SIM status when the attachment changed after the dialog opened', async () => {
+    apiMock.post.mockRejectedValue(
+      new ApiError(409, { error: 'x', code: 'SIM_ATTACHMENT_CHANGED' }),
+    );
+    renderTab({ attachment: UNCONFIRMED }, '89012345678901234567');
     fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.confirmSim' }));
     const dialog = await screen.findByRole('dialog');
     const reads = apiMock.get.mock.calls.filter(([url]) => url === '/v1/stations/st1/sim').length;
     fireEvent.click(within(dialog).getByRole('button', { name: 'stations.sim.confirmSim' }));
     await waitFor(() => {
       expect(toastMock).toHaveBeenCalledWith(
-        expect.objectContaining({ variant: 'destructive', title: 'tr:errors.SIM_MATCH_CHANGED' }),
+        expect.objectContaining({
+          variant: 'destructive',
+          title: 'tr:errors.SIM_ATTACHMENT_CHANGED',
+        }),
       );
     });
     await waitFor(() => {
@@ -503,12 +598,32 @@ describe('StationConnectivityTab', () => {
         apiMock.get.mock.calls.filter(([url]) => url === '/v1/stations/st1/sim').length,
       ).toBeGreaterThan(reads);
     });
-    // The dialog stays open on the reloaded match, so the person sees what they confirm.
+    // The dialog stays open on the reloaded attachment, so the person sees what they confirm.
     expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
+  it('reloads the SIM status when Confirm SIM finds the SIM inactive', async () => {
+    apiMock.post.mockRejectedValue(new ApiError(409, { error: 'x', code: 'SIM_INACTIVE' }));
+    renderTab({ attachment: UNCONFIRMED });
+    fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.confirmSim' }));
+    const dialog = await screen.findByRole('dialog');
+    const reads = getCalls().filter((url) => url === '/v1/stations/st1/sim').length;
+    fireEvent.click(within(dialog).getByRole('button', { name: 'stations.sim.confirmSim' }));
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith({
+        variant: 'destructive',
+        title: 'tr:errors.SIM_INACTIVE',
+      });
+    });
+    await waitFor(() => {
+      expect(getCalls().filter((url) => url === '/v1/stations/st1/sim').length).toBeGreaterThan(
+        reads,
+      );
+    });
+  });
+
   it('explains why Reset Network is disabled before the SIM is confirmed', async () => {
-    renderTab({ match: UNCONFIRMED });
+    renderTab({ attachment: UNCONFIRMED });
     const reset = await screen.findByRole('button', { name: 'stations.sim.resetNetwork' });
     expect((reset as HTMLButtonElement).disabled).toBe(true);
     const trigger = screen.getByTestId('sim-reset-disabled');
@@ -519,21 +634,21 @@ describe('StationConnectivityTab', () => {
     expect((await screen.findByRole('tooltip')).textContent).toBe('stations.sim.resetNeedsConfirm');
   });
 
-  it('clears the match after a confirmation and reloads the SIM status', async () => {
-    apiMock.delete.mockResolvedValue(undefined);
+  it('detaches the SIM after a confirmation and reloads the SIM status', async () => {
+    apiMock.delete.mockResolvedValue({ success: true });
     renderTab();
-    fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.clearMatch' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.detachSim' }));
     const before = getCalls().length;
     const dialog = await screen.findByRole('dialog');
-    expect(within(dialog).getByText('stations.sim.clearMatchDescription')).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole('button', { name: 'stations.sim.clearMatch' }));
+    expect(within(dialog).getByText('stations.sim.detachSimDescription')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'stations.sim.detachSim' }));
     await waitFor(() => {
-      expect(apiMock.delete).toHaveBeenCalledWith('/v1/stations/st1/sim/match');
+      expect(apiMock.delete).toHaveBeenCalledWith('/v1/stations/st1/sim/attachment');
     });
     await waitFor(() => {
       expect(toastMock).toHaveBeenCalledWith({
         variant: 'success',
-        title: 'stations.sim.clearMatchSuccess',
+        title: 'stations.sim.detachSimSuccess',
       });
     });
     await waitFor(() => {
@@ -541,11 +656,40 @@ describe('StationConnectivityTab', () => {
     });
   });
 
-  it('hides Clear Match without stations:write', async () => {
+  it('hides Detach SIM without stations:write', async () => {
     perms.delete('stations:write');
     renderTab();
     await screen.findByText('stations.sim.fromProviderTitle');
-    expect(screen.queryByRole('button', { name: 'stations.sim.clearMatch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'stations.sim.detachSim' })).toBeNull();
+  });
+
+  it('links to the SIM page with sims:read for a confirmed attachment', async () => {
+    perms.add('sims:read');
+    renderTab();
+    const link = await screen.findByRole('link', { name: 'stations.sim.viewSim' });
+    expect(link.getAttribute('href')).toBe('/sims/sim_1');
+    expect(link.className).toContain('text-link');
+    cleanup();
+    perms.delete('sims:read');
+    renderTab();
+    await screen.findByText('stations.sim.fromProviderTitle');
+    expect(screen.queryByRole('link', { name: 'stations.sim.viewSim' })).toBeNull();
+  });
+
+  it('links to an unconfirmed SIM only for users with access to every site', async () => {
+    perms.add('sims:read');
+    renderTab({ attachment: UNCONFIRMED });
+    expect(
+      (await screen.findByRole('link', { name: 'stations.sim.viewSim' })).getAttribute('href'),
+    ).toBe('/sims/sim_2');
+    cleanup();
+    access.allSites = false;
+    renderTab({ attachment: UNCONFIRMED });
+    await screen.findByText(/^stations\.sim\.unconfirmedNotice/);
+    expect(screen.queryByRole('link', { name: 'stations.sim.viewSim' })).toBeNull();
+    cleanup();
+    renderTab();
+    expect(await screen.findByRole('link', { name: 'stations.sim.viewSim' })).toBeTruthy();
   });
 
   it('shows the wait of a refused network reset', async () => {
@@ -564,7 +708,7 @@ describe('StationConnectivityTab', () => {
     });
   });
 
-  it('says an unconfirmed match fetches nothing until Confirm SIM, and lists no alerts', async () => {
+  it('says an unconfirmed attachment fetches nothing until Confirm SIM, and lists no alerts', async () => {
     renderTab(UNCONFIRMED_SIM);
     expect(
       await screen.findByText('stations.sim.unconfirmedNotice {"provider":"Hologram"}'),
@@ -573,53 +717,51 @@ describe('StationConnectivityTab', () => {
   });
 
   it('names where the ICCID came from in the Confirm SIM dialog', async () => {
-    renderTab(UNCONFIRMED_SIM);
-    fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.confirmSim' }));
-    expect(
-      within(await screen.findByRole('dialog')).getByText('stations.sim.confirmSourceStation'),
-    ).toBeTruthy();
-    cleanup();
-    renderTab({
-      ...UNCONFIRMED_SIM,
-      match: {
-        ...UNCONFIRMED,
-        iccidSource: 'entered',
-        enteredBy: { id: 'usr_2', name: 'Sam Site' },
-      },
-    });
-    fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.confirmSim' }));
-    expect(
-      within(await screen.findByRole('dialog')).getByText(
-        'stations.sim.confirmSourceEntered {"name":"Sam Site"}',
-      ),
-    ).toBeTruthy();
-    cleanup();
-    renderTab({
-      ...UNCONFIRMED_SIM,
-      match: { ...UNCONFIRMED, iccidSource: 'entered', enteredBy: { id: 'usr_3', name: null } },
-    });
-    fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.confirmSim' }));
-    expect(
-      within(await screen.findByRole('dialog')).getByText(
-        'stations.sim.confirmSourceEnteredUnknown',
-      ),
-    ).toBeTruthy();
+    const sourceText = async (attachment: Partial<typeof UNCONFIRMED>): Promise<string> => {
+      cleanup();
+      renderTab({ ...UNCONFIRMED_SIM, attachment: { ...UNCONFIRMED, ...attachment } });
+      fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.confirmSim' }));
+      const dialog = await screen.findByRole('dialog');
+      return within(dialog).getByTestId('sim-confirm-source').textContent;
+    };
+    expect(await sourceText({})).toBe('stations.sim.confirmSource.reported');
+    const sam = { id: 'usr_2', name: 'Sam Site' };
+    for (const source of ['entered', 'attached', 'imported'] as const) {
+      expect(await sourceText({ source, attachedBy: sam })).toBe(
+        `stations.sim.confirmSource.${source} {"name":"Sam Site"}`,
+      );
+      // A person the viewer cannot see, or one without a name, is "another user".
+      expect(await sourceText({ source, attachedBy: null })).toBe(
+        `stations.sim.confirmSource.${source}Unknown`,
+      );
+      expect(await sourceText({ source, attachedBy: { id: 'usr_3', name: null } })).toBe(
+        `stations.sim.confirmSource.${source}Unknown`,
+      );
+    }
   });
 
-  it('shows why Confirm SIM was refused when another station holds the SIM', async () => {
-    apiMock.post.mockRejectedValue(
-      new ApiError(409, { error: 'x', code: 'SIM_CONFIRMED_ELSEWHERE' }),
-    );
-    renderTab(UNCONFIRMED_SIM);
-    fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.confirmSim' }));
-    const dialog = await screen.findByRole('dialog');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'stations.sim.confirmSim' }));
-    await waitFor(() => {
-      expect(toastMock).toHaveBeenCalledWith({
-        variant: 'destructive',
-        title: 'tr:errors.SIM_CONFIRMED_ELSEWHERE',
+  it('says why a reset was refused for the attachment state and reloads the SIM status', async () => {
+    for (const code of ['SIM_INACTIVE', 'SIM_ATTACHMENT_NOT_CONFIRMED']) {
+      apiMock.post.mockRejectedValue(new ApiError(409, { error: 'x', code }));
+      renderTab();
+      fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.resetNetwork' }));
+      const dialog = await screen.findByRole('dialog');
+      const reads = getCalls().filter((url) => url === '/v1/stations/st1/sim').length;
+      fireEvent.click(within(dialog).getByRole('button', { name: 'stations.sim.resetNetwork' }));
+      await waitFor(() => {
+        expect(toastMock).toHaveBeenCalledWith({
+          variant: 'destructive',
+          title: `tr:errors.${code}`,
+        });
       });
-    });
+      await waitFor(() => {
+        expect(getCalls().filter((url) => url === '/v1/stations/st1/sim').length).toBeGreaterThan(
+          reads,
+        );
+      });
+      cleanup();
+      vi.clearAllMocks();
+    }
   });
 
   it('shows the translated error of a reset whose cooldown could not be checked', async () => {
@@ -640,13 +782,13 @@ describe('StationConnectivityTab', () => {
 
   it('hides Confirm SIM without access to every site or stations:write', async () => {
     access.allSites = false;
-    renderTab({ match: UNCONFIRMED });
+    renderTab({ attachment: UNCONFIRMED });
     await screen.findByText(/^stations\.sim\.unconfirmedNotice/);
     expect(screen.queryByRole('button', { name: 'stations.sim.confirmSim' })).toBeNull();
     cleanup();
     access.allSites = true;
     perms.delete('stations:write');
-    renderTab({ match: UNCONFIRMED });
+    renderTab({ attachment: UNCONFIRMED });
     await screen.findByText(/^stations\.sim\.unconfirmedNotice/);
     expect(screen.queryByRole('button', { name: 'stations.sim.confirmSim' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'stations.sim.resetNetwork' })).toBeNull();

@@ -15,6 +15,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useHasAllSiteAccess } from '@/lib/auth';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { getErrorMessage } from '@/lib/error-message';
+import { isAdminEquivalent } from '@evtivity/lib/admin-equivalent';
+import { permissionCatalog } from '@evtivity/lib/permissions';
+import {
+  FactorProofField,
+  proofRejection,
+  type FactorProof,
+  type ProofRejection,
+} from '@/components/FactorProofField';
+import { useMfaStatus } from '@/components/profile/mfa-status';
 
 export interface UserDetailUser {
   id: string;
@@ -32,6 +42,10 @@ export interface UserDetailUser {
   mfaMethod?: string | null;
   /** 'sso' for an account an SSO sign-in created. */
   authSource?: 'password' | 'sso';
+  /** SSO may link this password account at its next sign-in. */
+  ssoLinkAllowed?: boolean;
+  /** The account is bound to its identity provider user. */
+  ssoLinked?: boolean;
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -80,6 +94,30 @@ export function UserDetailsTab({
   const [hasAllSiteAccess, setHasAllSiteAccess] = useState(false);
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
   const [hasSubmittedEdit, setHasSubmittedEdit] = useState(false);
+  // Moving an admin-equivalent user's email or phone, or reactivating one, takes a
+  // fresh proof of the signed-in account.
+  const { data: mfaStatus } = useMfaStatus();
+  const proofKinds = mfaStatus?.factorProofKinds ?? [];
+  const [proof, setProof] = useState<FactorProof | null>(null);
+  const [proofFailure, setProofFailure] = useState<ProofRejection | null>(null);
+  const [proofRound, setProofRound] = useState(0);
+  const emailChanged =
+    editing && canAdminister && email.trim().toLowerCase() !== user.email.toLowerCase();
+  // A role change replaces the permissions with the role defaults: a grant when the
+  // defaults hold a permission the user lacks.
+  const held = user.permissions ?? [];
+  const newRoleName = roles?.find((r) => r.id === roleId)?.name;
+  const roleDefaults =
+    editing && canAdminister && roleId !== user.roleId && newRoleName != null
+      ? permissionCatalog.defaultsFor(newRoleName)
+      : null;
+  const roleGrants = roleDefaults != null && roleDefaults.some((p) => !held.includes(p));
+  const phoneChanged = editing && canAdminister && phone.trim() !== (user.phone ?? '');
+  const reactivated = editing && canAdminister && isActive && !user.isActive;
+  const accountOfAdmin =
+    (emailChanged || phoneChanged || reactivated) &&
+    (isAdminEquivalent(held) || isAdminEquivalent(roleDefaults ?? held));
+  const needsProof = proofKinds.length > 0 && (roleGrants || accountOfAdmin);
 
   const { data: sitesData } = useQuery({
     queryKey: ['sites-for-select'],
@@ -98,7 +136,11 @@ export function UserDetailsTab({
       isActive?: boolean;
       hasAllSiteAccess?: boolean;
       siteIds?: string[];
+      proof?: FactorProof;
     }) => api.patch<UserDetailUser>(`/v1/users/${userId}`, body),
+    onError: (err: unknown) => {
+      setProofFailure(proofRejection(err));
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['users'] });
       setEditing(false);
@@ -115,6 +157,10 @@ export function UserDetailsTab({
     setIsActive(user.isActive);
     setHasAllSiteAccess(user.hasAllSiteAccess);
     setSelectedSiteIds(user.siteIds);
+    setProof(null);
+    setProofFailure(null);
+    setProofRound((n) => n + 1);
+    updateMutation.reset();
     setEditing(true);
   }
 
@@ -146,8 +192,10 @@ export function UserDetailsTab({
       updateMutation.mutate({ firstName, lastName });
       return;
     }
+    if (needsProof && proof == null) return;
     const trimmedEmail = email.trim();
     updateMutation.mutate({
+      ...(needsProof && proof != null ? { proof } : {}),
       ...(trimmedEmail.toLowerCase() !== user.email.toLowerCase() ? { email: trimmedEmail } : {}),
       firstName,
       lastName,
@@ -334,6 +382,23 @@ export function UserDetailsTab({
                   )}
                 </div>
               </>
+            )}
+            {needsProof && (
+              <FactorProofField
+                key={`email-${String(proofRound)}`}
+                idPrefix="user-email-proof"
+                kinds={proofKinds}
+                codeMethod={mfaStatus?.mfaMethod ?? null}
+                description={t(roleGrants ? 'users.roleProofHint' : 'users.emailProofHint')}
+                onChange={setProof}
+                rejection={proofFailure}
+                showMissing={hasSubmittedEdit}
+              />
+            )}
+            {updateMutation.isError && (
+              <p className="text-sm text-destructive" role="alert">
+                {getErrorMessage(updateMutation.error, t)}
+              </p>
             )}
             <div className="flex justify-end gap-2">
               <CancelButton

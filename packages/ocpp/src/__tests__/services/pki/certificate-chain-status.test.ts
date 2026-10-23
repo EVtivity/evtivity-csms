@@ -73,13 +73,20 @@ function certId(): ReturnType<typeof certIdFor> {
   );
 }
 
-function fetchAnswer(body: Buffer): unknown {
-  return {
-    ok: true,
-    status: 200,
-    arrayBuffer: () =>
-      Promise.resolve(body.buffer.slice(body.byteOffset, body.byteOffset + body.length)),
-  };
+function fetchAnswer(body: Buffer): Response {
+  return new Response(new Uint8Array(body), { status: 200 });
+}
+
+/** A 200 reply that streams 1 MiB chunks without end, counting what was pulled. */
+function endlessAnswer(pulled: { bytes: number }): Response {
+  const chunk = new Uint8Array(1024 * 1024);
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      pulled.bytes += chunk.byteLength;
+      controller.enqueue(chunk);
+    },
+  });
+  return new Response(stream, { status: 200 });
 }
 
 beforeAll(async () => {
@@ -162,6 +169,17 @@ describe('getCertificateChainStatus', () => {
       'https://crl.example.com/mo.crl',
       expect.objectContaining({ method: 'GET', redirect: 'error' }),
     );
+  });
+
+  it('stops reading an oversized CRL at the 10 MiB cap', async () => {
+    const pulled = { bytes: 0 };
+    safeFetchMock.mockResolvedValueOnce(endlessAnswer(pulled));
+    const [entry] = await getCertificateChainStatus(
+      [{ source: 'CRL', urls: ['https://crl.example.com/big.crl'], certificateHashData: certId() }],
+      logger,
+    );
+    expect(entry?.status).toBe('Failed');
+    expect(pulled.bytes).toBeLessThanOrEqual(12 * 1024 * 1024);
   });
 
   it('answers Failed when no CRL URL can be used (M07.FR.05)', async () => {

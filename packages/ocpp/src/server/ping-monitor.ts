@@ -1,9 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import type WebSocket from 'ws';
 import type { ConnectionManager } from './connection-manager.js';
-import type { Logger, PubSubClient } from '@evtivity/lib';
-import { MIN_HEARTBEAT_TIMEOUT_MS, heartbeatTimeoutFor } from '@evtivity/lib';
+import type { DataPlan, DataPlanValues, Logger, PubSubClient } from '@evtivity/lib';
+import { DATA_PLAN_DEFAULTS, heartbeatTimeoutFor } from '@evtivity/lib';
 import type postgres from 'postgres';
 import { randomUUID } from 'node:crypto';
 import {
@@ -27,6 +28,10 @@ const MAX_LATENCY_HISTORY = 1000;
 // Readers judge the freshness of each process's health row by this interval.
 const PING_INTERVAL_MS = OCPP_HEALTH_SNAPSHOT_INTERVAL_MS;
 const PONG_WAIT_MS = 5_000;
+// A station that answered a ping on its connection is closed after this many
+// CSMS ping intervals without any frame.
+export const MISSED_PING_CLOSE_FACTOR = 3;
+
 export class PingMonitor {
   private readonly pingSentTimes = new Map<string, number>();
   private readonly recentLatencies: number[] = [];
@@ -34,7 +39,8 @@ export class PingMonitor {
   private totalPongsReceived = 0;
   private readonly serverStartedAt = new Date();
   private cycleInterval: ReturnType<typeof setInterval> | null = null;
-  private heartbeatTimeoutMs = MIN_HEARTBEAT_TIMEOUT_MS;
+  // The values of both data plans; each connection follows its station's plan.
+  private planValues: Readonly<Record<DataPlan, DataPlanValues>> = DATA_PLAN_DEFAULTS;
   private pendingWriteTimeout: ReturnType<typeof setTimeout> | null = null;
   // Snapshot writes in flight; stop() waits for them before deleting the row.
   private readonly writes = new Set<Promise<void>>();
@@ -43,6 +49,8 @@ export class PingMonitor {
   constructor(
     private readonly connectionManager: ConnectionManager,
     private readonly logger: Logger,
+    /** Runs once per ping cycle, after the registry refresh. */
+    private readonly onCycle?: () => void,
   ) {}
 
   private sql: postgres.Sql | null = null;
@@ -57,11 +65,12 @@ export class PingMonitor {
     if (instanceId != null && instanceId !== '') this.instanceId = instanceId;
 
     this.cycleInterval = setInterval(() => {
-      this.pingAll();
+      this.pingDue();
       this.checkHeartbeats();
       // Keeps the connection registry entries of the stations this process
       // holds alive, whatever the heartbeat interval.
       this.connectionManager.refreshRegistry();
+      this.onCycle?.();
 
       if (this.sql != null) {
         // Wait for pongs to arrive before writing the snapshot
@@ -107,7 +116,12 @@ export class PingMonitor {
     this.writes.add(write);
   }
 
-  recordPong(stationId: string): void {
+  recordPong(stationId: string, ws?: WebSocket): void {
+    // A pong proves the station answers pings: from now on a long silence
+    // on this connection closes it (missed-pong close). A pong from a
+    // replaced socket of the station never marks the current connection.
+    const conn = this.connectionManager.get(stationId);
+    if (conn != null && (ws == null || conn.ws === ws)) conn.session.answeredPing = true;
     const sentTime = this.pingSentTimes.get(stationId);
     if (sentTime == null) return;
 
@@ -140,12 +154,46 @@ export class PingMonitor {
     };
   }
 
-  private pingAll(): void {
+  setPlanValues(values: Readonly<Record<DataPlan, DataPlanValues>>): void {
+    this.planValues = values;
+  }
+
+  /** The CSMS ping interval of a connection, from its station's data plan. */
+  private pingIntervalMs(plan: DataPlan): number {
+    return this.planValues[plan].csmsPingInterval * 1000;
+  }
+
+  /**
+   * Pings each station only when no frame arrived from it for its plan's CSMS
+   * ping interval, at the cycle whose next tick would pass the interval. Any
+   * frame keeps the connection (and a carrier NAT mapping) alive, so a busy
+   * or self-pinging station gets no CSMS ping. A station that answered a ping
+   * on this connection and then sent nothing for 3 intervals is closed.
+   */
+  pingDue(now = Date.now()): void {
     for (const stationId of this.connectionManager.allStationIds()) {
       const conn = this.connectionManager.get(stationId);
       if (conn == null) continue;
+      const intervalMs = this.pingIntervalMs(conn.session.dataPlan);
+      const silentMs = now - conn.session.lastInboundAt.getTime();
 
-      this.pingSentTimes.set(stationId, Date.now());
+      if (conn.session.answeredPing && silentMs > MISSED_PING_CLOSE_FACTOR * intervalMs) {
+        this.logger.warn(
+          { stationId, silentMs, pingIntervalMs: intervalMs },
+          'No frame after a ping, closing connection',
+        );
+        this.pingSentTimes.delete(stationId);
+        conn.ws.close(1000, 'Ping timeout');
+        continue;
+      }
+      // Counted from the last frame or the last CSMS ping, whichever is
+      // later, so a station that does not answer gets one ping per interval.
+      const lastPingAt = conn.session.lastPingAt?.getTime() ?? 0;
+      const sinceActivityMs = now - Math.max(conn.session.lastInboundAt.getTime(), lastPingAt);
+      if (sinceActivityMs + PING_INTERVAL_MS <= intervalMs) continue;
+
+      conn.session.lastPingAt = new Date(now);
+      this.pingSentTimes.set(stationId, now);
       this.totalPingsSent++;
 
       try {
@@ -161,20 +209,18 @@ export class PingMonitor {
     }
   }
 
-  setHeartbeatIntervalSeconds(heartbeatSeconds: number): void {
-    this.heartbeatTimeoutMs = heartbeatTimeoutFor(heartbeatSeconds);
-  }
-
-  private checkHeartbeats(): void {
-    const now = Date.now();
+  checkHeartbeats(now = Date.now()): void {
     for (const stationId of this.connectionManager.allStationIds()) {
       const conn = this.connectionManager.get(stationId);
       if (conn == null) continue;
 
+      const timeoutMs = heartbeatTimeoutFor(
+        this.planValues[conn.session.dataPlan].heartbeatInterval,
+      );
       const elapsed = now - conn.session.lastHeartbeat.getTime();
-      if (elapsed > this.heartbeatTimeoutMs) {
+      if (elapsed > timeoutMs) {
         this.logger.warn(
-          { stationId, elapsedMs: elapsed, timeoutMs: this.heartbeatTimeoutMs },
+          { stationId, elapsedMs: elapsed, timeoutMs },
           'Heartbeat timeout, closing connection',
         );
         conn.ws.close(1000, 'Heartbeat timeout');

@@ -11,7 +11,9 @@
  *   routes, webhooks, imports and exports, file transfers, and every write
  *   that moves money (payments, refunds, invoices, pricing, billing, free
  *   vend) or changes station security (credentials, certificates, network
- *   profiles, configuration variables, firmware).
+ *   profiles, firmware, and configuration variables except through the
+ *   guarded template and push routes, which refuse credential, security
+ *   profile and network variables).
  * - `read` (R): a GET the chatbot may call without asking.
  * - `write` (W): a POST, PUT, PATCH or DELETE the chatbot may propose. It
  *   runs only after the user confirms it (confirmation card and nonce).
@@ -21,7 +23,18 @@
  *   `case.driverId` are set by the server and hidden from the model;
  *   `case.sessionIds` limits the argument to the case's linked sessions.
  *   The support surface has no other tools and never a write.
- * - `omit`: arguments the model never sees or sends (station passwords).
+ * - `omit`: arguments the model never sees or sends: station passwords, and
+ *   outbound destinations (report and alert recipients), which the operator
+ *   sets in the UI so a prompt injection cannot add a recipient of company
+ *   data, and the email and phone of a driver, site or NEVI operator,
+ *   where receipts, notices and reports go, money
+ *   and stored value (a token's prepaid balance), and a site's AI budget and
+ *   insight switch. A
+ *   write whose destination is nested, or that also carries an email body
+ *   (`updateOcppEventSettings`), is `never`. The catalog checks refuse a
+ *   destination-shaped (by name or an email or URI format), contact-shaped or
+ *   money-shaped request field that is not omitted, except the reviewed
+ *   OCPP price schedules (`MONEY_FIELDS_REVIEWED`).
  * - `redactedFields`: secret response fields of an exposed tool, listed so
  *   the schema gate accepts them. The redactor drops every secret-shaped
  *   field at run time; listing one here records that it was reviewed.
@@ -221,7 +234,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // Autocharge authorizes a vehicle as its driver (station security): the
   // block, the unblock and the vehicle ids are operator decisions only.
   blockDriverVehicle: N,
-  createDriver: W,
+  createDriver: write({ omit: ['email', 'phone'] }),
   createDriverPncContract: N,
   createDriverToken: W,
   createDriverVehicle: write({ omit: ['vin', 'evccid', 'autochargeEnabled'] }),
@@ -244,15 +257,15 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   lookupVehicles: R,
   removeDriverPricingGroup: N,
   revokePncContract: N,
-  updateDriver: W,
+  updateDriver: write({ omit: ['email', 'phone'] }),
   updateDriverBillingAddress: N,
   unblockDriverVehicle: N,
   updateDriverVehicle: write({ omit: ['vin', 'evccid', 'autochargeEnabled'] }),
   // Event Alert Rules
-  createEventAlertRule: W,
+  createEventAlertRule: write({ omit: ['notifyRecipient'] }),
   deleteEventAlertRule: W,
   listEventAlertRules: R,
-  updateEventAlertRule: W,
+  updateEventAlertRule: write({ omit: ['notifyRecipient'] }),
   // Events
   streamEvents: N,
   // Fleet Operations
@@ -374,9 +387,12 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   listNeviExcludedDowntime: R,
   listNeviStationData: R,
   updateNeviExcludedDowntime: W,
-  upsertNeviStationData: W,
-  // Notifications
-  deleteNotificationTemplate: W,
+  upsertNeviStationData: write({ omit: ['operatorEmail', 'operatorPhone'] }),
+  // Notifications. The assistant writes no notification template: a template
+  // reaches every driver or operator it is sent to, so a link an injected
+  // instruction adds would phish all of them.
+  // The preview writes nothing and stays.
+  deleteNotificationTemplate: N,
   deleteOcppEventSetting: W,
   getDriverEventSettings: R,
   getNotificationTemplate: R,
@@ -387,8 +403,8 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   previewNotificationTemplate: W,
   sendTestNotification: N,
   updateDriverEventSettings: W,
-  updateOcppEventSettings: W,
-  upsertNotificationTemplate: W,
+  updateOcppEventSettings: N,
+  upsertNotificationTemplate: N,
   // OCPI
   createOcpiCreditCdr: N,
   reissueOcpiCdr: N,
@@ -717,7 +733,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   updateGroupTariff: N,
   updatePricingGroup: N,
   // Reports
-  createReportSchedule: W,
+  createReportSchedule: write({ omit: ['recipientEmails'] }),
   deleteReport: W,
   deleteReportSchedule: W,
   downloadReport: N,
@@ -729,7 +745,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   listReportTypes: R,
   listReports: R,
   runReportScheduleNow: W,
-  updateReportSchedule: W,
+  updateReportSchedule: write({ omit: ['recipientEmails'] }),
   // Reservations
   cancelReservation: W,
   createReservation: W,
@@ -757,8 +773,11 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // Settings
   deleteSetting: N,
   flushResponseCache: N,
+  generateWebhookSigningSecret: N,
   getAiDefaults: N,
   getCarbonFactor: N,
+  // Retention decides how long data is kept: the assistant never reads or changes it.
+  getDataRetentionSettings: N,
   getPortalBranding: N,
   getPortalContent: N,
   getPortalFeatures: N,
@@ -769,16 +788,19 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   getSimProviderSettings: N,
   getSsoSettings: N,
   getSystemInfo: N,
+  getWebhookSigningSecretStatus: N,
   listCarbonFactors: N,
   listSettings: N,
   listStationMessageTemplates: N,
   previewEmailWrapper: N,
   previewStationMessageTemplate: N,
+  removeWebhookSigningSecret: N,
   resetStationMessageTemplate: N,
   ssoCallback: N,
   ssoLogin: N,
   testS3Connection: N,
   testSimProviderConnection: N,
+  updateDataRetentionSettings: N,
   updateMfaSettings: N,
   updatePasswordPolicySettings: N,
   updateRecaptchaSettings: N,
@@ -795,7 +817,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   suppressSiteAiInsights: N,
   resumeSiteAiInsights: N,
   addSitePricingGroup: N,
-  createSite: W,
+  createSite: write({ omit: ['contactEmail', 'contactPhone'] }),
   createSiteElectricityRate: W,
   deleteSite: W,
   deleteSiteElectricityRate: W,
@@ -803,6 +825,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   exportSites: N,
   getSite: R,
   getSiteCarbonRegion: R,
+  getSiteDataPlanImpact: R,
   getSiteEnergyHistory: R,
   getSiteFilterOptions: R,
   getSiteLayout: R,
@@ -821,7 +844,11 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   recalculateSiteElectricityCost: N,
   removeSitePricingGroup: N,
   toggleSiteFreeVend: N,
-  updateSite: W,
+  // AI budget and insight switches are AI settings, 'never' elsewhere. A data
+  // plan change pushes station configuration variables, which are 'never'.
+  updateSite: write({
+    omit: ['contactEmail', 'contactPhone', 'aiMonthlyTokenBudget', 'aiInsightsEnabled', 'dataPlan'],
+  }),
   updateSiteCarbonRegion: W,
   updateSiteElectricityRate: W,
   updateSiteLayout: W,
@@ -850,12 +877,31 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   approveStation: W,
   checkStationWebPaymentSupport: N,
   // SIM data and the network reset are not AI tools in this release.
-  clearStationSimMatch: N,
-  confirmStationSimMatch: N,
   getStationSim: N,
   getStationSimTimeline: N,
   refreshStationSim: N,
   resetStationSimNetwork: N,
+  confirmStationSimAttachment: N,
+  detachStationSim: N,
+  // SIM inventory: never an AI tool.
+  attachSim: N,
+  confirmSimAttachment: N,
+  createSim: N,
+  deactivateSim: N,
+  deleteSim: N,
+  detachSim: N,
+  exportSims: N,
+  exportSimTemplate: N,
+  getSim: N,
+  getSimNeighbors: N,
+  getSimTimeline: N,
+  importSims: N,
+  listSimAttachments: N,
+  listSims: N,
+  reactivateSim: N,
+  refreshSim: N,
+  resetSimNetwork: N,
+  updateSim: N,
   clearStationChargingProfiles: W,
   confirmRealStation: W,
   confirmStationImageUpload: N,
@@ -921,7 +967,11 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   setStationCredentials: N,
   stopActiveEvseSession: W,
   unblockStation: W,
-  updateStation: write({ omit: ['password', 'securityProfile'] }),
+  // A data plan change pushes station configuration variables, which are 'never'.
+  // A site move or a connector type change can still change the effective plan or
+  // the AC/DC kind and push the plan's values: accepted, the confirmed tool call
+  // runs the same data plan push as the CSMS.
+  updateStation: write({ omit: ['password', 'securityProfile', 'dataPlan'] }),
   updateStationEvse: W,
   updateStationImage: W,
   // Support Cases
@@ -943,7 +993,8 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   updateSupportCase: W,
   // Tokens
   bulkSetTokensActive: W,
-  createToken: W,
+  // A prepaid balance is stored value that pays for charging.
+  createToken: write({ omit: ['prepaidBalanceCents'] }),
   deleteToken: W,
   exportTokens: N,
   getToken: R,
@@ -953,13 +1004,15 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   listAuthorizeAttempts: R,
   listTokenSessions: R,
   listTokens: R,
-  updateToken: W,
+  updateToken: write({ omit: ['prepaidBalanceCents', 'expectedPrepaidBalanceCents'] }),
   // Transactions
   getTransactionById: R,
   getTransactionsBySession: R,
   listTransactions: R,
   // Users
+  allowOwnSsoLink: N,
   changePassword: N,
+  clearUserSsoLink: N,
   confirmMfa: N,
   createUser: N,
   deleteMyChatbotAiConfig: N,
@@ -1040,7 +1093,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   clearAiInsightFeedback: N,
   getAiInsightFeedbackSummary: N,
   // The wrong votes and their notes (untrusted operator text) never reach a
-  // model through the assistant or MCP (owner decision 2026-10-14): only a
+  // model through the assistant or MCP: only a
   // regeneration reads its requester's own note, framed and redacted.
   listAiInsightWrongVotes: N,
   // Deciding the action an insight carries is an operator's judgment in the
@@ -1225,7 +1278,6 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   updateNeviExcludedDowntime: false,
   upsertNeviStationData: false,
   // Notifications
-  deleteNotificationTemplate: false,
   deleteOcppEventSetting: false,
   getDriverEventSettings: true,
   getNotificationTemplate: true,
@@ -1235,8 +1287,6 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   listNotifications: true,
   previewNotificationTemplate: false,
   updateDriverEventSettings: false,
-  updateOcppEventSettings: false,
-  upsertNotificationTemplate: false,
   // OCPI
   getOcpiLocation: true,
   getOcpiPartner: true,
@@ -1360,6 +1410,7 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   deleteSiteElectricityRate: false,
   getSite: true,
   getSiteCarbonRegion: true,
+  getSiteDataPlanImpact: true,
   getSiteEnergyHistory: true,
   getSiteFilterOptions: true,
   getSiteLayout: true,

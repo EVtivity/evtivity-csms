@@ -47,18 +47,23 @@ import { AiSystemPromptField } from '@/components/ai/AiSystemPromptField';
 import type { AiDefaults } from '@/components/ai/use-ai-defaults';
 import { isCustomModel, isDefaultPrompt, useAiDefaults } from '@/components/ai/use-ai-defaults';
 import { api } from '@/lib/api';
+import { isDataRetentionSettingKey } from '@evtivity/lib/data-retention';
+import { DataRetentionLink } from './DataRetentionSettings';
 import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatNumber } from '@/lib/formatting';
 
-const LIMIT_KEYS = Object.keys(AI_LIMIT_SETTINGS) as AiLimitSettingKey[];
+// The conversation retention is edited in Settings > Data Retention.
+type LimitKey = Exclude<AiLimitSettingKey, 'ai.conversationRetentionDays'>;
+const LIMIT_KEYS = (Object.keys(AI_LIMIT_SETTINGS) as AiLimitSettingKey[]).filter(
+  (key): key is LimitKey => !isDataRetentionSettingKey(key),
+);
 
 type LimitLabelKey =
   | 'settings.aiLimits.userPerMinute'
   | 'settings.aiLimits.sitePerMinute'
   | 'settings.aiLimits.userDailyTokens'
   | 'settings.aiLimits.maxToolCallsPerTurn'
-  | 'settings.aiLimits.conversationRetentionDays'
   | 'settings.aiLimits.attachmentsMaxBytes'
   | 'settings.aiLimits.attachmentsMaxPerMessage'
   | 'settings.aiLimits.companyMonthlyTokens'
@@ -67,18 +72,17 @@ type LimitLabelKey =
   | 'settings.aiLimits.warnPercent';
 
 // Budgets where 0 means no limit (the daily user budget has its own hint).
-const ZERO_NO_LIMIT_KEYS: ReadonlySet<AiLimitSettingKey> = new Set([
+const ZERO_NO_LIMIT_KEYS: ReadonlySet<LimitKey> = new Set([
   'ai.budget.companyMonthlyTokens',
   'ai.budget.siteMonthlyTokens',
   'ai.budget.siteDailyTokens',
 ]);
 
-const LIMIT_LABELS: Record<AiLimitSettingKey, LimitLabelKey> = {
+const LIMIT_LABELS: Record<LimitKey, LimitLabelKey> = {
   'ai.rateLimit.userPerMinute': 'settings.aiLimits.userPerMinute',
   'ai.rateLimit.sitePerMinute': 'settings.aiLimits.sitePerMinute',
   'ai.budget.userDailyTokens': 'settings.aiLimits.userDailyTokens',
   'ai.maxToolCallsPerTurn': 'settings.aiLimits.maxToolCallsPerTurn',
-  'ai.conversationRetentionDays': 'settings.aiLimits.conversationRetentionDays',
   'ai.attachments.maxBytes': 'settings.aiLimits.attachmentsMaxBytes',
   'ai.attachments.maxPerMessage': 'settings.aiLimits.attachmentsMaxPerMessage',
   'ai.budget.companyMonthlyTokens': 'settings.aiLimits.companyMonthlyTokens',
@@ -563,6 +567,7 @@ function AiLimitsCard({ settings, canWrite }: CardProps): React.JSX.Element {
             );
           })}
         </div>
+        <DataRetentionLink />
         {canWrite && (
           <div className="flex items-center justify-end gap-4">
             <SaveStatus m={save} />

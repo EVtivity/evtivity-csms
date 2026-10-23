@@ -355,12 +355,21 @@ describe('FactorProofField', () => {
     expect(screen.getByLabelText('factorProof.totpLabel')).toBeTruthy();
   });
 
-  it('explains a passkey-only proof on a page that cannot use passkeys', () => {
+  it('explains a passkey-only proof in a browser without passkeys', () => {
+    secure(true);
     supportsMock.mockReturnValue(false);
     renderField(['passkey']);
-    expect(screen.getByText('factorProof.passkeyNeedsSecurePage')).toBeTruthy();
+    expect(screen.getByText('passkeyUnavailable.unsupported.proofOnly')).toBeTruthy();
     expect(postMock).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: 'factorProof.passkeyButton' })).toBeNull();
+  });
+
+  it('explains a passkey-only proof on a page that is not secure', () => {
+    secure(false);
+    renderField(['passkey']);
+    expect(screen.getByText('passkeyUnavailable.insecure.proofOnly')).toBeTruthy();
+    expect(postMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole('textbox')).toBeNull();
   });
 });
 

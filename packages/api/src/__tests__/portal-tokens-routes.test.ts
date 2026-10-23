@@ -74,6 +74,7 @@ vi.mock('@evtivity/database', () => ({
   tokenAuditLog: {},
   stationLocalAuthEntries: {},
   stationLocalAuthVersions: {},
+  vehicles: {},
   writeAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -184,8 +185,9 @@ describe('Portal token routes', () => {
         deactivatedBy: null,
         createdAt: new Date(),
       };
-      // existing check (none), the driver (active), insert returning
-      setupDbResults([], [{ isActive: true }], [newToken]);
+      // existing check (none), the driver (active), another driver's vehicle
+      // with this id (none), insert returning
+      setupDbResults([], [{ isActive: true }], [], [newToken]);
       const response = await app.inject({
         method: 'POST',
         url: '/portal/tokens',
@@ -194,6 +196,45 @@ describe('Portal token routes', () => {
       });
       expect(response.statusCode).toBe(201);
       expect(response.json().idToken).toBe('NEWTOKEN01');
+    });
+
+    it("returns 409 VEHICLE_ID_IN_USE for another driver's vehicle id", async () => {
+      setupDbResults([], [{ isActive: true }], [{ id: 'veh_other' }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/tokens',
+        headers: { authorization: `Bearer ${driverToken}` },
+        // An ISO 15118-20 EVCCID has no shape to detect, so the 409 stays.
+        payload: { idToken: 'EVCC-15118-20-ID' },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('VEHICLE_ID_IN_USE');
+    });
+
+    it('refuses a vehicle-shaped card value with 400 before any lookup', async () => {
+      for (const idToken of ['5YJ3E1EA7KF317000', '92D50A693F80', '92-d5-0a-69-3f-80']) {
+        setupDbResults();
+        const response = await app.inject({
+          method: 'POST',
+          url: '/portal/tokens',
+          headers: { authorization: `Bearer ${driverToken}` },
+          payload: { idToken },
+        });
+        expect(response.statusCode, idToken).toBe(400);
+        expect(response.json().code).toBe('VALIDATION_ERROR');
+      }
+    });
+
+    it('refuses the vehicle id card types', async () => {
+      for (const tokenType of ['VIN', 'EVCCID', 'MacAddress']) {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/portal/tokens',
+          headers: { authorization: `Bearer ${driverToken}` },
+          payload: { idToken: '92D50A693F80', tokenType },
+        });
+        expect(response.statusCode).toBe(400);
+      }
     });
 
     it('returns 409 for duplicate token', async () => {

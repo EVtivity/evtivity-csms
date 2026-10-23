@@ -18,7 +18,8 @@ import { LiveStatus } from '@/components/LiveStatus';
 import { usePrefetchedOptions } from '@/hooks/use-prefetched-options';
 import { api, ApiError } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
-import { passkeyErrorText, webauthnSupported } from '@/lib/webauthn';
+import { passkeyErrorText, webauthnSupported, webauthnUnavailableReason } from '@/lib/webauthn';
+import { passkeyUnavailableKey } from '@/lib/passkey-unavailable';
 
 /** A proof the API takes before it adds a factor, removes the last one or replaces the recovery codes. */
 export type FactorProofKind = 'passkey' | 'totp' | 'code' | 'recovery_code' | 'password';
@@ -253,7 +254,9 @@ export function FactorProofField({
     return (
       <Alert variant="info">
         <Info className="h-4 w-4" />
-        <AlertDescription>{t('factorProof.passkeyNeedsSecurePage')}</AlertDescription>
+        <AlertDescription>
+          {t(passkeyUnavailableKey(webauthnUnavailableReason() ?? 'insecure', 'proofOnly'))}
+        </AlertDescription>
       </Alert>
     );
   }

@@ -338,6 +338,8 @@ export default tseslint.config(
       'coverage/',
       'scripts/',
       'docker/',
+      // Static browser files Vite copies as they are (no TypeScript project).
+      'packages/*/public/',
       '**/vite.config.*',
       '**/drizzle.config.ts',
       'commitlint.config.cjs',

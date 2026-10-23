@@ -99,10 +99,20 @@ export function normalizeAdyenItem(item: AdyenNotificationItem): NormalizedPayme
   const reason = nonEmpty(item.reason);
   const original = nonEmpty(item.originalReference);
   const amount = amountCents(item);
+  const currency =
+    typeof item.amount?.currency === 'string' && item.amount.currency !== ''
+      ? item.amount.currency.toUpperCase()
+      : null;
   const modification =
     original == null
       ? null
-      : { eventId, paymentId: original, operationRef: pspReference, occurredAt: at };
+      : {
+          eventId,
+          paymentId: original,
+          operationRef: pspReference,
+          occurredAt: at,
+          ...(currency != null ? { currency } : {}),
+        };
 
   switch (eventCode) {
     case 'AUTHORISATION': {

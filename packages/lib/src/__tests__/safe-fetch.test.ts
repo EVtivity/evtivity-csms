@@ -43,6 +43,8 @@ const {
   blockedDestinationOf,
   BlockedDestinationError,
 } = await import('../safe-fetch.js');
+const { readCappedBody, readBodyPrefix, ResponseTooLargeError } =
+  await import('../read-capped-body.js');
 
 function v4(address: string): LookupAddress {
   return { address, family: 4 };
@@ -147,6 +149,8 @@ describe('isNonPublicAddress', () => {
     ['::192.168.1.1', 'IPv4-compatible private'],
     ['::5', 'IPv4-compatible block'],
     ['64:ff9b::7f00:1', 'NAT64 loopback'],
+    ['64:ff9b:1:a9fe:a9:fe00:808:808', 'local-use NAT64 /48'],
+    ['64:ff9b:1::808:808', 'local-use NAT64 /48 with a public-looking tail'],
     ['2002:c0a8:101::1', '6to4 private'],
   ])('blocks IPv6 %s (%s)', (address) => {
     expect(isNonPublicAddress(address)).toBe(true);
@@ -178,6 +182,8 @@ describe('isUnroutableAddress', () => {
     'ff02::1',
     '::ffff:169.254.169.254',
     '::ffff:a9fe:a9fe',
+    '64:ff9b:1:a9fe:a9:fe00:808:808',
+    'fd00:ec2::254',
   ])('flags %s', (address) => {
     expect(isUnroutableAddress(address)).toBe(true);
   });
@@ -349,5 +355,85 @@ describe('safeFetch', () => {
 
   it('rejects non-http schemes', async () => {
     await expect(safeFetch('file:///etc/passwd')).rejects.toBeInstanceOf(BlockedDestinationError);
+  });
+});
+
+describe('readCappedBody', () => {
+  const CHUNK = 16 * 1024;
+  const TOTAL = 50 * 1024 * 1024;
+  let streamServer: http.Server;
+  let streamPort: number;
+  let written = 0;
+  let finished: Promise<void> = Promise.resolve();
+
+  beforeAll(async () => {
+    streamServer = http.createServer((req, res) => {
+      written = 0;
+      finished = new Promise<void>((resolve) => {
+        res.on('close', () => {
+          resolve();
+        });
+      });
+      const headers: Record<string, string> = { 'content-type': 'application/octet-stream' };
+      if (req.url === '/declared') headers['content-length'] = String(TOTAL);
+      res.writeHead(200, headers);
+      if (req.url === '/small') {
+        res.end(Buffer.alloc(100, 1));
+        return;
+      }
+      const chunk = Buffer.alloc(CHUNK, 7);
+      const pump = (): void => {
+        while (written < TOTAL && !res.destroyed) {
+          written += CHUNK;
+          if (!res.write(chunk)) {
+            res.once('drain', pump);
+            return;
+          }
+        }
+        if (!res.destroyed) res.end();
+      };
+      pump();
+    });
+    await new Promise<void>((resolve) => streamServer.listen(0, '127.0.0.1', resolve));
+    streamPort = (streamServer.address() as AddressInfo).port;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => streamServer.close(() => resolve()));
+  });
+
+  const fetchLocal = (path: string) => {
+    resolveTo('local.stream.test', [v4('127.0.0.1')]);
+    return safeFetch(`http://local.stream.test:${String(streamPort)}${path}`, {
+      allowedPrivateHosts: ['local.stream.test'],
+    });
+  };
+
+  it('stops reading a streamed body without Content-Length past the cap', async () => {
+    const res = await fetchLocal('/stream');
+    await expect(readCappedBody(res, 64 * 1024)).rejects.toBeInstanceOf(ResponseTooLargeError);
+    await finished;
+    // The server stops once the reader cancels, far below the 50 MiB it would
+    // send (the rest is socket buffers between the two ends).
+    expect(written).toBeLessThan(8 * 1024 * 1024);
+  });
+
+  it('refuses a declared Content-Length above the cap before reading', async () => {
+    const res = await fetchLocal('/declared');
+    await expect(readCappedBody(res, 64 * 1024)).rejects.toBeInstanceOf(ResponseTooLargeError);
+    await finished;
+    expect(written).toBeLessThan(8 * 1024 * 1024);
+  });
+
+  it('returns a body within the cap', async () => {
+    const res = await fetchLocal('/small');
+    expect((await readCappedBody(res, 64 * 1024)).length).toBe(100);
+  });
+
+  it('reads only a prefix for a log line', async () => {
+    const res = await fetchLocal('/stream');
+    expect((await readBodyPrefix(res, 2048)).length).toBe(2048);
+    await finished;
+    expect(written).toBeLessThan(8 * 1024 * 1024);
   });
 });

@@ -172,7 +172,7 @@ describe('API key routes', () => {
     proofCheck.checkFactorProof.mockResolvedValue(null);
   });
 
-  describe('fresh proof and notice (security review M4)', () => {
+  describe('fresh proof and notice', () => {
     const created = {
       id: 9,
       rawToken: 'b'.repeat(64),

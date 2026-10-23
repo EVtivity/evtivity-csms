@@ -28,6 +28,16 @@ vi.mock('@/lib/auth', () => ({
   useAuth: (selector: (s: { driver: null }) => unknown) => selector({ driver: null }),
 }));
 
+const { brandingSeen } = vi.hoisted(() => ({ brandingSeen: { count: 0 } }));
+vi.mock('@/components/AuthBranding', () => ({
+  AuthBranding: () => {
+    brandingSeen.count += 1;
+    return null;
+  },
+  AuthFooter: () => null,
+  useAuthBranding: () => ({ companyName: null, companyLogo: null, branding: undefined }),
+}));
+
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
@@ -69,6 +79,15 @@ describe('VerifyEmail', () => {
     postMock.mockRejectedValue(new TypeError('Failed to fetch'));
     renderPage();
     expect(await screen.findByText('auth.verifyEmailFailed')).toBeTruthy();
+  });
+
+  it('shows the emailed link in the sign-in layout with the company branding', async () => {
+    postMock.mockResolvedValue({ success: true });
+    brandingSeen.count = 0;
+    renderPage();
+    expect(screen.getByRole('heading', { level: 2, name: 'auth.verifyEmailTitle' })).toBeTruthy();
+    expect(brandingSeen.count).toBeGreaterThan(0);
+    await screen.findByText('auth.verifyEmailSuccess');
   });
 
   describe('check your email', () => {

@@ -19,6 +19,7 @@ const {
   calls,
   mockAuthorizeSessionHold,
   mockActivePaymentProvider,
+  mockActivePaymentState,
   mockStopSessionForPayment,
   mockDispatchDriverNotification,
   mockDispatchSystemNotification,
@@ -30,6 +31,7 @@ const {
   calls: [] as string[],
   mockAuthorizeSessionHold: vi.fn(),
   mockActivePaymentProvider: vi.fn(),
+  mockActivePaymentState: vi.fn(),
   mockStopSessionForPayment: vi.fn(),
   mockDispatchDriverNotification: vi.fn(),
   mockDispatchSystemNotification: vi.fn(),
@@ -55,6 +57,7 @@ vi.mock('@evtivity/payments', async (importOriginal) => ({
 
 vi.mock('../../lib/payments.js', () => ({
   activePaymentProvider: mockActivePaymentProvider,
+  activePaymentState: mockActivePaymentState,
 }));
 
 vi.mock('../../server/session-lifecycle/payment-stop.js', () => ({
@@ -155,8 +158,36 @@ describe('planPaymentGate', () => {
     ],
     [
       'guest authorized at checkout',
-      { guestStatus: 'payment_authorized', guestEmail: 'g@example.com' },
+      { guestStatus: 'payment_authorized', guestHasHold: true, guestEmail: 'g@example.com' },
       { kind: 'allow', why: 'guest_authorized' },
+    ],
+    [
+      'guest who checked out free, on a free tariff',
+      { guestStatus: 'payment_authorized', guestHasHold: false, sessionTariff: freeTariff },
+      { kind: 'allow', why: 'guest_authorized' },
+    ],
+    [
+      // The tariff turned paid between the free checkout and Started.
+      'guest who checked out free, on a priced tariff',
+      { guestStatus: 'payment_authorized', guestHasHold: false, guestEmail: 'g@example.com' },
+      {
+        kind: 'stop',
+        why: 'guest_not_authorized',
+        reason: 'GuestPaymentNotAuthorized',
+        notice: { kind: 'guestPreAuthFailed', email: 'g@example.com' },
+        unheld: true,
+      },
+    ],
+    [
+      'guest without the hold flag, on a priced tariff',
+      { guestStatus: 'payment_authorized' },
+      {
+        kind: 'stop',
+        why: 'guest_not_authorized',
+        reason: 'GuestPaymentNotAuthorized',
+        notice: null,
+        unheld: true,
+      },
     ],
     [
       'guest not authorized, with an email',
@@ -280,7 +311,7 @@ describe('planPaymentGate', () => {
     ).toEqual(expected);
   });
 
-  it('stops an account start whose reserved ceiling is 0 below the limit (plan S8)', () => {
+  it('stops an account start whose reserved ceiling is 0 below the limit', () => {
     expect(
       planPaymentGate({ ...input, driverId: 'drv-1' }, account, {
         fleetId: 'flt-1',
@@ -359,8 +390,16 @@ describe('decideAfterHold', () => {
       },
     ],
     [
+      // The hold runs only while a provider is
+      // active, so a card saved with a provider that is gone stops the
+      // session and asks for a card.
       { outcome: 'not_configured', providerId: 'adyen' },
-      { kind: 'allow', why: 'provider_not_configured', providerId: 'adyen' },
+      {
+        kind: 'stop',
+        why: 'no_payment_method',
+        reason: 'MissingPaymentMethod',
+        notice: { kind: 'missingPaymentMethod', driverId: 'drv-1' },
+      },
     ],
     [
       { outcome: 'no_method' },
@@ -488,6 +527,7 @@ describe('runPaymentGate', () => {
     'skips the hold with a warning when no payment provider is active, for %s',
     async (_name, overrides) => {
       mockActivePaymentProvider.mockResolvedValue(null);
+      mockActivePaymentState.mockResolvedValue({ kind: 'off' });
 
       const decision = await runPaymentGate(deps, { ...input, ...overrides });
 
@@ -503,6 +543,28 @@ describe('runPaymentGate', () => {
       expect(logger.error).not.toHaveBeenCalled();
     },
   );
+
+  it('stops the session unbilled when the selected provider is not usable in this process', async () => {
+    mockActivePaymentProvider.mockResolvedValue(null);
+    mockActivePaymentState.mockResolvedValue({ kind: 'unavailable', providerId: 'stripe' });
+
+    const decision = await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+
+    expect(decision).toEqual({
+      kind: 'stop',
+      why: 'provider_unavailable',
+      reason: 'PaymentFailed',
+      providerId: 'stripe',
+      notice: null,
+    });
+    expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+    expect(mockStopSessionForPayment).toHaveBeenCalledTimes(1);
+    expect(mockStopSessionForPayment.mock.calls[0]?.[2]).toBe('PaymentFailed');
+    expect(logger.error).toHaveBeenCalledWith(
+      { sessionId: 'sess-1', providerId: 'stripe' },
+      'Selected payment provider is not usable in this process, stopping session unbilled',
+    );
+  });
 
   it('logs at warn, stops, then tracks the notice, then publishes, for a declined hold', async () => {
     mockAuthorizeSessionHold.mockResolvedValue({
@@ -619,7 +681,7 @@ describe('runPaymentGate', () => {
 
   it.each<[string, Partial<PaymentGateInput>, PaymentGateDecision['kind']]>([
     ['a guest without an authorized payment', { guestStatus: 'pending_payment' }, 'stop'],
-    ['an authorized guest', { guestStatus: 'payment_authorized' }, 'allow'],
+    ['an authorized guest', { guestStatus: 'payment_authorized', guestHasHold: true }, 'allow'],
     ['an anonymous session', {}, 'stop'],
     ['a roaming session', { isRoaming: true, driverId: 'drv-1' }, 'allow'],
     ['a funded prepaid token', { driverId: 'drv-1', prepaidBalanceCents: 500 }, 'allow'],
@@ -822,7 +884,7 @@ describe('runPaymentGate', () => {
   it.each<[string, Partial<PaymentGateInput>]>([
     ['a prepaid token', { driverId: 'drv-1', prepaidBalanceCents: 500 }],
     ['a roaming session', { driverId: 'drv-1', isRoaming: true }],
-    ['a session without a driver', { guestStatus: 'payment_authorized' }],
+    ['a session without a driver', { guestStatus: 'payment_authorized', guestHasHold: true }],
   ])('writes no billing stamp for %s', async (_name, overrides) => {
     await runPaymentGate(deps, { ...input, ...overrides });
     expect(mockStampSessionBilling).not.toHaveBeenCalled();

@@ -486,7 +486,7 @@ describe('POST /fleets/:id/member-invoices/batch', () => {
     expect(body.memberCount).toBe(2);
     expect(body.batchId).toMatch(/^[a-f0-9-]{36}$/);
     expect(listMemberInvoiceDrivers).toHaveBeenCalledWith(FLEET_ID, '2026-09');
-    // Nothing is written in the request (P4): the worker issues the invoices.
+    // Nothing is written in the request: the worker issues the invoices.
     expect(enqueueMemberInvoiceBatch).toHaveBeenCalledWith(memberQueue, {
       fleetId: FLEET_ID,
       period: '2026-09',

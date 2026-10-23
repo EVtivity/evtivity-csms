@@ -51,6 +51,22 @@ function makeChain() {
   return chain;
 }
 
+// The fresh proof itself is covered in session-proof.test.ts and 129-auth-attacks.
+// The device cookie path is covered in 129-auth-attacks; here a browser without one.
+vi.mock('../lib/device-cookie.js', () => ({
+  knownSignInDevice: vi.fn(() => Promise.resolve(null)),
+  takeDeviceAttempt: vi.fn(() =>
+    Promise.resolve({ granted: true, failures: 1, lockedUntil: null }),
+  ),
+  recordDeviceFailure: vi.fn(() => Promise.resolve()),
+  clearDeviceFailures: vi.fn(() => Promise.resolve()),
+  rememberSignInDevice: vi.fn(() => Promise.resolve()),
+  revokeSignInDevices: vi.fn(() => Promise.resolve()),
+}));
+vi.mock('../lib/session-proof.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/session-proof.js')>()),
+  requireSessionProof: vi.fn(async () => true),
+}));
 vi.mock('../services/mfa-factor.service.js', () => {
   const countRecoveryCodes = vi.fn(async (_account: unknown) => 0);
   return {
@@ -809,12 +825,23 @@ describe('User routes', () => {
     expect(body.code).toBe('USER_NOT_FOUND');
   });
 
-  it('POST /v1/users/:id/reset-password resets password', async () => {
-    // The target's permissions (within the actor's), then the update.
-    setupDbResults([{ permission: 'stations:read' }], [{ id: VALID_USER_ID }]);
+  it('POST /v1/users/:id/reset-password refuses the own account', async () => {
     const response = await app.inject({
       method: 'POST',
       url: `/users/${VALID_USER_ID}/reset-password`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { password: 'NewPassword1' },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.body).code).toBe('SELF_EDIT_FORBIDDEN');
+  });
+
+  it('POST /v1/users/:id/reset-password resets password', async () => {
+    // The target's permissions (within the actor's), then the update.
+    setupDbResults([{ permission: 'stations:read' }], [{ id: 'usr_000000000077' }]);
+    const response = await app.inject({
+      method: 'POST',
+      url: `/users/usr_000000000077/reset-password`,
       headers: { authorization: `Bearer ${token}` },
       payload: { password: 'NewPassword1' },
     });
@@ -827,7 +854,7 @@ describe('User routes', () => {
     setupDbResults([]);
     const response = await app.inject({
       method: 'POST',
-      url: `/users/${VALID_USER_ID}/reset-password`,
+      url: `/users/usr_000000000077/reset-password`,
       headers: { authorization: `Bearer ${token}` },
       payload: { password: 'NewPassword1' },
     });

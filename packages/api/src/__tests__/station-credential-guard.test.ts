@@ -36,6 +36,8 @@ import { AppError } from '@evtivity/lib';
 import { registerAuth } from '../plugins/auth.js';
 import { ocppCommandRoutes } from '../routes/ocpp-commands.js';
 import {
+  DataPlanSettingInTemplateError,
+  assertNoBootOwnedVariables,
   assertNoCredentialVariables,
   assertNoStationCredentialWrite,
 } from '../lib/station-credential-guard.js';
@@ -180,6 +182,47 @@ describe('station credential guard', () => {
     ]) {
       expect(refusal(() => assertNoCredentialVariables([v]))).toBeNull();
     }
+  });
+
+  it('refuses the boot-owned template variables of each version and names them', () => {
+    const refused = (version: string, vars: { component: string; variable: string }[]) => {
+      try {
+        assertNoBootOwnedVariables(version, vars);
+        return null;
+      } catch (err) {
+        expect(err).toBeInstanceOf(DataPlanSettingInTemplateError);
+        const e = err as DataPlanSettingInTemplateError;
+        expect(e.statusCode).toBe(400);
+        expect(e.code).toBe('DATA_PLAN_SETTING_IN_TEMPLATE');
+        return e.variables;
+      }
+    };
+    expect(
+      refused('1.6', [
+        { component: '', variable: ' HeartbeatInterval ' },
+        { component: '', variable: 'StopTxnSampledData' },
+        { component: '', variable: 'LocalPreAuthorize' },
+      ]),
+    ).toEqual(['HeartbeatInterval', 'StopTxnSampledData']);
+    expect(
+      refused('2.1', [
+        { component: 'AlignedDataCtrlr', variable: 'Interval' },
+        { component: 'SampledDataCtrlr', variable: 'TxUpdatedMeasurands' },
+        { component: 'SampledDataCtrlr', variable: 'TxStartedMeasurands' },
+      ]),
+    ).toEqual(['AlignedDataCtrlr.Interval', 'SampledDataCtrlr.TxUpdatedMeasurands']);
+    // The component compares as stored (case kept); the instance does not matter.
+    expect(refused('2.1', [{ component: 'alignedDataCtrlr', variable: 'Interval' }])).toBeNull();
+    expect(
+      refused('2.1', [
+        { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', variableInstance: 'X' } as {
+          component: string;
+          variable: string;
+        },
+      ]),
+    ).toEqual(['OCPPCommCtrlr.HeartbeatInterval']);
+    // A 1.6 key in a 2.1 template is not the 2.1 variable.
+    expect(refused('2.1', [{ component: '', variable: 'HeartbeatInterval' }])).toBeNull();
   });
 
   it('the assistant and MCP never offer the generic configuration write commands', () => {

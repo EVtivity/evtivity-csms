@@ -43,7 +43,10 @@ vi.mock('@evtivity/database', () => ({
   ocpiExternalTokens: { uid: 'uid', isValid: 'isValid' },
   guestSessions: { sessionToken: 'sessionToken', status: 'status' },
   sites: { freeVendEnabled: 'freeVendEnabled' },
-  getHeartbeatIntervalSeconds: () => mockGetHeartbeatInterval(),
+  getDataPlanValues: async () => ({
+    heartbeatInterval: (await mockGetHeartbeatInterval()) as number,
+  }),
+  readStationDataPlans: () => Promise.resolve(new Map()),
   isRoamingEnabled: () => mockIsRoamingEnabled(),
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
 }));
@@ -76,6 +79,9 @@ function makeCtx(
       ocppProtocol: 'ocpp1.6',
       bootStatus: null,
       readyAnnounced: false,
+      dataPlan: 'wifi_or_wired',
+      lastInboundAt: new Date(),
+      answeredPing: false,
     },
     messageId: 'msg-1',
     action,

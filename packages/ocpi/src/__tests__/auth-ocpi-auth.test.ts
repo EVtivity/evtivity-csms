@@ -5,6 +5,12 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vites
 import Fastify, { type FastifyInstance } from 'fastify';
 import * as argon2 from 'argon2';
 
+vi.mock('argon2', async (importActual) => {
+  const actual = await importActual<typeof import('argon2')>();
+  return { ...actual, verify: vi.fn(actual.verify) };
+});
+const verifySpy = vi.mocked(argon2.verify);
+
 // Each awaited query chain resolves to the next queued result.
 let dbResults: unknown[][] = [];
 let selectCount = 0;
@@ -35,6 +41,8 @@ const {
   OCPI_AUTH_FAILURE_LIMIT,
 } = await import('../middleware/ocpi-auth.js');
 
+// A module route the approved EMSP role of PARTNER_ROW may call.
+const FULL = '/ocpi/2.2.1/cpo/sessions';
 const TOKEN = 'abcdef0123456789-partner-token';
 const OTHER = 'abcdef01-different-token-same-prefix';
 let tokenHash = '';
@@ -46,10 +54,14 @@ beforeAll(async () => {
   tokenHash = await argon2.hash(TOKEN);
   otherHash = await argon2.hash(OTHER);
   app = Fastify();
-  app.get('/full', { onRequest: [ocpiAuthenticate] }, (request) => ({
+  app.get(FULL, { onRequest: [ocpiAuthenticate] }, (request) => ({
     partner: request.ocpiPartner,
     token: request.ocpiToken,
   }));
+  // Module routes an EMSP may not call, and a path of no module.
+  for (const path of ['/ocpi/2.2.1/emsp/sessions', '/ocpi/2.2.1/hubclientinfo', '/ocpi/2.2.1/x']) {
+    app.get(path, { onRequest: [ocpiAuthenticate] }, () => ({ reached: true }));
+  }
   app.get('/reg', { onRequest: [ocpiAuthenticateRegistration] }, (request) => ({
     partner: request.ocpiPartner,
     token: request.ocpiToken,
@@ -76,7 +88,8 @@ const PARTNER_ROW = {
   countryCode: 'NL',
   partyId: 'ABC',
   status: 'connected',
-  roles: [{ role: 'EMSP', country_code: 'NL', party_id: 'ABC' }],
+  // The operator-approved roles; the roles the partner declared are not read.
+  approvedRoles: ['EMSP'],
   allowPrivateNetwork: true,
   allowRawToken: false,
 };
@@ -85,11 +98,11 @@ function tokenRow(
   kind: 'registration' | 'credentials',
   partnerId: string | null = 'opr_000000000001',
 ): Record<string, unknown> {
-  return { tokenId: 8, tokenHash, partnerId, kind };
+  return { tokenId: 8, tokenHash, partnerId, kind, createdAt: new Date() };
 }
 
 describe.each([
-  ['ocpiAuthenticate', '/full'],
+  ['ocpiAuthenticate', FULL],
   ['ocpiAuthenticateRegistration', '/reg'],
 ])('%s header handling', (_name, path) => {
   it('rejects a missing Authorization header with 401 and status 2000', async () => {
@@ -173,14 +186,14 @@ describe.each([
 describe('registration tokens (OCPI 2.3.0 4.1)', () => {
   it('ocpiAuthenticate rejects a registration token on a module', async () => {
     dbResults = [[tokenRow('registration')], [{ ...PARTNER_ROW, status: 'pending' }]];
-    const res = await app.inject({ method: 'GET', url: '/full', headers: auth(TOKEN) });
+    const res = await app.inject({ method: 'GET', url: FULL, headers: auth(TOKEN) });
     expect(res.statusCode).toBe(401);
     expect(res.json<{ status_message: string }>().status_message).toBe('Invalid token');
   });
 
   it('ocpiAuthenticate rejects a registration token even for a connected partner', async () => {
     dbResults = [[tokenRow('registration')], [PARTNER_ROW]];
-    const res = await app.inject({ method: 'GET', url: '/full', headers: auth(TOKEN) });
+    const res = await app.inject({ method: 'GET', url: FULL, headers: auth(TOKEN) });
     expect(res.statusCode).toBe(401);
   });
 
@@ -194,12 +207,39 @@ describe('registration tokens (OCPI 2.3.0 4.1)', () => {
   });
 });
 
+describe('token timing and lifetime', () => {
+  it('runs one dummy argon2 verify when no token has the prefix', async () => {
+    verifySpy.mockClear();
+    dbResults = [[]];
+    const res = await app.inject({ method: 'GET', url: FULL, headers: auth(TOKEN) });
+    expect(res.statusCode).toBe(401);
+    // One dummy verify per lookup (the Base64 form, then the raw form).
+    expect(verifySpy).toHaveBeenCalledTimes(selectCount);
+    expect(selectCount).toBeGreaterThan(0);
+  });
+
+  it('refuses a registration token older than 30 days', async () => {
+    const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+    // The Base64 lookup finds the expired token; the raw lookup finds none.
+    dbResults = [[{ ...tokenRow('registration'), createdAt: old }], []];
+    const res = await app.inject({ method: 'GET', url: '/reg', headers: auth(TOKEN) });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('keeps a credentials token valid whatever its age', async () => {
+    const old = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
+    dbResults = [[{ ...tokenRow('credentials'), createdAt: old }], [PARTNER_ROW]];
+    const res = await app.inject({ method: 'GET', url: FULL, headers: auth(TOKEN) });
+    expect(res.statusCode).toBe(200);
+  });
+});
+
 describe('partner status', () => {
   it.each(['pending', 'suspended', 'disconnected'])(
     'ocpiAuthenticate rejects a %s partner',
     async (status) => {
       dbResults = [[tokenRow('credentials')], [{ ...PARTNER_ROW, status }]];
-      const res = await app.inject({ method: 'GET', url: '/full', headers: auth(TOKEN) });
+      const res = await app.inject({ method: 'GET', url: FULL, headers: auth(TOKEN) });
       expect(res.statusCode).toBe(401);
     },
   );
@@ -226,7 +266,7 @@ describe('tokens without Base64 encoding (OCPI 2.1.1 and 2.2 peers)', () => {
     ];
     const res = await app.inject({
       method: 'GET',
-      url: '/full',
+      url: FULL,
       headers: { authorization: `Token ${RAW}` },
     });
     expect(res.statusCode).toBe(200);
@@ -240,7 +280,7 @@ describe('tokens without Base64 encoding (OCPI 2.1.1 and 2.2 peers)', () => {
     ];
     const res = await app.inject({
       method: 'GET',
-      url: '/full',
+      url: FULL,
       headers: { authorization: `Token ${RAW}` },
     });
     expect(res.statusCode).toBe(401);
@@ -250,11 +290,31 @@ describe('tokens without Base64 encoding (OCPI 2.1.1 and 2.2 peers)', () => {
 describe('failed authentication limit', () => {
   it('answers 429 once an IP reached the failure limit, before any lookup', async () => {
     for (let i = 0; i < OCPI_AUTH_FAILURE_LIMIT; i++) {
-      const res = await app.inject({ method: 'GET', url: '/full' });
+      const res = await app.inject({ method: 'GET', url: FULL });
       expect(res.statusCode).toBe(401);
     }
-    const blocked = await app.inject({ method: 'GET', url: '/full', headers: auth(TOKEN) });
+    const blocked = await app.inject({ method: 'GET', url: FULL, headers: auth(TOKEN) });
     expect(blocked.statusCode).toBe(429);
     expect(selectCount).toBe(0);
+  });
+});
+
+// An approved role must serve the
+// module interface, so an unapproved partner reaches no module route.
+describe('module role gate', () => {
+  it.each(['/ocpi/2.2.1/emsp/sessions', '/ocpi/2.2.1/hubclientinfo', '/ocpi/2.2.1/x'])(
+    'refuses an EMSP partner on %s with 403',
+    async (path) => {
+      dbResults = [[tokenRow('credentials')], [PARTNER_ROW]];
+      const res = await app.inject({ method: 'GET', url: path, headers: auth(TOKEN) });
+      expect(res.statusCode).toBe(403);
+      expect(res.json()).not.toHaveProperty('reached');
+    },
+  );
+
+  it('refuses a connected partner without an approved role', async () => {
+    dbResults = [[tokenRow('credentials')], [{ ...PARTNER_ROW, approvedRoles: [] }]];
+    const res = await app.inject({ method: 'GET', url: FULL, headers: auth(TOKEN) });
+    expect(res.statusCode).toBe(403);
   });
 });

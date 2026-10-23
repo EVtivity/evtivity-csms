@@ -302,7 +302,12 @@ describe('handleRegistration', () => {
     expect(issued).toMatchObject({ kind: 'credentials', partnerId: 'opr_000000000042' });
     await expect(argon2.verify(issued?.['tokenHash'] as string, result.token)).resolves.toBe(true);
 
-    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+    // The handshake, then the declared roles held for the operator (deny by default).
+    expect(mockWriteAudit).toHaveBeenCalledTimes(2);
+    expect(mockWriteAudit.mock.calls[1]?.[1]).toMatchObject({
+      action: 'updated',
+      after: { approvedRoles: [], heldRoles: ['EMSP'] },
+    });
     const [config, args] = mockWriteAudit.mock.calls[0] as [unknown, Record<string, unknown>];
     expect(config).toEqual({ table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' });
     expect(args).toMatchObject({
@@ -328,6 +333,19 @@ describe('handleRegistration', () => {
     expect(clientGet).toHaveBeenLastCalledWith('https://partner.example.com/ocpi/2.2.1');
     expect(clientOptions[0]).toMatchObject({ allowPrivateNetwork: true, rawToken: true });
     expect(opsOn(ocpiPartnerEndpoints, 'insert')).toHaveLength(0);
+  });
+
+  it('answers 405 for a suspended partner, before and under the lock', async () => {
+    partnerOffers(BOTH);
+    dbResults = [[{ ...PENDING_PARTNER, status: 'suspended' }]];
+    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, AUTH)).rejects.toMatchObject({
+      httpStatus: 405,
+    });
+    dbResults = [[PENDING_PARTNER], [{ id: 9 }], [{ status: 'suspended' }]];
+    await expect(svc.handleRegistration(PARTNER_CREDENTIALS, AUTH)).rejects.toMatchObject({
+      httpStatus: 405,
+    });
+    expect(opsOn(ocpiPartners, 'update')).toHaveLength(0);
   });
 
   it('answers 405 when the partner got connected while the request ran', async () => {
@@ -357,6 +375,13 @@ describe('handleRegistration', () => {
 });
 
 describe('handleCredentialUpdate', () => {
+  // The partner row the update locks: approved roles decided, or not yet.
+  const LOCKED_DECIDED = {
+    status: 'connected',
+    approvedRoles: ['EMSP'],
+    rolesApprovedAt: new Date(),
+  };
+  const LOCKED_UNDECIDED = { status: 'pending', approvedRoles: [], rolesApprovedAt: null };
   const CONNECTED = { ...PENDING_PARTNER, status: 'connected', name: 'Old NL', version: '2.1.1' };
 
   it('refuses roles of another party', async () => {
@@ -373,7 +398,7 @@ describe('handleCredentialUpdate', () => {
 
   it('refreshes the partner, endpoints and both tokens, keeping its status', async () => {
     partnerOffers(BOTH);
-    dbResults = [[{ ...CONNECTED, allowPrivateNetwork: true }]];
+    dbResults = [[{ ...CONNECTED, allowPrivateNetwork: true }], [LOCKED_DECIDED]];
     const result = await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042');
     expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
       entityId: 'opr_000000000042',
@@ -393,7 +418,7 @@ describe('handleCredentialUpdate', () => {
 
   it('completes the handshake of a pending partner (connected, token C cleared)', async () => {
     partnerOffers(BOTH, []);
-    dbResults = [[PENDING_PARTNER]];
+    dbResults = [[PENDING_PARTNER], [LOCKED_UNDECIDED]];
     await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042', '2.3.0');
     const [partnerUpdate] = opsOn(ocpiPartners, 'update');
     expect(partnerUpdate?.set).toMatchObject({
@@ -405,10 +430,22 @@ describe('handleCredentialUpdate', () => {
 
   it('keeps a suspended partner suspended', async () => {
     partnerOffers(BOTH, []);
-    dbResults = [[{ ...CONNECTED, status: 'suspended' }]];
+    dbResults = [[{ ...CONNECTED, status: 'suspended' }], [LOCKED_DECIDED]];
     await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042');
     const [partnerUpdate] = opsOn(ocpiPartners, 'update');
     expect(partnerUpdate?.set?.['status']).toBeUndefined();
+  });
+
+  it('decides on the locked row: a suspension after the first read stays', async () => {
+    partnerOffers(BOTH, []);
+    dbResults = [[PENDING_PARTNER], [{ ...LOCKED_UNDECIDED, status: 'suspended' }]];
+    await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042');
+    const [partnerUpdate] = opsOn(ocpiPartners, 'update');
+    expect(partnerUpdate?.set?.['status']).toBeUndefined();
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      action: 'updated',
+      after: { status: 'suspended' },
+    });
   });
 
   it('answers 405 when the partner row is missing', async () => {
@@ -574,5 +611,46 @@ describe('initiateRegistration', () => {
     await svc.initiateRegistration('opr_000000000001');
     expect(opsOn(ocpiPartnerEndpoints, 'delete')).toHaveLength(1);
     expect(opsOn(ocpiPartnerEndpoints, 'insert')).toHaveLength(0);
+  });
+});
+
+describe('approved roles of a credentials update', () => {
+  it('never adopts the declared roles of a new partner (deny by default)', async () => {
+    partnerOffers(BOTH, []);
+    dbResults = [
+      [PENDING_PARTNER],
+      [{ status: 'pending', approvedRoles: [], rolesApprovedAt: null }],
+    ];
+    await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042');
+    const updates = opsOn(ocpiPartners, 'update');
+    expect(
+      updates.some(
+        (u) => u.set != null && ('approvedRoles' in u.set || 'rolesApprovedAt' in u.set),
+      ),
+    ).toBe(false);
+    // The declared roles are stored as declared, for the operator to approve.
+    expect(updates[0]?.set?.['roles']).toEqual(PARTNER_CREDENTIALS.roles);
+  });
+
+  it('never adopts for a connected partner without the marker (outbound registration)', async () => {
+    partnerOffers(BOTH, []);
+    dbResults = [
+      [{ ...PENDING_PARTNER, status: 'connected' }],
+      [{ status: 'connected', approvedRoles: [], rolesApprovedAt: null }],
+    ];
+    await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042');
+    const updates = opsOn(ocpiPartners, 'update');
+    expect(updates.some((u) => u.set != null && 'approvedRoles' in u.set)).toBe(false);
+  });
+
+  it('never writes the approved roles once they are decided', async () => {
+    partnerOffers(BOTH, []);
+    dbResults = [
+      [PENDING_PARTNER],
+      [{ status: 'pending', approvedRoles: [], rolesApprovedAt: new Date() }],
+    ];
+    await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000042');
+    const updates = opsOn(ocpiPartners, 'update');
+    expect(updates.some((u) => u.set != null && 'approvedRoles' in u.set)).toBe(false);
   });
 });

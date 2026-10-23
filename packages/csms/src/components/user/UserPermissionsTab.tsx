@@ -10,6 +10,14 @@ import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { PermissionEditor } from '@/components/PermissionEditor';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
+import {
+  FactorProofField,
+  proofRejection,
+  type FactorProof,
+  type ProofRejection,
+} from '@/components/FactorProofField';
+import { useMfaStatus } from '@/components/profile/mfa-status';
 
 export interface UserPermissionsTabProps {
   userId: string;
@@ -26,15 +34,28 @@ export function UserPermissionsTab({
 
   const [editingPermissions, setEditingPermissions] = useState(false);
   const [editPermissions, setEditPermissions] = useState<string[]>([]);
+  // Granting a permission takes a fresh proof of the signed-in account; removing does not.
+  const { data: mfaStatus } = useMfaStatus();
+  const proofKinds = mfaStatus?.factorProofKinds ?? [];
+  const [proof, setProof] = useState<FactorProof | null>(null);
+  const [proofFailure, setProofFailure] = useState<ProofRejection | null>(null);
+  const [proofAsked, setProofAsked] = useState(false);
+  const [proofRound, setProofRound] = useState(0);
 
   const { data: userPermissions = [] } = useQuery({
     queryKey: ['users', userId, 'permissions'],
     queryFn: () => api.get<string[]>(`/v1/users/${userId}/permissions`),
   });
 
+  const grants = editingPermissions && editPermissions.some((p) => !userPermissions.includes(p));
+  const needsProof = grants && proofKinds.length > 0;
+
   const permissionsMutation = useMutation({
-    mutationFn: (perms: string[]) =>
-      api.put<string[]>(`/v1/users/${userId}/permissions`, { permissions: perms }),
+    mutationFn: (body: { permissions: string[]; proof?: FactorProof }) =>
+      api.put<string[]>(`/v1/users/${userId}/permissions`, body),
+    onError: (err: unknown) => {
+      setProofFailure(proofRejection(err));
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['users', userId, 'permissions'] });
       setEditingPermissions(false);
@@ -44,6 +65,21 @@ export function UserPermissionsTab({
   function startEditPermissions(): void {
     setEditPermissions([...userPermissions]);
     setEditingPermissions(true);
+    setProof(null);
+    setProofFailure(null);
+    setProofAsked(false);
+    setProofRound((n) => n + 1);
+  }
+
+  function save(): void {
+    if (needsProof && proof == null) {
+      setProofAsked(true);
+      return;
+    }
+    permissionsMutation.mutate({
+      permissions: editPermissions,
+      ...(needsProof && proof != null ? { proof } : {}),
+    });
   }
 
   return (
@@ -65,6 +101,23 @@ export function UserPermissionsTab({
               onChange={setEditPermissions}
               disabled={!editingPermissions}
             />
+            {needsProof && (
+              <FactorProofField
+                key={`permissions-${String(proofRound)}`}
+                idPrefix="user-permissions-proof"
+                kinds={proofKinds}
+                codeMethod={mfaStatus?.mfaMethod ?? null}
+                description={t('users.grantProofHint')}
+                onChange={setProof}
+                rejection={proofFailure}
+                showMissing={proofAsked}
+              />
+            )}
+            {permissionsMutation.isError && (
+              <p className="text-sm text-destructive" role="alert">
+                {getErrorMessage(permissionsMutation.error, t)}
+              </p>
+            )}
             {editingPermissions && (
               <div className="flex justify-end gap-2">
                 <CancelButton
@@ -72,12 +125,7 @@ export function UserPermissionsTab({
                     setEditingPermissions(false);
                   }}
                 />
-                <SaveButton
-                  isPending={permissionsMutation.isPending}
-                  onClick={() => {
-                    permissionsMutation.mutate(editPermissions);
-                  }}
-                />
+                <SaveButton isPending={permissionsMutation.isPending} onClick={save} />
               </div>
             )}
           </div>

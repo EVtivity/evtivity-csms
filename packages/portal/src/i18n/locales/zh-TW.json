@@ -108,6 +108,7 @@
     "recoveryCodeSubtitle": "輸入您的一組復原碼",
     "recoveryCodeLabel": "復原碼",
     "recoveryCodeInvalid": "復原碼無效或已使用，請重試。",
+    "recoveryCodeIncomplete": "輸入完整的10位復原碼",
     "mfaMethodSwitchedOff": "管理員已關閉{{method}}驗證。請使用復原碼登入。",
     "recoveryCodesLeft_one": "剩餘 {{count}} 組復原碼",
     "recoveryCodesLeft_other": "剩餘 {{count}} 組復原碼",
@@ -228,7 +229,6 @@
     "changePassword": "修改密碼",
     "currentPassword": "目前密碼",
     "newPassword": "新密碼",
-    "changingPassword": "修改中...",
     "passwordChanged": "密碼已修改。",
     "passwordChangeFailed": "修改密碼失敗。",
     "signOut": "登出",
@@ -245,7 +245,6 @@
     "mfaMethodTotp": "驗證器應用程式",
     "mfaMethodSms": "簡訊",
     "mfaSetUp": "設定",
-    "mfaSettingUp": "設定中...",
     "mfaDisable": "停用 MFA",
     "mfaDisableConfirm": "請使用您已有的驗證因素或復原碼確認身分。停用 MFA 也會刪除您的密碼金鑰和復原碼。",
     "mfaNotAvailable": "目前沒有可用的 MFA 方式。請聯絡管理員。",
@@ -253,7 +252,6 @@
     "mfaManualEntry": "手動輸入金鑰",
     "mfaEnterCode": "輸入6位驗證碼",
     "mfaVerify": "驗證",
-    "mfaVerifying": "驗證中...",
     "mfaSetupFailed": "啟動 MFA 設定失敗。",
     "mfaVerifyFailed": "驗證碼無效。",
     "mfaDisableFailed": "停用 MFA 失敗。",
@@ -296,7 +294,8 @@
     "phoneCode": "傳送到新號碼的驗證碼",
     "phoneCodeSent": "我們已傳送驗證碼到 {{phone}}。",
     "phoneCodeRequired": "請先傳送驗證碼到新號碼並輸入。",
-    "phoneCodeSendFailed": "無法傳送驗證碼。請再試一次。"
+    "phoneCodeSendFailed": "無法傳送驗證碼。請再試一次。",
+    "mfaLoadError": "無法載入您的雙重驗證設定。"
   },
   "charger": {
     "loadingInfo": "載入充電站資訊...",
@@ -637,6 +636,7 @@
     "API_KEY_RATE_LIMITED": "已超過 API 金鑰的速率限制",
     "ATTACHMENT_NOT_FOUND": "找不到附件",
     "AUDIT_ENTITY_TYPE_INVALID": "未知的稽核實體類型",
+    "AUTOCHARGE_CLAIM_REQUIRED": "Autocharge 僅適用於充電站在您的某次工作階段中傳送的車輛識別碼。請先使用工作階段中的車輛識別碼。",
     "CAMPAIGN_NOT_ACTIVE": "只能取消進行中的行銷活動",
     "CAMPAIGN_NOT_FOUND": "找不到行銷活動",
     "CASE_NOT_FOUND": "找不到案件",
@@ -721,6 +721,7 @@
     "INVALID_SITE_IDS": "一個或多個 siteId 不存在",
     "INVALID_TOKEN": "重設連結無效或已過期",
     "INVOICE_ALREADY_PAID": "該發票已付款",
+    "PREPAID_BALANCE_CONFLICT": "自您開啟表單以來，預付餘額已變更，例如在一次工作階段之後。請重新載入權杖並再次輸入餘額。",
     "RESERVATION_FEE_ALREADY_INVOICED": "該預約費用已開立發票",
     "SESSION_ALREADY_INVOICED": "該工作階段已開立發票",
     "INVOICE_CREATION_FAILED": "建立發票失敗",
@@ -862,6 +863,7 @@
     "START_REJECTED": "充電站拒絕啟動請求：...",
     "STATION_ALREADY_IN_FLEET": "充電站已在此車隊中",
     "STATION_HAS_ACTIVE_SESSION": "該充電站有進行中的充電工作階段。請先停止工作階段，再刪除充電站。",
+    "STATION_HAS_SIM": "此充電站已關聯 SIM。請先取消關聯",
     "STATION_ID_EXISTS": "已存在相同 ID 的充電站",
     "STATION_NOT_FOUND": "找不到充電站",
     "STATION_OFFLINE": "充電站已離線",
@@ -871,6 +873,7 @@
     "STATION_UNAVAILABLE": "此充電站目前無法使用。請嘗試其他充電站。",
     "STORAGE_CONNECTION_FAILED": "儲存連線測試失敗",
     "STORAGE_NOT_CONFIGURED": "尚未設定附件儲存",
+    "STREAM_LIMIT_REACHED": "此裝置開啟的充電站即時更新過多。請關閉其他分頁後再試一次。",
     "SUPPORT_AI_NOT_CONFIGURED": "尚未設定客服 AI",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "此客服案件未在等待對自動回覆的意見回饋",
     "SUPPORT_CASE_NOT_FOUND": "找不到客服案件",
@@ -941,6 +944,7 @@
     "CHARGING_PROFILE_ID_RESERVED": "充電設定檔 ID 必須大於充電站的 MaxExternalConstraintsId。",
     "CHARGING_PROFILE_LOAD_MANAGED": "負載管理設定此充電站的限值。請使用堆疊層級為 0 且 ID 不同於負載管理設定檔 ID 的 ChargingStationMaxProfile。",
     "STATION_SECURITY_ROUTE_REQUIRED": "充電站安全設定檔與網路設定檔須透過 PATCH /v1/stations/:id 變更，不能使用設定範本",
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "心跳與電表值設定來自 設定 > 整合與功能 > OCPP 和充電站的數據方案，不能來自設定範本",
     "TOKEN_BLOCKED_BY_OPERATOR": "此卡已被營運商停用。請聯絡營運商重新啟用。",
     "SESSION_NO_VEHICLE_ID": "充電站未為此工作階段傳送車輛識別碼。",
     "VEHICLE_BLOCKED_BY_OPERATOR": "營運商已封鎖此車輛的 Autocharge。請聯絡營運商解除封鎖。",
@@ -965,17 +969,21 @@
     "WEBAUTHN_CHALLENGE_EXPIRED": "密碼金鑰請求已過期或已被使用。請重試。",
     "WEBAUTHN_VERIFICATION_FAILED": "無法驗證密碼金鑰或安全金鑰。",
     "SIM_ACTION_UNSUPPORTED": "SIM 供應商不支援對此 SIM 執行此操作",
-    "SIM_CONFIRMED_ELSEWHERE": "另一個充電站已確認配對此 SIM",
+    "SIM_ATTACHED": "請先取消 SIM 與其充電站的關聯，再刪除",
+    "SIM_ATTACHED_ELSEWHERE": "此 SIM 已關聯到另一個充電站",
+    "SIM_ATTACHMENT_CHANGED": "SIM 關聯在顯示後已變更。請檢查 SIM 後重新確認",
+    "SIM_ATTACHMENT_NOT_CONFIRMED": "請先確認 SIM，再重設其網路",
     "SIM_FEATURE_DISABLED": "SIM 供應商與充電站訊號讀取已關閉",
-    "SIM_MATCHED_ELSEWHERE": "此 SIM 已配對到另一個充電站",
-    "SIM_MATCH_CHANGED": "SIM 配對在顯示後已變更。請檢查 SIM 後重新確認",
-    "SIM_MATCH_NOT_CONFIRMED": "請先確認 SIM，再重設其網路",
-    "SIM_NOT_FOUND": "此充電站未配對 SIM",
+    "SIM_INACTIVE": "此 SIM 已停用。請先重新啟用",
+    "SIM_NOT_FOUND": "找不到 SIM",
     "SIM_PROVIDER_ERROR": "SIM 供應商請求失敗",
     "SIM_PROVIDER_NOT_CONFIGURED": "尚未設定 SIM 供應商",
     "SIM_PROVIDER_RATE_LIMITED": "SIM 請求過多，請稍後再試",
     "SIM_RESET_UNAVAILABLE": "目前無法啟動網路重設。請一分鐘後再試",
-    "SIM_TEST_UNAVAILABLE": "目前無法執行連線測試。請一分鐘後再試"
+    "SIM_TEST_UNAVAILABLE": "目前無法執行連線測試。請一分鐘後再試",
+    "NOT_FOUND": "找不到",
+    "PAYLOAD_TOO_LARGE": "請求過大",
+    "UNSUPPORTED_MEDIA_TYPE": "不支援的內容類型"
   },
   "validation": {
     "required": "此欄位為必填項",
@@ -1346,7 +1354,6 @@
     "kindRecoveryCode": "復原碼",
     "kindTotp": "驗證器應用程式",
     "passkeyButton": "使用密碼金鑰驗證",
-    "passkeyNeedsSecurePage": "請使用密碼金鑰確認身分。密碼金鑰僅能在安全連線 (HTTPS) 或 localhost 上使用。請透過 HTTPS 開啟此頁面以使用密碼金鑰。",
     "passkeyVerified": "密碼金鑰已驗證。",
     "resend": "傳送新驗證碼",
     "sendFailed": "無法傳送驗證碼。請再試一次。",
@@ -1392,6 +1399,25 @@
     "typeDeviceBound": "儲存在一台裝置或一把金鑰上",
     "typeNotBackedUp": "未備份的密碼金鑰",
     "typeSynced": "已同步的密碼金鑰",
-    "waiting": "等待中..."
+    "waiting": "等待中...",
+    "browserUnsupported": "此瀏覽器不支援密碼金鑰與安全金鑰。請在支援密碼金鑰的瀏覽器中開啟此頁面以新增。"
+  },
+  "passkeyUnavailable": {
+    "insecure": {
+      "signInCode": "密碼金鑰需要安全頁面 (HTTPS 或 localhost)。請透過 HTTPS 開啟此網站以使用密碼金鑰，或使用驗證碼登入。",
+      "signInRecovery": "密碼金鑰需要安全頁面 (HTTPS 或 localhost)。請透過 HTTPS 開啟此網站以使用密碼金鑰，或使用復原碼登入。",
+      "signInOnly": "密碼金鑰需要安全頁面 (HTTPS 或 localhost)，而您的帳戶沒有其他驗證方式。請透過 HTTPS 開啟此網站，使用密碼金鑰登入。",
+      "setupOther": "密碼金鑰需要安全頁面 (HTTPS 或 localhost)。請透過 HTTPS 開啟此網站以新增密碼金鑰，或在下方設定其他方式。",
+      "setupOnly": "密碼金鑰需要安全頁面 (HTTPS 或 localhost)，而密碼金鑰是您唯一可以設定的方式。請透過 HTTPS 開啟此網站進行設定。",
+      "proofOnly": "請使用密碼金鑰確認身分。密碼金鑰需要安全頁面 (HTTPS 或 localhost)。請透過 HTTPS 開啟此網站以使用密碼金鑰。"
+    },
+    "unsupported": {
+      "signInCode": "此瀏覽器不支援密碼金鑰。請在支援密碼金鑰的瀏覽器中開啟此網站以使用密碼金鑰，或使用驗證碼登入。",
+      "signInRecovery": "此瀏覽器不支援密碼金鑰。請在支援密碼金鑰的瀏覽器中開啟此網站以使用密碼金鑰，或使用復原碼登入。",
+      "signInOnly": "此瀏覽器不支援密碼金鑰，而您的帳戶沒有其他驗證方式。請在支援密碼金鑰的瀏覽器中開啟此網站登入。",
+      "setupOther": "此瀏覽器不支援密碼金鑰。請在支援密碼金鑰的瀏覽器中開啟此網站以新增密碼金鑰，或在下方設定其他方式。",
+      "setupOnly": "此瀏覽器不支援密碼金鑰，而密碼金鑰是您唯一可以設定的方式。請在支援密碼金鑰的瀏覽器中開啟此網站進行設定。",
+      "proofOnly": "請使用密碼金鑰確認身分。此瀏覽器不支援密碼金鑰。請在支援密碼金鑰的瀏覽器中開啟此網站以使用密碼金鑰。"
+    }
   }
 }

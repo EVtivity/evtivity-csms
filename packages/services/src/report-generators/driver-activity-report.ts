@@ -18,7 +18,12 @@ import { queryRevenue, revenueItem } from '../session-revenue.js';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import { csvRows, moneyCell, pdfRows, type MoneyCell } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
-import type { ReportGeneratorResult } from '../report-registry.js';
+import { columnVisible } from '../report-registry.js';
+import type {
+  ReportColumnAccess,
+  ReportColumnKind,
+  ReportGeneratorResult,
+} from '../report-registry.js';
 import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 
 interface Filters {
@@ -129,6 +134,7 @@ export async function generateDriverActivityReport(
   format: string,
   language: UiLanguage,
   siteIds: ReportSiteScope,
+  access: ReportColumnAccess,
 ): Promise<ReportGeneratorResult> {
   const filters = parseFilters(rawFilters, siteIds);
   const rl = reportLocale(language, format);
@@ -142,26 +148,21 @@ export async function generateDriverActivityReport(
   const totalKwh = driverActivity.reduce((s, r) => s + r.totalKwh, 0);
 
   const spendHeader = rl.moneyHeader(l.columns.totalSpend, currency, common.inclTax);
-  const headers = [
-    columns.driver,
-    columns.email,
-    columns.sessions,
-    l.columns.totalKwh,
-    spendHeader,
-    l.columns.avgDurationMin,
-    l.columns.firstSession,
-    l.columns.lastSession,
-  ];
-  const rows: unknown[][] = driverActivity.map((d) => [
-    d.driverName,
-    d.driverEmail,
-    d.sessionCount,
-    Math.round(d.totalKwh * 100) / 100,
-    moneyCell(d.totalSpendCents, currency),
-    d.avgDurationMinutes,
-    d.firstSession,
-    d.lastSession,
-  ]);
+  // The report needs drivers:read; the spend shows only with payments:read.
+  const tableColumns = (
+    [
+      [columns.driver, (d) => d.driverName, 'driver'],
+      [columns.email, (d) => d.driverEmail, 'driver'],
+      [columns.sessions, (d) => d.sessionCount],
+      [l.columns.totalKwh, (d) => Math.round(d.totalKwh * 100) / 100],
+      [spendHeader, (d) => moneyCell(d.totalSpendCents, currency), 'money'],
+      [l.columns.avgDurationMin, (d) => d.avgDurationMinutes],
+      [l.columns.firstSession, (d) => d.firstSession],
+      [l.columns.lastSession, (d) => d.lastSession],
+    ] satisfies Array<[string, (d: DriverActivity) => unknown, ReportColumnKind?]>
+  ).filter(([, , kind]) => columnVisible(kind, access));
+  const headers = tableColumns.map(([header]) => header);
+  const rows: unknown[][] = driverActivity.map((d) => tableColumns.map(([, cell]) => cell(d)));
 
   if (format === 'csv') {
     const csv = buildCsv(headers, csvRows(rows));
@@ -185,26 +186,23 @@ export async function generateDriverActivityReport(
   );
 
   const spend = (d: DriverActivity): MoneyCell => moneyCell(d.totalSpendCents, currency);
-  pdf.addTable(
+  const pdfColumns = (
     [
-      columns.driver,
-      columns.email,
-      columns.sessions,
-      columns.kwh,
-      `${l.columns.spend} (${common.inclTax})`,
-      l.columns.avgDuration,
-    ],
+      [columns.driver, (d) => d.driverName, 'driver'],
+      [columns.email, (d) => d.driverEmail, 'driver'],
+      [columns.sessions, (d) => d.sessionCount],
+      [columns.kwh, (d) => rl.number(d.totalKwh, 1)],
+      [`${l.columns.spend} (${common.inclTax})`, spend, 'money'],
+      [
+        l.columns.avgDuration,
+        (d) => rl.fill(common.minutes, { value: rl.number(d.avgDurationMinutes) }),
+      ],
+    ] satisfies Array<[string, (d: DriverActivity) => unknown, ReportColumnKind?]>
+  ).filter(([, , kind]) => columnVisible(kind, access));
+  pdf.addTable(
+    pdfColumns.map(([header]) => header),
     pdfRows(
-      driverActivity
-        .slice(0, 200)
-        .map((d) => [
-          d.driverName,
-          d.driverEmail,
-          d.sessionCount,
-          rl.number(d.totalKwh, 1),
-          spend(d),
-          rl.fill(common.minutes, { value: rl.number(d.avgDurationMinutes) }),
-        ]),
+      driverActivity.slice(0, 200).map((d) => pdfColumns.map(([, cell]) => cell(d))),
       rl,
     ),
   );

@@ -1048,11 +1048,48 @@ describe('invoice routes for a site-restricted user', () => {
   });
 
   it.each([
-    ['a session at another site', [{ siteId: 'sit_000000000099' }]],
-    ['a session at an unsited station', [{ siteId: null }]],
-    ['an unknown session', []],
-  ])('answers 404 SESSION_NOT_FOUND on the session invoice for %s', async (_label, rows) => {
-    sessionRows = rows;
+    ['a session at another site', [{ siteId: 'sit_000000000099' }], 'INVOICE_NOT_FOUND'],
+    ['a session at an unsited station', [{ siteId: null }], 'INVOICE_NOT_FOUND'],
+  ])(
+    'answers 404 on the session invoice of a restricted user for %s',
+    async (_label, rows, code) => {
+      sessionRows = rows;
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/invoices/session/ses_000000000001',
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toMatchObject({ code });
+      expect(createSessionInvoice).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([['an unknown session', []]])(
+    'answers 404 SESSION_NOT_FOUND on the session invoice for %s',
+    async (_label, rows) => {
+      userSiteIds = null;
+      sessionRows = rows;
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/invoices/session/ses_000000000001',
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+      expect(createSessionInvoice).not.toHaveBeenCalled();
+      expect(writeAudit).not.toHaveBeenCalled();
+    },
+  );
+
+  // An invoice is readable with access to every
+  // site only, so a site-restricted user cannot create one it cannot read.
+  it('refuses the session invoice to a site-restricted user, even at one of its sites', async () => {
+    sessionRows = [{ siteId: 'sit_000000000001' }];
 
     const res = await app.inject({
       method: 'POST',
@@ -1061,12 +1098,12 @@ describe('invoice routes for a site-restricted user', () => {
     });
 
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toEqual({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+    expect(res.json()).toMatchObject({ code: 'INVOICE_NOT_FOUND' });
     expect(createSessionInvoice).not.toHaveBeenCalled();
-    expect(writeAudit).not.toHaveBeenCalled();
   });
 
-  it('invoices a session at one of its sites', async () => {
+  it('invoices a session for a user with access to every site', async () => {
+    userSiteIds = null;
     sessionRows = [{ siteId: 'sit_000000000001' }];
     vi.mocked(createSessionInvoice).mockResolvedValue(detail(null) as never);
 

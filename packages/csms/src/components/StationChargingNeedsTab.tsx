@@ -31,7 +31,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
-import { useHasPermission } from '@/lib/auth';
+import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatEnergy, formatNumberUpTo } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
@@ -165,7 +165,9 @@ export function StationChargingNeedsTab({
   const is201 = ocppProtocol === 'ocpp2.0.1';
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const canWrite = useHasPermission('stations:write');
+  // Monitors are station configuration: stations:write and
+  // settings.stationConfig:write.
+  const canWrite = useCanSendOcppCommand()('SetVariableMonitoring');
   const [schedulePage, setSchedulePage] = useState(1);
   const [rulePage, setRulePage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);

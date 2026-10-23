@@ -76,7 +76,15 @@ const listLogsQuery = paginationQuery.extend({
     .describe('Filter by HTTP method'),
 });
 
-const AUTH_ACTIONS = new Set(['login', 'logout']);
+/**
+ * Entries a browser posts are what the client says it did: they are stored as
+ * actions marked `clientReported: true`, never in the `auth` category, so a
+ * user cannot forge an authoritative sign-in entry under its id. The server's own record of sign-ins is the API
+ * access log (`api` category).
+ */
+function clientReported(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
+  return { ...(metadata ?? {}), clientReported: true };
+}
 
 export function accessLogRoutes(app: FastifyInstance): void {
   app.post(
@@ -86,6 +94,8 @@ export function accessLogRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Access Logs'],
         summary: 'Create an operator access log entry',
+        description:
+          'Records what the CSMS reports the user did, as an action entry marked clientReported (metadata). A client cannot write an auth entry.',
         operationId: 'createAccessLog',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createLogBody),
@@ -95,15 +105,14 @@ export function accessLogRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { action, metadata } = request.body as z.infer<typeof createLogBody>;
       const { userId } = request.user as { userId: string };
-      const category = AUTH_ACTIONS.has(action) ? 'auth' : 'action';
 
       await db.insert(accessLogs).values({
         userId,
         action,
-        category,
+        category: 'action',
         remoteAddress: request.ip,
         userAgent: request.headers['user-agent'] ?? null,
-        metadata: metadata ?? null,
+        metadata: clientReported(metadata),
       });
       notifyAccessLog('csms');
 
@@ -135,7 +144,7 @@ export function accessLogRoutes(app: FastifyInstance): void {
         category: 'portal',
         remoteAddress: request.ip,
         userAgent: request.headers['user-agent'] ?? null,
-        metadata: metadata ?? null,
+        metadata: clientReported(metadata),
       });
       notifyAccessLog('portal');
 

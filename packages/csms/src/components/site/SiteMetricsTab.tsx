@@ -12,6 +12,7 @@ import { PopularTimesChart } from '@/components/charts/PopularTimesChart';
 import { DateRangeControl } from '@/components/DateRangeControl';
 import { useDateRange } from '@/hooks/useDateRange';
 import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
 import { formatCents, formatEnergy, formatDurationMinutes } from '@/lib/formatting';
 
 interface SiteMetrics {
@@ -27,13 +28,13 @@ interface SiteMetrics {
   disconnectCount: number;
   avgDowntimeMinutes: number;
   maxDowntimeMinutes: number;
-  totalRevenueCents: number;
-  avgRevenueCentsPerSession: number;
+  totalRevenueCents: number | null;
+  avgRevenueCentsPerSession: number | null;
   totalTransactions: number;
-  totalElectricityCostCents: number;
-  totalNetRevenueCents: number;
-  totalTaxCents: number;
-  totalProfitCents: number;
+  totalElectricityCostCents: number | null;
+  totalNetRevenueCents: number | null;
+  totalTaxCents: number | null;
+  totalProfitCents: number | null;
   costMissingSessionCount?: number;
   currency: string;
   periodMonths: number;
@@ -57,6 +58,8 @@ export interface SiteMetricsTabProps {
 
 export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Element {
   const { t } = useTranslation();
+  // Revenue, tax, cost and profit need payments:read, as the API.
+  const canReadPayments = useHasPermission('payments:read');
 
   const energyRange = useDateRange();
   const revenueRange = useDateRange();
@@ -101,7 +104,7 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
   const { data: revenueData } = useQuery({
     queryKey: ['sites', siteId, 'revenue-history', revenueRange.dateQuery],
     queryFn: () =>
-      api.get<{ date: string; revenueCents: number; sessionCount: number }[]>(
+      api.get<{ date: string; revenueCents: number | null; sessionCount: number }[]>(
         `/v1/sites/${siteId}/revenue-history?${revenueRange.dateQuery}`,
       ),
   });
@@ -170,53 +173,61 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
                   {formatDurationMinutes(metrics.maxDowntimeMinutes)}
                 </p>
               </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.totalRevenue')}</p>
-                <p className="text-2xl font-bold">
-                  {formatCents(metrics.totalRevenueCents, metrics.currency)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.netRevenue')}</p>
-                <p className="text-2xl font-bold">
-                  {formatCents(metrics.totalNetRevenueCents, metrics.currency)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.taxCollected')}</p>
-                <p className="text-2xl font-bold">
-                  {formatCents(metrics.totalTaxCents, metrics.currency)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.revenuePerSession')}</p>
-                <p className="text-2xl font-bold">
-                  {formatCents(metrics.avgRevenueCentsPerSession, metrics.currency)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.totalTransactions')}</p>
-                <p className="text-2xl font-bold">{String(metrics.totalTransactions)}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.electricityCost')}</p>
-                <p className="text-2xl font-bold">
-                  {formatCents(metrics.totalElectricityCostCents, metrics.currency)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.profit')}</p>
-                <p
-                  className={`text-2xl font-bold ${metrics.totalProfitCents >= 0 ? 'text-success' : 'text-destructive'}`}
-                >
-                  {formatCents(metrics.totalProfitCents, metrics.currency)}
-                </p>
-                {(metrics.costMissingSessionCount ?? 0) > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('metrics.costMissing', { count: metrics.costMissingSessionCount })}
-                  </p>
-                )}
-              </div>
+              {canReadPayments && (
+                <>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">{t('metrics.totalRevenue')}</p>
+                    <p className="text-2xl font-bold">
+                      {formatCents(metrics.totalRevenueCents ?? 0, metrics.currency)}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">{t('metrics.netRevenue')}</p>
+                    <p className="text-2xl font-bold">
+                      {formatCents(metrics.totalNetRevenueCents ?? 0, metrics.currency)}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">{t('metrics.taxCollected')}</p>
+                    <p className="text-2xl font-bold">
+                      {formatCents(metrics.totalTaxCents ?? 0, metrics.currency)}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">
+                      {t('metrics.revenuePerSession')}
+                    </p>
+                    <p className="text-2xl font-bold">
+                      {formatCents(metrics.avgRevenueCentsPerSession ?? 0, metrics.currency)}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">
+                      {t('metrics.totalTransactions')}
+                    </p>
+                    <p className="text-2xl font-bold">{String(metrics.totalTransactions)}</p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">{t('metrics.electricityCost')}</p>
+                    <p className="text-2xl font-bold">
+                      {formatCents(metrics.totalElectricityCostCents ?? 0, metrics.currency)}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">{t('metrics.profit')}</p>
+                    <p
+                      className={`text-2xl font-bold ${(metrics.totalProfitCents ?? 0) >= 0 ? 'text-success' : 'text-destructive'}`}
+                    >
+                      {formatCents(metrics.totalProfitCents ?? 0, metrics.currency)}
+                    </p>
+                    {(metrics.costMissingSessionCount ?? 0) > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        {t('metrics.costMissing', { count: metrics.costMissingSessionCount })}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -227,15 +238,17 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
         <StationEnergyChart data={energyData ?? []} actions={dateControl(energyRange)} />
       </div>
 
-      <RevenueChart
-        data={revenueData ?? []}
-        currency={metrics?.currency}
-        currencyError={metricsError}
-        onRetry={() => {
-          void refetchMetrics();
-        }}
-        actions={dateControl(revenueRange)}
-      />
+      {canReadPayments && (
+        <RevenueChart
+          data={(revenueData ?? []).map((d) => ({ ...d, revenueCents: d.revenueCents ?? 0 }))}
+          currency={metrics?.currency}
+          currencyError={metricsError}
+          onRetry={() => {
+            void refetchMetrics();
+          }}
+          actions={dateControl(revenueRange)}
+        />
+      )}
 
       {popularTimesData != null && popularTimesData.length > 0 && (
         <PopularTimesChart data={popularTimesData} />

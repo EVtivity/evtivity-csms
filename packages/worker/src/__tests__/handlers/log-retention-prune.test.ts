@@ -191,7 +191,7 @@ describe('logRetentionPruneHandler', () => {
   });
 
   it('prunes only the login rows of the user and driver audit logs', async () => {
-    settingRows = [{ key: 'logs.loginAudit.retentionDays', value: 14 }];
+    settingRows = [{ key: 'logs.loginAudit.retentionDays', value: 45 }];
     const { logRetentionPruneHandler } = logRetentionPruneModule;
     await logRetentionPruneHandler(makeLog());
     const loginCalls = mockPruneOldRows.mock.calls
@@ -199,7 +199,7 @@ describe('logRetentionPruneHandler', () => {
       .filter((c) => c.table === 'user_audit_log' || c.table === 'driver_audit_log');
     expect(loginCalls.map((c) => c.table)).toEqual(['user_audit_log', 'driver_audit_log']);
     for (const call of loginCalls) {
-      expect(call.retentionDays).toBe(14);
+      expect(call.retentionDays).toBe(45);
       expect(call.filter?.sqlText).toBe("action::text IN ('login_succeeded', 'login_failed')");
     }
     // No other table gets a filter.
@@ -235,6 +235,27 @@ describe('logRetentionPruneHandler', () => {
     );
     expect((accessCall![0] as { retentionDays: number }).retentionDays).toBe(7);
     expect((secCall![0] as { retentionDays: number }).retentionDays).toBe(730);
+  });
+
+  it('reads a security history value from 1 to 29 days as 30, and leaves operational logs as set', async () => {
+    settingRows = [
+      { key: 'logs.loginAudit.retentionDays', value: 1 },
+      { key: 'logs.securityEvents.retentionDays', value: 29 },
+      { key: 'logs.access.retentionDays', value: 7 },
+    ];
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
+    await logRetentionPruneHandler(makeLog());
+
+    const days = (table: string): number | undefined =>
+      (
+        mockPruneOldRows.mock.calls.find(
+          (c) => (c[0] as { table: string }).table === table,
+        )?.[0] as { retentionDays: number } | undefined
+      )?.retentionDays;
+    expect(days('user_audit_log')).toBe(30);
+    expect(days('driver_audit_log')).toBe(30);
+    expect(days('security_events')).toBe(30);
+    expect(days('access_logs')).toBe(7);
   });
 
   it('falls back to the default when a setting value is a non-number (string)', async () => {

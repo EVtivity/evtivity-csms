@@ -7,12 +7,15 @@ import {
   startAuthentication,
   type PublicKeyCredentialRequestOptionsJSON,
 } from '@simplewebauthn/browser';
+import { Info } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent, CardHeader } from '@/components/ui/card';
 import { useToast } from '@/components/ui/toast';
+import { AuthLayout } from '@/components/AuthLayout';
 import { LiveStatus } from '@/components/LiveStatus';
 import { usePrefetchedOptions } from '@/hooks/use-prefetched-options';
 import { useAuth } from '@/lib/auth';
@@ -30,7 +33,8 @@ import {
   offersRecoveryCode,
   RECOVERY_CODE_LENGTH,
 } from '@/lib/mfa-pending';
-import { passkeyErrorText, webauthnSupported } from '@/lib/webauthn';
+import { passkeyErrorText, webauthnUnavailableReason } from '@/lib/webauthn';
+import { passkeyUnavailableKey, signInPasskeyContext } from '@/lib/passkey-unavailable';
 
 interface MfaVerifyResponse {
   token: string;
@@ -62,8 +66,20 @@ export function MfaChallenge(): React.JSX.Element {
 
   const recoveryOffered = mfaPending != null && offersRecoveryCode(mfaPending);
   const primaryOffered = mfaPending == null || offersPrimaryMethod(mfaPending);
-  // A passkey needs a secure page and a browser with WebAuthn.
-  const passkeyOffered = mfaPending != null && offersPasskey(mfaPending) && webauthnSupported();
+  // A passkey needs a secure page and a browser with WebAuthn. When the account has one and
+  // this page cannot use it, the challenge says why instead of hiding it.
+  const passkeyAccepted = mfaPending != null && offersPasskey(mfaPending);
+  const passkeyUnavailable = passkeyAccepted ? webauthnUnavailableReason() : null;
+  const passkeyOffered = passkeyAccepted && passkeyUnavailable == null;
+  const unavailableKey =
+    passkeyUnavailable == null
+      ? null
+      : passkeyUnavailableKey(
+          passkeyUnavailable,
+          signInPasskeyContext(primaryOffered, recoveryOffered),
+        );
+  // A passkey-only account on such a page: no input here can succeed.
+  const noFactorHere = passkeyUnavailable != null && !primaryOffered && !recoveryOffered;
 
   const [mode, setMode] = useState<ChallengeMode>(
     primaryOffered ? 'code' : passkeyOffered ? 'passkey' : recoveryOffered ? 'recovery' : 'code',
@@ -73,6 +89,7 @@ export function MfaChallenge(): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
   const [resending, setResending] = useState(false);
   const [challengeId, setChallengeId] = useState(mfaPending?.challengeId);
   const passkeyPrompt = usePrefetchedOptions(
@@ -86,11 +103,17 @@ export function MfaChallenge(): React.JSX.Element {
   const recovery = mode === 'recovery';
   const passkey = mode === 'passkey';
   const normalizedRecoveryCode = normalizeRecoveryCode(recoveryCode);
-  const canSubmit = passkey
-    ? true
+  // The button stays enabled: a click on an incomplete code shows why and sends nothing.
+  const inputError = passkey
+    ? null
     : recovery
       ? normalizedRecoveryCode.length === RECOVERY_CODE_LENGTH
-      : code.length >= 6;
+        ? null
+        : t('auth.recoveryCodeIncomplete')
+      : /^\d{6}$/.test(code)
+        ? null
+        : t('profile.mfaEnterCode');
+  const showInputError = hasSubmitted && inputError != null;
 
   async function finish(data: MfaVerifyResponse | MfaEnrollmentReply): Promise<void> {
     // A switched-off factor that was the only one: set up another one before the session.
@@ -139,6 +162,8 @@ export function MfaChallenge(): React.JSX.Element {
       await verifyPasskey();
       return;
     }
+    setHasSubmitted(true);
+    if (inputError != null) return;
     setError(null);
     setNotice(null);
     setLoading(true);
@@ -178,6 +203,7 @@ export function MfaChallenge(): React.JSX.Element {
 
   function switchMode(next: ChallengeMode): void {
     setMode(next);
+    setHasSubmitted(false);
     setError(null);
     setNotice(null);
   }
@@ -192,30 +218,42 @@ export function MfaChallenge(): React.JSX.Element {
   const canResend = mode === 'code' && mfaPending?.mfaMethod !== 'totp';
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <CardTitle>{t('auth.mfaTitle')}</CardTitle>
-          <CardDescription>
+    <AuthLayout>
+      <CardHeader className="text-center">
+        <h2 className="text-2xl font-semibold">{t('auth.mfaTitle')}</h2>
+        {!noFactorHere && (
+          <p className="text-sm text-muted-foreground">
             {passkey
               ? t('auth.passkeySubtitle')
               : recovery
                 ? t('auth.recoveryCodeSubtitle')
                 : t('auth.mfaSubtitle', { method: methodLabel })}
-          </CardDescription>
-          {recovery && mfaPending?.mfaMethodDisabled === true && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              {t('auth.mfaMethodSwitchedOff', { method: methodLabel })}
-            </p>
-          )}
-          {error != null && (
-            <p className="mt-2 text-sm text-destructive" role="alert">
-              {error}
-            </p>
-          )}
-          <LiveStatus message={notice} className="mt-2" />
-        </CardHeader>
-        <CardContent>
+          </p>
+        )}
+        {recovery && mfaPending?.mfaMethodDisabled === true && (
+          <p className="mt-2 text-sm text-muted-foreground">
+            {t('auth.mfaMethodSwitchedOff', { method: methodLabel })}
+          </p>
+        )}
+        {error != null && (
+          <p className="mt-2 text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+        <LiveStatus message={notice} className="mt-2" />
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {unavailableKey != null && (
+          <Alert variant="info" data-testid="passkey-unavailable">
+            <Info className="h-4 w-4" />
+            <AlertDescription>{t(unavailableKey)}</AlertDescription>
+          </Alert>
+        )}
+        {noFactorHere ? (
+          <Button type="button" variant="outline" className="w-full" onClick={clearMfaPending}>
+            {t('auth.backToLogin')}
+          </Button>
+        ) : (
           <form
             onSubmit={(e) => {
               void handleVerify(e);
@@ -239,8 +277,15 @@ export function MfaChallenge(): React.JSX.Element {
                   autoCapitalize="none"
                   spellCheck={false}
                   autoFocus
-                  className="text-center text-lg tracking-widest"
+                  aria-invalid={showInputError}
+                  aria-describedby={showInputError ? 'mfaInputError' : undefined}
+                  className={`text-center text-lg tracking-widest${showInputError ? ' border-destructive' : ''}`}
                 />
+                {showInputError && (
+                  <p id="mfaInputError" className="text-sm text-destructive">
+                    {inputError}
+                  </p>
+                )}
               </div>
             ) : (
               <div className="space-y-2">
@@ -251,20 +296,32 @@ export function MfaChallenge(): React.JSX.Element {
                   id="mfaCode"
                   value={code}
                   onChange={(e) => {
-                    setCode(e.target.value);
+                    setCode(e.target.value.replace(/\D/g, '').slice(0, 6));
                   }}
                   placeholder="000000"
-                  maxLength={6}
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   autoFocus
-                  className="text-center text-2xl tracking-widest"
+                  aria-invalid={showInputError}
+                  aria-describedby={showInputError ? 'mfaInputError' : undefined}
+                  className={`text-center text-2xl tracking-widest${showInputError ? ' border-destructive' : ''}`}
                 />
+                {showInputError && (
+                  <p id="mfaInputError" className="text-sm text-destructive">
+                    {inputError}
+                  </p>
+                )}
               </div>
             )}
-            <Button type="submit" className="w-full" disabled={loading || !canSubmit}>
-              {loading && <Spinner className="h-4 w-4" />}
-              {passkey ? t('auth.usePasskey') : t('auth.mfaVerify')}
+            <Button type="submit" className="relative w-full" disabled={loading}>
+              {loading && (
+                <span className="absolute inset-0 flex items-center justify-center">
+                  <Spinner className="h-4 w-4" />
+                </span>
+              )}
+              <span className={loading ? 'invisible' : ''}>
+                {passkey ? t('auth.usePasskey') : t('auth.mfaVerify')}
+              </span>
             </Button>
             <div className="flex flex-col items-center gap-2">
               {primaryOffered && mode !== 'code' && (
@@ -306,25 +363,31 @@ export function MfaChallenge(): React.JSX.Element {
                 </Button>
               )}
             </div>
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               {canResend && (
                 <Button
                   type="button"
-                  variant="ghost"
-                  size="sm"
+                  variant="link"
+                  size="inline"
                   onClick={() => void handleResend()}
                   disabled={resending}
                 >
                   {resending ? t('auth.mfaResending') : t('auth.mfaResend')}
                 </Button>
               )}
-              <Button type="button" variant="ghost" size="sm" onClick={clearMfaPending}>
-                {t('common.cancel')}
+              <Button
+                type="button"
+                variant="link"
+                size="inline"
+                className="ml-auto"
+                onClick={clearMfaPending}
+              >
+                {t('auth.backToLogin')}
               </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
-    </div>
+        )}
+      </CardContent>
+    </AuthLayout>
   );
 }

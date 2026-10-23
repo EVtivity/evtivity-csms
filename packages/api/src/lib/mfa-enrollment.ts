@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import crypto from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { db, readMfaConfig, roles, users, type MfaConfig } from '@evtivity/database';
@@ -53,8 +54,14 @@ export function availableMfaMethods(
  */
 export function signMfaEnrollmentToken(app: FastifyInstance, user: MfaEnrollmentUser): string {
   return app.jwt.sign(
-    { userId: user.id, roleId: user.roleId, mfaEnrollment: true, sv: user.sessionVersion },
-    { expiresIn: MFA_ENROLLMENT_TOKEN_TTL },
+    {
+      userId: user.id,
+      roleId: user.roleId,
+      mfaEnrollment: true,
+      sv: user.sessionVersion,
+    },
+    // Unique per token: a pending SSO bind is keyed by it.
+    { expiresIn: MFA_ENROLLMENT_TOKEN_TTL, jti: crypto.randomUUID() },
   );
 }
 

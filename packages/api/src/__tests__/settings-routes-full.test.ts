@@ -153,7 +153,15 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@evtivity/lib')>();
   return {
     OCTT_PENDING_RESTORE_SETTING_KEY: actual.OCTT_PENDING_RESTORE_SETTING_KEY,
+    WEBHOOK_SIGNING_SECRET_KEY: actual.WEBHOOK_SIGNING_SECRET_KEY,
+    assertTemplateAllowed: actual.assertTemplateAllowed,
+    EMAIL_LAYOUT_TEMPLATE: actual.EMAIL_LAYOUT_TEMPLATE,
+    isDataRetentionSettingKey: actual.isDataRetentionSettingKey,
+    isDataPlanSettingKey: actual.isDataPlanSettingKey,
+    validateDataPlanSetting: actual.validateDataPlanSetting,
+    normalizeMeasurandList: actual.normalizeMeasurandList,
     encryptString: vi.fn((_val: string, _key: string) => 'encrypted-value'),
+    decryptString: actual.decryptString,
     clearNotificationSettingsCache: vi.fn(),
     createLogger: actual.createLogger,
     isSupportedCurrency: actual.isSupportedCurrency,
@@ -363,11 +371,17 @@ describe('Settings routes - full coverage', () => {
       expect(body.logo).toBe('https://example.com/logo.png');
     });
 
-    it('returns only the default currency, price display, and tax basis when no company settings exist', async () => {
+    it('returns only the defaults and the portal URL when no company settings exist', async () => {
+      const { config } = await import('../lib/config.js');
       setupDbResults([]);
       const res = await app.inject({ method: 'GET', url: '/portal/branding' });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ currency: 'USD', priceDisplay: 'net', taxBasis: 'net' });
+      expect(res.json()).toEqual({
+        currency: 'USD',
+        priceDisplay: 'net',
+        taxBasis: 'net',
+        portalUrl: config.PORTAL_URL,
+      });
     });
 
     it('returns the QR code icon as qrCodeIcon', async () => {
@@ -945,6 +959,50 @@ describe('Settings routes - full coverage', () => {
   // ----------------------------------------------------------------
   // POST /v1/settings/s3/test (authenticated, test S3 connection)
   // ----------------------------------------------------------------
+  describe('webhook signing secret', () => {
+    const url = '/settings/notifications/webhook-signing-secret';
+
+    it('refuses to generate a secret without SETTINGS_ENCRYPTION_KEY and stores nothing', async () => {
+      const { db } = await import('@evtivity/database');
+      const original = mockConfig.SETTINGS_ENCRYPTION_KEY;
+      mockConfig.SETTINGS_ENCRYPTION_KEY = '';
+      try {
+        const res = await app.inject({
+          method: 'POST',
+          url,
+          headers: { authorization: `Bearer ${operatorToken}` },
+        });
+        expect(res.statusCode).toBe(500);
+        expect(res.json()).toMatchObject({ code: 'ENCRYPTION_KEY_MISSING' });
+        expect(res.body).not.toContain('whsec_');
+        expect(vi.mocked(db.insert)).not.toHaveBeenCalled();
+      } finally {
+        mockConfig.SETTINGS_ENCRYPTION_KEY = original;
+      }
+    });
+
+    it('reports configured only when the stored value decrypts under the current key', async () => {
+      const actual = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
+      const good = actual.encryptString('whsec_abc', mockConfig.SETTINGS_ENCRYPTION_KEY);
+      const otherKey = actual.encryptString('whsec_abc', 'another-key-of-thirty-two-chars!!');
+      const status = async (rows: unknown[]): Promise<unknown> => {
+        setupDbResults(rows);
+        const res = await app.inject({
+          method: 'GET',
+          url,
+          headers: { authorization: `Bearer ${operatorToken}` },
+        });
+        expect(res.statusCode).toBe(200);
+        return res.json();
+      };
+      expect(await status([{ value: good }])).toEqual({ configured: true });
+      expect(await status([{ value: otherKey }])).toEqual({ configured: false });
+      expect(await status([{ value: 'not-a-ciphertext' }])).toEqual({ configured: false });
+      expect(await status([{ value: '' }])).toEqual({ configured: false });
+      expect(await status([])).toEqual({ configured: false });
+    });
+  });
+
   describe('POST /v1/settings/s3/test', () => {
     it('returns 401 without token', async () => {
       const res = await app.inject({ method: 'POST', url: '/settings/s3/test' });

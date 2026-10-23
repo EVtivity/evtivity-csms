@@ -24,11 +24,14 @@ import {
   PASSWORD_MIN_LENGTH_FLOOR,
   SESSION_LIFETIME_LIMITS,
 } from '@evtivity/lib';
-import { decryptForRead } from '../lib/settings-crypto.js';
+import {
+  readSettingsWithSecrets,
+  SECRET_SETTINGS_READ_PERMISSION,
+} from '../lib/settings-crypto.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { config as apiConfig } from '../lib/config.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -239,6 +242,17 @@ const securitySettingsResponse = z
       'Access and refresh token lifetimes in effect, with defaults for unset keys',
     ),
     roleNames: z.array(z.string()).describe('Every role name, the choices of mfa.requiredRoles'),
+    'security.recaptcha.secretKeyEnc': z
+      .string()
+      .nullable()
+      .optional()
+      .describe(
+        'The reCAPTCHA secret, decrypted only for a caller that also holds settings.system:read, otherwise null',
+      ),
+    'security.recaptcha.secretKeyConfigured': z
+      .boolean()
+      .optional()
+      .describe('Whether a reCAPTCHA secret is stored (every caller)'),
   })
   .passthrough()
   .describe('Stored security.* setting keys, plus the parsed MFA, password and session groups');
@@ -356,11 +370,13 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
         db.select().from(settings).where(like(settings.key, 'security.%')),
         db.select({ name: roles.name }).from(roles).orderBy(asc(roles.name)),
       ]);
-      const result: Record<string, unknown> = {};
-      for (const row of rows) {
-        if (!SECURITY_KEYS.includes(row.key)) continue;
-        result[row.key] = decryptForRead(row.key, row.value);
-      }
+      // The reCAPTCHA secret is returned decrypted only with
+      // settings.system:read (P12), else null;
+      // security.recaptcha.secretKeyConfigured says whether it is stored.
+      const result = readSettingsWithSecrets(
+        rows.filter((row) => SECURITY_KEYS.includes(row.key)),
+        await requestHasPermission(request, SECRET_SETTINGS_READ_PERMISSION),
+      );
       return {
         ...result,
         mfa: normalizeMfaConfig(withPrefix(rows, 'security.mfa.')),

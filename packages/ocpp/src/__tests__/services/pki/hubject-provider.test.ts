@@ -3,7 +3,7 @@
 
 import 'reflect-metadata';
 import { webcrypto } from 'node:crypto';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import * as x509 from '@peculiar/x509';
 const stationOcspMock = vi.fn();
 
@@ -11,17 +11,29 @@ vi.mock('../../../services/pki/ocsp.js', () => ({
   getOcspResultForStation: (...args: unknown[]) => stationOcspMock(...args) as unknown,
 }));
 
-import { HubjectProvider } from '../../../services/pki/hubject-provider.js';
+// The connect-time address check of safeFetch has its own tests in @evtivity/lib.
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/lib')>()),
+  safeFetch: (...args: unknown[]) => (globalThis.fetch as (...a: unknown[]) => unknown)(...args),
+}));
+
+import {
+  HUBJECT_ERROR_BODY_BYTES,
+  HUBJECT_MAX_RESPONSE_BYTES,
+  HubjectProvider,
+} from '../../../services/pki/hubject-provider.js';
 import type { OcspRequestData } from '../../../services/pki/pki-provider.js';
 
 x509.cryptoProvider.set(webcrypto as unknown as Crypto);
 
-const PEM = '-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----';
-
 const ALG = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' };
 
-/** A CA and a leaf it issued, as the EST server would return them. */
-async function caAndLeaf(): Promise<{ ca: x509.X509Certificate; leaf: x509.X509Certificate }> {
+/** A CA and a leaf it issued for a CSR, as the EST server would return them. */
+async function caAndLeaf(): Promise<{
+  ca: x509.X509Certificate;
+  leaf: x509.X509Certificate;
+  csrPem: string;
+}> {
   const caKeys = (await webcrypto.subtle.generateKey(ALG, true, [
     'sign',
     'verify',
@@ -51,8 +63,20 @@ async function caAndLeaf(): Promise<{ ca: x509.X509Certificate; leaf: x509.X509C
     signingKey: caKeys.privateKey,
     signingAlgorithm: ALG,
   });
-  return { ca, leaf };
+  const csr = await x509.Pkcs10CertificateRequestGenerator.create({
+    name: 'CN=CS-001',
+    keys: leafKeys,
+    signingAlgorithm: ALG,
+  });
+  return { ca, leaf, csrPem: csr.toString('pem') };
 }
+
+// A CSR and the leaf the EST server signed for its key.
+let signed: { csrPem: string; leafPem: string };
+beforeAll(async () => {
+  const { leaf, csrPem } = await caAndLeaf();
+  signed = { csrPem, leafPem: leaf.toString('pem') };
+});
 
 const config = {
   baseUrl: 'https://hubject.example.com',
@@ -62,33 +86,17 @@ const config = {
 };
 
 function tokenResponse(accessToken = 'token-123', expiresIn = 3600): Response {
-  return {
-    ok: true,
+  return new Response(JSON.stringify({ access_token: accessToken, expires_in: expiresIn }), {
     status: 200,
-    json: vi.fn().mockResolvedValue({ access_token: accessToken, expires_in: expiresIn }),
-    text: vi.fn(),
-    arrayBuffer: vi.fn(),
-  } as unknown as Response;
+  });
 }
 
-function textResponse(ok: boolean, status: number, body: string): Response {
-  return {
-    ok,
-    status,
-    text: vi.fn().mockResolvedValue(body),
-    json: vi.fn(),
-    arrayBuffer: vi.fn(),
-  } as unknown as Response;
+function textResponse(_ok: boolean, status: number, body: string): Response {
+  return new Response(body, { status });
 }
 
-function jsonResponse(ok: boolean, status: number, body: unknown): Response {
-  return {
-    ok,
-    status,
-    json: vi.fn().mockResolvedValue(body),
-    text: vi.fn().mockResolvedValue(typeof body === 'string' ? body : JSON.stringify(body)),
-    arrayBuffer: vi.fn(),
-  } as unknown as Response;
+function jsonResponse(_ok: boolean, status: number, body: unknown): Response {
+  return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status });
 }
 
 type FetchMock = ReturnType<typeof vi.fn<(url: string, init: RequestInit) => Promise<Response>>>;
@@ -110,12 +118,12 @@ describe('HubjectProvider OAuth2 token flow', () => {
   it('fetches an access token with client_credentials and caches it across calls', async () => {
     fetchMock
       .mockResolvedValueOnce(tokenResponse('cached-token', 3600))
-      .mockResolvedValueOnce(textResponse(true, 200, PEM))
-      .mockResolvedValueOnce(textResponse(true, 200, PEM));
+      .mockResolvedValueOnce(textResponse(true, 200, signed.leafPem))
+      .mockResolvedValueOnce(textResponse(true, 200, signed.leafPem));
 
     const provider = new HubjectProvider(config);
-    await provider.signCsr('csr-1', 'V2GCertificate');
-    await provider.signCsr('csr-2', 'V2GCertificate');
+    await provider.signCsr(signed.csrPem, 'V2GCertificate');
+    await provider.signCsr(signed.csrPem, 'V2GCertificate');
 
     // Token fetched once (call 0), reused for both signCsr calls.
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -148,13 +156,13 @@ describe('HubjectProvider OAuth2 token flow', () => {
     // inside the 60s refresh guard, forcing a refresh on the next call.
     fetchMock
       .mockResolvedValueOnce(tokenResponse('short-token', 30))
-      .mockResolvedValueOnce(textResponse(true, 200, PEM))
+      .mockResolvedValueOnce(textResponse(true, 200, signed.leafPem))
       .mockResolvedValueOnce(tokenResponse('fresh-token', 3600))
-      .mockResolvedValueOnce(textResponse(true, 200, PEM));
+      .mockResolvedValueOnce(textResponse(true, 200, signed.leafPem));
 
     const provider = new HubjectProvider(config);
-    await provider.signCsr('csr-1', 'V2GCertificate');
-    await provider.signCsr('csr-2', 'V2GCertificate');
+    await provider.signCsr(signed.csrPem, 'V2GCertificate');
+    await provider.signCsr(signed.csrPem, 'V2GCertificate');
 
     // Two token fetches (calls 0 and 2) because the first token was near-expiry.
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -179,7 +187,7 @@ describe('HubjectProvider OAuth2 token flow', () => {
 
 describe('HubjectProvider.signCsr', () => {
   it('posts the base64 DER CSR to EST simpleenroll and returns a PEM chain from the leaf', async () => {
-    const { ca, leaf } = await caAndLeaf();
+    const { ca, leaf, csrPem } = await caAndLeaf();
     // RFC 7030: certs-only PKCS#7, base64 with line breaks, CA first on purpose.
     const pkcs7 = new x509.X509Certificates([ca, leaf])
       .toString('base64')
@@ -189,14 +197,16 @@ describe('HubjectProvider.signCsr', () => {
       .mockResolvedValueOnce(textResponse(true, 200, pkcs7));
 
     const provider = new HubjectProvider(config);
-    const csrPem =
-      '-----BEGIN CERTIFICATE REQUEST-----\nTUlJ\nQkFB\n-----END CERTIFICATE REQUEST-----\n';
-    const result = await provider.signCsr(csrPem, 'ChargingStationCertificate');
+    const result = await provider.signCsr(csrPem, 'V2GCertificate');
 
     const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(url).toBe('https://hubject.example.com/.well-known/est/simpleenroll');
     expect(init.method).toBe('POST');
-    expect(init.body).toBe('TUlJQkFB');
+    // Through safeFetch, without following a redirect.
+    expect(init.redirect).toBe('error');
+    expect(init.body).toBe(
+      csrPem.replace(/-----(BEGIN|END) CERTIFICATE REQUEST-----/g, '').replace(/\s+/g, ''),
+    );
     expect(init.headers).toEqual({
       Authorization: 'Bearer tok',
       'Content-Type': 'application/pkcs10',
@@ -211,14 +221,27 @@ describe('HubjectProvider.signCsr', () => {
   it('keeps a PEM response as it is', async () => {
     fetchMock
       .mockResolvedValueOnce(tokenResponse('tok', 3600))
-      .mockResolvedValueOnce(
-        textResponse(true, 200, '-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----\n'),
-      );
+      .mockResolvedValueOnce(textResponse(true, 200, `${signed.leafPem}\n`));
     const provider = new HubjectProvider(config);
-    const result = await provider.signCsr('csr', 'V2GCertificate');
-    expect(result.certificateChain).toBe(
-      '-----BEGIN CERTIFICATE-----\nABC\n-----END CERTIFICATE-----',
-    );
+    const result = await provider.signCsr(signed.csrPem, 'V2GCertificate');
+    expect(result.certificateChain).toBe(signed.leafPem.trim());
+  });
+
+  it('leaves a station TLS certificate to the operator', async () => {
+    const provider = new HubjectProvider(config);
+    await expect(
+      provider.signCsr(signed.csrPem, 'ChargingStationCertificate'),
+    ).rejects.toMatchObject({ code: 'MANUAL_SIGNING_REQUIRED' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a returned leaf that carries another public key', async () => {
+    const other = await caAndLeaf();
+    fetchMock
+      .mockResolvedValueOnce(tokenResponse('tok', 3600))
+      .mockResolvedValueOnce(textResponse(true, 200, other.leaf.toString('pem')));
+    const provider = new HubjectProvider(config);
+    await expect(provider.signCsr(signed.csrPem, 'V2GCertificate')).rejects.toThrow(/public key/);
   });
 
   it('throws with status and body when EST signing fails', async () => {
@@ -399,5 +422,25 @@ describe('HubjectProvider.getRootCertificates', () => {
     await expect(provider.getRootCertificates('V2G')).rejects.toThrow(
       'Hubject root cert fetch failed: 404 not found',
     );
+  });
+});
+
+// Hubject replies are read capped, and
+// an error body is kept to a prefix.
+describe('HubjectProvider reply bounds', () => {
+  it('refuses a reply over the cap', async () => {
+    fetchMock
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(textResponse(true, 200, 'A'.repeat(HUBJECT_MAX_RESPONSE_BYTES + 1)));
+    const provider = new HubjectProvider(config);
+    await expect(provider.getRootCertificates('V2GRootCertificate')).rejects.toThrow(/exceeds/);
+  });
+
+  it('keeps only a prefix of an error body', async () => {
+    fetchMock.mockResolvedValueOnce(textResponse(false, 500, 'E'.repeat(100_000)));
+    const provider = new HubjectProvider(config);
+    const err = await provider.getRootCertificates('V2GRootCertificate').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message.length).toBeLessThan(HUBJECT_ERROR_BODY_BYTES + 200);
   });
 });

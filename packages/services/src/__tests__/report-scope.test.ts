@@ -33,6 +33,7 @@ import {
   siteScopeVisibleTo,
   userSiteScope,
   scheduleRunScope,
+  reportColumnAccess,
   scheduleSkipReason,
 } from '../report-scope.js';
 
@@ -90,14 +91,20 @@ describe('siteScopeVisibleTo', () => {
 
   it('shows a restricted user only rows with a scope inside their sites', () => {
     expect(render(siteScopeVisibleTo(column, ['a']))).toMatchObject({
-      sql: '(r.site_scope IS NOT NULL AND r.site_scope <@ ARRAY[$1]::text[])',
+      sql: '(r.site_scope IS NOT NULL AND cardinality(r.site_scope) > 0 AND r.site_scope <@ ARRAY[$1]::text[])',
       params: ['a'],
     });
   });
 
+  it('hides a row with an empty scope from every restricted user (security review AZ-I5)', () => {
+    expect(render(siteScopeVisibleTo(column, ['a']))?.sql).toContain(
+      'cardinality(r.site_scope) > 0',
+    );
+  });
+
   it('compares with an empty array for a user without sites', () => {
     expect(render(siteScopeVisibleTo(column, []))?.sql).toBe(
-      '(r.site_scope IS NOT NULL AND r.site_scope <@ ARRAY[]::text[])',
+      '(r.site_scope IS NOT NULL AND cardinality(r.site_scope) > 0 AND r.site_scope <@ ARRAY[]::text[])',
     );
   });
 });
@@ -139,11 +146,36 @@ describe('scheduleSkipReason', () => {
     expect(await scheduleSkipReason('usr_1')).toBe('creator_lacks_reports_read');
   });
 
+  it("skips a schedule whose creator lacks the report type's permission (security review AZ-L7)", async () => {
+    results.push([{ isActive: true }], [{ permission: 'reports:read' }]);
+    expect(await scheduleSkipReason('usr_1', ['payments:read'])).toBe(
+      'creator_lacks_report_permission',
+    );
+    results.push(
+      [{ isActive: true }],
+      [{ permission: 'reports:read' }, { permission: 'payments:write' }],
+    );
+    expect(await scheduleSkipReason('usr_1', ['payments:read'])).toBeNull();
+  });
+
   it('runs for an active creator with reports:read or reports:write', async () => {
     results.push([{ isActive: true }], [{ permission: 'reports:read' }]);
     expect(await scheduleSkipReason('usr_1')).toBeNull();
     results.push([{ isActive: true }], [{ permission: 'reports:write' }]);
     expect(await scheduleSkipReason('usr_1')).toBeNull();
+  });
+});
+
+describe('reportColumnAccess', () => {
+  it('sees neither driver nor money columns without a reader', async () => {
+    expect(await reportColumnAccess(null)).toEqual({ driverData: false, money: false });
+  });
+
+  it('follows drivers:read and payments:read, write implying read', async () => {
+    results.push([{ permission: 'drivers:write' }]);
+    expect(await reportColumnAccess('usr_1')).toEqual({ driverData: true, money: false });
+    results.push([{ permission: 'payments:read' }, { permission: 'reports:read' }]);
+    expect(await reportColumnAccess('usr_1')).toEqual({ driverData: false, money: true });
   });
 });
 

@@ -10,6 +10,15 @@ import { resolveLocale } from './number.js';
 export const DEFAULT_CURRENCY = 'USD';
 
 /**
+ * Bounds of every pre-authorization hold amount in cents of the company
+ * currency: the default hold, a site's hold and an operator's hold
+ * override. A hold of 0 makes every hold fail; an unbounded one lets
+ * an operator hold any amount on a driver's card.
+ */
+export const PRE_AUTH_AMOUNT_MIN_CENTS = 1;
+export const PRE_AUTH_AMOUNT_MAX_CENTS = 1_000_000;
+
+/**
  * Currencies the platform can run in. Money is stored in cents and Stripe
  * amounts are cents, so only ISO 4217 currencies with two minor units qualify.
  */

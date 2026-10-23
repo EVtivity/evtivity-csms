@@ -1,0 +1,25 @@
+# Base image updates. The production Dockerfiles pin their base images by
+# digest; Dependabot proposes the new digest (and patch or minor tags) weekly.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directories:
+      - /packages/api
+      - /packages/csms
+      - /packages/css
+      - /packages/database
+      - /packages/ocpi
+      - /packages/ocpi-simulator
+      - /packages/ocpp
+      - /packages/portal
+      - /packages/worker
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns:
+          - '*'
+    ignore:
+      # Node.js majors move with the engines field and the CI node version.
+      - dependency-name: node
+        update-types: ['version-update:semver-major']

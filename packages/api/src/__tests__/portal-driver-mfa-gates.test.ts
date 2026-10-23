@@ -54,6 +54,17 @@ function makeChain() {
   return chain;
 }
 
+// The device cookie path is covered in 129-auth-attacks; here a browser without one.
+vi.mock('../lib/device-cookie.js', () => ({
+  knownSignInDevice: vi.fn(() => Promise.resolve(null)),
+  takeDeviceAttempt: vi.fn(() =>
+    Promise.resolve({ granted: true, failures: 1, lockedUntil: null }),
+  ),
+  recordDeviceFailure: vi.fn(() => Promise.resolve()),
+  clearDeviceFailures: vi.fn(() => Promise.resolve()),
+  rememberSignInDevice: vi.fn(() => Promise.resolve()),
+  revokeSignInDevices: vi.fn(() => Promise.resolve()),
+}));
 vi.mock('../lib/phone-change.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/phone-change.js')>()),
   checkPhoneChange: vi.fn(async () => null),
@@ -516,7 +527,9 @@ describe('Portal driver MFA gates', () => {
       });
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('MFA_ENROLLMENT_REQUIRED');
-      expect(revokeRefreshToken).toHaveBeenCalledWith('raw-refresh');
+      expect(revokeRefreshToken).toHaveBeenCalledWith('raw-refresh', {
+        driverId: expect.any(String),
+      });
       expect(validateAndRotateRefreshToken).not.toHaveBeenCalled();
       expect(sessionRefreshTokenDriverId).toHaveBeenCalledWith('raw-refresh', 'device-123');
     });

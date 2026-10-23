@@ -103,6 +103,16 @@ export class ConnectionManager {
     return this.connections.size;
   }
 
+  /** The database ids of the authenticated stations this process holds. */
+  connectedStationDbIds(): string[] {
+    const ids: string[] = [];
+    for (const connection of this.connections.values()) {
+      const id = connection.session.stationDbId;
+      if (id != null) ids.push(id);
+    }
+    return ids;
+  }
+
   allStationIds(): string[] {
     return [...this.connections.keys()];
   }

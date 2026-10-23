@@ -151,6 +151,7 @@ vi.mock('../services/token.service.js', () => {
   class TokenDriverNotFoundError extends Error {}
   class TokenDriverInactiveError extends Error {}
   class PncContractTokenError extends Error {}
+  class VehicleIdTokenInUseError extends Error {}
   return {
     createToken: createTokenMock,
     bulkSetActive: bulkSetActiveMock,
@@ -158,6 +159,7 @@ vi.mock('../services/token.service.js', () => {
     TokenDriverNotFoundError,
     TokenDriverInactiveError,
     PncContractTokenError,
+    VehicleIdTokenInUseError,
     tokenActorOf: (actor: { actorUserId: string | null }) => ({
       type: 'operator',
       userId: actor.actorUserId,

@@ -1,6 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { DEFAULT_DATA_PLAN } from '@evtivity/lib';
+import type { DataPlan } from '@evtivity/lib';
+
 export interface SessionState {
   stationId: string;
   stationDbId: string | null;
@@ -11,6 +14,14 @@ export interface SessionState {
   bootStatus: 'Accepted' | 'Pending' | 'Rejected' | null;
   /** station.Ready was published for this connection. */
   readyAnnounced: boolean;
+  /** The station's effective data plan, read at connect, at each boot and on a plan change. */
+  dataPlan: DataPlan;
+  /** When the last frame (message, ping or pong) arrived on this connection. */
+  lastInboundAt: Date;
+  /** The station answered a CSMS ping on this connection (enables the missed-pong close). */
+  answeredPing: boolean;
+  /** When the CSMS last pinged this connection; unset until the first ping. */
+  lastPingAt?: Date;
   pendingMessages: Map<string, PendingMessage>;
 }
 
@@ -33,6 +44,9 @@ export function createSessionState(stationId: string, ocppProtocol?: string): Se
     authenticated: false,
     bootStatus: null,
     readyAnnounced: false,
+    dataPlan: DEFAULT_DATA_PLAN,
+    lastInboundAt: new Date(),
+    answeredPing: false,
     pendingMessages: new Map(),
   };
 }

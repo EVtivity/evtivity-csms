@@ -50,6 +50,17 @@ function makeChain() {
   return chain;
 }
 
+// The device cookie path is covered in 129-auth-attacks; here a browser without one.
+vi.mock('../lib/device-cookie.js', () => ({
+  knownSignInDevice: vi.fn(() => Promise.resolve(null)),
+  takeDeviceAttempt: vi.fn(() =>
+    Promise.resolve({ granted: true, failures: 1, lockedUntil: null }),
+  ),
+  recordDeviceFailure: vi.fn(() => Promise.resolve()),
+  clearDeviceFailures: vi.fn(() => Promise.resolve()),
+  rememberSignInDevice: vi.fn(() => Promise.resolve()),
+  revokeSignInDevices: vi.fn(() => Promise.resolve()),
+}));
 vi.mock('../lib/sign-in-backoff.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/sign-in-backoff.js')>();
   return {
@@ -418,7 +429,7 @@ describe('Portal auth routes - handler logic', () => {
       expect(cookies.has('portal_refresh')).toBe(false);
     });
 
-    it('returns 500 when insert returns no rows', async () => {
+    it('answers 202 before the account is created, even when the insert returns no rows', async () => {
       setupDbResults([], []);
       const response = await app.inject({
         method: 'POST',
@@ -430,7 +441,7 @@ describe('Portal auth routes - handler logic', () => {
           password: 'TestPassword1',
         },
       });
-      expect(response.statusCode).toBe(500);
+      expect(response.statusCode).toBe(202);
     });
   });
 
@@ -467,8 +478,9 @@ describe('Portal auth routes - handler logic', () => {
     });
 
     it('records a refused login on an inactive driver', async () => {
-      // The active-account lookup finds nothing; the email names an inactive driver.
-      setupDbResults([], [{ id: DRIVER_ID, isActive: false }]);
+      // The active-account lookup finds nothing (then the backoff UPDATE matching no
+      // row); the email names an inactive driver, audited after the answer.
+      setupDbResults([], [], [{ id: DRIVER_ID, isActive: false }]);
       const response = await app.inject({
         method: 'POST',
         url: '/portal/auth/login',
@@ -476,19 +488,21 @@ describe('Portal auth routes - handler logic', () => {
         payload: { email: 'john@example.com', password: 'TestPassword1' },
       });
       expect(response.statusCode).toBe(401);
-      expect(auditCalls()).toEqual([
-        {
-          table: driverAuditLog,
-          args: expect.objectContaining({
-            entityId: DRIVER_ID,
-            action: 'login_failed',
-            actor: 'system',
-            actorLabel: 'login',
-            notes: 'inactive',
-            after: { method: 'password', ip: '127.0.0.1', userAgent: 'portal-test' },
-          }),
-        },
-      ]);
+      await vi.waitFor(() => {
+        expect(auditCalls()).toEqual([
+          {
+            table: driverAuditLog,
+            args: expect.objectContaining({
+              entityId: DRIVER_ID,
+              action: 'login_failed',
+              actor: 'system',
+              actorLabel: 'login',
+              notes: 'inactive',
+              after: { method: 'password', ip: '127.0.0.1', userAgent: 'portal-test' },
+            }),
+          },
+        ]);
+      });
     });
 
     it('returns 401 when driver has no password hash', async () => {

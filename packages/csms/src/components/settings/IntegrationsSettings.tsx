@@ -26,6 +26,7 @@ import { StationMessageSettings } from '@/components/settings/StationMessageSett
 import { PncLocalCaSection } from '@/components/settings/PncLocalCaSection';
 import { FleetCreditReservationSettings } from '@/components/settings/FleetCreditReservationSettings';
 import { SimProvidersSettings } from '@/components/settings/SimProvidersSettings';
+import { OcppDataPlanSettings } from '@/components/settings/OcppDataPlanSettings';
 
 interface IntegrationsSettingsProps {
   settings: Record<string, unknown> | undefined;
@@ -80,21 +81,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   const [sentryEnvironment, setSentryEnvironment] = useState('production');
 
   // OCPP defaults
-  const [ocppHeartbeatInterval, setOcppHeartbeatInterval] = useState('300');
-  const [ocppMeterValueInterval, setOcppMeterValueInterval] = useState('60');
-  const [ocppClockAlignedInterval, setOcppClockAlignedInterval] = useState('900');
   const [ocppConnectionTimeout, setOcppConnectionTimeout] = useState('120');
   const [ocppResetRetries, setOcppResetRetries] = useState('3');
   const [ocppApprovalRequired, setOcppApprovalRequired] = useState(true);
-  const [ocppSampledMeasurands, setOcppSampledMeasurands] = useState(
-    'Energy.Active.Import.Register,Power.Active.Import,Voltage,Temperature,SoC,Current.Import',
-  );
-  const [ocppAlignedMeasurands, setOcppAlignedMeasurands] = useState(
-    'Energy.Active.Import.Register,Power.Active.Import,Voltage,Temperature,SoC,Current.Import',
-  );
-  const [ocppTxEndedMeasurands, setOcppTxEndedMeasurands] = useState(
-    'Energy.Active.Import.Register',
-  );
 
   // PnC
   const { data: pncSettings } = useQuery({
@@ -107,6 +96,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   const [pncHubjectBaseUrl, setPncHubjectBaseUrl] = useState('');
   const [pncHubjectClientId, setPncHubjectClientId] = useState('');
   const [pncHubjectClientSecret, setPncHubjectClientSecret] = useState('');
+  const [loadedPncClientSecret, setLoadedPncClientSecret] = useState('');
   const [pncHubjectTokenUrl, setPncHubjectTokenUrl] = useState('');
   const [pncWarningDays, setPncWarningDays] = useState('30');
   const [pncCriticalDays, setPncCriticalDays] = useState('7');
@@ -126,6 +116,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     setPncHubjectBaseUrl(s('pnc.hubject.baseUrl'));
     setPncHubjectClientId(s('pnc.hubject.clientId'));
     setPncHubjectClientSecret(s('pnc.hubject.clientSecretEnc'));
+    setLoadedPncClientSecret(s('pnc.hubject.clientSecretEnc'));
     setPncHubjectTokenUrl(s('pnc.hubject.tokenUrl'));
     setPncWarningDays(s('pnc.expirationWarningDays') || '30');
     setPncCriticalDays(s('pnc.expirationCriticalDays') || '7');
@@ -187,32 +178,12 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     setSentryDsn(typeof sDsn === 'string' ? sDsn : '');
     const sEnv = settings['sentry.environment'];
     setSentryEnvironment(typeof sEnv === 'string' ? sEnv : 'production');
-    const hbi = settings['ocpp.heartbeatInterval'];
-    setOcppHeartbeatInterval(hbi != null ? Number(hbi).toString() : '300');
-    const mvi = settings['ocpp.meterValueInterval'];
-    setOcppMeterValueInterval(mvi != null ? Number(mvi).toString() : '60');
-    const cai = settings['ocpp.clockAlignedInterval'];
-    setOcppClockAlignedInterval(cai != null ? Number(cai).toString() : '900');
     const ct = settings['ocpp.connectionTimeout'];
     setOcppConnectionTimeout(ct != null ? Number(ct).toString() : '120');
     const rr = settings['ocpp.resetRetries'];
     setOcppResetRetries(rr != null ? Number(rr).toString() : '3');
     const rp = settings['ocpp.registrationPolicy'];
     setOcppApprovalRequired(rp !== 'open');
-    const sm = settings['ocpp.sampledMeasurands'];
-    setOcppSampledMeasurands(
-      typeof sm === 'string'
-        ? sm
-        : 'Energy.Active.Import.Register,Power.Active.Import,Voltage,Temperature,SoC,Current.Import',
-    );
-    const am = settings['ocpp.alignedMeasurands'];
-    setOcppAlignedMeasurands(
-      typeof am === 'string'
-        ? am
-        : 'Energy.Active.Import.Register,Power.Active.Import,Voltage,Temperature,SoC,Current.Import',
-    );
-    const tem = settings['ocpp.txEndedMeasurands'];
-    setOcppTxEndedMeasurands(typeof tem === 'string' ? tem : 'Energy.Active.Import.Register');
   }, [settings]);
 
   // Mutations
@@ -291,23 +262,11 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
   const ocppDefaultsMutation = useMutation({
     mutationFn: (vals: {
-      heartbeatInterval: number;
-      meterValueInterval: number;
-      clockAlignedInterval: number;
-      sampledMeasurands: string;
-      alignedMeasurands: string;
-      txEndedMeasurands: string;
       connectionTimeout: number;
       resetRetries: number;
       approvalRequired: boolean;
     }) =>
       Promise.all([
-        api.put('/v1/settings/ocpp.heartbeatInterval', { value: vals.heartbeatInterval }),
-        api.put('/v1/settings/ocpp.meterValueInterval', { value: vals.meterValueInterval }),
-        api.put('/v1/settings/ocpp.clockAlignedInterval', { value: vals.clockAlignedInterval }),
-        api.put('/v1/settings/ocpp.sampledMeasurands', { value: vals.sampledMeasurands }),
-        api.put('/v1/settings/ocpp.alignedMeasurands', { value: vals.alignedMeasurands }),
-        api.put('/v1/settings/ocpp.txEndedMeasurands', { value: vals.txEndedMeasurands }),
         api.put('/v1/settings/ocpp.connectionTimeout', { value: vals.connectionTimeout }),
         api.put('/v1/settings/ocpp.resetRetries', { value: vals.resetRetries }),
         api.put('/v1/settings/ocpp.registrationPolicy', {
@@ -396,7 +355,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
       provider: string;
       hubjectBaseUrl: string;
       hubjectClientId: string;
-      hubjectClientSecret: string;
+      hubjectClientSecret?: string;
       hubjectTokenUrl: string;
       expirationWarningDays: number;
       expirationCriticalDays: number;
@@ -443,127 +402,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
         <TabsTrigger value="sentry">{t('settings.sentry')}</TabsTrigger>
       </TabsList>
       <TabsContent value="ocppDefaults" className="mt-4 space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('settings.ocppStationConfigTitle')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {t('settings.ocppStationConfigDescription')}
-            </p>
-            <div className="grid gap-4 max-w-lg">
-              <div className="grid gap-2">
-                <Label htmlFor="ocpp-meter-value">{t('settings.ocppMeterValueInterval')}</Label>
-                <Input
-                  id="ocpp-meter-value"
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={ocppMeterValueInterval}
-                  onChange={(e) => {
-                    setOcppMeterValueInterval(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.ocppMeterValueIntervalHelp')}
-                </p>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="ocpp-clock-aligned">{t('settings.ocppClockAlignedInterval')}</Label>
-                <Input
-                  id="ocpp-clock-aligned"
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={ocppClockAlignedInterval}
-                  onChange={(e) => {
-                    setOcppClockAlignedInterval(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.ocppClockAlignedIntervalHelp')}
-                </p>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="ocpp-sampled-measurands">
-                  {t('settings.ocppSampledMeasurands')}
-                </Label>
-                <Input
-                  id="ocpp-sampled-measurands"
-                  type="text"
-                  value={ocppSampledMeasurands}
-                  onChange={(e) => {
-                    setOcppSampledMeasurands(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.ocppSampledMeasurandsHelp')}
-                </p>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="ocpp-aligned-measurands">
-                  {t('settings.ocppAlignedMeasurands')}
-                </Label>
-                <Input
-                  id="ocpp-aligned-measurands"
-                  type="text"
-                  value={ocppAlignedMeasurands}
-                  onChange={(e) => {
-                    setOcppAlignedMeasurands(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.ocppAlignedMeasurandsHelp')}
-                </p>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="ocpp-tx-ended-measurands">
-                  {t('settings.ocppTxEndedMeasurands')}
-                </Label>
-                <Input
-                  id="ocpp-tx-ended-measurands"
-                  type="text"
-                  value={ocppTxEndedMeasurands}
-                  onChange={(e) => {
-                    setOcppTxEndedMeasurands(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.ocppTxEndedMeasurandsHelp')}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('settings.ocppBootResponseTitle')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {t('settings.ocppBootResponseDescription')}
-            </p>
-            <div className="grid gap-4 max-w-lg">
-              <div className="grid gap-2">
-                <Label htmlFor="ocpp-heartbeat">{t('settings.ocppHeartbeatInterval')}</Label>
-                <Input
-                  id="ocpp-heartbeat"
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={ocppHeartbeatInterval}
-                  onChange={(e) => {
-                    setOcppHeartbeatInterval(e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('settings.ocppHeartbeatIntervalHelp')}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <OcppDataPlanSettings settings={settings} />
 
         <Card>
           <CardHeader>
@@ -632,19 +471,10 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
           isPending={ocppDefaultsMutation.isPending}
           type="button"
           onClick={() => {
-            const hb = parseInt(ocppHeartbeatInterval, 10);
-            const mv = parseInt(ocppMeterValueInterval, 10);
-            const ca = parseInt(ocppClockAlignedInterval, 10);
             const ct = parseInt(ocppConnectionTimeout, 10);
             const rr = parseInt(ocppResetRetries, 10);
-            if (!isNaN(hb) && !isNaN(mv) && !isNaN(ca) && !isNaN(ct) && !isNaN(rr)) {
+            if (!isNaN(ct) && !isNaN(rr)) {
               ocppDefaultsMutation.mutate({
-                heartbeatInterval: hb,
-                meterValueInterval: mv,
-                clockAlignedInterval: ca,
-                sampledMeasurands: ocppSampledMeasurands,
-                alignedMeasurands: ocppAlignedMeasurands,
-                txEndedMeasurands: ocppTxEndedMeasurands,
                 connectionTimeout: ct,
                 resetRetries: rr,
                 approvalRequired: ocppApprovalRequired,
@@ -824,8 +654,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                           setPncHubjectClientSecret(e.target.value);
                         }}
                         placeholder={
-                          typeof pncSettings['pnc.hubject.clientSecretEnc'] === 'string' &&
-                          pncSettings['pnc.hubject.clientSecretEnc'] !== ''
+                          pncSettings['pnc.hubject.clientSecretConfigured'] === true
                             ? '********'
                             : ''
                         }
@@ -857,7 +686,11 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                         provider: pncProvider,
                         hubjectBaseUrl: pncHubjectBaseUrl,
                         hubjectClientId: pncHubjectClientId,
-                        hubjectClientSecret: pncHubjectClientSecret,
+                        // Sent only when typed: the GET returns the stored
+                        // secret only with settings.system:read (P12).
+                        ...(pncHubjectClientSecret !== loadedPncClientSecret
+                          ? { hubjectClientSecret: pncHubjectClientSecret }
+                          : {}),
                         hubjectTokenUrl: pncHubjectTokenUrl,
                         expirationWarningDays: Number(pncWarningDays),
                         expirationCriticalDays: Number(pncCriticalDays),

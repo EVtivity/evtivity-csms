@@ -71,6 +71,11 @@ vi.mock('@evtivity/services/station-message.service', () => ({
 // New stations get their bound config template (the helper is covered by
 // the import integration test).
 const mockCreateTemplate = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('@evtivity/services/station-data-plan.service', () => ({
+  snapshotStationDataPlansByOcppIds: vi.fn().mockResolvedValue(new Map()),
+  pushStationDataPlanChanges: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('../lib/station-config-template.js', () => ({
   createStationConfigTemplate: mockCreateTemplate,
 }));

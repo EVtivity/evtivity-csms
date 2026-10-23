@@ -10,7 +10,6 @@ import { CancelButton } from '@/components/cancel-button';
 import { EditButton } from '@/components/edit-button';
 import { PushButton } from '@/components/push-button';
 import { RemoveButton } from '@/components/remove-button';
-import { RemoveIconButton } from '@/components/remove-icon-button';
 import { SaveButton } from '@/components/save-button';
 import { TargetFilterFields, type TargetFilterValue } from '@/components/TargetFilterFields';
 import { Button } from '@/components/ui/button';
@@ -18,7 +17,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -27,16 +25,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { isDataPlan } from '@evtivity/lib/station-data-plan';
 import { api } from '@/lib/api';
-import { OCPP_16_KEYS, OCPP_21_VARIABLES } from '@/lib/ocpp-variables';
+import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { useHasAllSiteAccess } from '@/lib/auth';
-
-interface TemplateVariable {
-  component: string;
-  variable: string;
-  value: string;
-}
+import {
+  TemplateVariableRows,
+  duplicateVariableIndexes,
+  isBootOwnedRefusal,
+  templateVariablesForSave,
+} from '@/components/config-template/TemplateVariableRows';
+import type { TemplateVariable } from '@/components/config-template/TemplateVariableRows';
 
 export interface TemplateDetail {
   id: string;
@@ -107,12 +107,7 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
       description?: string;
       ocppVersion?: OcppVersion;
       variables?: TemplateVariable[];
-      targetFilter?: {
-        siteId?: string;
-        vendorId?: string;
-        model?: string;
-        stationId?: string;
-      } | null;
+      targetFilter?: TargetFilterValue | null;
     }) => api.patch(`/v1/config-templates/${id}`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['config-templates', id] });
@@ -154,6 +149,9 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (!editName.trim()) errors.editName = t('validation.required');
+    if (duplicateVariableIndexes(editVariables, editOcppVersion).size > 0) {
+      errors.variables = t('configTemplates.duplicateVariable');
+    }
     return errors;
   }
 
@@ -173,30 +171,17 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
       ...(template.targetFilter?.stationId != null
         ? { stationId: template.targetFilter.stationId }
         : {}),
+      ...(isDataPlan(template.targetFilter?.dataPlan)
+        ? { dataPlan: template.targetFilter.dataPlan }
+        : {}),
     });
     setHasSubmitted(false);
+    updateMutation.reset();
     setEditing(true);
   }
 
   function addVariable(): void {
     setEditVariables((prev) => [...prev, { component: '', variable: '', value: '' }]);
-  }
-
-  function updateVariable(index: number, field: keyof TemplateVariable, val: string): void {
-    setEditVariables((prev) => {
-      const next = [...prev];
-      const existing = next[index];
-      if (existing != null) {
-        const updated = { ...existing, [field]: val };
-        if (field === 'component') updated.variable = '';
-        next[index] = updated;
-      }
-      return next;
-    });
-  }
-
-  function removeVariable(index: number): void {
-    setEditVariables((prev) => prev.filter((_, i) => i !== index));
   }
 
   function handleEditVersionChange(version: OcppVersion): void {
@@ -224,8 +209,11 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
     (template.targetFilter.siteId != null ||
       template.targetFilter.vendorId != null ||
       template.targetFilter.model != null ||
-      template.targetFilter.stationId != null);
-  const componentNames = Object.keys(OCPP_21_VARIABLES).sort();
+      template.targetFilter.stationId != null ||
+      isDataPlan(template.targetFilter.dataPlan));
+  const hasInstances = variables.some(
+    (v) => v.variableInstance != null && v.variableInstance !== '',
+  );
   // A template bound to a station targets that station only: its target
   // filter is not editable (the API refuses it).
   const isStationTemplate = template.stationId != null;
@@ -296,10 +284,7 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                 } = {
                   name: editName,
                   ocppVersion: editOcppVersion,
-                  variables:
-                    editOcppVersion === '1.6'
-                      ? editVariables.filter((v) => v.variable)
-                      : editVariables.filter((v) => v.component && v.variable),
+                  variables: templateVariablesForSave(editVariables, editOcppVersion),
                 };
                 if (editDescription !== '') body.description = editDescription;
                 if (!isStationTemplate) {
@@ -378,87 +363,14 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                     {t('configTemplates.addVariable')}
                   </Button>
                 </div>
-                {editVariables.map((v, i) =>
-                  editOcppVersion === '1.6' ? (
-                    <div key={i} className="grid grid-cols-2 gap-2 items-end">
-                      <Select
-                        aria-label={t('configTemplates.selectKey')}
-                        value={v.variable}
-                        onChange={(e) => {
-                          updateVariable(i, 'variable', e.target.value);
-                        }}
-                      >
-                        <option value="">{t('configTemplates.selectKey')}</option>
-                        {OCPP_16_KEYS.map((key) => (
-                          <option key={key} value={key}>
-                            {key}
-                          </option>
-                        ))}
-                      </Select>
-                      <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-                        <Input
-                          placeholder={t('common.value')}
-                          value={v.value}
-                          onChange={(e) => {
-                            updateVariable(i, 'value', e.target.value);
-                          }}
-                        />
-                        <RemoveIconButton
-                          title={t('common.delete')}
-                          onClick={() => {
-                            removeVariable(i);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ) : (
-                    <div key={i} className="grid grid-cols-3 gap-2 items-end">
-                      <Input
-                        list={`detail-comp-suggestions-${String(i)}`}
-                        aria-label={t('configTemplates.selectComponent')}
-                        placeholder={t('configTemplates.selectComponent')}
-                        value={v.component}
-                        onChange={(e) => {
-                          updateVariable(i, 'component', e.target.value);
-                        }}
-                      />
-                      <datalist id={`detail-comp-suggestions-${String(i)}`}>
-                        {componentNames.map((c) => (
-                          <option key={c} value={c} />
-                        ))}
-                      </datalist>
-                      <Input
-                        list={`detail-var-suggestions-${String(i)}`}
-                        aria-label={t('configTemplates.selectVariable')}
-                        placeholder={t('configTemplates.selectVariable')}
-                        value={v.variable}
-                        onChange={(e) => {
-                          updateVariable(i, 'variable', e.target.value);
-                        }}
-                      />
-                      <datalist id={`detail-var-suggestions-${String(i)}`}>
-                        {(OCPP_21_VARIABLES[v.component] ?? []).map((varName) => (
-                          <option key={varName} value={varName} />
-                        ))}
-                      </datalist>
-                      <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-                        <Input
-                          placeholder={t('common.value')}
-                          value={v.value}
-                          onChange={(e) => {
-                            updateVariable(i, 'value', e.target.value);
-                          }}
-                        />
-                        <RemoveIconButton
-                          title={t('common.delete')}
-                          onClick={() => {
-                            removeVariable(i);
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ),
-                )}
+                <TemplateVariableRows
+                  idPrefix="detail"
+                  ocppVersion={editOcppVersion}
+                  variables={editVariables}
+                  onChange={setEditVariables}
+                  bootOwnedRefused={isBootOwnedRefusal(updateMutation.error)}
+                  showDuplicates={hasSubmitted}
+                />
               </div>
 
               {!isStationTemplate && (
@@ -468,7 +380,14 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                   value={editFilter}
                   onChange={setEditFilter}
                   idPrefix="ct-edit-filter"
+                  showDataPlan
                 />
+              )}
+
+              {updateMutation.isError && (
+                <p className="text-sm text-destructive">
+                  {getErrorMessage(updateMutation.error, t)}
+                </p>
               )}
 
               <div className="flex justify-end gap-2">
@@ -528,6 +447,14 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                         </dd>
                       </div>
                     )}
+                    {isDataPlan(template.targetFilter?.dataPlan) && (
+                      <div>
+                        <dt className="text-muted-foreground">{t('dataPlan.title')}</dt>
+                        <dd className="font-medium">
+                          {t(`dataPlan.plans.${template.targetFilter.dataPlan}`)}
+                        </dd>
+                      </div>
+                    )}
                   </>
                 )}
               </dl>
@@ -553,6 +480,9 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                               ? t('configTemplates.configKey')
                               : t('configTemplates.variable')}
                           </TableHead>
+                          {templateVersion !== '1.6' && hasInstances && (
+                            <TableHead>{t('configTemplates.variableInstance')}</TableHead>
+                          )}
                           <TableHead>{t('common.value')}</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -563,6 +493,9 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                               <TableCell className="text-xs">{v.component}</TableCell>
                             )}
                             <TableCell className="text-xs">{v.variable}</TableCell>
+                            {templateVersion !== '1.6' && hasInstances && (
+                              <TableCell className="text-xs">{v.variableInstance ?? ''}</TableCell>
+                            )}
                             <TableCell className="text-xs">{v.value}</TableCell>
                           </TableRow>
                         ))}
@@ -600,8 +533,13 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
         isPending={pushMutation.isPending}
         onConfirm={() => {
           pushMutation.mutate();
+          return false;
         }}
-      />
+      >
+        {pushMutation.isError && (
+          <p className="text-sm text-destructive">{getErrorMessage(pushMutation.error, t)}</p>
+        )}
+      </ConfirmDialog>
       <ConfirmDialog
         open={duplicateOpen}
         onOpenChange={setDuplicateOpen}

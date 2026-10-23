@@ -569,6 +569,12 @@ describe('createFleetInvoice', () => {
     await expect(createFleetInvoice('flt_1', '2026-11', now)).rejects.toMatchObject({
       code: 'VALIDATION_ERROR',
     });
+    // The running month is refused too; its invoice would take the
+    // month's slot and leave the rest of the month unbilled.
+    await expect(createFleetInvoice('flt_1', '2026-10', now)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      statusCode: 400,
+    });
     h.state.fleet = null;
     await expect(createFleetInvoice('flt_x', '2026-09', now)).rejects.toMatchObject({
       code: 'FLEET_NOT_FOUND',

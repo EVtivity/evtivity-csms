@@ -930,7 +930,7 @@ describe('Driver routes (operator)', () => {
       const driverToken = makeToken({ idToken: 'RFID-XYZ' });
       // tokenService.createToken: dup-check (empty) -> the driver (active)
       // -> insert returning
-      setupDbResults([], [{ isActive: true }], [driverToken]);
+      setupDbResults([], [{ isActive: true }], [], [driverToken]);
 
       const res = await app.inject({
         method: 'POST',

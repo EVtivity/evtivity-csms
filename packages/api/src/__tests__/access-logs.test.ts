@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi, beforeEach, type Mock } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -148,20 +148,28 @@ describe('Access log routes', () => {
       expect(response.statusCode).toBe(400);
     });
 
-    it('returns 201 with action="login" and sets category to auth', async () => {
+    it('stores a client-posted login as a client-reported action, never an auth entry', async () => {
       setupDbResults([]);
+      vi.mocked(db.insert).mockClear();
       const response = await app.inject({
         method: 'POST',
         url: '/access-logs',
         headers: { authorization: `Bearer ${operatorToken}` },
-        payload: { action: 'login' },
+        payload: { action: 'login', metadata: { category: 'auth', clientReported: false } },
       });
       expect(response.statusCode).toBe(201);
       expect(response.json()).toEqual({ success: true });
-      expect(db.insert).toHaveBeenCalled();
+      const chain = vi.mocked(db.insert).mock.results[0]?.value as { values: Mock };
+      expect(chain.values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'login',
+          category: 'action',
+          metadata: { category: 'auth', clientReported: true },
+        }),
+      );
     });
 
-    it('returns 201 with action="logout" and sets category to auth', async () => {
+    it('returns 201 with action="logout"', async () => {
       setupDbResults([]);
       const response = await app.inject({
         method: 'POST',
@@ -218,8 +226,9 @@ describe('Access log routes', () => {
       expect(response.statusCode).toBe(403);
     });
 
-    it('returns 201 with valid driver token', async () => {
+    it('returns 201 with valid driver token and marks the row client-reported', async () => {
       setupDbResults([]);
+      vi.mocked(db.insert).mockClear();
       const response = await app.inject({
         method: 'POST',
         url: '/portal/access-logs',
@@ -228,7 +237,10 @@ describe('Access log routes', () => {
       });
       expect(response.statusCode).toBe(201);
       expect(response.json()).toEqual({ success: true });
-      expect(db.insert).toHaveBeenCalled();
+      const chain = vi.mocked(db.insert).mock.results[0]?.value as { values: Mock };
+      expect(chain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'portal', metadata: { clientReported: true } }),
+      );
     });
   });
 

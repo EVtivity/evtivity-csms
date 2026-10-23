@@ -4,7 +4,8 @@
 import 'reflect-metadata';
 import { webcrypto } from 'node:crypto';
 import * as x509 from '@peculiar/x509';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, readBodyPrefix, readCappedBody, safeFetch } from '@evtivity/lib';
+import type { SafeFetchInit, SafeFetchResponse } from '@evtivity/lib';
 import type {
   PkiProvider,
   SignCsrResult,
@@ -14,8 +15,25 @@ import type {
   OcspResult,
 } from './pki-provider.js';
 import { getOcspResultForStation } from './ocsp.js';
+import { ManualProvider } from './manual-provider.js';
 
 const logger = createLogger('hubject-provider');
+
+/** True when the first certificate of the chain carries the public key of the CSR. */
+function leafCertifiesCsrKey(chainPem: string, csrPem: string): boolean {
+  try {
+    const leafPem = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/.exec(
+      chainPem,
+    )?.[0];
+    if (leafPem == null) return false;
+    const leaf = new x509.X509Certificate(leafPem);
+    const csr = new x509.Pkcs10CertificateRequest(csrPem);
+    return Buffer.from(leaf.publicKey.rawData).equals(Buffer.from(csr.publicKey.rawData));
+  } catch {
+    // fail-open: an unreadable leaf or CSR is not a match, so the signing is refused
+    return false;
+  }
+}
 
 x509.cryptoProvider.set(webcrypto as unknown as Crypto);
 
@@ -59,16 +77,33 @@ export function estResponseToPemChain(body: string): string {
 // with a timeout, and a slow upstream pins worker capacity.
 const HUBJECT_TIMEOUT_MS = 30_000;
 
-async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+// Every Hubject call goes through safeFetch: the operator sets the base and
+// token URLs, and the token request carries the client secret, so the address
+// the host resolves to is checked at connect time and redirects are refused.
+// The API checks both URLs on save as well (validateHubjectUrl).
+async function fetchWithTimeout(url: string, init: SafeFetchInit): Promise<SafeFetchResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => {
     controller.abort();
   }, HUBJECT_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await safeFetch(url, { ...init, redirect: 'error', signal: controller.signal });
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Largest Hubject reply read: a token, an EST bundle or a JSON answer. */
+export const HUBJECT_MAX_RESPONSE_BYTES = 1024 * 1024;
+/** Bytes of a Hubject error reply kept for the error message and the log. */
+export const HUBJECT_ERROR_BODY_BYTES = 2048;
+
+async function readText(response: SafeFetchResponse): Promise<string> {
+  return (await readCappedBody(response, HUBJECT_MAX_RESPONSE_BYTES)).toString('utf8');
+}
+
+async function readJson(response: SafeFetchResponse): Promise<unknown> {
+  return JSON.parse(await readText(response)) as unknown;
 }
 
 interface HubjectConfig {
@@ -109,11 +144,11 @@ export class HubjectProvider implements PkiProvider {
     });
 
     if (!response.ok) {
-      const text = await response.text();
+      const text = await readBodyPrefix(response, HUBJECT_ERROR_BODY_BYTES);
       throw new Error(`Hubject OAuth2 token request failed: ${String(response.status)} ${text}`);
     }
 
-    const data = (await response.json()) as { access_token: string; expires_in: number };
+    const data = (await readJson(response)) as { access_token: string; expires_in: number };
     this.tokenCache = {
       accessToken: data.access_token,
       expiresAt: Date.now() + data.expires_in * 1000,
@@ -124,6 +159,9 @@ export class HubjectProvider implements PkiProvider {
   }
 
   async signCsr(csr: string, certificateType: string): Promise<SignCsrResult> {
+    // Hubject signs V2G certificates only. A station TLS certificate becomes
+    // the SP3 client certificate, so it stays with the operator.
+    if (certificateType === 'ChargingStationCertificate') return new ManualProvider().signCsr();
     const token = await this.getAccessToken();
     const url = `${this.config.baseUrl}/.well-known/est/simpleenroll`;
 
@@ -141,13 +179,17 @@ export class HubjectProvider implements PkiProvider {
     });
 
     if (!response.ok) {
-      const text = await response.text();
+      const text = await readBodyPrefix(response, HUBJECT_ERROR_BODY_BYTES);
       throw new Error(`Hubject CSR signing failed: ${String(response.status)} ${text}`);
     }
 
     // RFC 7030 4.2.3: a certs-only PKCS#7 (CMS SignedData), base64 encoded.
     // OCPP CertificateSigned needs a PEM chain starting at the leaf.
-    const certificateChain = estResponseToPemChain(await response.text());
+    const certificateChain = estResponseToPemChain(await readText(response));
+    // The leaf must certify the key of the CSR the station sent.
+    if (!leafCertifiesCsrKey(certificateChain, csr)) {
+      throw new Error('Hubject EST response leaf does not carry the public key of the CSR');
+    }
     logger.info({ certificateType }, 'CSR signed via Hubject EST simpleenroll');
 
     return {
@@ -170,12 +212,12 @@ export class HubjectProvider implements PkiProvider {
     });
 
     if (!response.ok) {
-      const text = await response.text();
+      const text = await readBodyPrefix(response, HUBJECT_ERROR_BODY_BYTES);
       logger.error({ status: response.status, body: text }, 'Hubject contract cert request failed');
       return { status: 'Failed', exiResponse: '' };
     }
 
-    const data = (await response.json()) as { exiResponse: string };
+    const data = (await readJson(response)) as { exiResponse: string };
     logger.info('Contract certificate retrieved from Hubject');
 
     return { status: 'Accepted', exiResponse: data.exiResponse };
@@ -200,12 +242,12 @@ export class HubjectProvider implements PkiProvider {
     });
 
     if (!response.ok) {
-      const text = await response.text();
+      const text = await readBodyPrefix(response, HUBJECT_ERROR_BODY_BYTES);
       throw new Error(`Hubject root cert fetch failed: ${String(response.status)} ${text}`);
     }
 
     // RFC 7030 4.1.3: a certs-only PKCS#7, base64 encoded (PEM also accepted).
-    const certs = estCertificates(await response.text());
+    const certs = estCertificates(await readText(response));
 
     logger.info({ count: certs.length, type }, 'Root certificates fetched from Hubject');
     return certs;

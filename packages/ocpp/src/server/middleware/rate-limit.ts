@@ -8,11 +8,17 @@
  */
 
 export const DEFAULT_MAX_MESSAGES_PER_SECOND = 50;
+/**
+ * Inbound bytes per station per second. A frame can be 1 MiB, so 50
+ * frames a second could carry 50 MiB; past this budget a frame is refused like
+ * one past the frame limit.
+ */
+export const DEFAULT_MAX_BYTES_PER_SECOND = 2 * 1024 * 1024;
 const WINDOW_MS = 1000;
 const CLEANUP_INTERVAL_MS = 60_000;
 const STALE_THRESHOLD_MS = 300_000;
 
-const stationCounters = new Map<string, { count: number; windowStart: number }>();
+const stationCounters = new Map<string, { count: number; bytes: number; windowStart: number }>();
 
 // Periodic cleanup of stale entries from disconnected stations
 setInterval(() => {
@@ -29,19 +35,28 @@ export interface StationRateCheck {
   allowed: boolean;
   /** Frames counted in the current window, this one included. */
   count: number;
+  /** Set when the frame is refused for the byte budget, not the frame count. */
+  reason?: 'bytes';
 }
 
-/** Counts one inbound frame of a station against its per-second limit. */
+/** Counts one inbound frame of a station against its per-second limits. */
 export function consumeStationMessage(
   stationId: string,
   maxPerSecond: number = DEFAULT_MAX_MESSAGES_PER_SECOND,
+  frameBytes = 0,
+  maxBytesPerSecond: number = DEFAULT_MAX_BYTES_PER_SECOND,
 ): StationRateCheck {
   const now = Date.now();
   let counter = stationCounters.get(stationId);
   if (counter == null || now - counter.windowStart >= WINDOW_MS) {
-    counter = { count: 0, windowStart: now };
+    counter = { count: 0, bytes: 0, windowStart: now };
     stationCounters.set(stationId, counter);
   }
   counter.count++;
-  return { allowed: counter.count <= maxPerSecond, count: counter.count };
+  counter.bytes += frameBytes;
+  if (counter.count > maxPerSecond) return { allowed: false, count: counter.count };
+  if (counter.bytes > maxBytesPerSecond) {
+    return { allowed: false, count: counter.count, reason: 'bytes' };
+  }
+  return { allowed: true, count: counter.count };
 }

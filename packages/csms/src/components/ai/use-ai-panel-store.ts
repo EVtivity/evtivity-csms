@@ -43,6 +43,8 @@ interface AiPanelState {
   close: (reason?: AiPanelCloseReason) => void;
   /** Clears a handled request so a later plain open starts a normal chat. */
   clearRequest: () => void;
+  /** Closes the panel and forgets its request, without moving focus (sign-out). */
+  reset: () => void;
 }
 
 function focusedElement(): HTMLElement | null {
@@ -84,5 +86,8 @@ export const useAiPanelStore = create<AiPanelState>((set, get) => ({
   },
   clearRequest: () => {
     set({ request: null });
+  },
+  reset: () => {
+    set({ open: false, request: null, returnFocus: null });
   },
 }));

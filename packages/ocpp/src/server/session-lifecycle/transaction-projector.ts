@@ -21,6 +21,7 @@ import {
   sessionIdleMinutesAt,
   pgConnectionErrorKind,
   SESSION_END_FAILED_REASON,
+  findVehicleIdOwners,
 } from '@evtivity/database';
 import type { TariffPriceSnapshot } from '@evtivity/database';
 import {
@@ -29,6 +30,8 @@ import {
   sessionSiteIdSql,
 } from '@evtivity/database';
 import { linkGuestSessionToCharging, withPaymentActor } from '@evtivity/payments';
+import { cardMayAuthorizeVehicleId, isVehicleIdType } from '@evtivity/lib/vehicle-id';
+import { findLinkableStationTokens } from '../../authorization/station-token-match.js';
 import type { ProjectionDeps } from '../projection-support/context.js';
 import type { ProjectionAttempt } from '../projection-retry.js';
 import { linkStartedReservation, markReservationUsed } from '../reservation-projections.js';
@@ -125,6 +128,7 @@ interface StartedContext {
   driverUuid: string | null;
   isRoamingSession: boolean;
   guestStatus: string | null;
+  guestHasHold: boolean;
   guestEmail: string | null;
   guestLanguage: string | null;
   tokenLookup: {
@@ -689,6 +693,7 @@ export class TransactionProjector {
         `;
     const isRoamingSession = initialRoamRows[0]?.is_roaming === true;
     let guestStatus: string | null = null;
+    let guestHasHold = false;
     let guestEmail: string | null = null;
     let guestLanguage: string | null = null;
     let tokenLookup: {
@@ -725,17 +730,29 @@ export class TransactionProjector {
       // driver_id was pre-set by the API (e.g. portal-authenticated start).
       // The link is what powers the "Token" row on the session detail.
       if (idTokenValue != null) {
-        const tokenRows = await this.deps.sql`
-              SELECT id, driver_id, prepaid_balance_cents FROM driver_tokens
-              WHERE id_token = ${idTokenValue} AND is_active = true
-              LIMIT 1
-            `;
-        const r = tokenRows[0];
+        // The station token rule Authorize matches by (`stationTokenCondition`).
+        // A vehicle id the charger sends typed (2.x VIN, EVCCID, MacAddress)
+        // links only a token of that type, so a card of another type with
+        // the same value never takes over an Autocharge session. Other types
+        // link by value: a 1.6 transaction event names ISO14443 for any idTag.
+        const sentType = payload.tokenType as string | undefined;
+        const tokenType = isVehicleIdType(sentType) ? sentType : undefined;
+        const tokenRows = await findLinkableStationTokens(idTokenValue, tokenType);
+        // The Authorize precedence: a vehicle id the charger sent links a card
+        // only of a driver of a vehicle holding it, or when no vehicle does,
+        // so another driver's old card never takes the car's session.
+        const owners =
+          tokenRows.length > 0 &&
+          vehicleCapture != null &&
+          vehicleCapture.source !== 'additional_info'
+            ? await findVehicleIdOwners(vehicleCapture)
+            : [];
+        const r = tokenRows.find((row) => cardMayAuthorizeVehicleId(row.driverId, owners));
         if (r != null) {
           tokenLookup = await this.linkDriverToken(sessionId, {
-            id: r.id as string,
-            driverId: (r.driver_id as string | null) ?? null,
-            prepaid: r.prepaid_balance_cents != null,
+            id: r.id,
+            driverId: r.driverId,
+            prepaid: r.prepaidBalanceCents != null,
           });
         }
       }
@@ -772,6 +789,7 @@ export class TransactionProjector {
           const guest = await this.linkGuestSession(sessionId, stationId, idTokenValue);
           if (guest != null) {
             guestStatus = guest.status;
+            guestHasHold = guest.hasHold;
             guestEmail = guest.email;
             guestLanguage = guest.language;
           }
@@ -861,6 +879,7 @@ export class TransactionProjector {
       driverUuid,
       isRoamingSession,
       guestStatus,
+      guestHasHold,
       guestEmail,
       guestLanguage,
       tokenLookup,
@@ -917,7 +936,12 @@ export class TransactionProjector {
     sessionId: string,
     stationId: string,
     idToken: string,
-  ): Promise<{ status: string; email: string | null; language: string | null } | null> {
+  ): Promise<{
+    status: string;
+    hasHold: boolean;
+    email: string | null;
+    language: string | null;
+  } | null> {
     const guestRows = await this.deps.sql`
       SELECT status, guest_email, language, pre_auth_amount_cents, provider_payment_id,
              max_cost_cents, charging_session_id
@@ -960,6 +984,7 @@ export class TransactionProjector {
     }
     return {
       status,
+      hasHold: guest.provider_payment_id != null,
       email: (guest.guest_email as string | null) ?? null,
       language: (guest.language as string | null | undefined) ?? null,
     };
@@ -1086,6 +1111,7 @@ export class TransactionProjector {
                  (SELECT COALESCE(ot.is_valid, (oc.token_data->>'valid') IS DISTINCT FROM 'false')
                   FROM ocpi_commands oc
                   JOIN ocpi_partners op ON op.id = oc.partner_id AND op.status = 'connected'
+                    AND op.approved_roles ?| array['EMSP', 'HUB']
                   LEFT JOIN ocpi_external_tokens ot
                     ON ot.partner_id = oc.partner_id AND ot.uid = oc.token_uid
                   WHERE oc.command_type = 'START_SESSION'
@@ -1099,6 +1125,7 @@ export class TransactionProjector {
                  (SELECT count(*) = 1
                   FROM ocpi_external_tokens ot
                   JOIN ocpi_partners op ON op.id = ot.partner_id AND op.status = 'connected'
+                    AND op.approved_roles ?| array['EMSP', 'HUB']
                   WHERE ot.uid = ${idTokenValue} AND ot.is_valid AND ot.whitelist <> 'NEVER'),
                  false
                ) AS roaming
@@ -1151,7 +1178,12 @@ export class TransactionProjector {
     let tokenLookup: StartedContext['tokenLookup'] = null;
     let driverUuid: string | null = null;
     let isRoaming = false;
-    let guest: { status: string; email: string | null; language: string | null } | null = null;
+    let guest: {
+      status: string;
+      hasHold: boolean;
+      email: string | null;
+      language: string | null;
+    } | null = null;
     let autochargeVehicleId: string | null = null;
     const autocharge =
       pending.remoteStartDriverId == null && pending.token == null
@@ -1274,6 +1306,7 @@ export class TransactionProjector {
           isRoaming,
           idToken: idTokenValue ?? undefined,
           guestStatus: guest?.status ?? null,
+          guestHasHold: guest?.hasHold ?? false,
           guestEmail: guest?.email ?? null,
           guestLanguage: guest?.language ?? null,
           prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,
@@ -1450,6 +1483,7 @@ export class TransactionProjector {
       driverUuid,
       isRoamingSession,
       guestStatus,
+      guestHasHold,
       guestEmail,
       guestLanguage,
       tokenLookup,
@@ -1572,6 +1606,7 @@ export class TransactionProjector {
               isRoaming: isRoamingSession,
               idToken: payload.idToken as string | undefined,
               guestStatus,
+              guestHasHold,
               guestEmail,
               guestLanguage,
               prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,

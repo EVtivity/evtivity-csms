@@ -14,7 +14,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
-import { DRIVER_ID_TOKEN_TYPES, type DriverIdTokenType } from '@evtivity/lib/id-token-types';
+import { PORTAL_ID_TOKEN_TYPES, type PortalIdTokenType } from '@evtivity/lib/id-token-types';
 
 interface DriverToken {
   id: string;
@@ -43,7 +43,7 @@ export function AccountRfidCards(): React.JSX.Element {
   const { toast } = useToast();
   const [addOpen, setAddOpen] = useState(false);
   const [newToken, setNewToken] = useState('');
-  const [newTokenType, setNewTokenType] = useState<DriverIdTokenType>('ISO14443');
+  const [newTokenType, setNewTokenType] = useState<PortalIdTokenType>('ISO14443');
   const [addError, setAddError] = useState('');
   const [confirmDeactivate, setConfirmDeactivate] = useState<DriverToken | null>(null);
 
@@ -53,7 +53,7 @@ export function AccountRfidCards(): React.JSX.Element {
   });
 
   const addMutation = useMutation({
-    mutationFn: (body: { idToken: string; tokenType: DriverIdTokenType }) =>
+    mutationFn: (body: { idToken: string; tokenType: PortalIdTokenType }) =>
       api.post<DriverToken>('/v1/portal/tokens', body),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['portal-tokens'] });
@@ -167,11 +167,11 @@ export function AccountRfidCards(): React.JSX.Element {
           <Select
             value={newTokenType}
             onChange={(e) => {
-              setNewTokenType(e.target.value as DriverIdTokenType);
+              setNewTokenType(e.target.value as PortalIdTokenType);
             }}
             aria-label={t('rfid.tokenType')}
           >
-            {DRIVER_ID_TOKEN_TYPES.map((tt) => (
+            {PORTAL_ID_TOKEN_TYPES.map((tt) => (
               <option key={tt} value={tt}>
                 {tt}
               </option>

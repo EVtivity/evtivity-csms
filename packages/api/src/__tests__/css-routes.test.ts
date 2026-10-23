@@ -54,6 +54,11 @@ function makeChain() {
   return chain;
 }
 
+// The OCPP server URL the simulator targets of this file are on.
+vi.hoisted(() => {
+  process.env['OCPP_SERVER_URL'] = 'ws://localhost:3003';
+});
+
 const { mockAuditStationChange } = vi.hoisted(() => ({
   mockAuditStationChange: vi.fn(() => Promise.resolve()),
 }));

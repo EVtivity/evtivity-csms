@@ -128,6 +128,9 @@ vi.mock('@evtivity/lib', async () => {
   const actual = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
   return {
     assertTemplateAllowed: actual.assertTemplateAllowed,
+    readBodyPrefix: actual.readBodyPrefix,
+    EMAIL_BODY_TEMPLATE: actual.EMAIL_BODY_TEMPLATE,
+    EMAIL_LAYOUT_TEMPLATE: actual.EMAIL_LAYOUT_TEMPLATE,
     compileAllowedTemplate: actual.compileAllowedTemplate,
     formatLocalizedVariables: actual.formatLocalizedVariables,
     notificationMoney: actual.notificationMoney,
@@ -228,7 +231,7 @@ describe('Notification routes: validation, test sends, templates', () => {
     it('accepts an https webhook, stores template and language, and invalidates the OCPP cache', async () => {
       const saved = {
         id: 1,
-        eventType: 'station.Faulted',
+        eventType: 'station.Connected',
         recipient: 'https://hooks.example.com/x',
         channel: 'webhook',
         templateHtml: '<p>{{stationId}}</p>',
@@ -238,7 +241,7 @@ describe('Notification routes: validation, test sends, templates', () => {
       // The audit before-read, then the upsert.
       setupDbResults([], [saved]);
       const res = await req('PUT', '/ocpp-event-settings', {
-        eventType: 'station.Faulted',
+        eventType: 'station.Connected',
         recipient: 'https://hooks.example.com/x',
         channel: 'webhook',
         templateHtml: '<p>{{stationId}}</p>',
@@ -506,7 +509,7 @@ describe('Notification routes: validation, test sends, templates', () => {
     it('returns 500 SMS_SEND_FAILED with the Twilio response text', async () => {
       vi.stubGlobal(
         'fetch',
-        vi.fn().mockResolvedValue({ ok: false, text: () => Promise.resolve('invalid To') }),
+        vi.fn().mockResolvedValue(new Response('invalid To', { status: 400 })),
       );
       mockDecrypt.mockImplementation(() => {
         throw new Error('bad');
@@ -518,6 +521,23 @@ describe('Notification routes: validation, test sends, templates', () => {
       });
       expect(res.statusCode).toBe(500);
       expect(res.json()).toEqual({ error: 'invalid To', code: 'SMS_SEND_FAILED' });
+    });
+
+    // A prefix of the error body only.
+    it('returns at most a 2 KiB prefix of the Twilio error body', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(new Response('x'.repeat(100_000), { status: 400 })),
+      );
+      setupDbResults(twilioSettings);
+      const res = await req('POST', '/notifications/test', {
+        channel: 'sms',
+        recipient: '+12015550134',
+      });
+      expect(res.statusCode).toBe(500);
+      const { error } = res.json<{ error: string }>();
+      expect(error.startsWith('xxx')).toBe(true);
+      expect(error.length).toBeLessThanOrEqual(2048);
     });
 
     it('returns 500 SMS_SEND_FAILED when the request throws', async () => {

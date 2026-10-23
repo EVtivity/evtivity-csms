@@ -45,15 +45,18 @@ export function stationSiteInScope(
 /**
  * Condition on a stored `site_scope` column: the row is visible to a user with
  * `userScope`. Undefined for an all-site user (sees every row). A restricted
- * user sees only rows with a scope inside their sites; rows without a scope
- * (all sites, or stored before scopes existed) are hidden from them.
+ * user sees only rows with a non-empty scope inside their sites; rows without
+ * a scope (all sites, or stored before scopes existed) and rows with an empty
+ * scope are hidden from them.
  */
 export function siteScopeVisibleTo(
   scopeColumn: AnyColumn | SQL,
   userScope: ReportSiteScope,
 ): SQL | undefined {
   if (userScope == null) return undefined;
-  return sql`(${scopeColumn} IS NOT NULL AND ${scopeColumn} <@ ${textArray(userScope)})`;
+  // An empty scope (a report of a user with no site) is contained in every
+  // scope: it shows to all-site users only.
+  return sql`(${scopeColumn} IS NOT NULL AND cardinality(${scopeColumn}) > 0 AND ${scopeColumn} <@ ${textArray(userScope)})`;
 }
 
 /**
@@ -75,21 +78,45 @@ export async function userSiteScope(userId: string): Promise<string[] | null> {
   return rows.map((row) => row.siteId);
 }
 
+/**
+ * The columns a user may see in a report: driver identity
+ * with drivers:read, money with payments:read. An unknown user or none (a
+ * report without a requester) sees neither (fail closed).
+ */
+export async function reportColumnAccess(
+  userId: string | null,
+): Promise<{ driverData: boolean; money: boolean }> {
+  if (userId == null) return { driverData: false, money: false };
+  const rows = await db
+    .select({ permission: userPermissions.permission })
+    .from(userPermissions)
+    .where(eq(userPermissions.userId, userId));
+  const permissions = rows.map((row) => row.permission);
+  return {
+    driverData: hasPermission(permissions, 'drivers:read'),
+    money: hasPermission(permissions, 'payments:read'),
+  };
+}
+
 /** Why a scheduled report does not run: its creator can no longer read reports. */
 export type ScheduleSkipReason =
   | 'no_creator'
   | 'creator_missing'
   | 'creator_inactive'
-  | 'creator_lacks_reports_read';
+  | 'creator_lacks_reports_read'
+  | 'creator_lacks_report_permission';
 
 /**
  * Whether a schedule's creator may still receive the report: an active user
- * holding reports:read. A schedule runs with its creator's access, so a
- * schedule without a creator, or one whose creator was deactivated or lost
- * reports:read, does not run. Null when it may run.
+ * holding reports:read and the report type's own permissions
+ * (`requiredPermissions`, for example payments:read for revenue). A schedule
+ * runs with its creator's access, so a schedule without a creator, or one
+ * whose creator was deactivated or lost a needed permission, does not run.
+ * Null when it may run.
  */
 export async function scheduleSkipReason(
   createdById: string | null,
+  requiredPermissions: readonly string[] = [],
 ): Promise<ScheduleSkipReason | null> {
   if (createdById == null) return 'no_creator';
   const [user] = await db
@@ -103,7 +130,10 @@ export async function scheduleSkipReason(
     .from(userPermissions)
     .where(eq(userPermissions.userId, createdById));
   const permissions = rows.map((row) => row.permission);
-  return hasPermission(permissions, 'reports:read') ? null : 'creator_lacks_reports_read';
+  if (!hasPermission(permissions, 'reports:read')) return 'creator_lacks_reports_read';
+  return requiredPermissions.every((p) => hasPermission(permissions, p))
+    ? null
+    : 'creator_lacks_report_permission';
 }
 
 /**

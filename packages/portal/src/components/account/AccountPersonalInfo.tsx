@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { LANGUAGES } from '@/components/ui/language-select';
@@ -277,8 +278,13 @@ export function AccountPersonalInfo(): React.JSX.Element {
         </p>
       </div>
 
-      <Button type="submit" className="w-full" disabled={profileLoading}>
-        {profileLoading ? t('common.saving') : t('common.save')}
+      <Button type="submit" className="relative w-full" disabled={profileLoading}>
+        {profileLoading && (
+          <span className="absolute inset-0 flex items-center justify-center">
+            <Spinner className="h-4 w-4" />
+          </span>
+        )}
+        <span className={profileLoading ? 'invisible' : ''}>{t('common.save')}</span>
       </Button>
     </form>
   );

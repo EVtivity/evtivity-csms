@@ -149,11 +149,49 @@ vi.mock('../lib/payments.js', () => ({
 const mockIsAutoDisableOnCritical = vi.fn().mockResolvedValue(false);
 const mockWriteAudit = vi.fn().mockResolvedValue(undefined);
 const mockWriteReservationAudit = vi.fn().mockResolvedValue(undefined);
-const mockGetMeterValueInterval = vi.fn().mockResolvedValue(0);
-const mockGetClockAlignedInterval = vi.fn().mockResolvedValue(0);
-const mockGetSampledMeasurands = vi.fn().mockResolvedValue('');
-const mockGetAlignedMeasurands = vi.fn().mockResolvedValue('');
-const mockGetTxEndedMeasurands = vi.fn().mockResolvedValue('');
+// Plan values that make the boot push send nothing unless a test sets them.
+const NO_PUSH_VALUES = {
+  heartbeatInterval: 900,
+  csmsPingInterval: 120,
+  clockAlignedInterval: -1,
+  alignedMeasurands: '',
+  txEndedMeasurands: '',
+  ac: { meterValueInterval: 0, sampledMeasurands: '' },
+  dc: { meterValueInterval: 0, sampledMeasurands: '' },
+};
+function planValues(v: {
+  meterValueInterval?: number;
+  clockAlignedInterval?: number;
+  sampledMeasurands?: string;
+  alignedMeasurands?: string;
+  txEndedMeasurands?: string;
+}): typeof NO_PUSH_VALUES {
+  const charging = {
+    meterValueInterval: v.meterValueInterval ?? 0,
+    sampledMeasurands: v.sampledMeasurands ?? '',
+  };
+  return {
+    ...NO_PUSH_VALUES,
+    clockAlignedInterval: v.clockAlignedInterval ?? -1,
+    alignedMeasurands: v.alignedMeasurands ?? '',
+    txEndedMeasurands: v.txEndedMeasurands ?? '',
+    ac: charging,
+    dc: charging,
+  };
+}
+const mockGetDataPlanValues = vi.fn().mockResolvedValue(NO_PUSH_VALUES);
+// The station's data plan state; the protocol is set per test.
+let planProtocol: string | null = null;
+const mockReadStationDataPlans = vi.fn((ids: string[]) =>
+  Promise.resolve(
+    new Map(
+      ids.map((id) => [
+        id,
+        { plan: 'wifi_or_wired', chargingKind: 'ac', ocppProtocol: planProtocol },
+      ]),
+    ),
+  ),
+);
 const mockIsSiteFreeVend = vi.fn().mockResolvedValue(false);
 const mockIsSplitBilling = vi.fn().mockResolvedValue(false);
 
@@ -221,6 +259,8 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-energy.js',
   )),
+  // The session meter summary UPDATE (tested on a real database, integration v21 64).
+  applySessionMeterSummary: vi.fn().mockResolvedValue(false),
   // The real tariff resolver, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
@@ -237,11 +277,8 @@ vi.mock('@evtivity/database', async () => ({
   getIdlingGracePeriodMinutes: vi.fn().mockResolvedValue(0),
   isSplitBillingEnabled: mockIsSplitBilling,
   getOfflineCommandTtlHours: vi.fn().mockResolvedValue(24),
-  getMeterValueIntervalSeconds: mockGetMeterValueInterval,
-  getClockAlignedIntervalSeconds: mockGetClockAlignedInterval,
-  getSampledMeasurands: mockGetSampledMeasurands,
-  getAlignedMeasurands: mockGetAlignedMeasurands,
-  getTxEndedMeasurands: mockGetTxEndedMeasurands,
+  getDataPlanValues: mockGetDataPlanValues,
+  readStationDataPlans: mockReadStationDataPlans,
   writeReservationAudit: mockWriteReservationAudit,
   reservationDiffChanged: vi.fn().mockReturnValue(false),
   writeAudit: mockWriteAudit,
@@ -406,11 +443,8 @@ describe('Event projections - coverage round 2', () => {
     queuedJobs.length = 0;
     mockIsRoamingEnabled.mockResolvedValue(false);
     mockIsAutoDisableOnCritical.mockResolvedValue(false);
-    mockGetMeterValueInterval.mockResolvedValue(0);
-    mockGetClockAlignedInterval.mockResolvedValue(0);
-    mockGetSampledMeasurands.mockResolvedValue('');
-    mockGetAlignedMeasurands.mockResolvedValue('');
-    mockGetTxEndedMeasurands.mockResolvedValue('');
+    mockGetDataPlanValues.mockResolvedValue(NO_PUSH_VALUES);
+    planProtocol = null;
     mockIsSiteFreeVend.mockResolvedValue(false);
     mockIsSplitBilling.mockResolvedValue(false);
     mockDecryptString.mockReturnValue('sk_test_decrypted');
@@ -697,11 +731,16 @@ describe('Event projections - coverage round 2', () => {
     });
 
     it('accepted station: leaves availability alone and pushes 2.1 SetVariables config', async () => {
-      mockGetMeterValueInterval.mockResolvedValue(60);
-      mockGetClockAlignedInterval.mockResolvedValue(900);
-      mockGetSampledMeasurands.mockResolvedValue('Energy.Active.Import.Register,Temperature');
-      mockGetAlignedMeasurands.mockResolvedValue('Voltage');
-      mockGetTxEndedMeasurands.mockResolvedValue('Energy.Active.Import.Register');
+      mockGetDataPlanValues.mockResolvedValue(
+        planValues({
+          meterValueInterval: 60,
+          clockAlignedInterval: 900,
+          sampledMeasurands: 'Energy.Active.Import.Register,Temperature',
+          alignedMeasurands: 'Voltage',
+          txEndedMeasurands: 'Energy.Active.Import.Register',
+        }),
+      );
+      planProtocol = 'ocpp2.1';
       await setup();
       setupSqlResults(
         STA, // resolveStationUuid
@@ -712,7 +751,6 @@ describe('Event projections - coverage round 2', () => {
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // availability recompute (unchanged)
         [{ site_id: null }], // resolveSiteId
-        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT protocol (config push)
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT protocol (station message refresh)
       );
       await emit('ocpp.BootNotification', 'CS-1', {
@@ -743,13 +781,16 @@ describe('Event projections - coverage round 2', () => {
     });
 
     it('accepted 2.0.1 station: pushes the 2.x SetVariables config with 2.0.1 measurands', async () => {
-      mockGetMeterValueInterval.mockResolvedValue(60);
-      mockGetClockAlignedInterval.mockResolvedValue(900);
-      mockGetSampledMeasurands.mockResolvedValue(
-        'Energy.Active.Import.Register,Temperature,Power.Active.Setpoint',
+      mockGetDataPlanValues.mockResolvedValue(
+        planValues({
+          meterValueInterval: 60,
+          clockAlignedInterval: 900,
+          sampledMeasurands: 'Energy.Active.Import.Register,Temperature,Power.Active.Setpoint',
+          alignedMeasurands: 'Voltage',
+          txEndedMeasurands: 'Energy.Active.Import.Register',
+        }),
       );
-      mockGetAlignedMeasurands.mockResolvedValue('Voltage');
-      mockGetTxEndedMeasurands.mockResolvedValue('Energy.Active.Import.Register');
+      planProtocol = 'ocpp2.0.1';
       await setup();
       setupSqlResults(
         STA,
@@ -760,7 +801,6 @@ describe('Event projections - coverage round 2', () => {
         [],
         [],
         [{ site_id: null }],
-        [{ ocpp_protocol: 'ocpp2.0.1' }], // SELECT protocol (config push)
         [{ ocpp_protocol: 'ocpp2.0.1' }], // SELECT protocol (station message refresh)
       );
       await emit('ocpp.BootNotification', 'CS-1', {
@@ -780,12 +820,17 @@ describe('Event projections - coverage round 2', () => {
     });
 
     it('accepted 2.0.1 station: sends no measurand list the 2.0.1 filter emptied', async () => {
-      mockGetMeterValueInterval.mockResolvedValue(60);
-      mockGetClockAlignedInterval.mockResolvedValue(900);
       // Both 2.1 only (or 1.6 only): nothing a 2.0.1 station can take.
-      mockGetSampledMeasurands.mockResolvedValue('Power.Active.Setpoint,Temperature');
-      mockGetAlignedMeasurands.mockResolvedValue('Voltage');
-      mockGetTxEndedMeasurands.mockResolvedValue('Energy.Active.Import.Register');
+      mockGetDataPlanValues.mockResolvedValue(
+        planValues({
+          meterValueInterval: 60,
+          clockAlignedInterval: 900,
+          sampledMeasurands: 'Power.Active.Setpoint,Temperature',
+          alignedMeasurands: 'Voltage',
+          txEndedMeasurands: 'Energy.Active.Import.Register',
+        }),
+      );
+      planProtocol = 'ocpp2.0.1';
       await setup();
       setupSqlResults(
         STA,
@@ -796,7 +841,6 @@ describe('Event projections - coverage round 2', () => {
         [],
         [],
         [{ site_id: null }],
-        [{ ocpp_protocol: 'ocpp2.0.1' }],
         [{ ocpp_protocol: 'ocpp2.0.1' }],
       );
       await emit('ocpp.BootNotification', 'CS-1', {
@@ -813,13 +857,13 @@ describe('Event projections - coverage round 2', () => {
     });
 
     it('pending station: updates hardware only, no availability change', async () => {
+      planProtocol = 'ocpp1.6';
       await setup();
       setupSqlResults(
         STA,
         [{ onboarding_status: 'pending' }],
         [], // UPDATE (pending branch)
         [{ site_id: null }], // resolveSiteId
-        [{ ocpp_protocol: 'ocpp1.6' }], // config push protocol
         [{ ocpp_protocol: 'ocpp1.6' }], // station message refresh check (1.6 -> no publish)
       );
       await emit('ocpp.BootNotification', 'CS-1', { model: 'M' });
@@ -828,12 +872,58 @@ describe('Event projections - coverage round 2', () => {
       expect(upd?.strings.join(' ')).not.toContain("availability = 'available'");
     });
 
+    it('Cellular DC 2.1 station: sends the plan DC values and idle interval 0', async () => {
+      const { DATA_PLAN_DEFAULTS } = await import('@evtivity/lib');
+      mockGetDataPlanValues.mockResolvedValue(DATA_PLAN_DEFAULTS.cellular);
+      mockReadStationDataPlans.mockImplementationOnce((ids: string[]) =>
+        Promise.resolve(
+          new Map(
+            ids.map((id) => [
+              id,
+              { plan: 'cellular', chargingKind: 'dc', ocppProtocol: 'ocpp2.1' },
+            ]),
+          ),
+        ),
+      );
+      await setup();
+      setupSqlResults(
+        STA,
+        [{ onboarding_status: 'accepted' }],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [{ site_id: null }],
+        [{ ocpp_protocol: 'ocpp2.1' }], // station message refresh
+      );
+      await emit('ocpp.BootNotification', 'CS-1', {});
+      expect(mockGetDataPlanValues).toHaveBeenCalledWith('cellular');
+      const cmds = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls
+        .filter((c) => c[0] === 'ocpp_commands')
+        .map((c) => JSON.stringify(JSON.parse(c[1] as string)));
+      expect(cmds.some((c) => c.includes('"TxUpdatedInterval"') && c.includes('"60"'))).toBe(true);
+      expect(cmds.some((c) => c.includes('"TxUpdatedMeasurands"') && c.includes('SoC'))).toBe(true);
+      expect(
+        cmds.some((c) => c.includes('"AlignedDataCtrlr"') && c.includes('"attributeValue":"0"')),
+      ).toBe(true);
+      expect(cmds.some((c) => c.includes('"Measurands"') && c.includes('AlignedDataCtrlr'))).toBe(
+        false,
+      );
+      expect(cmds.some((c) => c.includes('HeartbeatInterval'))).toBe(false);
+    });
+
     it('1.6 station: pushes ChangeConfiguration commands', async () => {
-      mockGetMeterValueInterval.mockResolvedValue(30);
-      mockGetClockAlignedInterval.mockResolvedValue(600);
-      mockGetSampledMeasurands.mockResolvedValue('Energy.Active.Import.Register');
-      mockGetAlignedMeasurands.mockResolvedValue('Voltage');
-      mockGetTxEndedMeasurands.mockResolvedValue('Energy.Active.Import.Register');
+      mockGetDataPlanValues.mockResolvedValue(
+        planValues({
+          meterValueInterval: 30,
+          clockAlignedInterval: 600,
+          sampledMeasurands: 'Energy.Active.Import.Register',
+          alignedMeasurands: 'Voltage',
+          txEndedMeasurands: 'Energy.Active.Import.Register',
+        }),
+      );
+      planProtocol = 'ocpp1.6';
       await setup();
       setupSqlResults(
         STA,
@@ -844,7 +934,6 @@ describe('Event projections - coverage round 2', () => {
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // availability recompute
         [{ site_id: null }],
-        [{ ocpp_protocol: 'ocpp1.6' }], // config push
         [{ ocpp_protocol: 'ocpp1.6' }], // station message check
       );
       await emit('ocpp.BootNotification', 'CS-1', {});
@@ -857,6 +946,7 @@ describe('Event projections - coverage round 2', () => {
 
     it('re-pushes free-vend variables on boot for 2.1', async () => {
       mockIsSiteFreeVend.mockResolvedValue(true);
+      planProtocol = 'ocpp2.1';
       await setup();
       setupSqlResults(
         STA,
@@ -867,7 +957,6 @@ describe('Event projections - coverage round 2', () => {
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // availability recompute
         [{ site_id: null }],
-        [{ ocpp_protocol: 'ocpp2.1' }],
         [{ ocpp_protocol: 'ocpp2.1' }],
       );
       await emit('ocpp.BootNotification', 'CS-1', {});
@@ -879,6 +968,7 @@ describe('Event projections - coverage round 2', () => {
 
     it('re-pushes free-vend keys on boot for 1.6', async () => {
       mockIsSiteFreeVend.mockResolvedValue(true);
+      planProtocol = 'ocpp1.6';
       await setup();
       setupSqlResults(
         STA,
@@ -890,7 +980,6 @@ describe('Event projections - coverage round 2', () => {
         [], // availability recompute
         [{ site_id: null }],
         [{ ocpp_protocol: 'ocpp1.6' }],
-        [{ ocpp_protocol: 'ocpp1.6' }],
       );
       await emit('ocpp.BootNotification', 'CS-1', {});
       const cmds = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
@@ -900,7 +989,7 @@ describe('Event projections - coverage round 2', () => {
     });
 
     it('config-push errors are swallowed (fail-open warn)', async () => {
-      mockGetMeterValueInterval.mockRejectedValueOnce(new Error('settings down'));
+      mockGetDataPlanValues.mockRejectedValueOnce(new Error('settings down'));
       await setup();
       setupSqlResults(
         STA,
@@ -2091,7 +2180,7 @@ describe('Event projections - coverage round 2', () => {
     });
 
     it('inserts energy reading, updates cost, and dispatches CostUpdated (2.1)', async () => {
-      mockGetMeterValueInterval.mockResolvedValue(60);
+      mockGetDataPlanValues.mockResolvedValue(planValues({ meterValueInterval: 60 }));
       await setup();
       setupSqlResults(
         STA, // 0 resolveStationUuid
@@ -2151,7 +2240,7 @@ describe('Event projections - coverage round 2', () => {
     });
 
     it('inserts energy reading, updates cost, and dispatches CostUpdated (2.0.1)', async () => {
-      mockGetMeterValueInterval.mockResolvedValue(60);
+      mockGetDataPlanValues.mockResolvedValue(planValues({ meterValueInterval: 60 }));
       await setup();
       setupSqlResults(
         STA, // 0 resolveStationUuid

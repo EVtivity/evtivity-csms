@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { OCPP_NOTIFICATION_EVENT_TYPES } from '@evtivity/lib/notification-events';
+import {
+  OCPP_NOTIFICATION_EVENT_TYPES,
+  SECURITY_NOTICE_EVENT_TYPES,
+} from '@evtivity/lib/notification-events';
 import {
   OCPP_16_EVENTS,
   OCPP_21_EVENTS,
@@ -94,6 +97,16 @@ describe('AI proposal digest event', () => {
         'usedTokens',
         'limitTokens',
       ]);
+    }
+  });
+
+  it('names every security notice event in every locale', () => {
+    const events = [...SECURITY_NOTICE_EVENT_TYPES];
+    for (const [lang, locale] of Object.entries(LOCALES)) {
+      const notifications = locale.notifications as Record<string, unknown>;
+      const eventNames = notifications['eventNames'] as Record<string, string>;
+      const missing = events.filter((event) => !eventNames[event]);
+      expect(missing, lang).toEqual([]);
     }
   });
 

@@ -8,8 +8,21 @@ import type { DomainEvent, EventBus } from '@evtivity/lib';
  * (a station ID, or a transaction as `transactionKey()`) runs one item at a
  * time in arrival order; different lanes run in parallel.
  */
+/**
+ * A bounded kind of work: at most `maxPending` of it may wait or run in one
+ * lane; more is dropped (resolved without running) and counted.
+ */
+export interface LaneBound {
+  kind: string;
+  maxPending: number;
+}
+
 export interface ProjectionQueue {
-  enqueue(id: string, work: () => Promise<void>): Promise<void>;
+  enqueue(id: string, work: () => Promise<void>, bound?: LaneBound): Promise<void>;
+  /** Work of `kind` waiting or running in the lane. */
+  pending(id: string, kind: string): number;
+  /** Work of `kind` dropped since the queue was created. */
+  dropped(kind: string): number;
   /**
    * Resolves true once the projection work queued so far for these aggregate
    * IDs has finished, including work that finishing work queued in turn (a
@@ -77,6 +90,10 @@ const QUEUE_STALE_THRESHOLD_MS = 10 * 60 * 1000;
 function createProjectionQueue(): ProjectionQueue {
   const lanes = new Map<string, { promise: Promise<void>; lastActivity: number }>();
   const signals = new Map<string, SignalEntry>();
+  // Bounded work per lane and kind (`${kind}\u0000${lane}`), and drops per kind.
+  const pendingByKind = new Map<string, number>();
+  const droppedByKind = new Map<string, number>();
+  const pendingKey = (id: string, kind: string): string => `${kind}\u0000${id}`;
 
   function signalEntry(key: string): SignalEntry {
     let entry = signals.get(key);
@@ -108,11 +125,38 @@ function createProjectionQueue(): ProjectionQueue {
   cleanupTimer.unref();
 
   return {
-    enqueue(id, work) {
+    enqueue(id, work, bound) {
+      let run = work;
+      if (bound != null) {
+        const key = pendingKey(id, bound.kind);
+        const count = pendingByKind.get(key) ?? 0;
+        if (count >= bound.maxPending) {
+          droppedByKind.set(bound.kind, (droppedByKind.get(bound.kind) ?? 0) + 1);
+          return Promise.resolve();
+        }
+        pendingByKind.set(key, count + 1);
+        run = async () => {
+          try {
+            await work();
+          } finally {
+            const left = (pendingByKind.get(key) ?? 1) - 1;
+            if (left <= 0) pendingByKind.delete(key);
+            else pendingByKind.set(key, left);
+          }
+        };
+      }
       const prev = lanes.get(id)?.promise ?? Promise.resolve();
-      const next = prev.then(work, work); // run even if previous failed
+      const next = prev.then(run, run); // run even if previous failed
       lanes.set(id, { promise: next, lastActivity: Date.now() });
       return next;
+    },
+
+    pending(id, kind) {
+      return pendingByKind.get(pendingKey(id, kind)) ?? 0;
+    },
+
+    dropped(kind) {
+      return droppedByKind.get(kind) ?? 0;
     },
 
     async settled(ids, timeoutMs) {

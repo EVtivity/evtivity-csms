@@ -1,9 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { and, eq, desc, count, sql } from 'drizzle-orm';
+import { and, eq, desc, count, notInArray, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import {
   db,
   reports,
@@ -79,11 +80,12 @@ import {
   queueReport,
   computeNextRunAtInTz,
   listReportTypes,
+  reportRequiredPermissions,
   reportFiltersError,
   REPORT_GENERATE_CHANNEL,
   REPORT_TYPES,
 } from '@evtivity/services/report.service';
-import { REPORT_FORMATS } from '@evtivity/services/report-registry';
+import { REPORT_FORMATS, type ReportColumnAccess } from '@evtivity/services/report-registry';
 import {
   writeReportDownloadedAudit,
   writeReportGeneratedAudit,
@@ -96,7 +98,7 @@ import {
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { ValidationError } from '@evtivity/lib';
 import { getUserSiteIds } from '../lib/site-access.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
 
 const reportTypeItem = z
@@ -220,6 +222,84 @@ const updateScheduleBody = createScheduleBody.partial().extend({
   isEnabled: z.boolean().optional().describe('Whether the schedule is active'),
 });
 
+/**
+ * Refuses a report the caller may not produce: 403 INSUFFICIENT_PERMISSIONS
+ * without the report type's own permissions (revenue: payments:read, driver
+ * activity: drivers:read), 404
+ * SITE_NOT_FOUND for a user with no site (its report would have an empty
+ * scope, which would show to nobody but all-site users). Returns true
+ * when it answered.
+ */
+async function refuseReport(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  reportType: string,
+  siteIds: readonly string[] | null,
+): Promise<boolean> {
+  for (const permission of reportRequiredPermissions(reportType)) {
+    if (!(await requestHasPermission(request, permission))) {
+      await reply
+        .status(403)
+        .send({ error: 'Insufficient permissions', code: 'INSUFFICIENT_PERMISSIONS' });
+      return true;
+    }
+  }
+  if (siteIds != null && siteIds.length === 0) {
+    await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * The report types whose required permissions the caller holds
+ * (`reportRequiredPermissions`), the same check as generating one.
+ */
+async function permittedReportTypes(request: FastifyRequest): Promise<Set<string>> {
+  const types = listReportTypes();
+  const allowed = await Promise.all(
+    types.map(async ({ type }) => {
+      for (const permission of reportRequiredPermissions(type)) {
+        if (!(await requestHasPermission(request, permission))) return false;
+      }
+      return true;
+    }),
+  );
+  return new Set(types.filter((_type, index) => allowed[index] === true).map((t) => t.type));
+}
+
+/**
+ * The report columns this request may see: driver identity with drivers:read,
+ * money with payments:read, as the request holds them (an API key's scope
+ * included). Stored with a report it generates.
+ */
+async function requestReportColumns(request: FastifyRequest): Promise<ReportColumnAccess> {
+  return {
+    driverData: await requestHasPermission(request, 'drivers:read'),
+    money: await requestHasPermission(request, 'payments:read'),
+  };
+}
+
+/**
+ * Condition that hides stored reports the caller may not read: a type it may
+ * not generate (a revenue or driver activity report holds money or personal
+ * data its own permission guards), or a file that holds driver or money
+ * columns the caller may not see (another user generated it with wider
+ * permissions). Undefined when the caller may read every report.
+ */
+async function reportReadable(request: FastifyRequest): Promise<SQL | undefined> {
+  const permitted = await permittedReportTypes(request);
+  const denied = listReportTypes()
+    .map((t) => t.type)
+    .filter((type) => !permitted.has(type));
+  const columns = await requestReportColumns(request);
+  const conditions: SQL[] = [];
+  if (denied.length > 0) conditions.push(notInArray(reports.reportType, denied));
+  if (!columns.driverData) conditions.push(eq(reports.includesDriverData, false));
+  if (!columns.money) conditions.push(eq(reports.includesMoney, false));
+  return conditions.length > 0 ? and(...conditions) : undefined;
+}
+
 export function reportRoutes(app: FastifyInstance): void {
   // List reports
   app.get(
@@ -230,7 +310,7 @@ export function reportRoutes(app: FastifyInstance): void {
         tags: ['Reports'],
         summary: 'List reports',
         description:
-          'Site-restricted users see only reports generated within their sites; all-site users see every report.',
+          'Site-restricted users see only reports generated within their sites; all-site users see every report. Reports of a type whose required permissions the caller lacks (GET /v1/reports/types leaves it out) are not listed.',
         operationId: 'listReports',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(reportListQuery),
@@ -249,6 +329,8 @@ export function reportRoutes(app: FastifyInstance): void {
       }
       const visible = siteScopeVisibleTo(reports.siteScope, userScope);
       if (visible != null) conditions.push(visible);
+      const readable = await reportReadable(request);
+      if (readable != null) conditions.push(readable);
       const whereClause =
         conditions.length > 0 ? sql`${sql.join(conditions, sql` AND `)}` : undefined;
 
@@ -294,7 +376,11 @@ export function reportRoutes(app: FastifyInstance): void {
         response: { 200: arrayResponse(reportTypeItem) },
       },
     },
-    () => listReportTypes(),
+    async (request) => {
+      // Only the types the caller may produce (requiredPermissions).
+      const permitted = await permittedReportTypes(request);
+      return listReportTypes().filter(({ type }) => permitted.has(type));
+    },
   );
 
   // Get single report metadata
@@ -306,7 +392,7 @@ export function reportRoutes(app: FastifyInstance): void {
         tags: ['Reports'],
         summary: 'Get a report by ID',
         description:
-          "Returns 404 REPORT_NOT_FOUND for a report outside the site-restricted user's sites.",
+          "Returns 404 REPORT_NOT_FOUND for a report outside the site-restricted user's sites, or of a type whose required permissions the caller lacks.",
         operationId: 'getReport',
         security: [{ bearerAuth: [] }],
         response: {
@@ -337,7 +423,13 @@ export function reportRoutes(app: FastifyInstance): void {
           completedAt: reports.completedAt,
         })
         .from(reports)
-        .where(and(eq(reports.id, id), siteScopeVisibleTo(reports.siteScope, userScope)));
+        .where(
+          and(
+            eq(reports.id, id),
+            siteScopeVisibleTo(reports.siteScope, userScope),
+            await reportReadable(request),
+          ),
+        );
 
       if (report == null) {
         await reply.status(404).send({ error: 'Report not found', code: 'REPORT_NOT_FOUND' });
@@ -357,7 +449,7 @@ export function reportRoutes(app: FastifyInstance): void {
         tags: ['Reports'],
         summary: 'Download a report file',
         description:
-          "Returns 404 REPORT_NOT_FOUND for a report outside the site-restricted user's sites.",
+          "Returns 404 REPORT_NOT_FOUND for a report outside the site-restricted user's sites, or of a type whose required permissions the caller lacks.",
         operationId: 'downloadReport',
         security: [{ bearerAuth: [] }],
         response: { 404: errorWith('Report not found', [ERROR_CODES.REPORT_NOT_FOUND]) },
@@ -377,7 +469,13 @@ export function reportRoutes(app: FastifyInstance): void {
           reportType: reports.reportType,
         })
         .from(reports)
-        .where(and(eq(reports.id, id), siteScopeVisibleTo(reports.siteScope, userScope)));
+        .where(
+          and(
+            eq(reports.id, id),
+            siteScopeVisibleTo(reports.siteScope, userScope),
+            await reportReadable(request),
+          ),
+        );
 
       if (report?.fileData == null) {
         await reply.status(404).send({ error: 'Report file not found', code: 'REPORT_NOT_FOUND' });
@@ -428,6 +526,9 @@ export function reportRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(reportQueuedResponse),
           400: errorWith('Invalid report filters', [ERROR_CODES.VALIDATION_ERROR]),
+          403: errorWith('The report type needs a permission the caller lacks', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           404: errorWith('Site or station not found', [
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
@@ -453,6 +554,7 @@ export function reportRoutes(app: FastifyInstance): void {
       // stations at them, and only users with those sites see the report. A
       // site or station filter outside them is refused as not found.
       const siteIds = await getUserSiteIds(user.userId);
+      if (await refuseReport(request, reply, body.reportType, siteIds)) return;
       const filters = body.filters ?? {};
       assertReportFilters(body.reportType, filters);
       const scopeError = await filterScopeError(filters, siteIds);
@@ -469,6 +571,7 @@ export function reportRoutes(app: FastifyInstance): void {
           filters,
           userId: user.userId,
           siteScope: siteIds,
+          columns: await requestReportColumns(request),
         },
         announceReport,
       );
@@ -500,7 +603,7 @@ export function reportRoutes(app: FastifyInstance): void {
         tags: ['Reports'],
         summary: 'Delete a report',
         description:
-          "Returns 404 REPORT_NOT_FOUND for a report outside the site-restricted user's sites.",
+          "Returns 404 REPORT_NOT_FOUND for a report outside the site-restricted user's sites, or of a type whose required permissions the caller lacks.",
         operationId: 'deleteReport',
         security: [{ bearerAuth: [] }],
         response: {
@@ -516,7 +619,13 @@ export function reportRoutes(app: FastifyInstance): void {
 
       const removed = await db
         .delete(reports)
-        .where(and(eq(reports.id, id), siteScopeVisibleTo(reports.siteScope, userScope)))
+        .where(
+          and(
+            eq(reports.id, id),
+            siteScopeVisibleTo(reports.siteScope, userScope),
+            await reportReadable(request),
+          ),
+        )
         .returning({
           id: reports.id,
           name: reports.name,
@@ -597,6 +706,9 @@ export function reportRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(scheduleItem),
           400: errorWith('Invalid report filters', [ERROR_CODES.VALIDATION_ERROR]),
+          403: errorWith('The report type needs a permission the caller lacks', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           404: errorWith('Site or station not found', [
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
@@ -613,6 +725,7 @@ export function reportRoutes(app: FastifyInstance): void {
       // the cron would later run on their behalf. The schedule keeps the
       // creator's sites as its scope.
       const siteIds = await getUserSiteIds(user.userId);
+      if (await refuseReport(request, reply, body.reportType, siteIds)) return;
       const filters = body.filters ?? {};
       assertReportFilters(body.reportType, filters);
       const scopeError = await filterScopeError(filters, siteIds);
@@ -679,6 +792,9 @@ export function reportRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(scheduleItem),
           400: errorWith('Invalid report filters', [ERROR_CODES.VALIDATION_ERROR]),
+          403: errorWith('The report type needs a permission the caller lacks', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           404: errorWith('Resource not found', [
             ERROR_CODES.SCHEDULE_NOT_FOUND,
             ERROR_CODES.SITE_NOT_FOUND,
@@ -701,6 +817,11 @@ export function reportRoutes(app: FastifyInstance): void {
 
       if (existing == null) {
         await reply.status(404).send({ error: 'Schedule not found', code: 'SCHEDULE_NOT_FOUND' });
+        return;
+      }
+
+      // The caller must be able to produce the report type the schedule keeps.
+      if (await refuseReport(request, reply, body.reportType ?? existing.reportType, null)) {
         return;
       }
 
@@ -843,6 +964,9 @@ export function reportRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         response: {
           200: itemResponse(reportQueuedResponse),
+          403: errorWith('The report type needs a permission the caller lacks', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           404: errorWith('Resource not found', [
             ERROR_CODES.SCHEDULE_NOT_FOUND,
             ERROR_CODES.SITE_NOT_FOUND,
@@ -869,6 +993,8 @@ export function reportRoutes(app: FastifyInstance): void {
         return;
       }
 
+      if (await refuseReport(request, reply, schedule.reportType, null)) return;
+
       const filters = schedule.filters != null ? (schedule.filters as Record<string, unknown>) : {};
 
       // The report covers the sites both the schedule and the caller cover.
@@ -890,6 +1016,7 @@ export function reportRoutes(app: FastifyInstance): void {
           filters,
           userId: user.userId,
           siteScope: runScope,
+          columns: await requestReportColumns(request),
         },
         announceReport,
       );

@@ -6,6 +6,13 @@ import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vite
 import { webcrypto } from 'node:crypto';
 import type postgres from 'postgres';
 import * as x509 from '@peculiar/x509';
+// The OCPP server URLs the network profiles of this file name (the simulator
+// connects to no other origin). Set before the config loads.
+vi.hoisted(() => {
+  process.env['OCPP_SERVER_URL'] = 'ws://ocpp:7103';
+  process.env['OCPP_TLS_SERVER_URL'] = 'wss://ocpp:8443';
+});
+
 import { StationSimulator, type StationConfig } from '../station-simulator.js';
 
 x509.cryptoProvider.set(webcrypto as unknown as Crypto);
@@ -240,6 +247,33 @@ describe('OCPP 2.1 password and security profile (A01, A05)', () => {
     // After three failed attempts on slot 2, slot 1 (the old profile) is tried.
     internals(sim).chooseRebootConnection.call(sim, 4);
     expect(sim.client.connection.securityProfile).toBe(1);
+  });
+
+  it('never reconnects to a network profile on another origin', async () => {
+    const sim = makeSimulator('ocpp2.1', 1, { caCert: csmsRootPem });
+    await call(sim, 'SetNetworkProfile', {
+      configurationSlot: 2,
+      connectionData: {
+        ocppInterface: 'Wired0',
+        ocppTransport: 'JSON',
+        messageTimeout: 30,
+        ocppCsmsUrl: 'wss://evil.example:8443',
+        securityProfile: 2,
+        basicAuthPassword: 'slot-two-password-1',
+      },
+    });
+    await call(sim, 'SetVariables', {
+      setVariableData: [
+        {
+          component: { name: 'OCPPCommCtrlr' },
+          variable: { name: 'NetworkConfigurationPriority' },
+          attributeValue: '2,1',
+        },
+      ],
+    });
+
+    const candidates = internals(sim).rebootConnections.call(sim);
+    expect(candidates?.some((c) => c.serverUrl.includes('evil.example')) ?? false).toBe(false);
   });
 
   it('makes the new profile permanent and drops lower slots once connected (A05.FR.06)', async () => {

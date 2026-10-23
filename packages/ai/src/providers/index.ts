@@ -31,3 +31,5 @@ export function getProviderRegistry(): ProviderRegistry {
 }
 
 export { createAnthropicAdapter, createDeepSeekAdapter, createGeminiAdapter, createOpenAiAdapter };
+// Server-only (safeFetch): adapters of the API and the worker send through it.
+export { createGuardedFetch } from '../core/guarded-fetch.js';

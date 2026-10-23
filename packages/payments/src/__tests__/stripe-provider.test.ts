@@ -765,6 +765,28 @@ describe('StripePaymentProvider', () => {
       ]);
     });
 
+    it("ignores a connected account's payment event", () => {
+      const { stripe } = provider(fakeClient(), 'whsec_platform', 'whsec_connect');
+      const event = signed(
+        {
+          id: 'evt_acct_pay',
+          created: 1_700_000_000,
+          type: 'payment_intent.payment_failed',
+          account: 'acct_1',
+          data: { object: { id: 'pi_connected', last_payment_error: { message: 'Declined' } } },
+        },
+        'whsec_connect',
+      );
+      expect(stripe.verifyWebhook(event.payload, event.headers)).toEqual([
+        {
+          eventId: 'evt_acct_pay',
+          type: 'ignored',
+          providerType: 'payment_intent.payment_failed',
+          occurredAt: new Date(1_700_000_000_000),
+        },
+      ]);
+    });
+
     it('acknowledges like the current route', () => {
       expect(provider().stripe.webhookAck()).toEqual({
         status: 200,

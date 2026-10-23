@@ -631,6 +631,8 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           vehicleIdSource: chargingSessions.vehicleIdSource,
           autocharge: chargingSessions.autocharge,
           ocppStationId: chargingStations.stationId,
+          // The newest state of charge, kept on the session past the meter_values retention.
+          lastSocPercent: chargingSessions.lastSocPercent,
           ...sessionAccountBillingColumns(),
         })
         .from(chargingSessions)
@@ -647,7 +649,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [payment, latestPower, latestSoc, vehicleEfficiency] = await Promise.all([
+      const [payment, latestPower, vehicleEfficiency] = await Promise.all([
         // Only return display-safe fields. The full payment_records row
         // contains the provider ids (provider_payment_id, provider_customer_id,
         // provider_payment_method_id) which the portal does not need;
@@ -670,18 +672,11 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           .where(eq(paymentRecords.sessionId, id))
           .then((r) => r[0]),
         db
-          .select({ value: meterValues.value })
+          .select({ value: meterValues.value, unit: meterValues.unit })
           .from(meterValues)
           .where(
             and(eq(meterValues.sessionId, id), eq(meterValues.measurand, 'Power.Active.Import')),
           )
-          .orderBy(desc(meterValues.timestamp))
-          .limit(1)
-          .then((r) => r[0]),
-        db
-          .select({ value: meterValues.value })
-          .from(meterValues)
-          .where(and(eq(meterValues.sessionId, id), eq(meterValues.measurand, 'SoC')))
           .orderBy(desc(meterValues.timestamp))
           .limit(1)
           .then((r) => r[0]),
@@ -717,6 +712,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         ocppStationId,
         autocharge,
         costBreakdown,
+        lastSocPercent,
         ...sessionRest
       } = withAccountBilling(session);
       const vehicleCapture =
@@ -734,8 +730,12 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       return {
         ...sessionRest,
         limitReached: await sessionLimitReached(id),
-        currentPowerW: latestPower != null ? parseFloat(latestPower.value) : null,
-        batteryPercent: latestSoc != null ? parseFloat(latestSoc.value) : null,
+        // A kW reading is converted, so the field is always W.
+        currentPowerW:
+          latestPower != null
+            ? parseFloat(latestPower.value) * (latestPower.unit === 'kW' ? 1000 : 1)
+            : null,
+        batteryPercent: lastSocPercent != null ? parseFloat(lastSocPercent) : null,
         payment: payment ?? null,
         netCents: costTax?.netCents ?? null,
         taxCents: costTax?.taxCents ?? null,
@@ -796,10 +796,14 @@ export function portalSessionRoutes(app: FastifyInstance): void {
             ERROR_CODES.VEHICLE_NOT_FOUND,
             ERROR_CODES.DRIVER_NOT_FOUND,
           ]),
-          409: errorWith('No vehicle id or the id is in use', [
-            ERROR_CODES.SESSION_NO_VEHICLE_ID,
-            ERROR_CODES.VEHICLE_ID_IN_USE,
-          ]),
+          409: errorWith(
+            "No vehicle id, the id is in use, or another id typed on the vehicle that no charger sent in the driver's sessions",
+            [
+              ERROR_CODES.SESSION_NO_VEHICLE_ID,
+              ERROR_CODES.VEHICLE_ID_IN_USE,
+              ERROR_CODES.AUTOCHARGE_CLAIM_REQUIRED,
+            ],
+          ),
         },
       },
     },

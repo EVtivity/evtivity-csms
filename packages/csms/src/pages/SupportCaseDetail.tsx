@@ -11,6 +11,7 @@ import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { AddIconButton } from '@/components/add-icon-button';
 import { CopyableId } from '@/components/copyable-id';
 import { RefundButton } from '@/components/refund-button';
+import { useHasPermission } from '@/lib/auth';
 import { RemoveIconButton } from '@/components/remove-icon-button';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
@@ -106,6 +107,10 @@ interface PaymentRecord {
 
 export function SupportCaseDetail(): React.JSX.Element {
   const { t } = useTranslation();
+  // A refund needs support:write and payments:write, as its route does.
+  const canWriteSupport = useHasPermission('support:write');
+  const canWritePayments = useHasPermission('payments:write');
+  const canRefund = canWriteSupport && canWritePayments;
   const timezone = useUserTimezone();
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
@@ -235,7 +240,9 @@ export function SupportCaseDetail(): React.JSX.Element {
   function canRefundSession(sessionId: string): boolean {
     const payment = paymentBySessionId.get(sessionId);
     return (
-      payment != null && (payment.status === 'captured' || payment.status === 'partially_refunded')
+      canRefund &&
+      payment != null &&
+      (payment.status === 'captured' || payment.status === 'partially_refunded')
     );
   }
 

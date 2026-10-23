@@ -41,14 +41,24 @@ vi.mock('@/lib/auth', () => ({
 
 vi.mock('@/components/PermissionEditor', () => ({
   PermissionEditor: ({ onChange }: { onChange: (perms: string[]) => void }) => (
-    <button
-      type="button"
-      onClick={() => {
-        onChange(['stations:write']);
-      }}
-    >
-      widen
-    </button>
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          onChange(['stations:write']);
+        }}
+      >
+        widen
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onChange([]);
+        }}
+      >
+        clear
+      </button>
+    </div>
   ),
 }));
 
@@ -111,6 +121,64 @@ describe('widensKeyScope', () => {
   });
 });
 
+describe('ApiKeysSettings create form', () => {
+  it('keeps Create enabled and names a missing or too long name after a submit', async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: /settings.createApiKey/ }));
+    const dialog = screen.getByRole('dialog');
+    const submit = dialog.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+    expect(dialog.querySelector('form')?.noValidate).toBe(true);
+    fireEvent.click(submit);
+    expect(screen.getByText('validation.required')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('settings.apiKeyName'), {
+      target: { value: 'x'.repeat(256) },
+    });
+    expect(screen.getByText('validation.maxLength')).toBeTruthy();
+    expect(postMock).not.toHaveBeenCalled();
+  });
+});
+
+const NARROW_KEY = {
+  id: '7',
+  name: 'Narrow',
+  createdAt: new Date().toISOString(),
+  expiresAt: null,
+  lastUsedAt: null,
+  permissions: ['stations:read'],
+  tokenSuffix: null,
+};
+
+describe('ApiKeysSettings edit form', () => {
+  it('keeps Save enabled and names missing permissions after a submit', async () => {
+    renderPage([NARROW_KEY]);
+    const edit = await screen.findAllByRole('button', { name: /settings.apiKeyEditPermissions/ });
+    fireEvent.click(edit[0] as HTMLElement);
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.querySelector('form')?.noValidate).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    const save = screen.getByRole('button', { name: 'common.save' });
+    expect(save.hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByText('settings.apiKeyNoPermissions')).toBeNull();
+    fireEvent.click(save);
+    expect(screen.getByText('settings.apiKeyNoPermissions')).toBeTruthy();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('ApiKeysSettings quick start', () => {
+  it('switches the code sample with the shared tabs', async () => {
+    renderPage();
+    const curl = await screen.findByRole('tab', { name: 'cURL' });
+    expect(curl.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tabpanel').textContent).toContain('curl -X GET');
+    fireEvent.click(screen.getByRole('tab', { name: 'Python' }));
+    expect(screen.getByRole('tab', { name: 'Python' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tabpanel').textContent).toContain('import requests');
+    expect(screen.getByRole('button', { name: 'settings.copyCode' })).toBeTruthy();
+  });
+});
+
 describe('ApiKeysSettings fresh proof', () => {
   it('asks for the proof before it creates a key, then sends it', async () => {
     postMock.mockResolvedValue({ id: '1', name: 'Script', rawToken: 'x', expiresAt: null });
@@ -137,17 +205,7 @@ describe('ApiKeysSettings fresh proof', () => {
 
   it('asks for the proof only when an edit widens the key', async () => {
     patchMock.mockResolvedValue({ success: true });
-    renderPage([
-      {
-        id: '7',
-        name: 'Narrow',
-        createdAt: new Date().toISOString(),
-        expiresAt: null,
-        lastUsedAt: null,
-        permissions: ['stations:read'],
-        tokenSuffix: null,
-      },
-    ]);
+    renderPage([NARROW_KEY]);
     const edit = await screen.findAllByRole('button', { name: /settings.apiKeyEditPermissions/ });
     fireEvent.click(edit[0] as HTMLElement);
     fireEvent.click(screen.getByRole('button', { name: 'widen' }));

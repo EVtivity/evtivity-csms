@@ -3,6 +3,8 @@
 
 import { create } from 'zustand';
 import { api, ApiError } from './api';
+import { queryClient } from './query';
+import { useAiPanelStore } from '../components/ai/use-ai-panel-store';
 import { loadLanguage } from '../i18n';
 import { applyTheme, resolveInitialTheme, type Theme } from './theme';
 import { mfaPendingFromReply, type MfaPendingReply, type MfaPendingState } from './mfa-pending';
@@ -168,6 +170,26 @@ export function useHasAnyPermission(perms: string[]): boolean {
   return perms.some((p) => hasPermissionCheck(permissions, p));
 }
 
+/**
+ * The user whose data the query cache holds. Query keys carry no user id, so
+ * a sign-in as anyone else (after an expired session, or an SSO return in the
+ * same tab) drops the cache first: the next user never sees the previous
+ * user's conversations, drivers or sessions.
+ */
+let cachedUserId: string | null = null;
+
+function adoptCacheFor(userId: string): void {
+  if (cachedUserId !== null && cachedUserId !== userId) clearClientData();
+  cachedUserId = userId;
+}
+
+/** Drops every cached query and closes the AI panel, as the portal does at sign-out. */
+function clearClientData(): void {
+  queryClient.clear();
+  useAiPanelStore.getState().reset();
+  cachedUserId = null;
+}
+
 export const useAuth = create<AuthState>((set, get) => ({
   user: null,
   role: initial.role,
@@ -209,6 +231,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.setItem('theme', loginData.user.themePreference);
     applyTheme(loginData.user.themePreference);
     await loadLanguage(loginData.user.language);
+    adoptCacheFor(loginData.user.id);
 
     const access = await fetchAccessInfo();
 
@@ -232,6 +255,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.setItem('theme', user.themePreference);
     applyTheme(user.themePreference);
     await loadLanguage(user.language);
+    adoptCacheFor(user.id);
 
     const access = await fetchAccessInfo();
 
@@ -280,6 +304,8 @@ export const useAuth = create<AuthState>((set, get) => ({
     }
     localStorage.removeItem('role');
     sessionStorage.setItem('noAutoLogin', 'true');
+    // The next user to sign in on this tab must not see this user's data.
+    clearClientData();
     set({
       user: null,
       role: null,
@@ -301,6 +327,7 @@ export const useAuth = create<AuthState>((set, get) => ({
         localStorage.setItem('theme', me.themePreference);
         applyTheme(me.themePreference);
         void loadLanguage(me.language);
+        adoptCacheFor(me.id);
         set({
           user: {
             id: me.id,

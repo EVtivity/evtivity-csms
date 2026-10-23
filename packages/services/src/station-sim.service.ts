@@ -2,34 +2,51 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { randomUUID } from 'node:crypto';
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+  type AnyColumn,
+  type SQL,
+} from 'drizzle-orm';
 import {
   chargingStations,
-  clearStationSimMatch,
   compareRecordIds,
-  confirmStationSimMatch,
   db,
+  getSim,
   getSimProviderSettings,
-  getStationSimMatch,
   recordSimAlertsSynced,
-  recordSimLookupMiss,
+  recordSimLookup,
   recordSimSessionsSynced,
   recordSimStatus,
-  setStationSimMatch,
+  simAttachments,
   simAlerts,
+  simAuditLog,
   simFetchCoverage,
   simSessions,
+  sims,
   stationConfigurations,
-  type ConfirmStationSimMatchResult,
+  writeAudit,
+  type Sim,
+  type SimAttachment,
   type SimAuditActor,
-  type SimMatchMeta,
-  type StationSimMatch,
+  type SimDb,
+  type SimProviderMeta,
   type StoredSimStatus,
 } from '@evtivity/database';
 import {
   gradeSignal,
   isOcpp2x,
-  normalizeIccid,
   readSignalStrength,
   SIM_RANGE_MAX_DAYS,
   SIM_REFRESH_DAY_OPTIONS,
@@ -46,16 +63,19 @@ import {
   type SimProviderErrorKind,
   type SimProviderId,
   type SimRef,
+  type SimResetResult,
   type SimSession,
   type SimStatus,
 } from '@evtivity/sim-providers';
 import {
+  clipIntervals,
   coveredDays,
   coveredMs,
   mergeIntervals,
   type SimCoveredDay,
   type SimInterval,
 } from './sim-coverage.js';
+import { attachReportedStationSim } from './sim-inventory.service.js';
 import { sendOcppCommandAndWait, type CommandResult } from './ocpp-command.js';
 import {
   classifyDisconnect,
@@ -64,7 +84,7 @@ import {
   type StoredSimSessionSpan,
 } from './sim-offline-cause.js';
 
-export { coveredDays, mergeIntervals, zonedDay } from './sim-coverage.js';
+export { clipIntervals, coveredDays, mergeIntervals, zonedDay } from './sim-coverage.js';
 export {
   classifyDisconnect,
   SERVER_DISCONNECT_REASONS,
@@ -84,8 +104,19 @@ export type {
   SimRef,
 } from '@evtivity/sim-providers';
 
+// SIM data belongs to the SIM (`sims`): its provider lookup, its fetch state
+// and its sessions, alerts and fetched periods (`sim_id`). A station reads
+// them through its open confirmed attachment, bounded by the SIM's history
+// floor (`stationSimView`). This file is the only
+// writer of `sim_sessions`, `sim_alerts` and the fetched periods of
+// `sim_fetch_coverage` (the writer's lookup deletes those of a provider SIM
+// the SIM no longer holds); the SIM rows and attachments go through the writer
+// (`@evtivity/database` `sim-inventory.ts`) and the inventory service.
+
 /** How long a lookup that found no SIM is not repeated. */
 export const SIM_LOOKUP_MISS_TTL_MS = 3_600_000;
+/** One network reset a minute per SIM. */
+export const SIM_RESET_COOLDOWN_SECONDS = 60;
 
 /**
  * The SIM providers of the API process, built from the cached SIM settings.
@@ -101,148 +132,159 @@ export function createSimProviderRegistry(
   });
 }
 
-export type SimNotMatchedReason = 'no_iccid' | 'not_found' | 'sim_matched_elsewhere';
-
-export type StationSimResolution =
-  | { kind: 'matched'; provider: SimProvider; ref: SimRef; confirmed: boolean }
-  | { kind: 'not_matched'; reason: SimNotMatchedReason }
-  | { kind: 'provider_off' };
-
-/** The provider ids a stored match carries, as an adapter reads them. */
-export function simRefOf(match: StationSimMatch): SimRef | null {
-  if (match.providerRef == null) return null;
-  const meta = (match.meta ?? {}) as SimMatchMeta;
+/** The provider ids a SIM carries after its lookup, as an adapter reads them. */
+export function simRefOf(sim: Pick<Sim, 'providerRef' | 'providerMeta'>): SimRef | null {
+  if (sim.providerRef == null) return null;
+  const meta = (sim.providerMeta ?? {}) as SimProviderMeta;
   return {
-    providerSimId: match.providerRef,
+    providerSimId: sim.providerRef,
     ...(typeof meta.linkId === 'string' ? { linkId: meta.linkId } : {}),
     ...(typeof meta.simcardId === 'string' ? { simcardId: meta.simcardId } : {}),
   };
 }
 
-/** The SIM a station's stored SIM data is read for: its confirmed match. */
-export interface ConfirmedSimRef {
-  provider: string;
-  providerRef: string;
-}
+export type SimProviderResolution =
+  | { kind: 'found'; provider: SimProvider; ref: SimRef }
+  | { kind: 'not_found' }
+  | { kind: 'provider_off' };
 
 /**
- * The provider and ref of a confirmed match, else null. Reads of stored SIM
- * sessions, alerts and coverage use only the rows of this SIM, so data fetched
- * for an earlier SIM of the station never shows.
+ * The SIM at its provider: the stored provider SIM, else a lookup at each
+ * enabled provider in order with the SIM's (normalized) ICCID. A miss is
+ * cached on the SIM for an hour unless `retryLookup` (Look Up Again). A hit
+ * on a provider SIM that another SIM row already holds counts as no hit: the
+ * next provider is asked, and a miss is stored only after the last one
+ * (`not_found`), so one provider SIM never belongs to two SIM rows. Provider
+ * errors propagate. Only a Refresh calls it.
  */
-export function confirmedSimRef(match: StationSimMatch | null): ConfirmedSimRef | null {
-  if (match?.provider == null || match.providerRef == null || match.confirmedAt == null) {
-    return null;
-  }
-  return { provider: match.provider, providerRef: match.providerRef };
-}
-
-async function stationIccid(stationId: string): Promise<string | null> {
-  const [row] = await db
-    .select({ iccid: chargingStations.iccid })
-    .from(chargingStations)
-    .where(eq(chargingStations.id, stationId));
-  return row?.iccid ?? null;
-}
-
-/**
- * The station's SIM at its provider, for a Refresh: the stored match, else a
- * lookup at each enabled provider in order with the normalized ICCID. A miss
- * is cached for an hour unless `retryLookup` (Look Up Again). A hit is
- * confirmed at once, for the person who entered it, when it is the ICCID an
- * operator with access to every site entered; a SIM matched to another
- * station is refused. Provider errors propagate.
- */
-export async function resolveStationSim(
+export async function resolveSimProvider(
   registry: SimProviderRegistry,
-  stationId: string,
-  actor: SimAuditActor,
+  sim: Sim,
   options: {
     retryLookup?: boolean;
     log?: ServiceLogger;
     /** Called with each provider before it is asked, so a 429 backs off that provider. */
     onLookup?: (provider: SimProviderId) => void;
   } = {},
-): Promise<StationSimResolution> {
-  const match = await getStationSimMatch(stationId);
-  const ref = match != null ? simRefOf(match) : null;
-  if (match?.provider != null && ref != null) {
-    const provider = await registry.getProvider(match.provider as SimProviderId);
+): Promise<SimProviderResolution> {
+  const stored = simRefOf(sim);
+  if (sim.provider != null && stored != null) {
+    const provider = await registry.getProvider(sim.provider as SimProviderId);
     if (provider == null) return { kind: 'provider_off' };
-    return { kind: 'matched', provider, ref, confirmed: match.confirmedAt != null };
+    return { kind: 'found', provider, ref: stored };
   }
 
   const providers = await registry.enabledProviders();
   if (providers.length === 0) return { kind: 'provider_off' };
-
-  const iccid = normalizeIccid(await stationIccid(stationId));
-  if (iccid == null) return { kind: 'not_matched', reason: 'no_iccid' };
-
   if (
     options.retryLookup !== true &&
-    match?.lookupMissedAt != null &&
-    Date.now() - match.lookupMissedAt.getTime() < SIM_LOOKUP_MISS_TTL_MS
+    sim.lookupMissedAt != null &&
+    Date.now() - sim.lookupMissedAt.getTime() < SIM_LOOKUP_MISS_TTL_MS
   ) {
-    return {
-      kind: 'not_matched',
-      reason:
-        match.lookupMissReason === 'sim_matched_elsewhere' ? 'sim_matched_elsewhere' : 'not_found',
-    };
+    return { kind: 'not_found' };
   }
 
   for (const provider of providers) {
     options.onLookup?.(provider.id);
-    const found = await provider.findByIccid(iccid);
+    const found = await provider.findByIccid(sim.iccid);
     if (found == null) continue;
-    // Only an ICCID entered by a person with access to every site vouches for the SIM.
-    const confirm =
-      match?.enteredIccid === iccid && match.enteredWithAllSites
-        ? { by: match.enteredBy ?? null }
-        : null;
-    const meta: SimMatchMeta = {
+    const meta: SimProviderMeta = {
       ...(found.linkId != null ? { linkId: found.linkId } : {}),
       ...(found.simcardId != null ? { simcardId: found.simcardId } : {}),
     };
-    const result = await setStationSimMatch(
-      stationId,
-      { provider: provider.id, providerRef: found.providerSimId, meta, confirm },
-      actor,
-      options.log,
+    const recorded = await recordSimLookup(sim.id, {
+      provider: provider.id,
+      providerRef: found.providerSimId,
+      meta,
+    });
+    if (recorded === 'recorded') return { kind: 'found', provider, ref: found };
+    // The SIM row is gone: nothing to record.
+    if (recorded === 'not_found') return { kind: 'not_found' };
+    // Another SIM row holds this provider SIM: the next provider may still have this one.
+    options.log?.warn(
+      { simId: sim.id, provider: provider.id },
+      'SIM lookup found a provider SIM another SIM holds; asking the next provider',
     );
-    if (!result.matched) return { kind: 'not_matched', reason: result.reason };
-    return { kind: 'matched', provider, ref: found, confirmed: confirm != null };
   }
-  await recordSimLookupMiss(stationId, 'not_found');
-  return { kind: 'not_matched', reason: 'not_found' };
+  await recordSimLookup(sim.id, { miss: 'not_found' });
+  return { kind: 'not_found' };
+}
+
+/** The station's open confirmed attachment and its SIM, else null. Database only. */
+export async function confirmedStationSim(
+  stationId: string,
+  executor: SimDb = db,
+): Promise<{ sim: Sim; attachment: SimAttachment } | null> {
+  const [row] = await executor
+    .select({ sim: sims, attachment: simAttachments })
+    .from(simAttachments)
+    .innerJoin(sims, eq(sims.id, simAttachments.simId))
+    .where(
+      and(
+        eq(simAttachments.stationId, stationId),
+        isNull(simAttachments.detachedAt),
+        isNotNull(simAttachments.confirmedAt),
+      ),
+    );
+  return row ?? null;
+}
+
+/** The end of a window that is still open. */
+export const OPEN_WINDOW_END = new Date('9999-12-31T00:00:00Z');
+
+/**
+ * What a station may read of its SIM: the SIM of its open confirmed
+ * attachment, that attachment, and the one window after the SIM's history
+ * floor (`sims.history_floor_at`, raised by every attachment close and every
+ * delete of a station holding the SIM). Every station-path read is bounded by
+ * it: rows from before the SIM last left a target (another station, of
+ * another site, or one deleted with its attachment rows) never show, while
+ * rows from before the first attachment of a SIM never attached elsewhere do
+ * (the first Refresh fetches the days before Confirm SIM). Database only.
+ */
+export interface StationSimView {
+  sim: Sim;
+  attachment: SimAttachment;
+  windows: SimInterval[];
+}
+
+export async function stationSimView(
+  stationId: string,
+  executor: SimDb = db,
+): Promise<StationSimView | null> {
+  const confirmed = await confirmedStationSim(stationId, executor);
+  if (confirmed == null) return null;
+  return {
+    ...confirmed,
+    windows: [{ from: confirmed.sim.historyFloorAt ?? new Date(0), to: OPEN_WINDOW_END }],
+  };
+}
+
+/** A row time inside one of the windows; never true without a window. */
+export function atInWindows(column: AnyColumn, windows: readonly SimInterval[]): SQL {
+  return or(...windows.map((w) => and(gte(column, w.from), lte(column, w.to)))) ?? sql`false`;
 }
 
 /**
- * Confirm SIM: the stored match becomes a reset target and its data is fetched
- * from the next Refresh on. Only the match the person saw (`shownMatchedAt`) is
- * confirmed; an already confirmed match stays as it is; a SIM another station
- * holds confirmed is refused.
+ * A row span wholly inside one of the windows, so a session that began at the
+ * previous station never shows; never true without a window.
  */
-export async function confirmStationSim(
-  stationId: string,
-  actor: SimAuditActor,
-  shownMatchedAt: Date,
-  log?: ServiceLogger,
-): Promise<ConfirmStationSimMatchResult> {
-  return confirmStationSimMatch(stationId, actor, shownMatchedAt, log);
+export function spanInWindows(
+  start: AnyColumn,
+  end: AnyColumn,
+  windows: readonly SimInterval[],
+): SQL {
+  return or(...windows.map((w) => and(gte(start, w.from), lte(end, w.to)))) ?? sql`false`;
 }
 
 /**
- * Clears the match; the next Refresh looks the SIM up again. Without a match
- * it changes nothing (a cached lookup miss stays) and answers false.
+ * Whether fetch state (status, sync times, the open session) may show on the
+ * station of the SIM's confirmed attachment: fetched after the SIM's history
+ * floor. State fetched before the SIM last left a target never shows.
  */
-export async function clearStationSim(
-  stationId: string,
-  actor: SimAuditActor,
-  log?: ServiceLogger,
-): Promise<boolean> {
-  const match = await getStationSimMatch(stationId);
-  if (match?.provider == null) return false;
-  return clearStationSimMatch(stationId, actor, {}, log);
+export function fetchedAfterFloor(at: Date | null, sim: Pick<Sim, 'historyFloorAt'>): boolean {
+  if (at == null) return false;
+  return sim.historyFloorAt == null || at.getTime() > sim.historyFloorAt.getTime();
 }
 
 // ---------------------------------------------------------------------------
@@ -264,16 +306,22 @@ export interface SimKeyStore {
   increment(key: string, windowSeconds: number): Promise<number>;
 }
 
+/**
+ * The Redis keys of the SIM feature, all under `sim:*` (`~sim:*` in the ACL).
+ * The fetch lock and the reset cooldown are per SIM; the Refresh limit is per
+ * target (a station id on the station tab, a SIM id on the SIM page: the
+ * `sta_` and `sim_` prefixes keep them apart); the station read is per station.
+ */
 export const SIM_KEYS = {
-  lock: (stationId: string): string => `sim:lock:${stationId}`,
+  lock: (simId: string): string => `sim:lock:${simId}`,
   backoff: (provider: string): string => `sim:backoff:${provider}`,
-  refresh: (stationId: string): string => `sim:refresh:${stationId}`,
-  reset: (stationId: string): string => `sim:reset:${stationId}`,
+  refresh: (targetId: string): string => `sim:refresh:${targetId}`,
+  reset: (simId: string): string => `sim:reset:${simId}`,
   signalRead: (stationId: string): string => `sim:signalread:${stationId}`,
   test: (provider: string): string => `sim:test:${provider}`,
 } as const;
 
-/** One fetch per station at a time; renewed before each page. */
+/** One fetch per SIM at a time; renewed before each page. */
 export const SIM_FETCH_LOCK_TTL_MS = 30_000;
 /** Backoff after a 429 without Retry-After. */
 export const SIM_DEFAULT_BACKOFF_SECONDS = 60;
@@ -350,12 +398,33 @@ export function simRefreshPeriod(
   return { mode: 'range', from: request.from, to: new Date(Math.min(to, now)) };
 }
 
+/**
+ * Why the provider part did not fetch:
+ * - `provider_off`: no provider is on (checked before anything is written).
+ * - `backoff`: a provider 429 is still being waited out (`retryAfter`).
+ * - `in_progress`: another Refresh of the SIM holds its fetch lock.
+ * - `no_iccid`: the station has no attachment and no valid ICCID.
+ * - `not_found`: no enabled provider has the SIM (a miss is cached for an hour).
+ * - `attached_elsewhere`: the station reported a SIM attached to another
+ *   target; no attachment is made.
+ * - `attach_conflict`: other writers kept changing the attachments of the
+ *   station or the SIM while the attachment was made; nothing was attached and
+ *   a later Refresh tries again.
+ * - `not_confirmed`: the station's attachment is not confirmed: the lookup
+ *   ran, nothing was fetched.
+ * - `sim_inactive`: the SIM is inactive, also one deactivated while the
+ *   fetch lock was taken; the route answers 409 `SIM_INACTIVE`.
+ */
 export type SimProviderPartSkipReason =
   | 'provider_off'
-  | 'not_matched'
-  | 'not_confirmed'
   | 'backoff'
-  | 'in_progress';
+  | 'in_progress'
+  | 'no_iccid'
+  | 'not_found'
+  | 'attached_elsewhere'
+  | 'attach_conflict'
+  | 'not_confirmed'
+  | 'sim_inactive';
 
 export type SimProviderPartResult =
   | {
@@ -368,7 +437,6 @@ export type SimProviderPartResult =
   | {
       result: 'skipped';
       reason: SimProviderPartSkipReason;
-      matchReason?: SimNotMatchedReason;
       retryAfter?: number;
       provider?: SimProviderId;
     }
@@ -381,6 +449,7 @@ export type SimProviderPartResult =
 export interface SimRefreshContext {
   registry: SimProviderRegistry;
   keys: SimKeyStore;
+  /** The person who pressed Refresh, for the audit rows of a new SIM or attachment. */
   actor: SimAuditActor;
   log: ServiceLogger;
   now?: () => Date;
@@ -426,217 +495,84 @@ async function backoffSeconds(
   return longest;
 }
 
-type SimTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-/** Rows of one SIM a fetch moved here from another station (or SIM ref), and their time span. */
-interface MovedSimRows {
-  stationId: string;
-  providerRef: string | null;
-  from: Date;
-  to: Date;
-}
-
 /**
- * Drops the fetched periods that rows moved away from: the station they left
- * no longer holds every session or alert of those periods, so they show as not
- * fetched there. Each station's coverage lock is taken in id order.
- */
-async function dropMovedCoverage(
-  tx: SimTx,
-  provider: SimProviderId,
-  moved: readonly MovedSimRows[],
-): Promise<void> {
-  const spans = new Map<string, MovedSimRows>();
-  for (const row of moved) {
-    const key = `${row.stationId}\u0000${row.providerRef ?? ''}`;
-    const span = spans.get(key);
-    spans.set(
-      key,
-      span == null
-        ? { ...row }
-        : {
-            ...span,
-            from: row.from < span.from ? row.from : span.from,
-            to: row.to > span.to ? row.to : span.to,
-          },
-    );
-  }
-  const ordered = [...spans.values()].sort((a, b) => a.stationId.localeCompare(b.stationId));
-  for (const span of ordered) {
-    await tx.execute(
-      sql`SELECT pg_advisory_xact_lock(hashtext(${`sim_coverage:${span.stationId}`}))`,
-    );
-    await tx
-      .delete(simFetchCoverage)
-      .where(
-        and(
-          eq(simFetchCoverage.stationId, span.stationId),
-          eq(simFetchCoverage.provider, provider),
-          span.providerRef == null
-            ? isNull(simFetchCoverage.providerRef)
-            : eq(simFetchCoverage.providerRef, span.providerRef),
-          lte(simFetchCoverage.coveredFrom, span.to),
-          gte(simFetchCoverage.coveredTo, span.from),
-        ),
-      );
-  }
-}
-
-/**
- * Stores fetched sessions. A session stored for another station (the SIM
- * moved) moves to this one with the fetched values, and the old station's
- * fetched periods it falls in are dropped. Returns the rows inserted or moved.
+ * Stores fetched sessions of a SIM. A row belongs to one SIM forever, so a
+ * session already stored (for this or, after a provider id clash, another
+ * SIM) is left as it is. Returns the rows inserted.
  */
 async function storeSessions(
-  stationId: string,
+  simId: string,
   provider: SimProviderId,
-  providerSimId: string,
   sessions: readonly SimSession[],
 ): Promise<number> {
   if (sessions.length === 0) return 0;
-  return db.transaction(async (tx) => {
-    const elsewhere = await tx
-      .select({
-        stationId: simSessions.stationId,
-        providerRef: simSessions.providerSimId,
-        from: simSessions.startedAt,
-        to: simSessions.endedAt,
-      })
-      .from(simSessions)
-      .where(
-        and(
-          eq(simSessions.provider, provider),
-          inArray(
-            simSessions.providerSessionId,
-            sessions.map((s) => s.providerSessionId),
-          ),
-          or(
-            sql`${simSessions.stationId} <> ${stationId}`,
-            sql`${simSessions.providerSimId} <> ${providerSimId}`,
-          ),
-        ),
-      )
-      .for('update');
-    const rows = await tx
-      .insert(simSessions)
-      .values(
-        sessions.map((s) => ({
-          stationId,
-          provider,
-          providerSimId,
-          providerSessionId: s.providerSessionId,
-          startedAt: new Date(s.startedAt),
-          endedAt: new Date(s.endedAt),
-          bytes: s.bytes,
-          networkName: s.networkName,
-          radioAccessTechnology: s.radioAccessTechnology,
-          cellId: s.cellId,
-          apn: s.apn,
-        })),
-      )
-      .onConflictDoUpdate({
-        target: [simSessions.provider, simSessions.providerSessionId],
-        set: {
-          stationId: sql`excluded.station_id`,
-          providerSimId: sql`excluded.provider_sim_id`,
-          startedAt: sql`excluded.started_at`,
-          endedAt: sql`excluded.ended_at`,
-          bytes: sql`excluded.bytes`,
-          networkName: sql`excluded.network_name`,
-          radioAccessTechnology: sql`excluded.radio_access_technology`,
-          cellId: sql`excluded.cell_id`,
-          apn: sql`excluded.apn`,
-        },
-        // Only a move rewrites a row, so a repeated fetch stores nothing.
-        setWhere: sql`${simSessions.stationId} <> excluded.station_id
-          OR ${simSessions.providerSimId} <> excluded.provider_sim_id`,
-      })
-      .returning({ id: simSessions.id });
-    await dropMovedCoverage(tx, provider, elsewhere);
-    return rows.length;
-  });
+  const rows = await db
+    .insert(simSessions)
+    .values(
+      sessions.map((s) => ({
+        simId,
+        provider,
+        providerSessionId: s.providerSessionId,
+        startedAt: new Date(s.startedAt),
+        endedAt: new Date(s.endedAt),
+        bytes: s.bytes,
+        networkName: s.networkName,
+        radioAccessTechnology: s.radioAccessTechnology,
+        cellId: s.cellId,
+        apn: s.apn,
+      })),
+    )
+    .onConflictDoNothing({ target: [simSessions.provider, simSessions.providerSessionId] })
+    .returning({ id: simSessions.id });
+  return rows.length;
 }
 
-/** Stores fetched alerts; an alert of a SIM that moved here moves with it, as sessions do. */
+/** Stores fetched alerts of a SIM; one already stored is left as it is. Returns the rows inserted. */
 async function storeAlerts(
-  stationId: string,
+  simId: string,
   provider: SimProviderId,
-  providerRef: string,
   alerts: readonly SimAlert[],
 ): Promise<number> {
   if (alerts.length === 0) return 0;
-  return db.transaction(async (tx) => {
-    const elsewhere = await tx
-      .select({
-        stationId: simAlerts.stationId,
-        providerRef: simAlerts.providerRef,
-        from: simAlerts.receivedAt,
-        to: simAlerts.receivedAt,
-      })
-      .from(simAlerts)
-      .where(
-        and(
-          eq(simAlerts.provider, provider),
-          inArray(
-            simAlerts.providerAlertId,
-            alerts.map((a) => a.providerAlertId),
-          ),
-          or(
-            sql`${simAlerts.stationId} <> ${stationId}`,
-            sql`${simAlerts.providerRef} IS DISTINCT FROM ${providerRef}`,
-          ),
-        ),
-      )
-      .for('update');
-    const rows = await tx
-      .insert(simAlerts)
-      .values(
-        alerts.map((a) => ({
-          stationId,
-          provider,
-          providerRef,
-          providerAlertId: a.providerAlertId,
-          kind: a.kind,
-          receivedAt: new Date(a.receivedAt),
-        })),
-      )
-      .onConflictDoUpdate({
-        target: [simAlerts.provider, simAlerts.providerAlertId],
-        set: {
-          stationId: sql`excluded.station_id`,
-          providerRef: sql`excluded.provider_ref`,
-          kind: sql`excluded.kind`,
-          receivedAt: sql`excluded.received_at`,
-        },
-        setWhere: sql`${simAlerts.stationId} <> excluded.station_id
-          OR ${simAlerts.providerRef} IS DISTINCT FROM excluded.provider_ref`,
-      })
-      .returning({ id: simAlerts.id });
-    await dropMovedCoverage(tx, provider, elsewhere);
-    return rows.length;
-  });
+  const rows = await db
+    .insert(simAlerts)
+    .values(
+      alerts.map((a) => ({
+        simId,
+        provider,
+        providerAlertId: a.providerAlertId,
+        kind: a.kind,
+        receivedAt: new Date(a.receivedAt),
+      })),
+    )
+    .onConflictDoNothing({ target: [simAlerts.provider, simAlerts.providerAlertId] })
+    .returning({ id: simAlerts.id });
+  return rows.length;
+}
+
+/** The advisory lock key of a SIM's coverage writes. */
+export function simCoverageLockKey(simId: string): string {
+  return `sim_coverage:${simId}`;
 }
 
 /** Stores a range fetched for a SIM and merges it with that SIM's overlapping and touching ones. */
 export async function recordSimFetchCoverage(
-  stationId: string,
+  simId: string,
   provider: SimProviderId,
-  providerRef: string,
   covered: SimInterval,
   fetchedAt: Date,
 ): Promise<void> {
   if (covered.to.getTime() <= covered.from.getTime()) return;
   await db.transaction(async (tx) => {
-    // Coverage writes of one station take turns, so two Refreshes never split a merge.
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`sim_coverage:${stationId}`}))`);
+    // Coverage writes of one SIM take turns, so two Refreshes never split a merge.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${simCoverageLockKey(simId)}))`);
     const touching = await tx
       .select()
       .from(simFetchCoverage)
       .where(
         and(
-          eq(simFetchCoverage.stationId, stationId),
+          eq(simFetchCoverage.simId, simId),
           eq(simFetchCoverage.provider, provider),
-          eq(simFetchCoverage.providerRef, providerRef),
           lte(simFetchCoverage.coveredFrom, covered.to),
           gte(simFetchCoverage.coveredTo, covered.from),
         ),
@@ -655,9 +591,8 @@ export async function recordSimFetchCoverage(
       );
     }
     await tx.insert(simFetchCoverage).values({
-      stationId,
+      simId,
       provider,
-      providerRef,
       coveredFrom: range.from,
       coveredTo: range.to,
       fetchedAt,
@@ -666,32 +601,25 @@ export async function recordSimFetchCoverage(
 }
 
 async function coverageHolds(
-  stationId: string,
-  sim: ConfirmedSimRef,
+  simId: string,
+  provider: SimProviderId,
   from: Date,
   to: Date,
 ): Promise<boolean> {
   const rows = await db
     .select({ from: simFetchCoverage.coveredFrom, to: simFetchCoverage.coveredTo })
     .from(simFetchCoverage)
-    .where(
-      and(
-        eq(simFetchCoverage.stationId, stationId),
-        eq(simFetchCoverage.provider, sim.provider),
-        eq(simFetchCoverage.providerRef, sim.providerRef),
-      ),
-    );
+    .where(and(eq(simFetchCoverage.simId, simId), eq(simFetchCoverage.provider, provider)));
   return coveredMs(mergeIntervals(rows), from, to) >= to.getTime() - from.getTime();
 }
 
 /**
- * The provider part of a Refresh: resolves the SIM, then reads its status, its
- * sessions and its alerts for the period and stores them. One fetch per station
- * at a time across pods (`sim:lock:<station>`, renewed before every provider
- * call); a provider 429 sets the provider backoff, during which a Refresh calls
- * no provider. A Redis failure reports the part `failed` with kind
- * `unavailable`. Every outcome is reported, never thrown, except a database
- * failure.
+ * The provider part of a station tab Refresh. Nothing is written or asked
+ * while no provider is on. The station's open attachment gives the SIM;
+ * without one, the ICCID the station reported is attached unconfirmed
+ * (`reported`, never displacing: `attached_elsewhere`). Then the SIM is
+ * looked up, and a SIM whose attachment nobody confirmed is not fetched
+ * (`not_confirmed`): the station chose the ICCID it reported.
  */
 export async function refreshStationSimProvider(
   ctx: SimRefreshContext,
@@ -699,24 +627,79 @@ export async function refreshStationSimProvider(
   period: SimRefreshPeriod,
   options: { retryLookup?: boolean } = {},
 ): Promise<SimProviderPartResult> {
-  const now = ctx.now ?? (() => new Date());
   const providers = await ctx.registry.enabledProviders();
   if (providers.length === 0) return { result: 'skipped', reason: 'provider_off' };
+  const attached = await attachReportedStationSim(stationId, ctx.actor, ctx.log);
+  if (attached.kind !== 'attached') return { result: 'skipped', reason: attached.kind };
+  return refreshSim(ctx, attached.sim, period, {
+    ...options,
+    fetch: attached.attachment.confirmedAt != null,
+    providers,
+    target: stationId,
+  });
+}
+
+/**
+ * The provider part of a Refresh on the SIM page: status, sessions and
+ * alerts of the SIM whatever its attachment, confirmed or not. The caller
+ * checks who may (an all-site user for any SIM, a site-restricted user only
+ * through a confirmed attachment to a station of their sites). An inactive
+ * SIM calls no provider (`sim_inactive`).
+ */
+export async function refreshSimProvider(
+  ctx: SimRefreshContext,
+  simId: string,
+  period: SimRefreshPeriod,
+  options: { retryLookup?: boolean } = {},
+): Promise<SimProviderPartResult> {
+  const sim = await getSim(simId);
+  // A SIM deleted since the route read it: nothing to look up.
+  if (sim == null) return { result: 'skipped', reason: 'not_found' };
+  // Before the provider check, so an inactive SIM always answers sim_inactive.
+  if (sim.status !== 'active') return { result: 'skipped', reason: 'sim_inactive' };
+  const providers = await ctx.registry.enabledProviders();
+  if (providers.length === 0) return { result: 'skipped', reason: 'provider_off' };
+  return refreshSim(ctx, sim, period, { ...options, fetch: true, providers, target: simId });
+}
+
+/**
+ * Looks the SIM up and, when `fetch`, reads its status, its sessions and its
+ * alerts for the period and stores them. One fetch per SIM at a time across
+ * pods (`sim:lock:<sim>`, renewed before every provider call); a provider 429
+ * sets the provider backoff, during which a Refresh calls no provider. A
+ * Redis failure reports the part `failed` with kind `unavailable`. Every
+ * outcome is reported, never thrown, except a database failure.
+ */
+async function refreshSim(
+  ctx: SimRefreshContext,
+  sim: Sim,
+  period: SimRefreshPeriod,
+  options: {
+    retryLookup?: boolean;
+    fetch: boolean;
+    providers: readonly SimProvider[];
+    /** The station or SIM id the Refresh was asked for, for the logs. */
+    target: string;
+  },
+): Promise<SimProviderPartResult> {
+  if (sim.status !== 'active') return { result: 'skipped', reason: 'sim_inactive' };
+  const now = ctx.now ?? (() => new Date());
+  const logged = { simId: sim.id, target: options.target };
   const redisDown = (err: unknown, step: string): SimProviderPartResult => {
-    ctx.log.warn({ err, stationId }, `SIM Refresh ${step} failed in Redis; no provider call`);
+    ctx.log.warn({ err, ...logged }, `SIM Refresh ${step} failed in Redis; no provider call`);
     return { result: 'failed', kind: 'unavailable' };
   };
 
   let waiting: number | null;
   try {
-    waiting = await backoffSeconds(ctx.keys, providers);
+    waiting = await backoffSeconds(ctx.keys, options.providers);
   } catch (err: unknown) {
     return redisDown(err, 'backoff read');
   }
   if (waiting != null) return { result: 'skipped', reason: 'backoff', retryAfter: waiting };
 
   const token = randomUUID();
-  const lockKey = SIM_KEYS.lock(stationId);
+  const lockKey = SIM_KEYS.lock(sim.id);
   let acquired: boolean;
   try {
     acquired = await ctx.keys.acquire(lockKey, token, SIM_FETCH_LOCK_TTL_MS);
@@ -730,7 +713,7 @@ export async function refreshStationSimProvider(
     try {
       return await ctx.keys.renew(lockKey, token, SIM_FETCH_LOCK_TTL_MS);
     } catch (err: unknown) {
-      ctx.log.warn({ err, stationId }, 'SIM fetch lock not renewed; the fetch stops');
+      ctx.log.warn({ err, ...logged }, 'SIM fetch lock not renewed; the fetch stops');
       return false;
     }
   };
@@ -738,41 +721,42 @@ export async function refreshStationSimProvider(
 
   let providerId: SimProviderId | null = null;
   try {
-    const resolution = await resolveStationSim(ctx.registry, stationId, ctx.actor, {
+    // A deactivation committed while the lock was taken stops the Refresh here.
+    const latest = await getSim(sim.id);
+    if (latest == null) return { result: 'skipped', reason: 'not_found' };
+    if (latest.status !== 'active') return { result: 'skipped', reason: 'sim_inactive' };
+    const resolution = await resolveSimProvider(ctx.registry, sim, {
       ...(options.retryLookup === true ? { retryLookup: true } : {}),
       log: ctx.log,
       onLookup: (id) => {
         providerId = id;
       },
     });
-    if (resolution.kind === 'provider_off') return { result: 'skipped', reason: 'provider_off' };
-    if (resolution.kind === 'not_matched') {
-      return { result: 'skipped', reason: 'not_matched', matchReason: resolution.reason };
-    }
+    if (resolution.kind !== 'found') return { result: 'skipped', reason: resolution.kind };
     const { provider, ref } = resolution;
     providerId = provider.id;
-    // Until a person with access to every site confirms the SIM, nothing is
-    // fetched from the provider: the station chose the ICCID it reported.
-    if (!resolution.confirmed) {
+    if (!options.fetch) {
       return { result: 'skipped', reason: 'not_confirmed', provider: provider.id };
     }
     const fetchedAt = now();
 
     if (!(await stillHeld())) return LOCK_LOST;
     const status = await provider.getStatus(ref);
-    await recordSimStatus(stationId, ref.providerSimId, storedSimStatus(status), fetchedAt);
+    await recordSimStatus(sim.id, ref.providerSimId, storedSimStatus(status), fetchedAt);
 
-    const match = await getStationSimMatch(stationId);
-    const cursor = period.mode === 'days' ? (match?.lastRecordId ?? null) : null;
-    const lastSync = match?.sessionsSyncedAt ?? null;
+    // The cursor of this provider SIM only: a lookup may have changed it.
+    const current = await getSim(sim.id);
+    const sameRef = current?.providerRef === ref.providerSimId;
+    const cursor = period.mode === 'days' && sameRef ? (current.lastRecordId ?? null) : null;
+    const lastSync = sameRef ? (current.sessionsSyncedAt ?? null) : null;
     // The cursor may end the paging only when stored coverage already holds the
     // rest of the period, so a longer period than the last Refresh pages back.
     const cursorUsable =
       cursor != null &&
       lastSync != null &&
       (await coverageHolds(
-        stationId,
-        { provider: provider.id, providerRef: ref.providerSimId },
+        sim.id,
+        provider.id,
         period.from,
         new Date(lastSync.getTime() - provider.reportingDelayHours * 3_600_000),
       ));
@@ -793,7 +777,7 @@ export async function refreshStationSimProvider(
         ? result.items.findIndex((s) => compareRecordIds(s.providerSessionId, cursor) <= 0)
         : -1;
       const keep = atCursor < 0 ? result.items : result.items.slice(0, atCursor);
-      sessionsStored += await storeSessions(stationId, provider.id, ref.providerSimId, keep);
+      sessionsStored += await storeSessions(sim.id, provider.id, keep);
       if (atCursor >= 0 || !result.continues || result.lastId == null) break;
       startAfter = result.lastId;
     }
@@ -806,7 +790,7 @@ export async function refreshStationSimProvider(
         ...(alertsAfter != null ? { startAfter: alertsAfter } : {}),
         range: { from: period.from, to: period.to },
       });
-      alertsStored += await storeAlerts(stationId, provider.id, ref.providerSimId, result.items);
+      alertsStored += await storeAlerts(sim.id, provider.id, result.items);
       if (!result.continues || result.lastId == null) break;
       alertsAfter = result.lastId;
     }
@@ -816,17 +800,16 @@ export async function refreshStationSimProvider(
     if (period.mode === 'days') {
       // Synced up to the end of the period asked for, the end the coverage
       // records, so the next Refresh can tell the cursor is usable.
-      await recordSimSessionsSynced(stationId, ref.providerSimId, newest, period.to);
-      await recordSimAlertsSynced(stationId, ref.providerSimId, fetchedAt);
+      await recordSimSessionsSynced(sim.id, ref.providerSimId, newest, period.to);
+      await recordSimAlertsSynced(sim.id, ref.providerSimId, fetchedAt);
     }
     // The provider reports sessions late, so nothing newer than its delay is covered.
     const coveredTo = new Date(
       Math.min(period.to.getTime(), fetchedAt.getTime() - provider.reportingDelayHours * 3_600_000),
     );
     await recordSimFetchCoverage(
-      stationId,
+      sim.id,
       provider.id,
-      ref.providerSimId,
       { from: period.from, to: coveredTo },
       fetchedAt,
     );
@@ -840,20 +823,20 @@ export async function refreshStationSimProvider(
   } catch (err: unknown) {
     if (!(err instanceof SimProviderError)) throw err;
     ctx.log.warn(
-      { err, stationId, provider: providerId, kind: err.kind },
+      { err, ...logged, provider: providerId, kind: err.kind },
       'SIM provider fetch failed; the stored SIM data is kept',
     );
     if (err.kind === 'rate_limited') {
       const retryAfter = err.retryAfterSeconds ?? SIM_DEFAULT_BACKOFF_SECONDS;
       try {
         // The provider that answered 429; a lookup sets it before each provider it asks.
-        const backoffProvider = providerId ?? providers[0]?.id;
+        const backoffProvider = providerId ?? options.providers[0]?.id;
         if (backoffProvider != null) {
           await ctx.keys.setFor(SIM_KEYS.backoff(backoffProvider), retryAfter);
         }
       } catch (setErr: unknown) {
         ctx.log.warn(
-          { err: setErr, stationId },
+          { err: setErr, ...logged },
           'SIM provider backoff not stored in Redis; the next Refresh may call the provider',
         );
       }
@@ -864,9 +847,198 @@ export async function refreshStationSimProvider(
     try {
       await ctx.keys.release(lockKey, token);
     } catch (err: unknown) {
-      ctx.log.warn({ err, stationId }, 'SIM fetch lock release failed; it expires by itself');
+      ctx.log.warn({ err, ...logged }, 'SIM fetch lock release failed; it expires by itself');
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Network reset. Only a person's click calls it.
+
+export interface SimResetContext {
+  registry: SimProviderRegistry;
+  keys: SimKeyStore;
+  /** The person who asked, for the SIM audit row. */
+  actor: SimAuditActor;
+  log: ServiceLogger;
+}
+
+/**
+ * - `reset`: the provider accepted (`status` from the provider).
+ * - `sim_not_found`: no such SIM.
+ * - `sim_inactive`: the SIM is inactive: 409 `SIM_INACTIVE`, no provider call.
+ * - `not_looked_up`: no provider SIM is known for it (no Refresh found it yet).
+ * - `provider_off`: its provider is off.
+ * - `unsupported`: the provider has no network reset.
+ * - `cooldown`: a reset of this SIM ran less than a minute ago (`retryAfter`).
+ * - `unavailable`: the cooldown could not be taken in Redis: no provider call.
+ * - `provider_error`: the provider refused or failed (`error`); a 429 also
+ *   started the provider backoff.
+ */
+export type SimNetworkResetOutcome =
+  | { kind: 'reset'; status: SimResetResult['status'] }
+  | { kind: 'sim_not_found' }
+  | { kind: 'sim_inactive' }
+  | { kind: 'not_looked_up' }
+  | { kind: 'provider_off' }
+  | { kind: 'unsupported' }
+  | { kind: 'cooldown'; retryAfter: number }
+  | { kind: 'unavailable' }
+  | { kind: 'provider_error'; error: SimProviderError };
+
+/**
+ * Resets the network of a SIM at its provider (the station tab and the SIM
+ * page). The caller checks who may: on the station tab the station's
+ * attachment must be confirmed; on the SIM page a site-restricted user needs a
+ * confirmed attachment to a station of their sites. The cooldown is per SIM
+ * (`sim:reset:<sim>`), so both pages share it, and is taken before the call.
+ * An inactive SIM calls no provider, also one deactivated while the cooldown
+ * was taken (the status is read again after it). Audited on the SIM
+ * (`network_reset`, outcome in the notes); `onOutcome` gets the outcome and the
+ * station the SIM is attached to, for the station's command audit. Both are
+ * fail-open: a failure is logged and never changes the outcome. An error that
+ * is not a `SimProviderError` gives the cooldown back, is audited `failed` and
+ * is rethrown. `stillAllowed` repeats the caller's access check after the
+ * cooldown is taken, since the SIM may have moved to another station
+ * meanwhile: false gives the cooldown back and answers `sim_not_found`.
+ */
+export async function resetSimNetwork(
+  ctx: SimResetContext,
+  simId: string,
+  options: {
+    onOutcome?: (outcome: 'accepted' | 'failed', attachedStationId: string | null) => Promise<void>;
+    stillAllowed?: () => Promise<boolean>;
+  } = {},
+): Promise<SimNetworkResetOutcome> {
+  const sim = await getSim(simId);
+  if (sim == null) return { kind: 'sim_not_found' };
+  if (sim.status !== 'active') return { kind: 'sim_inactive' };
+  const ref = simRefOf(sim);
+  if (sim.provider == null || ref == null) return { kind: 'not_looked_up' };
+  const provider = await ctx.registry.getProvider(sim.provider as SimProviderId);
+  if (provider == null) return { kind: 'provider_off' };
+  if (!provider.capabilities.networkReset) return { kind: 'unsupported' };
+
+  const cooldownKey = SIM_KEYS.reset(simId);
+  const cooldownToken = randomUUID();
+  let taken: boolean;
+  try {
+    taken = await ctx.keys.acquire(cooldownKey, cooldownToken, SIM_RESET_COOLDOWN_SECONDS * 1000);
+  } catch (err: unknown) {
+    // Without the cooldown two resets could reach the provider at once: refuse.
+    ctx.log.warn({ err, simId }, 'SIM reset cooldown not taken in Redis');
+    return { kind: 'unavailable' };
+  }
+  if (!taken) {
+    let retryAfter = SIM_RESET_COOLDOWN_SECONDS;
+    try {
+      retryAfter = (await ctx.keys.ttlSeconds(cooldownKey)) ?? SIM_RESET_COOLDOWN_SECONDS;
+    } catch (err: unknown) {
+      ctx.log.warn({ err, simId }, 'SIM reset wait not read in Redis; the full wait is given');
+    }
+    return { kind: 'cooldown', retryAfter };
+  }
+
+  const giveCooldownBack = async (): Promise<void> => {
+    try {
+      await ctx.keys.release(cooldownKey, cooldownToken);
+    } catch (releaseErr: unknown) {
+      ctx.log.warn(
+        { err: releaseErr, simId },
+        'SIM reset cooldown not released in Redis; it expires by itself',
+      );
+    }
+  };
+  // Fail-open: the reset already happened or failed at the provider, so
+  // an audit or onOutcome failure is logged and never changes the outcome.
+  // The SIM row names the station the SIM is attached to (`after.stationId`),
+  // so the audit view shows it only to users of that station's site.
+  // A row whose station could not be read says so (`stationUnknown`), and the
+  // audit view hides it from site-restricted users, as it would hide a row
+  // naming another site's station.
+  const audit = async (outcome: 'accepted' | 'failed'): Promise<void> => {
+    let stationId: string | null = null;
+    let stationUnknown = false;
+    try {
+      const [open] = await db
+        .select({ stationId: simAttachments.stationId })
+        .from(simAttachments)
+        .where(and(eq(simAttachments.simId, simId), isNull(simAttachments.detachedAt)));
+      stationId = open?.stationId ?? null;
+    } catch (err: unknown) {
+      stationUnknown = true;
+      ctx.log.warn({ err, simId, outcome }, 'SIM network reset station not read for the audit');
+    }
+    await writeAudit(
+      { table: simAuditLog, idColumn: 'sim_id' },
+      {
+        entityId: simId,
+        entityIdSnapshot: simId,
+        action: 'network_reset',
+        ...ctx.actor,
+        before: null,
+        after: stationUnknown ? { outcome, stationId, stationUnknown } : { outcome, stationId },
+        notes: `SimNetworkReset (${outcome})`,
+      },
+      db,
+      ctx.log,
+    );
+    if (options.onOutcome == null) return;
+    try {
+      await options.onOutcome(outcome, stationId);
+    } catch (err: unknown) {
+      ctx.log.warn({ err, simId, outcome }, 'SIM network reset station audit failed');
+    }
+  };
+
+  // A deactivation committed while the cooldown was taken stops the reset here.
+  let latest: Sim | null;
+  let allowed: boolean;
+  try {
+    latest = await getSim(simId);
+    allowed = options.stillAllowed == null || (await options.stillAllowed());
+  } catch (err: unknown) {
+    await giveCooldownBack();
+    throw err;
+  }
+  if (latest?.status !== 'active') {
+    await giveCooldownBack();
+    return latest == null ? { kind: 'sim_not_found' } : { kind: 'sim_inactive' };
+  }
+  if (!allowed) {
+    await giveCooldownBack();
+    return { kind: 'sim_not_found' };
+  }
+
+  let result: SimResetResult;
+  try {
+    result = await provider.resetNetwork(ref);
+  } catch (err: unknown) {
+    if (!(err instanceof SimProviderError)) {
+      // Nothing says the provider got the request, so the cooldown is given back.
+      await giveCooldownBack();
+      await audit('failed');
+      throw err;
+    }
+    await audit('failed');
+    ctx.log.warn({ err, simId, kind: err.kind }, 'SIM network reset failed');
+    if (err.kind === 'rate_limited') {
+      try {
+        await ctx.keys.setFor(
+          SIM_KEYS.backoff(provider.id),
+          err.retryAfterSeconds ?? SIM_RESET_COOLDOWN_SECONDS,
+        );
+      } catch (setErr: unknown) {
+        ctx.log.warn(
+          { err: setErr, simId },
+          'SIM provider backoff not stored in Redis; the next Refresh may call the provider',
+        );
+      }
+    }
+    return { kind: 'provider_error', error: err };
+  }
+  await audit('accepted');
+  return { kind: 'reset', status: result.status };
 }
 
 // ---------------------------------------------------------------------------
@@ -876,48 +1048,31 @@ export interface SimCoverageBounds {
   historyDays: number | null;
   retentionDays: number;
   reportingDelayHours: number;
-}
-
-/** The stored rows of one SIM of a station: sessions, alerts and coverage. */
-function simSessionsOf(stationId: string, sim: ConfirmedSimRef) {
-  return and(
-    eq(simSessions.stationId, stationId),
-    eq(simSessions.provider, sim.provider),
-    eq(simSessions.providerSimId, sim.providerRef),
-  );
-}
-
-function simAlertsOf(stationId: string, sim: ConfirmedSimRef) {
-  return and(
-    eq(simAlerts.stationId, stationId),
-    eq(simAlerts.provider, sim.provider),
-    eq(simAlerts.providerRef, sim.providerRef),
-  );
-}
-
-function simCoverageOf(stationId: string, sim: ConfirmedSimRef) {
-  return and(
-    eq(simFetchCoverage.stationId, stationId),
-    eq(simFetchCoverage.provider, sim.provider),
-    eq(simFetchCoverage.providerRef, sim.providerRef),
-  );
+  /**
+   * Only the data and fetched periods inside these windows count: a station's
+   * window after the SIM's history floor (`stationSimView`), or on the SIM page
+   * of a site-restricted user the periods the SIM was attached to stations of
+   * their sites. Omitted for an all-site user on the SIM page, who sees all.
+   */
+  windows?: readonly SimInterval[];
 }
 
 /**
- * The coveredDays entries of a station for a range, from the stored data of its
- * confirmed SIM only (`sim`, from `confirmedSimRef`); without one no day is fetched.
+ * The coveredDays entries of a SIM for a range, from its stored data. A
+ * station passes the SIM of its confirmed attachment and its window
+ * (`stationSimView`); without one (`null`) no day is fetched.
  */
-export async function stationCoveredDays(
-  stationId: string,
-  sim: ConfirmedSimRef | null,
+export async function simCoveredDays(
+  simId: string | null,
   from: Date,
   to: Date,
   timeZone: string,
   bounds: SimCoverageBounds,
   now: Date = new Date(),
 ): Promise<SimCoveredDay[]> {
-  const [coverage, sessionRows, alertRows] =
-    sim == null
+  const windows = bounds.windows;
+  const [stored, sessionRows, alertRows] =
+    simId == null
       ? [[], [], []]
       : await Promise.all([
           db
@@ -925,7 +1080,7 @@ export async function stationCoveredDays(
             .from(simFetchCoverage)
             .where(
               and(
-                simCoverageOf(stationId, sim),
+                eq(simFetchCoverage.simId, simId),
                 lte(simFetchCoverage.coveredFrom, to),
                 gte(simFetchCoverage.coveredTo, from),
               ),
@@ -935,9 +1090,12 @@ export async function stationCoveredDays(
             .from(simSessions)
             .where(
               and(
-                simSessionsOf(stationId, sim),
+                eq(simSessions.simId, simId),
                 lte(simSessions.startedAt, to),
                 gte(simSessions.endedAt, from),
+                windows == null
+                  ? undefined
+                  : spanInWindows(simSessions.startedAt, simSessions.endedAt, windows),
               ),
             ),
           db
@@ -945,12 +1103,14 @@ export async function stationCoveredDays(
             .from(simAlerts)
             .where(
               and(
-                simAlertsOf(stationId, sim),
+                eq(simAlerts.simId, simId),
                 gte(simAlerts.receivedAt, from),
                 lte(simAlerts.receivedAt, to),
+                windows == null ? undefined : atInWindows(simAlerts.receivedAt, windows),
               ),
             ),
         ]);
+  const coverage = windows == null ? stored : clipIntervals(stored, windows);
   const keptSince = new Date(now.getTime() - bounds.retentionDays * DAY_MS);
   const historySince =
     bounds.historyDays == null ? now : new Date(now.getTime() - bounds.historyDays * DAY_MS);
@@ -971,10 +1131,14 @@ export async function stationCoveredDays(
 }
 
 /**
- * The likely offline cause of each disconnect, from the stored SIM sessions and
- * alerts of the station's confirmed SIM and the open session of its last
- * Refresh; data of an earlier SIM is never used. Reads the database only.
- * Returns one label per disconnect, in the same order.
+ * The likely offline cause of each disconnect of a station, from the stored
+ * sessions, alerts and fetched periods of the SIM of its confirmed attachment
+ * and the open session of that SIM's last Refresh. Only the rows after the
+ * SIM's history floor count (`stationSimView`), and the open session only when
+ * the status was fetched after it: the SIM's data from another station never
+ * shows here. Without a confirmed attachment no SIM data
+ * is used. Reads the database only. Returns one label per disconnect, in the
+ * same order.
  */
 export async function stationDisconnectCauses(
   stationId: string,
@@ -987,8 +1151,10 @@ export async function stationDisconnectCauses(
   const from = new Date(Math.min(...times) - 25 * 3_600_000);
   const to = new Date(Math.max(...times) + 3_600_000);
   const span = { startedAt: simSessions.startedAt, endedAt: simSessions.endedAt };
-  const match = await getStationSimMatch(stationId);
-  const sim = confirmedSimRef(match);
+  const view = await stationSimView(stationId);
+  const sim = view?.sim ?? null;
+  const windows = view?.windows ?? [];
+  const inWindows = spanInWindows(simSessions.startedAt, simSessions.endedAt, windows);
   const [near, before, after, alerts, coverage] =
     sim == null
       ? [[], [], [], [], []]
@@ -998,21 +1164,22 @@ export async function stationDisconnectCauses(
             .from(simSessions)
             .where(
               and(
-                simSessionsOf(stationId, sim),
+                eq(simSessions.simId, sim.id),
                 gte(simSessions.endedAt, from),
                 lte(simSessions.startedAt, to),
+                inWindows,
               ),
             ),
           db
             .select(span)
             .from(simSessions)
-            .where(and(simSessionsOf(stationId, sim), lt(simSessions.endedAt, from)))
+            .where(and(eq(simSessions.simId, sim.id), lt(simSessions.endedAt, from), inWindows))
             .orderBy(desc(simSessions.endedAt))
             .limit(1),
           db
             .select(span)
             .from(simSessions)
-            .where(and(simSessionsOf(stationId, sim), gt(simSessions.startedAt, to)))
+            .where(and(eq(simSessions.simId, sim.id), gt(simSessions.startedAt, to), inWindows))
             .orderBy(asc(simSessions.startedAt))
             .limit(1),
           db
@@ -1020,9 +1187,10 @@ export async function stationDisconnectCauses(
             .from(simAlerts)
             .where(
               and(
-                simAlertsOf(stationId, sim),
+                eq(simAlerts.simId, sim.id),
                 gte(simAlerts.receivedAt, from),
                 lte(simAlerts.receivedAt, to),
+                atInWindows(simAlerts.receivedAt, windows),
               ),
             ),
           db
@@ -1030,21 +1198,22 @@ export async function stationDisconnectCauses(
             .from(simFetchCoverage)
             .where(
               and(
-                simCoverageOf(stationId, sim),
+                eq(simFetchCoverage.simId, sim.id),
                 lte(simFetchCoverage.coveredFrom, to),
                 gte(simFetchCoverage.coveredTo, from),
               ),
             ),
         ]);
   const sessions: StoredSimSessionSpan[] = [...before, ...near, ...after];
+  const statusHere = view != null && fetchedAfterFloor(view.sim.statusFetchedAt, view.sim);
   const ctx = {
     sessions,
     alerts,
-    openSessionBeganAt: sim == null ? null : (match?.openSessionBeganAt ?? null),
-    lastFetchedAt: sim == null ? null : (match?.statusFetchedAt ?? null),
+    openSessionBeganAt: statusHere ? (sim?.openSessionBeganAt ?? null) : null,
+    lastFetchedAt: statusHere ? (sim?.statusFetchedAt ?? null) : null,
     reportingDelayHours: options.reportingDelayHours,
     now: options.now ?? new Date(),
-    coverage: mergeIntervals(coverage),
+    coverage: clipIntervals(coverage, windows),
   };
   return disconnects.map((d) => classifyDisconnect(d, ctx));
 }

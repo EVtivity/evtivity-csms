@@ -45,7 +45,13 @@ import { eventStreamRoutes } from '../routes/events.js';
 function openStream(port: number, token: string): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
     const req = request(
-      { host: '127.0.0.1', port, path: `/events/stream?token=${token}`, method: 'GET' },
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/events/stream',
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}` },
+      },
       (res) => {
         res.setEncoding('utf8');
         res.once('data', () => {

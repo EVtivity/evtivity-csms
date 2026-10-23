@@ -1531,12 +1531,13 @@ export function supportCaseRoutes(app: FastifyInstance): void {
   app.post(
     '/support-cases/:id/refund',
     {
-      onRequest: [authorize('support:write')],
+      // A refund moves money: payments:write as on the session refund route.
+      onRequest: [authorize('support:write', 'payments:write')],
       schema: {
         tags: ['Support Cases'],
         summary: 'Issue a refund for a session linked to a support case',
         description:
-          'Refunds the payment of the supplied sessionId through the provider it was made with; the session must be linked to this case via the support_case_sessions junction table. Supports partial refunds via amountCents. Allowed against captured or partially_refunded payments; 409 PAYMENT_OPERATION_PENDING while the provider has not confirmed the capture. refundStatus is pending when an asynchronous provider (Adyen) confirms the refund later by webhook. Posts an audit message to the case timeline on success.',
+          'Refunds the payment of the supplied sessionId through the provider it was made with; needs support:write and payments:write. The session must be linked to this case via the support_case_sessions junction table and belong to a site of the caller (the site stored on the session, not the current site of its station). Supports partial refunds via amountCents. Allowed against captured or partially_refunded payments; 409 PAYMENT_OPERATION_PENDING while the provider has not confirmed the capture. refundStatus is pending when an asynchronous provider (Adyen) confirms the refund later by webhook. Posts an audit message to the case timeline on success.',
         operationId: 'refundSupportCaseSession',
         security: [{ bearerAuth: [] }],
         params: zodSchema(caseIdParams),
@@ -1549,6 +1550,9 @@ export function supportCaseRoutes(app: FastifyInstance): void {
             ERROR_CODES.REFUND_EXCEEDS_REMAINING,
             ERROR_CODES.SESSION_NOT_LINKED,
             ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
+          ]),
+          403: errorWith('Missing support:write or payments:write', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
           ]),
           404: errorWith('Support case not found', [ERROR_CODES.SUPPORT_CASE_NOT_FOUND]),
           409: errorWith(
@@ -1599,22 +1603,23 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Fetch the session's station siteId and transactionId once — used
-      // downstream for the site-access check, the Stripe per-site config
-      // lookup, and the system message label.
+      // The session's own site (charging_sessions.site_id, stamped at the
+      // start) and transaction id: the site-access check and the system
+      // message label. The station's current site is not the session's after
+      // a station move (site-access-control.md, "Sessions").
       const [sessionStation] = await db
         .select({
-          siteId: chargingStations.siteId,
+          siteId: chargingSessions.siteId,
           transactionId: chargingSessions.transactionId,
         })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .where(eq(chargingSessions.id, body.sessionId));
 
-      // Defense in depth: verify the session's station is in the operator's
+      // Defense in depth: verify the session's site is in the operator's
       // accessible sites. The link-time validation in create/PATCH should
       // have caught this already, but historical rows (linked before the
-      // validation was added) could still expose cross-site refunds.
+      // validation was added) or a station moved since could still expose
+      // cross-site refunds.
       if (sessionStation != null && !siteInScope(refundSiteIds, sessionStation.siteId)) {
         await reply.status(400).send({
           error: 'Session not linked to this case',
@@ -1631,6 +1636,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         {
           sessionId: body.sessionId,
           ...(body.amountCents != null ? { amountCents: body.amountCents } : {}),
+          actorUserId: userId,
         },
         paymentContext(request.log, getAuditActor(request)),
       );

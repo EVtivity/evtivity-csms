@@ -4,14 +4,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
-import formbody from '@fastify/formbody';
 import type { FastifyInstance } from 'fastify';
 
 // DB mock helpers
 let dbResults: unknown[][] = [];
 let dbCallIndex = 0;
+// The IdP subject every stand-in assertion carries (see the SAML mock).
+const SSO_SUBJECT = 'https://idp.test|idp-user';
+
+/**
+ * Positional query results. A user row (one with roleId and isActive) is bound to
+ * the stand-in IdP subject unless the test sets ssoSubject itself, so the SSO
+ * callback finds it by its email alone, as an account linked before.
+ */
 function setupDbResults(...results: unknown[][]) {
-  dbResults = results;
+  dbResults = results.map((rows) =>
+    Array.isArray(rows)
+      ? rows.map((row) =>
+          row != null &&
+          typeof row === 'object' &&
+          'roleId' in row &&
+          'isActive' in row &&
+          !('ssoSubject' in row)
+            ? { ...row, ssoSubject: SSO_SUBJECT }
+            : row,
+        )
+      : rows,
+  );
   dbCallIndex = 0;
 }
 function makeChain() {
@@ -176,8 +195,15 @@ vi.mock('@node-saml/node-saml', () => ({
     getAuthorizeUrlAsync(...args: unknown[]) {
       return mockGetAuthorizeUrlAsync(...args);
     }
-    validatePostResponseAsync(...args: unknown[]) {
-      return mockValidatePostResponseAsync(...args);
+    async validatePostResponseAsync(...args: unknown[]) {
+      const result = (await mockValidatePostResponseAsync(...args)) as {
+        profile?: Record<string, unknown> | null;
+      } | null;
+      // The IdP subject: a NameID and issuer unless the test sets them.
+      if (result?.profile != null && !('nameID' in result.profile)) {
+        result.profile = { nameID: 'idp-user', issuer: 'https://idp.test', ...result.profile };
+      }
+      return result;
     }
   },
 }));
@@ -218,7 +244,6 @@ import { DEFAULT_SESSION_LIFETIMES } from '@evtivity/lib/session-lifetimes';
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
   await app.register(cookie);
-  await app.register(formbody);
   await registerAuth(app);
   ssoAuthRoutes(app);
   await app.ready();
@@ -269,7 +294,7 @@ describe('SSO auth routes', () => {
       expect(res.statusCode).toBe(302);
       expect(res.headers['location']).toBe('https://idp.example.com/sso?SAMLRequest=xxx');
     });
-    it('sends a well-formed state as RelayState and drops any other (security review Info 3)', async () => {
+    it('sends a well-formed state as RelayState and drops any other', async () => {
       mockGetSsoConfig.mockResolvedValue(SSO_CONFIG);
       mockGetAuthorizeUrlAsync.mockResolvedValue('https://idp.example.com/sso?SAMLRequest=xxx');
       const state = 'AbCdEfGhIjKlMnOpQrStUv_-12';
@@ -282,7 +307,7 @@ describe('SSO auth routes', () => {
     });
   });
 
-  describe('SSO browser binding (security review L1, login CSRF)', () => {
+  describe('SSO browser binding', () => {
     const CALLBACK = {
       method: 'POST' as const,
       url: '/auth/sso/callback',
@@ -410,7 +435,7 @@ describe('SSO auth routes', () => {
     });
   });
 
-  describe('SSO state and sign-in time (security review Info 3 and L4)', () => {
+  describe('SSO state and sign-in time', () => {
     const STATE = 'AbCdEfGhIjKlMnOpQrStUv_-12';
 
     it('puts the RelayState into the MFA fragment', async () => {
@@ -484,6 +509,62 @@ describe('SSO auth routes', () => {
       const payload = app.jwt.verify<{ ssoAt?: number }>(token);
       expect(payload.ssoAt).toBeGreaterThanOrEqual(before);
       expect(payload.ssoAt).toBeLessThanOrEqual(Math.floor(Date.now() / 1000));
+    });
+  });
+
+  describe('SSO subject binding', () => {
+    const post = () =>
+      app.inject({
+        method: 'POST',
+        url: '/auth/sso/callback',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie: 'csms_sso_binding=browser-binding',
+        },
+        payload: 'SAMLResponse=base64encodedresponse',
+      });
+
+    it('refuses an assertion without a NameID', async () => {
+      mockGetSsoConfig.mockResolvedValue(SSO_CONFIG);
+      mockValidatePostResponseAsync.mockResolvedValue({
+        profile: { email: 'test@example.com', nameID: '' },
+      });
+      setupDbResults([]);
+      const res = await post();
+      expect(res.headers['location']).toBe('/login?error=sso_config_error');
+      expect(mockSetAuthCookies).not.toHaveBeenCalled();
+    });
+
+    it('refuses a password account no one allowed to link', async () => {
+      mockGetSsoConfig.mockResolvedValue(SSO_CONFIG);
+      mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'test@example.com' } });
+      setupDbResults(
+        [
+          {
+            id: 'usr_001',
+            roleId: 'rol_001',
+            isActive: true,
+            authSource: 'password',
+            ssoSubject: null,
+            ssoLinkAllowed: false,
+          },
+        ],
+        [],
+      );
+      const res = await post();
+      expect(res.headers['location']).toBe('/login?error=sso_link_required');
+      expect(mockSetAuthCookies).not.toHaveBeenCalled();
+    });
+
+    it('refuses an account bound to another subject', async () => {
+      mockGetSsoConfig.mockResolvedValue(SSO_CONFIG);
+      mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'test@example.com' } });
+      setupDbResults(
+        [{ id: 'usr_001', roleId: 'rol_001', isActive: true, ssoSubject: 'other|subject' }],
+        [],
+      );
+      const res = await post();
+      expect(res.headers['location']).toBe('/login?error=sso_link_required');
     });
   });
 
@@ -753,7 +834,7 @@ describe('SSO auth routes', () => {
       // First query: user lookup returns empty (not found)
       // Second query: role lookup returns the default role
       // Third query: insert user
-      setupDbResults([], [{ id: 'rol_001' }], []);
+      setupDbResults([], [], [{ id: 'rol_001' }], []);
 
       mockGenerateId.mockReturnValue('usr_new001');
       mockCreateRefreshToken.mockResolvedValue({
@@ -802,6 +883,7 @@ describe('SSO auth routes', () => {
       });
       // User lookup (none), default role, the inserted user, the role name of the MFA gate.
       setupDbResults(
+        [],
         [],
         [{ id: 'rol_001', name: 'operator' }],
         [{ id: 'usr_new002', language: 'en', sessionVersion: 0 }],
@@ -855,6 +937,7 @@ describe('SSO auth routes', () => {
       });
       setupDbResults(
         [],
+        [],
         [{ id: 'rol_001', name: 'operator' }],
         [{ id: 'usr_new003', language: 'en', sessionVersion: 0 }],
         [{ name: 'operator' }],
@@ -891,6 +974,7 @@ describe('SSO auth routes', () => {
           profile: { email: 'new@example.com', firstName: 'New', lastName: 'Operator' },
         });
         setupDbResults(
+          [],
           [],
           [{ id: 'rol_001', name: 'operator' }],
           [{ id: 'usr_new004', language: 'en', sessionVersion: 0 }],

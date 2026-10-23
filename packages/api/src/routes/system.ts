@@ -9,6 +9,7 @@ import { authorize } from '../middleware/rbac.js';
 import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
+import { isWeakJwtSecret, isWeakSettingsEncryptionKey } from '@evtivity/lib/deployment-secrets';
 import { APP_VERSION } from '../lib/app-version.js';
 import { activePaymentProvider } from '../lib/payments.js';
 
@@ -21,11 +22,9 @@ function envOptional(key: string): string | null {
   return value != null && value !== '' ? value : null;
 }
 
-function envHasValue(key: string, defaultValueIfDev?: string): boolean {
+function envHasValue(key: string): boolean {
   const value = process.env[key];
-  if (value == null || value === '') return false;
-  if (defaultValueIfDev != null && value === defaultValueIfDev) return false;
-  return true;
+  return value != null && value !== '';
 }
 
 const INTEGRATION_SETTING_KEYS = [
@@ -150,10 +149,16 @@ const systemInfoResponse = z
       .describe('Payment provider status'),
     secrets: z
       .object({
-        jwtConfigured: z.boolean().describe('Whether JWT_SECRET is set to a non-default value'),
+        jwtConfigured: z
+          .boolean()
+          .describe(
+            'Whether JWT_SECRET is at least 32 characters and not a published example value',
+          ),
         settingsEncryptionConfigured: z
           .boolean()
-          .describe('Whether SETTINGS_ENCRYPTION_KEY is configured'),
+          .describe(
+            'Whether SETTINGS_ENCRYPTION_KEY is at least 32 characters and not a published example value',
+          ),
         stripeConfigured: z
           .boolean()
           .describe('Whether the Stripe secret key is configured in settings'),
@@ -212,7 +217,7 @@ export function systemRoutes(app: FastifyInstance): void {
       const selected = integration.get('payments.provider');
       return {
         version: APP_VERSION,
-        nodeEnv: envStr('NODE_ENV') || 'development',
+        nodeEnv: envStr('NODE_ENV') || 'production',
         logLevel: envStr('LOG_LEVEL') || 'info',
         network: {
           bindIp: envOptional('BIND_IP'),
@@ -261,8 +266,11 @@ export function systemRoutes(app: FastifyInstance): void {
           configured: (await activePaymentProvider(request.log)) != null,
         },
         secrets: {
-          jwtConfigured: envHasValue('JWT_SECRET', 'dev-secret-change-in-production'),
-          settingsEncryptionConfigured: envHasValue('SETTINGS_ENCRYPTION_KEY'),
+          // A short or published value (Compose, .env.example) is not configured.
+          jwtConfigured: !isWeakJwtSecret(envStr('JWT_SECRET')),
+          settingsEncryptionConfigured: !isWeakSettingsEncryptionKey(
+            envStr('SETTINGS_ENCRYPTION_KEY'),
+          ),
           stripeConfigured: settingHasValue(integration, 'stripe.secretKeyEnc'),
           adyenConfigured: settingHasValue(integration, 'adyen.apiKeyEnc'),
           smtpConfigured: envHasValue('SMTP_HOST') || settingHasValue(integration, 'smtp.host'),

@@ -1,6 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { randomBytes } from 'node:crypto';
+import {
+  HUBJECT_URL_SETTING_KEYS,
+  PRIVATE_HUBJECT_URL_ERROR,
+  validateHubjectUrl,
+} from '../lib/hubject-url.js';
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { invalidateAutochargeCaches } from '../lib/autocharge-invalidation.js';
@@ -29,6 +35,7 @@ import {
   MAX_GUEST_VELOCITY_LIMIT,
   clearAiSettingsCache,
   clearPncSettingsCache,
+  clearDataPlanValuesCache,
   writeAudit,
   settingAuditLog,
 } from '@evtivity/database';
@@ -65,7 +72,10 @@ import {
   replyIfProviderUpgradePending,
 } from '../lib/provider-switch.js';
 import {
+  assertTemplateAllowed,
+  EMAIL_LAYOUT_TEMPLATE,
   encryptString,
+  WEBHOOK_SIGNING_SECRET_KEY,
   clearNotificationSettingsCache,
   isSupportedCurrency,
   SUPPORTED_CURRENCIES,
@@ -112,6 +122,10 @@ import {
   INVOICE_PAYMENT_MAX_LENGTHS,
   isInvoicePaymentSettingKey,
   normalizeInvoicePaymentSetting,
+  isDataRetentionSettingKey,
+  isDataPlanSettingKey,
+  validateDataPlanSetting,
+  normalizeMeasurandList,
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
@@ -157,7 +171,12 @@ import { publishOcpiTariffSettingChange } from '../lib/ocpi-tariff-push.js';
 import { readDriverAiAvailability } from '../lib/driver-ai-availability.js';
 import { isSimFeatureOn, readSimSettings } from '../lib/sim.js';
 import { DRIVER_AI_NOTICE_VERSION } from '@evtivity/lib/driver-ai';
-import { decryptForRead, encryptForWrite, isServerManagedSetting } from '../lib/settings-crypto.js';
+import {
+  decryptForRead,
+  encryptForWrite,
+  isServerManagedSetting,
+  storedSecretDecrypts,
+} from '../lib/settings-crypto.js';
 
 const settingParams = z.object({
   key: z.string().min(1).describe('Setting key'),
@@ -190,6 +209,17 @@ function isCachedSystemSetting(key: string): boolean {
  */
 function normalizeSettingValue(key: string, value: unknown): { value: unknown } | null {
   if (isServerManagedSetting(key) || isDedicatedRouteSetting(key)) return null;
+  // Data plan values (Settings > Integrations & Features > OCPP): ranges and
+  // known measurands, the checks the Helm chart applies too.
+  if (isDataPlanSettingKey(key)) {
+    if (validateDataPlanSetting(key, value) != null) return null;
+    // A measurand list is stored with each item trimmed, as the station gets it.
+    return { value: typeof value === 'string' ? normalizeMeasurandList(value) : value };
+  }
+  if (HUBJECT_URL_SETTING_KEYS.has(key)) {
+    const url = validateHubjectUrl(value);
+    return url != null ? { value: url } : null;
+  }
   if (isAiBaseUrlSettingKey(key)) {
     // A mock provider on localhost is allowed in development only.
     const url = validateAiBaseUrl(value, {
@@ -214,6 +244,7 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
     return { value: storedSystemPrompt('driver', value) };
   }
   if (key === COMPANY_PRICE_DISPLAY_KEY) return isPriceDisplay(value) ? { value } : null;
+  if (key === EMAIL_WRAPPER_TEMPLATE_KEY) return emailLayoutAllowed(value) ? { value } : null;
   if (key === STATION_MESSAGE_LANGUAGE_KEY) {
     return isStationMessageLanguage(value) ? { value } : null;
   }
@@ -271,6 +302,31 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
 
 const invalidCurrencyError = {
   error: `company.currency must be one of: ${SUPPORTED_CURRENCIES.join(', ')}`,
+  code: 'VALIDATION_ERROR',
+};
+
+const EMAIL_WRAPPER_TEMPLATE_KEY = 'email.wrapperTemplate';
+
+/**
+ * The email layout wraps every HTML email. It saves only when it sends: plain
+ * variables and if/unless blocks, and no raw variable but `{{{content}}}`, the
+ * rendered body. Empty restores the built-in layout.
+ */
+function emailLayoutAllowed(value: unknown): boolean {
+  if (typeof value !== 'string') return false;
+  if (value === '') return true;
+  try {
+    assertTemplateAllowed(value, EMAIL_LAYOUT_TEMPLATE);
+    return true;
+  } catch {
+    // fail-open: an invalid layout is operator input, the caller answers 400.
+    return false;
+  }
+}
+
+const invalidEmailWrapperError = {
+  error:
+    'email.wrapperTemplate must be a valid layout: plain variables, if and unless blocks, and no raw variable except {{{content}}}',
   code: 'VALIDATION_ERROR',
 };
 
@@ -385,14 +441,21 @@ const serverManagedSettingError = {
  * SSO and security settings decide who signs in and how. Only their own routes
  * write and return them (`/v1/sso/settings`, `/v1/security/*`: the
  * settings.security permissions and all-site access), never the generic ones.
+ * The SIM and data retention settings have their own routes too, which check
+ * each value's range (`/v1/settings/sim-providers`, `/v1/settings/data-retention`).
  */
 function isDedicatedRouteSetting(key: string): boolean {
-  return key.startsWith('sso.') || key.startsWith('security.') || key.startsWith('sim.');
+  return (
+    key.startsWith('sso.') ||
+    key.startsWith('security.') ||
+    key.startsWith('sim.') ||
+    isDataRetentionSettingKey(key)
+  );
 }
 
 const dedicatedRouteSettingError = {
   error:
-    'This setting is written through /v1/sso/settings, /v1/security/* or /v1/settings/sim-providers',
+    'This setting is written through /v1/sso/settings, /v1/security/*, /v1/settings/sim-providers or /v1/settings/data-retention',
   code: 'VALIDATION_ERROR',
 };
 
@@ -468,9 +531,16 @@ function invalidAiSettingError(key: string): { error: string; code: string } | n
   return null;
 }
 
-function invalidSettingError(key: string): { error: string; code: string } {
+function invalidSettingError(key: string, value?: unknown): { error: string; code: string } {
   if (isServerManagedSetting(key)) return serverManagedSettingError;
   if (isDedicatedRouteSetting(key)) return dedicatedRouteSettingError;
+  if (isDataPlanSettingKey(key)) {
+    return {
+      error: validateDataPlanSetting(key, value) ?? `${key} has an invalid value`,
+      code: 'VALIDATION_ERROR',
+    };
+  }
+  if (HUBJECT_URL_SETTING_KEYS.has(key)) return PRIVATE_HUBJECT_URL_ERROR;
   const aiError = invalidAiSettingError(key);
   if (aiError != null) return aiError;
   if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) return invalidWebhookAllowedHostsError;
@@ -491,6 +561,7 @@ function invalidSettingError(key: string): { error: string; code: string } {
   if (key === MOBILE_APP_URL_SCHEMES_KEY) return invalidMobileAppSchemesError;
   if (key === MOBILE_APP_ANDROID_PACKAGES_KEY) return invalidMobileAppPackagesError;
   if (key === COMPANY_PRICE_DISPLAY_KEY) return invalidPriceDisplayError;
+  if (key === EMAIL_WRAPPER_TEMPLATE_KEY) return invalidEmailWrapperError;
   if (key === COMPANY_TAX_BASIS_KEY) return invalidTaxBasisError;
   if (key === STATION_MESSAGE_LANGUAGE_KEY) return invalidStationMessageLanguageError;
   return invalidCurrencyError;
@@ -544,6 +615,7 @@ function clearCachesForKey(key: string): void {
   if (key === 'company.portalUrl') clearCompanyPortalUrlCache();
   if (key.startsWith('pnc.')) clearPncSettingsCache();
   if (isAiSettingKey(key)) clearAiSettingsCache();
+  if (isDataPlanSettingKey(key)) clearDataPlanValuesCache();
 }
 
 const settingItem = z
@@ -561,7 +633,131 @@ const s3StatusResponse = z
   })
   .passthrough();
 
+const webhookSigningStatus = z
+  .object({
+    configured: z.boolean().describe('A webhook signing secret is stored'),
+  })
+  .passthrough();
+
+const webhookSigningSecretResponse = z
+  .object({
+    secret: z
+      .string()
+      .max(64)
+      .describe(
+        'The new signing secret, shown once. Receivers check X-EVtivity-Signature (t=<unix>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">) with it.',
+      ),
+  })
+  .passthrough();
+
+/** Writes the webhook signing secret (empty removes it), audited, and refreshes every process. */
+async function writeWebhookSigningSecret(request: FastifyRequest, secret: string): Promise<void> {
+  // encryptForWrite refuses an *Enc write without SETTINGS_ENCRYPTION_KEY (never plaintext).
+  const storedValue = encryptForWrite(WEBHOOK_SIGNING_SECRET_KEY, secret);
+  const [before] = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.key, WEBHOOK_SIGNING_SECRET_KEY));
+  const [row] = await db
+    .insert(settings)
+    .values({ key: WEBHOOK_SIGNING_SECRET_KEY, value: storedValue })
+    .onConflictDoUpdate({
+      target: settings.key,
+      set: { value: storedValue, updatedAt: new Date() },
+    })
+    .returning();
+  await writeAudit(
+    { table: settingAuditLog, idColumn: 'setting_key' },
+    {
+      entityId: WEBHOOK_SIGNING_SECRET_KEY,
+      entityIdSnapshot: WEBHOOK_SIGNING_SECRET_KEY,
+      action: 'updated',
+      ...getAuditActor(request),
+      before,
+      after: row,
+      notes: secret === '' ? 'Webhook signing secret removed' : 'Webhook signing secret generated',
+    },
+    db,
+    request.log,
+  );
+  await invalidateNotificationSettings();
+}
+
 export function settingsRoutes(app: FastifyInstance): void {
+  // Webhook signing secret: generated here and shown once; the
+  // generic settings routes never return or write it (server managed).
+  app.get(
+    '/settings/notifications/webhook-signing-secret',
+    {
+      onRequest: [authorize('settings.system:read')],
+      schema: {
+        tags: ['Settings'],
+        summary: 'Whether a webhook signing secret is stored',
+        operationId: 'getWebhookSigningSecretStatus',
+        security: [{ bearerAuth: [] }],
+        response: { 200: zodSchema(webhookSigningStatus) },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
+      const [row] = await db
+        .select({ value: settings.value })
+        .from(settings)
+        .where(eq(settings.key, WEBHOOK_SIGNING_SECRET_KEY));
+      // Configured only when the stored value decrypts under the current key.
+      return { configured: storedSecretDecrypts(WEBHOOK_SIGNING_SECRET_KEY, row?.value) };
+    },
+  );
+
+  app.post(
+    '/settings/notifications/webhook-signing-secret',
+    {
+      onRequest: [authorize('settings.system:write')],
+      schema: {
+        tags: ['Settings'],
+        summary: 'Generate a new webhook signing secret, shown once',
+        operationId: 'generateWebhookSigningSecret',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: zodSchema(webhookSigningSecretResponse),
+          500: errorWith('Encryption key missing', [ERROR_CODES.ENCRYPTION_KEY_MISSING]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
+      if (apiConfig.SETTINGS_ENCRYPTION_KEY === '') {
+        await reply.status(500).send({
+          error: 'SETTINGS_ENCRYPTION_KEY not configured on server',
+          code: 'ENCRYPTION_KEY_MISSING',
+        });
+        return;
+      }
+      const secret = `whsec_${randomBytes(32).toString('base64url')}`;
+      await writeWebhookSigningSecret(request, secret);
+      return { secret };
+    },
+  );
+
+  app.delete(
+    '/settings/notifications/webhook-signing-secret',
+    {
+      onRequest: [authorize('settings.system:write')],
+      schema: {
+        tags: ['Settings'],
+        summary: 'Remove the webhook signing secret (webhooks go out unsigned)',
+        operationId: 'removeWebhookSigningSecret',
+        security: [{ bearerAuth: [] }],
+        response: { 200: zodSchema(webhookSigningStatus) },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
+      await writeWebhookSigningSecret(request, '');
+      return { configured: false };
+    },
+  );
+
   // Public endpoint for portal branding (no auth required)
   app.get(
     '/portal/branding',
@@ -576,7 +772,7 @@ export function settingsRoutes(app: FastifyInstance): void {
             z
               .record(z.string())
               .describe(
-                'Public branding values. Every company.* and marketing.* setting under its key without the prefix (for example name, logo, favicon), currency, priceDisplay, taxBasis, and qrCodeIcon (the SVG drawn in the center of station QR codes, absent when none is set). Values that are not strings are returned as an empty string',
+                'Public branding values. Every company.* and marketing.* setting under its key without the prefix (for example name, logo, favicon), currency, priceDisplay, taxBasis, portalUrl (company.portalUrl, else the PORTAL_URL the API runs with), and qrCodeIcon (the SVG drawn in the center of station QR codes, absent when none is set). Values that are not strings are returned as an empty string',
               ),
           ),
         },
@@ -609,6 +805,9 @@ export function settingsRoutes(app: FastifyInstance): void {
       // Whether tariff prices are entered excluding ('net') or including
       // ('gross') tax, so clients show a price in the display the driver chose.
       result['taxBasis'] = await getCompanyTaxBasis();
+      // The driver portal address the mobile app links to: the operator's
+      // company.portalUrl, else the PORTAL_URL this API runs with.
+      if ((result['portalUrl'] ?? '').trim() === '') result['portalUrl'] = apiConfig.PORTAL_URL;
       return result;
     },
   );
@@ -877,7 +1076,11 @@ export function settingsRoutes(app: FastifyInstance): void {
         (request.body as z.infer<typeof updateSettingBody>).value,
       );
       if (normalized == null) {
-        await reply.status(400).send(invalidSettingError(key));
+        await reply
+          .status(400)
+          .send(
+            invalidSettingError(key, (request.body as z.infer<typeof updateSettingBody>).value),
+          );
         return;
       }
       try {
@@ -952,7 +1155,11 @@ export function settingsRoutes(app: FastifyInstance): void {
         (request.body as z.infer<typeof updateSettingBody>).value,
       );
       if (normalized == null) {
-        await reply.status(400).send(invalidSettingError(key));
+        await reply
+          .status(400)
+          .send(
+            invalidSettingError(key, (request.body as z.infer<typeof updateSettingBody>).value),
+          );
         return;
       }
       try {

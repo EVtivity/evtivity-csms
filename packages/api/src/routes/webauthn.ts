@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { and, eq, sql } from 'drizzle-orm';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import { isMfaChallengeLimited, dispatchSystemNotification } from '@evtivity/lib';
+import { bearerToken, completePendingSsoLink } from '../lib/sso-link.js';
+import { rememberSignInDevice } from '../lib/device-cookie.js';
 import {
   client,
   db,
@@ -374,6 +376,30 @@ export function webauthnRoutes(app: FastifyInstance): void {
 
       const actor = getAuditActor(request);
       const ctx = { actor, log: request.log };
+      // The enrollment token is used up before the credential is stored (one
+      // compare-and-set on the session version): of two registrations with one
+      // token only one stores a credential, and the loser leaves none.
+      let bumped: { sessionVersion: number } | undefined;
+      if (enrolling) {
+        const sv = (request.user as { sv?: unknown }).sv;
+        const [cas] = await db
+          .update(users)
+          .set({
+            sessionVersion: sql`${users.sessionVersion} + 1`,
+            mfaFailedCount: 0,
+            mfaLockedUntil: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(eq(users.id, userId), eq(users.sessionVersion, typeof sv === 'number' ? sv : 0)),
+          )
+          .returning({ sessionVersion: users.sessionVersion });
+        if (cas == null) {
+          await reply.status(401).send({ error: 'Session ended', code: 'UNAUTHORIZED' });
+          return;
+        }
+        bumped = cas;
+      }
       const registered = await registerWebauthnCredential(
         { userId },
         { ...verified, userHandle: record.userHandle, name },
@@ -393,26 +419,7 @@ export function webauthnRoutes(app: FastifyInstance): void {
       }
       const { credential: stored, firstFactor } = registered;
 
-      if (enrolling) {
-        // The same compare-and-set as the MFA confirm: of two registrations
-        // with one enrollment token, one signs in; the new version ends the token.
-        const sv = (request.user as { sv?: unknown }).sv;
-        const [bumped] = await db
-          .update(users)
-          .set({
-            sessionVersion: sql`${users.sessionVersion} + 1`,
-            mfaFailedCount: 0,
-            mfaLockedUntil: null,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(eq(users.id, userId), eq(users.sessionVersion, typeof sv === 'number' ? sv : 0)),
-          )
-          .returning({ sessionVersion: users.sessionVersion });
-        if (bumped == null) {
-          await reply.status(401).send({ error: 'Session ended', code: 'UNAUTHORIZED' });
-          return;
-        }
+      if (bumped != null) {
         await revokeAllUserSessions(userId);
         announceSessionChange(userId);
         const token = await issueOperatorSession(app, request, reply, {
@@ -420,6 +427,8 @@ export function webauthnRoutes(app: FastifyInstance): void {
           roleId,
           sessionVersion: bumped.sessionVersion,
         });
+        // An SSO sign-in sent to required MFA setup binds its IdP subject now.
+        await completePendingSsoLink(bearerToken(request), userId, request.log);
         await writeMfaEnabledAudit(request, userId);
         const recoveryCodes = await issueRecoveryCodes({ userId }, 'generated', ctx);
         await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, userId));
@@ -878,6 +887,9 @@ export function webauthnRoutes(app: FastifyInstance): void {
       }
 
       const token = await issueOperatorSession(app, request, reply, user);
+      // An SSO sign-in that waited for this step binds its IdP subject now.
+      await completePendingSsoLink(body.mfaToken, user.id, request.log);
+      await rememberSignInDevice(request, reply, 'csms', { userId: user.id });
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
       await recordAuthAudit(request, {
         kind: 'user',
@@ -1041,6 +1053,7 @@ export function webauthnRoutes(app: FastifyInstance): void {
       if (user.mustResetPassword) return { mustResetPassword: true };
 
       const token = await issueOperatorSession(app, request, reply, user);
+      await rememberSignInDevice(request, reply, 'csms', { userId: user.id });
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
       await recordAuthAudit(request, {
         kind: 'user',

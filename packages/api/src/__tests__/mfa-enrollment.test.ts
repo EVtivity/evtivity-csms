@@ -116,7 +116,7 @@ describe('signMfaEnrollmentToken', () => {
     expect(signMfaEnrollmentToken(app, user)).toBe('enrollment-jwt');
     expect(sign).toHaveBeenCalledWith(
       { userId: 'usr_1', roleId: 'rol_admin', mfaEnrollment: true, sv: 4 },
-      { expiresIn: '10m' },
+      { expiresIn: '10m', jti: expect.any(String) },
     );
   });
 });

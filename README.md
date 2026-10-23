@@ -229,6 +229,10 @@ graph TB
 
 The Helm chart and the AWS CDK app track stable releases only. See [Helm chart and AWS CDK versions](#helm-chart-and-aws-cdk-versions).
 
+### Database storage
+
+A large network or the simulator in chaos mode (`CSS_MODE=chaos`) needs large database storage. Every OCPP message, heartbeats included, is a row in `ocpp_message_logs`, and every meter reading is a row in `meter_values`. With about 2000 simulated stations always connected, the database reached 90 GB: `ocpp_message_logs` was 57 GB (about 100 million rows at 30-day retention) and `meter_values` was 32 GB (about 61 million rows). The daily retention job deletes older rows. Lower `logs.ocppMessage.retentionDays` (default 30) and `logs.meterValues.retentionDays` (default 90), or lower `CSS_STATION_LIMIT`, to keep the database smaller. [Data Retention](https://www.evtivity.com/docs/configuration/data-retention/) lists every retention setting and where to change it.
+
 ### Service endpoints
 
 With the Helm chart, each service is exposed on its own subdomain via Gateway API:

@@ -137,7 +137,7 @@ export function FileViewerDialog({
                 <Button
                   variant="outline"
                   onClick={() => {
-                    window.open(downloadUrl, '_blank');
+                    window.open(downloadUrl, '_blank', 'noopener,noreferrer');
                   }}
                 >
                   <Download className="h-4 w-4" />
@@ -177,7 +177,7 @@ export function FileViewerDialog({
             <Button
               variant="outline"
               onClick={() => {
-                window.open(downloadUrl, '_blank');
+                window.open(downloadUrl, '_blank', 'noopener,noreferrer');
               }}
             >
               <Download className="h-4 w-4" />

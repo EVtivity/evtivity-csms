@@ -293,7 +293,11 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
         body: zodSchema(updateLoadBody),
         response: {
           200: itemResponse(loadItem),
-          400: errorWith('Bad request', [ERROR_CODES.INVALID_CIRCUIT, ERROR_CODES.INVALID_PANEL]),
+          400: errorWith('Bad request', [
+            ERROR_CODES.INVALID_CIRCUIT,
+            ERROR_CODES.INVALID_PANEL,
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('Load not found', [ERROR_CODES.LOAD_NOT_FOUND]),
         },
       },
@@ -317,6 +321,19 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
 
       if (existing == null || !(await loadBelongsToSite(existing, siteId))) {
         await reply.status(404).send({ error: 'Load not found', code: 'LOAD_NOT_FOUND' });
+        return;
+      }
+
+      // A load stays on a panel or a circuit of this site: a change that
+      // leaves it on neither would detach it from every site (security
+      // review AZ-I6).
+      const nextPanelId = body.panelId !== undefined ? body.panelId : existing.panelId;
+      const nextCircuitId = body.circuitId !== undefined ? body.circuitId : existing.circuitId;
+      if (nextPanelId == null && nextCircuitId == null) {
+        await reply.status(400).send({
+          error: 'A load needs a panelId or a circuitId',
+          code: 'VALIDATION_ERROR',
+        });
         return;
       }
 

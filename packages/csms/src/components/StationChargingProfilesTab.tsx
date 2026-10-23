@@ -35,6 +35,7 @@ import { formatDateTime } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 import { uiLocale } from '@/lib/formatting';
 import { compositeScheduleAnchor, ocppProfileId } from '@/lib/charging-profile-display';
+import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 
 interface ChargingProfile {
   id: number;
@@ -121,6 +122,10 @@ export function StationChargingProfilesTab({
   });
 
   const totalPages = data != null ? Math.ceil(data.total / limit) : 1;
+
+  // The charging profile commands need smartCharging:write.
+  const canSend = useCanSendOcppCommand();
+  const canManageProfiles = canSend('SetChargingProfile');
 
   // Templates for push dialog
   const { data: templates } = useQuery({
@@ -216,40 +221,42 @@ export function StationChargingProfilesTab({
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('stations.chargingProfiles')}</CardTitle>
-        <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!isOnline || isOcpp16 || isRefreshing}
-            onClick={() => {
-              refreshMutation.mutate();
-            }}
-            title={isOcpp16 ? t('stations.notSupportedOcpp16') : undefined}
-          >
-            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            {isRefreshing ? t('stations.refreshing') : t('stations.refreshProfiles')}
-          </Button>
-          <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenPush}>
-            <Upload className="h-4 w-4" />
-            {t('stations.pushChargingProfile')}
-          </Button>
-          <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenComposite}>
-            <Eye className="h-4 w-4" />
-            {t('stations.viewComposite')}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!isOnline}
-            onClick={() => {
-              setClearAllDialogOpen(true);
-            }}
-            className="text-destructive"
-          >
-            <Trash2 className="h-4 w-4" />
-            {t('stations.clearAllProfiles')}
-          </Button>
-        </div>
+        {canManageProfiles && (
+          <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!isOnline || isOcpp16 || isRefreshing}
+              onClick={() => {
+                refreshMutation.mutate();
+              }}
+              title={isOcpp16 ? t('stations.notSupportedOcpp16') : undefined}
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? t('stations.refreshing') : t('stations.refreshProfiles')}
+            </Button>
+            <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenPush}>
+              <Upload className="h-4 w-4" />
+              {t('stations.pushChargingProfile')}
+            </Button>
+            <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenComposite}>
+              <Eye className="h-4 w-4" />
+              {t('stations.viewComposite')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!isOnline}
+              onClick={() => {
+                setClearAllDialogOpen(true);
+              }}
+              className="text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+              {t('stations.clearAllProfiles')}
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -314,18 +321,20 @@ export function StationChargingProfilesTab({
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          disabled={!isOnline || ocppProfileId(profile) == null}
-                          onClick={() => {
-                            const ocppId = ocppProfileId(profile);
-                            if (ocppId != null) setClearProfileId(ocppId);
-                          }}
-                          aria-label={t('stations.clearProfile')}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        {canManageProfiles && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={!isOnline || ocppProfileId(profile) == null}
+                            onClick={() => {
+                              const ocppId = ocppProfileId(profile);
+                              if (ocppId != null) setClearProfileId(ocppId);
+                            }}
+                            aria-label={t('stations.clearProfile')}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}

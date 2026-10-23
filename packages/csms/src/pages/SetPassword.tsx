@@ -7,8 +7,8 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
+import { CardContent, CardHeader } from '@/components/ui/card';
+import { AuthLayout } from '@/components/AuthLayout';
 import { api, ApiError } from '@/lib/api';
 import { rateLimitedMessage } from '@/lib/error-message';
 import { passwordRulesMessage } from '@/lib/password-rules';
@@ -59,8 +59,6 @@ export function SetPassword(): React.JSX.Element {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
   const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
-
-  const { companyName, companyLogo } = useAuthBranding();
 
   if (email == null) {
     return <Navigate to="/login" replace />;
@@ -145,109 +143,103 @@ export function SetPassword(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <AuthBranding companyName={companyName} companyLogo={companyLogo} />
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <h2 className="text-2xl font-semibold">{t('auth.setPasswordTitle')}</h2>
-          <p className="text-sm text-muted-foreground">{t('auth.setPasswordSubtitle')}</p>
-        </CardHeader>
-        <CardContent>
-          {success ? (
-            <p className="text-center text-sm text-muted-foreground">
-              {t('auth.setPasswordSuccess')}
-            </p>
-          ) : (
-            <form
-              onSubmit={(e) => {
-                void handleSubmit(e);
-              }}
-              noValidate
-              className="space-y-4"
-            >
-              <div className="space-y-2">
-                <Label className="leading-6">{t('auth.emailLabel')}</Label>
-                <p className="text-sm text-muted-foreground">{email}</p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="currentPassword" className="leading-6">
-                  {t('auth.currentPassword')}
-                </Label>
-                <PasswordInput
-                  id="currentPassword"
-                  value={currentPassword}
-                  onChange={(e) => {
-                    setCurrentPassword(e.target.value);
-                  }}
-                  className={
-                    hasSubmitted && validationErrors.currentPassword ? 'border-destructive' : ''
-                  }
-                />
-                {hasSubmitted && validationErrors.currentPassword && (
-                  <p className="text-sm text-destructive">{validationErrors.currentPassword}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="newPassword" className="leading-6">
-                  {t('auth.newPassword')}
-                </Label>
-                <PasswordInput
-                  id="newPassword"
-                  value={newPassword}
-                  aria-invalid={hasSubmitted && validationErrors.newPassword ? true : undefined}
-                  aria-describedby={
-                    hasSubmitted && validationErrors.newPassword
-                      ? 'new-password-error password-requirements'
-                      : 'password-requirements'
-                  }
-                  onChange={(e) => {
-                    setNewPassword(e.target.value);
-                    setServerMissing(null);
-                  }}
-                  className={
-                    hasSubmitted && validationErrors.newPassword ? 'border-destructive' : ''
-                  }
-                />
-                {hasSubmitted && validationErrors.newPassword && (
-                  <p id="new-password-error" className="text-sm text-destructive">
-                    {validationErrors.newPassword}
-                  </p>
-                )}
-                <PasswordRequirements
-                  policy={passwordPolicy}
-                  serverMissing={serverMissing}
-                  id="password-requirements"
-                  password={newPassword}
-                  showUnmet={hasSubmitted}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword" className="leading-6">
-                  {t('auth.confirmPassword')}
-                </Label>
-                <PasswordInput
-                  id="confirmPassword"
-                  value={confirmPassword}
-                  onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                  }}
-                  className={
-                    hasSubmitted && validationErrors.confirmPassword ? 'border-destructive' : ''
-                  }
-                />
-                {hasSubmitted && validationErrors.confirmPassword && (
-                  <p className="text-sm text-destructive">{validationErrors.confirmPassword}</p>
-                )}
-              </div>
-              {error != null && <p className="text-sm text-destructive">{error}</p>}
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? t('auth.settingPassword') : t('auth.setPasswordButton')}
-              </Button>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-      <AuthFooter companyName={companyName} />
-    </div>
+    <AuthLayout>
+      <CardHeader className="text-center">
+        <h2 className="text-2xl font-semibold">{t('auth.setPasswordTitle')}</h2>
+        <p className="text-sm text-muted-foreground">{t('auth.setPasswordSubtitle')}</p>
+      </CardHeader>
+      <CardContent>
+        {success ? (
+          <p className="text-center text-sm text-muted-foreground">
+            {t('auth.setPasswordSuccess')}
+          </p>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              void handleSubmit(e);
+            }}
+            noValidate
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label className="leading-6">{t('auth.emailLabel')}</Label>
+              <p className="text-sm text-muted-foreground">{email}</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="currentPassword" className="leading-6">
+                {t('auth.currentPassword')}
+              </Label>
+              <PasswordInput
+                id="currentPassword"
+                value={currentPassword}
+                onChange={(e) => {
+                  setCurrentPassword(e.target.value);
+                }}
+                className={
+                  hasSubmitted && validationErrors.currentPassword ? 'border-destructive' : ''
+                }
+              />
+              {hasSubmitted && validationErrors.currentPassword && (
+                <p className="text-sm text-destructive">{validationErrors.currentPassword}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="newPassword" className="leading-6">
+                {t('auth.newPassword')}
+              </Label>
+              <PasswordInput
+                id="newPassword"
+                value={newPassword}
+                aria-invalid={hasSubmitted && validationErrors.newPassword ? true : undefined}
+                aria-describedby={
+                  hasSubmitted && validationErrors.newPassword
+                    ? 'new-password-error password-requirements'
+                    : 'password-requirements'
+                }
+                onChange={(e) => {
+                  setNewPassword(e.target.value);
+                  setServerMissing(null);
+                }}
+                className={hasSubmitted && validationErrors.newPassword ? 'border-destructive' : ''}
+              />
+              {hasSubmitted && validationErrors.newPassword && (
+                <p id="new-password-error" className="text-sm text-destructive">
+                  {validationErrors.newPassword}
+                </p>
+              )}
+              <PasswordRequirements
+                policy={passwordPolicy}
+                serverMissing={serverMissing}
+                id="password-requirements"
+                password={newPassword}
+                showUnmet={hasSubmitted}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword" className="leading-6">
+                {t('auth.confirmPassword')}
+              </Label>
+              <PasswordInput
+                id="confirmPassword"
+                value={confirmPassword}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                }}
+                className={
+                  hasSubmitted && validationErrors.confirmPassword ? 'border-destructive' : ''
+                }
+              />
+              {hasSubmitted && validationErrors.confirmPassword && (
+                <p className="text-sm text-destructive">{validationErrors.confirmPassword}</p>
+              )}
+            </div>
+            {error != null && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? t('auth.settingPassword') : t('auth.setPasswordButton')}
+            </Button>
+          </form>
+        )}
+      </CardContent>
+    </AuthLayout>
   );
 }

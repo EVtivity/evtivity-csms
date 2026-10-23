@@ -10,7 +10,7 @@ import {
   chargingStations,
   isOperatorStation,
 } from '@evtivity/database';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, isBootOwnedStationSetting } from '@evtivity/lib';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { templateProtocolCondition } from './template-protocols.js';
 
@@ -18,10 +18,35 @@ const logger = createLogger('config-push');
 
 const CONCURRENCY_LIMIT = 10;
 
+/** A configuration template variable. OCPP 1.6 keys have no component and no instance. */
+export interface ConfigPushVariable {
+  component: string;
+  variable: string;
+  variableInstance?: string | null | undefined;
+  value: string;
+}
+
+/** The OCPP 2.x VariableType of a template variable: the instance only when set. */
+export function setVariableTarget(v: ConfigPushVariable): { name: string; instance?: string } {
+  return v.variableInstance != null && v.variableInstance !== ''
+    ? { name: v.variable, instance: v.variableInstance }
+    : { name: v.variable };
+}
+
+/** `Component.Variable[Instance]`, the name a push result reports. */
+export function setVariableLabel(
+  component: string | undefined,
+  variable: string | undefined,
+  instance: string | undefined,
+): string {
+  const base = `${component ?? ''}.${variable ?? ''}`;
+  return instance != null && instance !== '' ? `${base}[${instance}]` : base;
+}
+
 export async function processConfigPush(
   pushId: string,
   stations: { id: string; stationId: string }[],
-  variables: { component: string; variable: string; value: string }[],
+  variables: ConfigPushVariable[],
   ocppVersion: string,
 ): Promise<void> {
   try {
@@ -32,7 +57,9 @@ export async function processConfigPush(
         batch.map(async (station) => {
           try {
             if (ocppVersion === '1.6') {
-              // OCPP 1.6: one SetVariables per variable, collect all results
+              // OCPP 1.6: one SetVariables per variable (translated to
+              // ChangeConfiguration), collect all results. A 1.6 key has no
+              // variable instance, so none is sent.
               const errors: string[] = [];
               for (const v of variables) {
                 const result = await sendOcppCommandAndWait(station.stationId, 'SetVariables', {
@@ -109,7 +136,7 @@ export async function processConfigPush(
                 {
                   setVariableData: variables.map((v) => ({
                     component: { name: v.component },
-                    variable: { name: v.variable },
+                    variable: setVariableTarget(v),
                     attributeValue: v.value,
                   })),
                 },
@@ -135,7 +162,7 @@ export async function processConfigPush(
                   setVariableResult?: Array<{
                     attributeStatus?: string;
                     component?: { name?: string };
-                    variable?: { name?: string };
+                    variable?: { name?: string; instance?: string };
                   }>;
                 };
                 const results = response.setVariableResult ?? [];
@@ -145,7 +172,7 @@ export async function processConfigPush(
                   const errorDetails = rejected
                     .map(
                       (r) =>
-                        `${r.component?.name ?? ''}.${r.variable?.name ?? ''}: ${r.attributeStatus ?? 'Unknown'}`,
+                        `${setVariableLabel(r.component?.name, r.variable?.name, r.variable?.instance)}: ${r.attributeStatus ?? 'Unknown'}`,
                     )
                     .join('; ');
                   await db
@@ -242,11 +269,19 @@ export async function pushTemplateToSiteStations(
     .where(eq(configTemplates.id, templateId));
   if (template == null) return '';
 
-  const variables = template.variables as Array<{
-    component: string;
-    variable: string;
-    value: string;
-  }>;
+  // Not an operator request, so boot-owned rows of a template saved before
+  // the template guard are left out with a warning instead of refused: the
+  // boot push owns those values.
+  const stored = template.variables as ConfigPushVariable[];
+  const variables = stored.filter(
+    (v) => !isBootOwnedStationSetting(template.ocppVersion, v.component, v.variable),
+  );
+  if (variables.length < stored.length) {
+    logger.warn(
+      { templateId, skipped: stored.length - variables.length },
+      'Site template push skipped heartbeat and meter value rows the data plan owns',
+    );
+  }
   if (variables.length === 0) return '';
 
   const targetStations = await db

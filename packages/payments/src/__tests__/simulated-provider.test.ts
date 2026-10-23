@@ -283,6 +283,19 @@ describe('SimulatedPaymentProvider (sync)', () => {
     ).toEqual({ state: 'succeeded' });
   });
 
+  it('refuses a capture above the held amount, as a real provider', async () => {
+    const provider = sync();
+    const method = await savedMethod(provider, '4242424242424242');
+    const held = await provider.authorizeHold(hold(method.methodId));
+    const paymentId = (held as { paymentId: string }).paymentId;
+    await expect(
+      provider.capture({ ...captureInput(paymentId), amountCents: 5001 }),
+    ).rejects.toBeInstanceOf(PaymentValidationError);
+    expect(await provider.capture({ ...captureInput(paymentId), amountCents: 5000 })).toMatchObject(
+      { state: 'succeeded', capturedCents: 5000 },
+    );
+  });
+
   it('declines at authorization for the decline cards on a one-time method', async () => {
     const provider = sync();
     for (const [card, code] of [

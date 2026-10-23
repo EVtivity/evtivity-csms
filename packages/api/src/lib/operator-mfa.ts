@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import crypto from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
@@ -67,9 +68,16 @@ export async function beginOperatorMfa(
 
   // The pending token carries the session version, so a password change or sign-out between
   // the password step and the second factor ends it.
+  // A random jti makes every pending token unique (two sign-ins in one second would
+  // otherwise get the same token, and a pending SSO bind is keyed by it).
   const mfaToken = app.jwt.sign(
-    { userId: user.id, roleId: user.roleId, mfaPending: true, sv: user.sessionVersion },
-    { expiresIn: '3m' },
+    {
+      userId: user.id,
+      roleId: user.roleId,
+      mfaPending: true,
+      sv: user.sessionVersion,
+    },
+    { expiresIn: '3m', jti: crypto.randomUUID() },
   );
 
   // A method an admin switched off gets no code while the account has another factor:

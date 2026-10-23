@@ -49,6 +49,37 @@ function makeChain() {
   return chain;
 }
 
+const proofState = vi.hoisted(() => ({ allow: true, apiKey: false, calls: 0 }));
+vi.mock('../lib/mfa-factor-proof.js', async () => {
+  const { z } = await import('zod');
+  return { factorProof: z.object({ kind: z.string() }).passthrough() };
+});
+vi.mock('../lib/session-proof.js', () => {
+  return {
+    sessionProofErrorFields: {},
+    SESSION_PROOF_ERROR_CODES: ['VALIDATION_ERROR', 'INVALID_PASSWORD'],
+    isApiKeyRequest: vi.fn(() => proofState.apiKey),
+    requireSessionProof: vi.fn(
+      async (
+        _req: unknown,
+        reply: { status: (n: number) => { send: (b: unknown) => unknown } },
+      ) => {
+        proofState.calls += 1;
+        if (proofState.allow) return true;
+        await reply
+          .status(400)
+          .send({ error: 'proof', code: 'VALIDATION_ERROR', proofKinds: ['password'] });
+        return false;
+      },
+    ),
+  };
+});
+const grantState = vi.hoisted(() => ({ allow: true }));
+vi.mock('../lib/user-management-scope.js', () => ({
+  canGrantPermissions: vi.fn(() => Promise.resolve(grantState.allow)),
+}));
+vi.mock('../lib/security-notice.js', () => ({ sendSecurityNotice: vi.fn() }));
+
 vi.mock('../lib/site-access.js', async () =>
   (await import('./helpers/site-access-mock.js')).siteAccessMock(),
 );
@@ -56,6 +87,7 @@ vi.mock('../lib/site-access.js', async () =>
 vi.mock('@evtivity/database', () => ({
   db: {
     select: vi.fn(() => makeChain()),
+    selectDistinct: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
@@ -71,6 +103,9 @@ vi.mock('@evtivity/database', () => ({
     }),
   },
   settings: {},
+  roles: {},
+  users: {},
+  userPermissions: {},
   settingAuditLog: { _name: 'settingAuditLog' },
   writeAudit: vi.fn(() => Promise.resolve()),
   clearSsoSettingsCache: vi.fn(),
@@ -132,6 +167,8 @@ vi.mock('../middleware/rbac.js', () => ({
 
 vi.mock('@evtivity/lib', () => ({
   OCTT_PENDING_RESTORE_SETTING_KEY: 'octt.pendingRestore',
+  permissionCatalog: { defaultsFor: vi.fn(() => ['stations:read']) },
+  WEBHOOK_SIGNING_SECRET_KEY: 'notifications.webhookSigningSecretEnc',
   encryptString: vi.fn((value: string) => `encrypted:${value}`),
   decryptString: vi.fn((value: string) =>
     value.startsWith('encrypted:') ? value.slice('encrypted:'.length) : value,
@@ -181,6 +218,10 @@ describe('SSO Settings routes', () => {
   beforeEach(() => {
     setupDbResults();
     vi.mocked(getSsoConfig).mockResolvedValue(null);
+    proofState.allow = true;
+    proofState.apiKey = false;
+    proofState.calls = 0;
+    grantState.allow = true;
   });
 
   // --- Auth requirements ---
@@ -256,8 +297,8 @@ describe('SSO Settings routes', () => {
   // --- PUT /sso/settings ---
 
   it('PUT /sso/settings stores settings and encrypts cert', async () => {
-    // Each upsert (7 settings + 1 cert = 8 total) resolves from the chain
-    setupDbResults([], [], [], [], [], [], [], []);
+    // The stored read, the default role, then 8 upserts.
+    setupDbResults([], [{ name: 'admin' }], [], [], [], [], [], [], [], []);
     const response = await app.inject({
       method: 'PUT',
       url: '/sso/settings',
@@ -285,8 +326,8 @@ describe('SSO Settings routes', () => {
   });
 
   it('PUT /sso/settings without cert field does not overwrite existing cert', async () => {
-    // 7 upserts (no cert)
-    setupDbResults([], [], [], [], [], [], []);
+    // The stored read, the default role, then 7 upserts (no cert).
+    setupDbResults([], [{ name: 'operator' }], [], [], [], [], [], [], []);
     const response = await app.inject({
       method: 'PUT',
       url: '/sso/settings',
@@ -330,6 +371,7 @@ describe('SSO Settings routes', () => {
         { key: 'sso.attributeMapping', value: JSON.stringify({ email: 'email' }) },
         { key: 'sso.certEnc', value: 'encrypted:OLD' },
       ],
+      [{ name: 'admin' }],
       [],
       [],
       [],
@@ -376,6 +418,107 @@ describe('SSO Settings routes', () => {
     });
     expect(JSON.stringify(calls)).not.toContain('PEM-CERT-DATA');
     expect(JSON.stringify(calls)).not.toContain('encrypted:');
+  });
+
+  it('PUT /sso/settings asks a session for the proof when anything but the provider changes', async () => {
+    proofState.allow = false;
+    setupDbResults([{ key: 'sso.enabled', value: false }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/sso/settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        enabled: true,
+        provider: 'okta',
+        entryPoint: 'https://example.com/sso',
+        issuer: 'https://example.com',
+        autoProvision: false,
+        defaultRoleId: '',
+        attributeMapping: { email: 'email' },
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body)).toMatchObject({ proofKinds: ['password'] });
+    const { clearSsoSettingsCache } = databaseModule;
+    vi.mocked(clearSsoSettingsCache).mockClear();
+    expect(proofState.calls).toBe(1);
+  });
+
+  it('PUT /sso/settings refuses an API key that changes the identity provider', async () => {
+    proofState.apiKey = true;
+    setupDbResults([{ key: 'sso.entryPoint', value: 'https://example.com/sso' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/sso/settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        enabled: true,
+        provider: 'okta',
+        entryPoint: 'https://evil.example/sso',
+        issuer: 'https://example.com',
+        autoProvision: false,
+        defaultRoleId: '',
+        attributeMapping: { email: 'email' },
+      },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.body).code).toBe('SESSION_REQUIRED');
+  });
+
+  it('PUT /sso/settings refuses an API key that changes the attribute mapping', async () => {
+    proofState.apiKey = true;
+    setupDbResults([
+      { key: 'sso.entryPoint', value: 'https://example.com/sso' },
+      { key: 'sso.issuer', value: 'https://example.com' },
+      { key: 'sso.attributeMapping', value: '{"email":"email"}' },
+    ]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/sso/settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        enabled: true,
+        provider: 'okta',
+        entryPoint: 'https://example.com/sso',
+        issuer: 'https://example.com',
+        autoProvision: false,
+        defaultRoleId: '',
+        attributeMapping: { email: 'mail' },
+      },
+    });
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.body).code).toBe('SESSION_REQUIRED');
+  });
+
+  it('PUT /sso/settings refuses a default role beyond the editor and an unknown one', async () => {
+    const payload = {
+      enabled: true,
+      provider: 'okta',
+      entryPoint: 'https://example.com/sso',
+      issuer: 'https://example.com',
+      autoProvision: true,
+      defaultRoleId: 'rol_000000000009',
+      attributeMapping: { email: 'email' },
+    };
+    grantState.allow = false;
+    setupDbResults([], [{ name: 'admin' }]);
+    const beyond = await app.inject({
+      method: 'PUT',
+      url: '/sso/settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+    });
+    expect(beyond.statusCode).toBe(403);
+    expect(JSON.parse(beyond.body).code).toBe('PERMISSIONS_EXCEED_OWN');
+    setupDbResults([], []);
+    const unknown = await app.inject({
+      method: 'PUT',
+      url: '/sso/settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+    });
+    expect(unknown.statusCode).toBe(400);
+    expect(proofState.calls).toBe(0);
   });
 
   // --- GET /security/public ---

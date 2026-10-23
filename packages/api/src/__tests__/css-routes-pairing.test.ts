@@ -5,6 +5,12 @@ import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vites
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
+// The OCPP server endpoints the pairing stores (read once by the API config).
+vi.hoisted(() => {
+  process.env['OCPP_SERVER_URL'] = 'ws://ocpp:8080';
+  process.env['OCPP_TLS_SERVER_URL'] = 'wss://ocpp:8443';
+});
+
 const {
   chargingStationsRef,
   cssStationsRef,

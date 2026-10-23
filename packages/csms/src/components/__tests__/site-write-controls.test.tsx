@@ -89,8 +89,15 @@ describe('SiteFreeVendTab', () => {
     expect(screen.getByLabelText('sites.freeVend')).toHaveProperty('disabled', true);
   });
 
+  it('locks the switch without payments:write', () => {
+    permissions.add('sites:write');
+    renderFreeVend();
+    expect(screen.getByLabelText('sites.freeVend')).toHaveProperty('disabled', true);
+  });
+
   it('turns free vend on only after the confirmation', async () => {
     permissions.add('sites:write');
+    permissions.add('payments:write');
     renderFreeVend();
     fireEvent.click(screen.getByLabelText('sites.freeVend'));
     expect(postMock).not.toHaveBeenCalled();
@@ -107,6 +114,7 @@ describe('SiteFreeVendTab', () => {
 
   it('asks before turning free vend off', () => {
     permissions.add('sites:write');
+    permissions.add('payments:write');
     renderFreeVend({ ...FREE_VEND_SITE, freeVendEnabled: true });
     fireEvent.click(screen.getByLabelText('sites.freeVend'));
     expect(screen.getByText('sites.confirmDisableFreeVend')).toBeDefined();

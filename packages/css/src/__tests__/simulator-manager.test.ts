@@ -30,7 +30,11 @@ vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   return { ...actual, readFileSync: mocks.readFileSync };
 });
-vi.mock('../lib/config.js', () => ({ config: mocks.config }));
+// The OCPP server URLs of the rows of this file.
+vi.mock('../lib/config.js', () => ({
+  config: mocks.config,
+  simulatorServerUrls: () => ['ws://localhost:7103', 'wss://tls.example:8443'],
+}));
 vi.mock('../lib/logger.js', () => ({
   logger: { warn: mocks.logWarn, debug: vi.fn(), info: vi.fn(), error: vi.fn() },
 }));
@@ -510,6 +514,31 @@ describe('SimulatorManager.handleCommand', () => {
 });
 
 describe('SimulatorManager station sync', () => {
+  it('never starts a station whose stored target is not the OCPP server', async () => {
+    const SimulatorManager = await loadManagerClass();
+    const sql = makeSql({
+      rows: [
+        { id: 'pk1', station_id: 'CS-EVIL', target_url: 'ws://evil.example/' },
+        { id: 'pk2', station_id: 'CS-OK' },
+      ],
+      evses: [],
+    });
+    const factory = vi.fn(
+      (config: StationConfig) => makeSim(config) as unknown as StationSimulator,
+    );
+    const manager = new SimulatorManager(sql, undefined, factory);
+
+    await sync(manager);
+    await sync(manager);
+
+    expect(manager.simulatorCount).toBe(1);
+    expect(factory.mock.calls.map(([config]) => config.stationId)).toEqual(['CS-OK']);
+    // Logged once, not on every sync.
+    expect(
+      mocks.logWarn.mock.calls.filter(([, msg]) => String(msg).includes('not the OCPP server')),
+    ).toHaveLength(1);
+  });
+
   it('boots a new station with defaults for missing identity fields and its evses', async () => {
     const SimulatorManager = await loadManagerClass();
     const sql = makeSql({

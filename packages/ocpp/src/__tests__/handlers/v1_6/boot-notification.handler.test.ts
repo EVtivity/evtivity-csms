@@ -5,8 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
 
-const { selectFn, fromFn, whereFn, updateFn, setFn, returningFn, writeAuditMock } = vi.hoisted(
-  () => {
+const { selectFn, fromFn, whereFn, updateFn, setFn, returningFn, writeAuditMock, heartbeatMock } =
+  vi.hoisted(() => {
     const returning = vi.fn().mockResolvedValue([{ id: 'sta_pending_auto' }]);
     const set = vi.fn((_values: Record<string, unknown>) => ({
       where: vi.fn(() => ({ returning })),
@@ -19,16 +19,19 @@ const { selectFn, fromFn, whereFn, updateFn, setFn, returningFn, writeAuditMock 
       setFn: set,
       returningFn: returning,
       writeAuditMock: vi.fn().mockResolvedValue(undefined),
+      heartbeatMock: vi.fn().mockResolvedValue(300),
     };
-  },
-);
+  });
 
 vi.mock('@evtivity/database', () => ({
   db: { select: selectFn, update: updateFn },
   chargingStations: { id: 'id', onboardingStatus: 'onboarding_status' },
   stationAuditLog: { __name: 'stationAuditLog' },
   writeAudit: writeAuditMock,
-  getHeartbeatIntervalSeconds: vi.fn().mockResolvedValue(300),
+  getDataPlanValues: vi.fn(async () => ({
+    heartbeatInterval: (await heartbeatMock()) as number,
+  })),
+  readStationDataPlans: vi.fn().mockResolvedValue(new Map()),
   getRegistrationPolicy: vi.fn().mockResolvedValue('open'),
 }));
 
@@ -38,7 +41,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 import { handleBootNotification } from '../../../handlers/v1_6/boot-notification.handler.js';
-import { getHeartbeatIntervalSeconds, getRegistrationPolicy } from '@evtivity/database';
+import { getRegistrationPolicy } from '@evtivity/database';
 
 const logger = pino({ level: 'silent' });
 
@@ -60,6 +63,9 @@ function makeCtx(
       ocppProtocol: 'ocpp1.6',
       bootStatus: null,
       readyAnnounced: false,
+      dataPlan: 'wifi_or_wired',
+      lastInboundAt: new Date(),
+      answeredPing: false,
     },
     messageId: 'msg-1',
     action: 'BootNotification',
@@ -80,7 +86,7 @@ beforeEach(() => {
   fromFn.mockReturnValue({ where: whereFn });
   selectFn.mockReturnValue({ from: fromFn });
   returningFn.mockResolvedValue([{ id: 'sta_pending_auto' }]);
-  vi.mocked(getHeartbeatIntervalSeconds).mockResolvedValue(300);
+  heartbeatMock.mockResolvedValue(300);
   vi.mocked(getRegistrationPolicy).mockResolvedValue('open');
 });
 
@@ -126,7 +132,7 @@ describe('OCPP 1.6 BootNotification handler', () => {
   });
 
   it('uses the configured heartbeat interval value in the response', async () => {
-    vi.mocked(getHeartbeatIntervalSeconds).mockResolvedValue(90);
+    heartbeatMock.mockResolvedValue(90);
     const { ctx } = makeCtx({ chargePointVendor: 'V', chargePointModel: 'M' });
 
     const response = await handleBootNotification(ctx);

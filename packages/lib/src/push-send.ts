@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { createLogger } from './logger.js';
+import { readBodyPrefix } from './read-capped-body.js';
 import {
   getNotificationTestSinkUrl,
   postToNotificationTestSink,
@@ -12,6 +13,8 @@ const logger = createLogger('push-send');
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_BATCH_SIZE = 100;
 const SEND_TIMEOUT_MS = 10_000;
+/** Bytes of an Expo error reply kept for the log. */
+const PUSH_ERROR_BODY_LOG_BYTES = 2048;
 
 export interface ExpoPushMessage {
   to: string;
@@ -52,7 +55,8 @@ async function sendBatch(messages: ExpoPushMessage[]): Promise<ExpoPushResult[]>
       signal: controller.signal,
     });
     if (!response.ok) {
-      const text = await response.text();
+      // A prefix only: the error body is logged, never stored whole.
+      const text = await readBodyPrefix(response, PUSH_ERROR_BODY_LOG_BYTES);
       logger.error({ status: response.status, body: text }, 'Expo push delivery failed');
       return messages.map((m) => ({ token: m.to, ok: false, unregistered: false }));
     }

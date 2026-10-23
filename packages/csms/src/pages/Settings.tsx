@@ -32,6 +32,7 @@ import { SecuritySsoSettings } from '@/components/settings/SecuritySsoSettings';
 import { SecurityPasswordSessionSettings } from '@/components/settings/SecurityPasswordSessionSettings';
 import { ApiKeysSettings } from '@/components/settings/ApiKeysSettings';
 import { AiSettings } from '@/components/settings/AiSettings';
+import { DataRetentionSettings } from '@/components/settings/DataRetentionSettings';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { stationMessageStateLabel } from '@/components/settings/StationMessageSettings';
 import { auditEntityLabel } from '@/lib/audit-labels';
@@ -57,6 +58,7 @@ const TAB_PERMISSIONS: Record<string, Permission> = {
   configuration: 'settings.stationConfig:read',
   'smart-charging': 'settings.smartCharging:read',
   ai: 'settings.ai:read',
+  dataRetention: 'settings.system:read',
   conformance: 'settings.conformance:read',
   history: 'audit:read',
 };
@@ -77,6 +79,7 @@ const ALL_SITE_TABS = new Set([
   'integrations',
   'security',
   'ai',
+  'dataRetention',
   'history',
 ]);
 
@@ -202,6 +205,9 @@ export function Settings(): React.JSX.Element {
             <TabsTrigger value="smart-charging">{t('settings.smartCharging')}</TabsTrigger>
           )}
           {tabVisible('ai') && <TabsTrigger value="ai">{t('settings.chatbotAi')}</TabsTrigger>}
+          {tabVisible('dataRetention') && (
+            <TabsTrigger value="dataRetention">{t('settings.dataRetention.tab')}</TabsTrigger>
+          )}
           {tabVisible('conformance') && (
             <TabsTrigger value="conformance">{t('settings.conformance')}</TabsTrigger>
           )}
@@ -266,7 +272,14 @@ export function Settings(): React.JSX.Element {
                 <SecurityRecaptchaSettings settings={securitySettings} />
               </TabsContent>
               <TabsContent value="mfa" className="mt-4">
-                <SecurityMfaSettings settings={securitySettings} />
+                <SecurityMfaSettings
+                  settings={securitySettings}
+                  canWrite={canWriteSecurity}
+                  loadFailed={securitySettingsFailed}
+                  onRetry={() => {
+                    void refetchSecuritySettings();
+                  }}
+                />
               </TabsContent>
               <TabsContent value="sso" className="mt-4">
                 <SecuritySsoSettings settings={securitySettings} />
@@ -312,6 +325,14 @@ export function Settings(): React.JSX.Element {
         {tabVisible('ai') && (
           <TabsContent value="ai">
             <AiSettings settings={settings} />
+          </TabsContent>
+        )}
+
+        {tabVisible('dataRetention') && (
+          <TabsContent value="dataRetention">
+            <DataRetentionSettings
+              canWrite={hasPermissionCheck(permissions, 'settings.system:write')}
+            />
           </TabsContent>
         )}
 

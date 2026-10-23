@@ -176,6 +176,8 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-energy.js',
   )),
+  // The session meter summary UPDATE (tested on a real database, integration v21 64).
+  applySessionMeterSummary: vi.fn().mockResolvedValue(false),
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
   )),

@@ -269,6 +269,28 @@ describe('Settings routes', () => {
     expect(body).toHaveProperty('logo', 'logo.png');
   });
 
+  it('GET /v1/portal/branding falls back to PORTAL_URL when company.portalUrl is empty', async () => {
+    const { config } = await import('../lib/config.js');
+    for (const rows of [
+      [{ key: 'company.name', value: 'TestCo' }],
+      [
+        { key: 'company.name', value: 'TestCo' },
+        { key: 'company.portalUrl', value: '' },
+      ],
+    ]) {
+      setupDbResults(rows);
+      const response = await app.inject({ method: 'GET', url: '/portal/branding' });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().portalUrl).toBe(config.PORTAL_URL);
+    }
+  });
+
+  it('GET /v1/portal/branding keeps the company.portalUrl the operator set', async () => {
+    setupDbResults([{ key: 'company.portalUrl', value: 'https://charge.example.com' }]);
+    const response = await app.inject({ method: 'GET', url: '/portal/branding' });
+    expect(response.json().portalUrl).toBe('https://charge.example.com');
+  });
+
   it('GET /v1/portal/branding returns the normalized company currency', async () => {
     setupDbResults([
       { key: 'company.name', value: 'TestCo' },
@@ -446,6 +468,33 @@ describe('Settings routes', () => {
     expect(response.json().code).toBe('VALIDATION_ERROR');
     expect(response.json().error).toContain('company.priceDisplay');
     expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/email.wrapperTemplate refuses a raw variable other than content', async () => {
+    vi.mocked(db.insert).mockClear();
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/email.wrapperTemplate',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: '<h1>{{{companyName}}}</h1>{{{content}}}' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
+    expect(response.json().error).toContain('email.wrapperTemplate');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/email.wrapperTemplate stores a layout with {{{content}}}', async () => {
+    vi.mocked(db.insert).mockClear();
+    const layout = '<h1>{{companyName}}</h1>{{{content}}}';
+    setupDbResults([], [{ key: 'email.wrapperTemplate', value: layout }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/email.wrapperTemplate',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: layout },
+    });
+    expect(response.statusCode).toBe(200);
   });
 
   it('PUT /v1/settings/company.priceDisplay stores gross and clears the cache', async () => {

@@ -15,12 +15,11 @@ const schema = z.object({
   // Helm (shared ConfigMap) and CDK already pass it to the worker, as to the API.
   CSMS_URL: z.string().url().default('http://localhost:7100'),
   // Allows the simulated (test) payment provider in this process (D-T1). Default:
-  // on when NODE_ENV is development (or unset) or test, off otherwise.
+  // on when NODE_ENV is development or test, off otherwise (unset included: the
+  // service images set production).
   PAYMENTS_ALLOW_SIMULATED: z
     .enum(['true', 'false'])
-    .default(
-      ['development', 'test'].includes(process.env['NODE_ENV'] ?? 'development') ? 'true' : 'false',
-    )
+    .default(['development', 'test'].includes(process.env['NODE_ENV'] ?? '') ? 'true' : 'false')
     .transform((v) => v === 'true'),
   // OCTT conformance runs started from the dashboard: the URL at which the OCPP
   // server reaches the Test System OCSP responder the worker starts for the run
@@ -47,6 +46,14 @@ const schema = z.object({
 export type WorkerConfig = z.infer<typeof schema>;
 
 export const config = schema.parse(process.env);
+
+/**
+ * Development relaxations (private AI base URLs) need NODE_ENV development.
+ * Unset counts as production, as in the API.
+ */
+export function allowsDevelopmentRelaxations(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env['NODE_ENV'] === 'development';
+}
 
 // Refuses the notification test sink unless NODE_ENV is development or test
 // (unset included), or without the allow flag, so the process does not start

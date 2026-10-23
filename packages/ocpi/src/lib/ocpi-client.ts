@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { createLogger, safeFetch } from '@evtivity/lib';
+import { createLogger, readCappedBody, safeFetch } from '@evtivity/lib';
 import type { SafeFetchInit, SafeFetchResponse } from '@evtivity/lib';
 import { buildRoutingHeaders } from './ocpi-headers.js';
 import { OcpiStatusCode } from './ocpi-response.js';
@@ -47,27 +47,14 @@ interface OcpiHttpReply {
  * larger body is cancelled and refused, so a partner cannot exhaust memory.
  */
 async function readBodyCapped(res: SafeFetchResponse, url: string): Promise<string> {
-  const declared = Number(res.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > MAX_OCPI_RESPONSE_BYTES) {
-    await res.body?.cancel();
-    throw new Error(`OCPI response from ${url} exceeds ${String(MAX_OCPI_RESPONSE_BYTES)} bytes`);
+  try {
+    return (await readCappedBody(res, MAX_OCPI_RESPONSE_BYTES)).toString('utf8');
+  } catch (err) {
+    throw new Error(
+      `OCPI response from ${url} unreadable: ${err instanceof Error ? err.message : String(err)}`,
+      { cause: err },
+    );
   }
-  if (res.body == null) return '';
-  const reader = (res.body as ReadableStream<Uint8Array>).getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const chunk: ReadableStreamReadResult<Uint8Array> = await reader.read();
-    if (chunk.done) break;
-    const value = chunk.value;
-    total += value.byteLength;
-    if (total > MAX_OCPI_RESPONSE_BYTES) {
-      await reader.cancel();
-      throw new Error(`OCPI response from ${url} exceeds ${String(MAX_OCPI_RESPONSE_BYTES)} bytes`);
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString('utf8');
 }
 
 /**

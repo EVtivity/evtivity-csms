@@ -40,6 +40,7 @@ export const AUDIT_ENTITY_TYPES = [
   'station_message_template',
   'event_alert_rule',
   'report_schedule',
+  'sim',
 ] as const;
 
 export const AUDIT_ACTORS = ['operator', 'driver', 'api_key', 'system', 'ocpp'] as const;
@@ -58,7 +59,9 @@ export const AUDIT_ACTIONS = [
   'ai_failed',
   'alert_acknowledged',
   'assigned',
+  'attached',
   'attachment_added',
+  'attachment_confirmed',
   'attachment_deleted',
   'autocharge_blocked',
   'autocharge_disabled',
@@ -86,8 +89,10 @@ export const AUDIT_ACTIONS = [
   'created',
   'csr_rejected',
   'csr_signed',
+  'data_plan_changed',
   'deactivated',
   'deleted',
+  'detached',
   'disconnected',
   'dismissed',
   'display_message_cleared',
@@ -129,6 +134,7 @@ export const AUDIT_ACTIONS = [
   'mfa_enabled',
   'mfa_reset',
   'monitoring_changed',
+  'network_reset',
   'nevi_data_changed',
   'onboarding_status_changed',
   'partially_refunded',
@@ -150,6 +156,7 @@ export const AUDIT_ACTIONS = [
   'priority_changed',
   'pulled',
   'pushed',
+  'reactivated',
   'rebilled',
   'recovery_code_used',
   'recovery_codes_generated',
@@ -205,6 +212,8 @@ export const AUDIT_ACTIONS = [
   'voided',
   'webauthn_credential_added',
   'webauthn_credential_removed',
+  'sso_link_allowed',
+  'sso_unlinked',
   'webauthn_credential_renamed',
 ] as const;
 

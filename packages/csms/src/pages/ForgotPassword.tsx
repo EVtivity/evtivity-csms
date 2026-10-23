@@ -8,8 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
+import { CardContent, CardHeader } from '@/components/ui/card';
+import { AuthLayout } from '@/components/AuthLayout';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { executeRecaptcha } from '@/lib/recaptcha';
@@ -28,8 +28,6 @@ export function ForgotPassword(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
-
-  const { companyName, companyLogo } = useAuthBranding();
 
   const { data: securityPublic } = useQuery({
     queryKey: ['security-public'],
@@ -70,56 +68,52 @@ export function ForgotPassword(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <AuthBranding companyName={companyName} companyLogo={companyLogo} />
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <h2 className="text-2xl font-semibold">{t('auth.forgotPasswordTitle')}</h2>
-          <p className="text-sm text-muted-foreground">{t('auth.forgotPasswordSubtitle')}</p>
-          {redirectMessage != null && <p className="text-sm text-warning">{redirectMessage}</p>}
-          {sent && <p className="text-sm text-success">{t('auth.resetLinkSent')}</p>}
-          {error != null && <p className="text-sm text-destructive">{error}</p>}
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={(e) => {
-              void handleSubmit(e);
-            }}
-            noValidate
-            className="space-y-4"
+    <AuthLayout>
+      <CardHeader className="text-center">
+        <h2 className="text-2xl font-semibold">{t('auth.forgotPasswordTitle')}</h2>
+        <p className="text-sm text-muted-foreground">{t('auth.forgotPasswordSubtitle')}</p>
+        {redirectMessage != null && <p className="text-sm text-warning">{redirectMessage}</p>}
+        {sent && <p className="text-sm text-success">{t('auth.resetLinkSent')}</p>}
+        {error != null && <p className="text-sm text-destructive">{error}</p>}
+      </CardHeader>
+      <CardContent>
+        <form
+          onSubmit={(e) => {
+            void handleSubmit(e);
+          }}
+          noValidate
+          className="space-y-4"
+        >
+          <div className="space-y-2">
+            <Label htmlFor="email" className="leading-6">
+              {t('auth.emailLabel')}
+            </Label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="off"
+              value={email}
+              disabled={sent}
+              onChange={(e) => {
+                setEmail(e.target.value);
+              }}
+              className={hasSubmitted && validationErrors.email ? 'border-destructive' : ''}
+            />
+            {hasSubmitted && validationErrors.email && (
+              <p className="text-sm text-destructive">{validationErrors.email}</p>
+            )}
+          </div>
+          <Button type="submit" className="w-full" disabled={loading || sent}>
+            {loading ? t('auth.sendingResetLink') : t('auth.sendResetLink')}
+          </Button>
+          <Link
+            to="/login"
+            className="block text-center text-sm font-medium text-link hover:underline"
           >
-            <div className="space-y-2">
-              <Label htmlFor="email" className="leading-6">
-                {t('auth.emailLabel')}
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                autoComplete="off"
-                value={email}
-                disabled={sent}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                }}
-                className={hasSubmitted && validationErrors.email ? 'border-destructive' : ''}
-              />
-              {hasSubmitted && validationErrors.email && (
-                <p className="text-sm text-destructive">{validationErrors.email}</p>
-              )}
-            </div>
-            <Button type="submit" className="w-full" disabled={loading || sent}>
-              {loading ? t('auth.sendingResetLink') : t('auth.sendResetLink')}
-            </Button>
-            <Link
-              to="/login"
-              className="block text-center text-sm font-medium text-link hover:underline"
-            >
-              {t('auth.backToLogin')}
-            </Link>
-          </form>
-        </CardContent>
-      </Card>
-      <AuthFooter companyName={companyName} />
-    </div>
+            {t('auth.backToLogin')}
+          </Link>
+        </form>
+      </CardContent>
+    </AuthLayout>
   );
 }

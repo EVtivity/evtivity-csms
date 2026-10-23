@@ -511,14 +511,28 @@ async function seed(): Promise<void> {
   const defaultSettings: Record<string, unknown> = {
     'system.name': 'EVtivity CSMS',
     'system.timezone': 'America/New_York',
-    'ocpp.heartbeatInterval': 300,
+    // Data plans (features/station-data-plans.md): ocpp.* is Wi-Fi or wired
+    // (AC for the charging keys), ocpp.dc.* its DC charging values, and
+    // ocpp.cellular.* the Cellular plan.
+    'ocpp.heartbeatInterval': 900,
+    'ocpp.csmsPingInterval': 120,
     'ocpp.meterValueInterval': 60,
+    'ocpp.sampledMeasurands': 'Energy.Active.Import.Register,Power.Active.Import,Current.Import',
+    'ocpp.dc.meterValueInterval': 30,
+    'ocpp.dc.sampledMeasurands':
+      'Energy.Active.Import.Register,Power.Active.Import,Current.Import,SoC',
     'ocpp.clockAlignedInterval': 900,
-    'ocpp.sampledMeasurands':
-      'Energy.Active.Import.Register,Power.Active.Import,Voltage,SoC,Current.Import',
-    'ocpp.alignedMeasurands':
-      'Energy.Active.Import.Register,Power.Active.Import,Voltage,SoC,Current.Import',
+    'ocpp.alignedMeasurands': 'Energy.Active.Import.Register',
     'ocpp.txEndedMeasurands': 'Energy.Active.Import.Register',
+    'ocpp.cellular.heartbeatInterval': 3600,
+    'ocpp.cellular.csmsPingInterval': 240,
+    'ocpp.cellular.meterValueInterval': 300,
+    'ocpp.cellular.sampledMeasurands': 'Energy.Active.Import.Register,Power.Active.Import',
+    'ocpp.cellular.dc.meterValueInterval': 60,
+    'ocpp.cellular.dc.sampledMeasurands': 'Energy.Active.Import.Register,Power.Active.Import,SoC',
+    'ocpp.cellular.clockAlignedInterval': 0,
+    'ocpp.cellular.alignedMeasurands': 'Energy.Active.Import.Register',
+    'ocpp.cellular.txEndedMeasurands': 'Energy.Active.Import.Register',
     'ocpp.connectionTimeout': 120,
     'ocpp.resetRetries': 3,
     'ocpp.offlineCommandTtlHours': 24,
@@ -535,6 +549,8 @@ async function seed(): Promise<void> {
       'This site is temporarily unavailable for maintenance. {{reason}}',
     'notifications.emailEnabled': true,
     'notifications.webhookAllowedPrivateHosts': [],
+    // Generated in the CSMS (Settings > Notifications > Webhooks); empty: unsigned.
+    'notifications.webhookSigningSecretEnc': '',
     'ftp.host': 'ftp',
     'ftp.port': 21,
     'ftp.username': 'evtivity',
@@ -2400,6 +2416,10 @@ async function seed(): Promise<void> {
       countryCode: 'NL',
       partyId: 'SIM',
       roles: ['EMSP'],
+      // The seed is the operator here: it approves the role the simulator
+      // registers with, which every OCPI module checks (deny by default).
+      approvedRoles: ['EMSP'],
+      rolesApprovedAt: new Date(),
       ourRoles: ['CPO'],
       status: 'pending',
       version: '2.2.1',
@@ -2466,6 +2486,8 @@ async function seed(): Promise<void> {
       countryCode: 'DE',
       partyId: 'CPO',
       roles: ['CPO'],
+      approvedRoles: ['CPO'],
+      rolesApprovedAt: new Date(),
       ourRoles: ['EMSP'],
       status: 'pending',
       version: '2.2.1',
@@ -3589,16 +3611,14 @@ async function seed(): Promise<void> {
           .limit(1)
       : [null];
 
+  // The boot push owns the heartbeat and meter value settings (station data
+  // plans), so the demo templates hold none of them.
   const configTemplateDefs = [
     {
       name: 'Standard OCPP 2.1 Config',
       description: 'Default configuration for all OCPP 2.1 stations',
       ocppVersion: '2.1' as const,
-      variables: [
-        { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', value: '300' },
-        { component: 'SampledDataCtrlr', variable: 'TxUpdatedInterval', value: '60' },
-        { component: 'AuthCtrlr', variable: 'LocalPreAuthorize', value: 'true' },
-      ],
+      variables: [{ component: 'AuthCtrlr', variable: 'LocalPreAuthorize', value: 'true' }],
       pushCount: 2,
       stationsPerPush: 40,
     },
@@ -3606,11 +3626,7 @@ async function seed(): Promise<void> {
       name: 'High-Traffic Site Config',
       description: 'Optimized settings for busy locations',
       ocppVersion: '2.1' as const,
-      variables: [
-        { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', value: '120' },
-        { component: 'SampledDataCtrlr', variable: 'TxUpdatedInterval', value: '30' },
-        { component: 'TxCtrlr', variable: 'StopTxOnInvalidId', value: 'true' },
-      ],
+      variables: [{ component: 'TxCtrlr', variable: 'StopTxOnInvalidId', value: 'true' }],
       targetFilter: { siteId: at(createdSites, 1).id },
       pushCount: 1,
       stationsPerPush: 25,
@@ -3619,11 +3635,7 @@ async function seed(): Promise<void> {
       name: 'OCPP 1.6 Legacy Config',
       description: 'Configuration for OCPP 1.6 stations',
       ocppVersion: '1.6' as const,
-      variables: [
-        { component: '', variable: 'HeartbeatInterval', value: '300' },
-        { component: '', variable: 'MeterValueSampleInterval', value: '60' },
-        { component: '', variable: 'LocalPreAuthorize', value: 'true' },
-      ],
+      variables: [{ component: '', variable: 'LocalPreAuthorize', value: 'true' }],
       pushCount: 1,
       stationsPerPush: 30,
     },

@@ -206,10 +206,10 @@ describe('ProfilePasskeys', () => {
     expect(screen.queryByRole('button', { name: 'passkeys.add' })).toBeNull();
   });
 
-  it('hides Add when the browser has no passkey support', async () => {
+  it('says the browser has no passkey support and hides Add', async () => {
     supportsMock.mockReturnValue(false);
     renderCard({}, []);
-    expect(await screen.findByText('passkeys.needsSecurePage')).toBeTruthy();
+    expect(await screen.findByText('passkeys.browserUnsupported')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'passkeys.add' })).toBeNull();
   });
 

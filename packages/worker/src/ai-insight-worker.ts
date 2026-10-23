@@ -30,7 +30,7 @@ import {
 } from '@evtivity/services/ai-insight.service';
 import { QUEUE_NAMES } from './queues.js';
 import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
-import { config } from './lib/config.js';
+import { allowsDevelopmentRelaxations, config } from './lib/config.js';
 import { generateInsight } from './ai-insights/generate.js';
 import type { InsightJobDeps } from './ai-insights/generate.js';
 import { translateInsight } from './ai-insights/translate.js';
@@ -107,12 +107,11 @@ export async function startAiInsightBridge(pubsub: PubSubClient): Promise<() => 
 }
 
 export function defaultInsightJobDeps(pubsub: PubSubClient): InsightJobDeps {
-  const nodeEnv = process.env['NODE_ENV'];
   return {
     // Reservation insights only while reservations are on (getInsightAiSettings).
     getSettings: getInsightAiSettings,
     resolveConfig: (settings) =>
-      resolveOpsAiConfig(settings, config.SETTINGS_ENCRYPTION_KEY, nodeEnv === 'development'),
+      resolveOpsAiConfig(settings, config.SETTINGS_ENCRYPTION_KEY, allowsDevelopmentRelaxations()),
     createAdapter: createOpsAdapter,
     checkBudgets: checkAiBudgets,
     providerGate: aiProviderGate,

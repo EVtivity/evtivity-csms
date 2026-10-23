@@ -135,6 +135,7 @@
     "dashboard": "Dashboard",
     "sites": "Sites",
     "stations": "Stations",
+    "sims": "SIMs",
     "sessions": "Sessions",
     "drivers": "Drivers",
     "transactions": "Transactions",
@@ -205,6 +206,13 @@
       "privateNetworkSaved": "Network access saved",
       "allowRawToken": "Accept Unencoded Tokens",
       "allowRawTokenHint": "For OCPI 2.1.1 and 2.2 partners that send their credentials token without Base64 encoding. Our token is then sent to them the same way. Leave off for OCPI 2.2.1 and 2.3.0 partners.",
+      "approvedRoles": "Approved Roles",
+      "approvedRolesHint": "The CSMS acts on the approved roles only: a CPO or HUB partner reads driver tokens, and a HUB partner sends hub client info. A role the partner declares is used only after you approve it here.",
+      "rolesNotDecided": "Not decided yet. The CSMS acts on no role of this partner until you approve its roles here.",
+      "declaredRoles": "Declared by the partner: {{roles}}",
+      "noDeclaredRoles": "The partner has not declared any roles yet.",
+      "heldRoles": "Declared but not approved: {{roles}}. The CSMS does not act on these roles.",
+      "approvedRolesSaved": "Approved roles saved",
       "rawTokenSaved": "Token encoding saved",
       "newRegistrationToken": "New Registration Token",
       "newRegistrationTokenTitle": "New Registration Token",
@@ -340,7 +348,7 @@
     "mfaSubtitle": "Enter the 6-digit code from your {{method}}",
     "mfaVerify": "Verify",
     "mfaCodeLabel": "Verification code",
-    "mfaResend": "Resend code",
+    "mfaResend": "Resend Code",
     "mfaResending": "Sending...",
     "mfaResendFailed": "Failed to resend code. Try again.",
     "mfaInvalidCode": "Invalid or expired code. Try again.",
@@ -360,6 +368,7 @@
     "recoveryCodeSubtitle": "Enter one of your recovery codes",
     "recoveryCodeLabel": "Recovery code",
     "recoveryCodeInvalid": "Invalid or already used recovery code. Try again.",
+    "recoveryCodeIncomplete": "Enter the full 10-character recovery code",
     "mfaMethodSwitchedOff": "Your administrator switched off {{method}}. Sign in with a recovery code.",
     "mfaSetupTitle": "Set Up Two-Factor Authentication",
     "mfaSetupDescription": "Your administrator requires a second factor. Set one up to finish signing in.",
@@ -374,7 +383,9 @@
     "passkeyFailed": "The passkey could not be used. Try again or sign in with your password.",
     "passkeyResetRequired": "Your password must be changed. Sign in with your email and password to change it.",
     "mfaSetupPasskeyHint": "Use your fingerprint, face, screen lock or a security key.",
-    "mfaSetupUsePasskey": "Set Up a Passkey or Security Key"
+    "mfaSetupUsePasskey": "Set Up a Passkey or Security Key",
+    "chargingPortalLink": "{{name}} Charging Portal",
+    "ssoLinkRequired": "This account is not linked to single sign-on yet. Sign in with your password and allow SSO sign-in in your profile, or ask your administrator."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -547,7 +558,7 @@
     "qrCodesDescription": "QR codes for all stations at this site. Print and place on each charger for guest checkout.",
     "exportCsv": "Export CSV",
     "importCsv": "Import CSV",
-    "downloadTemplate": "Template",
+    "downloadTemplate": "Download Template",
     "importing": "Importing...",
     "importResults": "Import Results",
     "sitesCreated": "Sites created: {{count}}",
@@ -1093,13 +1104,12 @@
           "providerOff": "Provider: skipped, no SIM provider is on.",
           "inProgress": "Provider: skipped, another Refresh of this station is running.",
           "notConfirmed": "Provider: skipped, nothing is fetched until the SIM is confirmed.",
-          "other": "Provider: skipped."
-        },
-        "providerNotMatched": {
-          "noIccid": "Provider: skipped, the station has no ICCID.",
+          "other": "Provider: skipped.",
+          "inProgressSim": "Provider: skipped, another Refresh of this SIM is running.",
           "notFound": "Provider: skipped, no enabled provider knows this SIM.",
-          "simMatchedElsewhere": "Provider: skipped, another station holds a confirmed match for this SIM.",
-          "other": "Provider: skipped, the SIM is not matched to a provider."
+          "noIccid": "Provider: skipped, the station has no ICCID.",
+          "attachedElsewhere": "Provider: skipped, the SIM is attached to another station, so it was not attached to this station.",
+          "attachConflict": "Provider: skipped, other changes to SIM attachments ran at the same time. Nothing was attached. Click Refresh again."
         },
         "providerFailed": {
           "auth": "Provider: failed, the provider refused the API key.",
@@ -1135,13 +1145,16 @@
       "notFetchedYet": "Not fetched yet. Choose a period and click Refresh.",
       "emptyNotFound": "No enabled SIM provider knows this ICCID.",
       "lookUpAgain": "Look Up Again",
-      "emptyMatchedElsewhere": "This SIM is matched to another station. A SIM serves one station only, so this station shows no SIM data.",
+      "emptyAttachedElsewhere": "The SIM of this station's ICCID is attached to another station. A SIM is attached to one station at a time, so this station shows no SIM data.",
+      "emptySimInactive": "The SIM of this station's ICCID is inactive. It is not attached to this station, and nothing is fetched or reset for it until a user reactivates it on its SIM page.",
+      "findSim": "Find the SIM",
       "confirmSim": "Confirm SIM",
       "resetNetwork": "Reset Network",
       "resetNeedsConfirm": "Confirm the SIM before resetting its network.",
-      "clearMatch": "Clear Match",
-      "clearMatchDescription": "Remove the link between this station and its SIM. The next Refresh looks the SIM up again from the ICCID, and a new match needs Confirm SIM again before a network reset.",
-      "clearMatchSuccess": "SIM match cleared",
+      "detachSim": "Detach SIM",
+      "viewSim": "View SIM",
+      "detachSimDescription": "Closes the attachment of this station's SIM. The SIM, its attachment history and its stored sessions and alerts stay. The next Refresh attaches the SIM of the ICCID the station reported, and that attachment needs Confirm SIM before anything is fetched or reset.",
+      "detachSimSuccess": "SIM detached.",
       "rateLimitedRetry": "Too many requests. Try again in {{seconds}} s.",
       "unconfirmedNotice": "Nothing is fetched from {{provider}} for this SIM until a user with access to every site confirms it with Confirm SIM.",
       "fetchedAt": "Fetched {{time}}",
@@ -1172,9 +1185,15 @@
       "fromStationTitle": "From the Station",
       "readAt": "Read {{time}}",
       "confirmDescription": "Confirm that SIM {{iccid}} at {{provider}} belongs to this station. The network of a confirmed SIM can be reset from this page.",
-      "confirmSourceStation": "Source of the ICCID: reported by the station.",
-      "confirmSourceEntered": "Source of the ICCID: entered by {{name}}.",
-      "confirmSourceEnteredUnknown": "Source of the ICCID: entered by a user.",
+      "confirmSource": {
+        "reported": "Source of the ICCID: reported by the station.",
+        "entered": "Source of the ICCID: entered on the station by {{name}}.",
+        "enteredUnknown": "Source of the ICCID: entered on the station by another user.",
+        "attached": "Source of the ICCID: attached on the SIM page by {{name}}.",
+        "attachedUnknown": "Source of the ICCID: attached on the SIM page by another user.",
+        "imported": "Source of the ICCID: imported from a CSV file by {{name}}.",
+        "importedUnknown": "Source of the ICCID: imported from a CSV file by another user."
+      },
       "confirmSuccess": "SIM confirmed",
       "resetDescription": "The provider ends the data session of the station, and the station reconnects to the cellular network. The station can be offline until it reconnects.",
       "resetSuccess": "Network reset sent. Click Refresh after a few minutes to see the new session.",
@@ -1272,6 +1291,11 @@
         "readDeviceModelSent": "Device model requested. Click Refresh in a minute.",
         "ocpp16Keys": "The OCPP 1.6 configuration keys named in the SIM settings, as the station reported them.",
         "noOcpp16Keys": "No OCPP 1.6 signal keys are set in the SIM settings, so a Refresh reads nothing from this station."
+      },
+      "attachmentResult": {
+        "attachedElsewhere": "ICCID saved. Its SIM is attached to another station, so it was not attached to this station.",
+        "simInactive": "ICCID saved. Its SIM is inactive, so it was not attached to this station. Reactivate it on its SIM page.",
+        "attachConflict": "ICCID saved. Other changes to SIM attachments ran at the same time, so the SIM was not attached. Click Refresh on the Connectivity tab to attach it."
       }
     },
     "simCoverage": {
@@ -1285,6 +1309,145 @@
       "unavailable": "No Longer Available",
       "dayLabel": "{{date}}: {{label}}",
       "notFetchedRange": "Not fetched: {{from}} to {{to}}"
+    }
+  },
+  "sims": {
+    "title": "SIMs",
+    "subtitle": "The SIM cards in your stations and the ones not attached to a station.",
+    "search": "Search",
+    "searchPlaceholder": "Search by ICCID, IMSI or label",
+    "featureOff": "The SIM features are off. Turn on a SIM provider or station signal reads in Settings > Integrations & Features to list SIMs.",
+    "noSims": "No SIMs found.",
+    "notFetched": "Not fetched",
+    "notAttached": "Not attached",
+    "downloadTemplate": "Download Template",
+    "importConfirmTitle": "Import SIMs",
+    "importResult": {
+      "created": "SIMs created: {{count}}",
+      "updated": "SIMs updated: {{count}}",
+      "attached": "SIMs attached to a station: {{count}}"
+    },
+    "columns": {
+      "iccid": "ICCID",
+      "label": "Label",
+      "provider": "Provider",
+      "csmsStatus": "CSMS Status",
+      "providerStatus": "Provider Status",
+      "station": "Station",
+      "confirmed": "Confirmed",
+      "lastFetched": "Last Fetched",
+      "created": "Created"
+    },
+    "filters": {
+      "provider": "Provider",
+      "allProviders": "All Providers",
+      "attachment": "Attachment",
+      "allAttachments": "All Attachments",
+      "csmsStatus": "CSMS Status",
+      "allCsmsStatuses": "All CSMS Statuses",
+      "providerStatus": "Provider Status",
+      "allProviderStatuses": "All Provider Statuses",
+      "station": "Station",
+      "allStations": "All Stations"
+    },
+    "attachmentFilter": {
+      "attached": "Attached",
+      "unattached": "Not Attached",
+      "unconfirmed": "Attached, Not Confirmed"
+    },
+    "csmsStatus": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "detail": {
+      "notFound": "SIM not found.",
+      "tabs": {
+        "details": "Details",
+        "sessions": "Sessions",
+        "attachments": "Attachments",
+        "history": "History"
+      },
+      "detailsTitle": "SIM Details",
+      "iccid": "ICCID",
+      "imsi": "IMSI",
+      "label": "Label",
+      "notes": "Notes",
+      "provider": "Provider",
+      "providerRef": "Provider SIM ID",
+      "created": "Created",
+      "csmsStatus": "CSMS Status",
+      "csmsStatusHint": "Set here with Deactivate and Reactivate. The provider status below comes from the SIM provider with a Refresh.",
+      "providerStatus": "Provider Status",
+      "deactivatedAt": "Deactivated {{time}}",
+      "deactivatedBy": "Deactivated {{time}} by {{name}}",
+      "deactivate": "Deactivate SIM",
+      "reactivate": "Reactivate SIM",
+      "deactivateDescription": "The SIM stays in the inventory and its attachment to a station is closed. While it is inactive it cannot be attached, refreshed or reset. The SIM provider is not called and its status does not change.",
+      "reactivateDescription": "The SIM becomes active again. It is not attached to a station and the SIM provider is not called.",
+      "deactivateSuccess": "SIM deactivated.",
+      "reactivateSuccess": "SIM reactivated.",
+      "delete": "Delete SIM",
+      "deleteDescription": "Deletes SIM {{iccid}} with its attachment history and its stored sessions, alerts and fetched days. This cannot be undone.",
+      "deleteSuccess": "SIM deleted.",
+      "deleteAttachedReason": "Detach the SIM before deleting it.",
+      "inactiveReason": "This SIM is inactive. Reactivate it first.",
+      "noRecentAlerts": "No SIM alerts are stored for this SIM.",
+      "refreshTitle": "Provider Data",
+      "refreshHint": "A Refresh reads the SIM provider only and sends nothing to a station. Opening this page fetches nothing.",
+      "noProvider": "No SIM provider is known for this SIM yet. A Refresh looks it up.",
+      "providerNotFound": "No enabled SIM provider knows this SIM.",
+      "resetDescription": "The SIM provider ends the data session of the SIM, and the device reconnects to the cellular network. A station with this SIM can be offline until it reconnects.",
+      "editTitle": "Edit SIM",
+      "labelHint": "At most {{max}} characters.",
+      "imsiHint": "Up to 15 digits. Leave it empty to remove the IMSI.",
+      "imsiInvalid": "Enter up to 15 digits.",
+      "notesHint": "At most {{max}} characters.",
+      "saveFailed": "The SIM was not saved. Try again.",
+      "attachments": {
+        "currentTitle": "Current Attachment",
+        "historyTitle": "Attachment History",
+        "notAttached": "This SIM is not attached to a station.",
+        "noHistory": "This SIM has not been attached yet.",
+        "station": "Station",
+        "site": "Site",
+        "source": "Source",
+        "attached": "Attached",
+        "attachedBy": "Attached By",
+        "confirmed": "Confirmed",
+        "notConfirmed": "Not Confirmed",
+        "open": "Open",
+        "paymentTerminal": "Payment terminal",
+        "unconfirmedNotice": "This attachment is not confirmed. Confirm SIM after checking that this SIM is in station {{station}}.",
+        "confirmDescription": "Confirm that SIM {{iccid}} is the SIM in station {{station}}.",
+        "detach": "Detach SIM",
+        "detachDescription": "Closes the attachment of SIM {{iccid}} to station {{station}}. The stored sessions and alerts stay with the SIM.",
+        "detachSuccess": "SIM detached.",
+        "attach": "Attach to Station",
+        "attachTitle": "Attach to Station",
+        "attachDescription": "The SIM is attached to the station and confirmed at once. A station that already has a SIM is refused.",
+        "attachSuccess": "SIM attached to station {{station}}.",
+        "sourceLabel": {
+          "reported": "Reported by the station",
+          "entered": "Entered on the station",
+          "attached": "Attached on the SIM page",
+          "imported": "Imported from a CSV file"
+        },
+        "reason": {
+          "detached": "Detached",
+          "iccidChanged": "The station reported another ICCID",
+          "replaced": "Another SIM was entered on the station",
+          "displaced": "Moved to another station",
+          "deactivated": "The SIM was deactivated"
+        },
+        "columns": {
+          "station": "Station",
+          "site": "Site",
+          "source": "Source",
+          "attached": "Attached",
+          "detached": "Detached",
+          "reason": "Reason"
+        }
+      }
     }
   },
   "eventAlertRules": {
@@ -1747,6 +1910,7 @@
     "permissionGroups": {
       "dashboard": "Dashboard",
       "stations": "Stations",
+      "sims": "SIMs",
       "sites": "Sites",
       "sessions": "Sessions",
       "drivers": "Drivers",
@@ -1791,9 +1955,25 @@
     "mfaOffDescription": "The user signs in without a second factor.",
     "mfaReset": "Reset MFA",
     "mfaResetConfirm": "Turn off the second factor of this user and sign the user out everywhere? The user signs in with the password alone and can set up MFA again.",
+    "mfaResetProofHint": "Confirm it is you to turn off this user's second factor.",
     "mfaResetSuccess": "MFA reset",
     "apiKeysDescription": "Active API keys of this user. Revoke a key the user no longer needs or that may have leaked.",
-    "noApiKeys": "This user has no active API keys."
+    "noApiKeys": "This user has no active API keys.",
+    "adminProofHint": "This user gets administrator permissions. Confirm it is you to create the user.",
+    "grantProofHint": "Confirm it is you to grant new permissions.",
+    "resetProofHint": "Confirm it is you to reset this user's password.",
+    "resendProofHint": "Confirm it is you to send a new password setup link.",
+    "emailProofHint": "This user has administrator permissions. Confirm it is you to change the email address or phone number, or to reactivate the account.",
+    "roleProofHint": "The new role grants permissions this user does not have. Confirm it is you to change the role.",
+    "ssoLinkTitle": "Single Sign-On",
+    "ssoLinkDescription": "SSO signs in an existing password account only after the link is allowed. The first SSO sign-in then binds the account to its identity provider user.",
+    "ssoLinked": "Linked: this account signs in with its identity provider user.",
+    "ssoLinkPending": "Allowed: the next SSO sign-in links this account.",
+    "ssoLinkAllow": "Allow SSO Sign-In",
+    "ssoLinkWithdraw": "Withdraw",
+    "ssoLinkProofHint": "Confirm it is you to let single sign-on sign in as this account.",
+    "ssoUnlink": "Remove Link",
+    "ssoUnlinkProofHint": "Confirm it is you to remove the link between this account and its identity provider user."
   },
   "profile": {
     "title": "Profile",
@@ -1817,7 +1997,6 @@
     "mfaMethodTotp": "Authenticator App",
     "mfaMethodSms": "SMS",
     "mfaSetUp": "Set Up",
-    "mfaSettingUp": "Setting up...",
     "mfaDisable": "Disable MFA",
     "mfaDisableConfirm": "Confirm it's you with a factor you have or a recovery code. Turning MFA off also removes your passkeys and recovery codes.",
     "mfaSetupPasswordHint": "Enter your current password to set up MFA",
@@ -1826,7 +2005,6 @@
     "mfaManualEntry": "Manual entry key",
     "mfaEnterCode": "Enter the 6-digit verification code",
     "mfaVerify": "Verify",
-    "mfaVerifying": "Verifying...",
     "mfaSetupFailed": "Failed to start MFA setup.",
     "mfaVerifyFailed": "Invalid verification code.",
     "mfaDisableFailed": "Failed to disable MFA.",
@@ -2225,7 +2403,8 @@
     "connectorIdRequired": "Connector ID",
     "retries": "Retries (optional)",
     "retryInterval": "Retry Interval (optional)",
-    "validationFailed": "Payload validation failed"
+    "validationFailed": "Payload validation failed",
+    "hiddenByPermission": "Some commands are hidden because they need a write permission you do not have, such as Firmware, Station Configurations, Certificates, Smart Charging, Pricing, Reservations, Sessions or Drivers."
   },
   "ocppLogs": {
     "title": "OCPP Message Log",
@@ -2473,6 +2652,17 @@
     "webhookAllowedPrivateHostsHint": "List a host here, one per line, to let webhooks reach it on a private address (for example an in-house automation server). Hostnames or IP addresses, without scheme or port. Up to 20.",
     "webhooksSaved": "Webhook settings saved.",
     "webhooksSaveFailed": "Failed to save webhook settings.",
+    "webhookSigningSecret": "Signing Secret",
+    "webhookSigningSecretHint": "Every webhook carries X-EVtivity-Signature: t=<unix time>,v1=<hex HMAC-SHA256 of \"<t>.<raw body>\"> made with this secret. Receivers recompute it to check the request came from this CSMS and refuse an old t.",
+    "webhookSigningSecretConfigured": "A signing secret is set. Webhooks are signed.",
+    "webhookSigningSecretNotConfigured": "No signing secret. Webhooks go out unsigned.",
+    "webhookSigningSecretGenerate": "Generate Secret",
+    "webhookSigningSecretRegenerate": "Regenerate Secret",
+    "webhookSigningSecretRegenerateConfirm": "The current secret stops working at once. Receivers must switch to the new secret, or they refuse the next webhooks.",
+    "webhookSigningSecretRemove": "Remove Secret",
+    "webhookSigningSecretRemoveConfirm": "Webhooks go out unsigned until a new secret is generated.",
+    "webhookSigningSecretShownOnce": "Copy this secret now. It is shown only once.",
+    "webhookSigningSecretFailed": "The signing secret was not changed.",
     "smtpSaveFailed": "Failed to save SMTP settings.",
     "twilio": "Twilio SMS",
     "twilioDescription": "Configure Twilio for sending SMS notifications.",
@@ -2698,7 +2888,6 @@
     "mfaRequireDrivers": "Require MFA for Drivers",
     "mfaRequireDriversDescription": "Every driver must set up MFA in the driver portal at the next sign-in, before a session is issued. Signed-in drivers are asked at their next session renewal. The mobile app sends drivers to the portal to finish the setup.",
     "mfaRequiredNoMethod": "Turn on email codes or the authenticator app before you require MFA.",
-    "mfaSaved": "MFA settings saved.",
     "mfaSaveFailed": "Failed to save MFA settings.",
     "sso": "Single Sign-On",
     "ssoDescription": "Configure SAML 2.0 single sign-on with your identity provider.",
@@ -2784,22 +2973,12 @@
     "guestDeclinesPerIpPerHour": "Declined Cards per IP per Hour",
     "guestDeclinesPerIpPerHourHelp": "After this many declined cards in an hour, the address can place no new payment hold.",
     "ocppDefaults": "OCPP",
-    "ocppStationConfigTitle": "Station Configuration (Pushed on Boot)",
-    "ocppStationConfigDescription": "These values are sent to the station after each BootNotification. OCPP 2.1 stations receive SetVariables commands. OCPP 1.6 stations receive ChangeConfiguration commands. Values of 0 are not pushed.",
     "ocppMeterValueInterval": "Meter value interval (seconds)",
-    "ocppMeterValueIntervalHelp": "How often the station reports energy readings during a transaction. Pushed as SampledDataCtrlr.TxUpdatedInterval (2.1) or MeterValueSampleInterval (1.6). Set to 0 to use station firmware defaults.",
     "ocppClockAlignedInterval": "Clock-aligned interval (seconds)",
-    "ocppClockAlignedIntervalHelp": "Interval for clock-aligned meter value reporting at exact time boundaries (e.g. 900 for every 15 minutes on the hour). Pushed as AlignedDataCtrlr.Interval (2.1) or ClockAlignedDataInterval (1.6). Set to 0 to disable.",
     "ocppSampledMeasurands": "Sampled measurands",
-    "ocppSampledMeasurandsHelp": "Comma-separated measurands reported during active transactions. Pushed as SampledDataCtrlr.TxUpdatedMeasurands (2.1) or MeterValuesSampledData (1.6).",
     "ocppAlignedMeasurands": "Clock-aligned measurands",
-    "ocppAlignedMeasurandsHelp": "Comma-separated measurands reported at clock-aligned intervals. Pushed as AlignedDataCtrlr.Measurands (2.1) or MeterValuesAlignedData (1.6). Only sent when clock-aligned interval is greater than 0.",
     "ocppTxEndedMeasurands": "Transaction ended measurands",
-    "ocppTxEndedMeasurandsHelp": "Comma-separated measurands included in the final meter value snapshot when a transaction ends. Pushed as SampledDataCtrlr.TxEndedMeasurands (2.1) or StopTxnSampledData (1.6).",
-    "ocppBootResponseTitle": "BootNotification Response",
-    "ocppBootResponseDescription": "These values are returned to the station in the BootNotification response. The station reads and applies them automatically.",
     "ocppHeartbeatInterval": "Heartbeat interval (seconds)",
-    "ocppHeartbeatIntervalHelp": "How often the station sends heartbeat messages to confirm it is still online. Returned as the interval field in the BootNotification response.",
     "ocppCsmsConfigTitle": "CSMS Internal Settings",
     "ocppCsmsConfigDescription": "These settings control how the CSMS handles OCPP communication. They are not sent to stations.",
     "ocppConnectionTimeout": "Command timeout (seconds)",
@@ -2879,6 +3058,7 @@
     "siteConfigsNoSites": "No sites found.",
     "sitePlatformFeeOverride": "Platform Fee % Override",
     "sitePlatformFeeHint": "Leave empty to use the global platform fee.",
+    "sitePlatformFeeAllSitesOnly": "The platform fee is set company-wide. A user with access to every site changes it.",
     "sitePaymentsEnabled": "Payments enabled for {{site}}",
     "unsavedChanges": "Unsaved changes",
     "apiKeys": "API Keys",
@@ -3071,7 +3251,6 @@
       "sitePerMinute": "Support AI requests per site per minute",
       "userDailyTokens": "Tokens per user per day",
       "maxToolCallsPerTurn": "Tool calls per answer",
-      "conversationRetentionDays": "Keep conversations for (days)",
       "attachmentsMaxBytes": "Maximum attachment size (bytes)",
       "attachmentsMaxPerMessage": "Attachments per message",
       "companyMonthlyTokens": "Company tokens per month",
@@ -3091,7 +3270,6 @@
       "siteIncidentThreshold": "Stations down at one site that make one site incident",
       "maxPerSitePerDay": "Insights per site per day",
       "primaryLanguage": "Summary language",
-      "retentionDays": "Keep insights (days)",
       "expireAfterDays": "Close one-off insights after (days)",
       "reservation": "Reservation insights",
       "reservationOff": "Reservation insights are off while reservations are turned off.",
@@ -3216,8 +3394,6 @@
       "sessionHistoryNote": "Sessions and SIM alerts are kept only for stations someone refreshed within the provider's history window. The CSMS never fetches them on its own, and opening a station's Connectivity tab fetches nothing.",
       "fetchDays": "Default Refresh Period (Days)",
       "fetchDaysHint": "The period preselected next to the Refresh button on a station's Connectivity tab. A person can pick another period or a custom date range there.",
-      "retentionDays": "Keep Sessions and Alerts (Days)",
-      "retentionDaysHint": "Sessions and SIM alerts older than this are deleted. Sessions include cell IDs, which show roughly where a station was online.",
       "rangeError": "Enter a whole number from {{min}} to {{max}}.",
       "stationSignalTitle": "Station Signal",
       "stationSignalEnabled": "Read Signal from Stations",
@@ -3232,6 +3408,94 @@
       "signalFairDbm": "Fair Signal From (dBm)",
       "signalFairDbmHint": "A signal at or above this value is graded fair, below it poor.",
       "signalOrderError": "The good threshold must be above the fair threshold."
+    },
+    "ssoAllowedDomains": "Allowed Email Domains",
+    "ssoAllowedDomainsHint": "SSO signs in and creates accounts only for these domains, separated by commas. Recommended: list your company domains. Empty allows every domain.",
+    "ssoProofHint": "Confirm it is you to change who can sign in with SSO.",
+    "dataRetention": {
+      "tab": "Data Retention",
+      "description": "How many days the CSMS keeps each kind of stored data. A prune job deletes older rows on its next run: the log and audit jobs run daily, the AI job every hour. These settings apply to every site.",
+      "storageTitle": "Chaos Mode and Large Networks Need Large Storage",
+      "storageNote": "Every OCPP message a station sends or receives is a row in ocpp_message_logs, heartbeats included, and every meter reading is a row in meter_values. Both tables grow with the number of connected stations, even while no one charges. On a test network of about 2,000 simulated stations, the database reached 90 GB. Lower OCPP Messages and Meter Values to keep these tables smaller.",
+      "range": "{{min}} to {{max}} days. Default: {{default}}.",
+      "keepForever": "0 keeps the data forever.",
+      "saveFailed": "The data retention settings could not be saved.",
+      "movedNote": "How long this data is kept is set in",
+      "movedLink": "Settings > Data Retention",
+      "groups": {
+        "operationalLogs": "Operational Logs",
+        "securityAudit": "Security and Audit",
+        "signInTokens": "Sign-In Sessions and Tokens",
+        "ai": "AI",
+        "sim": "SIM Data"
+      },
+      "rows": {
+        "ocppMessage": {
+          "label": "OCPP Messages",
+          "description": "Every OCPP message sent to or received from a station, heartbeats included (ocpp_message_logs). Usually the largest table."
+        },
+        "meterValues": {
+          "label": "Meter Values",
+          "description": "Meter readings of charging sessions (meter_values). Sessions keep their energy totals, peak power and last state of charge after these rows are deleted."
+        },
+        "domainEvents": {
+          "label": "Domain Events",
+          "description": "Events the CSMS records for stations, sessions and other changes (domain_events)."
+        },
+        "access": {
+          "label": "Access Logs",
+          "description": "Requests on the CSMS, Portal and API tabs of Access Logs (access_logs)."
+        },
+        "workerJob": {
+          "label": "Worker Job Logs",
+          "description": "Background job runs on the Workers tab of Access Logs (worker_job_logs), counted from the job end."
+        },
+        "portStatus": {
+          "label": "Connector Status History",
+          "description": "Every connector status change (port_status_log)."
+        },
+        "connection": {
+          "label": "Station Connection Log",
+          "description": "Station connects, disconnects and failed sign-ins (connection_logs)."
+        },
+        "notifications": {
+          "label": "Sent Notifications",
+          "description": "Sent emails, text messages and push notifications (notifications)."
+        },
+        "loadAllocation": {
+          "label": "Load Management Allocations",
+          "description": "The Allocations list of Load Management (load_allocation_log)."
+        },
+        "audit": {
+          "label": "Audit History",
+          "description": "Change history on the History tabs and the Audit page, and OCPP authorization attempts (authorize_attempts)."
+        },
+        "loginAudit": {
+          "label": "Sign-In Records",
+          "description": "Successful and failed sign-ins in the user and driver audit logs. Their other rows follow Audit History."
+        },
+        "securityEvents": {
+          "label": "Station Security Events",
+          "description": "Security events reported by stations (security_events)."
+        },
+        "refreshTokens": {
+          "label": "Revoked and Expired Sign-In Tokens",
+          "description": "Refresh tokens of ended sign-in sessions (refresh_tokens), counted from when they were revoked or expired."
+        },
+        "aiConversations": {
+          "label": "AI Assistant Conversations",
+          "description": "Conversations without activity for this period, with their attachments, and the MCP call log."
+        },
+        "aiInsights": {
+          "label": "Automatic Insights",
+          "description": "Automatic insights and background AI worker runs."
+        },
+        "simSessions": {
+          "label": "SIM Sessions and Alerts",
+          "description": "SIM sessions, SIM alerts and fetched periods (sim_sessions, sim_alerts, sim_fetch_coverage). Sessions include cell IDs, which show roughly where a station was online."
+        }
+      },
+      "proofHint": "Confirm it is you to shorten how long the audit, sign-in or security event history is kept. Every administrator gets a notice."
     }
   },
   "pnc": {
@@ -3310,6 +3574,7 @@
     "preview": "Preview Template",
     "customized": "Customized",
     "templateSaved": "Event notification saved.",
+    "securityTemplateLocked": "This is a security template (password reset, invitation, sign-in code or security notice). Changing it needs the System Settings write permission.",
     "templateDeactivated": "Event notification deactivated.",
     "recipientRequired": "Recipient email is required.",
     "webhookUrlRequired": "Webhook URL is required.",
@@ -3414,7 +3679,13 @@
       "security.RecoveryCodeUsed": "Recovery Code Used",
       "security.PhoneChanged": "Phone Number Changed",
       "security.EmailChanged": "Email Address Changed",
-      "security.ApiKeyCreated": "API Key Created"
+      "security.ApiKeyCreated": "API Key Created",
+      "security.SsoSettingsChanged": "Single Sign-On Settings Changed",
+      "security.UserCreatedPrivileged": "Administrator Account Created",
+      "security.PermissionsGranted": "Permissions Granted",
+      "security.PasswordResetByAdmin": "Password Setup Link Sent by an Administrator",
+      "security.SsoUnlinked": "Single Sign-On Link Removed",
+      "security.RetentionLowered": "Data Retention Shortened"
     },
     "templatePreviewInvalid": "The template has an error:",
     "htmlPreview": "HTML preview",
@@ -3567,6 +3838,7 @@
     "API_KEY_RATE_LIMITED": "API key rate limit exceeded",
     "ATTACHMENT_NOT_FOUND": "Attachment not found",
     "AUDIT_ENTITY_TYPE_INVALID": "Unknown audit entity type",
+    "AUTOCHARGE_CLAIM_REQUIRED": "Autocharge works only with vehicle ids a charger sent in one of your sessions. Use the vehicle id from a session first.",
     "CAMPAIGN_NOT_ACTIVE": "Only active campaigns can be cancelled",
     "CAMPAIGN_NOT_FOUND": "Campaign not found",
     "CASE_NOT_FOUND": "Case not found",
@@ -3651,6 +3923,7 @@
     "INVALID_SITE_IDS": "One or more siteIds do not exist",
     "INVALID_TOKEN": "Invalid or expired reset link",
     "INVOICE_ALREADY_PAID": "The invoice is already paid",
+    "PREPAID_BALANCE_CONFLICT": "The prepaid balance changed since you opened the form, for example after a session. Reload the token and enter the balance again.",
     "RESERVATION_FEE_ALREADY_INVOICED": "The reservation fee is already invoiced",
     "SESSION_ALREADY_INVOICED": "The session is already invoiced",
     "INVOICE_CREATION_FAILED": "Failed to create invoice",
@@ -3792,6 +4065,7 @@
     "START_REJECTED": "Station rejected start request: ...",
     "STATION_ALREADY_IN_FLEET": "Station is already in this fleet",
     "STATION_HAS_ACTIVE_SESSION": "The station has an active charging session. Stop it before deleting the station.",
+    "STATION_HAS_SIM": "This station already has a SIM attached. Detach it first",
     "STATION_ID_EXISTS": "A station with this name already exists. Please choose a different name.",
     "STATION_NOT_FOUND": "Station not found",
     "STATION_OFFLINE": "Station is offline",
@@ -3801,6 +4075,7 @@
     "STATION_UNAVAILABLE": "This station is unavailable right now. Try another station.",
     "STORAGE_CONNECTION_FAILED": "Storage connection test failed",
     "STORAGE_NOT_CONFIGURED": "Attachment storage not configured",
+    "STREAM_LIMIT_REACHED": "Too many live station updates are open from this device. Close other tabs and try again.",
     "SUPPORT_AI_NOT_CONFIGURED": "Support AI is not configured",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "This support case is not waiting for feedback on an automatic answer",
     "SUPPORT_CASE_NOT_FOUND": "Support case not found",
@@ -3895,17 +4170,22 @@
     "WEBAUTHN_CHALLENGE_EXPIRED": "The passkey request expired or was already used. Try again.",
     "WEBAUTHN_VERIFICATION_FAILED": "The passkey or security key could not be verified.",
     "SIM_ACTION_UNSUPPORTED": "The SIM provider does not support this action for this SIM",
-    "SIM_CONFIRMED_ELSEWHERE": "Another station already has a confirmed match for this SIM",
+    "SIM_ATTACHED": "Detach the SIM from its station before deleting it",
+    "SIM_ATTACHED_ELSEWHERE": "This SIM is attached to another station",
+    "SIM_ATTACHMENT_CHANGED": "The SIM attachment changed since it was shown. Check the SIM and confirm again",
+    "SIM_ATTACHMENT_NOT_CONFIRMED": "Confirm the SIM before resetting its network",
     "SIM_FEATURE_DISABLED": "SIM providers and station signal reads are turned off",
-    "SIM_MATCHED_ELSEWHERE": "This SIM is matched to another station",
-    "SIM_MATCH_CHANGED": "The SIM match changed since it was shown. Check the SIM and confirm again",
-    "SIM_MATCH_NOT_CONFIRMED": "Confirm the SIM before resetting its network",
-    "SIM_NOT_FOUND": "No SIM is matched to this station",
+    "SIM_INACTIVE": "This SIM is inactive. Reactivate it first",
+    "SIM_NOT_FOUND": "SIM not found",
     "SIM_PROVIDER_ERROR": "The SIM provider request failed",
     "SIM_PROVIDER_NOT_CONFIGURED": "No SIM provider is configured",
     "SIM_PROVIDER_RATE_LIMITED": "Too many SIM requests, try again later",
     "SIM_RESET_UNAVAILABLE": "The network reset cannot be started right now. Try again in a minute",
-    "SIM_TEST_UNAVAILABLE": "The connection test cannot run right now. Try again in a minute"
+    "SIM_TEST_UNAVAILABLE": "The connection test cannot run right now. Try again in a minute",
+    "NOT_FOUND": "Not found",
+    "PAYLOAD_TOO_LARGE": "The request is too large",
+    "UNSUPPORTED_MEDIA_TYPE": "Unsupported content type",
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "Heartbeat and meter value settings come from Settings > Integrations & Features > OCPP and the station data plan, not from a configuration template."
   },
   "logs": {
     "title": "Logs",
@@ -4465,7 +4745,9 @@
     "rejected": "Rejected",
     "failed": "Failed",
     "pending": "Pending",
-    "pushProgress": "Push Progress"
+    "pushProgress": "Push Progress",
+    "variableInstance": "Variable Instance",
+    "duplicateVariable": "Two rows set the same variable. Remove one."
   },
   "validation": {
     "required": "This field is required",
@@ -4638,6 +4920,8 @@
     "durationMs": "{{ms}} ms",
     "confirmTitle": "Confirm This Change",
     "confirmArguments": "Details",
+    "confirmMaskedValues_one": "{{count}} value is hidden on this card and still runs as the assistant wrote it",
+    "confirmMaskedValues_other": "{{count}} values are hidden on this card and still run as the assistant wrote them",
     "confirmSummary": {
       "POST": "Create or run: {{tool}}",
       "PUT": "Replace: {{tool}}",
@@ -4788,7 +5072,8 @@
     "dataNotice": {
       "title": "What the AI Provider Receives",
       "body": "Messages, tool results and attachments are sent to the selected AI provider. Check the provider's data retention terms. The AI provider never receives stored credentials, such as passwords, API keys, secrets and station passwords. Card numbers are cut to their last 4 characters. Support drafts, automatic insights, background workers and driver support also mask email addresses and phone numbers, and hash or shorten driver token ids. The assistant sends driver contact details as stored, only to users allowed to read them. Text you type and text files you attach are checked for keys and card numbers. Images and PDFs you attach are sent as they are."
-    }
+    },
+    "confirmLinks": "This change links to {{hosts}}. Check each link before you confirm."
   },
   "sustainability": {
     "title": "Sustainability Report",
@@ -4993,6 +5278,7 @@
       "priority_changed": "Priority changed",
       "pulled": "Pulled",
       "pushed": "Pushed",
+      "reactivated": "Reactivated",
       "rebilled": "Re-billed",
       "refund_issued": "Refund issued",
       "registered": "Registered",
@@ -5092,7 +5378,14 @@
       "recovery_codes_regenerated": "Recovery codes regenerated",
       "webauthn_credential_added": "Passkey added",
       "webauthn_credential_renamed": "Passkey renamed",
-      "webauthn_credential_removed": "Passkey removed"
+      "webauthn_credential_removed": "Passkey removed",
+      "attached": "Attached",
+      "detached": "Detached",
+      "attachment_confirmed": "Attachment confirmed",
+      "network_reset": "Network reset",
+      "sso_link_allowed": "SSO sign-in allowed",
+      "sso_unlinked": "SSO link removed",
+      "data_plan_changed": "Data plan changed"
     },
     "entities": {
       "site": "Site",
@@ -5128,7 +5421,8 @@
       "notification_template": "Notification template",
       "station_message_template": "Station message template",
       "event_alert_rule": "Event alert rule",
-      "report_schedule": "Report schedule"
+      "report_schedule": "Report schedule",
+      "sim": "SIM"
     },
     "actors": {
       "operator": "Operator",
@@ -5930,7 +6224,8 @@
     "lastFactorRequired": "Your organization requires two-factor authentication, so your only passkey cannot be removed. Add another factor first.",
     "cancelled": "The passkey prompt was closed. Try again when you are ready.",
     "alreadyRegistered": "This passkey or security key is already registered.",
-    "failed": "The passkey prompt did not finish. Try again."
+    "failed": "The passkey prompt did not finish. Try again.",
+    "browserUnsupported": "This browser does not support passkeys or security keys. Open this page in a browser that does to add one."
   },
   "factorProof": {
     "chooseLabel": "Confirm With",
@@ -5942,7 +6237,7 @@
     "kindRecoveryCode": "Recovery Code",
     "totpLabel": "Authenticator App Code",
     "codeLabel": "Verification Code",
-    "recoveryCodeLabel": "Recovery code",
+    "recoveryCodeLabel": "Recovery Code",
     "codeSentEmail": "We sent a code to your email.",
     "codeSentSms": "We sent a code to your phone.",
     "resend": "Send a New Code",
@@ -5951,12 +6246,83 @@
     "passkeyButton": "Verify with a Passkey",
     "verifying": "Verifying...",
     "passkeyVerified": "Passkey verified.",
-    "passkeyNeedsSecurePage": "Confirm it's you with your passkey. Passkeys work only on a secure connection (HTTPS) or on localhost. Open this page over HTTPS to use yours.",
     "addFactorHint": "Confirm it's you before you add a second factor.",
     "confirmFirst": "Confirm it's you first.",
     "kindSso": "Single Sign-On",
     "ssoHint": "Sign in again with single sign-on to confirm it is you. You come back to this page and have 10 minutes to continue.",
     "ssoSignIn": "Sign In Again with SSO",
     "ssoConfirmed": "Confirmed by your recent single sign-on."
+  },
+  "passkeyUnavailable": {
+    "insecure": {
+      "signInCode": "Passkeys need a secure page (HTTPS or localhost). Open this site over HTTPS to use your passkey, or sign in with a verification code.",
+      "signInRecovery": "Passkeys need a secure page (HTTPS or localhost). Open this site over HTTPS to use your passkey, or sign in with a recovery code.",
+      "signInOnly": "Passkeys need a secure page (HTTPS or localhost), and your account has no other way to verify. Open this site over HTTPS to sign in with your passkey.",
+      "setupOther": "Passkeys need a secure page (HTTPS or localhost). Open this site over HTTPS to add a passkey, or set up another method below.",
+      "setupOnly": "Passkeys need a secure page (HTTPS or localhost), and a passkey is the only method you can set up. Open this site over HTTPS to set one up.",
+      "proofOnly": "Confirm it's you with your passkey. Passkeys need a secure page (HTTPS or localhost). Open this site over HTTPS to use yours."
+    },
+    "unsupported": {
+      "signInCode": "This browser does not support passkeys. Open this site in a browser that does to use your passkey, or sign in with a verification code.",
+      "signInRecovery": "This browser does not support passkeys. Open this site in a browser that does to use your passkey, or sign in with a recovery code.",
+      "signInOnly": "This browser does not support passkeys, and your account has no other way to verify. Open this site in a browser that supports passkeys to sign in.",
+      "setupOther": "This browser does not support passkeys. Open this site in a browser that does to add a passkey, or set up another method below.",
+      "setupOnly": "This browser does not support passkeys, and a passkey is the only method you can set up. Open this site in a browser that supports passkeys to set one up.",
+      "proofOnly": "Confirm it's you with your passkey. This browser does not support passkeys. Open this site in a browser that does to use yours."
+    }
+  },
+  "dataPlan": {
+    "title": "Data Plan",
+    "plans": {
+      "wifi_or_wired": "Wi-Fi or Wired",
+      "cellular": "Cellular"
+    },
+    "notSet": "Not Set",
+    "useSitePlan": "Use the Site's Plan",
+    "any": "Any",
+    "sources": {
+      "station": "Set on This Station",
+      "sim": "Confirmed SIM",
+      "site": "Site",
+      "default": "Default"
+    },
+    "kinds": {
+      "ac": "AC",
+      "dc": "DC"
+    },
+    "planLabel": "Plan",
+    "sourceLabel": "Source",
+    "kindLabel": "Charging Values",
+    "fromDataPlan": "From Data Plan",
+    "fromDataPlanHint": "Sent from the station's data plan at every boot. A template does not set it.",
+    "confirmTitle": "Change Data Plan",
+    "station": {
+      "description": "The set of OCPP settings this station runs. A plan set on the station wins over a confirmed SIM and the site.",
+      "choice": "Plan for This Station",
+      "confirmDescription": "The station gets the plan's settings now if it is online, else at its next boot."
+    },
+    "site": {
+      "description": "The plan of the site's stations that have neither their own plan nor a confirmed SIM.",
+      "stationsChanging_one": "1 station changes plan.",
+      "stationsChanging_other": "{{count}} stations change plan.",
+      "confirmDescription": "Online stations get the new plan's settings at once, offline stations at their next boot."
+    },
+    "settings": {
+      "description": "Values sent to stations at every boot, one set per data plan. Each station on a plan gets the new values at its next boot or plan change.",
+      "heartbeatTitle": "Heartbeat and Ping",
+      "heartbeatIntervalHelp": "Sent to the station in the BootNotification response. {{min}} to {{max}} seconds.",
+      "csmsPingInterval": "CSMS ping interval (seconds)",
+      "csmsPingIntervalHelp": "The CSMS pings a station after this long without a frame from it. {{min}} to {{max}} seconds.",
+      "chargingTitle": "Charging Readings",
+      "chargingDescription": "Readings while charging. A station is DC when a connector is CCS1, CCS2 or CHAdeMO, or GB/T, Tesla or NACS above 22 kW, else AC.",
+      "acStations": "AC Stations",
+      "dcStations": "DC Stations",
+      "meterValueIntervalHelp": "{{min}} to {{max}} seconds.",
+      "sampledMeasurandsHelp": "Comma-separated measurands sent while charging.",
+      "idleTitle": "Idle and End Readings",
+      "clockAlignedIntervalHelp": "Idle readings at clock-aligned times. 0 turns them off, else {{min}} to {{max}} seconds.",
+      "alignedMeasurandsHelp": "Comma-separated measurands of the idle readings. Sent only when the interval is above 0.",
+      "txEndedMeasurandsHelp": "Comma-separated measurands in the values at the end of a session."
+    }
   }
 }

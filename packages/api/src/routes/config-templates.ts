@@ -15,6 +15,7 @@ import {
   vendors,
   writeAudit,
   configTemplateAuditLog,
+  effectiveDataPlanSql,
   isOperatorStation,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -29,12 +30,18 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { processConfigPush } from '../lib/config-push.js';
-import { assertNoCredentialVariables } from '../lib/station-credential-guard.js';
 import {
+  assertNoBootOwnedVariables,
+  assertNoCredentialVariables,
+} from '../lib/station-credential-guard.js';
+import {
+  DATA_PLANS,
   findTemplateTargetConfiguration,
   hasConfigDrift,
   configTemplateTarget,
   configTemplateMatchesStation,
+  isBootOwnedStationSetting,
+  isDataPlan,
 } from '@evtivity/lib';
 import type { SQL } from 'drizzle-orm';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -51,10 +58,17 @@ import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { templateProtocolCondition, templateReachesProtocol } from '../lib/template-protocols.js';
 
+const VARIABLE_INSTANCE_DESCRIPTION =
+  'OCPP 2.0.1 and 2.1 variable instance, such as Default for OCPPCommCtrlr.MessageTimeout or TransactionEvent for OCPPCommCtrlr.MessageAttempts. Null or absent: no instance. OCPP 1.6 templates have none';
+
+const DATA_PLAN_FILTER_DESCRIPTION =
+  "Only stations whose effective data plan is this one (the station's own choice, else cellular for a confirmed SIM, else the site's plan, else wifi_or_wired)";
+
 const templateVariableSchema = z
   .object({
     component: z.string().describe('OCPP component name'),
     variable: z.string().describe('OCPP variable name'),
+    variableInstance: z.string().nullable().optional().describe(VARIABLE_INSTANCE_DESCRIPTION),
     value: z.string().describe('Variable value to set'),
   })
   .passthrough();
@@ -65,6 +79,7 @@ const targetFilterResponseSchema = z
     vendorId: z.string().optional(),
     model: z.string().optional(),
     stationId: z.string().optional(),
+    dataPlan: z.enum(DATA_PLANS).optional().describe(DATA_PLAN_FILTER_DESCRIPTION),
   })
   .passthrough();
 
@@ -116,6 +131,7 @@ const filterOptionsItem = z
     vendors: z.array(filterOptionVendorSchema).describe('Available vendors for filtering'),
     models: z.array(z.string()).describe('Available station models for filtering'),
     stations: z.array(filterOptionStationSchema).describe('Available stations for filtering'),
+    dataPlans: z.array(z.enum(DATA_PLANS)).describe('Data plans a target filter can name'),
   })
   .passthrough();
 
@@ -134,6 +150,7 @@ const configDriftItem = z
   .object({
     component: z.string().describe('OCPP component name'),
     variable: z.string().describe('OCPP variable name'),
+    variableInstance: z.string().nullable().describe('Variable instance, null when none'),
     expectedValue: z.string().describe('Value the template expects for the variable'),
     actualValue: z.string().nullable().describe('Value currently set on the station'),
     hasDrift: z.boolean().describe('Whether the actual value differs from the expected value'),
@@ -185,15 +202,86 @@ const pushDetailItem = z
 
 const templateParams = z.object({ id: z.string().describe('Template ID') });
 
+// The extra field of a 400 reply: DATA_PLAN_SETTING_IN_TEMPLATE names the
+// refused variables, VALIDATION_ERROR describes the variable problem.
+export const templateRefusalDetails = {
+  details: z
+    .object({
+      variables: z
+        .union([z.array(z.string()), z.string()])
+        .optional()
+        .describe(
+          'DATA_PLAN_SETTING_IN_TEMPLATE: the refused variables (Component.Variable, or the OCPP 1.6 key); VALIDATION_ERROR: the variable problem',
+        ),
+    })
+    .passthrough()
+    .optional()
+    .describe('Details of the refusal'),
+};
+
 const targetFilterSchema = z
   .object({
     siteId: z.string().optional(),
     vendorId: z.string().optional(),
     model: z.string().optional(),
     stationId: z.string().optional(),
+    dataPlan: z.enum(DATA_PLANS).optional().describe(DATA_PLAN_FILTER_DESCRIPTION),
   })
   .optional()
   .nullable();
+
+const templateVariableInput = z.object({
+  // OCPP 1.6 has no Component concept - empty string is valid for 1.6 templates
+  component: z.string().max(100),
+  variable: z.string().min(1).max(100),
+  variableInstance: z
+    .string()
+    .min(1)
+    .max(50)
+    .nullable()
+    .optional()
+    .describe(VARIABLE_INSTANCE_DESCRIPTION),
+  value: z.string().max(2500),
+});
+
+type TemplateVariable = z.infer<typeof templateVariableInput>;
+
+/**
+ * Template variable rules beyond the schema: an OCPP 1.6 key has no variable
+ * instance, and a template sets each (component, variable, variable
+ * instance) once. Returns the 400 body, or null when valid.
+ */
+export function templateVariablesProblem(
+  ocppVersion: string,
+  variables: readonly TemplateVariable[],
+): { error: string; code: 'VALIDATION_ERROR'; details: { variables: string } } | null {
+  if (ocppVersion === '1.6' && variables.some((v) => v.variableInstance != null)) {
+    return {
+      error: 'OCPP 1.6 configuration keys have no variable instance',
+      code: 'VALIDATION_ERROR',
+      details: { variables: 'Remove the variable instance of every OCPP 1.6 key' },
+    };
+  }
+  const seen = new Set<string>();
+  for (const v of variables) {
+    const identity = JSON.stringify([
+      v.component.trim(),
+      v.variable.trim(),
+      v.variableInstance ?? null,
+    ]);
+    if (seen.has(identity)) {
+      const name = [v.component.trim(), v.variable.trim()].filter((p) => p !== '').join('.');
+      const instance = v.variableInstance != null ? `[${v.variableInstance}]` : '';
+      return {
+        error: 'A template sets each variable once',
+        code: 'VALIDATION_ERROR',
+        details: { variables: `${name}${instance} is listed more than once` },
+      };
+    }
+    seen.add(identity);
+  }
+  return null;
+}
 
 const filterOptionsQuery = z.object({
   siteId: z.string().optional().describe('Filter stations by site'),
@@ -206,14 +294,7 @@ const createTemplateBody = z.object({
   description: z.string().max(1000).optional().describe('Template description'),
   ocppVersion: z.enum(['2.1', '1.6']).default('2.1').describe('OCPP version for this template'),
   variables: z
-    .array(
-      z.object({
-        // OCPP 1.6 has no Component concept - empty string is valid for 1.6 templates
-        component: z.string().max(100),
-        variable: z.string().min(1).max(100),
-        value: z.string().max(2500),
-      }),
-    )
+    .array(templateVariableInput)
     .min(1)
     .max(500)
     .describe('Variable definitions to set on target stations'),
@@ -224,18 +305,7 @@ const updateTemplateBody = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().max(1000).optional(),
   ocppVersion: z.enum(['2.1', '1.6']).optional().describe('OCPP version for this template'),
-  variables: z
-    .array(
-      z.object({
-        // OCPP 1.6 has no Component concept - empty string is valid for 1.6 templates
-        component: z.string().max(100),
-        variable: z.string().min(1).max(100),
-        value: z.string().max(2500),
-      }),
-    )
-    .min(1)
-    .max(500)
-    .optional(),
+  variables: z.array(templateVariableInput).min(1).max(500).optional(),
   targetFilter: targetFilterSchema,
 });
 
@@ -251,6 +321,7 @@ function templateTargetConditions(template: {
   if (target.siteId != null) conds.push(eq(chargingStations.siteId, target.siteId));
   if (target.vendorId != null) conds.push(eq(chargingStations.vendorId, target.vendorId));
   if (target.model != null) conds.push(eq(chargingStations.model, target.model));
+  if (target.dataPlan != null) conds.push(sql`${effectiveDataPlanSql} = ${target.dataPlan}`);
   return conds;
 }
 
@@ -318,6 +389,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         vendors: vendorRows,
         models: modelRows.map((r) => r.model as string),
         stations: stationRows,
+        dataPlans: [...DATA_PLANS],
       };
     },
   );
@@ -425,15 +497,22 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         tags: ['Fleet Operations'],
         summary: 'Create a configuration template',
         description:
-          'Creates a configuration template. A variable that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords with POST /v1/stations/{id}/credentials.',
+          'Creates a configuration template. A variable that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords with POST /v1/stations/{id}/credentials. A variable the boot push owns (the heartbeat interval and the meter value settings) is refused with 400 DATA_PLAN_SETTING_IN_TEMPLATE, details.variables naming the refused variables: they come from the OCPP settings and the station data plan. An OCPP 1.6 template with a variable instance, or a variable listed twice, answers 400 VALIDATION_ERROR.',
         operationId: 'createConfigTemplate',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createTemplateBody),
         response: {
           201: itemResponse(templateItem),
-          400: errorWith('Station credential variable', [
-            ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
-          ]),
+          400: errorWith(
+            'Invalid variables, a station credential, security or boot-owned variable',
+            [
+              ERROR_CODES.VALIDATION_ERROR,
+              ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
+              ERROR_CODES.STATION_SECURITY_ROUTE_REQUIRED,
+              ERROR_CODES.DATA_PLAN_SETTING_IN_TEMPLATE,
+            ],
+            templateRefusalDetails,
+          ),
           404: errorWith('Target not found', [
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
@@ -445,6 +524,12 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = request.body as z.infer<typeof createTemplateBody>;
       assertNoCredentialVariables(body.variables);
+      assertNoBootOwnedVariables(body.ocppVersion, body.variables);
+      const problem = templateVariablesProblem(body.ocppVersion, body.variables);
+      if (problem != null) {
+        await reply.status(400).send(problem);
+        return;
+      }
       const { userId } = request.user as { userId: string };
       const createSiteIds = await getUserSiteIds(userId);
       if (isRestrictedCompanyWideWrite(createSiteIds, body.targetFilter)) {
@@ -502,10 +587,16 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         body: zodSchema(updateTemplateBody),
         response: {
           200: itemResponse(templateItem),
-          400: errorWith('Validation error or a station credential variable', [
-            ERROR_CODES.VALIDATION_ERROR,
-            ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
-          ]),
+          400: errorWith(
+            'Validation error, a station credential, security or boot-owned variable',
+            [
+              ERROR_CODES.VALIDATION_ERROR,
+              ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
+              ERROR_CODES.STATION_SECURITY_ROUTE_REQUIRED,
+              ERROR_CODES.DATA_PLAN_SETTING_IN_TEMPLATE,
+            ],
+            templateRefusalDetails,
+          ),
           404: errorWith('Template, site or station not found', [
             ERROR_CODES.TEMPLATE_NOT_FOUND,
             ERROR_CODES.SITE_NOT_FOUND,
@@ -549,6 +640,19 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       if (outOfScope != null) {
         await reply.status(404).send(targetFilterNotFound(outOfScope));
         return;
+      }
+      // The version and the variables are checked together, whichever changes.
+      if (body.variables !== undefined || body.ocppVersion !== undefined) {
+        const ocppVersion = body.ocppVersion ?? existing.ocppVersion;
+        const variables =
+          body.variables ??
+          (Array.isArray(existing.variables) ? (existing.variables as TemplateVariable[]) : []);
+        assertNoBootOwnedVariables(ocppVersion, variables);
+        const problem = templateVariablesProblem(ocppVersion, variables);
+        if (problem != null) {
+          await reply.status(400).send(problem);
+          return;
+        }
       }
 
       const [updated] = await db
@@ -787,15 +891,21 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         tags: ['Fleet Operations'],
         summary: 'Push configuration template variables to matching stations via SetVariables',
         description:
-          'Resolves online stations matching the template target filter and dispatches SetVariables (OCPP 2.1) or ChangeConfiguration (OCPP 1.6) for every variable. Creates a config_template_pushes row plus one config_template_push_stations row per target. Per-variable results stream back asynchronously. Returns the pushId so the caller can poll progress. A template that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED.',
+          'Resolves online stations matching the template target filter and dispatches SetVariables (OCPP 2.1) or ChangeConfiguration (OCPP 1.6) for every variable. Creates a config_template_pushes row plus one config_template_push_stations row per target. Per-variable results stream back asynchronously. Returns the pushId so the caller can poll progress. A template that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED, and one saved before v0.1.48 that names a boot-owned variable (the heartbeat interval or a meter value setting) with 400 DATA_PLAN_SETTING_IN_TEMPLATE until those rows are removed.',
         operationId: 'pushConfigTemplate',
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
         response: {
           200: itemResponse(z.object({ success: z.boolean(), pushId: z.string() }).passthrough()),
-          400: errorWith('Station credential variable', [
-            ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
-          ]),
+          400: errorWith(
+            'Station credential, security or boot-owned variable',
+            [
+              ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
+              ERROR_CODES.STATION_SECURITY_ROUTE_REQUIRED,
+              ERROR_CODES.DATA_PLAN_SETTING_IN_TEMPLATE,
+            ],
+            templateRefusalDetails,
+          ),
           404: errorWith('Template not found', [ERROR_CODES.TEMPLATE_NOT_FOUND]),
         },
       },
@@ -816,16 +926,14 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const variables = template.variables as Array<{
-        component: string;
-        variable: string;
-        value: string;
-      }>;
+      const variables = template.variables as TemplateVariable[];
       if (variables.length === 0) {
         return { success: true, pushId: '' };
       }
-      // A template saved before v0.1.45 can still name a credential.
+      // A template saved before v0.1.45 can still name a credential, and one
+      // saved before v0.1.48 a boot-owned variable.
       assertNoCredentialVariables(variables);
+      assertNoBootOwnedVariables(template.ocppVersion, variables);
 
       const ocppVersion = template.ocppVersion;
 
@@ -1134,6 +1242,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           vendorId: chargingStations.vendorId,
           model: chargingStations.model,
           ocppProtocol: chargingStations.ocppProtocol,
+          dataPlan: sql<string>`${effectiveDataPlanSql}`,
         })
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
@@ -1157,10 +1266,14 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       // matches that station only. A template of another OCPP version is
       // never pushed to the station (its variable names differ), so it
       // cannot drift either.
+      const matchStation = {
+        ...station,
+        dataPlan: isDataPlan(station.dataPlan) ? station.dataPlan : ('wifi_or_wired' as const),
+      };
       const matchingTemplates = templates.filter(
         (t) =>
           templateReachesProtocol(t.ocppVersion, station.ocppProtocol) &&
-          configTemplateMatchesStation(t, station),
+          configTemplateMatchesStation(t, matchStation),
       );
 
       if (matchingTemplates.length === 0) return [];
@@ -1173,22 +1286,23 @@ export function configTemplateRoutes(app: FastifyInstance): void {
 
       const drifts = [];
       for (const template of matchingTemplates) {
-        const variables = template.variables as Array<{
-          component: string;
-          variable: string;
-          value: string;
-        }>;
+        // The data plan sets the boot-owned values at every boot: never drift.
+        const variables = (template.variables as TemplateVariable[]).filter(
+          (v) => !isBootOwnedStationSetting(template.ocppVersion, v.component, v.variable),
+        );
 
         for (const expected of variables) {
           const actual = findTemplateTargetConfiguration(
             actualVars,
             expected.component,
             expected.variable,
+            expected.variableInstance,
           );
           if (hasConfigDrift(station.ocppProtocol, expected, actual)) {
             drifts.push({
               component: expected.component,
               variable: expected.variable,
+              variableInstance: expected.variableInstance ?? null,
               expectedValue: expected.value,
               actualValue: actual?.value ?? null,
               hasDrift: true,

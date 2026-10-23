@@ -8,8 +8,8 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
+import { CardContent, CardHeader } from '@/components/ui/card';
+import { AuthLayout } from '@/components/AuthLayout';
 import { useAuth } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { api, getApiErrorCode } from '@/lib/api';
@@ -42,8 +42,6 @@ export function Register(): React.JSX.Element {
   const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
   // Set once the API accepted the request: the page then asks to check the inbox.
   const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
-
-  const { companyName, companyLogo, branding } = useAuthBranding();
 
   const { data: securityPublic } = useQuery({
     queryKey: ['security-public'],
@@ -104,160 +102,150 @@ export function Register(): React.JSX.Element {
 
   if (submittedEmail != null) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-        <AuthBranding companyName={companyName} companyLogo={companyLogo} />
-        <Card className="w-full max-w-sm">
-          <CardHeader className="text-center">
-            <h2 className="text-2xl font-semibold">{t('auth.registerCheckEmailTitle')}</h2>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {t('auth.registerCheckEmail', { email: submittedEmail })}
-            </p>
-            <Button
-              type="button"
-              className="w-full"
-              onClick={() => {
-                void navigate('/login');
-              }}
-            >
-              {t('auth.backToLogin')}
-            </Button>
-          </CardContent>
-        </Card>
-        <AuthFooter companyName={companyName} branding={branding} />
-      </div>
+      <AuthLayout>
+        <CardHeader className="text-center">
+          <h2 className="text-2xl font-semibold">{t('auth.registerCheckEmailTitle')}</h2>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {t('auth.registerCheckEmail', { email: submittedEmail })}
+          </p>
+          <Button
+            type="button"
+            className="w-full"
+            onClick={() => {
+              void navigate('/login');
+            }}
+          >
+            {t('auth.backToLogin')}
+          </Button>
+        </CardContent>
+      </AuthLayout>
     );
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <AuthBranding companyName={companyName} companyLogo={companyLogo} />
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <h2 className="text-2xl font-semibold">{t('auth.createAccount')}</h2>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={(e) => void handleSubmit(e)} noValidate className="space-y-4">
-            {error !== '' && <p className="text-sm text-destructive">{error}</p>}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <label htmlFor="firstName" className="block text-sm font-medium leading-6">
-                  {t('auth.firstName')}
-                </label>
-                <Input
-                  id="firstName"
-                  autoComplete="off"
-                  value={firstName}
-                  onChange={(e) => {
-                    setFirstName(e.target.value);
-                  }}
-                  className={
-                    hasSubmitted && validationErrors['firstName'] ? 'border-destructive' : ''
-                  }
-                />
-                {hasSubmitted && validationErrors['firstName'] && (
-                  <p className="text-xs text-destructive">{validationErrors['firstName']}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="lastName" className="block text-sm font-medium leading-6">
-                  {t('auth.lastName')}
-                </label>
-                <Input
-                  id="lastName"
-                  autoComplete="off"
-                  value={lastName}
-                  onChange={(e) => {
-                    setLastName(e.target.value);
-                  }}
-                  className={
-                    hasSubmitted && validationErrors['lastName'] ? 'border-destructive' : ''
-                  }
-                />
-                {hasSubmitted && validationErrors['lastName'] && (
-                  <p className="text-xs text-destructive">{validationErrors['lastName']}</p>
-                )}
-              </div>
-            </div>
+    <AuthLayout>
+      <CardHeader className="text-center">
+        <h2 className="text-2xl font-semibold">{t('auth.createAccount')}</h2>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={(e) => void handleSubmit(e)} noValidate className="space-y-4">
+          {error !== '' && <p className="text-sm text-destructive">{error}</p>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-2">
-              <label htmlFor="email" className="block text-sm font-medium leading-6">
-                {t('auth.email')}
+              <label htmlFor="firstName" className="block text-sm font-medium leading-6">
+                {t('auth.firstName')}
               </label>
               <Input
-                id="email"
-                type="email"
+                id="firstName"
                 autoComplete="off"
-                value={email}
+                value={firstName}
                 onChange={(e) => {
-                  setEmail(e.target.value);
+                  setFirstName(e.target.value);
                 }}
-                className={hasSubmitted && validationErrors['email'] ? 'border-destructive' : ''}
-              />
-              {hasSubmitted && validationErrors['email'] && (
-                <p className="text-xs text-destructive">{validationErrors['email']}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="phone" className="block text-sm font-medium leading-6">
-                {t('auth.phoneOptional')}
-              </label>
-              <Input
-                id="phone"
-                type="tel"
-                autoComplete="off"
-                value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value);
-                }}
-              />
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="password" className="block text-sm font-medium leading-6">
-                {t('auth.password')}
-              </label>
-              <PasswordInput
-                id="password"
-                autoComplete="off"
-                value={password}
-                aria-invalid={hasSubmitted && validationErrors['password'] ? true : undefined}
-                aria-describedby={
-                  hasSubmitted && validationErrors['password']
-                    ? 'password-error password-requirements'
-                    : 'password-requirements'
+                className={
+                  hasSubmitted && validationErrors['firstName'] ? 'border-destructive' : ''
                 }
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  setServerMissing(null);
-                }}
-                className={hasSubmitted && validationErrors['password'] ? 'border-destructive' : ''}
               />
-              {hasSubmitted && validationErrors['password'] && (
-                <p id="password-error" className="text-xs text-destructive">
-                  {validationErrors['password']}
-                </p>
+              {hasSubmitted && validationErrors['firstName'] && (
+                <p className="text-xs text-destructive">{validationErrors['firstName']}</p>
               )}
-              <PasswordRequirements
-                policy={passwordPolicy}
-                serverMissing={serverMissing}
-                id="password-requirements"
-                password={password}
-                showUnmet={hasSubmitted}
-              />
             </div>
-            <Button type="submit" className="w-full" size="lg" disabled={loading}>
-              {loading ? t('auth.creatingAccount') : t('auth.createAccount')}
-            </Button>
-          </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            {t('auth.haveAccount')}{' '}
-            <Link to="/login" className="text-link hover:underline">
-              {t('auth.signIn')}
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-      <AuthFooter companyName={companyName} branding={branding} />
-    </div>
+            <div className="space-y-2">
+              <label htmlFor="lastName" className="block text-sm font-medium leading-6">
+                {t('auth.lastName')}
+              </label>
+              <Input
+                id="lastName"
+                autoComplete="off"
+                value={lastName}
+                onChange={(e) => {
+                  setLastName(e.target.value);
+                }}
+                className={hasSubmitted && validationErrors['lastName'] ? 'border-destructive' : ''}
+              />
+              {hasSubmitted && validationErrors['lastName'] && (
+                <p className="text-xs text-destructive">{validationErrors['lastName']}</p>
+              )}
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="email" className="block text-sm font-medium leading-6">
+              {t('auth.email')}
+            </label>
+            <Input
+              id="email"
+              type="email"
+              autoComplete="off"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+              }}
+              className={hasSubmitted && validationErrors['email'] ? 'border-destructive' : ''}
+            />
+            {hasSubmitted && validationErrors['email'] && (
+              <p className="text-xs text-destructive">{validationErrors['email']}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="phone" className="block text-sm font-medium leading-6">
+              {t('auth.phoneOptional')}
+            </label>
+            <Input
+              id="phone"
+              type="tel"
+              autoComplete="off"
+              value={phone}
+              onChange={(e) => {
+                setPhone(e.target.value);
+              }}
+            />
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="password" className="block text-sm font-medium leading-6">
+              {t('auth.password')}
+            </label>
+            <PasswordInput
+              id="password"
+              autoComplete="off"
+              value={password}
+              aria-invalid={hasSubmitted && validationErrors['password'] ? true : undefined}
+              aria-describedby={
+                hasSubmitted && validationErrors['password']
+                  ? 'password-error password-requirements'
+                  : 'password-requirements'
+              }
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setServerMissing(null);
+              }}
+              className={hasSubmitted && validationErrors['password'] ? 'border-destructive' : ''}
+            />
+            {hasSubmitted && validationErrors['password'] && (
+              <p id="password-error" className="text-xs text-destructive">
+                {validationErrors['password']}
+              </p>
+            )}
+            <PasswordRequirements
+              policy={passwordPolicy}
+              serverMissing={serverMissing}
+              id="password-requirements"
+              password={password}
+              showUnmet={hasSubmitted}
+            />
+          </div>
+          <Button type="submit" className="w-full" size="lg" disabled={loading}>
+            {loading ? t('auth.creatingAccount') : t('auth.createAccount')}
+          </Button>
+        </form>
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          {t('auth.haveAccount')}{' '}
+          <Link to="/login" className="text-link hover:underline">
+            {t('auth.signIn')}
+          </Link>
+        </p>
+      </CardContent>
+    </AuthLayout>
   );
 }

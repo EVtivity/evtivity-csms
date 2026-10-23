@@ -5,6 +5,7 @@ import type { PaymentContext } from './context.js';
 import { PaymentProviderNotConfiguredError } from './errors.js';
 import type { PaymentProviderRegistry } from './registry.js';
 import type { PaymentProvider } from './types.js';
+import { NO_PAYMENT_PROVIDER } from './settings.js';
 
 /**
  * Provider pinning (D-P2). Saved methods, driver customers, guest sessions and
@@ -54,4 +55,24 @@ export async function resolveActiveProvider(ctx: PaymentContext): Promise<Paymen
     ctx.logger.warn({ err, providerId: err.providerId }, 'Active payment provider not available');
     return null;
   }
+}
+
+/**
+ * How new payments stand in this process: `off` only when `payments.provider`
+ * is none; `unavailable` when a provider is selected that this process cannot
+ * use (no credentials, or simulated with PAYMENTS_ALLOW_SIMULATED=false),
+ * which a session start must refuse, never treat as payments off (owner
+ * decision 2026-10-23); else the active provider.
+ */
+export type ActivePaymentState =
+  | { kind: 'off' }
+  | { kind: 'active'; provider: PaymentProvider }
+  | { kind: 'unavailable'; providerId: string };
+
+export async function resolveActivePaymentState(ctx: PaymentContext): Promise<ActivePaymentState> {
+  const provider = await resolveActiveProvider(ctx);
+  if (provider != null) return { kind: 'active', provider };
+  const settings = await ctx.registry.settings();
+  if (settings.provider === NO_PAYMENT_PROVIDER) return { kind: 'off' };
+  return { kind: 'unavailable', providerId: settings.provider };
 }

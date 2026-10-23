@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { CancelButton } from '@/components/cancel-button';
 import {
@@ -140,10 +141,15 @@ export function ProfileRecoveryCodes({
             </p>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button type="submit" disabled={regenerateMutation.isPending}>
-              {regenerateMutation.isPending
-                ? t('profile.mfaVerifying')
-                : t('profile.recoveryCodesRegenerate')}
+            <Button type="submit" disabled={regenerateMutation.isPending} className="relative">
+              {regenerateMutation.isPending && (
+                <span className="absolute inset-0 flex items-center justify-center">
+                  <Spinner className="h-4 w-4" />
+                </span>
+              )}
+              <span className={regenerateMutation.isPending ? 'invisible' : ''}>
+                {t('profile.recoveryCodesRegenerate')}
+              </span>
             </Button>
             <CancelButton onClick={close} />
           </div>

@@ -14,7 +14,7 @@ import { decryptString, validateAiBaseUrl } from '@evtivity/lib';
 import type { AiSettings } from '@evtivity/lib/ai-config';
 import { getProviderEntry } from '@evtivity/ai/core';
 import type { AiAdapter } from '@evtivity/ai/core';
-import { getProviderRegistry } from '@evtivity/ai/providers';
+import { createGuardedFetch, getProviderRegistry } from '@evtivity/ai/providers';
 import { trackAiProviderCalls } from './ai-alerts.js';
 import type { OpsAiConfig } from './ai-ops-config.js';
 
@@ -62,6 +62,7 @@ export function resolveDriverAiConfig(
     model,
     effort: settings.driver.effort,
     systemPrompt: settings.driver.systemPrompt.trim(),
+    allowPrivateHosts,
   };
 }
 
@@ -71,6 +72,8 @@ export function createDriverAiAdapter(config: DriverAiConfig): AiAdapter {
     getProviderRegistry().create(config.provider, {
       apiKey: config.apiKey,
       ...(config.baseUrl !== '' ? { baseUrl: config.baseUrl } : {}),
+      // The address check at send time.
+      fetch: createGuardedFetch(config.allowPrivateHosts === true),
     }),
   );
 }

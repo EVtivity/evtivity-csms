@@ -144,6 +144,9 @@ export function buildSaml(sso: SsoConfig, callbackUrl: string, cache: CacheProvi
  */
 export function ssoEmailDomainAllowed(email: string, allowedDomains: string[]): boolean {
   if (allowedDomains.length === 0) return true;
-  const domain = email.split('@')[1]?.trim().toLowerCase() ?? '';
+  // Exactly one @: `x@allowed.com@evil.example` is not an address of allowed.com.
+  const parts = email.split('@');
+  if (parts.length !== 2) return false;
+  const domain = parts[1]?.trim().toLowerCase() ?? '';
   return domain !== '' && allowedDomains.includes(domain);
 }

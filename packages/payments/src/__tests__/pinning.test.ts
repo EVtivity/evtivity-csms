@@ -6,7 +6,12 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('@evtivity/database', () => ({ db: {}, settings: {}, sitePaymentConfigs: {} }));
 
 import * as pinning from '../pinning.js';
-import { activeProvider, pinnedProvider, resolveActiveProvider } from '../pinning.js';
+import {
+  activeProvider,
+  pinnedProvider,
+  resolveActivePaymentState,
+  resolveActiveProvider,
+} from '../pinning.js';
 import { PaymentProviderNotConfiguredError } from '../errors.js';
 import type { PaymentProviderRegistry } from '../registry.js';
 import type { PaymentProvider } from '../types.js';
@@ -101,5 +106,45 @@ describe('resolveActiveProvider', () => {
     const { ctx, logger } = context(() => Promise.reject(new Error('decrypt failed')));
     await expect(resolveActiveProvider(ctx)).rejects.toThrow('decrypt failed');
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('resolveActivePaymentState', () => {
+  function context(active: () => Promise<PaymentProvider | null>, provider: string) {
+    const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const reg = {
+      getActivePaymentProvider: vi.fn(active),
+      settings: vi.fn(() => Promise.resolve({ provider })),
+    };
+    return { registry: reg as unknown as PaymentProviderRegistry, logger };
+  }
+
+  it('is off only when payments.provider is none', async () => {
+    expect(await resolveActivePaymentState(context(() => Promise.resolve(null), 'none'))).toEqual({
+      kind: 'off',
+    });
+  });
+
+  it('is unavailable when a selected provider has no credentials here', async () => {
+    expect(await resolveActivePaymentState(context(() => Promise.resolve(null), 'stripe'))).toEqual(
+      { kind: 'unavailable', providerId: 'stripe' },
+    );
+  });
+
+  it('is unavailable when the selected provider is not registered in this process', async () => {
+    const state = await resolveActivePaymentState(
+      context(
+        () => Promise.reject(new PaymentProviderNotConfiguredError('simulated')),
+        'simulated',
+      ),
+    );
+    expect(state).toEqual({ kind: 'unavailable', providerId: 'simulated' });
+  });
+
+  it('is active with the provider this process can use', async () => {
+    const provider = { id: 'stripe' } as unknown as PaymentProvider;
+    expect(
+      await resolveActivePaymentState(context(() => Promise.resolve(provider), 'stripe')),
+    ).toEqual({ kind: 'active', provider });
   });
 });

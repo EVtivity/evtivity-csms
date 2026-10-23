@@ -11,7 +11,7 @@ const { getMock, postMock, putMock, toastMock, permission } = vi.hoisted(() => (
   postMock: vi.fn(),
   putMock: vi.fn(),
   toastMock: vi.fn(),
-  permission: { canWrite: true, hasAllSiteAccess: true },
+  permission: { canWrite: true, canWriteProvider: true, hasAllSiteAccess: true },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -46,7 +46,10 @@ vi.mock('@/lib/api', () => {
 
 vi.mock('@/lib/config', () => ({ API_BASE_URL: 'https://api.example.com' }));
 vi.mock('@/lib/auth', () => ({
-  useHasPermission: () => permission.canWrite,
+  // canWrite: payments:write (site configs) and settings.system:*. canWriteProvider:
+  // settings.payment:write (Stripe, Adyen and the provider selection).
+  useHasPermission: (perm: string) =>
+    perm === 'settings.payment:write' ? permission.canWriteProvider : permission.canWrite,
   useHasAllSiteAccess: () => permission.hasAllSiteAccess,
 }));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
@@ -186,6 +189,7 @@ afterEach(() => {
   putMock.mockReset();
   toastMock.mockReset();
   permission.canWrite = true;
+  permission.canWriteProvider = true;
   permission.hasAllSiteAccess = true;
   stripeSettings = STRIPE_SETTINGS_WITH_SECRETS;
 });
@@ -600,9 +604,9 @@ describe('PaymentSettings Stripe tab', () => {
       expect(body).not.toHaveProperty('webhookSecret');
     });
 
-    it('has no Remove without payments:write', async () => {
+    it('has no Remove without settings.payment:write', async () => {
       stripeSettings = STRIPE_SETTINGS_HIDDEN;
-      permission.canWrite = false;
+      permission.canWriteProvider = false;
       mockGets();
       renderSettings();
       await hiddenSecretKey();
@@ -610,8 +614,8 @@ describe('PaymentSettings Stripe tab', () => {
     });
   });
 
-  it('hides the write controls without payments:write', async () => {
-    permission.canWrite = false;
+  it('hides the Stripe write controls with payments:write but without settings.payment:write', async () => {
+    permission.canWriteProvider = false;
     mockGets();
     renderSettings();
     await stripeForm();

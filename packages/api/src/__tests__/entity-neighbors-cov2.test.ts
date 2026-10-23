@@ -86,6 +86,11 @@ vi.mock('../lib/site-access.js', () => ({
   ),
 }));
 
+vi.mock('../lib/sim-site-scope.js', () => ({
+  requireSimFeature: vi.fn(async () => true),
+  simVisibleWhere: vi.fn(() => ({ simScope: true })),
+}));
+
 vi.mock('@evtivity/database', async () => {
   const fakeTable = (name: string) => {
     const table = { _name: name };
@@ -114,6 +119,7 @@ vi.mock('@evtivity/database', async () => {
     chargingProfileTemplates: fakeTable('charging_profile_templates'),
     firmwareCampaigns: fakeTable('firmware_campaigns'),
     octtRuns: fakeTable('octt_runs'),
+    sims: fakeTable('sims'),
     aiInsights: {
       ...fakeTable('ai_insights'),
       siteId: { name: 'insight_site_id' },

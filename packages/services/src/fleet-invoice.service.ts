@@ -725,10 +725,15 @@ function accountClaimGuard(target: AccountInvoiceTarget): SQL {
     AND NOT EXISTS (SELECT 1 FROM payment_records fpr WHERE fpr.session_id = ${chargingSessions.id})`;
 }
 
-/** Refuses a period that has not started yet in the system timezone. */
-function assertPeriodStarted(bounds: FleetInvoicePeriod, now: Date): void {
-  if (bounds.startsAt.getTime() > now.getTime()) {
-    throw new AppError('period must not be in the future', 400, 'VALIDATION_ERROR');
+/**
+ * Refuses a period that has not ended yet in the system timezone. An invoice
+ * for the running month took the month's unique invoice slot, so the
+ * sessions later in the month were never invoiced and kept counting against
+ * the credit limit.
+ */
+function assertPeriodEnded(bounds: FleetInvoicePeriod, now: Date): void {
+  if (bounds.endsAt.getTime() > now.getTime()) {
+    throw new AppError('period must have ended', 400, 'VALIDATION_ERROR');
   }
 }
 
@@ -1009,7 +1014,7 @@ export async function listMemberInvoiceDrivers(
 ): Promise<string[]> {
   const timeZone = await getSystemTimezone();
   const bounds = fleetInvoicePeriod(period, timeZone);
-  assertPeriodStarted(bounds, now);
+  assertPeriodEnded(bounds, now);
   if ((await loadFleet(db, fleetId)) == null) throw fleetNotFound();
   const currency = await getCompanyCurrency();
   const rows = (await db.execute(sql`
@@ -1045,7 +1050,7 @@ async function issueAccountInvoice(
   const { fleetId } = target;
   const timeZone = await getSystemTimezone();
   const bounds = fleetInvoicePeriod(period, timeZone);
-  assertPeriodStarted(bounds, now);
+  assertPeriodEnded(bounds, now);
   // Fast refusals before the transaction; each is checked again under the lock.
   if ((await loadFleet(db, fleetId)) == null) throw fleetNotFound();
   if (target.kind === 'member' && (await loadDriver(db, target.driverId)) == null) {

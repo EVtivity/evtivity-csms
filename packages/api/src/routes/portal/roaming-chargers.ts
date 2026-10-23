@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { and, eq, getTableColumns, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { db, ocpiExternalLocations, ocpiPartners } from '@evtivity/database';
+import { escapeLikePattern } from '@evtivity/lib';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { arrayResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
@@ -50,11 +51,6 @@ const searchQuery = z.object({
 // cannot fail the geo search.
 const LATITUDE_SQL_PATTERN = '^-?[0-9]{1,2}\\.[0-9]{5,7}$';
 const LONGITUDE_SQL_PATTERN = '^-?[0-9]{1,3}\\.[0-9]{5,7}$';
-
-/** Escape the ILIKE wildcards and the escape character itself (backslash). */
-export function escapeLikePattern(value: string): string {
-  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
 
 // Locations drivers may see: from a connected partner, and not marked
 // publish = false by the CPO (OCPI 8.3.1: such a location is shown only to

@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyServerOptions } from 'fastify';
-import { RedisPubSubClient, createLogger, initSentry, logFormatOptions } from '@evtivity/lib';
+import {
+  RedisPubSubClient,
+  createLogger,
+  createRedisClient,
+  initSentry,
+  logFormatOptions,
+} from '@evtivity/lib';
 import { client, getSentryConfig, guardPgConnectionRejections } from '@evtivity/database';
 import { closeSimKeyStore } from './lib/sim-keys.js';
 import { createShutdownHandler } from './lib/process-shutdown.js';
@@ -17,6 +23,7 @@ import {
 } from './services/metrics-collector.service.js';
 import { startCacheInvalidateListener } from './services/cache-invalidate-listener.js';
 import { reportPricingGroupsWithoutDefault } from './lib/pricing-default-report.js';
+import { serializeRequestForLog } from '@evtivity/lib/request-log';
 
 async function start(): Promise<void> {
   // A backend terminated while postgres.js fetches its array types must not end
@@ -31,14 +38,7 @@ async function start(): Promise<void> {
       level: config.LOG_LEVEL,
       ...logFormatOptions,
       serializers: {
-        req(request) {
-          return {
-            method: request.method,
-            url: request.url.replace(/token=[^&]+/, 'token=REDACTED'),
-            hostname: request.hostname,
-            remoteAddress: request.ip,
-          };
-        },
+        req: serializeRequestForLog,
       },
     },
   };
@@ -54,7 +54,14 @@ async function start(): Promise<void> {
   // those queues), so the queues are ready before the first request.
   initJobQueues(config.REDIS_URL);
 
-  const app = await buildApp(opts);
+  // Rate limit counters shared by every API replica. A short connect
+  // timeout and one retry keep a Redis outage from holding requests: the limit
+  // is skipped then (registerRateLimit).
+  const rateLimitRedis = createRedisClient(config.REDIS_URL, 'rate-limit', {
+    connectTimeout: 500,
+    maxRetriesPerRequest: 1,
+  });
+  const app = await buildApp({ ...opts, rateLimitRedis });
 
   registerHttpMetrics(app);
   startMetricsServer(config.METRICS_PORT);
@@ -81,6 +88,7 @@ async function start(): Promise<void> {
     await closeJobQueues();
     await closeSimKeyStore();
     await pubsub.close();
+    await rateLimitRedis.quit();
   });
 
   // Without handlers SIGTERM kills the process at once: in-flight requests

@@ -239,6 +239,11 @@ interface PaymentEventBase {
   occurredAt: Date;
   /** The provider's own event type (Stripe `charge.refunded`), recorded with the event id. */
   providerType?: string;
+  /**
+   * ISO 4217 currency of the event's amount, when the provider sends it
+   * (Adyen). An amount in another currency than the record is not applied.
+   */
+  currency?: string;
 }
 
 export type NormalizedPaymentEvent =

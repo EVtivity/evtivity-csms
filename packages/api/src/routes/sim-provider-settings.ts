@@ -13,7 +13,6 @@ import {
   parseOcpp16SignalKeys,
   SIM_FETCH_DAYS,
   SIM_OCPP16_SIGNAL_KEYS_LIMITS,
-  SIM_RETENTION_DAYS,
   SIM_HOLOGRAM_ORG_ID_MAX_DIGITS,
   SIM_SETTING_KEYS,
   SIM_SIGNAL_DBM,
@@ -69,7 +68,11 @@ const simProviderSettingsResponse = z
         apiKeyConfigured: z.boolean().describe('A Hologram API key is stored'),
       })
       .describe('Hologram account'),
-    retentionDays: z.number().describe('Days fetched SIM sessions and alerts are kept'),
+    retentionDays: z
+      .number()
+      .describe(
+        'Days fetched SIM sessions and alerts are kept (sim.sessions.retentionDays, changed through PUT /v1/settings/data-retention)',
+      ),
     fetchDays: z.number().describe('Refresh period preselected on the Connectivity tab, in days'),
     stationSignalEnabled: z
       .boolean()
@@ -105,13 +108,6 @@ const updateSimProviderSettingsBody = z.object({
     })
     .optional()
     .describe('Hologram account; an omitted field keeps its value'),
-  retentionDays: z
-    .number()
-    .int()
-    .min(SIM_RETENTION_DAYS.min)
-    .max(SIM_RETENTION_DAYS.max)
-    .optional()
-    .describe('Days fetched SIM sessions and alerts are kept (7 to 730)'),
   fetchDays: z
     .number()
     .int()
@@ -268,7 +264,9 @@ export function simProviderSettingsRoutes(app: FastifyInstance): void {
     {
       onRequest: [authorize('settings.integrations:write')],
       preValidation: [
-        rejectUnknownBodyKeys(updateSimProviderSettingsBody),
+        rejectUnknownBodyKeys(updateSimProviderSettingsBody, {
+          retentionDays: 'set sim.sessions.retentionDays through PUT /v1/settings/data-retention',
+        }),
         rejectUnknownHologramKeys,
       ],
       schema: {
@@ -337,9 +335,6 @@ export function simProviderSettingsRoutes(app: FastifyInstance): void {
           key: SIM_SETTING_KEYS.hologramApiKeyEnc,
           value: apiKey === '' ? '' : encryptString(apiKey, simEncryptionKey()),
         });
-      }
-      if (body.retentionDays !== undefined) {
-        pairs.push({ key: SIM_SETTING_KEYS.retentionDays, value: body.retentionDays });
       }
       if (body.fetchDays !== undefined) {
         pairs.push({ key: SIM_SETTING_KEYS.fetchDays, value: body.fetchDays });

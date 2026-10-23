@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { routePath } from './encoded-path-guard.js';
 
 /** Constant-time comparison of the CSRF cookie and the `x-csrf-token` header. */
@@ -37,6 +37,35 @@ const PORTAL_CSRF_SKIP_PATHS = new Set([
 export const CSRF_SKIP_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
+ * The CSRF-exempt routes that issue a session. A browser posting to them from
+ * another site (`Sec-Fetch-Site: cross-site`) is a login CSRF: the victim's browser
+ * would store the attacker's session. They are refused; the CSMS and portal post
+ * from the same site, and the mobile app sends no `Sec-Fetch-Site` header.
+ */
+const SIGN_IN_PATHS: ReadonlySet<string> = new Set([
+  '/v1/auth/login',
+  '/v1/auth/force-change-password',
+  '/v1/auth/mfa/verify',
+  '/v1/auth/webauthn/verify',
+  '/v1/auth/passkey/verify',
+  '/v1/portal/auth/login',
+  '/v1/portal/auth/mfa/verify',
+  '/v1/portal/auth/webauthn/verify',
+  '/v1/portal/auth/passkey/verify',
+]);
+
+/** Answers 403 `CSRF_INVALID` to a cross-site browser request to a sign-in route. */
+export async function refuseCrossSiteSignIn(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  url: string,
+): Promise<void> {
+  if (!SIGN_IN_PATHS.has(url)) return;
+  if (request.headers['sec-fetch-site'] !== 'cross-site') return;
+  await reply.status(403).send({ error: 'Invalid CSRF token', code: 'CSRF_INVALID' });
+}
+
+/**
  * CSRF validation for portal mutating requests (double-submit cookie
  * `portal_csrf` and header `x-csrf-token`). It does not depend on CORS: an
  * origin the CORS list does not name gets no CORS headers, and a cookie
@@ -48,7 +77,10 @@ export function registerPortalCsrf(app: FastifyInstance): void {
     const url = routePath(request);
     if (!url.startsWith('/v1/portal/')) return;
     if (CSRF_SKIP_METHODS.has(request.method)) return;
-    if (PORTAL_CSRF_SKIP_PATHS.has(url)) return;
+    if (PORTAL_CSRF_SKIP_PATHS.has(url)) {
+      await refuseCrossSiteSignIn(request, reply, url);
+      return;
+    }
     if (url.startsWith('/v1/portal/guest/')) return;
 
     // Bearer-authenticated, cookie-less clients (native mobile app) are not

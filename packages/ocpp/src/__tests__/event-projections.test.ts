@@ -149,6 +149,8 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-energy.js',
   )),
+  // The session meter summary UPDATE (tested on a real database, integration v21 64).
+  applySessionMeterSummary: vi.fn().mockResolvedValue(false),
   // The real tariff resolver, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
@@ -3854,6 +3856,14 @@ describe('Event projections', () => {
       });
       // prev energy (no active match, so no energy update), idle, cost query
       expect(sessionCalls.length).toBe(3);
+      // The meter summary goes to the matched session whatever its status.
+      const { applySessionMeterSummary } = await import('@evtivity/database');
+      expect(applySessionMeterSummary).toHaveBeenCalledWith(expect.anything(), {
+        stationUuid: 'sta_000000000001',
+        sessionId: 'ses_old',
+        evseUuid: 'evs_000000000001',
+        reading: { peakPowerW: 0, socPercent: null, socAt: null },
+      });
       for (const call of sessionCalls) {
         const joined = call.strings.join('?');
         // Matched by session id, still only while active, never by EVSE alone.

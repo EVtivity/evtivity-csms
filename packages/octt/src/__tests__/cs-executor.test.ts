@@ -25,6 +25,9 @@ vi.mock('postgres', () => {
   return { default: vi.fn(() => Object.assign(sql, { end })) };
 });
 
+const raiseStationSimHistoryFloor = vi.hoisted(() => vi.fn(async () => undefined));
+vi.mock('@evtivity/database', () => ({ raiseStationSimHistoryFloor }));
+
 // A station that opens one WebSocket to the test server and answers nothing.
 vi.mock('@evtivity/css/station-simulator', () => {
   class StationSimulator {
@@ -158,6 +161,21 @@ describe('executeCsTest', () => {
     const deletes = sqlCalls.filter((q) => q.startsWith('DELETE'));
     expect(deletes).toHaveLength(10);
     expect(deletes.at(-1)).toContain('DELETE FROM charging_stations');
+    // The SIM history floor of the station's SIM goes up before the delete.
+    const lookup = sqlCalls.findIndex((q) => q.startsWith('SELECT id FROM charging_stations'));
+    expect(lookup).toBeGreaterThan(-1);
+    expect(lookup).toBeLessThan(sqlCalls.lastIndexOf(deletes.at(-1) ?? ''));
+    expect(raiseStationSimHistoryFloor).toHaveBeenCalledWith([]);
+  });
+
+  it('keeps the station row when its SIM history floor is not raised (security review L4)', async () => {
+    raiseStationSimHistoryFloor.mockRejectedValueOnce(new Error('database down'));
+    await executeCsTest(testCase(passed), config, logger);
+    expect(raiseStationSimHistoryFloor).toHaveBeenCalledTimes(1);
+    // The other cleanup runs; only the station delete, whose cascade would drop the
+    // SIM attachment without a floor, is skipped.
+    expect(sqlCalls.filter((q) => q.startsWith('DELETE FROM css_stations'))).toHaveLength(1);
+    expect(sqlCalls.filter((q) => q.startsWith('DELETE FROM charging_stations'))).toEqual([]);
   });
 
   it('answers station messages with version-aware defaults (2.1)', async () => {

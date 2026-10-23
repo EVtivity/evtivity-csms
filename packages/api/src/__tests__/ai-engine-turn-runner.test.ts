@@ -368,6 +368,33 @@ describe('AI turn runner', () => {
     expect(adapter.calls).toHaveLength(1);
   });
 
+  it('tells the card how many argument values it hides', async () => {
+    const adapter = createScriptedAdapter([
+      { events: [...call('c1', 'delete_station'), { type: 'finish', reason: 'tool_use' }] },
+    ]);
+    const r = recorder();
+    const input = baseInput(adapter, r);
+    const create = input.hooks.createPendingAction;
+    input.hooks.createPendingAction = async (a) => ({ ...(await create(a)), maskedCount: 1 });
+    await runTurn(input);
+    expect(r.events.find((e) => e.type === 'confirmation_required')).toMatchObject({
+      maskedCount: 1,
+    });
+
+    const plain = recorder();
+    await runTurn(
+      baseInput(
+        createScriptedAdapter([
+          { events: [...call('c1', 'delete_station'), { type: 'finish', reason: 'tool_use' }] },
+        ]),
+        plain,
+      ),
+    );
+    expect(plain.events.find((e) => e.type === 'confirmation_required')).not.toHaveProperty(
+      'maskedCount',
+    );
+  });
+
   it('holds one write at a time and refuses a second one in the same response', async () => {
     const adapter = createScriptedAdapter([
       {

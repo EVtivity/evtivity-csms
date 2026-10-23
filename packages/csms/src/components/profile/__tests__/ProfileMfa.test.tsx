@@ -260,4 +260,23 @@ describe('ProfileMfa', () => {
       });
     });
   });
+  it('shows the load error with Retry when the MFA status does not load', async () => {
+    getMock.mockRejectedValueOnce(new Error('down'));
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <ProfileMfa />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('common.loadError')).toBeTruthy();
+    getMock.mockResolvedValue({
+      mfaEnabled: true,
+      mfaMethod: 'totp',
+      availableMethods: ['totp'],
+      recoveryCodesRemaining: 10,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    expect(await screen.findByText('profile.mfaEnabled')).toBeTruthy();
+  });
 });

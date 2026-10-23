@@ -149,7 +149,13 @@ export type {
   PaymentContext,
   PaymentLogger,
 } from './context.js';
-export { activeProvider, pinnedProvider, resolveActiveProvider } from './pinning.js';
+export {
+  activeProvider,
+  pinnedProvider,
+  resolveActivePaymentState,
+  resolveActiveProvider,
+} from './pinning.js';
+export type { ActivePaymentState } from './pinning.js';
 export { describePaymentProviders } from './provider-catalog.js';
 export type { ProviderCatalogCapabilities, ProviderCatalogEntry } from './provider-catalog.js';
 export {

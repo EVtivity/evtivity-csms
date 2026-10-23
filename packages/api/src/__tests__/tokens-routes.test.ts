@@ -93,6 +93,7 @@ vi.mock('@evtivity/database', async () => {
     tokenAuditLog: {},
     pncContracts: {},
     stationLocalAuthEntries: {},
+    vehicles: { id: 'id', driverId: 'driverId', vin: 'vin', evccid: 'evccid' },
     stationLocalAuthVersions: {},
     writeAudit: vi.fn().mockResolvedValue(undefined),
   };
@@ -304,10 +305,12 @@ describe('Token routes - handler logic', () => {
       // Inside the transaction:
       //  1. driver lookup by email
       //  2. existing tokens check (empty)
-      //  3. insert returning the inserted row
-      //  4. audit insert
+      //  3. vehicles of other drivers holding a row's value (none)
+      //  4. insert returning the inserted row
+      //  5. audit insert
       setupDbResults(
         [{ id: VALID_DRIVER_ID, email: 'john@example.com', isActive: true }],
+        [],
         [],
         [{ id: TOKEN_ID_2, idToken: 'RFID001', tokenType: 'ISO14443', driverId: VALID_DRIVER_ID }],
         [],
@@ -373,6 +376,7 @@ describe('Token routes - handler logic', () => {
       //  2. insert returning
       //  3. audit insert
       setupDbResults(
+        [],
         [],
         [{ id: TOKEN_ID_2, idToken: 'RFID003', tokenType: 'ISO14443', driverId: null }],
         [],
@@ -596,8 +600,8 @@ describe('Token routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      // dup check (empty), then insert returning
-      setupDbResults([], [created]);
+      // dup check (empty), no vehicle with the value, then insert returning
+      setupDbResults([], [], [created]);
       const response = await app.inject({
         method: 'POST',
         url: '/tokens',
@@ -625,8 +629,8 @@ describe('Token routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      // existing check (none), the driver (active), insert returning
-      setupDbResults([], [{ isActive: true }], [created]);
+      // existing check (none), the driver (active), no vehicle, insert returning
+      setupDbResults([], [{ isActive: true }], [], [created]);
       const response = await app.inject({
         method: 'POST',
         url: '/tokens',
@@ -686,8 +690,8 @@ describe('Token routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
-      // current-row SELECT, dup check (empty), update returning
-      setupDbResults([{ idToken: 'OLD', tokenType: 'ISO14443' }], [], [updated]);
+      // current-row SELECT, dup check (empty), vehicle check (none), update returning
+      setupDbResults([{ idToken: 'OLD', tokenType: 'ISO14443' }], [], [], [updated]);
       const response = await app.inject({
         method: 'PATCH',
         url: `/tokens/${VALID_TOKEN_ID}`,
@@ -724,10 +728,20 @@ describe('Token routes - handler logic', () => {
         method: 'PATCH',
         url: `/tokens/${VALID_TOKEN_ID}`,
         headers: { authorization: `Bearer ${token}` },
-        payload: { prepaidBalanceCents: 2500 },
+        payload: { prepaidBalanceCents: 2500, expectedPrepaidBalanceCents: null },
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().prepaidBalanceCents).toBe(2500);
+    });
+
+    it('refuses a balance change without expectedPrepaidBalanceCents (PP2 Info 3)', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/tokens/${VALID_TOKEN_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { prepaidBalanceCents: 2500 },
+      });
+      expect(response.statusCode).toBe(400);
     });
 
     it('rejects a fractional prepaid balance', async () => {
@@ -767,10 +781,11 @@ describe('Token routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
-      // current-row SELECT, then update returning
-      // (no dup check because idToken/tokenType not in payload)
+      // current-row SELECT, vehicle check for the new driver (none), then
+      // update returning (no dup check because idToken/tokenType not in payload)
       setupDbResults(
         [{ id: TOKEN_ID_2, idToken: 'RFID001', tokenType: 'ISO14443', isActive: true }],
+        [],
         [updated],
       );
       const response = await app.inject({
@@ -798,10 +813,12 @@ describe('Token routes - handler logic', () => {
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
-      // current-row SELECT, the new driver (active), then update returning
+      // current-row SELECT, the new driver (active), vehicle check (none), then
+      // update returning
       setupDbResults(
         [{ id: TOKEN_ID_2, idToken: 'RFID001', tokenType: 'ISO14443', isActive: true }],
         [{ isActive: true }],
+        [],
         [updated],
       );
       const response = await app.inject({

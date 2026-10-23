@@ -140,6 +140,25 @@ describe('seedSettingRows', () => {
     expect(() => seedSettingRows({ 'ai.deepseek.apiKey': 'sk-deepseek' }, KEY)).toThrow(/Enc key/);
   });
 
+  it('refuses a data retention value outside its range', () => {
+    expect(seedSettingRows({ 'logs.meterValues.retentionDays': 0 }, KEY)).toEqual([
+      { key: 'logs.meterValues.retentionDays', value: 0 },
+    ]);
+    expect(() => seedSettingRows({ 'aiInsights.retentionDays': 0 }, KEY)).toThrow(/1 to 3650/);
+    expect(() => seedSettingRows({ 'sim.sessions.retentionDays': 731 }, KEY)).toThrow(/7 to 730/);
+    // The security history: 0 or 30 to 3650 days.
+    expect(() => seedSettingRows({ 'audit.retentionDays': 29 }, KEY)).toThrow(
+      /0 \(keep forever\) or 30 to 3650/,
+    );
+    expect(seedSettingRows({ 'logs.loginAudit.retentionDays': 0 }, KEY)).toEqual([
+      { key: 'logs.loginAudit.retentionDays', value: 0 },
+    ]);
+    expect(seedSettingRows({ 'logs.securityEvents.retentionDays': 30 }, KEY)).toEqual([
+      { key: 'logs.securityEvents.retentionDays', value: 30 },
+    ]);
+    expect(() => seedSettingRows({ 'audit.retentionDays': '1095' }, KEY)).toThrow(/whole number/);
+  });
+
   it('writes every mapped seed config secret only under its Enc key', () => {
     const input = Object.fromEntries(
       Object.keys(SEED_ENCRYPTED_KEY_MAP).map((key) => [key, `plain-${key}`]),

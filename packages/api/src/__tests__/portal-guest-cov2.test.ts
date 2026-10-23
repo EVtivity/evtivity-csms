@@ -200,6 +200,9 @@ vi.mock('../lib/rate-limiters.js', () => ({
   isStationCheckRateLimited: mockIsStationCheckRateLimited,
   getCachedConnectorStatus: mockGetCachedConnectorStatus,
   setCachedConnectorStatus: mockSetCachedConnectorStatus,
+  // A status check runs alone here: no check is in flight.
+  pendingStatusCheck: () => null,
+  shareStatusCheck: (_station: string, _evse: number, run: () => Promise<unknown>) => run(),
 }));
 
 // The start protections have their own tests (portal-guest-routes.test.ts):
@@ -354,7 +357,7 @@ describe('Portal guest routes - gates and history', () => {
         error: 'Too many status checks for this station',
         code: 'RATE_LIMITED',
       });
-      expect(mockIsStationCheckRateLimited).toHaveBeenCalledWith('CS-R');
+      expect(mockIsStationCheckRateLimited).toHaveBeenCalledWith('CS-R', '127.0.0.1');
       expect(db.execute).not.toHaveBeenCalled();
     });
 

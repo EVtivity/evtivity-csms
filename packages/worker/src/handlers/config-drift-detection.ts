@@ -1,11 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, inArray } from 'drizzle-orm';
+import { eq, and, inArray, sql } from 'drizzle-orm';
 import {
   db,
   chargingStations,
   configTemplates,
+  effectiveDataPlanSql,
   isOperatorStation,
   stationConfigurations,
 } from '@evtivity/database';
@@ -15,6 +16,7 @@ import {
   findTemplateTargetConfiguration,
   configTemplateTarget,
   hasConfigDrift,
+  isBootOwnedStationSetting,
 } from '@evtivity/lib';
 
 export async function configDriftDetectionHandler(log: Logger): Promise<void> {
@@ -24,11 +26,16 @@ export async function configDriftDetectionHandler(log: Logger): Promise<void> {
   let driftCount = 0;
 
   for (const template of templates) {
-    const variables = template.variables as Array<{
-      component: string;
-      variable: string;
-      value: string;
-    }>;
+    // The boot push owns the heartbeat and meter value settings (the station
+    // data plan), so a template saved before the guard never drifts on them.
+    const variables = (
+      template.variables as Array<{
+        component: string;
+        variable: string;
+        variableInstance?: string | null;
+        value: string;
+      }>
+    ).filter((v) => !isBootOwnedStationSetting(template.ocppVersion, v.component, v.variable));
     if (variables.length === 0) continue;
 
     // A template bound to a station targets that station only. Any other
@@ -40,6 +47,9 @@ export async function configDriftDetectionHandler(log: Logger): Promise<void> {
     if (target.siteId != null) conditions.push(eq(chargingStations.siteId, target.siteId));
     if (target.vendorId != null) conditions.push(eq(chargingStations.vendorId, target.vendorId));
     if (target.model != null) conditions.push(eq(chargingStations.model, target.model));
+    if (target.dataPlan != null) {
+      conditions.push(sql`${effectiveDataPlanSql} = ${target.dataPlan}`);
+    }
 
     const targetStations = await db
       .select({
@@ -72,6 +82,7 @@ export async function configDriftDetectionHandler(log: Logger): Promise<void> {
           actualVars,
           expected.component,
           expected.variable,
+          expected.variableInstance,
         );
         if (hasConfigDrift(station.ocppProtocol, expected, actual)) {
           driftCount++;

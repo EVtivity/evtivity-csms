@@ -3,6 +3,7 @@
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { config } from './config.js';
+import { deriveKey, KEY_LABELS } from '@evtivity/lib/derived-keys';
 
 /**
  * Short-lived proof that a guest scanned a valid dynamic QR code (OCPP 2.1
@@ -13,17 +14,16 @@ import { config } from './config.js';
  * Format `v1.<expiry unix seconds>.<base64url HMAC-SHA256>`. The MAC covers the
  * version, the OCPP station identity, the EVSE id and the expiry, so a token
  * is valid only for the EVSE it was issued for. The key is derived from
- * JWT_SECRET with a fixed label: the token is not a JWT and can never pass as
- * an auth token, and no extra secret is needed.
+ * JWT_SECRET with HKDF and its own label (`@evtivity/lib/derived-keys`): the token is
+ * not a JWT and can never pass as an auth token, and no extra secret is needed.
  */
 
 export const GUEST_QR_TOKEN_TTL_SECONDS = 10 * 60;
 
 const VERSION = 'v1';
-const KEY_LABEL = 'evtivity guest QR scan token v1';
 
 function signingKey(): Buffer {
-  return createHmac('sha256', config.JWT_SECRET).update(KEY_LABEL).digest();
+  return deriveKey(config.JWT_SECRET, KEY_LABELS.guestQr);
 }
 
 function mac(stationId: string, evseId: number, expiresAtSeconds: number): Buffer {

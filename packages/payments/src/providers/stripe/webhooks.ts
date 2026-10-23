@@ -24,6 +24,11 @@ export function normalizeStripeEvent(event: Stripe.Event): NormalizedPaymentEven
     providerType: event.type,
     occurredAt,
   };
+  // An event of a connected account (the Connect endpoint) is only ever an
+  // account update for EVtivity: payments are made on the platform account,
+  // so a connected account's payment ids never match a record. Ignored
+  // explicitly instead of relying on that.
+  if (event.account != null && event.type !== 'account.updated') return ignored;
   switch (event.type) {
     case 'payment_intent.payment_failed': {
       const pi = event.data.object;

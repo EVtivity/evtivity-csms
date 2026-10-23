@@ -17,7 +17,7 @@ describe('account replies are never cached', () => {
       '/v1/portal/driver/webauthn',
       '/v1/api-keys',
       '/v1/api-keys/:id',
-      // Admin views of an account (security review Info).
+      // Admin views of an account.
       '/v1/users',
       '/v1/users/:id',
       '/v1/users/:id/api-keys',

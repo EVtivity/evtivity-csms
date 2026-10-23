@@ -108,6 +108,7 @@
     "recoveryCodeSubtitle": "Introduce uno de tus códigos de recuperación",
     "recoveryCodeLabel": "Código de recuperación",
     "recoveryCodeInvalid": "Código de recuperación no válido o ya usado. Inténtalo de nuevo.",
+    "recoveryCodeIncomplete": "Ingrese el código de recuperación completo de 10 caracteres",
     "mfaMethodSwitchedOff": "Tu administrador desactivó el inicio de sesión con {{method}}. Inicia sesión con un código de recuperación.",
     "recoveryCodesLeft_one": "Queda {{count}} código de recuperación",
     "recoveryCodesLeft_other": "Quedan {{count}} códigos de recuperación",
@@ -228,7 +229,6 @@
     "changePassword": "Cambiar contraseña",
     "currentPassword": "Contraseña actual",
     "newPassword": "Nueva contraseña",
-    "changingPassword": "Cambiando...",
     "passwordChanged": "Contraseña cambiada.",
     "passwordChangeFailed": "Error al cambiar la contraseña.",
     "signOut": "Cerrar sesión",
@@ -245,7 +245,6 @@
     "mfaMethodTotp": "Aplicación de autenticación",
     "mfaMethodSms": "SMS",
     "mfaSetUp": "Configurar",
-    "mfaSettingUp": "Configurando...",
     "mfaDisable": "Desactivar MFA",
     "mfaDisableConfirm": "Confirme su identidad con un factor que tenga o con un código de recuperación. Al desactivar MFA también se eliminan sus passkeys y códigos de recuperación.",
     "mfaNotAvailable": "No hay métodos MFA disponibles. Contacte a su administrador.",
@@ -253,7 +252,6 @@
     "mfaManualEntry": "Clave de entrada manual",
     "mfaEnterCode": "Ingrese el código de verificación de 6 dígitos",
     "mfaVerify": "Verificar",
-    "mfaVerifying": "Verificando...",
     "mfaSetupFailed": "Error al iniciar la configuración de MFA.",
     "mfaVerifyFailed": "Código de verificación inválido.",
     "mfaDisableFailed": "Error al desactivar MFA.",
@@ -296,7 +294,8 @@
     "phoneCode": "Código enviado al nuevo número",
     "phoneCodeSent": "Enviamos un código a {{phone}}.",
     "phoneCodeRequired": "Primero envíe un código al nuevo número e ingréselo.",
-    "phoneCodeSendFailed": "No se pudo enviar el código. Inténtelo de nuevo."
+    "phoneCodeSendFailed": "No se pudo enviar el código. Inténtelo de nuevo.",
+    "mfaLoadError": "No se pudo cargar su configuración de autenticación de dos factores."
   },
   "charger": {
     "loadingInfo": "Cargando información del cargador...",
@@ -637,6 +636,7 @@
     "API_KEY_RATE_LIMITED": "Límite de tasa de la clave API excedido",
     "ATTACHMENT_NOT_FOUND": "Adjunto no encontrado",
     "AUDIT_ENTITY_TYPE_INVALID": "Tipo de entidad de auditoría desconocido",
+    "AUTOCHARGE_CLAIM_REQUIRED": "Autocharge solo funciona con identificadores de vehículo que un cargador envió en una de sus sesiones. Use primero el identificador del vehículo de una sesión.",
     "CAMPAIGN_NOT_ACTIVE": "Solo se pueden cancelar las campañas activas",
     "CAMPAIGN_NOT_FOUND": "Campaña no encontrada",
     "CASE_NOT_FOUND": "Caso no encontrado",
@@ -721,6 +721,7 @@
     "INVALID_SITE_IDS": "Uno o más siteIds no existen",
     "INVALID_TOKEN": "Enlace de restablecimiento inválido o expirado",
     "INVOICE_ALREADY_PAID": "La factura ya está pagada",
+    "PREPAID_BALANCE_CONFLICT": "El saldo prepago cambió desde que abrió el formulario, por ejemplo tras una sesión. Vuelva a cargar el token e introduzca el saldo de nuevo.",
     "RESERVATION_FEE_ALREADY_INVOICED": "La tarifa de reserva ya está facturada",
     "SESSION_ALREADY_INVOICED": "La sesión ya está facturada",
     "INVOICE_CREATION_FAILED": "Error al crear la factura",
@@ -862,6 +863,7 @@
     "START_REJECTED": "La estación rechazó la solicitud de inicio: ...",
     "STATION_ALREADY_IN_FLEET": "La estación ya está en esta flota",
     "STATION_HAS_ACTIVE_SESSION": "La estación tiene una sesión de carga activa. Deténgala antes de eliminar la estación.",
+    "STATION_HAS_SIM": "Esta estación ya tiene una SIM vinculada. Desvincúlela primero",
     "STATION_ID_EXISTS": "Ya existe una estación con este ID",
     "STATION_NOT_FOUND": "Estación no encontrada",
     "STATION_OFFLINE": "La estación está fuera de línea",
@@ -871,6 +873,7 @@
     "STATION_UNAVAILABLE": "Esta estación no está disponible en este momento. Pruebe otra estación.",
     "STORAGE_CONNECTION_FAILED": "La prueba de conexión del almacenamiento falló",
     "STORAGE_NOT_CONFIGURED": "Almacenamiento de adjuntos no configurado",
+    "STREAM_LIMIT_REACHED": "Hay demasiadas actualizaciones en vivo de estaciones abiertas desde este dispositivo. Cierre otras pestañas e inténtelo de nuevo.",
     "SUPPORT_AI_NOT_CONFIGURED": "La IA de soporte no está configurada",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "Este caso de soporte no está esperando su valoración de una respuesta automática",
     "SUPPORT_CASE_NOT_FOUND": "Caso de soporte no encontrado",
@@ -941,6 +944,7 @@
     "CHARGING_PROFILE_ID_RESERVED": "El ID del perfil de carga debe ser mayor que el MaxExternalConstraintsId de la estación.",
     "CHARGING_PROFILE_LOAD_MANAGED": "La gestión de carga fija el límite de esta estación. Use un ChargingStationMaxProfile con nivel de pila 0 y un ID distinto del ID del perfil de gestión de carga.",
     "STATION_SECURITY_ROUTE_REQUIRED": "Los perfiles de seguridad y de red de la estación se cambian con PATCH /v1/stations/:id, no con una plantilla de configuración",
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "Los ajustes de heartbeat y de valores del medidor vienen de Configuración > Integraciones y Funciones > OCPP y del plan de datos de la estación, no de una plantilla de configuración",
     "TOKEN_BLOCKED_BY_OPERATOR": "El operador desactivó esta tarjeta. Contacte al operador para reactivarla.",
     "SESSION_NO_VEHICLE_ID": "El cargador no envió ningún identificador de vehículo para esta sesión.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "El operador bloqueó Autocharge para este vehículo. Contacte al operador para desbloquearlo.",
@@ -965,17 +969,21 @@
     "WEBAUTHN_CHALLENGE_EXPIRED": "La solicitud de llave de acceso caducó o ya se usó. Inténtelo de nuevo.",
     "WEBAUTHN_VERIFICATION_FAILED": "No se pudo verificar la llave de acceso o la llave de seguridad.",
     "SIM_ACTION_UNSUPPORTED": "El proveedor de SIM no admite esta acción para esta SIM",
-    "SIM_CONFIRMED_ELSEWHERE": "Otra estación ya tiene una asociación confirmada con esta SIM",
+    "SIM_ATTACHED": "Desvincule la SIM de su estación antes de eliminarla",
+    "SIM_ATTACHED_ELSEWHERE": "Esta SIM está vinculada a otra estación",
+    "SIM_ATTACHMENT_CHANGED": "La vinculación de la SIM cambió desde que se mostró. Compruebe la SIM y confírmela de nuevo",
+    "SIM_ATTACHMENT_NOT_CONFIRMED": "Confirme la SIM antes de restablecer su red",
     "SIM_FEATURE_DISABLED": "Los proveedores de SIM y la lectura de señal de las estaciones están desactivados",
-    "SIM_MATCHED_ELSEWHERE": "Esta SIM está asociada a otra estación",
-    "SIM_MATCH_CHANGED": "La coincidencia de la SIM cambió desde que se mostró. Compruebe la SIM y confírmela de nuevo",
-    "SIM_MATCH_NOT_CONFIRMED": "Confirme la SIM antes de restablecer su red",
-    "SIM_NOT_FOUND": "No hay ninguna SIM asociada a esta estación",
+    "SIM_INACTIVE": "Esta SIM está inactiva. Reactívela primero",
+    "SIM_NOT_FOUND": "SIM no encontrada",
     "SIM_PROVIDER_ERROR": "La solicitud al proveedor de SIM falló",
     "SIM_PROVIDER_NOT_CONFIGURED": "No hay ningún proveedor de SIM configurado",
     "SIM_PROVIDER_RATE_LIMITED": "Demasiadas solicitudes de SIM, inténtelo más tarde",
     "SIM_RESET_UNAVAILABLE": "El restablecimiento de red no se puede iniciar ahora. Inténtelo de nuevo en un minuto",
-    "SIM_TEST_UNAVAILABLE": "La prueba de conexión no se puede ejecutar ahora. Inténtelo de nuevo en un minuto"
+    "SIM_TEST_UNAVAILABLE": "La prueba de conexión no se puede ejecutar ahora. Inténtelo de nuevo en un minuto",
+    "NOT_FOUND": "No encontrado",
+    "PAYLOAD_TOO_LARGE": "La solicitud es demasiado grande",
+    "UNSUPPORTED_MEDIA_TYPE": "Tipo de contenido no admitido"
   },
   "validation": {
     "required": "Este campo es obligatorio",
@@ -1347,7 +1355,6 @@
     "kindRecoveryCode": "Código de Recuperación",
     "kindTotp": "Aplicación de Autenticación",
     "passkeyButton": "Verificar con una Llave de Acceso",
-    "passkeyNeedsSecurePage": "Confirme su identidad con su llave de acceso. Las llaves de acceso solo funcionan con una conexión segura (HTTPS) o en localhost. Abra esta página por HTTPS para usar la suya.",
     "passkeyVerified": "Llave de acceso verificada.",
     "resend": "Enviar un Código Nuevo",
     "sendFailed": "No se pudo enviar el código. Inténtelo de nuevo.",
@@ -1393,6 +1400,25 @@
     "typeDeviceBound": "Guardada en un dispositivo o llave",
     "typeNotBackedUp": "Llave de acceso sin copia de seguridad",
     "typeSynced": "Llave de acceso sincronizada",
-    "waiting": "Esperando..."
+    "waiting": "Esperando...",
+    "browserUnsupported": "Este navegador no admite llaves de acceso ni llaves de seguridad. Abra esta página en un navegador compatible para añadir una."
+  },
+  "passkeyUnavailable": {
+    "insecure": {
+      "signInCode": "Las llaves de acceso necesitan una página segura (HTTPS o localhost). Abra este sitio por HTTPS para usar su llave de acceso, o inicie sesión con un código de verificación.",
+      "signInRecovery": "Las llaves de acceso necesitan una página segura (HTTPS o localhost). Abra este sitio por HTTPS para usar su llave de acceso, o inicie sesión con un código de recuperación.",
+      "signInOnly": "Las llaves de acceso necesitan una página segura (HTTPS o localhost) y su cuenta no tiene otra forma de verificación. Abra este sitio por HTTPS para iniciar sesión con su llave de acceso.",
+      "setupOther": "Las llaves de acceso necesitan una página segura (HTTPS o localhost). Abra este sitio por HTTPS para añadir una llave de acceso, o configure otro método a continuación.",
+      "setupOnly": "Las llaves de acceso necesitan una página segura (HTTPS o localhost) y una llave de acceso es el único método que puede configurar. Abra este sitio por HTTPS para configurarla.",
+      "proofOnly": "Confirme su identidad con su llave de acceso. Las llaves de acceso necesitan una página segura (HTTPS o localhost). Abra este sitio por HTTPS para usar la suya."
+    },
+    "unsupported": {
+      "signInCode": "Este navegador no admite llaves de acceso. Abra este sitio en un navegador compatible para usar su llave de acceso, o inicie sesión con un código de verificación.",
+      "signInRecovery": "Este navegador no admite llaves de acceso. Abra este sitio en un navegador compatible para usar su llave de acceso, o inicie sesión con un código de recuperación.",
+      "signInOnly": "Este navegador no admite llaves de acceso y su cuenta no tiene otra forma de verificación. Abra este sitio en un navegador compatible con llaves de acceso para iniciar sesión.",
+      "setupOther": "Este navegador no admite llaves de acceso. Abra este sitio en un navegador compatible para añadir una llave de acceso, o configure otro método a continuación.",
+      "setupOnly": "Este navegador no admite llaves de acceso y una llave de acceso es el único método que puede configurar. Abra este sitio en un navegador compatible con llaves de acceso para configurarla.",
+      "proofOnly": "Confirme su identidad con su llave de acceso. Este navegador no admite llaves de acceso. Abra este sitio en un navegador compatible para usar la suya."
+    }
   }
 }

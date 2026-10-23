@@ -10,6 +10,9 @@ const schema = z.object({
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
   OCPP_SERVER_URL: z.string().url().default('ws://localhost:7103'),
   OCPP_TLS_SERVER_URL: z.string().url().default('wss://localhost:8443'),
+  // The TLS address the CSMS gives stations moved to TLS (the API's value).
+  // A simulator moved to TLS by a security profile change connects there.
+  OCPP_STATION_TLS_URL: z.string().url().optional(),
   // Enum-constrain so a typo (e.g. 'chaoss', 'CHAOS') fails fast at startup
   // instead of silently falling through to standby. Default to standby on
   // missing env. Per the simulator rule the only two valid modes are
@@ -35,3 +38,12 @@ const schema = z.object({
 export type SimulatorConfig = z.infer<typeof schema>;
 
 export const config: SimulatorConfig = schema.parse(process.env);
+
+/**
+ * The OCPP server URLs a simulator may connect to: the plain and TLS
+ * endpoints and the TLS address the CSMS gives stations moved to TLS. A stored
+ * or network-profile URL on another origin is never connected to.
+ */
+export function simulatorServerUrls(): Array<string | undefined> {
+  return [config.OCPP_SERVER_URL, config.OCPP_TLS_SERVER_URL, config.OCPP_STATION_TLS_URL];
+}

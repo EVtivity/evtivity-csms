@@ -72,7 +72,8 @@ describe('Event stream routes', () => {
   it('GET /v1/events/stream returns 401 with empty token query param', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/events/stream?token=',
+      url: '/events/stream',
+      headers: { authorization: 'Bearer ' },
     });
     expect(response.statusCode).toBe(401);
   });
@@ -80,7 +81,8 @@ describe('Event stream routes', () => {
   it('GET /v1/events/stream returns 401 with invalid token', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/events/stream?token=invalid-jwt-token',
+      url: '/events/stream',
+      headers: { authorization: `Bearer invalid-jwt-token` },
     });
     expect(response.statusCode).toBe(401);
     const body = JSON.parse(response.body);
@@ -99,7 +101,8 @@ describe('Event stream routes', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: `/events/stream?token=${wrongToken}`,
+      url: '/events/stream',
+      headers: { authorization: `Bearer ${wrongToken}` },
     });
     expect(response.statusCode).toBe(401);
   });
@@ -107,7 +110,8 @@ describe('Event stream routes', () => {
   it('GET /v1/events/stream returns 401 with malformed JWT', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/events/stream?token=eyJhbGciOiJIUzI1NiJ9.invalid.signature',
+      url: '/events/stream',
+      headers: { authorization: `Bearer eyJhbGciOiJIUzI1NiJ9.invalid.signature` },
     });
     expect(response.statusCode).toBe(401);
   });

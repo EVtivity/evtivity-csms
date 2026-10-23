@@ -103,7 +103,7 @@ export function SupportCaseDetail(): React.JSX.Element {
       const { downloadUrl } = await api.get<{ downloadUrl: string }>(
         `/v1/portal/support-cases/${id ?? ''}/messages/${String(attachment.messageId)}/attachments/${String(attachment.id)}/download-url`,
       );
-      window.open(downloadUrl, '_blank');
+      window.open(downloadUrl, '_blank', 'noopener,noreferrer');
     } catch (err) {
       toast({
         variant: 'destructive',

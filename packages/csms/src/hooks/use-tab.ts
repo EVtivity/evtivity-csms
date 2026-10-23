@@ -15,8 +15,11 @@ export function useTab(
   const setTab = useCallback(
     (value: string) => {
       setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
+        () => {
+          // From the URL as it is now, not `prev`: react-router passes the hook's
+          // last rendered params, so a second change before the re-render (a
+          // debounced search, then a filter) would drop the first one.
+          const next = new URLSearchParams(window.location.search);
           if (value === defaultTab) {
             next.delete(paramName);
           } else {

@@ -46,6 +46,17 @@ function makeChain() {
   return chain;
 }
 
+// The device cookies are covered in 129-auth-attacks; here a browser without one.
+vi.mock('../lib/device-cookie.js', () => ({
+  knownSignInDevice: vi.fn(() => Promise.resolve(null)),
+  takeDeviceAttempt: vi.fn(() =>
+    Promise.resolve({ granted: true, failures: 1, lockedUntil: null }),
+  ),
+  recordDeviceFailure: vi.fn(() => Promise.resolve()),
+  clearDeviceFailures: vi.fn(() => Promise.resolve()),
+  rememberSignInDevice: vi.fn(() => Promise.resolve()),
+  revokeSignInDevices: vi.fn(() => Promise.resolve()),
+}));
 vi.mock('@evtivity/database', () => ({
   db: {
     select: vi.fn(() => makeChain()),
@@ -53,6 +64,7 @@ vi.mock('@evtivity/database', () => ({
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
   },
+  driverPushTokens: { driverId: 'driverId' },
   refreshTokens: {
     id: 'id',
     userId: 'userId',
@@ -70,6 +82,7 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ type: 'eq', val })),
   and: vi.fn((...args: unknown[]) => ({ type: 'and', args })),
   isNull: vi.fn((col: unknown) => ({ type: 'isNull', col })),
+  isNotNull: vi.fn((col: unknown) => ({ type: 'isNotNull', col })),
   sql: vi.fn(() => ({ type: 'sql' })),
 }));
 
@@ -84,7 +97,7 @@ import {
   endDriverSessions,
   revokeAllUserSessions,
 } from '../services/refresh-token.service.js';
-import { db, drivers, refreshTokens } from '@evtivity/database';
+import { db, drivers, driverPushTokens, refreshTokens } from '@evtivity/database';
 import { announceDriverSessionChange } from '../lib/driver-active.js';
 import { DEFAULT_SESSION_LIFETIMES } from '@evtivity/lib/session-lifetimes';
 
@@ -152,7 +165,7 @@ describe('validateAndRotateRefreshToken', () => {
     // revoked_at WAS NULL at update time).
     setupDbResults([row], [{ id: 42 }]);
 
-    const result = await validateAndRotateRefreshToken('raw-token-value');
+    const result = await validateAndRotateRefreshToken('raw-token-value', { realm: 'operator' });
 
     expect(result).toEqual({
       userId: 'usr_abc123',
@@ -177,7 +190,7 @@ describe('validateAndRotateRefreshToken', () => {
     };
     setupDbResults([row], []);
 
-    const result = await validateAndRotateRefreshToken('expired-token');
+    const result = await validateAndRotateRefreshToken('expired-token', { realm: 'operator' });
 
     expect(result).toBeNull();
     expect(db.update).toHaveBeenCalled();
@@ -187,7 +200,7 @@ describe('validateAndRotateRefreshToken', () => {
     // The query filters by isNull(revokedAt), so a revoked token returns empty
     setupDbResults([]);
 
-    const result = await validateAndRotateRefreshToken('revoked-token');
+    const result = await validateAndRotateRefreshToken('revoked-token', { realm: 'operator' });
 
     expect(result).toBeNull();
     expect(db.update).not.toHaveBeenCalled();
@@ -196,7 +209,7 @@ describe('validateAndRotateRefreshToken', () => {
   it('returns null for a non-existent token', async () => {
     setupDbResults([]);
 
-    const result = await validateAndRotateRefreshToken('nonexistent-token');
+    const result = await validateAndRotateRefreshToken('nonexistent-token', { realm: 'operator' });
 
     expect(result).toBeNull();
   });
@@ -220,7 +233,7 @@ describe('validateAndRotateRefreshToken', () => {
     };
     setupDbResults([row], []);
 
-    const result = await validateAndRotateRefreshToken('replayed-token');
+    const result = await validateAndRotateRefreshToken('replayed-token', { realm: 'operator' });
 
     expect(result).toBeNull();
   });
@@ -241,7 +254,7 @@ describe('validateAndRotateRefreshToken', () => {
     // revoked row id signals the rotation won.
     setupDbResults([row], [{ id: 99 }]);
 
-    const result = await validateAndRotateRefreshToken('non-expiring-token');
+    const result = await validateAndRotateRefreshToken('non-expiring-token', { realm: 'operator' });
 
     expect(result).toEqual({
       userId: null,
@@ -265,7 +278,9 @@ describe('validateAndRotateRefreshToken', () => {
     };
     setupDbResults([row]);
 
-    const result = await validateAndRotateRefreshToken('recently-rotated-token');
+    const result = await validateAndRotateRefreshToken('recently-rotated-token', {
+      realm: 'operator',
+    });
 
     expect(result).toBeNull();
     // No mass-revocation: the grace window swallows the replay silently.
@@ -286,7 +301,7 @@ describe('validateAndRotateRefreshToken', () => {
     };
     setupDbResults([row], []);
 
-    const result = await validateAndRotateRefreshToken('stolen-token');
+    const result = await validateAndRotateRefreshToken('stolen-token', { realm: 'operator' });
 
     expect(result).toBeNull();
     // revokeAllUserSessions fired its single mass-revocation UPDATE.
@@ -306,7 +321,7 @@ describe('validateAndRotateRefreshToken', () => {
     };
     setupDbResults([row], []);
 
-    const result = await validateAndRotateRefreshToken('stolen-driver-token');
+    const result = await validateAndRotateRefreshToken('stolen-driver-token', { realm: 'driver' });
 
     expect(result).toBeNull();
     // The session version (access tokens) and every refresh token.
@@ -331,7 +346,7 @@ describe('revokeRefreshToken', () => {
   it('revokes a token by raw value', async () => {
     setupDbResults([]);
 
-    await revokeRefreshToken('some-raw-token');
+    await revokeRefreshToken('some-raw-token', { userId: 'usr_000000000001' });
 
     expect(db.update).toHaveBeenCalled();
   });
@@ -380,5 +395,7 @@ describe('endDriverSessions', () => {
 
     expect(vi.mocked(db.update).mock.calls.map((c) => c[0])).toEqual([drivers, refreshTokens]);
     expect(announceDriverSessionChange).toHaveBeenCalledWith('drv_xyz789');
+    // The devices of the ended sessions get no more pushes.
+    expect(vi.mocked(db.delete).mock.calls.map((c) => c[0])).toContainEqual(driverPushTokens);
   });
 });

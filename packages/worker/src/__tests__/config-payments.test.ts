@@ -17,17 +17,16 @@ describe('PAYMENTS_ALLOW_SIMULATED', () => {
     vi.unstubAllEnvs();
   });
 
-  it('defaults to on in development, test, and when NODE_ENV is unset', async () => {
+  it('defaults to on in development and test only', async () => {
     const unset = { PAYMENTS_ALLOW_SIMULATED: undefined };
     expect(await allowSimulated({ ...unset, NODE_ENV: 'development' })).toBe(true);
     expect(await allowSimulated({ ...unset, NODE_ENV: 'test' })).toBe(true);
-    expect(await allowSimulated({ ...unset, NODE_ENV: undefined })).toBe(true);
   });
 
-  it('defaults to off in production', async () => {
-    expect(
-      await allowSimulated({ PAYMENTS_ALLOW_SIMULATED: undefined, NODE_ENV: 'production' }),
-    ).toBe(false);
+  it('defaults to off in production and when NODE_ENV is unset', async () => {
+    const unset = { PAYMENTS_ALLOW_SIMULATED: undefined };
+    expect(await allowSimulated({ ...unset, NODE_ENV: 'production' })).toBe(false);
+    expect(await allowSimulated({ ...unset, NODE_ENV: undefined })).toBe(false);
   });
 
   it('follows an explicit value and rejects anything else', async () => {
@@ -62,5 +61,18 @@ describe('OCTT_OCSP_RESPONDER_URL', () => {
   it('takes a URL and rejects anything else', async () => {
     expect(await responderUrl('http://worker:7110/ocsp')).toBe('http://worker:7110/ocsp');
     await expect(responderUrl('worker 7110')).rejects.toThrow();
+  });
+});
+
+describe('allowsDevelopmentRelaxations', () => {
+  it('allows private AI base URLs only with NODE_ENV development', async () => {
+    vi.resetModules();
+    vi.stubEnv('SETTINGS_ENCRYPTION_KEY', 'k');
+    const { allowsDevelopmentRelaxations } = await import('../lib/config.js');
+    expect(allowsDevelopmentRelaxations({ NODE_ENV: 'development' })).toBe(true);
+    expect(allowsDevelopmentRelaxations({})).toBe(false);
+    expect(allowsDevelopmentRelaxations({ NODE_ENV: 'production' })).toBe(false);
+    expect(allowsDevelopmentRelaxations({ NODE_ENV: 'test' })).toBe(false);
+    vi.unstubAllEnvs();
   });
 });

@@ -63,6 +63,12 @@ export const users = pgTable(
     // a SAML sign-in). While SSO is enabled an SSO account has no password
     // sign-in, reset or change.
     authSource: varchar('auth_source', { length: 20 }).notNull().default('password'),
+    // The IdP subject (issuer and NameID) of the account's first SSO sign-in: later
+    // SSO sign-ins match on it, never on the asserted email alone.
+    ssoSubject: text('sso_subject'),
+    // An admin, or the user with a fresh proof, allowed SSO to link this password
+    // account at its next SSO sign-in (cleared when the subject is stored).
+    ssoLinkAllowed: boolean('sso_link_allowed').notNull().default(false),
     // Raised by every change that must end the access tokens issued before it
     // (logout, password, MFA, role, permissions, deactivation). An access
     // token carries the version it was issued under (`sv`).
@@ -84,6 +90,9 @@ export const users = pgTable(
   (table) => [
     index('idx_users_email').on(table.email),
     index('idx_users_role_id').on(table.roleId),
+    uniqueIndex('idx_users_sso_subject')
+      .on(table.ssoSubject)
+      .where(sql`"sso_subject" IS NOT NULL`),
     check('users_auth_source_check', sql`"auth_source" IN ('password', 'sso')`),
   ],
 );
@@ -108,6 +117,29 @@ export const userTokens = pgTable(
       'user_tokens_exactly_one_actor',
       sql`("user_id" IS NOT NULL AND "driver_id" IS NULL) OR ("user_id" IS NULL AND "driver_id" IS NOT NULL)`,
     ),
+  ],
+);
+
+// A browser that signed in to the account before (OWASP device cookies): the
+// SHA-256 of its cookie, and its own password failure count and lock, so the
+// account lockout another client causes never locks this browser out.
+export const signInDevices = pgTable(
+  'sign_in_devices',
+  {
+    id: serial('id').primaryKey(),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    driverId: text('driver_id').references(() => drivers.id, { onDelete: 'cascade' }),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+    failedCount: integer('failed_count').notNull().default(0),
+    lockedUntil: timestamp('locked_until', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp('last_used_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('idx_sign_in_devices_token_hash').on(table.tokenHash),
+    index('idx_sign_in_devices_user_id').on(table.userId),
+    index('idx_sign_in_devices_driver_id').on(table.driverId),
+    check('sign_in_devices_one_account', sql`("user_id" IS NOT NULL) <> ("driver_id" IS NOT NULL)`),
   ],
 );
 

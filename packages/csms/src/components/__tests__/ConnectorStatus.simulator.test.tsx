@@ -25,6 +25,7 @@ vi.mock('@/lib/api', () => {
 });
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock('@/lib/auth', () => ({ useHasPermission: () => true }));
+vi.mock('@/lib/ocpp-command-access', () => ({ useCanSendOcppCommand: () => () => true }));
 
 import { ApiError } from '@/lib/api';
 import { ConnectorStatus } from '../charts/ConnectorStatus';

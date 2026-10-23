@@ -6,8 +6,8 @@ import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/ui/password-input';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
+import { CardContent, CardHeader } from '@/components/ui/card';
+import { AuthLayout } from '@/components/AuthLayout';
 import { api, ApiError } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { passwordRulesMessage } from '@/lib/password-rules';
@@ -37,8 +37,6 @@ export function Activate(): React.JSX.Element {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
   const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
-
-  const { companyName, companyLogo, branding } = useAuthBranding();
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
@@ -83,115 +81,111 @@ export function Activate(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <AuthBranding companyName={companyName} companyLogo={companyLogo} />
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <h2 className="text-2xl font-semibold">{t('auth.activateTitle')}</h2>
-          {!success && !linkInvalid && (
-            <p className="text-sm text-muted-foreground">{t('auth.activateSubtitle')}</p>
-          )}
-        </CardHeader>
-        <CardContent>
-          {linkInvalid ? (
-            <div className="space-y-4">
-              <p className="text-sm text-destructive">{t('auth.invalidActivateLink')}</p>
-              <p className="text-sm text-muted-foreground">{t('auth.activateAskOperator')}</p>
-              <Link
-                to="/login"
-                className="block text-center text-sm font-medium text-link hover:underline"
-              >
-                {t('auth.backToLogin')}
-              </Link>
-            </div>
-          ) : success ? (
-            <div className="space-y-4">
-              <p className="text-sm text-success">{t('auth.activateSuccess')}</p>
-              <Link
-                to="/login"
-                className="block text-center text-sm font-medium text-link hover:underline"
-              >
-                {t('auth.backToLogin')}
-              </Link>
-            </div>
-          ) : (
-            <form
-              onSubmit={(e) => {
-                void handleSubmit(e);
-              }}
-              noValidate
-              className="space-y-4"
+    <AuthLayout>
+      <CardHeader className="text-center">
+        <h2 className="text-2xl font-semibold">{t('auth.activateTitle')}</h2>
+        {!success && !linkInvalid && (
+          <p className="text-sm text-muted-foreground">{t('auth.activateSubtitle')}</p>
+        )}
+      </CardHeader>
+      <CardContent>
+        {linkInvalid ? (
+          <div className="space-y-4">
+            <p className="text-sm text-destructive">{t('auth.invalidActivateLink')}</p>
+            <p className="text-sm text-muted-foreground">{t('auth.activateAskOperator')}</p>
+            <Link
+              to="/login"
+              className="block text-center text-sm font-medium text-link hover:underline"
             >
-              <div className="space-y-2">
-                <label htmlFor="password" className="block text-sm font-medium leading-6">
-                  {t('auth.newPassword')}
-                </label>
-                <PasswordInput
-                  id="password"
-                  value={password}
-                  aria-invalid={hasSubmitted && validationErrors.password ? true : undefined}
-                  aria-describedby={
-                    hasSubmitted && validationErrors.password
-                      ? 'password-error password-requirements'
-                      : 'password-requirements'
-                  }
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setServerMissing(null);
-                  }}
-                  className={hasSubmitted && validationErrors.password ? 'border-destructive' : ''}
-                />
-                {hasSubmitted && validationErrors.password && (
-                  <p id="password-error" className="text-sm text-destructive">
-                    {validationErrors.password}
-                  </p>
-                )}
-                <PasswordRequirements
-                  policy={passwordPolicy}
-                  serverMissing={serverMissing}
-                  id="password-requirements"
-                  password={password}
-                  showUnmet={hasSubmitted}
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="confirmPassword" className="block text-sm font-medium leading-6">
-                  {t('auth.confirmPassword')}
-                </label>
-                <PasswordInput
-                  id="confirmPassword"
-                  value={confirmPassword}
-                  onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                  }}
-                  className={
-                    hasSubmitted && validationErrors.confirmPassword ? 'border-destructive' : ''
-                  }
-                />
-                {hasSubmitted && validationErrors.confirmPassword && (
-                  <p className="text-sm text-destructive">{validationErrors.confirmPassword}</p>
-                )}
-              </div>
-              {error != null && <p className="text-sm text-destructive">{error}</p>}
-              <Button type="submit" className="relative w-full" disabled={loading}>
-                {loading && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  </div>
-                )}
-                <span className={loading ? 'invisible' : ''}>{t('auth.activateSubmit')}</span>
-              </Button>
-              <Link
-                to="/login"
-                className="block text-center text-sm font-medium text-link hover:underline"
-              >
-                {t('auth.backToLogin')}
-              </Link>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-      <AuthFooter companyName={companyName} branding={branding} />
-    </div>
+              {t('auth.backToLogin')}
+            </Link>
+          </div>
+        ) : success ? (
+          <div className="space-y-4">
+            <p className="text-sm text-success">{t('auth.activateSuccess')}</p>
+            <Link
+              to="/login"
+              className="block text-center text-sm font-medium text-link hover:underline"
+            >
+              {t('auth.backToLogin')}
+            </Link>
+          </div>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              void handleSubmit(e);
+            }}
+            noValidate
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <label htmlFor="password" className="block text-sm font-medium leading-6">
+                {t('auth.newPassword')}
+              </label>
+              <PasswordInput
+                id="password"
+                value={password}
+                aria-invalid={hasSubmitted && validationErrors.password ? true : undefined}
+                aria-describedby={
+                  hasSubmitted && validationErrors.password
+                    ? 'password-error password-requirements'
+                    : 'password-requirements'
+                }
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setServerMissing(null);
+                }}
+                className={hasSubmitted && validationErrors.password ? 'border-destructive' : ''}
+              />
+              {hasSubmitted && validationErrors.password && (
+                <p id="password-error" className="text-sm text-destructive">
+                  {validationErrors.password}
+                </p>
+              )}
+              <PasswordRequirements
+                policy={passwordPolicy}
+                serverMissing={serverMissing}
+                id="password-requirements"
+                password={password}
+                showUnmet={hasSubmitted}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="confirmPassword" className="block text-sm font-medium leading-6">
+                {t('auth.confirmPassword')}
+              </label>
+              <PasswordInput
+                id="confirmPassword"
+                value={confirmPassword}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                }}
+                className={
+                  hasSubmitted && validationErrors.confirmPassword ? 'border-destructive' : ''
+                }
+              />
+              {hasSubmitted && validationErrors.confirmPassword && (
+                <p className="text-sm text-destructive">{validationErrors.confirmPassword}</p>
+              )}
+            </div>
+            {error != null && <p className="text-sm text-destructive">{error}</p>}
+            <Button type="submit" className="relative w-full" disabled={loading}>
+              {loading && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                </div>
+              )}
+              <span className={loading ? 'invisible' : ''}>{t('auth.activateSubmit')}</span>
+            </Button>
+            <Link
+              to="/login"
+              className="block text-center text-sm font-medium text-link hover:underline"
+            >
+              {t('auth.backToLogin')}
+            </Link>
+          </form>
+        )}
+      </CardContent>
+    </AuthLayout>
   );
 }

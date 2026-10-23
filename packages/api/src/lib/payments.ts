@@ -9,8 +9,10 @@ import {
   PAYMENT_SYSTEM_ACTOR,
   queueSimulatedSink,
   resolveActiveProvider,
+  resolveActivePaymentState,
 } from '@evtivity/payments';
 import type {
+  ActivePaymentState,
   PaymentActor,
   PaymentContext,
   PaymentLogger,
@@ -70,4 +72,13 @@ export function isPaymentSettingKey(key: string): boolean {
 export function activePaymentProvider(logger: PaymentLogger): Promise<PaymentProvider | null> {
   // A read: resolving the provider writes nothing.
   return resolveActiveProvider(paymentContext(logger, PAYMENT_SYSTEM_ACTOR));
+}
+
+/**
+ * Whether new payments are off, active, or selected but unusable in this
+ * process (resolveActivePaymentState). A session start that would charge is
+ * refused while `unavailable`.
+ */
+export function activePaymentState(logger: PaymentLogger): Promise<ActivePaymentState> {
+  return resolveActivePaymentState(paymentContext(logger, PAYMENT_SYSTEM_ACTOR));
 }

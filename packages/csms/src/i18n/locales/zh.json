@@ -135,6 +135,7 @@
     "dashboard": "仪表盘",
     "sites": "站点",
     "stations": "充电站",
+    "sims": "SIM 卡",
     "sessions": "会话",
     "drivers": "驾驶员",
     "transactions": "交易记录",
@@ -200,6 +201,13 @@
       "privateNetworkSaved": "网络访问设置已保存",
       "allowRawToken": "接受未编码的令牌",
       "allowRawTokenHint": "适用于发送未经 Base64 编码的凭据令牌的 OCPI 2.1.1 和 2.2 合作伙伴。我们的令牌也将以相同方式发送给对方。OCPI 2.2.1 和 2.3.0 合作伙伴请保持关闭。",
+      "approvedRoles": "已批准角色",
+      "approvedRolesHint": "CSMS 仅按已批准的角色执行：CPO 或 HUB 合作伙伴可读取驾驶员令牌，HUB 合作伙伴可发送集线器客户端信息。合作伙伴声明的角色只有在此处批准后才会使用。",
+      "rolesNotDecided": "尚未确定。在您于此处批准其角色之前，CSMS 不按该合作伙伴的任何角色执行。",
+      "declaredRoles": "合作伙伴声明的角色：{{roles}}",
+      "noDeclaredRoles": "合作伙伴尚未声明任何角色。",
+      "heldRoles": "已声明但未批准：{{roles}}。CSMS 不按这些角色执行。",
+      "approvedRolesSaved": "已保存已批准角色",
       "rawTokenSaved": "令牌编码已保存",
       "newRegistrationToken": "新注册令牌",
       "newRegistrationTokenTitle": "新注册令牌",
@@ -360,6 +368,7 @@
     "recoveryCodeSubtitle": "输入您的一个恢复码",
     "recoveryCodeLabel": "恢复码",
     "recoveryCodeInvalid": "恢复码无效或已使用，请重试。",
+    "recoveryCodeIncomplete": "输入完整的10位恢复码",
     "mfaMethodSwitchedOff": "管理员已关闭{{method}}验证。请使用恢复码登录。",
     "mfaSetupTitle": "设置双重身份验证",
     "mfaSetupDescription": "管理员要求使用第二重验证。请设置一种方式以完成登录。",
@@ -374,7 +383,9 @@
     "passkeyFailed": "无法使用通行密钥。请重试或使用密码登录。",
     "passkeyResetRequired": "您必须更改密码。请使用电子邮件和密码登录以更改密码。",
     "mfaSetupPasskeyHint": "使用指纹、面容、屏幕锁或安全密钥。",
-    "mfaSetupUsePasskey": "设置通行密钥或安全密钥"
+    "mfaSetupUsePasskey": "设置通行密钥或安全密钥",
+    "chargingPortalLink": "{{name}} 充电门户",
+    "ssoLinkRequired": "此账户尚未关联单点登录。请使用密码登录并在个人资料中允许 SSO 登录，或联系您的管理员。"
   },
   "dashboard": {
     "title": "仪表盘",
@@ -547,7 +558,7 @@
     "qrCodesDescription": "此站点所有充电站的二维码。打印并放置在每个充电桩上，供访客扫码充电。",
     "exportCsv": "导出 CSV",
     "importCsv": "导入 CSV",
-    "downloadTemplate": "模板",
+    "downloadTemplate": "下载模板",
     "importing": "导入中...",
     "importResults": "导入结果",
     "sitesCreated": "已创建站点: {{count}}",
@@ -1093,13 +1104,12 @@
           "providerOff": "提供商：已跳过，没有启用的 SIM 提供商。",
           "inProgress": "提供商：已跳过，此充电站的另一次刷新正在进行。",
           "notConfirmed": "提供商：已跳过，SIM 确认之前不会获取任何数据。",
-          "other": "提供商：已跳过。"
-        },
-        "providerNotMatched": {
+          "other": "提供商：已跳过。",
+          "inProgressSim": "提供商：已跳过，此 SIM 的另一次刷新正在进行。",
+          "notFound": "提供商：已跳过，没有已启用的提供商认识此 SIM。",
           "noIccid": "提供商：已跳过，充电站没有 ICCID。",
-          "notFound": "提供商：已跳过，没有已启用的提供商识别此 SIM。",
-          "simMatchedElsewhere": "提供商：已跳过，另一个充电站已确认匹配此 SIM。",
-          "other": "提供商：已跳过，SIM 未匹配到提供商。"
+          "attachedElsewhere": "提供商：已跳过，该 SIM 已关联到另一个充电站，因此未关联到此充电站。",
+          "attachConflict": "提供商：已跳过，同时有其他 SIM 关联更改在运行。未关联任何内容。请再次点击刷新。"
         },
         "providerFailed": {
           "auth": "提供商：失败，提供商拒绝了 API 密钥。",
@@ -1135,13 +1145,16 @@
       "notFetchedYet": "尚未获取。请选择周期并点击刷新。",
       "emptyNotFound": "没有已启用的 SIM 提供商认识此 ICCID。",
       "lookUpAgain": "重新查找",
-      "emptyMatchedElsewhere": "此 SIM 已匹配到另一个充电站。一张 SIM 只服务一个充电站，因此此充电站不显示 SIM 数据。",
+      "emptyAttachedElsewhere": "此充电站 ICCID 对应的 SIM 已关联到另一个充电站。一张 SIM 同一时间只关联一个充电站，因此此充电站不显示 SIM 数据。",
+      "emptySimInactive": "此充电站 ICCID 对应的 SIM 已停用。它未关联到此充电站，在用户于其 SIM 页面重新启用之前，不会为它获取或重置任何内容。",
+      "findSim": "查找 SIM",
       "confirmSim": "确认 SIM",
       "resetNetwork": "重置网络",
       "resetNeedsConfirm": "重置网络前请先确认 SIM。",
-      "clearMatch": "解除匹配",
-      "clearMatchDescription": "移除此充电站与其 SIM 卡之间的关联。下次刷新会根据 ICCID 重新查找 SIM 卡，新的匹配在重置网络前需要再次确认 SIM。",
-      "clearMatchSuccess": "已解除 SIM 匹配",
+      "detachSim": "解除 SIM 关联",
+      "viewSim": "查看 SIM",
+      "detachSimDescription": "解除此充电站 SIM 的关联。SIM、其关联历史以及已存储的会话和告警都会保留。下次刷新会关联充电站报告的 ICCID 对应的 SIM，该关联在获取或重置任何内容之前需要确认 SIM。",
+      "detachSimSuccess": "SIM 关联已解除。",
       "rateLimitedRetry": "请求过多。请在 {{seconds}} 秒后重试。",
       "unconfirmedNotice": "在有权访问所有站点的用户通过“确认 SIM”确认之前，不会从 {{provider}} 获取此 SIM 的任何数据。",
       "fetchedAt": "获取于 {{time}}",
@@ -1172,9 +1185,15 @@
       "fromStationTitle": "来自充电站",
       "readAt": "读取于 {{time}}",
       "confirmDescription": "确认 {{provider}} 的 SIM {{iccid}} 属于此充电站。已确认的 SIM 可以在此页面重置网络。",
-      "confirmSourceStation": "ICCID 来源：充电站报告。",
-      "confirmSourceEntered": "ICCID 来源：由 {{name}} 输入。",
-      "confirmSourceEnteredUnknown": "ICCID 来源：由用户输入。",
+      "confirmSource": {
+        "reported": "ICCID 来源：充电站报告。",
+        "entered": "ICCID 来源：由 {{name}} 在充电站上输入。",
+        "enteredUnknown": "ICCID 来源：由另一位用户在充电站上输入。",
+        "attached": "ICCID 来源：由 {{name}} 在 SIM 页面上关联。",
+        "attachedUnknown": "ICCID 来源：由另一位用户在 SIM 页面上关联。",
+        "imported": "ICCID 来源：由 {{name}} 从 CSV 文件导入。",
+        "importedUnknown": "ICCID 来源：由另一位用户从 CSV 文件导入。"
+      },
       "confirmSuccess": "SIM 已确认",
       "resetDescription": "提供商会结束充电站的数据会话，充电站将重新连接蜂窝网络。重新连接之前，充电站可能处于离线状态。",
       "resetSuccess": "已发送网络重置。几分钟后点击刷新即可查看新会话。",
@@ -1272,6 +1291,11 @@
         "readDeviceModelSent": "已请求设备模型。请一分钟后点击刷新。",
         "ocpp16Keys": "SIM 设置中指定的 OCPP 1.6 配置键，按充电站报告的值显示。",
         "noOcpp16Keys": "SIM 设置中未设置 OCPP 1.6 信号键，因此刷新不会从此充电站读取任何内容。"
+      },
+      "attachmentResult": {
+        "attachedElsewhere": "ICCID 已保存。其 SIM 已关联到另一个充电站，因此未关联到此充电站。",
+        "simInactive": "ICCID 已保存。其 SIM 已停用，因此未关联到此充电站。请在其 SIM 页面上重新启用。",
+        "attachConflict": "ICCID 已保存。同时有其他 SIM 关联更改在运行，因此未关联 SIM。请在连接选项卡上点击刷新以关联它。"
       }
     },
     "simCoverage": {
@@ -1285,6 +1309,145 @@
       "unavailable": "已不可用",
       "dayLabel": "{{date}}：{{label}}",
       "notFetchedRange": "未获取：{{from}} 至 {{to}}"
+    }
+  },
+  "sims": {
+    "title": "SIM 卡",
+    "subtitle": "充电站中的 SIM 卡，以及未关联到充电站的 SIM 卡。",
+    "search": "搜索",
+    "searchPlaceholder": "按 ICCID、IMSI 或标签搜索",
+    "featureOff": "SIM 功能已关闭。请在“设置 > 集成与功能”中开启 SIM 提供商或充电站信号读取，以列出 SIM 卡。",
+    "noSims": "未找到 SIM 卡。",
+    "notFetched": "未获取",
+    "notAttached": "未关联",
+    "downloadTemplate": "下载模板",
+    "importConfirmTitle": "导入 SIM 卡",
+    "importResult": {
+      "created": "已创建 SIM 卡: {{count}}",
+      "updated": "已更新 SIM 卡: {{count}}",
+      "attached": "已关联到充电站的 SIM 卡: {{count}}"
+    },
+    "columns": {
+      "iccid": "ICCID",
+      "label": "标签",
+      "provider": "提供商",
+      "csmsStatus": "CSMS 状态",
+      "providerStatus": "提供商状态",
+      "station": "充电站",
+      "confirmed": "已确认",
+      "lastFetched": "上次获取",
+      "created": "创建时间"
+    },
+    "filters": {
+      "provider": "提供商",
+      "allProviders": "所有提供商",
+      "attachment": "关联",
+      "allAttachments": "所有关联",
+      "csmsStatus": "CSMS 状态",
+      "allCsmsStatuses": "所有 CSMS 状态",
+      "providerStatus": "提供商状态",
+      "allProviderStatuses": "所有提供商状态",
+      "station": "充电站",
+      "allStations": "所有充电站"
+    },
+    "attachmentFilter": {
+      "attached": "已关联",
+      "unattached": "未关联",
+      "unconfirmed": "已关联，未确认"
+    },
+    "csmsStatus": {
+      "active": "活跃",
+      "inactive": "未激活"
+    },
+    "detail": {
+      "notFound": "未找到 SIM。",
+      "tabs": {
+        "details": "详情",
+        "sessions": "会话",
+        "attachments": "关联",
+        "history": "历史"
+      },
+      "detailsTitle": "SIM 详情",
+      "iccid": "ICCID",
+      "imsi": "IMSI",
+      "label": "标签",
+      "notes": "备注",
+      "provider": "提供商",
+      "providerRef": "提供商 SIM ID",
+      "created": "创建时间",
+      "csmsStatus": "CSMS 状态",
+      "csmsStatusHint": "在此通过停用和重新启用设置。下方的提供商状态通过刷新从 SIM 提供商获取。",
+      "providerStatus": "提供商状态",
+      "deactivatedAt": "停用于 {{time}}",
+      "deactivatedBy": "{{name}} 停用于 {{time}}",
+      "deactivate": "停用 SIM",
+      "reactivate": "重新启用 SIM",
+      "deactivateDescription": "SIM 保留在库存中，并解除与充电站的关联。停用期间不能关联、刷新或重置。不会调用 SIM 提供商，其状态也不会改变。",
+      "reactivateDescription": "SIM 重新变为启用状态。它不会关联到充电站，也不会调用 SIM 提供商。",
+      "deactivateSuccess": "SIM 已停用。",
+      "reactivateSuccess": "SIM 已重新启用。",
+      "delete": "删除 SIM",
+      "deleteDescription": "删除 SIM {{iccid}} 及其关联历史和已保存的会话、告警和已获取的日期。此操作无法撤销。",
+      "deleteSuccess": "SIM 已删除。",
+      "deleteAttachedReason": "删除前请先解除 SIM 的关联。",
+      "inactiveReason": "此 SIM 已停用。请先重新启用。",
+      "noRecentAlerts": "此 SIM 没有存储的 SIM 警报。",
+      "refreshTitle": "提供商数据",
+      "refreshHint": "刷新只读取 SIM 提供商，不向充电站发送任何内容。打开此页面不会获取任何数据。",
+      "noProvider": "尚不知道此 SIM 的 SIM 提供商。刷新会查找它。",
+      "providerNotFound": "没有已启用的 SIM 提供商认识此 SIM。",
+      "resetDescription": "SIM 提供商结束 SIM 的数据会话，设备重新连接蜂窝网络。使用此 SIM 的充电站在重新连接前可能离线。",
+      "editTitle": "编辑 SIM",
+      "labelHint": "最多 {{max}} 个字符。",
+      "imsiHint": "最多 15 位数字。留空可删除 IMSI。",
+      "imsiInvalid": "请输入最多 15 位数字。",
+      "notesHint": "最多 {{max}} 个字符。",
+      "saveFailed": "SIM 未保存。请重试。",
+      "attachments": {
+        "currentTitle": "当前关联",
+        "historyTitle": "关联历史",
+        "notAttached": "此 SIM 未关联到充电站。",
+        "noHistory": "此 SIM 尚未关联过。",
+        "station": "充电站",
+        "site": "站点",
+        "source": "来源",
+        "attached": "关联时间",
+        "attachedBy": "关联人",
+        "confirmed": "已确认",
+        "notConfirmed": "未确认",
+        "open": "当前",
+        "paymentTerminal": "支付终端",
+        "unconfirmedNotice": "此关联尚未确认。确认此 SIM 位于充电站 {{station}} 后，请确认 SIM。",
+        "confirmDescription": "确认 SIM {{iccid}} 是充电站 {{station}} 中的 SIM。",
+        "detach": "解除 SIM 关联",
+        "detachDescription": "解除 SIM {{iccid}} 与充电站 {{station}} 的关联。已保存的会话和告警保留在 SIM 上。",
+        "detachSuccess": "SIM 关联已解除。",
+        "attach": "关联到充电站",
+        "attachTitle": "关联到充电站",
+        "attachDescription": "SIM 关联到充电站并立即确认。已有 SIM 的充电站会被拒绝。",
+        "attachSuccess": "SIM 已关联到充电站 {{station}}。",
+        "sourceLabel": {
+          "reported": "由充电站报告",
+          "entered": "在充电站上输入",
+          "attached": "在 SIM 页面上关联",
+          "imported": "从 CSV 文件导入"
+        },
+        "reason": {
+          "detached": "已解除关联",
+          "iccidChanged": "充电站报告了另一个 ICCID",
+          "replaced": "在充电站上输入了另一张 SIM",
+          "displaced": "移到了另一个充电站",
+          "deactivated": "SIM 已停用"
+        },
+        "columns": {
+          "station": "充电站",
+          "site": "站点",
+          "source": "来源",
+          "attached": "关联时间",
+          "detached": "解除时间",
+          "reason": "原因"
+        }
+      }
     }
   },
   "eventAlertRules": {
@@ -1747,6 +1910,7 @@
     "permissionGroups": {
       "dashboard": "仪表盘",
       "stations": "充电站",
+      "sims": "SIM 卡",
       "sites": "站点",
       "sessions": "会话",
       "drivers": "驾驶员",
@@ -1791,9 +1955,25 @@
     "mfaOffDescription": "该用户登录时不使用第二重验证。",
     "mfaReset": "重置 MFA",
     "mfaResetConfirm": "关闭该用户的第二重验证并在所有设备上注销？用户仅凭密码登录，并可重新设置 MFA。",
+    "mfaResetProofHint": "请确认您的身份以关闭该用户的第二重验证。",
     "mfaResetSuccess": "MFA 已重置",
     "apiKeysDescription": "该用户的有效 API 密钥。请撤销用户不再需要或可能已泄露的密钥。",
-    "noApiKeys": "该用户没有有效的 API 密钥。"
+    "noApiKeys": "该用户没有有效的 API 密钥。",
+    "adminProofHint": "此用户将获得管理员权限。请确认您的身份以创建该用户。",
+    "grantProofHint": "请确认您的身份以授予新权限。",
+    "resetProofHint": "请确认您的身份以重置此用户的密码。",
+    "resendProofHint": "请确认您的身份以发送新的密码设置链接。",
+    "emailProofHint": "此用户拥有管理员权限。请确认您的身份以更改电子邮件地址或电话号码，或重新启用该账户。",
+    "roleProofHint": "新角色会授予此用户尚未拥有的权限。请确认您的身份以更改角色。",
+    "ssoLinkTitle": "单点登录",
+    "ssoLinkDescription": "只有在允许关联后，SSO 才会登录现有的密码账户。之后第一次 SSO 登录会将账户绑定到其身份提供商用户。",
+    "ssoLinked": "已关联：此账户使用其身份提供商用户登录。",
+    "ssoLinkPending": "已允许：下一次 SSO 登录将关联此账户。",
+    "ssoLinkAllow": "允许 SSO 登录",
+    "ssoLinkWithdraw": "撤回",
+    "ssoLinkProofHint": "请确认您的身份，以允许单点登录以此账户登录。",
+    "ssoUnlink": "移除关联",
+    "ssoUnlinkProofHint": "请确认您的身份，以移除此账户与其身份提供商用户之间的关联。"
   },
   "profile": {
     "title": "个人资料",
@@ -1817,7 +1997,6 @@
     "mfaMethodTotp": "身份验证器应用",
     "mfaMethodSms": "短信",
     "mfaSetUp": "设置",
-    "mfaSettingUp": "设置中...",
     "mfaDisable": "停用 MFA",
     "mfaDisableConfirm": "请使用您已有的验证因素或恢复码确认身份。停用 MFA 也会删除您的通行密钥和恢复码。",
     "mfaSetupPasswordHint": "输入当前密码以设置 MFA",
@@ -1826,7 +2005,6 @@
     "mfaManualEntry": "手动输入密钥",
     "mfaEnterCode": "输入6位验证码",
     "mfaVerify": "验证",
-    "mfaVerifying": "验证中...",
     "mfaSetupFailed": "启动 MFA 设置失败。",
     "mfaVerifyFailed": "验证码无效。",
     "mfaDisableFailed": "停用 MFA 失败。",
@@ -2225,7 +2403,8 @@
     "connectorIdRequired": "连接器 ID",
     "retries": "重试次数 (可选)",
     "retryInterval": "重试间隔 (可选)",
-    "validationFailed": "负载验证失败"
+    "validationFailed": "负载验证失败",
+    "hiddenByPermission": "部分命令已隐藏，因为它们需要您没有的写入权限，例如固件、充电站配置、证书、智能充电、定价、预约、会话或驾驶员。"
   },
   "ocppLogs": {
     "title": "OCPP 消息日志",
@@ -2473,6 +2652,17 @@
     "webhookAllowedPrivateHostsHint": "每行填写一个主机，允许 Webhook 通过私有地址访问它（例如自建的自动化服务器）。填写主机名或 IP 地址，不含协议和端口。最多 20 个。",
     "webhooksSaved": "Webhook 设置已保存。",
     "webhooksSaveFailed": "保存 Webhook 设置失败。",
+    "webhookSigningSecret": "签名密钥",
+    "webhookSigningSecretHint": "每个 Webhook 都带有用此密钥生成的 X-EVtivity-Signature: t=<Unix 时间>,v1=<\"<t>.<原始正文>\" 的十六进制 HMAC-SHA256>。接收方重新计算以确认请求来自本 CSMS，并拒绝过旧的 t。",
+    "webhookSigningSecretConfigured": "已设置签名密钥。Webhook 会被签名。",
+    "webhookSigningSecretNotConfigured": "没有签名密钥。Webhook 以未签名方式发送。",
+    "webhookSigningSecretGenerate": "生成密钥",
+    "webhookSigningSecretRegenerate": "重新生成密钥",
+    "webhookSigningSecretRegenerateConfirm": "当前密钥立即失效。接收方必须改用新密钥，否则会拒绝之后的 Webhook。",
+    "webhookSigningSecretRemove": "移除密钥",
+    "webhookSigningSecretRemoveConfirm": "在生成新密钥之前，Webhook 以未签名方式发送。",
+    "webhookSigningSecretShownOnce": "请立即复制此密钥。它只显示一次。",
+    "webhookSigningSecretFailed": "签名密钥未更改。",
     "smtpSaveFailed": "SMTP 设置保存失败。",
     "twilio": "Twilio 短信",
     "twilioDescription": "配置 Twilio 以发送短信通知。",
@@ -2698,7 +2888,6 @@
     "mfaRequireDrivers": "要求驾驶员使用 MFA",
     "mfaRequireDriversDescription": "每位驾驶员必须在下次登录时、在会话签发之前于驾驶员门户中设置 MFA。已登录的驾驶员会在下次会话续期时被要求设置。移动应用会引导驾驶员前往门户完成设置。",
     "mfaRequiredNoMethod": "在强制 MFA 之前，请开启电子邮件验证码或身份验证器应用。",
-    "mfaSaved": "MFA 设置已保存。",
     "mfaSaveFailed": "MFA 设置保存失败。",
     "sso": "单点登录",
     "ssoDescription": "配置与身份提供商的 SAML 2.0 单点登录。",
@@ -2784,22 +2973,12 @@
     "guestDeclinesPerIpPerHour": "每个 IP 每小时被拒银行卡数",
     "guestDeclinesPerIpPerHourHelp": "一小时内被拒的银行卡达到此数量后，该地址无法再创建新的支付预授权。",
     "ocppDefaults": "OCPP",
-    "ocppStationConfigTitle": "充电站配置（启动时推送）",
-    "ocppStationConfigDescription": "这些值在每次BootNotification后发送到充电站。OCPP 2.1充电站接收SetVariables命令。OCPP 1.6充电站接收ChangeConfiguration命令。值为0的不推送。",
     "ocppMeterValueInterval": "计量值间隔（秒）",
-    "ocppMeterValueIntervalHelp": "交易期间充电站报告能量读数的频率。作为SampledDataCtrlr.TxUpdatedInterval (2.1) 或 MeterValueSampleInterval (1.6) 推送。设置为0使用充电站固件默认值。",
     "ocppClockAlignedInterval": "时钟对齐间隔（秒）",
-    "ocppClockAlignedIntervalHelp": "时钟对齐计量值报告间隔，适用于精确时间边界的计费（例如900表示每15分钟整点）。作为AlignedDataCtrlr.Interval (2.1) 或 ClockAlignedDataInterval (1.6) 推送。设置为0禁用。",
     "ocppSampledMeasurands": "采样测量值",
-    "ocppSampledMeasurandsHelp": "交易期间报告的测量值，用逗号分隔。作为SampledDataCtrlr.TxUpdatedMeasurands (2.1) 或 MeterValuesSampledData (1.6) 推送。",
     "ocppAlignedMeasurands": "时钟对齐测量值",
-    "ocppAlignedMeasurandsHelp": "时钟对齐间隔报告的测量值，用逗号分隔。作为AlignedDataCtrlr.Measurands (2.1) 或 MeterValuesAlignedData (1.6) 推送。仅当时钟对齐间隔大于0时发送。",
     "ocppTxEndedMeasurands": "交易结束测量值",
-    "ocppTxEndedMeasurandsHelp": "交易结束时最终测量值快照中包含的测量值，用逗号分隔。作为SampledDataCtrlr.TxEndedMeasurands (2.1) 或 StopTxnSampledData (1.6) 推送。",
-    "ocppBootResponseTitle": "BootNotification响应",
-    "ocppBootResponseDescription": "这些值在BootNotification响应中返回给充电站。充电站会自动读取并应用。",
     "ocppHeartbeatInterval": "心跳间隔（秒）",
-    "ocppHeartbeatIntervalHelp": "充电站发送心跳消息以确认在线状态的频率。作为BootNotification响应中的interval字段返回。",
     "ocppCsmsConfigTitle": "CSMS内部设置",
     "ocppCsmsConfigDescription": "这些设置控制CSMS如何处理OCPP通信。不会发送到充电站。",
     "ocppConnectionTimeout": "命令超时（秒）",
@@ -2879,6 +3058,7 @@
     "siteConfigsNoSites": "未找到站点。",
     "sitePlatformFeeOverride": "平台费率 % 覆盖",
     "sitePlatformFeeHint": "留空以使用全局平台费率。",
+    "sitePlatformFeeAllSitesOnly": "平台费用适用于整个公司，由可访问所有站点的用户更改。",
     "sitePaymentsEnabled": "为 {{site}} 启用支付",
     "unsavedChanges": "未保存的更改",
     "apiKeys": "API 密钥",
@@ -3071,7 +3251,6 @@
       "sitePerMinute": "每个站点每分钟支持 AI 请求数",
       "userDailyTokens": "每位用户每天 Token 数",
       "maxToolCallsPerTurn": "每次回答的工具调用数",
-      "conversationRetentionDays": "对话保留天数",
       "attachmentsMaxBytes": "附件大小上限（字节）",
       "attachmentsMaxPerMessage": "每条消息的附件数",
       "companyMonthlyTokens": "公司每月 Token 数",
@@ -3091,7 +3270,6 @@
       "siteIncidentThreshold": "一个站点内合并为一个站点事件的故障充电桩数",
       "maxPerSitePerDay": "每个站点每天的洞察数",
       "primaryLanguage": "摘要语言",
-      "retentionDays": "洞察保留天数",
       "expireAfterDays": "一次性洞察关闭天数",
       "reservation": "预约洞察",
       "reservationOff": "预约功能关闭期间，预约洞察也会关闭。",
@@ -3216,8 +3394,6 @@
       "sessionHistoryNote": "只有在提供商的历史保留期内有人刷新过的充电站才会保存会话和 SIM 警报。CSMS 从不自行获取，打开充电站的连接选项卡也不会获取任何数据。",
       "fetchDays": "默认刷新周期（天）",
       "fetchDaysHint": "充电站连接选项卡中刷新按钮旁预先选中的周期。可以在那里选择其他周期或自定义日期范围。",
-      "retentionDays": "会话和警报保留天数",
-      "retentionDaysHint": "早于此期限的会话和 SIM 警报将被删除。会话包含小区 ID，可大致显示充电站在线时的位置。",
       "rangeError": "请输入 {{min}} 到 {{max}} 之间的整数。",
       "stationSignalTitle": "充电站信号",
       "stationSignalEnabled": "从充电站读取信号",
@@ -3232,6 +3408,94 @@
       "signalFairDbm": "一般信号起点（dBm）",
       "signalFairDbmHint": "达到或高于此值的信号评为一般，低于此值为较差。",
       "signalOrderError": "良好阈值必须高于一般阈值。"
+    },
+    "ssoAllowedDomains": "允许的电子邮件域",
+    "ssoAllowedDomainsHint": "SSO 仅为这些域登录和创建账户，以逗号分隔。建议：列出您公司的域。留空则允许所有域。",
+    "ssoProofHint": "请确认您的身份，以更改谁可以通过 SSO 登录。",
+    "dataRetention": {
+      "tab": "数据保留",
+      "description": "CSMS 对每类已存储数据的保留天数。清理任务会在下次运行时删除更早的行：日志和审计任务每天运行，AI 任务每小时运行。这些设置适用于所有站点。",
+      "storageTitle": "混沌模式和大型网络需要大量存储空间",
+      "storageNote": "充电站发送或接收的每条 OCPP 消息（包括心跳）都是 ocpp_message_logs 中的一行，每个电表读数都是 meter_values 中的一行。即使无人充电，这两个表也会随连接的充电站数量增长。在约 2,000 个模拟充电站的测试网络中，数据库达到了 90 GB。降低 OCPP 消息和电表读数的保留天数可让这些表保持较小。",
+      "range": "{{min}} 至 {{max}} 天。默认：{{default}}。",
+      "keepForever": "0 表示永久保留数据。",
+      "saveFailed": "无法保存数据保留设置。",
+      "movedNote": "这些数据的保留时间在此设置：",
+      "movedLink": "设置 > 数据保留",
+      "groups": {
+        "operationalLogs": "运行日志",
+        "securityAudit": "安全与审计",
+        "signInTokens": "登录会话和令牌",
+        "ai": "AI",
+        "sim": "SIM 数据"
+      },
+      "rows": {
+        "ocppMessage": {
+          "label": "OCPP 消息",
+          "description": "与充电站收发的每条 OCPP 消息，包括心跳（ocpp_message_logs）。通常是最大的表。"
+        },
+        "meterValues": {
+          "label": "电表读数",
+          "description": "充电会话的电表读数（meter_values）。删除这些行后，会话仍保留其总电量、峰值功率和最后的荷电状态。"
+        },
+        "domainEvents": {
+          "label": "领域事件",
+          "description": "CSMS 为充电站、会话和其他变更记录的事件（domain_events）。"
+        },
+        "access": {
+          "label": "访问日志",
+          "description": "访问日志中 CSMS、门户和 API 标签页的请求（access_logs）。"
+        },
+        "workerJob": {
+          "label": "后台任务日志",
+          "description": "访问日志 Workers 标签页中的后台任务运行（worker_job_logs），从任务结束时计算。"
+        },
+        "portStatus": {
+          "label": "连接器状态历史",
+          "description": "每次连接器状态变更（port_status_log）。"
+        },
+        "connection": {
+          "label": "充电站连接日志",
+          "description": "充电站的连接、断开和登录失败（connection_logs）。"
+        },
+        "notifications": {
+          "label": "已发送通知",
+          "description": "已发送的电子邮件、短信和推送通知（notifications）。"
+        },
+        "loadAllocation": {
+          "label": "负载管理分配",
+          "description": "负载管理的分配列表（load_allocation_log）。"
+        },
+        "audit": {
+          "label": "审计历史",
+          "description": "历史标签页和审计页面中的变更历史，以及 OCPP 授权尝试（authorize_attempts）。"
+        },
+        "loginAudit": {
+          "label": "登录记录",
+          "description": "用户和驾驶员审计日志中的成功和失败登录。其他行遵循审计历史设置。"
+        },
+        "securityEvents": {
+          "label": "充电站安全事件",
+          "description": "充电站报告的安全事件（security_events）。"
+        },
+        "refreshTokens": {
+          "label": "已撤销和已过期的登录令牌",
+          "description": "已结束登录会话的刷新令牌（refresh_tokens），从撤销或过期时计算。"
+        },
+        "aiConversations": {
+          "label": "AI 助手对话",
+          "description": "在此期间无活动的对话及其附件，以及 MCP 调用日志。"
+        },
+        "aiInsights": {
+          "label": "自动洞察",
+          "description": "自动洞察和后台 AI 任务运行。"
+        },
+        "simSessions": {
+          "label": "SIM 会话和警报",
+          "description": "SIM 会话、SIM 警报和已获取的时间段（sim_sessions、sim_alerts、sim_fetch_coverage）。会话包含小区 ID，可大致显示充电站在线时的位置。"
+        }
+      },
+      "proofHint": "请确认是您本人，以缩短审计历史、登录历史或安全事件历史的保留期。每位管理员都会收到通知。"
     }
   },
   "pnc": {
@@ -3310,6 +3574,7 @@
     "preview": "预览模板",
     "customized": "已自定义",
     "templateSaved": "事件通知已保存。",
+    "securityTemplateLocked": "这是安全模板（密码重置、邀请、登录验证码或安全通知）。修改它需要系统设置写入权限。",
     "templateDeactivated": "事件通知已停用。",
     "recipientRequired": "收件人邮箱为必填项。",
     "webhookUrlRequired": "Webhook URL 为必填项。",
@@ -3414,7 +3679,13 @@
       "security.RecoveryCodeUsed": "已使用恢复码",
       "security.PhoneChanged": "手机号码已更改",
       "security.EmailChanged": "邮箱地址已更改",
-      "security.ApiKeyCreated": "已创建 API 密钥"
+      "security.ApiKeyCreated": "已创建 API 密钥",
+      "security.SsoSettingsChanged": "单点登录设置已更改",
+      "security.UserCreatedPrivileged": "已创建管理员账户",
+      "security.PermissionsGranted": "已授予权限",
+      "security.PasswordResetByAdmin": "管理员已发送密码设置链接",
+      "security.SsoUnlinked": "单点登录关联已移除",
+      "security.RetentionLowered": "数据保留期已缩短"
     },
     "templatePreviewInvalid": "模板存在错误：",
     "htmlPreview": "HTML 预览",
@@ -3567,6 +3838,7 @@
     "API_KEY_RATE_LIMITED": "API 密钥已超出速率限制",
     "ATTACHMENT_NOT_FOUND": "未找到附件",
     "AUDIT_ENTITY_TYPE_INVALID": "未知的审计实体类型",
+    "AUTOCHARGE_CLAIM_REQUIRED": "Autocharge 仅适用于充电站在您的某次会话中发送的车辆标识。请先使用会话中的车辆标识。",
     "CAMPAIGN_NOT_ACTIVE": "只能取消进行中的营销活动",
     "CAMPAIGN_NOT_FOUND": "未找到活动",
     "CASE_NOT_FOUND": "未找到工单",
@@ -3651,6 +3923,7 @@
     "INVALID_SITE_IDS": "一个或多个 siteId 不存在",
     "INVALID_TOKEN": "重置链接无效或已过期",
     "INVOICE_ALREADY_PAID": "该发票已支付",
+    "PREPAID_BALANCE_CONFLICT": "自您打开表单以来，预付余额已发生变化，例如在一次会话之后。请重新加载令牌并再次输入余额。",
     "RESERVATION_FEE_ALREADY_INVOICED": "该预约费用已开具发票",
     "SESSION_ALREADY_INVOICED": "该会话已开具发票",
     "INVOICE_CREATION_FAILED": "创建发票失败",
@@ -3792,6 +4065,7 @@
     "START_REJECTED": "充电站拒绝启动请求：...",
     "STATION_ALREADY_IN_FLEET": "充电站已在此车队中",
     "STATION_HAS_ACTIVE_SESSION": "该充电站有正在进行的充电会话。请先停止会话，再删除充电站。",
+    "STATION_HAS_SIM": "此充电站已关联 SIM。请先取消关联",
     "STATION_ID_EXISTS": "已存在具有该 ID 的充电站",
     "STATION_NOT_FOUND": "未找到充电站",
     "STATION_OFFLINE": "充电站离线",
@@ -3801,6 +4075,7 @@
     "STATION_UNAVAILABLE": "此充电站当前不可用。请尝试其他充电站。",
     "STORAGE_CONNECTION_FAILED": "存储连接测试失败",
     "STORAGE_NOT_CONFIGURED": "附件存储未配置",
+    "STREAM_LIMIT_REACHED": "此设备打开的充电站实时更新过多。请关闭其他标签页后重试。",
     "SUPPORT_AI_NOT_CONFIGURED": "支持 AI 未配置",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "此支持工单未在等待对自动回答的反馈",
     "SUPPORT_CASE_NOT_FOUND": "未找到支持工单",
@@ -3895,17 +4170,22 @@
     "WEBAUTHN_CHALLENGE_EXPIRED": "通行密钥请求已过期或已被使用。请重试。",
     "WEBAUTHN_VERIFICATION_FAILED": "无法验证通行密钥或安全密钥。",
     "SIM_ACTION_UNSUPPORTED": "SIM 提供商不支持对此 SIM 执行此操作",
-    "SIM_CONFIRMED_ELSEWHERE": "另一个充电站已确认匹配此 SIM",
+    "SIM_ATTACHED": "请先取消 SIM 与其充电站的关联，再删除",
+    "SIM_ATTACHED_ELSEWHERE": "此 SIM 已关联到另一个充电站",
+    "SIM_ATTACHMENT_CHANGED": "SIM 关联在显示后已更改。请检查 SIM 后重新确认",
+    "SIM_ATTACHMENT_NOT_CONFIRMED": "请先确认 SIM，再重置其网络",
     "SIM_FEATURE_DISABLED": "SIM 提供商和充电站信号读取已关闭",
-    "SIM_MATCHED_ELSEWHERE": "此 SIM 已匹配到另一个充电站",
-    "SIM_MATCH_CHANGED": "SIM 匹配在显示后已更改。请检查 SIM 后重新确认",
-    "SIM_MATCH_NOT_CONFIRMED": "请先确认 SIM，再重置其网络",
-    "SIM_NOT_FOUND": "此充电站未匹配 SIM",
+    "SIM_INACTIVE": "此 SIM 已停用。请先重新启用",
+    "SIM_NOT_FOUND": "未找到 SIM",
     "SIM_PROVIDER_ERROR": "SIM 提供商请求失败",
     "SIM_PROVIDER_NOT_CONFIGURED": "未配置 SIM 提供商",
     "SIM_PROVIDER_RATE_LIMITED": "SIM 请求过多，请稍后再试",
     "SIM_RESET_UNAVAILABLE": "当前无法开始网络重置。请一分钟后重试",
-    "SIM_TEST_UNAVAILABLE": "目前无法运行连接测试。请一分钟后重试"
+    "SIM_TEST_UNAVAILABLE": "目前无法运行连接测试。请一分钟后重试",
+    "NOT_FOUND": "未找到",
+    "PAYLOAD_TOO_LARGE": "请求过大",
+    "UNSUPPORTED_MEDIA_TYPE": "不支持的内容类型",
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "心跳和计量值设置来自 设置 > 集成与功能 > OCPP 和充电站的数据套餐，而不是配置模板。"
   },
   "logs": {
     "title": "日志",
@@ -4465,7 +4745,9 @@
     "rejected": "已拒绝",
     "failed": "失败",
     "pending": "待处理",
-    "pushProgress": "推送进度"
+    "pushProgress": "推送进度",
+    "variableInstance": "变量实例",
+    "duplicateVariable": "两行设置了同一个变量。请删除其中一行。"
   },
   "validation": {
     "required": "此字段为必填项",
@@ -4638,6 +4920,8 @@
     "durationMs": "{{ms}} 毫秒",
     "confirmTitle": "确认此更改",
     "confirmArguments": "详细信息",
+    "confirmMaskedValues_one": "此卡片隐藏了 {{count}} 个值，这些值仍按助手写入的内容执行",
+    "confirmMaskedValues_other": "此卡片隐藏了 {{count}} 个值，这些值仍按助手写入的内容执行",
     "confirmSummary": {
       "POST": "创建或执行：{{tool}}",
       "PUT": "替换：{{tool}}",
@@ -4788,7 +5072,8 @@
     "dataNotice": {
       "title": "AI 提供商收到的内容",
       "body": "消息、工具结果和附件会发送到所选的 AI 提供商。请查看提供商的数据保留条款。AI 提供商绝不会收到已存储的凭据，例如密码、API 密钥、机密信息和充电站密码。卡号会截短为最后 4 个字符。支持草稿、自动洞察、后台任务和驾驶员支持还会遮盖电子邮件地址和电话号码，并对驾驶员的 Token ID 进行哈希或截短。助手仅为有权查看驾驶员联系方式的用户，按存储原样发送这些信息。您输入的文本和附加的文本文件会检查是否包含密钥和卡号。您附加的图片和 PDF 会按原样发送。"
-    }
+    },
+    "confirmLinks": "此更改包含指向 {{hosts}} 的链接。确认前请检查每个链接。"
   },
   "sustainability": {
     "title": "可持续发展报告",
@@ -4993,6 +5278,7 @@
       "priority_changed": "优先级已更改",
       "pulled": "已拉取",
       "pushed": "已推送",
+      "reactivated": "已重新启用",
       "rebilled": "已重新计费",
       "refund_issued": "已退款",
       "registered": "已注册",
@@ -5092,7 +5378,14 @@
       "recovery_codes_regenerated": "已重新生成恢复码",
       "webauthn_credential_added": "已添加通行密钥",
       "webauthn_credential_renamed": "已重命名通行密钥",
-      "webauthn_credential_removed": "已删除通行密钥"
+      "webauthn_credential_removed": "已删除通行密钥",
+      "attached": "已关联",
+      "detached": "已解除关联",
+      "attachment_confirmed": "关联已确认",
+      "network_reset": "网络已重置",
+      "sso_link_allowed": "已允许 SSO 登录",
+      "sso_unlinked": "已移除 SSO 关联",
+      "data_plan_changed": "数据套餐已更改"
     },
     "entities": {
       "site": "站点",
@@ -5128,7 +5421,8 @@
       "notification_template": "通知模板",
       "station_message_template": "充电站消息模板",
       "event_alert_rule": "事件告警规则",
-      "report_schedule": "报告计划"
+      "report_schedule": "报告计划",
+      "sim": "SIM 卡"
     },
     "actors": {
       "operator": "运营商",
@@ -5930,7 +6224,8 @@
     "lastFactorRequired": "您的组织要求双重认证，因此无法移除您唯一的通行密钥。请先添加其他验证因素。",
     "cancelled": "通行密钥窗口已关闭。准备好后请重试。",
     "alreadyRegistered": "此通行密钥或安全密钥已注册。",
-    "failed": "通行密钥请求未完成。请重试。"
+    "failed": "通行密钥请求未完成。请重试。",
+    "browserUnsupported": "此浏览器不支持通行密钥和安全密钥。请在支持通行密钥的浏览器中打开此页面以添加。"
   },
   "factorProof": {
     "chooseLabel": "确认方式",
@@ -5951,12 +6246,83 @@
     "passkeyButton": "使用通行密钥验证",
     "verifying": "验证中...",
     "passkeyVerified": "通行密钥已验证。",
-    "passkeyNeedsSecurePage": "请使用通行密钥确认身份。通行密钥仅在安全连接 (HTTPS) 或 localhost 上可用。请通过 HTTPS 打开此页面以使用通行密钥。",
     "addFactorHint": "添加第二验证因素前，请先确认身份。",
     "confirmFirst": "请先确认身份。",
     "kindSso": "单点登录",
     "ssoHint": "请使用单点登录重新登录以确认您的身份。您将返回此页面，并有 10 分钟时间继续。",
     "ssoSignIn": "使用 SSO 重新登录",
     "ssoConfirmed": "已通过您最近的单点登录确认。"
+  },
+  "passkeyUnavailable": {
+    "insecure": {
+      "signInCode": "通行密钥需要安全页面 (HTTPS 或 localhost)。请通过 HTTPS 打开此网站以使用通行密钥，或使用验证码登录。",
+      "signInRecovery": "通行密钥需要安全页面 (HTTPS 或 localhost)。请通过 HTTPS 打开此网站以使用通行密钥，或使用恢复码登录。",
+      "signInOnly": "通行密钥需要安全页面 (HTTPS 或 localhost)，而您的账户没有其他验证方式。请通过 HTTPS 打开此网站，使用通行密钥登录。",
+      "setupOther": "通行密钥需要安全页面 (HTTPS 或 localhost)。请通过 HTTPS 打开此网站以添加通行密钥，或在下方设置其他方式。",
+      "setupOnly": "通行密钥需要安全页面 (HTTPS 或 localhost)，而通行密钥是您唯一可以设置的方式。请通过 HTTPS 打开此网站进行设置。",
+      "proofOnly": "请使用通行密钥确认身份。通行密钥需要安全页面 (HTTPS 或 localhost)。请通过 HTTPS 打开此网站以使用通行密钥。"
+    },
+    "unsupported": {
+      "signInCode": "此浏览器不支持通行密钥。请在支持通行密钥的浏览器中打开此网站以使用通行密钥，或使用验证码登录。",
+      "signInRecovery": "此浏览器不支持通行密钥。请在支持通行密钥的浏览器中打开此网站以使用通行密钥，或使用恢复码登录。",
+      "signInOnly": "此浏览器不支持通行密钥，而您的账户没有其他验证方式。请在支持通行密钥的浏览器中打开此网站登录。",
+      "setupOther": "此浏览器不支持通行密钥。请在支持通行密钥的浏览器中打开此网站以添加通行密钥，或在下方设置其他方式。",
+      "setupOnly": "此浏览器不支持通行密钥，而通行密钥是您唯一可以设置的方式。请在支持通行密钥的浏览器中打开此网站进行设置。",
+      "proofOnly": "请使用通行密钥确认身份。此浏览器不支持通行密钥。请在支持通行密钥的浏览器中打开此网站以使用通行密钥。"
+    }
+  },
+  "dataPlan": {
+    "title": "数据套餐",
+    "plans": {
+      "wifi_or_wired": "Wi-Fi 或有线",
+      "cellular": "蜂窝网络"
+    },
+    "notSet": "未设置",
+    "useSitePlan": "使用站点的套餐",
+    "any": "任意",
+    "sources": {
+      "station": "在此充电站上设置",
+      "sim": "已确认的 SIM",
+      "site": "站点",
+      "default": "默认"
+    },
+    "kinds": {
+      "ac": "交流",
+      "dc": "直流"
+    },
+    "planLabel": "套餐",
+    "sourceLabel": "来源",
+    "kindLabel": "充电时的值",
+    "fromDataPlan": "来自数据套餐",
+    "fromDataPlanHint": "每次启动时从充电站的数据套餐发送。模板不设置此值。",
+    "confirmTitle": "更改数据套餐",
+    "station": {
+      "description": "此充电站使用的 OCPP 设置。在充电站上设置的套餐优先于已确认的 SIM 和站点。",
+      "choice": "此充电站的套餐",
+      "confirmDescription": "充电站在线时立即获得套餐设置，否则在下次启动时获得。"
+    },
+    "site": {
+      "description": "此站点中既没有自己的套餐也没有已确认 SIM 的充电站所用的套餐。",
+      "stationsChanging_one": "1 个充电站更换套餐。",
+      "stationsChanging_other": "{{count}} 个充电站更换套餐。",
+      "confirmDescription": "在线充电站立即获得新套餐的设置，离线充电站在下次启动时获得。"
+    },
+    "settings": {
+      "description": "每次启动时发送给充电站的值，每个数据套餐一组。套餐中的每个充电站在下次启动或更换套餐时获得新值。",
+      "heartbeatTitle": "心跳和 Ping",
+      "heartbeatIntervalHelp": "在 BootNotification 响应中发送给充电站。{{min}} 到 {{max}} 秒。",
+      "csmsPingInterval": "CSMS Ping 间隔（秒）",
+      "csmsPingIntervalHelp": "充电站这么长时间没有发送帧时，CSMS 会 Ping 它。{{min}} 到 {{max}} 秒。",
+      "chargingTitle": "充电期间的读数",
+      "chargingDescription": "充电期间的读数。充电站有 CCS1、CCS2 或 CHAdeMO 连接器，或超过 22 kW 的 GB/T、Tesla 或 NACS 连接器时为直流，否则为交流。",
+      "acStations": "交流充电站",
+      "dcStations": "直流充电站",
+      "meterValueIntervalHelp": "{{min}} 到 {{max}} 秒。",
+      "sampledMeasurandsHelp": "充电期间发送的测量值，用逗号分隔。",
+      "idleTitle": "空闲和结束读数",
+      "clockAlignedIntervalHelp": "在时钟对齐的时间读取空闲读数。0 表示关闭，否则为 {{min}} 到 {{max}} 秒。",
+      "alignedMeasurandsHelp": "空闲读数的测量值，用逗号分隔。仅在间隔大于 0 时发送。",
+      "txEndedMeasurandsHelp": "会话结束时数值中的测量值，用逗号分隔。"
+    }
   }
 }

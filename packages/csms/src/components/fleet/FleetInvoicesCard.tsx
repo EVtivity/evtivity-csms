@@ -31,7 +31,7 @@ import { API_BASE_URL } from '@/lib/config';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCents, formatNumber } from '@/lib/formatting';
-import { currentMonth, formatPeriodMonth, previousMonth } from '@/lib/fleet-invoice';
+import { formatPeriodMonth, previousMonth } from '@/lib/fleet-invoice';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { BillToButton } from '@/components/bill-to-button';
 import { useBillingRecipientMove } from './use-billing-recipient-move';
@@ -205,7 +205,7 @@ function FleetUnbilledCard({
             <MonthPicker
               id="fleet-invoice-period"
               value={period}
-              latest={currentMonth()}
+              latest={previousMonth()}
               onChange={setPeriod}
             />
           </div>

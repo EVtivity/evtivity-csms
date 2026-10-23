@@ -15,6 +15,7 @@ import { VEHICLE_ID_SOURCES, VEHICLE_ID_TYPES } from '@evtivity/lib/vehicle-id';
 import { ID_PARAMS } from './id-validation.js';
 import { sessionsAtSites } from './session-site-scope.js';
 import {
+  AutochargeClaimRequiredError,
   SessionNoVehicleIdError,
   SessionNotFoundError,
   VehicleBlockedError,
@@ -164,6 +165,8 @@ export async function replyVehicleServiceError(
     await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
   } else if (err instanceof VehicleIdInUseError) {
     await reply.status(409).send({ error: err.message, code: 'VEHICLE_ID_IN_USE' });
+  } else if (err instanceof AutochargeClaimRequiredError) {
+    await reply.status(409).send({ error: err.message, code: 'AUTOCHARGE_CLAIM_REQUIRED' });
   } else if (err instanceof SessionNoVehicleIdError) {
     await reply.status(409).send({ error: err.message, code: 'SESSION_NO_VEHICLE_ID' });
   } else if (err instanceof VehicleIdRequiredError) {

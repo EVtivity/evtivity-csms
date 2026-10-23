@@ -5,6 +5,21 @@
     "description": "Operator and driver authentication, API keys, RBAC, MFA, and security features."
   },
   {
+    "path": "/docs/configuration/cellular-stations",
+    "title": "Cellular Stations",
+    "description": "The recommended OCPP configuration for charging stations on cellular data plans, why each value was chosen, and how to apply it."
+  },
+  {
+    "path": "/docs/configuration/data-retention",
+    "title": "Data Retention",
+    "description": "How long EVtivity keeps logs, meter values, audit history and AI data, where you change it, and how to plan database storage."
+  },
+  {
+    "path": "/docs/configuration/data-usage-defaults",
+    "title": "Data Usage Defaults",
+    "description": "Every default that affects how much data a charging station uses, per data plan, OCPP version and AC or DC, with message sizes and monthly estimates."
+  },
+  {
     "path": "/docs/configuration/database-setup",
     "title": "Database Setup",
     "description": "PostgreSQL, Redis, Drizzle ORM configuration, and migration workflow."
@@ -182,7 +197,12 @@
   {
     "path": "/docs/csms/settings",
     "title": "Settings",
-    "description": "Configure company info, marketing, content, notifications, sustainability, payments, integrations, security, API keys, firmware, station configurations, smart charging, and AI."
+    "description": "Configure company info, marketing, content, notifications, sustainability, payments, integrations, security, API keys, firmware, station configurations, smart charging, AI, and data retention."
+  },
+  {
+    "path": "/docs/csms/sims",
+    "title": "SIMs",
+    "description": "Keep one record per SIM card, import and export SIMs as CSV, attach them to stations, and see each SIM&#39;s status, data sessions and attachment history."
   },
   {
     "path": "/docs/csms/sites",

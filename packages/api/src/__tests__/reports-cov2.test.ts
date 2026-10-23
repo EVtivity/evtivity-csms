@@ -62,6 +62,7 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn((...conditions: unknown[]) => ({ and: conditions })),
   desc: vi.fn(),
   count: vi.fn(),
+  notInArray: vi.fn((column: unknown, values: unknown) => ({ notInArray: [column, values] })),
   sql: Object.assign(
     vi.fn(() => 'now()'),
     { raw: vi.fn(), join: vi.fn(() => 'joined') },
@@ -72,6 +73,8 @@ vi.mock('@evtivity/services/report.service', () => ({
   queueReport,
   computeNextRunAtInTz,
   reportFiltersError: () => null,
+  reportRequiredPermissions: () => [],
+  listReportTypes: () => [{ type: 'revenue' }, { type: 'energy' }, { type: 'sessions' }],
   REPORT_TYPES: ['revenue', 'energy', 'sessions'],
 }));
 
@@ -101,6 +104,7 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(401).send({ error: 'Unauthorized' });
       }
     },
+  requestHasPermission: () => Promise.resolve(true),
 }));
 
 vi.mock('../lib/site-access.js', () => ({ getUserSiteIds }));
@@ -200,6 +204,7 @@ describe('report routes - filters, site guards, schedule updates', () => {
           filters: { siteId: 'sit_a' },
           userId: 'usr_1',
           siteScope: ['sit_a'],
+          columns: { driverData: true, money: true },
         },
         expect.any(Function),
       );
@@ -346,6 +351,7 @@ describe('report routes - filters, site guards, schedule updates', () => {
           filters: {},
           userId: 'usr_1',
           siteScope: ['sit_a'],
+          columns: { driverData: true, money: true },
         },
         expect.any(Function),
       );

@@ -34,7 +34,7 @@ export type OcpiModuleId =
 
 export type OcpiInterfaceRole = 'SENDER' | 'RECEIVER';
 
-export type OcpiRole = 'CPO' | 'EMSP' | 'HUB' | 'NAP' | 'NSP' | 'OTHER' | 'SCSP';
+export type OcpiRole = 'CPO' | 'EMSP' | 'HUB' | 'NAP' | 'NSP' | 'OTHER' | 'SCSP' | 'PTP';
 
 export interface OcpiCredentials {
   token: string;

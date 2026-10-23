@@ -13,6 +13,10 @@ import {
   vehicleIdFromIdTag,
   vehicleIdFromIdToken,
   vehicleIdFromTypedToken,
+  canonicalTokenValue,
+  isVehicleShapedTokenValue,
+  stationTokenLookup,
+  tokenVehicleIdCandidates,
 } from '../vehicle-id.js';
 
 describe('normalizeMacAddress', () => {
@@ -154,5 +158,57 @@ describe('helpers', () => {
   it('formats a MAC address with colons and leaves other ids as they are', () => {
     expect(formatVehicleId('92D50A693F80')).toBe('92:D5:0A:69:3F:80');
     expect(formatVehicleId('5YJ3E1EA7KF317000')).toBe('5YJ3E1EA7KF317000');
+  });
+});
+
+describe('canonical token values', () => {
+  it.each([
+    ['92d50a693f80', '92D50A693F80'],
+    ['92-D5-0A-69-3F-80', '92D50A693F80'],
+    ['vid:92:d5:0a:69:3f:80', '92D50A693F80'],
+    ['92d5.0a69.3f80', '92D50A693F80'],
+    ['5yj3e1ea7kf317000', '5YJ3E1EA7KF317000'],
+    ['VID:5YJ3E1EA7KF317000', '5YJ3E1EA7KF317000'],
+    ['04a1b2c3d4e5f6', '04a1b2c3d4e5f6'],
+    ['abcd1234', 'abcd1234'],
+    ['DE-ABC-C12345678-X', 'DE-ABC-C12345678-X'],
+  ])('%s compares as %s', (value, canonical) => {
+    expect(canonicalTokenValue(value)).toBe(canonical);
+  });
+
+  it('looks a station value up as sent, and canonical for vehicle id cards only', () => {
+    expect(stationTokenLookup('ABCD1234')).toEqual({ exact: 'ABCD1234', canonical: null });
+    expect(stationTokenLookup('VID:92D50A693F80')).toEqual({
+      exact: 'VID:92D50A693F80',
+      canonical: '92D50A693F80',
+    });
+  });
+
+  it.each([
+    ['92D50A693F80', true],
+    ['92-d5-0a-69-3f-80', true],
+    ['92:D5:0A:69:3F:80', true],
+    ['92d5.0a69.3f80', true],
+    ['5YJ3E1EA7KF317000', true],
+    ['VID:ABCD', true],
+    ['vid:04a1b2c3', true],
+    ['04A1B2C3', false],
+    ['04A1B2C3D4E5F6', false],
+    ['04A1B2C3D4E5F6A7', false],
+    ['DE-ABC-C12345678-X', false],
+    ['KEY-1234', false],
+  ])('a driver card value %s is vehicle shaped: %s', (value, shaped) => {
+    expect(isVehicleShapedTokenValue(value)).toBe(shaped);
+  });
+
+  it('compares a card with vehicle ids canonical and as an uppercase EVCCID', () => {
+    expect(tokenVehicleIdCandidates('vid:92-d5-0a-69-3f-80')).toEqual([
+      '92D50A693F80',
+      '92-D5-0A-69-3F-80',
+    ]);
+    expect(tokenVehicleIdCandidates('evcc-15118-20-id')).toEqual([
+      'evcc-15118-20-id',
+      'EVCC-15118-20-ID',
+    ]);
   });
 });

@@ -5,6 +5,14 @@ import { describe, it, expect } from 'vitest';
 import { REDACTED, redactAccessLogBody } from '../lib/access-log-redaction.js';
 
 describe('redactAccessLogBody', () => {
+  it('redacts the SAML reply and its RelayState of the SSO callback', () => {
+    const out = redactAccessLogBody('/v1/auth/sso/callback', {
+      SAMLResponse: 'PHNhbWxwOlJlc3BvbnNl',
+      RelayState: 'state-abc',
+    });
+    expect(out).toEqual({ SAMLResponse: REDACTED, RelayState: REDACTED });
+  });
+
   it('redacts the Stripe webhook signing secret and secret key on PUT /v1/settings/stripe', () => {
     const out = redactAccessLogBody('/v1/settings/stripe', {
       secretKey: 'sk_test_abc',
@@ -158,5 +166,27 @@ describe('redactAccessLogBody', () => {
         value: '300',
       }),
     ).toEqual({ key: 'HeartbeatInterval', value: '300' });
+  });
+
+  it('stores only the row count of a SIM import, never its ICCIDs or IMSIs', () => {
+    const rows = [
+      { iccid: '8900000000000000300', imsi: '310260000000001', label: 'Kiosk', stationId: 'CS-1' },
+      { iccid: '8900000000000000318', imsi: null, label: null, stationId: null },
+    ];
+    const out = redactAccessLogBody('/v1/sims/import', { rows, updateExisting: true });
+    expect(out).toEqual({ rows: 2, updateExisting: true });
+    expect(JSON.stringify(out)).not.toContain('8900000000000000300');
+  });
+
+  it('redacts an IMSI wherever it is sent', () => {
+    expect(
+      redactAccessLogBody('/v1/sims/:id', { label: 'Kiosk', imsi: '310260000000001' }),
+    ).toEqual({ label: 'Kiosk', imsi: REDACTED });
+    expect(
+      redactAccessLogBody('/v1/stations/:id', {
+        iccid: '8900000000000000300',
+        imsi: '310260000000001',
+      }),
+    ).toEqual({ iccid: '8900000000000000300', imsi: REDACTED });
   });
 });

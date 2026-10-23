@@ -60,6 +60,11 @@ vi.mock('../../../../database/src/lib/pricing-settings.js', () => ({
   isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
 }));
 
+// The session's token link (tested in station-token-match.test.ts): no card.
+vi.mock('../../authorization/station-token-match.js', () => ({
+  findLinkableStationTokens: vi.fn().mockResolvedValue([]),
+}));
+
 vi.mock('@evtivity/database', async () => ({
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),

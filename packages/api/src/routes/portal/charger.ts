@@ -59,6 +59,7 @@ import { scheduleRemoteStartTimeout } from '../../lib/remote-start-timeout.js';
 import { itemResponse, arrayResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { getS3Config, generateDownloadUrl } from '../../services/s3.service.js';
+import { stationImageDownloadOptions } from '../../services/station-image-upload.js';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { sendStatusCheckError, triggerAndWaitForStatus } from '../../lib/station-status-check.js';
 import {
@@ -76,6 +77,8 @@ import {
   isStationCheckRateLimited,
   getCachedConnectorStatus,
   setCachedConnectorStatus,
+  pendingStatusCheck,
+  shareStatusCheck,
 } from '../../lib/rate-limiters.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 import {
@@ -83,7 +86,7 @@ import {
   cancelOpenSessionHold,
   dispatchFleetCreditLimitNotices,
 } from '@evtivity/payments';
-import { activePaymentProvider, paymentContext } from '../../lib/payments.js';
+import { activePaymentProvider, activePaymentState, paymentContext } from '../../lib/payments.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
@@ -1376,6 +1379,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           id: stationImages.id,
           s3Key: stationImages.s3Key,
           s3Bucket: stationImages.s3Bucket,
+          fileName: stationImages.fileName,
+          contentType: stationImages.contentType,
           isDriverVisible: stationImages.isDriverVisible,
         })
         .from(stationImages)
@@ -1402,7 +1407,12 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const downloadUrl = await generateDownloadUrl(s3, image.s3Bucket, image.s3Key);
+      const downloadUrl = await generateDownloadUrl(
+        s3,
+        image.s3Bucket,
+        image.s3Key,
+        stationImageDownloadOptions(image),
+      );
       return { downloadUrl };
     },
   );
@@ -1721,10 +1731,22 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         return { connectorStatus: cached.status };
       }
 
+      // A check already running for this EVSE answers this request too, without
+      // charging its budget or sending a second TriggerMessage (PP2 Info 4).
+      const running = pendingStatusCheck(stationId, evseId);
+      if (running != null) {
+        const shared = await running;
+        if (shared.errorCode != null) {
+          await sendStatusCheckError(reply, shared.errorCode);
+          return;
+        }
+        return { connectorStatus: shared.status };
+      }
+
       // Rate limit per station (OCPP-protection layer). Only counted when no
       // cache is available, so well-behaved drivers riding the cache do not
       // consume the budget.
-      if (isStationCheckRateLimited(stationId)) {
+      if (isStationCheckRateLimited(stationId, request.ip)) {
         await reply
           .status(429)
           .send({ error: 'Too many status checks for this station', code: 'RATE_LIMITED' });
@@ -1746,12 +1768,14 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       }
       const connectorId = connectorRow.connector_id;
 
-      const result = await triggerAndWaitForStatus(
-        stationId,
-        evseId,
-        connectorId,
-        station.id,
-        station.ocppProtocol ?? undefined,
+      const result = await shareStatusCheck(stationId, evseId, () =>
+        triggerAndWaitForStatus(
+          stationId,
+          evseId,
+          connectorId,
+          station.id,
+          station.ocppProtocol ?? undefined,
+        ),
       );
 
       setCachedConnectorStatus(stationId, evseId, result);
@@ -1781,6 +1805,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           400: errorWith('Bad request', [
             ERROR_CODES.CONNECTOR_NOT_AVAILABLE,
             ERROR_CODES.PAYMENT_METHOD_REQUIRED,
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
             ERROR_CODES.SESSION_ALREADY_ACTIVE,
             ERROR_CODES.STATION_OFFLINE,
           ]),
@@ -2002,8 +2027,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // Pre-auth runs below after session creation so a card decline fails
       // the start request immediately (returning 402) instead of letting the
       // station begin charging and the event-projection payment gate stop it
-      // asynchronously.
-      const paymentProvider = await activePaymentProvider(request.log);
+      // asynchronously. A selected provider this process cannot use is no
+      // payments off: a start that would charge is refused (owner decision
+      // 2026-10-23), as the projection's gate stops such a session unbilled.
+      const paymentState = await activePaymentState(request.log);
 
       // Charge on account: a driver whose fleet bills on account needs no card
       // and gets no hold, with or without a payment provider. Free vend comes
@@ -2013,7 +2040,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
       // Fleet credit limit: an account start is refused while the fleet has
       // no credit left (its exposure at or above the limit, or its running
-      // sessions reserving the rest, plan S8), read under the fleet row lock.
+      // sessions reserving the rest), read under the fleet row lock.
       // The payment gate checks again at Started and reserves the session's
       // ceiling (P11).
       // The fleet's warning and reached notices go out once per month,
@@ -2039,7 +2066,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
       let pmForPreAuth: { id: number } | null = null;
 
-      if (paymentProvider != null && accountBilling == null) {
+      if (paymentState.kind !== 'off' && accountBilling == null) {
         // Check if pricing is free for this driver. Free-vend wins over the
         // tariff lookup: event-projections skips the payment gate for
         // free-vend sites, so demanding a payment method here would block
@@ -2056,6 +2083,18 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           },
           client,
         );
+
+        if (!chargingIsFree && paymentState.kind === 'unavailable') {
+          request.log.error(
+            { stationId: station.id, providerId: paymentState.providerId },
+            'Selected payment provider is not usable in this process; start refused',
+          );
+          await reply.status(400).send({
+            error: 'Payments are not available right now. Try again later.',
+            code: 'PAYMENT_PROVIDER_NOT_CONFIGURED',
+          });
+          return;
+        }
 
         if (!chargingIsFree) {
           // Payment is required -- validate the driver has a payment method
@@ -2263,12 +2302,28 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           return;
         }
         if (hold.outcome === 'not_configured') {
-          // The card is saved with a provider this process cannot use; the
-          // projection's gate applies the same rule when the station starts.
+          // A provider is active, but the card is saved with one this process
+          // cannot use: refuse the start and ask for a card, as the
+          // projection's gate stops such a session.
           request.log.warn(
             { sessionId: session.id, providerId: hold.providerId },
-            'Payment provider of the card not configured; session not pre-authorized',
+            'Payment provider of the card not configured; start refused',
           );
+          await db
+            .update(chargingSessions)
+            .set({
+              status: 'failed',
+              stoppedReason: 'PaymentProviderUnavailable',
+              endedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(eq(chargingSessions.id, session.id));
+          await stopTakenOverTransaction();
+          await reply.status(400).send({
+            error: 'The payment provider of this card is no longer available. Add a new card.',
+            code: 'PAYMENT_METHOD_REQUIRED',
+          });
+          return;
         }
       }
 

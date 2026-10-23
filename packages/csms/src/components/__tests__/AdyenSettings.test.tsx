@@ -51,7 +51,11 @@ vi.mock('@/lib/api', () => {
 });
 
 vi.mock('@/lib/config', () => ({ API_BASE_URL: 'https://api.example.com' }));
-vi.mock('@/lib/auth', () => ({ useHasPermission: () => permission.canWrite }));
+// canWrite stands for settings.payment:write, the permission of the Adyen
+// routes. payments:write alone never opens the form.
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: (perm: string) => perm === 'settings.payment:write' && permission.canWrite,
+}));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 
 import { ApiError } from '@/lib/api';
@@ -464,7 +468,7 @@ describe('AdyenSettings', () => {
     });
   });
 
-  it('hides the write controls without payments:write', async () => {
+  it('hides the write controls without settings.payment:write', async () => {
     permission.canWrite = false;
     mockGets();
     renderSettings();

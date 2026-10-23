@@ -17,7 +17,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-const access = vi.hoisted(() => ({ canWrite: true }));
+const access = vi.hoisted(() => ({ canWrite: true, canWriteSystem: true }));
 // Mocked so the test can prove the editor renders no History list of its own.
 vi.mock('@/components/EntityHistoryTab', () => ({
   EntityHistoryTab: ({ entityType, entityId }: { entityType: string; entityId: string | null }) => (
@@ -25,7 +25,10 @@ vi.mock('@/components/EntityHistoryTab', () => ({
   ),
 }));
 
-vi.mock('@/lib/auth', () => ({ useHasCompanyWidePermission: () => access.canWrite }));
+vi.mock('@/lib/auth', () => ({
+  useHasCompanyWidePermission: (permission: string) =>
+    permission === 'settings.system:write' ? access.canWriteSystem : access.canWrite,
+}));
 
 vi.mock('@/components/TemplateEditPanel', () => ({
   TemplateEditPanel: (): null => null,
@@ -46,6 +49,7 @@ import zhTW from '@/i18n/locales/zh-TW.json';
 afterEach(() => {
   cleanup();
   access.canWrite = true;
+  access.canWriteSystem = true;
 });
 
 function renderLayout(eventSwitch: EventSwitch): void {
@@ -77,6 +81,30 @@ function makeSwitch(overrides: Partial<EventSwitch> = {}): EventSwitch {
     ...overrides,
   };
 }
+
+describe('EventSettingsLayout security templates', () => {
+  it('locks a security template without settings.system:write and keeps others editable', () => {
+    access.canWriteSystem = false;
+    renderLayout(makeSwitch());
+    fireEvent.click(screen.getByText('driver.ForgotPassword'));
+    expect(screen.getByTestId('security-template-locked').textContent).toBe(
+      'notifications.securityTemplateLocked',
+    );
+    expect(screen.queryByText('notifications.save')).toBeNull();
+    expect(screen.queryByText('notifications.resetToDefault')).toBeNull();
+
+    fireEvent.click(screen.getByText('driver.Welcome'));
+    expect(screen.queryByTestId('security-template-locked')).toBeNull();
+    expect(screen.getByText('notifications.save')).toBeTruthy();
+  });
+
+  it('lets a settings.system:write holder edit a security template', () => {
+    renderLayout(makeSwitch());
+    fireEvent.click(screen.getByText('driver.ForgotPassword'));
+    expect(screen.queryByTestId('security-template-locked')).toBeNull();
+    expect(screen.getByText('notifications.save')).toBeTruthy();
+  });
+});
 
 describe('EventSettingsLayout event switch', () => {
   it('shows a switch that turns a driver event type off', async () => {

@@ -22,10 +22,36 @@ const h = vi.hoisted(() => {
     };
     return b;
   });
+  const updates: Array<{ set: unknown }> = [];
+  const update = vi.fn(() => ({
+    set: (v: unknown) => {
+      updates.push({ set: v });
+      return { where: () => Promise.resolve([]) };
+    },
+  }));
+  // The rows a conflict reads back, and whether the event's lock is free.
+  const selectResults: unknown[][] = [];
+  const lock = { free: true, events: [] as string[] };
+  const begin = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+    const lockTx = (_s: TemplateStringsArray, key: string) => {
+      lock.events.push(`lock ${key}`);
+      return Promise.resolve([{ locked: lock.free }]);
+    };
+    try {
+      return await fn(lockTx);
+    } finally {
+      lock.events.push('unlock');
+    }
+  });
   return {
     inserts,
     insertResults,
     insert,
+    updates,
+    update,
+    selectResults,
+    lock,
+    begin,
     deleteWhere: vi.fn(() => Promise.resolve()),
     findByPaymentId: vi.fn(),
     findByChargePaymentId: vi.fn(),
@@ -48,8 +74,21 @@ const h = vi.hoisted(() => {
 });
 
 vi.mock('@evtivity/database', () => ({
-  db: { insert: h.insert, delete: () => ({ where: h.deleteWhere }), transaction: h.transaction },
-  webhookEvents: { provider: 'we.provider', eventId: 'we.event_id' },
+  client: { begin: h.begin, options: { max: 10 } },
+  db: {
+    insert: h.insert,
+    update: h.update,
+    select: () => ({
+      from: () => ({ where: () => Promise.resolve(h.selectResults.shift() ?? []) }),
+    }),
+    delete: () => ({ where: h.deleteWhere }),
+    transaction: h.transaction,
+  },
+  webhookEvents: {
+    provider: 'we.provider',
+    eventId: 'we.event_id',
+    processedAt: 'we.processed_at',
+  },
 }));
 vi.mock('drizzle-orm', () => ({
   and: (...args: unknown[]) => ({ op: 'and', args }),
@@ -80,7 +119,7 @@ vi.mock('../payout-accounts.js', () => ({
   refreshPayoutAccountById: h.refreshPayoutAccountById,
 }));
 
-import { applyPaymentEvent, ingestPaymentWebhook } from '../webhooks.js';
+import { WebhookEventBusyError, applyPaymentEvent, ingestPaymentWebhook } from '../webhooks.js';
 import {
   PaymentProviderNotConfiguredError,
   WebhookNotConfiguredError,
@@ -120,6 +159,10 @@ function refunded(
 beforeEach(() => {
   h.inserts.length = 0;
   h.insertResults.length = 0;
+  h.updates.length = 0;
+  h.selectResults.length = 0;
+  h.lock.free = true;
+  h.lock.events.length = 0;
   getPaymentProvider.mockResolvedValue({
     id: 'stripe',
     verifyWebhook,
@@ -196,6 +239,8 @@ describe('ingestPaymentWebhook', () => {
       refunded({ eventId: 'evt_3' }),
     ]);
     h.insertResults.push([{ eventId: 'evt_1' }], [], [{ eventId: 'evt_3' }]);
+    // evt_2 was applied before.
+    h.selectResults.push([{ processedAt: new Date() }]);
     const headers = { 'stripe-signature': 'sig' };
 
     const result = await ingestPaymentWebhook('stripe', 'raw', headers, ctx);
@@ -208,9 +253,14 @@ describe('ingestPaymentWebhook', () => {
       notices: [{ kind: 'record_changed', record: { id: 5, status: 'changed' } }],
     });
     expect(h.inserts.map((c) => c.values)).toEqual([
-      { provider: 'stripe', eventId: 'evt_1', eventType: 'payment_intent.payment_failed' },
-      { provider: 'stripe', eventId: 'evt_2', eventType: 'customer.created' },
-      { provider: 'stripe', eventId: 'evt_3', eventType: 'payment.refunded' },
+      {
+        provider: 'stripe',
+        eventId: 'evt_1',
+        eventType: 'payment_intent.payment_failed',
+        processedAt: null,
+      },
+      { provider: 'stripe', eventId: 'evt_2', eventType: 'customer.created', processedAt: null },
+      { provider: 'stripe', eventId: 'evt_3', eventType: 'payment.refunded', processedAt: null },
     ]);
     expect(h.inserts.every((c) => c.conflict)).toBe(true);
     expect(h.markOpenPaymentFailed).toHaveBeenCalledOnce();
@@ -220,6 +270,67 @@ describe('ingestPaymentWebhook', () => {
       { eventId: 'evt_2' },
       'Duplicate webhook event, skipping',
     );
+  });
+
+  describe('the apply under the event lock', () => {
+    const failed = {
+      type: 'payment.failed',
+      eventId: 'evt_x',
+      paymentId: 'pi_1',
+      occurredAt: at,
+      reason: 'declined',
+      providerType: 'payment_intent.payment_failed',
+    };
+
+    it('applies an unprocessed event whose lock is free (a crashed apply), then marks it processed', async () => {
+      verifyWebhook.mockReturnValue([failed]);
+      h.insertResults.push([]);
+      h.selectResults.push([{ processedAt: null }]);
+      h.findByPaymentId.mockResolvedValue({ id: 5, status: 'pre_authorized' });
+      h.markOpenPaymentFailed.mockResolvedValue({ id: 5, status: 'failed' });
+
+      const result = await ingestPaymentWebhook('stripe', 'raw', {}, ctx);
+
+      expect(result).toMatchObject({ applied: 1, duplicates: 0 });
+      expect(logger.warn).toHaveBeenCalledWith(
+        { provider: 'stripe', eventId: 'evt_x' },
+        'Webhook event whose earlier apply never finished, applying it again',
+      );
+      expect(h.updates.at(-1)?.set).toMatchObject({ processedAt: expect.any(Date) });
+      expect(h.lock.events).toEqual(['lock payment-webhook:stripe:evt_x', 'unlock']);
+    });
+
+    it('never applies an event whose lock another apply holds (a slow apply)', async () => {
+      verifyWebhook.mockReturnValue([failed]);
+      h.lock.free = false;
+
+      await expect(ingestPaymentWebhook('stripe', 'raw', {}, ctx)).rejects.toBeInstanceOf(
+        WebhookEventBusyError,
+      );
+      expect(h.inserts).toHaveLength(0);
+      expect(h.markOpenPaymentFailed).not.toHaveBeenCalled();
+      expect(h.deleteWhere).not.toHaveBeenCalled();
+    });
+
+    it('skips a processed event as a duplicate', async () => {
+      verifyWebhook.mockReturnValue([failed]);
+      h.insertResults.push([]);
+      h.selectResults.push([{ processedAt: new Date() }]);
+
+      const result = await ingestPaymentWebhook('stripe', 'raw', {}, ctx);
+
+      expect(result).toMatchObject({ applied: 0, duplicates: 1 });
+      expect(h.markOpenPaymentFailed).not.toHaveBeenCalled();
+    });
+
+    it('forgets the event inside its lock when the apply fails', async () => {
+      verifyWebhook.mockReturnValue([failed]);
+      h.findByPaymentId.mockRejectedValue(new Error('db down'));
+
+      await expect(ingestPaymentWebhook('stripe', 'raw', {}, ctx)).rejects.toThrow('db down');
+      expect(h.deleteWhere).toHaveBeenCalledOnce();
+      expect(h.lock.events.at(-1)).toBe('unlock');
+    });
   });
 
   it('applies the events as the provider webhook actor, whatever the caller actor', async () => {
@@ -840,6 +951,20 @@ describe('applyPaymentEvent: async provider confirmations (P10a)', () => {
 
   describe('payment.captured', () => {
     const event: NormalizedPaymentEvent = { ...base, type: 'payment.captured', amountCents: 4000 };
+
+    it('applies nothing for an amount in another currency than the record', async () => {
+      h.findByChargePaymentId.mockResolvedValue({ ...hold, currency: 'EUR' });
+      h.confirmOperation.mockClear();
+      h.markCaptured.mockClear();
+      const notice = await applyPaymentEvent('adyen', { ...event, currency: 'USD' }, ctx);
+      expect(notice).toBeNull();
+      expect(h.confirmOperation).not.toHaveBeenCalled();
+      expect(h.markCaptured).not.toHaveBeenCalled();
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ recordCurrency: 'EUR', eventCurrency: 'USD' }),
+        'Payment webhook amount is in another currency than the record; event not applied',
+      );
+    });
 
     it('confirms the pending capture with the same reference', async () => {
       h.confirmOperation.mockResolvedValue(true);

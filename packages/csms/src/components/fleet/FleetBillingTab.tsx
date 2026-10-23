@@ -65,7 +65,10 @@ export function FleetBillingTab({ fleet }: FleetBillingTabProps): React.JSX.Elem
   const { t } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const canWrite = useHasPermission('fleets:write');
+  // Fleet billing changes money: fleets:write and payments:write, as the API.
+  const canWriteFleets = useHasPermission('fleets:write');
+  const canWritePayments = useHasPermission('payments:write');
+  const canWrite = canWriteFleets && canWritePayments;
   const timezone = useUserTimezone();
   const enabled = fleet.accountBillingEnabled === true;
   const recipient: AccountInvoiceRecipient = fleet.accountInvoiceRecipient ?? 'fleet';

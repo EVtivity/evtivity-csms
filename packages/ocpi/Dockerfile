@@ -1,4 +1,4 @@
-FROM node:24-slim AS deps
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
 # A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
 ENV npm_config_fetch_retries=5 \
     npm_config_fetch_retry_mintimeout=20000 \
@@ -34,7 +34,7 @@ COPY packages/ocpi/ packages/ocpi/
 
 RUN node scripts/build.mjs ocpi
 
-FROM node:24-slim
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 # A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
 ENV npm_config_fetch_retries=5 \
     npm_config_fetch_retry_mintimeout=20000 \
@@ -63,7 +63,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm rebuild argon2
 COPY --from=build /app/dist/ocpi.mjs dist/ocpi.mjs
 COPY --from=build /app/dist/ocpi.mjs.map dist/ocpi.mjs.map
 
-LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms-helm"
+LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms"
 LABEL org.opencontainers.image.licenses="BUSL-1.1"
 LABEL org.opencontainers.image.vendor="EVtivity"
 
@@ -72,6 +72,9 @@ COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/evtivity-entrypoint
 USER node
 EXPOSE 3002
 
+# Production unless the deployment says otherwise: an unset NODE_ENV would
+# otherwise reach the development defaults of a hand-written deployment.
+ENV NODE_ENV=production
 ENV NODE_OPTIONS="--enable-source-maps"
 
 # Declare /tmp so ECS on Fargate copies it (root-owned, mode 1777) into the

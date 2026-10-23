@@ -479,7 +479,11 @@ interface OperatorRecipient {
   userId?: string | undefined;
 }
 
-/** Active operators with FLEET_INVOICE_RUN_PERMISSION (invoices are not site-scoped). */
+/**
+ * Active all-site operators with FLEET_INVOICE_RUN_PERMISSION. Fleet invoices
+ * are not site-scoped, so the API refuses them to site-restricted users, and
+ * so do the notices.
+ */
 async function loadInvoiceOperators(): Promise<OperatorRecipient[]> {
   const rows = await client<
     Array<{
@@ -494,7 +498,7 @@ async function loadInvoiceOperators(): Promise<OperatorRecipient[]> {
   >`
     SELECT u.id, u.email, u.phone, u.first_name, u.last_name, u.language, u.timezone
     FROM users u
-    WHERE u.is_active
+    WHERE u.is_active AND u.has_all_site_access
       AND EXISTS (SELECT 1 FROM user_permissions p
         WHERE p.user_id = u.id AND p.permission = ${FLEET_INVOICE_RUN_PERMISSION})
     ORDER BY u.id

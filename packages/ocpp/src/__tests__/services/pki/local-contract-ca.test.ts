@@ -109,8 +109,12 @@ describe('issueContractCertificate', () => {
 
 x509.cryptoProvider.set(webcrypto as unknown as Crypto);
 
-async function csrPem(curve: 'P-256' | 'P-521'): Promise<string> {
-  const alg = { name: 'ECDSA', namedCurve: curve, hash: curve === 'P-256' ? 'SHA-256' : 'SHA-512' };
+async function csrPem(curve: 'P-256' | 'P-384' | 'P-521'): Promise<string> {
+  const alg = {
+    name: 'ECDSA',
+    namedCurve: curve,
+    hash: curve === 'P-256' ? 'SHA-256' : curve === 'P-384' ? 'SHA-384' : 'SHA-512',
+  };
   const keys = (await webcrypto.subtle.generateKey(alg, true, ['sign', 'verify'])) as CryptoKeyPair;
   const csr = await x509.Pkcs10CertificateRequestGenerator.create({
     name: 'CN=CS-V2G-1,O=EVtivity',
@@ -162,6 +166,15 @@ describe('CPO Sub-CAs and station V2G certificates', () => {
       expect(sub1.verify(cert(h.cpsRoot.cert).publicKey)).toBe(true);
       expect(issued.serialNumber).toBe(leaf.serialNumber.toLowerCase().replace(/^0+/, ''));
     }
+  }, 30_000);
+
+  it('refuses a CSR whose key is not on the curve of its schema', async () => {
+    await expect(
+      issueSeccCertificate(hierarchyFor(ca, 2), 2, await csrPem('P-384')),
+    ).rejects.toThrow(/curve/);
+    await expect(
+      issueSeccCertificate(hierarchyFor(ca, 20), 20, await csrPem('P-256')),
+    ).rejects.toThrow(/curve/);
   }, 30_000);
 
   it('refuses a CSR whose signature does not verify', async () => {

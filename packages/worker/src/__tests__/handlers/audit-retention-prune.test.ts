@@ -90,6 +90,17 @@ describe('auditRetentionPruneHandler', () => {
     ).toBe(true);
   });
 
+  it('reads a stored value from 1 to 29 days as the 30-day security history floor', async () => {
+    settingValue = 1;
+    const { auditRetentionPruneHandler } = auditRetentionPruneModule;
+    await auditRetentionPruneHandler(makeLog());
+
+    expect(mockPruneOldRows).toHaveBeenCalledTimes(EXPECTED_TABLES.length);
+    for (const call of mockPruneOldRows.mock.calls) {
+      expect((call[0] as { retentionDays: number }).retentionDays).toBe(30);
+    }
+  });
+
   it('falls back to default when the setting value is a non-number (string)', async () => {
     settingValue = '45';
     const { auditRetentionPruneHandler } = auditRetentionPruneModule;

@@ -8,6 +8,7 @@ import { Mail, CheckCircle, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
+import { AuthLayout } from '@/components/AuthLayout';
 import { useAuth } from '@/lib/auth';
 import { api, ApiError, getApiErrorCode } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -106,33 +107,31 @@ export function VerifyEmail(): React.JSX.Element {
   // Token verification mode
   if (token != null) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-        <Card className="w-full max-w-sm">
-          <CardHeader className="text-center">
-            <h2 className="text-2xl font-semibold">{t('auth.verifyEmailTitle')}</h2>
-          </CardHeader>
-          <CardContent className="flex flex-col items-center gap-4">
-            {status === 'loading' && (
-              <>
-                <Spinner className="h-8 w-8" />
-                <p className="text-sm text-muted-foreground">{t('auth.verifyEmailChecking')}</p>
-              </>
-            )}
-            {status === 'success' && (
-              <>
-                <CheckCircle className="h-8 w-8 text-success" />
-                <p className="text-sm text-success">{t('auth.verifyEmailSuccess')}</p>
-              </>
-            )}
-            {status === 'error' && (
-              <>
-                <AlertCircle className="h-8 w-8 text-destructive" />
-                <p className="text-sm text-destructive">{verifyError}</p>
-              </>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      <AuthLayout>
+        <CardHeader className="text-center">
+          <h2 className="text-2xl font-semibold">{t('auth.verifyEmailTitle')}</h2>
+        </CardHeader>
+        <CardContent className="flex flex-col items-center gap-4">
+          {status === 'loading' && (
+            <>
+              <Spinner className="h-8 w-8" />
+              <p className="text-sm text-muted-foreground">{t('auth.verifyEmailChecking')}</p>
+            </>
+          )}
+          {status === 'success' && (
+            <>
+              <CheckCircle className="h-8 w-8 text-success" />
+              <p className="text-sm text-success">{t('auth.verifyEmailSuccess')}</p>
+            </>
+          )}
+          {status === 'error' && (
+            <>
+              <AlertCircle className="h-8 w-8 text-destructive" />
+              <p className="text-sm text-destructive">{verifyError}</p>
+            </>
+          )}
+        </CardContent>
+      </AuthLayout>
     );
   }
 

@@ -22,7 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Toggle } from '@/components/ui/toggle';
-import { useLoadedValues } from '@/hooks/use-loaded-values';
+import { useLoadedValues, useSavedBaseline } from '@/hooks/use-loaded-values';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 
@@ -67,19 +67,6 @@ function rangeError(value: number, min: number, max: number, t: TFunction): stri
   if (value < min) return t('validation.min', { min });
   if (value > max) return t('validation.max', { max });
   return undefined;
-}
-
-/** The values to compare edits with: the last saved values until the next load replaces them. */
-function useSavedBaseline<T>(loaded: T): [T, (saved: T) => void] {
-  const [saved, setSaved] = useState<{ loadedKey: string; value: T } | null>(null);
-  const loadedKey = JSON.stringify(loaded);
-  const baseline = saved != null && saved.loadedKey === loadedKey ? saved.value : loaded;
-  return [
-    baseline,
-    (value: T) => {
-      setSaved({ loadedKey, value });
-    },
-  ];
 }
 
 function useSecuritySave<T>(path: string) {

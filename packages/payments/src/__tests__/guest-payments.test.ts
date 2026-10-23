@@ -861,7 +861,12 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
 
   it('completes a free session without a record and sends the receipt', async () => {
     m.findSessionRecord.mockResolvedValue(null);
-    m.selectQueue.push([finalizeGuest()], [receiptSession({ finalCostCents: 0 })]);
+    m.selectQueue.push(
+      [finalizeGuest()],
+      // A session without a hold that cost nothing (no shortfall).
+      [{ finalCostCents: 0 }],
+      [receiptSession({ finalCostCents: 0 })],
+    );
 
     await end();
 
@@ -874,7 +879,12 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
 
   it('completes a session whose record has no payment id', async () => {
     m.findSessionRecord.mockResolvedValue(record({ providerPaymentId: null }));
-    m.selectQueue.push([finalizeGuest()], [receiptSession()]);
+    m.selectQueue.push(
+      [finalizeGuest()],
+      // A session without a hold that cost nothing (no shortfall).
+      [{ finalCostCents: 0 }],
+      [receiptSession()],
+    );
 
     await end();
 
@@ -1070,6 +1080,24 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     );
   });
 
+  it('records a shortfall instead of a free completion for a cost without a hold', async () => {
+    m.findSessionRecord.mockResolvedValue(null);
+    m.selectQueue.push([finalizeGuest()], [{ finalCostCents: 450 }]);
+
+    await end();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      { guestSessionId: 21, chargingSessionId: 'ses_1', shortfallCents: 450 },
+      'Guest shortfall: the session ended with a cost and no card hold; uncollected',
+    );
+    expect(guestUpdates().at(-1)?.values).toMatchObject({ status: 'failed' });
+    expect(logger.info).not.toHaveBeenCalledWith(
+      { guestSessionId: 21 },
+      'Free guest session completed',
+    );
+    expect(m.dispatchSystemNotification).not.toHaveBeenCalled();
+  });
+
   it('sends no receipt to a guest without an email', async () => {
     m.findSessionRecord.mockResolvedValue(null);
     m.selectQueue.push([{ ...finalizeGuest(), guestEmail: '' }]);
@@ -1092,6 +1120,8 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     m.findSessionRecord.mockResolvedValue(null);
     m.selectQueue.push(
       [finalizeGuest()],
+      // A session without a hold that cost nothing (no shortfall).
+      [{ finalCostCents: 0 }],
       [
         receiptSession({
           energyDeliveredWh: null,
@@ -1124,7 +1154,12 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
 
   it('logs and swallows a receipt notification failure', async () => {
     m.findSessionRecord.mockResolvedValue(null);
-    m.selectQueue.push([finalizeGuest()], [receiptSession()]);
+    m.selectQueue.push(
+      [finalizeGuest()],
+      // A session without a hold that cost nothing (no shortfall).
+      [{ finalCostCents: 0 }],
+      [receiptSession()],
+    );
     m.dispatchSystemNotification.mockRejectedValue(new Error('smtp down'));
 
     await expect(end()).resolves.toBeUndefined();

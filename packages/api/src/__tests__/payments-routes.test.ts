@@ -116,11 +116,13 @@ vi.mock('drizzle-orm', () => ({
   desc: vi.fn(),
   inArray: vi.fn(),
   like: vi.fn(),
+  isNull: vi.fn(),
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
 }));
 
 vi.mock('@evtivity/lib', async () => ({
   OCTT_PENDING_RESTORE_SETTING_KEY: 'octt.pendingRestore',
+  WEBHOOK_SIGNING_SECRET_KEY: 'notifications.webhookSigningSecretEnc',
   formatCurrencyAmount: (
     await vi.importActual<typeof import('@evtivity/lib/currency')>('@evtivity/lib/currency')
   ).formatCurrencyAmount,
@@ -430,6 +432,65 @@ describe('Payment routes - handler logic', () => {
       expect(mockRevokePayoutInvites).not.toHaveBeenCalled();
     });
 
+    // The site hold has the bounds of the default hold.
+    it.each([0, 1_000_001])('refuses a site hold of %i cents', async (cents) => {
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/payment-config`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { preAuthAmountCents: cents },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+
+    // The platform fee is the platform's share, set company-wide.
+    it('refuses a platform fee change from a site-restricted user', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce([VALID_SITE_ID]);
+      setupDbResults([{ id: VALID_SITE_ID }], [{ id: 'pc-1', platformFeePercent: '5.00' }]);
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/payment-config`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { platformFeePercent: 0 },
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().code).toBe('INSUFFICIENT_PERMISSIONS');
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('keeps a site-restricted save that sends the platform fee unchanged', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce([VALID_SITE_ID]);
+      const row = {
+        id: 'pc-1',
+        siteId: VALID_SITE_ID,
+        payoutAccountId: null,
+        preAuthAmountCents: 6000,
+        platformFeePercent: '5.00',
+        isEnabled: true,
+        payoutAccountStatus: null,
+        payoutAccountDetails: null,
+        payoutAccountCheckedAt: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setupDbResults([{ id: VALID_SITE_ID }], [row], [], [row]);
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/payment-config`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { preAuthAmountCents: 6000, platformFeePercent: 5 },
+      });
+      expect(response.statusCode).toBe(200);
+      // The restricted save never writes the fee, so an all-site change
+      // committed after the check is not put back.
+      const chain = vi.mocked(db.update).mock.results.at(-1)?.value as {
+        set: ReturnType<typeof vi.fn>;
+      };
+      const set = chain.set.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+      expect(set).toMatchObject({ preAuthAmountCents: 6000 });
+      expect(set).not.toHaveProperty('platformFeePercent');
+    });
+
     it('stores a changed connected account through the service and revokes open invites', async () => {
       const updated = {
         id: 'pc-1',
@@ -704,6 +765,31 @@ describe('Payment routes - handler logic', () => {
       expect(mockRevokePayoutInvites).toHaveBeenCalledWith(VALID_SITE_ID);
     });
 
+    // The delete drops the platform fee override with the config.
+    it('refuses a site-restricted delete of a config with a platform fee', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce([VALID_SITE_ID]);
+      setupDbResults([], [{ platformFeePercent: '5.00' }]);
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/sites/${VALID_SITE_ID}/payment-config`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().code).toBe('INSUFFICIENT_PERMISSIONS');
+      expect(mockRevokePayoutInvites).not.toHaveBeenCalled();
+    });
+
+    it('lets a site-restricted user delete a config without a platform fee', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce([VALID_SITE_ID]);
+      setupDbResults([{ id: 'pc-1', siteId: VALID_SITE_ID, platformFeePercent: null }]);
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/sites/${VALID_SITE_ID}/payment-config`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+      expect(response.statusCode).toBe(200);
+    });
+
     it('returns 404 when no payment config to delete', async () => {
       setupDbResults([]);
 
@@ -750,7 +836,7 @@ describe('Payment routes - handler logic', () => {
       expect(body.connectWebhookSecret).toBeNull();
     });
 
-    it('returns the secrets decrypted to a caller with settings.system:read (P12)', async () => {
+    it('returns the secrets decrypted to a caller with settings.system:read', async () => {
       setupDbResults([
         { key: 'stripe.secretKeyEnc', value: 'enc_sk' },
         { key: 'stripe.webhookSecretEnc', value: 'enc_whsec' },
@@ -1263,6 +1349,18 @@ describe('Payment routes - handler logic', () => {
       });
     }
 
+    it('refuses a hold override above the default hold bound', async () => {
+      const response = await preAuthorize({ paymentMethodId: 1, amountCents: 1_000_001 });
+      expect(response.statusCode).toBe(400);
+      expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+    });
+
+    it('refuses a hold override of 0 (PP2 Info 6)', async () => {
+      const response = await preAuthorize({ paymentMethodId: 1, amountCents: 0 });
+      expect(response.statusCode).toBe(400);
+      expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+    });
+
     it('places the hold with the operator trigger and returns the payment record', async () => {
       setupDbResults([sessionRow], [paymentRecord({ status: 'pre_authorized' })]);
       mockAuthorizeSessionHold.mockResolvedValueOnce({
@@ -1506,6 +1604,15 @@ describe('Payment routes - handler logic', () => {
         { sessionId: VALID_SESSION_ID, amountCents: 0 },
         CTX,
       );
+    });
+
+    it('refuses a capture above the hold', async () => {
+      mockCaptureSessionHold.mockResolvedValueOnce({ status: 'exceeds_hold', holdCents: 5000 });
+
+      const response = await capture({ amountCents: 9000 });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 404 when no pre-authorized payment', async () => {

@@ -80,6 +80,8 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
             ? { iso15118CertificateHashData: request.iso15118CertificateHashData }
             : {}),
           ...(request.certificate != null ? { certificate: request.certificate } : {}),
+          // The contract certificate must name this eMAID.
+          idToken: { idToken: request.idToken.idToken, type: request.idToken.type },
         },
         // The station names the OCSP responders, so their failures carry it.
         ctx.logger.child({ stationId: ctx.stationId }),

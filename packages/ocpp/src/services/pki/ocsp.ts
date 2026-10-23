@@ -10,9 +10,14 @@ import crypto from 'node:crypto';
 import { AsnConvert, OctetString } from '@peculiar/asn1-schema';
 import {
   AlgorithmIdentifier,
+  BasicConstraints,
   Certificate,
   ExtendedKeyUsage,
+  KeyUsage,
+  KeyUsageFlags,
+  id_ce_basicConstraints,
   id_ce_extKeyUsage,
+  id_ce_keyUsage,
 } from '@peculiar/asn1-x509';
 import {
   BasicOCSPResponse,
@@ -25,7 +30,7 @@ import {
   id_kp_OCSPSigning,
   id_pkix_ocsp_basic,
 } from '@peculiar/asn1-ocsp';
-import { blockedDestinationOf, isPrivateUrl, safeFetch } from '@evtivity/lib';
+import { blockedDestinationOf, isPrivateUrl, readCappedBody, safeFetch } from '@evtivity/lib';
 import type { SafeFetchResponse } from '@evtivity/lib';
 import { getOcspAllowedPrivateHosts } from '@evtivity/database';
 import type { OcspRequestData, OcspResult } from './pki-provider.js';
@@ -74,6 +79,12 @@ const SIGNATURE_HASH_BY_OID: Record<string, string> = {
 
 // Responder and CSMS clocks drift; RFC 6960 leaves the tolerance to the client.
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
+/**
+ * Oldest thisUpdate accepted from a response without nextUpdate:
+ * RFC 6960 lets a responder leave it out ("newer information is always
+ * available"), which would otherwise accept a replayed response of any age.
+ */
+export const OCSP_MAX_AGE_WITHOUT_NEXT_UPDATE_MS = 7 * 24 * 60 * 60 * 1000;
 
 // OCSP responders can hang under load or attack. Without a timeout the OCPP
 // handler that started the check blocks until the station's call times out.
@@ -201,10 +212,17 @@ export async function postOcspRequest(
     if (!response.ok) {
       throw new OcspError(`OCSP responder returned HTTP ${String(response.status)}`);
     }
-    const body = Buffer.from(await response.arrayBuffer());
-    if (body.length === 0 || body.length > MAX_RESPONSE_BYTES) {
-      throw new OcspError(`OCSP response has an invalid size (${String(body.length)} bytes)`);
+    // Read as a stream and cut off at the cap: a responder that streams
+    // without end cannot make the process buffer it.
+    let body: Buffer;
+    try {
+      body = await readCappedBody(response, MAX_RESPONSE_BYTES);
+    } catch (err) {
+      throw new OcspError(
+        `OCSP response unreadable: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
+    if (body.length === 0) throw new OcspError('OCSP response is empty');
     return body;
   } finally {
     clearTimeout(timer);
@@ -266,6 +284,25 @@ function matchesResponderId(basic: BasicOCSPResponse, cert: Certificate): boolea
     );
   }
   return false;
+}
+
+/**
+ * The certificates a DER OCSPResponse carries (BasicOCSPResponse `certs`), or
+ * none when it does not parse. Used as intermediates for the other responses
+ * of one chain, never as trust anchors.
+ */
+export function ocspResponseCerts(der: Buffer): Certificate[] {
+  try {
+    const response = parseOcspResponse(der);
+    if (response.responseBytes?.responseType !== id_pkix_ocsp_basic) return [];
+    const certs =
+      AsnConvert.parse(response.responseBytes.response.buffer, BasicOCSPResponse).certs ?? [];
+    // A response over the cap is refused by its own verify and lends nothing.
+    return certs.length > MAX_OCSP_CARRIED_CERTS ? [] : certs;
+  } catch {
+    // fail-open: an unreadable response adds no intermediates; its own verify refuses it
+    return [];
+  }
 }
 
 /** Parses a PEM or DER X.509 certificate. */
@@ -333,19 +370,104 @@ function verifySignature(
   }
 }
 
+/** Longest CA path from a carried issuer up to a known CA certificate. */
+const MAX_CARRIED_CHAIN_DEPTH = 4;
+/** Most certificates one OCSP response may carry; more refuse the response. */
+export const MAX_OCSP_CARRIED_CERTS = 8;
+/** Most signature checks one carried-issuer chain search may run (fail closed past it). */
+export const MAX_CHAIN_SIGNATURE_CHECKS = 32;
+
+/**
+ * An issuer in a CA path (RFC 5280 6.1.4): cA, keyUsage with keyCertSign
+ * (4.2.1.3, 4.2.1.9), and a pathLenConstraint that allows the `caBelow` CA
+ * certificates under it (4.2.1.9). Shared by the PEM contract chain check and
+ * the OCSP carried-issuer chain.
+ */
+export function canIssueCertificates(cert: Certificate, caBelow: number): boolean {
+  const bcExt = cert.tbsCertificate.extensions?.find((e) => e.extnID === id_ce_basicConstraints);
+  if (bcExt == null) return false;
+  const bc = AsnConvert.parse(bcExt.extnValue, BasicConstraints);
+  if (!bc.cA) return false;
+  if (bc.pathLenConstraint != null && caBelow > bc.pathLenConstraint) return false;
+  const ku = cert.tbsCertificate.extensions?.find((e) => e.extnID === id_ce_keyUsage);
+  if (ku == null) return false;
+  return (AsnConvert.parse(ku.extnValue, KeyUsage).toNumber() & KeyUsageFlags.keyCertSign) !== 0;
+}
+
+function certificateKey(cert: Certificate): string {
+  return Buffer.from(AsnConvert.serialize(cert)).toString('base64');
+}
+
+/**
+ * Whether `issuer`, a certificate the OCSP response carries, chains to one of
+ * the `known` CA certificates: each step a CA signed by the next, within its
+ * validity, under every pathLenConstraint above it, through the carried
+ * certificates. A response cannot vouch for an issuer of its own making.
+ * The search is bounded: each certificate is tried as a parent
+ * once, the path has at most MAX_CARRIED_CHAIN_DEPTH steps, and past
+ * MAX_CHAIN_SIGNATURE_CHECKS signature checks the issuer is refused.
+ */
+function chainsToKnownCa(
+  issuer: Certificate,
+  carried: Certificate[],
+  known: Certificate[],
+  now: number,
+): boolean {
+  const knownKeys = new Set(known.map(certificateKey));
+  const visited = new Set<string>([certificateKey(issuer)]);
+  let signatureChecks = 0;
+  const pool = [...known, ...carried];
+
+  // `caBelow`: the CA certificates under `cert` in the path (0 for the issuer).
+  const search = (cert: Certificate, caBelow: number): boolean => {
+    // A known CA anchors only within its validity.
+    if (knownKeys.has(certificateKey(cert))) return isWithinValidity(cert, now);
+    if (caBelow >= MAX_CARRIED_CHAIN_DEPTH) return false;
+    if (!canIssueCertificates(cert, caBelow) || !isWithinValidity(cert, now)) return false;
+    const issuerName = AsnConvert.serialize(cert.tbsCertificate.issuer);
+    for (const parent of pool) {
+      const key = certificateKey(parent);
+      if (visited.has(key)) continue;
+      if (!sameBytes(issuerName, AsnConvert.serialize(parent.tbsCertificate.subject))) continue;
+      if (!canIssueCertificates(parent, caBelow + 1)) continue;
+      if (signatureChecks >= MAX_CHAIN_SIGNATURE_CHECKS) return false;
+      signatureChecks++;
+      if (
+        !verifySignature(
+          cert.signatureAlgorithm,
+          AsnConvert.serialize(cert.tbsCertificate),
+          cert.signatureValue,
+          parent,
+        )
+      ) {
+        continue;
+      }
+      visited.add(key);
+      if (search(parent, caBelow + 1)) return true;
+      if (signatureChecks >= MAX_CHAIN_SIGNATURE_CHECKS) return false;
+    }
+    return false;
+  };
+  return search(issuer, 0);
+}
+
 /**
  * Verifies a DER OCSPResponse for one CertID and returns the certificate's
  * status. The issuer is identified by the CertID hashes, taken from
- * `knownIssuers` (operator CA certificates) or from the certificates the
- * response carries. The response must be signed by the issuer or by a
- * responder certificate the issuer signed for OCSP signing (RFC 6960
- * 4.2.2.2), and must be current. Throws OcspError when it cannot be verified.
+ * `knownIssuers` (operator CA certificates and local CAs) or from the
+ * certificates the response (or `intermediates`, certificates other responses
+ * of the same chain carried) carries; a carried issuer counts only through a
+ * CA chain to a known one, and `intermediates` never anchor one. The response must be signed by the
+ * issuer or by a responder certificate the issuer signed for OCSP signing
+ * (RFC 6960 4.2.2.2), and must be current. Throws OcspError when it cannot be
+ * verified.
  */
 export function verifyOcspResponse(
   der: Buffer,
   certId: OcspCertId,
   knownIssuers: Certificate[],
   now: number = Date.now(),
+  intermediates: Certificate[] = [],
 ): OcspCertStatus {
   const response = parseOcspResponse(der);
   if (response.responseStatus !== OCSPResponseStatus.successful) {
@@ -366,9 +488,24 @@ export function verifyOcspResponse(
   if (tbsRaw == null) throw new OcspError('OCSP response data could not be read');
 
   const included = basic.certs ?? [];
-  const issuer = [...knownIssuers, ...included].find((c) => isIssuerOf(c, certId));
+  if (included.length > MAX_OCSP_CARRIED_CERTS) {
+    throw new OcspError(
+      `OCSP response carries more than ${String(MAX_OCSP_CARRIED_CERTS)} certificates`,
+    );
+  }
+  const carried = [...included, ...intermediates];
+  const knownIssuer = knownIssuers.find((c) => isIssuerOf(c, certId));
+  const issuer = knownIssuer ?? carried.find((c) => isIssuerOf(c, certId));
   if (issuer == null) {
     throw new OcspError('Issuer of the certificate is unknown, cannot verify the OCSP response');
+  }
+  if (knownIssuer != null && !isWithinValidity(knownIssuer, now)) {
+    throw new OcspError('Known issuer of the certificate is outside its validity period');
+  }
+  if (knownIssuer == null && !chainsToKnownCa(issuer, carried, knownIssuers, now)) {
+    throw new OcspError(
+      'Issuer carried in the OCSP response has no chain to a known CA, cannot verify the response',
+    );
   }
 
   let responder: Certificate | undefined;
@@ -414,6 +551,12 @@ export function verifyOcspResponse(
   }
   if (single.nextUpdate != null && single.nextUpdate.getTime() < now - CLOCK_SKEW_MS) {
     throw new OcspError('OCSP response is stale (nextUpdate has passed)');
+  }
+  if (
+    single.nextUpdate == null &&
+    single.thisUpdate.getTime() < now - OCSP_MAX_AGE_WITHOUT_NEXT_UPDATE_MS
+  ) {
+    throw new OcspError('OCSP response without nextUpdate is stale (thisUpdate too old)');
   }
 
   if (single.certStatus.revoked != null) return 'revoked';

@@ -6,6 +6,7 @@ import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -16,6 +17,13 @@ import { passwordRulesMessage } from '@/lib/password-rules';
 import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
 import type { PasswordRule } from '@evtivity/lib/password-policy';
+import {
+  FactorProofField,
+  proofRejection,
+  type FactorProof,
+  type ProofRejection,
+} from '@/components/FactorProofField';
+import { useMfaStatus } from '@/components/profile/mfa-status';
 
 export interface UserSecurityTabProps {
   userId: string;
@@ -29,16 +37,26 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
   const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
   // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
   const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
+  // Resetting another account's password takes a fresh proof of the signed-in account.
+  const { data: mfaStatus } = useMfaStatus();
+  const proofKinds = mfaStatus?.factorProofKinds ?? [];
+  const [proof, setProof] = useState<FactorProof | null>(null);
+  const [proofFailure, setProofFailure] = useState<ProofRejection | null>(null);
+  const [proofRound, setProofRound] = useState(0);
 
   const resetPasswordMutation = useMutation({
-    mutationFn: (body: { password: string }) =>
+    mutationFn: (body: { password: string; proof?: FactorProof }) =>
       api.post<{ success: boolean }>(`/v1/users/${userId}/reset-password`, body),
     onSuccess: () => {
       setNewPassword('');
       setHasSubmittedPassword(false);
+      setProof(null);
+      setProofFailure(null);
+      setProofRound((n) => n + 1);
     },
     onError: (err: unknown) => {
       if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerMissing(weakPasswordReply(err) ?? []);
+      else setProofFailure(proofRejection(err));
     },
   });
 
@@ -65,16 +83,20 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
     e.preventDefault();
     setHasSubmittedPassword(true);
     if (Object.keys(passwordErrors).length > 0) return;
-    resetPasswordMutation.mutate({ password: newPassword });
+    if (proofKinds.length > 0 && proof == null) return;
+    resetPasswordMutation.mutate({
+      password: newPassword,
+      ...(proof != null ? { proof } : {}),
+    });
   }
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>{t('users.resetPassword')}</CardTitle>
+        <p className="text-sm text-muted-foreground">{t('users.resetPasswordDescription')}</p>
       </CardHeader>
       <CardContent>
-        <p className="text-sm text-muted-foreground mb-4">{t('users.resetPasswordDescription')}</p>
         <form onSubmit={handleResetPassword} noValidate className="grid gap-6">
           <div className="space-y-2">
             <Label htmlFor="new-password" className="leading-6">
@@ -93,6 +115,7 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
                 onChange={(e) => {
                   setNewPassword(e.target.value);
                   setServerMissing(null);
+                  resetPasswordMutation.reset();
                 }}
                 className={
                   hasSubmittedPassword && passwordErrors.newPassword ? 'border-destructive' : ''
@@ -104,6 +127,7 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
                 onClick={() => {
                   setNewPassword(generateRandomPassword(passwordPolicy));
                   setServerMissing(null);
+                  resetPasswordMutation.reset();
                 }}
               >
                 <RefreshCw className="h-4 w-4" />
@@ -123,12 +147,35 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
               showUnmet={hasSubmittedPassword}
             />
           </div>
-          <Button type="submit" className="w-fit" disabled={resetPasswordMutation.isPending}>
-            {t('users.resetPassword')}
+          {proofKinds.length > 0 && (
+            <FactorProofField
+              key={`reset-${String(proofRound)}`}
+              idPrefix="user-reset-proof"
+              kinds={proofKinds}
+              codeMethod={mfaStatus?.mfaMethod ?? null}
+              description={t('users.resetProofHint')}
+              onChange={setProof}
+              rejection={proofFailure}
+              showMissing={hasSubmittedPassword}
+            />
+          )}
+          <Button
+            type="submit"
+            className="relative w-fit"
+            disabled={resetPasswordMutation.isPending}
+          >
+            {resetPasswordMutation.isPending && (
+              <span className="absolute inset-0 flex items-center justify-center">
+                <Spinner className="h-4 w-4" />
+              </span>
+            )}
+            <span className={resetPasswordMutation.isPending ? 'invisible' : ''}>
+              {t('users.resetPassword')}
+            </span>
           </Button>
           {resetPasswordMutation.isError &&
             getApiErrorCode(resetPasswordMutation.error) !== 'WEAK_PASSWORD' && (
-              <p className="text-sm text-destructive">
+              <p className="text-sm text-destructive" role="alert">
                 {getErrorMessage(resetPasswordMutation.error, t)}
               </p>
             )}

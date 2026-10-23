@@ -29,6 +29,17 @@ function registerEmspTokenRoutes(app: FastifyInstance, version: OcpiVersion): vo
         await reply.status(401).send(ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Not authenticated'));
         return;
       }
+      // Our driver tokens are for a CPO that authorizes them at its stations
+      // (or a hub that forwards to one), never for another eMSP.
+      const roles = request.ocpiToken?.roleNames ?? [];
+      if (!roles.includes('CPO') && !roles.includes('HUB')) {
+        await reply
+          .status(403)
+          .send(
+            ocpiError(OcpiStatusCode.CLIENT_ERROR, 'Tokens are available to a CPO or a hub only'),
+          );
+        return;
+      }
 
       const { offset, limit, dateFrom, dateTo } = parsePaginationParams(request);
 

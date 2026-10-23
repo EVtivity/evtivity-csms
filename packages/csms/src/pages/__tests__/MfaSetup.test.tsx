@@ -226,7 +226,7 @@ describe('MfaSetup', () => {
     expect(screen.queryByText('profile.mfaNotAvailable')).toBeNull();
   });
 
-  it('hides the passkey outside a secure page or when passkeys are off', () => {
+  it('says why the passkey is missing outside a secure page, and nothing when passkeys are off', () => {
     secure(false);
     state.mfaEnrollment = {
       enrollmentToken: 'enroll-jwt',
@@ -235,6 +235,9 @@ describe('MfaSetup', () => {
     };
     renderPage();
     expect(screen.queryByRole('button', { name: 'auth.mfaSetupUsePasskey' })).toBeNull();
+    expect(screen.getByTestId('passkey-unavailable').textContent).toBe(
+      'passkeyUnavailable.insecure.setupOther',
+    );
     cleanup();
     secure(true);
     state.mfaEnrollment = {
@@ -244,6 +247,22 @@ describe('MfaSetup', () => {
     };
     renderPage();
     expect(screen.queryByRole('button', { name: 'auth.mfaSetupUsePasskey' })).toBeNull();
+    expect(screen.queryByTestId('passkey-unavailable')).toBeNull();
+  });
+
+  it('explains a passkey-only setup outside a secure page instead of saying MFA is unavailable', () => {
+    secure(false);
+    state.mfaEnrollment = {
+      enrollmentToken: 'enroll-jwt',
+      availableMethods: [],
+      webauthnAvailable: true,
+    };
+    renderPage();
+    expect(screen.getByTestId('passkey-unavailable').textContent).toBe(
+      'passkeyUnavailable.insecure.setupOnly',
+    );
+    expect(screen.queryByText('profile.mfaNotAvailable')).toBeNull();
+    expect(screen.getByRole('link', { name: 'auth.backToLogin' })).toBeTruthy();
   });
 
   it('shows a closed passkey prompt as a quiet note', async () => {

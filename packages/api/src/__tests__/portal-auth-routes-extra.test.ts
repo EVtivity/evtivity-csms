@@ -51,6 +51,17 @@ function makeChain() {
   return chain;
 }
 
+// The device cookie path is covered in 129-auth-attacks; here a browser without one.
+vi.mock('../lib/device-cookie.js', () => ({
+  knownSignInDevice: vi.fn(() => Promise.resolve(null)),
+  takeDeviceAttempt: vi.fn(() =>
+    Promise.resolve({ granted: true, failures: 1, lockedUntil: null }),
+  ),
+  recordDeviceFailure: vi.fn(() => Promise.resolve()),
+  clearDeviceFailures: vi.fn(() => Promise.resolve()),
+  rememberSignInDevice: vi.fn(() => Promise.resolve()),
+  revokeSignInDevices: vi.fn(() => Promise.resolve()),
+}));
 vi.mock('../lib/sign-in-backoff.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/sign-in-backoff.js')>();
   return {
@@ -552,10 +563,22 @@ describe('Portal auth routes - extra coverage', () => {
       expect(writeAudit).not.toHaveBeenCalled();
     });
 
-    it('rethrows other insert errors as 500', async () => {
+    it('answers a new email before the account is created, as a known one', async () => {
+      let release: (v: unknown) => void = () => undefined;
+      const pendingInsert = new Promise((resolve) => {
+        release = resolve;
+      });
+      // No driver with the email, then an INSERT still running when the answer goes out.
+      setupDbResults([], pendingInsert);
+      const res = await app.inject({ method: 'POST', url: '/portal/auth/register', payload: body });
+      expect(res.statusCode).toBe(202);
+      release([]);
+    });
+
+    it('answers 202 before the insert, so another insert error changes no answer', async () => {
       setupDbResults([], Object.assign(new Error('connection lost'), { code: '08006' }));
       const res = await app.inject({ method: 'POST', url: '/portal/auth/register', payload: body });
-      expect(res.statusCode).toBe(500);
+      expect(res.statusCode).toBe(202);
       expect(cookieMap(res).has('portal_token')).toBe(false);
     });
   });
@@ -706,7 +729,9 @@ describe('Portal auth routes - extra coverage', () => {
         cookies: { portal_token: signedDriverToken, portal_refresh: app.signCookie('web-refresh') },
       });
       expect(res.statusCode).toBe(204);
-      expect(revokeRefreshToken).toHaveBeenCalledWith('web-refresh');
+      expect(revokeRefreshToken).toHaveBeenCalledWith('web-refresh', {
+        driverId: expect.any(String),
+      });
       // Every access token issued before ends, like the operator logout.
       expect(bumpDriverSessionVersion).toHaveBeenCalledWith(DRIVER_ID);
       expect(endDriverSessions).not.toHaveBeenCalled();
@@ -735,7 +760,9 @@ describe('Portal auth routes - extra coverage', () => {
         payload: { refreshToken: 'mobile-refresh' },
       });
       expect(res.statusCode).toBe(204);
-      expect(revokeRefreshToken).toHaveBeenCalledWith('mobile-refresh');
+      expect(revokeRefreshToken).toHaveBeenCalledWith('mobile-refresh', {
+        driverId: expect.any(String),
+      });
       expect(cookieMap(res).size).toBe(0);
     });
   });
@@ -756,7 +783,10 @@ describe('Portal auth routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('INVALID_REFRESH_TOKEN');
-      expect(validateAndRotateRefreshToken).toHaveBeenCalledWith('stale', { deviceId: undefined });
+      expect(validateAndRotateRefreshToken).toHaveBeenCalledWith('stale', {
+        realm: 'driver',
+        deviceId: undefined,
+      });
       expect(cookieMap(res).get('portal_token')).toBe('');
     });
 
@@ -841,6 +871,7 @@ describe('Portal auth routes - extra coverage', () => {
       expect(claims.driverId).toBe(DRIVER_ID);
       expect(claims.client).toBe('mobile');
       expect(validateAndRotateRefreshToken).toHaveBeenCalledWith('valid', {
+        realm: 'driver',
         deviceId: 'device-123',
       });
       expect(createRefreshToken).toHaveBeenCalledWith({

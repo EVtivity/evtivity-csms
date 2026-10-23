@@ -326,7 +326,10 @@ export function registerResponseCache(app: FastifyInstance): void {
       }
       request.responseCacheCtx = { key, ttlSeconds: rule.ttlSeconds };
     } catch (err) {
-      logger.debug({ err, url: request.url }, 'Response cache read failed, serving uncached');
+      logger.debug(
+        { err, route: request.routeOptions.url },
+        'Response cache read failed, serving uncached',
+      );
     }
     return;
   });
@@ -342,7 +345,10 @@ export function registerResponseCache(app: FastifyInstance): void {
     try {
       await getCacheRedis().setex(ctx.key, ctx.ttlSeconds, payload);
     } catch (err) {
-      logger.debug({ err, url: request.url }, 'Response cache write failed, response not cached');
+      logger.debug(
+        { err, route: request.routeOptions.url },
+        'Response cache write failed, response not cached',
+      );
     }
     return payload;
   });

@@ -108,6 +108,7 @@
     "recoveryCodeSubtitle": "输入您的一个恢复码",
     "recoveryCodeLabel": "恢复码",
     "recoveryCodeInvalid": "恢复码无效或已使用，请重试。",
+    "recoveryCodeIncomplete": "输入完整的10位恢复码",
     "mfaMethodSwitchedOff": "管理员已关闭{{method}}验证。请使用恢复码登录。",
     "recoveryCodesLeft_one": "剩余 {{count}} 个恢复码",
     "recoveryCodesLeft_other": "剩余 {{count}} 个恢复码",
@@ -228,7 +229,6 @@
     "changePassword": "修改密码",
     "currentPassword": "当前密码",
     "newPassword": "新密码",
-    "changingPassword": "修改中...",
     "passwordChanged": "密码已修改。",
     "passwordChangeFailed": "修改密码失败。",
     "signOut": "退出登录",
@@ -245,7 +245,6 @@
     "mfaMethodTotp": "身份验证器应用",
     "mfaMethodSms": "短信",
     "mfaSetUp": "设置",
-    "mfaSettingUp": "设置中...",
     "mfaDisable": "停用 MFA",
     "mfaDisableConfirm": "请使用您已有的验证因素或恢复码确认身份。停用 MFA 也会删除您的通行密钥和恢复码。",
     "mfaNotAvailable": "目前没有可用的 MFA 方式。请联系管理员。",
@@ -253,7 +252,6 @@
     "mfaManualEntry": "手动输入密钥",
     "mfaEnterCode": "输入6位验证码",
     "mfaVerify": "验证",
-    "mfaVerifying": "验证中...",
     "mfaSetupFailed": "启动 MFA 设置失败。",
     "mfaVerifyFailed": "验证码无效。",
     "mfaDisableFailed": "停用 MFA 失败。",
@@ -296,7 +294,8 @@
     "phoneCode": "发送到新号码的验证码",
     "phoneCodeSent": "我们已向 {{phone}} 发送验证码。",
     "phoneCodeRequired": "请先向新号码发送验证码并输入。",
-    "phoneCodeSendFailed": "无法发送验证码。请重试。"
+    "phoneCodeSendFailed": "无法发送验证码。请重试。",
+    "mfaLoadError": "无法加载您的双重身份验证设置。"
   },
   "charger": {
     "loadingInfo": "加载充电桩信息...",
@@ -637,6 +636,7 @@
     "API_KEY_RATE_LIMITED": "API 密钥已超出速率限制",
     "ATTACHMENT_NOT_FOUND": "未找到附件",
     "AUDIT_ENTITY_TYPE_INVALID": "未知的审计实体类型",
+    "AUTOCHARGE_CLAIM_REQUIRED": "Autocharge 仅适用于充电站在您的某次会话中发送的车辆标识。请先使用会话中的车辆标识。",
     "CAMPAIGN_NOT_ACTIVE": "只能取消进行中的营销活动",
     "CAMPAIGN_NOT_FOUND": "未找到活动",
     "CASE_NOT_FOUND": "未找到工单",
@@ -721,6 +721,7 @@
     "INVALID_SITE_IDS": "一个或多个 siteId 不存在",
     "INVALID_TOKEN": "重置链接无效或已过期",
     "INVOICE_ALREADY_PAID": "该发票已支付",
+    "PREPAID_BALANCE_CONFLICT": "自您打开表单以来，预付余额已发生变化，例如在一次会话之后。请重新加载令牌并再次输入余额。",
     "RESERVATION_FEE_ALREADY_INVOICED": "该预约费用已开具发票",
     "SESSION_ALREADY_INVOICED": "该会话已开具发票",
     "INVOICE_CREATION_FAILED": "创建发票失败",
@@ -862,6 +863,7 @@
     "START_REJECTED": "充电站拒绝启动请求：...",
     "STATION_ALREADY_IN_FLEET": "充电站已在此车队中",
     "STATION_HAS_ACTIVE_SESSION": "该充电站有正在进行的充电会话。请先停止会话，再删除充电站。",
+    "STATION_HAS_SIM": "此充电站已关联 SIM。请先取消关联",
     "STATION_ID_EXISTS": "已存在具有该 ID 的充电站",
     "STATION_NOT_FOUND": "未找到充电站",
     "STATION_OFFLINE": "充电站离线",
@@ -871,6 +873,7 @@
     "STATION_UNAVAILABLE": "此充电站当前不可用。请尝试其他充电站。",
     "STORAGE_CONNECTION_FAILED": "存储连接测试失败",
     "STORAGE_NOT_CONFIGURED": "附件存储未配置",
+    "STREAM_LIMIT_REACHED": "此设备打开的充电站实时更新过多。请关闭其他标签页后重试。",
     "SUPPORT_AI_NOT_CONFIGURED": "支持 AI 未配置",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "此支持工单未在等待对自动回答的反馈",
     "SUPPORT_CASE_NOT_FOUND": "未找到支持工单",
@@ -941,6 +944,7 @@
     "CHARGING_PROFILE_ID_RESERVED": "充电配置文件 ID 必须大于充电站的 MaxExternalConstraintsId。",
     "CHARGING_PROFILE_LOAD_MANAGED": "负载管理设定此充电站的限值。请使用堆栈级别为 0 且 ID 不同于负载管理配置文件 ID 的 ChargingStationMaxProfile。",
     "STATION_SECURITY_ROUTE_REQUIRED": "充电站安全配置文件和网络配置文件须通过 PATCH /v1/stations/:id 更改，不能使用配置模板",
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "心跳和电表值设置来自 设置 > 集成与功能 > OCPP 和充电站的数据套餐，不能来自配置模板",
     "TOKEN_BLOCKED_BY_OPERATOR": "此卡已被运营商停用。请联系运营商重新启用。",
     "SESSION_NO_VEHICLE_ID": "充电站未为此会话发送车辆标识。",
     "VEHICLE_BLOCKED_BY_OPERATOR": "运营商已阻止此车辆使用 Autocharge。请联系运营商解除阻止。",
@@ -965,17 +969,21 @@
     "WEBAUTHN_CHALLENGE_EXPIRED": "通行密钥请求已过期或已被使用。请重试。",
     "WEBAUTHN_VERIFICATION_FAILED": "无法验证通行密钥或安全密钥。",
     "SIM_ACTION_UNSUPPORTED": "SIM 提供商不支持对此 SIM 执行此操作",
-    "SIM_CONFIRMED_ELSEWHERE": "另一个充电站已确认匹配此 SIM",
+    "SIM_ATTACHED": "请先取消 SIM 与其充电站的关联，再删除",
+    "SIM_ATTACHED_ELSEWHERE": "此 SIM 已关联到另一个充电站",
+    "SIM_ATTACHMENT_CHANGED": "SIM 关联在显示后已更改。请检查 SIM 后重新确认",
+    "SIM_ATTACHMENT_NOT_CONFIRMED": "请先确认 SIM，再重置其网络",
     "SIM_FEATURE_DISABLED": "SIM 提供商和充电站信号读取已关闭",
-    "SIM_MATCHED_ELSEWHERE": "此 SIM 已匹配到另一个充电站",
-    "SIM_MATCH_CHANGED": "SIM 匹配在显示后已更改。请检查 SIM 后重新确认",
-    "SIM_MATCH_NOT_CONFIRMED": "请先确认 SIM，再重置其网络",
-    "SIM_NOT_FOUND": "此充电站未匹配 SIM",
+    "SIM_INACTIVE": "此 SIM 已停用。请先重新启用",
+    "SIM_NOT_FOUND": "未找到 SIM",
     "SIM_PROVIDER_ERROR": "SIM 提供商请求失败",
     "SIM_PROVIDER_NOT_CONFIGURED": "未配置 SIM 提供商",
     "SIM_PROVIDER_RATE_LIMITED": "SIM 请求过多，请稍后再试",
     "SIM_RESET_UNAVAILABLE": "目前无法启动网络重置。请一分钟后重试",
-    "SIM_TEST_UNAVAILABLE": "目前无法运行连接测试。请一分钟后重试"
+    "SIM_TEST_UNAVAILABLE": "目前无法运行连接测试。请一分钟后重试",
+    "NOT_FOUND": "未找到",
+    "PAYLOAD_TOO_LARGE": "请求过大",
+    "UNSUPPORTED_MEDIA_TYPE": "不支持的内容类型"
   },
   "validation": {
     "required": "此字段为必填项",
@@ -1346,7 +1354,6 @@
     "kindRecoveryCode": "恢复码",
     "kindTotp": "身份验证器应用",
     "passkeyButton": "使用通行密钥验证",
-    "passkeyNeedsSecurePage": "请使用通行密钥确认身份。通行密钥仅在安全连接 (HTTPS) 或 localhost 上可用。请通过 HTTPS 打开此页面以使用通行密钥。",
     "passkeyVerified": "通行密钥已验证。",
     "resend": "发送新验证码",
     "sendFailed": "无法发送验证码。请重试。",
@@ -1392,6 +1399,25 @@
     "typeDeviceBound": "保存在一台设备或一把密钥上",
     "typeNotBackedUp": "未备份的通行密钥",
     "typeSynced": "已同步的通行密钥",
-    "waiting": "等待中..."
+    "waiting": "等待中...",
+    "browserUnsupported": "此浏览器不支持通行密钥和安全密钥。请在支持通行密钥的浏览器中打开此页面以添加。"
+  },
+  "passkeyUnavailable": {
+    "insecure": {
+      "signInCode": "通行密钥需要安全页面 (HTTPS 或 localhost)。请通过 HTTPS 打开此网站以使用通行密钥，或使用验证码登录。",
+      "signInRecovery": "通行密钥需要安全页面 (HTTPS 或 localhost)。请通过 HTTPS 打开此网站以使用通行密钥，或使用恢复码登录。",
+      "signInOnly": "通行密钥需要安全页面 (HTTPS 或 localhost)，而您的账户没有其他验证方式。请通过 HTTPS 打开此网站，使用通行密钥登录。",
+      "setupOther": "通行密钥需要安全页面 (HTTPS 或 localhost)。请通过 HTTPS 打开此网站以添加通行密钥，或在下方设置其他方式。",
+      "setupOnly": "通行密钥需要安全页面 (HTTPS 或 localhost)，而通行密钥是您唯一可以设置的方式。请通过 HTTPS 打开此网站进行设置。",
+      "proofOnly": "请使用通行密钥确认身份。通行密钥需要安全页面 (HTTPS 或 localhost)。请通过 HTTPS 打开此网站以使用通行密钥。"
+    },
+    "unsupported": {
+      "signInCode": "此浏览器不支持通行密钥。请在支持通行密钥的浏览器中打开此网站以使用通行密钥，或使用验证码登录。",
+      "signInRecovery": "此浏览器不支持通行密钥。请在支持通行密钥的浏览器中打开此网站以使用通行密钥，或使用恢复码登录。",
+      "signInOnly": "此浏览器不支持通行密钥，而您的账户没有其他验证方式。请在支持通行密钥的浏览器中打开此网站登录。",
+      "setupOther": "此浏览器不支持通行密钥。请在支持通行密钥的浏览器中打开此网站以添加通行密钥，或在下方设置其他方式。",
+      "setupOnly": "此浏览器不支持通行密钥，而通行密钥是您唯一可以设置的方式。请在支持通行密钥的浏览器中打开此网站进行设置。",
+      "proofOnly": "请使用通行密钥确认身份。此浏览器不支持通行密钥。请在支持通行密钥的浏览器中打开此网站以使用通行密钥。"
+    }
   }
 }

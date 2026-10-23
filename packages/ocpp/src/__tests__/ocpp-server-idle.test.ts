@@ -3,6 +3,7 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import WebSocket from 'ws';
+import { DATA_PLAN_DEFAULTS } from '@evtivity/lib';
 import { OcppServer, idleTimeoutForHeartbeat } from '../server/ocpp-server.js';
 
 let testPort = 19800;
@@ -90,5 +91,29 @@ describe('idleTimeoutForHeartbeat', () => {
 
   it('is never less than 5 minutes', () => {
     expect(idleTimeoutForHeartbeat(30)).toBe(300_000);
+  });
+
+  it('gives 30 minutes on Wi-Fi or wired and 2 hours on Cellular with the shipped heartbeats', () => {
+    expect(idleTimeoutForHeartbeat(DATA_PLAN_DEFAULTS.wifi_or_wired.heartbeatInterval)).toBe(
+      30 * 60_000,
+    );
+    expect(idleTimeoutForHeartbeat(DATA_PLAN_DEFAULTS.cellular.heartbeatInterval)).toBe(
+      120 * 60_000,
+    );
+  });
+});
+
+describe('OcppServer data plan values', () => {
+  it('starts on the shipped values of both plans without a database', async () => {
+    const port = testPort++;
+    const srv = new OcppServer();
+    server = srv;
+    await srv.start({ port, host: '127.0.0.1' });
+    expect(srv.getPlanValues()).toEqual(DATA_PLAN_DEFAULTS);
+  });
+
+  it('ignores a plan reload for a station this process does not hold', async () => {
+    const srv = new OcppServer();
+    await expect(srv.reloadStationDataPlan('NOT-HERE')).resolves.toBeUndefined();
   });
 });

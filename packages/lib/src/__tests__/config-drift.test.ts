@@ -81,6 +81,30 @@ describe('findTemplateTargetConfiguration', () => {
     expect(findTemplateTargetConfiguration(rows, 'TxCtrlr', 'EVConnectionTimeOut')).toBeUndefined();
   });
 
+  it('matches a template variable instance to the row of that instance only', () => {
+    const target = row({
+      component: 'OCPPCommCtrlr',
+      variable: 'MessageTimeout',
+      variableInstance: 'Default',
+      value: '30',
+    });
+    const plain = row({ component: 'OCPPCommCtrlr', variable: 'MessageTimeout', value: '45' });
+    expect(
+      findTemplateTargetConfiguration(
+        [plain, target],
+        'OCPPCommCtrlr',
+        'MessageTimeout',
+        'Default',
+      ),
+    ).toBe(target);
+    expect(findTemplateTargetConfiguration([target], 'OCPPCommCtrlr', 'MessageTimeout')).toBe(
+      undefined,
+    );
+    expect(
+      findTemplateTargetConfiguration([plain, target], 'OCPPCommCtrlr', 'MessageTimeout', null),
+    ).toBe(plain);
+  });
+
   it('matches an OCPP 1.6 template (no component) to the GetConfiguration row', () => {
     const target = row({ component: 'OCPP', variable: 'HeartbeatInterval', value: '300' });
     expect(findTemplateTargetConfiguration([target], '', 'HeartbeatInterval')).toBe(target);
@@ -106,13 +130,28 @@ describe('configTemplateTarget', () => {
     ).toEqual({ siteId: 'site_1', model: 'M', stationId: 'st_2' });
   });
 
+  it('reads a known data plan and ignores an unknown one', () => {
+    expect(
+      configTemplateTarget({ stationId: null, targetFilter: { dataPlan: 'cellular' } }),
+    ).toEqual({ dataPlan: 'cellular' });
+    expect(configTemplateTarget({ stationId: null, targetFilter: { dataPlan: 'lte' } })).toEqual(
+      {},
+    );
+  });
+
   it('targets every station without a filter', () => {
     expect(configTemplateTarget({ stationId: null, targetFilter: null })).toEqual({});
   });
 });
 
 describe('configTemplateMatchesStation', () => {
-  const station = { id: 'st_1', siteId: 'site_1', vendorId: 'ven_1', model: 'M1' };
+  const station = {
+    id: 'st_1',
+    siteId: 'site_1',
+    vendorId: 'ven_1',
+    model: 'M1',
+    dataPlan: 'wifi_or_wired' as const,
+  };
 
   it('matches a bound template only on its station', () => {
     expect(configTemplateMatchesStation({ stationId: 'st_1', targetFilter: null }, station)).toBe(
@@ -137,5 +176,7 @@ describe('configTemplateMatchesStation', () => {
     expect(configTemplateMatchesStation(t({ vendorId: 'ven_2' }), station)).toBe(false);
     expect(configTemplateMatchesStation(t({ model: 'M2' }), station)).toBe(false);
     expect(configTemplateMatchesStation(t({ stationId: 'st_9' }), station)).toBe(false);
+    expect(configTemplateMatchesStation(t({ dataPlan: 'wifi_or_wired' }), station)).toBe(true);
+    expect(configTemplateMatchesStation(t({ dataPlan: 'cellular' }), station)).toBe(false);
   });
 });

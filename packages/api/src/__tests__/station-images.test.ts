@@ -132,14 +132,25 @@ const mockGetS3Config = vi.fn();
 const mockGenerateUploadUrl = vi.fn();
 const mockGenerateDownloadUrl = vi.fn();
 const mockDeleteObject = vi.fn();
-const mockBuildStationImageS3Key = vi.fn();
+const mockGenerateUploadPost = vi.fn();
+const mockFinalizeUpload = vi.fn();
+
+vi.mock('../services/ai/attachments/upload-flow.js', () => ({
+  finalizeUpload: (...args: unknown[]) => mockFinalizeUpload(...args),
+  displayFileName: (fileName: string) => fileName,
+}));
 
 vi.mock('../services/s3.service.js', () => ({
   getS3Config: (...args: unknown[]) => mockGetS3Config(...args),
   generateUploadUrl: (...args: unknown[]) => mockGenerateUploadUrl(...args),
   generateDownloadUrl: (...args: unknown[]) => mockGenerateDownloadUrl(...args),
   deleteObject: (...args: unknown[]) => mockDeleteObject(...args),
-  buildStationImageS3Key: (...args: unknown[]) => mockBuildStationImageS3Key(...args),
+  buildStationImageS3Key: (stationId: string, fileId: string, fileName: string) =>
+    `stations/${stationId}/${fileId}-${fileName}`,
+  buildStationImageQuarantineKey: (stationId: string, fileId: string, fileName: string) =>
+    `ai-uploads/quarantine/stations/${stationId}/${fileId}/${fileName}`,
+  generateUploadPost: (...args: unknown[]) => mockGenerateUploadPost(...args),
+  QUARANTINE_PREFIX: 'ai-uploads/quarantine/',
 }));
 
 vi.mock('../lib/site-access.js', () => ({
@@ -179,10 +190,20 @@ describe('Station image routes', () => {
     dbCallIndex = 0;
     vi.clearAllMocks();
     mockGetS3Config.mockResolvedValue(null);
-    mockGenerateUploadUrl.mockResolvedValue('https://s3.example.com/upload');
+    mockGenerateUploadPost.mockResolvedValue({
+      url: 'https://s3.example.com/upload',
+      fields: { key: 'k', Policy: 'p' },
+    });
+    mockFinalizeUpload.mockResolvedValue({
+      ok: true,
+      bytes: Buffer.alloc(900),
+      contentType: 'image/jpeg',
+      kind: 'image',
+      width: 10,
+      height: 10,
+    });
     mockGenerateDownloadUrl.mockResolvedValue('https://s3.example.com/download');
     mockDeleteObject.mockResolvedValue(undefined);
-    mockBuildStationImageS3Key.mockReturnValue('stations/sta_000000000001/uuid-photo.jpg');
   });
 
   // ===================================================================
@@ -254,7 +275,14 @@ describe('Station image routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.uploadUrl).toBe('https://s3.example.com/upload');
-      expect(body.s3Key).toBeDefined();
+      expect(body.fields).toEqual({ key: 'k', Policy: 'p' });
+      expect(body.s3Key).toMatch(/^ai-uploads\/quarantine\/stations\/sta_000000000001\//);
+      expect(mockGenerateUploadPost).toHaveBeenCalledWith(
+        expect.anything(),
+        body.s3Key,
+        'image/jpeg',
+        12345,
+      );
       expect(body.s3Bucket).toBe('my-bucket');
     });
 
@@ -286,7 +314,8 @@ describe('Station image routes', () => {
       fileName: 'photo.jpg',
       fileSize: 12345,
       contentType: 'image/jpeg',
-      s3Key: 'stations/sta_000000000001/uuid-photo.jpg',
+      s3Key:
+        'ai-uploads/quarantine/stations/sta_000000000001/0b6f7c1e-8a52-4c34-9f1d-3d0e5a6b7c8d/photo.jpg',
       s3Bucket: 'my-bucket',
     };
 
@@ -309,8 +338,8 @@ describe('Station image routes', () => {
         updatedAt: new Date().toISOString(),
       };
 
-      // 1. select max sort order, 2. insert returning
-      setupDbResults([{ maxOrder: 0 }], [insertedImage]);
+      // 1. no stored row for the key, 2. select max sort order, 3. insert returning
+      setupDbResults([], [{ maxOrder: 0 }], [insertedImage]);
 
       const response = await app.inject({
         method: 'POST',
@@ -339,8 +368,8 @@ describe('Station image routes', () => {
         updatedAt: new Date().toISOString(),
       };
 
-      // 1. update clear main, 2. select max sort order, 3. insert returning
-      setupDbResults([], [{ maxOrder: 1 }], [insertedImage]);
+      // 1. no stored row, 2. update clear main, 3. select max sort order, 4. insert returning
+      setupDbResults([], [], [{ maxOrder: 1 }], [insertedImage]);
 
       const response = await app.inject({
         method: 'POST',

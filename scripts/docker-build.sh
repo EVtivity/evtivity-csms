@@ -15,14 +15,16 @@ unset DOCKER_HOST DOCKER_TLS_VERIFY DOCKER_CERT_PATH MINIKUBE_ACTIVE_DOCKERD
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-# Require .env so host-side seed scripts see the same vars as the
-# docker-compose containers (especially SETTINGS_ENCRYPTION_KEY -- without
-# alignment, the seed writes *Enc settings with one key and the API
-# container decrypts with another). Copy .env.example to .env first.
+# shellcheck source=lib/compose-secrets.sh
+. "$REPO_ROOT/scripts/lib/compose-secrets.sh"
+
+# Host-side seed scripts read .env, as the docker-compose containers do
+# (especially SETTINGS_ENCRYPTION_KEY -- without alignment, the seed writes
+# *Enc settings with one key and the API container decrypts with another).
+# A checkout without .env starts from the template.
 if [ ! -f "$REPO_ROOT/.env" ]; then
-  echo "Error: .env not found at $REPO_ROOT/.env" >&2
-  echo "Copy the template: cp .env.example .env" >&2
-  exit 1
+  cp "$REPO_ROOT/.env.example" "$REPO_ROOT/.env"
+  echo "Created .env from .env.example."
 fi
 set -a
 # shellcheck disable=SC1091
@@ -35,6 +37,7 @@ PROFILES=()
 echo "=== EVtivity Docker Compose Build ==="
 echo ""
 echo "Core services (postgres, redis, api, ocpp, csms, portal, simulator, worker) always start."
+echo "Storage: simulator chaos mode (CSS_MODE=chaos) or a large network fills the database fast, mostly ocpp_message_logs and meter_values (2000 stations reached 90 GB)."
 echo ""
 
 # Network binding. The whole point of an explicit BIND_IP is cross-device
@@ -86,6 +89,19 @@ if [[ "$restart_data" == "y" || "$restart_data" == "Y" ]]; then
   RESTART_DATA="y"
 fi
 
+# docker-compose.yml has no defaults for the JWT secret and the settings key:
+# write random ones into .env (scripts/lib/compose-secrets.sh). A database
+# volume that stays keeps the settings key its stored credentials need.
+VOLUME_EXISTS=no
+if [ "$RESTART_DATA" != "y" ] && docker volume inspect evtivity_pgdata > /dev/null 2>&1; then
+  VOLUME_EXISTS=yes
+fi
+ensure_compose_secrets "$REPO_ROOT/.env" "$VOLUME_EXISTS"
+set -a
+# shellcheck disable=SC1091
+. "$REPO_ROOT/.env"
+set +a
+
 echo ""
 if [ "$BIND_IP" != "127.0.0.1" ]; then
   echo "Bind IP: $BIND_IP (LAN)"
@@ -130,7 +146,8 @@ docker compose up -d postgres redis
 # docker/redis/acl-rules.conf, so a new key prefix or channel of this version
 # reaches the service users without restarting Redis.
 echo "Waiting for redis to be ready..."
-until docker compose exec -T redis redis-cli ping >/dev/null 2>&1; do
+# The default user is off: sign in as the dev-only admin user (docker/redis/start.sh).
+until docker compose exec -T redis sh -c 'redis-cli --user admin --pass "$REDIS_ADMIN_PASSWORD" --no-auth-warning ping' 2>/dev/null | grep -q PONG; do
   sleep 1
 done
 docker compose exec -T redis sh /usr/local/etc/redis/start.sh --reload

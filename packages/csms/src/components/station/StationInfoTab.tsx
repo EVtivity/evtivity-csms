@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import type { ParseKeys } from 'i18next';
 import { EditButton } from '@/components/edit-button';
 import { RemoveButton } from '@/components/remove-button';
 import { CopyableId } from '@/components/copyable-id';
@@ -29,7 +30,7 @@ import { OCPP_BASE_URL } from '@/lib/config';
 import { formatDateTime } from '@/lib/timezone';
 import { StationAiInsightsRow } from './StationAiInsightsRow';
 import type { StationAiInsightsState } from './StationAiInsightsRow';
-import { stationSimKey } from './sim-connectivity';
+import { stationSimKey } from '@/components/sim/sim-connectivity';
 
 interface Site {
   id: string;
@@ -92,6 +93,13 @@ export interface StationInfoTabProps {
 }
 
 const IMSI_PATTERN = /^\d{1,15}$/;
+
+/** The station PATCH `simAttachment` values that attached nothing, and what the user is told. */
+const SIM_NOT_ATTACHED_KEYS: Readonly<Record<string, ParseKeys>> = {
+  attached_elsewhere: 'stations.sim.attachmentResult.attachedElsewhere',
+  sim_inactive: 'stations.sim.attachmentResult.simInactive',
+  attach_conflict: 'stations.sim.attachmentResult.attachConflict',
+};
 
 export function StationInfoTab({
   station,
@@ -158,13 +166,18 @@ export function StationInfoTab({
       longitude?: string;
       iccid?: string | null;
       imsi?: string | null;
-    }) => api.patch<Station>(`/v1/stations/${stationId}`, body),
-    onSuccess: (_data, body) => {
+    }) => api.patch<Station & { simAttachment?: string }>(`/v1/stations/${stationId}`, body),
+    onSuccess: (data, body) => {
       void queryClient.invalidateQueries({ queryKey: ['stations'] });
-      // A new ICCID can change or clear the SIM match.
+      // A new ICCID can attach, replace or detach the station's SIM, and create a SIM.
       if ('iccid' in body || 'imsi' in body) {
         void queryClient.invalidateQueries({ queryKey: stationSimKey(stationId) });
+        void queryClient.invalidateQueries({ queryKey: ['sims'] });
       }
+      // The ICCID is saved, but its SIM could not be attached to this station.
+      const notAttached =
+        data.simAttachment != null ? SIM_NOT_ATTACHED_KEYS[data.simAttachment] : undefined;
+      if (notAttached != null) toast({ variant: 'warning', title: t(notAttached) });
       setEditing(false);
     },
   });

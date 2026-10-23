@@ -19,6 +19,7 @@ import { initCommandCallbackService } from './services/command-callback.service.
 import { startOcpiCdrJobs } from './services/cdr-jobs.js';
 import { setPubSub } from './lib/pubsub.js';
 import { config } from './lib/config.js';
+import { serializeRequestForLog } from '@evtivity/lib/request-log';
 
 async function start(): Promise<void> {
   // A backend terminated while postgres.js fetches its array types must not end
@@ -33,14 +34,7 @@ async function start(): Promise<void> {
       level: config.LOG_LEVEL,
       ...logFormatOptions,
       serializers: {
-        req(request) {
-          return {
-            method: request.method,
-            url: request.url,
-            hostname: request.hostname,
-            remoteAddress: request.ip,
-          };
-        },
+        req: serializeRequestForLog,
       },
     },
   };

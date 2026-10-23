@@ -138,6 +138,18 @@ describe('createPaymentWebhookWorker', () => {
     await expect(processor()(job())).rejects.toBeInstanceOf(MockUnrecoverableError);
   });
 
+  it('refuses a job of a provider other than the simulated one', async () => {
+    createPaymentWebhookWorker({}, null);
+    const stripeJob = {
+      id: 'j2',
+      name: 'deliver',
+      data: { ...delivery, provider: 'stripe' },
+      attemptsMade: 0,
+    } as unknown as Job;
+    await expect(processor()(stripeJob)).rejects.toBeInstanceOf(MockUnrecoverableError);
+    expect(mockIngest).not.toHaveBeenCalled();
+  });
+
   it('rethrows other errors so BullMQ retries', async () => {
     createPaymentWebhookWorker({}, null);
     const dbDown = new Error('db down');

@@ -154,6 +154,9 @@ vi.mock('@evtivity/database', async () => {
     ...rawTimestamp,
     ...suppression,
     db: dbMock,
+    effectiveDataPlanSql: 'effective_data_plan',
+    dataPlanSourceSql: 'data_plan_source',
+    readStationDataPlans: vi.fn(() => Promise.resolve(new Map())),
     client: {},
     setStationDisabled: mockSetStationDisabled,
     SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
@@ -320,6 +323,8 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(401).send({ error: 'Unauthorized' });
       }
     },
+  // The caller holds every further permission (security-profile-permission.test.ts covers the refusal).
+  requestHasPermission: vi.fn().mockResolvedValue(true),
 }));
 
 import { registerAuth } from '../plugins/auth.js';
@@ -461,6 +466,9 @@ describe('Station routes - handler logic', () => {
         pendingSecurityProfile: null,
         ocppProtocol: null,
         hasPassword: false,
+        dataPlan: null,
+        effectiveDataPlan: 'wifi_or_wired',
+        dataPlanSource: 'default',
         metadata: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -1548,7 +1556,7 @@ describe('Station routes - handler logic', () => {
       expect(body.ghostRecovered).toBe(true);
       expect(body.sessionId).toBe('ses_000000000001');
       expect(body.transactionId).toBe('tx-ghost');
-      // Recorded durably first (P4), then the OCPP server ends it the normal
+      // Recorded durably first, then the OCPP server ends it the normal
       // way (completed, cost, settlement, receipt).
       expect(mockRecordSessionEndRequest).toHaveBeenCalledWith(
         {},
@@ -1561,7 +1569,7 @@ describe('Station routes - handler logic', () => {
       );
     });
 
-    it('publishes nothing when the ghost session ended meanwhile (P5)', async () => {
+    it('publishes nothing when the ghost session ended meanwhile', async () => {
       const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
       vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
         commandId: 'm',

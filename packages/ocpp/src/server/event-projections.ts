@@ -13,11 +13,8 @@ import {
   client,
   isSplitBillingEnabled,
   getOfflineCommandTtlHours,
-  getMeterValueIntervalSeconds,
-  getClockAlignedIntervalSeconds,
-  getSampledMeasurands,
-  getAlignedMeasurands,
-  getTxEndedMeasurands,
+  getDataPlanValues,
+  readStationDataPlans,
   writeAudit,
   FIRMWARE_UPDATE_TERMINAL_STATUSES,
   FIRMWARE_UPDATE_REFUSED_RESPONSES,
@@ -40,6 +37,7 @@ import {
   storeRunningCost,
   switchTariffSegment,
   applySessionEnergyReading,
+  applySessionMeterSummary,
   eventTimeAtMostNow,
   sendSessionTariffChange,
   pgConstraintName,
@@ -48,7 +46,6 @@ import {
   alertStationWatchersIfAvailable,
   markLoadManagementStale,
   recordLoadManagementProfileReply,
-  clearStationSimMatch,
   getSimGeneralSettings,
 } from '@evtivity/database';
 import { getSecuritySeverity } from '../lib/security-severity.js';
@@ -76,10 +73,11 @@ import {
 import type { SessionLifecycleState } from './session-lifecycle/state.js';
 import { TransactionProjector } from './session-lifecycle/transaction-projector.js';
 import { getString } from './projection-support/payload.js';
-import { MeasurandEnum as MEASURAND_ENUM_201 } from '../generated/v2_0_1/enums/MeasurandEnum.js';
 import { SESSION_ENDED_BY_CSMS } from './csms-session-end.js';
 import {
+  buildDataPlanCommands,
   createLogger,
+  DEFAULT_DATA_PLAN,
   FREE_VEND_OCPP_21_VARIABLES,
   FREE_VEND_OCPP_16_KEYS,
   iccidChanged,
@@ -95,6 +93,7 @@ import {
 } from '@evtivity/lib';
 import { enqueueMaintenanceFanout } from '@evtivity/services/maintenance.service';
 import { enqueueStationRefresh } from '@evtivity/services/station-message.service';
+import { closeStationAttachmentOnIccidChange } from '@evtivity/services/sim-inventory.service';
 import {
   recordLowSignalMonitorFailure,
   recordLowSignalMonitorReport,
@@ -115,7 +114,8 @@ import {
   projectStationOutageHolds,
 } from './reservation-projections.js';
 import { TransactionBuffer } from './transaction-buffer.js';
-import { projectionLane, projectionQueueFor } from './projection-queue.js';
+import { projectionLane, projectionQueueFor, type LaneBound } from './projection-queue.js';
+import { MESSAGE_LOG_MAX_PENDING_PER_LANE } from './message-log.js';
 import { PROJECTION_RETRY_DEFAULTS, runProjectionWithRetry } from './projection-retry.js';
 import type { ProjectionAttempt } from './projection-retry.js';
 import { SERVER_SHUTDOWN_DISCONNECT_REASON } from './graceful-shutdown.js';
@@ -127,10 +127,9 @@ import {
   energyToWh,
   isFlatEnergyReading,
   overallValue,
+  readingSummary,
 } from './meter-units.js';
 import type { PhaseSample } from './meter-units.js';
-
-const MEASURANDS_201: ReadonlySet<string> = new Set(Object.values(MEASURAND_ENUM_201));
 
 const OCPP_STATUS_MAP: Record<string, string> = {
   // OCPP 2.1 connector statuses
@@ -283,8 +282,12 @@ export function registerProjections(
   };
   const projector = new TransactionProjector(deps, state);
 
-  function enqueueForStation(id: string, work: () => Promise<void>): Promise<void> {
-    return state.projectionQueue.enqueue(id, work);
+  function enqueueForStation(
+    id: string,
+    work: () => Promise<void>,
+    bound?: LaneBound,
+  ): Promise<void> {
+    return state.projectionQueue.enqueue(id, work, bound);
   }
 
   // `retryOnConnectionError`: the projection runs again (projection-retry.ts)
@@ -296,7 +299,7 @@ export function registerProjections(
   function safeSubscribe(
     eventType: string,
     handler: (event: DomainEvent, attempt: ProjectionAttempt) => Promise<void>,
-    options: { retryOnConnectionError?: boolean } = {},
+    options: { retryOnConnectionError?: boolean; maxPendingPerLane?: number } = {},
   ): void {
     const retryOptions =
       options.retryOnConnectionError === true
@@ -305,59 +308,67 @@ export function registerProjections(
     eventBus.subscribe(eventType, (event: DomainEvent) => {
       const stationId =
         typeof event.payload.stationId === 'string' ? event.payload.stationId : event.aggregateId;
-      return enqueueForStation(projectionLane(event), async () => {
-        let attempts = 1;
-        try {
-          await runProjectionWithRetry((attempt) => handler(event, attempt), {
-            ...retryOptions,
-            onRetry: ({ attempt, delayMs, err }) => {
-              attempts = attempt + 1;
-              logger.warn(
+      const bound =
+        options.maxPendingPerLane != null
+          ? { kind: eventType, maxPending: options.maxPendingPerLane }
+          : undefined;
+      return enqueueForStation(
+        projectionLane(event),
+        async () => {
+          let attempts = 1;
+          try {
+            await runProjectionWithRetry((attempt) => handler(event, attempt), {
+              ...retryOptions,
+              onRetry: ({ attempt, delayMs, err }) => {
+                attempts = attempt + 1;
+                logger.warn(
+                  {
+                    eventType,
+                    stationId,
+                    attempt,
+                    delayMs,
+                    errorCode: pgErrorCode(err),
+                    error: err instanceof Error ? err.message : String(err),
+                  },
+                  'Event projection lost its database connection; retrying',
+                );
+              },
+            });
+          } catch (err) {
+            const stationOcppId =
+              typeof event.payload.stationId === 'string'
+                ? event.payload.stationId
+                : event.aggregateType === 'ChargingStation'
+                  ? event.aggregateId
+                  : null;
+            if (await failedOnDeletedStation(err, stationOcppId)) {
+              logger.debug(
                 {
                   eventType,
+                  aggregateId: event.aggregateId,
                   stationId,
-                  attempt,
-                  delayMs,
                   errorCode: pgErrorCode(err),
-                  error: err instanceof Error ? err.message : String(err),
+                  constraint: pgConstraintName(err),
                 },
-                'Event projection lost its database connection; retrying',
+                'Event projection skipped: the station no longer exists',
               );
-            },
-          });
-        } catch (err) {
-          const stationOcppId =
-            typeof event.payload.stationId === 'string'
-              ? event.payload.stationId
-              : event.aggregateType === 'ChargingStation'
-                ? event.aggregateId
-                : null;
-          if (await failedOnDeletedStation(err, stationOcppId)) {
-            logger.debug(
+              return;
+            }
+            logger.error(
               {
                 eventType,
                 aggregateId: event.aggregateId,
                 stationId,
+                attempts,
                 errorCode: pgErrorCode(err),
-                constraint: pgConstraintName(err),
+                error: err instanceof Error ? err.message : String(err),
               },
-              'Event projection skipped: the station no longer exists',
+              'Event projection failed',
             );
-            return;
           }
-          logger.error(
-            {
-              eventType,
-              aggregateId: event.aggregateId,
-              stationId,
-              attempts,
-              errorCode: pgErrorCode(err),
-              error: err instanceof Error ? err.message : String(err),
-            },
-            'Event projection failed',
-          );
-        }
-      });
+        },
+        bound,
+      );
     });
   }
 
@@ -710,7 +721,7 @@ export function registerProjections(
     const firmwareVersion = getString(payload, 'firmwareVersion');
     const model = getString(payload, 'model');
     const serialNumber = getString(payload, 'serialNumber');
-    // An empty ICCID or IMSI is none: it neither replaces the stored one nor clears the SIM match.
+    // An empty ICCID or IMSI is none: it neither replaces the stored one nor closes the SIM attachment.
     const iccid = getString(payload, 'iccid')?.trim() || null;
     const imsi = getString(payload, 'imsi')?.trim() || null;
     const vendorName = getString(payload, 'vendorName');
@@ -734,6 +745,9 @@ export function registerProjections(
           model = ${model},
           serial_number = ${serialNumber},
           iccid = COALESCE(${iccid}, iccid),
+          iccid_source = CASE WHEN ${iccid}::text IS NULL THEN iccid_source ELSE 'reported' END,
+          iccid_entered_by = CASE WHEN ${iccid}::text IS NULL THEN iccid_entered_by END,
+          iccid_entered_with_all_sites = ${iccid}::text IS NULL AND iccid_entered_with_all_sites,
           imsi = COALESCE(${imsi}, imsi),
           metadata = CASE
             WHEN ${vendorName}::text IS NULL THEN metadata
@@ -761,6 +775,9 @@ export function registerProjections(
           model = ${model},
           serial_number = ${serialNumber},
           iccid = COALESCE(${iccid}, iccid),
+          iccid_source = CASE WHEN ${iccid}::text IS NULL THEN iccid_source ELSE 'reported' END,
+          iccid_entered_by = CASE WHEN ${iccid}::text IS NULL THEN iccid_entered_by END,
+          iccid_entered_with_all_sites = ${iccid}::text IS NULL AND iccid_entered_with_all_sites,
           imsi = COALESCE(${imsi}, imsi),
           metadata = CASE
             WHEN ${vendorName}::text IS NULL THEN metadata
@@ -772,20 +789,19 @@ export function registerProjections(
       `;
     }
 
-    // The ICCID is stored as reported. A SIM match is for the SIM the station
-    // held, so another SIM (a trailing F does not count) clears it.
+    // The ICCID is stored as reported, so a person's earlier entry no longer
+    // names its origin. A SIM attachment is for the SIM the station held,
+    // so another SIM (a trailing F does not count) closes it. This close runs
+    // also while the SIM switches are off, the one exception to "no change
+    // while off": it creates no SIM data and calls no provider, it only keeps
+    // the stored attachments true to the station.
     if (iccid != null && iccidChanged(current?.iccid as string | null | undefined, iccid)) {
       try {
-        await clearStationSimMatch(
-          stationUuid,
-          { actor: 'ocpp', actorLabel: 'BootNotification' },
-          { forgetEnteredIccid: true },
-          logger,
-        );
+        await closeStationAttachmentOnIccidChange(stationUuid, iccid, logger);
       } catch (err: unknown) {
         logger.error(
           { err, stationId: event.aggregateId },
-          'SIM match not cleared after an ICCID change; clear it on the Connectivity tab',
+          'SIM attachment not closed after an ICCID change; detach it on the SIM page',
         );
       }
     }
@@ -819,149 +835,27 @@ export function registerProjections(
         return;
       }
       markBootConfigPushed(event.aggregateId);
-      const meterValueInterval = await getMeterValueIntervalSeconds();
-      const clockAlignedInterval = await getClockAlignedIntervalSeconds();
-      const sampledMeasurands = await getSampledMeasurands();
-      const alignedMeasurands = await getAlignedMeasurands();
-      const txEndedMeasurands = await getTxEndedMeasurands();
       const stationOcppId = event.aggregateId;
 
-      // Look up the station's OCPP protocol version
-      const [stationRow] = await sql`
-        SELECT ocpp_protocol FROM charging_stations WHERE id = ${stationUuid}
-      `;
-      const protocol = stationRow?.ocpp_protocol as string | null;
+      // The station's data plan and charging kind (AC or DC from its
+      // connector types) pick the values; the protocol picks the commands.
+      const planState = (await readStationDataPlans([stationUuid])).get(stationUuid);
+      const plan = planState?.plan ?? DEFAULT_DATA_PLAN;
+      const chargingKind = planState?.chargingKind ?? 'ac';
+      const protocol = planState?.ocppProtocol ?? null;
+      const values = await getDataPlanValues(plan);
 
       const publishCmd = (action: string, payload: Record<string, unknown>, version: string) =>
         publishOcppCommand(pubsub, { stationId: stationOcppId, action, payload, version });
 
-      // Measurands valid only in OCPP 1.6 (not in 2.1 MeasurandEnumType); a 2.0.1
-      // station also gets only the measurands of its own, shorter enum.
-      const OCPP_16_ONLY = new Set(['Temperature', 'RPM']);
-      const filter21 = (csv: string) =>
-        csv
-          .split(',')
-          .filter(
-            (m) =>
-              !OCPP_16_ONLY.has(m.trim()) &&
-              (protocol !== 'ocpp2.0.1' || MEASURANDS_201.has(m.trim())),
-          )
-          .join(',');
-
-      if (isOcpp2x(protocol)) {
-        // OCPP 2.x: SetVariables (one command per variable)
-        if (meterValueInterval > 0) {
-          await publishCmd(
-            'SetVariables',
-            {
-              setVariableData: [
-                {
-                  component: { name: 'SampledDataCtrlr' },
-                  variable: { name: 'TxUpdatedInterval' },
-                  attributeValue: String(meterValueInterval),
-                },
-              ],
-            },
-            protocol,
-          );
-        }
-        // A list the 2.0.1 filter emptied is not sent: an empty value would clear the station's list.
-        if (sampledMeasurands && filter21(sampledMeasurands) !== '') {
-          await publishCmd(
-            'SetVariables',
-            {
-              setVariableData: [
-                {
-                  component: { name: 'SampledDataCtrlr' },
-                  variable: { name: 'TxUpdatedMeasurands' },
-                  attributeValue: filter21(sampledMeasurands),
-                },
-              ],
-            },
-            protocol,
-          );
-        }
-        if (txEndedMeasurands && filter21(txEndedMeasurands) !== '') {
-          await publishCmd(
-            'SetVariables',
-            {
-              setVariableData: [
-                {
-                  component: { name: 'SampledDataCtrlr' },
-                  variable: { name: 'TxEndedMeasurands' },
-                  attributeValue: filter21(txEndedMeasurands),
-                },
-              ],
-            },
-            protocol,
-          );
-        }
-        if (clockAlignedInterval > 0) {
-          await publishCmd(
-            'SetVariables',
-            {
-              setVariableData: [
-                {
-                  component: { name: 'AlignedDataCtrlr' },
-                  variable: { name: 'Interval' },
-                  attributeValue: String(clockAlignedInterval),
-                },
-              ],
-            },
-            protocol,
-          );
-          if (alignedMeasurands && filter21(alignedMeasurands) !== '') {
-            await publishCmd(
-              'SetVariables',
-              {
-                setVariableData: [
-                  {
-                    component: { name: 'AlignedDataCtrlr' },
-                    variable: { name: 'Measurands' },
-                    attributeValue: filter21(alignedMeasurands),
-                  },
-                ],
-              },
-              protocol,
-            );
-          }
-        }
-      } else if (protocol === 'ocpp1.6') {
-        // OCPP 1.6: ChangeConfiguration (one command per key)
-        if (meterValueInterval > 0) {
-          await publishCmd(
-            'ChangeConfiguration',
-            { key: 'MeterValueSampleInterval', value: String(meterValueInterval) },
-            'ocpp1.6',
-          );
-        }
-        if (sampledMeasurands) {
-          await publishCmd(
-            'ChangeConfiguration',
-            { key: 'MeterValuesSampledData', value: sampledMeasurands },
-            'ocpp1.6',
-          );
-        }
-        if (txEndedMeasurands) {
-          await publishCmd(
-            'ChangeConfiguration',
-            { key: 'StopTxnSampledData', value: txEndedMeasurands },
-            'ocpp1.6',
-          );
-        }
-        if (clockAlignedInterval > 0) {
-          await publishCmd(
-            'ChangeConfiguration',
-            { key: 'ClockAlignedDataInterval', value: String(clockAlignedInterval) },
-            'ocpp1.6',
-          );
-          if (alignedMeasurands) {
-            await publishCmd(
-              'ChangeConfiguration',
-              { key: 'MeterValuesAlignedData', value: alignedMeasurands },
-              'ocpp1.6',
-            );
-          }
+      // The heartbeat goes in the BootNotification reply. An idle interval of
+      // 0 is sent (no idle readings); 2.x lists hold only the measurands of
+      // the station's protocol.
+      if (protocol != null) {
+        for (const cmd of buildDataPlanCommands(protocol, values, chargingKind, {
+          includeHeartbeat: false,
+        })) {
+          await publishCmd(cmd.action, cmd.payload, protocol);
         }
       }
 
@@ -1003,10 +897,10 @@ export function registerProjections(
         {
           stationId: stationOcppId,
           protocol,
-          meterValueInterval,
-          clockAlignedInterval,
-          sampledMeasurands,
-          txEndedMeasurands,
+          dataPlan: plan,
+          chargingKind,
+          meterValueInterval: values[chargingKind].meterValueInterval,
+          clockAlignedInterval: values.clockAlignedInterval,
         },
         'Pushed OCPP configuration on boot',
       );
@@ -1375,6 +1269,10 @@ export function registerProjections(
       // newest projected register reading (not stale): a reading at or before
       // a switch the boundary job made moves the boundary energy up to it.
       let latestReadingEnergy: { sessionId: string; energyWh: number } | null = null;
+      // The meter summary of the readings projected in this delivery.
+      let summaryPeakW: number | null = null;
+      let summarySoc: number | null = null;
+      let summarySocAtMs: number | null = null;
       for (const [reading, mv] of meterValues.entries()) {
         const mvTimestamp = mv.timestamp as string;
         const sampledValues = mv.sampledValue as Array<Record<string, unknown>> | undefined;
@@ -1490,6 +1388,21 @@ export function registerProjections(
         if (sessionId != null && storedSamples === 0) continue;
         projectedReadings++;
         const readingMs = new Date(mvTimestamp).getTime();
+
+        // The session meter summary of this delivery (peak power, newest
+        // state of charge), stored once after the loop.
+        const summary = readingSummary(sampledValues);
+        if (summary.powerW != null && (summaryPeakW == null || summary.powerW > summaryPeakW)) {
+          summaryPeakW = summary.powerW;
+        }
+        if (
+          summary.socPercent != null &&
+          !Number.isNaN(readingMs) &&
+          (summarySocAtMs == null || readingMs > summarySocAtMs)
+        ) {
+          summarySoc = summary.socPercent;
+          summarySocAtMs = readingMs;
+        }
         if (!Number.isNaN(readingMs) && (latestReadingMs == null || readingMs > latestReadingMs)) {
           latestReadingMs = readingMs;
           latestReadingEnergy = null;
@@ -1746,6 +1659,28 @@ export function registerProjections(
         }
       }
 
+      // Session meter summary (peak power, last state of charge): one guarded
+      // UPDATE per delivery, so it outlives the meter_values retention. Not in
+      // the energy UPDATE above, which runs only for register readings of an
+      // active session and skips older readings. The matched session takes it
+      // in any status, else the EVSE's active session, as session energy.
+      if (appliesToSession && (summaryPeakW != null || summarySoc != null)) {
+        const reading = {
+          peakPowerW: summaryPeakW,
+          socPercent: summarySoc,
+          socAt: summarySocAtMs != null ? new Date(summarySocAtMs) : null,
+        };
+        const summaryStationUuid = stationUuid;
+        await attempt.memo('mv:summary', () =>
+          applySessionMeterSummary(sql, {
+            stationUuid: summaryStationUuid,
+            sessionId,
+            evseUuid,
+            reading,
+          }),
+        );
+      }
+
       // Notify for all MeterValues (both standalone and transaction-scoped).
       // Cost recalculation and session updates follow below when active sessions exist.
 
@@ -1849,7 +1784,7 @@ export function registerProjections(
         let breakdown = await priceSessionAt(sql, sessionId, now, energyWh);
         if (breakdown == null) continue;
 
-        // Account session of a credit-limited fleet (plan S8, bounded
+        // Account session of a credit-limited fleet (bounded
         // reservation): near its ceiling the ceiling grows by another slice
         // of the fleet credit, and the cost is priced again under the grown
         // ceiling, so the session is neither capped nor stopped while the
@@ -1898,7 +1833,7 @@ export function registerProjections(
           );
         }
 
-        // Fleet credit limit notices (plan S8): a running account session's
+        // Fleet credit limit notices: a running account session's
         // cost raises its fleet's exposure, so the warning and reached notices
         // also go out while it charges, once per fleet and month each (the
         // claim in dispatchFleetCreditLimitNotices). Only for a fleet with a
@@ -1920,7 +1855,7 @@ export function registerProjections(
         // Cost ceiling: a guest's card hold (the authorization is the ceiling
         // for the cost, C25), a prepaid token's credit (C17.FR.03), stamped
         // by the Started projection, or the fleet credit an account session
-        // reserved at the payment gate (plan S8). The cost assembly bills at most
+        // reserved at the payment gate. The cost assembly bills at most
         // cost_ceiling_cents, so energy, time and idle fees past it are not
         // paid for. OCPP 1.6 and 2.0.1 have no transaction limit: the CSMS stops the
         // transaction once the cost reaches the ceiling. An OCPP 2.1 station
@@ -2340,7 +2275,9 @@ export function registerProjections(
       }
       await notify.notifyChange('ocpp.message', stationUuid, siteId);
     },
-    { retryOnConnectionError: true },
+    // A bounded number of log entries wait per station lane; state
+    // projections of the lane are never dropped.
+    { retryOnConnectionError: true, maxPendingPerLane: MESSAGE_LOG_MAX_PENDING_PER_LANE },
   );
 
   // --- Display Message Projection ---

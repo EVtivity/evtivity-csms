@@ -73,12 +73,24 @@ export function secondsUntil(lockedUntil: Date, now = new Date()): number {
   return Math.max(1, Math.ceil((lockedUntil.getTime() - now.getTime()) / 1000));
 }
 
-function lockValues(count: AnyPgColumn, until: AnyPgColumn): { count: SQL; until: SQL } {
-  const next = sql`${count} + 1`;
+/**
+ * Failures decay: a count whose last lock ended more than SIGN_IN_DECAY_HOURS ago
+ * starts again at 1, so old
+ * failures never shorten the free tries of a later day.
+ */
+export const SIGN_IN_DECAY_HOURS = 24;
+
+/** The count and lock time one more failure sets, after the decay. */
+export function lockValues(count: AnyPgColumn, until: AnyPgColumn): { count: SQL; until: SQL } {
+  // Decided once: a decayed count starts again at 1 and drops its stale lock time, so
+  // the next failures count up to a fresh lock (a stale lock left in place would decay
+  // every failure again, and the count would never reach the lock).
+  const decayed = sql`(${until} IS NOT NULL AND ${until} < now() - make_interval(hours => ${SIGN_IN_DECAY_HOURS}))`;
+  const next = sql`(CASE WHEN ${decayed} THEN 1 ELSE ${count} + 1 END)`;
   const lockSeconds = sql`LEAST(${SIGN_IN_BASE_LOCK_SECONDS} * POWER(2, LEAST(${next} - ${SIGN_IN_FREE_FAILURES}, 20)), ${SIGN_IN_MAX_LOCK_SECONDS})`;
   return {
     count: next,
-    until: sql`CASE WHEN ${next} >= ${SIGN_IN_FREE_FAILURES} THEN now() + make_interval(secs => ${lockSeconds}) ELSE ${until} END`,
+    until: sql`CASE WHEN ${decayed} THEN NULL WHEN ${next} >= ${SIGN_IN_FREE_FAILURES} THEN now() + make_interval(secs => ${lockSeconds}) ELSE ${until} END`,
   };
 }
 
@@ -211,6 +223,14 @@ async function auditLock(
     request.log,
   );
   return row.until;
+}
+
+/**
+ * The backoff UPDATE of a password sign-in for an email with no account: the same
+ * statement, matching no row, so an unknown email takes the time of a known one.
+ */
+export async function takeUnknownSignInAttempt(kind: 'user' | 'driver'): Promise<void> {
+  await countFailure(kind === 'user' ? { userId: '' } : { driverId: '' }, 'password');
 }
 
 /** One try of a factor: granted (and already counted as a failure), or refused while locked. */

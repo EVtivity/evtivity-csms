@@ -178,6 +178,12 @@ vi.mock('../lib/remote-start-timeout.js', () => ({
 
 vi.mock('../lib/payments.js', () => ({
   activePaymentProvider: mockActivePaymentProvider,
+  // Off without a provider, active with one; a test of a provider this
+  // process cannot use sets the state itself.
+  activePaymentState: vi.fn(async (logger: unknown) => {
+    const provider: unknown = await mockActivePaymentProvider(logger);
+    return provider == null ? { kind: 'off' } : { kind: 'active', provider };
+  }),
   paymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
 }));
 

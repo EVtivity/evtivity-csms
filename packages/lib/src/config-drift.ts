@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { isOcpp21OnlyVariable } from './ocpp21-only-variables.js';
+import { isDataPlan } from './station-data-plan.js';
+import type { DataPlan } from './station-data-plan.js';
 
 /** The station_configurations columns that identify a reported value. */
 export interface ReportedConfiguration {
@@ -22,16 +24,19 @@ const OCPP16_COMPONENT = 'OCPP';
 /**
  * The reported row a config template variable sets. A template pushes
  * SetVariables (2.1) or ChangeConfiguration (1.6) without a component
- * instance, EVSE, or variable instance, to the Actual attribute, so only that
- * row is compared. Rows for other instances, EVSEs, or attribute types are
- * different variables.
+ * instance or EVSE, to the Actual attribute, with its variable instance when
+ * it has one (`OCPPCommCtrlr.MessageTimeout[Default]`), so only that row is
+ * compared. Rows for other instances, EVSEs, or attribute types are different
+ * variables.
  */
 export function findTemplateTargetConfiguration<T extends ReportedConfiguration>(
   rows: readonly T[],
   component: string,
   variable: string,
+  variableInstance?: string | null,
 ): T | undefined {
   const storedComponent = component === '' ? OCPP16_COMPONENT : component;
+  const instance = variableInstance ?? null;
   return rows.find(
     (r) =>
       r.component === storedComponent &&
@@ -39,7 +44,7 @@ export function findTemplateTargetConfiguration<T extends ReportedConfiguration>
       r.evseId == null &&
       r.connectorId == null &&
       r.variable === variable &&
-      r.variableInstance == null &&
+      r.variableInstance === instance &&
       r.attributeType === 'Actual',
   );
 }
@@ -70,6 +75,8 @@ export interface ConfigTemplateTarget {
   siteId?: string;
   vendorId?: string;
   model?: string;
+  /** Matched on the station's effective data plan (resolveDataPlan). */
+  dataPlan?: DataPlan;
 }
 
 function nonEmpty(value: unknown): string | undefined {
@@ -102,18 +109,28 @@ export function configTemplateTarget(template: {
   if (siteId != null) target.siteId = siteId;
   if (vendorId != null) target.vendorId = vendorId;
   if (model != null) target.model = model;
+  const dataPlan = filter['dataPlan'];
+  if (isDataPlan(dataPlan)) target.dataPlan = dataPlan;
   return target;
 }
 
 /** True when the station is one of the stations the config template targets. */
 export function configTemplateMatchesStation(
   template: { stationId: string | null; targetFilter: unknown },
-  station: { id: string; siteId: string | null; vendorId: string | null; model: string | null },
+  station: {
+    id: string;
+    siteId: string | null;
+    vendorId: string | null;
+    model: string | null;
+    /** The station's effective data plan. */
+    dataPlan: DataPlan;
+  },
 ): boolean {
   const target = configTemplateTarget(template);
   if (target.stationId != null && target.stationId !== station.id) return false;
   if (target.siteId != null && target.siteId !== station.siteId) return false;
   if (target.vendorId != null && target.vendorId !== station.vendorId) return false;
   if (target.model != null && target.model !== station.model) return false;
+  if (target.dataPlan != null && target.dataPlan !== station.dataPlan) return false;
   return true;
 }

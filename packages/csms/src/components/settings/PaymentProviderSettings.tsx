@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { PRE_AUTH_AMOUNT_MAX_CENTS, PRE_AUTH_AMOUNT_MIN_CENTS } from '@evtivity/lib/currency';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -74,7 +75,10 @@ export interface PaymentSettingsBody {
 
 const NO_PROVIDER = 'none';
 const SIMULATED = 'simulated';
-const PRE_AUTH_LIMITS = { minCents: 1, maxCents: 1_000_000 };
+const PRE_AUTH_LIMITS = {
+  minCents: PRE_AUTH_AMOUNT_MIN_CENTS,
+  maxCents: PRE_AUTH_AMOUNT_MAX_CENTS,
+};
 const DELAY_RANGE = { min: 0, max: 3600, integer: true };
 const RATE_RANGE = { min: 0, max: 1, integer: false };
 
@@ -219,7 +223,7 @@ function changedFields(
 function PaymentProviderForm({ data }: { data: PaymentSettingsResponse }): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const canWrite = useHasPermission('payments:write');
+  const canWrite = useHasPermission('settings.payment:write');
   const { currency } = useCompanyCurrency();
   const [form, setForm] = useState<FormState>(() => formFrom(data));
   const [hasSubmitted, setHasSubmitted] = useState(false);

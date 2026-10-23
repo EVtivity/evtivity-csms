@@ -32,6 +32,7 @@ import {
 import { StatusCell } from './StatusCell';
 import { LoadingLogo } from '@/components/loading-logo';
 import { useUserTimezone } from '@/lib/timezone';
+import { emailPreviewDocument } from '@/lib/email-preview';
 
 const EVENT_CATEGORIES: Record<string, readonly string[]> = {
   driver: DRIVER_EVENT_TYPES,
@@ -253,7 +254,7 @@ export function EmailLogTab(): React.JSX.Element {
           {selectedEmail != null && (
             <iframe
               title={t('logs.emailPreview')}
-              srcDoc={selectedEmail.body}
+              srcDoc={emailPreviewDocument(selectedEmail.body)}
               className="w-full flex-1 min-h-[400px] bg-white border rounded-md"
               sandbox=""
             />

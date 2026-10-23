@@ -184,11 +184,12 @@ describe('Portal sessions routes: vehicle and meter history', () => {
             vehicleModel: 'Model 3',
             vehicleYear: '2022',
             autocharge: false,
+            // The state of charge comes from the session row, not meter_values.
+            lastSocPercent: '64',
           },
         ],
         [],
         [{ value: '7200.5' }],
-        [{ value: '64' }],
         [{ efficiencyMiPerKwh: '4.1' }],
       );
       const res = await call('GET', `/portal/sessions/${SESSION_ID}`);
@@ -210,6 +211,30 @@ describe('Portal sessions routes: vehicle and meter history', () => {
       });
     });
 
+    it('returns the current power in W for a kW reading', async () => {
+      setupDbResults(
+        [
+          {
+            ...baseSession,
+            tokenIdToken: null,
+            tokenType: null,
+            vehicleId: VEHICLE_ID,
+            vehicleMake: 'Rare',
+            vehicleModel: 'EV',
+            vehicleYear: null,
+            autocharge: false,
+            lastSocPercent: null,
+          },
+        ],
+        [],
+        [{ value: '7.2', unit: 'kW' }],
+        [],
+      );
+      const res = await call('GET', `/portal/sessions/${SESSION_ID}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().currentPowerW).toBe(7200);
+    });
+
     it('falls back to the default efficiency when the vehicle is not in the lookup', async () => {
       setupDbResults(
         [
@@ -222,9 +247,9 @@ describe('Portal sessions routes: vehicle and meter history', () => {
             vehicleModel: 'EV',
             vehicleYear: null,
             autocharge: false,
+            lastSocPercent: null,
           },
         ],
-        [],
         [],
         [],
         [],

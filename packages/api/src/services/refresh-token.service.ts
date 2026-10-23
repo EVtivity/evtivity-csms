@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
-import { db, drivers } from '@evtivity/database';
+import { db, drivers, driverPushTokens } from '@evtivity/database';
 import { refreshTokens } from '@evtivity/database';
-import { eq, and, isNull, sql } from 'drizzle-orm';
+import { eq, and, isNotNull, isNull, sql } from 'drizzle-orm';
+import { revokeSignInDevices } from '../lib/device-cookie.js';
 import { hashToken } from '../lib/token-hash.js';
 import { announceDriverSessionChange } from '../lib/driver-active.js';
 
@@ -61,20 +62,35 @@ export interface ValidateRefreshTokenResult {
 // affected principal so neither party stays logged in without re-auth.
 const ROTATION_GRACE_MS = 30 * 1000;
 
+/** Who a session refresh token belongs to: an operator (CSMS) or a driver (portal and app). */
+export type RefreshRealm = 'operator' | 'driver';
+
+/** The session refresh tokens of a realm: never an API key, never the other realm's tokens. */
+function sessionTokenOf(tokenHash: string, realm: RefreshRealm) {
+  return and(
+    eq(refreshTokens.tokenHash, tokenHash),
+    eq(refreshTokens.type, 'session'),
+    realm === 'operator' ? isNotNull(refreshTokens.userId) : isNotNull(refreshTokens.driverId),
+  );
+}
+
 export async function validateAndRotateRefreshToken(
   rawToken: string,
-  opts?: { deviceId?: string | undefined },
+  opts: { realm: RefreshRealm; deviceId?: string | undefined },
 ): Promise<ValidateRefreshTokenResult | null> {
   const tokenHash = hashToken(rawToken);
 
-  const [row] = await db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash));
+  // Only a session token of the route's realm: an API key or an operator token sent to
+  // the driver refresh (or the reverse) is unknown here, so it can neither be rotated
+  // nor set off the replay revocation of its owner.
+  const [row] = await db.select().from(refreshTokens).where(sessionTokenOf(tokenHash, opts.realm));
 
   if (row == null) return null;
 
   // Device-bound tokens (mobile) only validate when presented from the same
   // device. Web tokens have a null device_id and skip this check, so web is
   // unaffected. A mismatch is treated as invalid (the caller returns 401).
-  if (row.deviceId != null && row.deviceId !== opts?.deviceId) {
+  if (row.deviceId != null && row.deviceId !== opts.deviceId) {
     return null;
   }
 
@@ -177,12 +193,28 @@ export async function sessionRefreshTokenDriverId(
   return row.driverId;
 }
 
-export async function revokeRefreshToken(rawToken: string): Promise<void> {
+/**
+ * Revokes a session refresh token of this owner (sign-out, a refused renewal). A
+ * token of another account, an API key or a token of the other realm is left alone.
+ */
+export async function revokeRefreshToken(
+  rawToken: string,
+  owner: { userId: string } | { driverId: string },
+): Promise<void> {
   const tokenHash = hashToken(rawToken);
   await db
     .update(refreshTokens)
     .set({ revokedAt: new Date() })
-    .where(and(eq(refreshTokens.tokenHash, tokenHash), isNull(refreshTokens.revokedAt)));
+    .where(
+      and(
+        eq(refreshTokens.tokenHash, tokenHash),
+        eq(refreshTokens.type, 'session'),
+        'userId' in owner
+          ? eq(refreshTokens.userId, owner.userId)
+          : eq(refreshTokens.driverId, owner.driverId),
+        isNull(refreshTokens.revokedAt),
+      ),
+    );
 }
 
 /**
@@ -193,6 +225,8 @@ export async function revokeRefreshToken(rawToken: string): Promise<void> {
  * lifecycle and re-derive permissions from the user on every request.
  */
 export async function revokeAllUserSessions(userId: string): Promise<void> {
+  // The sign-in devices end with the sessions: no lockout-exempt browser outlives them.
+  await revokeSignInDevices({ userId });
   await db
     .update(refreshTokens)
     .set({ revokedAt: new Date() })
@@ -210,6 +244,7 @@ export async function revokeAllUserSessions(userId: string): Promise<void> {
  * the user account itself is being invalidated (deactivation or delete).
  */
 export async function revokeAllUserRefreshTokens(userId: string): Promise<void> {
+  await revokeSignInDevices({ userId });
   await db
     .update(refreshTokens)
     .set({ revokedAt: new Date() })
@@ -217,6 +252,7 @@ export async function revokeAllUserRefreshTokens(userId: string): Promise<void> 
 }
 
 async function revokeAllDriverRefreshTokens(driverId: string): Promise<void> {
+  await revokeSignInDevices({ driverId });
   await db
     .update(refreshTokens)
     .set({ revokedAt: new Date() })
@@ -244,11 +280,19 @@ export async function bumpDriverSessionVersion(driverId: string): Promise<number
 
 /**
  * Ends every session of the driver: the access tokens
- * (`bumpDriverSessionVersion`) and every refresh token. Password reset and
- * change, portal activation, deactivation, erasure and a replayed refresh
- * token call it; never revoke driver refresh tokens without it.
+ * (`bumpDriverSessionVersion`), every refresh token and every push token.
+ * Password reset and change, MFA on or off, a passkey added or removed, portal
+ * activation, deactivation, erasure and a replayed refresh token call it;
+ * never revoke driver refresh tokens without it.
  */
 export async function endDriverSessions(driverId: string): Promise<void> {
   await bumpDriverSessionVersion(driverId);
   await revokeAllDriverRefreshTokens(driverId);
+  // The devices of the ended sessions stop getting the driver's pushes: a
+  // lost or sold phone kept receiving them after a reset, a sign-out
+  // everywhere or a deactivation. The calling device's token goes too: a
+  // client header cannot prove which device registered a token, so a stolen
+  // session could otherwise keep its own token past the owner's recovery. The
+  // app registers its token again after the change.
+  await db.delete(driverPushTokens).where(eq(driverPushTokens.driverId, driverId));
 }

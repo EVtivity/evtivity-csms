@@ -132,3 +132,67 @@ export function energyRegisterWh(meterValues: unknown): number | null {
   }
   return highest;
 }
+
+/**
+ * Converts a Power.Active.Import reading to W. A missing unit means W (the
+ * spec default for Power measurands). Returns null for any other unit.
+ */
+export function powerToW(value: number, unit: string | null): number | null {
+  if (!Number.isFinite(value)) return null;
+  if (unit == null || unit === 'W') return value;
+  if (unit === 'kW') return Math.round(value * 1000 * 1000) / 1000;
+  return null;
+}
+
+/**
+ * A state of charge reading in percent: unit Percent or none, 0 to 100.
+ * Null for anything else.
+ */
+export function socPercent(value: number, unit: string | null): number | null {
+  if (!Number.isFinite(value)) return null;
+  if (unit != null && unit !== 'Percent') return null;
+  if (value < 0 || value > 100) return null;
+  return value;
+}
+
+/**
+ * The session summary values of one MeterValue's samples (OCPP 1.6 `unit`,
+ * OCPP 2.1 `unitOfMeasure` with its multiplier): the overall Outlet
+ * Power.Active.Import in W (overallValue: the sample without phase, else the
+ * sum of the lines), and the state of charge at any location (an EV reports
+ * it at location EV). Every context counts. Stored on the session as
+ * peak_power_w and last_soc_percent, which outlive the meter_values retention.
+ */
+export function readingSummary(sampledValues: unknown): {
+  powerW: number | null;
+  socPercent: number | null;
+} {
+  if (!Array.isArray(sampledValues)) return { powerW: null, socPercent: null };
+  const power: PhaseSample[] = [];
+  let soc: number | null = null;
+  for (const sv of sampledValues as Array<Record<string, unknown>>) {
+    const measurand = typeof sv.measurand === 'string' ? sv.measurand : DEFAULT_MEASURAND;
+    if (measurand !== 'Power.Active.Import' && measurand !== 'SoC') continue;
+    const unitOfMeasure = sv.unitOfMeasure as Record<string, unknown> | undefined;
+    const unit =
+      unitOfMeasure != null
+        ? typeof unitOfMeasure.unit === 'string'
+          ? unitOfMeasure.unit
+          : null
+        : typeof sv.unit === 'string'
+          ? sv.unit
+          : null;
+    const multiplier = typeof unitOfMeasure?.multiplier === 'number' ? unitOfMeasure.multiplier : 0;
+    const value = applyMultiplier(Number(sv.value), multiplier);
+    if (measurand === 'SoC') {
+      soc ??= socPercent(value, unit);
+      continue;
+    }
+    const location = typeof sv.location === 'string' ? sv.location : DEFAULT_LOCATION;
+    if (location !== DEFAULT_LOCATION) continue;
+    const w = powerToW(value, unit);
+    if (w == null) continue;
+    power.push({ value: w, phase: typeof sv.phase === 'string' ? sv.phase : null });
+  }
+  return { powerW: overallValue(power), socPercent: soc };
+}

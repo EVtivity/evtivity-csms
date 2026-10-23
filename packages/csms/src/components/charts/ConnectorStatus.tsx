@@ -39,6 +39,7 @@ import { api } from '@/lib/api';
 import { Select } from '@/components/ui/select';
 import { connectorStatusVariant } from '@/lib/status-variants';
 import { isOcpp2x } from '@evtivity/lib/ocpp-version';
+import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 
 // Connector types grouped by region for the create/edit dropdowns. Tesla is
 // dropped because NACS is the same connector. Standard names and their
@@ -217,6 +218,8 @@ export function ConnectorStatus({
     },
   });
 
+  // Stopping a session needs sessions:write as well.
+  const canStopSession = useCanSendOcppCommand()('RequestStopTransaction');
   const stopSessionMutation = useMutation({
     mutationFn: (evseId: number) =>
       api.post<{ sessionId: string; transactionId: string }>(
@@ -584,19 +587,23 @@ export function ConnectorStatus({
                         />
                       </>
                     )}
-                    <StopIconButton
-                      onClick={() => {
-                        setStopSessionEvseId(evse.evseId);
-                        setStopConfirmOpen(true);
-                      }}
-                      disabled={!isOnline}
-                      isPending={stopSessionMutation.isPending && stopSessionEvseId === evse.evseId}
-                      title={
-                        isOnline
-                          ? t('stations.stopActiveSession')
-                          : t('stations.stationOfflineCannotStop')
-                      }
-                    />
+                    {canStopSession && (
+                      <StopIconButton
+                        onClick={() => {
+                          setStopSessionEvseId(evse.evseId);
+                          setStopConfirmOpen(true);
+                        }}
+                        disabled={!isOnline}
+                        isPending={
+                          stopSessionMutation.isPending && stopSessionEvseId === evse.evseId
+                        }
+                        title={
+                          isOnline
+                            ? t('stations.stopActiveSession')
+                            : t('stations.stationOfflineCannotStop')
+                        }
+                      />
+                    )}
                     <LinkIconButton
                       href={`${PORTAL_BASE_URL}/charge/${stationOcppId}/${String(evse.evseId)}`}
                       title={t('stations.openGuestCharger')}

@@ -27,3 +27,19 @@ export function useLoadedValues<T extends object>(
   }
   return [values, setValues];
 }
+
+/**
+ * The values to compare edits with for the Unsaved changes note: the last
+ * saved values until the next load replaces them.
+ */
+export function useSavedBaseline<T>(loaded: T): [T, (saved: T) => void] {
+  const [saved, setSaved] = useState<{ loadedKey: string; value: T } | null>(null);
+  const loadedKey = JSON.stringify(loaded);
+  const baseline = saved != null && saved.loadedKey === loadedKey ? saved.value : loaded;
+  return [
+    baseline,
+    (value: T) => {
+      setSaved({ loadedKey, value });
+    },
+  ];
+}

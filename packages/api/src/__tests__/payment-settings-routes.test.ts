@@ -127,8 +127,8 @@ describe('Payment settings routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     granted.clear();
-    granted.add('payments:read');
-    granted.add('payments:write');
+    granted.add('settings.payment:read');
+    granted.add('settings.payment:write');
     mockDescribePaymentProviders.mockResolvedValue(CATALOG);
     mockGetPlatformFeePercent.mockResolvedValue(2.5);
     mockRegistrySettings.mockResolvedValue({
@@ -182,8 +182,8 @@ describe('Payment settings routes', () => {
       expect(mockDescribePaymentProviders).toHaveBeenCalledWith(expect.anything(), WATCH_STORE);
     });
 
-    it('returns 403 without payments:read', async () => {
-      granted.delete('payments:read');
+    it('returns 403 without settings.payment:read', async () => {
+      granted.delete('settings.payment:read');
       const response = await call('GET');
       expect(response.statusCode).toBe(403);
     });
@@ -328,8 +328,8 @@ describe('Payment settings routes', () => {
       expect(mockWritePaymentSettings).toHaveBeenCalledWith(expect.anything(), []);
     });
 
-    it('returns 403 without payments:write', async () => {
-      granted.delete('payments:write');
+    it('returns 403 without settings.payment:write', async () => {
+      granted.delete('settings.payment:write');
       const response = await call('PUT', { provider: 'stripe' });
       expect(response.statusCode).toBe(403);
       expect(mockWritePaymentSettings).not.toHaveBeenCalled();

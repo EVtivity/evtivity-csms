@@ -27,6 +27,21 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  FactorProofField,
+  proofRejection,
+  type FactorProof,
+  type ProofRejection,
+} from '@/components/FactorProofField';
+import { useMfaStatus } from '@/components/profile/mfa-status';
+import { getErrorMessage } from '@/lib/error-message';
 
 interface User {
   id: string;
@@ -73,9 +88,43 @@ export function UsersPage(): React.JSX.Element {
     queryFn: () => api.get<Role[]>('/v1/roles'),
   });
 
+  // Resending the setup link of another account takes a fresh proof of the signed-in account.
+  const { data: mfaStatus } = useMfaStatus();
+  const proofKinds = mfaStatus?.factorProofKinds ?? [];
+  const [inviteUser, setInviteUser] = useState<User | null>(null);
+  const [proof, setProof] = useState<FactorProof | null>(null);
+  const [proofFailure, setProofFailure] = useState<ProofRejection | null>(null);
+  const [proofAsked, setProofAsked] = useState(false);
+  const [proofRound, setProofRound] = useState(0);
+
   const resendInviteMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/v1/users/${id}/resend-invite`, {}),
+    mutationFn: ({ id, proof: inviteProof }: { id: string; proof?: FactorProof }) =>
+      api.post(`/v1/users/${id}/resend-invite`, inviteProof != null ? { proof: inviteProof } : {}),
+    onError: (err: unknown) => {
+      setProofFailure(proofRejection(err));
+    },
+    onSuccess: () => {
+      setInviteUser(null);
+    },
   });
+
+  function openResend(user: User): void {
+    resendInviteMutation.reset();
+    setProof(null);
+    setProofFailure(null);
+    setProofAsked(false);
+    setProofRound((n) => n + 1);
+    setInviteUser(user);
+  }
+
+  function confirmResend(): void {
+    if (inviteUser == null) return;
+    if (proofKinds.length > 0 && proof == null) {
+      setProofAsked(true);
+      return;
+    }
+    resendInviteMutation.mutate({ id: inviteUser.id, ...(proof != null ? { proof } : {}) });
+  }
 
   function getRoleName(id: string): string {
     return roles?.find((r) => r.id === id)?.name ?? id;
@@ -253,7 +302,7 @@ export function UsersPage(): React.JSX.Element {
                         size="sm"
                         disabled={resendInviteMutation.isPending}
                         onClick={() => {
-                          resendInviteMutation.mutate(user.id);
+                          openResend(user);
                         }}
                       >
                         <Send className="h-4 w-4" />
@@ -276,6 +325,60 @@ export function UsersPage(): React.JSX.Element {
       </Card>
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+
+      <Dialog
+        open={inviteUser != null}
+        onOpenChange={(open) => {
+          if (!open) setInviteUser(null);
+        }}
+      >
+        <DialogContent className="max-w-[95vw] md:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t('users.resendInvite')}</DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              confirmResend();
+            }}
+          >
+            <p className="text-sm text-muted-foreground">{inviteUser?.email}</p>
+            {proofKinds.length > 0 && (
+              <FactorProofField
+                key={`resend-${String(proofRound)}`}
+                idPrefix="user-resend-proof"
+                kinds={proofKinds}
+                codeMethod={mfaStatus?.mfaMethod ?? null}
+                description={t('users.resendProofHint')}
+                onChange={setProof}
+                rejection={proofFailure}
+                showMissing={proofAsked}
+              />
+            )}
+            {resendInviteMutation.isError && (
+              <p className="text-sm text-destructive" role="alert">
+                {getErrorMessage(resendInviteMutation.error, t)}
+              </p>
+            )}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setInviteUser(null);
+                }}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button type="submit" disabled={resendInviteMutation.isPending}>
+                {t('users.resendInvite')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

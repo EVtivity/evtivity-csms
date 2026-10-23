@@ -1,6 +1,6 @@
 # The build output is static files, so build once on the native platform instead of
 # again under emulation for each target architecture.
-FROM --platform=$BUILDPLATFORM node:24-slim AS build
+FROM --platform=$BUILDPLATFORM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS build
 # A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
 ENV npm_config_fetch_retries=5 \
     npm_config_fetch_retry_mintimeout=20000 \
@@ -22,17 +22,18 @@ RUN npm run build --workspace=packages/portal
 
 # Runs as the unprivileged nginx user (uid 101). The pid file and temp
 # paths live under /tmp, so the root filesystem can stay read-only.
-FROM nginxinc/nginx-unprivileged:alpine
+FROM nginxinc/nginx-unprivileged:alpine@sha256:b5047b9b76845eac124358373c6852377c52e4b05834a47647e955dd91cb8f1e
 
 COPY --from=build /app/packages/portal/dist /usr/share/nginx/html
 COPY packages/portal/nginx.conf /etc/nginx/conf.d/default.conf
+COPY packages/portal/nginx-security-headers.conf /etc/nginx/evtivity-security-headers.conf
 COPY --chmod=755 packages/portal/docker-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
 # Declare /tmp so ECS on Fargate copies it (mode 1777) into the scratch volume
 # the task mounts there. Without VOLUME, Fargate creates the volume as root
 # 0755 and uid 101 cannot write to it. Kubernetes ignores VOLUME.
 VOLUME ["/tmp"]
 
-LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms-helm"
+LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms"
 LABEL org.opencontainers.image.licenses="BUSL-1.1"
 LABEL org.opencontainers.image.vendor="EVtivity"
 

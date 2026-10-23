@@ -79,6 +79,7 @@ export async function resolveOcpiTokenOwner(
            t.token_data AS pushed_data
     FROM ocpi_commands c
     JOIN ocpi_partners p ON p.id = c.partner_id AND p.status = 'connected'
+      AND p.approved_roles ?| array['EMSP', 'HUB']
     LEFT JOIN ocpi_external_tokens t ON t.partner_id = c.partner_id AND t.uid = c.token_uid
     WHERE c.command_type = 'START_SESSION'
       AND c.station_id = ${input.stationOcppId}
@@ -112,6 +113,7 @@ export async function resolveOcpiTokenOwner(
     SELECT t.partner_id, t.is_valid, t.whitelist, t.token_data
     FROM ocpi_external_tokens t
     JOIN ocpi_partners p ON p.id = t.partner_id AND p.status = 'connected'
+      AND p.approved_roles ?| array['EMSP', 'HUB']
     WHERE t.uid = ${input.tokenUid}
     ORDER BY t.updated_at DESC
   `;

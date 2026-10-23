@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTab } from '@/hooks/use-tab';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ProfilePersonalInfo } from '@/components/profile/ProfilePersonalInfo';
@@ -10,6 +10,7 @@ import { ProfileAppearance } from '@/components/profile/ProfileAppearance';
 import { ProfilePassword } from '@/components/profile/ProfilePassword';
 import { ProfileMfa } from '@/components/profile/ProfileMfa';
 import { ProfilePasskeys } from '@/components/profile/ProfilePasskeys';
+import { SsoLinkCard } from '@/components/user/SsoLinkCard';
 import { ProfileNotifications } from '@/components/profile/ProfileNotifications';
 import { ProfileChatbotAi } from '@/components/profile/ProfileChatbotAi';
 import { ProfileSupportAi } from '@/components/profile/ProfileSupportAi';
@@ -30,6 +31,8 @@ export interface UserMe {
   lastLoginAt: string | null;
   createdAt: string;
   role: { id: string; name: string } | null;
+  ssoLinkAllowed?: boolean;
+  ssoLinked?: boolean;
 }
 
 export function Profile(): React.JSX.Element {
@@ -47,9 +50,12 @@ export function Profile(): React.JSX.Element {
   } = useFeatureFlags();
   const { data: securityPublic } = useQuery({
     queryKey: ['security-public'],
-    queryFn: () => api.get<{ supportAiEnabled: boolean }>('/v1/security/public'),
+    queryFn: () =>
+      api.get<{ supportAiEnabled: boolean; ssoEnabled?: boolean }>('/v1/security/public'),
   });
   const supportAiEnabled = securityPublic?.supportAiEnabled === true;
+  const ssoEnabled = securityPublic?.ssoEnabled === true;
+  const queryClient = useQueryClient();
 
   if (isLoading) {
     return <LoadingLogo />;
@@ -90,6 +96,16 @@ export function Profile(): React.JSX.Element {
           <div className="space-y-6">
             <ProfileMfa />
             <ProfilePasskeys />
+            {ssoEnabled && (
+              <SsoLinkCard
+                linked={user.ssoLinked === true}
+                allowed={user.ssoLinkAllowed === true}
+                allow={(proof) => api.post('/v1/users/me/sso-link', proof != null ? { proof } : {})}
+                onChanged={() => {
+                  void queryClient.invalidateQueries({ queryKey: ['users', 'me'] });
+                }}
+              />
+            )}
           </div>
         </TabsContent>
         <TabsContent value="notifications">

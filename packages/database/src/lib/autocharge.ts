@@ -145,3 +145,20 @@ export async function findBlockedVehicle(capture: {
     .limit(1);
   return row ?? null;
 }
+
+/**
+ * The drivers of every vehicle that holds a vehicle id, Autocharge on or off
+ * and blocked or not: a card with the same value authorizes the id only when
+ * it belongs to one of them, or when no vehicle holds it.
+ */
+export async function findVehicleIdOwners(capture: {
+  value: string;
+  type: VehicleIdType;
+}): Promise<string[]> {
+  const column = vehicleIdColumn(capture.type) === 'vin' ? vehicles.vin : vehicles.evccid;
+  const rows = await db
+    .selectDistinct({ driverId: vehicles.driverId })
+    .from(vehicles)
+    .where(eq(column, capture.value));
+  return rows.map((r) => r.driverId);
+}

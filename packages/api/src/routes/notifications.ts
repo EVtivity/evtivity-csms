@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, count, and, or, ilike, like } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
@@ -21,19 +21,25 @@ import {
   assertTemplateAllowed,
   compileAllowedTemplate,
   decryptString,
+  EMAIL_BODY_TEMPLATE,
+  EMAIL_LAYOUT_TEMPLATE,
   formatLocalizedVariables,
   loadSubjectTemplate,
   notificationMoney,
   notificationTaxRate,
   notificationUnitPrice,
+  securityTemplateSaveProblems,
   wrapEmailHtml,
+  readBodyPrefix,
 } from '@evtivity/lib';
+import type { AllowedTemplateOptions } from '@evtivity/lib';
 import { isMissingFileError } from '../lib/fs-errors.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
   DRIVER_EVENT_TYPES,
   isDriverEventType,
   isRequiredDriverEventType,
+  isSecurityTemplateEventType,
   OCPP_NOTIFICATION_EVENT_TYPES,
   REQUIRED_DRIVER_EVENT_TYPES,
   SECURITY_NOTICE_EVENT_TYPES,
@@ -55,17 +61,27 @@ async function invalidateOcppEventSettingsCache(log: FastifyBaseLogger): Promise
 /**
  * Returns why an operator-edited template is rejected, or null when it is
  * allowed. Same rules as outgoing notifications (compileTemplate in
- * @evtivity/lib), so a template that saves is a template that sends.
+ * @evtivity/lib), so a template that saves is a template that sends. An HTML
+ * email body (`EMAIL_BODY_TEMPLATE`) also refuses `{{{var}}}`.
  */
-function templateError(source: string | null | undefined): string | null {
+function templateError(
+  source: string | null | undefined,
+  options: AllowedTemplateOptions = {},
+): string | null {
   if (source == null || source === '') return null;
   try {
-    assertTemplateAllowed(source);
+    assertTemplateAllowed(source, options);
     return null;
   } catch (err: unknown) {
     return err instanceof Error ? err.message : String(err);
   }
 }
+
+/** The save and preview rules of a body on `channel`: an email body is HTML. */
+function bodyTemplateOptions(channel: string): AllowedTemplateOptions {
+  return channel === 'email' ? EMAIL_BODY_TEMPLATE : {};
+}
+
 import { zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import nodemailer from 'nodemailer';
@@ -79,7 +95,7 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
 import { config as apiConfig } from '../lib/config.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 
 type AuditFields = Record<string, unknown>;
@@ -312,6 +328,8 @@ export const SYSTEM_EVENT_TYPES = [
   ...SECURITY_NOTICE_EVENT_TYPES,
 ];
 
+const OCPP_EVENT_TYPE_SET = new Set<string>(OCPP_NOTIFICATION_EVENT_TYPES);
+
 const ALL_EVENT_TYPES = [
   ...OCPP_NOTIFICATION_EVENT_TYPES,
   ...DRIVER_EVENT_TYPES,
@@ -344,6 +362,82 @@ function safeTemplatePath(
   return filePath;
 }
 
+function shippedTemplateDirs(): string[] {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  return [
+    process.env['OCPP_TEMPLATES_DIR'] ??
+      resolve(currentDir, '..', '..', '..', 'ocpp', 'src', 'templates'),
+    process.env['API_TEMPLATES_DIR'] ?? resolve(currentDir, '..', 'templates'),
+  ];
+}
+
+/** The shipped `.hbs` body of an event, channel and language (English when none), or null. */
+async function loadShippedTemplate(
+  eventType: string,
+  channel: string,
+  language: string,
+  log: FastifyBaseLogger,
+): Promise<string | null> {
+  const dirs = shippedTemplateDirs();
+  const candidates = [language, 'en'].flatMap((lang) =>
+    dirs.map((dir) => safeTemplatePath(dir, lang, eventType, channel)),
+  );
+  for (const filePath of candidates) {
+    if (filePath == null) continue;
+    try {
+      return await readFile(filePath, 'utf-8');
+    } catch (err) {
+      if (!isMissingFileError(err)) {
+        log.warn({ err, filePath }, 'Reading the default template failed, trying the next one');
+      }
+    }
+  }
+  return null;
+}
+
+// Security templates (password reset, invitations, verification, sign-in codes,
+// payout onboarding and the security notices, `isSecurityTemplateEventType`)
+// are security configuration: a change needs settings.system:write on top of
+// notifications:write.
+const SECURITY_TEMPLATE_PERMISSION = 'settings.system:write';
+
+/** True when the caller may change this template; else answers 403. */
+async function mayChangeTemplate(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  eventType: string,
+): Promise<boolean> {
+  if (!isSecurityTemplateEventType(eventType)) return true;
+  if (await requestHasPermission(request, SECURITY_TEMPLATE_PERMISSION)) return true;
+  await reply.status(403).send({
+    error: `Security templates need the ${SECURITY_TEMPLATE_PERMISSION} permission`,
+    code: 'INSUFFICIENT_PERMISSIONS',
+  });
+  return false;
+}
+
+/** The save rules of a security template, or null for another event or a valid draft. */
+async function securityTemplateProblems(
+  draft: {
+    eventType: string;
+    channel: string;
+    language: string;
+    subject?: string | null | undefined;
+    bodyHtml?: string | null | undefined;
+  },
+  log: FastifyBaseLogger,
+): Promise<Record<string, string> | null> {
+  if (!isSecurityTemplateEventType(draft.eventType)) return null;
+  return securityTemplateSaveProblems({
+    eventType: draft.eventType,
+    channel: draft.channel,
+    subject: draft.subject,
+    bodyHtml: draft.bodyHtml,
+    shippedBody: await loadShippedTemplate(draft.eventType, draft.channel, draft.language, log),
+    trustedUrls: [apiConfig.CSMS_URL, apiConfig.PORTAL_URL],
+  });
+}
+
 const REQUIRED_DRIVER_EVENT_LIST = REQUIRED_DRIVER_EVENT_TYPES.join(', ');
 
 const driverEventSettingBody = z.object({
@@ -361,7 +455,10 @@ const driverEventSettingBody = z.object({
 });
 
 const ocppEventSettingsBody = z.object({
-  eventType: z.string().max(255).describe('OCPP event type identifier'),
+  eventType: z
+    .string()
+    .max(255)
+    .describe('OCPP event type identifier. Any other event type returns 400 VALIDATION_ERROR.'),
   recipient: z
     .string()
     .max(500)
@@ -810,6 +907,17 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   'security.PhoneChanged': [...SECURITY_NOTICE_VARIABLES, 'byAdmin', 'phoneRemoved'],
   'security.EmailChanged': [...SECURITY_NOTICE_VARIABLES],
   'security.ApiKeyCreated': ['firstName', 'lastName', 'email', 'keyName', 'expiresAt'],
+  'security.SsoSettingsChanged': [
+    ...SECURITY_NOTICE_VARIABLES,
+    'idpChanged',
+    'ssoEnabled',
+    'autoProvision',
+  ],
+  'security.UserCreatedPrivileged': [...SECURITY_NOTICE_VARIABLES, 'newUserEmail'],
+  'security.PermissionsGranted': [...SECURITY_NOTICE_VARIABLES, 'targetEmail', 'granted'],
+  'security.PasswordResetByAdmin': [...SECURITY_NOTICE_VARIABLES],
+  'security.SsoUnlinked': [...SECURITY_NOTICE_VARIABLES],
+  'security.RetentionLowered': [...SECURITY_NOTICE_VARIABLES, 'changes'],
 };
 
 // The default email subject is the event's `subject.hbs` in the template
@@ -966,6 +1074,15 @@ export function notificationRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof ocppEventSettingsBody>;
+      // Only OCPP events have OCPP event settings: a rule template for any other
+      // event (a password reset) is refused, never stored.
+      if (!OCPP_EVENT_TYPE_SET.has(body.eventType)) {
+        await reply.status(400).send({
+          error: 'eventType must be an OCPP notification event type',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
       const channel = body.channel ?? 'email';
       // Validate the recipient against the channel format so misconfigured
       // settings fail at save time with a clear error, not silently at
@@ -986,7 +1103,7 @@ export function notificationRoutes(app: FastifyInstance): void {
           return;
         }
       }
-      const templateHtmlError = templateError(body.templateHtml);
+      const templateHtmlError = templateError(body.templateHtml, bodyTemplateOptions(channel));
       if (templateHtmlError != null) {
         await reply.status(400).send({
           error: 'Template is invalid',
@@ -1318,7 +1435,8 @@ export function notificationRoutes(app: FastifyInstance): void {
           signal: AbortSignal.timeout(10_000),
         });
         if (!response.ok) {
-          const text = await response.text();
+          // A prefix of Twilio's error body only.
+          const text = await readBodyPrefix(response, 2048);
           await reply.status(500).send({ error: text, code: 'SMS_SEND_FAILED' });
           return;
         }
@@ -1525,12 +1643,17 @@ export function notificationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Notifications'],
         summary: 'Create or update a notification template',
+        description:
+          'Security templates (password reset, operator and driver invitations, email verification, sign-in codes, payout onboarding and the security.* notices) also need settings.system:write (403 INSUFFICIENT_PERMISSIONS otherwise). Their body cannot be empty, must keep the account link or code variables the shipped template uses, may hold a link variable only as a whole link address (href) or as text, and may link only to the CSMS or driver portal origin (400 VALIDATION_ERROR with details per field).',
         operationId: 'upsertNotificationTemplate',
         security: [{ bearerAuth: [] }],
         body: zodSchema(templateUpsertBody),
         response: {
           200: itemResponse(notificationTemplateDbItem),
           400: errorWith('Template is invalid', [ERROR_CODES.VALIDATION_ERROR]),
+          403: errorWith('A security template needs settings.system:write', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           404: errorWith('Template not found, or the user is restricted to some sites', [
             ERROR_CODES.TEMPLATE_NOT_FOUND,
           ]),
@@ -1542,13 +1665,23 @@ export function notificationRoutes(app: FastifyInstance): void {
       const body = request.body as z.infer<typeof templateUpsertBody>;
       const details: Record<string, string> = {};
       const subjectError = templateError(body.subject);
-      const bodyError = templateError(body.bodyHtml);
+      const bodyError = templateError(body.bodyHtml, bodyTemplateOptions(body.channel));
       if (subjectError != null) details['subject'] = subjectError;
       if (bodyError != null) details['bodyHtml'] = bodyError;
       if (Object.keys(details).length > 0) {
         await reply
           .status(400)
           .send({ error: 'Template is invalid', code: 'VALIDATION_ERROR', details });
+        return;
+      }
+      if (!(await mayChangeTemplate(request, reply, body.eventType))) return;
+      const securityProblems = await securityTemplateProblems(body, request.log);
+      if (securityProblems != null) {
+        await reply.status(400).send({
+          error: 'Template is invalid',
+          code: 'VALIDATION_ERROR',
+          details: securityProblems,
+        });
         return;
       }
       const templateMatch = and(
@@ -1606,11 +1739,16 @@ export function notificationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Notifications'],
         summary: 'Delete a notification template',
+        description:
+          'Deleting a security template (see upsertNotificationTemplate) also needs settings.system:write.',
         operationId: 'deleteNotificationTemplate',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(templateCrudQuery),
         response: {
           200: successResponse,
+          403: errorWith('A security template needs settings.system:write', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           404: errorWith('Template not found, or the user is restricted to some sites', [
             ERROR_CODES.TEMPLATE_NOT_FOUND,
           ]),
@@ -1620,6 +1758,7 @@ export function notificationRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TEMPLATE_NOT_FOUND))) return;
       const { eventType, channel, language } = request.query as z.infer<typeof templateCrudQuery>;
+      if (!(await mayChangeTemplate(request, reply, eventType))) return;
       const removed = await db
         .delete(notificationTemplates)
         .where(
@@ -1681,7 +1820,11 @@ export function notificationRoutes(app: FastifyInstance): void {
 
       // Compiled directly, not via compileTemplate, so per-keystroke drafts are not cached.
       try {
-        const html = compileAllowedTemplate(wrapperTemplate)({
+        assertTemplateAllowed(wrapperTemplate, EMAIL_LAYOUT_TEMPLATE);
+        const html = compileAllowedTemplate(
+          wrapperTemplate,
+          EMAIL_LAYOUT_TEMPLATE,
+        )({
           content: EMAIL_WRAPPER_SAMPLE_BODY,
           companyName: company.get('company.name') ?? 'EVtivity',
           companyCurrency: await getCompanyCurrency(),
@@ -1862,18 +2005,25 @@ export function notificationRoutes(app: FastifyInstance): void {
       };
 
       // A disallowed or unparsable template is operator input, not a server error.
-      const render = (template: string): string | Error => {
+      const render = (template: string, options: AllowedTemplateOptions = {}): string | Error => {
         try {
-          return compileAllowedTemplate(template)(sampleVariables);
+          assertTemplateAllowed(template, options);
+          return compileAllowedTemplate(template, options)(sampleVariables);
         } catch (err: unknown) {
           return err instanceof Error ? err : new Error(String(err));
         }
       };
       const subjectResult = body.subject ? render(body.subject) : null;
-      const bodyResult = body.bodyHtml ? render(body.bodyHtml) : null;
+      const bodyResult = body.bodyHtml
+        ? render(body.bodyHtml, bodyTemplateOptions(body.channel))
+        : null;
       const details: Record<string, string> = {};
       if (subjectResult instanceof Error) details['subject'] = subjectResult.message;
       if (bodyResult instanceof Error) details['bodyHtml'] = bodyResult.message;
+      // A security template previews only when it would save.
+      if (Object.keys(details).length === 0) {
+        Object.assign(details, (await securityTemplateProblems(body, request.log)) ?? {});
+      }
       if (Object.keys(details).length > 0) {
         await reply
           .status(400)

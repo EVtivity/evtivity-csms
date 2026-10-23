@@ -8,7 +8,6 @@ import { AlertTriangle, Info } from 'lucide-react';
 import {
   SIM_FETCH_DAYS,
   SIM_OCPP16_SIGNAL_KEYS_LIMITS,
-  SIM_RETENTION_DAYS,
   SIM_SIGNAL_DBM,
   isHologramOrgId,
   parseOcpp16SignalKeys,
@@ -22,12 +21,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Toggle } from '@/components/ui/toggle';
 import { SaveButton } from '@/components/save-button';
 import { LoadingLogo } from '@/components/loading-logo';
-import { simErrorMessage } from '@/components/station/sim-connectivity';
+import { simErrorMessage } from '@/components/sim/sim-connectivity';
 import { api } from '@/lib/api';
 import { useHasAllSiteAccess, useHasCompanyWidePermission, useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatNumber } from '@/lib/formatting';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
+import { DataRetentionLink } from './DataRetentionSettings';
 import { StoredSecretInput } from './StoredSecretInput';
 import { secretChange, type StoredSecret } from './stored-secret';
 
@@ -331,10 +331,7 @@ function SessionHistoryCard({
   const { t } = useTranslation();
   const save = useSaveSimSettings();
   const [hasSubmitted, setHasSubmitted] = useState(false);
-  const loaded = {
-    fetchDays: String(data.fetchDays),
-    retentionDays: String(data.retentionDays),
-  };
+  const loaded = { fetchDays: String(data.fetchDays) };
   const [form, setForm] = useLoadedValues(loaded, () => {
     setHasSubmitted(false);
   });
@@ -346,7 +343,6 @@ function SessionHistoryCard({
   }
 
   const fetchDays = inRange(form.fetchDays, SIM_FETCH_DAYS);
-  const retentionDays = inRange(form.retentionDays, SIM_RETENTION_DAYS);
   const errors: Record<string, string> = {};
   if (fetchDays == null) {
     errors.fetchDays = t('settings.sim.rangeError', {
@@ -354,18 +350,12 @@ function SessionHistoryCard({
       max: SIM_FETCH_DAYS.max,
     });
   }
-  if (retentionDays == null) {
-    errors.retentionDays = t('settings.sim.rangeError', {
-      min: SIM_RETENTION_DAYS.min,
-      max: SIM_RETENTION_DAYS.max,
-    });
-  }
 
   function handleSubmit(e: React.SyntheticEvent): void {
     e.preventDefault();
     setHasSubmitted(true);
-    if (fetchDays == null || retentionDays == null) return;
-    save.mutate({ fetchDays, retentionDays });
+    if (fetchDays == null) return;
+    save.mutate({ fetchDays });
   }
 
   return (
@@ -404,26 +394,8 @@ function SessionHistoryCard({
               )}
               <p className="text-xs text-muted-foreground">{t('settings.sim.fetchDaysHint')}</p>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="sim-retention-days" className="leading-6">
-                {t('settings.sim.retentionDays')}
-              </Label>
-              <Input
-                id="sim-retention-days"
-                value={form.retentionDays}
-                inputMode="numeric"
-                disabled={!canWrite}
-                className={hasSubmitted && errors.retentionDays != null ? 'border-destructive' : ''}
-                onChange={(e) => {
-                  update({ retentionDays: e.target.value });
-                }}
-              />
-              {hasSubmitted && errors.retentionDays != null && (
-                <p className="text-sm text-destructive">{errors.retentionDays}</p>
-              )}
-              <p className="text-xs text-muted-foreground">{t('settings.sim.retentionDaysHint')}</p>
-            </div>
           </div>
+          <DataRetentionLink />
           {canWrite && (
             <SaveRow
               dirty={dirty}
@@ -613,7 +585,7 @@ function StationSignalCard({
   );
 }
 
-/** Settings > Integrations > SIM Providers: one card per provider, the session history and the station signal. */
+/** Settings > Integrations & Features > SIM Providers: one card per provider, the session history and the station signal. */
 export function SimProvidersSettings(): React.JSX.Element {
   const { t } = useTranslation();
   const allSites = useHasAllSiteAccess();

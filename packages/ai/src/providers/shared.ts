@@ -9,6 +9,7 @@
 import { AiProviderError, providerErrorCodeForStatus } from '../core/errors.js';
 import type { AiProviderErrorCode } from '../core/errors.js';
 import { findUnsupportedParts } from '../core/messages.js';
+import { escapeUntrustedFences } from '../prompt.js';
 import type {
   AiAttachmentContent,
   AiDocumentPart,
@@ -80,13 +81,13 @@ export function dataUrl(mime: string, data: Uint8Array): string {
 
 /**
  * A text document as one text block. The content is untrusted: it is fenced
- * and any closing fence inside it is neutralized, so it cannot end the block
- * early and pose as instructions.
+ * and any fence inside it, in any case or spacing, is escaped, so it cannot
+ * end the block early and pose as instructions.
  */
 export function textDocumentBlock(name: string | undefined, data: Uint8Array): string {
-  const text = Buffer.from(data.buffer, data.byteOffset, data.byteLength)
-    .toString('utf8')
-    .replaceAll('</untrusted_document>', '</untrusted_document_>');
+  const text = escapeUntrustedFences(
+    Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('utf8'),
+  );
   const label = (name ?? 'document').replace(/["<>\r\n]/g, '_');
   return `<untrusted_document name="${label}">\n${text}\n</untrusted_document>`;
 }

@@ -38,7 +38,7 @@ describe('POST /v1/auth/logout', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/v1/auth/logout',
-      cookies: { csms_token: token },
+      cookies: { csms_token: app.signCookie(token) },
     });
 
     expect(res.statusCode).toBe(200);

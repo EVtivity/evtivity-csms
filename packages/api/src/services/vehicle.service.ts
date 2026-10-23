@@ -13,10 +13,14 @@
  *   indexes), so a start resolves to one driver: 409 `VEHICLE_ID_IN_USE`.
  * - A driver cannot turn it on for a vehicle an operator blocked: 403
  *   `VEHICLE_BLOCKED_BY_OPERATOR`. Only an operator blocks and unblocks.
+ * - A driver turns it on, or changes an id while it is on, only when every id
+ *   of the vehicle was sent by a charger in one of the driver's own sessions
+ *   (the session vehicle id claim): 409 `AUTOCHARGE_CLAIM_REQUIRED`.
+ *   An operator may turn it on for any vehicle.
  * - A captured id is claimed only by the session's own driver.
  */
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, ne, or, sql, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -37,6 +41,7 @@ import {
   vehicleIdColumn,
 } from '@evtivity/lib/vehicle-id';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
+import { tokenVehicleIdKeySql } from '../lib/token-vehicle-id-sql.js';
 
 const PG_CHECK_VIOLATION = '23514';
 
@@ -59,6 +64,13 @@ export class VehicleDriverNotFoundError extends Error {
 export class VehicleIdInUseError extends Error {
   constructor() {
     super('Another vehicle uses this vehicle id for Autocharge');
+  }
+}
+export class AutochargeClaimRequiredError extends Error {
+  constructor() {
+    super(
+      'Autocharge works only with vehicle ids a charger sent in one of your sessions. Use the vehicle id from a session first.',
+    );
   }
 }
 export class VehicleIdRequiredError extends Error {
@@ -121,6 +133,83 @@ function normalizeFields(fields: VehicleFields): VehicleFields {
     }
   }
   return out;
+}
+
+type Conn = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * A card of another driver (or of no driver) whose value is one of the
+ * vehicle's ids in any spelling: answered 409 VEHICLE_ID_IN_USE when a
+ * vehicle id is set or Autocharge is turned on, for drivers and operators. A
+ * card wins over a vehicle on an untyped 1.6 Authorize, so the card's holder
+ * would take over the car's starts (the card registered
+ * before the vehicle id). Values compare as `tokenVehicleIdKeySql`, the SQL
+ * mirror of `tokenVehicleIdCandidates` (@evtivity/lib/vehicle-id). Vehicle ids
+ * are stored normalized. Stored card values keep their spelling, so this scans
+ * the cards; vehicle id changes are rare.
+ */
+async function assertNoOtherDriversCard(
+  conn: Conn,
+  driverId: string,
+  ids: { vin: string | null; evccid: string | null },
+): Promise<void> {
+  const wanted = [ids.vin, ids.evccid].filter((v): v is string => v != null);
+  if (wanted.length === 0) return;
+  const rows = await conn.execute<{ hit: number }>(sql`
+    SELECT 1 AS hit FROM driver_tokens
+    WHERE driver_id IS DISTINCT FROM ${driverId}
+      AND ${tokenVehicleIdKeySql(sql`id_token`)} IN (${sql.join(
+        wanted.map((v) => sql`${v}`),
+        sql`, `,
+      )})
+    LIMIT 1
+  `);
+  if (rows.length > 0) throw new VehicleIdInUseError();
+}
+
+/**
+ * The checks before a driver's vehicle ends with Autocharge on after a change
+ * of the switch or an id: no other vehicle uses an id for Autocharge (409
+ * VEHICLE_ID_IN_USE, as the unique indexes would answer), and every id of the
+ * vehicle was sent by a charger in a session of this driver (409
+ * AUTOCHARGE_CLAIM_REQUIRED). Without the second check a driver could put
+ * another car's VIN or EVCCID on an own vehicle and take over its starts
+ * while its owner has Autocharge off.
+ */
+async function assertDriverMayEnableAutocharge(
+  conn: Conn,
+  driverId: string,
+  vehicleId: string | null,
+  ids: { vin: string | null; evccid: string | null },
+): Promise<void> {
+  const matches: SQL[] = [];
+  if (ids.vin != null) matches.push(eq(vehicles.vin, ids.vin));
+  if (ids.evccid != null) matches.push(eq(vehicles.evccid, ids.evccid));
+  if (matches.length === 0) throw new VehicleIdRequiredError();
+  const [inUse] = await conn
+    .select({ id: vehicles.id })
+    .from(vehicles)
+    .where(
+      and(
+        eq(vehicles.autochargeEnabled, true),
+        or(...matches),
+        vehicleId != null ? ne(vehicles.id, vehicleId) : undefined,
+      ),
+    )
+    .limit(1);
+  if (inUse != null) throw new VehicleIdInUseError();
+  const wanted = [ids.vin, ids.evccid].filter((v): v is string => v != null);
+  const seen = await conn
+    .selectDistinct({ value: chargingSessions.vehicleIdValue })
+    .from(chargingSessions)
+    .where(
+      and(
+        eq(chargingSessions.driverId, driverId),
+        inArray(chargingSessions.vehicleIdValue, wanted),
+      ),
+    );
+  const seenValues = new Set(seen.map((r) => r.value));
+  if (wanted.some((v) => !seenValues.has(v))) throw new AutochargeClaimRequiredError();
 }
 
 /** Maps the Autocharge constraint violations to the service errors. */
@@ -190,6 +279,16 @@ export async function createVehicle(
   if (values.autochargeEnabled === true && values.vin == null && values.evccid == null) {
     throw new VehicleIdRequiredError();
   }
+  await assertNoOtherDriversCard(db, driverId, {
+    vin: values.vin ?? null,
+    evccid: values.evccid ?? null,
+  });
+  if (values.autochargeEnabled === true && actor.actor === 'driver') {
+    await assertDriverMayEnableAutocharge(db, driverId, null, {
+      vin: values.vin ?? null,
+      evccid: values.evccid ?? null,
+    });
+  }
   let vehicle: Vehicle | undefined;
   try {
     [vehicle] = await db
@@ -255,6 +354,13 @@ export async function updateVehicle(
       const evccid = set.evccid !== undefined ? set.evccid : before.evccid;
       const enabled = set.autochargeEnabled ?? before.autochargeEnabled;
       if (enabled && vin == null && evccid == null) throw new VehicleIdRequiredError();
+      const idsChanged = vin !== before.vin || evccid !== before.evccid;
+      if (idsChanged || (enabled && !before.autochargeEnabled)) {
+        await assertNoOtherDriversCard(tx, driverId, { vin, evccid });
+      }
+      if (enabled && actor.actor === 'driver' && (!before.autochargeEnabled || idsChanged)) {
+        await assertDriverMayEnableAutocharge(tx, driverId, vehicleId, { vin, evccid });
+      }
       const [after] = await tx
         .update(vehicles)
         .set(set)
@@ -399,6 +505,14 @@ export async function claimSessionVehicleId(
           throw new VehicleBlockedError();
         }
         before = existing;
+        const ids = {
+          vin: column === 'vin' ? session.value : existing.vin,
+          evccid: column === 'vin' ? existing.evccid : session.value,
+        };
+        await assertNoOtherDriversCard(tx, args.driverId, ids);
+        if (actor.actor === 'driver' && (args.enableAutocharge || existing.autochargeEnabled)) {
+          await assertDriverMayEnableAutocharge(tx, args.driverId, existing.id, ids);
+        }
         [vehicle] = await tx
           .update(vehicles)
           .set({
@@ -414,6 +528,13 @@ export async function claimSessionVehicleId(
           .from(drivers)
           .where(eq(drivers.id, args.driverId));
         if (driver == null || driver.erasedAt != null) throw new VehicleDriverNotFoundError();
+        await assertNoOtherDriversCard(
+          tx,
+          args.driverId,
+          column === 'vin'
+            ? { vin: session.value, evccid: null }
+            : { vin: null, evccid: session.value },
+        );
         [vehicle] = await tx
           .insert(vehicles)
           .values({

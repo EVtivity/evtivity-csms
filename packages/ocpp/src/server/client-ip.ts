@@ -3,10 +3,8 @@
 
 import { BlockList, isIP } from 'node:net';
 import type { IncomingMessage } from 'node:http';
-
-function normalize(address: string): string {
-  return address.startsWith('::ffff:') && isIP(address.slice(7)) === 4 ? address.slice(7) : address;
-}
+import { normalizeMappedIp as normalize } from '@evtivity/lib/ip-address';
+import { parseProxyEntry } from '@evtivity/lib/trust-proxy';
 
 function isTrusted(list: BlockList, address: string): boolean {
   const family = isIP(address);
@@ -21,19 +19,11 @@ export function parseTrustedProxies(setting: string): BlockList | null {
   if (entries.length === 0) return null;
   const list = new BlockList();
   for (const entry of entries) {
-    const [address = '', prefixText] = entry.split('/');
-    const family = isIP(address);
-    if (family === 0) throw new Error(`Invalid trusted proxy address: ${entry}`);
+    // Strict: a malformed or /0 prefix throws instead of trusting every peer.
+    const { address, family, prefix } = parseProxyEntry(entry);
     const type = family === 6 ? 'ipv6' : 'ipv4';
-    if (prefixText === undefined) {
-      list.addAddress(address, type);
-      continue;
-    }
-    const prefix = Number(prefixText);
-    if (!Number.isInteger(prefix) || prefix < 0 || prefix > (family === 6 ? 128 : 32)) {
-      throw new Error(`Invalid trusted proxy CIDR: ${entry}`);
-    }
-    list.addSubnet(address, prefix, type);
+    if (prefix === undefined) list.addAddress(address, type);
+    else list.addSubnet(address, prefix, type);
   }
   return list;
 }

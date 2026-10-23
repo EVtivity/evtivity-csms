@@ -22,6 +22,7 @@ const updateFn = vi.fn(() => ({ set: setFn }));
 const writeAuditMock = vi.fn().mockResolvedValue(undefined);
 
 const getHeartbeatIntervalSecondsMock = vi.fn().mockResolvedValue(300);
+const readStationDataPlansMock = vi.fn().mockResolvedValue(new Map());
 const getRegistrationPolicyMock = vi.fn().mockResolvedValue('auto-approve');
 
 vi.mock('@evtivity/database', () => ({
@@ -29,7 +30,11 @@ vi.mock('@evtivity/database', () => ({
   chargingStations: { id: 'id', onboardingStatus: 'onboarding_status' },
   stationAuditLog: { __name: 'stationAuditLog' },
   writeAudit: writeAuditMock,
-  getHeartbeatIntervalSeconds: getHeartbeatIntervalSecondsMock,
+  // The plan's heartbeat comes from the mock; the plan name is recorded.
+  getDataPlanValues: vi.fn(async (plan: string) => ({
+    heartbeatInterval: (await getHeartbeatIntervalSecondsMock(plan)) as number,
+  })),
+  readStationDataPlans: readStationDataPlansMock,
   getRegistrationPolicy: getRegistrationPolicyMock,
 }));
 
@@ -58,6 +63,9 @@ function makeCtx(
       ocppProtocol: 'ocpp2.1',
       bootStatus: null,
       readyAnnounced: false,
+      dataPlan: 'wifi_or_wired',
+      lastInboundAt: new Date(),
+      answeredPing: false,
     },
     messageId: 'msg-1',
     action: 'BootNotification',
@@ -130,6 +138,32 @@ describe('v2_1 BootNotification handler', () => {
     expect(ctx.session.bootStatus).toBe('Accepted');
     // No DB lookup when stationDbId is null
     expect(selectFn).not.toHaveBeenCalled();
+  });
+
+  it("answers the heartbeat of the station's data plan and records the plan on the session", async () => {
+    whereResult = [{ onboardingStatus: 'accepted' }];
+    readStationDataPlansMock.mockResolvedValueOnce(new Map([['sta_9', { plan: 'cellular' }]]));
+    getHeartbeatIntervalSecondsMock.mockImplementation((plan: string) =>
+      Promise.resolve(plan === 'cellular' ? 3600 : 900),
+    );
+    const { handleBootNotification } = bootNotificationHandlerModule;
+    const { ctx } = makeCtx(bootPayload, 'sta_9');
+    const response = await handleBootNotification(ctx);
+    expect(response).toMatchObject({ interval: 3600 });
+    expect(ctx.session.dataPlan).toBe('cellular');
+  });
+
+  it('keeps the current plan when the plan read fails', async () => {
+    whereResult = [{ onboardingStatus: 'accepted' }];
+    readStationDataPlansMock.mockRejectedValueOnce(new Error('db down'));
+    getHeartbeatIntervalSecondsMock.mockImplementation((plan: string) =>
+      Promise.resolve(plan === 'cellular' ? 3600 : 900),
+    );
+    const { handleBootNotification } = bootNotificationHandlerModule;
+    const { ctx } = makeCtx(bootPayload, 'sta_9');
+    ctx.session.dataPlan = 'cellular';
+    const response = await handleBootNotification(ctx);
+    expect(response).toMatchObject({ interval: 3600 });
   });
 
   it('handles a boot payload with no modem (iccid/imsi undefined)', async () => {

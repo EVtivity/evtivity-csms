@@ -9,14 +9,19 @@ import type { IncomingMessage, OutgoingHttpHeaders } from 'node:http';
 import type postgres from 'postgres';
 import {
   CACHE_INVALIDATE_CHANNEL,
+  DATA_PLANS,
+  DATA_PLAN_DEFAULTS,
   createLogger,
   InMemoryEventBus,
   OcppError,
   parseStationAuthInvalidation,
+  parseStationDataPlanInvalidation,
   parseStationDisconnect,
   tryParseJson,
 } from '@evtivity/lib';
-import { getHeartbeatIntervalSeconds } from '@evtivity/database';
+import type { DataPlan, DataPlanValues } from '@evtivity/lib';
+import { getDataPlanValues } from '@evtivity/database';
+import { refreshSessionDataPlan } from './session-data-plan.js';
 import type { Logger, EventBus, EventPersistence, PubSubClient, Subscription } from '@evtivity/lib';
 import { ConnectionManager } from './connection-manager.js';
 import { createSessionState } from './session-state.js';
@@ -26,6 +31,7 @@ import { MessageCorrelator } from './message-correlator.js';
 import { MessageRouter } from './message-router.js';
 import { GracefulShutdown, SERVER_SHUTDOWN_DISCONNECT_REASON } from './graceful-shutdown.js';
 import { PingMonitor } from './ping-monitor.js';
+import { clientAddressKey } from '@evtivity/lib/ip-address';
 import {
   isTlsConnection,
   parseTrustedProxies,
@@ -33,6 +39,7 @@ import {
   stationEndpointUrl,
 } from './client-ip.js';
 import { MiddlewarePipeline } from './middleware/pipeline.js';
+import { flushConnectionFailureLogs } from './middleware/connection-log.js';
 import type { HandlerContext } from './middleware/pipeline.js';
 import { logMiddleware } from './middleware/log.js';
 import { validateMiddleware } from './middleware/validate.js';
@@ -42,6 +49,7 @@ import { createBootGuardMiddleware } from './middleware/boot-guard.js';
 import {
   authenticateConnection,
   extractStationId,
+  parseBasicCredentials,
   rejectionFor,
   serviceUnavailable,
 } from './middleware/authenticate.js';
@@ -50,7 +58,11 @@ import {
   StationAuthCache,
   StationPasswordVerifier,
 } from './middleware/station-password-verifier.js';
-import type { StationPasswordVerifierStats } from './middleware/station-password-verifier.js';
+import type {
+  KnownGoodStore,
+  StationAttemptStore,
+  StationPasswordVerifierStats,
+} from './middleware/station-password-verifier.js';
 import {
   ConnectionAuthBusyError,
   ConnectionAuthLimiter,
@@ -78,13 +90,15 @@ import { OcppErrorCode, errorCodeForProtocol } from '../protocol/error-codes.js'
 import { config } from '../lib/config.js';
 
 const MAX_CONNECTIONS_PER_IP = config.OCPP_MAX_CONNECTIONS_PER_IP;
+const MAX_PENDING_AUTH_PER_IP = config.OCPP_MAX_PENDING_AUTH_PER_IP;
 const MAX_MESSAGES_PER_IP_PER_SECOND = config.OCPP_MAX_MESSAGES_PER_IP_PER_SECOND;
 const IP_MESSAGE_WINDOW_MS = 1000;
 
 const ipConnectionCounts = new Map<string, number>();
-// Upgrade requests per IP whose authentication is still running. They count
-// toward the per-IP connection limit, so one IP cannot queue unbounded station
-// lookups and argon2 verifications.
+// Upgrade requests per client address key (an IPv4 address or an IPv6 /64,
+// clientAddressKey) whose authentication is still running. At most
+// OCPP_MAX_PENDING_AUTH_PER_IP each, far below the authentication queue, so
+// one client cannot fill the queue and hold out every other station.
 const ipPendingAuthCounts = new Map<string, number>();
 const ipMessageCounters = new Map<string, { count: number; windowStart: number }>();
 
@@ -131,8 +145,12 @@ export interface OcppServerOptions {
   // Comma-separated CIDRs of load balancers whose X-Forwarded-For is trusted.
   trustedProxyCidrs?: string | undefined;
   tls?: TlsOptions | undefined;
-  // Fixed idle timeout (tests). By default it follows the heartbeat setting.
+  // Fixed idle timeout (tests). By default it follows the heartbeat of each
+  // station's data plan.
   idleTimeoutMs?: number | undefined;
+  // WebSocket permessage-deflate (RFC 7692) on both listeners
+  // (OCPP_WS_COMPRESSION). Default on.
+  wsCompression?: boolean | undefined;
   // Bounds on concurrent connection authentications. By default half the
   // database pool, 1000 queued, 10 s wait (see connection-auth-limiter.ts).
   connectionAuthLimits?: Partial<ConnectionAuthLimits> | undefined;
@@ -142,6 +160,8 @@ export interface OcppServerOptions {
   // Station password checks. By default a cache of successful checks and an
   // argon2 concurrency gate (see station-password-verifier.ts).
   passwordVerifier?: StationPasswordVerifier | undefined;
+  // Pending authentications per client address (OCPP_MAX_PENDING_AUTH_PER_IP).
+  maxPendingAuthPerIp?: number | undefined;
 }
 
 // Refused connection authentications are logged at most this often.
@@ -152,7 +172,27 @@ const AUTH_BUSY_LOG_INTERVAL_MS = 5_000;
 // never less than 5 minutes, so a station that heartbeats exactly on schedule
 // and does not answer pings is not closed as its heartbeat arrives.
 const MIN_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
-const IDLE_TIMEOUT_REFRESH_MS = 60_000;
+// How often the values of both data plans are read again (the readers cache 60 s).
+const PLAN_VALUES_REFRESH_MS = 60_000;
+
+/**
+ * The permessage-deflate options of both listeners. Stations send most bytes,
+ * so the station keeps its compression context (clientNoContextTakeover
+ * false); CSMS replies under 1024 B stay uncompressed and the server resets
+ * its deflate context after each message. No window bit limits: ws refuses an
+ * offer below a set limit. concurrencyLimit bounds zlib work per process.
+ */
+export function ocppPerMessageDeflate(enabled: boolean) {
+  return enabled
+    ? {
+        threshold: 1024,
+        serverNoContextTakeover: true,
+        clientNoContextTakeover: false,
+        zlibDeflateOptions: { memLevel: 5 },
+        concurrencyLimit: 10,
+      }
+    : false;
+}
 
 // How long stop() waits, after the station sockets close, for event-bus
 // handlers to finish (station.Disconnected projections, notifications). The
@@ -180,11 +220,18 @@ export class OcppServer {
   private readonly fixedIdleTimeoutMs: number | null;
   private readonly authLimiter: ConnectionAuthLimiter;
   private readonly passwordVerifier: StationPasswordVerifier;
+  private readonly maxPendingAuthPerIp: number;
+  // OCPP_TLS_CA is set on the TLS listener (start); profile 3 needs it.
+  private clientCaConfigured = false;
   private readonly frameStats: InboundFrameStats;
   private authBusyLoggedAt = 0;
+  // Peers already warned about as untrusted proxies (bounded).
+  private readonly untrustedProxyWarned = new Set<string>();
   private authBusySinceLog = 0;
-  private idleTimeoutMs = MIN_IDLE_TIMEOUT_MS;
-  private idleTimeoutRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  // The values of both data plans; each connection follows its station's plan.
+  private planValues: Record<DataPlan, DataPlanValues> = { ...DATA_PLAN_DEFAULTS };
+  private planValuesRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly wsCompression: boolean;
   private wss: WebSocketServer | null = null;
   private wssSecure: WebSocketServer | null = null;
   private httpsServer: HttpsServer | null = null;
@@ -208,11 +255,15 @@ export class OcppServer {
       });
     this.lifecycle = new MessageLifecycle(this.logger);
     this.dispatcher = new CommandDispatcher(this.connectionManager, this.correlator, this.logger);
-    this.pingMonitor = new PingMonitor(this.connectionManager, this.logger);
+    // Each ping cycle also keeps the known-good records of the stations this
+    // process holds fresh, so a connected station never ages out of them.
+    this.pingMonitor = new PingMonitor(this.connectionManager, this.logger, () => {
+      void this.passwordVerifier.refreshKnownGood(this.connectionManager.connectedStationDbIds());
+    });
     this.sql = options?.sql ?? null;
     this.trustedProxies = parseTrustedProxies(options?.trustedProxyCidrs ?? '');
     this.fixedIdleTimeoutMs = options?.idleTimeoutMs ?? null;
-    if (this.fixedIdleTimeoutMs != null) this.idleTimeoutMs = this.fixedIdleTimeoutMs;
+    this.wsCompression = options?.wsCompression ?? true;
     const limits = options?.connectionAuthLimits;
     this.authLimiter = new ConnectionAuthLimiter({
       maxConcurrent:
@@ -221,7 +272,9 @@ export class OcppServer {
       maxWaitMs: limits?.maxWaitMs ?? DEFAULT_CONNECTION_AUTH_MAX_WAIT_MS,
     });
     this.passwordVerifier =
-      options?.passwordVerifier ?? new StationPasswordVerifier({ cache: new StationAuthCache() });
+      options?.passwordVerifier ??
+      new StationPasswordVerifier({ cache: new StationAuthCache(), logger: this.logger });
+    this.maxPendingAuthPerIp = options?.maxPendingAuthPerIp ?? MAX_PENDING_AUTH_PER_IP;
     this.frameStats = new InboundFrameStats(this.logger);
 
     // Set up middleware pipeline. The per-station rate limit runs in
@@ -246,6 +299,7 @@ export class OcppServer {
       port: options.port,
       host: options.host,
       maxPayload: 1 * 1024 * 1024,
+      perMessageDeflate: ocppPerMessageDeflate(this.wsCompression),
       verifyClient: (info, callback) => {
         this.verifyClient(info.req, callback);
       },
@@ -275,6 +329,12 @@ export class OcppServer {
     });
 
     // TLS server for SP2 (wss://)
+    this.clientCaConfigured = options.tls?.ca != null && options.tls.ca !== '';
+    if (options.tls != null && !this.clientCaConfigured) {
+      this.logger.error(
+        'OCPP_TLS_CA is not set: security profile 3 connections are refused. Set it to the CA that issues station certificates',
+      );
+    }
     if (options.tls != null) {
       const tlsPort = options.tls.port ?? 8443;
       const httpsServer = createHttpsServer({
@@ -294,6 +354,7 @@ export class OcppServer {
       this.wssSecure = new WebSocketServer({
         server: httpsServer,
         maxPayload: 1 * 1024 * 1024,
+        perMessageDeflate: ocppPerMessageDeflate(this.wsCompression),
         verifyClient: (info, callback) => {
           this.verifyClient(info.req, callback);
         },
@@ -327,12 +388,12 @@ export class OcppServer {
 
     this.pingMonitor.start(this.sql, null, options.instanceId);
 
-    if (this.fixedIdleTimeoutMs == null && this.sql != null) {
-      await this.refreshIdleTimeout();
-      this.idleTimeoutRefreshTimer = setInterval(() => {
-        void this.refreshIdleTimeout();
-      }, IDLE_TIMEOUT_REFRESH_MS);
-      this.idleTimeoutRefreshTimer.unref();
+    if (this.sql != null) {
+      await this.refreshPlanValues();
+      this.planValuesRefreshTimer = setInterval(() => {
+        void this.refreshPlanValues();
+      }, PLAN_VALUES_REFRESH_MS);
+      this.planValuesRefreshTimer.unref();
     }
 
     this.logger.info(
@@ -377,8 +438,34 @@ export class OcppServer {
       return;
     }
 
-    const pendingCount = ipPendingAuthCounts.get(remoteIp) ?? 0;
-    if ((ipConnectionCounts.get(remoteIp) ?? 0) + pendingCount >= MAX_CONNECTIONS_PER_IP) {
+    // A station whose password succeeded on this process within the cache TTL
+    // is decided first: it skips the per-IP pending cap and the queue. The
+    // queue protects the database pool from a reconnect wave, and other
+    // traffic from a shared address (NAT, proxy) or an attack that fills the
+    // queue must not hold out the stations that hold their password. The full
+    // check (lookup, stored hash) still runs.
+    const stationIdFromUrl = extractStationId(req.url);
+    const presented = parseBasicCredentials(req.headers['authorization']);
+    const knownGood =
+      stationIdFromUrl != null &&
+      presented?.username === stationIdFromUrl &&
+      this.passwordVerifier.hasCachedSuccess(stationIdFromUrl, presented.password);
+
+    // X-Forwarded-For counts only from a trusted proxy. Without one the
+    // socket peer is the client for every limit, even when it is a proxy:
+    // a header is never trust. A warning names the setting to configure.
+    if (this.trustedProxies == null && req.headers['x-forwarded-for'] != null) {
+      this.warnUntrustedProxy(remoteIp);
+    }
+
+    const pendingKey = clientAddressKey(remoteIp);
+    const counted = !knownGood;
+    const pendingCount = ipPendingAuthCounts.get(pendingKey) ?? 0;
+    if (
+      (counted && pendingCount >= this.maxPendingAuthPerIp) ||
+      (!knownGood &&
+        (ipConnectionCounts.get(remoteIp) ?? 0) + pendingCount >= MAX_CONNECTIONS_PER_IP)
+    ) {
       this.logger.warn(
         { remoteIp, pending: pendingCount },
         'Per-IP pending authentication limit exceeded',
@@ -386,38 +473,41 @@ export class OcppServer {
       callback(false, 429, 'Too Many Requests');
       return;
     }
-    ipPendingAuthCounts.set(remoteIp, pendingCount + 1);
+    if (counted) ipPendingAuthCounts.set(pendingKey, pendingCount + 1);
     const releasePending = (): void => {
-      const count = ipPendingAuthCounts.get(remoteIp) ?? 1;
+      if (!counted) return;
+      const count = ipPendingAuthCounts.get(pendingKey) ?? 1;
       if (count <= 1) {
-        ipPendingAuthCounts.delete(remoteIp);
+        ipPendingAuthCounts.delete(pendingKey);
       } else {
-        ipPendingAuthCounts.set(remoteIp, count - 1);
+        ipPendingAuthCounts.set(pendingKey, count - 1);
       }
     };
 
     // A reconnect wave queues here instead of filling the database pool.
-    this.authLimiter
-      .run(() => {
-        // The station gave up while the request waited: skip the lookup.
-        if (req.socket.destroyed) {
-          return Promise.resolve<AuthResult>({
-            authenticated: false,
-            stationId: null,
-            stationDbId: null,
-            error: 'Connection closed while waiting for authentication',
-            failure: 'unavailable',
-          });
-        }
-        return authenticateConnection(
-          req,
-          this.logger,
-          this.sql,
-          remoteIp === 'unknown' ? null : remoteIp,
-          isTlsConnection(req, this.trustedProxies),
-          this.passwordVerifier,
-        );
-      })
+    const admit = <T>(task: () => Promise<T>): Promise<T> =>
+      knownGood ? task() : this.authLimiter.run(task);
+    admit(() => {
+      // The station gave up while the request waited: skip the lookup.
+      if (req.socket.destroyed) {
+        return Promise.resolve<AuthResult>({
+          authenticated: false,
+          stationId: null,
+          stationDbId: null,
+          error: 'Connection closed while waiting for authentication',
+          failure: 'unavailable',
+        });
+      }
+      return authenticateConnection(
+        req,
+        this.logger,
+        this.sql,
+        remoteIp === 'unknown' ? null : remoteIp,
+        isTlsConnection(req, this.trustedProxies),
+        this.passwordVerifier,
+        this.clientCaConfigured,
+      );
+    })
       .then((auth) => {
         releasePending();
         if (auth.authenticated && auth.stationId != null) {
@@ -467,8 +557,28 @@ export class OcppServer {
   }
 
   /** Inbound frames dropped, refused or not logged since start, by reason. */
+  private warnUntrustedProxy(peer: string): void {
+    if (this.untrustedProxyWarned.has(peer)) return;
+    if (this.untrustedProxyWarned.size >= 1000) this.untrustedProxyWarned.clear();
+    this.untrustedProxyWarned.add(peer);
+    this.logger.error(
+      { peer },
+      'Connection carries X-Forwarded-For but OCPP_TRUSTED_PROXY_CIDRS is empty: the peer address counts for every station behind it; set OCPP_TRUSTED_PROXY_CIDRS to the proxy addresses',
+    );
+  }
+
   getInboundFrameStats(): Record<string, number> {
     return this.frameStats.snapshot();
+  }
+
+  /** Shares known-good station credentials across processes (start.ts). */
+  useKnownGoodStore(store: KnownGoodStore, key: Buffer): void {
+    this.passwordVerifier.useKnownGoodStore(store, key);
+  }
+
+  /** Shares the station check budget and slow check across processes (start.ts). */
+  useStationAttemptStore(store: StationAttemptStore): void {
+    this.passwordVerifier.useStationAttemptStore(store);
   }
 
   /** Cached station password checks and argon2 computations running and queued. */
@@ -494,7 +604,12 @@ export class OcppServer {
         return;
       }
       const blockedStationId = parseStationDisconnect(message);
-      if (blockedStationId != null) this.closeBlockedStation(blockedStationId);
+      if (blockedStationId != null) {
+        this.closeBlockedStation(blockedStationId);
+        return;
+      }
+      const planStationId = parseStationDataPlanInvalidation(message);
+      if (planStationId != null) void this.reloadStationDataPlan(planStationId);
     });
   }
 
@@ -539,8 +654,11 @@ export class OcppServer {
       return;
     }
     ipConnectionCounts.set(remoteIp, currentCount + 1);
+    let socketClosed = false;
     ws.on('close', () => {
+      socketClosed = true;
       clearTimeout(idleTimer);
+      if (connectionSession != null) this.rearmIdle.delete(connectionSession);
       const count = ipConnectionCounts.get(remoteIp) ?? 1;
       if (count <= 1) {
         ipConnectionCounts.delete(remoteIp);
@@ -549,22 +667,35 @@ export class OcppServer {
       }
     });
 
-    // Any OCPP message or WebSocket ping/pong restarts the idle timer. The
-    // ping monitor pings every station every 30s, so live connections answer.
+    // Any OCPP message or WebSocket ping/pong restarts the idle timer, whose
+    // length follows the heartbeat of the station's data plan. The ping
+    // monitor pings a station once its plan's CSMS ping interval passes
+    // without a frame, so live connections answer.
     const closeIdle = (): void => {
       this.logger.info({ remoteIp }, 'Closing idle WebSocket connection');
       ws.close(1000, 'Idle timeout');
     };
-    let armedIdleMs = this.idleTimeoutMs;
+    let connectionSession: SessionState | null = null;
+    const idleMsNow = (): number => this.idleTimeoutFor(connectionSession);
+    let armedIdleMs = idleMsNow();
     let idleTimer = setTimeout(closeIdle, armedIdleMs);
-    const restartIdleTimer = (): void => {
-      if (armedIdleMs === this.idleTimeoutMs) {
+    // Re-arms the idle timer at the plan's timeout, counting from now.
+    const rearmIdleTimer = (): void => {
+      // A plan read that resolves after the close must not start a timer.
+      if (socketClosed) return;
+      const wanted = idleMsNow();
+      if (armedIdleMs === wanted) {
         idleTimer.refresh();
         return;
       }
       clearTimeout(idleTimer);
-      armedIdleMs = this.idleTimeoutMs;
+      armedIdleMs = wanted;
       idleTimer = setTimeout(closeIdle, armedIdleMs);
+    };
+    // Every frame from the station.
+    const restartIdleTimer = (): void => {
+      if (connectionSession != null) connectionSession.lastInboundAt = new Date();
+      rearmIdleTimer();
     };
     ws.on('ping', restartIdleTimer);
     ws.on('pong', restartIdleTimer);
@@ -581,6 +712,9 @@ export class OcppServer {
     const stationId = auth.stationId;
     const session = createSessionState(stationId, ws.protocol || 'ocpp2.1');
     session.authenticated = true;
+    connectionSession = session;
+    // Re-arm the plan's idle timer whenever the session's plan is (re)read.
+    this.rearmIdle.set(session, rearmIdleTimer);
     // A station awaiting operator approval gets SecurityError for every CALL
     // but BootNotification until a BootNotification is Accepted, even when it
     // never sends one (boot-guard.ts).
@@ -590,10 +724,9 @@ export class OcppServer {
     }
     this.connectionManager.add(stationId, ws, session);
 
-    // Fallback for when auth did not resolve DB ID (e.g. no sql connection)
-    if (session.stationDbId == null) {
-      void this.resolveStationDbId(stationId, session);
-    }
+    // The station's data plan sets its ping, idle and heartbeat timeouts.
+    // Fallback for when auth did not resolve DB ID (e.g. no sql connection).
+    void this.loadSessionPlan(stationId, session);
 
     void this.eventBus.publish({
       eventType: 'station.Connected',
@@ -659,7 +792,7 @@ export class OcppServer {
     });
 
     ws.on('pong', () => {
-      this.pingMonitor.recordPong(stationId);
+      this.pingMonitor.recordPong(stationId, ws);
     });
 
     ws.on('error', (err: Error) => {
@@ -668,10 +801,49 @@ export class OcppServer {
     });
   }
 
-  private async refreshIdleTimeout(): Promise<void> {
-    const heartbeatSeconds = await getHeartbeatIntervalSeconds();
-    this.idleTimeoutMs = idleTimeoutForHeartbeat(heartbeatSeconds);
-    this.pingMonitor.setHeartbeatIntervalSeconds(heartbeatSeconds);
+  /** The idle timeout of a connection: fixed (tests), else from its plan's heartbeat. */
+  private idleTimeoutFor(session: SessionState | null): number {
+    if (this.fixedIdleTimeoutMs != null) return this.fixedIdleTimeoutMs;
+    const plan = session?.dataPlan ?? 'wifi_or_wired';
+    return idleTimeoutForHeartbeat(this.planValues[plan].heartbeatInterval);
+  }
+
+  // The idle timer re-arm of each held connection, so a plan change applies at once.
+  private readonly rearmIdle = new WeakMap<SessionState, () => void>();
+
+  private async refreshPlanValues(): Promise<void> {
+    const next = { ...this.planValues };
+    for (const plan of DATA_PLANS) next[plan] = await getDataPlanValues(plan);
+    this.planValues = next;
+    this.pingMonitor.setPlanValues(next);
+  }
+
+  /** Values of both data plans in use (tests and diagnostics). */
+  getPlanValues(): Readonly<Record<DataPlan, DataPlanValues>> {
+    return this.planValues;
+  }
+
+  private async loadSessionPlan(stationId: string, session: SessionState): Promise<void> {
+    if (session.stationDbId == null) await this.resolveStationDbId(stationId, session);
+    if (session.stationDbId == null) return;
+    await refreshSessionDataPlan(session);
+    this.rearmIdle.get(session)?.();
+  }
+
+  /**
+   * A station's data plan changed (API publish on cache_invalidate): the pod
+   * holding its connection reads the plan again and re-arms the idle timer.
+   * The ping and heartbeat checks read the session's plan at each cycle.
+   */
+  async reloadStationDataPlan(stationId: string): Promise<void> {
+    const connection = this.connectionManager.get(stationId);
+    if (connection == null) return;
+    await refreshSessionDataPlan(connection.session);
+    this.rearmIdle.get(connection.session)?.();
+    this.logger.debug(
+      { stationId, dataPlan: connection.session.dataPlan },
+      'Station data plan reloaded',
+    );
   }
 
   private async resolveStationDbId(stationId: string, session: SessionState): Promise<void> {
@@ -692,7 +864,7 @@ export class OcppServer {
 
   private async handleMessage(ws: WebSocket, session: SessionState, raw: string): Promise<void> {
     // Every frame counts against the station's rate limit before it is logged.
-    const rate = consumeStationMessage(session.stationId);
+    const rate = consumeStationMessage(session.stationId, undefined, Buffer.byteLength(raw));
     const frame = parseInboundFrame(raw, session.ocppProtocol);
 
     if (frame.kind === 'drop') {
@@ -744,8 +916,8 @@ export class OcppServer {
     // that are actively sending MeterValues, StatusNotifications, etc.
     session.lastHeartbeat = new Date();
 
-    // Log inbound CALL from station
-    publishMessageLog(this.eventBus, {
+    // Log inbound CALL from station (bounded, message-log.ts)
+    const logged = publishMessageLog(this.eventBus, {
       stationId: session.stationId,
       stationDbId: session.stationDbId,
       direction: 'inbound',
@@ -754,6 +926,7 @@ export class OcppServer {
       action,
       payload,
     });
+    if (!logged) this.frameStats.record(session.stationId, 'log_dropped');
 
     const ctx: HandlerContext = {
       stationId: session.stationId,
@@ -844,7 +1017,7 @@ export class OcppServer {
       // returned for CSMS-initiated commands. Without this the OCPP log
       // tab only carries the outbound CALL row (logged by
       // command-listener.ts) and the response is invisible.
-      publishMessageLog(this.eventBus, {
+      const logged = publishMessageLog(this.eventBus, {
         stationId: session.stationId,
         stationDbId: session.stationDbId,
         direction: 'inbound',
@@ -853,8 +1026,9 @@ export class OcppServer {
         action: null,
         payload: message[2],
       });
+      if (!logged) this.frameStats.record(session.stationId, 'log_dropped');
     } else {
-      publishMessageLog(this.eventBus, {
+      const logged = publishMessageLog(this.eventBus, {
         stationId: session.stationId,
         stationDbId: session.stationDbId,
         direction: 'inbound',
@@ -864,6 +1038,7 @@ export class OcppServer {
         errorCode: message[2],
         errorDescription: message[3],
       });
+      if (!logged) this.frameStats.record(session.stationId, 'log_dropped');
     }
     this.correlator.handleResponse(session, message);
   }
@@ -941,11 +1116,13 @@ export class OcppServer {
       clearInterval(ipMessageCleanupTimer);
       ipMessageCleanupTimer = null;
     }
-    if (this.idleTimeoutRefreshTimer != null) {
-      clearInterval(this.idleTimeoutRefreshTimer);
-      this.idleTimeoutRefreshTimer = null;
+    if (this.planValuesRefreshTimer != null) {
+      clearInterval(this.planValuesRefreshTimer);
+      this.planValuesRefreshTimer = null;
     }
     await this.pingMonitor.stop();
+    // The counts of the aggregated failed-connection rows.
+    await flushConnectionFailureLogs();
     // Stop accepting TLS connections now, but await the close only after the
     // station sockets are closed: ws emits 'close' for a server built on an
     // external HTTPS server only once its last client is gone, so awaiting it

@@ -15,9 +15,23 @@ import { config as apiConfig } from './config.js';
  * pre-auth endpoints (login, register, forgot-password, reset-password) so
  * the response shape stays in lockstep across realms.
  */
+/** The actions the CSMS and portal pages run reCAPTCHA with. */
+export type RecaptchaAction = 'login' | 'register' | 'reset_password' | 'guest_start';
+
+/** The hosts the CSMS and portal pages are served from (their configured URLs). */
+function appHostnames(): string[] {
+  const hosts: string[] = [];
+  for (const url of [apiConfig.CSMS_URL, apiConfig.PORTAL_URL]) {
+    const parsed = URL.parse(url);
+    if (parsed != null) hosts.push(parsed.hostname.toLowerCase());
+  }
+  return hosts;
+}
+
 export async function checkRecaptcha(
   token: string | undefined,
   reply: FastifyReply,
+  action: RecaptchaAction,
 ): Promise<boolean> {
   const config = await getRecaptchaConfig();
   if (config == null) return true;
@@ -32,7 +46,10 @@ export async function checkRecaptcha(
   if (secretKey == null) {
     throw new Error('reCAPTCHA is enabled but security.recaptcha.secretKeyEnc is not set');
   }
-  const result = await verifyRecaptcha(token, secretKey, config.threshold);
+  const result = await verifyRecaptcha(token, secretKey, config.threshold, {
+    action,
+    hostnames: appHostnames(),
+  });
   if (!result.success) {
     await reply
       .status(403)

@@ -31,7 +31,10 @@ export interface SiteFreeVendTabProps {
 export function SiteFreeVendTab({ site, siteId }: SiteFreeVendTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const canWrite = useHasPermission('sites:write');
+  // Free vend stops payment at the site: the API needs payments:write too.
+  const canWriteSite = useHasPermission('sites:write');
+  const canWritePayments = useHasPermission('payments:write');
+  const canWrite = canWriteSite && canWritePayments;
   // Free vend changes what every driver at the site pays: confirm both ways.
   const [confirmOpen, setConfirmOpen] = useState(false);
   const enabling = !site.freeVendEnabled;

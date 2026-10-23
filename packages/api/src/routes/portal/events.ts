@@ -7,7 +7,6 @@ import type { Subscription } from '@evtivity/lib';
 import { createLogger, tryParseJson } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { endSseClients, writeSseClient } from '../../lib/sse-broadcast.js';
-import { driverTokenRejection } from '../../plugins/auth.js';
 
 const logger = createLogger('portal-events-sse');
 
@@ -16,6 +15,14 @@ const PORTAL_EVENTS_CHANNEL = 'portal_events';
 
 // setTimeout delays above 2^31-1 ms fire at once.
 const MAX_TIMER_MS = 2_147_483_647;
+
+/**
+ * Open streams one driver keeps on one process (PP2 Info 5): a new stream over
+ * it ends the driver's oldest one, so a looping client cannot hold the
+ * process's sockets with one token, and a browser whose old socket was never
+ * seen closing still connects.
+ */
+export const PORTAL_EVENTS_PER_DRIVER = 10;
 
 interface PortalSseClient {
   id: number;
@@ -104,10 +111,18 @@ export function closeDriverEventStreams(driverId: string): void {
   }
 }
 
-export function portalEventRoutes(app: FastifyInstance): void {
+export function portalEventRoutes(
+  app: FastifyInstance,
+  options: { perDriver?: number } = {},
+): void {
+  const perDriver = options.perDriver ?? PORTAL_EVENTS_PER_DRIVER;
   app.get(
     '/portal/events',
     {
+      // The guard of every driver route: it also refuses
+      // an Authorization header of another scheme, which jwtVerify alone would skip
+      // for the portal_token cookie.
+      onRequest: [app.authenticateDriver],
       schema: {
         tags: ['Portal Events'],
         summary: 'Subscribe to real-time portal events',
@@ -116,20 +131,13 @@ export function portalEventRoutes(app: FastifyInstance): void {
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        await request.jwtVerify();
-      } catch (err) {
-        request.log.debug({ err }, 'Portal SSE token did not verify, refusing the stream');
-        return await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
-      }
-      // The same checks as app.authenticateDriver: driver token, not
-      // MFA-pending, active driver, current session version.
-      const rejection = await driverTokenRejection(request.user);
-      if (rejection != null) {
-        const { status, ...body } = rejection;
-        return await reply.status(status).send(body);
-      }
       const { driverId, exp } = request.user as unknown as { driverId: string; exp?: number };
+
+      // Insertion order: the first ones are the oldest.
+      const open = [...clients].filter((c) => c.driverId === driverId);
+      for (const stale of open.slice(0, Math.max(0, open.length - perDriver + 1))) {
+        endClient(stale, 'per-driver stream limit');
+      }
 
       void reply
         .header('Content-Type', 'text/event-stream')

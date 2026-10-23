@@ -7,7 +7,7 @@ import type { Redis } from 'ioredis';
 import {
   client,
   findStaleOnlineStations,
-  getHeartbeatIntervalSeconds,
+  getDataPlanValues,
   isRoamingEnabled,
   markStationOfflineIfStale,
 } from '@evtivity/database';
@@ -17,7 +17,7 @@ import {
   RedisConnectionRegistry,
   shouldMarkStationOffline,
 } from '@evtivity/lib';
-import type { ConnectionRegistry, PubSubClient } from '@evtivity/lib';
+import type { ConnectionRegistry, DataPlan, PubSubClient } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { cancelHoldsForStationOutage } from '@evtivity/services/reservation-expiry';
 import type { StationOutageInput } from '@evtivity/services/reservation-expiry';
@@ -42,7 +42,8 @@ export interface OfflineSweepDeps {
   sql: postgres.Sql;
   registry: ConnectionRegistry;
   pubsub: PubSubClient;
-  heartbeatSeconds: number;
+  /** The heartbeat interval of each data plan; a station's plan picks its threshold. */
+  heartbeatSeconds: Readonly<Record<DataPlan, number>>;
   roamingEnabled: () => Promise<boolean>;
   /** Cancels the station's active holds (G16), returns how many. */
   cancelHolds: (input: StationOutageInput) => Promise<number>;
@@ -66,8 +67,11 @@ export async function runStationOfflineSweep(
   deps: OfflineSweepDeps,
   log: Logger,
 ): Promise<OfflineSweepResult> {
-  const thresholdMs = offlineSweepThresholdMs(deps.heartbeatSeconds);
-  const candidates = await findStaleOnlineStations(deps.sql, thresholdMs);
+  const thresholds = {
+    wifi_or_wired: offlineSweepThresholdMs(deps.heartbeatSeconds.wifi_or_wired),
+    cellular: offlineSweepThresholdMs(deps.heartbeatSeconds.cellular),
+  };
+  const candidates = await findStaleOnlineStations(deps.sql, thresholds);
   let markedOffline = 0;
 
   for (const station of candidates) {
@@ -93,7 +97,7 @@ export async function runStationOfflineSweep(
 
     let marked;
     try {
-      marked = await markStationOfflineIfStale(deps.sql, station.id, thresholdMs);
+      marked = await markStationOfflineIfStale(deps.sql, station.id, station.thresholdMs);
     } catch (err) {
       log.warn({ err, stationId: station.stationId }, 'Offline sweep failed for a station');
       continue;
@@ -191,7 +195,10 @@ export async function stationOfflineSweepHandler(log: Logger): Promise<void> {
       sql: client,
       registry: new RedisConnectionRegistry(registryStore()),
       pubsub,
-      heartbeatSeconds: await getHeartbeatIntervalSeconds(),
+      heartbeatSeconds: {
+        wifi_or_wired: (await getDataPlanValues('wifi_or_wired')).heartbeatInterval,
+        cellular: (await getDataPlanValues('cellular')).heartbeatInterval,
+      },
       roamingEnabled: isRoamingEnabled,
       cancelHolds: (input) => cancelHoldsForStationOutage(expiryDeps, input),
       notifyStationFaulted: (target) =>

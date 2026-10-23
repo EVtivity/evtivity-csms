@@ -17,6 +17,14 @@ import { PermissionEditor } from '@/components/PermissionEditor';
 import { useHasAllSiteAccess } from '@/lib/auth';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { isAdminEquivalent } from '@evtivity/lib/admin-equivalent';
+import {
+  FactorProofField,
+  proofRejection,
+  type FactorProof,
+  type ProofRejection,
+} from '@/components/FactorProofField';
+import { useMfaStatus } from '@/components/profile/mfa-status';
 
 interface User {
   id: string;
@@ -51,6 +59,12 @@ export function UserCreate(): React.JSX.Element {
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  // A signed-in session proves the account again to create an admin-equivalent user.
+  const { data: mfaStatus } = useMfaStatus();
+  const proofKinds = mfaStatus?.factorProofKinds ?? [];
+  const [proof, setProof] = useState<FactorProof | null>(null);
+  const [proofFailure, setProofFailure] = useState<ProofRejection | null>(null);
+  const needsProof = proofKinds.length > 0 && isAdminEquivalent(selectedPermissions);
 
   const { data: roles } = useQuery({
     queryKey: ['roles'],
@@ -79,15 +93,11 @@ export function UserCreate(): React.JSX.Element {
       roleId: string;
       hasAllSiteAccess: boolean;
       siteIds?: string[];
-    }) => {
-      const created = await api.post<User>('/v1/users', body);
-      // After user creation, set permissions
-      if (selectedPermissions.length > 0) {
-        await api.put(`/v1/users/${created.id}/permissions`, {
-          permissions: selectedPermissions,
-        });
-      }
-      return created;
+      permissions: string[];
+      proof?: FactorProof;
+    }) => api.post<User>('/v1/users', body),
+    onError: (err: unknown) => {
+      setProofFailure(proofRejection(err));
     },
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['users'] });
@@ -113,10 +123,14 @@ export function UserCreate(): React.JSX.Element {
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(errors).length > 0) return;
+    if (needsProof && proof == null) return;
+    // One request: the user with its final permissions, and one proof (a TOTP code works once).
     createMutation.mutate({
       email,
       roleId,
       hasAllSiteAccess,
+      permissions: selectedPermissions,
+      ...(needsProof && proof != null ? { proof } : {}),
       ...(firstName.trim() !== '' ? { firstName } : {}),
       ...(lastName.trim() !== '' ? { lastName } : {}),
       ...(phone.trim() !== '' ? { phone } : {}),
@@ -287,8 +301,21 @@ export function UserCreate(): React.JSX.Element {
                 <p className="text-xs text-destructive">{errors.siteIds}</p>
               )}
             </div>
+            {needsProof && (
+              <FactorProofField
+                idPrefix="user-create-proof"
+                kinds={proofKinds}
+                codeMethod={mfaStatus?.mfaMethod ?? null}
+                description={t('users.adminProofHint')}
+                onChange={setProof}
+                rejection={proofFailure}
+                showMissing={hasSubmitted}
+              />
+            )}
             {createMutation.isError && (
-              <p className="text-sm text-destructive">{getErrorMessage(createMutation.error, t)}</p>
+              <p className="text-sm text-destructive" role="alert">
+                {getErrorMessage(createMutation.error, t)}
+              </p>
             )}
             <div className="flex justify-end gap-2">
               <CancelButton

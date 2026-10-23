@@ -183,6 +183,49 @@ describe('OcppServer integration', () => {
     ws.close();
   });
 
+  it('answers a large unknown CALL with NotImplemented and logs it truncated', async () => {
+    const port = getNextPort();
+    const srv = await startServer(port);
+    const logged: Record<string, unknown>[] = [];
+    srv.getEventBus().subscribe('ocpp.MessageLog', (event) => {
+      if (event.payload['direction'] === 'inbound') logged.push(event.payload);
+      return Promise.resolve();
+    });
+    const ws = await connectStation(port, 'TEST-BIGCALL');
+    await bootStation(ws);
+
+    const responsePromise = waitForMessage(ws);
+    sendCall(ws, 'big-1', 'NoSuchAction', { blob: 'y'.repeat(900 * 1024) });
+    const response = await responsePromise;
+    expect(response[2]).toBe('NotImplemented');
+    const entry = logged.find((p) => p['messageId'] === 'big-1');
+    expect(JSON.stringify(entry?.['payload']).length).toBeLessThanOrEqual(64 * 1024);
+    expect(entry?.['payload']).toMatchObject({ truncated: true, keys: ['blob'] });
+    ws.close();
+  });
+
+  it('refuses frames past the per-station byte budget like the rate limit', async () => {
+    const port = getNextPort();
+    const srv = await startServer(port);
+    const ws = await connectStation(port, 'TEST-BYTES');
+    await bootStation(ws);
+    const replies: unknown[][] = [];
+    ws.on('message', (data: Buffer) => {
+      replies.push(JSON.parse(data.toString('utf-8')) as unknown[]);
+    });
+    for (const id of ['b-1', 'b-2', 'b-3']) {
+      sendCall(ws, id, 'NoSuchAction', { blob: 'z'.repeat(900 * 1024) });
+    }
+    await vi.waitFor(() => {
+      expect(replies).toHaveLength(3);
+    });
+    const third = replies.find((r) => r[1] === 'b-3');
+    expect(third?.[2]).toBe('GenericError');
+    expect(third?.[3]).toBe('Rate limit exceeded');
+    expect(srv.getInboundFrameStats()['rate_limited']).toBeGreaterThanOrEqual(1);
+    ws.close();
+  });
+
   it('handles DataTransfer with UnknownVendorId', async () => {
     const port = getNextPort();
     await startServer(port);

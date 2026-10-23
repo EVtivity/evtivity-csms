@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { and, eq, ne, sql, asc, desc, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import {
   db,
   sites,
@@ -25,6 +25,7 @@ import {
   firmwareCampaigns,
   octtRuns,
   aiInsights,
+  sims,
   isOperatorStation,
   inOperatorStation,
 } from '@evtivity/database';
@@ -43,6 +44,7 @@ import {
 } from '../lib/fleet-operation-scope.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, errorResponse } from '../lib/response-schemas.js';
+import { requireSimFeature, simVisibleWhere } from '../lib/sim-site-scope.js';
 
 const neighborParams = z.object({ id: z.string().describe('Entity ID') });
 
@@ -86,6 +88,9 @@ interface NeighborTarget {
   // True for a company-wide resource: only a user with access to every site
   // may page through it; a site-restricted user gets 404.
   allSitesOnly?: boolean;
+  // A feature switch the resource's other routes check first: it answers
+  // (400) and returns false while the feature is off, before any read.
+  featureGate?: (reply: FastifyReply) => Promise<boolean>;
 }
 
 const TARGETS: NeighborTarget[] = [
@@ -116,6 +121,20 @@ const TARGETS: NeighborTarget[] = [
     idColumn: sites.id,
     createdAtColumn: sites.createdAt,
     scopeWhere: (siteIds) => inArray(sites.id, siteIds),
+  },
+  {
+    path: '/sims/:id/neighbors',
+    tag: 'SIMs',
+    operationId: 'getSimNeighbors',
+    permission: 'sims:read',
+    notFoundCode: 'SIM_NOT_FOUND',
+    idColumn: sims.id,
+    createdAtColumn: sims.createdAt,
+    // A site-restricted user pages only through SIMs with an open
+    // confirmed attachment to a station of their sites, as the list.
+    scopeWhere: (siteIds) => simVisibleWhere(siteIds),
+    // Every SIM route answers SIM_FEATURE_DISABLED first while it is off.
+    featureGate: requireSimFeature,
   },
   {
     path: '/stations/:id/neighbors',
@@ -340,19 +359,35 @@ async function findNeighbors(
   };
 }
 
+/** A target's feature switch as an onRequest hook: a sent reply ends the request. */
+function featureGateHook(gate: (reply: FastifyReply) => Promise<boolean>) {
+  return async (
+    _request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<FastifyReply | undefined> => ((await gate(reply)) ? undefined : reply);
+}
+
 export function entityNeighborRoutes(app: FastifyInstance): void {
   for (const target of TARGETS) {
     app.get(
       target.path,
       {
-        onRequest: [authorize(target.permission)],
+        // A feature switch answers before the params are validated.
+        onRequest: [
+          authorize(target.permission),
+          ...(target.featureGate != null ? [featureGateHook(target.featureGate)] : []),
+        ],
         schema: {
           tags: [target.tag],
           summary: 'Get previous and next entity IDs in default list order',
           operationId: target.operationId,
           security: [{ bearerAuth: [] }],
           params: zodSchema(neighborParams),
-          response: { 200: itemResponse(neighborsItem), 404: errorResponse },
+          response: {
+            200: itemResponse(neighborsItem),
+            ...(target.featureGate != null ? { 400: errorResponse } : {}),
+            404: errorResponse,
+          },
         },
       },
       async (request, reply) => {

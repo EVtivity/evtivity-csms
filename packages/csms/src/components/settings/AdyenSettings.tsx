@@ -247,7 +247,7 @@ function AdyenWebhookCard({
 export function AdyenSettings(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const canWrite = useHasPermission('payments:write');
+  const canWrite = useHasPermission('settings.payment:write');
 
   const { data, isLoading } = useQuery({
     queryKey: ['adyen-settings'],

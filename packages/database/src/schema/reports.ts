@@ -61,6 +61,12 @@ export const reports = pgTable(
     // Sites the report covers and who may see it: null = all sites (all-site
     // users only), else only stations at these sites (report-scope.ts).
     siteScope: text('site_scope').array(),
+    // Whether the file holds the driver identity and the money columns: set
+    // from the generating request's permissions, so only readers who may see
+    // them get the report. A row written without them counts as holding both
+    // (fail closed).
+    includesDriverData: boolean('includes_driver_data').notNull().default(true),
+    includesMoney: boolean('includes_money').notNull().default(true),
     error: varchar('error', { length: 1000 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),

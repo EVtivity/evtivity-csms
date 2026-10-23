@@ -90,6 +90,7 @@ vi.mock('@evtivity/database', async () => ({
     tariffTaxRate: 'cs.tariff_tax_rate',
     costBreakdown: 'cs.cost_breakdown',
     tokenId: 'cs.token_id',
+    siteId: 'cs.site_id',
   },
   chargingStations: { id: 'st.id', siteId: 'st.site_id' },
   driverTokens: { id: 't.id', prepaidBalanceCents: 't.prepaid_balance_cents' },
@@ -734,7 +735,7 @@ describe('captureSessionHold', () => {
   });
 
   it('returns not_configured when the pinned provider is not configured', async () => {
-    h.findSessionHold.mockResolvedValue(record());
+    h.findSessionHold.mockResolvedValue(record({ preAuthAmountCents: 8000 }));
     h.results.push([CHARGE]);
     getPaymentProvider.mockRejectedValue(new PaymentProviderNotConfiguredError('stripe'));
     expect(await captureSessionHold({ sessionId: 's1' }, ctx)).toEqual({
@@ -743,15 +744,25 @@ describe('captureSessionHold', () => {
     });
   });
 
+  it('refuses a capture above the hold without calling the provider', async () => {
+    h.findSessionHold.mockResolvedValue(record({ preAuthAmountCents: 5000 }));
+    h.results.push([CHARGE]);
+    expect(await captureSessionHold({ sessionId: 's1', amountCents: 5001 }, ctx)).toEqual({
+      status: 'exceeds_hold',
+      holdCents: 5000,
+    });
+    expect(getPaymentProvider).not.toHaveBeenCalled();
+  });
+
   it('rethrows other pinning errors', async () => {
-    h.findSessionHold.mockResolvedValue(record());
+    h.findSessionHold.mockResolvedValue(record({ preAuthAmountCents: 8000 }));
     h.results.push([CHARGE]);
     getPaymentProvider.mockRejectedValue(new Error('x'));
     await expect(captureSessionHold({ sessionId: 's1' }, ctx)).rejects.toThrow('x');
   });
 
   it('captures the final cost by default with the fee tax and platform fee', async () => {
-    h.findSessionHold.mockResolvedValue(record());
+    h.findSessionHold.mockResolvedValue(record({ preAuthAmountCents: 8000 }));
     h.results.push([CHARGE]);
     const fresh = record({ status: 'captured', capturedAmountCents: 7000 });
     h.findRecord.mockResolvedValue(fresh);
@@ -763,6 +774,13 @@ describe('captureSessionHold', () => {
       { id: 'st.id', siteId: 'st.site_id' },
       { op: 'eq', col: 'st.id', value: 'cs.station_id' },
     ]);
+    // The platform fee follows the session's own site, the station's
+    // current site only for a session stored without one.
+    expect((h.selects[0]?.fields as { siteId: unknown }).siteId).toEqual({
+      op: 'sql',
+      text: 'coalesce(?, ?)',
+      values: ['cs.site_id', 'st.site_id'],
+    });
     expect(h.sessionChargeTax).toHaveBeenCalledWith({
       finalCostCents: 7000,
       tariffTaxRate: '0.19',

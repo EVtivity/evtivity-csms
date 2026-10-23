@@ -10,7 +10,9 @@ export const webhookEvents = pgTable(
     // Provider that sent the event. Event ids are unique per provider only.
     provider: varchar('provider', { length: 32 }).notNull(),
     eventType: varchar('event_type', { length: 100 }).notNull(),
-    processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
+    // When the apply finished; null while it runs under the event's advisory
+    // lock, or after a process died mid-apply (a redelivery applies it again).
+    processedAt: timestamp('processed_at', { withTimezone: true }).defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.provider, table.eventId] })],
 );

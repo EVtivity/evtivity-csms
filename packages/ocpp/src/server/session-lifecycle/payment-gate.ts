@@ -13,6 +13,7 @@ import {
   authorizeSessionHold,
   classifySessionPayment,
   dispatchFleetCreditLimitNotices,
+  failGuestSessionOfFaultedSession,
   withPaymentActor,
 } from '@evtivity/payments';
 import type { HoldOutcome } from '@evtivity/payments';
@@ -22,7 +23,7 @@ import {
   dispatchSystemNotification,
   ALL_TEMPLATES_DIRS,
 } from '../notification-dispatcher.js';
-import { activePaymentProvider } from '../../lib/payments.js';
+import { activePaymentProvider, activePaymentState } from '../../lib/payments.js';
 import type { ProjectionDeps } from '../projection-support/context.js';
 import { stopSessionForPayment } from './payment-stop.js';
 import type { FleetCreditThrottle } from './state.js';
@@ -41,6 +42,12 @@ export interface PaymentGateInput {
   isRoaming: boolean;
   idToken: string | undefined;
   guestStatus: string | null;
+  /**
+   * True when the guest session holds a card hold (`provider_payment_id`).
+   * A guest who checked out free has none: it is allowed only while the
+   * session's tariff is free. Absent counts as no hold.
+   */
+  guestHasHold?: boolean;
   guestEmail: string | null;
   /** UI language the guest chose at checkout, for its notices; null or absent for the company language. */
   guestLanguage?: string | null;
@@ -107,7 +114,6 @@ export type PaymentGateDecision =
         | 'hold_exists'
         | 'guest_authorized';
     }
-  | { kind: 'allow'; why: 'provider_not_configured'; providerId: string }
   | { kind: 'hold'; driverId: string }
   | { kind: 'stop'; why: 'prepaid_no_credit'; reason: 'PaymentFailed'; notice: null }
   | {
@@ -143,14 +149,33 @@ export type PaymentGateDecision =
       why: 'guest_not_authorized';
       reason: 'GuestPaymentNotAuthorized';
       notice: GuestPreAuthFailedNotice | null;
+      /**
+       * The guest checked out free (no hold) and the session's tariff is paid:
+       * the session is faulted unbilled before the stop and the guest session
+       * failed.
+       */
+      unheld?: true;
     }
   | { kind: 'stop'; why: 'anonymous'; reason: 'AnonymousSession'; notice: null }
   | {
       kind: 'stop';
       /**
+       * A payment provider is selected but this process cannot use it (no
+       * credentials, or simulated while PAYMENTS_ALLOW_SIMULATED=false): the
+       * session is stopped unbilled, never charged for free as with payments
+       * off (owner decision 2026-10-23). An operator fixes the setting.
+       */
+      why: 'provider_unavailable';
+      reason: 'PaymentFailed';
+      providerId: string;
+      notice: null;
+    }
+  | {
+      kind: 'stop';
+      /**
        * The billing fleet has no credit left for the session: its exposure is
-       * at or above the limit (plan S7), or the reservations of its other
-       * sessions leave a cost ceiling of 0 (plan S8).
+       * at or above the limit, or the reservations of its other
+       * sessions leave a cost ceiling of 0.
        */
       why: 'account_credit_limit';
       reason: 'AccountCreditLimit';
@@ -225,9 +250,9 @@ export function planPaymentGate(
 
   // Charge on account: billed to the fleet on its invoice, so no card and no
   // hold, whatever the tariff (works with payments.provider none). A fleet at
-  // its credit limit refuses the start (plan S7), and so does a fleet whose
-  // running sessions reserve the rest of the limit (a cost ceiling of 0, plan
-  // S8). A session with credit runs up to its ceiling.
+  // its credit limit refuses the start, and so does a fleet whose
+  // running sessions reserve the rest of the limit (a cost ceiling
+  // of 0). A session with credit runs up to its ceiling.
   if (mode === 'account') {
     if (
       credit != null &&
@@ -254,12 +279,19 @@ export function planPaymentGate(
   //   driver_tokens -> ocpi_external_tokens -> guest_sessions
   // guestStatus/guestEmail are pre-resolved from that chain.
   if (mode === 'guest') {
-    // Pre-auth done at checkout.
-    if (guestStatus === 'payment_authorized') return { kind: 'allow', why: 'guest_authorized' };
+    // Pre-auth done at checkout. A guest who checked out at a free station
+    // has no hold: it charges only while the session's tariff is free. A
+    // tariff that turned paid before the plug-in (a time-of-day tariff, an
+    // operator change, the settings cache) stops it, as the segment gate does
+    // for a guest whose session moves to a paid tariff.
+    if (guestStatus === 'payment_authorized' && (input.guestHasHold === true || tariffIsFree)) {
+      return { kind: 'allow', why: 'guest_authorized' };
+    }
     return {
       kind: 'stop',
       why: 'guest_not_authorized',
       reason: 'GuestPaymentNotAuthorized',
+      ...(guestStatus === 'payment_authorized' ? { unheld: true as const } : {}),
       notice:
         guestEmail != null
           ? {
@@ -301,8 +333,16 @@ export function decideAfterHold(outcome: HoldOutcome, driverId: string): Payment
         notice: { kind: 'missingPaymentMethod', driverId },
       };
     case 'not_configured':
-      // As the portal start without a provider: the session is not held.
-      return { kind: 'allow', why: 'provider_not_configured', providerId: outcome.providerId };
+      // The hold runs only while a payment provider is active (payments off
+      // allows before it), so this is a card saved with a provider that is
+      // gone: stop and ask for a card, as without one: a payment
+      // gate decision fails loud.
+      return {
+        kind: 'stop',
+        why: 'no_payment_method',
+        reason: 'MissingPaymentMethod',
+        notice: { kind: 'missingPaymentMethod', driverId },
+      };
     case 'declined':
       return {
         kind: 'stop',
@@ -354,7 +394,7 @@ export async function runPaymentGate(
   // The billing fleet's credit limit, checked under the fleet row lock
   // (checkFleetCreditLimit) with this session left out of the exposure. In
   // the same transaction the session gets a bounded reservation as its cost
-  // ceiling (plan S8, written once): the smaller of the credit left and the
+  // ceiling (written once): the smaller of the credit left and the
   // fleet.creditReservationCents slice, so the fleet's other drivers can
   // still start. Billing is capped at it, a 2.1 station gets it as
   // transactionLimit.maxCost, and the MeterValues cost loop grows it while
@@ -383,12 +423,24 @@ export async function runPaymentGate(
     );
   }
 
-  // Payments off (payments.provider = none, or a selected provider this
-  // process cannot use): no hold, as the portal start (owner decision
-  // 2026-10-06). Holds already placed still settle through their pinned
-  // provider. Resolved only for a hold, the one path that would charge.
+  // Payments off (payments.provider = none): no hold, as the portal start
+  // (owner decision 2026-10-06). A selected provider this process cannot use
+  // stops the session unbilled instead (owner decision 2026-10-23): it is a
+  // misconfiguration, not payments off. Holds already placed still settle
+  // through their pinned provider. Resolved only for a hold, the one path
+  // that would charge.
   if (decision.kind === 'hold' && (await activePaymentProvider(logger)) == null) {
-    decision = { kind: 'allow', why: 'payments_off' };
+    const state = await activePaymentState(logger);
+    decision =
+      state.kind === 'unavailable'
+        ? {
+            kind: 'stop',
+            why: 'provider_unavailable',
+            reason: 'PaymentFailed',
+            providerId: state.providerId,
+            notice: null,
+          }
+        : { kind: 'allow', why: 'payments_off' };
   }
 
   if (decision.kind === 'hold') {
@@ -412,15 +464,9 @@ export async function runPaymentGate(
     logger.warn({ sessionId }, 'No active payment provider; session not pre-authorized');
   }
 
-  if (decision.kind === 'allow' && decision.why === 'provider_not_configured') {
-    logger.warn(
-      { sessionId, providerId: decision.providerId },
-      'Payment provider not configured; session not pre-authorized',
-    );
-  }
-
   if (decision.kind === 'stop') {
     logStop(deps, input, decision);
+    const unheldGuest = decision.why === 'guest_not_authorized' && decision.unheld === true;
     await stopSessionForPayment(
       deps,
       {
@@ -433,8 +479,11 @@ export async function runPaymentGate(
       {
         transactionEnded: input.transactionEnded === true,
         startRefused: decision.why === 'account_credit_limit' && input.startRefused === true,
+        ...(unheldGuest ? { faultUnbilled: true } : {}),
       },
     );
+    // Fail-open inside (P9): the session is already faulted.
+    if (unheldGuest) await failGuestSessionOfFaultedSession(sessionId, deps.payments);
     if (decision.notice != null) await sendNotice(deps, input, decision.notice);
   }
 
@@ -442,7 +491,7 @@ export async function runPaymentGate(
 }
 
 /**
- * The fleet credit limit notices while an account session charges (plan S8):
+ * The fleet credit limit notices while an account session charges:
  * its running cost raises the fleet's exposure, so the warning and reached
  * notices go out when it passes them, once per fleet and month each (the
  * claim in dispatchFleetCreditLimitNotices). Reads the limit and exposure
@@ -511,6 +560,12 @@ function logStop(deps: ProjectionDeps, input: PaymentGateInput, decision: StopDe
       );
       return;
     case 'hold_record_failed':
+      return;
+    case 'provider_unavailable':
+      logger.error(
+        { sessionId, providerId: decision.providerId },
+        'Selected payment provider is not usable in this process, stopping session unbilled',
+      );
       return;
     case 'guest_not_authorized':
       logger.warn(

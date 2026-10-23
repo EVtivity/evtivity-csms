@@ -135,6 +135,7 @@
     "dashboard": "Dashboard",
     "sites": "Standorte",
     "stations": "Stationen",
+    "sims": "SIMs",
     "sessions": "Ladevorgänge",
     "drivers": "Fahrer",
     "transactions": "Transaktionen",
@@ -200,6 +201,13 @@
       "privateNetworkSaved": "Netzwerkzugriff gespeichert",
       "allowRawToken": "Unkodierte Tokens Akzeptieren",
       "allowRawTokenHint": "Für OCPI-2.1.1- und 2.2-Partner, die ihr Credentials-Token ohne Base64-Kodierung senden. Unser Token wird ihnen dann ebenso gesendet. Für OCPI-2.2.1- und 2.3.0-Partner ausgeschaltet lassen.",
+      "approvedRoles": "Freigegebene Rollen",
+      "approvedRolesHint": "Das CSMS handelt nur nach den freigegebenen Rollen: Ein CPO- oder HUB-Partner liest Fahrer-Token, und ein HUB-Partner sendet Hub-Client-Informationen. Eine Rolle, die der Partner angibt, wird erst verwendet, nachdem Sie sie hier freigegeben haben.",
+      "rolesNotDecided": "Noch nicht festgelegt. Das CSMS handelt nach keiner Rolle dieses Partners, bis Sie seine Rollen hier freigeben.",
+      "declaredRoles": "Vom Partner angegeben: {{roles}}",
+      "noDeclaredRoles": "Der Partner hat noch keine Rollen angegeben.",
+      "heldRoles": "Angegeben, aber nicht freigegeben: {{roles}}. Das CSMS handelt nicht nach diesen Rollen.",
+      "approvedRolesSaved": "Freigegebene Rollen gespeichert",
       "rawTokenSaved": "Token-Kodierung gespeichert",
       "newRegistrationToken": "Neues Registrierungstoken",
       "newRegistrationTokenTitle": "Neues Registrierungstoken",
@@ -360,6 +368,7 @@
     "recoveryCodeSubtitle": "Geben Sie einen Ihrer Wiederherstellungscodes ein",
     "recoveryCodeLabel": "Wiederherstellungscode",
     "recoveryCodeInvalid": "Ungültiger oder bereits verwendeter Wiederherstellungscode. Versuchen Sie es erneut.",
+    "recoveryCodeIncomplete": "Geben Sie den vollständigen 10-stelligen Wiederherstellungscode ein",
     "mfaMethodSwitchedOff": "Ihr Administrator hat die Anmeldung per {{method}} deaktiviert. Melden Sie sich mit einem Wiederherstellungscode an.",
     "mfaSetupTitle": "Zwei-Faktor-Authentifizierung einrichten",
     "mfaSetupDescription": "Ihr Administrator verlangt einen zweiten Faktor. Richten Sie einen ein, um die Anmeldung abzuschließen.",
@@ -374,7 +383,9 @@
     "passkeyFailed": "Der Passkey konnte nicht verwendet werden. Versuchen Sie es erneut oder melden Sie sich mit Ihrem Passwort an.",
     "passkeyResetRequired": "Ihr Passwort muss geändert werden. Melden Sie sich mit E-Mail und Passwort an, um es zu ändern.",
     "mfaSetupPasskeyHint": "Nutzen Sie Fingerabdruck, Gesicht, Displaysperre oder einen Sicherheitsschlüssel.",
-    "mfaSetupUsePasskey": "Passkey oder Sicherheitsschlüssel einrichten"
+    "mfaSetupUsePasskey": "Passkey oder Sicherheitsschlüssel einrichten",
+    "chargingPortalLink": "{{name}} Ladeportal",
+    "ssoLinkRequired": "Dieses Konto ist noch nicht mit Single Sign-On verknüpft. Melden Sie sich mit Ihrem Passwort an und erlauben Sie die SSO-Anmeldung in Ihrem Profil, oder wenden Sie sich an Ihren Administrator."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -547,7 +558,7 @@
     "qrCodesDescription": "QR-Codes für alle Stationen an diesem Standort. Drucken Sie sie aus und platzieren Sie sie an jeder Ladestation für die Gast-Bezahlung.",
     "exportCsv": "CSV exportieren",
     "importCsv": "CSV importieren",
-    "downloadTemplate": "Vorlage",
+    "downloadTemplate": "Vorlage herunterladen",
     "importing": "Wird importiert...",
     "importResults": "Importergebnisse",
     "sitesCreated": "Erstellte Standorte: {{count}}",
@@ -1093,13 +1104,12 @@
           "providerOff": "Anbieter: übersprungen, kein SIM-Anbieter ist aktiviert.",
           "inProgress": "Anbieter: übersprungen, ein anderes Aktualisieren dieser Station läuft.",
           "notConfirmed": "Anbieter: übersprungen, bis zur Bestätigung der SIM wird nichts abgerufen.",
-          "other": "Anbieter: übersprungen."
-        },
-        "providerNotMatched": {
-          "noIccid": "Anbieter: übersprungen, die Station hat keine ICCID.",
+          "other": "Anbieter: übersprungen.",
+          "inProgressSim": "Anbieter: übersprungen, eine andere Aktualisierung dieser SIM läuft.",
           "notFound": "Anbieter: übersprungen, kein aktivierter Anbieter kennt diese SIM.",
-          "simMatchedElsewhere": "Anbieter: übersprungen, eine andere Station hat eine bestätigte Zuordnung für diese SIM.",
-          "other": "Anbieter: übersprungen, die SIM ist keinem Anbieter zugeordnet."
+          "noIccid": "Anbieter: übersprungen, die Station hat keine ICCID.",
+          "attachedElsewhere": "Anbieter: übersprungen, die SIM ist einer anderen Station zugeordnet und wurde daher dieser Station nicht zugeordnet.",
+          "attachConflict": "Anbieter: übersprungen, gleichzeitig liefen andere Änderungen an SIM-Zuordnungen. Es wurde nichts zugeordnet. Klicken Sie erneut auf Aktualisieren."
         },
         "providerFailed": {
           "auth": "Anbieter: fehlgeschlagen, der Anbieter hat den API-Schlüssel abgelehnt.",
@@ -1135,13 +1145,16 @@
       "notFetchedYet": "Noch nicht abgerufen. Wählen Sie einen Zeitraum und klicken Sie auf Aktualisieren.",
       "emptyNotFound": "Kein aktivierter SIM-Anbieter kennt diese ICCID.",
       "lookUpAgain": "Erneut suchen",
-      "emptyMatchedElsewhere": "Diese SIM ist einer anderen Station zugeordnet. Eine SIM gehört nur zu einer Station, daher zeigt diese Station keine SIM-Daten.",
+      "emptyAttachedElsewhere": "Die SIM der ICCID dieser Station ist einer anderen Station zugeordnet. Eine SIM ist jeweils nur einer Station zugeordnet, daher zeigt diese Station keine SIM-Daten.",
+      "emptySimInactive": "Die SIM der ICCID dieser Station ist inaktiv. Sie ist dieser Station nicht zugeordnet, und für sie wird nichts abgerufen oder zurückgesetzt, bis ein Benutzer sie auf ihrer SIM-Seite wieder aktiviert.",
+      "findSim": "SIM suchen",
       "confirmSim": "SIM bestätigen",
       "resetNetwork": "Netzwerk zurücksetzen",
       "resetNeedsConfirm": "Bestätigen Sie die SIM, bevor Sie ihr Netzwerk zurücksetzen.",
-      "clearMatch": "Zuordnung aufheben",
-      "clearMatchDescription": "Entfernt die Verknüpfung zwischen dieser Station und ihrer SIM. Das nächste Aktualisieren sucht die SIM erneut anhand der ICCID, und eine neue Zuordnung muss vor einem Netzwerk-Reset erneut mit SIM bestätigen bestätigt werden.",
-      "clearMatchSuccess": "SIM-Zuordnung aufgehoben",
+      "detachSim": "Zuordnung aufheben",
+      "viewSim": "SIM anzeigen",
+      "detachSimDescription": "Hebt die Zuordnung der SIM dieser Station auf. Die SIM, ihr Zuordnungsverlauf und ihre gespeicherten Sitzungen und Warnungen bleiben erhalten. Das nächste Aktualisieren ordnet die SIM der von der Station gemeldeten ICCID zu, und diese Zuordnung muss mit SIM bestätigen bestätigt werden, bevor etwas abgerufen oder zurückgesetzt wird.",
+      "detachSimSuccess": "Zuordnung der SIM aufgehoben.",
       "rateLimitedRetry": "Zu viele Anfragen. Versuchen Sie es in {{seconds}} s erneut.",
       "unconfirmedNotice": "Für diese SIM wird nichts von {{provider}} abgerufen, bis ein Benutzer mit Zugriff auf alle Standorte sie mit „SIM bestätigen“ bestätigt.",
       "fetchedAt": "Abgerufen {{time}}",
@@ -1172,9 +1185,15 @@
       "fromStationTitle": "Von der Station",
       "readAt": "Gelesen {{time}}",
       "confirmDescription": "Bestätigen Sie, dass die SIM {{iccid}} bei {{provider}} zu dieser Station gehört. Das Netzwerk einer bestätigten SIM kann auf dieser Seite zurückgesetzt werden.",
-      "confirmSourceStation": "Herkunft der ICCID: von der Station gemeldet.",
-      "confirmSourceEntered": "Herkunft der ICCID: eingegeben von {{name}}.",
-      "confirmSourceEnteredUnknown": "Herkunft der ICCID: von einem Benutzer eingegeben.",
+      "confirmSource": {
+        "reported": "Herkunft der ICCID: von der Station gemeldet.",
+        "entered": "Herkunft der ICCID: an der Station eingegeben von {{name}}.",
+        "enteredUnknown": "Herkunft der ICCID: an der Station eingegeben von einem anderen Benutzer.",
+        "attached": "Herkunft der ICCID: auf der SIM-Seite zugeordnet von {{name}}.",
+        "attachedUnknown": "Herkunft der ICCID: auf der SIM-Seite zugeordnet von einem anderen Benutzer.",
+        "imported": "Herkunft der ICCID: aus einer CSV-Datei importiert von {{name}}.",
+        "importedUnknown": "Herkunft der ICCID: aus einer CSV-Datei importiert von einem anderen Benutzer."
+      },
       "confirmSuccess": "SIM bestätigt",
       "resetDescription": "Der Anbieter beendet die Datensitzung der Station, und die Station verbindet sich neu mit dem Mobilfunknetz. Bis dahin kann die Station offline sein.",
       "resetSuccess": "Netzwerk-Zurücksetzung gesendet. Klicken Sie nach einigen Minuten auf Aktualisieren, um die neue Sitzung zu sehen.",
@@ -1272,6 +1291,11 @@
         "readDeviceModelSent": "Gerätemodell angefordert. Klicken Sie in einer Minute auf Aktualisieren.",
         "ocpp16Keys": "Die in den SIM-Einstellungen genannten OCPP-1.6-Konfigurationsschlüssel, wie die Station sie gemeldet hat.",
         "noOcpp16Keys": "In den SIM-Einstellungen sind keine OCPP-1.6-Signalschlüssel gesetzt, daher liest eine Aktualisierung nichts von dieser Station."
+      },
+      "attachmentResult": {
+        "attachedElsewhere": "ICCID gespeichert. Ihre SIM ist einer anderen Station zugeordnet und wurde daher dieser Station nicht zugeordnet.",
+        "simInactive": "ICCID gespeichert. Ihre SIM ist inaktiv und wurde daher dieser Station nicht zugeordnet. Aktivieren Sie sie auf ihrer SIM-Seite wieder.",
+        "attachConflict": "ICCID gespeichert. Gleichzeitig liefen andere Änderungen an SIM-Zuordnungen, daher wurde die SIM nicht zugeordnet. Klicken Sie im Tab Konnektivität auf Aktualisieren, um sie zuzuordnen."
       }
     },
     "simCoverage": {
@@ -1285,6 +1309,145 @@
       "unavailable": "Nicht mehr verfügbar",
       "dayLabel": "{{date}}: {{label}}",
       "notFetchedRange": "Nicht abgerufen: {{from}} bis {{to}}"
+    }
+  },
+  "sims": {
+    "title": "SIMs",
+    "subtitle": "Die SIM-Karten in Ihren Stationen und die, die keiner Station zugeordnet sind.",
+    "search": "Suche",
+    "searchPlaceholder": "Nach ICCID, IMSI oder Bezeichnung suchen",
+    "featureOff": "Die SIM-Funktionen sind aus. Schalten Sie unter Einstellungen > Integrationen und Funktionen einen SIM-Anbieter oder das Auslesen des Stationssignals ein, um SIMs aufzulisten.",
+    "noSims": "Keine SIMs gefunden.",
+    "notFetched": "Nicht abgerufen",
+    "notAttached": "Nicht zugeordnet",
+    "downloadTemplate": "Vorlage herunterladen",
+    "importConfirmTitle": "SIMs importieren",
+    "importResult": {
+      "created": "Erstellte SIMs: {{count}}",
+      "updated": "Aktualisierte SIMs: {{count}}",
+      "attached": "Einer Station zugeordnete SIMs: {{count}}"
+    },
+    "columns": {
+      "iccid": "ICCID",
+      "label": "Bezeichnung",
+      "provider": "Anbieter",
+      "csmsStatus": "CSMS-Status",
+      "providerStatus": "Anbieterstatus",
+      "station": "Station",
+      "confirmed": "Bestätigt",
+      "lastFetched": "Zuletzt abgerufen",
+      "created": "Erstellt"
+    },
+    "filters": {
+      "provider": "Anbieter",
+      "allProviders": "Alle Anbieter",
+      "attachment": "Zuordnung",
+      "allAttachments": "Alle Zuordnungen",
+      "csmsStatus": "CSMS-Status",
+      "allCsmsStatuses": "Alle CSMS-Status",
+      "providerStatus": "Anbieterstatus",
+      "allProviderStatuses": "Alle Anbieterstatus",
+      "station": "Station",
+      "allStations": "Alle Stationen"
+    },
+    "attachmentFilter": {
+      "attached": "Zugeordnet",
+      "unattached": "Nicht zugeordnet",
+      "unconfirmed": "Zugeordnet, nicht bestätigt"
+    },
+    "csmsStatus": {
+      "active": "Aktiv",
+      "inactive": "Inaktiv"
+    },
+    "detail": {
+      "notFound": "SIM nicht gefunden.",
+      "tabs": {
+        "details": "Details",
+        "sessions": "Sitzungen",
+        "attachments": "Zuordnungen",
+        "history": "Verlauf"
+      },
+      "detailsTitle": "SIM-Details",
+      "iccid": "ICCID",
+      "imsi": "IMSI",
+      "label": "Bezeichnung",
+      "notes": "Notizen",
+      "provider": "Anbieter",
+      "providerRef": "SIM-ID beim Anbieter",
+      "created": "Erstellt",
+      "csmsStatus": "CSMS-Status",
+      "csmsStatusHint": "Wird hier mit Deaktivieren und Reaktivieren gesetzt. Der Anbieterstatus unten kommt mit einer Aktualisierung vom SIM-Anbieter.",
+      "providerStatus": "Anbieterstatus",
+      "deactivatedAt": "Deaktiviert {{time}}",
+      "deactivatedBy": "Deaktiviert {{time}} von {{name}}",
+      "deactivate": "SIM deaktivieren",
+      "reactivate": "SIM reaktivieren",
+      "deactivateDescription": "Die SIM bleibt im Bestand, und ihre Zuordnung zu einer Station wird beendet. Solange sie inaktiv ist, kann sie nicht zugeordnet, aktualisiert oder zurückgesetzt werden. Der SIM-Anbieter wird nicht aufgerufen, und sein Status ändert sich nicht.",
+      "reactivateDescription": "Die SIM ist wieder aktiv. Sie wird keiner Station zugeordnet, und der SIM-Anbieter wird nicht aufgerufen.",
+      "deactivateSuccess": "SIM deaktiviert.",
+      "reactivateSuccess": "SIM reaktiviert.",
+      "delete": "SIM löschen",
+      "deleteDescription": "Löscht die SIM {{iccid}} mit ihrem Zuordnungsverlauf und ihren gespeicherten Sitzungen, Warnungen und abgerufenen Tagen. Das kann nicht rückgängig gemacht werden.",
+      "deleteSuccess": "SIM gelöscht.",
+      "deleteAttachedReason": "Heben Sie die Zuordnung der SIM auf, bevor Sie sie löschen.",
+      "inactiveReason": "Diese SIM ist inaktiv. Reaktivieren Sie sie zuerst.",
+      "noRecentAlerts": "Für diese SIM sind keine SIM-Warnungen gespeichert.",
+      "refreshTitle": "Anbieterdaten",
+      "refreshHint": "Eine Aktualisierung liest nur den SIM-Anbieter und sendet nichts an eine Station. Das Öffnen dieser Seite ruft nichts ab.",
+      "noProvider": "Für diese SIM ist noch kein SIM-Anbieter bekannt. Eine Aktualisierung sucht ihn.",
+      "providerNotFound": "Kein aktivierter SIM-Anbieter kennt diese SIM.",
+      "resetDescription": "Der SIM-Anbieter beendet die Datensitzung der SIM, und das Gerät verbindet sich neu mit dem Mobilfunknetz. Eine Station mit dieser SIM kann offline sein, bis sie sich wieder verbindet.",
+      "editTitle": "SIM bearbeiten",
+      "labelHint": "Höchstens {{max}} Zeichen.",
+      "imsiHint": "Bis zu 15 Ziffern. Leer lassen, um die IMSI zu entfernen.",
+      "imsiInvalid": "Geben Sie bis zu 15 Ziffern ein.",
+      "notesHint": "Höchstens {{max}} Zeichen.",
+      "saveFailed": "Die SIM wurde nicht gespeichert. Versuchen Sie es erneut.",
+      "attachments": {
+        "currentTitle": "Aktuelle Zuordnung",
+        "historyTitle": "Zuordnungsverlauf",
+        "notAttached": "Diese SIM ist keiner Station zugeordnet.",
+        "noHistory": "Diese SIM war noch nie zugeordnet.",
+        "station": "Station",
+        "site": "Standort",
+        "source": "Quelle",
+        "attached": "Zugeordnet",
+        "attachedBy": "Zugeordnet von",
+        "confirmed": "Bestätigt",
+        "notConfirmed": "Nicht bestätigt",
+        "open": "Offen",
+        "paymentTerminal": "Zahlungsterminal",
+        "unconfirmedNotice": "Diese Zuordnung ist nicht bestätigt. Bestätigen Sie die SIM, nachdem Sie geprüft haben, dass sie in der Station {{station}} steckt.",
+        "confirmDescription": "Bestätigen Sie, dass die SIM {{iccid}} die SIM in der Station {{station}} ist.",
+        "detach": "Zuordnung aufheben",
+        "detachDescription": "Beendet die Zuordnung der SIM {{iccid}} zur Station {{station}}. Die gespeicherten Sitzungen und Warnungen bleiben bei der SIM.",
+        "detachSuccess": "Zuordnung der SIM aufgehoben.",
+        "attach": "Station zuordnen",
+        "attachTitle": "Station zuordnen",
+        "attachDescription": "Die SIM wird der Station zugeordnet und sofort bestätigt. Eine Station, die schon eine SIM hat, wird abgelehnt.",
+        "attachSuccess": "SIM der Station {{station}} zugeordnet.",
+        "sourceLabel": {
+          "reported": "Von der Station gemeldet",
+          "entered": "An der Station eingegeben",
+          "attached": "Auf der SIM-Seite zugeordnet",
+          "imported": "Aus einer CSV-Datei importiert"
+        },
+        "reason": {
+          "detached": "Zuordnung aufgehoben",
+          "iccidChanged": "Die Station hat eine andere ICCID gemeldet",
+          "replaced": "An der Station wurde eine andere SIM eingegeben",
+          "displaced": "Zu einer anderen Station verschoben",
+          "deactivated": "Die SIM wurde deaktiviert"
+        },
+        "columns": {
+          "station": "Station",
+          "site": "Standort",
+          "source": "Quelle",
+          "attached": "Zugeordnet",
+          "detached": "Aufgehoben",
+          "reason": "Grund"
+        }
+      }
     }
   },
   "eventAlertRules": {
@@ -1747,6 +1910,7 @@
     "permissionGroups": {
       "dashboard": "Dashboard",
       "stations": "Stationen",
+      "sims": "SIMs",
       "sites": "Standorte",
       "sessions": "Ladevorgänge",
       "drivers": "Fahrer",
@@ -1791,9 +1955,25 @@
     "mfaOffDescription": "Der Benutzer meldet sich ohne zweiten Faktor an.",
     "mfaReset": "MFA Zurücksetzen",
     "mfaResetConfirm": "Den zweiten Faktor dieses Benutzers ausschalten und den Benutzer überall abmelden? Der Benutzer meldet sich nur mit dem Passwort an und kann MFA erneut einrichten.",
+    "mfaResetProofHint": "Bestätigen Sie Ihre Identität, um den zweiten Faktor dieses Benutzers zu deaktivieren.",
     "mfaResetSuccess": "MFA zurückgesetzt",
     "apiKeysDescription": "Aktive API-Schlüssel dieses Benutzers. Widerrufen Sie einen Schlüssel, den der Benutzer nicht mehr braucht oder der offengelegt sein könnte.",
-    "noApiKeys": "Dieser Benutzer hat keine aktiven API-Schlüssel."
+    "noApiKeys": "Dieser Benutzer hat keine aktiven API-Schlüssel.",
+    "adminProofHint": "Dieser Benutzer erhält Administratorberechtigungen. Bestätigen Sie Ihre Identität, um den Benutzer zu erstellen.",
+    "grantProofHint": "Bestätigen Sie Ihre Identität, um neue Berechtigungen zu erteilen.",
+    "resetProofHint": "Bestätigen Sie Ihre Identität, um das Passwort dieses Benutzers zurückzusetzen.",
+    "resendProofHint": "Bestätigen Sie Ihre Identität, um einen neuen Link zum Festlegen des Passworts zu senden.",
+    "emailProofHint": "Dieser Benutzer hat Administratorberechtigungen. Bestätigen Sie Ihre Identität, um die E-Mail-Adresse oder Telefonnummer zu ändern oder das Konto wieder zu aktivieren.",
+    "roleProofHint": "Die neue Rolle erteilt Berechtigungen, die dieser Benutzer nicht hat. Bestätigen Sie Ihre Identität, um die Rolle zu ändern.",
+    "ssoLinkTitle": "Single Sign-On",
+    "ssoLinkDescription": "SSO meldet ein bestehendes Passwortkonto erst an, wenn die Verknüpfung erlaubt ist. Die erste SSO-Anmeldung bindet das Konto dann an seinen Benutzer beim Identitätsanbieter.",
+    "ssoLinked": "Verknüpft: Dieses Konto meldet sich mit seinem Benutzer beim Identitätsanbieter an.",
+    "ssoLinkPending": "Erlaubt: Die nächste SSO-Anmeldung verknüpft dieses Konto.",
+    "ssoLinkAllow": "SSO-Anmeldung erlauben",
+    "ssoLinkWithdraw": "Zurückziehen",
+    "ssoLinkProofHint": "Bestätigen Sie Ihre Identität, damit sich Single Sign-On als dieses Konto anmelden darf.",
+    "ssoUnlink": "Verknüpfung entfernen",
+    "ssoUnlinkProofHint": "Bestätigen Sie Ihre Identität, um die Verknüpfung dieses Kontos mit seinem Benutzer beim Identitätsanbieter zu entfernen."
   },
   "profile": {
     "title": "Profil",
@@ -1817,7 +1997,6 @@
     "mfaMethodTotp": "Authenticator-App",
     "mfaMethodSms": "SMS",
     "mfaSetUp": "Einrichten",
-    "mfaSettingUp": "Wird eingerichtet...",
     "mfaDisable": "MFA deaktivieren",
     "mfaDisableConfirm": "Bestätigen Sie Ihre Identität mit einem Faktor, den Sie besitzen, oder einem Wiederherstellungscode. Beim Deaktivieren von MFA werden auch Ihre Passkeys und Wiederherstellungscodes entfernt.",
     "mfaSetupPasswordHint": "Geben Sie Ihr aktuelles Passwort ein, um MFA einzurichten",
@@ -1826,7 +2005,6 @@
     "mfaManualEntry": "Schlüssel zur manuellen Eingabe",
     "mfaEnterCode": "Geben Sie den 6-stelligen Bestätigungscode ein",
     "mfaVerify": "Bestätigen",
-    "mfaVerifying": "Wird überprüft...",
     "mfaSetupFailed": "MFA-Einrichtung konnte nicht gestartet werden.",
     "mfaVerifyFailed": "Ungültiger Bestätigungscode.",
     "mfaDisableFailed": "MFA konnte nicht deaktiviert werden.",
@@ -2225,7 +2403,8 @@
     "connectorIdRequired": "Anschluss-ID",
     "retries": "Wiederholungen (optional)",
     "retryInterval": "Wiederholungsintervall (optional)",
-    "validationFailed": "Payload-Validierung fehlgeschlagen"
+    "validationFailed": "Payload-Validierung fehlgeschlagen",
+    "hiddenByPermission": "Einige Befehle sind ausgeblendet, weil sie eine Schreibberechtigung erfordern, die Sie nicht haben, zum Beispiel für Firmware, Stationskonfigurationen, Zertifikate, Intelligentes Laden, Preise, Reservierungen, Sitzungen oder Fahrer."
   },
   "ocppLogs": {
     "title": "OCPP-Nachrichtenprotokoll",
@@ -2473,6 +2652,17 @@
     "webhookAllowedPrivateHostsHint": "Tragen Sie hier einen Host pro Zeile ein, damit Webhooks ihn unter einer privaten Adresse erreichen (zum Beispiel einen eigenen Automatisierungsserver). Hostnamen oder IP-Adressen, ohne Schema oder Port. Höchstens 20.",
     "webhooksSaved": "Webhook-Einstellungen gespeichert.",
     "webhooksSaveFailed": "Webhook-Einstellungen konnten nicht gespeichert werden.",
+    "webhookSigningSecret": "Signaturgeheimnis",
+    "webhookSigningSecretHint": "Jeder Webhook trägt X-EVtivity-Signature: t=<Unix-Zeit>,v1=<hex HMAC-SHA256 von \"<t>.<Rohtext>\">, erstellt mit diesem Geheimnis. Empfänger berechnen sie neu, um zu prüfen, dass die Anfrage von diesem CSMS kommt, und lehnen ein altes t ab.",
+    "webhookSigningSecretConfigured": "Ein Signaturgeheimnis ist gesetzt. Webhooks werden signiert.",
+    "webhookSigningSecretNotConfigured": "Kein Signaturgeheimnis. Webhooks werden unsigniert gesendet.",
+    "webhookSigningSecretGenerate": "Geheimnis Erzeugen",
+    "webhookSigningSecretRegenerate": "Geheimnis Neu Erzeugen",
+    "webhookSigningSecretRegenerateConfirm": "Das aktuelle Geheimnis gilt sofort nicht mehr. Empfänger müssen auf das neue Geheimnis umstellen, sonst lehnen sie die nächsten Webhooks ab.",
+    "webhookSigningSecretRemove": "Geheimnis Entfernen",
+    "webhookSigningSecretRemoveConfirm": "Webhooks werden unsigniert gesendet, bis ein neues Geheimnis erzeugt wird.",
+    "webhookSigningSecretShownOnce": "Kopieren Sie dieses Geheimnis jetzt. Es wird nur einmal angezeigt.",
+    "webhookSigningSecretFailed": "Das Signaturgeheimnis wurde nicht geändert.",
     "smtpSaveFailed": "SMTP-Einstellungen konnten nicht gespeichert werden.",
     "twilio": "Twilio SMS",
     "twilioDescription": "Konfigurieren Sie Twilio für den Versand von SMS-Benachrichtigungen.",
@@ -2698,7 +2888,6 @@
     "mfaRequireDrivers": "MFA für Fahrer vorschreiben",
     "mfaRequireDriversDescription": "Jeder Fahrer muss bei der nächsten Anmeldung im Fahrerportal MFA einrichten, bevor eine Sitzung beginnt. Angemeldete Fahrer werden bei der nächsten Sitzungsverlängerung dazu aufgefordert. Die mobile App schickt Fahrer zum Einrichten ins Portal.",
     "mfaRequiredNoMethod": "Aktivieren Sie E-Mail-Codes oder die Authenticator-App, bevor Sie MFA vorschreiben.",
-    "mfaSaved": "MFA-Einstellungen gespeichert.",
     "mfaSaveFailed": "MFA-Einstellungen konnten nicht gespeichert werden.",
     "sso": "Single Sign-On",
     "ssoDescription": "Konfigurieren Sie SAML-2.0-Single-Sign-On mit Ihrem Identitätsanbieter.",
@@ -2784,22 +2973,12 @@
     "guestDeclinesPerIpPerHour": "Abgelehnte Karten pro IP und Stunde",
     "guestDeclinesPerIpPerHourHelp": "Nach so vielen abgelehnten Karten in einer Stunde kann die Adresse keine neue Zahlungsreservierung mehr anlegen.",
     "ocppDefaults": "OCPP",
-    "ocppStationConfigTitle": "Stationskonfiguration (beim Boot übertragen)",
-    "ocppStationConfigDescription": "Diese Werte werden nach jedem BootNotification an die Station gesendet. OCPP-2.1-Stationen erhalten SetVariables-Befehle. OCPP-1.6-Stationen erhalten ChangeConfiguration-Befehle. Werte von 0 werden nicht übertragen.",
     "ocppMeterValueInterval": "Zählerstandsintervall (Sekunden)",
-    "ocppMeterValueIntervalHelp": "Wie oft die Station während einer Transaktion Zählerstände meldet. Wird als SampledDataCtrlr.TxUpdatedInterval (2.1) oder MeterValueSampleInterval (1.6) übertragen. Auf 0 setzen, um die Standardwerte der Stationsfirmware zu verwenden.",
     "ocppClockAlignedInterval": "Taktgebundenes Intervall (Sekunden)",
-    "ocppClockAlignedIntervalHelp": "Intervall für taktgebundene Zählerstandsmeldungen an exakten Zeitgrenzen (z. B. 900 für alle 15 Minuten zur vollen Stunde). Wird als AlignedDataCtrlr.Interval (2.1) oder ClockAlignedDataInterval (1.6) übertragen. Auf 0 setzen, um zu deaktivieren.",
     "ocppSampledMeasurands": "Abgetastete Messgrößen",
-    "ocppSampledMeasurandsHelp": "Kommagetrennte Messgrößen, die während aktiver Transaktionen gemeldet werden. Wird als SampledDataCtrlr.TxUpdatedMeasurands (2.1) oder MeterValuesSampledData (1.6) übertragen.",
     "ocppAlignedMeasurands": "Taktgebundene Messgrößen",
-    "ocppAlignedMeasurandsHelp": "Kommagetrennte Messgrößen, die in taktgebundenen Intervallen gemeldet werden. Wird als AlignedDataCtrlr.Measurands (2.1) oder MeterValuesAlignedData (1.6) übertragen. Wird nur gesendet, wenn das taktgebundene Intervall größer als 0 ist.",
     "ocppTxEndedMeasurands": "Messgrößen am Transaktionsende",
-    "ocppTxEndedMeasurandsHelp": "Kommagetrennte Messgrößen, die im finalen Zählerstands-Snapshot beim Transaktionsende enthalten sind. Wird als SampledDataCtrlr.TxEndedMeasurands (2.1) oder StopTxnSampledData (1.6) übertragen.",
-    "ocppBootResponseTitle": "BootNotification-Antwort",
-    "ocppBootResponseDescription": "Diese Werte werden in der BootNotification-Antwort an die Station zurückgegeben. Die Station liest und wendet sie automatisch an.",
     "ocppHeartbeatInterval": "Heartbeat-Intervall (Sekunden)",
-    "ocppHeartbeatIntervalHelp": "Wie oft die Station Heartbeat-Nachrichten sendet, um zu bestätigen, dass sie noch online ist. Wird als interval-Feld in der BootNotification-Antwort zurückgegeben.",
     "ocppCsmsConfigTitle": "Interne CSMS-Einstellungen",
     "ocppCsmsConfigDescription": "Diese Einstellungen steuern, wie das CSMS die OCPP-Kommunikation handhabt. Sie werden nicht an Stationen gesendet.",
     "ocppConnectionTimeout": "Befehls-Timeout (Sekunden)",
@@ -2879,6 +3058,7 @@
     "siteConfigsNoSites": "Keine Standorte gefunden.",
     "sitePlatformFeeOverride": "Plattformgebühr % Überschreibung",
     "sitePlatformFeeHint": "Leer lassen, um die globale Plattformgebühr zu verwenden.",
+    "sitePlatformFeeAllSitesOnly": "Die Plattformgebühr gilt unternehmensweit. Ein Benutzer mit Zugriff auf alle Standorte ändert sie.",
     "sitePaymentsEnabled": "Zahlungen für {{site}} aktiviert",
     "unsavedChanges": "Nicht gespeicherte Änderungen",
     "apiKeys": "API-Schlüssel",
@@ -3071,7 +3251,6 @@
       "sitePerMinute": "Support-KI-Anfragen pro Standort und Minute",
       "userDailyTokens": "Tokens pro Benutzer und Tag",
       "maxToolCallsPerTurn": "Werkzeugaufrufe pro Antwort",
-      "conversationRetentionDays": "Unterhaltungen aufbewahren (Tage)",
       "attachmentsMaxBytes": "Maximale Anhanggröße (Byte)",
       "attachmentsMaxPerMessage": "Anhänge pro Nachricht",
       "companyMonthlyTokens": "Tokens des Unternehmens pro Monat",
@@ -3091,7 +3270,6 @@
       "siteIncidentThreshold": "Ausgefallene Stationen an einem Standort für einen Standortvorfall",
       "maxPerSitePerDay": "Analysen pro Standort und Tag",
       "primaryLanguage": "Sprache der Zusammenfassung",
-      "retentionDays": "Analysen aufbewahren (Tage)",
       "expireAfterDays": "Einmalige Analysen schließen nach (Tage)",
       "reservation": "Reservierungsanalysen",
       "reservationOff": "Reservierungsanalysen sind aus, solange Reservierungen ausgeschaltet sind.",
@@ -3216,8 +3394,6 @@
       "sessionHistoryNote": "Sitzungen und SIM-Warnungen werden nur für Stationen gespeichert, die jemand innerhalb des Verlaufszeitraums des Anbieters aktualisiert hat. Das CSMS ruft sie nie selbst ab, und das Öffnen des Tabs Konnektivität einer Station ruft nichts ab.",
       "fetchDays": "Standardzeitraum für Aktualisieren (Tage)",
       "fetchDaysHint": "Der Zeitraum, der neben der Schaltfläche Aktualisieren auf dem Tab Konnektivität einer Station vorausgewählt ist. Dort kann ein anderer Zeitraum oder ein eigener Datumsbereich gewählt werden.",
-      "retentionDays": "Sitzungen und Warnungen aufbewahren (Tage)",
-      "retentionDaysHint": "Ältere Sitzungen und SIM-Warnungen werden gelöscht. Sitzungen enthalten Zell-IDs, die ungefähr zeigen, wo eine Station online war.",
       "rangeError": "Geben Sie eine ganze Zahl von {{min}} bis {{max}} ein.",
       "stationSignalTitle": "Stationssignal",
       "stationSignalEnabled": "Signal von Stationen lesen",
@@ -3232,6 +3408,94 @@
       "signalFairDbm": "Mittleres Signal ab (dBm)",
       "signalFairDbmHint": "Ein Signal ab diesem Wert gilt als mittel, darunter als schwach.",
       "signalOrderError": "Der Schwellenwert für gut muss über dem für mittel liegen."
+    },
+    "ssoAllowedDomains": "Zulässige E-Mail-Domains",
+    "ssoAllowedDomainsHint": "SSO meldet nur Konten dieser Domains an und erstellt nur für sie Konten, durch Kommas getrennt. Empfohlen: Geben Sie die Domains Ihres Unternehmens an. Leer erlaubt jede Domain.",
+    "ssoProofHint": "Bestätigen Sie Ihre Identität, um zu ändern, wer sich mit SSO anmelden kann.",
+    "dataRetention": {
+      "tab": "Datenaufbewahrung",
+      "description": "Wie viele Tage das CSMS jede Art gespeicherter Daten aufbewahrt. Ein Bereinigungsjob löscht ältere Zeilen bei seinem nächsten Lauf: Die Protokoll- und Audit-Jobs laufen täglich, der KI-Job stündlich. Diese Einstellungen gelten für alle Standorte.",
+      "storageTitle": "Chaos-Modus und große Netzwerke brauchen viel Speicher",
+      "storageNote": "Jede OCPP-Nachricht, die eine Ladestation sendet oder empfängt, ist eine Zeile in ocpp_message_logs, Heartbeats eingeschlossen, und jeder Zählerwert ist eine Zeile in meter_values. Beide Tabellen wachsen mit der Zahl der verbundenen Ladestationen, auch wenn niemand lädt. In einem Testnetz mit etwa 2.000 simulierten Ladestationen erreichte die Datenbank 90 GB. Senken Sie OCPP-Nachrichten und Zählerwerte, um diese Tabellen kleiner zu halten.",
+      "range": "{{min}} bis {{max}} Tage. Standard: {{default}}.",
+      "keepForever": "0 bewahrt die Daten dauerhaft auf.",
+      "saveFailed": "Die Einstellungen zur Datenaufbewahrung konnten nicht gespeichert werden.",
+      "movedNote": "Wie lange diese Daten aufbewahrt werden, legen Sie fest unter",
+      "movedLink": "Einstellungen > Datenaufbewahrung",
+      "groups": {
+        "operationalLogs": "Betriebsprotokolle",
+        "securityAudit": "Sicherheit und Audit",
+        "signInTokens": "Anmeldesitzungen und Tokens",
+        "ai": "KI",
+        "sim": "SIM-Daten"
+      },
+      "rows": {
+        "ocppMessage": {
+          "label": "OCPP-Nachrichten",
+          "description": "Jede an eine Ladestation gesendete oder von ihr empfangene OCPP-Nachricht, Heartbeats eingeschlossen (ocpp_message_logs). Meist die größte Tabelle."
+        },
+        "meterValues": {
+          "label": "Zählerwerte",
+          "description": "Zählerwerte von Ladevorgängen (meter_values). Ladevorgänge behalten ihre Energiesummen, Spitzenleistung und den letzten Ladestand, nachdem diese Zeilen gelöscht wurden."
+        },
+        "domainEvents": {
+          "label": "Domänenereignisse",
+          "description": "Ereignisse, die das CSMS für Ladestationen, Ladevorgänge und andere Änderungen aufzeichnet (domain_events)."
+        },
+        "access": {
+          "label": "Zugriffsprotokolle",
+          "description": "Anfragen in den Tabs CSMS, Portal und API der Zugriffsprotokolle (access_logs)."
+        },
+        "workerJob": {
+          "label": "Worker-Job-Protokolle",
+          "description": "Läufe von Hintergrundjobs im Tab Worker der Zugriffsprotokolle (worker_job_logs), gezählt ab Jobende."
+        },
+        "portStatus": {
+          "label": "Anschlussstatus-Verlauf",
+          "description": "Jede Statusänderung eines Anschlusses (port_status_log)."
+        },
+        "connection": {
+          "label": "Verbindungsprotokoll der Ladestationen",
+          "description": "Verbindungen, Trennungen und fehlgeschlagene Anmeldungen von Ladestationen (connection_logs)."
+        },
+        "notifications": {
+          "label": "Gesendete Benachrichtigungen",
+          "description": "Gesendete E-Mails, SMS und Push-Benachrichtigungen (notifications)."
+        },
+        "loadAllocation": {
+          "label": "Zuteilungen des Lastmanagements",
+          "description": "Die Liste Zuteilungen des Lastmanagements (load_allocation_log)."
+        },
+        "audit": {
+          "label": "Audit-Verlauf",
+          "description": "Änderungsverlauf in den Verlauf-Tabs und auf der Audit-Seite sowie OCPP-Autorisierungsversuche (authorize_attempts)."
+        },
+        "loginAudit": {
+          "label": "Anmeldeeinträge",
+          "description": "Erfolgreiche und fehlgeschlagene Anmeldungen in den Audit-Protokollen von Benutzern und Fahrern. Ihre anderen Zeilen folgen dem Audit-Verlauf."
+        },
+        "securityEvents": {
+          "label": "Sicherheitsereignisse der Ladestationen",
+          "description": "Von Ladestationen gemeldete Sicherheitsereignisse (security_events)."
+        },
+        "refreshTokens": {
+          "label": "Widerrufene und abgelaufene Anmeldetokens",
+          "description": "Refresh-Tokens beendeter Anmeldesitzungen (refresh_tokens), gezählt ab Widerruf oder Ablauf."
+        },
+        "aiConversations": {
+          "label": "Unterhaltungen mit dem KI-Assistenten",
+          "description": "Unterhaltungen ohne Aktivität in diesem Zeitraum, mit ihren Anhängen, und das MCP-Aufrufprotokoll."
+        },
+        "aiInsights": {
+          "label": "Automatische Analysen",
+          "description": "Automatische Analysen und Läufe der KI-Hintergrundprozesse."
+        },
+        "simSessions": {
+          "label": "SIM-Sitzungen und Warnungen",
+          "description": "SIM-Sitzungen, SIM-Warnungen und abgerufene Zeiträume (sim_sessions, sim_alerts, sim_fetch_coverage). Sitzungen enthalten Zell-IDs, die ungefähr zeigen, wo eine Ladestation online war."
+        }
+      },
+      "proofHint": "Bestätigen Sie Ihre Identität, um die Aufbewahrung des Audit-Verlaufs, des Anmeldeverlaufs oder der Sicherheitsereignisse zu verkürzen. Jeder Administrator erhält eine Benachrichtigung."
     }
   },
   "pnc": {
@@ -3310,6 +3574,7 @@
     "preview": "Vorlagenvorschau",
     "customized": "Angepasst",
     "templateSaved": "Ereignisbenachrichtigung gespeichert.",
+    "securityTemplateLocked": "Dies ist eine Sicherheitsvorlage (Passwort-Zurücksetzung, Einladung, Anmeldecode oder Sicherheitshinweis). Zum Ändern ist die Schreibberechtigung für Systemeinstellungen erforderlich.",
     "templateDeactivated": "Ereignisbenachrichtigung deaktiviert.",
     "recipientRequired": "Empfänger-E-Mail ist erforderlich.",
     "webhookUrlRequired": "Webhook-URL ist erforderlich.",
@@ -3414,7 +3679,13 @@
       "security.RecoveryCodeUsed": "Wiederherstellungscode verwendet",
       "security.PhoneChanged": "Telefonnummer geändert",
       "security.EmailChanged": "E-Mail-Adresse geändert",
-      "security.ApiKeyCreated": "API-Schlüssel erstellt"
+      "security.ApiKeyCreated": "API-Schlüssel erstellt",
+      "security.SsoSettingsChanged": "Single-Sign-On-Einstellungen geändert",
+      "security.UserCreatedPrivileged": "Administratorkonto erstellt",
+      "security.PermissionsGranted": "Berechtigungen erteilt",
+      "security.PasswordResetByAdmin": "Link zum Festlegen des Passworts von einem Administrator gesendet",
+      "security.SsoUnlinked": "Single-Sign-On-Verknüpfung entfernt",
+      "security.RetentionLowered": "Datenaufbewahrung Verkürzt"
     },
     "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:",
     "htmlPreview": "HTML-Vorschau",
@@ -3567,6 +3838,7 @@
     "API_KEY_RATE_LIMITED": "API-Schlüssel-Ratenlimit überschritten",
     "ATTACHMENT_NOT_FOUND": "Anhang nicht gefunden",
     "AUDIT_ENTITY_TYPE_INVALID": "Unbekannter Audit-Entitätstyp",
+    "AUTOCHARGE_CLAIM_REQUIRED": "Autocharge funktioniert nur mit Fahrzeugkennungen, die ein Ladepunkt in einer Ihrer Sitzungen gesendet hat. Übernehmen Sie die Fahrzeugkennung zuerst aus einer Sitzung.",
     "CAMPAIGN_NOT_ACTIVE": "Nur aktive Kampagnen können abgebrochen werden",
     "CAMPAIGN_NOT_FOUND": "Kampagne nicht gefunden",
     "CASE_NOT_FOUND": "Fall nicht gefunden",
@@ -3651,6 +3923,7 @@
     "INVALID_SITE_IDS": "Eine oder mehrere siteIds existieren nicht",
     "INVALID_TOKEN": "Ungültiger oder abgelaufener Zurücksetzungslink",
     "INVOICE_ALREADY_PAID": "Die Rechnung ist bereits bezahlt",
+    "PREPAID_BALANCE_CONFLICT": "Das Prepaid-Guthaben hat sich geändert, seit Sie das Formular geöffnet haben, zum Beispiel nach einer Sitzung. Laden Sie den Token neu und geben Sie das Guthaben erneut ein.",
     "RESERVATION_FEE_ALREADY_INVOICED": "Die Reservierungsgebühr ist bereits abgerechnet",
     "SESSION_ALREADY_INVOICED": "Die Sitzung ist bereits abgerechnet",
     "INVOICE_CREATION_FAILED": "Rechnung konnte nicht erstellt werden",
@@ -3792,6 +4065,7 @@
     "START_REJECTED": "Station hat Startanforderung abgelehnt: ...",
     "STATION_ALREADY_IN_FLEET": "Station ist bereits in dieser Flotte",
     "STATION_HAS_ACTIVE_SESSION": "An der Station läuft ein Ladevorgang. Beenden Sie ihn, bevor Sie die Station löschen.",
+    "STATION_HAS_SIM": "Dieser Station ist bereits eine SIM zugeordnet. Heben Sie die Zuordnung zuerst auf",
     "STATION_ID_EXISTS": "Eine Station mit dieser ID existiert bereits",
     "STATION_NOT_FOUND": "Station nicht gefunden",
     "STATION_OFFLINE": "Station ist offline",
@@ -3801,6 +4075,7 @@
     "STATION_UNAVAILABLE": "Diese Station ist derzeit nicht verfügbar. Versuchen Sie eine andere Station.",
     "STORAGE_CONNECTION_FAILED": "Speicher-Verbindungstest fehlgeschlagen",
     "STORAGE_NOT_CONFIGURED": "Anhang-Speicher nicht konfiguriert",
+    "STREAM_LIMIT_REACHED": "Von diesem Gerät sind zu viele Live-Aktualisierungen von Ladestationen geöffnet. Schließen Sie andere Tabs und versuchen Sie es erneut.",
     "SUPPORT_AI_NOT_CONFIGURED": "Support-AI ist nicht konfiguriert",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "Dieser Supportfall wartet nicht auf eine Rückmeldung zu einer automatischen Antwort",
     "SUPPORT_CASE_NOT_FOUND": "Supportfall nicht gefunden",
@@ -3895,17 +4170,22 @@
     "WEBAUTHN_CHALLENGE_EXPIRED": "Die Passkey-Anfrage ist abgelaufen oder wurde bereits verwendet. Versuchen Sie es erneut.",
     "WEBAUTHN_VERIFICATION_FAILED": "Der Passkey oder Sicherheitsschlüssel konnte nicht überprüft werden.",
     "SIM_ACTION_UNSUPPORTED": "Der SIM-Anbieter unterstützt diese Aktion für diese SIM nicht",
-    "SIM_CONFIRMED_ELSEWHERE": "Eine andere Station hat bereits eine bestätigte Zuordnung für diese SIM",
+    "SIM_ATTACHED": "Heben Sie die Zuordnung der SIM zu ihrer Station auf, bevor Sie sie löschen",
+    "SIM_ATTACHED_ELSEWHERE": "Diese SIM ist einer anderen Station zugeordnet",
+    "SIM_ATTACHMENT_CHANGED": "Die SIM-Zuordnung hat sich seit der Anzeige geändert. Prüfen Sie die SIM und bestätigen Sie erneut",
+    "SIM_ATTACHMENT_NOT_CONFIRMED": "Bestätigen Sie die SIM, bevor Sie ihr Netz zurücksetzen",
     "SIM_FEATURE_DISABLED": "SIM-Anbieter und das Auslesen des Stationssignals sind ausgeschaltet",
-    "SIM_MATCHED_ELSEWHERE": "Diese SIM ist einer anderen Station zugeordnet",
-    "SIM_MATCH_CHANGED": "Die SIM-Zuordnung hat sich seit der Anzeige geändert. Prüfen Sie die SIM und bestätigen Sie erneut",
-    "SIM_MATCH_NOT_CONFIRMED": "Bestätigen Sie die SIM, bevor Sie ihr Netz zurücksetzen",
-    "SIM_NOT_FOUND": "Dieser Station ist keine SIM zugeordnet",
+    "SIM_INACTIVE": "Diese SIM ist inaktiv. Aktivieren Sie sie zuerst wieder",
+    "SIM_NOT_FOUND": "SIM nicht gefunden",
     "SIM_PROVIDER_ERROR": "Die Anfrage an den SIM-Anbieter ist fehlgeschlagen",
     "SIM_PROVIDER_NOT_CONFIGURED": "Kein SIM-Anbieter konfiguriert",
     "SIM_PROVIDER_RATE_LIMITED": "Zu viele SIM-Anfragen, versuchen Sie es später erneut",
     "SIM_RESET_UNAVAILABLE": "Der Netzwerk-Reset kann gerade nicht gestartet werden. Versuchen Sie es in einer Minute erneut",
-    "SIM_TEST_UNAVAILABLE": "Der Verbindungstest kann gerade nicht ausgeführt werden. Versuchen Sie es in einer Minute erneut"
+    "SIM_TEST_UNAVAILABLE": "Der Verbindungstest kann gerade nicht ausgeführt werden. Versuchen Sie es in einer Minute erneut",
+    "NOT_FOUND": "Nicht gefunden",
+    "PAYLOAD_TOO_LARGE": "Die Anfrage ist zu groß",
+    "UNSUPPORTED_MEDIA_TYPE": "Nicht unterstützter Inhaltstyp",
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "Heartbeat- und Zählerstandseinstellungen kommen aus Einstellungen > Integrationen und Funktionen > OCPP und dem Datentarif der Station, nicht aus einer Konfigurationsvorlage."
   },
   "logs": {
     "title": "Protokolle",
@@ -4465,7 +4745,9 @@
     "rejected": "Abgelehnt",
     "failed": "Fehlgeschlagen",
     "pending": "Ausstehend",
-    "pushProgress": "Übertragungsfortschritt"
+    "pushProgress": "Übertragungsfortschritt",
+    "variableInstance": "Variableninstanz",
+    "duplicateVariable": "Zwei Zeilen setzen dieselbe Variable. Entfernen Sie eine."
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
@@ -4638,6 +4920,8 @@
     "durationMs": "{{ms}} ms",
     "confirmTitle": "Diese Änderung bestätigen",
     "confirmArguments": "Details",
+    "confirmMaskedValues_one": "{{count}} Wert ist auf dieser Karte verborgen und wird trotzdem so ausgeführt, wie der Assistent ihn geschrieben hat",
+    "confirmMaskedValues_other": "{{count}} Werte sind auf dieser Karte verborgen und werden trotzdem so ausgeführt, wie der Assistent sie geschrieben hat",
     "confirmSummary": {
       "POST": "Anlegen oder ausführen: {{tool}}",
       "PUT": "Ersetzen: {{tool}}",
@@ -4788,7 +5072,8 @@
     "dataNotice": {
       "title": "Was der KI-Anbieter erhält",
       "body": "Nachrichten, Werkzeugergebnisse und Anhänge werden an den gewählten KI-Anbieter gesendet. Prüfen Sie die Aufbewahrungsbedingungen des Anbieters. Der KI-Anbieter erhält nie gespeicherte Zugangsdaten wie Passwörter, API-Schlüssel, Geheimnisse und Stationspasswörter. Kartennummern werden auf ihre letzten 4 Zeichen gekürzt. Support-Entwürfe, automatische Analysen, Hintergrund-Worker und der Fahrer-Support maskieren außerdem E-Mail-Adressen und Telefonnummern und hashen oder kürzen die Token-IDs von Fahrern. Der Assistent sendet Kontaktdaten von Fahrern so, wie sie gespeichert sind, und nur für Benutzer, die sie lesen dürfen. Von Ihnen eingegebener Text und angehängte Textdateien werden auf Schlüssel und Kartennummern geprüft. Von Ihnen angehängte Bilder und PDFs werden unverändert gesendet."
-    }
+    },
+    "confirmLinks": "Diese Änderung verlinkt auf {{hosts}}. Prüfen Sie jeden Link, bevor Sie bestätigen."
   },
   "sustainability": {
     "title": "Nachhaltigkeitsbericht",
@@ -4993,6 +5278,7 @@
       "priority_changed": "Priorität geändert",
       "pulled": "Abgerufen",
       "pushed": "Übertragen",
+      "reactivated": "Reaktiviert",
       "rebilled": "Neu abgerechnet",
       "refund_issued": "Erstattung ausgestellt",
       "registered": "Registriert",
@@ -5092,7 +5378,14 @@
       "recovery_codes_regenerated": "Wiederherstellungscodes neu erstellt",
       "webauthn_credential_added": "Passkey hinzugefügt",
       "webauthn_credential_renamed": "Passkey umbenannt",
-      "webauthn_credential_removed": "Passkey entfernt"
+      "webauthn_credential_removed": "Passkey entfernt",
+      "attached": "Zugeordnet",
+      "detached": "Zuordnung aufgehoben",
+      "attachment_confirmed": "Zuordnung bestätigt",
+      "network_reset": "Netzwerk zurückgesetzt",
+      "sso_link_allowed": "SSO-Anmeldung erlaubt",
+      "sso_unlinked": "SSO-Verknüpfung entfernt",
+      "data_plan_changed": "Datentarif geändert"
     },
     "entities": {
       "site": "Standort",
@@ -5128,7 +5421,8 @@
       "notification_template": "Benachrichtigungsvorlage",
       "station_message_template": "Stationsnachrichtenvorlage",
       "event_alert_rule": "Ereignis-Warnregel",
-      "report_schedule": "Berichtsplan"
+      "report_schedule": "Berichtsplan",
+      "sim": "SIM"
     },
     "actors": {
       "operator": "Betreiber",
@@ -5930,7 +6224,8 @@
     "lastFactorRequired": "Ihre Organisation verlangt die Zwei-Faktor-Authentifizierung, daher kann Ihr einziger Passkey nicht entfernt werden. Fügen Sie zuerst einen weiteren Faktor hinzu.",
     "cancelled": "Die Passkey-Abfrage wurde geschlossen. Versuchen Sie es erneut, wenn Sie bereit sind.",
     "alreadyRegistered": "Dieser Passkey oder Sicherheitsschlüssel ist bereits registriert.",
-    "failed": "Die Passkey-Abfrage wurde nicht abgeschlossen. Versuchen Sie es erneut."
+    "failed": "Die Passkey-Abfrage wurde nicht abgeschlossen. Versuchen Sie es erneut.",
+    "browserUnsupported": "Dieser Browser unterstützt keine Passkeys oder Sicherheitsschlüssel. Öffnen Sie diese Seite in einem Browser mit Passkey-Unterstützung, um einen hinzuzufügen."
   },
   "factorProof": {
     "chooseLabel": "Bestätigen mit",
@@ -5951,12 +6246,83 @@
     "passkeyButton": "Mit Passkey bestätigen",
     "verifying": "Wird überprüft...",
     "passkeyVerified": "Passkey bestätigt.",
-    "passkeyNeedsSecurePage": "Bestätigen Sie Ihre Identität mit Ihrem Passkey. Passkeys funktionieren nur über eine sichere Verbindung (HTTPS) oder auf localhost. Öffnen Sie diese Seite über HTTPS, um Ihren Passkey zu verwenden.",
     "addFactorHint": "Bestätigen Sie Ihre Identität, bevor Sie einen zweiten Faktor hinzufügen.",
     "confirmFirst": "Bestätigen Sie zuerst Ihre Identität.",
     "kindSso": "Single Sign-On",
     "ssoHint": "Melden Sie sich erneut per Single Sign-On an, um Ihre Identität zu bestätigen. Sie kehren zu dieser Seite zurück und haben 10 Minuten Zeit, um fortzufahren.",
     "ssoSignIn": "Erneut per SSO anmelden",
     "ssoConfirmed": "Durch Ihre aktuelle Single-Sign-On-Anmeldung bestätigt."
+  },
+  "passkeyUnavailable": {
+    "insecure": {
+      "signInCode": "Passkeys benötigen eine sichere Seite (HTTPS oder localhost). Öffnen Sie diese Website über HTTPS, um Ihren Passkey zu verwenden, oder melden Sie sich mit einem Bestätigungscode an.",
+      "signInRecovery": "Passkeys benötigen eine sichere Seite (HTTPS oder localhost). Öffnen Sie diese Website über HTTPS, um Ihren Passkey zu verwenden, oder melden Sie sich mit einem Wiederherstellungscode an.",
+      "signInOnly": "Passkeys benötigen eine sichere Seite (HTTPS oder localhost), und Ihr Konto hat keine andere Bestätigungsmethode. Öffnen Sie diese Website über HTTPS, um sich mit Ihrem Passkey anzumelden.",
+      "setupOther": "Passkeys benötigen eine sichere Seite (HTTPS oder localhost). Öffnen Sie diese Website über HTTPS, um einen Passkey hinzuzufügen, oder richten Sie unten eine andere Methode ein.",
+      "setupOnly": "Passkeys benötigen eine sichere Seite (HTTPS oder localhost), und ein Passkey ist die einzige Methode, die Sie einrichten können. Öffnen Sie diese Website über HTTPS, um einen einzurichten.",
+      "proofOnly": "Bestätigen Sie Ihre Identität mit Ihrem Passkey. Passkeys benötigen eine sichere Seite (HTTPS oder localhost). Öffnen Sie diese Website über HTTPS, um Ihren Passkey zu verwenden."
+    },
+    "unsupported": {
+      "signInCode": "Dieser Browser unterstützt keine Passkeys. Öffnen Sie diese Website in einem Browser mit Passkey-Unterstützung, um Ihren Passkey zu verwenden, oder melden Sie sich mit einem Bestätigungscode an.",
+      "signInRecovery": "Dieser Browser unterstützt keine Passkeys. Öffnen Sie diese Website in einem Browser mit Passkey-Unterstützung, um Ihren Passkey zu verwenden, oder melden Sie sich mit einem Wiederherstellungscode an.",
+      "signInOnly": "Dieser Browser unterstützt keine Passkeys, und Ihr Konto hat keine andere Bestätigungsmethode. Öffnen Sie diese Website in einem Browser mit Passkey-Unterstützung, um sich anzumelden.",
+      "setupOther": "Dieser Browser unterstützt keine Passkeys. Öffnen Sie diese Website in einem Browser mit Passkey-Unterstützung, um einen Passkey hinzuzufügen, oder richten Sie unten eine andere Methode ein.",
+      "setupOnly": "Dieser Browser unterstützt keine Passkeys, und ein Passkey ist die einzige Methode, die Sie einrichten können. Öffnen Sie diese Website in einem Browser mit Passkey-Unterstützung, um einen einzurichten.",
+      "proofOnly": "Bestätigen Sie Ihre Identität mit Ihrem Passkey. Dieser Browser unterstützt keine Passkeys. Öffnen Sie diese Website in einem Browser mit Passkey-Unterstützung, um Ihren Passkey zu verwenden."
+    }
+  },
+  "dataPlan": {
+    "title": "Datentarif",
+    "plans": {
+      "wifi_or_wired": "WLAN oder kabelgebunden",
+      "cellular": "Mobilfunk"
+    },
+    "notSet": "Nicht festgelegt",
+    "useSitePlan": "Tarif des Standorts verwenden",
+    "any": "Alle",
+    "sources": {
+      "station": "Auf dieser Station festgelegt",
+      "sim": "Bestätigte SIM",
+      "site": "Standort",
+      "default": "Standard"
+    },
+    "kinds": {
+      "ac": "AC",
+      "dc": "DC"
+    },
+    "planLabel": "Tarif",
+    "sourceLabel": "Quelle",
+    "kindLabel": "Werte beim Laden",
+    "fromDataPlan": "Aus dem Datentarif",
+    "fromDataPlanHint": "Wird bei jedem Start aus dem Datentarif der Station gesendet. Eine Vorlage setzt diesen Wert nicht.",
+    "confirmTitle": "Datentarif ändern",
+    "station": {
+      "description": "Die OCPP-Einstellungen, mit denen diese Station läuft. Ein auf der Station festgelegter Tarif hat Vorrang vor einer bestätigten SIM und dem Standort.",
+      "choice": "Tarif dieser Station",
+      "confirmDescription": "Die Station erhält die Einstellungen des Tarifs sofort, wenn sie online ist, sonst bei ihrem nächsten Start."
+    },
+    "site": {
+      "description": "Der Tarif der Stationen dieses Standorts, die weder einen eigenen Tarif noch eine bestätigte SIM haben.",
+      "stationsChanging_one": "1 Station wechselt den Tarif.",
+      "stationsChanging_other": "{{count}} Stationen wechseln den Tarif.",
+      "confirmDescription": "Online-Stationen erhalten die Einstellungen des neuen Tarifs sofort, Offline-Stationen bei ihrem nächsten Start."
+    },
+    "settings": {
+      "description": "Werte, die bei jedem Start an die Stationen gesendet werden, ein Satz pro Datentarif. Jede Station eines Tarifs erhält die neuen Werte bei ihrem nächsten Start oder Tarifwechsel.",
+      "heartbeatTitle": "Heartbeat und Ping",
+      "heartbeatIntervalHelp": "Wird in der BootNotification-Antwort an die Station gesendet. {{min}} bis {{max}} Sekunden.",
+      "csmsPingInterval": "CSMS-Ping-Intervall (Sekunden)",
+      "csmsPingIntervalHelp": "Das CSMS pingt eine Station, wenn so lange kein Frame von ihr kam. {{min}} bis {{max}} Sekunden.",
+      "chargingTitle": "Messwerte beim Laden",
+      "chargingDescription": "Messwerte während des Ladens. Eine Station ist DC, wenn ein Anschluss CCS1, CCS2 oder CHAdeMO ist, oder GB/T, Tesla oder NACS über 22 kW, sonst AC.",
+      "acStations": "AC-Stationen",
+      "dcStations": "DC-Stationen",
+      "meterValueIntervalHelp": "{{min}} bis {{max}} Sekunden.",
+      "sampledMeasurandsHelp": "Kommagetrennte Messgrößen, die beim Laden gesendet werden.",
+      "idleTitle": "Messwerte im Leerlauf und am Ende",
+      "clockAlignedIntervalHelp": "Messwerte im Leerlauf zu taktgebundenen Zeiten. 0 schaltet sie aus, sonst {{min}} bis {{max}} Sekunden.",
+      "alignedMeasurandsHelp": "Kommagetrennte Messgrößen der Messwerte im Leerlauf. Nur gesendet, wenn das Intervall über 0 liegt.",
+      "txEndedMeasurandsHelp": "Kommagetrennte Messgrößen der Werte am Ende einer Sitzung."
+    }
   }
 }

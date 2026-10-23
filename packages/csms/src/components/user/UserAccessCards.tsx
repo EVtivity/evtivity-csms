@@ -17,6 +17,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
+import {
+  FactorProofField,
+  proofRejection,
+  type FactorProof,
+  type ProofRejection,
+} from '@/components/FactorProofField';
+import { useMfaStatus } from '@/components/profile/mfa-status';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
@@ -55,6 +62,14 @@ export function UserAccessCards({
   const canWrite = useHasPermission('users:write');
   const [confirmMfaReset, setConfirmMfaReset] = useState(false);
   const [revokeKeyId, setRevokeKeyId] = useState<number | null>(null);
+  // Turning off another user's MFA takes a fresh proof of the signed-in account.
+  const { data: mfaStatus } = useMfaStatus();
+  const proofKinds = mfaStatus?.factorProofKinds ?? [];
+  const [proof, setProof] = useState<FactorProof | null>(null);
+  const [proofFailure, setProofFailure] = useState<ProofRejection | null>(null);
+  const [proofAsked, setProofAsked] = useState(false);
+  // Remounts the proof field for each dialog, so a proof never carries over.
+  const [proofRound, setProofRound] = useState(0);
 
   const { data: keys, isError: keysError } = useQuery({
     queryKey: ['users', userId, 'api-keys'],
@@ -63,16 +78,40 @@ export function UserAccessCards({
   });
 
   const mfaResetMutation = useMutation({
-    mutationFn: () => api.post<{ success: boolean }>(`/v1/users/${userId}/mfa/reset`, {}),
+    mutationFn: (resetProof: FactorProof | null) =>
+      api.post<{ success: boolean }>(
+        `/v1/users/${userId}/mfa/reset`,
+        resetProof != null ? { proof: resetProof } : {},
+      ),
     onSuccess: () => {
       setConfirmMfaReset(false);
       void queryClient.invalidateQueries({ queryKey: ['users', userId] });
       toast({ title: t('users.mfaResetSuccess'), variant: 'success' });
     },
     onError: (err: unknown) => {
+      setProofFailure(proofRejection(err));
       toast({ title: getErrorMessage(err, t), variant: 'destructive' });
     },
   });
+
+  function openMfaReset(): void {
+    mfaResetMutation.reset();
+    setProof(null);
+    setProofFailure(null);
+    setProofAsked(false);
+    setProofRound((n) => n + 1);
+    setConfirmMfaReset(true);
+  }
+
+  function confirmMfaResetWithProof(): boolean {
+    if (proofKinds.length > 0 && proof == null) {
+      setProofAsked(true);
+      return false;
+    }
+    mfaResetMutation.mutate(proof);
+    // The dialog stays open until the reply: a refused proof is shown in it.
+    return false;
+  }
 
   const revokeMutation = useMutation({
     mutationFn: (keyId: number) =>
@@ -100,14 +139,7 @@ export function UserAccessCards({
               : t('users.mfaOffDescription')}
           </p>
           {mfaEnabled && canWrite && (
-            <Button
-              type="button"
-              variant="outline"
-              className="w-fit"
-              onClick={() => {
-                setConfirmMfaReset(true);
-              }}
-            >
+            <Button type="button" variant="outline" className="w-fit" onClick={openMfaReset}>
               <ShieldOff className="h-4 w-4" />
               {t('users.mfaReset')}
             </Button>
@@ -189,10 +221,22 @@ export function UserAccessCards({
         confirmLabel={t('users.mfaReset')}
         variant="destructive"
         isPending={mfaResetMutation.isPending}
-        onConfirm={() => {
-          mfaResetMutation.mutate();
-        }}
-      />
+        asForm
+        onConfirm={confirmMfaResetWithProof}
+      >
+        {proofKinds.length > 0 && (
+          <FactorProofField
+            key={`mfa-reset-${String(proofRound)}`}
+            idPrefix="user-mfa-reset-proof"
+            kinds={proofKinds}
+            codeMethod={mfaStatus?.mfaMethod ?? null}
+            description={t('users.mfaResetProofHint')}
+            onChange={setProof}
+            rejection={proofFailure}
+            showMissing={proofAsked}
+          />
+        )}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={revokeKeyId != null}

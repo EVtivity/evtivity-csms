@@ -5,9 +5,12 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/ui/copy-button';
+import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { ApiError } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { rateLimitedMessage } from '@/lib/error-message';
 
 export const MFA_METHOD_LABELS: Record<string, string> = {
@@ -68,7 +71,9 @@ export function MfaSetupForm<T>({
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [codeSubmitted, setCodeSubmitted] = useState(false);
   const methodError = method === '' ? t('validation.selectRequired') : null;
+  const codeError = /^\d{6}$/.test(code) ? null : t('profile.mfaEnterCode');
 
   const setupMutation = useMutation({
     mutationFn: (selected: string) => setup(selected),
@@ -101,7 +106,18 @@ export function MfaSetupForm<T>({
 
   if (setupData == null) {
     return (
-      <div className="space-y-4 max-w-md">
+      <form
+        noValidate
+        className="space-y-4 max-w-md"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setHasSubmitted(true);
+          if (!proofReady) onProofMissing?.();
+          if (methodError != null || !proofReady) return;
+          setError('');
+          setupMutation.mutate(method);
+        }}
+      >
         {children}
         {error !== '' && (
           <p className="text-sm text-destructive" role="alert">
@@ -133,24 +149,36 @@ export function MfaSetupForm<T>({
             </p>
           )}
         </div>
-        <Button
-          disabled={setupMutation.isPending}
-          onClick={() => {
-            setHasSubmitted(true);
-            if (!proofReady) onProofMissing?.();
-            if (methodError != null || !proofReady) return;
-            setError('');
-            setupMutation.mutate(method);
-          }}
-        >
-          {setupMutation.isPending ? t('profile.mfaSettingUp') : t('profile.mfaSetUp')}
+        <Button type="submit" disabled={setupMutation.isPending} className="relative">
+          {setupMutation.isPending && (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <Spinner className="h-4 w-4" />
+            </span>
+          )}
+          <span className={setupMutation.isPending ? 'invisible' : ''}>
+            {t('profile.mfaSetUp')}
+          </span>
         </Button>
-      </div>
+      </form>
     );
   }
 
   return (
-    <div className="space-y-4 max-w-md">
+    <form
+      noValidate
+      className="space-y-4 max-w-md"
+      onSubmit={(e) => {
+        e.preventDefault();
+        setCodeSubmitted(true);
+        if (codeError != null) return;
+        setError('');
+        confirmMutation.mutate({
+          method,
+          code,
+          ...(setupData.challengeId != null ? { challengeId: String(setupData.challengeId) } : {}),
+        });
+      }}
+    >
       {error !== '' && <p className="text-sm text-destructive">{error}</p>}
       {setupData.qrDataUri != null && (
         <div className="space-y-2">
@@ -165,9 +193,12 @@ export function MfaSetupForm<T>({
           {setupData.secret != null && (
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">{t('profile.mfaManualEntry')}</p>
-              <code className="block rounded bg-muted px-3 py-2 text-sm select-all">
-                {setupData.secret}
-              </code>
+              <div className="flex items-center gap-2">
+                <code className="min-w-0 flex-1 rounded bg-muted px-3 py-2 text-sm select-all wrap-anywhere">
+                  {setupData.secret}
+                </code>
+                <CopyButton value={setupData.secret} size="icon" />
+              </div>
             </div>
           )}
         </div>
@@ -180,30 +211,33 @@ export function MfaSetupForm<T>({
           id="mfa-verify-code"
           value={code}
           onChange={(e) => {
-            setCode(e.target.value);
+            setCode(e.target.value.replace(/\D/g, '').slice(0, 6));
           }}
-          maxLength={6}
           inputMode="numeric"
           autoComplete="one-time-code"
           placeholder="000000"
-          className="max-w-[200px]"
+          aria-invalid={codeSubmitted && codeError != null}
+          className={cn(
+            'max-w-[200px]',
+            codeSubmitted && codeError != null && 'border-destructive',
+          )}
         />
+        {codeSubmitted && codeError != null && (
+          <p className="text-sm text-destructive" role="alert">
+            {codeError}
+          </p>
+        )}
       </div>
       <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-        <Button
-          disabled={code.length !== 6 || confirmMutation.isPending}
-          onClick={() => {
-            setError('');
-            confirmMutation.mutate({
-              method,
-              code,
-              ...(setupData.challengeId != null
-                ? { challengeId: String(setupData.challengeId) }
-                : {}),
-            });
-          }}
-        >
-          {confirmMutation.isPending ? t('profile.mfaVerifying') : t('profile.mfaVerify')}
+        <Button type="submit" disabled={confirmMutation.isPending} className="relative">
+          {confirmMutation.isPending && (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <Spinner className="h-4 w-4" />
+            </span>
+          )}
+          <span className={confirmMutation.isPending ? 'invisible' : ''}>
+            {t('profile.mfaVerify')}
+          </span>
         </Button>
         <Button
           type="button"
@@ -212,11 +246,12 @@ export function MfaSetupForm<T>({
             setSetupData(null);
             setCode('');
             setError('');
+            setCodeSubmitted(false);
           }}
         >
           {t('common.cancel')}
         </Button>
       </div>
-    </div>
+    </form>
   );
 }

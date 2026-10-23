@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useTab } from '@/hooks/use-tab';
 import { BackButton } from '@/components/back-button';
@@ -17,6 +17,7 @@ import type { UserDetailUser, UserRole } from '@/components/user/UserDetailsTab'
 import { UserPermissionsTab } from '@/components/user/UserPermissionsTab';
 import { UserSecurityTab } from '@/components/user/UserSecurityTab';
 import { UserAccessCards } from '@/components/user/UserAccessCards';
+import { SsoLinkCard } from '@/components/user/SsoLinkCard';
 import { api } from '@/lib/api';
 import { isSubsetOf } from '@evtivity/lib/permissions';
 import { useAuth } from '@/lib/auth';
@@ -29,6 +30,12 @@ export function UserDetail(): React.JSX.Element {
   const currentUserId = useAuth((s) => s.user?.id);
   const ownPermissions = useAuth((s) => s.permissions);
   const [activeTab, setActiveTab] = useTab('details');
+  const queryClient = useQueryClient();
+  const { data: securityPublic } = useQuery({
+    queryKey: ['security-public'],
+    queryFn: () => api.get<{ ssoEnabled?: boolean }>('/v1/security/public'),
+  });
+  const ssoEnabled = securityPublic?.ssoEnabled === true;
 
   const isOwnUser = id === currentUserId;
 
@@ -106,6 +113,25 @@ export function UserDetail(): React.JSX.Element {
               mfaEnabled={user.mfaEnabled === true}
               mfaMethod={user.mfaMethod ?? null}
             />
+            {ssoEnabled && (
+              <SsoLinkCard
+                linked={user.ssoLinked === true}
+                allowed={user.ssoLinkAllowed === true}
+                allow={(proof) =>
+                  api.patch(`/v1/users/${user.id}`, {
+                    ssoLinkAllowed: true,
+                    ...(proof != null ? { proof } : {}),
+                  })
+                }
+                withdraw={() => api.patch(`/v1/users/${user.id}`, { ssoLinkAllowed: false })}
+                unlink={(proof) =>
+                  api.delete(`/v1/users/${user.id}/sso-link`, proof != null ? { proof } : {})
+                }
+                onChanged={() => {
+                  void queryClient.invalidateQueries({ queryKey: ['users', user.id] });
+                }}
+              />
+            )}
           </TabsContent>
         )}
 

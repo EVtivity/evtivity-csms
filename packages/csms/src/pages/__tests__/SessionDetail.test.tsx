@@ -22,6 +22,9 @@ vi.mock('react-i18next', () => ({
 vi.mock('@/lib/auth', () => ({
   useHasPermission: (p: string) => perms.has(p),
   useHasCompanyWidePermission: (p: string) => perms.has(p),
+  hasPermissionCheck: (list: string[], p: string) => list.includes(p),
+  useAuth: <T,>(select: (s: { permissions: string[] }) => T): T =>
+    select({ permissions: [...perms] }),
 }));
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
@@ -144,6 +147,7 @@ describe('SessionDetail refund', () => {
 describe('SessionDetail header', () => {
   it('puts Stop, Prev and Next in their own row, right-aligned from sm', async () => {
     perms.add('stations:write');
+    perms.add('sessions:write');
     renderPage();
     await screen.findByRole('button', { name: 'sessions.stopSession' });
     const actions = screen.getByTestId('session-header-actions');
@@ -162,8 +166,16 @@ describe('SessionDetail stop', () => {
     expect(screen.queryByRole('button', { name: 'sessions.stopSession' })).toBeNull();
   });
 
+  it('hides Stop with stations:write but without sessions:write', async () => {
+    perms.add('stations:write');
+    renderPage();
+    await screen.findByText('sessions.title');
+    expect(screen.queryByRole('button', { name: 'sessions.stopSession' })).toBeNull();
+  });
+
   it('hides Stop on an ended session', async () => {
     perms.add('stations:write');
+    perms.add('sessions:write');
     renderPage({ ...SESSION, status: 'completed', endedAt: '2026-10-14T11:00:00.000Z' });
     await screen.findByText('sessions.title');
     expect(screen.queryByRole('button', { name: 'sessions.stopSession' })).toBeNull();
@@ -171,6 +183,7 @@ describe('SessionDetail stop', () => {
 
   it('stops an active session through the EVSE stop route after the confirmation', async () => {
     perms.add('stations:write');
+    perms.add('sessions:write');
     apiMock.post.mockResolvedValue({ sessionId: 'ses_1', transactionId: 'tx-1' });
     renderPage();
     fireEvent.click(await screen.findByRole('button', { name: 'sessions.stopSession' }));

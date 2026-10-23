@@ -181,6 +181,9 @@ vi.mock('@evtivity/database', async () => {
   return {
     ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
     db: dbMock,
+    effectiveDataPlanSql: 'effective_data_plan',
+    dataPlanSourceSql: 'data_plan_source',
+    readStationDataPlans: vi.fn(() => Promise.resolve(new Map())),
     client: {},
     ...tables,
     writeAudit: mocks.writeAudit,
@@ -921,13 +924,16 @@ describe('Station routes - extra coverage', () => {
         { dow: 5, hour: 18, avgSessions: 2.3 },
       ]);
       const sessionsChain = chainsOf('select')[1];
-      const where = argsOf(sessionsChain, 'where')?.[0] as { conds: Array<{ val: unknown }> };
+      const where = argsOf(sessionsChain, 'where')?.[0] as {
+        conds: Array<{ val: unknown } | undefined>;
+      };
       expect(where.conds[0]).toEqual({
         op: 'eq',
         col: 'chargingSessions.stationId',
         val: STATION,
       });
-      const since = where.conds[1]?.val as Date;
+      // An all-site user has no session site scope (undefined in the list).
+      const since = where.conds.filter((c) => c != null)[1]?.val as Date;
       const expectedDays = (Date.now() - since.getTime()) / 86_400_000;
       expect(Math.round(expectedDays)).toBe(21);
       expect(mocks.sqlCalls.some((args) => args.slice(1).includes('Asia/Tokyo'))).toBe(true);
@@ -2035,7 +2041,7 @@ describe('Station routes - extra coverage', () => {
   // ---------------------------------------------------------------------------
   describe('POST /stations/:id/configurations/push', () => {
     const variables = [
-      { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', value: '300' },
+      { component: 'OCPPCommCtrlr', variable: 'WebSocketPingInterval', value: '300' },
       { component: 'TxCtrlr', variable: 'EVConnectionTimeOut', value: '60' },
     ];
 
@@ -2116,7 +2122,7 @@ describe('Station routes - extra coverage', () => {
                     {
                       attributeStatus: 'Accepted',
                       component: { name: 'OCPPCommCtrlr' },
-                      variable: { name: 'HeartbeatInterval' },
+                      variable: { name: 'WebSocketPingInterval' },
                     },
                     {
                       attributeStatus: 'Accepted',
@@ -2136,7 +2142,7 @@ describe('Station routes - extra coverage', () => {
       expect(res.json()).toEqual({
         success: true,
         results: [
-          { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', status: 'Accepted' },
+          { component: 'OCPPCommCtrlr', variable: 'WebSocketPingInterval', status: 'Accepted' },
           { component: 'TxCtrlr', variable: 'EVConnectionTimeOut', status: 'Accepted' },
         ],
       });
@@ -2148,7 +2154,7 @@ describe('Station routes - extra coverage', () => {
             setVariableData: [
               {
                 component: { name: 'OCPPCommCtrlr' },
-                variable: { name: 'HeartbeatInterval' },
+                variable: { name: 'WebSocketPingInterval' },
                 attributeValue: '300',
               },
               {
@@ -2188,7 +2194,7 @@ describe('Station routes - extra coverage', () => {
             {
               attributeStatus: 'Accepted',
               component: { name: 'OCPPCommCtrlr' },
-              variable: { name: 'HeartbeatInterval' },
+              variable: { name: 'WebSocketPingInterval' },
             },
             {},
           ],
@@ -2201,7 +2207,7 @@ describe('Station routes - extra coverage', () => {
       expect(res.json()).toEqual({
         success: false,
         results: [
-          { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', status: 'Accepted' },
+          { component: 'OCPPCommCtrlr', variable: 'WebSocketPingInterval', status: 'Accepted' },
           { component: '', variable: '', status: 'Unknown' },
         ],
       });
@@ -2231,7 +2237,7 @@ describe('Station routes - extra coverage', () => {
       expect(res.json()).toEqual({
         success: false,
         results: [
-          { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', status: 'Timeout' },
+          { component: 'OCPPCommCtrlr', variable: 'WebSocketPingInterval', status: 'Timeout' },
           { component: 'TxCtrlr', variable: 'EVConnectionTimeOut', status: 'Timeout' },
         ],
       });
@@ -2259,7 +2265,7 @@ describe('Station routes - extra coverage', () => {
       expect(res.json()).toEqual({
         success: false,
         results: [
-          { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', status: 'Accepted' },
+          { component: 'OCPPCommCtrlr', variable: 'WebSocketPingInterval', status: 'Accepted' },
           { component: 'TxCtrlr', variable: 'EVConnectionTimeOut', status: 'Timeout' },
         ],
       });
@@ -2297,6 +2303,78 @@ describe('Station routes - extra coverage', () => {
       expect(mocks.writeAudit).not.toHaveBeenCalled();
     });
 
+    it('refuses a template that names a boot-owned setting before any command', async () => {
+      queue(
+        [{ stationId: 'CS-16', isOnline: true, ocppProtocol: 'ocpp1.6' }],
+        [
+          {
+            variables: [{ component: '', variable: 'MeterValuesSampledData', value: 'SoC' }],
+            ocppVersion: '1.6',
+          },
+        ],
+      );
+      const res = await inject('POST', `/stations/${STATION}/configurations/push`, {
+        templateId: 'ct-1',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('DATA_PLAN_SETTING_IN_TEMPLATE');
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
+    });
+
+    it('sends and reports a 2.x variable instance', async () => {
+      queue(
+        [{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }],
+        [
+          {
+            variables: [
+              {
+                component: 'OCPPCommCtrlr',
+                variable: 'MessageAttempts',
+                variableInstance: 'TransactionEvent',
+                value: '5',
+              },
+            ],
+            ocppVersion: '2.1',
+          },
+        ],
+      );
+      mocks.sendOcpp.mockResolvedValueOnce({
+        commandId: 'c',
+        response: {
+          setVariableResult: [
+            {
+              attributeStatus: 'Accepted',
+              component: { name: 'OCPPCommCtrlr' },
+              variable: { name: 'MessageAttempts', instance: 'TransactionEvent' },
+            },
+          ],
+        },
+      });
+      const res = await inject('POST', `/stations/${STATION}/configurations/push`, {
+        templateId: 'ct-1',
+      });
+      expect(res.json()).toEqual({
+        success: true,
+        results: [
+          {
+            component: 'OCPPCommCtrlr',
+            variable: 'MessageAttempts',
+            variableInstance: 'TransactionEvent',
+            status: 'Accepted',
+          },
+        ],
+      });
+      expect(ocppCalls('SetVariables')[0]?.[2]).toEqual({
+        setVariableData: [
+          {
+            component: { name: 'OCPPCommCtrlr' },
+            variable: { name: 'MessageAttempts', instance: 'TransactionEvent' },
+            attributeValue: '5',
+          },
+        ],
+      });
+    });
+
     it('reads the per-variable attributeStatus on 1.6', async () => {
       queue(
         [{ stationId: 'CS-16', isOnline: true, ocppProtocol: 'ocpp1.6' }],
@@ -2312,7 +2390,11 @@ describe('Station routes - extra coverage', () => {
       expect(res.json()).toEqual({
         success: false,
         results: [
-          { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', status: 'RebootRequired' },
+          {
+            component: 'OCPPCommCtrlr',
+            variable: 'WebSocketPingInterval',
+            status: 'RebootRequired',
+          },
         ],
       });
     });

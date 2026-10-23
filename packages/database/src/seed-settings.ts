@@ -3,10 +3,14 @@
 
 import {
   AI_PROVIDER_IDS,
+  DATA_RETENTION_SETTINGS,
   REMOVED_AI_SETTING_KEYS,
+  isAllowedRetentionDays,
+  isDataRetentionSettingKey,
   aiProviderApiKeySettingKey,
   encryptString,
 } from '@evtivity/lib';
+import type { DataRetentionDefinition } from '@evtivity/lib';
 
 // seed.config.json uses plaintext key names (no Enc suffix) for secrets. The
 // seed maps each to its `Enc` settings key and encrypts the value, so a
@@ -43,6 +47,7 @@ export const SEED_ENCRYPTED_KEY_MAP: Readonly<Record<string, string>> = {
   'googleMaps.apiKey': 'googleMaps.apiKeyEnc',
   'mobile.attestation.android.serviceAccount': 'mobile.attestation.android.serviceAccountEnc',
   'sim.hologram.apiKey': 'sim.hologram.apiKeyEnc',
+  'notifications.webhookSigningSecret': 'notifications.webhookSigningSecretEnc',
 };
 
 /**
@@ -118,6 +123,16 @@ export function seedSettingRows(
   for (const [key, value] of Object.entries(settings)) {
     if (isPlaintextSecretSettingKey(key)) {
       throw new Error(`Refusing to seed ${key}: a secret setting must use its Enc key.`);
+    }
+    if (isDataRetentionSettingKey(key)) {
+      const def: DataRetentionDefinition = DATA_RETENTION_SETTINGS[key];
+      if (typeof value !== 'number' || !isAllowedRetentionDays(key, value)) {
+        const range =
+          def.keptMin != null
+            ? `0 (keep forever) or ${String(def.keptMin)} to ${String(def.max)}`
+            : `${String(def.min)} to ${String(def.max)}`;
+        throw new Error(`Refusing to seed ${key}: use a whole number of days, ${range}.`);
+      }
     }
     if (key.endsWith('Enc') && typeof value === 'string' && value !== '') {
       if (encryptionKey === '') {

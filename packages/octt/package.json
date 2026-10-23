@@ -43,6 +43,6 @@
     "@evtivity/ocpp": "*",
     "tsx": "^4.19.2",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.5"
   }
 }

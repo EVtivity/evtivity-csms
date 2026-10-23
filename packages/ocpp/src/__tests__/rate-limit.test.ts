@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { consumeStationMessage } from '../server/middleware/rate-limit.js';
+import {
+  consumeStationMessage,
+  DEFAULT_MAX_BYTES_PER_SECOND,
+} from '../server/middleware/rate-limit.js';
 
 describe('consumeStationMessage', () => {
   it('allows messages under the limit', () => {
@@ -34,6 +37,22 @@ describe('consumeStationMessage', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('consumeStationMessage byte budget', () => {
+  it('refuses frames past 2 MiB a second for one station', () => {
+    const mib = 1024 * 1024;
+    expect(consumeStationMessage('RATE-BYTES', 50, 900 * 1024).allowed).toBe(true);
+    expect(consumeStationMessage('RATE-BYTES', 50, 900 * 1024).allowed).toBe(true);
+    expect(consumeStationMessage('RATE-BYTES', 50, 900 * 1024)).toEqual({
+      allowed: false,
+      count: 3,
+      reason: 'bytes',
+    });
+    expect(DEFAULT_MAX_BYTES_PER_SECOND).toBe(2 * mib);
+    // Another station has its own budget.
+    expect(consumeStationMessage('RATE-BYTES-2', 50, 900 * 1024).allowed).toBe(true);
   });
 });
 

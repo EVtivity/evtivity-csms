@@ -7,8 +7,8 @@ import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/ui/password-input';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
+import { CardContent, CardHeader } from '@/components/ui/card';
+import { AuthLayout } from '@/components/AuthLayout';
 import { api, ApiError } from '@/lib/api';
 import { passwordRulesMessage } from '@/lib/password-rules';
 import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
@@ -37,8 +37,6 @@ export function ResetPassword(): React.JSX.Element {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
   const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
-
-  const { companyName, companyLogo, branding } = useAuthBranding();
 
   const { data: securityPublic } = useQuery({
     queryKey: ['security-public'],
@@ -97,121 +95,117 @@ export function ResetPassword(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <AuthBranding companyName={companyName} companyLogo={companyLogo} />
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <h2 className="text-2xl font-semibold">{t('auth.resetPasswordTitle')}</h2>
-          {!success && token != null && (
-            <p className="text-sm text-muted-foreground">{t('auth.resetPasswordSubtitle')}</p>
-          )}
-        </CardHeader>
-        <CardContent>
-          {token == null ? (
-            <div className="space-y-4">
-              <p className="text-sm text-destructive">{t('auth.invalidResetLink')}</p>
-              <Link
-                to="/forgot-password"
-                className="block text-center text-sm font-medium text-link hover:underline"
-              >
-                {t('auth.requestNewLink')}
-              </Link>
-            </div>
-          ) : success ? (
-            <div className="space-y-4">
-              <p className="text-sm text-success">{t('auth.passwordResetSuccess')}</p>
-              <Link
-                to="/login"
-                className="block text-center text-sm font-medium text-link hover:underline"
-              >
-                {t('auth.backToLogin')}
-              </Link>
-            </div>
-          ) : (
-            <form
-              onSubmit={(e) => {
-                void handleSubmit(e);
-              }}
-              noValidate
-              className="space-y-4"
+    <AuthLayout>
+      <CardHeader className="text-center">
+        <h2 className="text-2xl font-semibold">{t('auth.resetPasswordTitle')}</h2>
+        {!success && token != null && (
+          <p className="text-sm text-muted-foreground">{t('auth.resetPasswordSubtitle')}</p>
+        )}
+      </CardHeader>
+      <CardContent>
+        {token == null ? (
+          <div className="space-y-4">
+            <p className="text-sm text-destructive">{t('auth.invalidResetLink')}</p>
+            <Link
+              to="/forgot-password"
+              className="block text-center text-sm font-medium text-link hover:underline"
             >
-              <div className="space-y-2">
-                <label htmlFor="password" className="block text-sm font-medium leading-6">
-                  {t('auth.newPassword')}
-                </label>
-                <PasswordInput
-                  id="password"
-                  value={password}
-                  aria-invalid={hasSubmitted && validationErrors.password ? true : undefined}
-                  aria-describedby={
-                    hasSubmitted && validationErrors.password
-                      ? 'password-error password-requirements'
-                      : 'password-requirements'
-                  }
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    setServerMissing(null);
-                  }}
-                  className={hasSubmitted && validationErrors.password ? 'border-destructive' : ''}
-                />
-                {hasSubmitted && validationErrors.password && (
-                  <p id="password-error" className="text-sm text-destructive">
-                    {validationErrors.password}
-                  </p>
-                )}
-                <PasswordRequirements
-                  policy={passwordPolicy}
-                  serverMissing={serverMissing}
-                  id="password-requirements"
-                  password={password}
-                  showUnmet={hasSubmitted}
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="confirmPassword" className="block text-sm font-medium leading-6">
-                  {t('auth.confirmPassword')}
-                </label>
-                <PasswordInput
-                  id="confirmPassword"
-                  value={confirmPassword}
-                  onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                  }}
-                  className={
-                    hasSubmitted && validationErrors.confirmPassword ? 'border-destructive' : ''
-                  }
-                />
-                {hasSubmitted && validationErrors.confirmPassword && (
-                  <p className="text-sm text-destructive">{validationErrors.confirmPassword}</p>
-                )}
-              </div>
-              {error != null && (
-                <div className="space-y-2">
-                  <p className="text-sm text-destructive">{error}</p>
-                  {error === t('auth.invalidResetLink') && (
-                    <Link
-                      to="/forgot-password"
-                      className="block text-center text-sm font-medium text-link hover:underline"
-                    >
-                      {t('auth.requestNewLink')}
-                    </Link>
-                  )}
-                </div>
+              {t('auth.requestNewLink')}
+            </Link>
+          </div>
+        ) : success ? (
+          <div className="space-y-4">
+            <p className="text-sm text-success">{t('auth.passwordResetSuccess')}</p>
+            <Link
+              to="/login"
+              className="block text-center text-sm font-medium text-link hover:underline"
+            >
+              {t('auth.backToLogin')}
+            </Link>
+          </div>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              void handleSubmit(e);
+            }}
+            noValidate
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <label htmlFor="password" className="block text-sm font-medium leading-6">
+                {t('auth.newPassword')}
+              </label>
+              <PasswordInput
+                id="password"
+                value={password}
+                aria-invalid={hasSubmitted && validationErrors.password ? true : undefined}
+                aria-describedby={
+                  hasSubmitted && validationErrors.password
+                    ? 'password-error password-requirements'
+                    : 'password-requirements'
+                }
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setServerMissing(null);
+                }}
+                className={hasSubmitted && validationErrors.password ? 'border-destructive' : ''}
+              />
+              {hasSubmitted && validationErrors.password && (
+                <p id="password-error" className="text-sm text-destructive">
+                  {validationErrors.password}
+                </p>
               )}
-              <Button type="submit" className="w-full" disabled={loading}>
-                {loading ? t('auth.resettingPassword') : t('auth.resetPassword')}
-              </Button>
-              <Link
-                to="/login"
-                className="block text-center text-sm font-medium text-link hover:underline"
-              >
-                {t('auth.backToLogin')}
-              </Link>
-            </form>
-          )}
-        </CardContent>
-      </Card>
-      <AuthFooter companyName={companyName} branding={branding} />
-    </div>
+              <PasswordRequirements
+                policy={passwordPolicy}
+                serverMissing={serverMissing}
+                id="password-requirements"
+                password={password}
+                showUnmet={hasSubmitted}
+              />
+            </div>
+            <div className="space-y-2">
+              <label htmlFor="confirmPassword" className="block text-sm font-medium leading-6">
+                {t('auth.confirmPassword')}
+              </label>
+              <PasswordInput
+                id="confirmPassword"
+                value={confirmPassword}
+                onChange={(e) => {
+                  setConfirmPassword(e.target.value);
+                }}
+                className={
+                  hasSubmitted && validationErrors.confirmPassword ? 'border-destructive' : ''
+                }
+              />
+              {hasSubmitted && validationErrors.confirmPassword && (
+                <p className="text-sm text-destructive">{validationErrors.confirmPassword}</p>
+              )}
+            </div>
+            {error != null && (
+              <div className="space-y-2">
+                <p className="text-sm text-destructive">{error}</p>
+                {error === t('auth.invalidResetLink') && (
+                  <Link
+                    to="/forgot-password"
+                    className="block text-center text-sm font-medium text-link hover:underline"
+                  >
+                    {t('auth.requestNewLink')}
+                  </Link>
+                )}
+              </div>
+            )}
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? t('auth.resettingPassword') : t('auth.resetPassword')}
+            </Button>
+            <Link
+              to="/login"
+              className="block text-center text-sm font-medium text-link hover:underline"
+            >
+              {t('auth.backToLogin')}
+            </Link>
+          </form>
+        )}
+      </CardContent>
+    </AuthLayout>
   );
 }

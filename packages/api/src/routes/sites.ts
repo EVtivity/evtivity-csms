@@ -23,6 +23,7 @@ import {
   siteInsightsOperatorSuppressedSql,
   siteInsightsSuppressedSql,
   siteInsightSuppressionSourcesSql,
+  getPlatformFeePercent,
 } from '@evtivity/database';
 import type { SiteInsightSuppressionSource } from '@evtivity/database';
 import {
@@ -66,7 +67,12 @@ import {
   deriveElectricityRatePriority,
   STATION_MESSAGE_LANGUAGES,
   isKnownCountry,
+  DATA_PLANS,
 } from '@evtivity/lib';
+import {
+  changeSiteDataPlan,
+  siteDataPlanImpact,
+} from '@evtivity/services/station-data-plan.service';
 import type { ElectricityRatePeriodRestrictions } from '@evtivity/lib';
 import { parseZodRequest, rejectUnknownBodyKeys, zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -95,6 +101,12 @@ import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
 import { enumerateLocalDays, zeroFillDays } from '../lib/daily-series.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import {
+  canReadMoney,
+  maskMoneyFields,
+  METRICS_MONEY_FIELDS,
+  REVENUE_HISTORY_MONEY_FIELDS,
+} from '../lib/money-visibility.js';
 import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import { recalculateSiteElectricityCost } from '@evtivity/services/electricity-cost.service';
@@ -335,6 +347,13 @@ const updateSiteBody = z.object({
     .describe(
       'Monthly AI token budget of this site. Null follows the ai.budget.siteMonthlyTokens setting, 0 means no limit. Users with access to every site only',
     ),
+  dataPlan: z
+    .enum(DATA_PLANS)
+    .nullable()
+    .optional()
+    .describe(
+      "The site's data plan (wifi_or_wired or cellular), null for not set. Stations without their own plan and without a confirmed SIM run it; online ones get the settings at once",
+    ),
 });
 
 /** Site fields only a user with access to every site may change (a restricted user gets 404). */
@@ -392,6 +411,7 @@ const siteSelect = {
   stationCount: sql<number>`count(${chargingStations.id})::int`,
   loadManagementEnabled: sql<boolean>`coalesce(${siteLoadManagement.isEnabled}, false)`,
   reservationsEnabled: sites.reservationsEnabled,
+  dataPlan: sites.dataPlan,
   autochargeEnabled: sites.autochargeEnabled,
   freeVendEnabled: sites.freeVendEnabled,
   freeVendTemplateId21: sites.freeVendTemplateId21,
@@ -479,6 +499,12 @@ const siteItem = z
         'Display language of the station screens at this site (en, de, es, ko, zh, zh-TW). Null follows the stationMessage.language setting',
       ),
     aiInsightsEnabled: z.boolean().describe('Whether automatic insights run for this site'),
+    dataPlan: z
+      .enum(DATA_PLANS)
+      .nullable()
+      .describe(
+        "The site's data plan (wifi_or_wired or cellular), null for not set. Stations without their own plan and without a confirmed SIM run it",
+      ),
     aiMonthlyTokenBudget: z
       .number()
       .nullable()
@@ -528,6 +554,10 @@ const siteBase = z
     timezone: z.string().nullable().describe('IANA timezone name (e.g. America/Los_Angeles)'),
     hoursOfOperation: z.string().nullable().describe('Free-form description of operating hours'),
     metadata: z.record(z.unknown()).nullable().describe('Arbitrary site metadata as JSON object'),
+    dataPlan: z
+      .enum(DATA_PLANS)
+      .nullable()
+      .describe("The site's data plan (wifi_or_wired or cellular), null for not set"),
     autochargeEnabled: z
       .boolean()
       .nullable()
@@ -596,11 +626,13 @@ const siteMetricsResponse = z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe(
         'Total revenue in the period in cents, tax included. Revenue is the final cost of ended sessions plus reservation fees charged, minus refunds, in the company currency; active sessions are not counted',
       ),
     avgRevenueCentsPerSession: z
       .number()
+      .nullable()
       .describe('Average revenue per ended session billed in the company currency, in cents'),
     totalTransactions: z
       .number()
@@ -609,11 +641,13 @@ const siteMetricsResponse = z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe('Total wholesale electricity cost in cents over the reporting period'),
     totalNetRevenueCents: z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe(
         'Total revenue excluding tax in cents. Each amount is split at its own tax rate (a session at its tariff tax rate, a reservation fee at the rate it was taxed at).',
       ),
@@ -621,10 +655,12 @@ const siteMetricsResponse = z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe('Tax collected in cents (total revenue minus total net revenue)'),
     totalProfitCents: z
       .number()
       .int()
+      .nullable()
       .describe(
         'Total profit in cents (revenue excluding tax minus electricity cost); may be negative. Sessions without an electricity cost (costMissingSessionCount) are left out.',
       ),
@@ -639,6 +675,7 @@ const siteMetricsResponse = z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe('Revenue of those sessions in cents, tax included. Left out of profit.'),
     periodMonths: z.number().describe('Number of months covered by this metrics report'),
     currency: z
@@ -710,6 +747,7 @@ const revenueHistoryItem = z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe(
         'Revenue on this date in cents, tax included: final costs of sessions started that day plus reservation fees charged that day, minus refunds, in the company currency. Active sessions are not counted',
       ),
@@ -1123,6 +1161,57 @@ export function siteRoutes(app: FastifyInstance): void {
     },
   );
 
+  const dataPlanImpactQuery = z.object({
+    dataPlan: z
+      .enum(DATA_PLANS)
+      .optional()
+      .describe('The site data plan to check; omitted means not set'),
+  });
+
+  app.get(
+    '/sites/:id/data-plan-impact',
+    {
+      onRequest: [authorize('sites:read')],
+      schema: {
+        tags: ['Sites'],
+        summary: 'Count the stations a site data plan change moves',
+        description:
+          "How many of the site's stations would run another data plan if the site's plan became dataPlan (omitted: not set). Stations with their own plan or a confirmed SIM keep theirs.",
+        operationId: 'getSiteDataPlanImpact',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(siteParams),
+        querystring: zodSchema(dataPlanImpactQuery),
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                stationsChanging: z
+                  .number()
+                  .int()
+                  .describe('Stations whose effective data plan would change'),
+              })
+              .passthrough(),
+          ),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof siteParams>;
+      const { dataPlan } = request.query as z.infer<typeof dataPlanImpactQuery>;
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      const [site] = siteInScope(siteIds, id)
+        ? await db.select({ id: sites.id }).from(sites).where(eq(sites.id, id))
+        : [];
+      if (site == null) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      return { stationsChanging: await siteDataPlanImpact(id, dataPlan ?? null) };
+    },
+  );
+
   const aiSuppressBody = z.object({
     reason: z.string().trim().min(1).max(500).describe('Why the AI insights are suppressed'),
     until: z
@@ -1364,7 +1453,7 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
-      const body = parseZodRequest(updateSiteBody, request.body);
+      const { dataPlan, ...body } = parseZodRequest(updateSiteBody, request.body);
       // A restricted operator cannot change company-wide AI controls of its own site.
       if (ALL_SITE_FIELDS.some((field) => body[field] !== undefined) && siteIds !== null) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
@@ -1409,19 +1498,28 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
       const actor = getAuditActor(request);
-      await writeAudit(
-        { table: siteAuditLog, idColumn: 'site_id' },
-        {
-          entityId: site.id,
-          entityIdSnapshot: site.id,
-          action: 'updated',
-          ...actor,
-          before: before ?? null,
-          after: site,
-        },
-        db,
-        request.log,
-      );
+      // A body with only a data plan is audited by the data plan service alone.
+      if (dataPlan === undefined || Object.keys(body).length > 0) {
+        await writeAudit(
+          { table: siteAuditLog, idColumn: 'site_id' },
+          {
+            entityId: site.id,
+            entityIdSnapshot: site.id,
+            action: 'updated',
+            ...actor,
+            before: before ?? null,
+            after: site,
+          },
+          db,
+          request.log,
+        );
+      }
+      // The data plan service writes the plan, audits it and pushes the new
+      // settings to the online stations whose plan changes.
+      if (dataPlan !== undefined) {
+        await changeSiteDataPlan(site.id, dataPlan, actor, { log: request.log });
+        site = { ...site, dataPlan };
+      }
       if (
         before != null &&
         body.stationMessageLanguage !== undefined &&
@@ -1762,34 +1860,39 @@ export function siteRoutes(app: FastifyInstance): void {
         | { disconnect_count: string; avg_downtime_minutes: string; max_downtime_minutes: string }
         | undefined;
 
-      return {
-        uptimePercent: Math.round(Number(uptimeRow?.uptime_percent ?? 100) * 100) / 100,
-        portCount: Number(uptimeRow?.port_count ?? 0),
-        utilizationPercent: utilization,
-        totalSessions: total,
-        completedSessions: completed,
-        faultedSessions: sessionStats?.faultedSessions ?? 0,
-        sessionSuccessPercent: total > 0 ? Math.round((completed / total) * 100) : 100,
-        totalEnergyWh: sessionStats?.totalEnergyWh ?? 0,
-        avgSessionDurationMinutes: Math.round(sessionStats?.avgDurationMinutes ?? 0),
-        disconnectCount: Number(disconnectRow?.disconnect_count ?? 0),
-        avgDowntimeMinutes: Math.round(Number(disconnectRow?.avg_downtime_minutes ?? 0)),
-        maxDowntimeMinutes: Math.round(Number(disconnectRow?.max_downtime_minutes ?? 0)),
-        totalRevenueCents: revenue.grossCents,
-        avgRevenueCentsPerSession:
-          revenue.sessionCount > 0
-            ? Math.round(revenue.sessionGrossCents / revenue.sessionCount)
-            : 0,
-        totalTransactions: revenue.itemCount,
-        totalElectricityCostCents: financialStats?.totalElectricityCostCents ?? 0,
-        totalNetRevenueCents: revenue.netCents,
-        totalTaxCents: revenue.taxCents,
-        totalProfitCents: profitCents(revenue, financialStats?.totalElectricityCostCents ?? 0),
-        costMissingSessionCount: revenue.costMissingCount,
-        costMissingRevenueCents: revenue.costMissingGrossCents,
-        periodMonths: months,
-        currency,
-      };
+      // Revenue, tax, cost and profit need payments:read (null without it).
+      return maskMoneyFields(
+        {
+          uptimePercent: Math.round(Number(uptimeRow?.uptime_percent ?? 100) * 100) / 100,
+          portCount: Number(uptimeRow?.port_count ?? 0),
+          utilizationPercent: utilization,
+          totalSessions: total,
+          completedSessions: completed,
+          faultedSessions: sessionStats?.faultedSessions ?? 0,
+          sessionSuccessPercent: total > 0 ? Math.round((completed / total) * 100) : 100,
+          totalEnergyWh: sessionStats?.totalEnergyWh ?? 0,
+          avgSessionDurationMinutes: Math.round(sessionStats?.avgDurationMinutes ?? 0),
+          disconnectCount: Number(disconnectRow?.disconnect_count ?? 0),
+          avgDowntimeMinutes: Math.round(Number(disconnectRow?.avg_downtime_minutes ?? 0)),
+          maxDowntimeMinutes: Math.round(Number(disconnectRow?.max_downtime_minutes ?? 0)),
+          totalRevenueCents: revenue.grossCents,
+          avgRevenueCentsPerSession:
+            revenue.sessionCount > 0
+              ? Math.round(revenue.sessionGrossCents / revenue.sessionCount)
+              : 0,
+          totalTransactions: revenue.itemCount,
+          totalElectricityCostCents: financialStats?.totalElectricityCostCents ?? 0,
+          totalNetRevenueCents: revenue.netCents,
+          totalTaxCents: revenue.taxCents,
+          totalProfitCents: profitCents(revenue, financialStats?.totalElectricityCostCents ?? 0),
+          costMissingSessionCount: revenue.costMissingCount,
+          costMissingRevenueCents: revenue.costMissingGrossCents,
+          periodMonths: months,
+          currency,
+        },
+        METRICS_MONEY_FIELDS,
+        await canReadMoney(request),
+      );
     },
   );
 
@@ -1981,6 +2084,8 @@ export function siteRoutes(app: FastifyInstance): void {
         where,
       });
 
+      // Revenue needs payments:read (null without it); the counts stay.
+      const moneyVisible = await canReadMoney(request);
       return zeroFillDays(
         enumerateLocalDays(since, until, tz),
         [...byDay]
@@ -1991,7 +2096,7 @@ export function siteRoutes(app: FastifyInstance): void {
             sessionCount: revenue.sessionCount,
           })),
         (date) => ({ date, revenueCents: 0, sessionCount: 0 }),
-      );
+      ).map((day) => maskMoneyFields(day, REVENUE_HISTORY_MONEY_FIELDS, moneyVisible));
     },
   );
 
@@ -2800,18 +2905,22 @@ export function siteRoutes(app: FastifyInstance): void {
   app.post(
     '/sites/:id/free-vend',
     {
-      onRequest: [authorize('sites:write')],
+      // Free vend stops payment at the site: payments:write too.
+      onRequest: [authorize('sites:write', 'payments:write')],
       schema: {
         tags: ['Sites'],
         summary: 'Toggle free vend mode for a site',
         description:
-          'On: creates the free vend config templates when missing and pushes them to the online stations of the site. When the site was off, the values the stations report then (2.1 TxCtrlr.TxStartPoint, 1.6 LocalPreAuthorize and LocalAuthorizeOffline) are kept in the restore templates. Off: pushes the restore templates, which turn authorization back on (2.1 AuthCtrlr.Enabled true, 1.6 AllowOfflineTxForUnknownId false). A value no station reported restores to PowerPathClosed (2.1), LocalPreAuthorize false and LocalAuthorizeOffline true (1.6). pushId21 and pushId16 name the config pushes.',
+          'Needs sites:write and payments:write. A site-restricted user cannot turn it on at a site with a platform fee (403). On: creates the free vend config templates when missing and pushes them to the online stations of the site. When the site was off, the values the stations report then (2.1 TxCtrlr.TxStartPoint, 1.6 LocalPreAuthorize and LocalAuthorizeOffline) are kept in the restore templates. Off: pushes the restore templates, which turn authorization back on (2.1 AuthCtrlr.Enabled true, 1.6 AllowOfflineTxForUnknownId false). A value no station reported restores to PowerPathClosed (2.1), LocalPreAuthorize false and LocalAuthorizeOffline true (1.6). pushId21 and pushId16 name the config pushes.',
         operationId: 'toggleSiteFreeVend',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteParams),
         body: zodSchema(freeVendBody),
         response: {
           200: itemResponse(freeVendResponse),
+          403: errorWith('Free vend at a site with a platform fee needs access to every site', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
         },
       },
@@ -2830,6 +2939,18 @@ export function siteRoutes(app: FastifyInstance): void {
       const [site] = await db.select().from(sites).where(eq(sites.id, id));
       if (site == null) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+
+      // Free vend zeroes the platform fee of the site's charges, which only a
+      // user with access to every site changes: a site-restricted
+      // user cannot turn it on while the site has a platform fee.
+      if (enabled && siteIds != null && (await getPlatformFeePercent(id)) > 0) {
+        await reply.status(403).send({
+          error:
+            'Only a user with access to every site turns on free vend at a site with a platform fee',
+          code: 'INSUFFICIENT_PERMISSIONS',
+        });
         return;
       }
 

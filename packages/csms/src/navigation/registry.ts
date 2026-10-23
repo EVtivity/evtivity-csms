@@ -21,6 +21,7 @@ import {
   Globe,
   Shield,
   Lightbulb,
+  Microchip,
   type LucideIcon,
 } from 'lucide-react';
 import type { ParseKeys } from 'i18next';
@@ -78,6 +79,14 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
     icon: Fuel,
     order: 30,
     requiredPermission: 'stations:read',
+  },
+  {
+    to: '/sims',
+    labelKey: 'nav.sims',
+    icon: Microchip,
+    order: 35,
+    requiredPermission: 'sims:read',
+    isVisible: (flags) => flags.simEnabled,
   },
   // Operations
   {

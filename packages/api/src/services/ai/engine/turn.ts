@@ -39,10 +39,12 @@ import type { AiSurfaceConfig } from '../surfaces/config.js';
 import { chatbotToolset, routerCategories, supportToolset } from '../surfaces/toolsets.js';
 import type { SupportCaseContext } from '../surfaces/toolsets.js';
 import { AI_TOOL_CATALOG, AI_TOOL_CATEGORIES } from '../tools/catalog.js';
-import { buildToolRequest, runToolCall } from '../tools/execute.js';
-import type { Toolset } from '../tools/execute.js';
+import { buildToolRequest, createToolset, prepareToolCall, runToolCall } from '../tools/execute.js';
+import type { AiToolRefusal, Toolset, ToolsetEntry } from '../tools/execute.js';
+import type { AiCatalogTool } from '../tools/catalog-types.js';
 import { surfaceOffers, toolPolicy } from '../tools/policy.js';
 import { redactToolValue } from '@evtivity/ai/redact';
+import { confirmationArguments } from './confirm-args.js';
 import { checkOcppCommandVersion } from '../tools/ocpp-command-check.js';
 import { createAdapterFor } from './providers.js';
 import { buildSystemBlocks } from './prompt.js';
@@ -221,7 +223,7 @@ function hooksFor(
       });
       return {
         ...created,
-        displayArgs: redactToolValue(args, config.surface).value as Record<string, unknown>,
+        ...confirmationArguments(args, config.surface),
         path: buildToolRequest(entry.tool, args).url,
       };
     },
@@ -424,6 +426,92 @@ export async function runChatMessageTurn(input: {
   }
 }
 
+type DecisionCheck =
+  | { ok: true; entry: ToolsetEntry; args: Record<string, unknown> }
+  | { ok: false; refusal: AiToolRefusal };
+
+const NO_LONGER_AVAILABLE: DecisionCheck = {
+  ok: false,
+  refusal: { reason: 'no_longer_available', modelText: 'This action is no longer available.' },
+};
+
+/**
+ * The checks of the proposal, run again when the user confirms, as
+ * the worker's `executeConfirmedToolCall` does: the station's OCPP version
+ * (a station that reconnected with the other version would get the wrong
+ * command: refused, never translated, since the card showed this one) and
+ * the operation schema. The args hash and expiry are checked by the route.
+ */
+async function recheckConfirmedWrite(
+  ctx: TurnContext,
+  tool: AiCatalogTool,
+  args: Record<string, unknown>,
+): Promise<DecisionCheck> {
+  const policy = toolPolicy(tool.operationId);
+  const entry: ToolsetEntry = {
+    tool,
+    definition: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      strict: tool.strict,
+    },
+    fixedArgs: {},
+    allowedValues: {},
+    omitted: policy.omit,
+  };
+  const version = await checkOcppCommandVersion(ctx, { entry, args });
+  if (!version.ok) return version;
+  if (version.entry.tool.operationId !== tool.operationId) {
+    return {
+      ok: false,
+      refusal: {
+        reason: 'ocpp_version_mismatch',
+        modelText:
+          'The station now uses another OCPP version than when this command was proposed, so the confirmed command did not run.',
+      },
+    };
+  }
+  const prepared = prepareToolCall(createToolset([entry]), tool.name, args);
+  if (!prepared.ok) return { ok: false, refusal: prepared.refusal };
+  return { ok: true, entry: prepared.entry, args: prepared.args };
+}
+
+/** The rest of a decision turn: the model answers with the outcome in its history. */
+async function continueDecisionTurn(
+  input: {
+    ctx: TurnContext;
+    conversation: AiConversationRow;
+    config: AiSurfaceConfig;
+    stream: AiEventStream;
+    maxToolCalls: number;
+    explain?: ExplainTurnContext | null;
+  },
+  firstMessageId: string,
+): Promise<TurnRunResult | null> {
+  const { ctx, conversation, config, stream } = input;
+  const history = toAiMessages(
+    await listMessages(conversation.id, ctx.accessScope, { isApiKey: ctx.isApiKey }),
+  );
+  const [system, routed] = await Promise.all([
+    chatbotSystem(ctx, config, input.explain ?? null),
+    routedChatbotToolset(ctx, conversation, config, history, stream.signal),
+  ]);
+  return runLoop({
+    ctx,
+    conversation,
+    config,
+    stream,
+    system,
+    history,
+    toolset: routed.toolset,
+    maxToolCalls: input.maxToolCalls,
+    ...(routed.usage !== undefined ? { priorUsage: routed.usage } : {}),
+    firstMessageId,
+    usageSiteId: null,
+  });
+}
+
 /**
  * Continues a chatbot turn after the user decided on a pending action: a
  * confirmed write runs now (once, as the user), a rejected one is reported
@@ -460,43 +548,34 @@ export async function runDecisionTurn(input: {
         name: tool?.name ?? action.operationId,
         status: 'rejected',
       });
-    } else if (tool === undefined || !surfaceOffers(toolPolicy(tool.operationId), 'chatbot')) {
-      // The policy changed since the action was proposed: it does not run.
-      const content = JSON.stringify({ error: 'This action is no longer available.' });
-      await replaceToolResult(
-        action.toolMessageId,
-        action.toolCallId,
-        content,
-        true,
-        ctx.accessScope,
-      );
-      await completeToolCall(action.toolCallRowId, { status: 'refused' });
-      stream.send({
-        type: 'tool_step',
-        toolCallId: action.toolCallRowId,
-        name: tool?.name ?? action.operationId,
-        status: 'refused',
-        reason: 'no_longer_available',
-      });
     } else {
-      const policy = toolPolicy(tool.operationId);
+      const checked =
+        tool === undefined || !surfaceOffers(toolPolicy(tool.operationId), 'chatbot')
+          ? NO_LONGER_AVAILABLE
+          : await recheckConfirmedWrite(ctx, tool, action.args as Record<string, unknown>);
+      if (!checked.ok) {
+        // The policy, the station's OCPP version or the operation schema
+        // changed since the action was proposed: it does not run.
+        await replaceToolResult(
+          action.toolMessageId,
+          action.toolCallId,
+          JSON.stringify({ error: checked.refusal.modelText }),
+          true,
+          ctx.accessScope,
+        );
+        await completeToolCall(action.toolCallRowId, { status: 'refused' });
+        stream.send({
+          type: 'tool_step',
+          toolCallId: action.toolCallRowId,
+          name: tool?.name ?? action.operationId,
+          status: 'refused',
+          reason: checked.refusal.reason,
+        });
+        return await continueDecisionTurn(input, firstMessageId);
+      }
       const outcome = await runToolCall(
         ctx.app,
-        {
-          entry: {
-            tool,
-            definition: {
-              name: tool.name,
-              description: tool.description,
-              parameters: tool.parameters,
-              strict: tool.strict,
-            },
-            fixedArgs: {},
-            allowedValues: {},
-            omitted: policy.omit,
-          },
-          args: action.args as Record<string, unknown>,
-        },
+        { entry: checked.entry, args: checked.args },
         ctx.authorization,
         {
           surface: 'chatbot',
@@ -524,7 +603,7 @@ export async function runDecisionTurn(input: {
       stream.send({
         type: 'tool_step',
         toolCallId: action.toolCallRowId,
-        name: tool.name,
+        name: checked.entry.tool.name,
         status: outcome.status === 'ok' ? 'confirmed' : 'error',
         summary: outcome.summary,
         durationMs: outcome.latencyMs,
@@ -534,26 +613,7 @@ export async function runDecisionTurn(input: {
         return null;
       }
     }
-    const history = toAiMessages(
-      await listMessages(conversation.id, ctx.accessScope, { isApiKey: ctx.isApiKey }),
-    );
-    const [system, routed] = await Promise.all([
-      chatbotSystem(ctx, config, input.explain ?? null),
-      routedChatbotToolset(ctx, conversation, config, history, stream.signal),
-    ]);
-    return await runLoop({
-      ctx,
-      conversation,
-      config,
-      stream,
-      system,
-      history,
-      toolset: routed.toolset,
-      maxToolCalls: input.maxToolCalls,
-      ...(routed.usage !== undefined ? { priorUsage: routed.usage } : {}),
-      firstMessageId,
-      usageSiteId: null,
-    });
+    return await continueDecisionTurn(input, firstMessageId);
   } catch (err) {
     ctx.log.error({ err, conversationId: conversation.id }, 'AI decision turn failed');
     if (input.decision === 'confirmed') {

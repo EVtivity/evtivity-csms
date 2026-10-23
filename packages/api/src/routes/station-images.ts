@@ -1,8 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { randomUUID } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, asc, desc } from 'drizzle-orm';
 import {
@@ -24,22 +23,17 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { checkStationSiteAccess } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import { getS3Config, generateDownloadUrl, deleteObject } from '../services/s3.service.js';
+import type { S3Config } from '../services/s3.service.js';
 import {
-  getS3Config,
-  generateUploadUrl,
-  generateDownloadUrl,
-  deleteObject,
-  buildStationImageS3Key,
-} from '../services/s3.service.js';
-
-/** True for a key the upload-url route builds for this station: one object
- *  name directly under stations/{stationId}/ (buildStationImageS3Key). */
-function isStationImageKey(stationId: string, key: string): boolean {
-  const prefix = `stations/${stationId}/`;
-  if (!key.startsWith(prefix)) return false;
-  const name = key.slice(prefix.length);
-  return name.length > 0 && !name.includes('/');
-}
+  finalizeStationImage,
+  parseStationImageQuarantineKey,
+  requestStationImageUpload,
+  stationImageCleanKey,
+  stationImageDownloadOptions,
+  STATION_IMAGE_MAX_BYTES,
+  STATION_IMAGE_MIME_TYPES,
+} from '../services/station-image-upload.js';
 
 const stationIdParams = z.object({
   id: z.string().min(1).describe('Station ID'),
@@ -50,52 +44,40 @@ const imageIdParams = z.object({
   imageId: z.coerce.number().int().min(1).describe('Image ID'),
 });
 
-// Restrict uploads to image MIME types so the bucket can't be used as
-// a dumping ground for executables/documents. The frontend only sends
-// images; this is a server-side guard against a hostile caller.
-const ALLOWED_IMAGE_MIME_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-  'image/svg+xml',
-] as const;
-
+// Raster images only: an SVG can carry script. Confirm checks the
+// bytes and re-encodes them, so the bucket holds images and nothing else.
 const uploadUrlBody = z.object({
   fileName: z.string().min(1).max(255),
   contentType: z
-    .enum(ALLOWED_IMAGE_MIME_TYPES)
-    .describe(
-      'MIME type of the file (image/jpeg, image/png, image/gif, image/webp, image/svg+xml)',
-    ),
+    .enum(STATION_IMAGE_MIME_TYPES)
+    .describe('MIME type of the file (image/jpeg, image/png, image/gif, image/webp)'),
   fileSize: z
     .number()
     .int()
     .min(1)
-    .max(10 * 1024 * 1024)
-    .describe('File size in bytes, max 10 MB'),
+    .max(STATION_IMAGE_MAX_BYTES)
+    .describe('File size in bytes, max 10 MB. The upload may not be larger.'),
 });
 
 const uploadUrlResponse = z
   .object({
     uploadUrl: z
       .string()
-      .describe('Presigned S3 PUT URL the client uses to upload the file directly'),
-    s3Key: z.string().describe('S3 object key under which the file will be stored'),
+      .describe('Presigned S3 POST URL the client sends the form to (the file field last)'),
+    fields: z
+      .record(z.string())
+      .describe('Form fields to send unchanged before the file field (the POST policy)'),
+    s3Key: z.string().describe('Quarantine key of the upload, sent back at confirm'),
     s3Bucket: z.string().describe('S3 bucket the file is uploaded to'),
   })
   .passthrough();
 
 const confirmUploadBody = z.object({
   fileName: z.string().min(1).max(255),
-  // Same caps as uploadUrlBody so a client that requested a presigned
-  // URL for a 1 MB JPEG can't confirm a 50 MB ZIP and persist the lie.
-  fileSize: z
-    .number()
-    .int()
-    .min(1)
-    .max(10 * 1024 * 1024),
-  contentType: z.enum(ALLOWED_IMAGE_MIME_TYPES),
+  // The size and type the upload URL was issued for: an object that is
+  // larger, of another stored type, or whose bytes are another type is refused.
+  fileSize: z.number().int().min(1).max(STATION_IMAGE_MAX_BYTES),
+  contentType: z.enum(STATION_IMAGE_MIME_TYPES),
   s3Key: z.string().min(1),
   s3Bucket: z.string().min(1),
   caption: z.string().max(1000).optional(),
@@ -135,6 +117,15 @@ const imageItem = z
     updatedAt: z.string().describe('Timestamp when the image was last updated'),
   })
   .passthrough();
+
+/** Deletes a clean object whose row was never stored (fail-open: logged, the object stays). */
+async function removeStoredImage(s3: S3Config, key: string, log: FastifyBaseLogger): Promise<void> {
+  try {
+    await deleteObject(s3, s3.bucket, key);
+  } catch (err) {
+    log.warn({ err, key }, 'station image delete after a failed insert failed');
+  }
+}
 
 export function stationImageRoutes(app: FastifyInstance): void {
   // List all images for a station
@@ -178,7 +169,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Get a presigned S3 upload URL for a station image',
         description:
-          'Generates a 5-minute presigned PUT URL for uploading a station image to S3 (max 10MB). The S3 key is built under stations/{stationId}/. Call the confirm endpoint after the PUT succeeds to register the image in the database. Returns 400 if S3 is not configured.',
+          'Generates a 5-minute presigned POST (URL and form fields) for uploading a station image into quarantine: S3 enforces the key, the type and at most the declared size (max 10 MB). Raster types only (JPEG, PNG, GIF, WebP). Call the confirm endpoint after the POST succeeds. Returns 400 if S3 is not configured.',
         operationId: 'getStationImageUploadUrl',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
@@ -208,11 +199,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const fileId = randomUUID();
-      const key = buildStationImageS3Key(id, fileId, body.fileName);
-      const url = await generateUploadUrl(s3, key, body.contentType);
-
-      return { uploadUrl: url, s3Key: key, s3Bucket: s3.bucket };
+      return requestStationImageUpload(s3, id, body);
     },
   );
 
@@ -223,17 +210,19 @@ export function stationImageRoutes(app: FastifyInstance): void {
       onRequest: [authorize('stations:write')],
       schema: {
         tags: ['Stations'],
-        summary: 'Confirm a station image upload after S3 PUT',
+        summary: 'Confirm a station image upload after the S3 POST',
         description:
-          'Inserts a station_images row with the S3 metadata supplied by the client after a successful PUT. Computes the next sortOrder. When isMainImage=true, clears the previous main image on this station so only one main image exists at a time.',
+          'Reads the quarantined upload, checks its bytes against the declared type and size, re-encodes the image (metadata dropped, JPEG or PNG), stores it under stations/{stationId}/ and inserts a station_images row with the stored size and type. A retry of the same key returns the stored row. Computes the next sortOrder. When isMainImage=true, clears the previous main image on this station so only one main image exists at a time.',
         operationId: 'confirmStationImageUpload',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
         body: zodSchema(confirmUploadBody),
         response: {
           201: itemResponse(imageItem),
-          400: errorWith('Validation error or S3 not configured', [
+          400: errorWith('Validation error, refused upload or S3 not configured', [
             ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.AI_ATTACHMENT_REJECTED,
+            ERROR_CODES.AI_ATTACHMENT_TOO_LARGE,
             ERROR_CODES.STORAGE_NOT_CONFIGURED,
           ]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
@@ -251,7 +240,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
       }
 
       // The object must be one the upload-url route issued for this station:
-      // the configured bucket and a key directly under stations/{id}/. A body
+      // the configured bucket and this station's quarantine key. A body
       // naming another bucket, or another station's object, would let this
       // station's download and delete routes reach it.
       const s3 = await getS3Config();
@@ -261,13 +250,33 @@ export function stationImageRoutes(app: FastifyInstance): void {
           .send({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
-      if (!isStationImageKey(id, body.s3Key) || body.s3Bucket !== s3.bucket) {
+      const quarantine = parseStationImageQuarantineKey(id, body.s3Key);
+      if (quarantine == null || body.s3Bucket !== s3.bucket) {
         await reply.status(400).send({
           error: 'The image key or bucket does not belong to this station',
           code: 'VALIDATION_ERROR',
         });
         return;
       }
+
+      // A retry after a lost reply finds the row the first confirm stored.
+      const cleanKey = stationImageCleanKey(id, quarantine.fileId, quarantine.fileName);
+      const [existing] = await db
+        .select()
+        .from(stationImages)
+        .where(and(eq(stationImages.stationId, id), eq(stationImages.s3Key, cleanKey)));
+      if (existing != null) {
+        await reply.status(201).send(existing);
+        return;
+      }
+
+      const stored = await finalizeStationImage(
+        s3,
+        { s3Key: body.s3Key, ...quarantine },
+        id,
+        body,
+        request.log,
+      );
 
       // If setting as main, clear existing main image
       if (body.isMainImage === true) {
@@ -293,10 +302,10 @@ export function stationImageRoutes(app: FastifyInstance): void {
           .insert(stationImages)
           .values({
             stationId: id,
-            fileName: body.fileName,
-            fileSize: body.fileSize,
-            contentType: body.contentType,
-            s3Key: body.s3Key,
+            fileName: stored.fileName,
+            fileSize: stored.fileSize,
+            contentType: stored.contentType,
+            s3Key: stored.s3Key,
             s3Bucket: s3.bucket,
             caption: body.caption ?? null,
             tags: body.tags ?? [],
@@ -312,6 +321,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
         // the FK violation back to the same 404 the pre-check would have
         // produced.
         if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
+          await removeStoredImage(s3, stored.s3Key, request.log);
           await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
           return;
         }
@@ -549,7 +559,12 @@ export function stationImageRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const downloadUrl = await generateDownloadUrl(s3, image.s3Bucket, image.s3Key);
+      const downloadUrl = await generateDownloadUrl(
+        s3,
+        image.s3Bucket,
+        image.s3Key,
+        stationImageDownloadOptions(image),
+      );
       return { downloadUrl };
     },
   );

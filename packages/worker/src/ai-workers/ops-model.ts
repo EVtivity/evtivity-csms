@@ -23,7 +23,7 @@ import { aiUsageCostMicros } from '@evtivity/lib/pricing-engine';
 import { checkAiBudgets, getAiSettings, recordAiUsage } from '@evtivity/database';
 import { getModelEntry } from '@evtivity/ai/core';
 import type { AiAdapter, ProviderId } from '@evtivity/ai/core';
-import { getProviderRegistry } from '@evtivity/ai/providers';
+import { createGuardedFetch, getProviderRegistry } from '@evtivity/ai/providers';
 import { frameUntrusted, promptLanguage } from '@evtivity/ai/prompt';
 import {
   AI_USAGE_REDACTION_SURFACES,
@@ -130,7 +130,13 @@ export async function runOpsNarrative(
   const create =
     deps.createAdapter ??
     ((p: ProviderId, options: { apiKey: string; baseUrl?: string }) =>
-      trackAiProviderCalls(getProviderRegistry().create(p, options)));
+      trackAiProviderCalls(
+        getProviderRegistry().create(p, {
+          ...options,
+          // The address check at send time.
+          fetch: createGuardedFetch(deps.allowPrivateHosts),
+        }),
+      ));
   try {
     const adapter = create(provider, {
       apiKey: config.apiKey,

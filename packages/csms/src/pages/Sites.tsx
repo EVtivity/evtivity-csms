@@ -8,8 +8,6 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
-import { CancelButton } from '@/components/cancel-button';
-import { Button } from '@/components/ui/button';
 import {
   Table,
   TableBody,
@@ -18,13 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { CsvImportDialog, CsvImportResultCard } from '@/components/csv-import-dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select } from '@/components/ui/select';
 import { CreateButton } from '@/components/create-button';
@@ -257,51 +249,35 @@ export function Sites(): React.JSX.Element {
       </div>
 
       {importMutation.isSuccess && (
-        <Card>
-          <CardContent className="p-3 text-sm space-y-1">
-            <p className="font-medium">{t('sites.importResults')}</p>
-            {importMutation.data.sitesCreated > 0 && (
-              <p>{t('sites.sitesCreated', { count: importMutation.data.sitesCreated })}</p>
-            )}
-            {importMutation.data.sitesUpdated > 0 && (
-              <p>{t('sites.sitesUpdated', { count: importMutation.data.sitesUpdated })}</p>
-            )}
-            {importMutation.data.stationsCreated > 0 && (
-              <p>{t('sites.stationsCreated', { count: importMutation.data.stationsCreated })}</p>
-            )}
-            {importMutation.data.stationsUpdated > 0 && (
-              <p>{t('sites.stationsUpdated', { count: importMutation.data.stationsUpdated })}</p>
-            )}
-            {importMutation.data.evsesCreated > 0 && (
-              <p>{t('sites.evsesCreated', { count: importMutation.data.evsesCreated })}</p>
-            )}
-            {importMutation.data.evsesUpdated > 0 && (
-              <p>{t('sites.evsesUpdated', { count: importMutation.data.evsesUpdated })}</p>
-            )}
-            {importMutation.data.connectorsCreated > 0 && (
-              <p>
-                {t('sites.connectorsCreated', { count: importMutation.data.connectorsCreated })}
-              </p>
-            )}
-            {importMutation.data.connectorsUpdated > 0 && (
-              <p>
-                {t('sites.connectorsUpdated', { count: importMutation.data.connectorsUpdated })}
-              </p>
-            )}
-            {importMutation.data.errors.length > 0 && (
-              <details className="mt-2">
-                <summary className="cursor-pointer text-destructive">
-                  {t('sites.importErrors')} ({importMutation.data.errors.length})
-                </summary>
-                <ul className="mt-1 list-disc pl-4 text-destructive">
-                  {importMutation.data.errors.map((err, i) => (
-                    <li key={i}>{err}</li>
-                  ))}
-                </ul>
-              </details>
-            )}
-          </CardContent>
-        </Card>
+        <CsvImportResultCard
+          lines={[
+            ...(importMutation.data.sitesCreated > 0
+              ? [t('sites.sitesCreated', { count: importMutation.data.sitesCreated })]
+              : []),
+            ...(importMutation.data.sitesUpdated > 0
+              ? [t('sites.sitesUpdated', { count: importMutation.data.sitesUpdated })]
+              : []),
+            ...(importMutation.data.stationsCreated > 0
+              ? [t('sites.stationsCreated', { count: importMutation.data.stationsCreated })]
+              : []),
+            ...(importMutation.data.stationsUpdated > 0
+              ? [t('sites.stationsUpdated', { count: importMutation.data.stationsUpdated })]
+              : []),
+            ...(importMutation.data.evsesCreated > 0
+              ? [t('sites.evsesCreated', { count: importMutation.data.evsesCreated })]
+              : []),
+            ...(importMutation.data.evsesUpdated > 0
+              ? [t('sites.evsesUpdated', { count: importMutation.data.evsesUpdated })]
+              : []),
+            ...(importMutation.data.connectorsCreated > 0
+              ? [t('sites.connectorsCreated', { count: importMutation.data.connectorsCreated })]
+              : []),
+            ...(importMutation.data.connectorsUpdated > 0
+              ? [t('sites.connectorsUpdated', { count: importMutation.data.connectorsUpdated })]
+              : []),
+          ]}
+          errors={importMutation.data.errors}
+        />
       )}
 
       {(() => {
@@ -481,46 +457,18 @@ export function Sites(): React.JSX.Element {
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
 
-      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-        <DialogContent className="max-w-[95vw] md:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t('sites.importConfirmTitle')}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm">
-              {t('sites.importConfirmMessage', {
-                count: importRows.length,
-                filename: importFilename,
-              })}
-            </p>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={updateExisting}
-                onChange={(e) => {
-                  setUpdateExisting(e.target.checked);
-                }}
-                className="h-4 w-4 rounded border-input"
-              />
-              <span>{t('sites.updateExisting')}</span>
-            </label>
-            <p className="text-xs text-muted-foreground">{t('sites.updateExistingDescription')}</p>
-            {importMutation.isError && (
-              <p className="text-sm text-destructive">{getErrorMessage(importMutation.error, t)}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <CancelButton
-              onClick={() => {
-                setImportDialogOpen(false);
-              }}
-            />
-            <Button onClick={handleImportConfirm} disabled={importMutation.isPending}>
-              {importMutation.isPending ? t('sites.importing') : t('sites.importCsv')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <CsvImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        title={t('sites.importConfirmTitle')}
+        rowCount={importRows.length}
+        filename={importFilename}
+        updateExisting={updateExisting}
+        onUpdateExistingChange={setUpdateExisting}
+        isPending={importMutation.isPending}
+        error={importMutation.isError ? importMutation.error : null}
+        onConfirm={handleImportConfirm}
+      />
     </div>
   );
 }

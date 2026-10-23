@@ -42,7 +42,12 @@ export function ProfileMfa(): React.JSX.Element {
   const [proofAsked, setProofAsked] = useState(false);
   const [newRecoveryCodes, setNewRecoveryCodes] = useState<string[] | null>(null);
 
-  const { data: mfaStatus, isLoading: mfaLoading } = useMfaStatus();
+  const {
+    data: mfaStatus,
+    isLoading: mfaLoading,
+    isError: mfaLoadFailed,
+    refetch: refetchMfa,
+  } = useMfaStatus();
 
   const mfaDisableMutation = useMutation({
     mutationFn: (body: { proof: FactorProof }) => api.delete('/v1/users/me/mfa', body),
@@ -144,10 +149,25 @@ export function ProfileMfa(): React.JSX.Element {
           </div>
         ) : mfaLoading ? (
           <LoadingLogo size="inline" />
-        ) : mfaStatus == null ? null : mfaStatus.mfaEnabled ? (
+        ) : mfaStatus == null ? (
+          mfaLoadFailed ? (
+            <div className="flex flex-col items-center gap-3">
+              <p className="text-center text-sm text-destructive">{t('common.loadError')}</p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void refetchMfa();
+                }}
+              >
+                {t('common.retry')}
+              </Button>
+            </div>
+          ) : null
+        ) : mfaStatus.mfaEnabled ? (
           <div className="space-y-4 max-w-md">
             <div className="flex items-center gap-2">
-              <Badge variant="default">{t('profile.mfaEnabled')}</Badge>
+              <Badge variant="success">{t('profile.mfaEnabled')}</Badge>
               <span className="text-sm text-muted-foreground">
                 {t('profile.mfaCurrentMethod')}:{' '}
                 {t(
@@ -220,7 +240,7 @@ export function ProfileMfa(): React.JSX.Element {
         ) : passkeysOnly ? (
           <div className="space-y-4 max-w-md">
             <div className="flex items-center gap-2">
-              <Badge variant="default">{t('profile.mfaEnabled')}</Badge>
+              <Badge variant="success">{t('profile.mfaEnabled')}</Badge>
               <span className="text-sm text-muted-foreground">
                 {t('profile.mfaCurrentMethod')}: {t('profile.mfaMethodPasskey')}
               </span>

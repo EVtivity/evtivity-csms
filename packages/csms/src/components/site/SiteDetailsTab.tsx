@@ -19,6 +19,8 @@ import { LANGUAGES } from '@/components/ui/language-select';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { HoursOfOperationField } from '@/components/site/HoursOfOperationField';
 import { SiteAiInsightsRow } from '@/components/site/SiteAiInsightsRow';
+import { SiteDataPlanCard } from '@/components/site/SiteDataPlanCard';
+import type { DataPlan } from '@evtivity/lib/station-data-plan';
 import type { SiteAiInsightsState } from '@/components/site/SiteAiInsightsRow';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
@@ -49,6 +51,7 @@ interface Site extends SiteAiInsightsState {
   carbonRegionCode: string | null;
   stationMessageLanguage: string | null;
   autochargeEnabled?: boolean | null;
+  dataPlan?: DataPlan | null;
   stationCount: number;
   createdAt: string;
   updatedAt: string;
@@ -480,6 +483,7 @@ export function SiteDetailsTab({
           )}
         </CardContent>
       </Card>
+      {!editing && <SiteDataPlanCard siteId={site.id} dataPlan={site.dataPlan ?? null} />}
       {!editing && (
         <Card>
           <CardHeader>

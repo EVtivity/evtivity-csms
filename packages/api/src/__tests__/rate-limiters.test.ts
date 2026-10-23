@@ -4,6 +4,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   isStationCheckRateLimited,
+  stationCheckRateLimitSize,
+  pendingStatusCheck,
+  shareStatusCheck,
   getCachedConnectorStatus,
   setCachedConnectorStatus,
   isApiKeyRateLimited,
@@ -12,6 +15,7 @@ import {
   GUEST_IP_RATE_LIMIT,
   GUEST_SESSION_RATE_LIMIT,
 } from '../lib/rate-limiters.js';
+import type { StatusCheckResult } from '../lib/station-status-check.js';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -23,29 +27,76 @@ afterEach(() => {
 });
 
 describe('isStationCheckRateLimited', () => {
+  it('gives every client of a station its own budget', () => {
+    const station = 'sta_check_ip';
+    for (let i = 0; i < 5; i++) isStationCheckRateLimited(station, '203.0.113.10');
+    expect(isStationCheckRateLimited(station, '203.0.113.10')).toBe(true);
+    // One client at its limit does not lock out another.
+    expect(isStationCheckRateLimited(station, '198.51.100.7')).toBe(false);
+  });
+
   it('allows up to 5 checks in a 60s window then blocks the 6th', () => {
     const station = 'sta_check_1';
     for (let i = 0; i < 5; i++) {
-      expect(isStationCheckRateLimited(station)).toBe(false);
+      expect(isStationCheckRateLimited(station, '203.0.113.1')).toBe(false);
     }
-    expect(isStationCheckRateLimited(station)).toBe(true);
+    expect(isStationCheckRateLimited(station, '203.0.113.1')).toBe(true);
   });
 
   it('lets requests through again after the window slides past 60s', () => {
     const station = 'sta_check_2';
-    for (let i = 0; i < 5; i++) isStationCheckRateLimited(station);
-    expect(isStationCheckRateLimited(station)).toBe(true);
+    for (let i = 0; i < 5; i++) isStationCheckRateLimited(station, '203.0.113.1');
+    expect(isStationCheckRateLimited(station, '203.0.113.1')).toBe(true);
 
     vi.advanceTimersByTime(61_000);
-    expect(isStationCheckRateLimited(station)).toBe(false);
+    expect(isStationCheckRateLimited(station, '203.0.113.1')).toBe(false);
   });
 
   it('prunes a fully-expired entry (recent empty but timestamps existed)', () => {
     const station = 'sta_check_3';
-    isStationCheckRateLimited(station);
+    isStationCheckRateLimited(station, '203.0.113.1');
     vi.advanceTimersByTime(61_000);
     // recent.length === 0 but timestamps.length > 0 -> delete branch, then re-add
-    expect(isStationCheckRateLimited(station)).toBe(false);
+    expect(isStationCheckRateLimited(station, '203.0.113.1')).toBe(false);
+  });
+});
+
+describe('status check budget per client', () => {
+  it('counts two addresses of one IPv6 /64 as one client budget', () => {
+    const station = 'sta_check_v6';
+    for (let i = 0; i < 5; i++)
+      isStationCheckRateLimited(station, `2001:db8:5:6::${String(i + 1)}`);
+    expect(isStationCheckRateLimited(station, '2001:db8:5:6:ffff::9')).toBe(true);
+    // Another /64 has its own budget.
+    expect(isStationCheckRateLimited(station, '2001:db8:5:7::1')).toBe(false);
+  });
+
+  it('sweeps the keys of clients with no check in the window', () => {
+    for (let i = 0; i < 50; i++) isStationCheckRateLimited('sta_sweep', `198.51.100.${String(i)}`);
+    const before = stationCheckRateLimitSize();
+    expect(before).toBeGreaterThanOrEqual(50);
+    vi.advanceTimersByTime(61_000);
+    isStationCheckRateLimited('sta_sweep', '192.0.2.1');
+    // The 50 idle keys are gone; the new one is added.
+    expect(stationCheckRateLimitSize()).toBeLessThanOrEqual(before - 50 + 1);
+  });
+
+  it('runs one status check for every caller that arrives while it runs', async () => {
+    let release: (v: StatusCheckResult) => void = () => undefined;
+    const run = vi.fn(
+      () =>
+        new Promise<StatusCheckResult>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const first = shareStatusCheck('sta_share', 1, run);
+    const second = shareStatusCheck('sta_share', 1, run);
+    expect(pendingStatusCheck('sta_share', 1)).toBe(first);
+    expect(second).toBe(first);
+    release({ status: 'Available' });
+    await expect(first).resolves.toEqual({ status: 'Available' });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(pendingStatusCheck('sta_share', 1)).toBeNull();
   });
 });
 

@@ -1,11 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { getHeartbeatIntervalSeconds } from '@evtivity/database';
+import { getDataPlanValues } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { BootNotificationRequest } from '../../generated/v2_1/types/messages/BootNotificationRequest.js';
 import type { BootNotificationResponse } from '../../generated/v2_1/types/messages/BootNotificationResponse.js';
 import { resolveBootStatus } from '../boot-status.js';
+import { refreshSessionDataPlan } from '../../server/session-data-plan.js';
 
 export async function handleBootNotification(
   ctx: HandlerContext,
@@ -41,9 +42,13 @@ export async function handleBootNotification(
     },
   });
 
+  // The heartbeat of the station's data plan, read once per boot.
+  const plan = await refreshSessionDataPlan(ctx.session);
+  const heartbeatInterval = (await getDataPlanValues(plan)).heartbeatInterval;
+
   const response: BootNotificationResponse = {
     currentTime: new Date().toISOString(),
-    interval: await getHeartbeatIntervalSeconds(),
+    interval: heartbeatInterval,
     status,
   };
 

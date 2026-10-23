@@ -133,6 +133,8 @@ export interface TurnHooks {
     expiresAt: Date;
     /** Redacted arguments for the confirmation card. */
     displayArgs: Record<string, unknown>;
+    /** How many values the redaction hid from `displayArgs` (they still run). */
+    maskedCount?: number;
     path: string;
   }>;
   newMessageId(): string;
@@ -670,6 +672,9 @@ export async function runTurn(input: TurnRunInput): Promise<TurnRunResult> {
         path: action.path,
         summary: `${method} ${action.path}`.slice(0, 2000),
         arguments: action.displayArgs,
+        ...(action.maskedCount !== undefined && action.maskedCount > 0
+          ? { maskedCount: action.maskedCount }
+          : {}),
         expiresAt: action.expiresAt.toISOString(),
       });
       return end('confirmation_required');

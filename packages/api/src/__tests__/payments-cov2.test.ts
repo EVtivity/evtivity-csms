@@ -116,11 +116,13 @@ vi.mock('drizzle-orm', () => ({
   desc: vi.fn(),
   inArray: vi.fn(),
   like: vi.fn(),
+  isNull: vi.fn(),
   sql: Object.assign(vi.fn(), { raw: vi.fn() }),
 }));
 
 vi.mock('@evtivity/lib', async () => ({
   OCTT_PENDING_RESTORE_SETTING_KEY: 'octt.pendingRestore',
+  WEBHOOK_SIGNING_SECRET_KEY: 'notifications.webhookSigningSecretEnc',
   formatCurrencyAmount: (
     await vi.importActual<typeof import('@evtivity/lib/currency')>('@evtivity/lib/currency')
   ).formatCurrencyAmount,

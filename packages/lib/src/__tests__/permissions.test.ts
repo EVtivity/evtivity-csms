@@ -93,9 +93,9 @@ describe('hasAnySettingsPermission', () => {
 describe('built-in permission catalog', () => {
   const all = permissionCatalog.all();
 
-  it('holds 37 resources with read and write each', () => {
-    expect(permissionCatalog.groups()).toHaveLength(37);
-    expect(all).toHaveLength(74);
+  it('holds 38 resources with read and write each', () => {
+    expect(permissionCatalog.groups()).toHaveLength(38);
+    expect(all).toHaveLength(76);
     expect(new Set(all).size).toBe(all.length);
   });
 
@@ -132,7 +132,9 @@ describe('built-in permission catalog', () => {
 
   it('gives operator operational access without settings or users:write', () => {
     const operator = permissionCatalog.defaultsFor('operator');
-    expect(operator).toHaveLength(45);
+    expect(operator).toHaveLength(47);
+    expect(operator).toContain('sims:read');
+    expect(operator).toContain('sims:write');
     expect(operator).toContain('aiAssistant:read');
     expect(operator).toContain('aiAssistant:write');
     expect(operator).not.toContain('users:write');
@@ -171,8 +173,8 @@ describe('built-in permission catalog', () => {
     permissionCatalog.defaultsFor('operator').push('x:read');
     const [first] = permissionCatalog.groups();
     if (first != null) first.resource = 'changed';
-    expect(permissionCatalog.all()).toHaveLength(74);
-    expect(permissionCatalog.defaultsFor('operator')).toHaveLength(45);
+    expect(permissionCatalog.all()).toHaveLength(76);
+    expect(permissionCatalog.defaultsFor('operator')).toHaveLength(47);
     expect(permissionCatalog.groups()[0]?.resource).toBe('dashboard');
   });
 });

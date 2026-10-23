@@ -665,8 +665,12 @@ export function pricingRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { tariffId } = request.params as z.infer<typeof tariffParams>;
-      const [tariff] = await db.select().from(tariffs).where(eq(tariffs.id, tariffId));
+      const { id, tariffId } = request.params as z.infer<typeof tariffParams>;
+      // The tariff must belong to the group in the path (security review AZ-L5).
+      const [tariff] = await db
+        .select()
+        .from(tariffs)
+        .where(and(eq(tariffs.id, tariffId), eq(tariffs.pricingGroupId, id)));
       if (tariff == null) {
         await reply.status(404).send({ error: 'Tariff not found', code: 'TARIFF_NOT_FOUND' });
         return;
@@ -834,7 +838,11 @@ export function pricingRoutes(app: FastifyInstance): void {
       const { id, tariffId } = request.params as z.infer<typeof tariffParams>;
       const body = request.body as z.infer<typeof updateTariffBody>;
 
-      const [existing] = await db.select().from(tariffs).where(eq(tariffs.id, tariffId));
+      // The tariff must belong to the group in the path (security review AZ-L5).
+      const [existing] = await db
+        .select()
+        .from(tariffs)
+        .where(and(eq(tariffs.id, tariffId), eq(tariffs.pricingGroupId, id)));
       if (existing == null) {
         await reply.status(404).send({ error: 'Tariff not found', code: 'TARIFF_NOT_FOUND' });
         return;
@@ -992,9 +1000,13 @@ export function pricingRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TARIFF_NOT_FOUND))) return;
-      const { tariffId } = request.params as z.infer<typeof tariffParams>;
+      const { id, tariffId } = request.params as z.infer<typeof tariffParams>;
 
-      const [tariff] = await db.select().from(tariffs).where(eq(tariffs.id, tariffId));
+      // The tariff must belong to the group in the path (security review AZ-L5).
+      const [tariff] = await db
+        .select()
+        .from(tariffs)
+        .where(and(eq(tariffs.id, tariffId), eq(tariffs.pricingGroupId, id)));
       if (tariff == null) {
         await reply.status(404).send({ error: 'Tariff not found', code: 'TARIFF_NOT_FOUND' });
         return;

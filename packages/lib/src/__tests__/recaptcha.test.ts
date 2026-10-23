@@ -27,6 +27,31 @@ function okResponse(json: Record<string, unknown>): Response {
 }
 
 describe('verifyRecaptcha', () => {
+  it('bounds the verify request with a timeout', async () => {
+    mockFetch.mockResolvedValue(okResponse({ success: true, score: 0.9 }));
+    await verifyRecaptcha('t', 's', 0.5);
+    const init = mockFetch.mock.calls[0]?.[1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('refuses a token made for another action or on another host', async () => {
+    const expected = { action: 'login', hostnames: ['csms.example.com'] };
+    mockFetch.mockResolvedValue(
+      okResponse({ success: true, score: 0.9, action: 'login', hostname: 'CSMS.example.com' }),
+    );
+    expect((await verifyRecaptcha('tok', 'k', 0.5, expected)).success).toBe(true);
+    mockFetch.mockResolvedValue(
+      okResponse({ success: true, score: 0.9, action: 'register', hostname: 'csms.example.com' }),
+    );
+    expect((await verifyRecaptcha('tok', 'k', 0.5, expected)).success).toBe(false);
+    mockFetch.mockResolvedValue(
+      okResponse({ success: true, score: 0.9, action: 'login', hostname: 'evil.example' }),
+    );
+    expect((await verifyRecaptcha('tok', 'k', 0.5, expected)).success).toBe(false);
+    mockFetch.mockResolvedValue(okResponse({ success: true, score: 0.9, action: 'login' }));
+    expect((await verifyRecaptcha('tok', 'k', 0.5, expected)).success).toBe(false);
+  });
+
   it('returns success with score when Google verifies and the score clears the threshold', async () => {
     mockFetch.mockResolvedValue(okResponse({ success: true, score: 0.9, action: 'login' }));
     const result = await verifyRecaptcha('tok', 'secret-key', 0.5);

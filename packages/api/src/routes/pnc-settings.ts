@@ -13,15 +13,19 @@ import {
 } from '@evtivity/database';
 import {
   encryptString,
-  isPrivateUrl,
+  safeFetch,
   parseAllowedPrivateHosts,
   MAX_ALLOWED_PRIVATE_HOSTS,
 } from '@evtivity/lib';
-import { decryptForRead } from '../lib/settings-crypto.js';
+import {
+  readSettingsWithSecrets,
+  SECRET_SETTINGS_READ_PERMISSION,
+} from '../lib/settings-crypto.js';
+import { PRIVATE_HUBJECT_URL_ERROR, validateHubjectUrl } from '../lib/hubject-url.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { config as apiConfig } from '../lib/config.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
@@ -63,13 +67,23 @@ const updatePncSettingsBody = z.object({
     .enum(['manual', 'hubject', 'local'])
     .optional()
     .describe('PKI provider type (local: the CSMS issues contract certificates from its own CA)'),
-  hubjectBaseUrl: z.string().optional().describe('Hubject OPCP API base URL'),
+  hubjectBaseUrl: z
+    .string()
+    .optional()
+    .describe(
+      'Hubject OPCP API base URL. A change without hubjectClientSecret in the same request clears the stored client secret.',
+    ),
   hubjectClientId: z.string().optional().describe('Hubject OAuth2 client ID'),
   hubjectClientSecret: z
     .string()
     .optional()
     .describe('Hubject OAuth2 client secret (stored encrypted)'),
-  hubjectTokenUrl: z.string().optional().describe('Hubject OAuth2 token endpoint URL'),
+  hubjectTokenUrl: z
+    .string()
+    .optional()
+    .describe(
+      'Hubject OAuth2 token endpoint URL. A change without hubjectClientSecret in the same request clears the stored client secret.',
+    ),
   expirationWarningDays: z
     .number()
     .int()
@@ -119,6 +133,8 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['PnC'],
         summary: 'Get Plug and Charge settings',
+        description:
+          'Returns the stored pnc.* settings. pnc.hubject.clientSecretEnc is decrypted only when the caller also holds settings.system:read (for an API key, when its scope includes it), otherwise null; pnc.hubject.clientSecretConfigured says whether it is stored.',
         operationId: 'getPncSettings',
         security: [{ bearerAuth: [] }],
         response: {
@@ -135,11 +151,13 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         .select()
         .from(settings)
         .where(inArray(settings.key, [...PNC_KEYS]));
-      const result: Record<string, unknown> = {};
-      for (const row of rows) {
-        result[row.key] = decryptForRead(row.key, row.value);
-      }
-      return result;
+      // The Hubject client secret is returned decrypted only with
+      // settings.system:read (P12), else null; pnc.hubject.clientSecretConfigured
+      // says whether it is stored.
+      return readSettingsWithSecrets(
+        rows,
+        await requestHasPermission(request, SECRET_SETTINGS_READ_PERMISSION),
+      );
     },
   );
 
@@ -167,16 +185,12 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof updatePncSettingsBody>;
 
-      if (
-        body.hubjectBaseUrl !== undefined &&
-        body.hubjectBaseUrl !== '' &&
-        isPrivateUrl(body.hubjectBaseUrl)
-      ) {
-        await reply.status(400).send({
-          error: 'Hubject base URL must not point to a private or internal address',
-          code: 'PRIVATE_URL',
-        });
-        return;
+      // Both Hubject URLs: the token URL receives the client secret.
+      for (const url of [body.hubjectBaseUrl, body.hubjectTokenUrl]) {
+        if (url !== undefined && validateHubjectUrl(url) == null) {
+          await reply.status(400).send(PRIVATE_HUBJECT_URL_ERROR);
+          return;
+        }
       }
 
       const ocspHosts =
@@ -212,6 +226,35 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
       if (body.hubjectTokenUrl !== undefined) {
         updates.push({ key: 'pnc.hubject.tokenUrl', value: body.hubjectTokenUrl });
       }
+      // A stored secret never follows a new endpoint:
+      // the OCPP process posts the client secret to the token URL, so a caller
+      // who may not read the secret could otherwise point a URL at its own host
+      // and receive it. A URL change without a new secret clears the stored one.
+      const newSecret = body.hubjectClientSecret !== undefined && body.hubjectClientSecret !== '';
+      if (!newSecret && (body.hubjectBaseUrl !== undefined || body.hubjectTokenUrl !== undefined)) {
+        const stored = await db
+          .select()
+          .from(settings)
+          .where(
+            inArray(settings.key, [
+              'pnc.hubject.baseUrl',
+              'pnc.hubject.tokenUrl',
+              'pnc.hubject.clientSecretEnc',
+            ]),
+          );
+        const storedUrl = (key: string): string => {
+          const value = stored.find((row) => row.key === key)?.value;
+          return typeof value === 'string' ? value : '';
+        };
+        const changed =
+          (body.hubjectBaseUrl !== undefined &&
+            body.hubjectBaseUrl !== storedUrl('pnc.hubject.baseUrl')) ||
+          (body.hubjectTokenUrl !== undefined &&
+            body.hubjectTokenUrl !== storedUrl('pnc.hubject.tokenUrl'));
+        if (changed && storedUrl('pnc.hubject.clientSecretEnc') !== '') {
+          updates.push({ key: 'pnc.hubject.clientSecretEnc', value: '' });
+        }
+      }
       if (body.expirationWarningDays !== undefined) {
         updates.push({ key: 'pnc.expirationWarningDays', value: body.expirationWarningDays });
       }
@@ -239,15 +282,24 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
       const beforeMap = new Map<string, unknown>();
       for (const row of beforeRows) beforeMap.set(row.key, row.value);
 
-      for (const update of updates) {
-        await db
-          .insert(settings)
-          .values({ key: update.key, value: update.value })
-          .onConflictDoUpdate({
-            target: settings.key,
-            set: { value: update.value, updatedAt: new Date() },
-          });
-      }
+      // One transaction, the secret first: a write that fails
+      // or a process that stops part way never leaves a new URL next to the old
+      // secret. The caches are cleared only after the commit.
+      const ordered = [
+        ...updates.filter((u) => u.key === 'pnc.hubject.clientSecretEnc'),
+        ...updates.filter((u) => u.key !== 'pnc.hubject.clientSecretEnc'),
+      ];
+      await db.transaction(async (tx) => {
+        for (const update of ordered) {
+          await tx
+            .insert(settings)
+            .values({ key: update.key, value: update.value })
+            .onConflictDoUpdate({
+              target: settings.key,
+              set: { value: update.value, updatedAt: new Date() },
+            });
+        }
+      });
 
       // Invalidate the in-process pnc.enabled cache so OCPP authorize
       // handlers and other readers pick up the flip immediately instead of
@@ -368,12 +420,20 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
           return;
         }
 
-        // Attempt to reach the base URL as a connectivity check
+        // Attempt to reach the base URL as a connectivity check. A stored URL
+        // saved before the check, or a name that resolves to an internal
+        // address, is refused (validateHubjectUrl, then safeFetch).
+        if (validateHubjectUrl(baseUrl) == null) {
+          await reply.status(400).send(PRIVATE_HUBJECT_URL_ERROR);
+          return;
+        }
         const testUrl = `${baseUrl}/.well-known/est/cacerts`;
-        const response = await fetch(testUrl, {
+        const response = await safeFetch(testUrl, {
           method: 'GET',
+          redirect: 'error',
           signal: AbortSignal.timeout(10000),
         });
+        await response.body?.cancel();
 
         if (!response.ok && response.status !== 401 && response.status !== 403) {
           await reply.status(502).send({

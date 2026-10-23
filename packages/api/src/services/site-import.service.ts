@@ -23,9 +23,13 @@ import {
   stationAuditLog,
   siteLoadManagement,
 } from '@evtivity/database';
-import { csvEscape } from '@evtivity/lib';
+import { CONNECTOR_TYPES, csvEscape } from '@evtivity/lib';
 import { sendAvailabilityCommand } from '@evtivity/services/availability-command';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
+import {
+  pushStationDataPlanChanges,
+  snapshotStationDataPlansByOcppIds,
+} from '@evtivity/services/station-data-plan.service';
 import { publishStationStatusChanged } from '../lib/station-status-events.js';
 import { publishOcpiStationSiteMove } from '../lib/ocpi-location-push.js';
 import { siteInScope } from '../lib/site-scope.js';
@@ -41,7 +45,7 @@ interface ImportActor {
   actorLabel?: string | null;
 }
 
-const VALID_CONNECTOR_TYPES = ['CCS2', 'CHAdeMO', 'Type2', 'Type1', 'GBT', 'Tesla', 'NACS'];
+const VALID_CONNECTOR_TYPES: readonly string[] = CONNECTOR_TYPES;
 
 const CSV_HEADER =
   'siteName,stationId,stationModel,stationSerialNumber,stationStatus,onboardingStatus,evseId,connectorId,connectorType,maxPowerKw,maxCurrentAmps,stationVendor';
@@ -250,6 +254,16 @@ export async function importSitesCsv(
   const operatorDisableByUuid = new Map<string, boolean>();
   // Existing stations the import moves to another site (OCPI location push).
   const siteMoves: Array<{ stationUuid: string; fromSiteId: string | null; toSiteId: string }> = [];
+  // The data plan and charging kind of the existing stations the import
+  // names, so a site move or a connector type change pushes the new values
+  // after the commit. New stations get theirs at their first boot.
+  const namedStationIds = [
+    ...new Set(validRows.map((e) => e.row.stationId).filter((id): id is string => !!id)),
+  ];
+  const planBefore = await snapshotStationDataPlansByOcppIds(
+    namedStationIds,
+    logger != null ? { log: logger } : {},
+  );
   await db.transaction(async (tx) => {
     const siteIdByName = new Map<string, string>();
     const evseUuidByKey = new Map<string, string>();
@@ -599,6 +613,7 @@ export async function importSitesCsv(
     }
   });
 
+  await pushStationDataPlanChanges(planBefore, logger != null ? { log: logger } : {});
   await applyImportedAvailability(
     [...stationUuidByStationId.values()],
     operatorDisableByUuid,

@@ -38,6 +38,7 @@ import { useToast } from '@/components/ui/toast';
 import { getErrorMessage } from '@/lib/error-message';
 import { RecordInsight } from '@/components/ai/insights/RecordInsight';
 import { RecordInsightsTab } from '@/components/ai/insights/RecordInsightsTab';
+import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 
 interface GuestSessionInfo {
   sessionToken: string;
@@ -115,7 +116,8 @@ export function SessionDetail(): React.JSX.Element {
   const [tab, setTab] = useTab('details');
   const canReadAudit = useHasPermission('audit:read');
   const canRefundPayments = useHasPermission('payments:write');
-  const canStopSession = useHasPermission('stations:write');
+  // The stop-active-session route needs stations:write and sessions:write.
+  const canStopSession = useCanSendOcppCommand()('RequestStopTransaction');
   const canEndSession = useHasPermission('sessions:write');
   // Account invoices span every site: moving a session between them needs all-site access.
   const canMoveBilling = useHasCompanyWidePermission('payments:write');

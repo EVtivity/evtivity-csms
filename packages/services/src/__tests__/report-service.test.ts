@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { FULL_REPORT_COLUMN_ACCESS } from '../report-registry.js';
 
 let dbResults: unknown[][] = [];
 let dbCallIndex = 0;
@@ -107,6 +108,12 @@ const { generatorMocks, mockLogError, mockLogWarn } = vi.hoisted(() => ({
 
 vi.mock('@evtivity/lib', () => ({
   createLogger: () => ({ error: mockLogError, warn: mockLogWarn, info: vi.fn(), debug: vi.fn() }),
+}));
+// The reader's column access: every column here;
+// report-column-access.test.ts covers the narrowed columns.
+vi.mock('../report-scope.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../report-scope.js')>()),
+  reportColumnAccess: vi.fn(() => Promise.resolve({ driverData: true, money: true })),
 }));
 vi.mock('../report-generators/nevi-report.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../report-generators/nevi-report.js')>()),
@@ -231,6 +238,7 @@ describe('queueReport', () => {
     filters: { month: 1 },
     userId: 'user-1',
     siteScope: ['site-a'],
+    columns: { driverData: false, money: true },
   };
 
   it('stores the report, hands its id to dispatch and returns it', async () => {
@@ -246,7 +254,12 @@ describe('queueReport', () => {
       values: ReturnType<typeof vi.fn>;
     };
     expect(chain.values).toHaveBeenCalledWith(
-      expect.objectContaining({ siteScope: ['site-a'], generatedById: 'user-1' }),
+      expect.objectContaining({
+        siteScope: ['site-a'],
+        generatedById: 'user-1',
+        includesDriverData: false,
+        includesMoney: true,
+      }),
     );
     for (const generator of Object.values(generatorMocks)) {
       expect(generator).not.toHaveBeenCalled();
@@ -379,33 +392,98 @@ describe('generateReport', () => {
       format: 'csv',
       filters: { month: 1 },
       siteScope: null,
+      includesDriverData: true,
+      includesMoney: true,
     };
     setupDbResults([report], []);
 
     await generateReport('report-123');
 
-    expect(generatorMocks.revenue).toHaveBeenCalledWith({ month: 1 }, 'csv', 'en', null);
+    expect(generatorMocks.revenue).toHaveBeenCalledWith(
+      { month: 1 },
+      'csv',
+      'en',
+      null,
+      FULL_REPORT_COLUMN_ACCESS,
+    );
   });
 
   it('generates the report with the site scope stored on it', async () => {
     generatorMocks.energy.mockResolvedValue({ data: Buffer.from('e'), fileName: 'e.csv' });
     setupDbResults(
-      [{ reportType: 'energy', format: 'csv', filters: {}, siteScope: ['site-a', 'site-b'] }],
+      [
+        {
+          reportType: 'energy',
+          format: 'csv',
+          filters: {},
+          siteScope: ['site-a', 'site-b'],
+          includesDriverData: true,
+          includesMoney: true,
+        },
+      ],
       [],
     );
 
     await generateReport('report-scoped');
 
-    expect(generatorMocks.energy).toHaveBeenCalledWith({}, 'csv', 'en', ['site-a', 'site-b']);
+    expect(generatorMocks.energy).toHaveBeenCalledWith(
+      {},
+      'csv',
+      'en',
+      ['site-a', 'site-b'],
+      FULL_REPORT_COLUMN_ACCESS,
+    );
   });
 
   it('passes an empty site scope through unchanged (an empty report, never all sites)', async () => {
     generatorMocks.energy.mockResolvedValue({ data: Buffer.from('e'), fileName: 'e.csv' });
-    setupDbResults([{ reportType: 'energy', format: 'csv', filters: {}, siteScope: [] }], []);
+    setupDbResults(
+      [
+        {
+          reportType: 'energy',
+          format: 'csv',
+          filters: {},
+          siteScope: [],
+          includesDriverData: true,
+          includesMoney: true,
+        },
+      ],
+      [],
+    );
 
     await generateReport('report-empty-scope');
 
-    expect(generatorMocks.energy).toHaveBeenCalledWith({}, 'csv', 'en', []);
+    expect(generatorMocks.energy).toHaveBeenCalledWith(
+      {},
+      'csv',
+      'en',
+      [],
+      FULL_REPORT_COLUMN_ACCESS,
+    );
+  });
+
+  it('generates the report with the columns stored on it', async () => {
+    generatorMocks.sessions.mockResolvedValue({ data: Buffer.from('s'), fileName: 's.csv' });
+    setupDbResults(
+      [
+        {
+          reportType: 'sessions',
+          format: 'csv',
+          filters: {},
+          siteScope: null,
+          includesDriverData: false,
+          includesMoney: true,
+        },
+      ],
+      [],
+    );
+
+    await generateReport('report-columns');
+
+    expect(generatorMocks.sessions).toHaveBeenCalledWith({}, 'csv', 'en', null, {
+      driverData: false,
+      money: true,
+    });
   });
 
   it('does nothing when the report is no longer pending (a job delivered twice)', async () => {
@@ -428,6 +506,8 @@ describe('generateReport', () => {
           filters: {},
           generatedById: 'usr_1',
           siteScope: null,
+          includesDriverData: true,
+          includesMoney: true,
         },
       ],
       [{ language: 'ko' }],
@@ -436,7 +516,13 @@ describe('generateReport', () => {
 
     await generateReport('report-ko');
 
-    expect(generatorMocks.sessions).toHaveBeenCalledWith({}, 'pdf', 'ko', null);
+    expect(generatorMocks.sessions).toHaveBeenCalledWith(
+      {},
+      'pdf',
+      'ko',
+      null,
+      FULL_REPORT_COLUMN_ACCESS,
+    );
   });
 
   it('falls back to English for a user language that is not a UI language', async () => {
@@ -449,6 +535,8 @@ describe('generateReport', () => {
           filters: {},
           generatedById: 'usr_1',
           siteScope: null,
+          includesDriverData: true,
+          includesMoney: true,
         },
       ],
       [{ language: 'fr' }],
@@ -457,7 +545,13 @@ describe('generateReport', () => {
 
     await generateReport('report-fr');
 
-    expect(generatorMocks.sessions).toHaveBeenCalledWith({}, 'csv', 'en', null);
+    expect(generatorMocks.sessions).toHaveBeenCalledWith(
+      {},
+      'csv',
+      'en',
+      null,
+      FULL_REPORT_COLUMN_ACCESS,
+    );
   });
 
   it('has a generator for every report type without startup registration', async () => {
@@ -468,11 +562,29 @@ describe('generateReport', () => {
         data: Buffer.from('x'),
         fileName: `${reportType}.csv`,
       });
-      setupDbResults([{ reportType, format: 'csv', filters: {}, siteScope: null }], []);
+      setupDbResults(
+        [
+          {
+            reportType,
+            format: 'csv',
+            filters: {},
+            siteScope: null,
+            includesDriverData: true,
+            includesMoney: true,
+          },
+        ],
+        [],
+      );
 
       await generateReport(`report-${reportType}`);
 
-      expect(generatorMocks[reportType]).toHaveBeenCalledWith({}, 'csv', 'en', null);
+      expect(generatorMocks[reportType]).toHaveBeenCalledWith(
+        {},
+        'csv',
+        'en',
+        null,
+        FULL_REPORT_COLUMN_ACCESS,
+      );
     }
     expect(mockLogError).not.toHaveBeenCalled();
   });
@@ -523,19 +635,29 @@ describe('renderReport', () => {
   it('builds the file in the given language without storing it', async () => {
     generatorMocks.energy.mockResolvedValue({ data: Buffer.from('e'), fileName: 'e.xlsx' });
 
-    const result = await renderReport('energy', { siteId: 's1' }, 'xlsx', 'de', ['s1', 's2']);
+    const result = await renderReport(
+      'energy',
+      { siteId: 's1' },
+      'xlsx',
+      'de',
+      ['s1', 's2'],
+      FULL_REPORT_COLUMN_ACCESS,
+    );
 
     expect(result.fileName).toBe('e.xlsx');
-    expect(generatorMocks.energy).toHaveBeenCalledWith({ siteId: 's1' }, 'xlsx', 'de', [
-      's1',
-      's2',
-    ]);
+    expect(generatorMocks.energy).toHaveBeenCalledWith(
+      { siteId: 's1' },
+      'xlsx',
+      'de',
+      ['s1', 's2'],
+      FULL_REPORT_COLUMN_ACCESS,
+    );
   });
 
   it('throws for an unknown report type', async () => {
-    await expect(renderReport('bogus', {}, 'csv', 'en', null)).rejects.toThrow(
-      'No generator registered for report type: bogus',
-    );
+    await expect(
+      renderReport('bogus', {}, 'csv', 'en', null, FULL_REPORT_COLUMN_ACCESS),
+    ).rejects.toThrow('No generator registered for report type: bogus');
   });
 });
 

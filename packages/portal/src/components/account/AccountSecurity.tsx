@@ -12,6 +12,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Select } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { CopyButton } from '@/components/ui/copy-button';
 import {
   FactorProofField,
   proofRejection,
@@ -43,14 +44,19 @@ export function AccountSecurity(): React.JSX.Element {
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [passwordMsg, setPasswordMsg] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordChanged, setPasswordChanged] = useState(false);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
   // The rules a WEAK_PASSWORD reply named. Translated at render, cleared on edit.
   const [serverMissing, setServerMissing] = useState<PasswordRule[] | null>(null);
 
   const queryClient = useQueryClient();
-  const { data: mfaStatus } = useQuery({
+  const {
+    data: mfaStatus,
+    isError: mfaLoadFailed,
+    refetch: refetchMfa,
+  } = useQuery({
     queryKey: MFA_STATUS_KEY,
     queryFn: () => api.get<PortalMfaStatus>('/v1/portal/driver/mfa'),
   });
@@ -129,17 +135,18 @@ export function AccountSecurity(): React.JSX.Element {
     e.preventDefault();
     setHasSubmittedPassword(true);
     if (Object.keys(passwordErrors).length > 0) return;
-    setPasswordMsg('');
+    setPasswordError('');
+    setPasswordChanged(false);
     setPasswordLoading(true);
     try {
       await api.patch('/v1/portal/driver/password', { currentPassword, newPassword });
-      setPasswordMsg(t('profile.passwordChanged'));
+      setPasswordChanged(true);
       setCurrentPassword('');
       setNewPassword('');
       setHasSubmittedPassword(false);
     } catch (err) {
       if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerMissing(weakPasswordReply(err) ?? []);
-      else setPasswordMsg(getErrorMessage(err, t, 'profile.passwordChangeFailed'));
+      else setPasswordError(getErrorMessage(err, t, 'profile.passwordChangeFailed'));
     } finally {
       setPasswordLoading(false);
     }
@@ -233,7 +240,16 @@ export function AccountSecurity(): React.JSX.Element {
       {/* Password change */}
       <form onSubmit={(e) => void handlePasswordChange(e)} noValidate className="space-y-4">
         <h3 className="text-sm font-semibold">{t('profile.changePassword')}</h3>
-        {passwordMsg !== '' && <p className="text-sm text-muted-foreground">{passwordMsg}</p>}
+        {passwordChanged && (
+          <p className="text-sm text-success" role="status">
+            {t('profile.passwordChanged')}
+          </p>
+        )}
+        {passwordError !== '' && (
+          <p className="text-sm text-destructive" role="alert">
+            {passwordError}
+          </p>
+        )}
         <div className="space-y-2">
           <label htmlFor="secCurrentPw" className="block text-sm font-medium leading-6">
             {t('profile.currentPassword')}
@@ -243,6 +259,7 @@ export function AccountSecurity(): React.JSX.Element {
             value={currentPassword}
             onChange={(e) => {
               setCurrentPassword(e.target.value);
+              setPasswordChanged(false);
             }}
             className={
               hasSubmittedPassword && passwordErrors.currentPassword ? 'border-destructive' : ''
@@ -268,6 +285,7 @@ export function AccountSecurity(): React.JSX.Element {
             onChange={(e) => {
               setNewPassword(e.target.value);
               setServerMissing(null);
+              setPasswordChanged(false);
             }}
             className={
               hasSubmittedPassword && passwordErrors.newPassword ? 'border-destructive' : ''
@@ -286,16 +304,39 @@ export function AccountSecurity(): React.JSX.Element {
             showUnmet={hasSubmittedPassword}
           />
         </div>
-        <Button type="submit" className="w-full" disabled={passwordLoading}>
-          {passwordLoading ? t('profile.changingPassword') : t('profile.changePassword')}
+        <Button type="submit" className="relative w-full" disabled={passwordLoading}>
+          {passwordLoading && (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <Spinner className="h-4 w-4" />
+            </span>
+          )}
+          <span className={passwordLoading ? 'invisible' : ''}>{t('profile.changePassword')}</span>
         </Button>
       </form>
 
       {/* MFA */}
+      {mfaStatus == null && mfaLoadFailed && (
+        <div className="flex flex-col items-center gap-3" data-testid="mfa-load-error">
+          <p className="text-center text-sm text-destructive">{t('profile.mfaLoadError')}</p>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              void refetchMfa();
+            }}
+          >
+            {t('errors.retry')}
+          </Button>
+        </div>
+      )}
       {mfaStatus != null && (mfaEnabled || passkeysOnly || availableMethods.length > 0) && (
         <div className="space-y-4">
           <h3 className="text-sm font-semibold">{t('profile.mfaSecurity')}</h3>
-          {mfaMsg !== '' && <p className="text-sm text-muted-foreground">{mfaMsg}</p>}
+          {mfaMsg !== '' && (
+            <p className="text-sm text-destructive" role="alert">
+              {mfaMsg}
+            </p>
+          )}
 
           {newRecoveryCodes != null ? (
             <RecoveryCodesDisplay
@@ -425,15 +466,13 @@ export function AccountSecurity(): React.JSX.Element {
                         ))}
                       </Select>
                     </div>
-                    <Button type="submit" className="w-full" disabled={mfaLoading}>
-                      {mfaLoading ? (
-                        <>
-                          <Spinner className="mr-2 h-4 w-4" />
-                          {t('profile.mfaSettingUp')}
-                        </>
-                      ) : (
-                        t('profile.mfaSetUp')
+                    <Button type="submit" className="relative w-full" disabled={mfaLoading}>
+                      {mfaLoading && (
+                        <span className="absolute inset-0 flex items-center justify-center">
+                          <Spinner className="h-4 w-4" />
+                        </span>
                       )}
+                      <span className={mfaLoading ? 'invisible' : ''}>{t('profile.mfaSetUp')}</span>
                     </Button>
                   </>
                 )}
@@ -461,9 +500,12 @@ export function AccountSecurity(): React.JSX.Element {
                   {mfaSetupData.secret != null && (
                     <div className="space-y-1">
                       <p className="text-sm text-muted-foreground">{t('profile.mfaManualEntry')}</p>
-                      <code className="block rounded bg-muted px-3 py-2 text-center text-sm">
-                        {mfaSetupData.secret}
-                      </code>
+                      <div className="flex items-center gap-2">
+                        <code className="min-w-0 flex-1 rounded bg-muted px-3 py-2 text-center text-sm select-all wrap-anywhere">
+                          {mfaSetupData.secret}
+                        </code>
+                        <CopyButton value={mfaSetupData.secret} />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -492,15 +534,13 @@ export function AccountSecurity(): React.JSX.Element {
                   </p>
                 )}
               </div>
-              <Button type="submit" className="w-full" disabled={mfaLoading}>
-                {mfaLoading ? (
-                  <>
-                    <Spinner className="mr-2 h-4 w-4" />
-                    {t('profile.mfaVerifying')}
-                  </>
-                ) : (
-                  t('profile.mfaVerify')
+              <Button type="submit" className="relative w-full" disabled={mfaLoading}>
+                {mfaLoading && (
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <Spinner className="h-4 w-4" />
+                  </span>
                 )}
+                <span className={mfaLoading ? 'invisible' : ''}>{t('profile.mfaVerify')}</span>
               </Button>
             </form>
           )}

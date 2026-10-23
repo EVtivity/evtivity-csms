@@ -178,6 +178,24 @@ describe('lastFactorProofKindsOf', () => {
   });
 });
 
+describe('checkFactorProof for an account that no longer exists', () => {
+  it('refuses, whatever the proof (fail closed)', async () => {
+    h.user = null;
+    const refused = await checkFactorProof(
+      request,
+      { userId: ME },
+      {
+        kind: 'password',
+        password: 'x',
+      },
+    );
+    expect(refused).toMatchObject({
+      status: 400,
+      body: { code: 'VALIDATION_ERROR', proofKinds: [] },
+    });
+  });
+});
+
 describe('checkFactorProof for removing a factor', () => {
   it('refuses the right password from an account that holds a factor', async () => {
     h.passkeyCount = 1;
@@ -525,7 +543,7 @@ describe('checkFactorProof for a driver', () => {
   });
 });
 
-describe('the sso proof (security review L4)', () => {
+describe('the sso proof', () => {
   const ssoRequest = (ssoAt: unknown) =>
     ({
       ...request,

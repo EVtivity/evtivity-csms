@@ -1,4 +1,4 @@
-FROM node:24-slim AS deps
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
 # A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
 ENV npm_config_fetch_retries=5 \
     npm_config_fetch_retry_mintimeout=20000 \
@@ -39,7 +39,7 @@ COPY packages/v2g-exi/ packages/v2g-exi/
 
 RUN node scripts/build.mjs ocpp
 
-FROM node:24-slim
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
 # A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
 ENV npm_config_fetch_retries=5 \
     npm_config_fetch_retry_mintimeout=20000 \
@@ -71,7 +71,7 @@ COPY --from=build /app/dist/ocpp.mjs.map dist/ocpp.mjs.map
 COPY packages/ocpp/src/templates/ templates/ocpp/
 COPY packages/api/src/templates/ templates/api/
 
-LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms-helm"
+LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms"
 LABEL org.opencontainers.image.licenses="BUSL-1.1"
 LABEL org.opencontainers.image.vendor="EVtivity"
 
@@ -80,6 +80,9 @@ COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/evtivity-entrypoint
 USER node
 EXPOSE 8080 8081 8443
 
+# Production unless the deployment says otherwise: an unset NODE_ENV would
+# otherwise reach the development defaults of a hand-written deployment.
+ENV NODE_ENV=production
 ENV NODE_OPTIONS="--enable-source-maps --max-old-space-size=3072"
 ENV OCPP_TEMPLATES_DIR="/app/templates/ocpp"
 ENV API_TEMPLATES_DIR="/app/templates/api"

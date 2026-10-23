@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  clipIntervals,
   coveredDays,
   coveredMs,
   mergeIntervals,
@@ -13,6 +14,23 @@ import {
 
 const at = (iso: string): Date => new Date(iso);
 const HOUR = 3_600_000;
+
+describe('clipIntervals', () => {
+  it('keeps only the parts inside the windows', () => {
+    const clipped = clipIntervals(
+      [{ from: at('2026-10-01T00:00:00Z'), to: at('2026-10-10T00:00:00Z') }],
+      [
+        { from: at('2026-10-03T00:00:00Z'), to: at('2026-10-04T00:00:00Z') },
+        { from: at('2026-10-08T00:00:00Z'), to: at('2026-10-20T00:00:00Z') },
+      ],
+    );
+    expect(clipped).toEqual([
+      { from: at('2026-10-03T00:00:00Z'), to: at('2026-10-04T00:00:00Z') },
+      { from: at('2026-10-08T00:00:00Z'), to: at('2026-10-10T00:00:00Z') },
+    ]);
+    expect(clipIntervals(clipped, [])).toEqual([]);
+  });
+});
 
 describe('mergeIntervals', () => {
   it('merges overlapping and touching ranges and sorts them', () => {

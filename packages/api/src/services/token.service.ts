@@ -18,11 +18,13 @@ import {
   tokenAuditLog,
   stationLocalAuthEntries,
   stationLocalAuthVersions,
+  vehicles,
   writeAudit,
   currentAuditViaAi,
 } from '@evtivity/database';
 import { dispatchDriverNotification, createLogger, csvEscape, isNewOcpiToken } from '@evtivity/lib';
 import { isOcppIdTokenType } from '@evtivity/lib/id-token-types';
+import { isVehicleShapedTokenValue, tokenVehicleIdCandidates } from '@evtivity/lib/vehicle-id';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { PaginationParams, PaginatedResponse } from '../lib/pagination.js';
@@ -177,6 +179,55 @@ export class TokenReactivationBlockedError extends Error {
   constructor(public readonly tokenId: string) {
     super('Token was deactivated by the operator');
     this.name = 'TokenReactivationBlockedError';
+  }
+}
+
+/**
+ * The prepaid balance a token change was based on is no longer the stored
+ * one: a session debited it in between.
+ */
+export class PrepaidBalanceConflictError extends Error {
+  constructor() {
+    super('The prepaid balance changed since it was read');
+    this.name = 'PrepaidBalanceConflictError';
+  }
+}
+
+/**
+ * A driver tried to register a card whose value is a vehicle id (VIN, EVCCID
+ * or MAC address) of another driver's vehicle. A card wins over a vehicle on
+ * Authorize, so the card would take over that car's Autocharge starts.
+ */
+export class VehicleIdTokenInUseError extends Error {
+  constructor() {
+    super('Another vehicle uses this id');
+    this.name = 'VehicleIdTokenInUseError';
+  }
+}
+
+/**
+ * A prepaid balance change without the balance the caller read
+ * (`expectedPrepaidBalanceCents`). An absolute balance alone overwrites a
+ * session debit that lands between the read and the write, so every change
+ * carries the expected value.
+ */
+export class PrepaidBalanceExpectedError extends Error {
+  constructor() {
+    super('A prepaid balance change needs expectedPrepaidBalanceCents');
+    this.name = 'PrepaidBalanceExpectedError';
+  }
+}
+
+/**
+ * A driver tried to register a card whose value has a vehicle id shape (a MAC
+ * address, a VIN or the `VID:` prefix). No card UID has it, and such a card
+ * would take the car's 1.6 Autocharge starts before its owner adds the
+ * vehicle. Operators keep every value.
+ */
+export class VehicleShapedCardError extends Error {
+  constructor() {
+    super('A vehicle id is not a card');
+    this.name = 'VehicleShapedCardError';
   }
 }
 
@@ -460,6 +511,33 @@ async function assertDriverActive(driverId: string, conn: TokenDb = db): Promise
   if (!driver.isActive) throw new TokenDriverInactiveError(driverId);
 }
 
+/**
+ * Refuses a card whose value, in any spelling (`tokenVehicleIdCandidates`:
+ * case, separators, the `VID:` prefix), is the VIN or EVCCID of a vehicle of
+ * another driver, Autocharge on or off. A card wins over a vehicle on an
+ * untyped 1.6 Authorize, so the card would take over that car's starts.
+ * Applies to every actor; a card without a driver collides
+ * with every vehicle. The vehicle service checks the other order.
+ */
+async function assertNotOtherDriversVehicleId(
+  idToken: string,
+  driverId: string | null,
+  conn: TokenDb = db,
+): Promise<void> {
+  const candidates = tokenVehicleIdCandidates(idToken);
+  const [hit] = await conn
+    .select({ id: vehicles.id })
+    .from(vehicles)
+    .where(
+      and(
+        driverId != null ? ne(vehicles.driverId, driverId) : undefined,
+        or(inArray(vehicles.vin, candidates), inArray(vehicles.evccid, candidates)),
+      ),
+    )
+    .limit(1);
+  if (hit != null) throw new VehicleIdTokenInUseError();
+}
+
 export async function createToken(
   data: {
     driverId?: string | null | undefined;
@@ -470,6 +548,10 @@ export async function createToken(
   },
   actor: TokenActor = { type: 'system' },
 ) {
+  // Before any lookup, so the answer says nothing about existing cards.
+  if (actor.type === 'driver' && isVehicleShapedTokenValue(data.idToken)) {
+    throw new VehicleShapedCardError();
+  }
   // Check for an existing row first. If it already belongs to the same driver,
   // treat this as a re-add (driver removed the card, then registered it
   // again) and reactivate the existing row rather than throwing 409. This
@@ -493,8 +575,10 @@ export async function createToken(
         {
           isActive: true,
           expiresAt: data.expiresAt ?? null,
+          // A reactivated card gets a balance only while it holds none: the
+          // create request read no balance to compare (PP2 Info 3).
           ...(data.prepaidBalanceCents !== undefined
-            ? { prepaidBalanceCents: data.prepaidBalanceCents }
+            ? { prepaidBalanceCents: data.prepaidBalanceCents, expectedPrepaidBalanceCents: null }
             : {}),
         },
         actor,
@@ -505,6 +589,7 @@ export async function createToken(
   }
 
   if (data.driverId != null) await assertDriverActive(data.driverId);
+  await assertNotOtherDriversVehicleId(data.idToken, data.driverId ?? null);
 
   let token: typeof driverTokens.$inferSelect | undefined;
   try {
@@ -558,9 +643,20 @@ export async function updateToken(
     expiresAt?: Date | null | undefined;
     revokedReason?: string | null | undefined;
     prepaidBalanceCents?: number | null | undefined;
+    /**
+     * The balance the caller read before changing `prepaidBalanceCents`: the
+     * change applies only while the locked row still holds it, else
+     * PrepaidBalanceConflictError, so a session debit in between is never
+     * overwritten. Required with every balance change, else
+     * PrepaidBalanceExpectedError (PP2 Info 3).
+     */
+    expectedPrepaidBalanceCents?: number | null | undefined;
   },
   actor: TokenActor = { type: 'system' },
 ) {
+  if (data.prepaidBalanceCents !== undefined && data.expectedPrepaidBalanceCents === undefined) {
+    throw new PrepaidBalanceExpectedError();
+  }
   // The row is locked for the read and the write, so two concurrent toggles
   // cannot both see the old state and both audit and notify a transition.
   let changed: {
@@ -590,6 +686,12 @@ export async function updateToken(
         .where(eq(driverTokens.id, id))
         .for('update');
       if (current == null) return null;
+      if (
+        data.prepaidBalanceCents !== undefined &&
+        current.prepaidBalanceCents !== data.expectedPrepaidBalanceCents
+      ) {
+        throw new PrepaidBalanceConflictError();
+      }
 
       if (
         actor.type === 'driver' &&
@@ -636,7 +738,14 @@ export async function updateToken(
         }
       }
 
+      const nextValue = data.idToken ?? current.idToken;
+      if (nextValue !== current.idToken || nextDriverId !== current.driverId) {
+        await assertNotOtherDriversVehicleId(nextValue, nextDriverId, tx);
+      }
+
       const setValues: Record<string, unknown> = { ...data, updatedAt: new Date() };
+      // The expected balance is a condition, not a column.
+      delete setValues['expectedPrepaidBalanceCents'];
       // Stamp revokedAt and who deactivated when the token turns inactive;
       // clear all three on reactivate.
       if (data.isActive === false && current.isActive) {
@@ -658,6 +767,8 @@ export async function updateToken(
   } catch (err) {
     if (
       err instanceof DuplicateTokenError ||
+      err instanceof VehicleIdTokenInUseError ||
+      err instanceof PrepaidBalanceConflictError ||
       err instanceof TokenReactivationBlockedError ||
       err instanceof TokenDriverInactiveError ||
       err instanceof TokenDriverNotFoundError
@@ -1108,11 +1219,35 @@ export async function importTokensCsv(
         ),
       );
     const existsKey = new Set(existing.map((e) => `${e.idToken}\x00${e.tokenType}`));
+    // A card holding another driver's vehicle id (any spelling) is refused
+    // like a single create.
+    const candidatesOf = new Map(prepared.map((p) => [p, tokenVehicleIdCandidates(p.idToken)]));
+    const allCandidates = [...new Set([...candidatesOf.values()].flat())];
+    const vehicleIdOwners =
+      allCandidates.length === 0
+        ? []
+        : await tx
+            .select({ vin: vehicles.vin, evccid: vehicles.evccid, driverId: vehicles.driverId })
+            .from(vehicles)
+            .where(
+              or(inArray(vehicles.vin, allCandidates), inArray(vehicles.evccid, allCandidates)),
+            );
     const toInsert: Prepared[] = [];
     for (const p of prepared) {
       const key = `${p.idToken}\x00${p.tokenType}`;
       if (existsKey.has(key)) {
         errors.push(`Row for ${p.idToken} (${p.tokenType}): token already exists`);
+        continue;
+      }
+      const candidates = candidatesOf.get(p) ?? [];
+      const collides = vehicleIdOwners.some(
+        (v) =>
+          v.driverId !== p.driverId &&
+          ((v.vin != null && candidates.includes(v.vin)) ||
+            (v.evccid != null && candidates.includes(v.evccid))),
+      );
+      if (collides) {
+        errors.push(`Row for ${p.idToken} (${p.tokenType}): another driver's vehicle uses this id`);
         continue;
       }
       toInsert.push(p);

@@ -141,6 +141,10 @@ const DYNAMIC_ALLOWED = new Set([
   '../../navigation/registry.ts: SETTINGS_NAV_PERMISSIONS',
   // The Settings tabs check TAB_PERMISSIONS, derived from the permission catalog.
   '../../pages/Settings.tsx: perm',
+  // The station command map of @evtivity/lib/ocpp-command-permissions (typed Permission).
+  '../ocpp-command-access.ts: perm',
+  // The security profile permission of @evtivity/lib/ocpp-command-permissions (typed Permission).
+  '../../components/StationSecurity.tsx: SECURITY_PROFILE_PERMISSION',
 ]);
 
 describe('permission names in the CSMS', () => {

@@ -1,11 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { X509Certificate } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type postgres from 'postgres';
 import { getRegistrationPolicy, stationAuditLog, writeAudit } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
-import { logConnectionEvent } from './connection-log.js';
+import { logConnectionEvent, logConnectionFailure } from './connection-log.js';
 import { hasSimulatorMarker, reconcileSimulatorIdentity } from './simulator-identity.js';
 import { offeredSubprotocols, selectOcppSubprotocol } from '../subprotocol.js';
 import type { OcppSubprotocol } from '../subprotocol.js';
@@ -97,6 +98,33 @@ export function serviceUnavailable(random: () => number = Math.random): AuthReje
   };
 }
 
+/** The SHA-256 fingerprint (`AA:BB:...`) of a stored PEM certificate; null when it does not parse. */
+function certificateFingerprint(pem: unknown): string | null {
+  if (typeof pem !== 'string') return null;
+  try {
+    return new X509Certificate(pem).fingerprint256;
+  } catch {
+    // fail-open: an unreadable stored certificate matches nothing, so the connection is refused
+    return null;
+  }
+}
+
+// The auth scheme is case-insensitive (RFC 9110 11.1).
+const BASIC_SCHEME = /^basic /i;
+
+/** The username and password of a Basic Authorization header, else null. */
+export function parseBasicCredentials(
+  header: string | undefined,
+): { username: string; password: string } | null {
+  if (header == null || !BASIC_SCHEME.test(header)) return null;
+  const decoded = Buffer.from(header.slice(6), 'base64').toString('utf-8');
+  const colonIndex = decoded.indexOf(':');
+  return {
+    username: colonIndex >= 0 ? decoded.slice(0, colonIndex) : decoded,
+    password: colonIndex >= 0 ? decoded.slice(colonIndex + 1) : '',
+  };
+}
+
 // OCPP identifierString characters (2.1 Part 2 and 1.6 CiString identities):
 // a-z, A-Z, 0-9 and * - _ = : + | @ .
 const STATION_ID = /^[A-Za-z0-9*\-_=:+|@.]{1,128}$/;
@@ -128,6 +156,9 @@ export async function authenticateConnection(
   clientIp: string | null = req.socket.remoteAddress ?? null,
   viaTls: boolean = 'encrypted' in req.socket && req.socket.encrypted === true,
   verifier: StationPasswordVerifier = uncachedVerifier,
+  // A client CA (OCPP_TLS_CA) is configured. Without one Node checks client
+  // certificates against its public roots, so profile 3 is refused.
+  clientCaConfigured = true,
 ): Promise<AuthResult> {
   const stationId = extractStationId(req.url);
   if (stationId == null) {
@@ -209,7 +240,17 @@ export async function authenticateConnection(
   // Blocked stations are rejected here at the connection level.
 
   const remoteAddress = clientIp;
-  const ctx = { req, sql, logger, stationId, station, remoteAddress, viaTls, verifier };
+  const ctx = {
+    req,
+    sql,
+    logger,
+    stationId,
+    station,
+    remoteAddress,
+    viaTls,
+    verifier,
+    clientCaConfigured,
+  };
 
   // An upgrade sent to the station is pending until the station connects with
   // the new profile. Try it first; on success promote it, after which the old
@@ -218,7 +259,9 @@ export async function authenticateConnection(
   const pending = station.pending_security_profile;
   let result: AuthResult | null = null;
   let usedProfile = station.security_profile;
-  if (pending != null && pending !== station.security_profile) {
+  // Only an upgrade is ever pending: a lower or equal value is ignored,
+  // so a stray row never lets a station connect on a weaker profile.
+  if (pending != null && pending > station.security_profile) {
     const upgraded = await authenticateForProfile(pending, ctx, false);
     if (upgraded.authenticated) {
       await promotePendingSecurityProfile(
@@ -318,6 +361,7 @@ interface ProfileAuthContext {
   // TLS on the socket, or reported by a trusted load balancer that ended it.
   viaTls: boolean;
   verifier: StationPasswordVerifier;
+  clientCaConfigured: boolean;
 }
 
 async function authenticateForProfile(
@@ -325,8 +369,19 @@ async function authenticateForProfile(
   ctx: ProfileAuthContext,
   logFailures: boolean,
 ): Promise<AuthResult> {
-  const { req, sql, logger, stationId, station, remoteAddress, viaTls, verifier } = ctx;
-  const logEvent = logFailures ? logConnectionEvent : async (): Promise<void> => {};
+  const {
+    req,
+    sql,
+    logger,
+    stationId,
+    station,
+    remoteAddress,
+    viaTls,
+    verifier,
+    clientCaConfigured,
+  } = ctx;
+  // Failures are aggregated per station, reason and minute.
+  const logEvent = logFailures ? logConnectionFailure : async (): Promise<void> => {};
 
   // SP0: no authentication required
   if (securityProfile === 0) {
@@ -354,6 +409,24 @@ async function authenticateForProfile(
         stationDbId: station.id,
         error: 'SP3 requires TLS',
         failure: 'tls_required',
+      };
+    }
+
+    if (!clientCaConfigured) {
+      await logEvent(
+        sql,
+        station.id,
+        'auth_failed',
+        remoteAddress,
+        { reason: 'No client CA configured (OCPP_TLS_CA)' },
+        logger,
+      );
+      return {
+        authenticated: false,
+        stationId,
+        stationDbId: station.id,
+        error: 'Security profile 3 needs OCPP_TLS_CA',
+        failure: 'client_certificate',
       };
     }
 
@@ -434,14 +507,20 @@ async function authenticateForProfile(
     // side too in case it was stored from a different source.
     const normalizedSerial = certSerial.toUpperCase().replace(/[^0-9A-F]/g, '');
     const certRows = await sql`
-      SELECT id FROM station_certificates
+      SELECT id, certificate FROM station_certificates
       WHERE station_id = ${station.id}
         AND UPPER(REGEXP_REPLACE(serial_number, '[^0-9A-Fa-f]', '', 'g')) = ${normalizedSerial}
         AND status = 'active'
         AND certificate_type = 'ChargingStationCertificate'
-      LIMIT 1
+      LIMIT 10
     `;
-    if (certRows.length === 0) {
+    // A serial is unique per issuer only: the presented certificate must be the
+    // registered one, compared by its SHA-256 fingerprint.
+    const presentedFingerprint = (cert as { fingerprint256?: string }).fingerprint256;
+    const registered = certRows.some(
+      (row) => certificateFingerprint(row['certificate']) === presentedFingerprint,
+    );
+    if (!registered) {
       await logEvent(
         sql,
         station.id,
@@ -515,7 +594,7 @@ async function authenticateForProfile(
     };
   }
 
-  if (!authHeader.startsWith('Basic ')) {
+  if (!BASIC_SCHEME.test(authHeader)) {
     await logEvent(
       sql,
       station.id,
@@ -535,10 +614,10 @@ async function authenticateForProfile(
     };
   }
 
-  const decoded = Buffer.from(authHeader.slice(6), 'base64').toString('utf-8');
-  const colonIndex = decoded.indexOf(':');
-  const username = colonIndex >= 0 ? decoded.slice(0, colonIndex) : decoded;
-  const password = colonIndex >= 0 ? decoded.slice(colonIndex + 1) : '';
+  const { username, password } = parseBasicCredentials(authHeader) ?? {
+    username: '',
+    password: '',
+  };
 
   // OCPP 1.6 §4.7 and OCPP 2.1 SP1/SP2 require the Basic auth username to
   // equal the ChargingStationId from the URL path. Without this check, a
@@ -587,7 +666,7 @@ async function authenticateForProfile(
   const storedHash = station.basic_auth_password_hash;
   let cached: boolean;
   try {
-    const check = await verifier.verify(station.id, storedHash, password, remoteAddress);
+    const check = await verifier.verify(station.id, storedHash, password, remoteAddress, stationId);
     cached = check.cached;
     if (check.lockedForMs != null) {
       // Repeated wrong passwords: refused without argon2 (StationAuthBackoff).
@@ -679,7 +758,7 @@ async function rehashStationPassword(
       WHERE id = ${stationDbId} AND basic_auth_password_hash = ${storedHash}
       RETURNING id
     `;
-    if (updated.length > 0) verifier.remember(stationDbId, newHash, password);
+    if (updated.length > 0) await verifier.remember(stationDbId, newHash, password);
   } catch (err) {
     logger.warn({ err, stationDbId }, 'Failed to rehash the station password');
   }
@@ -702,6 +781,7 @@ async function promotePendingSecurityProfile(
       SET security_profile = ${toProfile}, pending_security_profile = NULL, updated_at = now(),
         basic_auth_password_hash = CASE WHEN ${toProfile} = 3 THEN NULL ELSE basic_auth_password_hash END
       WHERE id = ${stationDbId} AND pending_security_profile = ${toProfile}
+        AND pending_security_profile > security_profile
       RETURNING id
     `;
     promoted = rows.length > 0;

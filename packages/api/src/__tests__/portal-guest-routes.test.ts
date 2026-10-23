@@ -959,7 +959,7 @@ describe('Portal guest routes - handler logic', () => {
         url: '/portal/guest/start/CS-001/1',
         payload: { recaptchaToken: 'rc-token' },
       });
-      expect(mockCheckRecaptcha).toHaveBeenCalledWith('rc-token', expect.anything());
+      expect(mockCheckRecaptcha).toHaveBeenCalledWith('rc-token', expect.anything(), 'guest_start');
     });
 
     it('answers 429 RATE_LIMITED with Retry-After when the address made too many starts', async () => {
@@ -1476,6 +1476,28 @@ describe('Portal guest routes - handler logic', () => {
       expect(response.json().code).toBe('SESSION_NOT_FOUND');
     });
 
+    it('refuses a stop after the charging session ended', async () => {
+      setupDbResults(
+        [
+          {
+            status: 'charging',
+            chargingSessionId: 'ses_000000000001',
+            stationOcppId: 'CS-001',
+            evseId: 1,
+          },
+        ],
+        [{ transactionId: 'tx-456', status: 'completed' }],
+      );
+      mockPublish.mockClear();
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/stop/abc123def456abc12345',
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('NOT_CHARGING');
+      expect(mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands')).toBeUndefined();
+    });
+
     it('stops a charging guest session', async () => {
       setupDbResults(
         [
@@ -1486,7 +1508,7 @@ describe('Portal guest routes - handler logic', () => {
             evseId: 1,
           },
         ],
-        [{ transactionId: 'tx-456' }],
+        [{ transactionId: 'tx-456', status: 'active' }],
         [{ id: 'sta_000000000001' }], // station lookup of the audit row
       );
       vi.mocked(writeAudit).mockClear();

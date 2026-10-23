@@ -194,6 +194,56 @@ describe('processConfigPush (OCPP 2.1)', () => {
     expect(stationUpdate?.set['errorInfo']).toBe('AuthCtrlr.Enabled: Rejected');
   });
 
+  it('sends a variable instance and names it in the rejection detail', async () => {
+    sendOcppCommandAndWaitMock.mockResolvedValueOnce({
+      response: {
+        setVariableResult: [
+          {
+            attributeStatus: 'Rejected',
+            component: { name: 'OCPPCommCtrlr' },
+            variable: { name: 'MessageTimeout', instance: 'Default' },
+          },
+        ],
+      },
+    });
+    await processConfigPush(
+      'ctp_1',
+      [{ id: 'sta_1', stationId: 'CS-1' }],
+      [
+        {
+          component: 'OCPPCommCtrlr',
+          variable: 'MessageTimeout',
+          variableInstance: 'Default',
+          value: '60',
+        },
+        {
+          component: 'OCPPCommCtrlr',
+          variable: 'QueueAllMessages',
+          variableInstance: null,
+          value: 'true',
+        },
+      ],
+      '2.1',
+    );
+    expect(sendOcppCommandAndWaitMock.mock.calls[0]?.[2]).toEqual({
+      setVariableData: [
+        {
+          component: { name: 'OCPPCommCtrlr' },
+          variable: { name: 'MessageTimeout', instance: 'Default' },
+          attributeValue: '60',
+        },
+        {
+          component: { name: 'OCPPCommCtrlr' },
+          variable: { name: 'QueueAllMessages' },
+          attributeValue: 'true',
+        },
+      ],
+    });
+    expect(findStationUpdate()?.set['errorInfo']).toBe(
+      'OCPPCommCtrlr.MessageTimeout[Default]: Rejected',
+    );
+  });
+
   it('marks accepted when the 2.1 response has no setVariableResult array', async () => {
     sendOcppCommandAndWaitMock
       .mockResolvedValueOnce({ response: {} }) // setVariableResult undefined -> defaults to []

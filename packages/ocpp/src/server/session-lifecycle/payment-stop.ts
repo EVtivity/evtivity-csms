@@ -116,7 +116,16 @@ export async function stopSessionForPayment(
   deps: ProjectionDeps,
   target: StopTarget,
   reason: PaymentStopReason,
-  options: { atCeiling?: boolean; transactionEnded?: boolean; startRefused?: boolean } = {},
+  options: {
+    atCeiling?: boolean;
+    transactionEnded?: boolean;
+    startRefused?: boolean;
+    /**
+     * Fault the session unbilled before the stop for a reason that otherwise
+     * only publishes (a guest who checked out free at a paid tariff).
+     */
+    faultUnbilled?: boolean;
+  } = {},
 ): Promise<void> {
   const { sql, pubsub, logger, notify } = deps;
   const { sessionId, transactionId, ocppStationId } = target;
@@ -140,6 +149,7 @@ export async function stopSessionForPayment(
   }
 
   const eagerCleanup =
+    options.faultUnbilled === true ||
     reason === 'PaymentFailed' ||
     reason === 'MissingPaymentMethod' ||
     (reason === 'AccountCreditLimit' && !accountAtCeiling);

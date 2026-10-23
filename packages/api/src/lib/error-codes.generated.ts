@@ -52,6 +52,7 @@ export const ERROR_CODES = {
   ATTACHMENT_NOT_FOUND: 'ATTACHMENT_NOT_FOUND',
   ATTESTATION_FAILED: 'ATTESTATION_FAILED',
   AUDIT_ENTITY_TYPE_INVALID: 'AUDIT_ENTITY_TYPE_INVALID',
+  AUTOCHARGE_CLAIM_REQUIRED: 'AUTOCHARGE_CLAIM_REQUIRED',
   CA_CERT_NOT_FOUND: 'CA_CERT_NOT_FOUND',
   CAMPAIGN_NOT_ACTIVE: 'CAMPAIGN_NOT_ACTIVE',
   CAMPAIGN_NOT_FOUND: 'CAMPAIGN_NOT_FOUND',
@@ -76,6 +77,7 @@ export const ERROR_CODES = {
   CSRF_INVALID: 'CSRF_INVALID',
   CSS_ACTION_REJECTED: 'CSS_ACTION_REJECTED',
   CSS_ACTION_TIMEOUT: 'CSS_ACTION_TIMEOUT',
+  DATA_PLAN_SETTING_IN_TEMPLATE: 'DATA_PLAN_SETTING_IN_TEMPLATE',
   DOWNTIME_NOT_FOUND: 'DOWNTIME_NOT_FOUND',
   DRIVER_AI_NOTICE_OUTDATED: 'DRIVER_AI_NOTICE_OUTDATED',
   DRIVER_ALREADY_IN_FLEET: 'DRIVER_ALREADY_IN_FLEET',
@@ -201,6 +203,7 @@ export const ERROR_CODES = {
   NOT_BLOCKED: 'NOT_BLOCKED',
   NOT_CHARGING: 'NOT_CHARGING',
   NOT_DRAFT: 'NOT_DRAFT',
+  NOT_FOUND: 'NOT_FOUND',
   NOT_IMPLEMENTED: 'NOT_IMPLEMENTED',
   NOT_PENDING: 'NOT_PENDING',
   NOT_SUPPORTED: 'NOT_SUPPORTED',
@@ -217,6 +220,7 @@ export const ERROR_CODES = {
   PASSKEY_LIMIT_REACHED: 'PASSKEY_LIMIT_REACHED',
   PASSKEY_NOT_FOUND: 'PASSKEY_NOT_FOUND',
   PASSWORD_REQUIRED: 'PASSWORD_REQUIRED',
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE',
   PAYMENT_CONFIG_NOT_FOUND: 'PAYMENT_CONFIG_NOT_FOUND',
   PAYMENT_FAILED: 'PAYMENT_FAILED',
   PAYMENT_METHOD_IN_USE: 'PAYMENT_METHOD_IN_USE',
@@ -244,6 +248,7 @@ export const ERROR_CODES = {
   PORTAL_ALREADY_ACTIVE: 'PORTAL_ALREADY_ACTIVE',
   PORTAL_REGISTRATION_DISABLED: 'PORTAL_REGISTRATION_DISABLED',
   PRE_AUTH_FAILED: 'PRE_AUTH_FAILED',
+  PREPAID_BALANCE_CONFLICT: 'PREPAID_BALANCE_CONFLICT',
   PRICING_ASSIGNMENT_NOT_FOUND: 'PRICING_ASSIGNMENT_NOT_FOUND',
   PRICING_GROUP_DEFAULT_EXISTS: 'PRICING_GROUP_DEFAULT_EXISTS',
   PRICING_GROUP_NOT_FOUND: 'PRICING_GROUP_NOT_FOUND',
@@ -301,11 +306,12 @@ export const ERROR_CODES = {
   SESSION_STOP_REJECTED: 'SESSION_STOP_REJECTED',
   SETTING_NOT_FOUND: 'SETTING_NOT_FOUND',
   SIM_ACTION_UNSUPPORTED: 'SIM_ACTION_UNSUPPORTED',
-  SIM_CONFIRMED_ELSEWHERE: 'SIM_CONFIRMED_ELSEWHERE',
+  SIM_ATTACHED: 'SIM_ATTACHED',
+  SIM_ATTACHED_ELSEWHERE: 'SIM_ATTACHED_ELSEWHERE',
+  SIM_ATTACHMENT_CHANGED: 'SIM_ATTACHMENT_CHANGED',
+  SIM_ATTACHMENT_NOT_CONFIRMED: 'SIM_ATTACHMENT_NOT_CONFIRMED',
   SIM_FEATURE_DISABLED: 'SIM_FEATURE_DISABLED',
-  SIM_MATCH_CHANGED: 'SIM_MATCH_CHANGED',
-  SIM_MATCH_NOT_CONFIRMED: 'SIM_MATCH_NOT_CONFIRMED',
-  SIM_MATCHED_ELSEWHERE: 'SIM_MATCHED_ELSEWHERE',
+  SIM_INACTIVE: 'SIM_INACTIVE',
   SIM_NOT_FOUND: 'SIM_NOT_FOUND',
   SIM_PROVIDER_ERROR: 'SIM_PROVIDER_ERROR',
   SIM_PROVIDER_NOT_CONFIGURED: 'SIM_PROVIDER_NOT_CONFIGURED',
@@ -324,6 +330,7 @@ export const ERROR_CODES = {
   STATION_CREDENTIALS_ROUTE_REQUIRED: 'STATION_CREDENTIALS_ROUTE_REQUIRED',
   STATION_ENDPOINT_URL_UNKNOWN: 'STATION_ENDPOINT_URL_UNKNOWN',
   STATION_HAS_ACTIVE_SESSION: 'STATION_HAS_ACTIVE_SESSION',
+  STATION_HAS_SIM: 'STATION_HAS_SIM',
   STATION_ID_EXISTS: 'STATION_ID_EXISTS',
   STATION_NOT_FOUND: 'STATION_NOT_FOUND',
   STATION_OFFLINE: 'STATION_OFFLINE',
@@ -340,6 +347,7 @@ export const ERROR_CODES = {
   STATUS_CHECK_TIMEOUT: 'STATUS_CHECK_TIMEOUT',
   STORAGE_CONNECTION_FAILED: 'STORAGE_CONNECTION_FAILED',
   STORAGE_NOT_CONFIGURED: 'STORAGE_NOT_CONFIGURED',
+  STREAM_LIMIT_REACHED: 'STREAM_LIMIT_REACHED',
   SUPPORT_AI_NOT_CONFIGURED: 'SUPPORT_AI_NOT_CONFIGURED',
   SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK: 'SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK',
   SUPPORT_CASE_NOT_FOUND: 'SUPPORT_CASE_NOT_FOUND',
@@ -358,6 +366,7 @@ export const ERROR_CODES = {
   TRANSACTION_NOT_FOUND: 'TRANSACTION_NOT_FOUND',
   UNAUTHORIZED: 'UNAUTHORIZED',
   UNKNOWN_ACTION: 'UNKNOWN_ACTION',
+  UNSUPPORTED_MEDIA_TYPE: 'UNSUPPORTED_MEDIA_TYPE',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   USER_SSO_MANAGED: 'USER_SSO_MANAGED',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
@@ -419,6 +428,7 @@ export type ErrorCode =
   | 'ATTACHMENT_NOT_FOUND'
   | 'ATTESTATION_FAILED'
   | 'AUDIT_ENTITY_TYPE_INVALID'
+  | 'AUTOCHARGE_CLAIM_REQUIRED'
   | 'CA_CERT_NOT_FOUND'
   | 'CAMPAIGN_NOT_ACTIVE'
   | 'CAMPAIGN_NOT_FOUND'
@@ -443,6 +453,7 @@ export type ErrorCode =
   | 'CSRF_INVALID'
   | 'CSS_ACTION_REJECTED'
   | 'CSS_ACTION_TIMEOUT'
+  | 'DATA_PLAN_SETTING_IN_TEMPLATE'
   | 'DOWNTIME_NOT_FOUND'
   | 'DRIVER_AI_NOTICE_OUTDATED'
   | 'DRIVER_ALREADY_IN_FLEET'
@@ -568,6 +579,7 @@ export type ErrorCode =
   | 'NOT_BLOCKED'
   | 'NOT_CHARGING'
   | 'NOT_DRAFT'
+  | 'NOT_FOUND'
   | 'NOT_IMPLEMENTED'
   | 'NOT_PENDING'
   | 'NOT_SUPPORTED'
@@ -584,6 +596,7 @@ export type ErrorCode =
   | 'PASSKEY_LIMIT_REACHED'
   | 'PASSKEY_NOT_FOUND'
   | 'PASSWORD_REQUIRED'
+  | 'PAYLOAD_TOO_LARGE'
   | 'PAYMENT_CONFIG_NOT_FOUND'
   | 'PAYMENT_FAILED'
   | 'PAYMENT_METHOD_IN_USE'
@@ -611,6 +624,7 @@ export type ErrorCode =
   | 'PORTAL_ALREADY_ACTIVE'
   | 'PORTAL_REGISTRATION_DISABLED'
   | 'PRE_AUTH_FAILED'
+  | 'PREPAID_BALANCE_CONFLICT'
   | 'PRICING_ASSIGNMENT_NOT_FOUND'
   | 'PRICING_GROUP_DEFAULT_EXISTS'
   | 'PRICING_GROUP_NOT_FOUND'
@@ -668,11 +682,12 @@ export type ErrorCode =
   | 'SESSION_STOP_REJECTED'
   | 'SETTING_NOT_FOUND'
   | 'SIM_ACTION_UNSUPPORTED'
-  | 'SIM_CONFIRMED_ELSEWHERE'
+  | 'SIM_ATTACHED'
+  | 'SIM_ATTACHED_ELSEWHERE'
+  | 'SIM_ATTACHMENT_CHANGED'
+  | 'SIM_ATTACHMENT_NOT_CONFIRMED'
   | 'SIM_FEATURE_DISABLED'
-  | 'SIM_MATCH_CHANGED'
-  | 'SIM_MATCH_NOT_CONFIRMED'
-  | 'SIM_MATCHED_ELSEWHERE'
+  | 'SIM_INACTIVE'
   | 'SIM_NOT_FOUND'
   | 'SIM_PROVIDER_ERROR'
   | 'SIM_PROVIDER_NOT_CONFIGURED'
@@ -691,6 +706,7 @@ export type ErrorCode =
   | 'STATION_CREDENTIALS_ROUTE_REQUIRED'
   | 'STATION_ENDPOINT_URL_UNKNOWN'
   | 'STATION_HAS_ACTIVE_SESSION'
+  | 'STATION_HAS_SIM'
   | 'STATION_ID_EXISTS'
   | 'STATION_NOT_FOUND'
   | 'STATION_OFFLINE'
@@ -707,6 +723,7 @@ export type ErrorCode =
   | 'STATUS_CHECK_TIMEOUT'
   | 'STORAGE_CONNECTION_FAILED'
   | 'STORAGE_NOT_CONFIGURED'
+  | 'STREAM_LIMIT_REACHED'
   | 'SUPPORT_AI_NOT_CONFIGURED'
   | 'SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK'
   | 'SUPPORT_CASE_NOT_FOUND'
@@ -725,6 +742,7 @@ export type ErrorCode =
   | 'TRANSACTION_NOT_FOUND'
   | 'UNAUTHORIZED'
   | 'UNKNOWN_ACTION'
+  | 'UNSUPPORTED_MEDIA_TYPE'
   | 'USER_NOT_FOUND'
   | 'USER_SSO_MANAGED'
   | 'VALIDATION_ERROR'
@@ -798,6 +816,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   ATTACHMENT_NOT_FOUND: 'Attachment not found',
   ATTESTATION_FAILED: 'Device attestation failed. Update the app and try again.',
   AUDIT_ENTITY_TYPE_INVALID: 'Unknown audit entity type',
+  AUTOCHARGE_CLAIM_REQUIRED:
+    'Autocharge works only with vehicle ids a charger sent in one of your sessions. Use the vehicle id from a session first.',
   CA_CERT_NOT_FOUND: 'CA certificate not found',
   CAMPAIGN_NOT_ACTIVE: 'Only active campaigns can be cancelled',
   CAMPAIGN_NOT_FOUND: 'Campaign not found',
@@ -825,6 +845,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CSRF_INVALID: 'Invalid CSRF token',
   CSS_ACTION_REJECTED: 'Charging Station Simulator rejected the action',
   CSS_ACTION_TIMEOUT: 'Simulator did not respond within 5s',
+  DATA_PLAN_SETTING_IN_TEMPLATE:
+    'Heartbeat and meter value settings come from Settings > Integrations & Features > OCPP and the station data plan, not from a configuration template',
   DOWNTIME_NOT_FOUND: 'Excluded downtime record not found',
   DRIVER_AI_NOTICE_OUTDATED: 'The AI notice has changed. Read it and choose again',
   DRIVER_ALREADY_IN_FLEET: 'Driver is already in this fleet',
@@ -962,6 +984,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   NOT_BLOCKED: 'Station is not blocked',
   NOT_CHARGING: 'Session is not currently charging',
   NOT_DRAFT: 'Only draft campaigns can be updated',
+  NOT_FOUND: 'Not found',
   NOT_IMPLEMENTED: 'Remote start on partner networks requires the OCPI Commands module',
   NOT_PENDING: 'Station is not pending approval',
   NOT_SUPPORTED: 'Not supported for OCPP 1.6',
@@ -981,6 +1004,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     'You have registered the maximum number of passkeys and security keys. Remove one first',
   PASSKEY_NOT_FOUND: 'Passkey or security key not found',
   PASSWORD_REQUIRED: 'Password required when upgrading to SP1 or SP2',
+  PAYLOAD_TOO_LARGE: 'The request is too large',
   PAYMENT_CONFIG_NOT_FOUND: 'No payment config for this site',
   PAYMENT_FAILED: 'Payment failed',
   PAYMENT_METHOD_IN_USE: 'Payment method is in use by an active charging session',
@@ -1014,6 +1038,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PORTAL_REGISTRATION_DISABLED:
     'Driver self-registration is disabled. Contact your operator to be invited.',
   PRE_AUTH_FAILED: 'Payment pre-authorization failed',
+  PREPAID_BALANCE_CONFLICT:
+    'The prepaid balance changed since you opened the form, for example after a session. Reload the token and enter the balance again.',
   PRICING_ASSIGNMENT_NOT_FOUND: 'No pricing group is assigned to this entity',
   PRICING_GROUP_DEFAULT_EXISTS: 'Another pricing group is already the default',
   PRICING_GROUP_NOT_FOUND: 'Pricing group not found',
@@ -1074,12 +1100,14 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   SESSION_STOP_REJECTED: 'The station rejected the stop request. The session is still charging.',
   SETTING_NOT_FOUND: 'Setting not found',
   SIM_ACTION_UNSUPPORTED: 'The SIM provider does not support this action for this SIM',
-  SIM_CONFIRMED_ELSEWHERE: 'Another station already has a confirmed match for this SIM',
+  SIM_ATTACHED: 'Detach the SIM from its station before deleting it',
+  SIM_ATTACHED_ELSEWHERE: 'This SIM is attached to another station',
+  SIM_ATTACHMENT_CHANGED:
+    'The SIM attachment changed since it was shown. Check the SIM and confirm again',
+  SIM_ATTACHMENT_NOT_CONFIRMED: 'Confirm the SIM before resetting its network',
   SIM_FEATURE_DISABLED: 'SIM providers and station signal reads are turned off',
-  SIM_MATCH_CHANGED: 'The SIM match changed since it was shown. Check the SIM and confirm again',
-  SIM_MATCH_NOT_CONFIRMED: 'Confirm the SIM before resetting its network',
-  SIM_MATCHED_ELSEWHERE: 'This SIM is matched to another station',
-  SIM_NOT_FOUND: 'No SIM is matched to this station',
+  SIM_INACTIVE: 'This SIM is inactive. Reactivate it first',
+  SIM_NOT_FOUND: 'SIM not found',
   SIM_PROVIDER_ERROR: 'The SIM provider request failed',
   SIM_PROVIDER_NOT_CONFIGURED: 'No SIM provider is configured',
   SIM_PROVIDER_RATE_LIMITED: 'Too many SIM requests, try again later',
@@ -1101,6 +1129,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     'The address this station connects on is not known yet. It is recorded when the station next connects.',
   STATION_HAS_ACTIVE_SESSION:
     'The station has an active charging session. Stop it before deleting the station.',
+  STATION_HAS_SIM: 'This station already has a SIM attached. Detach it first',
   STATION_ID_EXISTS: 'A station with this ID already exists',
   STATION_NOT_FOUND: 'Station not found',
   STATION_OFFLINE: 'Station is offline',
@@ -1121,6 +1150,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   STATUS_CHECK_TIMEOUT: 'Status check timed out. Replug the connector and try again.',
   STORAGE_CONNECTION_FAILED: 'Storage connection test failed',
   STORAGE_NOT_CONFIGURED: 'Attachment storage not configured',
+  STREAM_LIMIT_REACHED:
+    'Too many live station updates are open from this device. Close other tabs and try again.',
   SUPPORT_AI_NOT_CONFIGURED: 'Support AI is not configured',
   SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK:
     'This support case is not waiting for feedback on an automatic answer',
@@ -1142,6 +1173,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   TRANSACTION_NOT_FOUND: 'Transaction not found',
   UNAUTHORIZED: 'Unauthorized',
   UNKNOWN_ACTION: 'Unknown OCPP action',
+  UNSUPPORTED_MEDIA_TYPE: 'Unsupported content type',
   USER_NOT_FOUND: 'User not found',
   USER_SSO_MANAGED: 'This user signs in with SSO and has no password to set.',
   VALIDATION_ERROR: 'Validation error',

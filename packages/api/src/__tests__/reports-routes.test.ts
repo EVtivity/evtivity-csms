@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -102,6 +102,9 @@ vi.mock('@evtivity/services/report.service', () => ({
       ? 'Filters must include a valid quarter (1-4) and year'
       : null,
   ),
+  reportRequiredPermissions: vi.fn((type: string) =>
+    type === 'revenue' ? ['payments:read'] : type === 'driverActivity' ? ['drivers:read'] : [],
+  ),
   listReportTypes: vi.fn(() => [
     { type: 'nevi', formats: ['xlsx'], generateFromUi: false },
     { type: 'revenue', formats: ['csv', 'pdf', 'xlsx'], generateFromUi: true },
@@ -119,6 +122,10 @@ vi.mock('@evtivity/services/report.service', () => ({
 }));
 
 const mockPublish = vi.hoisted(() => vi.fn());
+// The permissions beyond reports:* the caller holds (every one by default).
+const mockHasPermission = vi.hoisted(() =>
+  vi.fn((_request: unknown, _permission: string) => Promise.resolve(true)),
+);
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: mockPublish }),
 }));
@@ -141,6 +148,7 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(401).send({ error: 'Unauthorized' });
       }
     },
+  requestHasPermission: mockHasPermission,
 }));
 
 // The generate/schedule routes call getUserSiteIds() to validate that
@@ -358,6 +366,60 @@ describe('Report routes', () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(mockWriteAudit).not.toHaveBeenCalled();
+  });
+
+  describe('report type permissions', () => {
+    afterEach(() => {
+      mockHasPermission.mockImplementation(() => Promise.resolve(true));
+    });
+
+    it('refuses a revenue report without payments:read and a driver activity report without drivers:read', async () => {
+      mockHasPermission.mockImplementation((_request, permission) =>
+        Promise.resolve(permission !== 'payments:read' && permission !== 'drivers:read'),
+      );
+      for (const reportType of ['revenue', 'driverActivity']) {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/reports/generate',
+          headers: { authorization: `Bearer ${token}` },
+          payload: { name: 'R', reportType, format: 'csv' },
+        });
+        expect(res.statusCode, reportType).toBe(403);
+        expect(res.json()).toMatchObject({ code: 'INSUFFICIENT_PERMISSIONS' });
+      }
+      const energy = await app.inject({
+        method: 'POST',
+        url: '/reports/generate',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { name: 'R', reportType: 'energy', format: 'csv' },
+      });
+      expect(energy.statusCode).toBe(200);
+    });
+
+    it('lists only the report types the caller may produce', async () => {
+      mockHasPermission.mockImplementation((_request, permission) =>
+        Promise.resolve(permission !== 'payments:read'),
+      );
+      const res = await app.inject({
+        method: 'GET',
+        url: '/reports/types',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.json<Array<{ type: string }>>().map((t) => t.type)).toEqual(['nevi']);
+    });
+
+    it('refuses a report for a user with no site (its scope would be empty)', async () => {
+      const { getUserSiteIds } = await import('../lib/site-access.js');
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce([]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reports/generate',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { name: 'R', reportType: 'energy', format: 'csv' },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toMatchObject({ code: 'SITE_NOT_FOUND' });
+    });
   });
 
   it('POST /v1/reports/generate returns 401 without auth', async () => {

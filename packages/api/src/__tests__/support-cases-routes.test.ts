@@ -1678,7 +1678,7 @@ describe('support case routes', () => {
       expect(mocks.refundPaymentRecord).not.toHaveBeenCalled();
     });
 
-    it('returns 400 SESSION_NOT_LINKED when the session station is on another site', async () => {
+    it('returns 400 SESSION_NOT_LINKED when the session is on another site (its own site, not the station site)', async () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
       queue(
         [baseCase()],
@@ -1692,7 +1692,7 @@ describe('support case routes', () => {
       expect(mocks.refundPaymentRecord).not.toHaveBeenCalled();
     });
 
-    it('returns 400 SESSION_NOT_LINKED when the session station has no site', async () => {
+    it('returns 400 SESSION_NOT_LINKED when the session has no site', async () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
       queue(
         [baseCase()],
@@ -1782,7 +1782,8 @@ describe('support case routes', () => {
         }),
       );
       expect(mocks.refundPaymentRecord).toHaveBeenCalledWith(
-        { sessionId: SESSION_ID, amountCents: 500 },
+        // The refund records its actor (last_actor_user_id).
+        { sessionId: SESSION_ID, amountCents: 500, actorUserId: USER_ID },
         { __ctx: true },
       );
       expect(firstArg(callsOf('insert', 'supportCaseMessages')[0], 'values')).toEqual({
@@ -1833,7 +1834,7 @@ describe('support case routes', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json<{ refundStatus: string }>().refundStatus).toBe('pending');
       expect(mocks.refundPaymentRecord).toHaveBeenCalledWith(
-        { sessionId: SESSION_ID },
+        { sessionId: SESSION_ID, actorUserId: USER_ID },
         { __ctx: true },
       );
       const msg = firstArg(callsOf('insert', 'supportCaseMessages')[0], 'values') as {

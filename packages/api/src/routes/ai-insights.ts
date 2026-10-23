@@ -119,6 +119,7 @@ import { supportCaseSiteCondition } from '../lib/support-case-scope.js';
 import { sessionIdsInSites } from '../lib/support-case-redaction.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import { isApiKeyRequest } from '../lib/session-proof.js';
 import { callerAuthorization } from '../services/ai/engine/route-support.js';
 import { executeConfirmedToolCall } from '../services/ai/tools/execute.js';
 import type { ConfirmedToolCallResult } from '../services/ai/tools/execute.js';
@@ -1140,10 +1141,6 @@ async function decidedError(reply: FastifyReply, row: AiProposalRow): Promise<Fa
   if (row.status === 'expired') return sendActionError(reply, 409, 'AI_PROPOSAL_EXPIRED');
   if (row.status === 'stale') return sendActionError(reply, 409, 'AI_PROPOSAL_STALE');
   return sendActionError(reply, 409, 'AI_PROPOSAL_ALREADY_DECIDED');
-}
-
-function isApiKeyRequest(request: FastifyRequest): boolean {
-  return (request.user as JwtPayload).isApiKey === true;
 }
 
 /** Worker actions run only the closed action set, also after the OCPP version mapping. */

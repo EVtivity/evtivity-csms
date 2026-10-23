@@ -215,6 +215,38 @@ describe('System routes', () => {
     expect(body.secrets.s3Configured).toBe(false);
   });
 
+  it.each([
+    ['dev-jwt-secret-change-in-production!!', 'dev-encryption-key-32chars-long!'],
+    ['dev-secret-change-in-production', 'short-key'],
+  ])('reports the published or short secrets %s and %s as not configured', async (jwt, key) => {
+    vi.stubEnv('JWT_SECRET', jwt);
+    vi.stubEnv('SETTINGS_ENCRYPTION_KEY', key);
+    setupDbResults([]);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/system/info',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.secrets.jwtConfigured).toBe(false);
+    expect(body.secrets.settingsEncryptionConfigured).toBe(false);
+  });
+
+  it('reports generated secrets as configured', async () => {
+    vi.stubEnv('JWT_SECRET', 'a'.repeat(64));
+    vi.stubEnv('SETTINGS_ENCRYPTION_KEY', 'b'.repeat(64));
+    setupDbResults([]);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/system/info',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = response.json();
+    expect(body.secrets.jwtConfigured).toBe(true);
+    expect(body.secrets.settingsEncryptionConfigured).toBe(true);
+  });
+
   it('honors the SMTP_HOST env override when the setting is absent', async () => {
     vi.stubEnv('SMTP_HOST', 'mailpit');
     setupDbResults([]);

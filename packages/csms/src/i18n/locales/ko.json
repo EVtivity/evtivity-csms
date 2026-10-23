@@ -135,6 +135,7 @@
     "dashboard": "대시보드",
     "sites": "사이트",
     "stations": "충전소",
+    "sims": "SIM",
     "sessions": "세션",
     "drivers": "운전자",
     "transactions": "거래",
@@ -200,6 +201,13 @@
       "privateNetworkSaved": "네트워크 접근 설정이 저장되었습니다",
       "allowRawToken": "인코딩되지 않은 토큰 허용",
       "allowRawTokenHint": "자격 증명 토큰을 Base64 인코딩 없이 보내는 OCPI 2.1.1 및 2.2 파트너용입니다. 이 경우 당사 토큰도 같은 방식으로 전송됩니다. OCPI 2.2.1 및 2.3.0 파트너는 끈 상태로 두세요.",
+      "approvedRoles": "승인된 역할",
+      "approvedRolesHint": "CSMS는 승인된 역할에 따라서만 동작합니다. CPO 또는 HUB 파트너는 운전자 토큰을 읽고, HUB 파트너는 허브 클라이언트 정보를 보냅니다. 파트너가 선언한 역할은 여기에서 승인한 후에만 사용됩니다.",
+      "rolesNotDecided": "아직 정해지지 않았습니다. 여기에서 이 파트너의 역할을 승인할 때까지 CSMS는 어떤 역할에 따라서도 동작하지 않습니다.",
+      "declaredRoles": "파트너가 선언한 역할: {{roles}}",
+      "noDeclaredRoles": "파트너가 아직 역할을 선언하지 않았습니다.",
+      "heldRoles": "선언되었지만 승인되지 않은 역할: {{roles}}. CSMS는 이 역할에 따라 동작하지 않습니다.",
+      "approvedRolesSaved": "승인된 역할을 저장했습니다",
       "rawTokenSaved": "토큰 인코딩이 저장되었습니다",
       "newRegistrationToken": "새 등록 토큰",
       "newRegistrationTokenTitle": "새 등록 토큰",
@@ -360,6 +368,7 @@
     "recoveryCodeSubtitle": "복구 코드 중 하나를 입력하세요",
     "recoveryCodeLabel": "복구 코드",
     "recoveryCodeInvalid": "잘못되었거나 이미 사용된 복구 코드입니다. 다시 시도하세요.",
+    "recoveryCodeIncomplete": "10자리 복구 코드를 모두 입력하세요",
     "mfaMethodSwitchedOff": "관리자가 {{method}} 인증을 사용 중지했습니다. 복구 코드로 로그인하세요.",
     "mfaSetupTitle": "2단계 인증 설정",
     "mfaSetupDescription": "관리자가 두 번째 인증 수단을 요구합니다. 로그인을 마치려면 하나를 설정하세요.",
@@ -374,7 +383,9 @@
     "passkeyFailed": "패스키를 사용할 수 없습니다. 다시 시도하거나 비밀번호로 로그인하세요.",
     "passkeyResetRequired": "비밀번호를 변경해야 합니다. 이메일과 비밀번호로 로그인하여 변경하세요.",
     "mfaSetupPasskeyHint": "지문, 얼굴, 화면 잠금 또는 보안 키를 사용하세요.",
-    "mfaSetupUsePasskey": "패스키 또는 보안 키 설정"
+    "mfaSetupUsePasskey": "패스키 또는 보안 키 설정",
+    "chargingPortalLink": "{{name}} 충전 포털",
+    "ssoLinkRequired": "이 계정은 아직 싱글 사인온에 연결되지 않았습니다. 비밀번호로 로그인한 후 프로필에서 SSO 로그인을 허용하거나 관리자에게 문의하십시오."
   },
   "dashboard": {
     "title": "대시보드",
@@ -547,7 +558,7 @@
     "qrCodesDescription": "이 사이트의 모든 충전소용 QR 코드입니다. 인쇄하여 각 충전기에 부착하세요.",
     "exportCsv": "CSV 내보내기",
     "importCsv": "CSV 가져오기",
-    "downloadTemplate": "템플릿",
+    "downloadTemplate": "템플릿 다운로드",
     "importing": "가져오는 중...",
     "importResults": "가져오기 결과",
     "sitesCreated": "생성된 사이트: {{count}}",
@@ -1093,13 +1104,12 @@
           "providerOff": "공급자: 건너뜀, 켜진 SIM 공급자가 없습니다.",
           "inProgress": "공급자: 건너뜀, 이 충전소의 다른 새로 고침이 진행 중입니다.",
           "notConfirmed": "공급자: 건너뜀, SIM이 확인될 때까지 아무것도 가져오지 않습니다.",
-          "other": "공급자: 건너뜀."
-        },
-        "providerNotMatched": {
+          "other": "공급자: 건너뜀.",
+          "inProgressSim": "공급자: 건너뜀, 이 SIM의 다른 새로 고침이 진행 중입니다.",
+          "notFound": "공급자: 건너뜀, 활성화된 공급자 중 이 SIM을 아는 곳이 없습니다.",
           "noIccid": "공급자: 건너뜀, 충전소에 ICCID가 없습니다.",
-          "notFound": "공급자: 건너뜀, 이 SIM을 아는 활성 공급자가 없습니다.",
-          "simMatchedElsewhere": "공급자: 건너뜀, 다른 충전소에 이 SIM의 확인된 연결이 있습니다.",
-          "other": "공급자: 건너뜀, SIM이 공급자와 연결되지 않았습니다."
+          "attachedElsewhere": "공급자: 건너뜀, SIM이 다른 충전소에 연결되어 있어 이 충전소에 연결하지 않았습니다.",
+          "attachConflict": "공급자: 건너뜀, SIM 연결에 대한 다른 변경이 동시에 실행되었습니다. 아무것도 연결하지 않았습니다. 새로 고침을 다시 클릭하세요."
         },
         "providerFailed": {
           "auth": "공급자: 실패, 공급자가 API 키를 거부했습니다.",
@@ -1135,13 +1145,16 @@
       "notFetchedYet": "아직 가져오지 않았습니다. 기간을 선택하고 새로 고침을 클릭하세요.",
       "emptyNotFound": "켜진 SIM 공급자 중 이 ICCID를 아는 곳이 없습니다.",
       "lookUpAgain": "다시 조회",
-      "emptyMatchedElsewhere": "이 SIM은 다른 충전소와 연결되어 있습니다. SIM 하나는 충전소 하나에만 사용되므로 이 충전소에는 SIM 데이터가 표시되지 않습니다.",
+      "emptyAttachedElsewhere": "이 충전소 ICCID의 SIM은 다른 충전소에 연결되어 있습니다. SIM은 한 번에 충전소 하나에만 연결되므로 이 충전소에는 SIM 데이터가 표시되지 않습니다.",
+      "emptySimInactive": "이 충전소 ICCID의 SIM은 비활성 상태입니다. 이 충전소에 연결되지 않으며, 사용자가 SIM 페이지에서 다시 활성화할 때까지 조회하거나 재설정하지 않습니다.",
+      "findSim": "SIM 찾기",
       "confirmSim": "SIM 확인",
       "resetNetwork": "네트워크 재설정",
       "resetNeedsConfirm": "네트워크를 재설정하기 전에 SIM을 확인하세요.",
-      "clearMatch": "매칭 해제",
-      "clearMatchDescription": "이 충전소와 SIM의 연결을 제거합니다. 다음 새로 고침에서 ICCID로 SIM을 다시 조회하며, 새 매칭은 네트워크 재설정 전에 SIM 확인을 다시 거쳐야 합니다.",
-      "clearMatchSuccess": "SIM 매칭을 해제했습니다",
+      "detachSim": "SIM 연결 해제",
+      "viewSim": "SIM 보기",
+      "detachSimDescription": "이 충전소 SIM의 연결을 해제합니다. SIM, 연결 기록, 저장된 세션과 알림은 유지됩니다. 다음 새로 고침에서 충전소가 보고한 ICCID의 SIM을 연결하며, 그 연결은 조회나 재설정 전에 SIM 확인이 필요합니다.",
+      "detachSimSuccess": "SIM 연결을 해제했습니다.",
       "rateLimitedRetry": "요청이 너무 많습니다. {{seconds}}초 후에 다시 시도하세요.",
       "unconfirmedNotice": "모든 사이트에 접근할 수 있는 사용자가 SIM 확인으로 확인할 때까지 이 SIM에 대해 {{provider}}에서 아무것도 가져오지 않습니다.",
       "fetchedAt": "가져온 시간 {{time}}",
@@ -1172,9 +1185,15 @@
       "fromStationTitle": "충전소에서 읽은 값",
       "readAt": "읽은 시간 {{time}}",
       "confirmDescription": "{{provider}}의 SIM {{iccid}}이 이 충전소의 SIM인지 확인하세요. 확인된 SIM은 이 페이지에서 네트워크를 재설정할 수 있습니다.",
-      "confirmSourceStation": "ICCID 출처: 충전소가 보고함.",
-      "confirmSourceEntered": "ICCID 출처: {{name}}님이 입력함.",
-      "confirmSourceEnteredUnknown": "ICCID 출처: 사용자가 입력함.",
+      "confirmSource": {
+        "reported": "ICCID 출처: 충전소가 보고함.",
+        "entered": "ICCID 출처: {{name}}님이 충전소에서 입력함.",
+        "enteredUnknown": "ICCID 출처: 다른 사용자가 충전소에서 입력함.",
+        "attached": "ICCID 출처: {{name}}님이 SIM 페이지에서 연결함.",
+        "attachedUnknown": "ICCID 출처: 다른 사용자가 SIM 페이지에서 연결함.",
+        "imported": "ICCID 출처: {{name}}님이 CSV 파일에서 가져옴.",
+        "importedUnknown": "ICCID 출처: 다른 사용자가 CSV 파일에서 가져옴."
+      },
       "confirmSuccess": "SIM이 확인되었습니다",
       "resetDescription": "공급자가 충전소의 데이터 세션을 종료하고 충전소는 셀룰러 네트워크에 다시 연결됩니다. 다시 연결될 때까지 충전소가 오프라인일 수 있습니다.",
       "resetSuccess": "네트워크 재설정을 보냈습니다. 몇 분 후 새로 고침을 클릭하면 새 세션을 볼 수 있습니다.",
@@ -1272,6 +1291,11 @@
         "readDeviceModelSent": "장치 모델을 요청했습니다. 1분 후 새로 고침을 클릭하세요.",
         "ocpp16Keys": "SIM 설정에 지정된 OCPP 1.6 구성 키로, 충전소가 보고한 값입니다.",
         "noOcpp16Keys": "SIM 설정에 OCPP 1.6 신호 키가 없으므로 새로 고침은 이 충전소에서 아무것도 읽지 않습니다."
+      },
+      "attachmentResult": {
+        "attachedElsewhere": "ICCID를 저장했습니다. 해당 SIM이 다른 충전소에 연결되어 있어 이 충전소에 연결하지 않았습니다.",
+        "simInactive": "ICCID를 저장했습니다. 해당 SIM이 비활성 상태라 이 충전소에 연결하지 않았습니다. SIM 페이지에서 다시 활성화하세요.",
+        "attachConflict": "ICCID를 저장했습니다. SIM 연결에 대한 다른 변경이 동시에 실행되어 SIM을 연결하지 않았습니다. 연결하려면 연결 탭에서 새로 고침을 클릭하세요."
       }
     },
     "simCoverage": {
@@ -1285,6 +1309,145 @@
       "unavailable": "더 이상 사용할 수 없음",
       "dayLabel": "{{date}}: {{label}}",
       "notFetchedRange": "가져오지 않음: {{from}} ~ {{to}}"
+    }
+  },
+  "sims": {
+    "title": "SIM",
+    "subtitle": "충전소에 있는 SIM 카드와 충전소에 연결되지 않은 SIM 카드입니다.",
+    "search": "검색",
+    "searchPlaceholder": "ICCID, IMSI 또는 라벨로 검색",
+    "featureOff": "SIM 기능이 꺼져 있습니다. SIM 목록을 보려면 설정 > 통합 및 기능에서 SIM 공급자 또는 충전소 신호 읽기를 켜세요.",
+    "noSims": "SIM이 없습니다.",
+    "notFetched": "조회 안 됨",
+    "notAttached": "연결 안 됨",
+    "downloadTemplate": "템플릿 다운로드",
+    "importConfirmTitle": "SIM 가져오기",
+    "importResult": {
+      "created": "생성된 SIM: {{count}}",
+      "updated": "업데이트된 SIM: {{count}}",
+      "attached": "충전소에 연결된 SIM: {{count}}"
+    },
+    "columns": {
+      "iccid": "ICCID",
+      "label": "라벨",
+      "provider": "공급자",
+      "csmsStatus": "CSMS 상태",
+      "providerStatus": "공급자 상태",
+      "station": "충전소",
+      "confirmed": "확인됨",
+      "lastFetched": "마지막 조회",
+      "created": "생성일"
+    },
+    "filters": {
+      "provider": "공급자",
+      "allProviders": "전체 공급자",
+      "attachment": "연결",
+      "allAttachments": "전체 연결",
+      "csmsStatus": "CSMS 상태",
+      "allCsmsStatuses": "전체 CSMS 상태",
+      "providerStatus": "공급자 상태",
+      "allProviderStatuses": "전체 공급자 상태",
+      "station": "충전소",
+      "allStations": "전체 충전소"
+    },
+    "attachmentFilter": {
+      "attached": "연결됨",
+      "unattached": "연결 안 됨",
+      "unconfirmed": "연결됨, 확인 안 됨"
+    },
+    "csmsStatus": {
+      "active": "활성",
+      "inactive": "비활성"
+    },
+    "detail": {
+      "notFound": "SIM을 찾을 수 없습니다.",
+      "tabs": {
+        "details": "세부 정보",
+        "sessions": "세션",
+        "attachments": "연결",
+        "history": "기록"
+      },
+      "detailsTitle": "SIM 세부 정보",
+      "iccid": "ICCID",
+      "imsi": "IMSI",
+      "label": "라벨",
+      "notes": "메모",
+      "provider": "공급자",
+      "providerRef": "공급자 SIM ID",
+      "created": "생성일",
+      "csmsStatus": "CSMS 상태",
+      "csmsStatusHint": "여기서 비활성화와 다시 활성화로 설정합니다. 아래 공급자 상태는 새로 고침으로 SIM 공급자에서 가져옵니다.",
+      "providerStatus": "공급자 상태",
+      "deactivatedAt": "{{time}}에 비활성화됨",
+      "deactivatedBy": "{{time}}에 {{name}}님이 비활성화함",
+      "deactivate": "SIM 비활성화",
+      "reactivate": "SIM 다시 활성화",
+      "deactivateDescription": "SIM은 재고에 남고 충전소와의 연결이 해제됩니다. 비활성 상태에서는 연결, 새로 고침, 재설정을 할 수 없습니다. SIM 공급자를 호출하지 않으며 공급자 상태도 바뀌지 않습니다.",
+      "reactivateDescription": "SIM이 다시 활성 상태가 됩니다. 충전소에 연결되지 않으며 SIM 공급자를 호출하지 않습니다.",
+      "deactivateSuccess": "SIM을 비활성화했습니다.",
+      "reactivateSuccess": "SIM을 다시 활성화했습니다.",
+      "delete": "SIM 삭제",
+      "deleteDescription": "SIM {{iccid}}과 연결 기록, 저장된 세션, 알림, 가져온 날짜를 삭제합니다. 되돌릴 수 없습니다.",
+      "deleteSuccess": "SIM을 삭제했습니다.",
+      "deleteAttachedReason": "삭제하기 전에 SIM 연결을 해제하세요.",
+      "inactiveReason": "이 SIM은 비활성 상태입니다. 먼저 다시 활성화하세요.",
+      "noRecentAlerts": "이 SIM에 저장된 SIM 알림이 없습니다.",
+      "refreshTitle": "공급자 데이터",
+      "refreshHint": "새로 고침은 SIM 공급자만 읽고 충전소에는 아무것도 보내지 않습니다. 이 페이지를 열어도 아무것도 가져오지 않습니다.",
+      "noProvider": "이 SIM의 SIM 공급자를 아직 모릅니다. 새로 고침으로 찾습니다.",
+      "providerNotFound": "활성화된 SIM 공급자 중 이 SIM을 아는 곳이 없습니다.",
+      "resetDescription": "SIM 공급자가 SIM의 데이터 세션을 끝내고 기기가 셀룰러 네트워크에 다시 연결합니다. 이 SIM이 있는 충전소는 다시 연결될 때까지 오프라인일 수 있습니다.",
+      "editTitle": "SIM 편집",
+      "labelHint": "최대 {{max}}자입니다.",
+      "imsiHint": "최대 15자리 숫자입니다. IMSI를 지우려면 비워 두세요.",
+      "imsiInvalid": "최대 15자리 숫자를 입력하세요.",
+      "notesHint": "최대 {{max}}자입니다.",
+      "saveFailed": "SIM을 저장하지 못했습니다. 다시 시도하세요.",
+      "attachments": {
+        "currentTitle": "현재 연결",
+        "historyTitle": "연결 기록",
+        "notAttached": "이 SIM은 충전소에 연결되어 있지 않습니다.",
+        "noHistory": "이 SIM은 아직 연결된 적이 없습니다.",
+        "station": "충전소",
+        "site": "사이트",
+        "source": "출처",
+        "attached": "연결일",
+        "attachedBy": "연결한 사람",
+        "confirmed": "확인됨",
+        "notConfirmed": "확인 안 됨",
+        "open": "연결 중",
+        "paymentTerminal": "결제 단말기",
+        "unconfirmedNotice": "이 연결은 확인되지 않았습니다. 이 SIM이 충전소 {{station}}에 있는지 확인한 뒤 SIM을 확인하세요.",
+        "confirmDescription": "SIM {{iccid}}이 충전소 {{station}}의 SIM인지 확인합니다.",
+        "detach": "SIM 연결 해제",
+        "detachDescription": "SIM {{iccid}}과 충전소 {{station}}의 연결을 해제합니다. 저장된 세션과 알림은 SIM에 남습니다.",
+        "detachSuccess": "SIM 연결을 해제했습니다.",
+        "attach": "충전소에 연결",
+        "attachTitle": "충전소에 연결",
+        "attachDescription": "SIM을 충전소에 연결하고 바로 확인합니다. 이미 SIM이 있는 충전소는 거부됩니다.",
+        "attachSuccess": "SIM을 충전소 {{station}}에 연결했습니다.",
+        "sourceLabel": {
+          "reported": "충전소가 보고함",
+          "entered": "충전소에서 입력함",
+          "attached": "SIM 페이지에서 연결함",
+          "imported": "CSV 파일에서 가져옴"
+        },
+        "reason": {
+          "detached": "연결 해제됨",
+          "iccidChanged": "충전소가 다른 ICCID를 보고함",
+          "replaced": "충전소에 다른 SIM이 입력됨",
+          "displaced": "다른 충전소로 옮겨짐",
+          "deactivated": "SIM이 비활성화됨"
+        },
+        "columns": {
+          "station": "충전소",
+          "site": "사이트",
+          "source": "출처",
+          "attached": "연결일",
+          "detached": "해제일",
+          "reason": "사유"
+        }
+      }
     }
   },
   "eventAlertRules": {
@@ -1747,6 +1910,7 @@
     "permissionGroups": {
       "dashboard": "대시보드",
       "stations": "충전소",
+      "sims": "SIM",
       "sites": "사이트",
       "sessions": "세션",
       "drivers": "운전자",
@@ -1791,9 +1955,25 @@
     "mfaOffDescription": "이 사용자는 두 번째 인증 요소 없이 로그인합니다.",
     "mfaReset": "MFA 초기화",
     "mfaResetConfirm": "이 사용자의 두 번째 인증 요소를 끄고 모든 곳에서 로그아웃시키시겠습니까? 사용자는 비밀번호만으로 로그인하며 MFA를 다시 설정할 수 있습니다.",
+    "mfaResetProofHint": "이 사용자의 두 번째 인증 요소를 끄려면 본인임을 확인하십시오.",
     "mfaResetSuccess": "MFA가 초기화되었습니다",
     "apiKeysDescription": "이 사용자의 활성 API 키입니다. 더 이상 필요하지 않거나 유출되었을 수 있는 키를 취소하세요.",
-    "noApiKeys": "이 사용자에게는 활성 API 키가 없습니다."
+    "noApiKeys": "이 사용자에게는 활성 API 키가 없습니다.",
+    "adminProofHint": "이 사용자는 관리자 권한을 받습니다. 사용자를 생성하려면 본인임을 확인하십시오.",
+    "grantProofHint": "새 권한을 부여하려면 본인임을 확인하십시오.",
+    "resetProofHint": "이 사용자의 비밀번호를 재설정하려면 본인임을 확인하십시오.",
+    "resendProofHint": "새 비밀번호 설정 링크를 보내려면 본인임을 확인하십시오.",
+    "emailProofHint": "이 사용자는 관리자 권한이 있습니다. 이메일 주소나 전화번호를 변경하거나 계정을 다시 활성화하려면 본인임을 확인하십시오.",
+    "roleProofHint": "새 역할은 이 사용자에게 없는 권한을 부여합니다. 역할을 변경하려면 본인임을 확인하십시오.",
+    "ssoLinkTitle": "싱글 사인온",
+    "ssoLinkDescription": "SSO는 연결이 허용된 후에만 기존 비밀번호 계정으로 로그인합니다. 그러면 첫 번째 SSO 로그인이 계정을 ID 공급자 사용자에 연결합니다.",
+    "ssoLinked": "연결됨: 이 계정은 ID 공급자 사용자로 로그인합니다.",
+    "ssoLinkPending": "허용됨: 다음 SSO 로그인이 이 계정을 연결합니다.",
+    "ssoLinkAllow": "SSO 로그인 허용",
+    "ssoLinkWithdraw": "철회",
+    "ssoLinkProofHint": "싱글 사인온이 이 계정으로 로그인하도록 허용하려면 본인임을 확인하십시오.",
+    "ssoUnlink": "연결 제거",
+    "ssoUnlinkProofHint": "이 계정과 ID 공급자 사용자 간의 연결을 제거하려면 본인임을 확인하십시오."
   },
   "profile": {
     "title": "프로필",
@@ -1817,7 +1997,6 @@
     "mfaMethodTotp": "인증 앱",
     "mfaMethodSms": "SMS",
     "mfaSetUp": "설정",
-    "mfaSettingUp": "설정 중...",
     "mfaDisable": "MFA 비활성화",
     "mfaDisableConfirm": "보유한 인증 수단이나 복구 코드로 본인임을 확인하세요. MFA를 비활성화하면 패스키와 복구 코드도 삭제됩니다.",
     "mfaSetupPasswordHint": "MFA를 설정하려면 현재 비밀번호를 입력하세요",
@@ -1826,7 +2005,6 @@
     "mfaManualEntry": "수동 입력 키",
     "mfaEnterCode": "6자리 인증 코드를 입력하세요",
     "mfaVerify": "인증",
-    "mfaVerifying": "인증 중...",
     "mfaSetupFailed": "MFA 설정을 시작하지 못했습니다.",
     "mfaVerifyFailed": "유효하지 않은 인증 코드입니다.",
     "mfaDisableFailed": "MFA 비활성화에 실패했습니다.",
@@ -2225,7 +2403,8 @@
     "connectorIdRequired": "커넥터 ID",
     "retries": "재시도 (선택 사항)",
     "retryInterval": "재시도 간격 (선택 사항)",
-    "validationFailed": "페이로드 검증 실패"
+    "validationFailed": "페이로드 검증 실패",
+    "hiddenByPermission": "일부 명령은 펌웨어, 충전소 구성, 인증서, 스마트 충전, 요금, 예약, 세션 또는 운전자 쓰기 권한처럼 사용자에게 없는 쓰기 권한이 필요하므로 숨겨져 있습니다."
   },
   "ocppLogs": {
     "title": "OCPP 메시지 로그",
@@ -2473,6 +2652,17 @@
     "webhookAllowedPrivateHostsHint": "웹훅이 사설 주소로 접근할 호스트를 한 줄에 하나씩 입력하세요(예: 사내 자동화 서버). 스킴이나 포트 없이 호스트 이름 또는 IP 주소를 입력합니다. 최대 20개.",
     "webhooksSaved": "웹훅 설정이 저장되었습니다.",
     "webhooksSaveFailed": "웹훅 설정을 저장하지 못했습니다.",
+    "webhookSigningSecret": "서명 비밀 키",
+    "webhookSigningSecretHint": "모든 웹훅에는 이 비밀 키로 만든 X-EVtivity-Signature: t=<유닉스 시간>,v1=<\"<t>.<원본 본문>\"의 16진수 HMAC-SHA256> 헤더가 붙습니다. 수신자는 이를 다시 계산해 요청이 이 CSMS에서 왔는지 확인하고 오래된 t는 거부합니다.",
+    "webhookSigningSecretConfigured": "서명 비밀 키가 설정되어 있습니다. 웹훅에 서명합니다.",
+    "webhookSigningSecretNotConfigured": "서명 비밀 키가 없습니다. 웹훅을 서명 없이 보냅니다.",
+    "webhookSigningSecretGenerate": "비밀 키 생성",
+    "webhookSigningSecretRegenerate": "비밀 키 재생성",
+    "webhookSigningSecretRegenerateConfirm": "현재 비밀 키는 즉시 사용할 수 없게 됩니다. 수신자가 새 비밀 키로 바꾸지 않으면 다음 웹훅을 거부합니다.",
+    "webhookSigningSecretRemove": "비밀 키 제거",
+    "webhookSigningSecretRemoveConfirm": "새 비밀 키를 생성할 때까지 웹훅을 서명 없이 보냅니다.",
+    "webhookSigningSecretShownOnce": "지금 이 비밀 키를 복사하세요. 한 번만 표시됩니다.",
+    "webhookSigningSecretFailed": "서명 비밀 키가 변경되지 않았습니다.",
     "smtpSaveFailed": "SMTP 설정 저장에 실패했습니다.",
     "twilio": "Twilio SMS",
     "twilioDescription": "SMS 알림 발송을 위한 Twilio를 구성합니다.",
@@ -2698,7 +2888,6 @@
     "mfaRequireDrivers": "운전자에게 MFA 요구",
     "mfaRequireDriversDescription": "모든 운전자는 다음 로그인 시 세션이 발급되기 전에 운전자 포털에서 MFA를 설정해야 합니다. 이미 로그인한 운전자는 다음 세션 갱신 시 요청을 받습니다. 모바일 앱은 설정을 마치도록 운전자를 포털로 안내합니다.",
     "mfaRequiredNoMethod": "MFA를 필수로 하기 전에 이메일 코드나 인증 앱을 켜세요.",
-    "mfaSaved": "MFA 설정이 저장되었습니다.",
     "mfaSaveFailed": "MFA 설정 저장에 실패했습니다.",
     "sso": "Single Sign-On",
     "ssoDescription": "ID 공급자와의 SAML 2.0 Single Sign-On을 구성합니다.",
@@ -2784,22 +2973,12 @@
     "guestDeclinesPerIpPerHour": "IP당 시간별 거절된 카드 수",
     "guestDeclinesPerIpPerHourHelp": "1시간에 이 횟수만큼 카드가 거절되면 해당 주소는 새 결제 보류를 만들 수 없습니다.",
     "ocppDefaults": "OCPP",
-    "ocppStationConfigTitle": "충전소 구성 (부팅 시 전달)",
-    "ocppStationConfigDescription": "이 값은 각 BootNotification 후 충전소에 전송됩니다. OCPP 2.1 충전소는 SetVariables 명령을, OCPP 1.6 충전소는 ChangeConfiguration 명령을 받습니다. 값이 0이면 전달되지 않습니다.",
     "ocppMeterValueInterval": "계량 값 간격 (초)",
-    "ocppMeterValueIntervalHelp": "거래 중 충전소가 에너지 판독값을 보고하는 주기입니다. SampledDataCtrlr.TxUpdatedInterval (2.1) 또는 MeterValueSampleInterval (1.6)로 전달됩니다. 충전소 펌웨어 기본값을 사용하려면 0으로 설정하세요.",
     "ocppClockAlignedInterval": "클록 정렬 간격 (초)",
-    "ocppClockAlignedIntervalHelp": "정확한 시간 경계에서의 클록 정렬 계량 값 보고 간격(예: 15분마다 900). AlignedDataCtrlr.Interval (2.1) 또는 ClockAlignedDataInterval (1.6)로 전달됩니다. 비활성화하려면 0으로 설정하세요.",
     "ocppSampledMeasurands": "샘플링 측정 항목",
-    "ocppSampledMeasurandsHelp": "활성 거래 중 보고되는 쉼표로 구분된 측정 항목입니다. SampledDataCtrlr.TxUpdatedMeasurands (2.1) 또는 MeterValuesSampledData (1.6)로 전달됩니다.",
     "ocppAlignedMeasurands": "클록 정렬 측정 항목",
-    "ocppAlignedMeasurandsHelp": "클록 정렬 간격에 보고되는 쉼표로 구분된 측정 항목입니다. AlignedDataCtrlr.Measurands (2.1) 또는 MeterValuesAlignedData (1.6)로 전달됩니다. 클록 정렬 간격이 0보다 클 때만 전송됩니다.",
     "ocppTxEndedMeasurands": "거래 종료 측정 항목",
-    "ocppTxEndedMeasurandsHelp": "거래 종료 시 최종 계량 값 스냅샷에 포함되는 쉼표로 구분된 측정 항목입니다. SampledDataCtrlr.TxEndedMeasurands (2.1) 또는 StopTxnSampledData (1.6)로 전달됩니다.",
-    "ocppBootResponseTitle": "BootNotification 응답",
-    "ocppBootResponseDescription": "이 값은 BootNotification 응답으로 충전소에 반환됩니다. 충전소가 이를 읽고 자동으로 적용합니다.",
     "ocppHeartbeatInterval": "하트비트 간격 (초)",
-    "ocppHeartbeatIntervalHelp": "충전소가 온라인 상태를 확인하기 위해 하트비트 메시지를 보내는 주기입니다. BootNotification 응답의 interval 필드로 반환됩니다.",
     "ocppCsmsConfigTitle": "CSMS 내부 설정",
     "ocppCsmsConfigDescription": "이 설정은 CSMS가 OCPP 통신을 처리하는 방법을 제어합니다. 충전소에 전송되지 않습니다.",
     "ocppConnectionTimeout": "명령 타임아웃 (초)",
@@ -2879,6 +3058,7 @@
     "siteConfigsNoSites": "사이트를 찾을 수 없습니다.",
     "sitePlatformFeeOverride": "플랫폼 수수료 % 재정의",
     "sitePlatformFeeHint": "전역 플랫폼 수수료를 사용하려면 비워두세요.",
+    "sitePlatformFeeAllSitesOnly": "플랫폼 수수료는 회사 전체에 적용됩니다. 모든 사이트에 액세스할 수 있는 사용자가 변경합니다.",
     "sitePaymentsEnabled": "{{site}} 결제 사용",
     "unsavedChanges": "저장되지 않은 변경 사항",
     "apiKeys": "API 키",
@@ -3071,7 +3251,6 @@
       "sitePerMinute": "사이트당 분당 지원 AI 요청 수",
       "userDailyTokens": "사용자당 일일 토큰 수",
       "maxToolCallsPerTurn": "답변당 도구 호출 수",
-      "conversationRetentionDays": "대화 보관 기간 (일)",
       "attachmentsMaxBytes": "최대 첨부 파일 크기 (바이트)",
       "attachmentsMaxPerMessage": "메시지당 첨부 파일 수",
       "companyMonthlyTokens": "회사 월간 토큰",
@@ -3091,7 +3270,6 @@
       "siteIncidentThreshold": "사이트 장애 하나로 묶는 다운된 충전소 수",
       "maxPerSitePerDay": "사이트별 일일 인사이트 수",
       "primaryLanguage": "요약 언어",
-      "retentionDays": "인사이트 보관 기간(일)",
       "expireAfterDays": "일회성 인사이트 종료 기간(일)",
       "reservation": "예약 인사이트",
       "reservationOff": "예약이 꺼져 있는 동안 예약 인사이트도 꺼져 있습니다.",
@@ -3216,8 +3394,6 @@
       "sessionHistoryNote": "세션과 SIM 알림은 공급자의 기록 보관 기간 안에 누군가 새로 고침한 충전소에 대해서만 보관됩니다. CSMS는 스스로 가져오지 않으며, 충전소의 연결 탭을 열어도 아무것도 가져오지 않습니다.",
       "fetchDays": "기본 새로 고침 기간(일)",
       "fetchDaysHint": "충전소 연결 탭의 새로 고침 버튼 옆에 미리 선택되는 기간입니다. 그곳에서 다른 기간이나 사용자 지정 날짜 범위를 고를 수 있습니다.",
-      "retentionDays": "세션 및 알림 보관 기간(일)",
-      "retentionDaysHint": "이보다 오래된 세션과 SIM 알림은 삭제됩니다. 세션에는 셀 ID가 포함되어 충전소가 온라인이었던 대략적인 위치를 보여 줍니다.",
       "rangeError": "{{min}}에서 {{max}} 사이의 정수를 입력하세요.",
       "stationSignalTitle": "충전소 신호",
       "stationSignalEnabled": "충전소에서 신호 읽기",
@@ -3232,6 +3408,94 @@
       "signalFairDbm": "보통 신호 기준(dBm)",
       "signalFairDbmHint": "이 값 이상의 신호는 보통, 그 아래는 약함으로 평가됩니다.",
       "signalOrderError": "좋음 기준은 보통 기준보다 높아야 합니다."
+    },
+    "ssoAllowedDomains": "허용된 이메일 도메인",
+    "ssoAllowedDomainsHint": "SSO는 쉼표로 구분된 이 도메인에 대해서만 로그인하고 계정을 생성합니다. 권장: 회사 도메인을 입력하십시오. 비워 두면 모든 도메인이 허용됩니다.",
+    "ssoProofHint": "SSO로 로그인할 수 있는 사용자를 변경하려면 본인임을 확인하십시오.",
+    "dataRetention": {
+      "tab": "데이터 보존",
+      "description": "CSMS가 저장된 데이터 종류별로 보관하는 일수입니다. 정리 작업이 다음 실행 때 더 오래된 행을 삭제합니다. 로그와 감사 작업은 매일, AI 작업은 매시간 실행됩니다. 이 설정은 모든 사이트에 적용됩니다.",
+      "storageTitle": "카오스 모드와 대규모 네트워크에는 큰 저장 공간이 필요합니다",
+      "storageNote": "충전소가 보내거나 받는 모든 OCPP 메시지는 하트비트를 포함해 ocpp_message_logs의 한 행이고, 모든 계량값은 meter_values의 한 행입니다. 두 테이블은 아무도 충전하지 않아도 연결된 충전소 수에 따라 커집니다. 시뮬레이션 충전소 약 2,000개의 테스트 네트워크에서 데이터베이스는 90 GB에 도달했습니다. 이 테이블을 작게 유지하려면 OCPP 메시지와 계량값을 낮추세요.",
+      "range": "{{min}}~{{max}}일. 기본값: {{default}}.",
+      "keepForever": "0이면 데이터를 영구 보관합니다.",
+      "saveFailed": "데이터 보존 설정을 저장하지 못했습니다.",
+      "movedNote": "이 데이터의 보관 기간은 다음에서 설정합니다:",
+      "movedLink": "설정 > 데이터 보존",
+      "groups": {
+        "operationalLogs": "운영 로그",
+        "securityAudit": "보안 및 감사",
+        "signInTokens": "로그인 세션 및 토큰",
+        "ai": "AI",
+        "sim": "SIM 데이터"
+      },
+      "rows": {
+        "ocppMessage": {
+          "label": "OCPP 메시지",
+          "description": "충전소와 주고받은 모든 OCPP 메시지, 하트비트 포함 (ocpp_message_logs). 보통 가장 큰 테이블입니다."
+        },
+        "meterValues": {
+          "label": "계량값",
+          "description": "충전 세션의 계량값 (meter_values). 이 행이 삭제된 후에도 세션은 총 에너지, 최대 전력, 마지막 충전 상태를 유지합니다."
+        },
+        "domainEvents": {
+          "label": "도메인 이벤트",
+          "description": "CSMS가 충전소, 세션 및 기타 변경에 대해 기록하는 이벤트 (domain_events)."
+        },
+        "access": {
+          "label": "액세스 로그",
+          "description": "액세스 로그의 CSMS, 포털, API 탭의 요청 (access_logs)."
+        },
+        "workerJob": {
+          "label": "워커 작업 로그",
+          "description": "액세스 로그 워커 탭의 백그라운드 작업 실행 (worker_job_logs), 작업 종료 시점부터 계산."
+        },
+        "portStatus": {
+          "label": "커넥터 상태 기록",
+          "description": "모든 커넥터 상태 변경 (port_status_log)."
+        },
+        "connection": {
+          "label": "충전소 연결 로그",
+          "description": "충전소 연결, 연결 해제 및 실패한 로그인 (connection_logs)."
+        },
+        "notifications": {
+          "label": "보낸 알림",
+          "description": "보낸 이메일, 문자 메시지 및 푸시 알림 (notifications)."
+        },
+        "loadAllocation": {
+          "label": "부하 관리 할당",
+          "description": "부하 관리의 할당 목록 (load_allocation_log)."
+        },
+        "audit": {
+          "label": "감사 기록",
+          "description": "기록 탭과 감사 페이지의 변경 기록, OCPP 인증 시도 (authorize_attempts)."
+        },
+        "loginAudit": {
+          "label": "로그인 기록",
+          "description": "사용자 및 운전자 감사 로그의 성공 및 실패한 로그인. 나머지 행은 감사 기록 설정을 따릅니다."
+        },
+        "securityEvents": {
+          "label": "충전소 보안 이벤트",
+          "description": "충전소가 보고한 보안 이벤트 (security_events)."
+        },
+        "refreshTokens": {
+          "label": "취소 및 만료된 로그인 토큰",
+          "description": "종료된 로그인 세션의 리프레시 토큰 (refresh_tokens), 취소 또는 만료 시점부터 계산."
+        },
+        "aiConversations": {
+          "label": "AI 어시스턴트 대화",
+          "description": "이 기간 동안 활동이 없는 대화와 첨부 파일, 그리고 MCP 호출 로그."
+        },
+        "aiInsights": {
+          "label": "자동 인사이트",
+          "description": "자동 인사이트와 백그라운드 AI 워커 실행."
+        },
+        "simSessions": {
+          "label": "SIM 세션 및 알림",
+          "description": "SIM 세션, SIM 알림 및 가져온 기간 (sim_sessions, sim_alerts, sim_fetch_coverage). 세션에는 충전소가 온라인이었던 대략적인 위치를 보여 주는 셀 ID가 포함됩니다."
+        }
+      },
+      "proofHint": "감사 기록, 로그인 기록 또는 보안 이벤트 기록의 보존 기간을 줄이려면 본인임을 확인하십시오. 모든 관리자에게 알림이 전송됩니다."
     }
   },
   "pnc": {
@@ -3329,6 +3593,7 @@
     "preview": "템플릿 미리보기",
     "customized": "사용자 지정됨",
     "templateSaved": "이벤트 알림이 저장되었습니다.",
+    "securityTemplateLocked": "보안 템플릿입니다(비밀번호 재설정, 초대, 로그인 코드 또는 보안 알림). 변경하려면 시스템 설정 쓰기 권한이 필요합니다.",
     "templateDeactivated": "이벤트 알림이 비활성화되었습니다.",
     "recipientRequired": "수신자 이메일은 필수입니다.",
     "webhookUrlRequired": "웹훅 URL은 필수입니다.",
@@ -3414,7 +3679,13 @@
       "security.RecoveryCodeUsed": "복구 코드 사용됨",
       "security.PhoneChanged": "전화번호 변경됨",
       "security.EmailChanged": "이메일 주소 변경됨",
-      "security.ApiKeyCreated": "API 키 생성됨"
+      "security.ApiKeyCreated": "API 키 생성됨",
+      "security.SsoSettingsChanged": "싱글 사인온 설정 변경됨",
+      "security.UserCreatedPrivileged": "관리자 계정 생성됨",
+      "security.PermissionsGranted": "권한 부여됨",
+      "security.PasswordResetByAdmin": "관리자가 비밀번호 설정 링크를 보냄",
+      "security.SsoUnlinked": "싱글 사인온 연결 제거됨",
+      "security.RetentionLowered": "데이터 보존 기간 단축"
     },
     "templatePreviewInvalid": "템플릿에 오류가 있습니다:",
     "htmlPreview": "HTML 미리보기",
@@ -3567,6 +3838,7 @@
     "API_KEY_RATE_LIMITED": "API 키 요청 한도를 초과했습니다",
     "ATTACHMENT_NOT_FOUND": "첨부 파일을 찾을 수 없습니다",
     "AUDIT_ENTITY_TYPE_INVALID": "알 수 없는 감사 엔터티 유형입니다",
+    "AUTOCHARGE_CLAIM_REQUIRED": "Autocharge는 충전기가 내 세션 중 하나에서 보낸 차량 ID로만 작동합니다. 먼저 세션에서 차량 ID를 사용하세요.",
     "CAMPAIGN_NOT_ACTIVE": "활성 캠페인만 취소할 수 있습니다",
     "CAMPAIGN_NOT_FOUND": "캠페인을 찾을 수 없습니다",
     "CASE_NOT_FOUND": "문의를 찾을 수 없습니다",
@@ -3651,6 +3923,7 @@
     "INVALID_SITE_IDS": "하나 이상의 siteId가 존재하지 않습니다",
     "INVALID_TOKEN": "유효하지 않거나 만료된 재설정 링크입니다",
     "INVOICE_ALREADY_PAID": "이미 결제된 청구서입니다",
+    "PREPAID_BALANCE_CONFLICT": "양식을 연 뒤 선불 잔액이 변경되었습니다(예: 세션 이후). 토큰을 다시 불러온 뒤 잔액을 다시 입력하세요.",
     "RESERVATION_FEE_ALREADY_INVOICED": "이미 청구서가 발행된 예약 수수료입니다",
     "SESSION_ALREADY_INVOICED": "이미 청구서가 발행된 세션입니다",
     "INVOICE_CREATION_FAILED": "청구서 생성에 실패했습니다",
@@ -3792,6 +4065,7 @@
     "START_REJECTED": "충전소가 시작 요청을 거부했습니다: ...",
     "STATION_ALREADY_IN_FLEET": "충전소는 이미 이 차량대에 있습니다",
     "STATION_HAS_ACTIVE_SESSION": "충전소에 진행 중인 충전 세션이 있습니다. 충전소를 삭제하기 전에 세션을 중지하세요.",
+    "STATION_HAS_SIM": "이 충전소에는 이미 SIM이 연결되어 있습니다. 먼저 분리하세요",
     "STATION_ID_EXISTS": "이 ID의 충전소가 이미 존재합니다",
     "STATION_NOT_FOUND": "충전소를 찾을 수 없습니다",
     "STATION_OFFLINE": "충전소가 오프라인 상태입니다",
@@ -3801,6 +4075,7 @@
     "STATION_UNAVAILABLE": "현재 이 충전소를 사용할 수 없습니다. 다른 충전소를 이용해 주세요.",
     "STORAGE_CONNECTION_FAILED": "저장소 연결 테스트에 실패했습니다",
     "STORAGE_NOT_CONFIGURED": "첨부 파일 저장소가 구성되지 않았습니다",
+    "STREAM_LIMIT_REACHED": "이 기기에서 열린 실시간 충전소 업데이트가 너무 많습니다. 다른 탭을 닫고 다시 시도하세요.",
     "SUPPORT_AI_NOT_CONFIGURED": "지원 AI가 구성되지 않았습니다",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "이 문의는 자동 답변에 대한 피드백을 기다리고 있지 않습니다",
     "SUPPORT_CASE_NOT_FOUND": "문의를 찾을 수 없습니다",
@@ -3895,17 +4170,22 @@
     "WEBAUTHN_CHALLENGE_EXPIRED": "패스키 요청이 만료되었거나 이미 사용되었습니다. 다시 시도하세요.",
     "WEBAUTHN_VERIFICATION_FAILED": "패스키 또는 보안 키를 확인할 수 없습니다.",
     "SIM_ACTION_UNSUPPORTED": "SIM 제공업체가 이 SIM에 대해 이 작업을 지원하지 않습니다",
-    "SIM_CONFIRMED_ELSEWHERE": "다른 충전소에 이미 이 SIM의 확인된 연결이 있습니다",
+    "SIM_ATTACHED": "SIM을 삭제하기 전에 충전소에서 분리하세요",
+    "SIM_ATTACHED_ELSEWHERE": "이 SIM은 다른 충전소에 연결되어 있습니다",
+    "SIM_ATTACHMENT_CHANGED": "표시된 후 SIM 연결이 변경되었습니다. SIM을 점검한 후 다시 확인하세요",
+    "SIM_ATTACHMENT_NOT_CONFIRMED": "네트워크를 재설정하기 전에 SIM을 확인하세요",
     "SIM_FEATURE_DISABLED": "SIM 제공업체와 충전소 신호 읽기가 꺼져 있습니다",
-    "SIM_MATCHED_ELSEWHERE": "이 SIM은 다른 충전소에 연결되어 있습니다",
-    "SIM_MATCH_CHANGED": "표시된 후 SIM 매칭이 변경되었습니다. SIM을 확인하고 다시 확인하세요",
-    "SIM_MATCH_NOT_CONFIRMED": "네트워크를 재설정하기 전에 SIM을 확인하세요",
-    "SIM_NOT_FOUND": "이 충전소에 연결된 SIM이 없습니다",
+    "SIM_INACTIVE": "이 SIM은 비활성 상태입니다. 먼저 다시 활성화하세요",
+    "SIM_NOT_FOUND": "SIM을 찾을 수 없습니다",
     "SIM_PROVIDER_ERROR": "SIM 제공업체 요청이 실패했습니다",
     "SIM_PROVIDER_NOT_CONFIGURED": "구성된 SIM 제공업체가 없습니다",
     "SIM_PROVIDER_RATE_LIMITED": "SIM 요청이 너무 많습니다. 나중에 다시 시도하세요",
     "SIM_RESET_UNAVAILABLE": "지금은 네트워크 재설정을 시작할 수 없습니다. 1분 후에 다시 시도하세요",
-    "SIM_TEST_UNAVAILABLE": "지금은 연결 테스트를 실행할 수 없습니다. 1분 후에 다시 시도하세요"
+    "SIM_TEST_UNAVAILABLE": "지금은 연결 테스트를 실행할 수 없습니다. 1분 후에 다시 시도하세요",
+    "NOT_FOUND": "찾을 수 없습니다",
+    "PAYLOAD_TOO_LARGE": "요청이 너무 큽니다",
+    "UNSUPPORTED_MEDIA_TYPE": "지원되지 않는 콘텐츠 유형입니다",
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "하트비트 및 계량값 설정은 구성 템플릿이 아니라 설정 > 통합 및 기능 > OCPP와 충전소의 데이터 요금제에서 옵니다."
   },
   "logs": {
     "title": "로그",
@@ -4465,7 +4745,9 @@
     "rejected": "거부됨",
     "failed": "실패",
     "pending": "대기 중",
-    "pushProgress": "전달 진행 상황"
+    "pushProgress": "전달 진행 상황",
+    "variableInstance": "변수 인스턴스",
+    "duplicateVariable": "두 행이 같은 변수를 설정합니다. 하나를 삭제하세요."
   },
   "validation": {
     "required": "필수 항목입니다",
@@ -4638,6 +4920,8 @@
     "durationMs": "{{ms}}ms",
     "confirmTitle": "이 변경 사항 확인",
     "confirmArguments": "세부 정보",
+    "confirmMaskedValues_one": "이 카드에 숨겨진 값 {{count}}개는 어시스턴트가 작성한 그대로 실행됩니다",
+    "confirmMaskedValues_other": "이 카드에 숨겨진 값 {{count}}개는 어시스턴트가 작성한 그대로 실행됩니다",
     "confirmSummary": {
       "POST": "생성 또는 실행: {{tool}}",
       "PUT": "교체: {{tool}}",
@@ -4788,7 +5072,8 @@
     "dataNotice": {
       "title": "AI 공급자가 받는 정보",
       "body": "메시지, 도구 결과, 첨부 파일은 선택한 AI 제공업체로 전송됩니다. 제공업체의 데이터 보존 약관을 확인하세요. AI 공급자는 비밀번호, API 키, 비밀 값, 충전소 비밀번호 같은 저장된 자격 증명을 절대 받지 않습니다. 카드 번호는 마지막 4자로 줄여 보냅니다. 지원 초안, 자동 인사이트, 백그라운드 작업자, 운전자 지원은 이메일 주소와 전화번호도 마스킹하고, 운전자 토큰 ID는 해시하거나 줄입니다. 어시스턴트는 운전자 연락처를 열람할 권한이 있는 사용자에게만, 저장된 그대로 보냅니다. 입력한 텍스트와 첨부한 텍스트 파일은 키와 카드 번호가 있는지 검사합니다. 첨부한 이미지와 PDF는 그대로 전송됩니다."
-    }
+    },
+    "confirmLinks": "이 변경은 {{hosts}}(으)로 연결됩니다. 확인하기 전에 각 링크를 점검하십시오."
   },
   "sustainability": {
     "title": "지속가능성 보고서",
@@ -4993,6 +5278,7 @@
       "priority_changed": "우선순위 변경됨",
       "pulled": "가져옴",
       "pushed": "전송됨",
+      "reactivated": "재활성화됨",
       "rebilled": "재청구됨",
       "refund_issued": "환불 처리됨",
       "registered": "등록됨",
@@ -5092,7 +5378,14 @@
       "recovery_codes_regenerated": "복구 코드 다시 생성됨",
       "webauthn_credential_added": "패스키 추가됨",
       "webauthn_credential_renamed": "패스키 이름 변경됨",
-      "webauthn_credential_removed": "패스키 제거됨"
+      "webauthn_credential_removed": "패스키 제거됨",
+      "attached": "연결됨",
+      "detached": "연결 해제됨",
+      "attachment_confirmed": "연결 확인됨",
+      "network_reset": "네트워크 재설정됨",
+      "sso_link_allowed": "SSO 로그인 허용됨",
+      "sso_unlinked": "SSO 연결 제거됨",
+      "data_plan_changed": "데이터 요금제 변경됨"
     },
     "entities": {
       "site": "사이트",
@@ -5128,7 +5421,8 @@
       "notification_template": "알림 템플릿",
       "station_message_template": "충전소 메시지 템플릿",
       "event_alert_rule": "이벤트 알림 규칙",
-      "report_schedule": "보고서 일정"
+      "report_schedule": "보고서 일정",
+      "sim": "SIM"
     },
     "actors": {
       "operator": "운영자",
@@ -5930,7 +6224,8 @@
     "lastFactorRequired": "조직에서 2단계 인증을 요구하므로 유일한 패스키를 제거할 수 없습니다. 먼저 다른 인증 수단을 추가하세요.",
     "cancelled": "패스키 창이 닫혔습니다. 준비되면 다시 시도하세요.",
     "alreadyRegistered": "이 패스키 또는 보안 키는 이미 등록되어 있습니다.",
-    "failed": "패스키 요청이 완료되지 않았습니다. 다시 시도하세요."
+    "failed": "패스키 요청이 완료되지 않았습니다. 다시 시도하세요.",
+    "browserUnsupported": "이 브라우저는 패스키와 보안 키를 지원하지 않습니다. 추가하려면 패스키를 지원하는 브라우저에서 이 페이지를 여세요."
   },
   "factorProof": {
     "chooseLabel": "확인 방법",
@@ -5951,12 +6246,83 @@
     "passkeyButton": "패스키로 확인",
     "verifying": "확인 중...",
     "passkeyVerified": "패스키가 확인되었습니다.",
-    "passkeyNeedsSecurePage": "패스키로 본인임을 확인하세요. 패스키는 보안 연결(HTTPS) 또는 localhost에서만 작동합니다. 패스키를 사용하려면 이 페이지를 HTTPS로 여세요.",
     "addFactorHint": "두 번째 인증 수단을 추가하기 전에 본인임을 확인하세요.",
     "confirmFirst": "먼저 본인임을 확인하세요.",
     "kindSso": "SSO(Single Sign-On)",
     "ssoHint": "본인임을 확인하려면 SSO로 다시 로그인하세요. 이 페이지로 돌아오며 10분 안에 계속해야 합니다.",
     "ssoSignIn": "SSO로 다시 로그인",
     "ssoConfirmed": "최근 SSO 로그인으로 확인되었습니다."
+  },
+  "passkeyUnavailable": {
+    "insecure": {
+      "signInCode": "패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동합니다. 패스키를 사용하려면 이 사이트를 HTTPS로 열거나, 인증 코드로 로그인하세요.",
+      "signInRecovery": "패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동합니다. 패스키를 사용하려면 이 사이트를 HTTPS로 열거나, 복구 코드로 로그인하세요.",
+      "signInOnly": "패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동하며, 계정에 다른 인증 방법이 없습니다. 패스키로 로그인하려면 이 사이트를 HTTPS로 여세요.",
+      "setupOther": "패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동합니다. 패스키를 추가하려면 이 사이트를 HTTPS로 열거나, 아래에서 다른 방법을 설정하세요.",
+      "setupOnly": "패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동하며, 설정할 수 있는 방법은 패스키뿐입니다. 패스키를 설정하려면 이 사이트를 HTTPS로 여세요.",
+      "proofOnly": "패스키로 본인임을 확인하세요. 패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동합니다. 패스키를 사용하려면 이 사이트를 HTTPS로 여세요."
+    },
+    "unsupported": {
+      "signInCode": "이 브라우저는 패스키를 지원하지 않습니다. 패스키를 사용하려면 패스키를 지원하는 브라우저에서 이 사이트를 열거나, 인증 코드로 로그인하세요.",
+      "signInRecovery": "이 브라우저는 패스키를 지원하지 않습니다. 패스키를 사용하려면 패스키를 지원하는 브라우저에서 이 사이트를 열거나, 복구 코드로 로그인하세요.",
+      "signInOnly": "이 브라우저는 패스키를 지원하지 않으며, 계정에 다른 인증 방법이 없습니다. 로그인하려면 패스키를 지원하는 브라우저에서 이 사이트를 여세요.",
+      "setupOther": "이 브라우저는 패스키를 지원하지 않습니다. 패스키를 추가하려면 패스키를 지원하는 브라우저에서 이 사이트를 열거나, 아래에서 다른 방법을 설정하세요.",
+      "setupOnly": "이 브라우저는 패스키를 지원하지 않으며, 설정할 수 있는 방법은 패스키뿐입니다. 패스키를 설정하려면 패스키를 지원하는 브라우저에서 이 사이트를 여세요.",
+      "proofOnly": "패스키로 본인임을 확인하세요. 이 브라우저는 패스키를 지원하지 않습니다. 패스키를 사용하려면 패스키를 지원하는 브라우저에서 이 사이트를 여세요."
+    }
+  },
+  "dataPlan": {
+    "title": "데이터 요금제",
+    "plans": {
+      "wifi_or_wired": "Wi-Fi 또는 유선",
+      "cellular": "셀룰러"
+    },
+    "notSet": "설정 안 됨",
+    "useSitePlan": "사이트 요금제 사용",
+    "any": "전체",
+    "sources": {
+      "station": "이 충전소에 설정됨",
+      "sim": "확인된 SIM",
+      "site": "사이트",
+      "default": "기본값"
+    },
+    "kinds": {
+      "ac": "AC",
+      "dc": "DC"
+    },
+    "planLabel": "요금제",
+    "sourceLabel": "출처",
+    "kindLabel": "충전 중 값",
+    "fromDataPlan": "데이터 요금제에서",
+    "fromDataPlanHint": "매 부팅 시 충전소의 데이터 요금제에서 전송됩니다. 템플릿은 이 값을 설정하지 않습니다.",
+    "confirmTitle": "데이터 요금제 변경",
+    "station": {
+      "description": "이 충전소가 사용하는 OCPP 설정입니다. 충전소에 설정한 요금제가 확인된 SIM과 사이트보다 우선합니다.",
+      "choice": "이 충전소의 요금제",
+      "confirmDescription": "충전소가 온라인이면 지금, 아니면 다음 부팅 시 요금제 설정을 받습니다."
+    },
+    "site": {
+      "description": "자체 요금제나 확인된 SIM이 없는 이 사이트 충전소의 요금제입니다.",
+      "stationsChanging_one": "충전소 1개의 요금제가 바뀝니다.",
+      "stationsChanging_other": "충전소 {{count}}개의 요금제가 바뀝니다.",
+      "confirmDescription": "온라인 충전소는 즉시, 오프라인 충전소는 다음 부팅 시 새 요금제 설정을 받습니다."
+    },
+    "settings": {
+      "description": "매 부팅 시 충전소에 전송되는 값으로, 데이터 요금제마다 한 세트입니다. 요금제의 각 충전소는 다음 부팅이나 요금제 변경 시 새 값을 받습니다.",
+      "heartbeatTitle": "하트비트 및 핑",
+      "heartbeatIntervalHelp": "BootNotification 응답으로 충전소에 전송됩니다. {{min}}~{{max}}초.",
+      "csmsPingInterval": "CSMS 핑 간격(초)",
+      "csmsPingIntervalHelp": "충전소에서 이 시간 동안 프레임이 오지 않으면 CSMS가 핑을 보냅니다. {{min}}~{{max}}초.",
+      "chargingTitle": "충전 중 측정값",
+      "chargingDescription": "충전 중 측정값입니다. 커넥터가 CCS1, CCS2, CHAdeMO이거나 22kW를 넘는 GB/T, Tesla, NACS이면 DC 충전소이고, 그 외에는 AC 충전소입니다.",
+      "acStations": "AC 충전소",
+      "dcStations": "DC 충전소",
+      "meterValueIntervalHelp": "{{min}}~{{max}}초.",
+      "sampledMeasurandsHelp": "충전 중 전송되는 측정 항목(쉼표로 구분).",
+      "idleTitle": "유휴 및 종료 측정값",
+      "clockAlignedIntervalHelp": "정시 기준 유휴 측정값입니다. 0이면 끄고, 그 외에는 {{min}}~{{max}}초.",
+      "alignedMeasurandsHelp": "유휴 측정값의 측정 항목(쉼표로 구분). 간격이 0보다 클 때만 전송됩니다.",
+      "txEndedMeasurandsHelp": "세션 종료 시 값의 측정 항목(쉼표로 구분)."
+    }
   }
 }

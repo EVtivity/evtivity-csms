@@ -14,7 +14,7 @@ import { decryptString, validateAiBaseUrl } from '@evtivity/lib';
 import type { AiSettings } from '@evtivity/lib/ai-config';
 import { getProviderEntry } from '@evtivity/ai/core';
 import type { AiAdapter, Effort, ProviderId } from '@evtivity/ai/core';
-import { getProviderRegistry } from '@evtivity/ai/providers';
+import { createGuardedFetch, getProviderRegistry } from '@evtivity/ai/providers';
 import { trackAiProviderCalls } from './ai-alerts.js';
 
 export interface OpsAiConfig {
@@ -26,6 +26,8 @@ export interface OpsAiConfig {
   effort: Effort;
   /** The operator's prompt, empty for the built-in one. */
   systemPrompt: string;
+  /** The base URL check allowed a private host (development); the send-time check follows it. */
+  allowPrivateHosts?: boolean;
 }
 
 /**
@@ -55,6 +57,7 @@ export function resolveOpsAiConfig(
     model,
     effort: settings.ops.effort,
     systemPrompt: settings.ops.systemPrompt.trim(),
+    allowPrivateHosts,
   };
 }
 
@@ -64,6 +67,8 @@ export function createOpsAdapter(config: OpsAiConfig): AiAdapter {
     getProviderRegistry().create(config.provider, {
       apiKey: config.apiKey,
       ...(config.baseUrl !== '' ? { baseUrl: config.baseUrl } : {}),
+      // The address check at send time.
+      fetch: createGuardedFetch(config.allowPrivateHosts === true),
     }),
   );
 }

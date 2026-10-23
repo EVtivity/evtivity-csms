@@ -67,11 +67,7 @@ interface SessionRow {
   status: string;
   stoppedReason: string | null;
   paymentSource: string | null;
-}
-
-interface PeakKwRow {
-  sessionId: string;
-  peakKw: string;
+  peakPowerW: string | null;
 }
 
 interface UptimeRow {
@@ -329,6 +325,8 @@ async function buildSessionsTab(
       sessionId: chargingSessions.id,
       status: chargingSessions.status,
       stoppedReason: chargingSessions.stoppedReason,
+      // The session's stored peak (W), which outlives the meter_values retention.
+      peakPowerW: chargingSessions.peakPowerW,
       paymentSource: sql<
         string | null
       >`(SELECT pr.payment_source FROM ${paymentRecords} pr WHERE pr.session_id = ${chargingSessions.id} ORDER BY pr.created_at DESC LIMIT 1)`,
@@ -344,32 +342,10 @@ async function buildSessionsTab(
       ),
     );
 
-  const sessionIds = (sessionRows as SessionRow[]).map((r) => r.sessionId);
-
-  const peakKwMap = new Map<string, number>();
-  if (sessionIds.length > 0) {
-    const peakRows = await db.execute(sql`
-      SELECT
-        session_id AS "sessionId",
-        MAX(value) AS "peakKw"
-      FROM meter_values
-      WHERE session_id IN (${sql.join(
-        sessionIds.map((id) => sql`${id}`),
-        sql`, `,
-      )})
-        AND measurand = 'Power.Active.Import'
-      GROUP BY session_id
-    `);
-
-    for (const row of peakRows as unknown as PeakKwRow[]) {
-      peakKwMap.set(row.sessionId, Number(row.peakKw));
-    }
-  }
-
   for (const row of sessionRows as SessionRow[]) {
     const energyKwh =
       row.energyWh !== null ? Math.round((Number(row.energyWh) / 1000) * 1000) / 1000 : '';
-    const peakKw = peakKwMap.get(row.sessionId);
+    const peakKw = row.peakPowerW !== null ? Number(row.peakPowerW) / 1000 : undefined;
     const isFaultedOrInvalid = row.status === 'faulted' || row.status === 'invalid';
 
     sheet.addRow({

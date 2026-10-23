@@ -141,6 +141,8 @@ vi.mock('@evtivity/lib', async () => {
   return {
     // The template rules are the behavior under test, so they stay real.
     assertTemplateAllowed: actual.assertTemplateAllowed,
+    EMAIL_BODY_TEMPLATE: actual.EMAIL_BODY_TEMPLATE,
+    EMAIL_LAYOUT_TEMPLATE: actual.EMAIL_LAYOUT_TEMPLATE,
     compileAllowedTemplate: actual.compileAllowedTemplate,
     // Sample money values are formatted like the dispatcher formats them.
     formatLocalizedVariables: actual.formatLocalizedVariables,
@@ -913,6 +915,59 @@ describe('Notification routes', () => {
     const body = response.json<{ code: string; details: { wrapperTemplate: string } }>();
     expect(body.code).toBe('VALIDATION_ERROR');
     expect(body.details.wrapperTemplate).toEqual(expect.any(String));
+  });
+
+  it('PUT /v1/notification-templates refuses a raw variable in an email body only', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/notification-templates',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        eventType: 'station.Connected',
+        channel: 'email',
+        language: 'en',
+        subject: '{{{companyName}}} alert',
+        bodyHtml: '<p>Hi {{{firstName}}}</p>',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    const body = response.json<{ code: string; details: Record<string, string> }>();
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(body.details).toEqual({
+      bodyHtml: '{{{firstName}}} is not allowed in an HTML email, use {{firstName}}',
+    });
+  });
+
+  it('PUT /v1/ocpp-event-settings refuses a raw variable in an email template', async () => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/ocpp-event-settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        eventType: 'station.Connected',
+        channel: 'email',
+        recipient: 'admin@test.com',
+        templateHtml: '<p>{{{stationId}}}</p>',
+      },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json<{ details: Record<string, string> }>().details['templateHtml']).toContain(
+      'not allowed in an HTML email',
+    );
+  });
+
+  it('POST /v1/email-wrapper/preview refuses a raw variable other than content', async () => {
+    setupDbResults([]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/email-wrapper/preview',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { wrapperTemplate: '<h1>{{{companyName}}}</h1>{{{content}}}' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(
+      response.json<{ details: { wrapperTemplate: string } }>().details.wrapperTemplate,
+    ).toContain('{{{companyName}}}');
   });
 
   it('POST /v1/email-wrapper/preview rejects a layout over 100 kB', async () => {

@@ -313,6 +313,11 @@ export class SimulatedPaymentProvider implements PaymentProvider {
   }
 
   async capture(input: CaptureInput): Promise<ModificationResult<CaptureResult>> {
+    // As a real provider, never above the held amount.
+    const heldCents = parsePaymentId(input.paymentId)?.amountCents ?? null;
+    if (heldCents != null && input.amountCents > heldCents) {
+      throw new PaymentValidationError('The capture is above the held amount');
+    }
     const scenario = this.scenarioOf(input.paymentId);
     const key = input.idempotencyKey;
     const failed = scenario === 'capfail' || (scenario === 'random' && this.randomFails(key));

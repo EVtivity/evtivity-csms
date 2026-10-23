@@ -124,6 +124,9 @@ function makeCtx(
       ocppProtocol: 'ocpp2.1',
       bootStatus: null,
       readyAnnounced: false,
+      dataPlan: 'wifi_or_wired',
+      lastInboundAt: new Date(),
+      answeredPing: false,
     },
     messageId: 'msg-1',
     action: 'Authorize',
@@ -233,7 +236,10 @@ describe('v2_1 Authorize handler', () => {
     const response = await handleAuthorize(ctx);
 
     expect(validateContractCertificateMock).toHaveBeenCalledWith(
-      { iso15118CertificateHashData: hashData },
+      {
+        iso15118CertificateHashData: hashData,
+        idToken: { idToken: 'emaid-2', type: 'eMAID' },
+      },
       expect.anything(),
     );
     expect(response).toMatchObject({
@@ -278,7 +284,7 @@ describe('v2_1 Authorize handler', () => {
     const response = await handleAuthorize(ctx);
 
     expect(validateContractCertificateMock).toHaveBeenCalledWith(
-      { certificate: 'cert-pem' },
+      { certificate: 'cert-pem', idToken: { idToken: 'emaid-3', type: 'eMAID' } },
       expect.anything(),
     );
     expect(response).toEqual({

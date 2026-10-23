@@ -43,7 +43,7 @@ describe('authenticate decorator with csms_token cookie', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/protected',
-      cookies: { csms_token: token },
+      cookies: { csms_token: app.signCookie(token) },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().userId).toBe('u2');
@@ -58,7 +58,7 @@ describe('authenticate decorator with csms_token cookie', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/protected',
-      cookies: { csms_token: token },
+      cookies: { csms_token: app.signCookie(token) },
     });
     expect(res.statusCode).toBe(401);
     expect(res.json().code).toBe('ACCOUNT_DEACTIVATED');
@@ -92,7 +92,7 @@ describe('authenticate decorator with csms_token cookie', () => {
       method: 'GET',
       url: '/protected',
       headers: { authorization: `Bearer ${headerToken}` },
-      cookies: { csms_token: cookieToken },
+      cookies: { csms_token: app.signCookie(cookieToken) },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().userId).toBe('header-user');

@@ -5,6 +5,13 @@ import 'reflect-metadata';
 import crypto, { webcrypto } from 'node:crypto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as x509 from '@peculiar/x509';
+// The download goes through safeFetch; these tests stub the global
+// fetch, so safeFetch forwards to it here.
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/lib')>()),
+  safeFetch: (...args: unknown[]) => (globalThis.fetch as (...a: unknown[]) => unknown)(...args),
+}));
+
 import { call, makeHarness, priv, silenceConsole, stubSql, type Harness } from './sim-harness.js';
 import { certificateHashData } from '../lib/station-pki.js';
 import { FIRMWARE_IMAGE_FORMAT } from '../lib/manufacturer-root.js';

@@ -19,7 +19,6 @@ import {
 import { eq, and, isNull } from 'drizzle-orm';
 import {
   db,
-  chargingStations,
   stationConfigurations,
   stationAuditLog,
   localAuthListAuditLog,
@@ -90,7 +89,11 @@ import {
 } from '../lib/ocpp-zod-types-v21.js';
 
 // --- v16 type imports ---
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
+import {
+  ocppCommandPayloadPermission,
+  ocppCommandRoutePermissions,
+} from '@evtivity/lib/ocpp-command-permissions';
 import {
   resetTypeEnum as resetTypeEnumV16,
   availabilityTypeEnum,
@@ -145,6 +148,7 @@ const commandResponses = {
   200: itemResponse(ocppCommandSuccess),
   202: itemResponse(ocppCommandQueued),
   400: errorResponse,
+  403: errorResponse,
   404: errorResponse,
   500: itemResponse(ocppCommandError),
   502: itemResponse(ocppCommandError),
@@ -516,7 +520,8 @@ function commandRoute(
   app.post(
     `/ocpp/commands/${version}/${commandName}`,
     {
-      onRequest: [authorize('stations:write')],
+      // stations:write plus the feature permission of the action.
+      onRequest: [authorize(...ocppCommandRoutePermissions(commandName))],
       schema: {
         tags: [`OCPP ${version === 'v21' ? '2.1' : '1.6'} Commands`],
         summary,
@@ -532,6 +537,13 @@ function commandRoute(
       const { stationId, ...payload } = body;
       // Station passwords change only through the station security service (P3).
       assertNoStationCredentialWrite(commandName, payload);
+      // A certificate signing trigger is a certificate action.
+      const payloadPermission = ocppCommandPayloadPermission(commandName, payload);
+      if (payloadPermission != null && !(await requestHasPermission(request, payloadPermission))) {
+        return reply
+          .status(403)
+          .send({ error: 'Insufficient permissions', code: 'INSUFFICIENT_PERMISSIONS' });
+      }
       validatePayload?.(payload);
       return dispatchCommand(
         app,
@@ -1350,37 +1362,37 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
       const actor = getAuditActor(request);
       const getVariableData = payload.getVariableData;
 
-      // Look up station DB ID for ItemsPerMessage config query
-      const [station] = await db
-        .select({ id: chargingStations.id })
-        .from(chargingStations)
-        .where(eq(chargingStations.stationId, stationId));
+      // The site check comes first, before any read of the station's
+      // settings (security review AZ-I8): a station outside the caller's
+      // sites answers like an unknown one.
+      const station = await findCommandStation(userId, stationId);
+      if (station == null) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
 
       let itemsPerMessage = getVariableData.length; // default: no splitting
-      if (station != null) {
-        // B06.FR.05: the limit is DeviceDataCtrlr.ItemsPerMessage[GetVariables] (Actual).
-        // Other instances (GetReport) are different variables with their own limits.
-        const [match] = await db
-          .select({ value: stationConfigurations.value })
-          .from(stationConfigurations)
-          .where(
-            and(
-              eq(stationConfigurations.stationId, station.id),
-              eq(stationConfigurations.component, 'DeviceDataCtrlr'),
-              isNull(stationConfigurations.instance),
-              isNull(stationConfigurations.evseId),
-              isNull(stationConfigurations.connectorId),
-              eq(stationConfigurations.variable, 'ItemsPerMessage'),
-              eq(stationConfigurations.variableInstance, 'GetVariables'),
-              eq(stationConfigurations.attributeType, 'Actual'),
-            ),
-          )
-          .limit(1);
-        if (match?.value != null) {
-          const parsed = parseInt(match.value, 10);
-          if (!isNaN(parsed) && parsed > 0) {
-            itemsPerMessage = parsed;
-          }
+      // B06.FR.05: the limit is DeviceDataCtrlr.ItemsPerMessage[GetVariables] (Actual).
+      // Other instances (GetReport) are different variables with their own limits.
+      const [match] = await db
+        .select({ value: stationConfigurations.value })
+        .from(stationConfigurations)
+        .where(
+          and(
+            eq(stationConfigurations.stationId, station.id),
+            eq(stationConfigurations.component, 'DeviceDataCtrlr'),
+            isNull(stationConfigurations.instance),
+            isNull(stationConfigurations.evseId),
+            isNull(stationConfigurations.connectorId),
+            eq(stationConfigurations.variable, 'ItemsPerMessage'),
+            eq(stationConfigurations.variableInstance, 'GetVariables'),
+            eq(stationConfigurations.attributeType, 'Actual'),
+          ),
+        )
+        .limit(1);
+      if (match?.value != null) {
+        const parsed = parseInt(match.value, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          itemsPerMessage = parsed;
         }
       }
 

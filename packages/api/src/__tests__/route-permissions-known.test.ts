@@ -26,7 +26,13 @@ const PERMISSION_LITERAL =
 
 function permissionLiteralsIn(source: string): string[] {
   return [...source.matchAll(PERMISSION_LITERAL)].flatMap((m) => {
-    if (m[1] != null) return [...m[1].matchAll(/'([^']+)'/g)].map((a) => a[1] ?? '');
+    if (m[1] != null) {
+      // `authorize(...helper('Action'))` spreads a typed `Permission[]` (for
+      // example `ocppCommandRoutePermissions`): the compiler checks it, and the
+      // quoted argument is not a permission.
+      if (m[1].includes('(')) return [];
+      return [...m[1].matchAll(/'([^']+)'/g)].map((a) => a[1] ?? '');
+    }
     return [m[2] ?? m[3] ?? ''];
   });
 }
@@ -47,7 +53,8 @@ describe('route permissions', () => {
     expect(
       permissionLiteralsIn(
         "authorize('stations:read', 'nope:write') authorize(target.permission) " +
-          "requestHasPermission(request, 'sites:read') permission: 'drivers:read'",
+          "requestHasPermission(request, 'sites:read') permission: 'drivers:read' " +
+          "authorize(...ocppCommandRoutePermissions('SetVariables'))",
       ),
     ).toEqual(['stations:read', 'nope:write', 'sites:read', 'drivers:read']);
   });

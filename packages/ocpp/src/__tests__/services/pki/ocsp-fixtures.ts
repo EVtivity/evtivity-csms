@@ -46,10 +46,22 @@ export async function issueCert(
     ocspSigning?: boolean;
     notBefore?: Date;
     notAfter?: Date;
+    /** Key usage flags; a CA gets keyCertSign and cRLSign unless set. `null` omits the extension. */
+    keyUsage?: number | null;
+    pathLength?: number;
   } = {},
 ): Promise<TestCert> {
   const keys = (await webcrypto.subtle.generateKey(EC, true, ['sign', 'verify'])) as CryptoKeyPair;
-  const extensions: x509.Extension[] = [new x509.BasicConstraintsExtension(opts.ca ?? false)];
+  const extensions: x509.Extension[] = [
+    new x509.BasicConstraintsExtension(opts.ca ?? false, opts.pathLength),
+  ];
+  const keyUsage =
+    opts.keyUsage === undefined
+      ? opts.ca === true
+        ? x509.KeyUsageFlags.keyCertSign | x509.KeyUsageFlags.cRLSign
+        : null
+      : opts.keyUsage;
+  if (keyUsage != null) extensions.push(new x509.KeyUsagesExtension(keyUsage));
   if (opts.ocspUrl != null) {
     extensions.push(new x509.AuthorityInfoAccessExtension({ ocsp: [opts.ocspUrl] }));
   }
@@ -109,7 +121,8 @@ export function buildResponse(
     status: 'good' | 'revoked' | 'unknown';
     signer: TestCert;
     includeCerts?: TestCert[];
-    nextUpdate?: Date;
+    /** null: a response without nextUpdate. */
+    nextUpdate?: Date | null;
     tamper?: boolean;
   },
 ): Buffer {
@@ -135,7 +148,9 @@ export function buildResponse(
         certID: certId,
         certStatus,
         thisUpdate: now,
-        nextUpdate: opts.nextUpdate ?? new Date(now.getTime() + 60 * 60 * 1000),
+        ...(opts.nextUpdate === null
+          ? {}
+          : { nextUpdate: opts.nextUpdate ?? new Date(now.getTime() + 60 * 60 * 1000) }),
       }),
     ],
   });

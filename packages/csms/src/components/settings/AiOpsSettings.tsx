@@ -42,6 +42,7 @@ import { API_BASE_URL } from '@/lib/config';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatNumber } from '@/lib/formatting';
 import { AiAdvancedOptions, AiPromptSummary } from './AiAdvancedOptions';
+import { DataRetentionLink } from './DataRetentionSettings';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
 
 /**
@@ -366,11 +367,6 @@ const INSIGHT_FIELDS: readonly FieldSpec[] = [
     kind: 'number',
     key: AI_INSIGHT_SETTING_KEYS.maxPerSitePerDay,
     label: 'settings.aiInsightsSettings.maxPerSitePerDay',
-  },
-  {
-    kind: 'number',
-    key: AI_INSIGHT_SETTING_KEYS.retentionDays,
-    label: 'settings.aiInsightsSettings.retentionDays',
   },
   {
     kind: 'number',
@@ -723,17 +719,23 @@ export function AiInsightsSettings({
         fields={fields}
         testId="ai-insights-settings"
         intro={
-          reservationsOff ? (
-            <p className="text-sm text-muted-foreground" data-testid="ai-reservation-insights-off">
-              {t('settings.aiInsightsSettings.reservationOff')}{' '}
-              <Link
-                to="/settings?tab=integrations&sub=reservation"
-                className="text-link hover:underline"
+          <>
+            {reservationsOff && (
+              <p
+                className="text-sm text-muted-foreground"
+                data-testid="ai-reservation-insights-off"
               >
-                {t('settings.aiInsightsSettings.reservationOffLink')}
-              </Link>
-            </p>
-          ) : undefined
+                {t('settings.aiInsightsSettings.reservationOff')}{' '}
+                <Link
+                  to="/settings?tab=integrations&sub=reservation"
+                  className="text-link hover:underline"
+                >
+                  {t('settings.aiInsightsSettings.reservationOffLink')}
+                </Link>
+              </p>
+            )}
+            <DataRetentionLink />
+          </>
         }
       />
       <AiWorkersSettings settings={settings} canWrite={canWrite} />

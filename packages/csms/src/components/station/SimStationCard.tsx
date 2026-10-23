@@ -20,7 +20,7 @@ import {
   signalGradeVariant,
   type StationDataLink,
   type StationSignal,
-} from './sim-connectivity';
+} from '@/components/sim/sim-connectivity';
 
 const GRADE_KEYS = {
   good: 'stations.sim.station.grade.good',
@@ -134,12 +134,20 @@ export function SimStationCard({
             {canWrite && (
               <Button
                 variant="outline"
+                className="relative"
                 disabled={readDeviceModel.isPending}
                 onClick={() => {
                   readDeviceModel.mutate();
                 }}
               >
-                {t('stations.sim.station.readDeviceModel')}
+                {readDeviceModel.isPending && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  </div>
+                )}
+                <span className={readDeviceModel.isPending ? 'invisible' : ''}>
+                  {t('stations.sim.station.readDeviceModel')}
+                </span>
               </Button>
             )}
           </div>

@@ -33,6 +33,6 @@
     "@evtivity/api": "*",
     "@types/node": "^25.2.3",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.5"
   }
 }

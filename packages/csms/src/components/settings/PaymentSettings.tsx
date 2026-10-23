@@ -24,6 +24,7 @@ import {
 } from '@evtivity/lib/currency';
 import { AdyenSettings } from './AdyenSettings';
 import { percentError, preAuthAmountError } from './payment-amount-validation';
+import { PRE_AUTH_AMOUNT_MAX_CENTS, PRE_AUTH_AMOUNT_MIN_CENTS } from '@evtivity/lib/currency';
 import { PrepaidSettings } from './PrepaidSettings';
 import { InvoiceSettings } from './InvoiceSettings';
 import { PaymentProviderSettings } from './PaymentProviderSettings';
@@ -91,7 +92,10 @@ interface PaymentSettingsProps {
 export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  // Site payment configs need payments:write. The provider settings (Stripe,
+  // Adyen, provider selection) need settings.payment:write, as their routes do.
   const canWrite = useHasPermission('payments:write');
+  const canWriteProvider = useHasPermission('settings.payment:write');
   // The prepaid and invoice settings are generic settings (settings.system:*).
   const canReadSystemSettings = useHasPermission('settings.system:read');
   const canWriteSystemSettings = useHasPermission('settings.system:write');
@@ -251,7 +255,10 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
 
   function getSiteValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
-    const preAuth = preAuthAmountError(sitePreAuthAmount, t);
+    const preAuth = preAuthAmountError(sitePreAuthAmount, t, {
+      minCents: PRE_AUTH_AMOUNT_MIN_CENTS,
+      maxCents: PRE_AUTH_AMOUNT_MAX_CENTS,
+    });
     if (preAuth != null) errors.preAuthAmountCents = preAuth;
     const fee = percentError(sitePlatformFee, t, false);
     if (fee != null) errors.platformFeePercent = fee;
@@ -358,7 +365,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                         setStripeRemoving((current) => ({ ...current, secretKey: removing }));
                         markStripeChanged();
                       }}
-                      canWrite={canWrite}
+                      canWrite={canWriteProvider}
                       hint={t('settings.stripeSecretKeyHint')}
                     />
                   </div>
@@ -370,7 +377,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                     <Input
                       id="stripe-publishable-key"
                       value={stripePublishableKey}
-                      disabled={!canWrite}
+                      disabled={!canWriteProvider}
                       onChange={(e) => {
                         setStripePublishableKey(e.target.value);
                         markStripeChanged();
@@ -395,7 +402,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                         setStripeRemoving((current) => ({ ...current, webhookSecret: removing }));
                         markStripeChanged();
                       }}
-                      canWrite={canWrite}
+                      canWrite={canWriteProvider}
                       hint={t('settings.stripeWebhookSecretHint')}
                     />
                   </div>
@@ -420,13 +427,13 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                         }));
                         markStripeChanged();
                       }}
-                      canWrite={canWrite}
+                      canWrite={canWriteProvider}
                       hint={t('settings.stripeConnectWebhookSecretHint')}
                     />
                   </div>
                 </div>
 
-                {canWrite && (
+                {canWriteProvider && (
                   <div className="flex items-center justify-end gap-2">
                     {stripeHasUnsavedChanges && (
                       <p className="text-sm text-muted-foreground">
@@ -473,7 +480,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
             </CardContent>
           </Card>
           <StripeWebhookCard
-            canWrite={canWrite}
+            canWrite={canWriteProvider}
             secretKeyConfigured={stripeSettings?.secretKeyConfigured}
           />
         </TabsContent>
@@ -618,7 +625,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                           </Label>
                           <DecimalInput
                             id="site-platform-fee"
-                            disabled={!canWrite}
+                            disabled={!canWrite || !hasAllSiteAccess}
                             value={sitePlatformFee}
                             onChange={(value) => {
                               setSitePlatformFee(value);
@@ -636,7 +643,11 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                             </p>
                           )}
                           <p className="text-xs text-muted-foreground">
-                            {t('settings.sitePlatformFeeHint')}
+                            {t(
+                              hasAllSiteAccess
+                                ? 'settings.sitePlatformFeeHint'
+                                : 'settings.sitePlatformFeeAllSitesOnly',
+                            )}
                           </p>
                         </div>
                       </div>

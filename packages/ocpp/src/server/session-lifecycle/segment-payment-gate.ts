@@ -85,6 +85,7 @@ export async function runSegmentPaymentGate(
     idToken: undefined,
     // A guest who started free has no card hold: the gate stops the session.
     guestStatus: isGuest ? (row.guest_payment_id != null ? row.guest_status : 'free_start') : null,
+    guestHasHold: row.guest_payment_id != null,
     guestEmail: row.guest_email,
     guestLanguage: row.guest_language ?? null,
     prepaidBalanceCents: null,

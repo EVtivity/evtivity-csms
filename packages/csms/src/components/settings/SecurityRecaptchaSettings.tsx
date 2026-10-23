@@ -44,9 +44,9 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
   // The stored state, not the unsaved toggle: the warning says what protects sign-up now.
   const savedEnabled = settings?.['security.recaptcha.enabled'] === true;
 
-  const hasSavedSecret =
-    typeof settings?.['security.recaptcha.secretKeyEnc'] === 'string' &&
-    settings['security.recaptcha.secretKeyEnc'] !== '';
+  // The GET returns the secret only with settings.system:read; the flag says
+  // whether one is stored for every reader.
+  const hasSavedSecret = settings?.['security.recaptcha.secretKeyConfigured'] === true;
 
   const mutation = useMutation({
     mutationFn: (vals: {

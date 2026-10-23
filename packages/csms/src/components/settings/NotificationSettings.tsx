@@ -8,6 +8,7 @@ import { Send } from 'lucide-react';
 import { useTab } from '@/hooks/use-tab';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { SaveButton } from '@/components/save-button';
+import { WebhookSigningSecret } from '@/components/settings/WebhookSigningSecret';
 import { CopyableId } from '@/components/copyable-id';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,6 +19,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { emailPreviewDocument } from '@/lib/email-preview';
 
 const DEFAULT_EMAIL_WRAPPER = `<!DOCTYPE html>
 <html>
@@ -480,6 +482,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                 {t('settings.webhooksSaveFailed')} {getErrorMessage(webhookMutation.error, t)}
               </p>
             )}
+            <WebhookSigningSecret />
           </CardContent>
         </Card>
       </TabsContent>
@@ -569,7 +572,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                 <div className="overflow-hidden rounded-md border">
                   <iframe
                     title={t('settings.emailLayoutPreviewFrame')}
-                    srcDoc={preview.data?.html ?? ''}
+                    srcDoc={emailPreviewDocument(preview.data?.html ?? '')}
                     className="h-[500px] w-full"
                     sandbox=""
                   />

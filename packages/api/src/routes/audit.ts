@@ -17,6 +17,7 @@ import {
 import type { AuditEntityType } from '@evtivity/database';
 import { AI_VIA_CHANNELS, readAiAuditVia } from '@evtivity/lib/ai-proposals';
 import { authorize } from '../middleware/rbac.js';
+import { readableAuditTypes } from '../lib/audit-read-permissions.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -25,6 +26,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { supportCaseSiteCondition } from '../lib/support-case-scope.js';
 import { visibleUserIds } from '../lib/user-management-scope.js';
+import { inSimSiteWindowsSql, simVisibleSql } from '../lib/sim-site-scope.js';
 import {
   redactSupportCaseAuditRows,
   supportCaseAuditSessionCondition,
@@ -234,15 +236,40 @@ function viaAiConfirmedBy(viaAi: unknown): string | null {
   return typeof confirmedBy === 'string' ? confirmedBy : null;
 }
 
+/** The person a station snapshot names as having entered its ICCID, if any. */
+function iccidEnteredBy(snapshot: unknown): string | null {
+  if (snapshot == null || typeof snapshot !== 'object') return null;
+  const by = (snapshot as { iccidEnteredBy?: unknown }).iccidEnteredBy;
+  return typeof by === 'string' ? by : null;
+}
+
+/** The snapshot without the person who entered the station's ICCID. */
+function withoutIccidEntry(snapshot: unknown): unknown {
+  return {
+    ...(snapshot as Record<string, unknown>),
+    iccidEnteredBy: null,
+    iccidEnteredWithAllSites: null,
+  };
+}
+
 /**
  * Removes from audit rows the identity of every operator a site-restricted
  * viewer cannot see (the acting user and its API key, the user who confirmed
- * an AI action). The row and its actor type stay: a change to an entity of the
- * viewer's sites is shown, without naming an all-site user or a user of other
- * sites. Runs before the actor names are resolved, so no name is resolved.
+ * an AI action, the user a station snapshot names as having entered its
+ * ICCID, with whether that user had access to every site). The row and its
+ * actor type stay: a change to an entity of the viewer's sites is shown,
+ * without naming an all-site user or a user of other sites. Runs before the
+ * actor names are resolved, so no name is resolved.
  */
 async function hideInvisibleActors(
-  rows: Array<{ actorUserId: string | null; actorApiKeyId: string | null; viaAi: unknown }>,
+  rows: Array<{
+    entityType: string;
+    actorUserId: string | null;
+    actorApiKeyId: string | null;
+    viaAi: unknown;
+    before: unknown;
+    after: unknown;
+  }>,
   viewerId: string,
   siteIds: string[] | null,
 ): Promise<void> {
@@ -251,6 +278,12 @@ async function hideInvisibleActors(
     if (row.actorUserId != null) referenced.push(row.actorUserId);
     const confirmedBy = viaAiConfirmedBy(row.viaAi);
     if (confirmedBy != null) referenced.push(confirmedBy);
+    if (row.entityType === 'station') {
+      for (const snapshot of [row.before, row.after]) {
+        const by = iccidEnteredBy(snapshot);
+        if (by != null) referenced.push(by);
+      }
+    }
   }
   const visible = await visibleUserIds(referenced, viewerId, siteIds);
   if (visible == null) return;
@@ -264,6 +297,12 @@ async function hideInvisibleActors(
       const rest = { ...(row.viaAi as Record<string, unknown>) };
       delete rest['confirmedBy'];
       row.viaAi = rest;
+    }
+    if (row.entityType === 'station') {
+      const before = iccidEnteredBy(row.before);
+      if (before != null && !visible.has(before)) row.before = withoutIccidEntry(row.before);
+      const after = iccidEnteredBy(row.after);
+      if (after != null && !visible.has(after)) row.after = withoutIccidEntry(row.after);
     }
   }
 }
@@ -294,6 +333,17 @@ function idColumnFor(entityType: AuditEntityType): string {
 // all-site users only. Deleted entities have a null live id and so no site.
 // Support cases are scoped by auditSiteCondition instead, so their history
 // follows the case's own visibility.
+/**
+ * A reservation's site: the site of the session that used it, else its
+ * station's current site (a reservation stores no site).
+ */
+function reservationSiteSql(r: SQL): SQL {
+  return sql`COALESCE(
+    (SELECT rs.site_id FROM charging_sessions rs WHERE rs.reservation_id = ${r}.id ORDER BY rs.started_at LIMIT 1),
+    (SELECT rcs.site_id FROM charging_stations rcs WHERE rcs.id = ${r}.station_id)
+  )`;
+}
+
 function entitySiteSql(entityType: AuditEntityType, idCol: string): SQL | null {
   const id = auditIdSql(entityType, idCol);
   switch (entityType) {
@@ -304,10 +354,14 @@ function entitySiteSql(entityType: AuditEntityType, idCol: string): SQL | null {
       return sql`(SELECT cs.site_id FROM charging_stations cs WHERE cs.id = ${id})`;
     case 'station_image':
       return sql`(SELECT cs.site_id FROM station_images si JOIN charging_stations cs ON cs.id = si.station_id WHERE si.id::text = ${id})`;
+    // Sessions, reservations and payments follow the session's own site
+    // (charging_sessions.site_id, stamped at the start), not the station's
+    // current one, so a station move leaves their history at the old site.
+    // A reservation no session used keeps its station's site: it stores none.
     case 'reservation':
-      return sql`(SELECT cs.site_id FROM reservations r JOIN charging_stations cs ON cs.id = r.station_id WHERE r.id = ${id})`;
+      return sql`(SELECT ${reservationSiteSql(sql`r`)} FROM reservations r WHERE r.id = ${id})`;
     case 'session':
-      return sql`(SELECT cs.site_id FROM charging_sessions s JOIN charging_stations cs ON cs.id = s.station_id WHERE s.id = ${id})`;
+      return sql`(SELECT s.site_id FROM charging_sessions s WHERE s.id = ${id})`;
     case 'maintenance_event':
       return sql`(SELECT m.site_id FROM maintenance_events m WHERE m.id = ${id})`;
     case 'ai_proposal':
@@ -319,13 +373,56 @@ function entitySiteSql(entityType: AuditEntityType, idCol: string): SQL | null {
       // The site of the session, else of the reserved station, else of the
       // site payment config (ad hoc payments).
       return sql`(SELECT COALESCE(
-        (SELECT cs.site_id FROM charging_sessions s JOIN charging_stations cs ON cs.id = s.station_id WHERE s.id = p.session_id),
-        (SELECT cs.site_id FROM reservations r JOIN charging_stations cs ON cs.id = r.station_id WHERE r.id = p.reservation_id),
+        (SELECT s.site_id FROM charging_sessions s WHERE s.id = p.session_id),
+        (SELECT ${reservationSiteSql(sql`r`)} FROM reservations r WHERE r.id = p.reservation_id),
         (SELECT c.site_id FROM site_payment_configs c WHERE c.id = p.site_payment_config_id)
       ) FROM payment_records p WHERE p.id::text = ${id})`;
     default:
       return null;
   }
+}
+
+/**
+ * A SIM audit row names a station in its attachment (`before.attachment`,
+ * `after.attachment`) or, for `network_reset`, the station the SIM was
+ * attached to (`after.stationId`). The row shows to a site-restricted viewer
+ * only when every station it names is a station of their sites; a station
+ * that no longer exists hides it (fail closed).
+ */
+function simAuditStationCondition(siteIds: string[]): SQL {
+  const table = sql.identifier('sim_audit_log');
+  const siteList = sql.join(
+    siteIds.map((siteId) => sql`${siteId}`),
+    sql`, `,
+  );
+  const named = [
+    sql`${table}.before->'attachment'->>'stationId'`,
+    sql`${table}.after->'attachment'->>'stationId'`,
+    sql`${table}.after->>'stationId'`,
+  ];
+  // A row that names no station (created, updated, deactivated, reactivated,
+  // a reset while unattached) shows when it was written while the SIM sat
+  // confirmed at a station of the user's sites, or before the SIM was first
+  // attached anywhere (it belonged to no site then), never from its time at
+  // another site. A station delete cascades its attachment rows away, so "no
+  // attachment before the row" is trusted only after the SIM's history floor
+  // (raised before every such delete); a row older than the floor fails closed.
+  const namesStation = sql.join(
+    named.map((stationId) => sql`${stationId} IS NOT NULL`),
+    sql` OR `,
+  );
+  const writtenAt = sql`${table}.created_at`;
+  const simId = sql`${table}.sim_id`;
+  const inTheirTime = sql`(${namesStation} OR ${inSimSiteWindowsSql(simId, writtenAt, siteIds)} OR (NOT EXISTS (SELECT 1 FROM sim_attachments pre_a WHERE pre_a.sim_id = ${simId} AND pre_a.attached_at <= ${writtenAt}) AND NOT EXISTS (SELECT 1 FROM sims floor_s WHERE floor_s.id = ${simId} AND floor_s.history_floor_at IS NOT NULL AND floor_s.history_floor_at >= ${writtenAt})))`;
+  // A network reset whose station could not be read names none, and shows to
+  // users of every site only.
+  return sql`${sql.join(
+    named.map(
+      (stationId) =>
+        sql`(${stationId} IS NULL OR EXISTS (SELECT 1 FROM charging_stations aud_cs WHERE aud_cs.id = ${stationId} AND aud_cs.site_id IN (${siteList})))`,
+    ),
+    sql` AND `,
+  )} AND ${table}.after->>'stationUnknown' IS NULL AND ${inTheirTime}`;
 }
 
 // The audit row's live entity id, qualified with the audit table: the joined
@@ -356,12 +453,36 @@ function auditSiteCondition(
       idCol,
     )} AND ${supportCaseSiteCondition(siteIds)}) AND ${supportCaseAuditSessionCondition(siteIds)}`;
   }
+  // A SIM's history is visible while the SIM is (an open confirmed attachment
+  // to a station of the viewer's sites), without the rows naming a station of
+  // another site or a deleted one.
+  if (entityType === 'sim') {
+    return sql`${simVisibleSql(auditIdSql(entityType, idCol), siteIds)} AND ${simAuditStationCondition(siteIds)}`;
+  }
   const siteExpr = entitySiteSql(entityType, idCol);
   if (siteExpr == null) return null;
   return sql`${siteExpr} IN (${sql.join(
     siteIds.map((siteId) => sql`${siteId}`),
     sql`, `,
   )})`;
+}
+
+/**
+ * Owner condition for one audit table: an
+ * AI conversation's history (titles, tool calls and their arguments) shows only
+ * to the user who owns the conversation, as the conversation routes do. Null
+ * for every other type.
+ */
+function auditOwnerCondition(
+  entityType: AuditEntityType,
+  idCol: string,
+  userId: string,
+): SQL | null {
+  if (entityType !== 'ai_conversation') return null;
+  return sql`EXISTS (SELECT 1 FROM ai_conversations oc WHERE oc.id = ${auditIdSql(
+    entityType,
+    idCol,
+  )} AND oc.user_id = ${userId})`;
 }
 
 function asString(v: unknown): string {
@@ -398,14 +519,14 @@ function normalizeRow(entityType: string, raw: Record<string, unknown>): Normali
 }
 
 export function auditRoutes(app: FastifyInstance): void {
-  // Both endpoints are gated by `audit:read`. Using a single permission keeps
-  // API key scoping intact: the rbac middleware intersects the user's
-  // permissions with the api key's `apiKeyPermissions` array. A custom
-  // in-handler permission check would bypass that intersection.
-  // The trade-off is that audit:read grants access to every entity's audit
-  // history, not just the entities the operator has :read on. Operators who
-  // should only see (e.g.) station audit but not settings audit should not
-  // be granted audit:read at all.
+  // Both endpoints are gated by `audit:read`. Settings, users, roles, API
+  // keys, payments, invoices, drivers, tokens, fleets, vehicles and report
+  // schedules also need the read permission of their resource
+  // (AUDIT_READ_PERMISSION, checked with requestHasPermission so an API key's
+  // scope applies): their history holds what the resource's own routes show
+  // only with it. Without it the per-entity route answers an empty page and
+  // /audit leaves the type out. AI conversation rows show to the
+  // conversation's owner only (auditOwnerCondition).
   app.get(
     '/audit/:entityType/:entityId',
     {
@@ -472,27 +593,40 @@ export function auditRoutes(app: FastifyInstance): void {
         });
       }
 
+      // Each source needs the read permission of its resource (an empty page,
+      // like an entity outside the caller's sites).
+      const readable = new Set(
+        await readableAuditTypes(
+          request,
+          sources.map((source) => source.type),
+        ),
+      );
       const parts = await Promise.all(
-        sources.map(async ({ type, match }) => {
-          const siteCond = auditSiteCondition(type, idColumnFor(type), entitySiteIds);
-          if (siteCond === null) return { rows: [], total: 0 };
-          const scope = siteCond != null ? sql` AND ${siteCond}` : sql``;
-          const table = sql.identifier(`${type}_audit_log`);
-          const [rowsRes, countRes] = await Promise.all([
-            db.execute(sql`
+        sources
+          .filter((source) => readable.has(source.type))
+          .map(async ({ type, match }) => {
+            const siteCond = auditSiteCondition(type, idColumnFor(type), entitySiteIds);
+            if (siteCond === null) return { rows: [], total: 0 };
+            const ownerCond = auditOwnerCondition(type, idColumnFor(type), userId);
+            const scope = sql`${siteCond != null ? sql` AND ${siteCond}` : sql``}${
+              ownerCond != null ? sql` AND ${ownerCond}` : sql``
+            }`;
+            const table = sql.identifier(`${type}_audit_log`);
+            const [rowsRes, countRes] = await Promise.all([
+              db.execute(sql`
               SELECT * FROM ${table} WHERE ${match}${scope}
               ORDER BY created_at DESC, id DESC
               LIMIT ${offset + limit}
             `),
-            db.execute(sql`SELECT COUNT(*)::int AS total FROM ${table} WHERE ${match}${scope}`),
-          ]);
-          return {
-            rows: (rowsRes as unknown as Array<Record<string, unknown>>).map((r) =>
-              normalizeRow(type, r),
-            ),
-            total: (countRes as unknown as Array<{ total: number }>)[0]?.total ?? 0,
-          };
-        }),
+              db.execute(sql`SELECT COUNT(*)::int AS total FROM ${table} WHERE ${match}${scope}`),
+            ]);
+            return {
+              rows: (rowsRes as unknown as Array<Record<string, unknown>>).map((r) =>
+                normalizeRow(type, r),
+              ),
+              total: (countRes as unknown as Array<{ total: number }>)[0]?.total ?? 0,
+            };
+          }),
       );
       const merged = parts
         .flatMap((p) => p.rows)
@@ -544,9 +678,13 @@ export function auditRoutes(app: FastifyInstance): void {
         ...(q.entityType != null ? [q.entityType] : []),
         ...(q.entityTypes != null ? q.entityTypes.split(',') : []),
       ] as AuditEntityType[];
-      const types: AuditEntityType[] = (
-        requested.length > 0 ? [...new Set(requested)] : auditEntityTypes
-      ).filter((t) => auditSiteCondition(t, idColumnFor(t), siteIds) !== null);
+      // ...and only the types whose resource the caller may read.
+      const types: AuditEntityType[] = await readableAuditTypes(
+        request,
+        (requested.length > 0 ? [...new Set(requested)] : auditEntityTypes).filter(
+          (t) => auditSiteCondition(t, idColumnFor(t), siteIds) !== null,
+        ),
+      );
       if (types.length === 0) return { data: [], total: 0 } satisfies PaginatedResponse<unknown>;
       // A restricted viewer filters only on an operator it can see: the rows of
       // any other operator are not attributed to it, so the filter matches none.
@@ -572,6 +710,8 @@ export function auditRoutes(app: FastifyInstance): void {
           const conds: ReturnType<typeof sql>[] = [];
           const siteCond = auditSiteCondition(t, idCol, siteIds);
           if (siteCond != null) conds.push(siteCond);
+          const ownerCond = auditOwnerCondition(t, idCol, userId);
+          if (ownerCond != null) conds.push(ownerCond);
           if (q.action != null) conds.push(sql`action::text = ${q.action}`);
           if (q.actor != null) conds.push(sql`actor::text = ${q.actor}`);
           if (q.actorUserId != null) conds.push(sql`actor_user_id = ${q.actorUserId}`);

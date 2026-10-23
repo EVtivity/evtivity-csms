@@ -766,7 +766,7 @@ export function fleetRoutes(app: FastifyInstance): void {
   app.patch(
     '/fleets/:id/billing',
     {
-      onRequest: [authorize('fleets:write')],
+      onRequest: [authorize('fleets:write', 'payments:write')],
       schema: {
         tags: ['Fleets'],
         summary: 'Change charge on account and the invoice recipient of a fleet',
@@ -836,7 +836,7 @@ export function fleetRoutes(app: FastifyInstance): void {
   app.patch(
     '/fleets/:id/billing-profile',
     {
-      onRequest: [authorize('fleets:write')],
+      onRequest: [authorize('fleets:write', 'payments:write')],
       schema: {
         tags: ['Fleets'],
         summary: 'Update the fleet billing profile',
@@ -887,7 +887,7 @@ export function fleetRoutes(app: FastifyInstance): void {
   app.get(
     '/fleets/:id/credit-limit',
     {
-      onRequest: [authorize('fleets:read')],
+      onRequest: [authorize('fleets:read', 'payments:read')],
       schema: {
         tags: ['Fleets'],
         summary: "Get a fleet's credit limit and exposure",
@@ -917,7 +917,7 @@ export function fleetRoutes(app: FastifyInstance): void {
   app.patch(
     '/fleets/:id/credit-limit',
     {
-      onRequest: [authorize('fleets:write')],
+      onRequest: [authorize('fleets:write', 'payments:write')],
       schema: {
         tags: ['Fleets'],
         summary: "Set a fleet's credit limit",
@@ -1073,7 +1073,7 @@ export function fleetRoutes(app: FastifyInstance): void {
   app.patch(
     '/fleets/:id/drivers/:driverId',
     {
-      onRequest: [authorize('fleets:write')],
+      onRequest: [authorize('fleets:write', 'payments:write')],
       schema: {
         tags: ['Fleets'],
         summary: "Set a member's opt-out of charge on account",

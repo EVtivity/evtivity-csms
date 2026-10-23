@@ -7,7 +7,8 @@ import {
   client,
   chargingSessions,
   chargingStations,
-  getHeartbeatIntervalSeconds,
+  effectiveDataPlanSql,
+  getDataPlanValues,
   isSplitBillingEnabled,
   isStationMessageEnabled,
   priceSessionAt,
@@ -18,6 +19,7 @@ import {
 } from '@evtivity/database';
 import type { Logger } from 'pino';
 import {
+  isDataPlan,
   isOcpp2x,
   isStationLiveForSegmentSwitch,
   isTariffFree,
@@ -59,13 +61,18 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
         ocppProtocol: chargingStations.ocppProtocol,
         stationOnline: chargingStations.isOnline,
         stationLastActivityAt: chargingStations.lastHeartbeat,
+        // The station's effective data plan picks its heartbeat interval.
+        stationDataPlan: effectiveDataPlanSql,
       })
       .from(chargingSessions)
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
       .where(eq(chargingSessions.status, 'active'));
 
     const pubsub = getPubSub();
-    const heartbeatSeconds = await getHeartbeatIntervalSeconds();
+    const heartbeatSecondsByPlan = {
+      wifi_or_wired: (await getDataPlanValues('wifi_or_wired')).heartbeatInterval,
+      cellular: (await getDataPlanValues('cellular')).heartbeatInterval,
+    };
 
     // Per-session body has internal sequencing (resolve tariff -> close
     // segment -> open segment -> publish), but every session is
@@ -82,7 +89,10 @@ export async function tariffBoundaryCheckHandler(log: Logger): Promise<void> {
           isOnline: session.stationOnline,
           lastActivityAt: session.stationLastActivityAt,
           now,
-          heartbeatSeconds,
+          heartbeatSeconds:
+            heartbeatSecondsByPlan[
+              isDataPlan(session.stationDataPlan) ? session.stationDataPlan : 'wifi_or_wired'
+            ],
         })
       ) {
         return;

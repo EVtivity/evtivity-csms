@@ -201,6 +201,12 @@ vi.mock('../lib/remote-start-timeout.js', () => ({
 
 vi.mock('../lib/payments.js', () => ({
   activePaymentProvider: mockActivePaymentProvider,
+  // Off without a provider, active with one; a test of a provider this
+  // process cannot use sets the state itself.
+  activePaymentState: vi.fn(async (logger: unknown) => {
+    const provider: unknown = await mockActivePaymentProvider(logger);
+    return provider == null ? { kind: 'off' } : { kind: 'active', provider };
+  }),
   paymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
 }));
 
@@ -271,6 +277,7 @@ import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.s
 import { assertNoMaintenanceConflict } from '@evtivity/services/maintenance-check';
 import * as ocppCommandModule from '@evtivity/services/ocpp-command';
 import * as databaseModule from '@evtivity/database';
+import { activePaymentState } from '../lib/payments.js';
 
 const VALID_STATION_ID = 'sta_000000000001';
 const VALID_USER_ID = 'usr_000000000001';
@@ -912,6 +919,40 @@ describe('Portal charger routes - handler logic', () => {
       );
     });
 
+    it('refuses a paid start while the selected provider is not usable in this process', async () => {
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
+      setupDbResults(
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'CS-001',
+            siteId: 'site-1',
+            isOnline: true,
+            onboardingStatus: 'accepted',
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
+        [{ id: 'evs_000000000001' }],
+        [{ status: 'available' }],
+      );
+      mockActivePaymentProvider.mockResolvedValue(null);
+      vi.mocked(activePaymentState).mockResolvedValueOnce({
+        kind: 'unavailable',
+        providerId: 'stripe',
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/chargers/CS-001/evse/1/start',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { paymentMethodId: 1 },
+      });
+      // Never treated as payments off: no session starts for free.
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('PAYMENT_PROVIDER_NOT_CONFIGURED');
+      expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
+    });
+
     it('starts charging session without payment when no payment provider is active', async () => {
       setupDbResults(
         [
@@ -1181,7 +1222,7 @@ describe('Portal charger routes - handler logic', () => {
       expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
     });
 
-    it('refuses an account start when running sessions reserve the rest of the limit (plan S8)', async () => {
+    it('refuses an account start when running sessions reserve the rest of the limit', async () => {
       vi.mocked(resolveAccountBilling).mockResolvedValue({
         fleetId: 'flt_1',
         fleetName: 'Acme',
@@ -1643,7 +1684,7 @@ describe('Portal charger routes - handler logic', () => {
       expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
     });
 
-    it('starts the session without a hold when the card provider is not configured', async () => {
+    it("refuses the start when the card's payment provider is gone", async () => {
       setupStartRows([{ id: 7 }], [{ id: VALID_SESSION_ID }]);
       mockAuthorizeSessionHold.mockResolvedValueOnce({
         outcome: 'not_configured',
@@ -1652,9 +1693,12 @@ describe('Portal charger routes - handler logic', () => {
 
       const response = await startWithCard();
 
-      expect(response.statusCode).toBe(200);
-      expect(response.json().chargingSessionId).toBe(VALID_SESSION_ID);
-      expect(sendOcppCommandAndWait).toHaveBeenCalled();
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('PAYMENT_METHOD_REQUIRED');
+      expect(sessionUpdateSets()).toContainEqual(
+        expect.objectContaining({ status: 'failed', stoppedReason: 'PaymentProviderUnavailable' }),
+      );
+      expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
     });
 
     it('skips the hold when charging is free for the driver', async () => {
@@ -1891,7 +1935,7 @@ describe('Portal charger routes - handler logic', () => {
         status: 'ghostRecovered',
         chargingSessionId: VALID_SESSION_ID,
       });
-      // Recorded durably first (P4), then the OCPP server ends it the normal way.
+      // Recorded durably first, then the OCPP server ends it the normal way.
       expect(mockRecordSessionEndRequest).toHaveBeenCalledWith(
         {},
         VALID_SESSION_ID,
@@ -1905,7 +1949,7 @@ describe('Portal charger routes - handler logic', () => {
       expect(db.execute).not.toHaveBeenCalled();
     });
 
-    it('publishes no end request when the ghost session ended meanwhile (P5)', async () => {
+    it('publishes no end request when the ghost session ended meanwhile', async () => {
       vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
         commandId: 'm',
         response: { status: 'Rejected', statusInfo: { reasonCode: 'TxNotFound' } },

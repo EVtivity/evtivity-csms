@@ -25,11 +25,21 @@ vi.mock('@/lib/api', () => {
   return { api: { post: postMock }, ApiError };
 });
 
+vi.mock('@/components/AuthBranding', () => ({
+  AuthBranding: () => null,
+  AuthFooter: () => null,
+  useAuthBranding: () => ({ companyName: null, companyLogo: null }),
+}));
+
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 
-const { startAuthenticationMock } = vi.hoisted(() => ({ startAuthenticationMock: vi.fn() }));
+const { startAuthenticationMock, supportsMock, clearMfaPending } = vi.hoisted(() => ({
+  startAuthenticationMock: vi.fn(),
+  supportsMock: vi.fn(() => true),
+  clearMfaPending: vi.fn(),
+}));
 vi.mock('@simplewebauthn/browser', () => ({
-  browserSupportsWebAuthn: () => true,
+  browserSupportsWebAuthn: supportsMock,
   browserSupportsWebAuthnAutofill: () => Promise.resolve(false),
   startAuthentication: startAuthenticationMock,
 }));
@@ -44,7 +54,7 @@ vi.mock('@/lib/auth', () => ({
     selector({
       mfaPending: state.mfaPending,
       completeMfaLogin,
-      clearMfaPending: vi.fn(),
+      clearMfaPending,
       setMfaEnrollment,
     }),
 }));
@@ -82,6 +92,8 @@ beforeEach(() => {
   postMock.mockReset();
   toastMock.mockReset();
   startAuthenticationMock.mockReset();
+  supportsMock.mockReturnValue(true);
+  clearMfaPending.mockReset();
   secure(false);
 });
 
@@ -151,6 +163,34 @@ describe('portal MfaChallenge', () => {
     expect(screen.queryByText('auth.useVerificationCode')).toBeNull();
   });
 
+  it('keeps Verify enabled and explains an incomplete recovery code on submit', () => {
+    state.mfaPending = pending({ factors: ['recovery_code'], mfaMethodDisabled: true });
+    render(<MfaChallenge />);
+    const button = screen.getByRole('button', { name: 'auth.mfaVerify' });
+    const input = screen.getByLabelText('auth.recoveryCodeLabel');
+    fireEvent.change(input, { target: { value: 'abcde-1234' } });
+    expect(button.hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByText('auth.recoveryCodeIncomplete')).toBeNull();
+    fireEvent.click(button);
+    expect(screen.getByText('auth.recoveryCodeIncomplete')).toBeTruthy();
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    expect(postMock).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: 'abcde-12345' } });
+    expect(screen.queryByText('auth.recoveryCodeIncomplete')).toBeNull();
+  });
+
+  it('keeps Verify enabled and explains an incomplete six-digit code on submit', () => {
+    state.mfaPending = pending({ factors: ['email'] });
+    render(<MfaChallenge />);
+    const button = screen.getByRole('button', { name: 'auth.mfaVerify' });
+    expect(button.hasAttribute('disabled')).toBe(false);
+    expect(screen.queryByText('profile.mfaEnterCode')).toBeNull();
+    fireEvent.change(screen.getByLabelText('auth.mfaCodeLabel'), { target: { value: '123' } });
+    fireEvent.click(button);
+    expect(screen.getByText('profile.mfaEnterCode')).toBeTruthy();
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
   it('shows the recovery code message for a wrong recovery code', async () => {
     state.mfaPending = pending({ factors: ['recovery_code'], mfaMethodDisabled: true });
     postMock.mockRejectedValue(new ApiError(400, { code: 'MFA_CODE_INVALID' }));
@@ -207,12 +247,63 @@ describe('portal MfaChallenge', () => {
     expect(screen.getByLabelText('auth.mfaCodeLabel')).toBeTruthy();
   });
 
-  it('hides the passkey outside a secure page', () => {
+  it('says why the passkey is missing outside a secure page and offers the recovery code', () => {
     secure(false);
     state.mfaPending = pending({ mfaMethod: 'passkey', factors: ['passkey', 'recovery_code'] });
     render(<MfaChallenge />);
     expect(screen.queryByRole('button', { name: 'auth.usePasskey' })).toBeNull();
+    expect(screen.getByTestId('passkey-unavailable').textContent).toBe(
+      'passkeyUnavailable.insecure.signInRecovery',
+    );
     expect(screen.getByLabelText('auth.recoveryCodeLabel')).toBeTruthy();
+  });
+
+  it('says why the passkey is missing next to the code method', () => {
+    secure(false);
+    state.mfaPending = pending({ mfaMethod: 'totp', factors: ['totp', 'passkey'] });
+    render(<MfaChallenge />);
+    expect(screen.getByTestId('passkey-unavailable').textContent).toBe(
+      'passkeyUnavailable.insecure.signInCode',
+    );
+    expect(screen.getByLabelText('auth.mfaCodeLabel')).toBeTruthy();
+  });
+
+  it('shows no input a passkey-only account cannot use outside a secure page', () => {
+    secure(false);
+    state.mfaPending = pending({ mfaMethod: 'passkey', factors: ['passkey'] });
+    render(<MfaChallenge />);
+    expect(screen.getByTestId('passkey-unavailable').textContent).toBe(
+      'passkeyUnavailable.insecure.signInOnly',
+    );
+    expect(screen.queryByRole('textbox')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'auth.mfaVerify' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'auth.usePasskey' })).toBeNull();
+    expect(postMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'auth.backToLogin' }));
+    expect(clearMfaPending).toHaveBeenCalled();
+  });
+
+  it('names a browser without passkeys on a secure page', () => {
+    secure(true);
+    supportsMock.mockReturnValue(false);
+    state.mfaPending = pending({ mfaMethod: 'passkey', factors: ['passkey'] });
+    render(<MfaChallenge />);
+    expect(screen.getByTestId('passkey-unavailable').textContent).toBe(
+      'passkeyUnavailable.unsupported.signInOnly',
+    );
+  });
+
+  it('shows no passkey note when the page can use passkeys', () => {
+    secure(true);
+    state.mfaPending = pending({ mfaMethod: 'totp', factors: ['totp', 'passkey'] });
+    render(<MfaChallenge />);
+    expect(screen.queryByTestId('passkey-unavailable')).toBeNull();
+  });
+
+  it('uses the standard sign-in heading', () => {
+    state.mfaPending = pending({ factors: ['totp'] });
+    render(<MfaChallenge />);
+    expect(screen.getByRole('heading', { level: 2, name: 'auth.mfaTitle' })).toBeTruthy();
   });
 
   it('shows a closed passkey prompt as a quiet note', async () => {

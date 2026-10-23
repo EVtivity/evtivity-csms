@@ -24,7 +24,7 @@
     "apexcharts": "^5.10.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "dompurify": "^3.4.16",
+    "dompurify": "^3.4.17",
     "i18next": "^25.10.9",
     "lucide-react": "^0.468.0",
     "qr-scanner": "^1.4.2",
@@ -47,6 +47,6 @@
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
     "vite": "^8.3.5",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.5"
   }
 }

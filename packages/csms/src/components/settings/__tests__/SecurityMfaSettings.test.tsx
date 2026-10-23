@@ -31,11 +31,14 @@ getMock.mockImplementation(() =>
 
 const ROLE_NAMES = ['admin', 'operator'];
 
-function renderWith(settings: SecuritySettingsResponse | undefined): void {
+function renderWith(
+  settings: SecuritySettingsResponse | undefined,
+  props: { canWrite?: boolean; loadFailed?: boolean; onRetry?: () => void } = {},
+): void {
   const client = new QueryClient();
   render(
     <QueryClientProvider client={client}>
-      <SecurityMfaSettings settings={settings} />
+      <SecurityMfaSettings settings={settings} {...props} />
     </QueryClientProvider>,
   );
 }
@@ -146,7 +149,10 @@ describe('SecurityMfaSettings', () => {
 
   it('refuses required MFA without email or authenticator app codes', () => {
     renderWith({
-      mfa: { emailEnabled: false, totpEnabled: false, smsEnabled: true, required: 'all' },
+      mfa: { emailEnabled: false, totpEnabled: false, smsEnabled: true },
+    });
+    fireEvent.change(screen.getByLabelText('settings.mfaRequired'), {
+      target: { value: 'all' },
     });
     fireEvent.click(screen.getByRole('button', { name: /common.save/ }));
     expect(screen.getByText('settings.mfaRequiredNoMethod')).toBeTruthy();
@@ -228,8 +234,9 @@ describe('SecurityMfaSettings', () => {
 
   it('refuses required MFA for drivers without email or authenticator app codes', () => {
     renderWith({
-      mfa: { emailEnabled: false, totpEnabled: false, smsEnabled: true, requireDrivers: true },
+      mfa: { emailEnabled: false, totpEnabled: false, smsEnabled: true },
     });
+    fireEvent.click(screen.getByRole('switch', { name: 'settings.mfaRequireDrivers' }));
     fireEvent.click(screen.getByRole('button', { name: /common.save/ }));
     expect(screen.getByText('settings.mfaRequiredNoMethod')).toBeTruthy();
     expect(putMock).not.toHaveBeenCalled();
@@ -249,5 +256,43 @@ describe('SecurityMfaSettings', () => {
     const operator = await screen.findByRole<HTMLInputElement>('checkbox', { name: 'operator' });
     expect(operator.checked).toBe(true);
     expect(screen.getByRole<HTMLInputElement>('checkbox', { name: 'admin' }).checked).toBe(false);
+  });
+  it('shows Unsaved changes after an edit, keeps Save off without one and shows Saved after a save', async () => {
+    putMock.mockResolvedValue({ success: true });
+    renderWith({ mfa: { emailEnabled: true, totpEnabled: true, smsEnabled: false } });
+    const save = screen.getByRole('button', { name: /common.save/ });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText('settings.unsavedChanges')).toBeNull();
+    fireEvent.click(screen.getByRole('switch', { name: 'settings.mfaTotp' }));
+    expect(screen.getByText('settings.unsavedChanges')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /common.save/ }));
+    await waitFor(() => {
+      expect(screen.getByText('common.saved')).toBeTruthy();
+    });
+    expect(screen.queryByText('settings.unsavedChanges')).toBeNull();
+  });
+
+  it('labels every switch for its row', () => {
+    renderWith({ mfa: { emailEnabled: true, totpEnabled: true, smsEnabled: false } });
+    expect(screen.getByLabelText('settings.mfaTotp').getAttribute('role')).toBe('switch');
+  });
+
+  it('is read-only without the write permission', () => {
+    renderWith(
+      { mfa: { emailEnabled: true, totpEnabled: true, smsEnabled: false } },
+      { canWrite: false },
+    );
+    expect(screen.queryByRole('button', { name: /common.save/ })).toBeNull();
+    expect(screen.getByRole('switch', { name: 'settings.mfaTotp' }).hasAttribute('disabled')).toBe(
+      true,
+    );
+  });
+
+  it('shows the load error with Retry', () => {
+    const onRetry = vi.fn();
+    renderWith(undefined, { loadFailed: true, onRetry });
+    expect(screen.getByText('common.loadError')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'common.retry' }));
+    expect(onRetry).toHaveBeenCalled();
   });
 });

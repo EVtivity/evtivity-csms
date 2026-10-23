@@ -47,8 +47,11 @@ export function Sessions(): React.JSX.Element {
   const setFilters = useCallback(
     (changes: Record<string, string>) => {
       setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
+        () => {
+          // From the URL as it is now, not `prev`: react-router passes the hook's
+          // last rendered params, so a second change before the re-render (a
+          // debounced search, then a filter) would drop the first one.
+          const next = new URLSearchParams(window.location.search);
           for (const [key, value] of Object.entries(changes)) {
             if (value === '') next.delete(key);
             else next.set(key, value);

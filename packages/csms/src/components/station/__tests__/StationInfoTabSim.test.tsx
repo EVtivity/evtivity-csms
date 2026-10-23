@@ -6,9 +6,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
-const { apiMock, perms } = vi.hoisted(() => ({
+const { apiMock, perms, toastMock } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), patch: vi.fn(), delete: vi.fn() },
   perms: new Set<string>(),
+  toastMock: vi.fn(),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -19,7 +20,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return { ...actual, api: apiMock };
 });
-vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: vi.fn() }) }));
+vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock('@/components/GoogleMapPicker', () => ({ GoogleMapPicker: () => null }));
 vi.mock('../StationAiInsightsRow', () => ({ StationAiInsightsRow: () => null }));
 
@@ -209,5 +210,62 @@ describe('StationInfoTab ICCID and IMSI', () => {
       expect(unchanged).toHaveBeenCalledWith({ queryKey: ['stations'] });
     });
     expect(unchanged).not.toHaveBeenCalledWith({ queryKey: ['station-sim', 'st1'] });
+  });
+
+  it('says after a save why the entered ICCID was not attached', async () => {
+    for (const [value, key] of [
+      ['attached_elsewhere', 'attachedElsewhere'],
+      ['sim_inactive', 'simInactive'],
+      ['attach_conflict', 'attachConflict'],
+    ]) {
+      renderTab(true);
+      apiMock.patch.mockResolvedValue({ ...STATION, simAttachment: value });
+      fireEvent.click(screen.getByRole('button', { name: /common.edit/ }));
+      fireEvent.change(screen.getByLabelText('stations.iccid'), {
+        target: { value: '8901260000000000002F' },
+      });
+      fireEvent.submit(screen.getByLabelText('stations.model').closest('form') as HTMLFormElement);
+      await waitFor(() => {
+        expect(toastMock).toHaveBeenCalledWith({
+          variant: 'warning',
+          title: `stations.sim.attachmentResult.${String(key)}`,
+        });
+      });
+      cleanup();
+      vi.clearAllMocks();
+    }
+  });
+
+  it('raises no notice when the ICCID was attached, unchanged or left out', async () => {
+    for (const value of ['attached', 'unchanged', 'none', undefined]) {
+      renderTab(true);
+      apiMock.patch.mockResolvedValue(
+        value == null ? STATION : { ...STATION, simAttachment: value },
+      );
+      fireEvent.click(screen.getByRole('button', { name: /common.edit/ }));
+      fireEvent.submit(screen.getByLabelText('stations.model').closest('form') as HTMLFormElement);
+      await waitFor(() => {
+        expect(apiMock.patch).toHaveBeenCalledTimes(1);
+      });
+      await waitFor(() => {
+        expect(screen.queryByLabelText('stations.iccid')).toBeNull();
+      });
+      expect(toastMock).not.toHaveBeenCalled();
+      cleanup();
+      vi.clearAllMocks();
+    }
+  });
+
+  it('reloads the SIM lists after a changed ICCID', async () => {
+    renderTab(true);
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    fireEvent.click(screen.getByRole('button', { name: /common.edit/ }));
+    fireEvent.change(screen.getByLabelText('stations.iccid'), {
+      target: { value: '8901260000000000002F' },
+    });
+    fireEvent.submit(screen.getByLabelText('stations.model').closest('form') as HTMLFormElement);
+    await waitFor(() => {
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['sims'] });
+    });
   });
 });

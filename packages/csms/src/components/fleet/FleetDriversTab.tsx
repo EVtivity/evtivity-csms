@@ -56,6 +56,8 @@ export function FleetDriversTab({
   } | null>(null);
   const { toast } = useToast();
   const canWrite = useHasPermission('fleets:write');
+  // The opt-out of charge on account also needs payments:write, as the API.
+  const canWritePayments = useHasPermission('payments:write');
   // The member opt-out applies at every site: all-site users only.
   const hasAllSiteAccess = useHasAllSiteAccess();
   const limit = 10;
@@ -138,7 +140,12 @@ export function FleetDriversTab({
                   <Toggle
                     size="sm"
                     checked={onAccount}
-                    disabled={!canWrite || !hasAllSiteAccess || billingMutation.isPending}
+                    disabled={
+                      !canWrite ||
+                      !canWritePayments ||
+                      !hasAllSiteAccess ||
+                      billingMutation.isPending
+                    }
                     aria-label={t('fleets.billing.memberColumn')}
                     data-testid={`member-billing-${driver.id}`}
                     onCheckedChange={() => {

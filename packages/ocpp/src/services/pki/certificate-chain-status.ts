@@ -12,7 +12,7 @@ import { webcrypto } from 'node:crypto';
 import * as x509 from '@peculiar/x509';
 import { AsnConvert } from '@peculiar/asn1-schema';
 import type { Certificate } from '@peculiar/asn1-x509';
-import { blockedDestinationOf, safeFetch, type Logger } from '@evtivity/lib';
+import { blockedDestinationOf, readCappedBody, safeFetch, type Logger } from '@evtivity/lib';
 import { getOcspAllowedPrivateHosts } from '@evtivity/database';
 import {
   fetchOcspResponse,
@@ -95,10 +95,14 @@ async function downloadCrl(url: string, allowedPrivateHosts: string[]): Promise<
       );
     }
     if (!response.ok) throw new CrlError(`CRL server returned HTTP ${String(response.status)}`);
-    const body = Buffer.from(await response.arrayBuffer());
-    if (body.length === 0 || body.length > MAX_CRL_BYTES) {
-      throw new CrlError(`CRL has an invalid size (${String(body.length)} bytes)`);
+    // Read as a stream and cut off at the cap.
+    let body: Buffer;
+    try {
+      body = await readCappedBody(response, MAX_CRL_BYTES);
+    } catch (err) {
+      throw new CrlError(`CRL unreadable: ${err instanceof Error ? err.message : String(err)}`);
     }
+    if (body.length === 0) throw new CrlError('CRL is empty');
     return body;
   } finally {
     clearTimeout(timer);
@@ -201,7 +205,7 @@ export async function getCertificateChainStatus(
         const local = await localCertificateStatus(request.certificateHashData);
         if (local != null) {
           // An expired certificate has no revocation status to report.
-          const status = local === 'expired' ? 'Unknown' : STATUS[local];
+          const status = local === 'expired' || local === 'mismatch' ? 'Unknown' : STATUS[local];
           return { ...base, status, nextUpdate: nextUpdateOf(undefined, now) };
         }
         if (request.source === 'OCSP') {

@@ -108,6 +108,7 @@
     "recoveryCodeSubtitle": "복구 코드 중 하나를 입력하세요",
     "recoveryCodeLabel": "복구 코드",
     "recoveryCodeInvalid": "잘못되었거나 이미 사용된 복구 코드입니다. 다시 시도하세요.",
+    "recoveryCodeIncomplete": "10자리 복구 코드를 모두 입력하세요",
     "mfaMethodSwitchedOff": "관리자가 {{method}} 인증을 사용 중지했습니다. 복구 코드로 로그인하세요.",
     "recoveryCodesLeft_one": "복구 코드 {{count}}개 남음",
     "recoveryCodesLeft_other": "복구 코드 {{count}}개 남음",
@@ -228,7 +229,6 @@
     "changePassword": "비밀번호 변경",
     "currentPassword": "현재 비밀번호",
     "newPassword": "새 비밀번호",
-    "changingPassword": "변경 중...",
     "passwordChanged": "비밀번호가 변경되었습니다.",
     "passwordChangeFailed": "비밀번호 변경에 실패했습니다.",
     "signOut": "로그아웃",
@@ -245,7 +245,6 @@
     "mfaMethodTotp": "인증 앱",
     "mfaMethodSms": "SMS",
     "mfaSetUp": "설정",
-    "mfaSettingUp": "설정 중...",
     "mfaDisable": "MFA 비활성화",
     "mfaDisableConfirm": "보유한 인증 수단이나 복구 코드로 본인임을 확인하세요. MFA를 비활성화하면 패스키와 복구 코드도 삭제됩니다.",
     "mfaNotAvailable": "현재 사용 가능한 MFA 방식이 없습니다. 관리자에게 문의하세요.",
@@ -253,7 +252,6 @@
     "mfaManualEntry": "수동 입력 키",
     "mfaEnterCode": "6자리 인증 코드를 입력하세요",
     "mfaVerify": "인증",
-    "mfaVerifying": "인증 중...",
     "mfaSetupFailed": "MFA 설정 시작에 실패했습니다.",
     "mfaVerifyFailed": "유효하지 않은 인증 코드입니다.",
     "mfaDisableFailed": "MFA 비활성화에 실패했습니다.",
@@ -296,7 +294,8 @@
     "phoneCode": "새 번호로 보낸 코드",
     "phoneCodeSent": "{{phone}}(으)로 코드를 보냈습니다.",
     "phoneCodeRequired": "먼저 새 번호로 코드를 보내고 입력하세요.",
-    "phoneCodeSendFailed": "코드를 보낼 수 없습니다. 다시 시도하세요."
+    "phoneCodeSendFailed": "코드를 보낼 수 없습니다. 다시 시도하세요.",
+    "mfaLoadError": "2단계 인증 설정을 불러오지 못했습니다."
   },
   "charger": {
     "loadingInfo": "충전기 정보 로딩 중...",
@@ -637,6 +636,7 @@
     "API_KEY_RATE_LIMITED": "API 키 요청 한도를 초과했습니다",
     "ATTACHMENT_NOT_FOUND": "첨부 파일을 찾을 수 없습니다",
     "AUDIT_ENTITY_TYPE_INVALID": "알 수 없는 감사 엔터티 유형입니다",
+    "AUTOCHARGE_CLAIM_REQUIRED": "Autocharge는 충전기가 내 세션 중 하나에서 보낸 차량 ID로만 작동합니다. 먼저 세션에서 차량 ID를 사용하세요.",
     "CAMPAIGN_NOT_ACTIVE": "활성 캠페인만 취소할 수 있습니다",
     "CAMPAIGN_NOT_FOUND": "캠페인을 찾을 수 없습니다",
     "CASE_NOT_FOUND": "문의를 찾을 수 없습니다",
@@ -721,6 +721,7 @@
     "INVALID_SITE_IDS": "하나 이상의 siteId가 존재하지 않습니다",
     "INVALID_TOKEN": "유효하지 않거나 만료된 재설정 링크입니다",
     "INVOICE_ALREADY_PAID": "이미 결제된 청구서입니다",
+    "PREPAID_BALANCE_CONFLICT": "양식을 연 뒤 선불 잔액이 변경되었습니다(예: 세션 이후). 토큰을 다시 불러온 뒤 잔액을 다시 입력하세요.",
     "RESERVATION_FEE_ALREADY_INVOICED": "이미 청구서가 발행된 예약 수수료입니다",
     "SESSION_ALREADY_INVOICED": "이미 청구서가 발행된 세션입니다",
     "INVOICE_CREATION_FAILED": "청구서 생성에 실패했습니다",
@@ -862,6 +863,7 @@
     "START_REJECTED": "충전소가 시작 요청을 거부했습니다: ...",
     "STATION_ALREADY_IN_FLEET": "충전소는 이미 이 차량대에 있습니다",
     "STATION_HAS_ACTIVE_SESSION": "충전소에 진행 중인 충전 세션이 있습니다. 충전소를 삭제하기 전에 세션을 중지하세요.",
+    "STATION_HAS_SIM": "이 충전소에는 이미 SIM이 연결되어 있습니다. 먼저 분리하세요",
     "STATION_ID_EXISTS": "이 ID의 충전소가 이미 존재합니다",
     "STATION_NOT_FOUND": "충전소를 찾을 수 없습니다",
     "STATION_OFFLINE": "충전소가 오프라인 상태입니다",
@@ -871,6 +873,7 @@
     "STATION_UNAVAILABLE": "현재 이 충전소를 사용할 수 없습니다. 다른 충전소를 이용해 주세요.",
     "STORAGE_CONNECTION_FAILED": "저장소 연결 테스트에 실패했습니다",
     "STORAGE_NOT_CONFIGURED": "첨부 파일 저장소가 구성되지 않았습니다",
+    "STREAM_LIMIT_REACHED": "이 기기에서 열린 실시간 충전소 업데이트가 너무 많습니다. 다른 탭을 닫고 다시 시도하세요.",
     "SUPPORT_AI_NOT_CONFIGURED": "지원 AI가 구성되지 않았습니다",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "이 문의는 자동 답변에 대한 피드백을 기다리고 있지 않습니다",
     "SUPPORT_CASE_NOT_FOUND": "문의를 찾을 수 없습니다",
@@ -941,6 +944,7 @@
     "CHARGING_PROFILE_ID_RESERVED": "충전 프로필 ID는 충전소의 MaxExternalConstraintsId보다 커야 합니다.",
     "CHARGING_PROFILE_LOAD_MANAGED": "부하 관리가 이 충전소의 한도를 설정합니다. 스택 레벨 0의 ChargingStationMaxProfile과 부하 관리 프로필 ID가 아닌 ID를 사용하세요.",
     "STATION_SECURITY_ROUTE_REQUIRED": "충전소 보안 프로필과 네트워크 프로필은 구성 템플릿이 아니라 PATCH /v1/stations/:id로 변경합니다",
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "하트비트와 미터 값 설정은 구성 템플릿이 아니라 설정 > 통합 및 기능 > OCPP와 충전소 데이터 요금제에서 가져옵니다",
     "TOKEN_BLOCKED_BY_OPERATOR": "운영자가 이 카드를 비활성화했습니다. 다시 활성화하려면 운영자에게 문의하세요.",
     "SESSION_NO_VEHICLE_ID": "충전기가 이 세션에 차량 ID를 보내지 않았습니다.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "운영자가 이 차량의 Autocharge를 차단했습니다. 차단을 해제하려면 운영자에게 문의하세요.",
@@ -965,17 +969,21 @@
     "WEBAUTHN_CHALLENGE_EXPIRED": "패스키 요청이 만료되었거나 이미 사용되었습니다. 다시 시도하세요.",
     "WEBAUTHN_VERIFICATION_FAILED": "패스키 또는 보안 키를 확인할 수 없습니다.",
     "SIM_ACTION_UNSUPPORTED": "SIM 제공업체가 이 SIM에 대해 이 작업을 지원하지 않습니다",
-    "SIM_CONFIRMED_ELSEWHERE": "다른 충전소에 이 SIM의 확인된 연결이 이미 있습니다",
+    "SIM_ATTACHED": "SIM을 삭제하기 전에 충전소에서 분리하세요",
+    "SIM_ATTACHED_ELSEWHERE": "이 SIM은 다른 충전소에 연결되어 있습니다",
+    "SIM_ATTACHMENT_CHANGED": "표시된 후 SIM 연결이 변경되었습니다. SIM을 점검한 후 다시 확인하세요",
+    "SIM_ATTACHMENT_NOT_CONFIRMED": "네트워크를 재설정하기 전에 SIM을 확인하세요",
     "SIM_FEATURE_DISABLED": "SIM 제공업체와 충전소 신호 읽기가 꺼져 있습니다",
-    "SIM_MATCHED_ELSEWHERE": "이 SIM은 다른 충전소에 연결되어 있습니다",
-    "SIM_MATCH_CHANGED": "표시된 후 SIM 매칭이 변경되었습니다. SIM을 확인하고 다시 확인하세요",
-    "SIM_MATCH_NOT_CONFIRMED": "네트워크를 재설정하기 전에 SIM을 확인하세요",
-    "SIM_NOT_FOUND": "이 충전소에 연결된 SIM이 없습니다",
+    "SIM_INACTIVE": "이 SIM은 비활성 상태입니다. 먼저 다시 활성화하세요",
+    "SIM_NOT_FOUND": "SIM을 찾을 수 없습니다",
     "SIM_PROVIDER_ERROR": "SIM 제공업체 요청이 실패했습니다",
     "SIM_PROVIDER_NOT_CONFIGURED": "구성된 SIM 제공업체가 없습니다",
     "SIM_PROVIDER_RATE_LIMITED": "SIM 요청이 너무 많습니다. 나중에 다시 시도하세요",
     "SIM_RESET_UNAVAILABLE": "지금은 네트워크 재설정을 시작할 수 없습니다. 1분 후에 다시 시도하세요",
-    "SIM_TEST_UNAVAILABLE": "지금은 연결 테스트를 실행할 수 없습니다. 1분 후에 다시 시도하세요"
+    "SIM_TEST_UNAVAILABLE": "지금은 연결 테스트를 실행할 수 없습니다. 1분 후에 다시 시도하세요",
+    "NOT_FOUND": "찾을 수 없습니다",
+    "PAYLOAD_TOO_LARGE": "요청이 너무 큽니다",
+    "UNSUPPORTED_MEDIA_TYPE": "지원되지 않는 콘텐츠 유형입니다"
   },
   "validation": {
     "required": "필수 항목입니다",
@@ -1346,7 +1354,6 @@
     "kindRecoveryCode": "복구 코드",
     "kindTotp": "인증 앱",
     "passkeyButton": "패스키로 확인",
-    "passkeyNeedsSecurePage": "패스키로 본인임을 확인하세요. 패스키는 보안 연결(HTTPS) 또는 localhost에서만 작동합니다. 패스키를 사용하려면 이 페이지를 HTTPS로 여세요.",
     "passkeyVerified": "패스키가 확인되었습니다.",
     "resend": "새 코드 보내기",
     "sendFailed": "코드를 보내지 못했습니다. 다시 시도하세요.",
@@ -1392,6 +1399,25 @@
     "typeDeviceBound": "한 기기 또는 키에 저장됨",
     "typeNotBackedUp": "백업되지 않은 패스키",
     "typeSynced": "동기화된 패스키",
-    "waiting": "대기 중..."
+    "waiting": "대기 중...",
+    "browserUnsupported": "이 브라우저는 패스키와 보안 키를 지원하지 않습니다. 추가하려면 패스키를 지원하는 브라우저에서 이 페이지를 여세요."
+  },
+  "passkeyUnavailable": {
+    "insecure": {
+      "signInCode": "패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동합니다. 패스키를 사용하려면 이 사이트를 HTTPS로 열거나, 인증 코드로 로그인하세요.",
+      "signInRecovery": "패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동합니다. 패스키를 사용하려면 이 사이트를 HTTPS로 열거나, 복구 코드로 로그인하세요.",
+      "signInOnly": "패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동하며, 계정에 다른 인증 방법이 없습니다. 패스키로 로그인하려면 이 사이트를 HTTPS로 여세요.",
+      "setupOther": "패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동합니다. 패스키를 추가하려면 이 사이트를 HTTPS로 열거나, 아래에서 다른 방법을 설정하세요.",
+      "setupOnly": "패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동하며, 설정할 수 있는 방법은 패스키뿐입니다. 패스키를 설정하려면 이 사이트를 HTTPS로 여세요.",
+      "proofOnly": "패스키로 본인임을 확인하세요. 패스키는 보안 페이지(HTTPS 또는 localhost)에서만 작동합니다. 패스키를 사용하려면 이 사이트를 HTTPS로 여세요."
+    },
+    "unsupported": {
+      "signInCode": "이 브라우저는 패스키를 지원하지 않습니다. 패스키를 사용하려면 패스키를 지원하는 브라우저에서 이 사이트를 열거나, 인증 코드로 로그인하세요.",
+      "signInRecovery": "이 브라우저는 패스키를 지원하지 않습니다. 패스키를 사용하려면 패스키를 지원하는 브라우저에서 이 사이트를 열거나, 복구 코드로 로그인하세요.",
+      "signInOnly": "이 브라우저는 패스키를 지원하지 않으며, 계정에 다른 인증 방법이 없습니다. 로그인하려면 패스키를 지원하는 브라우저에서 이 사이트를 여세요.",
+      "setupOther": "이 브라우저는 패스키를 지원하지 않습니다. 패스키를 추가하려면 패스키를 지원하는 브라우저에서 이 사이트를 열거나, 아래에서 다른 방법을 설정하세요.",
+      "setupOnly": "이 브라우저는 패스키를 지원하지 않으며, 설정할 수 있는 방법은 패스키뿐입니다. 패스키를 설정하려면 패스키를 지원하는 브라우저에서 이 사이트를 여세요.",
+      "proofOnly": "패스키로 본인임을 확인하세요. 이 브라우저는 패스키를 지원하지 않습니다. 패스키를 사용하려면 패스키를 지원하는 브라우저에서 이 사이트를 여세요."
+    }
   }
 }

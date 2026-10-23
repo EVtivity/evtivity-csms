@@ -4,6 +4,7 @@
 import type { Logger } from 'pino';
 import postgres from 'postgres';
 import { connectionName } from '@evtivity/lib';
+import { raiseStationSimHistoryFloor } from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
 import { StationSimulator, type StationConfig } from '@evtivity/css/station-simulator';
 import type { RunConfig, TestResult } from './types.js';
@@ -383,7 +384,24 @@ export async function executeCsTest(
     await sql`DELETE FROM css_evses WHERE css_station_id = ${dbId}`.catch(() => {});
     await sql`DELETE FROM css_stations WHERE id = ${dbId}`.catch(() => {});
     // Delete the paired charging_stations row last. The FK cascade would also remove
-    // css_stations, but we already deleted it above for explicitness.
-    await sql`DELETE FROM charging_stations WHERE station_id = ${stationId}`.catch(() => {});
+    // css_stations, but we already deleted it above for explicitness. It also
+    // removes the station's SIM attachment, so the SIM's history floor goes up
+    // first, and a station whose floor was not raised is kept: its SIM would show
+    // this station's rows on its next station.
+    const floorRaised = await sql<
+      Array<{ id: string }>
+    >`SELECT id FROM charging_stations WHERE station_id = ${stationId}`
+      .then((rows) => raiseStationSimHistoryFloor(rows.map((row) => row.id)))
+      .then(() => true)
+      .catch((err: unknown) => {
+        log.warn(
+          { err, stationId },
+          'SIM history floor not raised; the conformance station is kept, remove it on the conformance page',
+        );
+        return false;
+      });
+    if (floorRaised) {
+      await sql`DELETE FROM charging_stations WHERE station_id = ${stationId}`.catch(() => {});
+    }
   }
 }

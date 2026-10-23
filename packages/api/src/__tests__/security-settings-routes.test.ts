@@ -76,6 +76,12 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
       }
     },
+  requestHasPermission: (request: FastifyRequest, permission: string) =>
+    Promise.resolve(
+      String(request.headers['x-perms'] ?? '')
+        .split(',')
+        .includes(permission),
+    ),
 }));
 
 const READ = { 'x-perms': 'settings.security:read' };
@@ -548,6 +554,25 @@ describe('password policy and session lifetime routes', () => {
   });
 
   describe('GET /security/settings', () => {
+    it('masks the reCAPTCHA secret without settings.system:read', async () => {
+      const { encryptString } = await import('@evtivity/lib');
+      storedRows.push({
+        key: 'security.recaptcha.secretKeyEnc',
+        value: encryptString('recaptcha-secret', 'test-encryption-key-32chars!!!!!'),
+      });
+      const masked = await app.inject({ method: 'GET', url: '/security/settings', headers: READ });
+      expect(masked.json()['security.recaptcha.secretKeyEnc']).toBeNull();
+      expect(masked.json()['security.recaptcha.secretKeyConfigured']).toBe(true);
+      expect(masked.body).not.toContain('recaptcha-secret');
+      const full = await app.inject({
+        method: 'GET',
+        url: '/security/settings',
+        headers: { 'x-perms': 'settings.security:read,settings.system:read' },
+      });
+      expect(full.json()['security.recaptcha.secretKeyEnc']).toBe('recaptcha-secret');
+      expect(full.json()['security.recaptcha.secretKeyConfigured']).toBe(true);
+    });
+
     it('returns the stored keys and both parsed groups', async () => {
       storedRows.push(
         { key: 'security.mfa.emailEnabled', value: true },

@@ -1,22 +1,34 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { BlockList, isIP } from 'node:net';
 import type { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { ForbiddenError } from '@evtivity/lib';
 import { config } from '../lib/config.js';
 
-/** Match private network and localhost origins (no hardcoded IP needed). */
+// Loopback and RFC 1918 private ranges: the addresses a LAN install serves from.
+const LOCAL_ADDRESSES = new BlockList();
+LOCAL_ADDRESSES.addSubnet('127.0.0.0', 8, 'ipv4');
+LOCAL_ADDRESSES.addSubnet('10.0.0.0', 8, 'ipv4');
+LOCAL_ADDRESSES.addSubnet('172.16.0.0', 12, 'ipv4');
+LOCAL_ADDRESSES.addSubnet('192.168.0.0', 16, 'ipv4');
+LOCAL_ADDRESSES.addAddress('::1', 'ipv6');
+
+/**
+ * Whether an origin is `localhost` or an IP literal on loopback or a private
+ * network. The host is parsed as an address, so a public name with a private
+ * looking prefix (`10.evil.com`, `192.168.evil.com`) is not local.
+ */
 function isPrivateOrigin(origin: string): boolean {
-  const host = URL.parse(origin)?.hostname;
-  if (host == null) return false;
-  return (
-    host === 'localhost' ||
-    host === '127.0.0.1' ||
-    host.startsWith('192.168.') ||
-    host.startsWith('10.') ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-  );
+  const parsed = URL.parse(origin);
+  if (parsed == null) return false;
+  const host = parsed.hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+  if (host === 'localhost') return true;
+  const family = isIP(host);
+  if (family === 4) return LOCAL_ADDRESSES.check(host, 'ipv4');
+  if (family === 6) return LOCAL_ADDRESSES.check(host, 'ipv6');
+  return false;
 }
 
 export async function registerCors(app: FastifyInstance): Promise<void> {

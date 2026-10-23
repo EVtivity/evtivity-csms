@@ -5,7 +5,10 @@ import crypto from 'node:crypto';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const state = vi.hoisted(
-  (): { ca: object | null; rows: Array<{ status: string; valid_to: Date }> } => ({
+  (): {
+    ca: object | null;
+    rows: Array<{ status: string; valid_to: Date; id_token?: string }>;
+  } => ({
     ca: null,
     rows: [],
   }),
@@ -67,6 +70,17 @@ describe('localCertificateStatus', () => {
     expect(await localCertificateStatus(contractId)).toBe('expired');
     state.rows = [{ status: 'revoked', valid_to: new Date(Date.now() + 60_000) }];
     expect(await localCertificateStatus(contractId)).toBe('revoked');
+  });
+
+  it('binds a contract certificate to the eMAID of its contract', async () => {
+    state.rows = [
+      { status: 'active', valid_to: new Date(Date.now() + 60_000), id_token: 'USEVTC00000001' },
+    ];
+    expect(await localCertificateStatus(contractId, 'USEVTC00000001')).toBe('good');
+    expect(await localCertificateStatus(contractId, 'us-evt-c00000001')).toBe('good');
+    // Hash data of contract A presented with the eMAID of contract B.
+    expect(await localCertificateStatus(contractId, 'USEVTC00000002')).toBe('mismatch');
+    expect(await localCertificateStatus(contractId, '')).toBe('mismatch');
   });
 
   it('is good for a local sub-CA and unknown for a serial the CA never issued', async () => {

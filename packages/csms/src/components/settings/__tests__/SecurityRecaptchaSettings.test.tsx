@@ -41,4 +41,20 @@ describe('SecurityRecaptchaSettings', () => {
     renderWith(undefined);
     expect(screen.queryByText('settings.recaptchaOffWarning')).toBeNull();
   });
+
+  it('shows a stored secret from the configured flag when the secret itself is withheld', () => {
+    renderWith({
+      'security.recaptcha.secretKeyEnc': null,
+      'security.recaptcha.secretKeyConfigured': true,
+    });
+    const input = document.getElementById('recaptcha-secret-key') as HTMLInputElement;
+    expect(input.placeholder).toBe('••••••••');
+    expect(input.value).toBe('');
+  });
+
+  it('shows no stored secret placeholder when none is configured', () => {
+    renderWith({ 'security.recaptcha.secretKeyConfigured': false });
+    const input = document.getElementById('recaptcha-secret-key') as HTMLInputElement;
+    expect(input.placeholder).toBe('');
+  });
 });

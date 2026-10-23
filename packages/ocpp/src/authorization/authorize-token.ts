@@ -14,7 +14,9 @@
  * AUTHORIZE_CONTEXT_RULES.
  */
 
-import { eq, and, ne, or } from 'drizzle-orm';
+import { eq, and, ne, or, type SQL } from 'drizzle-orm';
+import { cardMayAuthorizeVehicleId } from '@evtivity/lib/vehicle-id';
+import { stationTokenCondition } from './station-token-match.js';
 import {
   client,
   db,
@@ -29,6 +31,7 @@ import {
   isSiteFreeVendEnabledByStation,
   findAutochargeVehicle,
   findBlockedVehicle,
+  findVehicleIdOwners,
   isAutochargeEnabledForStation,
 } from '@evtivity/database';
 import type { OcpiTokenOwnerResult } from '@evtivity/database';
@@ -52,7 +55,7 @@ const NO_MATCH = {
   echoGroupId: false,
 } as const;
 
-/** The authorize reason of a driver whose billing fleet has no credit left (plan S8). */
+/** The authorize reason of a driver whose billing fleet has no credit left. */
 export const ACCOUNT_CREDIT_LIMIT_REASON = 'account_credit_limit';
 
 /** The token type logged for an untyped (1.6) idTag, as the 1.6 handlers name it in events. */
@@ -230,11 +233,8 @@ async function freeVendDecision(
   };
 }
 
-function tokenCondition(input: AuthorizeTokenInput): ReturnType<typeof eq> | undefined {
-  const byValue = eq(driverTokens.idToken, input.token.value);
-  return input.token.type == null
-    ? byValue
-    : and(byValue, eq(driverTokens.tokenType, input.token.type));
+function tokenCondition(input: AuthorizeTokenInput): SQL {
+  return stationTokenCondition(input.token.value, input.token.type);
 }
 
 const TOKEN_COLUMNS = {
@@ -347,14 +347,16 @@ async function resolveUntyped(
     .select(TOKEN_COLUMNS)
     .from(driverTokens)
     .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
-    .where(eq(driverTokens.idToken, idTag));
+    .where(stationTokenCondition(idTag));
 
-  if (tokens.length > 0) {
+  const cards = await countingCards(input, tokens);
+  if (cards.counting.length > 0) {
     const now = new Date();
-    const usable = tokens.find((t) => !isBlocked(t) && !isExpired(t, now));
+    const usable = cards.counting.find((t) => !isBlocked(t) && !isExpired(t, now));
     if (usable != null) return acceptedToken(usable, false);
-    return rejectRows(tokens, rules, now);
+    return rejectRows(cards.counting, rules, now);
   }
+  if (cards.yielded) return vehicleDecides(input);
 
   const byDriverId = await resolveDriverId(input, rules);
   if (byDriverId != null) return byDriverId;
@@ -404,11 +406,16 @@ async function resolveTyped(
   rules: AuthorizeContextRules,
   logger: Logger,
 ): Promise<AuthorizeDecision> {
-  const [token]: TokenRow[] = await db
+  const rows: TokenRow[] = await db
     .select(TOKEN_COLUMNS)
     .from(driverTokens)
     .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
-    .where(and(eq(driverTokens.idToken, input.token.value), eq(driverTokens.tokenType, type)));
+    .where(stationTokenCondition(input.token.value, type));
+  const cards = await countingCards(input, rows);
+  if (cards.yielded && cards.counting.length === 0) return vehicleDecides(input);
+  const now = new Date();
+  const token =
+    cards.counting.find((t) => !isBlocked(t) && !isExpired(t, now)) ?? cards.counting[0];
 
   if (token == null) {
     const byDriverId = await resolveDriverId(input, rules);
@@ -440,9 +447,51 @@ async function resolveTyped(
     };
   }
 
-  const now = new Date();
   if (isBlocked(token) || isExpired(token, now)) return rejectRows([token], rules, now);
   return acceptedToken(token, true);
+}
+
+/**
+ * The one precedence rule for the driver tokens a station value matched, as
+ * sent or in its canonical form, for the 1.6 and the 2.1
+ * paths. A matched card authorizes when usable and refuses when blocked or
+ * expired, whatever spelling matched. One exception: the value is a vehicle
+ * id the charger sent (a 2.1 VIN, EVCCID or MacAddress token, or a
+ * vehicle-shaped 1.6 idTag; not an additionalInfo entry, which rides along
+ * with the card that authorizes), a vehicle holds it, and the card belongs to
+ * a driver other than that vehicle's owner. Such a card does not count
+ * (`yielded`): the vehicle lookup decides with the owner's rules
+ * (`vehicleDecides`), never the driver id fallback, a guest checkout,
+ * accept-when-not-found or OCPI.
+ */
+async function countingCards(
+  input: AuthorizeTokenInput,
+  tokens: TokenRow[],
+): Promise<{ counting: TokenRow[]; yielded: boolean }> {
+  const capture = input.vehicleId;
+  if (tokens.length === 0 || capture == null || capture.source === 'additional_info') {
+    return { counting: tokens, yielded: false };
+  }
+  const owners = await findVehicleIdOwners(capture);
+  const counting = tokens.filter((t) => cardMayAuthorizeVehicleId(t.driverId, owners));
+  return { counting, yielded: counting.length < tokens.length };
+}
+
+/**
+ * Every matched card yielded to a vehicle holding the id: the vehicle path
+ * decides (accepted, blocked, Autocharge off). A vehicle with Autocharge off
+ * and no block answers Invalid, as the id with no card would.
+ */
+async function vehicleDecides(input: AuthorizeTokenInput): Promise<AuthorizeDecision> {
+  const byVehicle = await resolveVehicle(input);
+  if (byVehicle != null) return byVehicle;
+  return {
+    ...NO_MATCH,
+    status: 'invalid',
+    outcome: 'invalid',
+    reason: 'vehicle_autocharge_off',
+    source: 'vehicle',
+  };
 }
 
 /** The 2.1 token type the CSMS sends a driver id as (portal remote start). */
@@ -717,7 +766,7 @@ function applyPrepaidCredit(decision: AuthorizeDecision): AuthorizeDecision {
 }
 
 /**
- * Fleet credit limit (plan S8): a driver who charges on account with a fleet
+ * Fleet credit limit: a driver who charges on account with a fleet
  * that has a credit limit. With `refuse` (Authorize, 1.6 StartTransaction)
  * an accepted token that is not prepaid becomes no_credit when the fleet has
  * no credit left: its exposure, with the running sessions at their reserved

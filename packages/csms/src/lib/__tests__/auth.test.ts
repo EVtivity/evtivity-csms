@@ -28,6 +28,8 @@ import {
   useHasCompanyWidePermission,
   MustResetPasswordError,
 } from '../auth';
+import { queryClient } from '../query';
+import { useAiPanelStore } from '../../components/ai/use-ai-panel-store';
 
 const user = {
   id: 'u1',
@@ -152,6 +154,34 @@ describe('useAuth', () => {
       expect(s.hasAllSiteAccess).toBe(true);
       expect(s.theme).toBe('dark');
       expect(mockPost).toHaveBeenCalledWith('/v1/access-logs', { action: 'login' });
+    });
+
+    it('a sign-in as another user clears the cache of the previous one', async () => {
+      mockPost.mockResolvedValueOnce({ token: 't', user, role: null });
+      mockGet.mockResolvedValueOnce({ permissions: [], hasAllSiteAccess: true });
+      await useAuth.getState().login('a@b.c', 'pw');
+      queryClient.setQueryData(['ai', 'conversations'], [{ id: 'c1', title: 'Admin only' }]);
+
+      // The session ended without a sign-out (expiry), then another user signs in.
+      useAuth.setState({ user: null, isAuthenticated: false });
+      mockPost.mockResolvedValueOnce({ token: 't', user: { ...user, id: 'u2' }, role: null });
+      mockGet.mockResolvedValueOnce({ permissions: [], hasAllSiteAccess: false });
+      await useAuth.getState().login('o@b.c', 'pw');
+
+      expect(queryClient.getQueryData(['ai', 'conversations'])).toBeUndefined();
+    });
+
+    it('a sign-in as the same user keeps the cache', async () => {
+      mockPost.mockResolvedValueOnce({ token: 't', user, role: null });
+      mockGet.mockResolvedValueOnce({ permissions: [], hasAllSiteAccess: true });
+      await useAuth.getState().login('a@b.c', 'pw');
+      queryClient.setQueryData(['sites'], []);
+      mockPost.mockResolvedValueOnce({ token: 't', user, role: null });
+      mockGet.mockResolvedValueOnce({ permissions: [], hasAllSiteAccess: true });
+      await useAuth.getState().login('a@b.c', 'pw');
+
+      expect(queryClient.getQueryData(['sites'])).toEqual([]);
+      queryClient.clear();
     });
 
     it('omits the recaptcha token when not given and tolerates a null role', async () => {
@@ -301,6 +331,28 @@ describe('useAuth', () => {
       expect(s.isAuthenticated).toBe(false);
       // The sign-in page then gets no returnTo of the page the user left.
       expect(s.signedOut).toBe(true);
+    });
+
+    it('clears the query cache and closes the AI panel', async () => {
+      useAuth.setState({ user, isAuthenticated: true });
+      queryClient.setQueryData(['ai', 'conversations'], [{ id: 'c1', title: 'Admin only' }]);
+      useAiPanelStore.getState().openWithContext({ kind: 'station', id: 'sta_1' });
+
+      await useAuth.getState().logout();
+
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
+      expect(useAiPanelStore.getState().open).toBe(false);
+      expect(useAiPanelStore.getState().request).toBeNull();
+    });
+
+    it('clears the cache even when the server call fails', async () => {
+      useAuth.setState({ user, isAuthenticated: true });
+      queryClient.setQueryData(['drivers'], []);
+      mockPost.mockRejectedValue(new Error('offline'));
+
+      await useAuth.getState().logout();
+
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
     });
 
     it('clears local state even when the server call fails', async () => {

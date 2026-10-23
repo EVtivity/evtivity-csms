@@ -7,11 +7,15 @@ const h = vi.hoisted(() => ({
   claim: vi.fn(),
   contacts: vi.fn(),
   operators: [] as Record<string, unknown>[],
+  queries: [] as string[],
   dispatchSystemNotification: vi.fn(),
 }));
 
 vi.mock('@evtivity/database', () => ({
-  client: (): Promise<unknown[]> => Promise.resolve(h.operators),
+  client: (strings: TemplateStringsArray): Promise<unknown[]> => {
+    h.queries.push(strings.join('?'));
+    return Promise.resolve(h.operators);
+  },
   claimFleetCreditLimitNotice: h.claim,
   loadFleetBillingContacts: h.contacts,
 }));
@@ -143,5 +147,16 @@ describe('dispatchFleetCreditLimitNotices', () => {
       expect.objectContaining({ fleetId: 'flt_1', kind: 'reached' }),
       'Fleet credit limit notice failed; continuing',
     );
+  });
+
+  // The API refuses fleet data to site-restricted users, so the
+  // notices that carry it go to all-site operators only.
+  it('reads the operator recipients among all-site users only', async () => {
+    h.queries.length = 0;
+    h.claim.mockResolvedValue(true);
+    h.contacts.mockResolvedValue({ emails: [], language: null });
+    await dispatchFleetCreditLimitNotices(check('reached', 10_000), deps, log);
+    const recipients = h.queries.find((q) => q.includes('user_permissions'));
+    expect(recipients).toContain('u.has_all_site_access');
   });
 });

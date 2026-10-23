@@ -288,6 +288,24 @@ const mockWriteReservationAudit = vi.fn().mockResolvedValue(undefined);
 const mockReprice = vi.fn().mockResolvedValue(false);
 const mockFreeVend = vi.fn().mockResolvedValue(false);
 const mockElectricityPeriods = vi.fn().mockResolvedValue([]);
+// The session's token link reads the same card the routed queries return.
+vi.mock('../../authorization/station-token-match.js', () => ({
+  findLinkableStationTokens: vi.fn(() => {
+    const row = db.tokenRow;
+    return Promise.resolve(
+      row == null
+        ? []
+        : [
+            {
+              id: row.id,
+              driverId: row.driver_id ?? null,
+              prepaidBalanceCents: row.prepaid_balance_cents ?? null,
+            },
+          ],
+    );
+  }),
+}));
+
 vi.mock('@evtivity/database', async () => ({
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),

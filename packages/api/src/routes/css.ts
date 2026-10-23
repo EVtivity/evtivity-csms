@@ -55,6 +55,8 @@ import {
 } from '../lib/ocpp-zod-types-v16.js';
 import { OCPP21_CONFIG_DEFAULTS, OCPP16_CONFIG_DEFAULTS } from '../lib/css-config-defaults.js';
 import { authorize } from '../middleware/rbac.js';
+import { refuseSecurityProfileChange } from '../lib/security-profile-permission.js';
+import { refuseSimulatorTarget } from '../lib/simulator-target.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
 import type { JwtPayload } from '../plugins/auth.js';
@@ -279,7 +281,12 @@ const createStationBody = z.object({
   stationId: z.string().min(1).describe('Station identifier string'),
   ocppProtocol: z.enum(OCPP_PROTOCOLS).optional().describe('OCPP protocol version'),
   securityProfile: z.number().int().min(0).max(3).optional().describe('Security profile (0-3)'),
-  targetUrl: z.string().url().describe('Target OCPP WebSocket URL'),
+  targetUrl: z
+    .string()
+    .url()
+    .describe(
+      'Target OCPP WebSocket URL: ws or wss on the origin of the OCPP server, else 400 VALIDATION_ERROR',
+    ),
   password: z.string().optional().describe('Basic auth password'),
   model: z.string().optional().describe('Station model'),
   serialNumber: z.string().optional().describe('Serial number'),
@@ -306,7 +313,13 @@ const updateStationBody = z.object({
     .describe(
       'Network interface of the new network profile when an online OCPP 2.0.1 station moves to a higher security profile (required there, ignored otherwise)',
     ),
-  targetUrl: z.string().url().optional(),
+  targetUrl: z
+    .string()
+    .url()
+    .optional()
+    .describe(
+      'Target OCPP WebSocket URL: ws or wss on the origin of the OCPP server, else 400 VALIDATION_ERROR',
+    ),
   password: z.string().optional(),
   model: z.string().optional(),
   serialNumber: z.string().nullable().optional(),
@@ -1292,6 +1305,8 @@ export function cssRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = request.body as z.infer<typeof createStationBody>;
       const { userId } = request.user as JwtPayload;
+      // The simulator connects only to the OCPP server (security review AZ-L8).
+      if (await refuseSimulatorTarget(reply, body.targetUrl)) return;
 
       // An existing charging_stations row must be in the caller's sites: a
       // site-restricted user cannot take over an unsited or foreign real
@@ -1626,6 +1641,9 @@ export function cssRoutes(app: FastifyInstance): void {
         body: zodSchema(updateStationBody),
         response: {
           200: itemResponse(stationItem),
+          403: errorWith('A security profile change needs settings.stationConfig:write', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           400: errorWith('Invalid security change', [
             ERROR_CODES.VALIDATION_ERROR,
             ERROR_CODES.PASSWORD_REQUIRED,
@@ -1645,6 +1663,10 @@ export function cssRoutes(app: FastifyInstance): void {
       const { stationId } = request.params as z.infer<typeof stationIdParams>;
       const body = request.body as z.infer<typeof updateStationBody>;
       const { userId } = request.user as JwtPayload;
+      // A security profile change is station configuration.
+      if (await refuseSecurityProfileChange(request, reply, body.securityProfile)) return;
+      // The simulator connects only to the OCPP server (security review AZ-L8).
+      if (await refuseSimulatorTarget(reply, body.targetUrl)) return;
 
       if (!(await isCssStationAccessible(stationId, userId))) {
         return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });

@@ -39,6 +39,7 @@ import { SchemaForm } from '@/components/SchemaForm';
 import { OCPP_21_VARIABLES, OCPP_16_KEYS } from '@/lib/ocpp-variables';
 import { LoadingLogo } from '@/components/loading-logo';
 import { newOcppRequestId } from '@/lib/ocpp-request-id';
+import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 import {
   FirmwareSignatureFields,
   firmwareSignaturePayload,
@@ -365,6 +366,11 @@ function QuickActionForm({
   internalStationId: string;
 }): React.JSX.Element | null {
   const { t } = useTranslation();
+  // A certificate signing trigger needs certificates:write.
+  const canSend = useCanSendOcppCommand();
+  const triggerTypes = TRIGGER_MESSAGE_TYPES.filter((requestedMessage) =>
+    canSend('TriggerMessage', { requestedMessage }),
+  );
 
   switch (action) {
     case 'Reset':
@@ -530,7 +536,7 @@ function QuickActionForm({
                 onChange({ triggerMessage: e.target.value });
               }}
             >
-              {TRIGGER_MESSAGE_TYPES.map((tm) => (
+              {triggerTypes.map((tm) => (
                 <option key={tm} value={tm}>
                   {tm}
                 </option>
@@ -1110,6 +1116,7 @@ export function StationCommands({
   const { t } = useTranslation();
   const { id: internalStationId = '' } = useParams<{ id: string }>();
   const is16 = ocppProtocol === 'ocpp1.6';
+  const canSend = useCanSendOcppCommand();
 
   const [activeAction, setActiveAction] = useState<QuickAction | QuickAction16 | null>(null);
   const [form, setForm] = useState<FormState>(is16 ? INITIAL_FORM_16 : INITIAL_FORM);
@@ -1308,12 +1315,18 @@ export function StationCommands({
     advancedMutation.mutate({ action: advancedAction, payload: parsed });
   }
 
-  const quickActions = is16 ? QUICK_ACTIONS_16 : QUICK_ACTIONS;
-  const csmsActions = is16
+  // Commands the user cannot send (the feature permission of the action)
+  // are hidden, with a note that some are.
+  const allQuickActions = is16 ? QUICK_ACTIONS_16 : QUICK_ACTIONS;
+  const allCsmsActions = is16
     ? CSMS_ACTIONS_16
     : ocppProtocol === 'ocpp2.0.1'
       ? CSMS_ACTIONS_201
       : CSMS_ACTIONS;
+  const quickActions = allQuickActions.filter(({ action }) => canSend(action));
+  const csmsActions = allCsmsActions.filter((action) => canSend(action));
+  const someCommandsHidden =
+    quickActions.length < allQuickActions.length || csmsActions.length < allCsmsActions.length;
 
   return (
     <Card>
@@ -1321,6 +1334,9 @@ export function StationCommands({
         <CardTitle>{t('commands.title')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-6">
+        {someCommandsHidden && (
+          <p className="text-sm text-muted-foreground">{t('commands.hiddenByPermission')}</p>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
           {quickActions.map(({ action, labelKey }) => (
             <Button

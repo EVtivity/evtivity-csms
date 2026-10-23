@@ -35,11 +35,12 @@ const REALM_CONFIGS = {
 
 export type AuthRealm = keyof typeof REALM_CONFIGS;
 
+/**
+ * Whether the request reached us over HTTPS. `request.protocol` follows
+ * `X-Forwarded-Proto` only from a proxy listed in `TRUST_PROXY`, so a client
+ * cannot choose the `Secure` flag or the `__Host-` cookie name with a header.
+ */
 export function isSecureRequest(request: FastifyRequest): boolean {
-  const proto = request.headers['x-forwarded-proto'];
-  if (typeof proto === 'string') {
-    return proto.split(',')[0]?.trim() === 'https';
-  }
   return request.protocol === 'https';
 }
 
@@ -101,7 +102,9 @@ export type SignedCookieRead =
  * so every read of a signed cookie must go through `request.unsignCookie()`.
  */
 export function readSignedCookie(request: FastifyRequest, name: string): SignedCookieRead {
-  const raw = request.cookies[name];
+  // A request routed without the cookie plugin has no cookies object.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  const raw = request.cookies?.[name];
   if (raw == null || raw === '') return { status: 'absent' };
   const unsigned = request.unsignCookie(raw);
   if (!unsigned.valid || unsigned.value === '') return { status: 'invalid' };

@@ -1,9 +1,17 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { randomBytes } from 'node:crypto';
+import { roleNamesOf } from '@evtivity/lib/ocpi-roles';
+import { moduleRouteAllows } from '../lib/partner-roles.js';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import * as argon2 from 'argon2';
-import { db, ocpiCredentialsTokens, ocpiPartners } from '@evtivity/database';
+import {
+  db,
+  isOcpiRegistrationTokenExpired,
+  ocpiCredentialsTokens,
+  ocpiPartners,
+} from '@evtivity/database';
 import { eq, and } from 'drizzle-orm';
 import { ocpiError, OcpiStatusCode } from '../lib/ocpi-response.js';
 
@@ -25,7 +33,10 @@ export interface OcpiTokenInfo {
   /** A registration token (CREDENTIALS_TOKEN_A) or a credentials token. */
   kind: OcpiTokenKind;
   partnerStatus: OcpiPartnerStatus;
-  /** The role names the partner registered with (CPO, EMSP, HUB, ...). */
+  /**
+   * The role names the operator approved for the partner (CPO, EMSP, HUB,
+   * ...), never the roles the partner declares in its credentials.
+   */
   roleNames: string[];
 }
 
@@ -99,16 +110,12 @@ function extractToken(request: FastifyRequest): HeaderToken | null {
   return { decoded: Buffer.from(raw, 'base64').toString('utf-8'), raw };
 }
 
-function roleNamesOf(roles: unknown): string[] {
-  if (!Array.isArray(roles)) return [];
-  return (roles as unknown[])
-    .map((r) => {
-      if (typeof r === 'string') return r;
-      if (r == null || typeof r !== 'object') return null;
-      const role = (r as { role?: unknown }).role;
-      return typeof role === 'string' ? role : null;
-    })
-    .filter((r): r is string => r != null);
+let dummyHash: Promise<string> | null = null;
+
+/** An argon2 hash of a random value, made once per process, for the dummy verify. */
+function dummyTokenHash(): Promise<string> {
+  dummyHash ??= argon2.hash(randomBytes(32).toString('hex'));
+  return dummyHash;
 }
 
 async function findIssuedToken(
@@ -123,6 +130,7 @@ async function findIssuedToken(
       tokenHash: ocpiCredentialsTokens.tokenHash,
       partnerId: ocpiCredentialsTokens.partnerId,
       kind: ocpiCredentialsTokens.kind,
+      createdAt: ocpiCredentialsTokens.createdAt,
     })
     .from(ocpiCredentialsTokens)
     .where(
@@ -133,6 +141,12 @@ async function findIssuedToken(
       ),
     );
 
+  // No candidate: one dummy verify, so the answer time does not show whether
+  // a token with this prefix exists.
+  if (candidates.length === 0) {
+    await argon2.verify(await dummyTokenHash(), token);
+    return null;
+  }
   // Verify all candidates to prevent timing attacks (constant-time over candidate count)
   let matched: (typeof candidates)[number] | null = null;
   for (const candidate of candidates) {
@@ -142,6 +156,10 @@ async function findIssuedToken(
     }
   }
   if (matched == null) return null;
+  // A registration token past its lifetime is refused like an unknown one.
+  if (matched.kind === 'registration' && isOcpiRegistrationTokenExpired(matched.createdAt)) {
+    return null;
+  }
   return { tokenId: matched.tokenId, partnerId: matched.partnerId, kind: matched.kind };
 }
 
@@ -168,7 +186,7 @@ async function verifyToken(
       countryCode: ocpiPartners.countryCode,
       partyId: ocpiPartners.partyId,
       status: ocpiPartners.status,
-      roles: ocpiPartners.roles,
+      approvedRoles: ocpiPartners.approvedRoles,
       allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
       allowRawToken: ocpiPartners.allowRawToken,
     })
@@ -191,7 +209,7 @@ async function verifyToken(
     token: {
       kind: found.kind,
       partnerStatus: partner.status,
-      roleNames: roleNamesOf(partner.roles),
+      roleNames: roleNamesOf(partner.approvedRoles),
     },
   };
 }
@@ -232,7 +250,10 @@ async function authenticate(
 /**
  * Module endpoints: a credentials token of a connected partner. A
  * registration token gets 401 (OCPI 2.3.0 4.1), and so does a partner that
- * is pending, suspended or disconnected.
+ * is pending, suspended or disconnected. Then the partner needs an
+ * operator-approved role the module interface serves (`moduleRouteAllows`,
+ * deny by default): else 403, and a route of no known module
+ * serves nobody.
  */
 export async function ocpiAuthenticate(
   request: FastifyRequest,
@@ -243,6 +264,18 @@ export async function ocpiAuthenticate(
     reply,
     (token) => token.kind === 'credentials' && token.partnerStatus === 'connected',
   );
+  if (reply.sent || request.ocpiToken == null) return;
+  const routeUrl = request.routeOptions.url ?? '';
+  if (!moduleRouteAllows(routeUrl, request.ocpiToken.roleNames)) {
+    await reply
+      .status(403)
+      .send(
+        ocpiError(
+          OcpiStatusCode.CLIENT_ERROR,
+          'No role the operator approved for this partner serves this module',
+        ),
+      );
+  }
 }
 
 /**

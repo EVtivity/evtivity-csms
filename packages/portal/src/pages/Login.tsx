@@ -8,8 +8,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
+import { CardContent, CardHeader } from '@/components/ui/card';
+import { AuthLayout } from '@/components/AuthLayout';
 import { LiveStatus } from '@/components/LiveStatus';
 import { usePrefetchedOptions } from '@/hooks/use-prefetched-options';
 import {
@@ -98,8 +98,6 @@ export function Login(): React.JSX.Element {
   const [searchParams] = useSearchParams();
   const noAutoLogin =
     searchParams.get('noAutoLogin') === 'true' || sessionStorage.getItem('noAutoLogin') === 'true';
-
-  const { companyName, companyLogo, branding } = useAuthBranding();
 
   const { data: securityPublic } = useQuery({
     queryKey: ['security-public'],
@@ -306,124 +304,116 @@ export function Login(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      <AuthBranding companyName={companyName} companyLogo={companyLogo} />
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <h2 className="text-2xl font-semibold">{t('auth.signIn')}</h2>
-          {error != null && (
-            <p className="mt-2 text-sm text-destructive" role="alert">
-              {t(error)}
-            </p>
-          )}
-          {passkeyMessage != null && !passkeyMessage.quiet && (
-            <p className="mt-2 text-sm text-destructive" role="alert">
-              {passkeyMessage.message}
-            </p>
-          )}
-          <LiveStatus
-            message={passkeyMessage?.quiet === true ? passkeyMessage.message : null}
-            className="mt-2"
-          />
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={(e) => {
-              void handleSubmit(e);
-            }}
-            noValidate
-            className="space-y-4"
-          >
-            <div className="space-y-2">
-              <label htmlFor="email" className="block text-sm font-medium leading-6">
-                {t('auth.email')}
-              </label>
-              <Input
-                id="email"
-                type="email"
-                // "webauthn" lets the browser list passkeys under the field.
-                autoComplete={passkeyLogin ? 'username webauthn' : 'off'}
-                value={email}
-                onFocus={() => {
-                  if (!autofillIdle.current) return;
-                  autofillIdle.current = false;
-                  autofillRetries.current = 0;
-                  setAutofillRound((r) => r + 1);
-                }}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                }}
-                className={hasSubmitted && validationErrors.email ? 'border-destructive' : ''}
-              />
-              {hasSubmitted && validationErrors.email && (
-                <p className="text-sm text-destructive">{validationErrors.email}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <label htmlFor="password" className="block text-sm font-medium leading-6">
-                {t('auth.password')}
-              </label>
-              <PasswordInput
-                id="password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                }}
-                autoComplete="current-password"
-                className={hasSubmitted && validationErrors.password ? 'border-destructive' : ''}
-              />
-              {hasSubmitted && validationErrors.password && (
-                <p className="text-sm text-destructive">{validationErrors.password}</p>
-              )}
-            </div>
-            <Button type="submit" className="w-full" size="lg" disabled={loading}>
-              {loading ? t('auth.signingIn') : t('auth.signIn')}
-            </Button>
-            <div className="text-center">
-              <Link to="/forgot-password" className="text-sm text-link hover:underline">
-                {t('auth.forgotPassword')}
-              </Link>
-            </div>
-            {passkeyLogin && (
-              <>
-                <div className="relative my-4">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-card px-2 text-muted-foreground">{t('auth.or')}</span>
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full"
-                  size="lg"
-                  disabled={passkeyPending}
-                  onClick={() => {
-                    setError(null);
-                    setPasskeyMessage(null);
-                    void signInWithPasskeyButton();
-                  }}
-                >
-                  {passkeyPending ? t('auth.signingIn') : t('auth.signInWithPasskey')}
-                </Button>
-              </>
-            )}
-          </form>
-          <p className="mt-4 text-center text-sm text-muted-foreground">
-            {t('auth.noAccount')}{' '}
-            <Link to="/register" className="text-link hover:underline">
-              {t('auth.createOne')}
-            </Link>
+    <AuthLayout recaptchaEnabled={securityPublic?.recaptchaEnabled}>
+      <CardHeader className="text-center">
+        <h2 className="text-2xl font-semibold">{t('auth.signIn')}</h2>
+        {error != null && (
+          <p className="mt-2 text-sm text-destructive" role="alert">
+            {t(error)}
           </p>
-        </CardContent>
-      </Card>
-      <AuthFooter
-        companyName={companyName}
-        branding={branding}
-        recaptchaEnabled={securityPublic?.recaptchaEnabled}
-      />
-    </div>
+        )}
+        {passkeyMessage != null && !passkeyMessage.quiet && (
+          <p className="mt-2 text-sm text-destructive" role="alert">
+            {passkeyMessage.message}
+          </p>
+        )}
+        <LiveStatus
+          message={passkeyMessage?.quiet === true ? passkeyMessage.message : null}
+          className="mt-2"
+        />
+      </CardHeader>
+      <CardContent>
+        <form
+          onSubmit={(e) => {
+            void handleSubmit(e);
+          }}
+          noValidate
+          className="space-y-4"
+        >
+          <div className="space-y-2">
+            <label htmlFor="email" className="block text-sm font-medium leading-6">
+              {t('auth.email')}
+            </label>
+            <Input
+              id="email"
+              type="email"
+              // "webauthn" lets the browser list passkeys under the field.
+              autoComplete={passkeyLogin ? 'username webauthn' : 'off'}
+              value={email}
+              onFocus={() => {
+                if (!autofillIdle.current) return;
+                autofillIdle.current = false;
+                autofillRetries.current = 0;
+                setAutofillRound((r) => r + 1);
+              }}
+              onChange={(e) => {
+                setEmail(e.target.value);
+              }}
+              className={hasSubmitted && validationErrors.email ? 'border-destructive' : ''}
+            />
+            {hasSubmitted && validationErrors.email && (
+              <p className="text-sm text-destructive">{validationErrors.email}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <label htmlFor="password" className="block text-sm font-medium leading-6">
+              {t('auth.password')}
+            </label>
+            <PasswordInput
+              id="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+              }}
+              autoComplete="current-password"
+              className={hasSubmitted && validationErrors.password ? 'border-destructive' : ''}
+            />
+            {hasSubmitted && validationErrors.password && (
+              <p className="text-sm text-destructive">{validationErrors.password}</p>
+            )}
+          </div>
+          <Button type="submit" className="w-full" size="lg" disabled={loading}>
+            {loading ? t('auth.signingIn') : t('auth.signIn')}
+          </Button>
+          <div className="text-center">
+            <Link to="/forgot-password" className="text-sm text-link hover:underline">
+              {t('auth.forgotPassword')}
+            </Link>
+          </div>
+          {passkeyLogin && (
+            <>
+              <div className="relative my-4">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">{t('auth.or')}</span>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                size="lg"
+                disabled={passkeyPending}
+                onClick={() => {
+                  setError(null);
+                  setPasskeyMessage(null);
+                  void signInWithPasskeyButton();
+                }}
+              >
+                {passkeyPending ? t('auth.signingIn') : t('auth.signInWithPasskey')}
+              </Button>
+            </>
+          )}
+        </form>
+        <p className="mt-4 text-center text-sm text-muted-foreground">
+          {t('auth.noAccount')}{' '}
+          <Link to="/register" className="text-link hover:underline">
+            {t('auth.createOne')}
+          </Link>
+        </p>
+      </CardContent>
+    </AuthLayout>
   );
 }

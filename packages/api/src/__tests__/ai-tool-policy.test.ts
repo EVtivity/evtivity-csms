@@ -7,6 +7,10 @@ import { AI_OPERATIONS, AI_TOOL_CATALOG } from '../services/ai/tools/catalog.js'
 import type { AiCatalogTool } from '../services/ai/tools/catalog-types.js';
 import {
   exposedToolProblems,
+  isContactShapedKey,
+  isDestinationShapedKey,
+  isMoneyShapedKey,
+  MONEY_FIELDS_REVIEWED,
   policyCoverageProblems,
 } from '../services/ai/tools/catalog-checks.js';
 import { AI_TOOL_POLICY, surfaceOffers, toolPolicy } from '../services/ai/tools/policy.js';
@@ -124,6 +128,210 @@ describe('AI tool policy and catalog', () => {
     const argLeak: AiCatalogTool = { ...base, bodyParams: ['clientSecret'] };
     expect(exposedToolProblems([argLeak], AI_TOOL_POLICY)[0]).toContain(
       "secret-shaped argument 'clientSecret'",
+    );
+  });
+
+  it('no assistant write can set an outbound destination', () => {
+    for (const [id, field] of [
+      ['createReportSchedule', 'recipientEmails'],
+      ['updateReportSchedule', 'recipientEmails'],
+      ['createEventAlertRule', 'notifyRecipient'],
+      ['updateEventAlertRule', 'notifyRecipient'],
+    ] as const) {
+      expect(toolPolicy(id).omit, id).toContain(field);
+    }
+    expect(toolPolicy('updateOcppEventSettings').exposure).toBe('never');
+    for (const name of [
+      'recipient',
+      'recipientEmails',
+      'notifyRecipient',
+      'url',
+      'webhookUrl',
+      // Security review 2, AI I2.
+      'host',
+      'smtpHost',
+      'bucket',
+      'destination',
+      'notifyTo',
+      'to',
+      'cc',
+      'bcc',
+    ]) {
+      expect(isDestinationShapedKey(name), name).toBe(true);
+    }
+    for (const name of ['email', 'phone', 'contactEmail', 'notifyChannel', 'security', 'curve']) {
+      expect(isDestinationShapedKey(name), name).toBe(false);
+    }
+  });
+
+  it('hides driver and site email and phone from assistant writes (owner decision 2026-10-23)', () => {
+    for (const [id, fields] of [
+      ['createDriver', ['email', 'phone']],
+      ['updateDriver', ['email', 'phone']],
+      ['createSite', ['contactEmail', 'contactPhone']],
+      ['updateSite', ['contactEmail', 'contactPhone']],
+      ['upsertNeviStationData', ['operatorEmail', 'operatorPhone']],
+    ] as const) {
+      for (const field of fields) expect(toolPolicy(id).omit, `${id} ${field}`).toContain(field);
+    }
+    for (const name of [
+      'email',
+      'phone',
+      'contactEmail',
+      'operatorPhone',
+      'emails',
+      'phoneNumber',
+      'emailAddress',
+      'mobile',
+      'mobileNumber',
+    ]) {
+      expect(isContactShapedKey(name), name).toBe(true);
+    }
+    for (const name of ['emailVerified', 'phoneNumberType', 'notifyChannel', 'telemetry']) {
+      expect(isContactShapedKey(name), name).toBe(false);
+    }
+    expect(exposedToolProblems(AI_TOOL_CATALOG, AI_TOOL_POLICY)).toEqual([]);
+  });
+
+  it('the gate fails on a write with a contact field that is not omitted', () => {
+    const base = AI_TOOL_CATALOG.find((t) => t.operationId === 'updateSite') as AiCatalogTool;
+    const props = base.validation['properties'] as Record<string, unknown>;
+    // The committed catalog drops omitted fields, so put them back.
+    const leaky: AiCatalogTool = {
+      ...base,
+      validation: {
+        ...base.validation,
+        properties: {
+          ...props,
+          contactEmail: { type: 'string' },
+          contactPhone: { type: 'string' },
+        },
+      },
+    };
+    expect(props['contactEmail']).toBeUndefined();
+    const problems = exposedToolProblems([leaky], {
+      ...AI_TOOL_POLICY,
+      updateSite: { ...toolPolicy('updateSite'), omit: [] },
+    });
+    expect(problems.some((p) => p.includes("contact argument 'contactEmail'"))).toBe(true);
+    expect(problems.some((p) => p.includes("contact argument 'contactPhone'"))).toBe(true);
+  });
+
+  it('the gate fails on a write with a destination field', () => {
+    const base = AI_TOOL_CATALOG.find((t) => t.operationId === 'updateSite') as AiCatalogTool;
+    const props = base.validation['properties'] as Record<string, unknown>;
+    const leaky: AiCatalogTool = {
+      ...base,
+      validation: {
+        ...base.validation,
+        properties: {
+          ...props,
+          webhookUrl: { type: 'string' },
+          alerts: { type: 'array', items: { type: 'object', properties: { recipient: {} } } },
+        },
+      },
+    };
+    expect(exposedToolProblems([leaky], AI_TOOL_POLICY)).toEqual([
+      "update_site: destination argument 'webhookUrl' (omit it or make the tool 'never')",
+      "update_site: destination field 'alerts.[].recipient' (make the tool 'never')",
+    ]);
+  });
+
+  it('no assistant write can set a prepaid balance or another money field (review 2, AI M1)', () => {
+    expect(toolPolicy('createToken').omit).toContain('prepaidBalanceCents');
+    expect(toolPolicy('updateToken').omit).toEqual(
+      expect.arrayContaining(['prepaidBalanceCents', 'expectedPrepaidBalanceCents']),
+    );
+    for (const name of [
+      'prepaidBalanceCents',
+      'balance',
+      'amountCents',
+      'refundAmount',
+      'unitPrice',
+      'platformFeePercent',
+      'creditLimitCents',
+      'credit',
+    ]) {
+      expect(isMoneyShapedKey(name), name).toBe(true);
+    }
+    for (const name of ['name', 'percentage', 'feedback', 'priority', 'creditor', 'balanced']) {
+      expect(isMoneyShapedKey(name), name).toBe(false);
+    }
+    // Only reviewed protocol payloads keep money-shaped fields.
+    expect(Object.keys(MONEY_FIELDS_REVIEWED).sort()).toEqual([
+      'ocppv21_RequestStartTransaction',
+      'ocppv21_SetChargingProfile',
+    ]);
+    expect(exposedToolProblems(AI_TOOL_CATALOG, AI_TOOL_POLICY)).toEqual([]);
+  });
+
+  it('the gate fails on a write with a money field that is not omitted', () => {
+    const base = AI_TOOL_CATALOG.find((t) => t.operationId === 'updateSite') as AiCatalogTool;
+    const props = base.validation['properties'] as Record<string, unknown>;
+    const leaky: AiCatalogTool = {
+      ...base,
+      validation: {
+        ...base.validation,
+        properties: {
+          ...props,
+          balanceCents: { type: 'integer' },
+          rates: { type: 'array', items: { type: 'object', properties: { unitPrice: {} } } },
+        },
+      },
+    };
+    expect(exposedToolProblems([leaky], AI_TOOL_POLICY)).toEqual([
+      "update_site: money argument 'balanceCents' (omit it or make the tool 'never')",
+      "update_site: money field 'rates.[].unitPrice' (make the tool 'never')",
+    ]);
+  });
+
+  it('the gate fails on a write field with an email or URI format (review 2, AI I2)', () => {
+    const base = AI_TOOL_CATALOG.find((t) => t.operationId === 'updateSite') as AiCatalogTool;
+    const props = base.validation['properties'] as Record<string, unknown>;
+    const leaky: AiCatalogTool = {
+      ...base,
+      validation: {
+        ...base.validation,
+        properties: {
+          ...props,
+          archive: { type: 'string', format: 'uri' },
+          owner: { anyOf: [{ type: 'string', format: 'email' }, { type: 'null' }] },
+        },
+      },
+    };
+    expect(exposedToolProblems([leaky], AI_TOOL_POLICY)).toEqual([
+      "update_site: destination argument 'archive' (omit it or make the tool 'never')",
+      "update_site: destination argument 'owner' (omit it or make the tool 'never')",
+    ]);
+  });
+
+  it('the assistant writes no notification template', () => {
+    for (const op of ['upsertNotificationTemplate', 'deleteNotificationTemplate']) {
+      expect(toolPolicy(op).exposure, op).toBe('never');
+    }
+    // Every operation that writes a notification, OCPP event rule or station
+    // message template is never; reads, the preview (it writes nothing) and the
+    // OCPP rule delete (it removes a rule, writes no template) may stay.
+    const templateWrites = AI_OPERATIONS.filter(
+      (o) =>
+        o.method !== 'GET' &&
+        /NotificationTemplate|^updateOcppEventSettings$|StationMessageTemplate|EmailWrapper/.test(
+          o.operationId,
+        ) &&
+        !o.operationId.startsWith('preview'),
+    ).map((o) => o.operationId);
+    expect(templateWrites.length).toBeGreaterThan(3);
+    for (const op of templateWrites) {
+      expect(toolPolicy(op).exposure, op).toBe('never');
+    }
+    const names = [...chatbotToolset(ALL_CATEGORIES, AI_TOOL_CATALOG).byName.keys()];
+    expect(names).not.toContain('upsert_notification_template');
+    expect(names).not.toContain('delete_notification_template');
+  });
+
+  it('the assistant cannot change a site AI budget or insight switch (review 2, AI I4)', () => {
+    expect(toolPolicy('updateSite').omit).toEqual(
+      expect.arrayContaining(['aiMonthlyTokenBudget', 'aiInsightsEnabled']),
     );
   });
 

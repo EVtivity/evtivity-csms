@@ -46,3 +46,30 @@ describe('connection authentication limits', () => {
     await expect(loadConfig({ OCPP_AUTH_MAX_QUEUED: '-1' })).rejects.toThrow();
   });
 });
+
+describe('OCPP_TRUSTED_PROXY_CIDRS', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    '10.0.0.0/',
+    '10.0.0.0/0x0',
+    '10.0.0.0/0.0',
+    '10.0.0.0/ 0',
+    '::/-0',
+    '10.0.0.0/8/1',
+    '0.0.0.0/0',
+  ])('refuses %s', async (value) => {
+    await expect(loadConfig({ OCPP_TRUSTED_PROXY_CIDRS: value })).rejects.toThrow(
+      /OCPP_TRUSTED_PROXY_CIDRS/,
+    );
+  });
+
+  it('accepts a list of addresses and CIDRs', async () => {
+    const config = await loadConfig({
+      OCPP_TRUSTED_PROXY_CIDRS: '10.0.0.0/8, 192.168.1.5, fd00::/8',
+    });
+    expect(config.OCPP_TRUSTED_PROXY_CIDRS).toBe('10.0.0.0/8, 192.168.1.5, fd00::/8');
+  });
+});

@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { FULL_REPORT_COLUMN_ACCESS } from '../report-registry.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
@@ -376,7 +377,7 @@ describe('every PDF generator draws the logo and the centered footer on every pa
     ['sustainability', generateSustainabilityReport],
     ['driver activity', generateDriverActivityReport],
   ] as const)('the %s report', async (_name, generate) => {
-    const { data } = await generate({}, 'pdf', 'en', null);
+    const { data } = await generate({}, 'pdf', 'en', null, FULL_REPORT_COLUMN_ACCESS);
     expectBranded(data, PAGE_WIDTH_LANDSCAPE);
   });
 

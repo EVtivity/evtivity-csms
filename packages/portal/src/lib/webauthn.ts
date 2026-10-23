@@ -10,13 +10,24 @@ import {
 import { ApiError } from './api';
 import { getErrorMessage, rateLimitedMessage } from './error-message';
 
+/** Why this page cannot use a passkey: not a secure page, or a browser without WebAuthn. */
+export type WebauthnUnavailableReason = 'insecure' | 'unsupported';
+
 /**
  * Passkeys work only on a secure page (HTTPS, or localhost) in a browser with
- * WebAuthn. Every passkey option is hidden otherwise.
+ * WebAuthn. Answers why they cannot be used here, or null when they can.
+ */
+export function webauthnUnavailableReason(): WebauthnUnavailableReason | null {
+  if (typeof window === 'undefined' || !window.isSecureContext) return 'insecure';
+  return browserSupportsWebAuthn() ? null : 'unsupported';
+}
+
+/**
+ * Whether this page can use a passkey. A passkey option is hidden otherwise,
+ * and a screen that depends on one says why (`webauthnUnavailableReason`).
  */
 export function webauthnSupported(): boolean {
-  if (typeof window === 'undefined' || !window.isSecureContext) return false;
-  return browserSupportsWebAuthn();
+  return webauthnUnavailableReason() == null;
 }
 
 /** Whether the browser can offer passkeys in the email field's autofill list. */

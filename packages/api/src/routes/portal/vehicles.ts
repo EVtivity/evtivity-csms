@@ -172,8 +172,15 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
         body: zodSchema(createVehicleBody),
         response: {
           201: itemResponse(vehicleItem),
-          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          400: errorWith('Validation error', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.VEHICLE_ID_REQUIRED,
+          ]),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          409: errorWith(
+            "Vehicle id in use, or Autocharge on with an id no charger sent in the driver's sessions",
+            [ERROR_CODES.VEHICLE_ID_IN_USE, ERROR_CODES.AUTOCHARGE_CLAIM_REQUIRED],
+          ),
         },
       },
     },
@@ -215,7 +222,10 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
           ]),
           403: errorWith('Blocked by the operator', [ERROR_CODES.VEHICLE_BLOCKED_BY_OPERATOR]),
           404: errorWith('Vehicle not found', [ERROR_CODES.VEHICLE_NOT_FOUND]),
-          409: errorWith('Vehicle id in use', [ERROR_CODES.VEHICLE_ID_IN_USE]),
+          409: errorWith(
+            "Vehicle id in use, or Autocharge on with an id no charger sent in the driver's sessions",
+            [ERROR_CODES.VEHICLE_ID_IN_USE, ERROR_CODES.AUTOCHARGE_CLAIM_REQUIRED],
+          ),
         },
       },
     },

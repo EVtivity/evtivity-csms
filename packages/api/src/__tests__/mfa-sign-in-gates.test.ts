@@ -220,7 +220,7 @@ describe('sign-in codes under the resend cap', () => {
     await beginOperatorMfa(app, { ...user, sessionVersion: 4 });
     expect(app.jwt.sign).toHaveBeenCalledWith(
       { userId: 'usr_1', roleId: 'rol_1', mfaPending: true, sv: 4 },
-      { expiresIn: '3m' },
+      { expiresIn: '3m', jti: expect.any(String) },
     );
   });
 

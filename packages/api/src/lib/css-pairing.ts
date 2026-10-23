@@ -19,6 +19,7 @@ import {
 } from '@evtivity/lib';
 import type { CssConnectorType } from '@evtivity/lib';
 import type { OcppProtocol } from '@evtivity/lib/ocpp-version';
+import { config } from './config.js';
 
 interface PairOptions {
   stationId: string;
@@ -214,9 +215,7 @@ export async function syncCssStationSecurity(
   await exec
     .update(cssStations)
     .set({
-      targetUrl: requiresTls
-        ? (process.env['OCPP_TLS_SERVER_URL'] ?? 'wss://ocpp:8443')
-        : (process.env['OCPP_SERVER_URL'] ?? 'ws://ocpp:8080'),
+      targetUrl: requiresTls ? config.OCPP_TLS_SERVER_URL : config.OCPP_SERVER_URL,
       ...(opts.password != null ? { password: opts.password } : {}),
       updatedAt: new Date(),
     })

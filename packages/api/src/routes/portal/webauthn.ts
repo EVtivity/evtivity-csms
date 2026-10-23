@@ -25,6 +25,7 @@ import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { getAuditActor } from '../../lib/audit-actor.js';
 import { recordAuthAudit } from '../../lib/auth-audit.js';
 import { isMobileClient, issueDriverSession, issueDriverTokens } from '../../lib/driver-session.js';
+import { rememberSignInDevice } from '../../lib/device-cookie.js';
 import { endDriverSessions } from '../../services/refresh-token.service.js';
 import { driverSessionColumns } from '../../lib/driver-session-columns.js';
 import {
@@ -446,25 +447,10 @@ export function portalWebauthnRoutes(app: FastifyInstance): void {
       }
 
       const ctx = { actor: getAuditActor(request), log: request.log };
-      const registered = await registerWebauthnCredential(
-        { driverId },
-        { ...verified, userHandle: record.userHandle, name },
-        ctx,
-      );
-      if (registered.status === 'limit_reached') {
-        await sendLimitReached(reply);
-        return;
-      }
-      if (registered.status === 'duplicate') {
-        request.log.info({ driverId }, 'WebAuthn credential is already registered');
-        await sendVerificationFailed(reply);
-        return;
-      }
-      const { credential: stored, firstFactor } = registered;
-
+      // The enrollment token is used up before the credential is stored (one
+      // compare-and-set on the session version): of two registrations with one
+      // token only one stores a credential, and the loser leaves none.
       if (enrolling) {
-        // The same compare-and-set as the MFA confirm: of two registrations with one
-        // enrollment token, one signs in; the new version ends the token.
         const sv = (request.user as { sv?: unknown }).sv;
         const [bumped] = await db
           .update(drivers)
@@ -485,6 +471,24 @@ export function portalWebauthnRoutes(app: FastifyInstance): void {
           await reply.status(401).send({ error: 'Session ended', code: 'UNAUTHORIZED' });
           return;
         }
+      }
+      const registered = await registerWebauthnCredential(
+        { driverId },
+        { ...verified, userHandle: record.userHandle, name },
+        ctx,
+      );
+      if (registered.status === 'limit_reached') {
+        await sendLimitReached(reply);
+        return;
+      }
+      if (registered.status === 'duplicate') {
+        request.log.info({ driverId }, 'WebAuthn credential is already registered');
+        await sendVerificationFailed(reply);
+        return;
+      }
+      const { credential: stored, firstFactor } = registered;
+
+      if (enrolling) {
         // The token's sign-in ends every other session of the driver, refresh tokens included.
         await endDriverSessions(driverId);
         await writeMfaEnabledAudit(request, driverId);
@@ -643,7 +647,10 @@ export function portalWebauthnRoutes(app: FastifyInstance): void {
             return null;
           },
         },
-        { actor: getAuditActor(request), log: request.log },
+        {
+          actor: getAuditActor(request),
+          log: request.log,
+        },
       );
       if (removed.status === 'not_found') {
         await reply.status(404).send({ error: 'Passkey not found', code: 'PASSKEY_NOT_FOUND' });
@@ -945,6 +952,10 @@ export function portalWebauthnRoutes(app: FastifyInstance): void {
         method: 'webauthn',
       });
       await issueDriverSession(app, request, reply, sessionDriver(driver));
+      // Fully signed in (web): this browser becomes (or stays) a known sign-in device.
+      if (!isMobileClient(request)) {
+        await rememberSignInDevice(request, reply, 'portal', { driverId: driver.id });
+      }
       return;
     },
   );
@@ -1096,6 +1107,10 @@ export function portalWebauthnRoutes(app: FastifyInstance): void {
         method: 'passkey',
       });
       await issueDriverSession(app, request, reply, sessionDriver(driver));
+      // Fully signed in (web): this browser becomes (or stays) a known sign-in device.
+      if (!isMobileClient(request)) {
+        await rememberSignInDevice(request, reply, 'portal', { driverId: driver.id });
+      }
       return;
     },
   );

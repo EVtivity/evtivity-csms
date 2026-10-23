@@ -46,6 +46,7 @@ vi.mock('@evtivity/database', () => ({
     model: 'chargingStations.model',
   },
   configTemplates: {},
+  effectiveDataPlanSql: 'EFFECTIVE_DATA_PLAN',
   isOperatorStation: () => 'OPERATOR_STATION',
   stationConfigurations: {
     stationId: 'stationConfigurations.stationId',
@@ -59,6 +60,9 @@ vi.mock('drizzle-orm', () => ({
   eq: (...a: unknown[]) => mockEq(a[0], a[1]),
   and: (...a: unknown[]) => mockAnd(...a),
   inArray: (...a: unknown[]) => mockInArray(a[0], a[1]),
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
+    sql: [strings.join('?'), values],
+  }),
 }));
 
 const mockPublish = vi.fn().mockResolvedValue(undefined);
@@ -389,6 +393,37 @@ describe('configDriftDetectionHandler', () => {
     expect(mockEq).toHaveBeenCalledWith('chargingStations.vendorId', 'ven_1');
     expect(mockEq).toHaveBeenCalledWith('chargingStations.model', 'ModelX');
     expect(mockInArray).not.toHaveBeenCalled();
+  });
+
+  it('matches the data plan filter on the effective plan', async () => {
+    setupDbResults(
+      [
+        {
+          id: 'tpl_plan',
+          variables: [{ component: 'AuthCtrlr', variable: 'Enabled', value: 'true' }],
+          targetFilter: { dataPlan: 'cellular' },
+        },
+      ],
+      [],
+    );
+    await mod.configDriftDetectionHandler(log);
+    const conditions = mockAnd.mock.calls[0] ?? [];
+    expect(conditions).toContainEqual({ sql: ['? = ?', ['EFFECTIVE_DATA_PLAN', 'cellular']] });
+  });
+
+  it('never counts a boot-owned template variable as drift', async () => {
+    setupDbResults([
+      {
+        id: 'tpl_old',
+        ocppVersion: '1.6',
+        variables: [{ component: '', variable: 'HeartbeatInterval', value: '300' }],
+        targetFilter: null,
+      },
+    ]);
+    await mod.configDriftDetectionHandler(log);
+    // Only the templates query ran: the template has nothing left to compare.
+    expect(dbCallIndex).toBe(1);
+    expect(mockPublish).not.toHaveBeenCalled();
   });
 
   it('applies the stationId filter condition', async () => {

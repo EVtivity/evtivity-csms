@@ -57,6 +57,8 @@ const PARTNER = {
   allowPrivateNetwork: false,
   roles: [],
   ourRoles: [],
+  approvedRoles: [],
+  rolesApprovedAt: null,
   createdAt: '2026-10-01T00:00:00Z',
   updatedAt: '2026-10-01T00:00:00Z',
   endpoints: [],

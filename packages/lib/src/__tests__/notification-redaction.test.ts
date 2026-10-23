@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { redactSensitiveNotificationContent } from '../notification-dispatch.js';
+import {
+  redactSensitiveNotificationContent,
+  SENSITIVE_EVENT_TYPES,
+} from '../notification-dispatch.js';
+import { SECURITY_TEMPLATE_EVENTS } from '../notification-events.js';
 
 const TOKEN = 'a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0';
 
@@ -46,5 +50,15 @@ describe('redactSensitiveNotificationContent', () => {
   it('leaves non-sensitive events unchanged', () => {
     const html = `<a href='https://portal.test/activate?token&#x3D;${TOKEN}'>x</a>`;
     expect(redactSensitiveNotificationContent(html, 'session.Started')).toBe(html);
+  });
+});
+
+describe('SENSITIVE_EVENT_TYPES', () => {
+  it('redacts every security template that carries an account link or a code', () => {
+    for (const [eventType, secrets] of Object.entries(SECURITY_TEMPLATE_EVENTS)) {
+      const carriesSecret = secrets.links.length > 0 || secrets.codes.length > 0;
+      if (carriesSecret) expect(SENSITIVE_EVENT_TYPES.has(eventType), eventType).toBe(true);
+    }
+    expect(SENSITIVE_EVENT_TYPES.has('session.Receipt')).toBe(false);
   });
 });

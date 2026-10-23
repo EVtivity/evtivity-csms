@@ -27,7 +27,37 @@ export type ReportGenerator = (
   format: string,
   language: UiLanguage,
   siteIds: ReportSiteScope,
+  access: ReportColumnAccess,
 ) => Promise<ReportGeneratorResult>;
+
+/**
+ * Which columns the report's reader may see: driver
+ * identity (name, email, phone, token id) needs drivers:read, money (cost,
+ * revenue, tax, payment, refund, spend) payments:read. A report keeps working
+ * for anyone who may run it and leaves out the columns its reader cannot see.
+ * The reader is the requesting user, or the schedule owner for a scheduled run
+ * (`reportColumnAccess` in report-scope.ts).
+ */
+export interface ReportColumnAccess {
+  driverData: boolean;
+  money: boolean;
+}
+
+/** A reader who may see every column. */
+export const FULL_REPORT_COLUMN_ACCESS: ReportColumnAccess = { driverData: true, money: true };
+
+/** What a column shows: driver identity, money, or neither. */
+export type ReportColumnKind = 'driver' | 'money';
+
+/** Whether a reader with `access` may see a column of `kind`. */
+export function columnVisible(
+  kind: ReportColumnKind | undefined,
+  access: ReportColumnAccess,
+): boolean {
+  if (kind === 'driver') return access.driverData;
+  if (kind === 'money') return access.money;
+  return true;
+}
 
 export interface ReportGeneratorDescriptor {
   type: string;
@@ -38,6 +68,13 @@ export interface ReportGeneratorDescriptor {
   generateFromUi: boolean;
   /** Why the filters cannot produce this report, or null when they can. */
   validateFilters?: (filters: Record<string, unknown>) => string | null;
+  /**
+   * Permissions the report needs on top of `reports:*`, because its content
+   * is what those permissions guard (revenue: `payments:read`; driver names,
+   * emails and spend: `drivers:read`). Checked on generate, on schedule create
+   * and edit, on run now and for the creator at each scheduled run.
+   */
+  requiredPermissions?: readonly string[];
 }
 
 export class ReportGeneratorRegistry {

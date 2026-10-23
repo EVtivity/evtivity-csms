@@ -655,21 +655,25 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Generate an invoice for a single charging session',
         description:
-          "Builds an invoice from the session and its tariff snapshot, allocating the next gap-free invoice number from the invoice counter. Inserts the invoice header and line items in a transaction. Returns 400 INVOICE_CREATION_FAILED if the session is not eligible (not completed, billed to a fleet account, or no final cost), 409 SESSION_ALREADY_INVOICED when it is already on an invoice, and 404 SESSION_NOT_FOUND for an unknown session or one at a site outside the user's site access.",
+          'Builds an invoice from the session and its tariff snapshot, allocating the next gap-free invoice number from the invoice counter. Inserts the invoice header and line items in a transaction. Returns 400 INVOICE_CREATION_FAILED if the session is not eligible (not completed, billed to a fleet account, or no final cost), 409 SESSION_ALREADY_INVOICED when it is already on an invoice, 404 SESSION_NOT_FOUND for an unknown session, and 404 INVOICE_NOT_FOUND for a user restricted to some sites, who cannot read invoices.',
         operationId: 'createSessionInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionIdParams),
         response: {
           201: itemResponse(invoiceDetailItem),
           400: errorWith('Invoice creation failed', [ERROR_CODES.INVOICE_CREATION_FAILED]),
-          404: errorWith("Session not found, or at a site outside the user's site access", [
+          404: errorWith('Session not found, or the user is restricted to some sites', [
             ERROR_CODES.SESSION_NOT_FOUND,
+            ERROR_CODES.INVOICE_NOT_FOUND,
           ]),
           409: errorWith('Session already invoiced', [ERROR_CODES.SESSION_ALREADY_INVOICED]),
         },
       },
     },
     async (request, reply) => {
+      // Invoices are readable with access to every site only, so a
+      // site-restricted user cannot create one it could not read, as on the aggregated invoice.
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const { sessionId } = request.params as z.infer<typeof sessionIdParams>;
       const { userId } = request.user as { userId: string };
 

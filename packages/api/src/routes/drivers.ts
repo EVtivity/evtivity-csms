@@ -993,11 +993,15 @@ export function driverRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(driverTokenItem),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
-          409: errorWith('Duplicate token, inactive driver, or a Plug and Charge contract token', [
-            ERROR_CODES.TOKEN_DUPLICATE,
-            ERROR_CODES.DRIVER_INACTIVE,
-            ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
-          ]),
+          409: errorWith(
+            "Duplicate token, inactive driver, a Plug and Charge contract token, or another driver's vehicle id",
+            [
+              ERROR_CODES.TOKEN_DUPLICATE,
+              ERROR_CODES.DRIVER_INACTIVE,
+              ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
+              ERROR_CODES.VEHICLE_ID_IN_USE,
+            ],
+          ),
         },
       },
     },
@@ -1024,6 +1028,13 @@ export function driverRoutes(app: FastifyInstance): void {
         }
         if (err instanceof tokenService.TokenDriverInactiveError) {
           await reply.status(409).send({ error: 'Driver is inactive', code: 'DRIVER_INACTIVE' });
+          return;
+        }
+        if (err instanceof tokenService.VehicleIdTokenInUseError) {
+          await reply.status(409).send({
+            error: "Another driver's vehicle uses this id",
+            code: 'VEHICLE_ID_IN_USE',
+          });
           return;
         }
         if (err instanceof tokenService.DuplicateTokenError) {

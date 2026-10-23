@@ -27,6 +27,22 @@ export function mergeIntervals(intervals: readonly SimInterval[]): SimInterval[]
   return merged;
 }
 
+/** The parts of the ranges that fall inside the windows, merged. */
+export function clipIntervals(
+  intervals: readonly SimInterval[],
+  windows: readonly SimInterval[],
+): SimInterval[] {
+  const parts: SimInterval[] = [];
+  for (const interval of intervals) {
+    for (const window of windows) {
+      const from = Math.max(interval.from.getTime(), window.from.getTime());
+      const to = Math.min(interval.to.getTime(), window.to.getTime());
+      if (to > from) parts.push({ from: new Date(from), to: new Date(to) });
+    }
+  }
+  return mergeIntervals(parts);
+}
+
 /** Milliseconds of [from, to) the merged ranges cover. */
 export function coveredMs(merged: readonly SimInterval[], from: Date, to: Date): number {
   let total = 0;

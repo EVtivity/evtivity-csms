@@ -61,6 +61,12 @@ export const ocpiPartners = pgTable(
     partyId: varchar('party_id', { length: 3 }).notNull(),
     roles: jsonb('roles').notNull().default([]),
     ourRoles: jsonb('our_roles').notNull().default([]),
+    // The role names the operator approved (0479): the OCPI server acts on these,
+    // never on `roles`, which the partner declares in its credentials.
+    approvedRoles: jsonb('approved_roles').notNull().default([]),
+    // When the operator decided the approved roles. Null: not decided yet (the
+    // CSMS shows the declared roles for approval); no handshake writes it.
+    rolesApprovedAt: timestamp('roles_approved_at', { withTimezone: true }),
     status: ocpiPartnerStatusEnum('status').notNull().default('pending'),
     version: varchar('version', { length: 10 }),
     versionUrl: text('version_url'),

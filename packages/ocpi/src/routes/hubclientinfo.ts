@@ -2,9 +2,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, isNull, sql } from 'drizzle-orm';
 import type { InferInsertModel } from 'drizzle-orm';
-import { db, ocpiPartners, ocpiPartnerAuditLog, writeAudit } from '@evtivity/database';
+import {
+  db,
+  ocpiCredentialsTokens,
+  ocpiPartners,
+  ocpiPartnerAuditLog,
+  writeAudit,
+} from '@evtivity/database';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../middleware/ocpi-auth.js';
 import type { OcpiVersion } from '../types/ocpi.js';
@@ -47,6 +53,19 @@ function mapPartnerStatus(status: string): 'CONNECTED' | 'OFFLINE' | 'PLANNED' |
   }
 }
 
+/**
+ * The partner rows a hub may report on: parties we reach only through a hub,
+ * never a direct partner. A direct
+ * partner has its own credentials (a token row we issued or received, or a
+ * versions URL we registered with); its status is the operator's and its own
+ * handshake's, so a hub could otherwise lift an operator suspension, cut off
+ * every direct partner, or list them all.
+ */
+const reachedThroughHub = and(
+  isNull(ocpiPartners.versionUrl),
+  sql`NOT EXISTS (SELECT 1 FROM ${ocpiCredentialsTokens} WHERE ${ocpiCredentialsTokens.partnerId} = ${ocpiPartners.id})`,
+);
+
 function registerHubClientInfoRoutes(app: FastifyInstance, version: OcpiVersion): void {
   const prefix = `/ocpi/${version}/hubclientinfo`;
 
@@ -66,7 +85,8 @@ function registerHubClientInfoRoutes(app: FastifyInstance, version: OcpiVersion)
         status: ocpiPartners.status,
         updatedAt: ocpiPartners.updatedAt,
       })
-      .from(ocpiPartners);
+      .from(ocpiPartners)
+      .where(reachedThroughHub);
 
     // `ocpi_partners.roles` is a JSONB array of OcpiCredentialRole objects
     // ({ role, party_id, country_code, business_details }). HubClientInfo's
@@ -130,39 +150,61 @@ function registerHubClientInfoRoutes(app: FastifyInstance, version: OcpiVersion)
         return;
       }
 
-      // Update partner status if we know them
-      const [partner] = await db
-        .select({ id: ocpiPartners.id, status: ocpiPartners.status })
-        .from(ocpiPartners)
-        .where(and(eq(ocpiPartners.countryCode, country_code), eq(ocpiPartners.partyId, party_id)))
-        .limit(1);
+      // Update the status of a party we reach through the hub; a direct
+      // partner (own credentials) is never changed. The row is read and
+      // written under its lock, so an operator suspension or a first
+      // credentials handshake that commits meanwhile is decided on, never
+      // overwritten.
+      const changed = await db.transaction(async (tx) => {
+        const [partner] = await tx
+          .select({ id: ocpiPartners.id, status: ocpiPartners.status })
+          .from(ocpiPartners)
+          .where(
+            and(
+              eq(ocpiPartners.countryCode, country_code),
+              eq(ocpiPartners.partyId, party_id),
+              reachedThroughHub,
+            ),
+          )
+          .limit(1)
+          .for('update');
 
-      // A partner that never completed its own credentials handshake stays
-      // pending: CONNECTED from the hub does not register it.
-      const skip = partner?.status === 'pending' && newStatus === 'connected';
-      if (partner != null && !skip) {
-        await db
+        // A partner that never completed its own credentials handshake stays
+        // pending: CONNECTED from the hub does not register it.
+        // A connected partner never goes back to pending: pending is the state
+        // before the first handshake. A suspended party stays suspended: only
+        // the operator lifts a suspension.
+        const skip =
+          partner == null ||
+          partner.status === 'suspended' ||
+          (partner.status === 'pending' && newStatus === 'connected') ||
+          (partner.status !== 'pending' && newStatus === 'pending');
+        if (skip) return null;
+        await tx
           .update(ocpiPartners)
           .set({ status: newStatus, updatedAt: new Date() })
           .where(eq(ocpiPartners.id, partner.id));
-        // The hub's status report is a system write: audit a change only.
-        if (partner.status !== newStatus) {
-          await writeAudit(
-            { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
-            {
-              entityId: partner.id,
-              entityIdSnapshot: partner.id,
-              action: 'updated',
-              actor: 'system',
-              actorLabel: 'ocpi-hubclientinfo',
-              before: { status: partner.status },
-              after: { status: newStatus, hubStatus: body.status },
-              notes: 'Status reported by the hub (PUT hubclientinfo)',
-            },
-            db,
-            request.log,
-          );
-        }
+        return partner.status !== newStatus ? partner : null;
+      });
+
+      // The hub's status report is a system write: audit a change only,
+      // after the commit (fail-open).
+      if (changed != null) {
+        await writeAudit(
+          { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+          {
+            entityId: changed.id,
+            entityIdSnapshot: changed.id,
+            action: 'updated',
+            actor: 'system',
+            actorLabel: 'ocpi-hubclientinfo',
+            before: { status: changed.status },
+            after: { status: newStatus, hubStatus: body.status },
+            notes: 'Status reported by the hub (PUT hubclientinfo)',
+          },
+          db,
+          request.log,
+        );
       }
 
       return ocpiSuccess(null);

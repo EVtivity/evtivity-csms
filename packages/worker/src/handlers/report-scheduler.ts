@@ -9,9 +9,11 @@ import {
   computeNextRunAtInTz,
   operatorReportLanguage,
   renderReport,
+  reportRequiredPermissions,
   sweepStaleReports,
 } from '@evtivity/services/report.service';
 import {
+  reportColumnAccess,
   scheduleRunScope,
   scheduleSkipReason,
   type ReportSiteScope,
@@ -45,13 +47,18 @@ async function runOneSchedule(
 ): Promise<void> {
   try {
     // A schedule runs with its creator's access: no run (and no email) for a
-    // missing or deactivated creator or one without reports:read. The next run
-    // moves on, so the schedule resumes once the creator has access again.
-    const skipReason = await scheduleSkipReason(schedule.createdById);
+    // missing or deactivated creator, or one without reports:read or the
+    // report type's own permissions (payments:read for revenue, drivers:read
+    // for driver activity). The next run moves on, so the schedule resumes once
+    // the creator has access again.
+    const skipReason = await scheduleSkipReason(
+      schedule.createdById,
+      reportRequiredPermissions(schedule.reportType),
+    );
     if (skipReason != null || schedule.createdById == null) {
       log.warn(
         { scheduleId: schedule.id, createdById: schedule.createdById, reason: skipReason },
-        'Scheduled report skipped, its creator cannot read reports',
+        'Scheduled report skipped, its creator cannot read this report',
       );
       await advanceSchedule(schedule, null);
       return;
@@ -69,6 +76,8 @@ async function runOneSchedule(
         filters,
         userId: schedule.createdById,
         siteScope,
+        // A scheduled run shows the columns its owner may see now.
+        columns: await reportColumnAccess(schedule.createdById),
       },
       enqueueReport,
     );
@@ -212,6 +221,9 @@ async function reportAttachments(
   if (storedReport == null) return () => Promise.resolve(undefined);
   const contentType = CONTENT_TYPES[schedule.format] ?? 'application/octet-stream';
   const storedLanguage = await operatorReportLanguage(schedule.createdById);
+  // A scheduled report runs as its owner: the other-language files show the
+  // columns the owner may see, as the stored one does.
+  const access = await reportColumnAccess(schedule.createdById);
   const byLanguage = new Map<string, EmailAttachment[] | undefined>([
     [
       storedLanguage,
@@ -229,6 +241,7 @@ async function reportAttachments(
         schedule.format,
         key,
         siteScope,
+        access,
       );
       attachments = [{ filename: file.fileName, content: file.data, contentType }];
     } catch (err: unknown) {

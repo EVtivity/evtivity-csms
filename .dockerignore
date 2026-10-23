@@ -2,7 +2,10 @@
 **/dist
 **/*.tsbuildinfo
 .git
-.env
+**/.env
+**/.env.*
+**/seed.config.json
+packages/css/test-certs/
 *.log
 coverage
 .DS_Store

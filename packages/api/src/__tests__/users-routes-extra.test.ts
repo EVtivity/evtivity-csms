@@ -94,12 +94,28 @@ function argOf(op: DbOp | undefined, method: string): unknown {
 }
 
 // Security notices are fire-and-forget; their dispatch has its own test.
+// The device cookie path is covered in 129-auth-attacks; here a browser without one.
+vi.mock('../lib/device-cookie.js', () => ({
+  knownSignInDevice: vi.fn(() => Promise.resolve(null)),
+  takeDeviceAttempt: vi.fn(() =>
+    Promise.resolve({ granted: true, failures: 1, lockedUntil: null }),
+  ),
+  recordDeviceFailure: vi.fn(() => Promise.resolve()),
+  clearDeviceFailures: vi.fn(() => Promise.resolve()),
+  rememberSignInDevice: vi.fn(() => Promise.resolve()),
+  revokeSignInDevices: vi.fn(() => Promise.resolve()),
+}));
 vi.mock('../lib/security-notice.js', () => ({
   sendSecurityNotice: vi.fn(),
   notifySecurityChange: vi.fn(async () => null),
   factorFlags: (factor: string) => ({ factorPasskey: factor === 'passkey' }),
 }));
 
+// The fresh proof itself is covered in session-proof.test.ts and 129-auth-attacks.
+vi.mock('../lib/session-proof.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/session-proof.js')>()),
+  requireSessionProof: vi.fn(async () => true),
+}));
 vi.mock('../services/mfa-factor.service.js', () => {
   const countRecoveryCodes = vi.fn(async (_account: unknown) => 0);
   return {
@@ -617,6 +633,39 @@ describe('User routes (extended coverage)', () => {
       expect(cookieNames(res)).not.toContain('csms_token');
     });
 
+    it('answers a wrong password before its audit row is written', async () => {
+      const { writeAudit } = await import('@evtivity/database');
+      let release: () => void = () => undefined;
+      vi.mocked(writeAudit).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          }),
+      );
+      setupDbResults([fullUser()]);
+      vi.mocked(argon2.verify).mockResolvedValue(false);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'op@example.com', password: 'WrongPass1' },
+      });
+      expect(res.statusCode).toBe(401);
+      release();
+    });
+
+    it('runs the backoff UPDATE for an unknown email too, matching no row', async () => {
+      setupDbResults([]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        payload: { email: 'nobody@example.com', password: 'WrongPass1' },
+      });
+      expect(res.statusCode).toBe(401);
+      const dummy = opsFor('update', 'users');
+      expect(dummy).toHaveLength(1);
+      expect(argOf(dummy[0], 'where')).toEqual(expect.arrayContaining([['eq', 'users.id', '']]));
+    });
+
     it('counts a wrong password toward the per-account backoff', async () => {
       setupDbResults([fullUser()]);
       vi.mocked(argon2.verify).mockResolvedValue(false);
@@ -683,15 +732,18 @@ describe('User routes (extended coverage)', () => {
       expect(argon2.verify).toHaveBeenCalledWith(expect.any(String), 'Whatever1');
     });
 
-    it('returns 403 ACCOUNT_DISABLED for an inactive user with a valid password', async () => {
+    it('answers an inactive user with a valid password like a wrong password', async () => {
       setupDbResults([fullUser({ isActive: false })]);
       const res = await app.inject({
         method: 'POST',
         url: '/auth/login',
         payload: { email: 'op@example.com', password: 'Correct1' },
       });
-      expect(res.statusCode).toBe(403);
-      expect(res.json().code).toBe('ACCOUNT_DISABLED');
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('INVALID_CREDENTIALS');
+      await vi.waitFor(() => {
+        expect(auditCall()).toMatchObject({ action: 'login_failed', notes: 'inactive' });
+      });
       expect(createRefreshToken).not.toHaveBeenCalled();
     });
 
@@ -837,7 +889,9 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });
-      expect(revokeRefreshToken).toHaveBeenCalledWith('raw-refresh-value');
+      expect(revokeRefreshToken).toHaveBeenCalledWith('raw-refresh-value', {
+        userId: expect.any(String),
+      });
       expect(invalidatePermissionCache).toHaveBeenCalledWith(ME);
       const cleared = res.cookies.filter((c) => c.name === 'csms_token');
       expect(cleared).toHaveLength(1);
@@ -903,7 +957,7 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('INVALID_REFRESH_TOKEN');
-      expect(validateAndRotateRefreshToken).toHaveBeenCalledWith('bad');
+      expect(validateAndRotateRefreshToken).toHaveBeenCalledWith('bad', { realm: 'operator' });
       expect(cookieNames(res)).toContain('csms_refresh');
       expect(createRefreshToken).not.toHaveBeenCalled();
     });
@@ -983,6 +1037,7 @@ describe('User routes (extended coverage)', () => {
   describe('POST /auth/forgot-password', () => {
     const ACTIVE_RESET_USER = {
       id: OTHER,
+      email: 'op@example.com',
       firstName: null,
       lastName: null,
       language: 'en',
@@ -994,6 +1049,7 @@ describe('User routes (extended coverage)', () => {
       setupDbResults([
         {
           id: OTHER,
+          email: 'op@example.com',
           firstName: 'Op',
           lastName: null,
           language: 'ko',
@@ -1069,6 +1125,41 @@ describe('User routes (extended coverage)', () => {
         status: 'sent',
         eventType: 'operator.ForgotPassword',
         metadata: {},
+      });
+    });
+
+    it('sends the link to the stored address, not the one typed', async () => {
+      setupDbResults([{ ...ACTIVE_RESET_USER, email: 'Op.Stored@Example.com' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/forgot-password',
+        payload: { email: 'op.stored@example.com' },
+      });
+      expect(res.statusCode).toBe(200);
+      await vi.waitFor(() => {
+        expect(sendEmail).toHaveBeenCalled();
+      });
+      expect(vi.mocked(sendEmail).mock.calls[0]?.[1]).toBe('Op.Stored@Example.com');
+    });
+
+    it('answers before the reset link is stored', async () => {
+      let release: (v: unknown) => void = () => undefined;
+      const pendingInsert = new Promise((resolve) => {
+        release = resolve;
+      });
+      // The user, the revoke, then an INSERT that has not finished when the answer goes out.
+      state.results = [[ACTIVE_RESET_USER], [], pendingInsert as unknown as unknown[]];
+      state.index = 0;
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/forgot-password',
+        payload: { email: 'op@example.com' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(sendEmail).not.toHaveBeenCalled();
+      release([]);
+      await vi.waitFor(() => {
+        expect(opsFor('insert', 'userTokens')).toHaveLength(1);
       });
     });
 
@@ -1677,11 +1768,9 @@ describe('User routes (extended coverage)', () => {
       };
       setupDbResults(
         [],
-        [{ id: ROLE }],
+        [{ id: ROLE, name: 'admin' }],
         [{ id: 'site-a' }, { id: 'site-b' }],
         [created],
-        [],
-        [{ name: 'admin' }],
       );
       const before = Date.now();
       const res = await app.inject({
@@ -1745,7 +1834,7 @@ describe('User routes (extended coverage)', () => {
       expect(auditCall()).toMatchObject({
         entityId: OTHER,
         action: 'created',
-        after: { hasAllSiteAccess: false, siteIds: ['site-a', 'site-b', 'site-a'] },
+        after: { hasAllSiteAccess: false, siteIds: ['site-a', 'site-b'] },
       });
     });
 
@@ -1758,7 +1847,7 @@ describe('User routes (extended coverage)', () => {
         phone: '+1',
         roleId: ROLE,
       };
-      setupDbResults([], [{ id: ROLE }], [created], [], [{ name: 'viewer' }]);
+      setupDbResults([], [{ id: ROLE, name: 'viewer' }], [created]);
       const res = await app.inject({
         method: 'POST',
         url: '/users',
@@ -1774,9 +1863,11 @@ describe('User routes (extended coverage)', () => {
       expect(res.json()).toMatchObject({ hasAllSiteAccess: true, siteIds: [] });
       expect(opsFor('select', 'sites')).toHaveLength(0);
       expect(opsFor('insert', 'userSiteAssignments')).toHaveLength(0);
-      const flag = opsFor('update', 'users')[0];
-      expect(argOf(flag, 'set')).toEqual({ hasAllSiteAccess: true });
-      expect(argOf(flag, 'where')).toEqual(['eq', 'users.id', OTHER]);
+      // Site access is part of the user insert, in the same transaction.
+      expect(argOf(opsFor('insert', 'users')[0], 'values')).toMatchObject({
+        hasAllSiteAccess: true,
+      });
+      expect(opsFor('update', 'users')).toHaveLength(0);
       expect(argOf(opsFor('insert', 'userPermissions')[0], 'values')).toEqual([
         { userId: OTHER, permission: 'stations:read' },
       ]);
@@ -1873,6 +1964,9 @@ describe('User routes (extended coverage)', () => {
         [userRow()],
         [], // the target's permissions (subset of the actor's)
         [{ id: 'site-a' }, { id: 'site-b' }],
+        // The sites and permissions before the change, kept in the audit row.
+        [{ siteId: 'site-old' }],
+        [{ permission: 'stations:read' }],
         [userRow()],
         [],
         [],
@@ -1907,12 +2001,13 @@ describe('User routes (extended coverage)', () => {
       expect(revokeAllUserRefreshTokens).not.toHaveBeenCalled();
       expect(auditCall()).toMatchObject({
         action: 'site_access_changed',
-        after: { siteIds: ['site-a', 'site-b'] },
+        before: { siteIds: ['site-old'], permissions: ['stations:read'] },
+        after: { siteIds: ['site-a', 'site-b'], permissions: ['stations:read'] },
       });
     });
 
     it('clears all assignments for an empty siteIds list without a site lookup', async () => {
-      setupDbResults([userRow()], [], [userRow()], [], [], []);
+      setupDbResults([userRow()], [], [], [], [userRow()], [], [], []);
       const res = await app.inject({
         method: 'PATCH',
         url: `/users/${OTHER}`,
@@ -1946,7 +2041,10 @@ describe('User routes (extended coverage)', () => {
       setupDbResults(
         [userRow({ roleId: ROLE })],
         [],
-        [{ id: ROLE2, name: 'viewer' }],
+        [{ id: ROLE2, name: 'viewer' }], // The stored permissions, read to tell what the role change grants.
+        [],
+        [],
+        [],
         [userRow({ roleId: ROLE2 })],
         [],
         [],
@@ -1982,6 +2080,9 @@ describe('User routes (extended coverage)', () => {
         [userRow({ roleId: ROLE })],
         [],
         [{ id: ROLE, name: 'admin' }],
+        [],
+        [],
+        [],
         [userRow({ roleId: ROLE })],
       );
       const res = await app.inject({
@@ -2018,6 +2119,9 @@ describe('User routes (extended coverage)', () => {
         [],
         [{ id: ROLE2, name: 'viewer' }],
         [{ id: 'site-a' }],
+        [],
+        [],
+        [],
         [userRow({ roleId: ROLE2 })],
       );
       const res = await app.inject({
@@ -2295,6 +2399,8 @@ describe('User routes (extended coverage)', () => {
         [userRow()],
         [{ permission: 'stations:read' }],
         [],
+        // The target's permissions: not admin-equivalent, so no proof.
+        [{ permission: 'stations:read' }],
         [userRow({ email: 'moved@example.com' })],
       );
       const res = await app.inject({
@@ -4086,7 +4192,7 @@ describe('User routes (extended coverage)', () => {
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('MFA_ENROLLMENT_REQUIRED');
       expect(sessionRefreshTokenUserId).toHaveBeenCalledWith('good');
-      expect(revokeRefreshToken).toHaveBeenCalledWith('good');
+      expect(revokeRefreshToken).toHaveBeenCalledWith('good', { userId: expect.any(String) });
       expect(validateAndRotateRefreshToken).not.toHaveBeenCalled();
       expect(createRefreshToken).not.toHaveBeenCalled();
       // The cookies are cleared, so the browser holds no session.
@@ -5417,6 +5523,8 @@ describe('User routes (extended coverage)', () => {
     it('PUT /users/:id/permissions replaces the set, clears the cache and audits', async () => {
       setupDbResults(
         [{ id: OTHER }],
+        [{ permission: 'stations:read' }],
+        // The stored set, read to tell what the new set grants.
         [{ permission: 'stations:read' }],
         [{ permission: 'stations:read' }],
       );

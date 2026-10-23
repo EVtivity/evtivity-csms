@@ -138,6 +138,13 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
     t('OCPPCommCtrlr.NetworkConfigurationPriority', '1', false),
     t('OCPPCommCtrlr.OfflineThreshold', '60', false),
     t('OCPPCommCtrlr.MessageTimeout', '30', true),
+    // Station-side values the data plan templates set (instanced where OCPP
+    // defines an instance), so each template push is Accepted.
+    t('OCPPCommCtrlr.MessageTimeout#Default', '30', false),
+    t('OCPPCommCtrlr.MessageAttempts#TransactionEvent', '3', false),
+    t('OCPPCommCtrlr.MessageAttemptInterval#TransactionEvent', '60', false),
+    t('OCPPCommCtrlr.WebSocketPingInterval', '30', false),
+    t('OCPPCommCtrlr.QueueAllMessages', 'false', false),
     t(
       'OCPPCommCtrlr.RetryBackOffWaitMinimum',
       String(CSS_RETRY_BACK_OFF_DEFAULTS.waitMinimumS),
@@ -199,6 +206,8 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
     t('Connector.Available', 'true', false),
     t('SampledDataCtrlr.TxUpdatedInterval', '10', false),
     t('SampledDataCtrlr.TxEndedInterval', '0', false),
+    t('SampledDataCtrlr.TxStartedMeasurands', 'Energy.Active.Import.Register', false),
+    t('SampledDataCtrlr.RegisterValuesWithoutPhases', 'false', false),
     t('SampledDataCtrlr.TxEndedMeasurands', 'Energy.Active.Import.Register', false),
     t('SampledDataCtrlr.SignReadings', 'false', false),
     t(
@@ -240,6 +249,7 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
     t('AlignedDataCtrlr.Interval', '900', false),
     t('AlignedDataCtrlr.Measurands', 'Energy.Active.Import.Register,Voltage', false),
     t('AlignedDataCtrlr.TxEndedInterval', '0', false),
+    t('AlignedDataCtrlr.SendDuringIdle', 'false', false),
     t('AlignedDataCtrlr.TxEndedMeasurands', 'Energy.Active.Import.Register', false),
     t('AlignedDataCtrlr.SignReadings', 'false', false),
     t('CustomizationCtrlr.CustomTriggers', 'DiagnosticsLog,SecurityAudit', true),

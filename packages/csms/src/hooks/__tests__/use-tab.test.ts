@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { act, renderHook } from '@testing-library/react';
-import { MemoryRouter, useLocation } from 'react-router';
+import { BrowserRouter, useLocation } from 'react-router';
 import { useTab } from '../use-tab';
 
 function setup(
@@ -13,8 +13,10 @@ function setup(
   paramName?: string,
   clearParams?: string[],
 ): { current: { tab: string; setTab: (t: string) => void; search: string } } {
+  // The app's BrowserRouter: the hook reads the URL as the browser holds it.
+  window.history.replaceState(null, '', initialUrl);
   const wrapper = ({ children }: { children: ReactNode }): ReactNode =>
-    createElement(MemoryRouter, { initialEntries: [initialUrl] }, children);
+    createElement(BrowserRouter, null, children);
   const { result } = renderHook(
     () => {
       const [tab, setTab] =
@@ -56,6 +58,18 @@ describe('useTab', () => {
     });
     expect(result.current.tab).toBe('details');
     expect(result.current.search).toBe('');
+  });
+
+  it('keeps a param another hook wrote before the page rendered it', () => {
+    const result = setup('/stations/1', 'details');
+    act(() => {
+      // Another writer of the URL (a debounced search) and a tab change in one render.
+      window.history.replaceState(null, '', '/stations/1?search=abc');
+      result.current.setTab('logs');
+    });
+    const params = new URLSearchParams(result.current.search);
+    expect(params.get('tab')).toBe('logs');
+    expect(params.get('search')).toBe('abc');
   });
 
   it('uses a custom param name and clears listed params on change', () => {

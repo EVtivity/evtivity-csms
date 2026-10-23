@@ -169,6 +169,14 @@ async function queryFleetExposure(
   >`
     SELECT
       SUM(CASE WHEN cs.status <> 'active' AND cs.invoice_id IS NULL
+                 -- A session released by crediting a paid invoice was paid:
+                 -- it stays out of the exposure. One released from an unpaid invoice
+                 -- counts.
+                 AND NOT EXISTS (
+                   SELECT 1 FROM invoice_line_items li
+                   JOIN invoices ci ON ci.id = li.invoice_id
+                   WHERE li.session_id = cs.id AND ci.status = 'credited'
+                     AND ci.paid_at IS NOT NULL)
                THEN COALESCE(cs.final_cost_cents, 0) ELSE 0 END) AS unbilled,
       SUM(CASE WHEN cs.status <> 'active' AND i.status IN ('draft', 'issued')
                THEN COALESCE(cs.final_cost_cents, 0) ELSE 0 END) AS invoiced,

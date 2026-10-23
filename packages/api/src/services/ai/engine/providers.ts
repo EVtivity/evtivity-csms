@@ -8,7 +8,8 @@
  */
 
 import type { ProviderRegistry, AiAdapter, ProviderId } from '@evtivity/ai/core';
-import { getProviderRegistry } from '@evtivity/ai/providers';
+import { createGuardedFetch, getProviderRegistry } from '@evtivity/ai/providers';
+import { config as apiConfig } from '../../../lib/config.js';
 import { trackAiProviderCalls } from '@evtivity/services/ai-alerts';
 import type { AiSurfaceConfig } from '../surfaces/config.js';
 
@@ -36,6 +37,9 @@ export function createAdapterFor(config: AiSurfaceConfig): AiAdapter {
   const adapter = registry().create(config.provider, {
     apiKey: config.apiKey,
     ...(config.baseUrl !== '' ? { baseUrl: config.baseUrl } : {}),
+    // The address check at send time; a private mock provider only in
+    // development, as the base URL check on save.
+    fetch: createGuardedFetch(apiConfig.NODE_ENV === 'development'),
   });
   return config.source === 'system' ? trackAiProviderCalls(adapter) : adapter;
 }

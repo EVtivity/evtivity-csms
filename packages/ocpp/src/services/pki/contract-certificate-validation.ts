@@ -11,8 +11,10 @@ import { eq } from 'drizzle-orm';
 import { AsnConvert } from '@peculiar/asn1-schema';
 import {
   AuthorityInfoAccessSyntax,
+  BasicConstraints,
   type Certificate,
   id_ad_ocsp,
+  id_ce_basicConstraints,
   id_pe_authorityInfoAccess,
 } from '@peculiar/asn1-x509';
 import { db, pkiCaCertificates } from '@evtivity/database';
@@ -21,8 +23,21 @@ import type { AuthorizationStatusEnum } from '../../generated/v2_1/enums/Authori
 import type { OCSPRequestDataType } from '../../generated/v2_1/types/common/OCSPRequestDataType.js';
 import { getPkiProvider } from './provider-factory.js';
 import type { OcspRequestData } from './pki-provider.js';
-import { certIdFor, parseCertificate, isIssuerOf, verifyOcspResponse } from './ocsp.js';
-import { getLocalMoCertificates, localCertificateStatus } from './local-contract-status.js';
+import {
+  canIssueCertificates,
+  certIdFor,
+  isIssuerOf,
+  ocspResponseCerts,
+  parseCertificate,
+  verifyOcspResponse,
+} from './ocsp.js';
+import {
+  getLocalMoCertificates,
+  isLocalContractToken,
+  localCertificateStatus,
+  type LocalMoCertificates,
+} from './local-contract-status.js';
+import { sameEmaid } from './emaid.js';
 
 /** The certificateStatus values this validation produces. */
 export type ContractCertificateVerdict =
@@ -121,6 +136,39 @@ function signedBy(cert: Certificate, issuer: Certificate): boolean {
   }
 }
 
+// ISO 15118 contract chains: the leaf, MO Sub-CA 2, MO Sub-CA 1 and the root.
+const MAX_CONTRACT_CHAIN_LENGTH = 4;
+// X.520 commonName.
+const ID_AT_COMMON_NAME = '2.5.4.3';
+
+function basicConstraintsOf(cert: Certificate): BasicConstraints | null {
+  const ext = cert.tbsCertificate.extensions?.find((e) => e.extnID === id_ce_basicConstraints);
+  return ext == null ? null : AsnConvert.parse(ext.extnValue, BasicConstraints);
+}
+
+function isCa(cert: Certificate): boolean {
+  return basicConstraintsOf(cert)?.cA === true;
+}
+
+function commonNameOf(cert: Certificate): string | null {
+  for (const rdn of cert.tbsCertificate.subject) {
+    for (const atv of rdn) {
+      if (atv.type === ID_AT_COMMON_NAME) return atv.value.toString();
+    }
+  }
+  return null;
+}
+
+/**
+ * The path from the leaf to the trust anchor follows RFC 5280 6.1.4: the
+ * leaf is no CA, every certificate above it may issue certificates.
+ */
+function isValidCaPath(path: Certificate[]): boolean {
+  const [leaf, ...issuers] = path;
+  if (leaf == null || isCa(leaf)) return false;
+  return issuers.every((cert, i) => canIssueCertificates(cert, i));
+}
+
 function isExpired(cert: Certificate, now: number): boolean {
   const { notBefore, notAfter } = cert.tbsCertificate.validity;
   return now < notBefore.getTime().getTime() || now > notAfter.getTime().getTime();
@@ -146,15 +194,26 @@ async function checkRevocation(
   entries: OcspRequestData[],
   knownIssuers: Certificate[],
   logger: Logger,
+  expectedToken?: string,
 ): Promise<ContractCertificateVerdict> {
   if (entries.length === 0) return 'CertChainError';
   const provider = await getPkiProvider();
-  const statuses = await Promise.all(
-    entries.map(async (entry) => {
+  type Fetched =
+    | { kind: 'status'; status: 'good' | 'revoked' | 'unknown' | 'expired' | 'error' }
+    | { kind: 'response'; der: Buffer; entry: OcspRequestData };
+  const fetched = await Promise.all(
+    entries.map(async (entry): Promise<Fetched> => {
       // Certificates of the local contract CA: status from the CSMS records.
-      const local = await localCertificateStatus(entry);
-      if (local != null) return local;
-      if (entry.responderURL === '') return 'error' as const;
+      const local = await localCertificateStatus(entry, expectedToken);
+      if (local === 'mismatch') {
+        logger.warn(
+          { serialNumber: entry.serialNumber },
+          'Contract certificate belongs to another contract than the idToken',
+        );
+        return { kind: 'status', status: 'error' };
+      }
+      if (local != null) return { kind: 'status', status: local };
+      if (entry.responderURL === '') return { kind: 'status', status: 'error' };
       const result = await provider.getOcspStatus(entry);
       if (result.status !== 'Accepted') {
         logger.warn(
@@ -165,19 +224,28 @@ async function checkRevocation(
           },
           'Contract certificate OCSP status request failed',
         );
-        return 'error' as const;
+        return { kind: 'status', status: 'error' };
       }
-      try {
-        return verifyOcspResponse(Buffer.from(result.ocspResult, 'base64'), entry, knownIssuers);
-      } catch (err) {
-        logger.warn(
-          { err, serialNumber: entry.serialNumber, responderURL: entry.responderURL },
-          'Contract certificate OCSP response could not be verified',
-        );
-        return 'error' as const;
-      }
+      return { kind: 'response', der: Buffer.from(result.ocspResult, 'base64'), entry };
     }),
   );
+  // The CA certificates every response of this chain carries: one response's
+  // issuer may chain to a known CA through a CA another response carried
+  // (each level's responder names its own issuer). They are intermediates
+  // only, never trust anchors.
+  const carried = fetched.flatMap((f) => (f.kind === 'response' ? ocspResponseCerts(f.der) : []));
+  const statuses = fetched.map((f) => {
+    if (f.kind === 'status') return f.status;
+    try {
+      return verifyOcspResponse(f.der, f.entry, knownIssuers, Date.now(), carried);
+    } catch (err) {
+      logger.warn(
+        { err, serialNumber: f.entry.serialNumber, responderURL: f.entry.responderURL },
+        'Contract certificate OCSP response could not be verified',
+      );
+      return 'error' as const;
+    }
+  });
   if (statuses.includes('revoked')) return 'CertificateRevoked';
   // C07.FR.15: a contract certificate of the local CA past its validity.
   if (statuses.includes('expired')) return 'CertificateExpired';
@@ -193,7 +261,12 @@ async function checkRevocation(
  * validity period, and revocation).
  */
 export async function validateContractCertificate(
-  input: { iso15118CertificateHashData?: OCSPRequestDataType[]; certificate?: string },
+  input: {
+    iso15118CertificateHashData?: OCSPRequestDataType[];
+    certificate?: string;
+    /** The idToken being authorized: an eMAID must be the one the contract certificate names. */
+    idToken?: { idToken: string; type: string };
+  },
   logger: Logger,
 ): Promise<ContractCertificateVerdict> {
   const operatorCas = await loadCaCertificates(logger);
@@ -204,7 +277,27 @@ export async function validateContractCertificate(
   };
 
   if (input.iso15118CertificateHashData != null && input.iso15118CertificateHashData.length > 0) {
-    return checkRevocation(input.iso15118CertificateHashData, cas.issuers, logger);
+    // The CSMS cannot read the leaf of hash data: a local contract certificate
+    // must belong to the contract of the idToken (checked in the local records).
+    const problem = await hashDataBindingProblem(
+      input.iso15118CertificateHashData,
+      input.idToken?.idToken ?? '',
+      local,
+    );
+    if (problem != null) {
+      logger.warn({ problem }, 'Contract certificate hash data is not bound to the idToken');
+      return 'CertChainError';
+    }
+    return bindToTokenType(
+      await checkRevocation(
+        input.iso15118CertificateHashData,
+        cas.issuers,
+        logger,
+        input.idToken?.idToken ?? '',
+      ),
+      input.idToken,
+      logger,
+    );
   }
 
   if (input.certificate == null) return 'CertChainError';
@@ -218,6 +311,18 @@ export async function validateContractCertificate(
   const leaf = chain[0];
   const top = chain[chain.length - 1];
   if (leaf == null || top == null) return 'CertChainError';
+  if (chain.length > MAX_CONTRACT_CHAIN_LENGTH) return 'CertChainError';
+  // The leaf is the contract certificate, never a CA (a root or sub-CA alone
+  // is no contract).
+  if (isCa(leaf)) return 'CertChainError';
+  // C07: the contract certificate names the eMAID it authorizes (CN = eMAID).
+  if (input.idToken?.type === 'eMAID') {
+    const cn = commonNameOf(leaf);
+    if (cn == null || !sameEmaid(cn, input.idToken.idToken)) {
+      logger.warn({ commonName: cn }, 'Contract certificate CN is not the eMAID being authorized');
+      return 'CertChainError';
+    }
+  }
 
   const now = Date.now();
   if (chain.some((c) => isExpired(c, now))) return 'CertificateExpired';
@@ -232,6 +337,12 @@ export async function validateContractCertificate(
   const root = cas.roots.find((r) => signedBy(top, r));
   if (root == null) return 'CertChainError';
   if (isExpired(root, now)) return 'CertificateExpired';
+  // A chain may end with the root itself; the path ends at the root once.
+  const topIsRoot = Buffer.from(AsnConvert.serialize(top)).equals(
+    Buffer.from(AsnConvert.serialize(root)),
+  );
+  const path = topIsRoot ? chain : [...chain, root];
+  if (path.length > MAX_CONTRACT_CHAIN_LENGTH || !isValidCaPath(path)) return 'CertChainError';
 
   const entries: OcspRequestData[] = [];
   for (let i = 0; i < chain.length; i++) {
@@ -244,7 +355,68 @@ export async function validateContractCertificate(
     // the local contract CA issued it (checkRevocation fails it otherwise).
     entries.push({ ...certId, responderURL: ocspResponderUrl(cert) ?? '' });
   }
-  return checkRevocation(entries, [...chain, root], logger);
+  return bindToTokenType(
+    await checkRevocation(entries, [...chain, root], logger),
+    input.idToken,
+    logger,
+  );
+}
+
+/**
+ * A contract certificate names an eMAID (C07), so it is never accepted for
+ * an idToken of another type: the reply would say the certificate was
+ * accepted for a token it does not name. A revoked or expired chain keeps its
+ * verdict.
+ */
+function bindToTokenType(
+  verdict: ContractCertificateVerdict,
+  idToken: { idToken: string; type: string } | undefined,
+  logger: Logger,
+): ContractCertificateVerdict {
+  if (verdict !== 'Accepted' || idToken === undefined || idToken.type === 'eMAID') return verdict;
+  logger.warn(
+    { idTokenType: idToken.type },
+    'Contract certificate for an idToken that is no eMAID',
+  );
+  return 'CertChainError';
+}
+
+function issuesLocally(issuers: Certificate[], entry: OCSPRequestDataType): boolean {
+  try {
+    return issuers.some((issuer) => isIssuerOf(issuer, entry));
+  } catch {
+    // fail-open: an unsupported hash algorithm names no local issuer; the
+    // OCSP check of that entry then fails the chain.
+    return false;
+  }
+}
+
+/**
+ * Why hash data cannot stand for the idToken's contract certificate, or null.
+ * The CSMS sees only CertIDs, so:
+ * - at least one entry must name an end-entity certificate: a certificate of
+ *   a local MO Sub-CA 2, or one a non-local CA issued (the CSMS cannot tell a
+ *   foreign leaf from a foreign sub-CA). A list of local sub-CAs only reads
+ *   good for every entry and names no contract at all;
+ * - an idToken of a local contract (`pnc_contracts`) must come with a local
+ *   contract certificate, which the local records bind to that contract. A
+ *   foreign leaf would otherwise authorize a local driver's eMAID.
+ * A non-local token with non-local hash data cannot be bound (no CN).
+ */
+async function hashDataBindingProblem(
+  entries: OCSPRequestDataType[],
+  idToken: string,
+  local: LocalMoCertificates | null,
+): Promise<string | null> {
+  const contractIssuers = local?.contractIssuers ?? [];
+  const localCas = local?.all ?? [];
+  const localLeaf = entries.some((e) => issuesLocally(contractIssuers, e));
+  const foreign = entries.some((e) => !issuesLocally(localCas, e));
+  if (!localLeaf && !foreign) return 'no_end_entity_entry';
+  if (!localLeaf && idToken !== '' && (await isLocalContractToken(idToken))) {
+    return 'local_contract_without_local_certificate';
+  }
+  return null;
 }
 
 const REJECTED_TOKEN_STATUSES = new Set<AuthorizationStatusEnum>([

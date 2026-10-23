@@ -64,6 +64,7 @@ vi.mock('@evtivity/database', async () => ({
     execute: vi.fn(() => Promise.resolve([])),
   },
   configTemplates: {},
+  effectiveDataPlanSql: {},
   configTemplatePushes: {},
   configTemplatePushStations: {},
   chargingStations: {},
@@ -380,7 +381,7 @@ describe('Config template routes', () => {
         name: '1.6 Template',
         description: null,
         ocppVersion: '1.6',
-        variables: [{ component: '', variable: 'HeartbeatInterval', value: '60' }],
+        variables: [{ component: '', variable: 'LocalPreAuthorize', value: 'true' }],
         targetFilter: null,
         stationId: null,
         createdAt: '2026-01-15T00:00:00Z',
@@ -395,12 +396,141 @@ describe('Config template routes', () => {
         payload: {
           name: '1.6 Template',
           ocppVersion: '1.6',
-          variables: [{ component: '', variable: 'HeartbeatInterval', value: '60' }],
+          variables: [{ component: '', variable: 'LocalPreAuthorize', value: 'true' }],
         },
       });
       expect(res.statusCode).toBe(201);
       const body = res.json();
       expect(body.ocppVersion).toBe('1.6');
+    });
+
+    it('refuses the boot-owned settings with DATA_PLAN_SETTING_IN_TEMPLATE', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          name: 'Boot values',
+          ocppVersion: '2.1',
+          variables: [
+            { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', value: '60' },
+            { component: 'SampledDataCtrlr', variable: ' TxUpdatedInterval ', value: '30' },
+            { component: 'OCPPCommCtrlr', variable: 'WebSocketPingInterval', value: '300' },
+          ],
+        },
+      });
+      // The test app has no app.ts error handler: the API also sends the message
+      // and details.variables (139-data-plan-template-guard).
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'DATA_PLAN_SETTING_IN_TEMPLATE' });
+    });
+
+    it('refuses an OCPP 1.6 boot-owned key and a 1.6 variable instance', async () => {
+      const boot = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          name: '1.6',
+          ocppVersion: '1.6',
+          variables: [{ component: '', variable: 'ClockAlignedDataInterval', value: '0' }],
+        },
+      });
+      expect(boot.statusCode).toBe(400);
+      expect(boot.json().code).toBe('DATA_PLAN_SETTING_IN_TEMPLATE');
+
+      const instance = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          name: '1.6',
+          ocppVersion: '1.6',
+          variables: [
+            { component: '', variable: 'WebSocketPingInterval', variableInstance: 'X', value: '1' },
+          ],
+        },
+      });
+      expect(instance.statusCode).toBe(400);
+      expect(instance.json().code).toBe('VALIDATION_ERROR');
+    });
+
+    it('refuses a variable listed twice with the same instance, accepts other instances', async () => {
+      const twice = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          name: 'Twice',
+          variables: [
+            {
+              component: 'OCPPCommCtrlr',
+              variable: 'MessageTimeout',
+              variableInstance: 'Default',
+              value: '30',
+            },
+            {
+              component: 'OCPPCommCtrlr',
+              variable: 'MessageTimeout',
+              variableInstance: 'Default',
+              value: '60',
+            },
+          ],
+        },
+      });
+      expect(twice.statusCode).toBe(400);
+      expect(twice.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { variables: 'OCPPCommCtrlr.MessageTimeout[Default] is listed more than once' },
+      });
+
+      const created = {
+        id: 'tpl-i',
+        name: 'Instances',
+        description: null,
+        ocppVersion: '2.1',
+        variables: [
+          {
+            component: 'OCPPCommCtrlr',
+            variable: 'MessageTimeout',
+            variableInstance: 'Default',
+            value: '30',
+          },
+          { component: 'OCPPCommCtrlr', variable: 'MessageTimeout', value: '60' },
+        ],
+        targetFilter: { dataPlan: 'cellular' },
+        stationId: null,
+        createdAt: '2026-01-15T00:00:00Z',
+        updatedAt: '2026-01-15T00:00:00Z',
+      };
+      setupDbResults([created]);
+      const ok = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          name: 'Instances',
+          variables: created.variables,
+          targetFilter: { dataPlan: 'cellular' },
+        },
+      });
+      expect(ok.statusCode).toBe(201);
+      expect(ok.json().variables[0].variableInstance).toBe('Default');
+      expect(ok.json().targetFilter).toEqual({ dataPlan: 'cellular' });
+    });
+
+    it('refuses an unknown data plan in the target filter', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          name: 'Plan',
+          variables: [{ component: 'EVSE', variable: 'MaxCurrent', value: '32' }],
+          targetFilter: { dataPlan: 'lte' },
+        },
+      });
+      expect(res.statusCode).toBe(400);
     });
 
     it('returns 400 when name is empty', async () => {
@@ -698,8 +828,8 @@ describe('Config template routes', () => {
         name: '1.6 Config',
         ocppVersion: '1.6',
         variables: [
-          { component: '', variable: 'HeartbeatInterval', value: '60' },
-          { component: '', variable: 'MeterValueSampleInterval', value: '30' },
+          { component: '', variable: 'LocalPreAuthorize', value: 'true' },
+          { component: '', variable: 'ConnectionTimeOut', value: '30' },
         ],
         targetFilter: null,
       };
@@ -723,16 +853,85 @@ describe('Config template routes', () => {
 
       expect(mockSendOcppCommand.mock.calls[0]?.[2]).toEqual(
         expect.objectContaining({
-          setVariableData: [expect.objectContaining({ variable: { name: 'HeartbeatInterval' } })],
+          setVariableData: [expect.objectContaining({ variable: { name: 'LocalPreAuthorize' } })],
         }),
       );
       expect(mockSendOcppCommand.mock.calls[1]?.[2]).toEqual(
         expect.objectContaining({
-          setVariableData: [
-            expect.objectContaining({ variable: { name: 'MeterValueSampleInterval' } }),
-          ],
+          setVariableData: [expect.objectContaining({ variable: { name: 'ConnectionTimeOut' } })],
         }),
       );
+    });
+
+    it('refuses a saved template that names a boot-owned setting', async () => {
+      const template = {
+        id: 'tpl-old',
+        name: 'Old',
+        ocppVersion: '1.6',
+        variables: [
+          { component: '', variable: 'HeartbeatInterval', value: '300' },
+          { component: '', variable: 'LocalPreAuthorize', value: 'true' },
+        ],
+        targetFilter: null,
+        stationId: null,
+      };
+      setupDbResults([template]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates/tpl-old/push',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'DATA_PLAN_SETTING_IN_TEMPLATE' });
+      expect(mockSendOcppCommand).not.toHaveBeenCalled();
+    });
+
+    it('sends a 2.x variable instance in the SetVariables variable', async () => {
+      const template = {
+        id: 'tpl-i',
+        name: 'Instances',
+        ocppVersion: '2.1',
+        variables: [
+          {
+            component: 'OCPPCommCtrlr',
+            variable: 'MessageTimeout',
+            variableInstance: 'Default',
+            value: '30',
+          },
+          { component: 'OCPPCommCtrlr', variable: 'QueueAllMessages', value: 'true' },
+        ],
+        targetFilter: null,
+        stationId: null,
+      };
+      setupDbResults(
+        [template],
+        [{ id: 'sta-1', stationId: 'STATION-001' }],
+        [{ id: 'push-1' }],
+        [],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates/tpl-i/push',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      await vi.waitFor(() => {
+        expect(mockSendOcppCommand).toHaveBeenCalled();
+      });
+      expect(mockSendOcppCommand.mock.calls[0]?.[2]).toEqual({
+        setVariableData: [
+          {
+            component: { name: 'OCPPCommCtrlr' },
+            variable: { name: 'MessageTimeout', instance: 'Default' },
+            attributeValue: '30',
+          },
+          {
+            component: { name: 'OCPPCommCtrlr' },
+            variable: { name: 'QueueAllMessages' },
+            attributeValue: 'true',
+          },
+        ],
+      });
     });
 
     it('returns 200 with no publish when no stations are online', async () => {
@@ -881,6 +1080,7 @@ describe('Config template routes', () => {
       expect(body[0]).toEqual({
         component: 'EVSE',
         variable: 'MaxCurrent',
+        variableInstance: null,
         expectedValue: '32',
         actualValue: '16',
         hasDrift: true,
@@ -890,10 +1090,65 @@ describe('Config template routes', () => {
       expect(body[1]).toEqual({
         component: 'ChargingStation',
         variable: 'HeartbeatInterval',
+        variableInstance: null,
         expectedValue: '60',
         actualValue: null,
         hasDrift: true,
       });
+    });
+
+    it('never reports boot-owned values and matches the variable instance', async () => {
+      const station = {
+        id: 'sta-1',
+        siteId: 'site-1',
+        vendorId: 'vnd-1',
+        model: 'Model X',
+        ocppProtocol: 'ocpp2.1',
+        dataPlan: 'cellular',
+      };
+      const templates = [
+        {
+          id: 'tpl-1',
+          name: 'Old',
+          ocppVersion: '2.1',
+          variables: [
+            { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', value: '60' },
+            {
+              component: 'OCPPCommCtrlr',
+              variable: 'MessageTimeout',
+              variableInstance: 'Default',
+              value: '60',
+            },
+          ],
+          targetFilter: { dataPlan: 'cellular' },
+          stationId: null,
+        },
+        {
+          id: 'tpl-2',
+          name: 'Wired only',
+          ocppVersion: '2.1',
+          variables: [{ component: 'EVSE', variable: 'MaxCurrent', value: '32' }],
+          targetFilter: { dataPlan: 'wifi_or_wired' },
+          stationId: null,
+        },
+      ];
+      const actualVars = [
+        {
+          ...TOP_LEVEL,
+          component: 'OCPPCommCtrlr',
+          variable: 'MessageTimeout',
+          variableInstance: 'Default',
+          value: '60',
+        },
+      ];
+      setupDbResults([station], templates, actualVars);
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/stations/sta-1/config-drift',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual([]);
     });
 
     it('returns 200 with empty array when all values match', async () => {

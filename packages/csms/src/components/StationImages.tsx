@@ -39,6 +39,9 @@ interface StationImagesProps {
   stationId: string;
 }
 
+/** Raster images only: the API refuses SVG and re-encodes every upload. */
+const STATION_IMAGE_ACCEPT = 'image/png,image/jpeg,image/webp';
+
 export function StationImages({ stationId }: StationImagesProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -160,8 +163,9 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
         if (file == null) continue;
         setUploadProgress({ current: i + 1, total: files.length });
 
-        const { uploadUrl, s3Key, s3Bucket } = await api.post<{
+        const { uploadUrl, fields, s3Key, s3Bucket } = await api.post<{
           uploadUrl: string;
+          fields: Record<string, string>;
           s3Key: string;
           s3Bucket: string;
         }>(`/v1/stations/${stationId}/images/upload-url`, {
@@ -170,11 +174,13 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
           fileSize: file.size,
         });
 
-        const uploadRes = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.type || 'image/jpeg' },
-          body: file,
-        });
+        // S3 enforces the presigned POST policy: this key, this type, at most this size.
+        const form = new FormData();
+        for (const [name, value] of Object.entries(fields)) {
+          form.append(name, value);
+        }
+        form.append('file', file);
+        const uploadRes = await fetch(uploadUrl, { method: 'POST', body: form });
         if (!uploadRes.ok) {
           throw new Error(t('stations.uploadFailed'));
         }
@@ -301,7 +307,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
             ref={fileInputRef}
             type="file"
             multiple
-            accept="image/*"
+            accept={STATION_IMAGE_ACCEPT}
             className="hidden"
             onChange={(e) => {
               if (e.target.files != null && e.target.files.length > 0) {
@@ -524,7 +530,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
         ref={fileInputRef}
         type="file"
         multiple
-        accept="image/*"
+        accept={STATION_IMAGE_ACCEPT}
         className="hidden"
         onChange={(e) => {
           if (e.target.files != null && e.target.files.length > 0) {

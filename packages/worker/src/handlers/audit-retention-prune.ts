@@ -4,24 +4,23 @@
 import { db, settings, AUDIT_TABLES } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
 import type { Logger } from '@evtivity/lib';
+import { effectiveRetentionDays } from '@evtivity/lib/data-retention';
 import { pruneOldRows } from '../lib/prune-old-rows.js';
-
-const DEFAULT_RETENTION_DAYS = 1095;
 
 // Daily cron: deletes audit rows older than `audit.retentionDays` from every
 // table in AUDIT_TABLES plus the OCPP authorize-attempts log (which records
 // every Authorize call and shares the same retention semantics). The
 // retention setting is read fresh each run so operator changes take effect
-// on the next schedule.
+// on the next schedule. A stored value from 1 to 29 days counts as 30 (the
+// security history floor), also when it was written around the API.
 export async function auditRetentionPruneHandler(log: Logger): Promise<void> {
   const [row] = await db
     .select({ value: settings.value })
     .from(settings)
     .where(eq(settings.key, 'audit.retentionDays'))
     .limit(1);
-  const raw = row?.value;
-  const retentionDays = typeof raw === 'number' ? raw : DEFAULT_RETENTION_DAYS;
-  if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
+  const retentionDays = effectiveRetentionDays('audit.retentionDays', row?.value);
+  if (retentionDays <= 0) {
     log.info({ retentionDays }, 'audit-retention-prune: retention disabled, skipping');
     return;
   }

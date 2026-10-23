@@ -159,3 +159,26 @@ describe('transaction keys', () => {
     blocked.resolve();
   });
 });
+
+describe('projection lane bound', () => {
+  it('drops work of a bounded kind past its limit, never other work', async () => {
+    const queue = projectionQueueFor(makeBus());
+    const blocked = deferred();
+    void queue.enqueue('CS-1', () => blocked.promise);
+    const log = vi.fn(() => Promise.resolve());
+    const opts = { kind: 'ocpp.MessageLog', maxPending: 2 };
+    void queue.enqueue('CS-1', log, opts);
+    void queue.enqueue('CS-1', log, opts);
+    expect(queue.pending('CS-1', 'ocpp.MessageLog')).toBe(2);
+    await queue.enqueue('CS-1', log, opts);
+    expect(queue.dropped('ocpp.MessageLog')).toBe(1);
+    // State projections are never dropped.
+    const state = vi.fn(() => Promise.resolve());
+    const stateDone = queue.enqueue('CS-1', state);
+    blocked.resolve();
+    await stateDone;
+    expect(log).toHaveBeenCalledTimes(2);
+    expect(state).toHaveBeenCalledOnce();
+    expect(queue.pending('CS-1', 'ocpp.MessageLog')).toBe(0);
+  });
+});

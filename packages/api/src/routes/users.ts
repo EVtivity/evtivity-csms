@@ -10,6 +10,15 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { eq, and, or, isNull, ilike, sql, inArray, desc, ne } from 'drizzle-orm';
 import argon2 from 'argon2';
+import { afterReply } from '../lib/after-reply.js';
+import { bearerToken, completePendingSsoLink, voidPendingSsoLink } from '../lib/sso-link.js';
+import {
+  clearDeviceFailures,
+  knownSignInDevice,
+  recordDeviceFailure,
+  rememberSignInDevice,
+  takeDeviceAttempt,
+} from '../lib/device-cookie.js';
 import {
   db,
   client,
@@ -86,6 +95,7 @@ import {
   recordAttemptFailure,
   secondsUntil,
   takeSignInAttempt,
+  takeUnknownSignInAttempt,
 } from '../lib/sign-in-backoff.js';
 import { applyUserDeactivation, revokeUserEmailLinks } from '../services/user-status.service.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
@@ -107,7 +117,6 @@ import {
   itemResponse,
   arrayResponse,
   errorWith,
-  errorResponse,
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { beginOperatorMfa } from '../lib/operator-mfa.js';
@@ -124,6 +133,12 @@ import {
   sendFactorProofRefusal,
 } from '../lib/mfa-factor-proof.js';
 import { loginResponse } from '../lib/login-response.js';
+import {
+  SESSION_PROOF_ERROR_CODES,
+  requireSessionProof,
+  sessionProofErrorFields,
+} from '../lib/session-proof.js';
+import { isAdminEquivalent } from '@evtivity/lib/admin-equivalent';
 import {
   PHONE_CHANGE_METHOD,
   checkPhoneChange,
@@ -209,6 +224,19 @@ const loginBody = z.object({
     .describe('reCAPTCHA v3 token (required when reCAPTCHA is enabled)'),
 });
 
+/** The admin reset and resend-invite of the own account. */
+const SELF_RESET_FORBIDDEN = {
+  error: 'Change your own password with POST /v1/users/me/change-password',
+  code: 'SELF_EDIT_FORBIDDEN',
+} as const;
+
+/** The fresh proof a session sends with an account change that grants lasting access. */
+const accountProof = factorProof
+  .optional()
+  .describe(
+    'Fresh proof of the signed-in account (not needed with an API key): a factor it holds, else its password. Required where the route says so.',
+  );
+
 const createUserBody = z.object({
   email: z
     .string()
@@ -225,6 +253,15 @@ const createUserBody = z.object({
     .describe(
       'Site IDs to grant access to (ignored when hasAllSiteAccess is true). A site-restricted operator must give at least one of its own sites.',
     ),
+  permissions: z
+    .array(z.string())
+    .optional()
+    .describe(
+      'Permissions of the new user, each one you hold (default: the role defaults). Sent here, one request and one proof create a user with its final permissions.',
+    ),
+  proof: accountProof.describe(
+    'Fresh proof of the signed-in account, required from a session when the new user is admin-equivalent (every permission, or users:write, settings.security:write, settings.apiKeys:write, settings.system:write or settings.payment:write)',
+  ),
 });
 
 const userParams = z.object({
@@ -267,6 +304,15 @@ const updateUserBody = z.object({
     .describe(
       'Site IDs to grant access to (replaces existing assignments). A site-restricted operator cannot send an empty list.',
     ),
+  ssoLinkAllowed: z
+    .boolean()
+    .optional()
+    .describe(
+      'Allow SSO to link this password account at its next SSO sign-in (cleared once linked). Turning it on from a session needs proof',
+    ),
+  proof: accountProof.describe(
+    'Fresh proof of the signed-in account, required from a session to change the email or phone of an admin-equivalent user or reactivate one, for a role change that grants permissions, and to allow the SSO link',
+  ),
 });
 
 // Self-edit body for /v1/users/me. Restricted to fields a user can change
@@ -304,6 +350,15 @@ const updateMeBody = z.object({
 
 const resetPasswordBody = z.object({
   password: newPasswordSchema,
+  proof: accountProof.describe('Fresh proof of the signed-in account, required from a session'),
+});
+
+const resendInviteBody = z.object({
+  proof: accountProof.describe('Fresh proof of the signed-in account, required from a session'),
+});
+
+const mfaResetBody = z.object({
+  proof: accountProof.describe('Fresh proof of the signed-in account, required from a session'),
 });
 
 const changePasswordBody = z.object({
@@ -343,6 +398,8 @@ const userSelect = {
   mfaEnabled: users.mfaEnabled,
   mfaMethod: users.mfaMethod,
   authSource: users.authSource,
+  ssoLinkAllowed: users.ssoLinkAllowed,
+  ssoLinked: sql<boolean>`${users.ssoSubject} IS NOT NULL`,
   lastLoginAt: users.lastLoginAt,
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
@@ -373,6 +430,14 @@ const userItem = z
       .enum(['password', 'sso'])
       .optional()
       .describe('How the account was created: password, or sso (provisioned by an SSO sign-in)'),
+    ssoLinkAllowed: z
+      .boolean()
+      .optional()
+      .describe('SSO may link this password account at its next SSO sign-in'),
+    ssoLinked: z
+      .boolean()
+      .optional()
+      .describe('The account is bound to an identity provider subject (signs in by SSO)'),
     lastLoginAt: z.coerce
       .date()
       .nullable()
@@ -404,6 +469,14 @@ const userWithRole = z
       .enum(['password', 'sso'])
       .optional()
       .describe('How the account was created: password, or sso (provisioned by an SSO sign-in)'),
+    ssoLinkAllowed: z
+      .boolean()
+      .optional()
+      .describe('SSO may link this password account at its next SSO sign-in'),
+    ssoLinked: z
+      .boolean()
+      .optional()
+      .describe('The account is bound to an identity provider subject (signs in by SSO)'),
     lastLoginAt: z.coerce
       .date()
       .nullable()
@@ -548,7 +621,6 @@ export function userRoutes(app: FastifyInstance): void {
           ]),
           401: errorWith('Invalid credentials', [ERROR_CODES.INVALID_CREDENTIALS]),
           403: errorWith('Forbidden', [
-            ERROR_CODES.ACCOUNT_DISABLED,
             ERROR_CODES.RECAPTCHA_FAILED,
             ERROR_CODES.MFA_SETUP_UNAVAILABLE,
           ]),
@@ -565,14 +637,16 @@ export function userRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { email, password, recaptchaToken } = request.body as z.infer<typeof loginBody>;
 
-      const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
+      const recaptchaOk = await checkRecaptcha(recaptchaToken, reply, 'login');
       if (!recaptchaOk) return;
 
       const [user] = await db.select().from(users).where(emailEquals(users.email, email));
 
       if (user == null) {
         // Equalize timing with the user-exists branch so email enumeration
-        // via response-time analysis fails.
+        // via response-time analysis fails: the same backoff UPDATE (matching no
+        // row) and the same password check.
+        await takeUnknownSignInAttempt('user');
         await verifyAgainstDummyHash(password);
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
@@ -582,47 +656,57 @@ export function userRoutes(app: FastifyInstance): void {
       // enabled answer as for a wrong password, after the same time. The try is
       // counted in the UPDATE that checks the lock, so parallel guesses cannot pass it.
       const ssoBlocked = await passwordAuthBlocked(user);
-      const attempt = ssoBlocked ? null : await takeSignInAttempt({ userId: user.id }, 'password');
-      const locked = attempt?.granted === false;
-      if (attempt == null || !attempt.granted) {
+      // A browser that signed in to this account before counts its tries on its own
+      // device row, not on the account.
+      const device = ssoBlocked
+        ? null
+        : await knownSignInDevice(request, 'csms', { userId: user.id });
+      const deviceAttempt = device != null ? await takeDeviceAttempt(device) : null;
+      const attempt =
+        ssoBlocked || device != null
+          ? null
+          : await takeSignInAttempt({ userId: user.id }, 'password');
+      const locked = deviceAttempt != null ? !deviceAttempt.granted : attempt?.granted === false;
+      if (ssoBlocked || locked || (attempt != null && !attempt.granted)) {
+        // An SSO account takes no backoff try: an UPDATE matching no row instead.
+        if (ssoBlocked) await takeUnknownSignInAttempt('user');
         await verifyAgainstDummyHash(password);
-        await recordAuthAudit(request, {
-          kind: 'user',
-          accountId: user.id,
-          action: 'login_failed',
-          method: 'password',
-          reason: locked ? 'locked' : 'sso_account',
-        });
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
+        // Written after the answer, which an unknown email gets without them.
+        afterReply(request, async () => {
+          await recordAuthAudit(request, {
+            kind: 'user',
+            accountId: user.id,
+            action: 'login_failed',
+            method: 'password',
+            reason: ssoBlocked ? 'sso_account' : device != null ? 'device_locked' : 'locked',
+          });
+        });
         return;
       }
 
       const valid = await verifyPassword(user.passwordHash, password, request.log);
-      if (!valid) {
-        await recordAuthAudit(request, {
-          kind: 'user',
-          accountId: user.id,
-          action: 'login_failed',
-          method: 'password',
-          reason: 'bad_password',
-        });
-        await recordAttemptFailure(request, attempt);
+      // An inactive account takes the wrong-password path whatever the password:
+      // the same answer, the try kept on the counters, nothing cleared.
+      if (!valid || !user.isActive) {
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
+        afterReply(request, async () => {
+          await recordAuthAudit(request, {
+            kind: 'user',
+            accountId: user.id,
+            action: 'login_failed',
+            method: 'password',
+            reason: valid ? 'inactive' : 'bad_password',
+          });
+          if (attempt?.granted === true) await recordAttemptFailure(request, attempt);
+          if (deviceAttempt != null) {
+            await recordDeviceFailure(request, { userId: user.id }, deviceAttempt);
+          }
+        });
         return;
       }
       await clearSignInFailures({ userId: user.id }, 'password');
-
-      if (!user.isActive) {
-        await recordAuthAudit(request, {
-          kind: 'user',
-          accountId: user.id,
-          action: 'login_failed',
-          method: 'password',
-          reason: 'inactive',
-        });
-        await reply.status(403).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
-        return;
-      }
+      if (device != null) await clearDeviceFailures(device);
 
       if (user.mustResetPassword) {
         await reply.status(200).send({ mustResetPassword: true });
@@ -664,6 +748,8 @@ export function userRoutes(app: FastifyInstance): void {
         .where(eq(roles.id, user.roleId));
 
       const token = await issueOperatorSession(app, request, reply, user);
+      // Fully signed in: this browser becomes (or stays) a known sign-in device.
+      await rememberSignInDevice(request, reply, 'csms', { userId: user.id });
 
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
       await recordAuthAudit(request, {
@@ -703,12 +789,12 @@ export function userRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const refreshCookie = readRefreshCookie('csms', request);
+      const jwtUser = request.user as JwtPayload;
       if (refreshCookie.status === 'valid') {
-        await revokeRefreshToken(refreshCookie.value);
+        await revokeRefreshToken(refreshCookie.value, { userId: jwtUser.userId });
       }
       // Clear cached permissions for the logged-out user, and end the access
       // tokens issued before (session version). An API key signs nothing out.
-      const jwtUser = request.user as JwtPayload;
       if (jwtUser.isApiKey !== true) {
         invalidatePermissionCache(jwtUser.userId);
         await bumpSessionVersion(jwtUser.userId);
@@ -778,7 +864,7 @@ export function userRoutes(app: FastifyInstance): void {
             return;
           }
           if (gate === 'enrollment_required') {
-            await revokeRefreshToken(refreshCookie.value);
+            await revokeRefreshToken(refreshCookie.value, { userId: holder.id });
             clearAuthCookies('csms', reply, isSecureRequest(request));
             request.log.info(
               { userId: holder.id },
@@ -794,7 +880,7 @@ export function userRoutes(app: FastifyInstance): void {
 
       const result =
         refreshCookie.status === 'valid'
-          ? await validateAndRotateRefreshToken(refreshCookie.value)
+          ? await validateAndRotateRefreshToken(refreshCookie.value, { realm: 'operator' })
           : null;
       if (result == null || result.userId == null) {
         clearAuthCookies('csms', reply, isSecureRequest(request));
@@ -853,12 +939,14 @@ export function userRoutes(app: FastifyInstance): void {
 
       // Gate reset-link dispatch on reCAPTCHA so a bot cannot enumerate
       // operator emails by triggering reset emails for any account.
-      const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
+      const recaptchaOk = await checkRecaptcha(recaptchaToken, reply, 'login');
       if (!recaptchaOk) return;
 
       const [user] = await db
         .select({
           id: users.id,
+          // The link goes to the stored address, never to the one typed.
+          email: users.email,
           firstName: users.firstName,
           lastName: users.lastName,
           language: users.language,
@@ -871,118 +959,125 @@ export function userRoutes(app: FastifyInstance): void {
       // An inactive account and an SSO account while SSO is enabled get no
       // link, with the same answer as an unknown email.
       if (user != null && user.isActive && !(await passwordAuthBlocked(user))) {
-        // Revoke existing password_reset tokens
-        await db
-          .update(userTokens)
-          .set({ revokedAt: new Date() })
-          .where(
-            and(
-              eq(userTokens.userId, user.id),
-              eq(userTokens.type, 'password_reset'),
-              isNull(userTokens.revokedAt),
-            ),
-          );
-
-        // Generate token
-        const { raw: rawToken, hash: tokenHash } = generateUserToken();
-
-        await db.insert(userTokens).values({
-          userId: user.id,
-          tokenHash,
-          type: 'password_reset',
-          expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-        });
-
-        // Send email
-        const csmsUrl = apiConfig.CSMS_URL;
-        const resetUrl = `${csmsUrl}/reset-password?token=${rawToken}`;
-
-        // Not awaited: the answer for a known email must not wait for the
-        // mail provider, or its time would tell the email exists.
+        // The link is stored and sent after the answer, so a known email takes the
+        // time of an unknown one.
         void (async () => {
-          const settings = await getNotificationSettings(client);
-          if (settings.smtp != null) {
-            const companyRows = await client`
+          // Revoke existing password_reset tokens
+          await db
+            .update(userTokens)
+            .set({ revokedAt: new Date() })
+            .where(
+              and(
+                eq(userTokens.userId, user.id),
+                eq(userTokens.type, 'password_reset'),
+                isNull(userTokens.revokedAt),
+              ),
+            );
+
+          // Generate token
+          const { raw: rawToken, hash: tokenHash } = generateUserToken();
+
+          await db.insert(userTokens).values({
+            userId: user.id,
+            tokenHash,
+            type: 'password_reset',
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          });
+
+          // Send email
+          const csmsUrl = apiConfig.CSMS_URL;
+          const resetUrl = `${csmsUrl}/reset-password?token=${rawToken}`;
+
+          // Not awaited: the answer for a known email must not wait for the
+          // mail provider, or its time would tell the email exists.
+          void (async () => {
+            const settings = await getNotificationSettings(client);
+            if (settings.smtp != null) {
+              const companyRows = await client`
               SELECT key, value FROM settings WHERE key LIKE 'company.%'
             `;
-            const companyMap = new Map<string, string>();
-            for (const row of companyRows) {
-              if (typeof row.value === 'string') companyMap.set(row.key as string, row.value);
-            }
-            const companyName = companyMap.get('company.name') ?? 'EVtivity CSMS';
-            const language = user.language;
+              const companyMap = new Map<string, string>();
+              for (const row of companyRows) {
+                if (typeof row.value === 'string') companyMap.set(row.key as string, row.value);
+              }
+              const companyName = companyMap.get('company.name') ?? 'EVtivity CSMS';
+              const language = user.language;
 
-            const enrichedVars: Record<string, unknown> = {
-              companyName,
-              companyContactEmail: companyMap.get('company.contactEmail') ?? '',
-              companySupportPhone: companyMap.get('company.supportPhone') ?? '',
-              companyStreet: companyMap.get('company.street') ?? '',
-              companyCity: companyMap.get('company.city') ?? '',
-              companyState: companyMap.get('company.state') ?? '',
-              companyZip: companyMap.get('company.zip') ?? '',
-              companyCountry: companyMap.get('company.country') ?? '',
-              firstName: user.firstName ?? '',
-              lastName: user.lastName ?? '',
-              email,
-              resetUrl,
-            };
+              const enrichedVars: Record<string, unknown> = {
+                companyName,
+                companyContactEmail: companyMap.get('company.contactEmail') ?? '',
+                companySupportPhone: companyMap.get('company.supportPhone') ?? '',
+                companyStreet: companyMap.get('company.street') ?? '',
+                companyCity: companyMap.get('company.city') ?? '',
+                companyState: companyMap.get('company.state') ?? '',
+                companyZip: companyMap.get('company.zip') ?? '',
+                companyCountry: companyMap.get('company.country') ?? '',
+                firstName: user.firstName ?? '',
+                lastName: user.lastName ?? '',
+                email: user.email,
+                resetUrl,
+              };
 
-            const rendered = await renderTemplate(
-              'email',
-              'operator.ForgotPassword',
-              language,
-              enrichedVars,
-              client,
-              undefined,
-              TEMPLATES_DIR,
-            );
-            const wrappedHtml =
-              rendered.html != null
-                ? wrapEmailHtml(
-                    rendered.html,
-                    companyName,
-                    settings.emailWrapperTemplate,
-                    enrichedVars,
-                  )
-                : undefined;
-            const ok = await sendEmail(
-              settings.smtp,
-              email,
-              rendered.subject,
-              rendered.body,
-              wrappedHtml,
-            );
-            const storedBody = redactSensitiveNotificationContent(
-              wrappedHtml ?? rendered.body,
-              'operator.ForgotPassword',
-            );
-            const storedSubject = redactSensitiveNotificationContent(
-              rendered.subject,
-              'operator.ForgotPassword',
-            );
-            // Match the dispatchSystemNotification pattern so operators can
-            // see in the Email Log why a forgot-password mail failed.
-            const metadata: Record<string, string> = {};
-            if (!ok) {
-              metadata['failureReason'] =
-                settings.smtp.credentialError === 'decrypt_failed'
-                  ? 'credentials_decrypt_failed'
-                  : 'smtp_send_failed';
+              const rendered = await renderTemplate(
+                'email',
+                'operator.ForgotPassword',
+                language,
+                enrichedVars,
+                client,
+                undefined,
+                TEMPLATES_DIR,
+              );
+              const wrappedHtml =
+                rendered.html != null
+                  ? wrapEmailHtml(
+                      rendered.html,
+                      companyName,
+                      settings.emailWrapperTemplate,
+                      enrichedVars,
+                    )
+                  : undefined;
+              const ok = await sendEmail(
+                settings.smtp,
+                user.email,
+                rendered.subject,
+                rendered.body,
+                wrappedHtml,
+              );
+              const storedBody = redactSensitiveNotificationContent(
+                wrappedHtml ?? rendered.body,
+                'operator.ForgotPassword',
+              );
+              const storedSubject = redactSensitiveNotificationContent(
+                rendered.subject,
+                'operator.ForgotPassword',
+              );
+              // Match the dispatchSystemNotification pattern so operators can
+              // see in the Email Log why a forgot-password mail failed.
+              const metadata: Record<string, string> = {};
+              if (!ok) {
+                metadata['failureReason'] =
+                  settings.smtp.credentialError === 'decrypt_failed'
+                    ? 'credentials_decrypt_failed'
+                    : 'smtp_send_failed';
+              }
+              await recordNotificationAttempt(client, {
+                channel: 'email',
+                recipient: user.email,
+                subject: storedSubject,
+                body: storedBody,
+                status: ok ? 'sent' : 'failed',
+                eventType: 'operator.ForgotPassword',
+                metadata,
+              });
             }
-            await recordNotificationAttempt(client, {
-              channel: 'email',
-              recipient: email,
-              subject: storedSubject,
-              body: storedBody,
-              status: ok ? 'sent' : 'failed',
-              eventType: 'operator.ForgotPassword',
-              metadata,
-            });
-          }
+          })().catch((err: unknown) => {
+            // fail-open: the answer is the same either way, so it does not
+            // reveal whether the user exists (P9).
+            request.log.warn({ err }, 'Password reset email dispatch failed');
+          });
         })().catch((err: unknown) => {
-          // fail-open: the answer is the same either way, so it does not
-          // reveal whether the user exists (P9).
-          request.log.warn({ err }, 'Password reset email dispatch failed');
+          // fail-open: the answer was already sent; the user asks again (P9).
+          request.log.warn({ err }, 'Password reset link could not be stored');
         });
       }
 
@@ -1458,6 +1553,139 @@ export function userRoutes(app: FastifyInstance): void {
     },
   );
 
+  const ssoUnlinkBody = z.object({
+    proof: accountProof.describe('Fresh proof of the signed-in account, required from a session'),
+  });
+
+  app.delete(
+    '/users/:id/sso-link',
+    {
+      onRequest: [authorize('users:write')],
+      schema: {
+        tags: ['Users'],
+        summary: 'Clear the SSO binding of a user',
+        description:
+          'Clears the identity provider subject an SSO sign-in bound to the user, and the link permission: the next SSO sign-in to the account, an SSO-created one included, needs the link allowed again. Optional JSON body `{ proof }`: from a signed-in session `proof` is required (400 VALIDATION_ERROR with proofKinds without it). The user gets a security.SsoUnlinked notice.',
+        operationId: 'clearUserSsoLink',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(userParams),
+        response: {
+          200: successResponse,
+          400: errorWith(
+            'A missing or wrong proof',
+            SESSION_PROOF_ERROR_CODES,
+            sessionProofErrorFields,
+          ),
+          404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof userParams>;
+      // Optional JSON body { proof }: an API key sends none (parsed here, not by the schema).
+      const { proof } = parseZodRequest(ssoUnlinkBody, request.body ?? {});
+      if (!(await canAdministerUser(request, await getUserManagementActor(request), id))) {
+        await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        return;
+      }
+      if (!(await requireSessionProof(request, reply, proof))) return;
+      const [before] = await db
+        .select({ ssoSubject: users.ssoSubject, ssoLinkAllowed: users.ssoLinkAllowed })
+        .from(users)
+        .where(eq(users.id, id));
+      if (before == null) {
+        await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        return;
+      }
+      await db
+        .update(users)
+        .set({ ssoSubject: null, ssoLinkAllowed: false, updatedAt: new Date() })
+        .where(eq(users.id, id));
+      // The sessions the binding opened end, and so does a bind still waiting on an MFA step.
+      await voidPendingSsoLink(id, request.log);
+      await endUserSessions(id, { apiKeys: false });
+      if (before.ssoSubject != null || before.ssoLinkAllowed) {
+        await writeAudit(
+          { table: userAuditLog, idColumn: 'user_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'sso_unlinked',
+            ...getAuditActor(request),
+            before: { ssoLinked: before.ssoSubject != null, ssoLinkAllowed: before.ssoLinkAllowed },
+            after: { ssoLinked: false, ssoLinkAllowed: false },
+          },
+          db,
+          request.log,
+        );
+        sendSecurityNotice({ userId: id }, 'security.SsoUnlinked', {}, request.log);
+      }
+      return { success: true };
+    },
+  );
+
+  const ssoLinkBody = z.object({
+    proof: factorProof
+      .optional()
+      .describe('Fresh proof of the account: a factor it holds, else its password'),
+  });
+
+  app.post(
+    '/users/me/sso-link',
+    {
+      onRequest: [selfService()],
+      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Users'],
+        summary: 'Allow SSO to link the own account',
+        description:
+          'Confirms with a fresh proof (a factor the account holds, else its password) that the next SSO sign-in with this email may bind the account to its identity provider subject. Needs a signed-in session (403 SESSION_REQUIRED for an API key).',
+        operationId: 'allowOwnSsoLink',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(ssoLinkBody),
+        response: {
+          200: successResponse,
+          400: errorWith(
+            'A missing or wrong proof',
+            SESSION_PROOF_ERROR_CODES,
+            sessionProofErrorFields,
+          ),
+          403: errorWith('API keys cannot allow the SSO link', [ERROR_CODES.SESSION_REQUIRED]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { userId } = request.user as JwtPayload;
+      const { proof } = request.body as z.infer<typeof ssoLinkBody>;
+      const refused = await checkFactorProof(request, { userId }, proof, 'confirm');
+      if (refused != null) {
+        await sendFactorProofRefusal(reply, refused);
+        return;
+      }
+      const [row] = await db
+        .update(users)
+        .set({ ssoLinkAllowed: true, updatedAt: new Date() })
+        .where(and(eq(users.id, userId), eq(users.ssoLinkAllowed, false)))
+        .returning({ id: users.id });
+      if (row != null) {
+        await writeAudit(
+          { table: userAuditLog, idColumn: 'user_id' },
+          {
+            entityId: userId,
+            entityIdSnapshot: userId,
+            action: 'sso_link_allowed',
+            ...getAuditActor(request),
+            before: { ssoLinkAllowed: false },
+            after: { ssoLinkAllowed: true },
+          },
+          db,
+          request.log,
+        );
+      }
+      return { success: true };
+    },
+  );
+
   const phoneVerificationStartBody = z.object({
     phone: z.string().min(1).max(50).describe('The new mobile phone number'),
     proof: factorProof
@@ -1665,13 +1893,22 @@ export function userRoutes(app: FastifyInstance): void {
         tags: ['Users'],
         summary: 'Create a new user',
         description:
-          'Creates a user with mustResetPassword=true, copies the role default permissions into user_permissions, applies site access (hasAllSiteAccess or per-site assignments via user_site_assignments), and sends an invitation email containing a setup link. Returns 409 on duplicate email.',
+          'Creates a user with mustResetPassword=true, gives it `permissions` (each one the caller holds) or else the role default permissions, applies site access (hasAllSiteAccess or per-site assignments via user_site_assignments), and sends an invitation email containing a setup link, all in one transaction. From a signed-in session, an admin-equivalent user (every permission, or users:write, settings.security:write, settings.apiKeys:write, settings.system:write or settings.payment:write) needs `proof` (400 VALIDATION_ERROR with proofKinds without it), and the caller gets a security.UserCreatedPrivileged notice. Returns 409 on duplicate email.',
         operationId: 'createUser',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createUserBody),
         response: {
           201: itemResponse(userCreated),
-          400: errorResponse,
+          400: errorWith(
+            'Invalid input, or a missing or wrong proof',
+            [
+              ERROR_CODES.ROLE_NOT_FOUND,
+              ERROR_CODES.INVALID_SITE_IDS,
+              ERROR_CODES.INVALID_PERMISSIONS,
+              ...SESSION_PROOF_ERROR_CODES,
+            ],
+            sessionProofErrorFields,
+          ),
           403: errorWith('Grant exceeds own access', [
             ERROR_CODES.FORBIDDEN,
             ERROR_CODES.PERMISSIONS_EXCEED_OWN,
@@ -1722,9 +1959,18 @@ export function userRoutes(app: FastifyInstance): void {
         await reply.status(400).send({ error: 'Role does not exist', code: 'ROLE_NOT_FOUND' });
         return;
       }
-      // The new user gets the role's default permissions: an operator may
-      // only pick a role whose defaults it holds itself.
-      if (!(await canGrantPermissions(request, roleDefaultPermissions(role.name)))) {
+      // The new user gets the permissions sent, else the role's defaults: an
+      // operator grants only permissions it holds itself.
+      const createPermissions = [...new Set(body.permissions ?? roleDefaultPermissions(role.name))];
+      const invalidPermissions = createPermissions.filter((p) => !permissionCatalog.isKnown(p));
+      if (invalidPermissions.length > 0) {
+        await reply.status(400).send({
+          error: `Invalid permissions: ${invalidPermissions.join(', ')}`,
+          code: 'INVALID_PERMISSIONS',
+        });
+        return;
+      }
+      if (!(await canGrantPermissions(request, createPermissions))) {
         await reply.status(403).send({
           error: 'Permissions must be a subset of your own permissions',
           code: 'PERMISSIONS_EXCEED_OWN',
@@ -1763,69 +2009,70 @@ export function userRoutes(app: FastifyInstance): void {
       }
       const createPhone = phoneToStore(createPhoneIn);
 
+      // A stolen session alone must not create lasting admin access:
+      // checked last, so a refused request never uses up a code.
+      const privileged = isAdminEquivalent(createPermissions);
+      if (privileged && !(await requireSessionProof(request, reply, body.proof))) return;
+
       // Generate unknown random password — user must set via email link
       const passwordHash = await argon2.hash(crypto.randomBytes(32).toString('hex'));
-
-      const rows = await db
-        .insert(users)
-        .values({
-          email: body.email,
-          passwordHash,
-          firstName: body.firstName,
-          lastName: body.lastName,
-          phone: createPhone,
-          roleId: body.roleId,
-          mustResetPassword: true,
-        })
-        .returning({
-          id: users.id,
-          email: users.email,
-          firstName: users.firstName,
-          lastName: users.lastName,
-          phone: users.phone,
-          roleId: users.roleId,
-        });
-
-      // INSERT RETURNING always yields a row; this guard satisfies noUncheckedIndexedAccess
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-      const user = rows[0]!;
-
-      // Site access: set hasAllSiteAccess or insert site assignments
-      if (body.hasAllSiteAccess) {
-        await db.update(users).set({ hasAllSiteAccess: true }).where(eq(users.id, user.id));
-      } else if (createSiteIds.length > 0) {
-        await db.insert(userSiteAssignments).values(
-          createSiteIds.map((siteId) => ({
-            userId: user.id,
-            siteId,
-          })),
-        );
-      }
-
-      // Populate user permissions from role defaults
-      const [createdRole] = await db
-        .select({ name: roles.name })
-        .from(roles)
-        .where(eq(roles.id, body.roleId));
-
-      const roleDefaults = permissionCatalog.defaultsFor(createdRole?.name);
-
-      if (roleDefaults.length > 0) {
-        await db
-          .insert(userPermissions)
-          .values(roleDefaults.map((p) => ({ userId: user.id, permission: p })))
-          .onConflictDoNothing();
-      }
-
-      // Generate 24-hour password setup token
       const { raw: rawToken, hash: tokenHash } = generateUserToken();
 
-      await db.insert(userTokens).values({
-        userId: user.id,
-        tokenHash,
-        type: 'password_reset',
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      // One transaction: the user, its site access, its permissions and its
+      // setup link are created together or not at all.
+      const user = await db.transaction(async (tx) => {
+        const rows = await tx
+          .insert(users)
+          .values({
+            email: body.email,
+            passwordHash,
+            firstName: body.firstName,
+            lastName: body.lastName,
+            phone: createPhone,
+            roleId: body.roleId,
+            mustResetPassword: true,
+            hasAllSiteAccess: body.hasAllSiteAccess,
+          })
+          .returning({
+            id: users.id,
+            email: users.email,
+            firstName: users.firstName,
+            lastName: users.lastName,
+            phone: users.phone,
+            roleId: users.roleId,
+          });
+        // INSERT RETURNING always yields a row; this guard satisfies noUncheckedIndexedAccess
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+        const created = rows[0]!;
+        if (!body.hasAllSiteAccess && createSiteIds.length > 0) {
+          await tx
+            .insert(userSiteAssignments)
+            .values(createSiteIds.map((siteId) => ({ userId: created.id, siteId })));
+        }
+        if (createPermissions.length > 0) {
+          await tx
+            .insert(userPermissions)
+            .values(createPermissions.map((p) => ({ userId: created.id, permission: p })))
+            .onConflictDoNothing();
+        }
+        // 24-hour password setup link
+        await tx.insert(userTokens).values({
+          userId: created.id,
+          tokenHash,
+          type: 'password_reset',
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        });
+        return created;
       });
+
+      if (privileged) {
+        sendSecurityNotice(
+          { userId: actor.userId },
+          'security.UserCreatedPrivileged',
+          { newUserEmail: user.email },
+          request.log,
+        );
+      }
 
       const csmsUrl = apiConfig.CSMS_URL;
       const setPasswordUrl = `${csmsUrl}/reset-password?token=${rawToken}`;
@@ -1854,7 +2101,8 @@ export function userRoutes(app: FastifyInstance): void {
           after: {
             ...user,
             hasAllSiteAccess: body.hasAllSiteAccess,
-            siteIds: body.hasAllSiteAccess ? [] : (body.siteIds ?? []),
+            siteIds: body.hasAllSiteAccess ? [] : createSiteIds,
+            permissions: createPermissions,
           },
         },
         db,
@@ -1927,7 +2175,15 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(updateUserBody),
         response: {
           200: itemResponse(userItem),
-          400: errorResponse,
+          400: errorWith(
+            'Invalid input, or a missing or wrong proof',
+            [
+              ERROR_CODES.ROLE_NOT_FOUND,
+              ERROR_CODES.INVALID_SITE_IDS,
+              ...SESSION_PROOF_ERROR_CODES,
+            ],
+            sessionProofErrorFields,
+          ),
           403: errorWith('Self edit forbidden or grant exceeds own access', [
             ERROR_CODES.SELF_EDIT_FORBIDDEN,
             ERROR_CODES.FORBIDDEN,
@@ -1957,7 +2213,8 @@ export function userRoutes(app: FastifyInstance): void {
           body.roleId !== undefined ||
           body.isActive !== undefined ||
           body.hasAllSiteAccess !== undefined ||
-          body.siteIds !== undefined
+          body.siteIds !== undefined ||
+          body.ssoLinkAllowed !== undefined
         ) {
           await reply.status(403).send({
             error: 'Cannot edit your own role, status, or site access',
@@ -1989,7 +2246,8 @@ export function userRoutes(app: FastifyInstance): void {
         body.hasAllSiteAccess !== undefined ||
         body.siteIds !== undefined ||
         body.phone !== undefined ||
-        body.email !== undefined;
+        body.email !== undefined ||
+        body.ssoLinkAllowed !== undefined;
       const [before] = await db.select(userSelect).from(users).where(eq(users.id, id));
       const allowed =
         before != null &&
@@ -2089,6 +2347,42 @@ export function userRoutes(app: FastifyInstance): void {
         }
       }
 
+      // A fresh proof from a session for a role change that grants
+      // a permission the user does not hold (the role defaults replace the set, a
+      // second path to a grant beside PUT /permissions), and for moving the email,
+      // where the reset links go, the phone, where SMS codes go, or reactivating
+      // the account, of a user admin-equivalent before or after.
+      let roleGranted: string[] = [];
+      // Allowing the SSO link lets the identity provider sign in as this account.
+      const ssoLinkGranted = body.ssoLinkAllowed === true && !before.ssoLinkAllowed;
+      const phoneChanged = adminPhone !== undefined && adminPhone !== normalizedPhone(before.phone);
+      const reactivated = body.isActive === true && !before.isActive;
+      const accountChanged = emailChanged || phoneChanged || reactivated;
+      if (ssoLinkGranted && !(body.roleId !== undefined || accountChanged)) {
+        if (!(await requireSessionProof(request, reply, body.proof))) return;
+      }
+      if (body.roleId !== undefined || accountChanged) {
+        const storedRows = await db
+          .select({ permission: userPermissions.permission })
+          .from(userPermissions)
+          .where(eq(userPermissions.userId, id));
+        const storedPermissions = storedRows.map((r) => r.permission);
+        const held = new Set(storedPermissions);
+        if (body.roleId !== undefined) {
+          roleGranted = [...new Set(newRoleDefaults)].filter((p) => !held.has(p));
+        }
+        const afterPermissions = body.roleId !== undefined ? newRoleDefaults : storedPermissions;
+        const accountOfAdmin =
+          accountChanged &&
+          (isAdminEquivalent(storedPermissions) || isAdminEquivalent(afterPermissions));
+        if (
+          (roleGranted.length > 0 || accountOfAdmin || ssoLinkGranted) &&
+          !(await requireSessionProof(request, reply, body.proof))
+        ) {
+          return;
+        }
+      }
+
       const fields: Record<string, unknown> = { updatedAt: new Date() };
       if (body.email !== undefined) fields['email'] = body.email;
       if (body.firstName !== undefined) fields['firstName'] = body.firstName;
@@ -2100,6 +2394,28 @@ export function userRoutes(app: FastifyInstance): void {
       if (body.timezone !== undefined) fields['timezone'] = body.timezone;
       if (body.themePreference !== undefined) fields['themePreference'] = body.themePreference;
       if (body.hasAllSiteAccess !== undefined) fields['hasAllSiteAccess'] = body.hasAllSiteAccess;
+      if (body.ssoLinkAllowed !== undefined) fields['ssoLinkAllowed'] = body.ssoLinkAllowed;
+
+      // The audit row of a site or role change keeps the earlier sites and
+      // permissions.
+      const accessChange = body.roleId !== undefined || patchSiteIds !== undefined;
+      let beforeAccess: { siteIds: string[]; permissions: string[] } | null = null;
+      if (accessChange) {
+        const [beforeSites, beforePermissions] = await Promise.all([
+          db
+            .select({ siteId: userSiteAssignments.siteId })
+            .from(userSiteAssignments)
+            .where(eq(userSiteAssignments.userId, id)),
+          db
+            .select({ permission: userPermissions.permission })
+            .from(userPermissions)
+            .where(eq(userPermissions.userId, id)),
+        ]);
+        beforeAccess = {
+          siteIds: beforeSites.map((a) => a.siteId),
+          permissions: beforePermissions.map((r) => r.permission),
+        };
+      }
 
       // One transaction: the user row, its site assignments and its
       // permissions change together or not at all.
@@ -2184,6 +2500,21 @@ export function userRoutes(app: FastifyInstance): void {
         await revokeAllUserSessions(id);
         announceSessionChange(id);
       }
+      // A withdrawn SSO link voids a bind still waiting on an MFA step (its pending
+      // and enrollment tokens end with the session version).
+      if (body.ssoLinkAllowed === false && before.ssoLinkAllowed) {
+        await voidPendingSsoLink(id, request.log);
+        await bumpSessionVersion(id);
+        announceSessionChange(id);
+      }
+      if (roleGranted.length > 0) {
+        const variables = {
+          targetEmail: updated.email,
+          granted: [...roleGranted].sort().join(', '),
+        };
+        sendSecurityNotice({ userId: id }, 'security.PermissionsGranted', variables, request.log);
+        sendSecurityNotice({ userId }, 'security.PermissionsGranted', variables, request.log);
+      }
 
       // Re-fetch site assignments and permissions for the response
       const [assignments, permRows] = await Promise.all([
@@ -2203,6 +2534,11 @@ export function userRoutes(app: FastifyInstance): void {
         action = 'role_changed';
       } else if (body.hasAllSiteAccess !== undefined || body.siteIds !== undefined) {
         action = 'site_access_changed';
+      } else if (
+        body.ssoLinkAllowed !== undefined &&
+        body.ssoLinkAllowed !== before.ssoLinkAllowed
+      ) {
+        action = 'sso_link_allowed';
       }
       await writeAudit(
         { table: userAuditLog, idColumn: 'user_id' },
@@ -2211,8 +2547,12 @@ export function userRoutes(app: FastifyInstance): void {
           entityIdSnapshot: updated.id,
           action,
           ...auditActor,
-          before,
-          after: { ...updated, siteIds: assignments.map((a) => a.siteId) },
+          before: beforeAccess != null ? { ...before, ...beforeAccess } : before,
+          after: {
+            ...updated,
+            siteIds: assignments.map((a) => a.siteId),
+            ...(accessChange ? { permissions: permRows.map((r) => r.permission) } : {}),
+          },
         },
         db,
         request.log,
@@ -2234,14 +2574,19 @@ export function userRoutes(app: FastifyInstance): void {
         tags: ['Users'],
         summary: 'Reset a user password by admin',
         description:
-          'Generates a new temporary password for the target user, hashes it with argon2, and sets mustResetPassword=true so the user is forced to change it on next login. Revokes all of the user existing refresh tokens. The new password is returned in the response and must be communicated out-of-band.',
+          'Sets the password sent as a temporary password of another user, hashed with argon2, with mustResetPassword=true so the user changes it at the next sign-in. Ends every session and API key of the user. From a signed-in session it needs `proof` (400 VALIDATION_ERROR with proofKinds without it). Your own account answers 403 SELF_EDIT_FORBIDDEN: use POST /v1/users/me/change-password.',
         operationId: 'resetUserPassword',
         security: [{ bearerAuth: [] }],
         params: zodSchema(userParams),
         body: zodSchema(resetPasswordBody),
         response: {
           200: successResponse,
-          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD], weakPasswordFields),
+          400: errorWith(
+            'Weak password, or a missing or wrong proof',
+            [ERROR_CODES.WEAK_PASSWORD, ...SESSION_PROOF_ERROR_CODES],
+            { ...weakPasswordFields, ...sessionProofErrorFields },
+          ),
+          403: errorWith('Your own account', [ERROR_CODES.SELF_EDIT_FORBIDDEN]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
           409: errorWith('The user signs in with SSO', [ERROR_CODES.USER_SSO_MANAGED]),
         },
@@ -2249,7 +2594,13 @@ export function userRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof userParams>;
-      const { password } = request.body as z.infer<typeof resetPasswordBody>;
+      const { password, proof } = request.body as z.infer<typeof resetPasswordBody>;
+
+      // The own password changes only with the current one.
+      if (id === (request.user as JwtPayload).userId) {
+        await reply.status(403).send(SELF_RESET_FORBIDDEN);
+        return;
+      }
 
       const weakPassword = await validatePassword(password);
       if (weakPassword != null) {
@@ -2268,6 +2619,8 @@ export function userRoutes(app: FastifyInstance): void {
           .send({ error: 'The user signs in with SSO', code: 'USER_SSO_MANAGED' });
         return;
       }
+
+      if (!(await requireSessionProof(request, reply, proof))) return;
 
       const passwordHash = await argon2.hash(password);
 
@@ -2476,13 +2829,21 @@ export function userRoutes(app: FastifyInstance): void {
         tags: ['Users'],
         summary: 'Resend account setup invitation to a user',
         description:
-          'Generates a fresh password reset token for the user and sends a new invitation email with the setup link. Used to recover from expired or lost invitations. Only valid for users that have never logged in or have mustResetPassword set.',
+          'Generates a fresh password reset token for another user and sends a new invitation email with the setup link to the stored address, and a security.PasswordResetByAdmin notice. Used to recover from expired or lost invitations. Optional JSON body `{ proof }`: from a signed-in session `proof` is required, a fresh proof of the account (a factor it holds, else its password; 400 VALIDATION_ERROR with proofKinds without it). Your own account answers 403 SELF_EDIT_FORBIDDEN.',
         operationId: 'resendUserInvite',
         security: [{ bearerAuth: [] }],
         params: zodSchema(userParams),
         response: {
           200: successResponse,
-          403: errorWith('Account disabled', [ERROR_CODES.ACCOUNT_DISABLED]),
+          400: errorWith(
+            'A missing or wrong proof',
+            SESSION_PROOF_ERROR_CODES,
+            sessionProofErrorFields,
+          ),
+          403: errorWith('Account disabled, or your own account', [
+            ERROR_CODES.ACCOUNT_DISABLED,
+            ERROR_CODES.SELF_EDIT_FORBIDDEN,
+          ]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
           409: errorWith('The user signs in with SSO', [ERROR_CODES.USER_SSO_MANAGED]),
         },
@@ -2490,6 +2851,13 @@ export function userRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof userParams>;
+      // The body is optional (callers before v0.1.48 sent none): parsed here, not by the schema.
+      const { proof } = parseZodRequest(resendInviteBody, request.body ?? {});
+
+      if (id === (request.user as JwtPayload).userId) {
+        await reply.status(403).send(SELF_RESET_FORBIDDEN);
+        return;
+      }
 
       const [user] = await db
         .select({
@@ -2522,6 +2890,8 @@ export function userRoutes(app: FastifyInstance): void {
           .send({ error: 'The user signs in with SSO', code: 'USER_SSO_MANAGED' });
         return;
       }
+
+      if (!(await requireSessionProof(request, reply, proof))) return;
 
       await revokeUserEmailLinks(user.id);
 
@@ -2568,6 +2938,7 @@ export function userRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      sendSecurityNotice({ userId: user.id }, 'security.PasswordResetByAdmin', {}, request.log);
 
       return { success: true };
     },
@@ -2841,6 +3212,9 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       const token = await issueOperatorSession(app, request, reply, user);
+      // An SSO sign-in that waited for this step binds its IdP subject now.
+      await completePendingSsoLink(mfaToken, user.id, request.log);
+      await rememberSignInDevice(request, reply, 'csms', { userId: user.id });
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
       await recordAuthAudit(request, {
         kind: 'user',
@@ -3002,12 +3376,17 @@ export function userRoutes(app: FastifyInstance): void {
         tags: ['Users'],
         summary: 'Turn off the MFA of a user',
         description:
-          'Clears the MFA method, TOTP secret, recovery codes and passkeys of the user, ends every session of the user (API keys stay) and writes an mfa_reset audit row. For a user who lost the second factor. Requires users:write and every permission of the target user. Never available to the AI assistant or MCP.',
+          'Clears the MFA method, TOTP secret, recovery codes and passkeys of the user, ends every session of the user (API keys stay) and writes an mfa_reset audit row. For a user who lost the second factor. Requires users:write and every permission of the target user. Optional JSON body `{ proof }`: from a signed-in session `proof` is required, a fresh proof of the account (a factor it holds, else its password; 400 VALIDATION_ERROR with proofKinds without it); an API key sends none. Never available to the AI assistant or MCP.',
         operationId: 'resetUserMfa',
         security: [{ bearerAuth: [] }],
         params: zodSchema(userParams),
         response: {
           200: successResponse,
+          400: errorWith(
+            'A missing or wrong proof',
+            SESSION_PROOF_ERROR_CODES,
+            sessionProofErrorFields,
+          ),
           403: errorWith('Self edit forbidden', [ERROR_CODES.SELF_EDIT_FORBIDDEN]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
@@ -3016,6 +3395,8 @@ export function userRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof userParams>;
       const { userId: actorUserId } = request.user as JwtPayload;
+      // Optional JSON body { proof }: an API key sends none (parsed here, not by the schema).
+      const { proof } = parseZodRequest(mfaResetBody, request.body ?? {});
 
       // An operator changes its own MFA on its profile, with its password.
       if (id === actorUserId) {
@@ -3036,6 +3417,8 @@ export function userRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
       }
+      // A stolen admin session must not strip other admins' second factor.
+      if (!(await requireSessionProof(request, reply, proof))) return;
       const beforeCounts = await mfaFactorCounts({ userId: id });
 
       await db.transaction(async (tx) => {
@@ -3560,6 +3943,8 @@ export function userRoutes(app: FastifyInstance): void {
         roleId: (request.user as JwtPayload).roleId,
         sessionVersion,
       });
+      // An SSO sign-in sent to required MFA setup binds its IdP subject now.
+      if (enrolling) await completePendingSsoLink(bearerToken(request), userId, request.log);
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -4556,6 +4941,9 @@ export function userRoutes(app: FastifyInstance): void {
       .array(z.string())
       .min(0)
       .describe('Array of permission strings from the catalog'),
+    proof: accountProof.describe(
+      'Fresh proof of the signed-in account, required from a session when the new list adds a permission',
+    ),
   });
 
   app.get(
@@ -4641,13 +5029,19 @@ export function userRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Users'],
         summary: 'Replace a user permissions',
+        description:
+          'Replaces the permissions of another user, each one you hold. From a signed-in session, a list that adds a permission needs `proof` (400 VALIDATION_ERROR with proofKinds without it); removing needs none. The user and the caller get a security.PermissionsGranted notice.',
         operationId: 'updateUserPermissions',
         security: [{ bearerAuth: [] }],
         params: zodSchema(userParams),
         body: zodSchema(permissionsArraySchema),
         response: {
           200: arrayResponse(z.string()),
-          400: errorWith('Invalid permissions', [ERROR_CODES.INVALID_PERMISSIONS]),
+          400: errorWith(
+            'Invalid permissions, or a missing or wrong proof',
+            [ERROR_CODES.INVALID_PERMISSIONS, ...SESSION_PROOF_ERROR_CODES],
+            sessionProofErrorFields,
+          ),
           403: errorWith('Forbidden', [
             ERROR_CODES.FORBIDDEN,
             ERROR_CODES.SELF_EDIT_FORBIDDEN,
@@ -4660,7 +5054,7 @@ export function userRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
       const { id } = request.params as z.infer<typeof userParams>;
-      const { permissions } = request.body as z.infer<typeof permissionsArraySchema>;
+      const { permissions, proof } = request.body as z.infer<typeof permissionsArraySchema>;
 
       // Cannot edit own permissions
       if (id === userId) {
@@ -4699,6 +5093,16 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A grant takes a fresh proof from a session; a removal
+      // needs none. The stored list decides what is new.
+      const stored = await db
+        .select({ permission: userPermissions.permission })
+        .from(userPermissions)
+        .where(eq(userPermissions.userId, id));
+      const storedSet = new Set(stored.map((r) => r.permission));
+      const granted = [...new Set(permissions)].filter((p) => !storedSet.has(p));
+      if (granted.length > 0 && !(await requireSessionProof(request, reply, proof))) return;
+
       // One transaction: the before snapshot, the replacement and the
       // session version (access tokens of the old permissions end) commit
       // together or not at all.
@@ -4734,6 +5138,16 @@ export function userRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+
+      if (granted.length > 0) {
+        const [target] = await db
+          .select({ email: users.email })
+          .from(users)
+          .where(eq(users.id, id));
+        const variables = { targetEmail: target?.email ?? id, granted: granted.sort().join(', ') };
+        sendSecurityNotice({ userId: id }, 'security.PermissionsGranted', variables, request.log);
+        sendSecurityNotice({ userId }, 'security.PermissionsGranted', variables, request.log);
+      }
 
       return permissions;
     },

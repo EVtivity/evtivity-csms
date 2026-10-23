@@ -28,6 +28,7 @@ import {
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { stationCertificateStatusVariant } from '@/lib/status-variants';
+import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 
 interface StationCertificate {
   id: number;
@@ -51,6 +52,9 @@ export function StationCertificates({ stationId }: StationCertificatesProps): Re
   const { t } = useTranslation();
   const timezone = useUserTimezone();
   const queryClient = useQueryClient();
+  // Station certificate commands need certificates:write.
+  const canSend = useCanSendOcppCommand();
+  const canManage = canSend('InstallCertificate');
 
   const [installOpen, setInstallOpen] = useState(false);
   const [installCertType, setInstallCertType] = useState('V2GRootCertificate');
@@ -84,31 +88,33 @@ export function StationCertificates({ stationId }: StationCertificatesProps): Re
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0">
         <CardTitle>{t('pnc.certificates')}</CardTitle>
-        <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              queryInstalledMutation.mutate();
-            }}
-            disabled={queryInstalledMutation.isPending}
-          >
-            <RefreshCw
-              className={`h-4 w-4 ${queryInstalledMutation.isPending ? 'animate-spin' : ''}`}
-            />
-            {t('stations.refreshConfigurations')}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setInstallOpen(true);
-            }}
-          >
-            <ShieldPlus className="h-4 w-4" />
-            {t('pnc.installCertificate')}
-          </Button>
-        </div>
+        {canManage && (
+          <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                queryInstalledMutation.mutate();
+              }}
+              disabled={queryInstalledMutation.isPending}
+            >
+              <RefreshCw
+                className={`h-4 w-4 ${queryInstalledMutation.isPending ? 'animate-spin' : ''}`}
+              />
+              {t('stations.refreshConfigurations')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setInstallOpen(true);
+              }}
+            >
+              <ShieldPlus className="h-4 w-4" />
+              {t('pnc.installCertificate')}
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         {queryInstalledMutation.isSuccess && (

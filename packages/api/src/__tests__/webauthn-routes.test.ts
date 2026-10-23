@@ -48,6 +48,22 @@ const state = vi.hoisted(() => ({
   casWins: true,
 }));
 
+// The device cookies are covered in 129-auth-attacks; here a browser without one.
+vi.mock('../lib/device-cookie.js', () => ({
+  knownSignInDevice: vi.fn(() => Promise.resolve(null)),
+  takeDeviceAttempt: vi.fn(() =>
+    Promise.resolve({ granted: true, failures: 1, lockedUntil: null }),
+  ),
+  recordDeviceFailure: vi.fn(() => Promise.resolve()),
+  clearDeviceFailures: vi.fn(() => Promise.resolve()),
+  rememberSignInDevice: vi.fn(() => Promise.resolve()),
+  revokeSignInDevices: vi.fn(() => Promise.resolve()),
+}));
+// The pending SSO bind is covered in 98-account-escalation.
+vi.mock('../lib/sso-link.js', () => ({
+  bearerToken: vi.fn(() => ''),
+  completePendingSsoLink: vi.fn(() => Promise.resolve()),
+}));
 vi.mock('../lib/config.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/config.js')>();
   return {

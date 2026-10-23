@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import {
   FactorProofField,
@@ -98,7 +99,7 @@ export function PhoneChangeProof({
   }
 
   return (
-    <div className="space-y-3 rounded-lg border p-3" data-testid="phone-change-proof">
+    <div className="space-y-3 rounded-lg border p-4" data-testid="phone-change-proof">
       <p className="text-sm text-muted-foreground">
         {t(sms ? 'profile.phoneChangeSmsHint' : 'profile.phoneChangeProofHint')}
       </p>
@@ -116,10 +117,16 @@ export function PhoneChangeProof({
         <Button
           type="button"
           variant="outline"
+          className="relative"
           disabled={sending || number === ''}
           onClick={() => void sendCode()}
         >
-          {t('profile.phoneSendCode')}
+          {sending && (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <Spinner className="h-4 w-4" />
+            </span>
+          )}
+          <span className={sending ? 'invisible' : ''}>{t('profile.phoneSendCode')}</span>
         </Button>
       )}
       {sms && codeSent && (

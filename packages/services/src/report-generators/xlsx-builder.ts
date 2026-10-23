@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import ExcelJS from 'exceljs';
-import { neutraliseSpreadsheetFormula } from '@evtivity/lib';
 import { DateCell, FixedCell, MoneyCell, PercentCell } from './report-cells.js';
 
 // ExcelJS's published `Column` interface omits `eachCell`, but the runtime
@@ -17,15 +16,17 @@ type ColumnWithEachCell = Partial<ExcelJS.Column> & {
   ) => void;
 };
 
-function neutraliseCell(value: unknown): unknown {
+function cellValue(value: unknown): unknown {
   // Money and fixed-decimal values are numbers; the cell gets a number format
   // below, which the spreadsheet shows in the viewer's locale.
   if (value instanceof MoneyCell) return value.cents / 100;
   if (value instanceof FixedCell) return value.value;
   if (value instanceof PercentCell) return value.value;
   if (value instanceof DateCell) return value.value;
-  if (typeof value !== 'string') return value;
-  return neutraliseSpreadsheetFormula(value);
+  // A string becomes a string cell, which no spreadsheet evaluates, so it
+  // needs none of the CSV formula quoting (a leading quote would show).
+  // ExcelJS writes a formula only for a `{ formula }` value.
+  return value;
 }
 
 const MONEY_NUM_FMT = '#,##0.00';
@@ -77,7 +78,7 @@ export async function buildXlsx(
         sheet.addRow([]);
         continue;
       }
-      const added = sheet.addRow(row.map(neutraliseCell));
+      const added = sheet.addRow(row.map(cellValue));
       row.forEach((value, i) => {
         const fmt = numFmt(value);
         if (fmt != null) added.getCell(i + 1).numFmt = fmt;

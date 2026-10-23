@@ -46,7 +46,9 @@ vi.mock('@/lib/api', () => {
 });
 
 vi.mock('@/lib/auth', () => ({
-  useHasPermission: () => permission.canWrite,
+  // canWrite stands for settings.payment:write, the permission of the
+  // provider routes. payments:write alone never opens the form.
+  useHasPermission: (perm: string) => perm === 'settings.payment:write' && permission.canWrite,
   useAuth: () => null,
 }));
 vi.mock('@/lib/timezone', () => ({

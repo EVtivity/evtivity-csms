@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
+import { DATA_PLANS, isDataPlan } from '@evtivity/lib/station-data-plan';
+import type { DataPlan } from '@evtivity/lib/station-data-plan';
 import { api } from '@/lib/api';
 
 export interface TargetFilterValue {
@@ -12,6 +14,8 @@ export interface TargetFilterValue {
   vendorId?: string;
   model?: string;
   stationId?: string;
+  /** Configuration templates only: the stations whose effective data plan is this one. */
+  dataPlan?: DataPlan;
 }
 
 interface FilterOptions {
@@ -32,6 +36,8 @@ interface Props {
   idPrefix?: string;
   /** Help text under the heading; defaults to the configuration template text. */
   helpText?: string;
+  /** Show the Data Plan selector (configuration templates). */
+  showDataPlan?: boolean;
 }
 
 export function TargetFilterFields({
@@ -41,6 +47,7 @@ export function TargetFilterFields({
   onChange,
   idPrefix = 'target-filter',
   helpText,
+  showDataPlan = false,
 }: Props): React.JSX.Element {
   const { t } = useTranslation();
 
@@ -147,6 +154,29 @@ export function TargetFilterFields({
             ))}
           </Select>
         </div>
+        {showDataPlan && (
+          <div className="grid gap-2">
+            <Label htmlFor={`${idPrefix}-data-plan`}>{t('dataPlan.title')}</Label>
+            <Select
+              id={`${idPrefix}-data-plan`}
+              value={value.dataPlan ?? ''}
+              onChange={(e) => {
+                const plan = e.target.value;
+                const next: TargetFilterValue = { ...value };
+                if (isDataPlan(plan)) next.dataPlan = plan;
+                else delete next.dataPlan;
+                onChange(next);
+              }}
+            >
+              <option value="">{t('dataPlan.any')}</option>
+              {DATA_PLANS.map((plan) => (
+                <option key={plan} value={plan}>
+                  {t(`dataPlan.plans.${plan}`)}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
       </div>
     </>
   );

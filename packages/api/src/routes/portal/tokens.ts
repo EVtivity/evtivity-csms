@@ -6,7 +6,8 @@ import { z } from 'zod';
 import { eq, desc, and } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { driverTokens } from '@evtivity/database';
-import { DRIVER_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
+import { PORTAL_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
+import { isVehicleShapedTokenValue } from '@evtivity/lib/vehicle-id';
 import * as tokenService from '../../services/token.service.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
@@ -20,9 +21,9 @@ import {
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 
-// Driver-facing subset of the OCPP IdToken types (DRIVER_ID_TOKEN_TYPES):
-// Central, NoAuthorization and DirectPayment are not something a driver holds.
-const portalTokenTypeSchema = z.enum(DRIVER_ID_TOKEN_TYPES as unknown as [string, ...string[]]);
+// Driver-facing subset of the OCPP IdToken types (PORTAL_ID_TOKEN_TYPES):
+// no CSMS-issued, system or payment terminal type, and no vehicle id type.
+const portalTokenTypeSchema = z.enum(PORTAL_ID_TOKEN_TYPES as unknown as [string, ...string[]]);
 
 const tokenItem = z
   .object({
@@ -50,7 +51,14 @@ const createTokenBody = z.object({
     .min(4)
     .max(64)
     .regex(/^[a-zA-Z0-9-]+$/, 'Must be alphanumeric (dashes allowed)')
-    .describe('RFID card identifier'),
+    // A MAC address (12 hex digits) or VIN shape is a vehicle id, never a card
+    // UID: such a card would take the car's 1.6 Autocharge starts.
+    .refine((v) => !isVehicleShapedTokenValue(v), {
+      message: 'A vehicle id is added on the Vehicles page, not as a card',
+    })
+    .describe(
+      'RFID card identifier. A value with a MAC address (12 hex digits) or VIN (17 characters) shape answers 400',
+    ),
   tokenType: portalTokenTypeSchema
     .default('ISO14443')
     .describe('OCPP IdToken type (defaults to ISO14443)'),
@@ -145,7 +153,7 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         tags: ['Portal Tokens'],
         summary: 'Add RFID card',
         description:
-          'Registers a card on the driver account. Adding a card the driver removed earlier reactivates it; a card the operator deactivated answers 403 TOKEN_BLOCKED_BY_OPERATOR.',
+          "Registers a card on the driver account. Adding a card the driver removed earlier reactivates it; a card the operator deactivated answers 403 TOKEN_BLOCKED_BY_OPERATOR. Vehicle id types (VIN, EVCCID, MacAddress) and a value with a MAC address or VIN shape answer 400: a vehicle is added on the Vehicles page or claimed from a session. A value that is another driver's vehicle id answers 409 VEHICLE_ID_IN_USE.",
         operationId: 'portalCreateToken',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createTokenBody),
@@ -191,6 +199,19 @@ export function portalTokenRoutes(app: FastifyInstance): void {
             error: 'This card was deactivated by the operator',
             code: 'TOKEN_BLOCKED_BY_OPERATOR',
           });
+          return;
+        }
+        if (err instanceof tokenService.VehicleShapedCardError) {
+          await reply.status(400).send({
+            error: 'A vehicle id is added on the Vehicles page, not as a card',
+            code: 'VALIDATION_ERROR',
+          });
+          return;
+        }
+        if (err instanceof tokenService.VehicleIdTokenInUseError) {
+          await reply
+            .status(409)
+            .send({ error: 'Cannot register this token', code: 'VEHICLE_ID_IN_USE' });
           return;
         }
         if (err instanceof tokenService.DuplicateTokenError) {

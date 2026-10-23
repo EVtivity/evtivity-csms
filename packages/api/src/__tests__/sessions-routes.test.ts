@@ -1461,7 +1461,7 @@ describe('Session routes', () => {
       expect(sessionEnd.requestSessionEnd).not.toHaveBeenCalled();
     });
 
-    it('answers 409 SESSION_NOT_ACTIVE without an audit when the session ended meanwhile (P5)', async () => {
+    it('answers 409 SESSION_NOT_ACTIVE without an audit when the session ended meanwhile', async () => {
       sessionEnd.requestSessionEnd.mockResolvedValueOnce(false);
       setupDbResults([
         {

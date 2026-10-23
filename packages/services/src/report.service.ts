@@ -6,7 +6,7 @@ import { db, reports, users, getSystemTimezone } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import { isUiLanguage, type UiLanguage } from '@evtivity/lib/languages';
 import { ReportGeneratorRegistry, REPORT_FORMATS } from './report-registry.js';
-import type { ReportFormat, ReportGeneratorResult } from './report-registry.js';
+import type { ReportColumnAccess, ReportFormat, ReportGeneratorResult } from './report-registry.js';
 import type { ReportSiteScope } from './report-scope.js';
 import { generateNeviReport, neviFiltersError } from './report-generators/nevi-report.js';
 import { generateRevenueReport } from './report-generators/revenue-report.js';
@@ -101,16 +101,29 @@ export type ReportType = (typeof REPORT_TYPES)[number];
 export const reportGenerators = new ReportGeneratorRegistry();
 
 // Registration order is the order the CSMS lists the types in.
-for (const [type, generate] of [
-  ['revenue', generateRevenueReport],
-  ['utilization', generateUtilizationReport],
-  ['energy', generateEnergyReport],
-  ['stationHealth', generateStationHealthReport],
-  ['sessions', generateSessionsReport],
-  ['sustainability', generateSustainabilityReport],
-  ['driverActivity', generateDriverActivityReport],
+// Revenue needs payments:read and driver activity (names, emails, spend)
+// drivers:read on top of reports:*.
+for (const [type, generate, requiredPermissions] of [
+  ['revenue', generateRevenueReport, ['payments:read']],
+  ['utilization', generateUtilizationReport, []],
+  ['energy', generateEnergyReport, []],
+  ['stationHealth', generateStationHealthReport, []],
+  ['sessions', generateSessionsReport, []],
+  ['sustainability', generateSustainabilityReport, []],
+  ['driverActivity', generateDriverActivityReport, ['drivers:read']],
 ] as const) {
-  reportGenerators.register({ type, generate, formats: REPORT_FORMATS, generateFromUi: true });
+  reportGenerators.register({
+    type,
+    generate,
+    formats: REPORT_FORMATS,
+    generateFromUi: true,
+    requiredPermissions,
+  });
+}
+
+/** The permissions a report type needs on top of reports:* (none for an unknown type). */
+export function reportRequiredPermissions(reportType: string): readonly string[] {
+  return reportGenerators.get(reportType)?.requiredPermissions ?? [];
 }
 reportGenerators.register({
   type: 'nevi',
@@ -120,6 +133,9 @@ reportGenerators.register({
   formats: ['xlsx'],
   generateFromUi: false,
   validateFilters: neviFiltersError,
+  // The EV-ChART template is fixed (no column can be left out) and holds the
+  // payment method and the station cost tabs: payments:read.
+  requiredPermissions: ['payments:read'],
 });
 
 export interface ReportTypeInfo {
@@ -161,7 +177,7 @@ export async function operatorReportLanguage(userId: string | null): Promise<UiL
 /**
  * Builds a report file without storing it. The scheduled report email uses it
  * for recipients whose language differs from the stored report's, with the
- * stored report's site scope. Throws for an unknown report type or a generator
+ * stored report's site scope and the schedule owner's column access. Throws for an unknown report type or a generator
  * error.
  */
 export async function renderReport(
@@ -170,12 +186,13 @@ export async function renderReport(
   format: string,
   language: UiLanguage,
   siteIds: ReportSiteScope,
+  access: ReportColumnAccess,
 ): Promise<ReportGeneratorResult> {
   const descriptor = reportGenerators.get(reportType);
   if (descriptor == null) {
     throw new Error(`No generator registered for report type: ${reportType}`);
   }
-  return descriptor.generate(filters, format, language, siteIds);
+  return descriptor.generate(filters, format, language, siteIds, access);
 }
 
 /**
@@ -222,6 +239,8 @@ export async function queueReport(
     filters: Record<string, unknown>;
     userId: string | null;
     siteScope: ReportSiteScope;
+    /** The columns the requester may see; stored with the report. */
+    columns: ReportColumnAccess;
   },
   dispatch: (reportId: string) => Promise<void>,
 ): Promise<string> {
@@ -234,6 +253,8 @@ export async function queueReport(
       filters: params.filters,
       generatedById: params.userId,
       siteScope: params.siteScope == null ? null : [...params.siteScope],
+      includesDriverData: params.columns.driverData,
+      includesMoney: params.columns.money,
     })
     .returning({ id: reports.id });
 
@@ -266,6 +287,8 @@ export async function generateReport(reportId: string): Promise<void> {
       filters: reports.filters,
       generatedById: reports.generatedById,
       siteScope: reports.siteScope,
+      includesDriverData: reports.includesDriverData,
+      includesMoney: reports.includesMoney,
     });
 
   if (report == null) {
@@ -293,8 +316,13 @@ export async function generateReport(reportId: string): Promise<void> {
     // On-demand reports are in the requesting operator's language; a scheduled
     // report's stored file is in the schedule creator's language.
     const language = await operatorReportLanguage(report.generatedById);
-    // The report covers the sites stored with it (null: all sites).
-    const result = await generator(filters, report.format, language, report.siteScope);
+    // The report covers the sites stored with it (null: all sites), with the
+    // columns stored with it: those the generating request (an API key's
+    // scope included, the schedule owner for a scheduled run) may see.
+    const result = await generator(filters, report.format, language, report.siteScope, {
+      driverData: report.includesDriverData,
+      money: report.includesMoney,
+    });
 
     await db
       .update(reports)

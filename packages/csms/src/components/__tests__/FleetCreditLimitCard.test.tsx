@@ -9,7 +9,7 @@ const { patchMock, getMock, toastMock, permission, ui } = vi.hoisted(() => ({
   patchMock: vi.fn(),
   getMock: vi.fn(),
   toastMock: vi.fn(),
-  permission: { canWrite: true },
+  permission: { canWrite: true, canWritePayments: true },
   ui: { language: 'en' },
 }));
 
@@ -33,7 +33,11 @@ vi.mock('@/lib/api', () => {
   return { api: { patch: patchMock, get: getMock }, ApiError };
 });
 
-vi.mock('@/lib/auth', () => ({ useHasPermission: () => permission.canWrite }));
+// canWrite: fleets:write; canWritePayments: payments:write (both needed to edit).
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: (p: string) =>
+    p === 'payments:write' ? permission.canWritePayments : permission.canWrite,
+}));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 
 import { FleetCreditLimitCard } from '../fleet/FleetCreditLimitCard';
@@ -60,6 +64,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   permission.canWrite = true;
+  permission.canWritePayments = true;
   ui.language = 'en';
 });
 
@@ -262,6 +267,20 @@ describe('FleetCreditLimitCard', () => {
 
   it('hides the edit button without fleets:write', async () => {
     permission.canWrite = false;
+    getMock.mockResolvedValue({
+      creditLimitCents: 10_000,
+      warningPercent: 80,
+      exposure,
+      level: 'ok',
+    } satisfies FleetCreditLimit);
+    wrap();
+
+    expect(await screen.findByText('fleets.creditLimit.levelOk')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'common.edit' })).toBeNull();
+  });
+
+  it('hides the edit button with fleets:write but without payments:write', async () => {
+    permission.canWritePayments = false;
     getMock.mockResolvedValue({
       creditLimitCents: 10_000,
       warningPercent: 80,

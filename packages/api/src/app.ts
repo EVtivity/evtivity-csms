@@ -1,11 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { deriveKey, KEY_LABELS } from '@evtivity/lib/derived-keys';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import cookie from '@fastify/cookie';
-import formbody from '@fastify/formbody';
 import { AppError } from '@evtivity/lib';
+import type { Redis } from 'ioredis';
 import {
   db,
   isRoamingEnabled,
@@ -19,7 +20,13 @@ import { drivers } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
 import { registerApiAccessLog } from './plugins/api-access-log.js';
 import { registerCors } from './plugins/cors.js';
-import { CSRF_SKIP_METHODS, csrfTokensMatch, registerPortalCsrf } from './plugins/csrf.js';
+import { frameworkClientError, sendRouteNotFound } from './lib/framework-error.js';
+import {
+  CSRF_SKIP_METHODS,
+  csrfTokensMatch,
+  refuseCrossSiteSignIn,
+  registerPortalCsrf,
+} from './plugins/csrf.js';
 import { registerEncodedPathGuard, routePath } from './plugins/encoded-path-guard.js';
 import { registerHelmet } from './plugins/helmet.js';
 import { registerAccountNoStore } from './plugins/account-no-store.js';
@@ -28,12 +35,14 @@ import { registerAiToolCallContext } from './services/ai/tools/execute.js';
 import { registerAuth } from './plugins/auth.js';
 import { config } from './lib/config.js';
 import { WeakPasswordError } from './lib/password-validation.js';
+import { DataPlanSettingInTemplateError } from './lib/station-credential-guard.js';
 import { registerOpenApi } from './plugins/openapi.js';
 import { registerResponseCache, cacheRoutes } from './plugins/response-cache.js';
 import { healthRoutes } from './routes/health.js';
 import { siteRoutes } from './routes/sites.js';
 import { stationRoutes } from './routes/stations.js';
 import { stationSimRoutes } from './routes/station-sim.js';
+import { simRoutes } from './routes/sims.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { userRoutes } from './routes/users.js';
 import { webauthnRoutes } from './routes/webauthn.js';
@@ -95,6 +104,7 @@ import { ocpiCdrRoutes } from './routes/ocpi-cdrs.js';
 import { ocpiTariffRoutes } from './routes/ocpi-tariffs.js';
 import { pncSettingsRoutes } from './routes/pnc-settings.js';
 import { simProviderSettingsRoutes } from './routes/sim-provider-settings.js';
+import { dataRetentionSettingsRoutes } from './routes/data-retention-settings.js';
 import { pncCertificateRoutes } from './routes/pnc-certificates.js';
 import { pncLocalRoutes } from './routes/pnc-local.js';
 import { securitySettingsRoutes } from './routes/security-settings.js';
@@ -127,7 +137,13 @@ import { octtRoutes } from './routes/octt.js';
 import { auditRoutes } from './routes/audit.js';
 import { entityNeighborRoutes } from './routes/entity-neighbors.js';
 
-export async function buildApp(opts: FastifyServerOptions = {}): Promise<FastifyInstance> {
+export interface BuildAppOptions extends FastifyServerOptions {
+  /** Shared rate limit counters (the API server passes one; see registerRateLimit). */
+  rateLimitRedis?: Redis;
+}
+
+export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
+  const { rateLimitRedis, ...opts } = options;
   // Default body size limit: 1 MB. Individual routes can override with
   // route-level bodyLimit for endpoints that accept larger payloads
   // (e.g., certificate PEM uploads, bulk imports).
@@ -138,15 +154,17 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
   registerAccountNoStore(app);
 
   // Plugins
+  // Cookies are signed with their own key, derived from JWT_SECRET.
   await app.register(cookie, {
-    secret: config.JWT_SECRET,
+    secret: deriveKey(config.JWT_SECRET, KEY_LABELS.cookies),
   });
-  await app.register(formbody);
   await registerCors(app);
   await registerHelmet(app);
   // First: the rate limiter and the audit writes read the AI tool call context.
   registerAiToolCallContext(app);
-  await registerRateLimit(app);
+  // The server process counts in Redis, one limit for every API replica.
+  // Tests and the spec generators keep per-instance counters.
+  await registerRateLimit(app, rateLimitRedis != null ? { redis: rateLimitRedis } : {});
   await registerAuth(app);
   await registerOpenApi(app);
   registerResponseCache(app);
@@ -159,43 +177,28 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
         .send({ error: error.message, code: error.code, missing: error.missing });
       return;
     }
+    if (error instanceof DataPlanSettingInTemplateError) {
+      void reply.status(error.statusCode).send({
+        error: error.message,
+        code: error.code,
+        details: { variables: error.variables },
+      });
+      return;
+    }
     if (error instanceof AppError) {
       void reply.status(error.statusCode).send({ error: error.message, code: error.code });
       return;
     }
-    const fastifyError = error as {
-      statusCode?: number;
-      message?: string;
-      validation?: Array<{
-        instancePath?: string;
-        message?: string;
-      }>;
-    };
-    if (fastifyError.statusCode != null && fastifyError.statusCode < 500) {
-      // Fastify's AJV validator hangs the failed field list on .validation.
-      // Surface it as `details: { fieldName: message }` so frontend forms can
-      // show server-side errors next to the offending input instead of a
-      // generic banner.
-      const details: Record<string, string> = {};
-      for (const entry of fastifyError.validation ?? []) {
-        const field = entry.instancePath?.replace(/^\//, '') ?? '';
-        if (field && entry.message != null && !(field in details)) {
-          details[field] = entry.message;
-        }
-      }
-      const body: Record<string, unknown> = {
-        error: fastifyError.message,
-        code: fastifyError.statusCode === 429 ? 'RATE_LIMITED' : 'VALIDATION_ERROR',
-      };
-      if (Object.keys(details).length > 0) {
-        body['details'] = details;
-      }
-      void reply.status(fastifyError.statusCode).send(body);
+    // Framework 4xx (schema validation, body parser, JWT, rate limit), coded by status.
+    const client = frameworkClientError(error);
+    if (client != null) {
+      void reply.status(client.status).send(client.body);
       return;
     }
     app.log.error(error);
     void reply.status(500).send({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
   });
+  app.setNotFoundHandler(sendRouteNotFound);
 
   // Routes
   await app.register(healthRoutes);
@@ -206,6 +209,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(siteRoutes);
       await v1.register(stationRoutes);
       await v1.register(stationSimRoutes);
+      await v1.register(simRoutes);
       await v1.register(sessionRoutes);
       await v1.register(userRoutes);
       await v1.register(webauthnRoutes);
@@ -268,6 +272,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(ocpiTariffRoutes);
       await v1.register(pncSettingsRoutes);
       await v1.register(simProviderSettingsRoutes);
+      await v1.register(dataRetentionSettingsRoutes);
       await v1.register(pncCertificateRoutes);
       await v1.register(pncLocalRoutes);
       await v1.register(securitySettingsRoutes);
@@ -401,7 +406,10 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
     if (!url.startsWith('/v1/')) return;
     if (url.startsWith('/v1/portal/')) return;
     if (CSRF_SKIP_METHODS.has(request.method)) return;
-    if (CSMS_CSRF_SKIP_PATHS.has(url)) return;
+    if (CSMS_CSRF_SKIP_PATHS.has(url)) {
+      await refuseCrossSiteSignIn(request, reply, url);
+      return;
+    }
 
     // CSRF only required when authenticating via cookie (no Authorization header)
     const authHeader = request.headers['authorization'];

@@ -24,6 +24,7 @@ const ALL_ON = {
   supportEnabled: true,
   fleetEnabled: true,
   aiInsightsEnabled: true,
+  simEnabled: true,
 };
 
 describe('NAV_ENTRIES', () => {
@@ -108,5 +109,18 @@ describe('AI Insights entry', () => {
       true,
     );
     expect(off.map((e) => e.to)).not.toContain('/ai/insights');
+  });
+});
+
+describe('SIMs entry', () => {
+  it('sits after Stations, needs sims:read and shows only while the SIM features are on', () => {
+    const order = NAV_ENTRIES.map((e) => e.to);
+    expect(order.indexOf('/sims')).toBe(order.indexOf('/stations') + 1);
+    expect(visibleNavEntries(['sims:read'], ALL_ON, true).map((e) => e.to)).toContain('/sims');
+    expect(visibleNavEntries(['stations:read'], ALL_ON, true).map((e) => e.to)).not.toContain(
+      '/sims',
+    );
+    const off = visibleNavEntries(['sims:read'], { ...ALL_ON, simEnabled: false }, true);
+    expect(off.map((e) => e.to)).not.toContain('/sims');
   });
 });

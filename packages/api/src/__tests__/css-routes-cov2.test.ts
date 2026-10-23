@@ -53,6 +53,12 @@ function makeChain() {
   return chain;
 }
 
+// The OCPP server URLs the simulator targets of this file are on.
+vi.hoisted(() => {
+  process.env['OCPP_SERVER_URL'] = 'ws://localhost:3003';
+  process.env['OCPP_TLS_SERVER_URL'] = 'wss://csms.example.com/ocpp';
+});
+
 const { mockAuditStationChange } = vi.hoisted(() => ({
   mockAuditStationChange: vi.fn(() => Promise.resolve()),
 }));
@@ -180,6 +186,7 @@ vi.mock('../middleware/rbac.js', () => ({
       }
     },
   invalidatePermissionCache: vi.fn(),
+  requestHasPermission: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../lib/site-access.js', () => ({
@@ -544,17 +551,21 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
 
     it('updates only css_stations when no charging_stations field changes', async () => {
       // existing lookup, no paired charging_stations row, css_stations update returning
-      setupDbResults([{ id: 'css_1' }], [], [{ ...STATION_ROW, targetUrl: 'ws://other:3003' }]);
+      setupDbResults(
+        [{ id: 'css_1' }],
+        [],
+        [{ ...STATION_ROW, targetUrl: 'wss://csms.example.com/ocpp' }],
+      );
       const res = await app.inject({
         method: 'PATCH',
         url: '/css/stations/SIM-1',
         headers: headers(),
-        payload: { targetUrl: 'ws://other:3003' },
+        payload: { targetUrl: 'wss://csms.example.com/ocpp' },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ targetUrl: 'ws://other:3003' });
+      expect(res.json()).toMatchObject({ targetUrl: 'wss://csms.example.com/ocpp' });
       expect(db.update).toHaveBeenCalledTimes(1);
-      expect(setCalls()[0]).toMatchObject({ targetUrl: 'ws://other:3003' });
+      expect(setCalls()[0]).toMatchObject({ targetUrl: 'wss://csms.example.com/ocpp' });
     });
 
     it('changes only the password through the security service for a paired station', async () => {

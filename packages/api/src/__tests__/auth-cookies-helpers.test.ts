@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { FastifyReply, FastifyRequest } from 'fastify';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 
 const configState = vi.hoisted(() => ({ COOKIE_DOMAIN: undefined as string | undefined }));
 
@@ -19,32 +19,40 @@ beforeEach(() => {
 });
 
 describe('isSecureRequest', () => {
-  it('returns true when x-forwarded-proto is https', () => {
-    const req = { headers: { 'x-forwarded-proto': 'https' } } as unknown as FastifyRequest;
-    expect(isSecureRequest(req)).toBe(true);
+  async function secureFor(
+    trustProxy: string | false,
+    headers: Record<string, string>,
+  ): Promise<boolean> {
+    const app = Fastify({ trustProxy });
+    app.get('/', (request) => ({ secure: isSecureRequest(request) }));
+    const res = await app.inject({
+      method: 'GET',
+      url: '/',
+      headers,
+      remoteAddress: '203.0.113.9',
+    });
+    await app.close();
+    return res.json<{ secure: boolean }>().secure;
+  }
+
+  it('ignores a forged X-Forwarded-Proto from a peer that is not a trusted proxy', async () => {
+    expect(await secureFor(false, { 'x-forwarded-proto': 'https' })).toBe(false);
+    expect(await secureFor('10.0.0.0/8', { 'x-forwarded-proto': 'https' })).toBe(false);
   });
 
-  it('reads the first proto from a comma-separated x-forwarded-proto header', () => {
-    const req = {
-      headers: { 'x-forwarded-proto': 'https, http' },
-    } as unknown as FastifyRequest;
-    expect(isSecureRequest(req)).toBe(true);
+  it('follows X-Forwarded-Proto from a trusted proxy', async () => {
+    expect(await secureFor('203.0.113.0/24', { 'x-forwarded-proto': 'https' })).toBe(true);
+    expect(await secureFor('203.0.113.0/24', { 'x-forwarded-proto': 'http' })).toBe(false);
   });
 
-  it('returns false when the forwarded proto is http', () => {
-    const req = {
-      headers: { 'x-forwarded-proto': 'http' },
-      protocol: 'https',
-    } as unknown as FastifyRequest;
-    expect(isSecureRequest(req)).toBe(false);
-  });
-
-  it('falls back to request.protocol when no forwarded header is present', () => {
+  it('reads request.protocol', () => {
     const reqHttps = { headers: {}, protocol: 'https' } as unknown as FastifyRequest;
     expect(isSecureRequest(reqHttps)).toBe(true);
-
-    const reqHttp = { headers: {}, protocol: 'http' } as unknown as FastifyRequest;
-    expect(isSecureRequest(reqHttp)).toBe(false);
+    const forged = {
+      headers: { 'x-forwarded-proto': 'https' },
+      protocol: 'http',
+    } as unknown as FastifyRequest;
+    expect(isSecureRequest(forged)).toBe(false);
   });
 });
 

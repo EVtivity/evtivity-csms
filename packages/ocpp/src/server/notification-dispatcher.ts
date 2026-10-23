@@ -313,6 +313,7 @@ export async function dispatchOcppNotification(
                 rendered.body,
                 formattedVariables,
                 allowedPrivateHosts,
+                notificationSettings.webhookSigningSecret ?? null,
               );
               if (result !== 'ok') {
                 return { status: 'failed', failureReason: `webhook_${result}` };

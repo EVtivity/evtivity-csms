@@ -14,6 +14,7 @@ import type { LookupAddress, LookupAllOptions, LookupOneOptions } from 'node:dns
 import { BlockList, isIP } from 'node:net';
 import { Agent, buildConnector, fetch as undiciFetch } from 'undici';
 import type { RequestInit, Response } from 'undici';
+import { groupsToIpv4, ipv6Groups } from './ip-address.js';
 
 // IPv4 ranges that are not public unicast: unspecified (0/8), private (10/8,
 // 172.16/12, 192.168/16), CGNAT (100.64/10), loopback (127/8), link-local and
@@ -47,6 +48,9 @@ const NON_PUBLIC_V4: readonly [string, number][] = [
 // 6to4) are decoded and checked as IPv4 instead.
 const NON_PUBLIC_V6: readonly [string, number][] = [
   ['::', 96],
+  // Local-use NAT64 (RFC 8215): a translator on the host network maps it to
+  // any IPv4 address, private ones included.
+  ['64:ff9b:1::', 48],
   ['100::', 64],
   ['2001:db8::', 32],
   ['fc00::', 7],
@@ -57,8 +61,9 @@ const NON_PUBLIC_V6: readonly [string, number][] = [
 
 // Ranges no outbound request has a reason to reach, even for a destination
 // allowed to use private networks: unspecified, link-local (cloud metadata
-// services live at 169.254.169.254 and fd00:ec2::254 is reached through it),
-// multicast and reserved.
+// services live at 169.254.169.254), the EC2 IPv6 metadata address
+// fd00:ec2::254 (a unique-local address, so listed on its own), local-use
+// NAT64, multicast and reserved.
 const UNROUTABLE_V4: readonly [string, number][] = [
   ['0.0.0.0', 8],
   ['169.254.0.0', 16],
@@ -67,6 +72,8 @@ const UNROUTABLE_V4: readonly [string, number][] = [
 ];
 const UNROUTABLE_V6: readonly [string, number][] = [
   ['::', 128],
+  ['fd00:ec2::254', 128],
+  ['64:ff9b:1::', 48],
   ['fe80::', 10],
   ['ff00::', 8],
 ];
@@ -84,31 +91,10 @@ function buildBlockList(
 const blockList = buildBlockList(NON_PUBLIC_V4, NON_PUBLIC_V6);
 const unroutableList = buildBlockList(UNROUTABLE_V4, UNROUTABLE_V6);
 
-/** The eight 16-bit groups of a valid IPv6 address (dotted IPv4 tail allowed). */
-function ipv6Groups(address: string): number[] {
-  let text = address.toLowerCase();
-  const dotted = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(text);
-  if (dotted != null) {
-    const [a, b, c, d] = dotted.slice(1).map(Number) as [number, number, number, number];
-    text = `${text.slice(0, dotted.index)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
-  }
-  const [head = '', tail] = text.split('::');
-  const headGroups = head === '' ? [] : head.split(':');
-  const tailGroups = tail == null || tail === '' ? [] : tail.split(':');
-  const fill = tail == null ? 0 : 8 - headGroups.length - tailGroups.length;
-  return [...headGroups, ...Array<string>(fill).fill('0'), ...tailGroups].map((g) =>
-    parseInt(g, 16),
-  );
-}
-
-function groupsToIpv4(high: number, low: number): string {
-  return `${String(high >> 8)}.${String(high & 0xff)}.${String(low >> 8)}.${String(low & 0xff)}`;
-}
-
 /**
  * The IPv4 address an IPv6 address carries, or null: IPv4-mapped
- * (::ffff:0:0/96), IPv4-compatible (::/96, deprecated), NAT64 (64:ff9b::/96,
- * 64:ff9b:1::/48) and 6to4 (2002::/16).
+ * (::ffff:0:0/96), IPv4-compatible (::/96, deprecated), NAT64 (64:ff9b::/96)
+ * and 6to4 (2002::/16).
  */
 function embeddedIpv4(groups: number[]): string | null {
   const g = (i: number): number => groups[i] ?? 0;
@@ -116,7 +102,9 @@ function embeddedIpv4(groups: number[]): string | null {
   if (zeroPrefix(5) && g(5) === 0xffff) return groupsToIpv4(g(6), g(7));
   // IPv4-compatible; ::/96 with a zero high group is :: or ::1, not an IPv4.
   if (zeroPrefix(6) && g(6) !== 0) return groupsToIpv4(g(6), g(7));
-  if (g(0) === 0x64 && g(1) === 0xff9b && (g(2) === 0 || g(2) === 1)) {
+  // Well-known NAT64 prefix 64:ff9b::/96 (RFC 6052). The local-use /48 is
+  // blocked whole: its IPv4 sits in other bits and a translator decides it.
+  if (g(0) === 0x64 && g(1) === 0xff9b && [2, 3, 4, 5].every((i) => g(i) === 0)) {
     return groupsToIpv4(g(6), g(7));
   }
   if (g(0) === 0x2002) return groupsToIpv4(g(1), g(2));
@@ -151,7 +139,9 @@ function matches(list: BlockList, address: string): boolean {
   if (family !== 6) return true;
   const withoutZone = address.split('%')[0] ?? address;
   if (list.check(withoutZone, 'ipv6')) return true;
-  const v4 = embeddedIpv4(ipv6Groups(withoutZone));
+  const groups = ipv6Groups(withoutZone);
+  if (groups == null) return true;
+  const v4 = embeddedIpv4(groups);
   return v4 != null && list.check(v4, 'ipv4');
 }
 

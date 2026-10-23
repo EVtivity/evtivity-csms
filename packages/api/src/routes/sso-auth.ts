@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
+import formbody from '@fastify/formbody';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
@@ -17,6 +18,7 @@ import {
 import { generateId, permissionCatalog } from '@evtivity/lib';
 import { config as apiConfig } from '../lib/config.js';
 import { errorWith } from '../lib/response-schemas.js';
+import { linkSsoSubject, rememberPendingSsoLink } from '../lib/sso-link.js';
 import { emailEquals } from '../lib/email-match.js';
 import { recordAuthAudit } from '../lib/auth-audit.js';
 import { beginOperatorMfa, type OperatorMfaPending } from '../lib/operator-mfa.js';
@@ -124,6 +126,11 @@ function getBaseUrl(): string {
 }
 
 export function ssoAuthRoutes(app: FastifyInstance): void {
+  // The SAML callback is the only route that reads a form: the identity provider
+  // posts it. Registered in this scope, so every other route answers 415 to a form
+  // (no login CSRF through a plain HTML form).
+  void app.register(formbody);
+
   app.get(
     '/auth/sso/login',
     {
@@ -246,23 +253,46 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Look up user by email (case-insensitive)
-      const [existingUser] = await db
-        .select({
-          id: users.id,
-          roleId: users.roleId,
-          isActive: users.isActive,
-          email: users.email,
-          phone: users.phone,
-          firstName: users.firstName,
-          language: users.language,
-          mfaEnabled: users.mfaEnabled,
-          mfaMethod: users.mfaMethod,
-          sessionVersion: users.sessionVersion,
-        })
+      // The IdP subject binds the account: the email
+      // attribute alone never picks an existing account.
+      const subject = ssoSubjectOf(profile);
+      if (subject == null) {
+        request.log.warn('SAML reply without a NameID, refusing it');
+        await reply.redirect('/login?error=sso_config_error');
+        return;
+      }
+
+      const accountColumns = {
+        id: users.id,
+        roleId: users.roleId,
+        isActive: users.isActive,
+        email: users.email,
+        phone: users.phone,
+        firstName: users.firstName,
+        language: users.language,
+        mfaEnabled: users.mfaEnabled,
+        mfaMethod: users.mfaMethod,
+        sessionVersion: users.sessionVersion,
+        ssoSubject: users.ssoSubject,
+        ssoLinkAllowed: users.ssoLinkAllowed,
+      };
+      // The account with this email (case-insensitive) when it is bound to this
+      // subject; else the account bound to the subject (its IdP email changed);
+      // else the email's account, which the link rules below decide on.
+      const [byEmail] = await db
+        .select(accountColumns)
         .from(users)
         .where(emailEquals(users.email, email))
         .limit(1);
+      const [bySubject] =
+        byEmail?.ssoSubject === subject
+          ? [byEmail]
+          : await db
+              .select(accountColumns)
+              .from(users)
+              .where(eq(users.ssoSubject, subject))
+              .limit(1);
+      const existingUser = bySubject ?? byEmail;
 
       if (existingUser != null) {
         if (!existingUser.isActive) {
@@ -290,13 +320,59 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
           return;
         }
 
+        // An account not yet bound to this subject: one bound to another subject is
+        // refused, an SSO-created one or one an admin (or the user) allowed is
+        // linked now, a password account otherwise needs that link first.
+        // The bind waits for the MFA step: a sign-in that never passes it binds nothing.
+        const needsLink = existingUser.ssoSubject !== subject;
+        if (needsLink) {
+          // Only an allowed link binds, SSO-created accounts included, so a
+          // cleared binding stays cleared until an admin allows it.
+          const linkable = existingUser.ssoSubject == null && existingUser.ssoLinkAllowed;
+          if (!linkable) {
+            await recordAuthAudit(request, {
+              kind: 'user',
+              accountId: existingUser.id,
+              action: 'login_failed',
+              method: 'sso',
+              reason:
+                existingUser.ssoSubject != null ? 'sso_subject_mismatch' : 'sso_link_required',
+            });
+            await reply.redirect('/login?error=sso_link_required');
+            return;
+          }
+        }
+
         // The IdP assertion replaces the password, not the second factor: a
         // user with MFA completes the same challenge as a password login
         // before a session is issued. The pending state travels in the URL
         // fragment, which the browser never sends to a server.
         const mfaPending = await beginOperatorMfa(app, existingUser);
         if (mfaPending != null) {
+          // Bound when that MFA challenge or enrollment completes for this account.
+          const stepToken =
+            'mfaToken' in mfaPending
+              ? mfaPending.mfaToken
+              : 'enrollmentToken' in mfaPending
+                ? mfaPending.enrollmentToken
+                : null;
+          if (needsLink && stepToken != null) {
+            await rememberPendingSsoLink(stepToken, existingUser.id, subject);
+          }
           await redirectToMfa(request, reply, existingUser.id, mfaPending, relayState);
+          return;
+        }
+
+        // No MFA step: bound before the session is issued (a failed bind issues none).
+        if (needsLink && !(await linkSsoSubject(existingUser.id, subject, request.log))) {
+          await recordAuthAudit(request, {
+            kind: 'user',
+            accountId: existingUser.id,
+            action: 'login_failed',
+            method: 'sso',
+            reason: 'sso_link_required',
+          });
+          await reply.redirect('/login?error=sso_link_required');
           return;
         }
 
@@ -364,6 +440,7 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
             lastName,
             passwordHash: '', // SSO users have no password
             authSource: 'sso',
+            ssoSubject: subject,
             roleId: defaultRole.id,
             isActive: true,
             hasAllSiteAccess: false,
@@ -496,6 +573,17 @@ export function ssoMfaFragment(
   if (pending.mfaMethodDisabled === true) params.set('ssoMfaMethodDisabled', '1');
   if (state != null) params.set('ssoState', state);
   return params.toString();
+}
+
+/**
+ * The IdP subject of an assertion: its issuer and NameID, or null without a
+ * NameID. Stored at an account's first SSO sign-in and matched after.
+ */
+export function ssoSubjectOf(profile: Record<string, unknown>): string | null {
+  const nameId = profile['nameID'];
+  if (typeof nameId !== 'string' || nameId.trim() === '') return null;
+  const issuer = typeof profile['issuer'] === 'string' ? profile['issuer'] : '';
+  return `${issuer}|${nameId}`;
 }
 
 function extractAttribute(profile: Record<string, unknown>, key: string): string | null {

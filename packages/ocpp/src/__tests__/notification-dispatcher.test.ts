@@ -210,6 +210,7 @@ describe('dispatchOcppNotification', () => {
       smtp: null,
       twilio: null,
       emailWrapperTemplate: null,
+      webhookSigningSecret: 'whsec_dispatch',
     });
     mockResolveRecipients.mockReturnValue([{ address: 'https://hook.test.com', language: 'en' }]);
     mockRenderTemplate.mockResolvedValue({ subject: 'Test', body: 'Body' });
@@ -219,12 +220,14 @@ describe('dispatchOcppNotification', () => {
     mockGetWebhookAllowedPrivateHosts.mockResolvedValueOnce(['n8n']);
     await dispatchOcppNotification(sql as never, makeEvent('ocpp.StatusNotification'));
 
+    // The signing secret goes with every webhook.
     expect(mockSendWebhook).toHaveBeenCalledWith(
       'https://hook.test.com',
       'Test',
       'Body',
       expect.any(Object),
       ['n8n'],
+      'whsec_dispatch',
     );
   });
 

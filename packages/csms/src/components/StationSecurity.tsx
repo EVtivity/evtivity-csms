@@ -21,6 +21,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Pagination } from '@/components/ui/pagination';
 import { JsonDetailBlock, JsonPreviewToggle } from '@/components/ExpandableJson';
 import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
 import { formatDateTime } from '@/lib/timezone';
 import { SEVERITY_VARIANT } from '@/lib/severity';
 import { getErrorMessage } from '@/lib/error-message';
@@ -33,6 +34,7 @@ import {
   OCPP201_NETWORK_INTERFACES,
   type Ocpp201NetworkInterface,
 } from '@evtivity/lib/ocpp-version';
+import { SECURITY_PROFILE_PERMISSION } from '@evtivity/lib/ocpp-command-permissions';
 
 interface ProfileChangeBody {
   securityProfile: number;
@@ -347,6 +349,10 @@ export function StationSecurity({
 
   const logsTotalPages = Math.max(1, Math.ceil((logsResponse?.total ?? 0) / logsLimit));
 
+  // A profile change sends SetNetworkProfile or ChangeConfiguration. Password
+  // changes and rotation stay on stations:write.
+  const canChangeProfile = useHasPermission(SECURITY_PROFILE_PERMISSION);
+
   return (
     <div className="space-y-6">
       {/* Security Profile & Credentials */}
@@ -368,16 +374,18 @@ export function StationSecurity({
                 <span>
                   {t('stations.profileUpgradePending', { profile: pendingSecurityProfile })}
                 </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={updateProfileMutation.isPending}
-                  onClick={() => {
-                    updateProfileMutation.mutate({ securityProfile });
-                  }}
-                >
-                  {t('stations.cancelProfileUpgrade')}
-                </Button>
+                {canChangeProfile && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={updateProfileMutation.isPending}
+                    onClick={() => {
+                      updateProfileMutation.mutate({ securityProfile });
+                    }}
+                  >
+                    {t('stations.cancelProfileUpgrade')}
+                  </Button>
+                )}
               </AlertDescription>
             </Alert>
           )}
@@ -385,30 +393,34 @@ export function StationSecurity({
           {
             <>
               <div className="flex items-center gap-2 flex-wrap">
-                <Label htmlFor="security-profile" className="text-sm whitespace-nowrap">
-                  {t('stations.changeProfile')}:
-                </Label>
-                <Select
-                  id="security-profile"
-                  value={String(pendingProfile ?? securityProfile)}
-                  onChange={(e) => {
-                    handleProfileSelect(Number(e.target.value));
-                  }}
-                  disabled={updateProfileMutation.isPending}
-                >
-                  {/* A connected station cannot be moved to a lower profile over OCPP. */}
-                  {[0, 1, 2, 3]
-                    .filter((profile) => !is16 || profile < 3)
-                    .map((profile) => (
-                      <option
-                        key={profile}
-                        value={String(profile)}
-                        disabled={isOnline && profile < securityProfile}
-                      >
-                        {t(PROFILE_LABELS[profile] ?? 'stations.sp0')}
-                      </option>
-                    ))}
-                </Select>
+                {canChangeProfile && (
+                  <Label htmlFor="security-profile" className="text-sm whitespace-nowrap">
+                    {t('stations.changeProfile')}:
+                  </Label>
+                )}
+                {canChangeProfile && (
+                  <Select
+                    id="security-profile"
+                    value={String(pendingProfile ?? securityProfile)}
+                    onChange={(e) => {
+                      handleProfileSelect(Number(e.target.value));
+                    }}
+                    disabled={updateProfileMutation.isPending}
+                  >
+                    {/* A connected station cannot be moved to a lower profile over OCPP. */}
+                    {[0, 1, 2, 3]
+                      .filter((profile) => !is16 || profile < 3)
+                      .map((profile) => (
+                        <option
+                          key={profile}
+                          value={String(profile)}
+                          disabled={isOnline && profile < securityProfile}
+                        >
+                          {t(PROFILE_LABELS[profile] ?? 'stations.sp0')}
+                        </option>
+                      ))}
+                  </Select>
+                )}
                 {securityProfile >= 1 && securityProfile < 3 && pendingProfile == null && (
                   <>
                     <Button

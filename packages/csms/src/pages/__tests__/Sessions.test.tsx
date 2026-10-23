@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router';
 
 const { apiMock } = vi.hoisted(() => {
   // The theme store reads matchMedia when the app modules load; jsdom has none.
@@ -73,9 +73,11 @@ function LocationProbe(): null {
 
 function renderPage(url: string): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The app's BrowserRouter: the page reads the URL as the browser holds it.
+  window.history.replaceState(null, '', url);
   render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[url]}>
+      <BrowserRouter>
         <Routes>
           <Route
             path="/sessions"
@@ -87,7 +89,7 @@ function renderPage(url: string): void {
             }
           />
         </Routes>
-      </MemoryRouter>
+      </BrowserRouter>
     </QueryClientProvider>,
   );
 }
@@ -155,6 +157,38 @@ describe('Sessions list', () => {
     await waitFor(() => {
       expect(listUrls()).toContain('/v1/sessions?page=1&limit=10&siteId=sit_1&status=faulted');
     });
+  });
+
+  it('keeps the search in the URL when a filter changes right after the debounced search', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/v1/sites?limit=100')
+        return Promise.resolve({ data: [{ id: 'sit_1', name: 'North' }], total: 1 });
+      return Promise.resolve({ data: [], total: 0 });
+    });
+    renderPage('/sessions');
+    await waitFor(() => {
+      expect(listUrls()).toContain('/v1/sessions?page=1&limit=10');
+    });
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(
+        screen.getAllByPlaceholderText('sessions.searchPlaceholder')[0] as HTMLElement,
+        { target: { value: 'RFID' } },
+      );
+      // The debounced search and a filter change land before the page renders the new URL.
+      act(() => {
+        vi.advanceTimersByTime(300);
+        fireEvent.change(screen.getAllByLabelText('common.status')[0] as HTMLElement, {
+          target: { value: 'faulted' },
+        });
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() => {
+      expect(lastSearch).toContain('status=faulted');
+    });
+    expect(lastSearch).toContain('search=RFID');
   });
 
   it('loads a selected site that is not in the first 100 by id, so the filter shows it', async () => {

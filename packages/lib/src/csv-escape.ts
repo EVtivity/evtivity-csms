@@ -10,6 +10,13 @@
 // quote is treated as a "text" marker and not shown).
 const FORMULA_PREFIXES = new Set(['=', '+', '-', '@', '\t', '\r']);
 
+// Excel opening a .csv in a locale whose list separator is ';' (de, es)
+// splits a field on it, quotes or not, when the field does not start the
+// line, and a tab-separated import splits on TAB. A formula character after
+// one of them would then start a new cell (OWASP CSV Injection), so a single
+// quote goes in front of it. A comma inside a quoted field never splits it.
+const SPLIT_FORMULA = /([;\t]\s*)([=+\-@])/g;
+
 export function neutraliseSpreadsheetFormula(value: string): string {
   if (value === '') return value;
   return FORMULA_PREFIXES.has(value.charAt(0)) ? `'${value}` : value;
@@ -18,20 +25,22 @@ export function neutraliseSpreadsheetFormula(value: string): string {
 export function csvEscape(value: unknown): string {
   if (value == null) return '';
   let str: string;
-  if (typeof value === 'string') {
-    str = value;
-  } else if (typeof value === 'number' || typeof value === 'boolean') {
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    // A number or boolean is never text a person typed: `-5` stays a number.
     str = String(value);
   } else {
-    str = JSON.stringify(value);
-  }
-  if (typeof value === 'string') {
-    str = neutraliseSpreadsheetFormula(str);
+    // Every other value (strings, and objects, arrays or dates serialized as
+    // JSON) is neutralized, so text inside a serialized value cannot start a
+    // formula either.
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    str = neutraliseSpreadsheetFormula(text).replace(SPLIT_FORMULA, "$1'$2");
   }
   // RFC 4180: fields containing CR, LF, comma, or double-quote must be
   // enclosed in double-quotes. Without quoting bare CR, an embedded \r in
-  // user data would inject a line break into the output.
-  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+  // user data would inject a line break into the output. A semicolon or TAB
+  // is quoted too: Excel splits on the locale list separator (';' in de and
+  // es) and a tab-separated import on TAB.
+  if (/[,"\n\r;\t]/.test(str)) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;

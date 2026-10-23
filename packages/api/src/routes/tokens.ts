@@ -137,27 +137,43 @@ const createTokenBody = z.object({
   prepaidBalanceCents: prepaidBalanceSchema,
 });
 
-const updateTokenBody = z.object({
-  idToken: z.string().min(1).max(255).optional().describe('Token identifier'),
-  tokenType: tokenTypeSchema.optional().describe('OCPP IdToken type'),
-  driverId: ID_PARAMS.driverId
-    .nullable()
-    .optional()
-    .describe('Driver ID to assign this token to, or null to unassign'),
-  isActive: z.boolean().optional().describe('Whether the token is active'),
-  expiresAt: z.coerce
-    .date()
-    .nullable()
-    .optional()
-    .describe('Optional expiration timestamp; null clears expiry'),
-  revokedReason: z
-    .string()
-    .max(100)
-    .nullable()
-    .optional()
-    .describe('Optional reason recorded when the token is deactivated'),
-  prepaidBalanceCents: prepaidBalanceSchema,
-});
+const updateTokenBody = z
+  .object({
+    idToken: z.string().min(1).max(255).optional().describe('Token identifier'),
+    tokenType: tokenTypeSchema.optional().describe('OCPP IdToken type'),
+    driverId: ID_PARAMS.driverId
+      .nullable()
+      .optional()
+      .describe('Driver ID to assign this token to, or null to unassign'),
+    isActive: z.boolean().optional().describe('Whether the token is active'),
+    expiresAt: z.coerce
+      .date()
+      .nullable()
+      .optional()
+      .describe('Optional expiration timestamp; null clears expiry'),
+    revokedReason: z
+      .string()
+      .max(100)
+      .nullable()
+      .optional()
+      .describe('Optional reason recorded when the token is deactivated'),
+    prepaidBalanceCents: prepaidBalanceSchema,
+    expectedPrepaidBalanceCents: z
+      .number()
+      .int()
+      .nullable()
+      .optional()
+      .describe(
+        'The balance the client read before changing prepaidBalanceCents (null for a postpaid token). Required with prepaidBalanceCents (400 VALIDATION_ERROR without it). The change applies only if the stored balance still equals it, else 409 PREPAID_BALANCE_CONFLICT, so a session debit in between is never overwritten. Send prepaidBalanceCents only to change it.',
+      ),
+  })
+  .refine(
+    (b) => b.prepaidBalanceCents === undefined || b.expectedPrepaidBalanceCents !== undefined,
+    {
+      message: 'expectedPrepaidBalanceCents is required with prepaidBalanceCents',
+      path: ['expectedPrepaidBalanceCents'],
+    },
+  );
 
 const bulkActiveBody = z.object({
   ids: z.array(ID_PARAMS.driverTokenId).min(1).max(500).describe('Token IDs to update'),
@@ -456,11 +472,16 @@ export function tokenRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(tokenCreated),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
-          409: errorWith('Duplicate token, inactive driver, or a Plug and Charge contract token', [
-            ERROR_CODES.TOKEN_DUPLICATE,
-            ERROR_CODES.DRIVER_INACTIVE,
-            ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
-          ]),
+          409: errorWith(
+            "Duplicate token, inactive driver, a Plug and Charge contract token, another driver's vehicle id, or a balance on a reactivated card that already holds one",
+            [
+              ERROR_CODES.TOKEN_DUPLICATE,
+              ERROR_CODES.DRIVER_INACTIVE,
+              ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
+              ERROR_CODES.VEHICLE_ID_IN_USE,
+              ERROR_CODES.PREPAID_BALANCE_CONFLICT,
+            ],
+          ),
         },
       },
     },
@@ -473,6 +494,15 @@ export function tokenRoutes(app: FastifyInstance): void {
         );
         await reply.status(201).send(token);
       } catch (err) {
+        // Re-adding a removed card of the driver reactivates it, and sets the
+        // sent balance only while the card holds none (PP2 Info 3).
+        if (err instanceof tokenService.PrepaidBalanceConflictError) {
+          await reply.status(409).send({
+            error: 'The card already holds a prepaid balance: change it on the token',
+            code: 'PREPAID_BALANCE_CONFLICT',
+          });
+          return;
+        }
         if (err instanceof tokenService.TokenDriverNotFoundError) {
           await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
           return;
@@ -485,6 +515,13 @@ export function tokenRoutes(app: FastifyInstance): void {
           await reply.status(409).send({
             error: 'This token is the eMAID of a Plug and Charge contract',
             code: 'PNC_CONTRACT_TOKEN_LOCKED',
+          });
+          return;
+        }
+        if (err instanceof tokenService.VehicleIdTokenInUseError) {
+          await reply.status(409).send({
+            error: "Another driver's vehicle uses this id",
+            code: 'VEHICLE_ID_IN_USE',
           });
           return;
         }
@@ -512,15 +549,23 @@ export function tokenRoutes(app: FastifyInstance): void {
         body: zodSchema(updateTokenBody),
         response: {
           200: itemResponse(tokenCreated),
+          400: errorWith('prepaidBalanceCents without expectedPrepaidBalanceCents', [
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('Token or driver not found', [
             ERROR_CODES.TOKEN_NOT_FOUND,
             ERROR_CODES.DRIVER_NOT_FOUND,
           ]),
-          409: errorWith('Duplicate token, inactive driver, or a Plug and Charge contract token', [
-            ERROR_CODES.TOKEN_DUPLICATE,
-            ERROR_CODES.DRIVER_INACTIVE,
-            ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
-          ]),
+          409: errorWith(
+            'Duplicate token, inactive driver, a Plug and Charge contract token, a vehicle id in use, or a stale expectedPrepaidBalanceCents',
+            [
+              ERROR_CODES.TOKEN_DUPLICATE,
+              ERROR_CODES.DRIVER_INACTIVE,
+              ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
+              ERROR_CODES.VEHICLE_ID_IN_USE,
+              ERROR_CODES.PREPAID_BALANCE_CONFLICT,
+            ],
+          ),
         },
       },
     },
@@ -551,6 +596,27 @@ export function tokenRoutes(app: FastifyInstance): void {
           await reply.status(409).send({
             error: 'This token is the eMAID of a Plug and Charge contract',
             code: 'PNC_CONTRACT_TOKEN_LOCKED',
+          });
+          return;
+        }
+        if (err instanceof tokenService.PrepaidBalanceExpectedError) {
+          await reply.status(400).send({
+            error: 'expectedPrepaidBalanceCents is required with prepaidBalanceCents',
+            code: 'VALIDATION_ERROR',
+          });
+          return;
+        }
+        if (err instanceof tokenService.PrepaidBalanceConflictError) {
+          await reply.status(409).send({
+            error: 'The prepaid balance changed since it was read',
+            code: 'PREPAID_BALANCE_CONFLICT',
+          });
+          return;
+        }
+        if (err instanceof tokenService.VehicleIdTokenInUseError) {
+          await reply.status(409).send({
+            error: "Another driver's vehicle uses this id",
+            code: 'VEHICLE_ID_IN_USE',
           });
           return;
         }

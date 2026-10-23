@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   getUserSiteIds: vi.fn(),
   redactRows: vi.fn(async (rows: unknown[]) => rows),
+  // The permissions the caller holds beyond audit:read; null: every one.
+  granted: { list: null as string[] | null },
 }));
 
 vi.mock('@evtivity/database', async () => {
@@ -44,6 +46,7 @@ vi.mock('@evtivity/database', async () => {
     'invoice',
     'ai_insight',
     'ai_proposal',
+    'payment',
   ];
   return {
     ...rawTimestamp,
@@ -56,11 +59,16 @@ vi.mock('@evtivity/database', async () => {
   };
 });
 
-vi.mock('../middleware/rbac.js', () => ({
-  authorize: () => async (request: { jwtVerify: () => Promise<void> }) => {
-    await request.jwtVerify();
-  },
-}));
+vi.mock('../middleware/rbac.js', async () => {
+  const { hasPermission } = await import('@evtivity/lib');
+  return {
+    authorize: () => async (request: { jwtVerify: () => Promise<void> }) => {
+      await request.jwtVerify();
+    },
+    requestHasPermission: (_request: unknown, permission: string) =>
+      Promise.resolve(mocks.granted.list == null || hasPermission(mocks.granted.list, permission)),
+  };
+});
 
 vi.mock('../lib/site-access.js', () => ({ getUserSiteIds: mocks.getUserSiteIds }));
 vi.mock('../lib/support-case-scope.js', async () => {
@@ -75,6 +83,7 @@ vi.mock('../lib/support-case-redaction.js', async () => {
   };
 });
 
+import { permissionCatalog } from '@evtivity/lib';
 import { registerAuth } from '../plugins/auth.js';
 import { auditRoutes } from '../routes/audit.js';
 
@@ -104,6 +113,7 @@ describe('audit routes site scope', () => {
   beforeEach(() => {
     mocks.execute.mockReset().mockResolvedValue([]);
     mocks.getUserSiteIds.mockReset().mockResolvedValue(null);
+    mocks.granted.list = null;
   });
 
   function get(url: string) {
@@ -287,6 +297,63 @@ describe('audit routes site scope', () => {
       const res = await get('/audit?entityType=tariff');
       expect(res.json()).toEqual({ data: [], total: 0 });
       expect(mocks.execute).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resource read permissions', () => {
+    const VIEWER = permissionCatalog.defaultsFor('viewer');
+
+    it.each(['setting', 'api_key', 'user', 'role', 'payment'])(
+      'gives an all-site viewer no %s rows from /audit',
+      async (type) => {
+        mocks.granted.list = VIEWER.filter((p) => p !== 'payments:read' && p !== 'users:read');
+        const res = await get(`/audit?entityType=${type}`);
+        expect(res.json()).toEqual({ data: [], total: 0 });
+        expect(mocks.execute).not.toHaveBeenCalled();
+      },
+    );
+
+    it('answers an empty page for one setting without settings.system:read', async () => {
+      mocks.granted.list = VIEWER;
+      const res = await get('/audit/setting/smtp.host');
+      expect(res.json()).toEqual({ data: [], total: 0 });
+      expect(mocks.execute).not.toHaveBeenCalled();
+    });
+
+    it('leaves the unreadable types out of /audit and keeps the rest', async () => {
+      mocks.granted.list = ['audit:read', 'stations:read'];
+      const res = await get('/audit');
+      expect(res.statusCode).toBe(200);
+      const [dataSql] = executedSql();
+      for (const table of [
+        'setting',
+        'user',
+        'role',
+        'api_key',
+        'payment',
+        'invoice',
+        'driver',
+        'token',
+      ]) {
+        expect(dataSql, table).not.toContain(`"${table}_audit_log"`);
+      }
+      expect(dataSql).toContain('"station_audit_log"');
+    });
+
+    it('lists a session without its payment rows unless payments:read', async () => {
+      mocks.granted.list = ['audit:read', 'sessions:read'];
+      await get('/audit/session/ses_1');
+      expect(executedSql().join(' ')).not.toContain('"payment_audit_log"');
+      mocks.execute.mockClear();
+      mocks.granted.list = ['audit:read', 'sessions:read', 'payments:read'];
+      await get('/audit/session/ses_1');
+      expect(executedSql().join(' ')).toContain('"payment_audit_log"');
+    });
+
+    it('returns setting rows with settings.system:read (control)', async () => {
+      mocks.granted.list = [...VIEWER, 'settings.system:read'];
+      await get('/audit?entityType=setting');
+      expect(executedSql()[0]).toContain('"setting_audit_log"');
     });
   });
 });

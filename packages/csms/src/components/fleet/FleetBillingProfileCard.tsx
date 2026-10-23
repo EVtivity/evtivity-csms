@@ -95,7 +95,10 @@ export function FleetBillingProfileCard({
   const { t } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const canWrite = useHasPermission('fleets:write');
+  // Fleet billing changes money: fleets:write and payments:write, as the API.
+  const canWriteFleets = useHasPermission('fleets:write');
+  const canWritePayments = useHasPermission('payments:write');
+  const canWrite = canWriteFleets && canWritePayments;
   const [editing, setEditing] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [form, setForm] = useState<FormState>(() => toForm(fleet));

@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
+import { isDataPlan } from '@evtivity/lib';
+import type { DataPlan } from '@evtivity/lib';
 import { toDate, toDateOrNull } from './raw-timestamp.js';
+import { effectiveDataPlanSqlText } from './station-data-plan.js';
 
 // The offline sweep (worker cron `station-offline-sweep`) marks offline a
 // station left online by an OCPP process that died without publishing
@@ -18,40 +21,61 @@ export interface StaleOnlineStation {
   stationId: string;
   lastActivityAt: Date | null;
   staleBefore: Date;
+  /** The station's effective data plan, whose threshold applied. */
+  dataPlan: DataPlan;
+  /** The threshold of the station's plan, for markStationOfflineIfStale. */
+  thresholdMs: number;
 }
 
 /**
  * Online stations whose last activity (`last_heartbeat`, bumped by every
- * inbound message) is older than `thresholdMs`, oldest first.
+ * inbound message) is older than the threshold of their effective data plan
+ * (the heartbeat timeout of that plan plus slack), oldest first.
  */
 export async function findStaleOnlineStations(
   sql: postgres.Sql,
-  thresholdMs: number,
+  thresholdsMs: Readonly<Record<DataPlan, number>>,
   limit = 500,
 ): Promise<StaleOnlineStation[]> {
+  const wiredSecs = thresholdsMs.wifi_or_wired / 1000;
+  const cellularSecs = thresholdsMs.cellular / 1000;
   const rows = await sql<
     {
       id: string;
       station_id: string;
       last_heartbeat: Date | string | null;
       stale_before: Date | string;
+      data_plan: string;
     }[]
   >`
-    SELECT id, station_id, last_heartbeat,
-           now() - make_interval(secs => ${thresholdMs / 1000}) AS stale_before
-    FROM charging_stations
-    WHERE is_online = true
-      AND (last_heartbeat IS NULL
-        OR last_heartbeat < now() - make_interval(secs => ${thresholdMs / 1000}))
-    ORDER BY last_heartbeat ASC NULLS FIRST
+    SELECT s.id, s.station_id, s.last_heartbeat, s.data_plan,
+           now() - make_interval(secs => t.secs) AS stale_before
+    FROM (
+      SELECT cs.id, cs.station_id, cs.last_heartbeat,
+             ${sql.unsafe(effectiveDataPlanSqlText('cs'))} AS data_plan
+      FROM charging_stations cs
+      WHERE cs.is_online = true
+    ) s
+    CROSS JOIN LATERAL (
+      SELECT CASE WHEN s.data_plan = 'cellular' THEN ${cellularSecs}::float8
+                  ELSE ${wiredSecs}::float8 END AS secs
+    ) t
+    WHERE s.last_heartbeat IS NULL
+       OR s.last_heartbeat < now() - make_interval(secs => t.secs)
+    ORDER BY s.last_heartbeat ASC NULLS FIRST
     LIMIT ${limit}
   `;
-  return rows.map((r) => ({
-    id: r.id,
-    stationId: r.station_id,
-    lastActivityAt: toDateOrNull(r.last_heartbeat),
-    staleBefore: toDate(r.stale_before),
-  }));
+  return rows.map((r) => {
+    const dataPlan: DataPlan = isDataPlan(r.data_plan) ? r.data_plan : 'wifi_or_wired';
+    return {
+      id: r.id,
+      stationId: r.station_id,
+      lastActivityAt: toDateOrNull(r.last_heartbeat),
+      staleBefore: toDate(r.stale_before),
+      dataPlan,
+      thresholdMs: thresholdsMs[dataPlan],
+    };
+  });
 }
 
 export interface StationMarkedOffline {

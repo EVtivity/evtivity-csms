@@ -66,6 +66,36 @@ export function keyArguments(
   });
 }
 
+const MAX_LINK_HOSTS = 5;
+// `scheme://host` or `//host`; a backslash counts as a slash, as browsers parse it.
+const LINK_HOST_RE = /(?:[a-z][a-z0-9+.-]*:)?[/\\]{2}([^\s"'<>()\\/?#]+)/gi;
+
+/**
+ * The hosts other than this CSMS that the text arguments link to, at any depth,
+ * so a link an injected instruction slipped into a long template or message body
+ * is named on the card.
+ */
+export function linkedHosts(args: unknown, ownHost: string): string[] {
+  const hosts = new Set<string>();
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') {
+      for (const match of value.matchAll(LINK_HOST_RE)) {
+        const authority = match[1] ?? '';
+        const host = URL.parse(
+          `https://${authority.slice(authority.lastIndexOf('@') + 1)}`,
+        )?.hostname;
+        if (host != null && host !== '' && host !== ownHost) hosts.add(host);
+      }
+    } else if (Array.isArray(value)) {
+      value.forEach(visit);
+    } else if (value != null && typeof value === 'object') {
+      Object.values(value).forEach(visit);
+    }
+  };
+  visit(args);
+  return [...hosts].slice(0, MAX_LINK_HOSTS);
+}
+
 /**
  * A write the assistant proposed. Nothing runs until the user confirms; the
  * confirm request carries the single-use nonce from the stream event.
@@ -83,6 +113,7 @@ export function ConfirmActionCard({
   const busy = state === 'confirming' || state === 'rejecting';
   const args = JSON.stringify(event.arguments, null, 2);
   const keyArgs = keyArguments(event.arguments, event.path);
+  const hosts = linkedHosts(event.arguments, window.location.hostname);
 
   return (
     <div
@@ -117,6 +148,16 @@ export function ConfirmActionCard({
         </Badge>
         <span className="break-all">{event.path}</span>
       </div>
+      {hosts.length > 0 && (
+        <p className="text-xs font-medium text-warning" data-testid="ai-confirm-links">
+          {t('ai.confirmLinks', { hosts: hosts.join(', ') })}
+        </p>
+      )}
+      {event.maskedCount !== undefined && event.maskedCount > 0 && (
+        <p className="text-xs font-medium" data-testid="ai-confirm-masked">
+          {t('ai.confirmMaskedValues', { count: event.maskedCount })}
+        </p>
+      )}
       {args !== '{}' && (
         <details className="text-xs">
           <summary className="cursor-pointer text-muted-foreground">

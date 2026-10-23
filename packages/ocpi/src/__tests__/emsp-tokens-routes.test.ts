@@ -3,7 +3,7 @@
 
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import Fastify, { type FastifyInstance } from 'fastify';
-import type { OcpiPartnerInfo } from '../middleware/ocpi-auth.js';
+import type { OcpiPartnerInfo, OcpiTokenInfo } from '../middleware/ocpi-auth.js';
 
 // Each awaited select chain resolves to the next queued result and records
 // the limit and offset it was given.
@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   limits: [] as number[],
   offsets: [] as number[],
   partner: undefined as OcpiPartnerInfo | undefined,
+  token: undefined as OcpiTokenInfo | undefined,
 }));
 
 function makeSelectChain(): Record<string, unknown> {
@@ -37,8 +38,9 @@ vi.mock('@evtivity/database', async (importOriginal) => ({
   db: { select: vi.fn(() => makeSelectChain()) },
 }));
 vi.mock('../middleware/ocpi-auth.js', () => ({
-  ocpiAuthenticate: (request: { ocpiPartner?: OcpiPartnerInfo }) => {
+  ocpiAuthenticate: (request: { ocpiPartner?: OcpiPartnerInfo; ocpiToken?: OcpiTokenInfo }) => {
     if (h.partner != null) request.ocpiPartner = h.partner;
+    if (h.token != null) request.ocpiToken = h.token;
     return Promise.resolve();
   },
 }));
@@ -88,6 +90,24 @@ beforeEach(() => {
   h.limits = [];
   h.offsets = [];
   h.partner = { ...PARTNER };
+  h.token = { kind: 'credentials', partnerStatus: 'connected', roleNames: ['CPO'] };
+});
+
+describe('GET emsp tokens by partner role', () => {
+  it('refuses a partner registered without the CPO or HUB role', async () => {
+    h.token = { kind: 'credentials', partnerStatus: 'connected', roleNames: ['EMSP'] };
+    const res = await app.inject({ method: 'GET', url: '/ocpi/2.2.1/emsp/tokens' });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().status_code).toBe(2000);
+    expect(h.limits).toEqual([]);
+  });
+
+  it('serves a HUB partner', async () => {
+    h.token = { kind: 'credentials', partnerStatus: 'connected', roleNames: ['HUB'] };
+    h.selects = [[tokenRow()], [{ total: 1 }]];
+    const res = await app.inject({ method: 'GET', url: '/ocpi/2.2.1/emsp/tokens' });
+    expect(res.statusCode).toBe(200);
+  });
 });
 
 describe('GET emsp tokens', () => {

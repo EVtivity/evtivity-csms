@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { approvedRolesAfterHandshake, declaredRolesOf } from '../lib/partner-roles.js';
 import { randomBytes } from 'node:crypto';
 import * as argon2 from 'argon2';
 import {
@@ -11,7 +12,7 @@ import {
   ocpiPartnerAuditLog,
   writeAudit,
 } from '@evtivity/database';
-import { eq, and, ne } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { createLogger, encryptString, decryptString } from '@evtivity/lib';
 import { OcpiClient } from '../lib/ocpi-client.js';
 import { OcpiStatusCode } from '../lib/ocpi-response.js';
@@ -60,6 +61,7 @@ interface PartnerAuditView {
   version?: string | null;
   versionUrl?: string | null;
   roles?: unknown;
+  approvedRoles?: string[];
   endpointCount?: number;
 }
 
@@ -68,6 +70,37 @@ interface PartnerAuditView {
  * server for an operator's outbound registration) carried out: actor
  * `system`, label `ocpi-credentials`. Fail-open (writeAudit).
  */
+/**
+ * Declared roles the operator did not approve stay unapproved: logged and
+ * audited once per handshake, for the operator to approve or ignore.
+ */
+async function auditHeldRoles(
+  partnerId: string,
+  roles: { approved: string[]; held: string[] },
+  database: Pick<typeof db, 'insert'>,
+): Promise<void> {
+  if (roles.held.length === 0) return;
+  logger.warn(
+    { partnerId, approvedRoles: roles.approved, heldRoles: roles.held },
+    'OCPI partner declared roles the operator has not approved',
+  );
+  await writeAudit(
+    { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+    {
+      entityId: partnerId,
+      entityIdSnapshot: partnerId,
+      action: 'updated',
+      actor: 'system',
+      actorLabel: 'ocpi-credentials',
+      before: { approvedRoles: roles.approved },
+      after: { approvedRoles: roles.approved, heldRoles: roles.held },
+      notes: `Declared roles not approved by the operator, held: ${roles.held.join(', ')}`,
+    },
+    database,
+    logger,
+  );
+}
+
 async function auditPartnerHandshake(
   partnerId: string,
   action: 'registered' | 'updated' | 'disconnected',
@@ -336,6 +369,11 @@ export async function handleRegistration(
       'Already registered. Use PUT to update credentials.',
     );
   }
+  // Only the operator lifts a suspension: a suspended partner
+  // holding an open registration token never registers itself back.
+  if (partner.status === 'suspended') {
+    throw new CredentialsError(405, OcpiStatusCode.CLIENT_ERROR, 'Partner is suspended');
+  }
   assertRolesMatchPartner(credentials, partner);
 
   let fetched: { version: OcpiVersion; endpoints: OcpiVersionDetail['endpoints'] };
@@ -372,7 +410,10 @@ export async function handleRegistration(
     }
 
     const [locked] = await tx
-      .select({ status: ocpiPartners.status })
+      .select({
+        status: ocpiPartners.status,
+        approvedRoles: ocpiPartners.approvedRoles,
+      })
       .from(ocpiPartners)
       .where(eq(ocpiPartners.id, auth.partnerId))
       .for('update');
@@ -383,12 +424,15 @@ export async function handleRegistration(
         'Already registered. Use PUT to update credentials.',
       );
     }
+    if (locked.status === 'suspended') {
+      throw new CredentialsError(405, OcpiStatusCode.CLIENT_ERROR, 'Partner is suspended');
+    }
 
     await tx
       .update(ocpiPartners)
       .set({
         name,
-        roles: credentials.roles,
+        roles: declaredRolesOf(credentials.roles, partner),
         ourRoles: buildOurCredentials('').roles,
         status: 'connected',
         version,
@@ -398,6 +442,7 @@ export async function handleRegistration(
         updatedAt: new Date(),
       })
       .where(eq(ocpiPartners.id, auth.partnerId));
+    const roles = approvedRolesAfterHandshake(locked, declaredRolesOf(credentials.roles, partner));
 
     await replaceEndpoints(auth.partnerId, endpoints, tx);
     await storeReceivedToken(auth.partnerId, credentials.token, tx);
@@ -421,11 +466,13 @@ export async function handleRegistration(
         version,
         versionUrl: credentials.url,
         roles: credentials.roles,
+        approvedRoles: roles.approved,
         endpointCount: endpoints.length,
       },
       'Partner registered through POST credentials',
       tx,
     );
+    await auditHeldRoles(auth.partnerId, roles, tx);
     return issued;
   });
 
@@ -470,20 +517,38 @@ export async function handleCredentialUpdate(
   }
   const { version, endpoints } = fetched;
   const name = credentials.roles[0]?.business_details.name ?? current.name;
-  const completes = current.status === 'pending';
 
   const newToken = await db.transaction(async (tx) => {
+    // One credentials update per partner at a time: a parallel PUT
+    // waits here and then deactivates the token this one issued, so only one
+    // issued token stays active. The statement order below must not move
+    // the token writes ahead of this lock.
+    const [locked] = await tx
+      .select({
+        status: ocpiPartners.status,
+        approvedRoles: ocpiPartners.approvedRoles,
+      })
+      .from(ocpiPartners)
+      .where(eq(ocpiPartners.id, partnerId))
+      .for('update');
+    if (locked == null) {
+      throw new CredentialsError(405, OcpiStatusCode.CLIENT_ERROR, 'Not registered');
+    }
+    // Decided on the locked row: an operator suspension that
+    // committed after the first read is never overwritten with connected.
+    const completes = locked.status === 'pending';
     await tx
       .update(ocpiPartners)
       .set({
         name,
-        roles: credentials.roles,
+        roles: declaredRolesOf(credentials.roles, current),
         version,
         versionUrl: credentials.url,
         ...(completes ? { status: 'connected' as const, partnerRegistrationTokenEnc: null } : {}),
         updatedAt: new Date(),
       })
       .where(eq(ocpiPartners.id, partnerId));
+    const roles = approvedRolesAfterHandshake(locked, declaredRolesOf(credentials.roles, current));
 
     await replaceEndpoints(partnerId, endpoints, tx);
     await storeReceivedToken(partnerId, credentials.token, tx);
@@ -495,13 +560,13 @@ export async function handleCredentialUpdate(
       completes ? 'registered' : 'updated',
       {
         name: current.name,
-        status: current.status,
+        status: locked.status,
         version: current.version,
         versionUrl: current.versionUrl,
       },
       {
         name,
-        status: completes ? 'connected' : current.status,
+        status: completes ? 'connected' : locked.status,
         version,
         versionUrl: credentials.url,
         roles: credentials.roles,
@@ -512,6 +577,7 @@ export async function handleCredentialUpdate(
         : 'Partner updated its credentials through PUT credentials (tokens rotated)',
       tx,
     );
+    await auditHeldRoles(partnerId, roles, tx);
     return issued;
   });
 
@@ -702,6 +768,10 @@ export async function initiateRegistration(
         version,
         versionUrl: theirCredentials.url,
         partnerRegistrationTokenEnc: null,
+        // The roles its reply declares, stored as declared. The approved
+        // roles stay the operator's (none until the operator approves some,
+        // owner decision 2026-10-23): a registration never adopts a role.
+        roles: declaredRolesOf(theirCredentials.roles, partner),
         updatedAt: new Date(),
       })
       .where(eq(ocpiPartners.id, partnerId));

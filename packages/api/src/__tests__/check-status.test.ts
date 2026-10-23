@@ -331,16 +331,16 @@ describe('isStationCheckRateLimited', () => {
   it('allows up to 5 requests within the rate window', () => {
     const stationId = `RL-TEST-${String(Date.now())}`;
     for (let i = 0; i < 5; i++) {
-      expect(rateLimiterModule.isStationCheckRateLimited(stationId)).toBe(false);
+      expect(rateLimiterModule.isStationCheckRateLimited(stationId, '203.0.113.1')).toBe(false);
     }
   });
 
   it('blocks the 6th request within the same window', () => {
     const stationId = `RL-BLOCK-${String(Date.now())}`;
     for (let i = 0; i < 5; i++) {
-      rateLimiterModule.isStationCheckRateLimited(stationId);
+      rateLimiterModule.isStationCheckRateLimited(stationId, '203.0.113.1');
     }
-    expect(rateLimiterModule.isStationCheckRateLimited(stationId)).toBe(true);
+    expect(rateLimiterModule.isStationCheckRateLimited(stationId, '203.0.113.1')).toBe(true);
   });
 
   it('tracks per-station independently', () => {
@@ -348,11 +348,11 @@ describe('isStationCheckRateLimited', () => {
     const stationA = `RL-A-${now}`;
     const stationB = `RL-B-${now}`;
     for (let i = 0; i < 5; i++) {
-      rateLimiterModule.isStationCheckRateLimited(stationA);
+      rateLimiterModule.isStationCheckRateLimited(stationA, '203.0.113.1');
     }
     // Station A is now rate limited
-    expect(rateLimiterModule.isStationCheckRateLimited(stationA)).toBe(true);
+    expect(rateLimiterModule.isStationCheckRateLimited(stationA, '203.0.113.1')).toBe(true);
     // Station B should still be allowed
-    expect(rateLimiterModule.isStationCheckRateLimited(stationB)).toBe(false);
+    expect(rateLimiterModule.isStationCheckRateLimited(stationB, '203.0.113.1')).toBe(false);
   });
 });

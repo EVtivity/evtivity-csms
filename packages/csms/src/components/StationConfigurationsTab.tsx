@@ -25,6 +25,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip } from '@/components/ui/tooltip';
+import { isBootOwnedStationSetting } from '@evtivity/lib/station-data-plan';
 import { Select } from '@/components/ui/select';
 import { SearchInput } from '@/components/search-input';
 import { Pagination } from '@/components/ui/pagination';
@@ -32,6 +34,7 @@ import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
 import { LoadingLogo } from '@/components/loading-logo';
+import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 
 interface StationVariable {
   id: number;
@@ -77,6 +80,11 @@ export function StationConfigurationsTab({
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const limit = 25;
+
+  // Pushing a configuration template needs settings.stationConfig:write;
+  // the button is hidden without it.
+  const canSend = useCanSendOcppCommand();
+  const canPush = canSend('SetVariables');
 
   const [spinning, setSpinning] = useState(false);
   const refreshMutation = useMutation({
@@ -224,10 +232,12 @@ export function StationConfigurationsTab({
               </Button>
             </Link>
           )}
-          <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenPush}>
-            <Upload className="h-4 w-4" />
-            {t('stations.pushConfiguration')}
-          </Button>
+          {canPush && (
+            <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenPush}>
+              <Upload className="h-4 w-4" />
+              {t('stations.pushConfiguration')}
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -262,6 +272,13 @@ export function StationConfigurationsTab({
                       <TableCell className="text-xs">
                         {v.variable}
                         {v.variableInstance != null ? ` (${v.variableInstance})` : ''}
+                        {isBootOwnedStationSetting(ocppProtocol, v.component, v.variable) && (
+                          <Tooltip content={t('dataPlan.fromDataPlanHint')}>
+                            <Badge variant="outline" className="ml-2">
+                              {t('dataPlan.fromDataPlan')}
+                            </Badge>
+                          </Tooltip>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs max-w-xs truncate">
                         {v.value ?? 'n/a'}

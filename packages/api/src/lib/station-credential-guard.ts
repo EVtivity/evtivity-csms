@@ -13,9 +13,11 @@
  * shared one (`@evtivity/lib/secret-config`). Configuration templates also
  * refuse security and network profile variables (400
  * `STATION_SECURITY_ROUTE_REQUIRED`): a fleet push of them locks stations out.
+ * They refuse the heartbeat and meter value settings the boot push owns too
+ * (400 `DATA_PLAN_SETTING_IN_TEMPLATE`): the data plan sets them at every boot.
  */
 
-import { AppError } from '@evtivity/lib';
+import { AppError, isBootOwnedStationSetting } from '@evtivity/lib';
 import { holdsStationCredential, isCredentialName } from '@evtivity/lib/secret-config';
 import { ERROR_CODES } from './error-codes.generated.js';
 
@@ -89,4 +91,39 @@ export function assertNoCredentialVariables(
       ERROR_CODES.STATION_SECURITY_ROUTE_REQUIRED,
     );
   }
+}
+
+export const DATA_PLAN_SETTING_IN_TEMPLATE_MESSAGE =
+  'Heartbeat and meter value settings come from Settings > Integrations & Features > OCPP and the station data plan, not from a configuration template';
+
+/** A template names a boot-owned station setting; `variables` lists the refused names. */
+export class DataPlanSettingInTemplateError extends AppError {
+  public readonly variables: string[];
+
+  constructor(variables: string[]) {
+    super(DATA_PLAN_SETTING_IN_TEMPLATE_MESSAGE, 400, ERROR_CODES.DATA_PLAN_SETTING_IN_TEMPLATE);
+    this.name = 'DataPlanSettingInTemplateError';
+    this.variables = variables;
+  }
+}
+
+/**
+ * Throws when configuration template variables name a setting the boot push
+ * owns (`BOOT_OWNED_STATION_SETTINGS`: the heartbeat interval and the meter
+ * value settings), which the station data plan sets at every boot. Names are
+ * compared trimmed; the variable instance does not matter. The refused names
+ * (`Component.Variable` on 2.x, the key on 1.6) go in `details.variables`.
+ */
+export function assertNoBootOwnedVariables(
+  ocppVersion: string,
+  variables: readonly { component?: string; variable: string }[],
+): void {
+  const refused = variables
+    .filter((v) => isBootOwnedStationSetting(ocppVersion, v.component ?? '', v.variable))
+    .map((v) => {
+      const component = (v.component ?? '').trim();
+      const variable = v.variable.trim();
+      return ocppVersion === '1.6' || component === '' ? variable : `${component}.${variable}`;
+    });
+  if (refused.length > 0) throw new DataPlanSettingInTemplateError([...new Set(refused)]);
 }

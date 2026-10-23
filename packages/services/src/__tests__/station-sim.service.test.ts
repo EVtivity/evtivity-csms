@@ -3,41 +3,27 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { db, mockGetMatch, mockSetMatch, mockMiss, stationRow } = vi.hoisted(() => {
-  const stationRow: { iccid: string | null } = { iccid: '8901260000000000001F' };
-  const chain = {
-    from: () => chain,
-    where: () => Promise.resolve([stationRow]),
-  };
-  return {
-    stationRow,
-    db: { select: vi.fn(() => chain) },
-    mockGetMatch: vi.fn(),
-    mockSetMatch: vi.fn(),
-    mockMiss: vi.fn(),
-  };
-});
+const { mockLookup } = vi.hoisted(() => ({ mockLookup: vi.fn() }));
 
 vi.mock('@evtivity/database', () => ({
-  db,
-  chargingStations: { iccid: 'iccid', id: 'id' },
+  db: {},
   getSimProviderSettings: vi.fn(),
-  getStationSimMatch: mockGetMatch,
-  setStationSimMatch: mockSetMatch,
-  recordSimLookupMiss: mockMiss,
-  confirmStationSimMatch: vi.fn(),
-  clearStationSimMatch: vi.fn(),
+  recordSimLookup: mockLookup,
 }));
+vi.mock('../sim-inventory.service.js', () => ({ attachReportedStationSim: vi.fn() }));
 
+import type { Sim } from '@evtivity/database';
 import type { SimProvider } from '@evtivity/sim-providers';
 import {
-  resolveStationSim,
+  resolveSimProvider,
+  simRefOf,
   simRefreshPeriod,
+  SIM_KEYS,
   SIM_LOOKUP_MISS_TTL_MS,
   storedSimStatus,
 } from '../station-sim.service.js';
 
-const ACTOR = { actor: 'operator' as const, actorUserId: 'usr_1' };
+const ICCID = '8901260000000000001';
 
 function fakeProvider(found: { providerSimId: string; linkId?: string } | null): SimProvider {
   return {
@@ -50,142 +36,138 @@ function registry(providers: SimProvider[]) {
   return {
     enabledProviders: vi.fn().mockResolvedValue(providers),
     getProvider: vi.fn((id: string) => Promise.resolve(providers.find((p) => p.id === id) ?? null)),
-  } as unknown as Parameters<typeof resolveStationSim>[0];
+  } as unknown as Parameters<typeof resolveSimProvider>[0];
 }
 
-function match(fields: Record<string, unknown>) {
+function sim(fields: Partial<Sim> = {}): Sim {
   return {
-    stationId: 'sta_1',
+    id: 'sim_1',
+    iccid: ICCID,
     provider: null,
     providerRef: null,
-    meta: null,
-    enteredIccid: null,
-    enteredBy: null,
-    enteredWithAllSites: false,
-    confirmedAt: null,
+    providerMeta: null,
     lookupMissedAt: null,
     lookupMissReason: null,
+    status: 'active',
     ...fields,
-  };
+  } as Sim;
 }
 
 beforeEach(() => {
-  stationRow.iccid = '8901260000000000001F';
-  mockGetMatch.mockResolvedValue(null);
-  mockSetMatch.mockResolvedValue({ matched: true });
+  vi.clearAllMocks();
+  mockLookup.mockResolvedValue('recorded');
 });
 
-describe('resolveStationSim', () => {
-  it('reuses a stored match without a lookup', async () => {
+describe('SIM_KEYS', () => {
+  it('keys the fetch lock and the reset cooldown per SIM, the Refresh limit per target', () => {
+    expect(SIM_KEYS.lock('sim_1')).toBe('sim:lock:sim_1');
+    expect(SIM_KEYS.reset('sim_1')).toBe('sim:reset:sim_1');
+    expect(SIM_KEYS.refresh('sta_1')).toBe('sim:refresh:sta_1');
+    expect(SIM_KEYS.refresh('sim_1')).toBe('sim:refresh:sim_1');
+    expect(SIM_KEYS.signalRead('sta_1')).toBe('sim:signalread:sta_1');
+    for (const key of [SIM_KEYS.backoff('hologram'), SIM_KEYS.test('hologram')]) {
+      expect(key.startsWith('sim:')).toBe(true);
+    }
+  });
+});
+
+describe('simRefOf', () => {
+  it('reads the provider SIM and its other ids from the SIM row', () => {
+    expect(simRefOf({ providerRef: '4001', providerMeta: { linkId: '5001', other: 1 } })).toEqual({
+      providerSimId: '4001',
+      linkId: '5001',
+    });
+    expect(simRefOf({ providerRef: null, providerMeta: null })).toBeNull();
+  });
+});
+
+describe('resolveSimProvider', () => {
+  it('reuses the stored provider SIM without a lookup', async () => {
     const provider = fakeProvider(null);
-    mockGetMatch.mockResolvedValue(
-      match({
-        provider: 'hologram',
-        providerRef: '4001',
-        meta: { linkId: '5001' },
-        confirmedAt: new Date(),
-      }),
+    const result = await resolveSimProvider(
+      registry([provider]),
+      sim({ provider: 'hologram', providerRef: '4001', providerMeta: { linkId: '5001' } }),
     );
-    const result = await resolveStationSim(registry([provider]), 'sta_1', ACTOR);
     expect(result).toMatchObject({
-      kind: 'matched',
+      kind: 'found',
       ref: { providerSimId: '4001', linkId: '5001' },
-      confirmed: true,
     });
     expect(provider.findByIccid).not.toHaveBeenCalled();
+    expect(mockLookup).not.toHaveBeenCalled();
   });
 
-  it('answers provider_off with no provider on, before reading the ICCID', async () => {
-    expect(await resolveStationSim(registry([]), 'sta_1', ACTOR)).toEqual({ kind: 'provider_off' });
-    expect(db.select).not.toHaveBeenCalled();
+  it('answers provider_off with no provider on, writing nothing', async () => {
+    expect(await resolveSimProvider(registry([]), sim())).toEqual({ kind: 'provider_off' });
+    expect(mockLookup).not.toHaveBeenCalled();
   });
 
-  it('looks up the normalized ICCID and stores an unconfirmed match', async () => {
+  it('answers provider_off when the stored provider is now off', async () => {
+    expect(
+      await resolveSimProvider(registry([]), sim({ provider: 'hologram', providerRef: '4001' })),
+    ).toEqual({ kind: 'provider_off' });
+  });
+
+  it('looks the ICCID up and stores the hit on the SIM', async () => {
     const provider = fakeProvider({ providerSimId: '4001', linkId: '5001' });
-    const result = await resolveStationSim(registry([provider]), 'sta_1', ACTOR);
-    expect(provider.findByIccid).toHaveBeenCalledWith('8901260000000000001');
-    expect(result).toMatchObject({ kind: 'matched', confirmed: false });
-    expect(mockSetMatch).toHaveBeenCalledWith(
-      'sta_1',
-      { provider: 'hologram', providerRef: '4001', meta: { linkId: '5001' }, confirm: null },
-      ACTOR,
-      undefined,
-    );
+    const result = await resolveSimProvider(registry([provider]), sim());
+    expect(provider.findByIccid).toHaveBeenCalledWith(ICCID);
+    expect(result).toMatchObject({ kind: 'found', ref: { providerSimId: '4001' } });
+    expect(mockLookup).toHaveBeenCalledWith('sim_1', {
+      provider: 'hologram',
+      providerRef: '4001',
+      meta: { linkId: '5001' },
+    });
   });
 
-  it('confirms a hit on the ICCID an operator with every site entered, for that operator', async () => {
-    mockGetMatch.mockResolvedValue(
-      match({
-        enteredIccid: '8901260000000000001',
-        enteredBy: 'usr_entered',
-        enteredWithAllSites: true,
-      }),
-    );
-    const provider = fakeProvider({ providerSimId: '4001' });
-    const result = await resolveStationSim(registry([provider]), 'sta_1', ACTOR);
-    expect(result).toMatchObject({ kind: 'matched', confirmed: true });
-    expect(mockSetMatch.mock.calls[0]?.[1]).toMatchObject({ confirm: { by: 'usr_entered' } });
-  });
-
-  it('leaves a hit unconfirmed when the ICCID was entered without access to every site', async () => {
-    mockGetMatch.mockResolvedValue(
-      match({ enteredIccid: '8901260000000000001', enteredBy: 'usr_site' }),
-    );
-    const result = await resolveStationSim(
+  it('records a miss after the last provider when another SIM row holds the hit', async () => {
+    mockLookup.mockResolvedValueOnce('ref_held_elsewhere');
+    const log = { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() };
+    const result = await resolveSimProvider(
       registry([fakeProvider({ providerSimId: '4001' })]),
-      'sta_1',
-      ACTOR,
+      sim(),
+      { log },
     );
-    expect(result).toMatchObject({ kind: 'matched', confirmed: false });
-    expect(mockSetMatch.mock.calls[0]?.[1]).toMatchObject({ confirm: null });
+    expect(result).toEqual({ kind: 'not_found' });
+    expect(mockLookup).toHaveBeenLastCalledWith('sim_1', { miss: 'not_found' });
+    expect(log.warn).toHaveBeenCalled();
   });
 
-  it('refuses a SIM matched to another station', async () => {
-    mockSetMatch.mockResolvedValue({ matched: false, reason: 'sim_matched_elsewhere' });
-    const result = await resolveStationSim(
-      registry([fakeProvider({ providerSimId: '4001' })]),
-      'sta_1',
-      ACTOR,
-    );
-    expect(result).toEqual({ kind: 'not_matched', reason: 'sim_matched_elsewhere' });
+  it('asks the next provider after a hit another SIM row holds (ref_held_elsewhere)', async () => {
+    const first = {
+      ...fakeProvider({ providerSimId: '4001' }),
+      id: 'first',
+    } as unknown as SimProvider;
+    const second = fakeProvider({ providerSimId: '9001' });
+    mockLookup.mockResolvedValueOnce('ref_held_elsewhere').mockResolvedValueOnce('recorded');
+    const result = await resolveSimProvider(registry([first, second]), sim());
+    expect(result).toMatchObject({
+      kind: 'found',
+      provider: second,
+      ref: { providerSimId: '9001' },
+    });
+    expect(second.findByIccid).toHaveBeenCalledWith(ICCID);
+    expect(mockLookup).toHaveBeenCalledTimes(2);
+    expect(mockLookup).not.toHaveBeenCalledWith('sim_1', { miss: 'not_found' });
   });
 
   it('caches a miss for an hour unless the lookup is retried', async () => {
     const provider = fakeProvider(null);
-    expect(await resolveStationSim(registry([provider]), 'sta_1', ACTOR)).toEqual({
-      kind: 'not_matched',
-      reason: 'not_found',
-    });
-    expect(mockMiss).toHaveBeenCalledWith('sta_1', 'not_found');
+    expect(await resolveSimProvider(registry([provider]), sim())).toEqual({ kind: 'not_found' });
+    expect(mockLookup).toHaveBeenCalledWith('sim_1', { miss: 'not_found' });
 
-    mockGetMatch.mockResolvedValue(
-      match({ lookupMissedAt: new Date(Date.now() - 60_000), lookupMissReason: 'not_found' }),
-    );
+    const missed = sim({ lookupMissedAt: new Date(Date.now() - 60_000) });
     vi.mocked(provider.findByIccid).mockClear();
-    await resolveStationSim(registry([provider]), 'sta_1', ACTOR);
+    await resolveSimProvider(registry([provider]), missed);
     expect(provider.findByIccid).not.toHaveBeenCalled();
 
-    await resolveStationSim(registry([provider]), 'sta_1', ACTOR, { retryLookup: true });
+    await resolveSimProvider(registry([provider]), missed, { retryLookup: true });
     expect(provider.findByIccid).toHaveBeenCalledTimes(1);
 
-    mockGetMatch.mockResolvedValue(
-      match({ lookupMissedAt: new Date(Date.now() - SIM_LOOKUP_MISS_TTL_MS - 1000) }),
+    await resolveSimProvider(
+      registry([provider]),
+      sim({ lookupMissedAt: new Date(Date.now() - SIM_LOOKUP_MISS_TTL_MS - 1000) }),
     );
-    await resolveStationSim(registry([provider]), 'sta_1', ACTOR);
     expect(provider.findByIccid).toHaveBeenCalledTimes(2);
-  });
-
-  it('answers no_iccid for a station without a valid ICCID', async () => {
-    stationRow.iccid = null;
-    expect(await resolveStationSim(registry([fakeProvider(null)]), 'sta_1', ACTOR)).toEqual({
-      kind: 'not_matched',
-      reason: 'no_iccid',
-    });
-  });
-
-  it('answers provider_off when the stored match belongs to a provider now off', async () => {
-    mockGetMatch.mockResolvedValue(match({ provider: 'hologram', providerRef: '4001' }));
-    expect(await resolveStationSim(registry([]), 'sta_1', ACTOR)).toEqual({ kind: 'provider_off' });
   });
 });
 

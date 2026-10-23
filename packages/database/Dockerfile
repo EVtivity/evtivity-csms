@@ -1,4 +1,4 @@
-FROM node:24-slim AS deps
+FROM node:24-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205 AS deps
 # A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
 ENV npm_config_fetch_retries=5 \
     npm_config_fetch_retry_mintimeout=20000 \
@@ -34,11 +34,15 @@ RUN npm run build --workspace=packages/lib
 # `npm run migrate` from packages/database; without scripts/ in the image the
 # migrate-job container fails on a missing script.
 COPY scripts/ scripts/
-LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms-helm"
+LABEL org.opencontainers.image.source="https://github.com/EVtivity/evtivity-csms"
 LABEL org.opencontainers.image.licenses="BUSL-1.1"
 LABEL org.opencontainers.image.vendor="EVtivity"
 
 COPY --chmod=755 docker/entrypoint.sh /usr/local/bin/evtivity-entrypoint
+# Migrations and seeds run as the unprivileged node user (UID 1000), as the
+# Helm jobs and the CDK database job expect. The image files stay root-owned
+# and read-only to it.
+USER node
 # Declare /tmp so ECS on Fargate copies it (root-owned, mode 1777) into the
 # scratch volume the task mounts there. Without VOLUME, Fargate creates the
 # volume as root 0755 and the node user cannot write to it under a read-only

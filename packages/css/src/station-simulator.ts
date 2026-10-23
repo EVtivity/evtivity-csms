@@ -11,13 +11,16 @@ import {
   CSS_STATUS_REPORTING_KEY,
   CSS_STATUS_REPORTING_VALUES,
   cssSecurityCtrlrDefaults,
+  isAllowedSimulatorTarget,
+  readCappedBody,
+  safeFetch,
   TOTP_VERSION_V1,
   totpV1,
 } from '@evtivity/lib';
 import { validateStationPassword } from '@evtivity/lib/station-password';
 import { isOcpp2x, type OcppProtocol } from '@evtivity/lib/ocpp-version';
 import { OcppClient } from './ocpp-client.js';
-import { config as cssConfig } from './lib/config.js';
+import { config as cssConfig, simulatorServerUrls } from './lib/config.js';
 import { logger } from './lib/logger.js';
 import {
   PNC16_VENDOR_ID,
@@ -248,6 +251,9 @@ export type ReservationReplyOverride = 'Rejected' | 'Occupied' | 'NoReply';
 /** Replies the reservationReply action accepts. 'Accepted' clears the override. */
 export const RESERVATION_REPLIES = ['Rejected', 'Occupied', 'NoReply', 'Accepted'] as const;
 export type ReservationReply = (typeof RESERVATION_REPLIES)[number];
+
+/** Largest firmware image the simulator downloads. */
+export const SIMULATOR_FIRMWARE_MAX_BYTES = 50 * 1024 * 1024;
 
 export class StationSimulator {
   readonly client: OcppClient;
@@ -5120,6 +5126,8 @@ export class StationSimulator {
           }
 
           this.configVariables.set(effectiveKey, { value: newValue, readonly: false });
+          // A new idle reading interval applies at once; 0 stops idle readings.
+          if (effectiveKey === 'AlignedDataCtrlr.Interval') this.startClockAlignedTimer();
           if (compName === 'SecurityCtrlr' && varName === 'BasicAuthPassword') {
             this.applyNewPassword(newValue);
           }
@@ -5240,8 +5248,12 @@ export class StationSimulator {
         }
 
         this.configVariables.set(cfgKey, { value: cfgValue, readonly: existing.readonly });
+        // A new idle reading interval applies at once; 0 stops idle readings.
+        if (cfgKey === 'ClockAlignedDataInterval') this.startClockAlignedTimer();
 
-        const rebootKeys = new Set(['WebSocketPingInterval', 'ConnectionTimeOut']);
+        // WebSocketPingInterval applies at the next ping (the data plan templates
+        // expect Accepted); ConnectionTimeOut needs a reboot.
+        const rebootKeys = new Set(['ConnectionTimeOut']);
         return { status: rebootKeys.has(cfgKey) ? 'RebootRequired' : 'Accepted' };
       }
 
@@ -7155,8 +7167,16 @@ export class StationSimulator {
     for (let attempt = 0; attempt <= retries; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, retryIntervalSec * 1000));
       try {
-        const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-        if (response.ok) return Buffer.from(await response.arrayBuffer());
+        // The firmware URL is operator input and the simulator shares the
+        // platform network: safeFetch refuses cloud metadata and
+        // other unroutable addresses (private networks stay allowed for test
+        // servers), and the body is read up to SIMULATOR_FIRMWARE_MAX_BYTES.
+        const response = await safeFetch(url.href, {
+          allowPrivateNetworks: true,
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (response.ok) return await readCappedBody(response, SIMULATOR_FIRMWARE_MAX_BYTES);
+        await response.body?.cancel();
       } catch (err) {
         logger.warn(
           { err, stationId: this.config.stationId, location, attempt },
@@ -7753,7 +7773,12 @@ export class StationSimulator {
         },
       ];
     });
-    const first = candidates[0];
+    // Only the OCPP server: a network profile naming another origin would get
+    // the station password or certificate.
+    const allowed = candidates.filter((candidate) =>
+      isAllowedSimulatorTarget(candidate.serverUrl, simulatorServerUrls()),
+    );
+    const first = allowed[0];
     if (
       first == null ||
       (first.serverUrl === current.serverUrl &&
@@ -7762,7 +7787,7 @@ export class StationSimulator {
     ) {
       return null;
     }
-    return candidates;
+    return allowed;
   }
 
   private chooseRebootConnection(attempt: number): void {

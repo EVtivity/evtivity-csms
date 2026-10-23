@@ -35,6 +35,10 @@ export interface SiteFixture {
   site: string;
   siteName: string;
   station: string;
+  /** The station's SIM, with an open confirmed attachment to the station. */
+  sim: string;
+  /** That attachment. */
+  simAttachment: number;
   ocpp: string;
   evse: number;
   connector: number;
@@ -121,6 +125,8 @@ export interface MatrixWorld {
   caCertificate: number;
   /** Yesterday in the system timezone, the day of the newest snapshot rows. */
   snapshotDay: string;
+  /** A SIM with no attachment: company-wide, all-site users only. */
+  simUnattached: string;
 }
 
 type UrlFn = (f: SiteFixture, w: MatrixWorld) => string;
@@ -301,7 +307,7 @@ export const SITE_ISOLATION_COMMAND_VARIANTS: MatrixEntry[] = [
   s(
     'POST',
     '/ocpp/commands/v21/SetVariables',
-    'stations:write',
+    'stations:write, settings.stationConfig:write',
     () => '/ocpp/commands/v21/SetVariables',
     'STATION_NOT_FOUND',
     {
@@ -321,7 +327,7 @@ export const SITE_ISOLATION_COMMAND_VARIANTS: MatrixEntry[] = [
   s(
     'POST',
     '/ocpp/commands/v16/ChangeConfiguration',
-    'stations:write',
+    'stations:write, settings.stationConfig:write',
     () => '/ocpp/commands/v16/ChangeConfiguration',
     'STATION_NOT_FOUND',
     {
@@ -332,7 +338,7 @@ export const SITE_ISOLATION_COMMAND_VARIANTS: MatrixEntry[] = [
   s(
     'POST',
     '/ocpp/commands/v21/SetNetworkProfile',
-    'stations:write',
+    'stations:write, settings.stationConfig:write',
     () => '/ocpp/commands/v21/SetNetworkProfile',
     'STATION_NOT_FOUND',
     {
@@ -353,10 +359,45 @@ export const SITE_ISOLATION_COMMAND_VARIANTS: MatrixEntry[] = [
   ),
 ];
 
+/**
+ * Variants of list routes whose filters name another site's rows: the filter
+ * never widens the scope. The SIM list filtered by site B's station, and
+ * searched for site B's SIM label, shows B's SIM to the all-site admin and
+ * nothing of B to restricted actors. Run with the matrix by the isolation
+ * integration test; 135 covers the unconfirmed station and a foreign ICCID.
+ */
+export const SITE_ISOLATION_LIST_VARIANTS: MatrixEntry[] = [
+  l('/sims?stationId', 'sims:read', (f) => `/sims?stationId=${f.station}`),
+  l('/sims?search', 'sims:read', () => `/sims?search=${encodeURIComponent('SIM B')}`),
+  // A's SIM history holds rows naming B's station (the SIM sat there, a
+  // network reset there): an A user sees A's SIM history without them.
+  l('/audit/sim/:entityId', 'audit:read', (_f, w) => `/audit/sim/${w.A.sim}`),
+];
+
+/**
+ * Variants of the station and site PATCH that change a data plan: the change
+ * pushes station settings to every station that inherits it, so it never
+ * reaches another site's site or station. Run with the matrix by the
+ * isolation integration test; 138 covers the push.
+ */
+export const SITE_ISOLATION_DATA_PLAN_VARIANTS: MatrixEntry[] = [
+  s('PATCH', '/sites/:id?dataPlan', 'sites:write', (f) => sit(f), 'SITE_NOT_FOUND', {
+    body: () => ({ dataPlan: 'cellular' }),
+  }),
+  s(
+    'PATCH',
+    '/stations/:id?dataPlan',
+    'stations:write',
+    (f) => `/stations/${f.station}`,
+    'STATION_NOT_FOUND',
+    { unsited: true, body: () => ({ dataPlan: 'cellular' }) },
+  ),
+];
+
 export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   // access-logs, worker-logs: operator-wide logs, all-site only (route not found)
-  c('GET', '/access-logs', 'logs:read', () => '/access-logs', 'ROUTE_NOT_FOUND'),
-  c('GET', '/worker-logs', 'logs:read', () => '/worker-logs', 'ROUTE_NOT_FOUND'),
+  c('GET', '/access-logs', 'logs:read', () => '/access-logs', 'NOT_FOUND'),
+  c('GET', '/worker-logs', 'logs:read', () => '/worker-logs', 'NOT_FOUND'),
 
   // ad-hoc payments
   s('POST', '/ad-hoc-payments', 'payments:write', () => '/ad-hoc-payments', 'STATION_NOT_FOUND', {
@@ -366,14 +407,27 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   }),
 
   // payment provider settings (company-wide)
-  c('GET', '/settings/adyen', 'payments:read', () => '/settings/adyen', 'SETTING_NOT_FOUND'),
-  c('PUT', '/settings/adyen', 'payments:write', () => '/settings/adyen', 'SETTING_NOT_FOUND', {
-    body: () => ({}),
-  }),
+  c(
+    'GET',
+    '/settings/adyen',
+    'settings.payment:read',
+    () => '/settings/adyen',
+    'SETTING_NOT_FOUND',
+  ),
+  c(
+    'PUT',
+    '/settings/adyen',
+    'settings.payment:write',
+    () => '/settings/adyen',
+    'SETTING_NOT_FOUND',
+    {
+      body: () => ({}),
+    },
+  ),
   c(
     'POST',
     '/settings/adyen/test',
-    'payments:write',
+    'settings.payment:write',
     () => '/settings/adyen/test',
     'SETTING_NOT_FOUND',
     {
@@ -385,7 +439,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   c(
     'GET',
     '/settings/adyen/webhook',
-    'payments:read',
+    'settings.payment:read',
     () => '/settings/adyen/webhook',
     'SETTING_NOT_FOUND',
     {
@@ -395,7 +449,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   c(
     'POST',
     '/settings/adyen/webhook',
-    'payments:write',
+    'settings.payment:write',
     () => '/settings/adyen/webhook',
     'SETTING_NOT_FOUND',
     {
@@ -403,14 +457,27 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
       control: ctl(400, 'PAYMENT_PROVIDER_NOT_CONFIGURED', NO_PROVIDER),
     },
   ),
-  c('GET', '/settings/stripe', 'payments:read', () => '/settings/stripe', 'SETTING_NOT_FOUND'),
-  c('PUT', '/settings/stripe', 'payments:write', () => '/settings/stripe', 'SETTING_NOT_FOUND', {
-    body: () => ({}),
-  }),
+  c(
+    'GET',
+    '/settings/stripe',
+    'settings.payment:read',
+    () => '/settings/stripe',
+    'SETTING_NOT_FOUND',
+  ),
+  c(
+    'PUT',
+    '/settings/stripe',
+    'settings.payment:write',
+    () => '/settings/stripe',
+    'SETTING_NOT_FOUND',
+    {
+      body: () => ({}),
+    },
+  ),
   c(
     'POST',
     '/settings/stripe/test',
-    'payments:write',
+    'settings.payment:write',
     () => '/settings/stripe/test',
     'SETTING_NOT_FOUND',
     {
@@ -421,7 +488,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   c(
     'GET',
     '/settings/stripe/webhook',
-    'payments:read',
+    'settings.payment:read',
     () => '/settings/stripe/webhook',
     'SETTING_NOT_FOUND',
     {
@@ -431,7 +498,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   c(
     'POST',
     '/settings/stripe/webhook',
-    'payments:write',
+    'settings.payment:write',
     () => '/settings/stripe/webhook',
     'SETTING_NOT_FOUND',
     {
@@ -439,11 +506,17 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
       control: ctl(400, 'PAYMENT_PROVIDER_NOT_CONFIGURED', NO_PROVIDER),
     },
   ),
-  c('GET', '/settings/payments', 'payments:read', () => '/settings/payments', 'SETTING_NOT_FOUND'),
+  c(
+    'GET',
+    '/settings/payments',
+    'settings.payment:read',
+    () => '/settings/payments',
+    'SETTING_NOT_FOUND',
+  ),
   c(
     'PUT',
     '/settings/payments',
-    'payments:write',
+    'settings.payment:write',
     () => '/settings/payments',
     'SETTING_NOT_FOUND',
     {
@@ -763,11 +836,11 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   // CSS simulator
   s('POST', '/css/stations', 'stations:write', () => '/css/stations', 'STATION_NOT_FOUND', {
     unsited: true,
-    body: (f) => ({ stationId: f.ocpp, targetUrl: 'ws://localhost:7103', evses: [{ evseId: 1 }] }),
+    body: (f) => ({ stationId: f.ocpp, targetUrl: 'ws://ocpp:8080', evses: [{ evseId: 1 }] }),
     control: {
       body: (f) => ({
         stationId: 'MATRIX-CSS-CONTROL',
-        targetUrl: 'ws://localhost:7103',
+        targetUrl: 'ws://ocpp:8080',
         evses: [{ evseId: 1 }],
         siteId: f.site,
       }),
@@ -1167,7 +1240,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   c(
     'PATCH',
     '/fleets/:id/billing',
-    'fleets:write',
+    'fleets:write, payments:write',
     (_f, w) => `/fleets/${w.fleet}/billing`,
     'FLEET_NOT_FOUND',
     {
@@ -1177,7 +1250,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   c(
     'PATCH',
     '/fleets/:id/billing-profile',
-    'fleets:write',
+    'fleets:write, payments:write',
     (_f, w) => `/fleets/${w.fleet}/billing-profile`,
     'FLEET_NOT_FOUND',
     { body: () => ({}) },
@@ -1185,14 +1258,14 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   c(
     'GET',
     '/fleets/:id/credit-limit',
-    'fleets:read',
+    'fleets:read, payments:read',
     (_f, w) => `/fleets/${w.fleet}/credit-limit`,
     'FLEET_NOT_FOUND',
   ),
   c(
     'PATCH',
     '/fleets/:id/credit-limit',
-    'fleets:write',
+    'fleets:write, payments:write',
     (_f, w) => `/fleets/${w.fleet}/credit-limit`,
     'FLEET_NOT_FOUND',
     { body: () => ({}) },
@@ -1301,13 +1374,16 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   // invoices (company-wide, except the session invoice)
   c('GET', '/invoices', 'payments:read', () => '/invoices', 'INVOICE_NOT_FOUND'),
   c('GET', '/invoices/:id', 'payments:read', (f) => `/invoices/${f.invoice}`, 'INVOICE_NOT_FOUND'),
-  s(
+  // Invoices are all-site data, so a site-restricted user cannot read the
+  // invoice it would create: the create is refused for every such user,
+  // before the session is looked up.
+  c(
     'POST',
     '/invoices/session/:sessionId',
     'payments:write',
     (f) => `/invoices/session/${f.session}`,
-    'SESSION_NOT_FOUND',
-    { unsited: true, body: () => ({}) },
+    'INVOICE_NOT_FOUND',
+    { body: () => ({}) },
   ),
   c(
     'POST',
@@ -2501,6 +2577,13 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s('PATCH', '/sites/:id', 'sites:write', (f) => sit(f), 'SITE_NOT_FOUND', {
     body: () => ({ name: 'Renamed' }),
   }),
+  s(
+    'GET',
+    '/sites/:id/data-plan-impact',
+    'sites:read',
+    (f) => `${sit(f)}/data-plan-impact?dataPlan=cellular`,
+    'SITE_NOT_FOUND',
+  ),
   s('DELETE', '/sites/:id', 'sites:write', (f) => sit(f), 'SITE_NOT_FOUND', {
     control: ctl(409, 'SITE_HAS_STATIONS', 'the controls create stations in site A'),
   }),
@@ -2570,9 +2653,14 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (f, w) => `${sit(f)}/pricing-groups/${w.pricingGroup}`,
     'SITE_NOT_FOUND',
   ),
-  s('POST', '/sites/:id/free-vend', 'sites:write', (f) => `${sit(f)}/free-vend`, 'SITE_NOT_FOUND', {
-    body: () => ({ enabled: true }),
-  }),
+  s(
+    'POST',
+    '/sites/:id/free-vend',
+    'sites:write,payments:write',
+    (f) => `${sit(f)}/free-vend`,
+    'SITE_NOT_FOUND',
+    { body: () => ({ enabled: true }) },
+  ),
   s(
     'GET',
     '/sites/:id/carbon-region',
@@ -2647,6 +2735,124 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'SITE_NOT_FOUND',
   ),
   s('GET', '/sites/:id/neighbors', 'sites:read', (f) => `${sit(f)}/neighbors`, 'SITE_NOT_FOUND'),
+
+  // SIM inventory: a site-restricted user reaches a SIM
+  // only through an open confirmed attachment to a station of their sites. The
+  // matrix runs these with the SIM feature gate passed (99 mocks it); 135
+  // covers the gate and the unattached and unconfirmed SIMs.
+  l('/sims', 'sims:read', undefined, { unsited: true }),
+  // The CSV export follows the list scope and filters: restricted users
+  // get only their confirmed SIMs, the all-site admin B's and the unsited one.
+  l('/sims/export', 'sims:read', undefined, { unsited: true }),
+  s('GET', '/sims/:id', 'sims:read', (f) => `/sims/${f.sim}`, 'SIM_NOT_FOUND', {
+    unsited: true,
+  }),
+  s('GET', '/sims/:id/neighbors', 'sims:read', (f) => `/sims/${f.sim}/neighbors`, 'SIM_NOT_FOUND', {
+    unsited: true,
+  }),
+  s(
+    'GET',
+    '/sims/:id/attachments',
+    'sims:read',
+    (f) => `/sims/${f.sim}/attachments`,
+    'SIM_NOT_FOUND',
+    { unsited: true },
+  ),
+  s('GET', '/sims/:id/timeline', 'sims:read', (f) => `/sims/${f.sim}/timeline`, 'SIM_NOT_FOUND', {
+    unsited: true,
+  }),
+  s('PATCH', '/sims/:id', 'sims:write', (f) => `/sims/${f.sim}`, 'SIM_NOT_FOUND', {
+    unsited: true,
+    body: () => ({ label: 'Matrix SIM' }),
+  }),
+  s('POST', '/sims/:id/refresh', 'sims:read', (f) => `/sims/${f.sim}/refresh`, 'SIM_NOT_FOUND', {
+    unsited: true,
+    body: () => ({}),
+  }),
+  s(
+    'POST',
+    '/sims/:id/network-reset',
+    'sims:write',
+    (f) => `/sims/${f.sim}/network-reset`,
+    'SIM_NOT_FOUND',
+    {
+      unsited: true,
+      control: ctl(
+        400,
+        'SIM_PROVIDER_NOT_CONFIGURED',
+        'no SIM provider is on in the test database, checked after the site check',
+      ),
+    },
+  ),
+  s(
+    'POST',
+    '/sims/:id/attachments/:attachmentId/detach',
+    'sims:write',
+    (f) => `/sims/${f.sim}/attachments/${String(f.simAttachment)}/detach`,
+    'SIM_NOT_FOUND',
+    {
+      unsited: true,
+      // After the other SIM controls: A's SIM then leaves the site-A admin's view.
+      control: { order: 900 },
+    },
+  ),
+  // Company-wide: adding, deleting, attaching, confirming, deactivating and
+  // reactivating need access to every site.
+  c('POST', '/sims', 'sims:write', () => '/sims', 'SIM_NOT_FOUND', {
+    body: () => ({ iccid: '8900000000000099001' }),
+  }),
+  // The template and the import are for users with access to every site, as
+  // the import creates company-wide SIMs.
+  c('GET', '/sims/export/template', 'sims:read', () => '/sims/export/template', 'SIM_NOT_FOUND'),
+  c('POST', '/sims/import', 'sims:write', () => '/sims/import', 'SIM_NOT_FOUND', {
+    body: () => ({ rows: [{ iccid: '8900000000000099002' }], updateExisting: false }),
+  }),
+  c(
+    'POST',
+    '/sims/:id/attachments',
+    'sims:write, stations:write',
+    (f) => `/sims/${f.sim}/attachments`,
+    'SIM_NOT_FOUND',
+    {
+      body: (f) => ({ stationId: f.station }),
+      control: ctl(
+        409,
+        'STATION_HAS_SIM',
+        "B's station holds its own SIM; the attach passed the all-site check",
+        { url: (_f, w) => `/sims/${w.simUnattached}/attachments` },
+      ),
+    },
+  ),
+  c(
+    'POST',
+    '/sims/:id/attachments/:attachmentId/confirm',
+    'sims:write, stations:write',
+    (f) => `/sims/${f.sim}/attachments/${String(f.simAttachment)}/confirm`,
+    'SIM_NOT_FOUND',
+  ),
+  c(
+    'POST',
+    '/sims/:id/deactivate',
+    'sims:write',
+    (f) => `/sims/${f.sim}/deactivate`,
+    'SIM_NOT_FOUND',
+    {
+      control: { url: (_f, w) => `/sims/${w.simUnattached}/deactivate` },
+    },
+  ),
+  c(
+    'POST',
+    '/sims/:id/reactivate',
+    'sims:write',
+    (f) => `/sims/${f.sim}/reactivate`,
+    'SIM_NOT_FOUND',
+    {
+      control: { url: (_f, w) => `/sims/${w.simUnattached}/reactivate` },
+    },
+  ),
+  c('DELETE', '/sims/:id', 'sims:write', (f) => `/sims/${f.sim}`, 'SIM_NOT_FOUND', {
+    control: { url: (_f, w) => `/sims/${w.simUnattached}` },
+  }),
 
   // smart charging
   l('/smart-charging/filter-options', 'smartCharging:read'),
@@ -2918,6 +3124,23 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     },
   ),
 
+  // Data retention settings (company-wide)
+  c(
+    'GET',
+    '/settings/data-retention',
+    'settings.system:read',
+    () => '/settings/data-retention',
+    'SETTING_NOT_FOUND',
+  ),
+  c(
+    'PUT',
+    '/settings/data-retention',
+    'settings.system:write',
+    () => '/settings/data-retention',
+    'SETTING_NOT_FOUND',
+    { body: () => ({}) },
+  ),
+
   // SIM provider settings (company-wide)
   c(
     'GET',
@@ -3005,7 +3228,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/stations/:id/evses/:evseId/stop-active-session',
-    'stations:write',
+    'stations:write, sessions:write',
     (f) => `${st(f)}/evses/${String(f.evse)}/stop-active-session`,
     'STATION_NOT_FOUND',
     {
@@ -3217,7 +3440,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/stations/:id/certificates/install',
-    'stations:write',
+    'stations:write, certificates:write',
     (f) => `${st(f)}/certificates/install`,
     'STATION_NOT_FOUND',
     {
@@ -3228,7 +3451,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/stations/:id/certificates/delete',
-    'stations:write',
+    'stations:write, certificates:write',
     (f) => `${st(f)}/certificates/delete`,
     'STATION_NOT_FOUND',
     {
@@ -3246,7 +3469,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/stations/:id/certificates/query',
-    'stations:write',
+    'stations:write, certificates:write',
     (f) => `${st(f)}/certificates/query`,
     'STATION_NOT_FOUND',
     { unsited: true, body: () => ({}) },
@@ -3362,7 +3585,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/stations/:id/charging-profiles/refresh',
-    'stations:write',
+    'stations:write, smartCharging:write',
     (f) => `${st(f)}/charging-profiles/refresh`,
     'STATION_NOT_FOUND',
     { unsited: true, body: () => ({}), control: ctl(400, 'STATION_OFFLINE', OFFLINE) },
@@ -3370,7 +3593,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/stations/:id/charging-profiles/composite',
-    'stations:write',
+    'stations:write, smartCharging:write',
     (f) => `${st(f)}/charging-profiles/composite`,
     'STATION_NOT_FOUND',
     { unsited: true, body: () => ({}), control: ctl(400, 'STATION_OFFLINE', OFFLINE) },
@@ -3378,7 +3601,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/stations/:id/charging-profiles/clear',
-    'stations:write',
+    'stations:write, smartCharging:write',
     (f) => `${st(f)}/charging-profiles/clear`,
     'STATION_NOT_FOUND',
     { unsited: true, body: () => ({}), control: ctl(400, 'STATION_OFFLINE', OFFLINE) },
@@ -3386,7 +3609,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/stations/:id/charging-profiles/push',
-    'stations:write',
+    'stations:write, smartCharging:write',
     (f) => `${st(f)}/charging-profiles/push`,
     'STATION_NOT_FOUND',
     {
@@ -3398,7 +3621,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/stations/:id/configurations/push',
-    'stations:write',
+    'stations:write, settings.stationConfig:write',
     (f) => `${st(f)}/configurations/push`,
     'STATION_NOT_FOUND',
     {
@@ -3474,16 +3697,16 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   ),
   s(
     'DELETE',
-    '/stations/:id/sim/match',
+    '/stations/:id/sim/attachment',
     'stations:write',
-    (f) => `${st(f)}/sim/match`,
+    (f) => `${st(f)}/sim/attachment`,
     'STATION_NOT_FOUND',
     {
       unsited: true,
       control: ctl(
         400,
-        'SIM_PROVIDER_NOT_CONFIGURED',
-        'no SIM provider is on in the test database, checked after the site check',
+        'SIM_FEATURE_DISABLED',
+        'the SIM switches are off in the test database, checked after the site check',
       ),
     },
   ),
@@ -3491,16 +3714,16 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   // even for a station of its own site.
   c(
     'POST',
-    '/stations/:id/sim/match/confirm',
+    '/stations/:id/sim/attachment/confirm',
     'stations:write',
-    (f) => `${st(f)}/sim/match/confirm`,
+    (f) => `${st(f)}/sim/attachment/confirm`,
     'STATION_NOT_FOUND',
     {
-      body: () => ({ matchedAt: '2026-10-21T00:00:00.000Z' }),
+      body: () => ({ attachmentId: 1 }),
       control: ctl(
         400,
-        'SIM_PROVIDER_NOT_CONFIGURED',
-        'no SIM provider is on in the test database, checked after the site check',
+        'SIM_FEATURE_DISABLED',
+        'the SIM switches are off in the test database, checked after the site check',
       ),
     },
   ),
@@ -3517,7 +3740,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/stations/:id/monitoring-rules',
-    'stations:write',
+    'stations:write, settings.stationConfig:write',
     (f) => `${st(f)}/monitoring-rules`,
     'STATION_NOT_FOUND',
     {
@@ -3534,7 +3757,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'DELETE',
     '/stations/:id/monitoring-rules/:ruleId',
-    'stations:write',
+    'stations:write, settings.stationConfig:write',
     (f) => `${st(f)}/monitoring-rules/${String(f.monitor)}`,
     'STATION_NOT_FOUND',
     {
@@ -3734,7 +3957,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s(
     'POST',
     '/support-cases/:id/refund',
-    'support:write',
+    'support:write, payments:write',
     (f) => `/support-cases/${f.supportCase}/refund`,
     'SUPPORT_CASE_NOT_FOUND',
     {
@@ -3859,10 +4082,24 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (f) => `/users/${f.user}/reset-password`,
     'USER_NOT_FOUND',
     {
-      body: () => ({ password: 'NewPassword123!' }),
+      // The fresh proof of the actors' password; an API key ignores it.
+      body: () => ({
+        password: 'NewPassword123!',
+        proof: { kind: 'password', password: 'TestPassword1' },
+      }),
     },
   ),
   s('DELETE', '/users/:id', 'users:write', (f) => `/users/${f.user}`, 'USER_NOT_FOUND'),
+  s(
+    'DELETE',
+    '/users/:id/sso-link',
+    'users:write',
+    (f) => `/users/${f.user}/sso-link`,
+    'USER_NOT_FOUND',
+    {
+      body: () => ({ proof: { kind: 'password', password: 'TestPassword1' } }),
+    },
+  ),
   s(
     'POST',
     '/users/:id/resend-invite',
@@ -3870,7 +4107,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (f) => `/users/${f.user}/resend-invite`,
     'USER_NOT_FOUND',
     {
-      body: () => ({}),
+      body: () => ({ proof: { kind: 'password', password: 'TestPassword1' } }),
     },
   ),
   s(
@@ -3904,7 +4141,8 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (f) => `/users/${f.user}/mfa/reset`,
     'USER_NOT_FOUND',
     {
-      body: () => ({}),
+      // The fresh proof of the actors' password; an API key ignores it.
+      body: () => ({ proof: { kind: 'password', password: 'TestPassword1' } }),
     },
   ),
   s(
@@ -3977,6 +4215,27 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   ),
   // The AI alerts (provider quota, company budget) are company-wide like Settings > AI.
   c('GET', '/ai/alerts', 'settings.ai:read', () => '/ai/alerts', 'SETTING_NOT_FOUND'),
+  c(
+    'GET',
+    '/settings/notifications/webhook-signing-secret',
+    'settings.system:read',
+    () => '/settings/notifications/webhook-signing-secret',
+    'SETTING_NOT_FOUND',
+  ),
+  c(
+    'POST',
+    '/settings/notifications/webhook-signing-secret',
+    'settings.system:write',
+    () => '/settings/notifications/webhook-signing-secret',
+    'SETTING_NOT_FOUND',
+  ),
+  c(
+    'DELETE',
+    '/settings/notifications/webhook-signing-secret',
+    'settings.system:write',
+    () => '/settings/notifications/webhook-signing-secret',
+    'SETTING_NOT_FOUND',
+  ),
   c(
     'GET',
     '/settings/s3/status',
@@ -4073,6 +4332,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
       autoProvision: false,
       defaultRoleId: '',
       attributeMapping: {},
+      proof: { kind: 'password', password: 'TestPassword1' },
     }),
   }),
 
@@ -4203,7 +4463,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   c(
     'PATCH',
     '/fleets/:id/drivers/:driverId',
-    'fleets:write',
+    'fleets:write, payments:write',
     (_f, w) => `/fleets/${w.fleet}/drivers/${w.driver}`,
     'FLEET_NOT_FOUND',
     { body: () => ({ accountBillingOptOut: true }) },
@@ -4465,6 +4725,7 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
       ['POST', '/users/me/mfa/recovery-codes/webauthn-options'],
       ['POST', '/users/me/mfa/factor-proof'],
       ['POST', '/users/me/phone-verification'],
+      ['POST', '/users/me/sso-link'],
       ['DELETE', '/users/me/mfa'],
       ['POST', '/users/me/webauthn/registration-options'],
       ['POST', '/users/me/webauthn/registration'],

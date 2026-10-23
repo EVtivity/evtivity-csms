@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { PRE_AUTH_AMOUNT_MAX_CENTS, PRE_AUTH_AMOUNT_MIN_CENTS } from '@evtivity/lib/currency';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { getPlatformFeePercent } from '@evtivity/database';
@@ -117,8 +118,8 @@ const updatePaymentSettingsBody = z.object({
   preAuthAmountCents: z
     .number()
     .int()
-    .min(1)
-    .max(1_000_000)
+    .min(PRE_AUTH_AMOUNT_MIN_CENTS)
+    .max(PRE_AUTH_AMOUNT_MAX_CENTS)
     .optional()
     .describe('Default pre-authorization amount in cents (1 to 1,000,000)'),
   platformFeePercent: z
@@ -157,7 +158,7 @@ export function paymentSettingsRoutes(app: FastifyInstance): void {
   app.get(
     '/settings/payments',
     {
-      onRequest: [authorize('payments:read')],
+      onRequest: [authorize('settings.payment:read')],
       schema: {
         tags: ['Payments'],
         summary: 'Get payment settings',
@@ -191,7 +192,7 @@ export function paymentSettingsRoutes(app: FastifyInstance): void {
   app.put(
     '/settings/payments',
     {
-      onRequest: [authorize('payments:write')],
+      onRequest: [authorize('settings.payment:write')],
       schema: {
         tags: ['Payments'],
         summary: 'Update payment settings',

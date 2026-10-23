@@ -464,6 +464,13 @@ export async function issueSeccCertificate(
   }
   const csr = new x509.Pkcs10CertificateRequest(csrPem);
   if (!(await csr.verify())) throw new Error('CSR signature does not verify');
+  // ISO 15118-2 SECC keys are secp256r1, ISO 15118-20 keys secp521r1.
+  const keyAlgorithm = csr.publicKey.algorithm as EcKeyAlgorithm;
+  if (keyAlgorithm.name !== 'ECDSA' || keyAlgorithm.namedCurve !== profile.curve) {
+    throw new Error(
+      `CSR key is not on the ${profile.curve} curve of ISO 15118 schema ${String(schema)}`,
+    );
+  }
   const issuer = await issuerOf(profile, hierarchy.cpoSubCa2);
   const notBefore = new Date(Date.now() - 60_000);
   let notAfter = new Date(notBefore.getTime() + YEAR_MS);

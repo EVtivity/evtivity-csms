@@ -1,45 +1,24 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
-import { createLogger } from '@evtivity/lib';
+import {
+  DATA_PLAN_DEFAULTS,
+  createLogger,
+  dataPlanSettingKeys,
+  dataPlanValuesFromSettings,
+} from '@evtivity/lib';
+import type { DataPlan, DataPlanValues } from '@evtivity/lib';
 
 const logger = createLogger('ocpp-settings');
-
-let cachedHeartbeat: number | undefined;
-let cachedHeartbeatAt = 0;
 
 let cachedOfflineTtl: number | undefined;
 let cachedOfflineTtlAt = 0;
 
 /** How long each process caches the ocpp.* and smartCharging.* settings it reads. */
 export const OCPP_SETTINGS_CACHE_TTL_MS = 60_000;
-
-export async function getHeartbeatIntervalSeconds(): Promise<number> {
-  const now = Date.now();
-  if (cachedHeartbeat !== undefined && now - cachedHeartbeatAt < OCPP_SETTINGS_CACHE_TTL_MS) {
-    return cachedHeartbeat;
-  }
-
-  try {
-    const [row] = await db
-      .select({ value: settings.value })
-      .from(settings)
-      .where(eq(settings.key, 'ocpp.heartbeatInterval'));
-
-    cachedHeartbeat = row != null && typeof row.value === 'number' ? row.value : 300;
-    cachedHeartbeatAt = now;
-    return cachedHeartbeat;
-  } catch (err) {
-    logger.warn(
-      { err, key: 'ocpp.heartbeatInterval' },
-      'getHeartbeatIntervalSeconds failed, using the cached value or default',
-    );
-    return cachedHeartbeat ?? 300;
-  }
-}
 
 export async function getOfflineCommandTtlHours(): Promise<number> {
   const now = Date.now();
@@ -65,169 +44,42 @@ export async function getOfflineCommandTtlHours(): Promise<number> {
   }
 }
 
-// --- Meter Value Interval ---
+// --- Data plan values ---
 
-let cachedMeterValueInterval: number | undefined;
-let cachedMeterValueIntervalAt = 0;
+const cachedPlanValues = new Map<DataPlan, { values: DataPlanValues; at: number }>();
 
-export async function getMeterValueIntervalSeconds(): Promise<number> {
+/**
+ * The OCPP station settings of a data plan (heartbeat, CSMS ping, idle and end
+ * readings, AC and DC readings while charging), read in one query and cached
+ * per plan. A missing or wrongly typed key takes its shipped value; a failed
+ * read keeps the cached values, else the shipped ones.
+ */
+export async function getDataPlanValues(plan: DataPlan): Promise<DataPlanValues> {
   const now = Date.now();
-  if (
-    cachedMeterValueInterval !== undefined &&
-    now - cachedMeterValueIntervalAt < OCPP_SETTINGS_CACHE_TTL_MS
-  ) {
-    return cachedMeterValueInterval;
-  }
+  const cached = cachedPlanValues.get(plan);
+  if (cached != null && now - cached.at < OCPP_SETTINGS_CACHE_TTL_MS) return cached.values;
 
+  const keys = Object.values(dataPlanSettingKeys(plan));
   try {
-    const [row] = await db
-      .select({ value: settings.value })
+    const rows = await db
+      .select({ key: settings.key, value: settings.value })
       .from(settings)
-      .where(eq(settings.key, 'ocpp.meterValueInterval'));
-
-    cachedMeterValueInterval = row != null && typeof row.value === 'number' ? row.value : 60;
-    cachedMeterValueIntervalAt = now;
-    return cachedMeterValueInterval;
+      .where(inArray(settings.key, keys));
+    const values = dataPlanValuesFromSettings(plan, new Map(rows.map((r) => [r.key, r.value])));
+    cachedPlanValues.set(plan, { values, at: now });
+    return values;
   } catch (err) {
     logger.warn(
-      { err, key: 'ocpp.meterValueInterval' },
-      'getMeterValueIntervalSeconds failed, using the cached value or default',
+      { err, plan },
+      'getDataPlanValues failed, using the cached values or the shipped values',
     );
-    return cachedMeterValueInterval ?? 60;
+    return cached?.values ?? DATA_PLAN_DEFAULTS[plan];
   }
 }
 
-// --- Clock-Aligned Interval ---
-
-let cachedClockAlignedInterval: number | undefined;
-let cachedClockAlignedIntervalAt = 0;
-
-export async function getClockAlignedIntervalSeconds(): Promise<number> {
-  const now = Date.now();
-  if (
-    cachedClockAlignedInterval !== undefined &&
-    now - cachedClockAlignedIntervalAt < OCPP_SETTINGS_CACHE_TTL_MS
-  ) {
-    return cachedClockAlignedInterval;
-  }
-
-  try {
-    const [row] = await db
-      .select({ value: settings.value })
-      .from(settings)
-      .where(eq(settings.key, 'ocpp.clockAlignedInterval'));
-
-    cachedClockAlignedInterval = row != null && typeof row.value === 'number' ? row.value : 900;
-    cachedClockAlignedIntervalAt = now;
-    return cachedClockAlignedInterval;
-  } catch (err) {
-    logger.warn(
-      { err, key: 'ocpp.clockAlignedInterval' },
-      'getClockAlignedIntervalSeconds failed, using the cached value or default',
-    );
-    return cachedClockAlignedInterval ?? 900;
-  }
-}
-
-// --- Measurand Settings ---
-
-let cachedSampledMeasurands: string | undefined;
-let cachedSampledMeasurandsAt = 0;
-
-let cachedAlignedMeasurands: string | undefined;
-let cachedAlignedMeasurandsAt = 0;
-
-let cachedTxEndedMeasurands: string | undefined;
-let cachedTxEndedMeasurandsAt = 0;
-
-const DEFAULT_SAMPLED_MEASURANDS =
-  'Energy.Active.Import.Register,Power.Active.Import,Voltage,SoC,Current.Import';
-const DEFAULT_ALIGNED_MEASURANDS =
-  'Energy.Active.Import.Register,Power.Active.Import,Voltage,SoC,Current.Import';
-const DEFAULT_TX_ENDED_MEASURANDS = 'Energy.Active.Import.Register';
-
-export async function getSampledMeasurands(): Promise<string> {
-  const now = Date.now();
-  if (
-    cachedSampledMeasurands !== undefined &&
-    now - cachedSampledMeasurandsAt < OCPP_SETTINGS_CACHE_TTL_MS
-  ) {
-    return cachedSampledMeasurands;
-  }
-
-  try {
-    const [row] = await db
-      .select({ value: settings.value })
-      .from(settings)
-      .where(eq(settings.key, 'ocpp.sampledMeasurands'));
-
-    cachedSampledMeasurands =
-      row != null && typeof row.value === 'string' ? row.value : DEFAULT_SAMPLED_MEASURANDS;
-    cachedSampledMeasurandsAt = now;
-    return cachedSampledMeasurands;
-  } catch (err) {
-    logger.warn(
-      { err, key: 'ocpp.sampledMeasurands' },
-      'getSampledMeasurands failed, using the cached value or default',
-    );
-    return cachedSampledMeasurands ?? DEFAULT_SAMPLED_MEASURANDS;
-  }
-}
-
-export async function getAlignedMeasurands(): Promise<string> {
-  const now = Date.now();
-  if (
-    cachedAlignedMeasurands !== undefined &&
-    now - cachedAlignedMeasurandsAt < OCPP_SETTINGS_CACHE_TTL_MS
-  ) {
-    return cachedAlignedMeasurands;
-  }
-
-  try {
-    const [row] = await db
-      .select({ value: settings.value })
-      .from(settings)
-      .where(eq(settings.key, 'ocpp.alignedMeasurands'));
-
-    cachedAlignedMeasurands =
-      row != null && typeof row.value === 'string' ? row.value : DEFAULT_ALIGNED_MEASURANDS;
-    cachedAlignedMeasurandsAt = now;
-    return cachedAlignedMeasurands;
-  } catch (err) {
-    logger.warn(
-      { err, key: 'ocpp.alignedMeasurands' },
-      'getAlignedMeasurands failed, using the cached value or default',
-    );
-    return cachedAlignedMeasurands ?? DEFAULT_ALIGNED_MEASURANDS;
-  }
-}
-
-export async function getTxEndedMeasurands(): Promise<string> {
-  const now = Date.now();
-  if (
-    cachedTxEndedMeasurands !== undefined &&
-    now - cachedTxEndedMeasurandsAt < OCPP_SETTINGS_CACHE_TTL_MS
-  ) {
-    return cachedTxEndedMeasurands;
-  }
-
-  try {
-    const [row] = await db
-      .select({ value: settings.value })
-      .from(settings)
-      .where(eq(settings.key, 'ocpp.txEndedMeasurands'));
-
-    cachedTxEndedMeasurands =
-      row != null && typeof row.value === 'string' ? row.value : DEFAULT_TX_ENDED_MEASURANDS;
-    cachedTxEndedMeasurandsAt = now;
-    return cachedTxEndedMeasurands;
-  } catch (err) {
-    logger.warn(
-      { err, key: 'ocpp.txEndedMeasurands' },
-      'getTxEndedMeasurands failed, using the cached value or default',
-    );
-    return cachedTxEndedMeasurands ?? DEFAULT_TX_ENDED_MEASURANDS;
-  }
+/** Drops the cached data plan values (tests, and after a settings write in this process). */
+export function clearDataPlanValuesCache(): void {
+  cachedPlanValues.clear();
 }
 
 // --- Command Retry Settings ---

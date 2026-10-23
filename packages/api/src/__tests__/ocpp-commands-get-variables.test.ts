@@ -168,8 +168,8 @@ describe('POST /ocpp/commands/v21/GetVariables', () => {
   }
 
   it('splits by the stored ItemsPerMessage[GetVariables] limit', async () => {
-    // station lookup, limit lookup, first-chunk station check
-    dbResults.push([{ id: 'sta_1' }], [{ value: '4' }], [STATION]);
+    // site-checked station lookup, limit lookup, first-chunk station check
+    dbResults.push([STATION], [{ value: '4' }], [STATION]);
 
     const res = await send();
 
@@ -180,7 +180,7 @@ describe('POST /ocpp/commands/v21/GetVariables', () => {
   });
 
   it('reads only the top-level Actual ItemsPerMessage[GetVariables] row', async () => {
-    dbResults.push([{ id: 'sta_1' }], [{ value: '4' }], [STATION]);
+    dbResults.push([STATION], [{ value: '4' }], [STATION]);
 
     await send();
 
@@ -198,11 +198,26 @@ describe('POST /ocpp/commands/v21/GetVariables', () => {
   });
 
   it('sends one request when the station has not reported the limit', async () => {
-    dbResults.push([{ id: 'sta_1' }], [], [STATION]);
+    dbResults.push([STATION], [], [STATION]);
 
     const res = await send();
 
     expect(res.statusCode).toBe(200);
     expect(published.map((p) => (p['getVariableData'] as unknown[]).length)).toEqual([5]);
+  });
+
+  it('checks the site before reading the chunk limit', async () => {
+    const { getUserSiteIds } = await import('../lib/site-access.js');
+    vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_other']);
+    dbResults.push([{ ...STATION, siteId: 'sit_1' }], [{ value: '4' }]);
+
+    const res = await send();
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ code: 'STATION_NOT_FOUND' });
+    expect(conditions.some((condition) => (condition as unknown[])[1] === 'sc.component')).toBe(
+      false,
+    );
+    expect(published).toHaveLength(0);
   });
 });

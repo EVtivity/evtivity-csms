@@ -2,17 +2,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
+import { deriveKey, KEY_LABELS } from '@evtivity/lib/derived-keys';
 import type { NormalizedPaymentEvent } from '../../types.js';
 
 export const SIMULATED_SIGNATURE_HEADER = 'x-simulated-signature';
 
 /**
- * The webhook signing key: HKDF-SHA256 of SETTINGS_ENCRYPTION_KEY with info
- * 'simulated-webhook', so no setting is needed and every process of one
+ * The webhook signing key: HKDF-SHA256 of SETTINGS_ENCRYPTION_KEY with its
+ * own label (`KEY_LABELS.simulatedWebhook`), so no setting is needed and every process of one
  * installation signs and verifies with the same key.
  */
 export function simulatedWebhookKey(encryptionKey: string): Buffer {
-  return Buffer.from(crypto.hkdfSync('sha256', encryptionKey, '', 'simulated-webhook', 32));
+  return deriveKey(encryptionKey, KEY_LABELS.simulatedWebhook);
 }
 
 function hmac(key: Buffer, rawBody: string): string {

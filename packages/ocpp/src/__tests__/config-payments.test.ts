@@ -17,17 +17,16 @@ describe('PAYMENTS_ALLOW_SIMULATED', () => {
     vi.unstubAllEnvs();
   });
 
-  it('defaults to on in development, test, and when NODE_ENV is unset', async () => {
+  it('defaults to on in development and test only', async () => {
     const unset = { PAYMENTS_ALLOW_SIMULATED: undefined };
     expect(await allowSimulated({ ...unset, NODE_ENV: 'development' })).toBe(true);
     expect(await allowSimulated({ ...unset, NODE_ENV: 'test' })).toBe(true);
-    expect(await allowSimulated({ ...unset, NODE_ENV: undefined })).toBe(true);
   });
 
-  it('defaults to off in production', async () => {
-    expect(
-      await allowSimulated({ PAYMENTS_ALLOW_SIMULATED: undefined, NODE_ENV: 'production' }),
-    ).toBe(false);
+  it('defaults to off in production and when NODE_ENV is unset', async () => {
+    const unset = { PAYMENTS_ALLOW_SIMULATED: undefined };
+    expect(await allowSimulated({ ...unset, NODE_ENV: 'production' })).toBe(false);
+    expect(await allowSimulated({ ...unset, NODE_ENV: undefined })).toBe(false);
   });
 
   it('follows an explicit value and rejects anything else', async () => {
@@ -38,5 +37,26 @@ describe('PAYMENTS_ALLOW_SIMULATED', () => {
       await allowSimulated({ NODE_ENV: 'development', PAYMENTS_ALLOW_SIMULATED: 'false' }),
     ).toBe(false);
     await expect(allowSimulated({ PAYMENTS_ALLOW_SIMULATED: 'yes' })).rejects.toThrow();
+  });
+});
+
+describe('OCPP_TRUSTED_PROXY_CIDRS', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each(['0.0.0.0/0', '10.0.0.0/8,::/0'])('refuses %s, which trusts every address', async (v) => {
+    vi.resetModules();
+    for (const [key, value] of Object.entries(REQUIRED)) vi.stubEnv(key, value);
+    vi.stubEnv('OCPP_TRUSTED_PROXY_CIDRS', v);
+    await expect(import('../lib/config.js')).rejects.toThrow(/must not trust every address/);
+  });
+
+  it('takes a list of proxy CIDRs', async () => {
+    vi.resetModules();
+    for (const [key, value] of Object.entries(REQUIRED)) vi.stubEnv(key, value);
+    vi.stubEnv('OCPP_TRUSTED_PROXY_CIDRS', '10.0.0.0/8,192.168.1.10');
+    const { config } = await import('../lib/config.js');
+    expect(config.OCPP_TRUSTED_PROXY_CIDRS).toBe('10.0.0.0/8,192.168.1.10');
   });
 });

@@ -62,8 +62,9 @@ export function parseAllowedPrivateHosts(value: unknown): string[] | null {
  * (`isPrivateUrl`). `allowPrivateHosts` (local development only) also accepts
  * a private host and plain http, for a mock provider on localhost. An empty
  * string means the official endpoint. Returns the trimmed URL, or null when
- * invalid. This is a syntactic check: the client that sends the key still
- * checks the address the host resolves to.
+ * invalid. This is a syntactic check: the adapters send through
+ * `createGuardedFetch` (`@evtivity/ai/providers`, safeFetch), which checks the
+ * address the host resolves to when the connection opens.
  */
 export function validateAiBaseUrl(
   value: unknown,

@@ -56,6 +56,10 @@ export const connectorStatusEnum = pgEnum('connector_status', [
   'ev_connected',
 ]);
 
+// A station data plan (features/station-data-plans.md): which set of OCPP
+// station settings a station runs. Null on a station or site: not set.
+export const stationDataPlanEnum = pgEnum('station_data_plan', ['wifi_or_wired', 'cellular']);
+
 export const sites = pgTable(
   'sites',
   {
@@ -102,6 +106,10 @@ export const sites = pgTable(
     aiInsightsSuppressedUntil: timestamp('ai_insights_suppressed_until', { withTimezone: true }),
     aiInsightsSuppressedBy: text('ai_insights_suppressed_by'),
     aiInsightsSuppressedReason: varchar('ai_insights_suppressed_reason', { length: 500 }),
+    // The site's data plan; its stations without their own choice and without
+    // a confirmed SIM run it. Null: not set (Wi-Fi or wired). Written only by
+    // setSiteDataPlan (lib/station-data-plan.ts).
+    dataPlan: stationDataPlanEnum('data_plan'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -138,6 +146,17 @@ export const chargingStations = pgTable(
     firmwareVersion: varchar('firmware_version', { length: 255 }),
     iccid: varchar('iccid', { length: 20 }),
     imsi: varchar('imsi', { length: 20 }),
+    // Who wrote the ICCID: `reported` by a BootNotification, `entered` by a
+    // person through the station PATCH, with that person (the migration's
+    // foreign key to users sets it null on delete; assets cannot import
+    // identity) and whether they had access to every site. A Refresh attaches
+    // an entered ICCID as `entered`, never as reported.
+    iccidSource: varchar('iccid_source', { length: 16 })
+      .$type<'reported' | 'entered'>()
+      .notNull()
+      .default('reported'),
+    iccidEnteredBy: text('iccid_entered_by'),
+    iccidEnteredWithAllSites: boolean('iccid_entered_with_all_sites').notNull().default(false),
     availability: chargingStationStatusEnum('availability').notNull().default('available'),
     // The status the station reports for itself as a whole: OCPP 1.6
     // connector 0, OCPP 2.x NotifyEvent ChargingStation AvailabilityState.
@@ -183,6 +202,9 @@ export const chargingStations = pgTable(
     latitude: varchar('latitude', { length: 20 }),
     longitude: varchar('longitude', { length: 20 }),
     reservationsEnabled: boolean('reservations_enabled').notNull().default(true),
+    // The operator's data plan choice for this station; null uses the SIM or
+    // site rule (resolveDataPlan). Written only by setStationDataPlan.
+    dataPlan: stationDataPlanEnum('data_plan'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -196,6 +218,15 @@ export const chargingStations = pgTable(
       .where(sql`is_conformance`),
     index('idx_charging_stations_site_id').on(table.siteId),
     index('idx_charging_stations_vendor_id').on(table.vendorId),
+    check(
+      'charging_stations_iccid_source_check',
+      sql`${table.iccidSource} IN ('reported', 'entered')`,
+    ),
+    // A pending security profile is always an upgrade.
+    check(
+      'ck_pending_security_profile_upgrade',
+      sql`${table.pendingSecurityProfile} IS NULL OR ${table.pendingSecurityProfile} > ${table.securityProfile}`,
+    ),
   ],
 );
 

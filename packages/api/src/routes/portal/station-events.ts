@@ -10,14 +10,35 @@ import { and, eq } from 'drizzle-orm';
 import { publicStationListed } from '../../lib/public-station.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { endSseClients, writeSseClient } from '../../lib/sse-broadcast.js';
+import { clientAddressKey } from '@evtivity/lib/ip-address';
 
 const logger = createLogger('portal-station-events-sse');
 
 const KEEPALIVE_INTERVAL_MS = 30_000;
 const CSMS_EVENTS_CHANNEL = 'csms_events';
 
+/**
+ * Bounds of the public (unauthenticated) stream, so one client cannot hold
+ * the API's sockets and memory: open streams per client
+ * address and per process, and the lifetime of one stream (the portal opens
+ * a new one when it ends).
+ */
+export interface StationStreamLimits {
+  perClient: number;
+  total: number;
+  lifetimeMs: number;
+}
+
+export const DEFAULT_STREAM_LIMITS: StationStreamLimits = {
+  perClient: 10,
+  total: 2000,
+  lifetimeMs: 30 * 60_000,
+};
+
 interface StationSseClient {
   id: number;
+  /** The client key the stream counts against (`clientAddressKey(request.ip)`: an IPv6 /64). */
+  ip: string;
   stationDbId: string;
   /** The OCPP station id the client subscribed with (public). */
   stationOcppId: string;
@@ -85,10 +106,15 @@ function removeClient(client: StationSseClient): void {
   }
 }
 
-export function portalStationEventRoutes(app: FastifyInstance): void {
+export function portalStationEventRoutes(
+  app: FastifyInstance,
+  options: Partial<StationStreamLimits> = {},
+): void {
+  const limits: StationStreamLimits = { ...DEFAULT_STREAM_LIMITS, ...options };
   app.get(
     '/portal/chargers/:stationId/events',
     {
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
       schema: {
         tags: ['Portal Chargers'],
         summary: 'Subscribe to real-time station status events',
@@ -111,6 +137,18 @@ export function portalStationEventRoutes(app: FastifyInstance): void {
           .send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
 
+      // One IPv6 client holds a /64: counted by prefix, it cannot fill the
+      // process's streams from many addresses.
+      const clientKey = clientAddressKey(request.ip);
+      let fromClient = 0;
+      for (const c of clients) if (c.ip === clientKey) fromClient++;
+      if (fromClient >= limits.perClient || clients.size >= limits.total) {
+        return await reply.status(429).send({
+          error: 'Too many open station event streams',
+          code: 'STREAM_LIMIT_REACHED',
+        });
+      }
+
       void reply
         .header('Content-Type', 'text/event-stream')
         .header('Cache-Control', 'no-cache')
@@ -120,6 +158,7 @@ export function portalStationEventRoutes(app: FastifyInstance): void {
 
       const client: StationSseClient = {
         id: nextClientId++,
+        ip: clientKey,
         stationDbId: station.id,
         stationOcppId: stationId,
         reply,
@@ -130,7 +169,15 @@ export function portalStationEventRoutes(app: FastifyInstance): void {
 
       reply.raw.write(`: connected\n\n`);
 
+      // The stream ends at its maximum lifetime; the portal reconnects.
+      const lifetime = setTimeout(() => {
+        removeClient(client);
+        reply.raw.end();
+      }, limits.lifetimeMs);
+      lifetime.unref();
+
       request.raw.on('close', () => {
+        clearTimeout(lifetime);
         removeClient(client);
       });
 

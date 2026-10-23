@@ -22,6 +22,7 @@ import {
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { config } from '../lib/config.js';
+import { publicStationListed } from '../lib/public-station.js';
 import { isOcpp21 } from '@evtivity/lib/ocpp-version';
 
 // The only writer of station_web_payment_configs. Dynamic QR codes (OCPP 2.1
@@ -507,7 +508,9 @@ export async function validateQrCodeUrl(
     })
     .from(stationWebPaymentConfigs)
     .innerJoin(chargingStations, eq(chargingStations.id, stationWebPaymentConfigs.stationId))
-    .where(eq(chargingStations.stationId, chargingStationId));
+    // A station the portal does not list answers like an unknown one, so the
+    // check never tells which unlisted stations have dynamic QR.
+    .where(and(eq(chargingStations.stationId, chargingStationId), publicStationListed()));
   if (row == null) return { valid: false, reason: 'unknown_station' };
   if (version !== row.totpVersion) return { valid: false, reason: 'unsupported_version' };
 

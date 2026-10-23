@@ -48,7 +48,7 @@ describe('checkRecaptcha', () => {
     getRecaptchaConfigMock.mockResolvedValue(null);
     const { reply, status } = makeReply();
 
-    const result = await checkRecaptcha('any-token', reply);
+    const result = await checkRecaptcha('any-token', reply, 'login');
 
     expect(result).toBe(true);
     expect(status).not.toHaveBeenCalled();
@@ -59,7 +59,7 @@ describe('checkRecaptcha', () => {
     getRecaptchaConfigMock.mockResolvedValue({ secretKeyEnc: 'enc', threshold: 0.5 });
     const { reply, send, status } = makeReply();
 
-    const result = await checkRecaptcha(undefined, reply);
+    const result = await checkRecaptcha(undefined, reply, 'login');
 
     expect(result).toBe(false);
     expect(status).toHaveBeenCalledWith(400);
@@ -73,7 +73,7 @@ describe('checkRecaptcha', () => {
     getRecaptchaConfigMock.mockResolvedValue({ secretKeyEnc: 'enc', threshold: 0.5 });
     const { reply, send, status } = makeReply();
 
-    const result = await checkRecaptcha('', reply);
+    const result = await checkRecaptcha('', reply, 'login');
 
     expect(result).toBe(false);
     expect(status).toHaveBeenCalledWith(400);
@@ -89,11 +89,14 @@ describe('checkRecaptcha', () => {
     verifyRecaptchaMock.mockResolvedValue({ success: false });
     const { reply, send, status } = makeReply();
 
-    const result = await checkRecaptcha('token', reply);
+    const result = await checkRecaptcha('token', reply, 'login');
 
     expect(result).toBe(false);
     expect(decryptStringMock).toHaveBeenCalledWith('enc', 'test-key');
-    expect(verifyRecaptchaMock).toHaveBeenCalledWith('token', 'secret-key', 0.5);
+    expect(verifyRecaptchaMock).toHaveBeenCalledWith('token', 'secret-key', 0.5, {
+      action: 'login',
+      hostnames: expect.any(Array),
+    });
     expect(status).toHaveBeenCalledWith(403);
     expect(send).toHaveBeenCalledWith({
       error: 'reCAPTCHA verification failed',
@@ -107,10 +110,13 @@ describe('checkRecaptcha', () => {
     verifyRecaptchaMock.mockResolvedValue({ success: true, score: 0.9 });
     const { reply, status } = makeReply();
 
-    const result = await checkRecaptcha('good-token', reply);
+    const result = await checkRecaptcha('good-token', reply, 'login');
 
     expect(result).toBe(true);
-    expect(verifyRecaptchaMock).toHaveBeenCalledWith('good-token', 'secret-key', 0.7);
+    expect(verifyRecaptchaMock).toHaveBeenCalledWith('good-token', 'secret-key', 0.7, {
+      action: 'login',
+      hostnames: expect.any(Array),
+    });
     expect(status).not.toHaveBeenCalled();
   });
 
@@ -118,7 +124,7 @@ describe('checkRecaptcha', () => {
     getRecaptchaConfigMock.mockResolvedValue({ secretKeyEnc: '', threshold: 0.5 });
     const { reply } = makeReply();
 
-    await expect(checkRecaptcha('token', reply)).rejects.toThrow(
+    await expect(checkRecaptcha('token', reply, 'login')).rejects.toThrow(
       'reCAPTCHA is enabled but security.recaptcha.secretKeyEnc is not set',
     );
     expect(decryptStringMock).not.toHaveBeenCalled();

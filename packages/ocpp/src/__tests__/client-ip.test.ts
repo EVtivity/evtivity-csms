@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { IncomingMessage } from 'node:http';
+import { clientAddressKey } from '@evtivity/lib/ip-address';
 import {
   isTlsConnection,
   parseTrustedProxies,
@@ -76,6 +77,20 @@ describe('parseTrustedProxies', () => {
     expect(() => parseTrustedProxies('10.0.0.0/33')).toThrow();
     expect(() => parseTrustedProxies('nonsense')).toThrow();
   });
+
+  // Number() read these prefixes as 0,
+  // a trust-all subnet that let a forged X-Forwarded-Proto pass profile 2 over ws.
+  it.each(['10.0.0.0/', '10.0.0.0/0x0', '10.0.0.0/0.0', '10.0.0.0/ 0', '::/-0', '10.0.0.0/8/1'])(
+    'refuses the malformed prefix %s',
+    (entry) => {
+      expect(() => parseTrustedProxies(entry)).toThrow();
+    },
+  );
+
+  it('refuses a /0 entry, which trusts every peer', () => {
+    expect(() => parseTrustedProxies('0.0.0.0/0')).toThrow();
+    expect(() => parseTrustedProxies('10.0.0.0/8, ::/00')).toThrow();
+  });
 });
 
 describe('isTlsConnection', () => {
@@ -138,5 +153,35 @@ describe('stationEndpointUrl', () => {
     expect(stationEndpointUrl(withHost('host?x=1'), false)).toBeNull();
     expect(stationEndpointUrl(withHost('a b'), false)).toBeNull();
     expect(stationEndpointUrl(withHost(`${'h'.repeat(256)}.com`), false)).toBeNull();
+  });
+});
+
+describe('clientAddressKey', () => {
+  it('keeps an IPv4 address and keys IPv6 on its /64', () => {
+    expect(clientAddressKey('203.0.113.7')).toBe('203.0.113.7');
+    expect(clientAddressKey('::ffff:203.0.113.7')).toBe('203.0.113.7');
+    expect(clientAddressKey('2001:db8:1:2::1')).toBe('2001:db8:1:2::/64');
+    expect(clientAddressKey('2001:0db8:0001:0002:ffff:0:0:9')).toBe('2001:db8:1:2::/64');
+    expect(clientAddressKey('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(clientAddressKey('fe80::1%eth0')).toBe('fe80:0:0:0::/64');
+    expect(clientAddressKey('::1')).toBe('0:0:0:0::/64');
+    expect(clientAddressKey('unknown')).toBe('unknown');
+  });
+
+  // The pending-auth cap and the wrong-password lockout key on
+  // clientAddressKey(resolveClientIp(...)): a hex-mapped IPv4 peer must land on
+  // its IPv4 key, never on the shared ::ffff:0:0/64 bucket.
+  it('keys a hex-mapped IPv4 peer like its dotted and plain forms', () => {
+    const hex = resolveClientIp(req('::ffff:cb00:7107'), null);
+    expect(hex).toBe('203.0.113.7');
+    expect(clientAddressKey(hex ?? '')).toBe('203.0.113.7');
+    expect(clientAddressKey('::ffff:cb00:7107')).toBe(clientAddressKey('::ffff:203.0.113.7'));
+    expect(clientAddressKey('::ffff:cb00:7107')).not.toBe(clientAddressKey('::ffff:cb00:7108'));
+  });
+
+  it('treats a hex-mapped trusted proxy as its IPv4 address', () => {
+    const trusted = parseTrustedProxies('10.10.0.0/16');
+    expect(resolveClientIp(req('::ffff:a0a:114', '198.51.100.7'), trusted)).toBe('198.51.100.7');
+    expect(resolveClientIp(req('10.10.1.20', '::ffff:c633:6407'), trusted)).toBe('198.51.100.7');
   });
 });

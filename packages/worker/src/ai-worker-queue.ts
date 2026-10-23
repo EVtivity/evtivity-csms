@@ -17,7 +17,7 @@ import { getAiInsightSettings } from '@evtivity/database';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { storeWorkerInsight } from '@evtivity/services/ai-insight.service';
 import { QUEUE_NAMES } from './queues.js';
-import { config } from './lib/config.js';
+import { allowsDevelopmentRelaxations, config } from './lib/config.js';
 import { AI_WORKER_RUNNERS } from './ai-workers/jobs.js';
 import type { AiWorkerDeps, AiWorkerJobData } from './ai-workers/jobs.js';
 
@@ -49,7 +49,7 @@ export async function enqueueAiWorkerRun(data: AiWorkerJobData): Promise<void> {
 export function aiWorkerDeps(): AiWorkerDeps {
   return {
     encryptionKey: config.SETTINGS_ENCRYPTION_KEY,
-    allowPrivateHosts: (process.env['NODE_ENV'] ?? 'development') === 'development',
+    allowPrivateHosts: allowsDevelopmentRelaxations(),
     // Worker output becomes an insight through the insight service (lane R2).
     writeInsight: async (input) =>
       storeWorkerInsight(

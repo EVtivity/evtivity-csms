@@ -29,6 +29,11 @@ import { setSimulatedEventSink } from './lib/payments.js';
 import { queueSimulatedSink } from '@evtivity/payments';
 import { closeJobQueues, initJobQueues } from '@evtivity/lib/job-queues';
 import { config } from './lib/config.js';
+import {
+  createRedisKnownGoodStore,
+  createRedisStationAttemptStore,
+} from './server/middleware/station-auth-known-good.js';
+import { knownGoodKeyFrom } from './server/middleware/station-password-verifier.js';
 import { connectionAuthLimitsFromConfig } from './server/connection-auth-limiter.js';
 
 const OCPP_PORT = config.OCPP_PORT;
@@ -81,6 +86,7 @@ const server = new OcppServer({
   sql: client,
   trustedProxyCidrs: config.OCPP_TRUSTED_PROXY_CIDRS,
   connectionAuthLimits: connectionAuthLimitsFromConfig(config),
+  wsCompression: config.OCPP_WS_COMPRESSION,
 });
 let commandListener: CommandListener | null = null;
 let cacheInvalidateSub: { unsubscribe: () => Promise<void> } | null = null;
@@ -120,6 +126,17 @@ async function start(): Promise<void> {
   // Create a separate Redis client for the connection registry (not the pub/sub client)
   registryRedis = createRedisClient(REDIS_URL, 'connection-registry');
   const registry = new RedisConnectionRegistry(registryRedis);
+
+  // Known-good station credentials shared by every OCPP pod, so a
+  // station that holds its password is accepted after a restart or on another
+  // pod without argon2 and whatever its address's lockout.
+  server.useKnownGoodStore(
+    createRedisKnownGoodStore(registryRedis, server.getLogger()),
+    knownGoodKeyFrom(config.SETTINGS_ENCRYPTION_KEY),
+  );
+  // The station check budget and slow check, shared by every OCPP pod, so the
+  // guess rate for one station id does not grow with the number of pods.
+  server.useStationAttemptStore(createRedisStationAttemptStore(registryRedis));
 
   // Pass registry to connection manager for station ownership tracking
   server.getConnectionManager().setRegistry(registry, instanceId);

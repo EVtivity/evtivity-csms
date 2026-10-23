@@ -11,6 +11,7 @@ import { endSseClients, writeSseClient } from '../lib/sse-broadcast.js';
 import { operatorTokenRejection } from '../plugins/auth.js';
 import { getUserPermissions } from '../middleware/rbac.js';
 import { noteDashboardEvent } from '../plugins/response-cache.js';
+import { readSignedCookie } from '../lib/auth-cookies.js';
 
 const logger = createLogger('events-sse');
 
@@ -61,6 +62,8 @@ interface SseClient {
   allowedSiteIds: string[] | null;
   /** Whether the user holds payments:read: else payment events lose their reasons. */
   canSeePayments: boolean;
+  /** The user's permissions: each event type needs its read permission. */
+  permissions: string[];
   /**
    * True while the stream resolves the user's sites: events wait in
    * `pending` and are filtered once the scope is known, so none is sent
@@ -109,6 +112,82 @@ export function isEventVisible(allowedSiteIds: string[] | null, payload: unknown
   );
 }
 
+/**
+ * The read permission an event type needs, by its family (the text before the
+ * first dot), so a client gets the events of the pages it may read: a support-only user gets no session events.
+ * Payment events reach every client, without their failure reasons
+ * (`eventForClient`), so session and station pages refresh. A family in
+ * neither this map nor `OPEN_EVENT_FAMILIES` reaches no client (deny by
+ * default); `sse-event-families.test.ts`
+ * fails on a published family in neither list.
+ */
+const EVENT_FAMILY_PERMISSION: Readonly<Record<string, string>> = {
+  session: 'sessions:read',
+  reservation: 'reservations:read',
+  supportCase: 'support:read',
+  driver: 'drivers:read',
+  token: 'drivers:read',
+  authorize: 'drivers:read',
+  invoice: 'payments:read',
+  station: 'stations:read',
+  ocpp: 'stations:read',
+  command: 'stations:read',
+  config: 'stations:read',
+  localAuthList: 'stations:read',
+  access: 'logs:read',
+  octt: 'conformance:read',
+  pnc: 'certificates:read',
+  certificate: 'certificates:read',
+  maintenance: 'maintenance:read',
+  load: 'loadManagement:read',
+  roaming: 'roaming:read',
+  pricing: 'pricing:read',
+  displayMessage: 'stations:read',
+  firmwareCampaign: 'settings.firmware:read',
+  meter: 'stations:read',
+};
+
+/**
+ * Families every client gets: payment events (masked by `eventForClient`) so
+ * session and station pages refresh, and AI events (insight, proposal, alert
+ * and usage notices), which carry ids only and are site-filtered.
+ */
+export const OPEN_EVENT_FAMILIES: ReadonlySet<string> = new Set(['payment', 'ai']);
+
+/** The families with a read permission. */
+export function mappedEventFamilies(): string[] {
+  return Object.keys(EVENT_FAMILY_PERMISSION);
+}
+
+/**
+ * The read permission an event type needs, null when every client gets it, or
+ * false when no client does (a family in neither list).
+ */
+export function eventReadPermission(type: string): string | null | false {
+  const family = type.split('.', 1)[0] ?? '';
+  const permission = EVENT_FAMILY_PERMISSION[family];
+  if (permission != null) return permission;
+  return OPEN_EVENT_FAMILIES.has(family) ? null : false;
+}
+
+/** Whether a client with these permissions may receive the event (its type's read permission). */
+export function isEventPermitted(permissions: string[], payload: unknown): boolean {
+  if (typeof payload !== 'object' || payload == null) return true;
+  const event = payload as Record<string, unknown>;
+  const type = typeof event['eventType'] === 'string' ? event['eventType'] : event['type'];
+  if (typeof type !== 'string') return true;
+  const permission = eventReadPermission(type);
+  if (permission === false) return false;
+  return permission == null || hasPermission(permissions, permission);
+}
+
+/** Whether an event reaches this client: its sites and its permissions. */
+function deliverable(client: SseClient, parsed: unknown): boolean {
+  return (
+    isEventVisible(client.allowedSiteIds, parsed) && isEventPermitted(client.permissions, parsed)
+  );
+}
+
 /** Fields of a payment event that only payments:read may see (failure reasons). */
 const PAYMENT_DETAIL_FIELDS = ['reason', 'failureReason', 'errorMessage'] as const;
 
@@ -154,7 +233,7 @@ async function ensureListener(): Promise<void> {
       if (client.scopePending) {
         client.pending.push(payload);
         if (client.pending.length > MAX_PENDING_EVENTS) client.pending.shift();
-      } else if (isEventVisible(client.allowedSiteIds, parsed)) {
+      } else if (deliverable(client, parsed)) {
         writeToClient(
           client,
           `data: ${eventForClient(client.canSeePayments, payload, parsed)}\n\n`,
@@ -231,19 +310,17 @@ export function eventStreamRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
       },
     },
-    async (request: FastifyRequest<{ Querystring: { token?: string } }>, reply: FastifyReply) => {
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      // The signed csms_token cookie (the CSMS) or a Bearer header. Never a token in
+      // the URL, which proxy and load balancer logs keep,
+      // and never an unsigned cookie.
       let token: string | undefined;
-      if (request.query.token != null && request.query.token !== '') {
-        // Query param tokens are plain JWTs (no cookie signing)
-        token = request.query.token;
+      const authorization = request.headers.authorization;
+      if (typeof authorization === 'string' && /^Bearer\s+\S/i.test(authorization)) {
+        token = authorization.replace(/^Bearer\s+/i, '');
       } else {
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-        const rawCookie = request.cookies?.['csms_token'];
-        if (rawCookie != null && rawCookie !== '') {
-          // Unsign the cookie; fall back to raw value for backward compatibility
-          const unsigned = request.unsignCookie(rawCookie);
-          token = unsigned.valid ? unsigned.value : rawCookie;
-        }
+        const cookie = readSignedCookie(request, 'csms_token');
+        if (cookie.status === 'valid') token = cookie.value;
       }
       if (token == null || token === '') {
         return reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
@@ -283,6 +360,7 @@ export function eventStreamRoutes(app: FastifyInstance): void {
         userId,
         allowedSiteIds: [],
         canSeePayments: false,
+        permissions: [],
         scopePending: true,
         scopeStale: false,
         pending: [],
@@ -297,7 +375,8 @@ export function eventStreamRoutes(app: FastifyInstance): void {
         do {
           client.scopeStale = false;
           client.allowedSiteIds = await getUserSiteIds(userId);
-          client.canSeePayments = hasPermission(await getUserPermissions(userId), 'payments:read');
+          client.permissions = await getUserPermissions(userId);
+          client.canSeePayments = hasPermission(client.permissions, 'payments:read');
         } while (scopeChangedDuringLookup(client));
       } catch (err) {
         removeClient(client);
@@ -332,7 +411,7 @@ export function eventStreamRoutes(app: FastifyInstance): void {
       client.pending = [];
       for (const payload of held) {
         const parsed = tryParseJson(payload);
-        if (isEventVisible(client.allowedSiteIds, parsed)) {
+        if (deliverable(client, parsed)) {
           writeToClient(
             client,
             `data: ${eventForClient(client.canSeePayments, payload, parsed)}\n\n`,

@@ -303,6 +303,8 @@ export class OcpiCommandCallbackService {
           'Partner rejected command result callback',
         );
       }
+      // The reply body is never read: release the socket now.
+      await response.body?.cancel();
     } catch (err) {
       logger.error({ responseUrl, err }, 'Failed to POST command result to partner');
     }

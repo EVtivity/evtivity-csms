@@ -65,6 +65,7 @@ vi.mock('@evtivity/database', async () => ({
     delete: vi.fn(() => makeChain('delete')),
   },
   configTemplates: { id: 'ct.id' },
+  effectiveDataPlanSql: {},
   configTemplatePushes: { id: 'ctp.id', templateId: 'ctp.templateId' },
   configTemplatePushStations: {
     pushId: 'ctps.pushId',
@@ -139,7 +140,7 @@ function template(overrides: Record<string, unknown> = {}) {
     id: 'tpl_1',
     name: 'Heartbeat',
     description: 'desc',
-    variables: [{ component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval', value: '60' }],
+    variables: [{ component: 'OCPPCommCtrlr', variable: 'WebSocketPingInterval', value: '60' }],
     ocppVersion: '2.1',
     targetFilter: null,
     stationId: null,
@@ -195,6 +196,7 @@ describe('config template routes, uncovered paths', () => {
         vendors: [{ id: 'ven_1', name: 'V' }],
         models: ['M1'],
         stations: [{ id: 'sta_1', stationId: 'CS-1' }],
+        dataPlans: ['wifi_or_wired', 'cellular'],
       });
       // first where: site scope on sites; third: station conditions
       expect(argsOf('select', 'where')[0]?.[0]).toEqual({ inArray: ['s.id', ['sit_1', 'sit_2']] });
@@ -686,7 +688,8 @@ describe('config template routes, uncovered paths', () => {
       expect(res.json()).toEqual([
         {
           component: 'OCPPCommCtrlr',
-          variable: 'HeartbeatInterval',
+          variable: 'WebSocketPingInterval',
+          variableInstance: null,
           expectedValue: '60',
           actualValue: null,
           hasDrift: true,

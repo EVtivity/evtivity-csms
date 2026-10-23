@@ -104,8 +104,12 @@ export function isRequiredDriverEventType(eventType: string): boolean {
 
 /**
  * Account security notices (system events, always on): sent to operators and drivers
- * when a sign-in method, recovery codes, the phone or email of the account change, or
- * an operator creates an API key. They hold no secret.
+ * when a sign-in method, recovery codes, the phone or email of the account change, an
+ * operator creates an API key, the SSO settings change (to every all-site user who
+ * may change them), an operator creates an admin-equivalent user or grants
+ * permissions, an administrator resends a password setup link, or the retention of
+ * the audit, sign-in or security event history is shortened (to every all-site user
+ * who may change it). They hold no secret.
  */
 export const SECURITY_NOTICE_EVENT_TYPES = [
   'security.FactorAdded',
@@ -115,9 +119,54 @@ export const SECURITY_NOTICE_EVENT_TYPES = [
   'security.PhoneChanged',
   'security.EmailChanged',
   'security.ApiKeyCreated',
+  'security.SsoSettingsChanged',
+  'security.UserCreatedPrivileged',
+  'security.PermissionsGranted',
+  'security.PasswordResetByAdmin',
+  'security.SsoUnlinked',
+  'security.RetentionLowered',
 ] as const;
 
 export type SecurityNoticeEventType = (typeof SECURITY_NOTICE_EVENT_TYPES)[number];
+
+/** The secret variables of a security template: account links and one-time codes. */
+export interface SecurityTemplateSecrets {
+  /** Server-built links (password reset, invitation, verification, onboarding). */
+  readonly links: readonly string[];
+  /** One-time codes (MFA, phone and email codes). */
+  readonly codes: readonly string[];
+}
+
+const NO_SECRETS: SecurityTemplateSecrets = { links: [], codes: [] };
+
+/**
+ * Security templates: every event that
+ * carries an account link or a sign-in code, plus the notices that tell an account
+ * holder about a security change. Editing one needs `settings.system:write` and
+ * access to every site; a saved one keeps its links and codes as the server builds
+ * them and links only to the CSMS or portal; dispatch falls back to the shipped
+ * file for a stored one that breaks those rules. Payout onboarding is here because
+ * its link connects a bank account that receives a site's payouts.
+ */
+export const SECURITY_TEMPLATE_EVENTS: Readonly<Record<string, SecurityTemplateSecrets>> = {
+  'operator.ForgotPassword': { links: ['resetUrl'], codes: [] },
+  'operator.UserCreated': { links: ['setPasswordUrl'], codes: [] },
+  'operator.PasswordChanged': NO_SECRETS,
+  'driver.ForgotPassword': { links: ['resetUrl'], codes: [] },
+  'driver.AccountVerification': { links: ['verifyUrl'], codes: [] },
+  'driver.PortalInvite': { links: ['activateUrl'], codes: [] },
+  'driver.RegistrationAttempt': { links: ['signInUrl', 'resetUrl'], codes: [] },
+  'driver.PasswordChanged': NO_SECRETS,
+  'driver.MfaDisabled': NO_SECRETS,
+  'mfa.VerificationCode': { links: [], codes: ['code'] },
+  'site.PayoutOnboarding': { links: ['onboardingUrl'], codes: [] },
+  ...Object.fromEntries(SECURITY_NOTICE_EVENT_TYPES.map((type) => [type, NO_SECRETS])),
+};
+
+/** True for a security template event type (see `SECURITY_TEMPLATE_EVENTS`). */
+export function isSecurityTemplateEventType(eventType: string): boolean {
+  return Object.hasOwn(SECURITY_TEMPLATE_EVENTS, eventType);
+}
 
 /**
  * Protocol versions whose stations emit an OCPP notification event: `common` for OCPP 1.6,

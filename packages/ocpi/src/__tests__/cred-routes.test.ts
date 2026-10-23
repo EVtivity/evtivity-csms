@@ -9,7 +9,7 @@ let dbResults: unknown[][] = [];
 const updateSets: unknown[] = [];
 function makeChain(): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'where', 'limit']) {
+  for (const m of ['select', 'from', 'where', 'limit', 'for']) {
     chain[m] = vi.fn(() => chain);
   }
   chain['set'] = vi.fn((v: unknown) => {
@@ -31,14 +31,19 @@ const { mockRegistration, mockUpdate, mockUnregister, updateMock, mockWriteAudit
   }),
 );
 
-vi.mock('@evtivity/database', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@evtivity/database')>()),
-  writeAudit: mockWriteAudit,
-  db: {
+vi.mock('@evtivity/database', async (importOriginal) => {
+  const db: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),
     update: updateMock,
-  },
-}));
+  };
+  // A transaction runs its callback on the same mock, in order.
+  db['transaction'] = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(db));
+  return {
+    ...(await importOriginal<typeof import('@evtivity/database')>()),
+    writeAudit: mockWriteAudit,
+    db,
+  };
+});
 
 // The test sends the authenticated partner as JSON in x-test-partner; a
 // missing header means the middleware rejected the request.
@@ -531,10 +536,9 @@ describe('hubclientinfo', () => {
   it.each([
     ['CONNECTED', 'connected'],
     ['OFFLINE', 'disconnected'],
-    ['PLANNED', 'pending'],
     ['SUSPENDED', 'suspended'],
   ])('PUT maps hub status %s to partner status %s', async (hubStatus, partnerStatus) => {
-    dbResults = [[{ id: 'opr_000000000002', status: 'suspended' }], []];
+    dbResults = [[{ id: 'opr_000000000002', status: 'disconnected' }], []];
     const res = await app.inject({
       method: 'PUT',
       url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
@@ -546,6 +550,37 @@ describe('hubclientinfo', () => {
     expect(updateMock).toHaveBeenCalledTimes(1);
     expect(updateSets[0]).toMatchObject({ status: partnerStatus });
   });
+
+  // Only the operator lifts a suspension.
+  it.each(['CONNECTED', 'OFFLINE'])(
+    'PUT never moves a suspended party on %s',
+    async (hubStatus) => {
+      dbResults = [[{ id: 'opr_000000000002', status: 'suspended' }], []];
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
+        headers: as(HUB),
+        payload: { status: hubStatus },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(updateMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['connected', 'suspended', 'disconnected'])(
+    'PUT never moves a %s partner back to pending on PLANNED',
+    async (status) => {
+      dbResults = [[{ id: 'opr_000000000002', status }]];
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
+        headers: as(HUB),
+        payload: { status: 'PLANNED' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(updateMock).not.toHaveBeenCalled();
+    },
+  );
 
   it('PUT leaves a partner that never registered pending on CONNECTED', async () => {
     dbResults = [[{ id: 'opr_000000000002', status: 'pending' }]];

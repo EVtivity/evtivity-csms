@@ -33,7 +33,7 @@ vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: h.toast }) }
 
 import { FleetInvoicesCard } from '../fleet/FleetInvoicesCard';
 import type { FleetInvoiceRow, FleetUnbilledPreview } from '../fleet/FleetInvoicesCard';
-import { currentMonth, previousMonth } from '@/lib/fleet-invoice';
+import { previousMonth } from '@/lib/fleet-invoice';
 
 function preview(overrides: Partial<FleetUnbilledPreview> = {}): FleetUnbilledPreview {
   return {
@@ -155,12 +155,12 @@ describe('FleetInvoicesCard', () => {
     wrap();
     await screen.findByText('Anna Berg');
 
-    // The shared month picker lists the months up to the current one, newest
-    // first; pick the one before the default (the previous month).
+    // The shared month picker lists the ended months, newest first (the
+    // running month is refused); pick one before the default.
     const picker = screen.getByLabelText('fleets.invoices.period');
     if (!(picker instanceof HTMLSelectElement)) throw new Error('the period is not a select');
     const months = Array.from(picker.options).map((o) => o.value);
-    expect(months[0]).toBe(currentMonth());
+    expect(months[0]).toBe(previousMonth());
     expect(picker.value).toBe(previousMonth());
     const picked = months[2] ?? '';
     fireEvent.change(picker, { target: { value: picked } });

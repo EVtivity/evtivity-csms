@@ -6,6 +6,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { OCTT_TEST_DRIVER_EMAIL } from '@evtivity/lib';
 import { client } from '../config.js';
 import { chargingStations } from '../schema/index.js';
+import { raiseStationSimHistoryFloor } from './sim-inventory.js';
 
 /**
  * Conformance test stations (OCTT). The conformance runners create a
@@ -120,6 +121,8 @@ export async function deleteConformanceStations(
     if (batch.length === 0) return deleted;
     const ids = batch.map((row) => row.id);
     const ocppIds = batch.map((row) => row.station_id);
+    // The delete cascades their SIM attachments away: raise the SIMs' history floor first.
+    await raiseStationSimHistoryFloor(ids);
     await client.begin(async (tx) => {
       const sessions = await tx<{ id: string; transaction_id: string | null }[]>`
         SELECT id, transaction_id FROM charging_sessions WHERE station_id = ANY(${ids})

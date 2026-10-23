@@ -143,6 +143,73 @@ export function vehicleIdFromIdTag(idTag: string): VehicleIdCapture | null {
 }
 
 /**
+ * The one form a driver token value is compared in with vehicle ids: the
+ * vehicle id the value carries as a 1.6 idTag (a known prefix stripped, a
+ * MAC address as 12 uppercase hex digits, a VIN uppercase), else the value
+ * as given. The token service, the vehicle service and the OCPP token lookups
+ * compare with it, so a spelling variant (case, separators, the `VID:`
+ * prefix) of a vehicle id is the same value everywhere.
+ * Stored token values are not rewritten: they stay what the operator or the
+ * driver typed, as the station's local list holds them.
+ */
+export function canonicalTokenValue(value: string): string {
+  return vehicleIdFromIdTag(value)?.value ?? value;
+}
+
+/**
+ * The precedence of a card over a vehicle when a charger sends a vehicle id
+ * as the token: the card authorizes it only when it belongs
+ * to a driver of a vehicle holding the id, or when no vehicle holds it.
+ * Otherwise the vehicle wins. `ownerDriverIds` are the drivers of every
+ * vehicle holding the id, Autocharge on or off.
+ */
+export function cardMayAuthorizeVehicleId(
+  cardDriverId: string | null,
+  ownerDriverIds: readonly string[],
+): boolean {
+  return (
+    ownerDriverIds.length === 0 || (cardDriverId != null && ownerDriverIds.includes(cardDriverId))
+  );
+}
+
+/**
+ * How a token sent by a station is looked up: every card by the value as sent,
+ * and a card of a vehicle id type (`VEHICLE_ID_TYPES`, which only operators
+ * create) also by the canonical form, null when it equals the value. A card of
+ * any other type matches by its exact spelling only, so a card a driver
+ * registered never matches a `VID:` idTag it does not spell out.
+ */
+export function stationTokenLookup(value: string): { exact: string; canonical: string | null } {
+  const canonical = canonicalTokenValue(value);
+  return { exact: value, canonical: canonical === value ? null : canonical };
+}
+
+/**
+ * Whether a value has the shape of a vehicle id: a known 1.6 prefix (`VID:`),
+ * a MAC address (12 hex digits, any separator form) or a VIN (17 characters).
+ * A driver never registers such a value as a card: ISO 14443
+ * and ISO 15693 UIDs are 8, 14 or 16 hex digits, so no real card has it, and a
+ * card with a car's id would take that car's 1.6 starts before its owner adds
+ * the vehicle.
+ */
+export function isVehicleShapedTokenValue(value: string): boolean {
+  return stripVehicleIdPrefix(value).prefixed || vehicleIdFromIdTag(value) != null;
+}
+
+/**
+ * The values a driver token is compared with vehicle ids by: the canonical
+ * form, and the value without a known prefix uppercase (an ISO 15118-20
+ * EVCCID has no shape to detect). Vehicle ids are stored normalized.
+ */
+export function tokenVehicleIdCandidates(value: string): string[] {
+  const out = new Set([
+    canonicalTokenValue(value),
+    stripVehicleIdPrefix(value).value.toUpperCase(),
+  ]);
+  return [...out].filter((v) => v !== '');
+}
+
+/**
  * The vehicle id of a 2.1 IdToken: the token itself when its type is a
  * vehicle type, otherwise an additionalInfo entry.
  */

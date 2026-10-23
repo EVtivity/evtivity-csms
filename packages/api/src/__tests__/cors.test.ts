@@ -100,6 +100,39 @@ describe('registerCors', () => {
       expect(res.headers['access-control-allow-credentials']).toBe('true');
     });
 
+    it.each([
+      'http://10.evil.com',
+      'http://192.168.evil.com',
+      'http://172.16.evil.com',
+      'http://127.0.0.1.evil.com',
+      'http://10.0.0.5.nip.io',
+      'http://172.32.0.1',
+      'http://8.8.8.8',
+    ])('refuses the public origin %s that only looks private', async (origin) => {
+      const server = await buildCorsApp('local');
+      const res = await server.inject({
+        method: 'GET',
+        url: '/ping',
+        headers: { origin, host: 'api.example.org' },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.headers['access-control-allow-origin']).toBeUndefined();
+    });
+
+    it.each(['http://127.0.0.2:7100', 'http://[::1]:7100'])(
+      'allows the loopback origin %s',
+      async (origin) => {
+        const server = await buildCorsApp('local');
+        const res = await server.inject({
+          method: 'GET',
+          url: '/ping',
+          headers: { origin, host: 'api.example.org' },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.headers['access-control-allow-origin']).toBe(origin);
+      },
+    );
+
     it('allows a same-origin request from a public hostname', async () => {
       const server = await buildCorsApp('local');
       const res = await server.inject({

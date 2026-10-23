@@ -22,7 +22,12 @@ import { storedCostBreakdown } from '@evtivity/lib';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import { csvRows, moneyCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
-import type { ReportGeneratorResult } from '../report-registry.js';
+import { columnVisible } from '../report-registry.js';
+import type {
+  ReportColumnAccess,
+  ReportColumnKind,
+  ReportGeneratorResult,
+} from '../report-registry.js';
 import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 
 interface Filters {
@@ -263,6 +268,7 @@ export async function generateSessionsReport(
   format: string,
   language: UiLanguage,
   siteIds: ReportSiteScope,
+  access: ReportColumnAccess,
 ): Promise<ReportGeneratorResult> {
   const filters = parseFilters(rawFilters, siteIds);
   const rl = reportLocale(language, format);
@@ -281,48 +287,33 @@ export async function generateSessionsReport(
   const costInclTax = `${l.columns.cost} (${common.inclTax})`;
 
   // Money columns are numbers in each session's currency (Currency column).
-  const sessionHeaders = [
-    l.columns.transactionId,
-    columns.station,
-    columns.site,
-    columns.driver,
-    columns.email,
-    columns.status,
-    columns.started,
-    columns.ended,
-    columns.durationMin,
-    columns.energyKwh,
-    costInclTax,
-    l.columns.costFinal,
-    l.columns.net,
-    l.columns.tax,
-    l.columns.taxRatePercent,
-    l.columns.refunded,
-    l.columns.currency,
-    l.columns.stoppedReason,
-    l.columns.paymentSource,
-  ];
-  const sessionRows: unknown[][] = sessions.map((s) => [
-    s.transactionId,
-    s.stationName,
-    s.siteName,
-    s.driverName,
-    s.driverEmail,
-    s.status,
-    s.startedAt,
-    s.endedAt,
-    s.durationMinutes,
-    s.energyKwh,
-    moneyCell(s.costCents, s.currency),
-    s.costIsFinal ? common.yes : common.no,
-    moneyCell(s.netCents, s.currency),
-    moneyCell(s.taxCents, s.currency),
-    s.taxRatePercent,
-    moneyCell(s.refundedCents, s.currency),
-    s.currency,
-    s.stoppedReason,
-    s.paymentSource,
-  ]);
+  // Driver and money columns show only to a reader who may see them.
+  type Session = (typeof sessions)[number];
+  const sessionColumns = (
+    [
+      [l.columns.transactionId, (s) => s.transactionId],
+      [columns.station, (s) => s.stationName],
+      [columns.site, (s) => s.siteName],
+      [columns.driver, (s) => s.driverName, 'driver'],
+      [columns.email, (s) => s.driverEmail, 'driver'],
+      [columns.status, (s) => s.status],
+      [columns.started, (s) => s.startedAt],
+      [columns.ended, (s) => s.endedAt],
+      [columns.durationMin, (s) => s.durationMinutes],
+      [columns.energyKwh, (s) => s.energyKwh],
+      [costInclTax, (s) => moneyCell(s.costCents, s.currency), 'money'],
+      [l.columns.costFinal, (s) => (s.costIsFinal ? common.yes : common.no), 'money'],
+      [l.columns.net, (s) => moneyCell(s.netCents, s.currency), 'money'],
+      [l.columns.tax, (s) => moneyCell(s.taxCents, s.currency), 'money'],
+      [l.columns.taxRatePercent, (s) => s.taxRatePercent, 'money'],
+      [l.columns.refunded, (s) => moneyCell(s.refundedCents, s.currency), 'money'],
+      [l.columns.currency, (s) => s.currency, 'money'],
+      [l.columns.stoppedReason, (s) => s.stoppedReason],
+      [l.columns.paymentSource, (s) => s.paymentSource, 'money'],
+    ] satisfies Array<[string, (s: Session) => unknown, ReportColumnKind?]>
+  ).filter(([, , kind]) => columnVisible(kind, access));
+  const sessionHeaders = sessionColumns.map(([header]) => header);
+  const sessionRows: unknown[][] = sessions.map((s) => sessionColumns.map(([, cell]) => cell(s)));
   const failedHeaders = [l.columns.reason, columns.count];
   const failedRows: unknown[][] = failedSummary.map((f) => [f.reason, f.count]);
 
@@ -383,30 +374,22 @@ export async function generateSessionsReport(
     pdf.addSubtitle(truncationNote);
   }
 
-  pdf.addTable(
+  const pdfColumns = (
     [
-      l.columns.transactionIdShort,
-      columns.station,
-      columns.site,
-      columns.driver,
-      columns.status,
-      columns.duration,
-      columns.kwh,
-      costInclTax,
-    ],
+      [l.columns.transactionIdShort, (s) => s.transactionId.slice(0, 8)],
+      [columns.station, (s) => s.stationName],
+      [columns.site, (s) => s.siteName],
+      [columns.driver, (s) => s.driverName, 'driver'],
+      [columns.status, (s) => s.status],
+      [columns.duration, (s) => rl.fill(common.minutes, { value: rl.number(s.durationMinutes) })],
+      [columns.kwh, (s) => rl.number(s.energyKwh, 1)],
+      [costInclTax, (s) => moneyCell(s.costCents, s.currency), 'money'],
+    ] satisfies Array<[string, (s: Session) => unknown, ReportColumnKind?]>
+  ).filter(([, , kind]) => columnVisible(kind, access));
+  pdf.addTable(
+    pdfColumns.map(([header]) => header),
     pdfRows(
-      sessions
-        .slice(0, 500)
-        .map((s) => [
-          s.transactionId.slice(0, 8),
-          s.stationName,
-          s.siteName,
-          s.driverName,
-          s.status,
-          rl.fill(common.minutes, { value: rl.number(s.durationMinutes) }),
-          rl.number(s.energyKwh, 1),
-          moneyCell(s.costCents, s.currency),
-        ]),
+      sessions.slice(0, 500).map((s) => pdfColumns.map(([, cell]) => cell(s))),
       rl,
     ),
   );

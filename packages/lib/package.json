@@ -14,8 +14,20 @@
     "./permissions": {
       "import": "./src/permissions.ts"
     },
+    "./ocpp-command-permissions": {
+      "import": "./src/ocpp-command-permissions.ts"
+    },
+    "./admin-equivalent": {
+      "import": "./src/admin-equivalent.ts"
+    },
     "./currency": {
       "import": "./src/currency.ts"
+    },
+    "./station-data-plan": {
+      "import": "./src/station-data-plan.ts"
+    },
+    "./connector-power": {
+      "import": "./src/connector-power.ts"
     },
     "./phone": {
       "import": "./src/phone.ts"
@@ -58,6 +70,9 @@
     },
     "./secret-config": {
       "import": "./src/secret-config.ts"
+    },
+    "./safe-fetch": {
+      "import": "./src/safe-fetch.ts"
     },
     "./uuid": {
       "import": "./src/uuid.ts"
@@ -140,11 +155,29 @@
     "./sim-settings": {
       "import": "./src/sim-settings.ts"
     },
+    "./data-retention": {
+      "import": "./src/data-retention.ts"
+    },
     "./signal-grade": {
       "import": "./src/signal-grade.ts"
     },
     "./trust-proxy": {
       "import": "./src/trust-proxy.ts"
+    },
+    "./deployment-secrets": {
+      "import": "./src/deployment-secrets.ts"
+    },
+    "./ip-address": {
+      "import": "./src/ip-address.ts"
+    },
+    "./request-log": {
+      "import": "./src/request-log.ts"
+    },
+    "./ocpi-roles": {
+      "import": "./src/ocpi-roles.ts"
+    },
+    "./derived-keys": {
+      "import": "./src/derived-keys.ts"
     },
     "./pdf-branding": {
       "import": "./src/pdf-branding.ts"
@@ -161,11 +194,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@sentry/node": "^10.42.0",
+    "@sentry/node": "^10.57.0",
     "@xmldom/xmldom": "^0.9.12",
     "bullmq": "^6.3.14",
     "handlebars": "^4.7.10",
     "html-to-text": "^10.0.1",
+    "htmlparser2": "^10.1.0",
     "ioredis": "^5.9.3",
     "libphonenumber-js": "^1.13.15",
     "nanoid": "^6.0.1",
@@ -183,6 +217,6 @@
     "@types/node": "^25.2.3",
     "fast-check": "^4.10.2",
     "typescript": "^6.0.3",
-    "vitest": "^5.0.2"
+    "vitest": "^5.0.5"
   }
 }

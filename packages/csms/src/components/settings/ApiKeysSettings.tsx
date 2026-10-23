@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Dialog,
@@ -84,6 +85,9 @@ const EXPIRY_OPTIONS = [
   { value: 'custom', labelKey: 'settings.apiKeyCustomDays' },
 ] as const;
 
+/** The API refuses a key name longer than this. */
+const API_KEY_NAME_MAX = 255;
+
 export function ApiKeysSettings(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
@@ -95,6 +99,7 @@ export function ApiKeysSettings(): React.JSX.Element {
   const [name, setName] = useState('');
   const [expiryOption, setExpiryOption] = useState('0');
   const [customDays, setCustomDays] = useState('');
+  const [createSubmitted, setCreateSubmitted] = useState(false);
 
   // Permission picker state for create dialog
   const [selectedKeyPerms, setSelectedKeyPerms] = useState<string[]>([]);
@@ -105,6 +110,7 @@ export function ApiKeysSettings(): React.JSX.Element {
   const [revokeId, setRevokeId] = useState<string | null>(null);
   const [editKey, setEditKey] = useState<ApiKey | null>(null);
   const [editPerms, setEditPerms] = useState<string[]>([]);
+  const [editSubmitted, setEditSubmitted] = useState(false);
   const [codeTab, setCodeTab] = useState<CodeTab>('cURL');
 
   // A signed-in session proves the account again to create or widen a key.
@@ -189,20 +195,38 @@ export function ApiKeysSettings(): React.JSX.Element {
     // Default: all user permissions selected
     setSelectedKeyPerms([...userPermissions]);
     resetProof();
+    setCreateSubmitted(false);
     setCreateOpen(true);
   }
 
+  function getCreateErrors(): Record<string, string> {
+    const errors: Record<string, string> = {};
+    if (name.trim() === '') errors['name'] = t('validation.required');
+    else if (name.trim().length > API_KEY_NAME_MAX) {
+      errors['name'] = t('validation.maxLength', { max: API_KEY_NAME_MAX });
+    }
+    if (expiryOption === 'custom') {
+      const parsed = Number(customDays);
+      if (customDays.trim() === '') errors['customDays'] = t('validation.required');
+      else if (!Number.isInteger(parsed) || parsed < 1) {
+        errors['customDays'] = t('validation.min', { min: 1 });
+      }
+    }
+    if (selectedKeyPerms.length === 0) errors['permissions'] = t('settings.apiKeyNoPermissions');
+    return errors;
+  }
+  const createErrors = getCreateErrors();
+
   function handleCreate(): void {
+    setCreateSubmitted(true);
+    if (Object.keys(createErrors).length > 0) return;
     let expiresInDays: number | null = null;
     if (expiryOption === 'custom') {
-      const parsed = parseInt(customDays, 10);
-      if (Number.isNaN(parsed) || parsed < 1) return;
-      expiresInDays = parsed;
+      expiresInDays = Number(customDays);
     } else if (expiryOption !== '0') {
       expiresInDays = parseInt(expiryOption, 10);
     }
 
-    if (selectedKeyPerms.length === 0) return;
     if (proofKinds.length > 0 && proof == null) {
       setProofAsked(true);
       return;
@@ -219,6 +243,23 @@ export function ApiKeysSettings(): React.JSX.Element {
 
   const editWidens =
     editKey != null && proofKinds.length > 0 && widensKeyScope(editKey.permissions, editPerms);
+  const editPermsError = editPerms.length === 0 ? t('settings.apiKeyNoPermissions') : null;
+
+  function handleUpdate(): void {
+    if (editKey == null) return;
+    setEditSubmitted(true);
+    if (editPermsError != null) return;
+    if (editWidens && proof == null) {
+      setProofAsked(true);
+      return;
+    }
+    setDialogError('');
+    updateMutation.mutate({
+      id: editKey.id,
+      permissions: editPerms,
+      ...(editWidens && proof != null ? { proof } : {}),
+    });
+  }
 
   function isExpired(expiresAt: string | null): boolean {
     if (expiresAt == null) return false;
@@ -321,6 +362,7 @@ print(data)`;
                           aria-label={t('settings.apiKeyEditPermissions')}
                           onClick={() => {
                             resetProof();
+                            setEditSubmitted(false);
                             setEditKey(key);
                             setEditPerms(
                               Array.isArray(key.permissions)
@@ -358,6 +400,7 @@ print(data)`;
             </DialogHeader>
             <form
               className="grid gap-4"
+              noValidate
               onSubmit={(e) => {
                 e.preventDefault();
                 handleCreate();
@@ -372,9 +415,14 @@ print(data)`;
                     setName(e.target.value);
                   }}
                   placeholder={t('settings.apiKeyNamePlaceholder')}
-                  maxLength={255}
-                  required
+                  aria-invalid={createSubmitted && createErrors['name'] != null}
+                  className={
+                    createSubmitted && createErrors['name'] != null ? 'border-destructive' : ''
+                  }
                 />
+                {createSubmitted && createErrors['name'] != null && (
+                  <p className="text-sm text-destructive">{createErrors['name']}</p>
+                )}
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="api-key-expiry-select">{t('settings.apiKeyExpiry')}</Label>
@@ -400,13 +448,21 @@ print(data)`;
                   <Input
                     id="api-key-custom-days"
                     type="number"
-                    min={1}
+                    inputMode="numeric"
                     value={customDays}
                     onChange={(e) => {
                       setCustomDays(e.target.value);
                     }}
-                    required
+                    aria-invalid={createSubmitted && createErrors['customDays'] != null}
+                    className={
+                      createSubmitted && createErrors['customDays'] != null
+                        ? 'border-destructive'
+                        : ''
+                    }
                   />
+                  {createSubmitted && createErrors['customDays'] != null && (
+                    <p className="text-sm text-destructive">{createErrors['customDays']}</p>
+                  )}
                 </div>
               )}
               {userPermissions.length > 0 && (
@@ -421,8 +477,8 @@ print(data)`;
                     columns={1}
                     maxHeight="14rem"
                   />
-                  {selectedKeyPerms.length === 0 && (
-                    <p className="text-sm text-destructive">{t('settings.apiKeyNoPermissions')}</p>
+                  {createSubmitted && createErrors['permissions'] != null && (
+                    <p className="text-sm text-destructive">{createErrors['permissions']}</p>
                   )}
                 </div>
               )}
@@ -453,12 +509,7 @@ print(data)`;
                 >
                   {t('common.cancel')}
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={
-                    createMutation.isPending || name.trim() === '' || selectedKeyPerms.length === 0
-                  }
-                >
+                <Button type="submit" disabled={createMutation.isPending}>
                   {t('settings.createApiKey')}
                 </Button>
               </DialogFooter>
@@ -532,7 +583,14 @@ print(data)`;
             <DialogHeader>
               <DialogTitle>{t('settings.apiKeyEditPermissions')}</DialogTitle>
             </DialogHeader>
-            <div className="grid gap-4">
+            <form
+              className="grid gap-4"
+              noValidate
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleUpdate();
+              }}
+            >
               <p className="text-sm text-muted-foreground">{editKey?.name}</p>
               <PermissionEditor
                 value={editPerms}
@@ -540,8 +598,8 @@ print(data)`;
                 columns={1}
                 maxHeight="14rem"
               />
-              {editPerms.length === 0 && (
-                <p className="text-sm text-destructive">{t('settings.apiKeyNoPermissions')}</p>
+              {editSubmitted && editPermsError != null && (
+                <p className="text-sm text-destructive">{editPermsError}</p>
               )}
               {editWidens && (
                 <FactorProofField
@@ -560,35 +618,21 @@ print(data)`;
                   {dialogError}
                 </p>
               )}
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setEditKey(null);
-                }}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                disabled={updateMutation.isPending || editPerms.length === 0}
-                onClick={() => {
-                  if (editKey == null) return;
-                  if (editWidens && proof == null) {
-                    setProofAsked(true);
-                    return;
-                  }
-                  setDialogError('');
-                  updateMutation.mutate({
-                    id: editKey.id,
-                    permissions: editPerms,
-                    ...(editWidens && proof != null ? { proof } : {}),
-                  });
-                }}
-              >
-                {t('common.save')}
-              </Button>
-            </DialogFooter>
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setEditKey(null);
+                  }}
+                >
+                  {t('common.cancel')}
+                </Button>
+                <Button type="submit" disabled={updateMutation.isPending}>
+                  {t('common.save')}
+                </Button>
+              </DialogFooter>
+            </form>
           </DialogContent>
         </Dialog>
       </Card>
@@ -602,38 +646,36 @@ print(data)`;
           <p className="text-sm text-muted-foreground">
             {t('settings.apiKeyQuickStartDescription')}
           </p>
-          <div className="rounded-lg border border-border overflow-hidden">
-            <div className="flex items-center justify-between border-b border-border bg-muted/50 px-1">
-              <div className="flex">
+          <Tabs
+            value={codeTab}
+            onValueChange={(value) => {
+              const next = CODE_TABS.find((tab) => tab === value);
+              if (next != null) setCodeTab(next);
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <TabsList className="min-w-0">
                 {CODE_TABS.map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={`px-3 py-2 text-sm font-medium transition-colors ${
-                      codeTab === tab
-                        ? 'text-link border-b-2 border-primary'
-                        : 'text-muted-foreground hover:text-foreground'
-                    }`}
-                    onClick={() => {
-                      setCodeTab(tab);
-                    }}
-                  >
+                  <TabsTrigger key={tab} value={tab}>
                     {tab}
-                  </button>
+                  </TabsTrigger>
                 ))}
-              </div>
+              </TabsList>
               <CopyButton
                 value={getCodeExample(codeTab)}
                 label={t('settings.copyCode')}
                 variant="ghost"
                 size="icon-sm"
-                className="mr-1"
               />
             </div>
-            <pre className="p-4 text-sm overflow-x-auto bg-muted/30">
-              <code>{getCodeExample(codeTab)}</code>
-            </pre>
-          </div>
+            {CODE_TABS.map((tab) => (
+              <TabsContent key={tab} value={tab}>
+                <pre className="rounded-lg border border-border p-4 text-sm overflow-x-auto bg-muted/30">
+                  <code>{getCodeExample(tab)}</code>
+                </pre>
+              </TabsContent>
+            ))}
+          </Tabs>
         </CardContent>
       </Card>
     </div>

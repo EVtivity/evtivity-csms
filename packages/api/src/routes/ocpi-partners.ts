@@ -28,9 +28,17 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { isPrivateUrl, encryptString, OCPI_PULL_MODULES } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { OCPI_ROLE_NAMES } from '@evtivity/lib/ocpi-roles';
 import { config as apiConfig } from '../lib/config.js';
 import { authorize } from '../middleware/rbac.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
+
+const approvedRolesField = z
+  .array(z.enum(OCPI_ROLE_NAMES))
+  .max(OCPI_ROLE_NAMES.length)
+  .describe(
+    'The OCPI roles the operator approved for the partner. The OCPI server acts on these, never on the roles the partner declares: each module needs an approved role that uses it (an EMSP or HUB uses our CPO interface, also an NAP or NSP for locations and tariffs; a CPO or HUB uses our eMSP interface and reads driver tokens; a HUB sends hub client info). Empty: the partner reaches no module; no handshake approves a role.',
+  );
 
 const ocpiPartnerItem = z
   .object({
@@ -40,6 +48,17 @@ const ocpiPartnerItem = z
     partyId: z.string().max(3).describe('OCPI party identifier'),
     roles: z.unknown().describe('OCPI roles advertised by the partner'),
     ourRoles: z.unknown().describe('OCPI roles advertised by this CSMS to the partner'),
+    approvedRoles: z
+      .array(z.string().max(10))
+      .describe(
+        'The OCPI roles the operator approved for the partner; the OCPI server acts on these, never on the declared roles.',
+      ),
+    rolesApprovedAt: z
+      .string()
+      .nullable()
+      .describe(
+        'When the operator last set the approved roles. Null: the operator has not decided yet, and the partner has no approved role (a handshake never sets them).',
+      ),
     status: z
       .enum(['pending', 'connected', 'suspended', 'disconnected'])
       .describe('Partner connection status'),
@@ -72,6 +91,8 @@ interface PartnerRow {
   partyId: string;
   roles: unknown;
   ourRoles: unknown;
+  approvedRoles: unknown;
+  rolesApprovedAt: Date | null;
   status: 'pending' | 'connected' | 'suspended' | 'disconnected';
   version: string | null;
   versionUrl: string | null;
@@ -131,6 +152,7 @@ const partnerParams = z.object({
 
 const createPartnerBody = z.object({
   name: z.string().min(1).max(255),
+  approvedRoles: approvedRolesField.optional(),
   countryCode: z.string().length(2).describe('ISO 3166-1 alpha-2 country code'),
   partyId: z.string().min(1).max(3).describe('OCPI party identifier'),
   versionUrl: z.string().url().max(2048).optional().describe('OCPI versions endpoint URL'),
@@ -158,13 +180,21 @@ const createPartnerBody = z.object({
 
 const updatePartnerBody = z.object({
   name: z.string().min(1).max(255).optional(),
+  approvedRoles: approvedRolesField.optional(),
   status: z
     .enum(['pending', 'connected', 'suspended', 'disconnected'])
     .optional()
     .describe(
       'Partner connection status. connected only resumes a suspended partner that completed the credentials handshake; a partner becomes connected through the handshake.',
     ),
-  versionUrl: z.string().url().max(2048).optional().describe('OCPI versions endpoint URL'),
+  versionUrl: z
+    .string()
+    .url()
+    .max(2048)
+    .optional()
+    .describe(
+      'OCPI versions endpoint URL. A change without partnerRegistrationToken in the same request clears the stored registration token.',
+    ),
   allowPrivateNetwork: z
     .boolean()
     .optional()
@@ -396,6 +426,8 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
             status: 'pending',
             roles: [],
             ourRoles: [],
+            approvedRoles: [...new Set(body.approvedRoles ?? [])],
+            rolesApprovedAt: body.approvedRoles != null ? new Date() : null,
             partnerRegistrationTokenEnc,
           })
           .returning();
@@ -490,6 +522,11 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
 
       const updateData: Record<string, unknown> = { updatedAt: new Date() };
       if (body.name != null) updateData['name'] = body.name;
+      if (body.approvedRoles != null) {
+        updateData['approvedRoles'] = [...new Set(body.approvedRoles)];
+        // Roles the operator set are final: no handshake adopts others.
+        updateData['rolesApprovedAt'] = new Date();
+      }
       if (body.status != null) updateData['status'] = body.status;
       if (body.versionUrl != null) updateData['versionUrl'] = body.versionUrl;
       if (body.allowPrivateNetwork != null) {
@@ -503,6 +540,11 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
           body.partnerRegistrationToken,
           apiConfig.SETTINGS_ENCRYPTION_KEY,
         );
+      } else if (body.versionUrl != null && body.versionUrl !== before.versionUrl) {
+        // A stored token never follows a new endpoint:
+        // registration sends it to the versions URL, so a new URL without a
+        // new token clears the stored one.
+        updateData['partnerRegistrationTokenEnc'] = null;
       }
 
       const [updated] = await db
@@ -510,6 +552,22 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         .set(updateData)
         .where(eq(ocpiPartners.id, id))
         .returning();
+
+      // A suspended or disconnected partner never registers itself back with
+      // a registration token shared before: the open ones retire,
+      // and a new one comes from the registration token route.
+      if (updated != null && (body.status === 'suspended' || body.status === 'disconnected')) {
+        await db
+          .update(ocpiCredentialsTokens)
+          .set({ isActive: false })
+          .where(
+            and(
+              eq(ocpiCredentialsTokens.partnerId, id),
+              eq(ocpiCredentialsTokens.kind, 'registration'),
+              eq(ocpiCredentialsTokens.isActive, true),
+            ),
+          );
+      }
 
       if (updated != null) {
         const actor = getAuditActor(request);

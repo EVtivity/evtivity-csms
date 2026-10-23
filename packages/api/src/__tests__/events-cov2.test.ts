@@ -33,7 +33,8 @@ const { getUserSiteIds, subscribe, unsubscribe, handlers } = vi.hoisted(() => {
 // holds a read permission and payments:read unless a test says otherwise.
 const { getUserPermissions } = vi.hoisted(() => ({
   getUserPermissions: vi.fn((_userId: string) =>
-    Promise.resolve(['stations:read', 'payments:read']),
+    // token.* events need drivers:read.
+    Promise.resolve(['stations:read', 'payments:read', 'drivers:read']),
   ),
 }));
 vi.mock('../middleware/rbac.js', async (importOriginal) => ({
@@ -53,6 +54,8 @@ import { startCacheInvalidateListener } from '../services/cache-invalidate-liste
 import {
   closeUserEventStreams,
   eventStreamRoutes,
+  eventReadPermission,
+  isEventPermitted,
   isEventVisible,
   SITELESS_EVENT_TYPES,
 } from '../routes/events.js';
@@ -67,7 +70,13 @@ interface Stream {
 function openStream(port: number, token: string): Promise<Stream> {
   return new Promise((resolve, reject) => {
     const req = request(
-      { host: '127.0.0.1', port, path: `/events/stream?token=${token}`, method: 'GET' },
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/events/stream',
+        method: 'GET',
+        headers: { authorization: `Bearer ${token}` },
+      },
       (res) => {
         res.setEncoding('utf8');
         const chunks: string[] = [];
@@ -129,10 +138,10 @@ describe('event stream fan-out', () => {
     expect(handlers).toHaveLength(1);
     const handler = handlers[0]!;
 
-    handler(JSON.stringify({ type: 'x', siteId: 'sit_b', n: 1 }));
-    handler(JSON.stringify({ type: 'x', siteId: 'sit_a', n: 2 }));
+    handler(JSON.stringify({ type: 'ai.x', siteId: 'sit_b', n: 1 }));
+    handler(JSON.stringify({ type: 'ai.x', siteId: 'sit_a', n: 2 }));
     handler('not-json{');
-    handler(JSON.stringify({ type: 'x', n: 3 }));
+    handler(JSON.stringify({ type: 'ai.x', n: 3 }));
     handler(JSON.stringify({ eventType: 'token.changed', stationId: 'sta_1', n: 4 }));
     handler(JSON.stringify({ eventType: 'token.changed', tokenId: 'tok_1', n: 5 }));
 
@@ -141,7 +150,7 @@ describe('event stream fan-out', () => {
 
     const adminText = admin.chunks.join('');
     const scopedText = scoped.chunks.join('');
-    expect(adminText).toContain('data: {"type":"x","siteId":"sit_b","n":1}\n\n');
+    expect(adminText).toContain('data: {"type":"ai.x","siteId":"sit_b","n":1}\n\n');
     expect(adminText).toContain('"n":2');
     expect(adminText).toContain('data: not-json{\n\n');
     expect(adminText).toContain('"n":3');
@@ -195,7 +204,13 @@ describe('event stream fan-out', () => {
     const statusOf = (token: string): Promise<{ status: number; body: string }> =>
       new Promise((resolve, reject) => {
         const req = request(
-          { host: '127.0.0.1', port, path: `/events/stream?token=${token}`, method: 'GET' },
+          {
+            host: '127.0.0.1',
+            port,
+            path: '/events/stream',
+            method: 'GET',
+            headers: { authorization: `Bearer ${token}` },
+          },
           (res) => {
             let body = '';
             res.setEncoding('utf8');
@@ -224,7 +239,13 @@ describe('event stream fan-out', () => {
   function streamStatus(token: string): Promise<{ status: number; body: string }> {
     return new Promise((resolve, reject) => {
       const req = request(
-        { host: '127.0.0.1', port, path: `/events/stream?token=${token}`, method: 'GET' },
+        {
+          host: '127.0.0.1',
+          port,
+          path: '/events/stream',
+          method: 'GET',
+          headers: { authorization: `Bearer ${token}` },
+        },
         (r) => {
           let body = '';
           r.setEncoding('utf8');
@@ -265,7 +286,7 @@ describe('event stream fan-out', () => {
     handler(
       JSON.stringify({ type: 'payment.preAuthFailed', sessionId: 's1', reason: 'card_declined' }),
     );
-    handler(JSON.stringify({ type: 'x', n: 9 }));
+    handler(JSON.stringify({ type: 'ai.x', n: 9 }));
     await payer.waitFor('"n":9');
     await viewer.waitFor('"n":9');
     expect(payer.chunks.join('')).toContain('"reason":"card_declined"');
@@ -284,7 +305,13 @@ describe('event stream fan-out', () => {
     const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
       const token = app.jwt.sign({ userId: 'usr_off', roleId: 'rol_1' });
       const req = request(
-        { host: '127.0.0.1', port, path: `/events/stream?token=${token}`, method: 'GET' },
+        {
+          host: '127.0.0.1',
+          port,
+          path: '/events/stream',
+          method: 'GET',
+          headers: { authorization: `Bearer ${token}` },
+        },
         (r) => {
           let body = '';
           r.setEncoding('utf8');
@@ -352,7 +379,7 @@ describe('event stream fan-out', () => {
     closeUserEventStreams('usr_t');
     await ended;
 
-    handlers[0]?.(JSON.stringify({ eventType: 'x', siteId: 'sit_a', n: 9 }));
+    handlers[0]?.(JSON.stringify({ eventType: 'ai.x', siteId: 'sit_a', n: 9 }));
     await other.waitFor('"n":9');
     other.req.destroy();
   }, 5000);
@@ -375,16 +402,16 @@ describe('event stream fan-out', () => {
       expect(handlers).toHaveLength(1);
     });
     // Published while the scope resolves: held, then filtered by the new scope.
-    handlers[0]?.(JSON.stringify({ eventType: 'x', siteId: 'sit_b', n: 1 }));
-    handlers[0]?.(JSON.stringify({ eventType: 'x', siteId: 'sit_a', n: 2 }));
+    handlers[0]?.(JSON.stringify({ eventType: 'ai.x', siteId: 'sit_b', n: 1 }));
+    handlers[0]?.(JSON.stringify({ eventType: 'ai.x', siteId: 'sit_a', n: 2 }));
     // Site B is removed during the lookup: the old answer is not used.
     closeUserEventStreams('usr_r');
     resolveFirst(['sit_a', 'sit_b']);
 
     const stream = await opening;
     await stream.waitFor('"n":2');
-    handlers[0]?.(JSON.stringify({ eventType: 'x', siteId: 'sit_b', n: 3 }));
-    handlers[0]?.(JSON.stringify({ eventType: 'x', siteId: 'sit_a', n: 4 }));
+    handlers[0]?.(JSON.stringify({ eventType: 'ai.x', siteId: 'sit_b', n: 3 }));
+    handlers[0]?.(JSON.stringify({ eventType: 'ai.x', siteId: 'sit_a', n: 4 }));
     await stream.waitFor('"n":4');
 
     expect(getUserSiteIds).toHaveBeenCalledTimes(2);
@@ -395,9 +422,33 @@ describe('event stream fan-out', () => {
   }, 5000);
 });
 
+describe('event types follow the read permission', () => {
+  it('maps each family to the read permission of its page', () => {
+    expect(eventReadPermission('session.updated')).toBe('sessions:read');
+    expect(eventReadPermission('supportCase.newMessage')).toBe('support:read');
+    expect(eventReadPermission('reservation.changed')).toBe('reservations:read');
+    expect(eventReadPermission('driver.updated')).toBe('drivers:read');
+    expect(eventReadPermission('invoice.Sent')).toBe('payments:read');
+    expect(eventReadPermission('station.status')).toBe('stations:read');
+    expect(eventReadPermission('ocpp.health')).toBe('stations:read');
+    // Payment events reach every client, without their reasons (eventForClient).
+    expect(eventReadPermission('payment.settled')).toBeNull();
+    // A family in neither list reaches no client.
+    expect(eventReadPermission('something.else')).toBe(false);
+  });
+
+  it('keeps a support-only client away from session events and lets it see case events', () => {
+    const supportOnly = ['support:read'];
+    expect(isEventPermitted(supportOnly, { eventType: 'session.updated' })).toBe(false);
+    expect(isEventPermitted(supportOnly, { eventType: 'supportCase.created' })).toBe(true);
+    expect(isEventPermitted(['sessions:write'], { eventType: 'session.updated' })).toBe(true);
+    expect(isEventPermitted(supportOnly, undefined)).toBe(true);
+  });
+});
+
 describe('isEventVisible', () => {
   it('shows every event, parsed or not, to an all-site client', () => {
-    expect(isEventVisible(null, { eventType: 'x' })).toBe(true);
+    expect(isEventVisible(null, { eventType: 'ai.x' })).toBe(true);
     expect(isEventVisible(null, undefined)).toBe(true);
   });
 

@@ -135,6 +135,7 @@
     "dashboard": "Panel",
     "sites": "Sitios",
     "stations": "Estaciones",
+    "sims": "SIM",
     "sessions": "Sesiones",
     "drivers": "Conductores",
     "transactions": "Transacciones",
@@ -200,6 +201,13 @@
       "privateNetworkSaved": "Acceso de red guardado",
       "allowRawToken": "Aceptar Tokens sin Codificar",
       "allowRawTokenHint": "Para socios OCPI 2.1.1 y 2.2 que envían su token de credenciales sin codificación Base64. Nuestro token se les envía de la misma forma. Déjelo desactivado para socios OCPI 2.2.1 y 2.3.0.",
+      "approvedRoles": "Roles Aprobados",
+      "approvedRolesHint": "El CSMS actúa solo según los roles aprobados: un socio CPO o HUB lee los tokens de conductores y un socio HUB envía la información de clientes del hub. Un rol que declara el socio solo se usa después de que lo apruebe aquí.",
+      "rolesNotDecided": "Aún sin decidir. El CSMS no actúa según ningún rol de este socio hasta que apruebe sus roles aquí.",
+      "declaredRoles": "Declarados por el socio: {{roles}}",
+      "noDeclaredRoles": "El socio todavía no ha declarado ningún rol.",
+      "heldRoles": "Declarados pero no aprobados: {{roles}}. El CSMS no actúa según estos roles.",
+      "approvedRolesSaved": "Roles aprobados guardados",
       "rawTokenSaved": "Codificación del token guardada",
       "newRegistrationToken": "Nuevo Token de Registro",
       "newRegistrationTokenTitle": "Nuevo Token de Registro",
@@ -360,6 +368,7 @@
     "recoveryCodeSubtitle": "Introduzca uno de sus códigos de recuperación",
     "recoveryCodeLabel": "Código de recuperación",
     "recoveryCodeInvalid": "Código de recuperación no válido o ya usado. Inténtelo de nuevo.",
+    "recoveryCodeIncomplete": "Ingrese el código de recuperación completo de 10 caracteres",
     "mfaMethodSwitchedOff": "Su administrador desactivó el inicio de sesión con {{method}}. Inicie sesión con un código de recuperación.",
     "mfaSetupTitle": "Configurar la autenticación de dos factores",
     "mfaSetupDescription": "Su administrador exige un segundo factor. Configure uno para terminar de iniciar sesión.",
@@ -374,7 +383,9 @@
     "passkeyFailed": "No se pudo usar la llave de acceso. Inténtelo de nuevo o inicie sesión con su contraseña.",
     "passkeyResetRequired": "Debe cambiar su contraseña. Inicie sesión con su correo y contraseña para cambiarla.",
     "mfaSetupPasskeyHint": "Use su huella, su rostro, el bloqueo de pantalla o una llave de seguridad.",
-    "mfaSetupUsePasskey": "Configurar una Llave de Acceso o de Seguridad"
+    "mfaSetupUsePasskey": "Configurar una Llave de Acceso o de Seguridad",
+    "chargingPortalLink": "Portal de carga de {{name}}",
+    "ssoLinkRequired": "Esta cuenta aún no está vinculada al inicio de sesión único. Inicie sesión con su contraseña y permita el inicio de sesión con SSO en su perfil, o consulte a su administrador."
   },
   "dashboard": {
     "title": "Panel",
@@ -547,7 +558,7 @@
     "qrCodesDescription": "Códigos QR para todas las estaciones en este sitio. Imprima y coloque en cada cargador para pago de invitados.",
     "exportCsv": "Exportar CSV",
     "importCsv": "Importar CSV",
-    "downloadTemplate": "Plantilla",
+    "downloadTemplate": "Descargar plantilla",
     "importing": "Importando...",
     "importResults": "Resultados de importación",
     "sitesCreated": "Sitios creados: {{count}}",
@@ -1093,13 +1104,12 @@
           "providerOff": "Proveedor: omitido, no hay ningún proveedor de SIM activado.",
           "inProgress": "Proveedor: omitido, otra actualización de esta estación está en curso.",
           "notConfirmed": "Proveedor: omitido, no se obtiene nada hasta que se confirme la SIM.",
-          "other": "Proveedor: omitido."
-        },
-        "providerNotMatched": {
-          "noIccid": "Proveedor: omitido, la estación no tiene ICCID.",
+          "other": "Proveedor: omitido.",
+          "inProgressSim": "Proveedor: omitido, se está ejecutando otra actualización de esta SIM.",
           "notFound": "Proveedor: omitido, ningún proveedor activado conoce esta SIM.",
-          "simMatchedElsewhere": "Proveedor: omitido, otra estación tiene una asociación confirmada para esta SIM.",
-          "other": "Proveedor: omitido, la SIM no está asociada a un proveedor."
+          "noIccid": "Proveedor: omitido, la estación no tiene ICCID.",
+          "attachedElsewhere": "Proveedor: omitido, la SIM está asignada a otra estación, por lo que no se asignó a esta estación.",
+          "attachConflict": "Proveedor: omitido, otros cambios en las asignaciones de SIM se ejecutaron al mismo tiempo. No se asignó nada. Haga clic en Actualizar de nuevo."
         },
         "providerFailed": {
           "auth": "Proveedor: falló, el proveedor rechazó la clave de API.",
@@ -1135,13 +1145,16 @@
       "notFetchedYet": "Aún no obtenido. Elija un período y haga clic en Actualizar.",
       "emptyNotFound": "Ningún proveedor de SIM activado conoce este ICCID.",
       "lookUpAgain": "Buscar de nuevo",
-      "emptyMatchedElsewhere": "Esta SIM está asociada a otra estación. Una SIM sirve a una sola estación, por lo que esta estación no muestra datos de SIM.",
+      "emptyAttachedElsewhere": "La SIM del ICCID de esta estación está asignada a otra estación. Una SIM se asigna a una sola estación a la vez, por lo que esta estación no muestra datos de SIM.",
+      "emptySimInactive": "La SIM del ICCID de esta estación está inactiva. No está asignada a esta estación, y no se obtiene ni restablece nada para ella hasta que un usuario la reactive en su página de SIM.",
+      "findSim": "Buscar la SIM",
       "confirmSim": "Confirmar SIM",
       "resetNetwork": "Restablecer red",
       "resetNeedsConfirm": "Confirme la SIM antes de restablecer su red.",
-      "clearMatch": "Quitar asociación",
-      "clearMatchDescription": "Quita el vínculo entre esta estación y su SIM. La próxima actualización vuelve a buscar la SIM por el ICCID, y una nueva asociación necesita Confirmar SIM de nuevo antes de un restablecimiento de red.",
-      "clearMatchSuccess": "Asociación de SIM quitada",
+      "detachSim": "Quitar asignación",
+      "viewSim": "Ver SIM",
+      "detachSimDescription": "Cierra la asignación de la SIM de esta estación. La SIM, su historial de asignaciones y sus sesiones y alertas guardadas se conservan. La próxima actualización asigna la SIM del ICCID que informó la estación, y esa asignación necesita Confirmar SIM antes de obtener o restablecer algo.",
+      "detachSimSuccess": "Asignación de la SIM quitada.",
       "rateLimitedRetry": "Demasiadas solicitudes. Inténtelo de nuevo en {{seconds}} s.",
       "unconfirmedNotice": "No se obtiene nada de {{provider}} para esta SIM hasta que un usuario con acceso a todos los sitios la confirme con Confirmar SIM.",
       "fetchedAt": "Obtenido {{time}}",
@@ -1172,9 +1185,15 @@
       "fromStationTitle": "Desde la estación",
       "readAt": "Leído {{time}}",
       "confirmDescription": "Confirme que la SIM {{iccid}} de {{provider}} pertenece a esta estación. La red de una SIM confirmada se puede restablecer desde esta página.",
-      "confirmSourceStation": "Origen del ICCID: informado por la estación.",
-      "confirmSourceEntered": "Origen del ICCID: introducido por {{name}}.",
-      "confirmSourceEnteredUnknown": "Origen del ICCID: introducido por un usuario.",
+      "confirmSource": {
+        "reported": "Origen del ICCID: informado por la estación.",
+        "entered": "Origen del ICCID: introducido en la estación por {{name}}.",
+        "enteredUnknown": "Origen del ICCID: introducido en la estación por otro usuario.",
+        "attached": "Origen del ICCID: asignado en la página de la SIM por {{name}}.",
+        "attachedUnknown": "Origen del ICCID: asignado en la página de la SIM por otro usuario.",
+        "imported": "Origen del ICCID: importado de un archivo CSV por {{name}}.",
+        "importedUnknown": "Origen del ICCID: importado de un archivo CSV por otro usuario."
+      },
       "confirmSuccess": "SIM confirmada",
       "resetDescription": "El proveedor termina la sesión de datos de la estación y la estación se vuelve a conectar a la red celular. La estación puede estar sin conexión hasta que se reconecte.",
       "resetSuccess": "Restablecimiento de red enviado. Haga clic en Actualizar dentro de unos minutos para ver la nueva sesión.",
@@ -1272,6 +1291,11 @@
         "readDeviceModelSent": "Modelo de dispositivo solicitado. Haga clic en Actualizar en un minuto.",
         "ocpp16Keys": "Las claves de configuración OCPP 1.6 indicadas en los ajustes de SIM, tal como las informó la estación.",
         "noOcpp16Keys": "No hay claves de señal OCPP 1.6 en los ajustes de SIM, así que una actualización no lee nada de esta estación."
+      },
+      "attachmentResult": {
+        "attachedElsewhere": "ICCID guardado. Su SIM está asignada a otra estación, por lo que no se asignó a esta estación.",
+        "simInactive": "ICCID guardado. Su SIM está inactiva, por lo que no se asignó a esta estación. Reactívela en su página de SIM.",
+        "attachConflict": "ICCID guardado. Otros cambios en las asignaciones de SIM se ejecutaron al mismo tiempo, por lo que la SIM no se asignó. Haga clic en Actualizar en la pestaña Conectividad para asignarla."
       }
     },
     "simCoverage": {
@@ -1285,6 +1309,145 @@
       "unavailable": "Ya no disponible",
       "dayLabel": "{{date}}: {{label}}",
       "notFetchedRange": "No obtenido: {{from}} a {{to}}"
+    }
+  },
+  "sims": {
+    "title": "SIM",
+    "subtitle": "Las tarjetas SIM de sus estaciones y las que no están asignadas a ninguna estación.",
+    "search": "Buscar",
+    "searchPlaceholder": "Buscar por ICCID, IMSI o etiqueta",
+    "featureOff": "Las funciones SIM están desactivadas. Active un proveedor de SIM o la lectura de la señal de la estación en Configuración > Integraciones y Funciones para listar las SIM.",
+    "noSims": "No se encontraron SIM.",
+    "notFetched": "No consultado",
+    "notAttached": "Sin asignar",
+    "downloadTemplate": "Descargar plantilla",
+    "importConfirmTitle": "Importar SIM",
+    "importResult": {
+      "created": "SIM creadas: {{count}}",
+      "updated": "SIM actualizadas: {{count}}",
+      "attached": "SIM asignadas a una estación: {{count}}"
+    },
+    "columns": {
+      "iccid": "ICCID",
+      "label": "Etiqueta",
+      "provider": "Proveedor",
+      "csmsStatus": "Estado en el CSMS",
+      "providerStatus": "Estado del proveedor",
+      "station": "Estación",
+      "confirmed": "Confirmada",
+      "lastFetched": "Última consulta",
+      "created": "Creada"
+    },
+    "filters": {
+      "provider": "Proveedor",
+      "allProviders": "Todos los proveedores",
+      "attachment": "Asignación",
+      "allAttachments": "Todas las asignaciones",
+      "csmsStatus": "Estado en el CSMS",
+      "allCsmsStatuses": "Todos los estados del CSMS",
+      "providerStatus": "Estado del proveedor",
+      "allProviderStatuses": "Todos los estados del proveedor",
+      "station": "Estación",
+      "allStations": "Todas las estaciones"
+    },
+    "attachmentFilter": {
+      "attached": "Asignada",
+      "unattached": "Sin asignar",
+      "unconfirmed": "Asignada, sin confirmar"
+    },
+    "csmsStatus": {
+      "active": "Activa",
+      "inactive": "Inactiva"
+    },
+    "detail": {
+      "notFound": "SIM no encontrada.",
+      "tabs": {
+        "details": "Detalles",
+        "sessions": "Sesiones",
+        "attachments": "Asignaciones",
+        "history": "Historial"
+      },
+      "detailsTitle": "Detalles de la SIM",
+      "iccid": "ICCID",
+      "imsi": "IMSI",
+      "label": "Etiqueta",
+      "notes": "Notas",
+      "provider": "Proveedor",
+      "providerRef": "ID de SIM del proveedor",
+      "created": "Creada",
+      "csmsStatus": "Estado en el CSMS",
+      "csmsStatusHint": "Se cambia aquí con Desactivar y Reactivar. El estado del proveedor de abajo llega del proveedor de SIM con una actualización.",
+      "providerStatus": "Estado del proveedor",
+      "deactivatedAt": "Desactivada {{time}}",
+      "deactivatedBy": "Desactivada {{time}} por {{name}}",
+      "deactivate": "Desactivar SIM",
+      "reactivate": "Reactivar SIM",
+      "deactivateDescription": "La SIM sigue en el inventario y se cierra su asignación a una estación. Mientras esté inactiva no se puede asignar, actualizar ni restablecer. No se llama al proveedor de SIM y su estado no cambia.",
+      "reactivateDescription": "La SIM vuelve a estar activa. No se asigna a ninguna estación y no se llama al proveedor de SIM.",
+      "deactivateSuccess": "SIM desactivada.",
+      "reactivateSuccess": "SIM reactivada.",
+      "delete": "Eliminar SIM",
+      "deleteDescription": "Elimina la SIM {{iccid}} con su historial de asignaciones y sus sesiones, alertas y días obtenidos guardados. No se puede deshacer.",
+      "deleteSuccess": "SIM eliminada.",
+      "deleteAttachedReason": "Quite la asignación de la SIM antes de eliminarla.",
+      "inactiveReason": "Esta SIM está inactiva. Reactívela primero.",
+      "noRecentAlerts": "No hay alertas de SIM guardadas para esta SIM.",
+      "refreshTitle": "Datos del proveedor",
+      "refreshHint": "Una actualización solo lee el proveedor de SIM y no envía nada a ninguna estación. Abrir esta página no obtiene nada.",
+      "noProvider": "Todavía no se conoce el proveedor de esta SIM. Una actualización lo busca.",
+      "providerNotFound": "Ningún proveedor de SIM activado conoce esta SIM.",
+      "resetDescription": "El proveedor de SIM termina la sesión de datos de la SIM y el dispositivo se vuelve a conectar a la red móvil. Una estación con esta SIM puede quedar desconectada hasta que se vuelva a conectar.",
+      "editTitle": "Editar SIM",
+      "labelHint": "Como máximo {{max}} caracteres.",
+      "imsiHint": "Hasta 15 dígitos. Déjelo vacío para quitar el IMSI.",
+      "imsiInvalid": "Introduzca hasta 15 dígitos.",
+      "notesHint": "Como máximo {{max}} caracteres.",
+      "saveFailed": "La SIM no se guardó. Inténtelo de nuevo.",
+      "attachments": {
+        "currentTitle": "Asignación actual",
+        "historyTitle": "Historial de asignaciones",
+        "notAttached": "Esta SIM no está asignada a ninguna estación.",
+        "noHistory": "Esta SIM todavía no se ha asignado.",
+        "station": "Estación",
+        "site": "Ubicación",
+        "source": "Origen",
+        "attached": "Asignada",
+        "attachedBy": "Asignada por",
+        "confirmed": "Confirmada",
+        "notConfirmed": "Sin confirmar",
+        "open": "Abierta",
+        "paymentTerminal": "Terminal de pago",
+        "unconfirmedNotice": "Esta asignación no está confirmada. Confirme la SIM después de comprobar que está en la estación {{station}}.",
+        "confirmDescription": "Confirme que la SIM {{iccid}} es la SIM de la estación {{station}}.",
+        "detach": "Quitar asignación",
+        "detachDescription": "Cierra la asignación de la SIM {{iccid}} a la estación {{station}}. Las sesiones y alertas guardadas se quedan con la SIM.",
+        "detachSuccess": "Asignación de la SIM quitada.",
+        "attach": "Asignar a una estación",
+        "attachTitle": "Asignar a una estación",
+        "attachDescription": "La SIM se asigna a la estación y se confirma de inmediato. Se rechaza una estación que ya tiene una SIM.",
+        "attachSuccess": "SIM asignada a la estación {{station}}.",
+        "sourceLabel": {
+          "reported": "Informada por la estación",
+          "entered": "Introducida en la estación",
+          "attached": "Asignada en la página de la SIM",
+          "imported": "Importada de un archivo CSV"
+        },
+        "reason": {
+          "detached": "Asignación quitada",
+          "iccidChanged": "La estación informó otro ICCID",
+          "replaced": "Se introdujo otra SIM en la estación",
+          "displaced": "Movida a otra estación",
+          "deactivated": "La SIM se desactivó"
+        },
+        "columns": {
+          "station": "Estación",
+          "site": "Ubicación",
+          "source": "Origen",
+          "attached": "Asignada",
+          "detached": "Quitada",
+          "reason": "Motivo"
+        }
+      }
     }
   },
   "eventAlertRules": {
@@ -1747,6 +1910,7 @@
     "permissionGroups": {
       "dashboard": "Panel",
       "stations": "Estaciones",
+      "sims": "SIM",
       "sites": "Sitios",
       "sessions": "Sesiones",
       "drivers": "Conductores",
@@ -1791,9 +1955,25 @@
     "mfaOffDescription": "El usuario inicia sesión sin un segundo factor.",
     "mfaReset": "Restablecer MFA",
     "mfaResetConfirm": "¿Desactivar el segundo factor de este usuario y cerrar todas sus sesiones? El usuario inicia sesión solo con la contraseña y puede volver a configurar MFA.",
+    "mfaResetProofHint": "Confirme su identidad para desactivar el segundo factor de este usuario.",
     "mfaResetSuccess": "MFA restablecida",
     "apiKeysDescription": "Claves de API activas de este usuario. Revoque una clave que el usuario ya no necesite o que pueda haberse filtrado.",
-    "noApiKeys": "Este usuario no tiene claves de API activas."
+    "noApiKeys": "Este usuario no tiene claves de API activas.",
+    "adminProofHint": "Este usuario obtiene permisos de administrador. Confirme su identidad para crear el usuario.",
+    "grantProofHint": "Confirme su identidad para conceder nuevos permisos.",
+    "resetProofHint": "Confirme su identidad para restablecer la contraseña de este usuario.",
+    "resendProofHint": "Confirme su identidad para enviar un nuevo enlace para establecer la contraseña.",
+    "emailProofHint": "Este usuario tiene permisos de administrador. Confirme su identidad para cambiar la dirección de correo electrónico o el número de teléfono, o para reactivar la cuenta.",
+    "roleProofHint": "El nuevo rol concede permisos que este usuario no tiene. Confirme su identidad para cambiar el rol.",
+    "ssoLinkTitle": "Inicio de sesión único",
+    "ssoLinkDescription": "El SSO inicia sesión en una cuenta con contraseña existente solo después de permitir el vínculo. El primer inicio de sesión con SSO vincula entonces la cuenta a su usuario del proveedor de identidad.",
+    "ssoLinked": "Vinculada: esta cuenta inicia sesión con su usuario del proveedor de identidad.",
+    "ssoLinkPending": "Permitido: el próximo inicio de sesión con SSO vincula esta cuenta.",
+    "ssoLinkAllow": "Permitir inicio de sesión con SSO",
+    "ssoLinkWithdraw": "Retirar",
+    "ssoLinkProofHint": "Confirme su identidad para permitir que el inicio de sesión único acceda como esta cuenta.",
+    "ssoUnlink": "Eliminar vínculo",
+    "ssoUnlinkProofHint": "Confirme su identidad para eliminar el vínculo entre esta cuenta y su usuario del proveedor de identidad."
   },
   "profile": {
     "title": "Perfil",
@@ -1817,7 +1997,6 @@
     "mfaMethodTotp": "Aplicación de autenticación",
     "mfaMethodSms": "SMS",
     "mfaSetUp": "Configurar",
-    "mfaSettingUp": "Configurando...",
     "mfaDisable": "Desactivar MFA",
     "mfaDisableConfirm": "Confirme su identidad con un factor que tenga o con un código de recuperación. Al desactivar MFA también se eliminan sus passkeys y códigos de recuperación.",
     "mfaSetupPasswordHint": "Ingrese su contraseña actual para configurar MFA",
@@ -1826,7 +2005,6 @@
     "mfaManualEntry": "Clave de entrada manual",
     "mfaEnterCode": "Ingrese el código de verificación de 6 dígitos",
     "mfaVerify": "Verificar",
-    "mfaVerifying": "Verificando...",
     "mfaSetupFailed": "Error al iniciar la configuración de MFA.",
     "mfaVerifyFailed": "Código de verificación inválido.",
     "mfaDisableFailed": "Error al desactivar MFA.",
@@ -2225,7 +2403,8 @@
     "connectorIdRequired": "ID de conector",
     "retries": "Reintentos (opcional)",
     "retryInterval": "Intervalo de reintento (opcional)",
-    "validationFailed": "La validación del payload falló"
+    "validationFailed": "La validación del payload falló",
+    "hiddenByPermission": "Algunos comandos están ocultos porque necesitan un permiso de escritura que usted no tiene, como Firmware, Configuraciones de estación, Certificados, Carga inteligente, Precios, Reservas, Sesiones o Conductores."
   },
   "ocppLogs": {
     "title": "Registro de mensajes OCPP",
@@ -2473,6 +2652,17 @@
     "webhookAllowedPrivateHostsHint": "Indique aquí un host por línea para que los webhooks lo alcancen en una dirección privada (por ejemplo, un servidor de automatización propio). Nombres de host o direcciones IP, sin esquema ni puerto. Hasta 20.",
     "webhooksSaved": "Configuración de webhooks guardada.",
     "webhooksSaveFailed": "No se pudo guardar la configuración de webhooks.",
+    "webhookSigningSecret": "Secreto de Firma",
+    "webhookSigningSecretHint": "Cada webhook lleva X-EVtivity-Signature: t=<hora Unix>,v1=<HMAC-SHA256 en hex de \"<t>.<cuerpo sin procesar>\"> hecho con este secreto. Los receptores lo recalculan para comprobar que la solicitud viene de este CSMS y rechazan un t antiguo.",
+    "webhookSigningSecretConfigured": "Hay un secreto de firma. Los webhooks se firman.",
+    "webhookSigningSecretNotConfigured": "No hay secreto de firma. Los webhooks se envían sin firmar.",
+    "webhookSigningSecretGenerate": "Generar Secreto",
+    "webhookSigningSecretRegenerate": "Regenerar Secreto",
+    "webhookSigningSecretRegenerateConfirm": "El secreto actual deja de funcionar de inmediato. Los receptores deben cambiar al nuevo secreto o rechazarán los próximos webhooks.",
+    "webhookSigningSecretRemove": "Quitar Secreto",
+    "webhookSigningSecretRemoveConfirm": "Los webhooks se envían sin firmar hasta que se genere un nuevo secreto.",
+    "webhookSigningSecretShownOnce": "Copie este secreto ahora. Solo se muestra una vez.",
+    "webhookSigningSecretFailed": "El secreto de firma no se cambió.",
     "smtpSaveFailed": "Error al guardar configuración SMTP.",
     "twilio": "SMS Twilio",
     "twilioDescription": "Configurar Twilio para enviar notificaciones SMS.",
@@ -2698,7 +2888,6 @@
     "mfaRequireDrivers": "Exigir MFA a los conductores",
     "mfaRequireDriversDescription": "Cada conductor debe configurar la MFA en el portal de conductores en su próximo inicio de sesión, antes de que se emita una sesión. A los conductores con sesión iniciada se les pedirá en la próxima renovación de la sesión. La aplicación móvil envía a los conductores al portal para completar la configuración.",
     "mfaRequiredNoMethod": "Active los códigos por correo o la aplicación de autenticación antes de exigir MFA.",
-    "mfaSaved": "Configuración de MFA guardada.",
     "mfaSaveFailed": "Error al guardar configuración de MFA.",
     "sso": "Inicio de sesión único",
     "ssoDescription": "Configure el inicio de sesión único SAML 2.0 con su proveedor de identidad.",
@@ -2784,22 +2973,12 @@
     "guestDeclinesPerIpPerHour": "Tarjetas Rechazadas por IP por Hora",
     "guestDeclinesPerIpPerHourHelp": "Tras este número de tarjetas rechazadas en una hora, la dirección no puede crear una nueva retención de pago.",
     "ocppDefaults": "OCPP",
-    "ocppStationConfigTitle": "Configuración de estación (enviada al arrancar)",
-    "ocppStationConfigDescription": "Estos valores se envían a la estación después de cada BootNotification. Las estaciones OCPP 2.1 reciben comandos SetVariables. Las estaciones OCPP 1.6 reciben comandos ChangeConfiguration. Los valores de 0 no se envían.",
     "ocppMeterValueInterval": "Intervalo de valores de medición (segundos)",
-    "ocppMeterValueIntervalHelp": "Frecuencia con la que la estación reporta lecturas de energía durante una transacción. Se envía como SampledDataCtrlr.TxUpdatedInterval (2.1) o MeterValueSampleInterval (1.6). Establezca en 0 para usar los valores predeterminados del firmware.",
     "ocppClockAlignedInterval": "Intervalo alineado al reloj (segundos)",
-    "ocppClockAlignedIntervalHelp": "Intervalo para reportes de medición alineados al reloj en límites de tiempo exactos (ej. 900 para cada 15 minutos en punto). Se envía como AlignedDataCtrlr.Interval (2.1) o ClockAlignedDataInterval (1.6). Establezca en 0 para desactivar.",
     "ocppSampledMeasurands": "Mediciones muestreadas",
-    "ocppSampledMeasurandsHelp": "Mediciones separadas por coma reportadas durante transacciones activas. Se envía como SampledDataCtrlr.TxUpdatedMeasurands (2.1) o MeterValuesSampledData (1.6).",
     "ocppAlignedMeasurands": "Mediciones alineadas al reloj",
-    "ocppAlignedMeasurandsHelp": "Mediciones separadas por coma reportadas en intervalos alineados al reloj. Se envía como AlignedDataCtrlr.Measurands (2.1) o MeterValuesAlignedData (1.6). Solo se envía cuando el intervalo alineado es mayor que 0.",
     "ocppTxEndedMeasurands": "Mediciones al finalizar transacción",
-    "ocppTxEndedMeasurandsHelp": "Mediciones separadas por coma incluidas en la lectura final cuando termina una transacción. Se envía como SampledDataCtrlr.TxEndedMeasurands (2.1) o StopTxnSampledData (1.6).",
-    "ocppBootResponseTitle": "Respuesta de BootNotification",
-    "ocppBootResponseDescription": "Estos valores se devuelven a la estación en la respuesta del BootNotification. La estación los lee y aplica automáticamente.",
     "ocppHeartbeatInterval": "Intervalo de heartbeat (segundos)",
-    "ocppHeartbeatIntervalHelp": "Frecuencia con la que la estación envía mensajes de heartbeat para confirmar que está en línea. Se devuelve como el campo interval en la respuesta del BootNotification.",
     "ocppCsmsConfigTitle": "Configuración interna del CSMS",
     "ocppCsmsConfigDescription": "Estas configuraciones controlan como el CSMS maneja la comunicación OCPP. No se envían a las estaciones.",
     "ocppConnectionTimeout": "Tiempo de espera de comandos (segundos)",
@@ -2879,6 +3058,7 @@
     "siteConfigsNoSites": "No se encontraron sitios.",
     "sitePlatformFeeOverride": "Comisión de plataforma % (anulación)",
     "sitePlatformFeeHint": "Dejar vacío para usar la comisión global de plataforma.",
+    "sitePlatformFeeAllSitesOnly": "La comisión de la plataforma se fija para toda la empresa. La cambia un usuario con acceso a todas las ubicaciones.",
     "sitePaymentsEnabled": "Pagos habilitados para {{site}}",
     "unsavedChanges": "Cambios sin guardar",
     "apiKeys": "Claves API",
@@ -3071,7 +3251,6 @@
       "sitePerMinute": "Solicitudes de IA de soporte por sitio por minuto",
       "userDailyTokens": "Tokens por usuario por día",
       "maxToolCallsPerTurn": "Llamadas a herramientas por respuesta",
-      "conversationRetentionDays": "Conservar conversaciones (días)",
       "attachmentsMaxBytes": "Tamaño máximo de adjunto (bytes)",
       "attachmentsMaxPerMessage": "Adjuntos por mensaje",
       "companyMonthlyTokens": "Tokens de la empresa por mes",
@@ -3091,7 +3270,6 @@
       "siteIncidentThreshold": "Estaciones caídas en un sitio que forman un incidente del sitio",
       "maxPerSitePerDay": "Análisis por sitio y día",
       "primaryLanguage": "Idioma del resumen",
-      "retentionDays": "Conservar análisis (días)",
       "expireAfterDays": "Cerrar análisis puntuales tras (días)",
       "reservation": "Análisis de reservas",
       "reservationOff": "El análisis de reservas está desactivado mientras las reservas estén desactivadas.",
@@ -3216,8 +3394,6 @@
       "sessionHistoryNote": "Las sesiones y las alertas de SIM se guardan solo para las estaciones que alguien actualizó dentro del período de historial del proveedor. El CSMS nunca las obtiene por su cuenta, y abrir la pestaña Conectividad de una estación no obtiene nada.",
       "fetchDays": "Período de actualización predeterminado (días)",
       "fetchDaysHint": "El período preseleccionado junto al botón Actualizar en la pestaña Conectividad de una estación. Allí se puede elegir otro período o un rango de fechas personalizado.",
-      "retentionDays": "Conservar sesiones y alertas (días)",
-      "retentionDaysHint": "Las sesiones y alertas de SIM más antiguas se eliminan. Las sesiones incluyen ID de celda, que muestran aproximadamente dónde estuvo en línea una estación.",
       "rangeError": "Introduzca un número entero de {{min}} a {{max}}.",
       "stationSignalTitle": "Señal de la estación",
       "stationSignalEnabled": "Leer la señal de las estaciones",
@@ -3232,6 +3408,94 @@
       "signalFairDbm": "Señal aceptable desde (dBm)",
       "signalFairDbmHint": "Una señal igual o superior a este valor se considera aceptable; por debajo, débil.",
       "signalOrderError": "El umbral de señal buena debe ser mayor que el de señal aceptable."
+    },
+    "ssoAllowedDomains": "Dominios de correo permitidos",
+    "ssoAllowedDomainsHint": "El SSO inicia sesión y crea cuentas solo para estos dominios, separados por comas. Recomendado: indique los dominios de su empresa. Vacío permite cualquier dominio.",
+    "ssoProofHint": "Confirme su identidad para cambiar quién puede iniciar sesión con SSO.",
+    "dataRetention": {
+      "tab": "Retención de Datos",
+      "description": "Cuántos días conserva el CSMS cada tipo de dato almacenado. Un trabajo de depuración borra las filas más antiguas en su siguiente ejecución: los trabajos de registros y auditoría se ejecutan a diario y el de IA cada hora. Estos ajustes se aplican a todas las ubicaciones.",
+      "storageTitle": "El Modo Caos y las Redes Grandes Necesitan Mucho Almacenamiento",
+      "storageNote": "Cada mensaje OCPP que una estación envía o recibe es una fila en ocpp_message_logs, incluidos los latidos, y cada lectura del medidor es una fila en meter_values. Ambas tablas crecen con el número de estaciones conectadas, aunque nadie esté cargando. En una red de prueba de unas 2.000 estaciones simuladas, la base de datos alcanzó 90 GB. Reduzca Mensajes OCPP y Valores del Medidor para mantener estas tablas más pequeñas.",
+      "range": "De {{min}} a {{max}} días. Predeterminado: {{default}}.",
+      "keepForever": "0 conserva los datos para siempre.",
+      "saveFailed": "No se pudieron guardar los ajustes de retención de datos.",
+      "movedNote": "El tiempo que se conservan estos datos se define en",
+      "movedLink": "Configuración > Retención de Datos",
+      "groups": {
+        "operationalLogs": "Registros Operativos",
+        "securityAudit": "Seguridad y Auditoría",
+        "signInTokens": "Sesiones de Inicio y Tokens",
+        "ai": "IA",
+        "sim": "Datos SIM"
+      },
+      "rows": {
+        "ocppMessage": {
+          "label": "Mensajes OCPP",
+          "description": "Cada mensaje OCPP enviado a una estación o recibido de ella, incluidos los latidos (ocpp_message_logs). Suele ser la tabla más grande."
+        },
+        "meterValues": {
+          "label": "Valores del Medidor",
+          "description": "Lecturas del medidor de las sesiones de carga (meter_values). Las sesiones conservan su energía total, su potencia máxima y su último estado de carga después de borrar estas filas."
+        },
+        "domainEvents": {
+          "label": "Eventos de Dominio",
+          "description": "Eventos que el CSMS registra para estaciones, sesiones y otros cambios (domain_events)."
+        },
+        "access": {
+          "label": "Registros de Acceso",
+          "description": "Solicitudes de las pestañas CSMS, Portal y API de Registros de Acceso (access_logs)."
+        },
+        "workerJob": {
+          "label": "Registros de Trabajos",
+          "description": "Ejecuciones de trabajos en segundo plano de la pestaña Workers de Registros de Acceso (worker_job_logs), contadas desde el final del trabajo."
+        },
+        "portStatus": {
+          "label": "Historial de Estado de Conectores",
+          "description": "Cada cambio de estado de un conector (port_status_log)."
+        },
+        "connection": {
+          "label": "Registro de Conexión de Estaciones",
+          "description": "Conexiones, desconexiones e inicios de sesión fallidos de las estaciones (connection_logs)."
+        },
+        "notifications": {
+          "label": "Notificaciones Enviadas",
+          "description": "Correos, mensajes de texto y notificaciones push enviados (notifications)."
+        },
+        "loadAllocation": {
+          "label": "Asignaciones de Gestión de Carga",
+          "description": "La lista Asignaciones de Gestión de Carga (load_allocation_log)."
+        },
+        "audit": {
+          "label": "Historial de Auditoría",
+          "description": "Historial de cambios en las pestañas Historial y en la página Auditoría, e intentos de autorización OCPP (authorize_attempts)."
+        },
+        "loginAudit": {
+          "label": "Registros de Inicio de Sesión",
+          "description": "Inicios de sesión correctos y fallidos en los registros de auditoría de usuarios y conductores. Sus otras filas siguen el Historial de Auditoría."
+        },
+        "securityEvents": {
+          "label": "Eventos de Seguridad de Estaciones",
+          "description": "Eventos de seguridad informados por las estaciones (security_events)."
+        },
+        "refreshTokens": {
+          "label": "Tokens de Inicio de Sesión Revocados y Vencidos",
+          "description": "Tokens de actualización de sesiones terminadas (refresh_tokens), contados desde su revocación o vencimiento."
+        },
+        "aiConversations": {
+          "label": "Conversaciones del Asistente de IA",
+          "description": "Conversaciones sin actividad durante este periodo, con sus adjuntos, y el registro de llamadas MCP."
+        },
+        "aiInsights": {
+          "label": "Análisis Automáticos",
+          "description": "Análisis automáticos y ejecuciones de los procesos de IA en segundo plano."
+        },
+        "simSessions": {
+          "label": "Sesiones y Alertas SIM",
+          "description": "Sesiones SIM, alertas SIM y periodos consultados (sim_sessions, sim_alerts, sim_fetch_coverage). Las sesiones incluyen identificadores de celda, que muestran aproximadamente dónde estuvo conectada una estación."
+        }
+      },
+      "proofHint": "Confirme que es usted para acortar el tiempo que se conserva el historial de auditoría, de inicios de sesión o de eventos de seguridad. Cada administrador recibe un aviso."
     }
   },
   "pnc": {
@@ -3310,6 +3574,7 @@
     "preview": "Vista previa de plantilla",
     "customized": "Personalizada",
     "templateSaved": "Notificación de evento guardada.",
+    "securityTemplateLocked": "Esta es una plantilla de seguridad (restablecimiento de contraseña, invitación, código de inicio de sesión o aviso de seguridad). Para cambiarla se necesita el permiso de escritura de Configuración del Sistema.",
     "templateDeactivated": "Notificación de evento desactivada.",
     "recipientRequired": "El correo del destinatario es obligatorio.",
     "webhookUrlRequired": "La URL del webhook es obligatoria.",
@@ -3414,7 +3679,13 @@
       "security.RecoveryCodeUsed": "Código de recuperación usado",
       "security.PhoneChanged": "Número de teléfono cambiado",
       "security.EmailChanged": "Dirección de correo electrónico cambiada",
-      "security.ApiKeyCreated": "Clave API creada"
+      "security.ApiKeyCreated": "Clave API creada",
+      "security.SsoSettingsChanged": "Configuración de inicio de sesión único modificada",
+      "security.UserCreatedPrivileged": "Cuenta de administrador creada",
+      "security.PermissionsGranted": "Permisos concedidos",
+      "security.PasswordResetByAdmin": "Enlace de contraseña enviado por un administrador",
+      "security.SsoUnlinked": "Vínculo de inicio de sesión único eliminado",
+      "security.RetentionLowered": "Retención de Datos Acortada"
     },
     "templatePreviewInvalid": "La plantilla tiene un error:",
     "htmlPreview": "Vista previa HTML",
@@ -3567,6 +3838,7 @@
     "API_KEY_RATE_LIMITED": "Límite de tasa de la clave API excedido",
     "ATTACHMENT_NOT_FOUND": "Adjunto no encontrado",
     "AUDIT_ENTITY_TYPE_INVALID": "Tipo de entidad de auditoría desconocido",
+    "AUTOCHARGE_CLAIM_REQUIRED": "Autocharge solo funciona con identificadores de vehículo que un cargador envió en una de sus sesiones. Use primero el identificador del vehículo de una sesión.",
     "CAMPAIGN_NOT_ACTIVE": "Solo se pueden cancelar las campañas activas",
     "CAMPAIGN_NOT_FOUND": "Campaña no encontrada",
     "CASE_NOT_FOUND": "Caso no encontrado",
@@ -3651,6 +3923,7 @@
     "INVALID_SITE_IDS": "Uno o más siteIds no existen",
     "INVALID_TOKEN": "Enlace de restablecimiento inválido o expirado",
     "INVOICE_ALREADY_PAID": "La factura ya está pagada",
+    "PREPAID_BALANCE_CONFLICT": "El saldo prepago cambió desde que abrió el formulario, por ejemplo tras una sesión. Vuelva a cargar el token e introduzca el saldo de nuevo.",
     "RESERVATION_FEE_ALREADY_INVOICED": "La tarifa de reserva ya está facturada",
     "SESSION_ALREADY_INVOICED": "La sesión ya está facturada",
     "INVOICE_CREATION_FAILED": "Error al crear la factura",
@@ -3792,6 +4065,7 @@
     "START_REJECTED": "La estación rechazó la solicitud de inicio: ...",
     "STATION_ALREADY_IN_FLEET": "La estación ya está en esta flota",
     "STATION_HAS_ACTIVE_SESSION": "La estación tiene una sesión de carga activa. Deténgala antes de eliminar la estación.",
+    "STATION_HAS_SIM": "Esta estación ya tiene una SIM vinculada. Desvincúlela primero",
     "STATION_ID_EXISTS": "Ya existe una estación con este ID",
     "STATION_NOT_FOUND": "Estación no encontrada",
     "STATION_OFFLINE": "La estación está fuera de línea",
@@ -3801,6 +4075,7 @@
     "STATION_UNAVAILABLE": "Esta estación no está disponible en este momento. Pruebe otra estación.",
     "STORAGE_CONNECTION_FAILED": "La prueba de conexión del almacenamiento falló",
     "STORAGE_NOT_CONFIGURED": "Almacenamiento de adjuntos no configurado",
+    "STREAM_LIMIT_REACHED": "Hay demasiadas actualizaciones en vivo de estaciones abiertas desde este dispositivo. Cierre otras pestañas e inténtelo de nuevo.",
     "SUPPORT_AI_NOT_CONFIGURED": "La IA de soporte no está configurada",
     "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "Este caso de soporte no está esperando su valoración de una respuesta automática",
     "SUPPORT_CASE_NOT_FOUND": "Caso de soporte no encontrado",
@@ -3895,17 +4170,22 @@
     "WEBAUTHN_CHALLENGE_EXPIRED": "La solicitud de llave de acceso caducó o ya se usó. Inténtelo de nuevo.",
     "WEBAUTHN_VERIFICATION_FAILED": "No se pudo verificar la llave de acceso o la llave de seguridad.",
     "SIM_ACTION_UNSUPPORTED": "El proveedor de SIM no admite esta acción para esta SIM",
-    "SIM_CONFIRMED_ELSEWHERE": "Otra estación ya tiene una asociación confirmada para esta SIM",
+    "SIM_ATTACHED": "Desvincule la SIM de su estación antes de eliminarla",
+    "SIM_ATTACHED_ELSEWHERE": "Esta SIM está vinculada a otra estación",
+    "SIM_ATTACHMENT_CHANGED": "La vinculación de la SIM cambió desde que se mostró. Compruebe la SIM y confírmela de nuevo",
+    "SIM_ATTACHMENT_NOT_CONFIRMED": "Confirme la SIM antes de restablecer su red",
     "SIM_FEATURE_DISABLED": "Los proveedores de SIM y la lectura de señal de las estaciones están desactivados",
-    "SIM_MATCHED_ELSEWHERE": "Esta SIM está asociada a otra estación",
-    "SIM_MATCH_CHANGED": "La coincidencia de la SIM cambió desde que se mostró. Compruebe la SIM y confírmela de nuevo",
-    "SIM_MATCH_NOT_CONFIRMED": "Confirme la SIM antes de restablecer su red",
-    "SIM_NOT_FOUND": "No hay ninguna SIM asociada a esta estación",
+    "SIM_INACTIVE": "Esta SIM está inactiva. Reactívela primero",
+    "SIM_NOT_FOUND": "SIM no encontrada",
     "SIM_PROVIDER_ERROR": "La solicitud al proveedor de SIM falló",
     "SIM_PROVIDER_NOT_CONFIGURED": "No hay ningún proveedor de SIM configurado",
     "SIM_PROVIDER_RATE_LIMITED": "Demasiadas solicitudes de SIM, inténtelo más tarde",
     "SIM_RESET_UNAVAILABLE": "El restablecimiento de red no se puede iniciar ahora. Inténtelo de nuevo en un minuto",
-    "SIM_TEST_UNAVAILABLE": "La prueba de conexión no se puede ejecutar ahora. Inténtelo de nuevo en un minuto"
+    "SIM_TEST_UNAVAILABLE": "La prueba de conexión no se puede ejecutar ahora. Inténtelo de nuevo en un minuto",
+    "NOT_FOUND": "No encontrado",
+    "PAYLOAD_TOO_LARGE": "La solicitud es demasiado grande",
+    "UNSUPPORTED_MEDIA_TYPE": "Tipo de contenido no admitido",
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "La configuración de heartbeat y de valores de medición viene de Configuración > Integraciones y Funciones > OCPP y del plan de datos de la estación, no de una plantilla de configuración."
   },
   "logs": {
     "title": "Registros",
@@ -4465,7 +4745,9 @@
     "rejected": "Rechazado",
     "failed": "Fallido",
     "pending": "Pendiente",
-    "pushProgress": "Progreso del envío"
+    "pushProgress": "Progreso del envío",
+    "variableInstance": "Instancia de Variable",
+    "duplicateVariable": "Dos filas definen la misma variable. Elimina una."
   },
   "validation": {
     "required": "Este campo es obligatorio",
@@ -4638,6 +4920,8 @@
     "durationMs": "{{ms}} ms",
     "confirmTitle": "Confirme este cambio",
     "confirmArguments": "Detalles",
+    "confirmMaskedValues_one": "{{count}} valor está oculto en esta tarjeta y se aplica igualmente tal como lo escribió el asistente",
+    "confirmMaskedValues_other": "{{count}} valores están ocultos en esta tarjeta y se aplican igualmente tal como los escribió el asistente",
     "confirmSummary": {
       "POST": "Crear o ejecutar: {{tool}}",
       "PUT": "Reemplazar: {{tool}}",
@@ -4788,7 +5072,8 @@
     "dataNotice": {
       "title": "Qué recibe el proveedor de IA",
       "body": "Los mensajes, los resultados de las herramientas y los adjuntos se envían al proveedor de IA seleccionado. Consulte las condiciones de retención de datos del proveedor. El proveedor de IA nunca recibe credenciales almacenadas, como contraseñas, claves de API, secretos y contraseñas de estaciones. Los números de tarjeta se acortan a sus últimos 4 caracteres. Los borradores de soporte, los análisis automáticos, los procesos en segundo plano y el soporte a conductores también enmascaran las direcciones de correo electrónico y los números de teléfono, y aplican un hash a los identificadores de token de los conductores o los acortan. El asistente envía los datos de contacto de los conductores tal como están almacenados, solo para los usuarios autorizados a leerlos. El texto que escribe y los archivos de texto que adjunta se revisan en busca de claves y números de tarjeta. Las imágenes y los PDF que adjunta se envían tal cual."
-    }
+    },
+    "confirmLinks": "Este cambio enlaza a {{hosts}}. Revise cada enlace antes de confirmar."
   },
   "sustainability": {
     "title": "Informe de Sostenibilidad",
@@ -4993,6 +5278,7 @@
       "priority_changed": "Prioridad cambiada",
       "pulled": "Obtenido",
       "pushed": "Enviado",
+      "reactivated": "Reactivado",
       "rebilled": "Refacturado",
       "refund_issued": "Reembolso emitido",
       "registered": "Registrado",
@@ -5092,7 +5378,14 @@
       "recovery_codes_regenerated": "Códigos de recuperación regenerados",
       "webauthn_credential_added": "Llave de acceso añadida",
       "webauthn_credential_renamed": "Llave de acceso renombrada",
-      "webauthn_credential_removed": "Llave de acceso eliminada"
+      "webauthn_credential_removed": "Llave de acceso eliminada",
+      "attached": "Vinculada",
+      "detached": "Desvinculada",
+      "attachment_confirmed": "Vinculación confirmada",
+      "network_reset": "Red restablecida",
+      "sso_link_allowed": "Inicio de sesión con SSO permitido",
+      "sso_unlinked": "Vínculo SSO eliminado",
+      "data_plan_changed": "Plan de datos cambiado"
     },
     "entities": {
       "site": "Sitio",
@@ -5128,7 +5421,8 @@
       "notification_template": "Plantilla de notificación",
       "station_message_template": "Plantilla de mensaje de estación",
       "event_alert_rule": "Regla de alerta de eventos",
-      "report_schedule": "Programación de informe"
+      "report_schedule": "Programación de informe",
+      "sim": "SIM"
     },
     "actors": {
       "operator": "Operador",
@@ -5930,7 +6224,8 @@
     "lastFactorRequired": "Su organización exige la autenticación de dos factores, así que no puede eliminar su única llave de acceso. Añada otro factor primero.",
     "cancelled": "Se cerró la ventana de la llave de acceso. Inténtelo de nuevo cuando quiera.",
     "alreadyRegistered": "Esta llave de acceso o de seguridad ya está registrada.",
-    "failed": "La llave de acceso no terminó. Inténtelo de nuevo."
+    "failed": "La llave de acceso no terminó. Inténtelo de nuevo.",
+    "browserUnsupported": "Este navegador no admite llaves de acceso ni llaves de seguridad. Abra esta página en un navegador compatible para añadir una."
   },
   "factorProof": {
     "chooseLabel": "Confirmar Con",
@@ -5951,12 +6246,83 @@
     "passkeyButton": "Verificar con una Llave de Acceso",
     "verifying": "Verificando...",
     "passkeyVerified": "Llave de acceso verificada.",
-    "passkeyNeedsSecurePage": "Confirme su identidad con su llave de acceso. Las llaves de acceso solo funcionan con una conexión segura (HTTPS) o en localhost. Abra esta página por HTTPS para usar la suya.",
     "addFactorHint": "Confirme su identidad antes de añadir un segundo factor.",
     "confirmFirst": "Primero confirme su identidad.",
     "kindSso": "Inicio de sesión único",
     "ssoHint": "Vuelva a iniciar sesión con el inicio de sesión único para confirmar su identidad. Volverá a esta página y tendrá 10 minutos para continuar.",
     "ssoSignIn": "Iniciar Sesión de Nuevo con SSO",
     "ssoConfirmed": "Confirmado por su inicio de sesión único reciente."
+  },
+  "passkeyUnavailable": {
+    "insecure": {
+      "signInCode": "Las llaves de acceso necesitan una página segura (HTTPS o localhost). Abra este sitio por HTTPS para usar su llave de acceso, o inicie sesión con un código de verificación.",
+      "signInRecovery": "Las llaves de acceso necesitan una página segura (HTTPS o localhost). Abra este sitio por HTTPS para usar su llave de acceso, o inicie sesión con un código de recuperación.",
+      "signInOnly": "Las llaves de acceso necesitan una página segura (HTTPS o localhost) y su cuenta no tiene otra forma de verificación. Abra este sitio por HTTPS para iniciar sesión con su llave de acceso.",
+      "setupOther": "Las llaves de acceso necesitan una página segura (HTTPS o localhost). Abra este sitio por HTTPS para añadir una llave de acceso, o configure otro método a continuación.",
+      "setupOnly": "Las llaves de acceso necesitan una página segura (HTTPS o localhost) y una llave de acceso es el único método que puede configurar. Abra este sitio por HTTPS para configurarla.",
+      "proofOnly": "Confirme su identidad con su llave de acceso. Las llaves de acceso necesitan una página segura (HTTPS o localhost). Abra este sitio por HTTPS para usar la suya."
+    },
+    "unsupported": {
+      "signInCode": "Este navegador no admite llaves de acceso. Abra este sitio en un navegador compatible para usar su llave de acceso, o inicie sesión con un código de verificación.",
+      "signInRecovery": "Este navegador no admite llaves de acceso. Abra este sitio en un navegador compatible para usar su llave de acceso, o inicie sesión con un código de recuperación.",
+      "signInOnly": "Este navegador no admite llaves de acceso y su cuenta no tiene otra forma de verificación. Abra este sitio en un navegador compatible con llaves de acceso para iniciar sesión.",
+      "setupOther": "Este navegador no admite llaves de acceso. Abra este sitio en un navegador compatible para añadir una llave de acceso, o configure otro método a continuación.",
+      "setupOnly": "Este navegador no admite llaves de acceso y una llave de acceso es el único método que puede configurar. Abra este sitio en un navegador compatible con llaves de acceso para configurarla.",
+      "proofOnly": "Confirme su identidad con su llave de acceso. Este navegador no admite llaves de acceso. Abra este sitio en un navegador compatible para usar la suya."
+    }
+  },
+  "dataPlan": {
+    "title": "Plan de Datos",
+    "plans": {
+      "wifi_or_wired": "Wi-Fi o Cableado",
+      "cellular": "Celular"
+    },
+    "notSet": "Sin Definir",
+    "useSitePlan": "Usar el Plan del Sitio",
+    "any": "Cualquiera",
+    "sources": {
+      "station": "Definido en Esta Estación",
+      "sim": "SIM Confirmada",
+      "site": "Sitio",
+      "default": "Predeterminado"
+    },
+    "kinds": {
+      "ac": "AC",
+      "dc": "DC"
+    },
+    "planLabel": "Plan",
+    "sourceLabel": "Origen",
+    "kindLabel": "Valores de Carga",
+    "fromDataPlan": "Del Plan de Datos",
+    "fromDataPlanHint": "Se envía desde el plan de datos de la estación en cada arranque. Una plantilla no lo define.",
+    "confirmTitle": "Cambiar Plan de Datos",
+    "station": {
+      "description": "La configuración OCPP con la que funciona esta estación. Un plan definido en la estación tiene prioridad sobre una SIM confirmada y el sitio.",
+      "choice": "Plan de Esta Estación",
+      "confirmDescription": "La estación recibe la configuración del plan ahora si está en línea, si no en su siguiente arranque."
+    },
+    "site": {
+      "description": "El plan de las estaciones del sitio que no tienen plan propio ni una SIM confirmada.",
+      "stationsChanging_one": "1 estación cambia de plan.",
+      "stationsChanging_other": "{{count}} estaciones cambian de plan.",
+      "confirmDescription": "Las estaciones en línea reciben la configuración del nuevo plan al momento, las desconectadas en su siguiente arranque."
+    },
+    "settings": {
+      "description": "Valores enviados a las estaciones en cada arranque, un conjunto por plan de datos. Cada estación de un plan recibe los nuevos valores en su siguiente arranque o cambio de plan.",
+      "heartbeatTitle": "Heartbeat y Ping",
+      "heartbeatIntervalHelp": "Se envía a la estación en la respuesta de BootNotification. De {{min}} a {{max}} segundos.",
+      "csmsPingInterval": "Intervalo de ping del CSMS (segundos)",
+      "csmsPingIntervalHelp": "El CSMS envía un ping a una estación tras este tiempo sin recibir una trama de ella. De {{min}} a {{max}} segundos.",
+      "chargingTitle": "Lecturas Durante la Carga",
+      "chargingDescription": "Lecturas durante la carga. Una estación es DC cuando un conector es CCS1, CCS2 o CHAdeMO, o GB/T, Tesla o NACS de más de 22 kW; si no, es AC.",
+      "acStations": "Estaciones AC",
+      "dcStations": "Estaciones DC",
+      "meterValueIntervalHelp": "De {{min}} a {{max}} segundos.",
+      "sampledMeasurandsHelp": "Mediciones separadas por comas enviadas durante la carga.",
+      "idleTitle": "Lecturas en Reposo y al Finalizar",
+      "clockAlignedIntervalHelp": "Lecturas en reposo a horas alineadas al reloj. 0 las desactiva; si no, de {{min}} a {{max}} segundos.",
+      "alignedMeasurandsHelp": "Mediciones separadas por comas de las lecturas en reposo. Solo se envían cuando el intervalo es mayor que 0.",
+      "txEndedMeasurandsHelp": "Mediciones separadas por comas de los valores al final de una sesión."
+    }
   }
 }

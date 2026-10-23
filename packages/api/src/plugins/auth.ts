@@ -13,6 +13,7 @@ import { authRequestOrigin } from '../lib/auth-audit.js';
 import { getDriverSessionState } from '../lib/driver-active.js';
 import { getUserSessionState } from '../lib/user-active.js';
 import { isAiToolRequest } from '../services/ai/tools/execute.js';
+import { readSignedCookie, type SignedCookieRead } from '../lib/auth-cookies.js';
 
 // A missing, expired or forged token is routine: log it at debug. Anything
 // else (a database error while checking the account) is logged at warn.
@@ -222,14 +223,17 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
       // The CSMS CSRF hook skips such requests, so a cookie fallback here
       // would let a cookie session through without its CSRF token.
       const hasAuthHeader = authHeader != null && authHeader !== '';
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      const rawCsmsToken = hasAuthHeader ? undefined : request.cookies?.['csms_token'];
-      if (rawCsmsToken != null && rawCsmsToken !== '') {
+      const csmsCookie: SignedCookieRead = hasAuthHeader
+        ? { status: 'absent' }
+        : readSignedCookie(request, 'csms_token');
+      if (csmsCookie.status !== 'absent') {
         try {
-          // Unsign the cookie; fall back to raw value for backward compatibility
-          const unsigned = request.unsignCookie(rawCsmsToken);
-          const csmsToken = unsigned.valid ? unsigned.value : rawCsmsToken;
-          const payload = app.jwt.verify<JwtPayload>(csmsToken);
+          // Only a cookie this API signed: an unsigned one (planted by a sibling
+          // subdomain, cookie tossing) is refused.
+          if (csmsCookie.status === 'invalid') {
+            throw new Error('csms_token cookie signature did not verify');
+          }
+          const payload = app.jwt.verify<JwtPayload>(csmsCookie.value);
           (request as unknown as Record<string, unknown>)['user'] = payload;
           // Same checks as the Bearer path. Rejecting on payload shape rather
           // than cookie name keeps the defense at the JWT layer.

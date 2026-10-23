@@ -60,6 +60,7 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 vi.mock('drizzle-orm', () => ({ eq: vi.fn(), and: vi.fn(), gte: vi.fn(), isNull: vi.fn() }));
+vi.mock('../lib/public-station.js', () => ({ publicStationListed: () => 'PUBLIC_STATION_LISTED' }));
 
 const sendOcppCommandAndWait = vi.fn();
 vi.mock('@evtivity/services/ocpp-command', () => ({
@@ -267,6 +268,20 @@ describe('validateQrCodeUrl', () => {
     totpVersion: 'v1',
   };
   const url = (path: string) => `https://portal.example.com${path}?maxenergy=20000`;
+
+  it('looks the station up among the stations the portal lists', async () => {
+    const { and } = await import('drizzle-orm');
+    vi.mocked(and).mockClear();
+    dbResults = [[]];
+    const totp = totpV1(params, NOW);
+    expect(await validateQrCodeUrl(url(`/qr/CS-HIDDEN/1/${totp}/v1`), NOW)).toEqual({
+      valid: false,
+      reason: 'unknown_station',
+    });
+    expect(
+      vi.mocked(and).mock.calls.some((c) => (c as unknown[]).includes('PUBLIC_STATION_LISTED')),
+    ).toBe(true);
+  });
 
   it('accepts the current one-time password', async () => {
     dbResults = [[config], [{ id: 'evs_1' }]];

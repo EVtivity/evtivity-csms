@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   OCPP_ID_TOKEN_TYPES,
-  DRIVER_ID_TOKEN_TYPES,
+  PORTAL_ID_TOKEN_TYPES,
   isOcppIdTokenType,
   driverTokenStatus,
 } from '../id-token-types.js';
@@ -28,12 +28,10 @@ describe('OCPP IdToken types', () => {
     );
   });
 
-  it('leaves the CSMS-issued, system and payment terminal types out of the driver list', () => {
-    expect(DRIVER_ID_TOKEN_TYPES).not.toContain('Central');
-    expect(DRIVER_ID_TOKEN_TYPES).not.toContain('NoAuthorization');
-    expect(DRIVER_ID_TOKEN_TYPES).not.toContain('DirectPayment');
-    expect(DRIVER_ID_TOKEN_TYPES).toContain('ISO14443');
-    expect(DRIVER_ID_TOKEN_TYPES).toContain('VIN');
+  it('leaves the CSMS-issued, system, payment terminal and vehicle id types out of the portal list', () => {
+    expect([...PORTAL_ID_TOKEN_TYPES].sort()).toEqual(
+      ['ISO14443', 'ISO15693', 'KeyCode', 'Local', 'eMAID'].sort(),
+    );
   });
 
   it('checks a value against the list', () => {

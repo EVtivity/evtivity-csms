@@ -193,7 +193,7 @@ export function MessageThread({
     const { downloadUrl } = await api.get<{ downloadUrl: string }>(
       `/v1/support-cases/${caseId}/messages/${String(attachment.messageId)}/attachments/${String(attachment.id)}/download-url`,
     );
-    window.open(downloadUrl, '_blank');
+    window.open(downloadUrl, '_blank', 'noopener,noreferrer');
   }
 
   return (

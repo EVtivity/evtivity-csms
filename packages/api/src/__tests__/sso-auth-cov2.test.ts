@@ -4,14 +4,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
-import formbody from '@fastify/formbody';
 import type { FastifyInstance } from 'fastify';
 
 // DB mock helpers
 let dbResults: unknown[][] = [];
 let dbCallIndex = 0;
+// The IdP subject every stand-in assertion carries (see the SAML mock).
+const SSO_SUBJECT = 'https://idp.test|idp-user';
+
+/**
+ * Positional query results. A user row (one with roleId and isActive) is bound to
+ * the stand-in IdP subject unless the test sets ssoSubject itself, so the SSO
+ * callback finds it by its email alone, as an account linked before.
+ */
 function setupDbResults(...results: unknown[][]) {
-  dbResults = results;
+  dbResults = results.map((rows) =>
+    Array.isArray(rows)
+      ? rows.map((row) =>
+          row != null &&
+          typeof row === 'object' &&
+          'roleId' in row &&
+          'isActive' in row &&
+          !('ssoSubject' in row)
+            ? { ...row, ssoSubject: SSO_SUBJECT }
+            : row,
+        )
+      : rows,
+  );
   dbCallIndex = 0;
 }
 function makeChain() {
@@ -153,8 +172,15 @@ vi.mock('@node-saml/node-saml', () => ({
     getAuthorizeUrlAsync(...args: unknown[]) {
       return mockGetAuthorizeUrlAsync(...args);
     }
-    validatePostResponseAsync(...args: unknown[]) {
-      return mockValidatePostResponseAsync(...args);
+    async validatePostResponseAsync(...args: unknown[]) {
+      const result = (await mockValidatePostResponseAsync(...args)) as {
+        profile?: Record<string, unknown> | null;
+      } | null;
+      // The IdP subject: a NameID and issuer unless the test sets them.
+      if (result?.profile != null && !('nameID' in result.profile)) {
+        result.profile = { nameID: 'idp-user', issuer: 'https://idp.test', ...result.profile };
+      }
+      return result;
     }
   },
 }));
@@ -190,7 +216,6 @@ import { db } from '@evtivity/database';
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
   await app.register(cookie);
-  await app.register(formbody);
   await registerAuth(app);
   ssoAuthRoutes(app);
   await app.ready();
@@ -370,7 +395,7 @@ describe('SSO callback error and provisioning paths', () => {
       profile: { email: 'New@Corp.com', firstName: 'New', lastName: 'Person' },
     });
     const created = { id: 'usr_new', email: 'New@Corp.com' };
-    setupDbResults([], [{ id: 'rol_default' }], [created]);
+    setupDbResults([], [], [{ id: 'rol_default' }], [created]);
     const res = await callback('SAMLResponse=abc');
     expect(res.headers['location']).toBe('/');
     expect(mockGenerateId).toHaveBeenCalledWith('user');
@@ -408,7 +433,7 @@ describe('SSO callback error and provisioning paths', () => {
     mockGetSsoConfig.mockResolvedValue(PROVISION_CONFIG);
     mockGenerateId.mockReturnValue('usr_op');
     mockValidatePostResponseAsync.mockResolvedValue({ profile: { email: 'op@corp.com' } });
-    setupDbResults([], [{ id: 'rol_default', name: 'operator' }], [{ id: 'usr_op' }], []);
+    setupDbResults([], [], [{ id: 'rol_default', name: 'operator' }], [{ id: 'usr_op' }], []);
     const res = await callback('SAMLResponse=abc');
     expect(res.headers['location']).toBe('/');
     expect(db.transaction).toHaveBeenCalledTimes(1);

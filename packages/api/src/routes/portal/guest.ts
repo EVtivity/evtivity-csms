@@ -44,6 +44,8 @@ import {
   isGuestSessionRateLimited,
   getCachedConnectorStatus,
   setCachedConnectorStatus,
+  pendingStatusCheck,
+  shareStatusCheck,
 } from '../../lib/rate-limiters.js';
 import {
   authorizeGuestHold,
@@ -522,11 +524,12 @@ export function portalGuestRoutes(app: FastifyInstance): void {
   app.post(
     '/portal/guest/check-status/:stationId/:evseId',
     {
+      config: { rateLimit: { max: 20, timeWindow: '1 minute' } },
       schema: {
         tags: ['Portal Guest'],
         summary: 'Check connector status via TriggerMessage (guest)',
         description:
-          'Public version of the check-status flow used by the guest charging UI. Dispatches OCPP TriggerMessage(StatusNotification) and waits up to 10s for a fresh status report. Per-station rate limited (5/min) to prevent unauthenticated abuse.',
+          'Public version of the check-status flow used by the guest charging UI. Dispatches OCPP TriggerMessage(StatusNotification) and waits up to 10s for a fresh status report. Rate limited per client address: 20 requests a minute, and 5 TriggerMessage dispatches a minute per station (a fresh cached status costs none).',
         operationId: 'guestCheckConnectorStatus',
         security: [],
         params: zodSchema(guestCheckStatusParams),
@@ -586,7 +589,19 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         return { connectorStatus: cached.status };
       }
 
-      if (isStationCheckRateLimited(stationId)) {
+      // A check already running for this EVSE answers this request too, without
+      // charging its budget or sending a second TriggerMessage (PP2 Info 4).
+      const running = pendingStatusCheck(stationId, evseId);
+      if (running != null) {
+        const shared = await running;
+        if (shared.errorCode != null) {
+          await sendStatusCheckError(reply, shared.errorCode);
+          return;
+        }
+        return { connectorStatus: shared.status };
+      }
+
+      if (isStationCheckRateLimited(stationId, request.ip)) {
         await reply
           .status(429)
           .send({ error: 'Too many status checks for this station', code: 'RATE_LIMITED' });
@@ -607,12 +622,14 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       }
       const connectorId = connectorRow.connector_id;
 
-      const result = await triggerAndWaitForStatus(
-        stationId,
-        evseId,
-        connectorId,
-        station.id,
-        station.ocppProtocol ?? undefined,
+      const result = await shareStatusCheck(stationId, evseId, () =>
+        triggerAndWaitForStatus(
+          stationId,
+          evseId,
+          connectorId,
+          station.id,
+          station.ocppProtocol ?? undefined,
+        ),
       );
 
       setCachedConnectorStatus(stationId, evseId, result);
@@ -821,7 +838,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
 
       // Card testing: reCAPTCHA (no-op when disabled), then the per-IP
       // velocity limit, before any lookup or hold.
-      if (!(await checkRecaptcha(body.recaptchaToken, reply))) return;
+      if (!(await checkRecaptcha(body.recaptchaToken, reply, 'guest_start'))) return;
       // Per-IP limits only when the real client IP is known.
       const velocityIp = guestVelocityClientIp(request);
       const velocityLimits = await getGuestVelocityLimits();
@@ -1388,7 +1405,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
 
       // Get the transaction ID for the stop command
       const [session] = await db
-        .select({ transactionId: chargingSessions.transactionId })
+        .select({ transactionId: chargingSessions.transactionId, status: chargingSessions.status })
         .from(chargingSessions)
         .where(eq(chargingSessions.id, guest.chargingSessionId));
 
@@ -1396,6 +1413,16 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         await reply.status(400).send({
           error: 'Charging session not found',
           code: 'SESSION_NOT_FOUND',
+        });
+        return;
+      }
+
+      // The guest row stays `charging` until the end is settled: the token
+      // stops only a running transaction, never one that ended, so a token seen in a log later can send nothing.
+      if (session.status !== 'active') {
+        await reply.status(400).send({
+          error: 'Session is not currently charging',
+          code: 'NOT_CHARGING',
         });
         return;
       }

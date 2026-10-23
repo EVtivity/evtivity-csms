@@ -225,6 +225,7 @@ describe('AdyenPaymentProvider.verifyWebhook', () => {
       operationRef: 'QJ7GWQ756L2GWR86',
       amountCents: 4000,
       occurredAt: new Date('2026-10-03T10:00:00Z'),
+      currency: 'EUR',
     });
 
     const parsed = JSON.parse(body) as {
@@ -261,6 +262,8 @@ describe('normalizeAdyenItem', () => {
     paymentId: 'KHQC5N7G84BLNK43',
     operationRef: 'MODPSP0000000001',
     occurredAt: at,
+    // The currency of the item's amount, compared with the record.
+    currency: 'EUR',
   };
   const n = (overrides: AdyenNotificationItem) => normalizeAdyenItem({ ...base, ...overrides });
 

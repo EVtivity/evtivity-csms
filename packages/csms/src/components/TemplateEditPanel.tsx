@@ -14,6 +14,7 @@ import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import type { TemplateVariable } from '@/lib/template-variables';
 import { LoadingLogo } from '@/components/loading-logo';
+import { emailPreviewDocument } from '@/lib/email-preview';
 
 interface NotificationTemplate {
   eventType: string;
@@ -262,7 +263,7 @@ export const TemplateEditPanel = forwardRef<TemplateEditPanelHandle, TemplateEdi
                     {channel === 'email' ? (
                       <iframe
                         title={t('notifications.htmlPreview')}
-                        srcDoc={previewMutation.data.bodyHtml}
+                        srcDoc={emailPreviewDocument(previewMutation.data.bodyHtml)}
                         className="w-full min-h-[250px] md:min-h-[400px] bg-white border rounded-md mt-1"
                         sandbox=""
                       />

@@ -96,13 +96,17 @@ vi.mock('@evtivity/services/report.service', () => ({
   computeNextRunAtInTz: (...args: unknown[]) => mockComputeNextRunAt(...args),
   operatorReportLanguage: (...args: unknown[]) => mockOperatorReportLanguage(...args),
   renderReport: (...args: unknown[]) => mockRenderReport(...args),
+  reportRequiredPermissions: (type: string) => (type === 'revenue' ? ['payments:read'] : []),
 }));
 
+const OWNER_ACCESS = vi.hoisted(() => ({ driverData: false, money: true }));
 const mockScheduleRunScope = vi.fn().mockResolvedValue(['site_1']);
 const mockScheduleSkipReason = vi.fn().mockResolvedValue(null);
 vi.mock('@evtivity/services/report-scope', () => ({
   scheduleRunScope: (...args: unknown[]) => mockScheduleRunScope(...args),
   scheduleSkipReason: (...args: unknown[]) => mockScheduleSkipReason(...args),
+  // The schedule owner's column access.
+  reportColumnAccess: () => Promise.resolve(OWNER_ACCESS),
 }));
 
 const mockWriteReportGeneratedAudit = vi.fn().mockResolvedValue(undefined);
@@ -214,8 +218,9 @@ describe('reportSchedulerHandler', () => {
     // One file per missing language, with the schedule's type, filters and format.
     // Each in-memory file covers the same sites as the stored report.
     expect(mockRenderReport.mock.calls).toEqual([
-      ['sessions', { siteId: 'site_1' }, 'pdf', 'ko', ['site_1']],
-      ['sessions', { siteId: 'site_1' }, 'pdf', 'en', ['site_1']],
+      // Other-language files show the columns the owner may see.
+      ['sessions', { siteId: 'site_1' }, 'pdf', 'ko', ['site_1'], OWNER_ACCESS],
+      ['sessions', { siteId: 'site_1' }, 'pdf', 'en', ['site_1'], OWNER_ACCESS],
     ]);
     const attached = mockSendEmail.mock.calls.map((c) => {
       const files = c[5] as Array<{ filename: string; contentType: string }>;
@@ -399,6 +404,7 @@ describe('reportSchedulerHandler', () => {
         filters: { siteId: 'site_1' },
         userId: 'usr_1',
         siteScope: ['site_1'],
+        columns: OWNER_ACCESS,
       },
       expect.any(Function),
     );
@@ -571,28 +577,32 @@ describe('reportSchedulerHandler', () => {
     );
   });
 
-  it.each(['no_creator', 'creator_missing', 'creator_inactive', 'creator_lacks_reports_read'])(
-    'skips the run with a warning and moves to the next run (%s)',
-    async (reason) => {
-      mockScheduleSkipReason.mockResolvedValue(reason);
-      setupDbResults([makeSchedule()], []);
-      const log = makeLog();
+  it.each([
+    'no_creator',
+    'creator_missing',
+    'creator_inactive',
+    'creator_lacks_reports_read',
+    'creator_lacks_report_permission',
+  ])('skips the run with a warning and moves to the next run (%s)', async (reason) => {
+    mockScheduleSkipReason.mockResolvedValue(reason);
+    setupDbResults([makeSchedule()], []);
+    const log = makeLog();
 
-      const { reportSchedulerHandler } = reportSchedulerModule;
-      await reportSchedulerHandler(log);
+    const { reportSchedulerHandler } = reportSchedulerModule;
+    await reportSchedulerHandler(log);
 
-      expect(mockScheduleSkipReason).toHaveBeenCalledWith('usr_1');
-      expect(mockQueueReport).not.toHaveBeenCalled();
-      expect(mockScheduleRunScope).not.toHaveBeenCalled();
-      expect(mockSendEmail).not.toHaveBeenCalled();
-      expect(mockComputeNextRunAt).toHaveBeenCalledWith('daily', null, null);
-      expect(log.warn).toHaveBeenCalledWith(
-        { scheduleId: 'sch_1', createdById: 'usr_1', reason },
-        'Scheduled report skipped, its creator cannot read reports',
-      );
-      expect(log.error).not.toHaveBeenCalled();
-    },
-  );
+    // The report type's own permissions go with the check (sessions: none).
+    expect(mockScheduleSkipReason).toHaveBeenCalledWith('usr_1', []);
+    expect(mockQueueReport).not.toHaveBeenCalled();
+    expect(mockScheduleRunScope).not.toHaveBeenCalled();
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(mockComputeNextRunAt).toHaveBeenCalledWith('daily', null, null);
+    expect(log.warn).toHaveBeenCalledWith(
+      { scheduleId: 'sch_1', createdById: 'usr_1', reason },
+      'Scheduled report skipped, its creator cannot read this report',
+    );
+    expect(log.error).not.toHaveBeenCalled();
+  });
 
   it('returns before emailing when the schedule has no recipients', async () => {
     setupDbResults([makeSchedule({ recipientEmails: [] })]);

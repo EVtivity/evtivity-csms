@@ -1,14 +1,22 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { createHmac } from 'node:crypto';
 import postgres from 'postgres';
 import nodemailer from 'nodemailer';
 import { convert as htmlToText } from 'html-to-text';
 import { readFile } from 'node:fs/promises';
 import { createLogger } from './logger.js';
+import { readBodyPrefix } from './read-capped-body.js';
 import { decryptString } from './encryption.js';
 import { DEFAULT_CURRENCY } from './currency.js';
-import { isDriverEventType, isRequiredDriverEventType } from './notification-events.js';
+import {
+  isDriverEventType,
+  isRequiredDriverEventType,
+  isSecurityTemplateEventType,
+  SECURITY_TEMPLATE_EVENTS,
+} from './notification-events.js';
+import { securityTemplateRenderProblem } from './security-template.js';
 import { formatDateTime, isValidTimezone } from './timezone.js';
 import { formatLocalizedVariables } from './notification-values.js';
 import { isPrivateUrl } from './url-validation.js';
@@ -20,6 +28,8 @@ import {
 } from './notification-test-sink.js';
 import {
   compileAllowedTemplate,
+  EMAIL_BODY_TEMPLATE,
+  EMAIL_LAYOUT_TEMPLATE,
   type AllowedTemplateOptions,
   type TemplateRenderer,
 } from './template-safety.js';
@@ -29,6 +39,9 @@ import { canonicalPhone, normalizeE164 } from './phone.js';
 export { normalizeE164 };
 
 const logger = createLogger('notification-dispatch');
+
+// The part of an error reply (webhook receiver, Twilio) that goes into the log.
+const WEBHOOK_ERROR_BODY_LOG_BYTES = 2048;
 
 // --- Types ---
 
@@ -56,7 +69,15 @@ export interface NotificationSettings {
   smtp: SmtpConfig | null;
   twilio: TwilioConfig | null;
   emailWrapperTemplate: string | null;
+  /**
+   * Signs every webhook (`X-EVtivity-Signature`), from
+   * `notifications.webhookSigningSecretEnc`; null when unset or undecryptable.
+   */
+  webhookSigningSecret?: string | null;
 }
+
+/** The setting that holds the webhook signing secret (encrypted at rest). */
+export const WEBHOOK_SIGNING_SECRET_KEY = 'notifications.webhookSigningSecretEnc';
 
 export interface Recipient {
   address: string;
@@ -95,20 +116,22 @@ export interface NotificationDispatchResult {
 // don't keep a queryable copy in the DB after delivery.
 //
 // Event-type-scoped so a normal session receipt or station alert keeps its
-// full body (the operator needs the rendered text for debugging). Add new
-// event types here when their templates include credentials or tokens.
-const SENSITIVE_EVENT_TYPES = new Set([
-  'mfa.VerificationCode',
-  'driver.ForgotPassword',
-  'driver.AccountVerification',
+// full body (the operator needs the rendered text for debugging). Every
+// security template with an account link or a code (`SECURITY_TEMPLATE_EVENTS`)
+// is redacted, so a new one cannot be forgotten here; the list below adds the
+// other events whose templates carry a link or code.
+const OTHER_SENSITIVE_EVENT_TYPES = [
   'driver.Welcome',
   'driver.PasswordChanged',
-  'driver.PortalInvite',
-  'operator.ForgotPassword',
-  'operator.UserCreated',
   'operator.AccountVerification',
   'operator.Welcome',
-  'site.PayoutOnboarding',
+] as const;
+
+export const SENSITIVE_EVENT_TYPES: ReadonlySet<string> = new Set([
+  ...Object.entries(SECURITY_TEMPLATE_EVENTS)
+    .filter(([, secrets]) => secrets.links.length > 0 || secrets.codes.length > 0)
+    .map(([eventType]) => eventType),
+  ...OTHER_SENSITIVE_EVENT_TYPES,
 ]);
 
 // Replace 6-digit codes (OTP/MFA) and known token-bearing URL parameters
@@ -225,7 +248,11 @@ export function wrapEmailHtml(
   const customTemplate = wrapperTemplate != null && wrapperTemplate !== '' ? wrapperTemplate : null;
   if (customTemplate != null) {
     try {
-      return compileTemplate(customTemplate, { ...variables, content: bodyHtml, companyName });
+      return compileTemplate(
+        customTemplate,
+        { ...variables, content: bodyHtml, companyName },
+        EMAIL_LAYOUT_TEMPLATE,
+      );
     } catch (err) {
       // A bad operator-edited wrapper template would otherwise throw and
       // bail out of the whole dispatch, swallowing every outbound email
@@ -235,11 +262,11 @@ export function wrapEmailHtml(
       logger.warn({ err }, 'email.wrapperTemplate failed to compile; using default wrapper');
     }
   }
-  return compileTemplate(DEFAULT_EMAIL_WRAPPER, {
-    ...variables,
-    content: bodyHtml,
-    companyName,
-  });
+  return compileTemplate(
+    DEFAULT_EMAIL_WRAPPER,
+    { ...variables, content: bodyHtml, companyName },
+    EMAIL_LAYOUT_TEMPLATE,
+  );
 }
 
 // --- Settings cache ---
@@ -359,6 +386,7 @@ export async function getNotificationSettings(sql: postgres.Sql): Promise<Notifi
   const rows = await sql`
     SELECT key, value FROM settings
     WHERE key LIKE 'smtp.%' OR key LIKE 'twilio.%' OR key = 'email.wrapperTemplate'
+      OR key = ${WEBHOOK_SIGNING_SECRET_KEY}
   `;
 
   const map = new Map<string, unknown>();
@@ -416,7 +444,26 @@ export async function getNotificationSettings(sql: postgres.Sql): Promise<Notifi
   }
 
   const emailWrapperTemplate = (map.get('email.wrapperTemplate') as string | undefined) ?? null;
-  const settings: NotificationSettings = { smtp, twilio, emailWrapperTemplate };
+  let webhookSigningSecret: string | null = null;
+  const rawSigningSecret = map.get(WEBHOOK_SIGNING_SECRET_KEY);
+  const signingKey = getEncryptionKey();
+  if (typeof rawSigningSecret === 'string' && rawSigningSecret !== '' && signingKey != null) {
+    try {
+      webhookSigningSecret = decryptString(rawSigningSecret, signingKey);
+    } catch (err) {
+      // fail-open: webhooks then go out unsigned, with this warning, rather than not at all
+      logger.warn(
+        { err, key: WEBHOOK_SIGNING_SECRET_KEY },
+        'Failed to decrypt the webhook signing secret',
+      );
+    }
+  }
+  const settings: NotificationSettings = {
+    smtp,
+    twilio,
+    emailWrapperTemplate,
+    webhookSigningSecret,
+  };
   settingsCache = { settings, expiresAt: Date.now() + CACHE_TTL_MS };
   return settings;
 }
@@ -478,7 +525,8 @@ export async function loadDbTemplate(
 /**
  * Renders an operator-editable template. `{{var}}` is HTML-escaped unless
  * `options.noEscape` is set, for plain-text targets (SMS, push, subjects).
- * The cache key holds the escape mode, so one source can render both ways.
+ * `options.rawVariables` (HTML email) escapes every other `{{{var}}}` too.
+ * The cache key holds both modes, so one source can render every way.
  */
 export function compileTemplate(
   source: string,
@@ -487,7 +535,8 @@ export function compileTemplate(
 ): string {
   const now = Date.now();
   const noEscape = options.noEscape === true;
-  const cacheKey = `${noEscape ? 'text' : 'html'}:${source}`;
+  const raw = options.rawVariables === undefined ? '*' : options.rawVariables.join(',');
+  const cacheKey = `${noEscape ? 'text' : 'html'}:${raw}:${source}`;
   const cached = compiledTemplateCache.get(cacheKey);
   if (cached != null && now - cached.cachedAt < TEMPLATE_CACHE_TTL_MS) {
     return cached.compiled(variables);
@@ -495,7 +544,7 @@ export function compileTemplate(
   // Templates are operator-editable (DB rows, rule overrides, the email
   // layout), so only plain variables and if/unless blocks are allowed, in
   // both escape modes.
-  const compiled = compileAllowedTemplate(source, { noEscape });
+  const compiled = compileAllowedTemplate(source, options);
   compiledTemplateCache.set(cacheKey, { compiled, cachedAt: now });
   return compiled(variables);
 }
@@ -579,7 +628,9 @@ export async function renderTemplate(
   templateHtmlOverride?: string | null,
   templatesDir?: string | string[],
 ): Promise<RenderedTemplate> {
-  const bodyOptions: AllowedTemplateOptions = { noEscape: PLAIN_TEXT_CHANNELS.has(channel) };
+  // An email body is HTML: a raw variable renders escaped.
+  const bodyOptions: AllowedTemplateOptions =
+    channel === 'email' ? EMAIL_BODY_TEMPLATE : { noEscape: PLAIN_TEXT_CHANNELS.has(channel) };
   // Priority 1: Rule-level HTML override (OCPP rules only)
   if (templateHtmlOverride != null && templateHtmlOverride !== '') {
     const rendered = compileTemplate(templateHtmlOverride, variables, bodyOptions);
@@ -606,9 +657,30 @@ export async function renderTemplate(
             ? compileTemplate(dbTemplate.subject, variables, PLAIN_TEXT)
             : await defaultSubject(eventType, language, variables, templatesDir);
         const rendered = compileTemplate(dbTemplate.bodyHtml, variables, bodyOptions);
-        const result: RenderedTemplate = { subject, body: rendered };
-        if (channel === 'email') result.html = rendered;
-        return result;
+        // A stored security template that would send an account link or code
+        // anywhere but the server-built address, or drop it, is never sent:
+        // the shipped file goes out instead (defense in depth).
+        const problem = isSecurityTemplateEventType(eventType)
+          ? securityTemplateRenderProblem({
+              eventType,
+              channel,
+              subject: dbTemplate.subject != null ? subject : null,
+              body: rendered,
+              shippedBody:
+                (await loadFileTemplate(channel, eventType, lang, templatesDir)) ??
+                (await loadFileTemplate(channel, eventType, 'en', templatesDir)),
+              variables,
+            })
+          : null;
+        if (problem == null) {
+          const result: RenderedTemplate = { subject, body: rendered };
+          if (channel === 'email') result.html = rendered;
+          return result;
+        }
+        logger.warn(
+          { eventType, channel, language: lang, problem },
+          'Stored security template breaks the link rules, sending the shipped template',
+        );
       }
     }
 
@@ -754,7 +826,7 @@ export async function sendSms(
       signal: AbortSignal.timeout(10_000),
     });
     if (!response.ok) {
-      const text = await response.text();
+      const text = await readBodyPrefix(response, WEBHOOK_ERROR_BODY_LOG_BYTES);
       logger.error({ status: response.status, body: text, to: normalizedTo }, 'Twilio API error');
       return false;
     }
@@ -790,9 +862,22 @@ export type WebhookResult =
   | 'timeout';
 
 /**
+ * The `X-EVtivity-Signature` value of a webhook body: `t=<unix seconds>,v1=<hex
+ * HMAC-SHA256 of "<t>.<body>">` under the signing secret. A receiver
+ * recomputes it over the raw body and refuses an old `t` against replays.
+ */
+export function webhookSignature(secret: string, body: string, unixSeconds: number): string {
+  const v1 = createHmac('sha256', secret)
+    .update(`${String(unixSeconds)}.${body}`)
+    .digest('hex');
+  return `t=${String(unixSeconds)},v1=${v1}`;
+}
+
+/**
  * POSTs the notification as JSON. A URL that is, or resolves to, a private
  * address is refused (`blocked_private_url`) unless its host is in
- * `allowedPrivateHosts` (`notifications.webhookAllowedPrivateHosts`).
+ * `allowedPrivateHosts` (`notifications.webhookAllowedPrivateHosts`). With a
+ * signing secret the request carries `X-EVtivity-Signature`.
  */
 export async function sendWebhook(
   url: string,
@@ -800,6 +885,7 @@ export async function sendWebhook(
   body: string,
   variables: Record<string, unknown>,
   allowedPrivateHosts: readonly string[] = [],
+  signingSecret: string | null = null,
 ): Promise<WebhookResult> {
   if (isPrivateUrl(url) && !isAllowedHost(url, allowedPrivateHosts)) {
     logger.warn({ url }, 'Blocked webhook to private/internal URL');
@@ -815,18 +901,31 @@ export async function sendWebhook(
   try {
     // safeFetch resolves the host and refuses any private address at connect
     // time (redirects included), which the URL check above cannot see.
+    const payload = JSON.stringify({ subject, body, ...variables });
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (signingSecret != null && signingSecret !== '') {
+      headers['X-EVtivity-Signature'] = webhookSignature(
+        signingSecret,
+        payload,
+        Math.floor(Date.now() / 1000),
+      );
+    }
     const response = await safeFetch(url, {
       allowedPrivateHosts,
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subject, body, ...variables }),
+      headers,
+      body: payload,
       signal: controller.signal,
     });
     if (!response.ok) {
-      const text = await response.text();
+      // The receiver picks the size of its error body: log a bounded prefix.
+      const text = await readBodyPrefix(response, WEBHOOK_ERROR_BODY_LOG_BYTES);
       logger.error({ status: response.status, body: text, url }, 'Webhook delivery failed');
       return 'http_error';
     }
+    await response.body?.cancel().catch(() => {
+      // fail-open: the delivery succeeded; an unread reply body only waits for the timeout
+    });
     return 'ok';
   } catch (err) {
     const blocked = blockedDestinationOf(err);

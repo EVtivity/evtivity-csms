@@ -15,7 +15,7 @@ vi.mock('@evtivity/database', () => ({
   client: {},
   findStaleOnlineStations: mockFind,
   markStationOfflineIfStale: mockMark,
-  getHeartbeatIntervalSeconds: vi.fn().mockResolvedValue(300),
+  getDataPlanValues: vi.fn().mockResolvedValue({ heartbeatInterval: 900 }),
   isRoamingEnabled: vi.fn().mockResolvedValue(false),
 }));
 vi.mock('@evtivity/services/reservation-expiry', () => ({
@@ -49,7 +49,7 @@ function makeDeps(owners: Record<string, string | null>, reservations: unknown[]
     sql,
     registry,
     pubsub: { publish } as unknown as PubSubClient,
-    heartbeatSeconds: 300,
+    heartbeatSeconds: { wifi_or_wired: 900, cellular: 3600 },
     roamingEnabled,
     cancelHolds,
     notifyStationFaulted,
@@ -57,8 +57,23 @@ function makeDeps(owners: Record<string, string | null>, reservations: unknown[]
   return { deps, publish, cancelHolds, notifyStationFaulted, sql, registry };
 }
 
-function candidate(id: string, lastActivityAt: Date | null = STALE) {
-  return { id: `uuid-${id}`, stationId: id, lastActivityAt, staleBefore: STALE_BEFORE };
+// Wi-Fi or wired 900 s: 3 x 900 s + 60 s slack; Cellular 3600 s: 3 h + 60 s.
+const WIRED_MS = 2_760_000;
+const CELLULAR_MS = 10_860_000;
+
+function candidate(
+  id: string,
+  lastActivityAt: Date | null = STALE,
+  dataPlan: 'wifi_or_wired' | 'cellular' = 'wifi_or_wired',
+) {
+  return {
+    id: `uuid-${id}`,
+    stationId: id,
+    lastActivityAt,
+    staleBefore: STALE_BEFORE,
+    dataPlan,
+    thresholdMs: dataPlan === 'cellular' ? CELLULAR_MS : WIRED_MS,
+  };
 }
 
 beforeEach(() => {
@@ -67,11 +82,22 @@ beforeEach(() => {
 });
 
 describe('runStationOfflineSweep', () => {
-  it('queries candidates with the heartbeat timeout plus slack', async () => {
+  it('queries candidates with the heartbeat timeout plus slack of each plan', async () => {
     mockFind.mockResolvedValue([]);
     const { deps } = makeDeps({});
     await runStationOfflineSweep(deps, makeLog());
-    expect(mockFind).toHaveBeenCalledWith(deps.sql, 960_000);
+    expect(mockFind).toHaveBeenCalledWith(deps.sql, {
+      wifi_or_wired: WIRED_MS,
+      cellular: CELLULAR_MS,
+    });
+  });
+
+  it("marks a Cellular station with its own plan's threshold", async () => {
+    mockFind.mockResolvedValue([candidate('CS-C', STALE, 'cellular')]);
+    mockMark.mockResolvedValue(null);
+    const { deps } = makeDeps({});
+    await runStationOfflineSweep(deps, makeLog());
+    expect(mockMark).toHaveBeenCalledWith(deps.sql, 'uuid-CS-C', CELLULAR_MS);
   });
 
   it('never marks offline a stale station whose registry key exists', async () => {
@@ -99,7 +125,7 @@ describe('runStationOfflineSweep', () => {
     ]);
     const result = await runStationOfflineSweep(deps, makeLog());
 
-    expect(mockMark).toHaveBeenCalledWith(deps.sql, 'uuid-CS-1', 960_000);
+    expect(mockMark).toHaveBeenCalledWith(deps.sql, 'uuid-CS-1', WIRED_MS);
     expect(publish).toHaveBeenCalledWith(
       'csms_events',
       JSON.stringify({

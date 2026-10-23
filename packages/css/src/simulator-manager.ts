@@ -3,7 +3,12 @@
 
 import { readFileSync } from 'node:fs';
 import type postgres from 'postgres';
-import { CSS_RECONNECT_SPREAD_S, tryParseJson, type PubSubClient } from '@evtivity/lib';
+import {
+  CSS_RECONNECT_SPREAD_S,
+  isAllowedSimulatorTarget,
+  tryParseJson,
+  type PubSubClient,
+} from '@evtivity/lib';
 import { isOcpp2x, type OcppProtocol } from '@evtivity/lib/ocpp-version';
 import {
   StationSimulator,
@@ -13,7 +18,7 @@ import {
 } from './station-simulator.js';
 import { ClockAlignedScheduler } from './clock-aligned-scheduler.js';
 import { isTlsReachable } from './tls-probe.js';
-import { config as cssConfig } from './lib/config.js';
+import { config as cssConfig, simulatorServerUrls } from './lib/config.js';
 import { logger } from './lib/logger.js';
 import { isStationStuck, MAX_HEAL_ATTEMPTS, MAX_HEAL_PER_TICK } from './simulator-heal.js';
 
@@ -83,6 +88,8 @@ export class SimulatorManager {
   private syncing = false;
   private readonly sql: postgres.Sql;
   private readonly tlsProbeFailureCache = new Map<string, number>();
+  /** Stations whose stored target is not the OCPP server (logged once). */
+  private readonly refusedTargets = new Set<string>();
   // Per-station self-heal restart counter, reset when a station becomes ready.
   private readonly healAttempts = new Map<string, number>();
   // Optional: when set, dispatchAction publishes a {commandId, success,
@@ -321,6 +328,20 @@ export class SimulatorManager {
       }
 
       const targetUrl = row.target_url as string;
+
+      // Only the OCPP server: a stored URL on another origin would get the
+      // station password or certificate.
+      if (!isAllowedSimulatorTarget(targetUrl, simulatorServerUrls())) {
+        if (!this.refusedTargets.has(stationId)) {
+          this.refusedTargets.add(stationId);
+          logger.warn(
+            { stationId, targetUrl },
+            'Simulator target is not the OCPP server; the station is not started',
+          );
+        }
+        continue;
+      }
+      this.refusedTargets.delete(stationId);
 
       // Verify TLS reachability before attempting connection. Retry every
       // cycle so a TLS server coming online is picked up without restarting

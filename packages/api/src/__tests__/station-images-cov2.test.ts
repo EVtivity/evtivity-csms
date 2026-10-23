@@ -135,14 +135,25 @@ const mockGetS3Config = vi.fn();
 const mockGenerateUploadUrl = vi.fn();
 const mockGenerateDownloadUrl = vi.fn();
 const mockDeleteObject = vi.fn();
-const mockBuildStationImageS3Key = vi.fn();
+const mockGenerateUploadPost = vi.fn();
+const mockFinalizeUpload = vi.fn();
+
+vi.mock('../services/ai/attachments/upload-flow.js', () => ({
+  finalizeUpload: (...args: unknown[]) => mockFinalizeUpload(...args),
+  displayFileName: (fileName: string) => fileName,
+}));
 
 vi.mock('../services/s3.service.js', () => ({
   getS3Config: (...args: unknown[]) => mockGetS3Config(...args),
   generateUploadUrl: (...args: unknown[]) => mockGenerateUploadUrl(...args),
   generateDownloadUrl: (...args: unknown[]) => mockGenerateDownloadUrl(...args),
   deleteObject: (...args: unknown[]) => mockDeleteObject(...args),
-  buildStationImageS3Key: (...args: unknown[]) => mockBuildStationImageS3Key(...args),
+  buildStationImageS3Key: (stationId: string, fileId: string, fileName: string) =>
+    `stations/${stationId}/${fileId}-${fileName}`,
+  buildStationImageQuarantineKey: (stationId: string, fileId: string, fileName: string) =>
+    `ai-uploads/quarantine/stations/${stationId}/${fileId}/${fileName}`,
+  generateUploadPost: (...args: unknown[]) => mockGenerateUploadPost(...args),
+  QUARANTINE_PREFIX: 'ai-uploads/quarantine/',
 }));
 
 vi.mock('../lib/site-access.js', () => ({
@@ -178,7 +189,8 @@ const confirmBody = {
   fileName: 'photo.jpg',
   fileSize: 1000,
   contentType: 'image/jpeg',
-  s3Key: 'stations/sta_000000000001/k.jpg',
+  s3Key:
+    'ai-uploads/quarantine/stations/sta_000000000001/0b6f7c1e-8a52-4c34-9f1d-3d0e5a6b7c8d/photo.jpg',
   s3Bucket: 'bucket-a',
 };
 
@@ -205,6 +217,14 @@ describe('Station image routes (site scope and edge cases)', () => {
     vi.mocked(checkStationSiteAccess).mockResolvedValue(true);
     mockGetS3Config.mockResolvedValue(null);
     mockDeleteObject.mockResolvedValue(undefined);
+    mockFinalizeUpload.mockResolvedValue({
+      ok: true,
+      bytes: Buffer.alloc(900),
+      contentType: 'image/jpeg',
+      kind: 'image',
+      width: 10,
+      height: 10,
+    });
   });
 
   const headers = () => ({ authorization: `Bearer ${token}` });
@@ -273,10 +293,23 @@ describe('Station image routes (site scope and edge cases)', () => {
 
     it.each([
       ['another bucket', { s3Bucket: 'bucket-b' }],
-      ['another station key', { s3Key: 'stations/sta_000000000002/k.jpg' }],
+      [
+        'another station key',
+        {
+          s3Key:
+            'ai-uploads/quarantine/stations/sta_000000000002/0b6f7c1e-8a52-4c34-9f1d-3d0e5a6b7c8d/k.jpg',
+        },
+      ],
+      ['a key outside quarantine', { s3Key: 'stations/sta_000000000001/k.jpg' }],
       ['a key outside stations/', { s3Key: 'invoices/k.pdf' }],
-      ['a nested key', { s3Key: 'stations/sta_000000000001/x/k.jpg' }],
-      ['a bare prefix', { s3Key: 'stations/sta_000000000001/' }],
+      [
+        'a nested key',
+        {
+          s3Key:
+            'ai-uploads/quarantine/stations/sta_000000000001/0b6f7c1e-8a52-4c34-9f1d-3d0e5a6b7c8d/x/k.jpg',
+        },
+      ],
+      ['a bare prefix', { s3Key: 'ai-uploads/quarantine/stations/sta_000000000001/' }],
     ])('rejects %s with 400 and stores nothing', async (_label, override) => {
       const res = await app.inject({
         method: 'POST',
@@ -291,7 +324,7 @@ describe('Station image routes (site scope and edge cases)', () => {
     });
 
     it('stores the configured bucket', async () => {
-      setupDbResults([{ maxOrder: 0 }], [IMAGE]);
+      setupDbResults([], [{ maxOrder: 0 }], [IMAGE]);
       const res = await app.inject({
         method: 'POST',
         url: `/stations/${VALID_STATION_ID}/images`,
@@ -303,7 +336,12 @@ describe('Station image routes (site scope and edge cases)', () => {
         values: ReturnType<typeof vi.fn>;
       };
       expect(insertChain.values).toHaveBeenCalledWith(
-        expect.objectContaining({ s3Bucket: 'bucket-a', s3Key: confirmBody.s3Key }),
+        expect.objectContaining({
+          s3Bucket: 'bucket-a',
+          s3Key: 'stations/sta_000000000001/0b6f7c1e-8a52-4c34-9f1d-3d0e5a6b7c8d-photo.jpg',
+          fileSize: 900,
+          contentType: 'image/jpeg',
+        }),
       );
     });
   });
@@ -311,7 +349,7 @@ describe('Station image routes (site scope and edge cases)', () => {
   it('confirm upload maps a foreign key violation to 404 STATION_NOT_FOUND', async () => {
     mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
     const fk = Object.assign(new Error('fk'), { code: '23503' });
-    setupDbResults([{ maxOrder: 2 }], fk);
+    setupDbResults([], [{ maxOrder: 2 }], fk);
     const res = await app.inject({
       method: 'POST',
       url: `/stations/${VALID_STATION_ID}/images`,
@@ -321,12 +359,33 @@ describe('Station image routes (site scope and edge cases)', () => {
     expect(res.statusCode).toBe(404);
     expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
     expect(writeAudit).not.toHaveBeenCalled();
+    // The re-encoded object of the row that was never stored is deleted.
+    expect(mockDeleteObject).toHaveBeenCalledWith(
+      expect.anything(),
+      'bucket-a',
+      'stations/sta_000000000001/0b6f7c1e-8a52-4c34-9f1d-3d0e5a6b7c8d-photo.jpg',
+    );
+  });
+
+  it('confirm upload returns the stored row for a retried key without a second upload', async () => {
+    mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
+    setupDbResults([IMAGE]);
+    const res = await app.inject({
+      method: 'POST',
+      url: `/stations/${VALID_STATION_ID}/images`,
+      headers: headers(),
+      payload: confirmBody,
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ id: IMAGE.id });
+    expect(mockFinalizeUpload).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
   it('confirm upload rethrows other insert errors as 500', async () => {
     mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
     const other = Object.assign(new Error('deadlock'), { code: '40P01' });
-    setupDbResults([{ maxOrder: 2 }], other);
+    setupDbResults([], [{ maxOrder: 2 }], other);
     const res = await app.inject({
       method: 'POST',
       url: `/stations/${VALID_STATION_ID}/images`,
@@ -339,8 +398,8 @@ describe('Station image routes (site scope and edge cases)', () => {
 
   it('confirm upload with isMainImage clears the previous main image first', async () => {
     mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
-    // update (clear main), select max sort, insert
-    setupDbResults([], [{ maxOrder: 4 }], [{ ...IMAGE, isMainImage: true, sortOrder: 5 }]);
+    // no stored row, update (clear main), select max sort, insert
+    setupDbResults([], [], [{ maxOrder: 4 }], [{ ...IMAGE, isMainImage: true, sortOrder: 5 }]);
     const res = await app.inject({
       method: 'POST',
       url: `/stations/${VALID_STATION_ID}/images`,

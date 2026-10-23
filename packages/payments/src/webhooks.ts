@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { and, eq } from 'drizzle-orm';
-import { db, webhookEvents } from '@evtivity/database';
+import { client, db, webhookEvents } from '@evtivity/database';
 import type { PaymentActor, PaymentContext } from './context.js';
 import { PaymentProviderNotConfiguredError, WebhookNotConfiguredError } from './errors.js';
 import { attachGuestAuthorisation, GUEST_REFERENCE_PREFIX } from './guest-payments.js';
@@ -109,32 +109,141 @@ export async function ingestPaymentWebhook(
       { provider: providerId, type: eventType, id: event.eventId },
       'Payment webhook received',
     );
-    const inserted = await db
-      .insert(webhookEvents)
-      .values({ provider: providerId, eventId: event.eventId, eventType })
-      .onConflictDoNothing()
-      .returning({ eventId: webhookEvents.eventId });
-    if (inserted.length === 0) {
+    const thisEvent = and(
+      eq(webhookEvents.provider, providerId),
+      eq(webhookEvents.eventId, event.eventId),
+    );
+    // The whole claim and apply run under the event's lock, so a slow apply
+    // that still runs is never applied twice, and a process that died
+    // mid-apply (its lock gone with its connection) is applied again on the
+    // provider's redelivery.
+    const outcome = await withWebhookEventLock(providerId, event.eventId, async () => {
+      const inserted = await db
+        .insert(webhookEvents)
+        .values({ provider: providerId, eventId: event.eventId, eventType, processedAt: null })
+        .onConflictDoNothing()
+        .returning({ eventId: webhookEvents.eventId });
+      if (inserted.length === 0) {
+        const [row] = await db
+          .select({ processedAt: webhookEvents.processedAt })
+          .from(webhookEvents)
+          .where(thisEvent);
+        if (row?.processedAt != null) return 'duplicate' as const;
+        // Unprocessed while nobody holds its lock: the process that claimed
+        // it died mid-apply. The P5 status guards make a second apply safe.
+        ctx.logger.warn(
+          { provider: providerId, eventId: event.eventId },
+          'Webhook event whose earlier apply never finished, applying it again',
+        );
+      }
+      try {
+        const notice = await applyPaymentEvent(providerId, event, ctx);
+        if (notice != null) notices.push(notice);
+      } catch (err) {
+        // Forget the event id so the provider's retry applies it (the event
+        // must not be lost behind its own dedupe row).
+        await db.delete(webhookEvents).where(thisEvent);
+        throw err;
+      }
+      await db.update(webhookEvents).set({ processedAt: new Date() }).where(thisEvent);
+      return 'applied' as const;
+    });
+    if (outcome === 'duplicate') {
       ctx.logger.info({ eventId: event.eventId }, 'Duplicate webhook event, skipping');
       duplicates++;
       continue;
     }
-    try {
-      const notice = await applyPaymentEvent(providerId, event, ctx);
-      if (notice != null) notices.push(notice);
-    } catch (err) {
-      // Forget the event id so the provider's retry applies it (the event
-      // must not be lost behind its own dedupe row).
-      await db
-        .delete(webhookEvents)
-        .where(
-          and(eq(webhookEvents.provider, providerId), eq(webhookEvents.eventId, event.eventId)),
-        );
-      throw err;
-    }
     applied++;
   }
   return { ack: provider.webhookAck(), applied, duplicates, notices };
+}
+
+/**
+ * Another delivery of the same event is applying it right now. The webhook
+ * answers 500, so the provider delivers it again later, when that apply has
+ * finished (a duplicate) or failed (applied then).
+ */
+export class WebhookEventBusyError extends Error {
+  constructor(
+    readonly providerId: string,
+    readonly eventId: string,
+  ) {
+    super('The webhook event is being applied by another delivery');
+    this.name = 'WebhookEventBusyError';
+  }
+}
+
+/**
+ * The pool connections one apply can use at once besides its lock: a refund
+ * of a record with top-ups holds a transaction and writes its audit row on
+ * the pool (`applyChargeRefund`, `auditPayment`), and the platform fee read of
+ * a hold settlement runs two queries in parallel (`getPlatformFeePercent`).
+ */
+export const WEBHOOK_APPLY_CONNECTIONS = 2;
+
+/**
+ * The webhook event locks one process holds at once, for a pool of `poolMax`
+ * connections. Each held lock keeps one connection in its transaction while
+ * the apply uses up to WEBHOOK_APPLY_CONNECTIONS others, so too many
+ * concurrent deliveries would hold every connection and wait for more (a pool
+ * self-deadlock). One connection stays free for the rest of the process. At
+ * least one lock (PP2 Info 1: the earlier half-pool limit assumed one other
+ * connection per apply).
+ */
+export function webhookLockSlotCount(poolMax: number): number {
+  return Math.max(1, Math.floor((poolMax - 1) / (1 + WEBHOOK_APPLY_CONNECTIONS)));
+}
+
+/** The webhook event locks, see `webhookLockSlotCount`. A delivery over the limit waits in memory, holding no connection. */
+const lockSlots = (() => {
+  // Read on first use: the pool exists once the database client does.
+  let free: number | null = null;
+  const waiting: Array<() => void> = [];
+  return {
+    async acquire(): Promise<void> {
+      if (free == null) {
+        const poolMax = typeof client.options.max === 'number' ? client.options.max : 10;
+        free = webhookLockSlotCount(poolMax);
+      }
+      if (free > 0) {
+        free--;
+        return;
+      }
+      await new Promise<void>((resolve) => waiting.push(resolve));
+    },
+    release(): void {
+      const next = waiting.shift();
+      if (next != null) next();
+      else if (free != null) free++;
+    },
+  };
+})();
+
+/**
+ * Runs `fn` holding the transaction advisory lock of one webhook event
+ * (provider and event id) on a connection of its own, for as long as `fn`
+ * runs. Postgres releases it when the transaction ends: on return, on a
+ * throw, and when the process dies (the connection closes), so a held lock
+ * proves an apply is still running. Throws WebhookEventBusyError when another
+ * apply holds it. At most `lockSlots` locks are held at once in a process.
+ */
+async function withWebhookEventLock<T>(
+  providerId: string,
+  eventId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const key = `payment-webhook:${providerId}:${eventId}`;
+  await lockSlots.acquire();
+  try {
+    return (await client.begin(async (lockTx) => {
+      const [row] = await lockTx<{ locked: boolean }[]>`
+        SELECT pg_try_advisory_xact_lock(hashtextextended(${key}, 0)) AS locked`;
+      if (row?.locked !== true) throw new WebhookEventBusyError(providerId, eventId);
+      return fn();
+    })) as T;
+  } finally {
+    lockSlots.release();
+  }
 }
 
 /** The audit actor of a provider's webhook event: `system`, label `payment-webhook:<provider>`. */
@@ -214,6 +323,31 @@ async function applyChargeRefund(
  * open hold to the reported outcome; the service's later write then finds
  * the record moved on and leaves it.
  */
+/**
+ * True, logged at error, when an event's amount is in another currency than
+ * its payment record. Only the provider can send one (Adyen's HMAC covers
+ * the amount and currency), so it means a misconfigured merchant account or
+ * a provider fault; the event changes nothing.
+ */
+function currencyMismatch(
+  record: { id: number; currency: string },
+  event: { eventId: string; currency?: string },
+  ctx: PaymentContext,
+): boolean {
+  if (event.currency == null) return false;
+  if (record.currency.toUpperCase() === event.currency.toUpperCase()) return false;
+  ctx.logger.error(
+    {
+      paymentRecordId: record.id,
+      eventId: event.eventId,
+      recordCurrency: record.currency,
+      eventCurrency: event.currency,
+    },
+    'Payment webhook amount is in another currency than the record; event not applied',
+  );
+  return true;
+}
+
 export async function applyPaymentEvent(
   providerId: PaymentProviderId,
   event: NormalizedPaymentEvent,
@@ -244,7 +378,7 @@ export async function applyPaymentEvent(
     }
     case 'payment.refunded': {
       const record = await findByChargePaymentId(providerId, event.paymentId);
-      if (record == null) return null;
+      if (record == null || currencyMismatch(record, event, ctx)) return null;
       if (event.cumulativeRefundedCents == null) {
         // One refund (Adyen, simulated async): settled once through the ledger.
         const refundId = event.operationRef ?? event.refundId;
@@ -302,7 +436,7 @@ export async function applyPaymentEvent(
     }
     case 'payment.refund_failed': {
       const record = await findByChargePaymentId(providerId, event.paymentId);
-      if (record == null) return null;
+      if (record == null || currencyMismatch(record, event, ctx)) return null;
       return settleRefundEvent(
         record.id,
         {
@@ -317,7 +451,7 @@ export async function applyPaymentEvent(
     }
     case 'payment.captured': {
       const record = await findByChargePaymentId(providerId, event.paymentId);
-      if (record == null) return null;
+      if (record == null || currencyMismatch(record, event, ctx)) return null;
       const ref = event.operationRef;
       if (ref != null && (await confirmOperation(record.id, 'capture', ref))) {
         ctx.logger.info(
@@ -593,7 +727,7 @@ async function applyAdjustment(
   ctx: PaymentContext,
 ): Promise<PaymentWebhookNotice | null> {
   const record = await findByChargePaymentId(providerId, event.paymentId);
-  if (record == null) return null;
+  if (record == null || currencyMismatch(record, event, ctx)) return null;
   const ref = event.operationRef;
   const matched =
     ref != null && record.providerPaymentId === event.paymentId

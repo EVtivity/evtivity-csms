@@ -189,7 +189,6 @@ describe('SIM provider settings routes', () => {
     it('stores the trimmed values, encrypts the key, audits it redacted and clears the caches', async () => {
       const res = await put({
         hologram: { enabled: true, orgId: ' 4567 ', apiKey: ' new-key ' },
-        retentionDays: 120,
         fetchDays: 14,
         signalAlertBelowDbm: -100,
         ocpp16SignalKeys: [' RSSI ', 'RSSI', 'CellID'],
@@ -199,7 +198,7 @@ describe('SIM provider settings routes', () => {
       expect(byKey.get('sim.hologram.enabled')).toBe(true);
       expect(byKey.get('sim.hologram.orgId')).toBe('4567');
       expect(decryptString(byKey.get('sim.hologram.apiKeyEnc') as string, KEY)).toBe('new-key');
-      expect(byKey.get('sim.sessions.retentionDays')).toBe(120);
+      expect(byKey.has('sim.sessions.retentionDays')).toBe(false);
       expect(byKey.get('sim.sessions.fetchDays')).toBe(14);
       expect(byKey.get('sim.signal.alertBelowDbm')).toBe(-100);
       expect(byKey.get('sim.ocpp16.signalKeys')).toEqual(['RSSI', 'CellID']);
@@ -270,8 +269,8 @@ describe('SIM provider settings routes', () => {
     it.each([
       [{ hologram: { orgId: 'org-12' } }],
       [{ hologram: { orgId: '1234567890123456' } }],
-      [{ retentionDays: 6 }],
-      [{ retentionDays: 731 }],
+      // The retention moved to PUT /v1/settings/data-retention.
+      [{ retentionDays: 90 }],
       [{ fetchDays: 0 }],
       [{ fetchDays: 32 }],
       [{ signalAlertBelowDbm: -141 }],

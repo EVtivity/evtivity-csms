@@ -126,7 +126,7 @@ describe('LocalGeneration templates (K10.FR.06)', () => {
   });
 });
 
-describe('terminal push states (P5)', () => {
+describe('terminal push states', () => {
   it('writes a station result only while it is pending and completes only an active push', async () => {
     await processChargingProfilePush('cpp_8', stations, template, '1.6');
     const wheres = whereMock.mock.calls.map((c) => JSON.stringify(c[0]));

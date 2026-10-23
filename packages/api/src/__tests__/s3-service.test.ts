@@ -154,7 +154,6 @@ vi.mock('@aws-sdk/s3-presigned-post', () => ({
 import {
   getS3Config,
   clearS3ConfigCache,
-  generateUploadUrl,
   generateDownloadUrl,
   deleteObject,
   buildS3Key,
@@ -357,18 +356,11 @@ describe('s3.service', () => {
     });
   });
 
-  describe('generateUploadUrl', () => {
-    it('calls getSignedUrl with PutObjectCommand and correct params', async () => {
-      const s3 = makeMockS3Config();
-      const url = await generateUploadUrl(s3, 'uploads/test.pdf', 'application/pdf');
-
-      expect(mockGetSignedUrl).toHaveBeenCalledTimes(1);
-      const [client, command, options] = mockGetSignedUrl.mock.calls[0] as unknown[];
-      expect(client).toBe(s3.client);
-      expect(command).toBeDefined();
-      expect((options as Record<string, unknown>).expiresIn).toBe(300);
-      expect(url).toBe('https://s3.example.com/signed-url');
-    });
+  // No unbounded presigned PUT helper exists, so no caller can bring back an
+  // upload without a size limit.
+  it('exports no presigned PUT upload URL', async () => {
+    const mod = await import('../services/s3.service.js');
+    expect(Object.keys(mod)).not.toContain('generateUploadUrl');
   });
 
   describe('generateDownloadUrl', () => {
@@ -381,6 +373,30 @@ describe('s3.service', () => {
       expect(client).toBe(s3.client);
       expect((options as Record<string, unknown>).expiresIn).toBe(3600);
       expect(url).toBe('https://s3.example.com/signed-url');
+    });
+
+    it('serves inline only when asked, and as an attachment by default', async () => {
+      const s3 = makeMockS3Config();
+      await generateDownloadUrl(s3, 'b', 'k', {
+        fileName: 'front.jpg',
+        contentType: 'image/jpeg',
+        disposition: 'inline',
+      });
+      await generateDownloadUrl(s3, 'b', 'k', {
+        fileName: 'logo.svg',
+        contentType: 'application/octet-stream',
+      });
+      const inputs = mockGetSignedUrl.mock.calls.map(
+        (call) => (call[1] as { input: Record<string, string> }).input,
+      );
+      expect(inputs[0]).toMatchObject({
+        ResponseContentType: 'image/jpeg',
+        ResponseContentDisposition: expect.stringMatching(/^inline; filename="front.jpg"/),
+      });
+      expect(inputs[1]).toMatchObject({
+        ResponseContentType: 'application/octet-stream',
+        ResponseContentDisposition: expect.stringMatching(/^attachment; filename="logo.svg"/),
+      });
     });
   });
 

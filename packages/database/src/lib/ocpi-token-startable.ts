@@ -32,6 +32,7 @@ export async function isStartableOcpiToken(
       (SELECT COALESCE(t.is_valid, (c.token_data->>'valid') IS DISTINCT FROM 'false')
        FROM ocpi_commands c
        JOIN ocpi_partners p ON p.id = c.partner_id AND p.status = 'connected'
+         AND p.approved_roles ?| array['EMSP', 'HUB']
        LEFT JOIN ocpi_external_tokens t ON t.partner_id = c.partner_id AND t.uid = c.token_uid
        WHERE c.command_type = 'START_SESSION'
          AND c.station_id = ${input.stationOcppId}
@@ -44,6 +45,7 @@ export async function isStartableOcpiToken(
       (SELECT count(*) = 1
        FROM ocpi_external_tokens t
        JOIN ocpi_partners p ON p.id = t.partner_id AND p.status = 'connected'
+         AND p.approved_roles ?| array['EMSP', 'HUB']
        WHERE t.uid = ${input.tokenUid} AND t.is_valid AND t.whitelist <> 'NEVER')
     )
   `;

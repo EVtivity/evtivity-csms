@@ -21,7 +21,13 @@ vi.mock('@/lib/api', () => ({
   api: { get: getMock, post: postMock, delete: deleteMock },
   ApiError: class extends Error {},
 }));
+// canWrite stands for stations:write and settings.stationConfig:write, the
+// permissions of the monitor routes.
 vi.mock('@/lib/auth', () => ({ useHasPermission: () => permission.canWrite }));
+vi.mock('@/lib/ocpp-command-access', () => ({
+  useCanSendOcppCommand: () => (action: string) =>
+    action === 'SetVariableMonitoring' && permission.canWrite,
+}));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 
 import {

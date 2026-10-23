@@ -43,6 +43,8 @@ export const siteAuditActionEnum = pgEnum('site_audit_action', [
   'location_published_changed',
   'electricity_rates_changed',
   'payout_status_changed',
+  // Station data plans (v0.1.48, 0479).
+  'data_plan_changed',
 ]);
 
 export const siteAuditLog = pgTable(
@@ -242,6 +244,10 @@ export const userAuditActionEnum = pgEnum('user_audit_action', [
   'webauthn_credential_added',
   'webauthn_credential_renamed',
   'webauthn_credential_removed',
+  // An admin or the user allowed SSO to link a password account (v0.1.48, 0479).
+  'sso_link_allowed',
+  // An admin cleared the IdP subject bound to an account (v0.1.48, 0479).
+  'sso_unlinked',
 ]);
 
 export const userAuditLog = pgTable(
@@ -1296,6 +1302,45 @@ export const reportScheduleAuditLog = pgTable(
   ],
 );
 
+// SIM inventory audit (v0.1.48, 0479): SIM record changes, attachments to a
+// station or payment terminal, their confirmation, network resets and the
+// CSMS status (deactivated, reactivated).
+export const simAuditActionEnum = pgEnum('sim_audit_action', [
+  'created',
+  'updated',
+  'deleted',
+  'attached',
+  'detached',
+  'attachment_confirmed',
+  'network_reset',
+  'deactivated',
+  'reactivated',
+]);
+
+export const simAuditLog = pgTable(
+  'sim_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    simId: text('sim_id'),
+    simIdSnapshot: text('sim_id_snapshot').notNull(),
+    action: simAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_sim_audit_entity_id').on(table.simId),
+    index('idx_sim_audit_created_at').on(table.createdAt),
+  ],
+);
+
 // Map of every audit table keyed by the entityType used in API filters.
 // Used by the global GET /v1/audit endpoint (UNION over all tables) and by
 // the worker retention prune job (DELETE FROM each).
@@ -1334,6 +1379,7 @@ export const AUDIT_TABLES = {
   station_message_template: stationMessageTemplateAuditLog,
   event_alert_rule: eventAlertRuleAuditLog,
   report_schedule: reportScheduleAuditLog,
+  sim: simAuditLog,
 } as const;
 
 export type AuditEntityType = keyof typeof AUDIT_TABLES;

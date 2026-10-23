@@ -17,6 +17,18 @@ import { ocpiCredentialsTokens } from '../schema/ocpi.js';
 type TokenDb = Pick<typeof defaultDb, 'insert' | 'update'>;
 
 /**
+ * A registration token is accepted for this long after it was issued:
+ * a leaked token A of a partner that never registered stops working. The
+ * operator issues a new one for a partner still pending.
+ */
+export const OCPI_REGISTRATION_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** True when a registration token issued at `createdAt` is past its lifetime. */
+export function isOcpiRegistrationTokenExpired(createdAt: Date, now: number = Date.now()): boolean {
+  return now - createdAt.getTime() > OCPI_REGISTRATION_TOKEN_TTL_MS;
+}
+
+/**
  * Retires the partner's open registration tokens and stores a new one, bound
  * to the partner. Returns the plaintext token: shown once, never stored.
  */

@@ -45,6 +45,26 @@ export function promptLanguage(value: string | null | undefined): PromptLanguage
 
 const ATTRIBUTE_UNSAFE = /[^A-Za-z0-9_.:-]/g;
 
+/** Zero-width and invisible format characters a lookalike fence can hide in the word. */
+const INVISIBLE = /[\u00AD\u180E\u200B-\u200F\u2060-\u2064\uFEFF]|\u034F/g;
+
+/**
+ * Escapes every `<untrusted...` and `</untrusted...` in untrusted text, in any
+ * case and with any spacing around the slash, so the text cannot close the
+ * fence it sits in or open a new one (`<untrusted>` and
+ * `<untrusted_document>` fences alike). The text is NFKC-normalized and its
+ * zero-width characters removed first, so a fullwidth closing fence or a
+ * word split by a zero-width space cannot read as a fence either (security
+ * review 2, AI I5). The text only goes to the model, so the normalized form
+ * is what it reads.
+ */
+export function escapeUntrustedFences(text: string): string {
+  return text
+    .normalize('NFKC')
+    .replace(INVISIBLE, '')
+    .replace(/<(\s*\/?\s*untrusted)/gi, '&lt;$1');
+}
+
 /**
  * Wraps untrusted text in an `<untrusted>` block. A `<untrusted` or
  * `</untrusted` inside the text is escaped, so the text cannot close its own
@@ -53,6 +73,6 @@ const ATTRIBUTE_UNSAFE = /[^A-Za-z0-9_.:-]/g;
 export function frameUntrusted(source: string, id: string, text: string): string {
   const safeSource = source.replace(ATTRIBUTE_UNSAFE, '_').slice(0, 64);
   const safeId = id.replace(ATTRIBUTE_UNSAFE, '_').slice(0, 200);
-  const body = text.replace(/<(\/?\s*untrusted)/gi, '&lt;$1');
+  const body = escapeUntrustedFences(text);
   return `<untrusted source="${safeSource}" id="${safeId}">\n${body}\n</untrusted>`;
 }

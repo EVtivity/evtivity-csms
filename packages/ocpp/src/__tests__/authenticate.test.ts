@@ -1,7 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import 'reflect-metadata';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
+import { webcrypto, X509Certificate } from 'node:crypto';
+import * as x509 from '@peculiar/x509';
 import type { IncomingMessage } from 'node:http';
 import type { Socket } from 'node:net';
 
@@ -28,11 +31,13 @@ import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
 import {
   authenticateConnection,
   extractStationId,
+  parseBasicCredentials,
   rejectionFor,
   RETRY_AFTER_BASE_SECONDS,
   RETRY_AFTER_JITTER_SECONDS,
   serviceUnavailable,
 } from '../server/middleware/authenticate.js';
+import { flushConnectionFailureLogs } from '../server/middleware/connection-log.js';
 import {
   StationAuthBackoff,
   StationAuthCache,
@@ -84,6 +89,7 @@ function createMockTlsRequest(
     cn?: string;
     authHeader?: string;
     serialNumber?: string;
+    fingerprint256?: string;
   },
 ): IncomingMessage {
   const peerCert = options.hasCert
@@ -91,6 +97,7 @@ function createMockTlsRequest(
         subject: { CN: options.cn ?? 'Test Client' },
         issuer: { CN: 'Test CA' },
         serialNumber: options.serialNumber ?? 'ABCDEF0123456789',
+        fingerprint256: options.fingerprint256 ?? stationCertFingerprint,
       }
     : {};
 
@@ -114,6 +121,26 @@ function createMockTlsRequest(
 
   return req;
 }
+
+// The registered station certificate of the SP3 tests: the peer
+// certificate must be this exact certificate, not only its serial number.
+x509.cryptoProvider.set(webcrypto as unknown as Crypto);
+let stationCertPem = '';
+let stationCertFingerprint = '';
+beforeAll(async () => {
+  const alg = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' };
+  const keys = (await webcrypto.subtle.generateKey(alg, true, ['sign', 'verify'])) as CryptoKeyPair;
+  const cert = await x509.X509CertificateGenerator.createSelfSigned({
+    serialNumber: 'abcdef0123456789',
+    name: 'CN=SP3-REG',
+    notBefore: new Date(Date.now() - 60_000),
+    notAfter: new Date(Date.now() + 86_400_000),
+    keys,
+    signingAlgorithm: alg,
+  });
+  stationCertPem = cert.toString('pem');
+  stationCertFingerprint = new X509Certificate(stationCertPem).fingerprint256;
+});
 
 function createMockSql(rows: unknown[]) {
   const sql = vi.fn().mockResolvedValue(rows);
@@ -357,6 +384,31 @@ describe('authenticateConnection', () => {
     expect(result.error).toBe('Invalid credentials');
   });
 
+  it('accepts the Basic scheme in any case (RFC 9110)', async () => {
+    const passwordHash = await hash('correctpass');
+    for (const scheme of ['basic', 'BASIC']) {
+      const sql = createMockSql([
+        {
+          id: 'db-id-scheme',
+          security_profile: 1,
+          basic_auth_password_hash: passwordHash,
+          onboarding_status: 'accepted',
+        },
+      ]);
+      const authHeader = `${scheme} ${Buffer.from('SP1-SCHEME:correctpass').toString('base64')}`;
+      const result = await authenticateConnection(
+        createMockRequest('/SP1-SCHEME', authHeader),
+        logger,
+        sql,
+      );
+      expect(result.authenticated).toBe(true);
+    }
+    expect(parseBasicCredentials(`bAsIc ${Buffer.from('a:b').toString('base64')}`)).toEqual({
+      username: 'a',
+      password: 'b',
+    });
+  });
+
   it('accepts SP1 station with correct password', async () => {
     const passwordHash = await hash('correctpass');
     const sql = createMockSql([
@@ -479,6 +531,7 @@ describe('authenticateConnection', () => {
         security_profile: 3,
         basic_auth_password_hash: null,
         onboarding_status: 'accepted',
+        certificate: stationCertPem,
       },
     ]);
     const req = createMockTlsRequest('/SP3-STATION', {
@@ -619,7 +672,9 @@ describe('authenticateConnection', () => {
       onboarding_status: 'accepted',
     };
     // Station lookup, then certificate lookup returns a matching row.
-    const sql = createQueuedSql({ results: [[station], [{ id: 'cert-1' }]] });
+    const sql = createQueuedSql({
+      results: [[station], [{ id: 'cert-1', certificate: stationCertPem }]],
+    });
     const req = createMockTlsRequest('/SP3-REG', {
       authorized: true,
       hasCert: true,
@@ -629,6 +684,60 @@ describe('authenticateConnection', () => {
     const result = await authenticateConnection(req, logger, sql);
     expect(result.authenticated).toBe(true);
     expect(result.stationDbId).toBe('db-id-sp3-reg');
+  });
+
+  it('refuses another certificate with the registered serial', async () => {
+    const station = {
+      id: 'db-id-sp3-same-serial',
+      security_profile: 3,
+      basic_auth_password_hash: null,
+      onboarding_status: 'accepted',
+    };
+    const sql = createQueuedSql({
+      results: [[station], [{ id: 'cert-1', certificate: stationCertPem }]],
+    });
+    // Same serial, issued by another trusted CA: another fingerprint.
+    const req = createMockTlsRequest('/SP3-REG', {
+      authorized: true,
+      hasCert: true,
+      cn: 'SP3-REG',
+      serialNumber: 'ABCDEF0123456789',
+      fingerprint256:
+        '00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF',
+    });
+    const result = await authenticateConnection(req, logger, sql);
+    expect(result.authenticated).toBe(false);
+    expect(result.failure).toBe('client_certificate');
+  });
+
+  it('refuses SP3 when no client CA is configured', async () => {
+    const station = {
+      id: 'db-id-sp3-no-ca',
+      security_profile: 3,
+      basic_auth_password_hash: null,
+      onboarding_status: 'accepted',
+    };
+    const sql = createQueuedSql({
+      results: [[station], [{ id: 'cert-1', certificate: stationCertPem }]],
+    });
+    const req = createMockTlsRequest('/SP3-REG', {
+      authorized: true,
+      hasCert: true,
+      cn: 'SP3-REG',
+      serialNumber: 'ABCDEF0123456789',
+    });
+    const result = await authenticateConnection(
+      req,
+      logger,
+      sql,
+      '127.0.0.1',
+      true,
+      undefined,
+      false,
+    );
+    expect(result.authenticated).toBe(false);
+    expect(result.failure).toBe('client_certificate');
+    expect(result.error).toMatch(/OCPP_TLS_CA/);
   });
 
   it('accepts SP2 station on TLS connection with valid Basic auth', async () => {
@@ -759,6 +868,94 @@ describe('authenticateConnection', () => {
       expect.objectContaining({ event: 'auth_failed', stationDbId: 'db-id-log-fail' }),
       'Failed to write connection_logs row',
     );
+  });
+});
+
+describe('failed connection logs and pending profiles', () => {
+  const logger = createMockLogger();
+  /** A sql stand-in that records each statement and answers the station lookup. */
+  function recordingSql(station: Record<string, unknown>) {
+    const statements: { text: string; values: unknown[] }[] = [];
+    const sql = (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
+      const text = strings.join('?');
+      statements.push({ text, values });
+      if (text.includes('FROM charging_stations')) return Promise.resolve([station]);
+      if (text.includes('INSERT INTO connection_logs')) return Promise.resolve([{ id: 41 }]);
+      return Promise.resolve([]);
+    };
+    return {
+      statements,
+      sql: Object.assign(sql, { json: (v: unknown) => v }) as unknown as Parameters<
+        typeof authenticateConnection
+      >[2],
+    };
+  }
+
+  it('writes one auth_failed row per station and reason a minute, with the count', async () => {
+    const { sql, statements } = recordingSql({
+      id: 'db-id-flood',
+      security_profile: 1,
+      basic_auth_password_hash: await hash('x'),
+      onboarding_status: 'accepted',
+    });
+    for (let i = 0; i < 50; i++) {
+      await authenticateConnection(createMockRequest('/FLOOD'), logger, sql);
+    }
+    const inserts = statements.filter((s) => s.text.includes('INSERT INTO connection_logs'));
+    expect(inserts).toHaveLength(1);
+    await flushConnectionFailureLogs();
+    const updates = statements.filter((s) => s.text.includes('UPDATE connection_logs'));
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.values).toContainEqual(expect.objectContaining({ count: 50 }));
+  });
+
+  it('keeps every remote address of an aggregated row, bounded', async () => {
+    const { sql, statements } = recordingSql({
+      id: 'db-id-flood-ips',
+      security_profile: 1,
+      basic_auth_password_hash: await hash('x'),
+      onboarding_status: 'accepted',
+    });
+    const req = (ip: string) => {
+      const r = createMockRequest('/FLOOD-IPS');
+      (r.socket as { remoteAddress?: string }).remoteAddress = ip;
+      return r;
+    };
+    await authenticateConnection(req('203.0.113.1'), logger, sql, '203.0.113.1');
+    await authenticateConnection(req('198.51.100.2'), logger, sql, '198.51.100.2');
+    for (let i = 0; i < 30; i++) {
+      await authenticateConnection(
+        req(`192.0.2.${String(i)}`),
+        logger,
+        sql,
+        `192.0.2.${String(i)}`,
+      );
+    }
+    await flushConnectionFailureLogs();
+    const update = statements.find((s) => s.text.includes('UPDATE connection_logs'));
+    const patch = update?.values.find((v) => typeof v === 'object' && v != null) as {
+      count: number;
+      remoteAddresses: string[];
+      remoteAddressesDropped: number;
+    };
+    expect(patch.count).toBe(32);
+    expect(patch.remoteAddresses).toContain('203.0.113.1');
+    expect(patch.remoteAddresses).toContain('198.51.100.2');
+    expect(patch.remoteAddresses).toHaveLength(20);
+    expect(patch.remoteAddressesDropped).toBe(12);
+  });
+
+  it('never promotes a pending profile that is not an upgrade', async () => {
+    const { sql, statements } = recordingSql({
+      id: 'db-id-downgrade',
+      security_profile: 1,
+      pending_security_profile: 0,
+      basic_auth_password_hash: await hash('x'),
+      onboarding_status: 'accepted',
+    });
+    const result = await authenticateConnection(createMockRequest('/DOWNGRADE'), logger, sql);
+    expect(result.authenticated).toBe(false);
+    expect(statements.some((s) => s.text.includes('UPDATE charging_stations'))).toBe(false);
   });
 });
 

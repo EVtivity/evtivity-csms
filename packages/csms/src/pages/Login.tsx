@@ -9,8 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
+import { CardContent, CardHeader } from '@/components/ui/card';
+import { AuthLayout } from '@/components/AuthLayout';
+import { useAuthBranding } from '@/components/AuthBranding';
 import { LiveStatus } from '@/components/LiveStatus';
 import { SECURITY_PUBLIC_QUERY_KEY } from '@/hooks/use-password-policy';
 import { usePrefetchedOptions } from '@/hooks/use-prefetched-options';
@@ -49,6 +50,7 @@ type LoginErrorKey =
   | 'auth.ssoConfigError'
   | 'auth.ssoDomainNotAllowed'
   | 'auth.ssoSessionMismatch'
+  | 'auth.ssoLinkRequired'
   | 'errors.MFA_SETUP_UNAVAILABLE'
   | 'errors.MFA_POLICY_UNAVAILABLE'
   | 'errors.RATE_LIMITED';
@@ -125,7 +127,7 @@ export function Login(): React.JSX.Element {
   const page = useRef({ active: true });
 
   const [searchParams] = useSearchParams();
-  const { companyName, companyLogo, portalUrl, themeColor } = useAuthBranding();
+  const { companyName, portalUrl, themeColor } = useAuthBranding();
 
   // An SSO login of a user with MFA lands here with the MFA pending state in
   // the URL fragment: show the MFA challenge and drop the token from the URL.
@@ -165,6 +167,7 @@ export function Login(): React.JSX.Element {
       sso_mfa_setup_unavailable: 'errors.MFA_SETUP_UNAVAILABLE',
       sso_mfa_policy_unavailable: 'errors.MFA_POLICY_UNAVAILABLE',
       sso_session_mismatch: 'auth.ssoSessionMismatch',
+      sso_link_required: 'auth.ssoLinkRequired',
     };
     const key = errorMap[ssoError];
     if (key != null) setError(key);
@@ -377,135 +380,135 @@ export function Login(): React.JSX.Element {
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
-      {portalUrl != null && (
-        <a
-          href={portalUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="fixed top-8 right-0 inline-flex items-center gap-2 rounded-l-full px-5 py-3 text-sm font-medium text-primary-foreground shadow-md transition-opacity hover:opacity-90"
-          style={{ backgroundColor: themeColor }}
-        >
-          {companyName ?? 'EVtivity'} Charging Portal
-        </a>
-      )}
-      <AuthBranding companyName={companyName} companyLogo={companyLogo} />
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <h2 className="text-2xl font-semibold">{t('auth.signIn')}</h2>
-          {error != null && (
-            <p className="mt-2 text-sm text-destructive" role="alert">
-              {t(error)}
-            </p>
-          )}
-          {passkeyMessage != null && !passkeyMessage.quiet && (
-            <p className="mt-2 text-sm text-destructive" role="alert">
-              {passkeyMessage.message}
-            </p>
-          )}
-          <LiveStatus
-            message={passkeyMessage?.quiet === true ? passkeyMessage.message : null}
-            className="mt-2"
-          />
-        </CardHeader>
-        <CardContent>
-          <form
-            onSubmit={(e) => {
-              void handleSubmit(e);
-            }}
-            noValidate
-            className="space-y-4"
+    <AuthLayout
+      recaptchaEnabled={securityPublic?.recaptchaEnabled}
+      aside={
+        portalUrl != null && (
+          <a
+            href={portalUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="fixed top-8 right-0 inline-flex items-center gap-2 rounded-l-full px-5 py-3 text-sm font-medium text-primary-foreground shadow-md transition-opacity hover:opacity-90"
+            style={{ backgroundColor: themeColor }}
           >
-            <div className="space-y-2">
-              <Label htmlFor="email" className="leading-6">
-                {t('auth.emailLabel')}
-              </Label>
-              <Input
-                id="email"
-                type="email"
-                // "webauthn" lets the browser list passkeys under the field.
-                autoComplete={passkeyLogin ? 'username webauthn' : 'off'}
-                value={email}
-                onFocus={() => {
-                  if (!autofillIdle.current) return;
-                  autofillIdle.current = false;
-                  autofillRetries.current = 0;
-                  setAutofillRound((r) => r + 1);
-                }}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                }}
-                className={hasSubmitted && validationErrors.email ? 'border-destructive' : ''}
-              />
-              {hasSubmitted && validationErrors.email && (
-                <p className="text-sm text-destructive">{validationErrors.email}</p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password" className="leading-6">
-                {t('auth.passwordLabel')}
-              </Label>
-              <PasswordInput
-                id="password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                }}
-                className={hasSubmitted && validationErrors.password ? 'border-destructive' : ''}
-              />
-              {hasSubmitted && validationErrors.password && (
-                <p className="text-sm text-destructive">{validationErrors.password}</p>
-              )}
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? t('auth.signingIn') : t('auth.signIn')}
-            </Button>
-            <div className="text-center">
-              <Link to="/forgot-password" className="text-sm font-medium text-link hover:underline">
-                {t('auth.forgotPassword')}
-              </Link>
-            </div>
-            {(passkeyLogin || securityPublic?.ssoEnabled === true) && (
-              <div className="relative my-4">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">{t('auth.or')}</span>
-                </div>
+            {t('auth.chargingPortalLink', { name: companyName ?? 'EVtivity' })}
+          </a>
+        )
+      }
+    >
+      <CardHeader className="text-center">
+        <h2 className="text-2xl font-semibold">{t('auth.signIn')}</h2>
+        {error != null && (
+          <p className="mt-2 text-sm text-destructive" role="alert">
+            {t(error)}
+          </p>
+        )}
+        {passkeyMessage != null && !passkeyMessage.quiet && (
+          <p className="mt-2 text-sm text-destructive" role="alert">
+            {passkeyMessage.message}
+          </p>
+        )}
+        <LiveStatus
+          message={passkeyMessage?.quiet === true ? passkeyMessage.message : null}
+          className="mt-2"
+        />
+      </CardHeader>
+      <CardContent>
+        <form
+          onSubmit={(e) => {
+            void handleSubmit(e);
+          }}
+          noValidate
+          className="space-y-4"
+        >
+          <div className="space-y-2">
+            <Label htmlFor="email" className="leading-6">
+              {t('auth.emailLabel')}
+            </Label>
+            <Input
+              id="email"
+              type="email"
+              // "webauthn" lets the browser list passkeys under the field.
+              autoComplete={passkeyLogin ? 'username webauthn' : 'off'}
+              value={email}
+              onFocus={() => {
+                if (!autofillIdle.current) return;
+                autofillIdle.current = false;
+                autofillRetries.current = 0;
+                setAutofillRound((r) => r + 1);
+              }}
+              onChange={(e) => {
+                setEmail(e.target.value);
+              }}
+              className={hasSubmitted && validationErrors.email ? 'border-destructive' : ''}
+            />
+            {hasSubmitted && validationErrors.email && (
+              <p className="text-sm text-destructive">{validationErrors.email}</p>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="password" className="leading-6">
+              {t('auth.passwordLabel')}
+            </Label>
+            <PasswordInput
+              id="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+              }}
+              className={hasSubmitted && validationErrors.password ? 'border-destructive' : ''}
+            />
+            {hasSubmitted && validationErrors.password && (
+              <p className="text-sm text-destructive">{validationErrors.password}</p>
+            )}
+          </div>
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? t('auth.signingIn') : t('auth.signIn')}
+          </Button>
+          <div className="text-center">
+            <Link to="/forgot-password" className="text-sm font-medium text-link hover:underline">
+              {t('auth.forgotPassword')}
+            </Link>
+          </div>
+          {(passkeyLogin || securityPublic?.ssoEnabled === true) && (
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
               </div>
-            )}
-            {passkeyLogin && (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                disabled={passkeyPending}
-                onClick={() => {
-                  setError(null);
-                  setPasskeyMessage(null);
-                  void signInWithPasskeyButton();
-                }}
-              >
-                {passkeyPending ? t('auth.signingIn') : t('auth.signInWithPasskey')}
-              </Button>
-            )}
-            {securityPublic?.ssoEnabled && (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full"
-                onClick={() => {
-                  window.location.href = ssoLoginUrl();
-                }}
-              >
-                {t('auth.signInWithSso')}
-              </Button>
-            )}
-          </form>
-        </CardContent>
-      </Card>
-      <AuthFooter companyName={companyName} recaptchaEnabled={securityPublic?.recaptchaEnabled} />
-    </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">{t('auth.or')}</span>
+              </div>
+            </div>
+          )}
+          {passkeyLogin && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={passkeyPending}
+              onClick={() => {
+                setError(null);
+                setPasskeyMessage(null);
+                void signInWithPasskeyButton();
+              }}
+            >
+              {passkeyPending ? t('auth.signingIn') : t('auth.signInWithPasskey')}
+            </Button>
+          )}
+          {securityPublic?.ssoEnabled && (
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                window.location.href = ssoLoginUrl();
+              }}
+            >
+              {t('auth.signInWithSso')}
+            </Button>
+          )}
+        </form>
+      </CardContent>
+    </AuthLayout>
   );
 }

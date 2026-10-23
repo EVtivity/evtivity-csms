@@ -70,6 +70,20 @@ jobs:
       - run: npm ci --ignore-scripts && npm rebuild argon2
       - run: npm test -- --coverage
       - run: npm run test:release
+      - run: bash scripts/docker-build.test.sh
+      # The image build context (.dockerignore) leaves local secrets out: a seed
+      # config, an env file and a test certificate planted here never reach it.
+      - name: Docker build context
+        run: |
+          echo '{}' > packages/database/seed.config.json
+          echo 'PLANTED=1' > .env.local
+          echo 'PLANTED=1' > packages/api/.env
+          mkdir -p packages/css/test-certs && echo planted > packages/css/test-certs/ca.pem
+          printf '%s\n' \
+            'FROM busybox:1.37@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e' \
+            'COPY . /ctx' \
+            'RUN test ! -e /ctx/packages/database/seed.config.json && test ! -e /ctx/.env.local && test ! -e /ctx/packages/api/.env && test ! -e /ctx/packages/css/test-certs' \
+            | docker build -q -f - .
       - name: Coverage summary
         if: always() && hashFiles('coverage/coverage-summary.json') != ''
         run: node scripts/coverage-summary.mjs coverage/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"

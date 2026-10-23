@@ -6,6 +6,8 @@ import { describe, it, expect } from 'vitest';
 import {
   assertTemplateAllowed,
   compileAllowedTemplate,
+  EMAIL_BODY_TEMPLATE,
+  EMAIL_LAYOUT_TEMPLATE,
   TemplateNotAllowedError,
 } from '../template-safety.js';
 
@@ -104,5 +106,41 @@ describe('compileAllowedTemplate', () => {
     ['{{! comment }}{{{html}}}{{html}}', { html: "<i>'x'</i>" }],
   ])('matches Handlebars for %s', (source, variables) => {
     expect(compileAllowedTemplate(source)(variables)).toBe(Handlebars.compile(source)(variables));
+  });
+});
+
+describe('HTML email bodies', () => {
+  it.each(['{{{firstName}}}', 'Hi {{& firstName}}', '{{#if a}}{{{message}}}{{/if}}'])(
+    'refuses the raw variable in %s',
+    (source) => {
+      expect(() => {
+        assertTemplateAllowed(source, EMAIL_BODY_TEMPLATE);
+      }).toThrow(TemplateNotAllowedError);
+    },
+  );
+
+  it('accepts raw variables in subjects and SMS, and {{{content}}} in the layout', () => {
+    expect(() => {
+      assertTemplateAllowed('{{{companyName}}} receipt');
+      assertTemplateAllowed('{{{firstName}}}, your session ended', { noEscape: true });
+      assertTemplateAllowed('<div>{{{content}}}</div>', EMAIL_LAYOUT_TEMPLATE);
+    }).not.toThrow();
+    expect(() => {
+      assertTemplateAllowed('{{{content}}}{{{companyName}}}', EMAIL_LAYOUT_TEMPLATE);
+    }).toThrow(TemplateNotAllowedError);
+  });
+
+  it('renders a stored raw variable escaped, and keeps the layout content raw', () => {
+    const vars = { firstName: '<a href="https://evil.example">x</a>', content: '<p>Body</p>' };
+    expect(compileAllowedTemplate('Hi {{{firstName}}}', EMAIL_BODY_TEMPLATE)(vars)).toBe(
+      'Hi &lt;a href&#x3D;&quot;https://evil.example&quot;&gt;x&lt;/a&gt;',
+    );
+    expect(
+      compileAllowedTemplate('{{{content}}}{{{firstName}}}', EMAIL_LAYOUT_TEMPLATE)(vars),
+    ).toBe('<p>Body</p>&lt;a href&#x3D;&quot;https://evil.example&quot;&gt;x&lt;/a&gt;');
+    // Plain text keeps rendering raw.
+    expect(compileAllowedTemplate('{{{firstName}}}', { noEscape: true })(vars)).toBe(
+      vars.firstName,
+    );
   });
 });

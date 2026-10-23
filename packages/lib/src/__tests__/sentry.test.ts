@@ -29,12 +29,38 @@ describe('initSentry', () => {
     });
 
     expect(initMock).toHaveBeenCalledTimes(1);
-    expect(initMock).toHaveBeenCalledWith({
+    expect(initMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dsn: 'https://abc@o123.ingest.sentry.io/456',
+        environment: 'production',
+        serverName: 'api-service',
+        tracesSampleRate: 0.1,
+      }),
+    );
+  });
+
+  it('collects no personal data, headers, cookies, bodies, query strings or local variables', async () => {
+    const initSentry = await freshInitSentry();
+    initSentry('api-service', {
+      enabled: true,
       dsn: 'https://abc@o123.ingest.sentry.io/456',
       environment: 'production',
-      serverName: 'api-service',
-      tracesSampleRate: 0.1,
     });
+    const options = initMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    // dataCollection replaces the deprecated sendDefaultPii (Sentry 10.5x).
+    expect(options['sendDefaultPii']).toBeUndefined();
+    expect(options['dataCollection']).toEqual({
+      userInfo: false,
+      cookies: false,
+      httpHeaders: { request: false, response: false },
+      httpBodies: [],
+      queryParams: false,
+      genAI: { inputs: false, outputs: false },
+      stackFrameVariables: false,
+    });
+    expect(typeof options['beforeSend']).toBe('function');
+    expect(typeof options['beforeSendTransaction']).toBe('function');
+    expect(typeof options['beforeBreadcrumb']).toBe('function');
   });
 
   it('skips init when disabled even if a DSN is present', async () => {
@@ -88,5 +114,35 @@ describe('initSentry', () => {
       environment: 'dev',
     });
     expect(initMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('scrubSentryEvent', () => {
+  it('drops cookies, headers, bodies, query strings and the user address', async () => {
+    const { scrubSentryEvent } = await import('../sentry.js');
+    const event = scrubSentryEvent({
+      request: {
+        url: 'https://api.example.com/v1/portal/auth/verify-email?token=secret-token',
+        method: 'POST',
+        cookies: { csms_token: 'jwt' },
+        headers: { authorization: 'Bearer jwt', cookie: 'csms_token=jwt' },
+        query_string: 'token=secret-token',
+        data: { password: 'hunter2' },
+      },
+      user: { id: 'usr_1', ip_address: '203.0.113.9', email: 'a@example.com' },
+      breadcrumbs: [
+        { category: 'http', data: { url: 'https://hooks.example.com/x?sig=abc', method: 'POST' } },
+      ],
+    });
+    expect(event.request).toEqual({
+      url: 'https://api.example.com/v1/portal/auth/verify-email',
+      method: 'POST',
+    });
+    expect(event.user).toEqual({ id: 'usr_1' });
+    expect(event.breadcrumbs[0]?.data).toEqual({
+      url: 'https://hooks.example.com/x',
+      method: 'POST',
+    });
+    expect(JSON.stringify(event)).not.toMatch(/secret-token|hunter2|jwt|abc|203\.0\.113/);
   });
 });

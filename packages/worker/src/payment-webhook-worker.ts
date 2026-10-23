@@ -35,10 +35,21 @@ export function createPaymentWebhookWorker(
     async (job) => {
       const logId = await logJobStarted(job.name, QUEUE_NAMES.PAYMENT_WEBHOOKS);
       const startTime = Date.now();
-      const { provider, rawBody, headers } = job.data;
+      const { rawBody, headers } = job.data;
+      // Job data is read back from Redis, so the type does not prove it.
+      const provider: string = job.data.provider;
       try {
+        // The queue carries the simulated provider's delayed events only (its
+        // sink adds them); real providers deliver to their HTTP route. Any
+        // other provider here is refused, whatever its signature.
+        if (provider !== 'simulated') {
+          throw new WebhookSignatureError(
+            'invalid',
+            `The payment webhook queue carries simulated events only, not ${provider}`,
+          );
+        }
         const result = await ingestPaymentWebhook(
-          provider,
+          'simulated',
           rawBody,
           headers,
           // ingestPaymentWebhook names the provider's webhook as the actor.

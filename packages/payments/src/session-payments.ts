@@ -344,7 +344,11 @@ async function sessionCharge(sessionId: string): Promise<SessionCharge | null> {
       finalCostCents: chargingSessions.finalCostCents,
       tariffTaxRate: chargingSessions.tariffTaxRate,
       costBreakdown: chargingSessions.costBreakdown,
-      siteId: chargingStations.siteId,
+      // The session's own site, as the re-bill and the site access checks;
+      // the station's current site only for a session stored without one
+      // (a moved station billed the old site's sessions with the new site's
+      // platform fee).
+      siteId: sql<string | null>`coalesce(${chargingSessions.siteId}, ${chargingStations.siteId})`,
     })
     .from(chargingSessions)
     .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
@@ -356,7 +360,8 @@ export type ManualCaptureOutcome =
   | { status: 'captured' | 'cancelled'; record: PaymentRecord }
   | { status: 'no_hold' }
   | { status: 'missing_payment_id' }
-  | { status: 'not_configured'; providerId: string };
+  | { status: 'not_configured'; providerId: string }
+  | { status: 'exceeds_hold'; holdCents: number };
 
 /**
  * Operator capture of a session hold: `amountCents` (default the session's
@@ -373,6 +378,11 @@ export async function captureSessionHold(
   if (paymentId == null) return { status: 'missing_payment_id' };
   const session = await sessionCharge(input.sessionId);
   const amountCents = input.amountCents ?? session?.finalCostCents ?? 0;
+  // A capture never takes more than the driver authorized.
+  const holdCents = record.preAuthAmountCents;
+  if (holdCents != null && amountCents > holdCents) {
+    return { status: 'exceeds_hold', holdCents };
+  }
 
   let provider: PaymentProvider;
   try {

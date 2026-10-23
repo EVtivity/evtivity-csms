@@ -76,6 +76,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'services/src/reservation.service.ts',
   },
   'DELETE /settings/:key': { audited: 'setting' },
+  'DELETE /sims/:id': {
+    audited: 'sim',
+    service: 'services/src/sim-inventory.service.ts',
+  },
   'DELETE /sites/:id': { audited: 'site' },
   'DELETE /sites/:id/electricity-rates/:periodId': { audited: 'site' },
   'DELETE /sites/:id/payment-config': { audited: 'site' },
@@ -90,11 +94,11 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'DELETE /stations/:id/evses/:evseId/connectors/:connectorId': { audited: 'station' },
   'DELETE /stations/:id/images/:imageId': { audited: 'station_image' },
   'DELETE /stations/:id/monitoring-rules/:ruleId': { audited: 'station' },
-  'DELETE /stations/:id/sim/match': {
-    audited: 'station',
-    service: 'database/src/lib/station-sim-match.ts',
-  },
   'DELETE /stations/:id/pricing-groups/:pricingGroupId': { audited: 'pricing_assignment' },
+  'DELETE /stations/:id/sim/attachment': {
+    audited: ['sim', 'station'],
+    service: 'services/src/sim-inventory.service.ts',
+  },
   'DELETE /stations/:id/web-payments': {
     audited: 'station',
     service: 'api/src/services/web-payment.service.ts',
@@ -163,6 +167,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'services/src/reservation.service.ts',
   },
   'PATCH /settings/:key': { audited: 'setting' },
+  'PATCH /sims/:id': {
+    audited: 'sim',
+    service: 'services/src/sim-inventory.service.ts',
+  },
   'PATCH /sites/:id': { audited: 'site' },
   'PATCH /sites/:id/electricity-rates/:periodId': { audited: 'site' },
   'PATCH /sites/:id/stations/:stationId/load-min-power': { audited: 'station' },
@@ -402,6 +410,42 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'setting',
     service: 'api/src/lib/payment-settings-writes.ts',
   },
+  'POST /sims': {
+    audited: 'sim',
+    service: 'services/src/sim-inventory.service.ts',
+  },
+  'POST /sims/:id/attachments': {
+    audited: ['sim', 'station'],
+    service: 'services/src/sim-inventory.service.ts',
+  },
+  'POST /sims/:id/attachments/:attachmentId/confirm': {
+    audited: ['sim', 'station'],
+    service: 'services/src/sim-inventory.service.ts',
+  },
+  'POST /sims/:id/attachments/:attachmentId/detach': {
+    audited: ['sim', 'station'],
+    service: 'services/src/sim-inventory.service.ts',
+  },
+  'POST /sims/:id/deactivate': {
+    audited: ['sim', 'station'],
+    service: 'services/src/sim-inventory.service.ts',
+  },
+  'POST /sims/:id/network-reset': {
+    audited: ['sim', 'station'],
+    service: 'services/src/station-sim.service.ts',
+  },
+  'POST /sims/:id/reactivate': {
+    audited: 'sim',
+    service: 'services/src/sim-inventory.service.ts',
+  },
+  'POST /sims/:id/refresh': {
+    allow:
+      'records the provider lookup result and the fetched SIM data and fetch state, no operator state',
+  },
+  'POST /sims/import': {
+    audited: ['sim', 'station'],
+    service: 'services/src/sim-inventory.service.ts',
+  },
   'POST /sites': { audited: 'site' },
   'POST /sites/:id/electricity-cost/recalculate': { audited: 'site' },
   'POST /sites/:id/electricity-rates': { audited: 'site' },
@@ -517,14 +561,17 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'station',
     service: 'api/src/services/station-onboarding.service.ts',
   },
-  'POST /stations/:id/sim/match/confirm': {
-    audited: 'station',
-    service: 'database/src/lib/station-sim-match.ts',
+  'POST /stations/:id/sim/attachment/confirm': {
+    audited: ['sim', 'station'],
+    service: 'services/src/sim-inventory.service.ts',
   },
-  'POST /stations/:id/sim/network-reset': { audited: 'station' },
+  'POST /stations/:id/sim/network-reset': {
+    audited: ['sim', 'station'],
+    service: 'services/src/station-sim.service.ts',
+  },
   'POST /stations/:id/sim/refresh': {
-    audited: 'station',
-    service: 'database/src/lib/station-sim-match.ts',
+    audited: ['sim', 'station'],
+    service: 'services/src/station-sim.service.ts',
   },
   'POST /stations/:id/rotate-credentials': {
     audited: 'station',
@@ -586,6 +633,8 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     allow: 'code only; the phone change it confirms is audited by PATCH /users/me',
   },
   'POST /users/me/mfa/setup': { allow: 'unconfirmed secret; confirmMfa is audited' },
+  'POST /users/me/sso-link': { audited: 'user' },
+  'DELETE /users/:id/sso-link': { audited: 'user' },
   'POST /users/me/webauthn/registration': { audited: 'user' },
   'POST /users/me/webauthn/registration-options': {
     allow: 'challenge only; registerWebauthnCredential is audited',
@@ -603,12 +652,23 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'PUT /security/sessions': { audited: 'setting' },
   'PUT /settings/:key': { audited: 'setting' },
   'PUT /settings/adyen': { audited: 'setting', service: 'api/src/lib/payment-settings-writes.ts' },
+  'PUT /settings/data-retention': { audited: 'setting' },
   'PUT /settings/sim-providers': { audited: 'setting' },
   'PUT /settings/payments': {
     audited: 'setting',
     service: 'api/src/lib/payment-settings-writes.ts',
   },
   'PUT /settings/s3': { audited: 'setting' },
+  // writeWebhookSigningSecret in the same file writes the audit row.
+  'POST /settings/notifications/webhook-signing-secret': {
+    audited: 'setting',
+    service: 'api/src/routes/settings.ts',
+  },
+  // writeWebhookSigningSecret in the same file writes the audit row.
+  'DELETE /settings/notifications/webhook-signing-secret': {
+    audited: 'setting',
+    service: 'api/src/routes/settings.ts',
+  },
   'PUT /settings/stripe': { audited: 'setting', service: 'api/src/lib/payment-settings-writes.ts' },
   'PUT /sites/:id/carbon-region': { audited: 'site' },
   'PUT /sites/:id/layout': { audited: 'site' },

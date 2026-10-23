@@ -45,6 +45,8 @@ export function FleetDetail(): React.JSX.Element {
   const canReadReservations = useHasPermission('reservations:read');
   // Fleet billing and invoices are company-wide: the API answers 404 to a site-restricted user.
   const hasAllSiteAccess = useHasAllSiteAccess();
+  // The credit limit is money: its GET needs payments:read.
+  const canReadPayments = useHasPermission('payments:read');
   const [activeTab, setActiveTab] = useTab('details');
 
   const { data: fleet, isLoading } = useQuery({
@@ -125,7 +127,7 @@ export function FleetDetail(): React.JSX.Element {
           <TabsContent value="billing" className="space-y-6">
             <FleetBillingTab fleet={fleet} />
             <FleetBillingProfileCard fleet={fleet} />
-            <FleetCreditLimitCard fleetId={fleetId} />
+            {canReadPayments && <FleetCreditLimitCard fleetId={fleetId} />}
             <FleetInvoicesCard fleetId={fleetId} recipient={fleet.accountInvoiceRecipient} />
           </TabsContent>
         )}

@@ -7,9 +7,21 @@ import { shouldMarkStationOffline } from '@evtivity/lib';
 import { findStaleOnlineStations } from '../lib/station-offline.js';
 
 // A tagged-template stand-in that returns fixed rows.
-function sqlReturning(rows: Record<string, unknown>[]): postgres.Sql {
-  return (() => Promise.resolve(rows)) as unknown as postgres.Sql;
+function sqlReturning(rows: Record<string, unknown>[]): postgres.Sql & { texts: string[] } {
+  const texts: string[] = [];
+  const fn = ((strings: TemplateStringsArray) => {
+    texts.push(strings.join('?'));
+    return Promise.resolve(rows);
+  }) as unknown as postgres.Sql & { texts: string[] };
+  (fn as unknown as { unsafe: (t: string) => string }).unsafe = (t: string) => {
+    texts.push(t);
+    return t;
+  };
+  fn.texts = texts;
+  return fn;
 }
+
+const THRESHOLDS = { wifi_or_wired: 2_760_000, cellular: 10_860_000 };
 
 describe('findStaleOnlineStations', () => {
   it('maps the raw row shape of the shared client (ISO strings) to Dates', async () => {
@@ -21,6 +33,7 @@ describe('findStaleOnlineStations', () => {
         station_id: 'CS-1',
         last_heartbeat: '2026-10-10 09:00:00.123+00',
         stale_before: '2026-10-10 09:44:00+00',
+        data_plan: 'cellular',
       },
       {
         id: 'uuid-2',
@@ -30,7 +43,7 @@ describe('findStaleOnlineStations', () => {
       },
     ]);
 
-    const rows = await findStaleOnlineStations(sql, 960_000);
+    const rows = await findStaleOnlineStations(sql, THRESHOLDS);
 
     expect(rows[0]?.lastActivityAt).toBeInstanceOf(Date);
     expect(rows[0]?.lastActivityAt?.toISOString()).toBe('2026-10-10T09:00:00.123Z');
@@ -51,16 +64,41 @@ describe('findStaleOnlineStations', () => {
     const at = new Date('2026-10-10T09:00:00Z');
     const before = new Date('2026-10-10T09:44:00Z');
     const sql = sqlReturning([
-      { id: 'uuid-1', station_id: 'CS-1', last_heartbeat: at, stale_before: before },
+      {
+        id: 'uuid-1',
+        station_id: 'CS-1',
+        last_heartbeat: at,
+        stale_before: before,
+        data_plan: 'wifi_or_wired',
+      },
     ]);
 
-    const [row] = await findStaleOnlineStations(sql, 960_000);
+    const [row] = await findStaleOnlineStations(sql, THRESHOLDS);
 
     expect(row).toEqual({
       id: 'uuid-1',
       stationId: 'CS-1',
       lastActivityAt: at,
       staleBefore: before,
+      dataPlan: 'wifi_or_wired',
+      thresholdMs: 2_760_000,
     });
+  });
+
+  it("applies each station's plan threshold, read through the effective plan SQL", async () => {
+    const sql = sqlReturning([
+      {
+        id: 'u',
+        station_id: 'CS',
+        last_heartbeat: null,
+        stale_before: new Date(),
+        data_plan: 'cellular',
+      },
+    ]);
+    const [row] = await findStaleOnlineStations(sql, THRESHOLDS);
+    expect(row?.thresholdMs).toBe(10_860_000);
+    expect(row?.dataPlan).toBe('cellular');
+    expect(sql.texts.some((t) => t.includes('sim_attachments'))).toBe(true);
+    expect(sql.texts.some((t) => t.includes("WHEN s.data_plan = 'cellular'"))).toBe(true);
   });
 });

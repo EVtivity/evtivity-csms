@@ -8,10 +8,18 @@ import { API_BASE_URL } from '../lib/config';
 
 const BASE_URL = API_BASE_URL;
 
+/** Wait before opening a stream again after the server closed or refused it. */
+export const STATION_EVENTS_RETRY_MS = 30_000;
+
 /**
  * Subscribe to real-time SSE events for a specific station.
  * Works for both guest and authenticated users (public endpoint).
  * Invalidates station and charger queries on station.status events.
+ *
+ * A browser EventSource never retries a refused stream (a 429 at the per-client
+ * or process cap), so the hook opens a new one after
+ * STATION_EVENTS_RETRY_MS. Until then the pages' periodic refetch keeps the
+ * status current.
  */
 export function useStationEvents(stationId: string | undefined): void {
   const queryClient = useQueryClient();
@@ -21,10 +29,10 @@ export function useStationEvents(stationId: string | undefined): void {
     if (stationId == null) return;
 
     const url = `${BASE_URL}/v1/portal/chargers/${stationId}/events`;
-    const es = new EventSource(url);
-    eventSourceRef.current = es;
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    let stopped = false;
 
-    es.onmessage = (messageEvent: MessageEvent<string>) => {
+    const onMessage = (messageEvent: MessageEvent<string>): void => {
       const value = tryParseJson(messageEvent.data);
       if (value == null || typeof value !== 'object') {
         console.warn('Ignored a station event that is not a JSON object', messageEvent.data);
@@ -41,8 +49,25 @@ export function useStationEvents(stationId: string | undefined): void {
       }
     };
 
+    const open = (): void => {
+      const es = new EventSource(url);
+      eventSourceRef.current = es;
+      es.onmessage = onMessage;
+      es.onerror = () => {
+        // A network drop reconnects by itself (CONNECTING); a closed stream does not.
+        if (es.readyState !== EventSource.CLOSED || stopped || retry != null) return;
+        retry = setTimeout(() => {
+          retry = null;
+          if (!stopped) open();
+        }, STATION_EVENTS_RETRY_MS);
+      };
+    };
+    open();
+
     return () => {
-      es.close();
+      stopped = true;
+      if (retry != null) clearTimeout(retry);
+      eventSourceRef.current?.close();
       eventSourceRef.current = null;
     };
   }, [stationId, queryClient]);

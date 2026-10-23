@@ -94,22 +94,23 @@ describe('buildXlsx', () => {
     expect(workbook.getWorksheet('S').getRow(2).getCell(1).numFmt).toBe('#,##0');
   });
 
-  it('neutralises formula text, keeps raw numbers, and keeps empty separator rows', async () => {
+  it('writes formula text as an inert string cell, keeps raw numbers and empty separator rows', async () => {
     const data = await buildXlsx([
       {
         name: 'S',
         headers: ['label', 'count'],
-        rows: [['=HYPERLINK("http://x")', 7], [], ['plain', null]],
+        rows: [['=HYPERLINK("http://x")', 7], [], ['plain', null], ['-North', 1]],
       },
     ]);
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(new Uint8Array(data).buffer);
     const sheet = workbook.getWorksheet('S');
 
-    const label = sheet.getRow(2).getCell(1).value;
-    expect(typeof label).toBe('string');
-    expect(label).not.toMatch(/^=/);
-    expect(label).toContain('HYPERLINK');
+    // A string cell is never evaluated, so no quote is shown in front.
+    const label = sheet.getRow(2).getCell(1);
+    expect(label.type).toBe(ExcelJS.ValueType.String);
+    expect(label.value).toBe('=HYPERLINK("http://x")');
+    expect(sheet.getRow(5).getCell(1).value).toBe('-North');
     expect(sheet.getRow(2).getCell(2).value).toBe(7);
     expect(sheet.getRow(2).getCell(2).numFmt).toBeUndefined();
     // The empty row stays as a separator; the next data row follows it.

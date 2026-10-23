@@ -29,6 +29,8 @@ import { RecordInsightsTab } from '@/components/ai/insights/RecordInsightsTab';
 import { MeterValuesTable } from '@/components/MeterValuesTable';
 import { StationEventsTab } from '@/components/StationEventsTab';
 import { StationConfigurationsTab } from '@/components/StationConfigurationsTab';
+import { StationDataPlanCard } from '@/components/station/StationDataPlanCard';
+import type { ChargingKind, DataPlan, DataPlanSource } from '@evtivity/lib/station-data-plan';
 import { StationFirmwareTab } from '@/components/StationFirmwareTab';
 import { StationChargingProfilesTab } from '@/components/StationChargingProfilesTab';
 import { StationImages } from '@/components/StationImages';
@@ -85,6 +87,10 @@ interface Station {
   siteHoursOfOperation: string | null;
   siteTimezone: string | null;
   siteFreeVendEnabled: boolean;
+  dataPlan: DataPlan | null;
+  effectiveDataPlan: DataPlan;
+  dataPlanSource: DataPlanSource;
+  chargingKind: ChargingKind;
   createdAt: string;
   updatedAt: string;
 }
@@ -504,6 +510,7 @@ export function StationDetail(): React.JSX.Element {
         </TabsContent>
 
         <TabsContent value="configurations" className="space-y-6">
+          <StationDataPlanCard station={station} />
           <StationConfigurationsTab
             stationId={station.id}
             stationOcppId={station.stationId}

@@ -17,6 +17,7 @@ import {
 type Row = Record<string, unknown>;
 type Cond =
   | { op: 'eq' | 'ne'; col: string; val: unknown }
+  | { op: 'in'; col: string; vals: unknown[] }
   | { op: 'and'; conds: Cond[] }
   | { op: 'or'; conds: Cond[] }
   | undefined;
@@ -44,6 +45,7 @@ const h = vi.hoisted(() => {
       blocked: boolean;
     } | null;
     blockedVehicle: { vehicleId: string; driverId: string } | null;
+    vehicleOwners: string[];
     autochargeOn: boolean;
     vehicleLookups: { value: string; type: string }[];
     accountCreditExclusions: ({ stationId: string; transactionId: string } | undefined)[];
@@ -58,6 +60,7 @@ const h = vi.hoisted(() => {
     accountCreditCalls: [],
     vehicle: null,
     blockedVehicle: null,
+    vehicleOwners: [],
     autochargeOn: true,
     vehicleLookups: [],
     accountCreditExclusions: [],
@@ -70,6 +73,7 @@ function matches(row: Row, cond: Cond): boolean {
   if (cond.op === 'and') return cond.conds.every((c) => matches(row, c));
   if (cond.op === 'or') return cond.conds.some((c) => matches(row, c));
   if (cond.op === 'eq') return row[cond.col] === cond.val;
+  if (cond.op === 'in') return cond.vals.includes(row[cond.col]);
   return row[cond.col] !== cond.val;
 }
 
@@ -171,6 +175,7 @@ vi.mock('@evtivity/database', () => ({
     return Promise.resolve(h.vehicle);
   }),
   findBlockedVehicle: vi.fn(() => Promise.resolve(h.blockedVehicle)),
+  findVehicleIdOwners: vi.fn(() => Promise.resolve(h.vehicleOwners)),
   isAutochargeEnabledForStation: vi.fn(() => Promise.resolve(h.autochargeOn)),
   isRoamingEnabled: vi.fn(() => Promise.resolve(h.roaming)),
   isSiteFreeVendEnabledByStation: vi.fn(() =>
@@ -181,6 +186,7 @@ vi.mock('@evtivity/database', () => ({
 vi.mock('drizzle-orm', () => ({
   eq: (a: { col: string }, val: unknown) => ({ op: 'eq', col: a.col, val }),
   ne: (a: { col: string }, val: unknown) => ({ op: 'ne', col: a.col, val }),
+  inArray: (a: { col: string }, vals: unknown[]) => ({ op: 'in', col: a.col, vals }),
   and: (...conds: unknown[]) => ({ op: 'and', conds: conds.filter((c) => c != null) }),
   or: (...conds: unknown[]) => ({ op: 'or', conds: conds.filter((c) => c != null) }),
 }));
@@ -229,6 +235,7 @@ beforeEach(() => {
   h.accountCreditCalls = [];
   h.vehicle = null;
   h.blockedVehicle = null;
+  h.vehicleOwners = [];
   h.autochargeOn = true;
   h.vehicleLookups = [];
   h.accountCreditExclusions = [];
@@ -1008,7 +1015,7 @@ describe('authorizeToken: prepaid', () => {
   });
 });
 
-describe('authorizeToken: fleet credit limit (plan S8)', () => {
+describe('authorizeToken: fleet credit limit', () => {
   beforeEach(() => {
     h.tables['driver_tokens'] = [
       token({ id: 'tok-1', idToken: 'TAG', tokenType: 'ISO14443', driverId: 'drv-1' }),
@@ -1423,6 +1430,194 @@ describe('Autocharge vehicles', () => {
     );
     expect(d).toMatchObject({ source: 'driver_token', matchedTokenId: 'tok-mac' });
     expect(h.vehicleLookups).toEqual([]);
+  });
+
+  it('a typed vehicle id never matches a card of another type with the value', async () => {
+    h.vehicle = VEHICLE;
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-card', idToken: '92D50A693F80', tokenType: 'ISO14443' }),
+    ];
+    const d = await authorizeToken(
+      input('authorize', '92D50A693F80', 'MacAddress', { vehicleId: MAC }),
+      logger,
+    );
+    expect(d).toMatchObject({ source: 'vehicle', matchedDriverId: 'drv-car' });
+  });
+
+  it('looks a 1.6 idTag up as sent and, for a vehicle id card, canonical', async () => {
+    h.vehicle = VEHICLE;
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-mac', idToken: '92D50A693F80', tokenType: 'MacAddress' }),
+    ];
+    const d = await authorizeToken(
+      input('authorize', 'vid:92-d5-0a-69-3f-80', null, {
+        vehicleId: { ...MAC, source: 'id_tag' },
+      }),
+      logger,
+    );
+    // The same value the token and vehicle services compare, so the vehicle
+    // service refuses this id on a vehicle of another driver.
+    expect(d).toMatchObject({ source: 'driver_token', matchedTokenId: 'tok-mac' });
+  });
+
+  it.each(['ISO14443', 'ISO15693', 'Local', 'KeyCode', 'eMAID'])(
+    'a %s card matches a 1.6 idTag by its exact spelling only',
+    async (tokenType) => {
+      h.tables['driver_tokens'] = [
+        token({ id: 'tok-portal', idToken: '92D50A693F80', tokenType, driverId: 'drv-other' }),
+      ];
+      for (const sent of ['VID:92D50A693F80', 'vid:92-d5-0a-69-3f-80', '92:D5:0A:69:3F:80']) {
+        const d = await authorizeToken(
+          input('authorize', sent, null, { vehicleId: { ...MAC, source: 'id_tag' } }),
+          logger,
+        );
+        expect(d.matchedTokenId, sent).not.toBe('tok-portal');
+      }
+      const exact = await authorizeToken(
+        input('authorize', '92D50A693F80', null, { vehicleId: { ...MAC, source: 'id_tag' } }),
+        logger,
+      );
+      expect(exact).toMatchObject({ source: 'driver_token', matchedTokenId: 'tok-portal' });
+    },
+  );
+
+  describe('card or vehicle precedence', () => {
+    it.each([
+      ['1.6', 'VID:92D50A693F80', null, 'id_tag'],
+      ['2.1', '92D50A693F80', 'MacAddress', 'id_token'],
+    ] as const)(
+      'an old card of another driver loses to the vehicle owner (%s)',
+      async (_v, value, type, source) => {
+        h.vehicle = VEHICLE;
+        h.vehicleOwners = ['drv-car'];
+        h.tables['driver_tokens'] = [
+          token({
+            id: 'tok-old',
+            idToken: value,
+            tokenType: type ?? 'ISO14443',
+            driverId: 'drv-other',
+          }),
+        ];
+        const d = await authorizeToken(
+          input('authorize', value, type, { vehicleId: { ...MAC, source } }),
+          logger,
+        );
+        expect(d).toMatchObject({
+          source: 'vehicle',
+          matchedDriverId: 'drv-car',
+          matchedTokenId: null,
+        });
+      },
+    );
+
+    it("the vehicle owner's own card still authorizes", async () => {
+      h.vehicle = VEHICLE;
+      h.vehicleOwners = ['drv-car'];
+      h.tables['driver_tokens'] = [
+        token({
+          id: 'tok-own',
+          tokenType: 'ISO14443',
+          idToken: 'VID:92D50A693F80',
+          driverId: 'drv-car',
+        }),
+      ];
+      const d = await authorizeToken(
+        input('authorize', 'VID:92D50A693F80', null, { vehicleId: { ...MAC, source: 'id_tag' } }),
+        logger,
+      );
+      expect(d).toMatchObject({ source: 'driver_token', matchedTokenId: 'tok-own' });
+    });
+
+    it('a blocked vehicle id card in another spelling is refused when no vehicle holds the id', async () => {
+      h.tables['driver_tokens'] = [
+        token({
+          id: 'tok-canon',
+          tokenType: 'MacAddress',
+          idToken: '92D50A693F80',
+          isActive: false,
+        }),
+      ];
+      const d = await authorizeToken(
+        input('authorize', 'vid:92-d5-0a-69-3f-80', null, {
+          vehicleId: { ...MAC, source: 'id_tag' },
+        }),
+        logger,
+      );
+      expect(d).toMatchObject({ status: 'blocked', matchedTokenId: 'tok-canon' });
+    });
+
+    it('a blocked vehicle id card in another spelling never reaches accept-when-not-found', async () => {
+      h.tables['driver_tokens'] = [
+        token({
+          id: 'tok-local',
+          tokenType: 'MacAddress',
+          idToken: '92D50A693F80',
+          isActive: false,
+        }),
+      ];
+      const d = await authorizeToken(input('authorize', '92-d5-0a-69-3f-80', 'MacAddress'), logger);
+      expect(d).toMatchObject({ status: 'blocked', matchedTokenId: 'tok-local' });
+      expect(d.source).not.toBe('accept_when_not_found');
+    });
+
+    it("another driver's blocked colliding card loses to the vehicle owner", async () => {
+      h.vehicle = VEHICLE;
+      h.vehicleOwners = ['drv-car'];
+      h.tables['driver_tokens'] = [
+        token({
+          id: 'tok-other',
+          tokenType: 'ISO14443',
+          idToken: '92-d5-0a-69-3f-80',
+          driverId: 'drv-other',
+          isActive: false,
+        }),
+      ];
+      const d = await authorizeToken(
+        input('authorize', 'VID:92D50A693F80', null, { vehicleId: { ...MAC, source: 'id_tag' } }),
+        logger,
+      );
+      expect(d).toMatchObject({
+        source: 'vehicle',
+        reason: 'autocharge',
+        matchedDriverId: 'drv-car',
+      });
+    });
+
+    it('a colliding card of another driver with Autocharge off answers Invalid, never OCPI', async () => {
+      h.vehicleOwners = ['drv-car'];
+      h.tables['driver_tokens'] = [
+        token({
+          id: 'tok-other',
+          tokenType: 'Local',
+          idToken: '92D50A693F80',
+          driverId: 'drv-other',
+        }),
+      ];
+      const d = await authorizeToken(
+        input('authorize', '92D50A693F80', 'Local', { vehicleId: { ...MAC, source: 'id_token' } }),
+        logger,
+      );
+      expect(d).toMatchObject({ status: 'invalid', source: 'vehicle', matchedTokenId: null });
+    });
+
+    it.each(['VID:92D50A693F80', '92-d5-0a-69-3f-80', '92d50a693f80', '92D50A693F80'])(
+      'an expired card is refused when sent as %s',
+      async (sent) => {
+        h.tables['driver_tokens'] = [
+          token({
+            id: 'tok-exp',
+            tokenType: 'MacAddress',
+            idToken: '92D50A693F80',
+            expiresAt: PAST,
+          }),
+        ];
+        const d = await authorizeToken(
+          input('authorize', sent, null, { vehicleId: { ...MAC, source: 'id_tag' } }),
+          logger,
+        );
+        expect(d).toMatchObject({ status: 'expired', matchedTokenId: 'tok-exp' });
+      },
+    );
   });
 
   it('refuses the vehicle when Autocharge is off at the site', async () => {

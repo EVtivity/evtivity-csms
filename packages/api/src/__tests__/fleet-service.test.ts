@@ -1256,7 +1256,7 @@ describe('fleet credit limit', () => {
     );
   });
 
-  it('a request that changes nothing updates and audits nothing (P7)', async () => {
+  it('a request that changes nothing updates and audits nothing', async () => {
     const fake = fakeLockedFleet({ creditLimitCents: 8000, creditLimitWarningPercent: 80 });
     setupDbResults([{ creditLimitCents: 8000, warningPercent: 80 }]);
 

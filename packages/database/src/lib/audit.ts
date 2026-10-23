@@ -111,9 +111,19 @@ export function redactAuditPayload(obj: unknown): unknown {
   if (obj == null || typeof obj !== 'object') return obj;
   if (obj instanceof Date) return obj;
   if (Array.isArray(obj)) return obj.map((item) => redactAuditPayload(item));
+  const record = obj as Record<string, unknown>;
+  // A setting row ({ key, value }) holds the value of an encrypted setting
+  // under `value`: redacted when the key is encrypted at rest (P12), so no
+  // ciphertext outlives a rotated secret. An empty value (a cleared secret)
+  // holds nothing to hide and stays.
+  const encryptedSettingValue =
+    typeof record['key'] === 'string' &&
+    isSensitiveAuditKey(record['key']) &&
+    record['value'] != null &&
+    record['value'] !== '';
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
-    if (isSensitiveAuditKey(k)) {
+  for (const [k, v] of Object.entries(record)) {
+    if (isSensitiveAuditKey(k) || (k === 'value' && encryptedSettingValue)) {
       out[k] = '<redacted>';
     } else {
       out[k] = redactAuditPayload(v);

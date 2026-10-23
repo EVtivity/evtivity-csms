@@ -276,7 +276,11 @@ export interface AiAdapterOptions {
   apiKey: string;
   /** Empty or undefined: the provider's official endpoint. */
   baseUrl?: string;
-  /** Test seam; defaults to the global fetch. */
+  /**
+   * Defaults to the global fetch (tests). Production callers pass
+   * `createGuardedFetch` (`@evtivity/ai/providers`), which checks the address
+   * the base URL host resolves to.
+   */
   fetch?: typeof globalThis.fetch;
 }
 

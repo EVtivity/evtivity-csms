@@ -39,7 +39,9 @@ import {
   stationInsightSuppressionSourcesSql,
   stationUnderActiveMaintenanceSql,
   isOperatorStation,
-  recordEnteredIccid,
+  dataPlanSourceSql,
+  effectiveDataPlanSql,
+  readStationDataPlans,
 } from '@evtivity/database';
 import type { StationInsightSuppressionSource } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -54,6 +56,16 @@ import { requestSessionEnd } from '../lib/session-end.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import { applyStationSiteMove } from '@evtivity/services/maintenance.service';
+import {
+  enterStationIccid,
+  stationsAffectedByIccidEntry,
+} from '@evtivity/services/sim-inventory.service';
+import {
+  changeStationDataPlan,
+  pushStationDataPlanChanges,
+  snapshotStationDataPlans,
+} from '@evtivity/services/station-data-plan.service';
+import { isSimFeatureOn, readSimSettings } from '../lib/sim.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import { listStationMessageLog } from '../lib/station-message-log.js';
 import {
@@ -100,6 +112,7 @@ import {
   queryRevenue,
   queryRevenueTotal,
   revenueItem,
+  revenueAtSites,
 } from '@evtivity/services/session-revenue';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import {
@@ -159,6 +172,7 @@ import {
 } from '../services/station-evse-retire.service.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { createStationConfigTemplate } from '../lib/station-config-template.js';
+import { config } from '../lib/config.js';
 import {
   changeStationOnboarding,
   type OnboardedStation,
@@ -176,12 +190,29 @@ import {
   isOcpp21,
   OCPP21_ONLY_MONITOR_TYPES,
   OCPP21_ONLY_PROFILE_PURPOSES,
-  iccidChanged,
-  normalizeIccid,
+  CHARGING_KINDS,
+  CONNECTOR_TYPES,
+  DATA_PLANS,
+  DATA_PLAN_SOURCES,
 } from '@evtivity/lib';
 import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
+import {
+  canReadMoney,
+  maskMoneyFields,
+  METRICS_MONEY_FIELDS,
+  REVENUE_HISTORY_MONEY_FIELDS,
+} from '../lib/money-visibility.js';
 import { authorize } from '../middleware/rbac.js';
-import { assertNoCredentialVariables } from '../lib/station-credential-guard.js';
+import { sessionsAtSites } from '../lib/session-site-scope.js';
+import { refuseSecurityProfileChange } from '../lib/security-profile-permission.js';
+import { ocppCommandRoutePermissions } from '@evtivity/lib/ocpp-command-permissions';
+import {
+  assertNoBootOwnedVariables,
+  assertNoCredentialVariables,
+} from '../lib/station-credential-guard.js';
+import { setVariableTarget } from '../lib/config-push.js';
+import type { ConfigPushVariable } from '../lib/config-push.js';
+import { templateRefusalDetails } from './config-templates.js';
 import { chargingProfileOcpp201Refusal } from '../lib/template-protocols.js';
 import type { JwtPayload } from '../plugins/auth.js';
 
@@ -189,6 +220,9 @@ import type { JwtPayload } from '../plugins/auth.js';
 // of the connector or its parent EVSE. Keeping a single source of truth
 // across the per-EVSE and per-connector DELETE handlers so the in-use
 // semantics can't drift between them.
+// Who entered a station's ICCID: kept for the SIM attach, never in a station reply.
+const ICCID_ORIGIN_KEYS = new Set(['iccidSource', 'iccidEnteredBy', 'iccidEnteredWithAllSites']);
+
 const CONNECTOR_IN_USE_STATUSES = [
   'occupied',
   'charging',
@@ -381,6 +415,13 @@ const updateStationBody = z.object({
     .nullable()
     .optional()
     .describe('SIM card IMSI (up to 15 digits); null removes it'),
+  dataPlan: z
+    .enum(DATA_PLANS)
+    .nullable()
+    .optional()
+    .describe(
+      "The station's own data plan (wifi_or_wired or cellular); null uses the site's plan or a confirmed SIM. An online station gets the plan's settings at once, an offline one at its next boot.",
+    ),
 });
 
 const confirmRealStationResponse = z
@@ -663,6 +704,21 @@ const stationDetail = z
     aiInsightsSuppressedBy: z.string().nullable().describe('User who suppressed them'),
     aiInsightsSuppressedByName: z.string().nullable().describe('Name of that user'),
     aiInsightsSuppressedReason: z.string().nullable().describe('Reason given for the suppression'),
+    dataPlan: z
+      .enum(DATA_PLANS)
+      .nullable()
+      .describe("The operator's data plan choice for this station; null uses the SIM or site rule"),
+    effectiveDataPlan: z
+      .enum(DATA_PLANS)
+      .describe(
+        'The data plan the station runs: its own choice, a confirmed SIM, the site, the default',
+      ),
+    dataPlanSource: z
+      .enum(DATA_PLAN_SOURCES)
+      .describe('Where the effective data plan comes from: station, sim, site or default'),
+    chargingKind: z
+      .enum(CHARGING_KINDS)
+      .describe('AC or DC, from the connector types; picks the charging reading values'),
   })
   .passthrough();
 
@@ -717,6 +773,29 @@ const stationCreated = z
   })
   .passthrough();
 
+const stationUpdated = stationCreated
+  .extend({
+    simAttachment: z
+      .enum([
+        'attached',
+        'attached_elsewhere',
+        'unchanged',
+        'none',
+        'sim_inactive',
+        'attach_conflict',
+      ])
+      .optional()
+      .describe(
+        'Present only when the body held iccid and a SIM provider or station signal reads are on. attached: the SIM is now attached to the station (confirmed when the person has access to every site); attached_elsewhere: the SIM stays attached to another target and the station has no SIM attachment; unchanged: the station already held the SIM; none: no ICCID, the attachment was closed; sim_inactive: the SIM is inactive, nothing was attached and the station has no SIM attachment; attach_conflict: other changes to the SIM attachments ran at the same time, nothing was attached and a Refresh of the station attaches the ICCID later',
+      ),
+    dataPlan: z
+      .enum(DATA_PLANS)
+      .nullable()
+      .optional()
+      .describe("Present when the body held dataPlan: the station's own data plan choice"),
+  })
+  .passthrough();
+
 const connectorDetail = z
   .object({
     connectorId: z.number().int().min(1).describe('OCPP connector ID within the EVSE (1-based)'),
@@ -724,7 +803,7 @@ const connectorDetail = z
       .string()
       .max(50)
       .nullable()
-      .describe('Physical connector type (CCS2, CHAdeMO, Type2, Type1, GBT, Tesla, NACS)'),
+      .describe('Physical connector type (CCS1, CCS2, CHAdeMO, Type2, Type1, GBT, Tesla, NACS)'),
     maxPowerKw: z.number().min(0).nullable().describe('Maximum charging power in kilowatts'),
     maxCurrentAmps: z.number().min(0).nullable().describe('Maximum charging current in amps'),
     status: z
@@ -768,7 +847,7 @@ const connectorResponse = z
     connectorType: z
       .string()
       .nullable()
-      .describe('Physical connector type (CCS2, CHAdeMO, Type2, Type1, GBT, Tesla, NACS)'),
+      .describe('Physical connector type (CCS1, CCS2, CHAdeMO, Type2, Type1, GBT, Tesla, NACS)'),
     maxPowerKw: z.number().nullable().describe('Maximum charging power in kilowatts'),
     maxCurrentAmps: z.number().nullable().describe('Maximum charging current in amps'),
     status: z.string().describe('Current connector operational status'),
@@ -817,6 +896,7 @@ const revenueHistoryItem = z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe(
         'Revenue on this date in cents, tax included: final costs of sessions started that day plus reservation fees charged that day, minus refunds, in the company currency. Active sessions are not counted',
       ),
@@ -860,11 +940,13 @@ const stationMetricsResponse = z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe(
         'Total revenue in the period in cents, tax included. Revenue is the final cost of ended sessions plus reservation fees charged, minus refunds, in the company currency; active sessions are not counted',
       ),
     avgRevenueCentsPerSession: z
       .number()
+      .nullable()
       .describe('Average revenue per ended session billed in the company currency, in cents'),
     totalTransactions: z
       .number()
@@ -873,11 +955,13 @@ const stationMetricsResponse = z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe('Total wholesale electricity cost in the period in cents'),
     totalNetRevenueCents: z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe(
         'Total revenue excluding tax in cents. Each amount is split at its own tax rate (a session at its tariff tax rate, a reservation fee at the rate it was taxed at).',
       ),
@@ -885,10 +969,12 @@ const stationMetricsResponse = z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe('Tax collected in cents (total revenue minus total net revenue)'),
     totalProfitCents: z
       .number()
       .int()
+      .nullable()
       .describe(
         'Total profit in cents (revenue excluding tax minus electricity cost); may be negative. Sessions without an electricity cost (costMissingSessionCount) are left out.',
       ),
@@ -903,6 +989,7 @@ const stationMetricsResponse = z
       .number()
       .int()
       .min(0)
+      .nullable()
       .describe('Revenue of those sessions in cents, tax included. Left out of profit.'),
     periodMonths: z.number().describe('Number of months covered by these metrics'),
     currency: z
@@ -1044,6 +1131,23 @@ const certificateItem = z
     updatedAt: z.coerce.date().describe('When the certificate record was last updated'),
   })
   .passthrough();
+
+/**
+ * The sessions of a station a user may see: those whose own site
+ * (`charging_sessions.site_id`) is one of the user's sites, so a station moved
+ * from another site does not show that site's earlier sessions, drivers or
+ * revenue. Undefined for an all-site user.
+ */
+async function stationSessionScope(userId: string): Promise<SQL | undefined> {
+  const siteIds = await getUserSiteIds(userId);
+  return siteIds == null ? undefined : sessionsAtSites(siteIds);
+}
+
+/** The same scope for revenue items (`revenueItem.siteId`, the session's site). */
+async function stationRevenueScope(userId: string): Promise<SQL[]> {
+  const siteIds = await getUserSiteIds(userId);
+  return siteIds == null ? [] : [revenueAtSites(siteIds)];
+}
 
 export function stationRoutes(app: FastifyInstance): void {
   app.get(
@@ -1243,6 +1347,9 @@ export function stationRoutes(app: FastifyInstance): void {
           latitude: chargingStations.latitude,
           longitude: chargingStations.longitude,
           reservationsEnabled: chargingStations.reservationsEnabled,
+          dataPlan: chargingStations.dataPlan,
+          effectiveDataPlan: effectiveDataPlanSql,
+          dataPlanSource: dataPlanSourceSql,
           aiInsightsSuppressed: sql<boolean>`${sql.raw(stationInsightsSuppressedSql('charging_stations'))}`,
           aiInsightsSuppressedByMaintenance: sql<boolean>`${sql.raw(stationUnderActiveMaintenanceSql('charging_stations'))}`,
           aiInsightsSuppressedSources: sql<
@@ -1274,7 +1381,8 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-      return station;
+      const planState = (await readStationDataPlans([station.id])).get(station.id);
+      return { ...station, chargingKind: planState?.chargingKind ?? 'ac' };
     },
   );
 
@@ -1604,8 +1712,8 @@ export function stationRoutes(app: FastifyInstance): void {
                 stationId: created.stationId,
                 ocppProtocol: isOcpp2x(created.ocppProtocol) ? created.ocppProtocol : 'ocpp1.6',
                 securityProfile: created.securityProfile,
-                serverUrl: process.env['OCPP_SERVER_URL'] ?? 'ws://ocpp:8080',
-                tlsServerUrl: process.env['OCPP_TLS_SERVER_URL'] ?? 'wss://ocpp:8443',
+                serverUrl: config.OCPP_SERVER_URL,
+                tlsServerUrl: config.OCPP_TLS_SERVER_URL,
                 password: password ?? null,
               },
               tx,
@@ -1660,7 +1768,10 @@ export function stationRoutes(app: FastifyInstance): void {
         params: zodSchema(stationParams),
         body: zodSchema(updateStationBody),
         response: {
-          200: itemResponse(stationCreated),
+          200: itemResponse(stationUpdated),
+          403: errorWith('A security profile change needs settings.stationConfig:write', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
           400: errorWith('Invalid security change', [
             ERROR_CODES.VALIDATION_ERROR,
             ERROR_CODES.PASSWORD_REQUIRED,
@@ -1682,6 +1793,9 @@ export function stationRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof stationParams>;
       const { userId } = request.user as JwtPayload;
+      // A security profile change is station configuration.
+      const requested = request.body as { securityProfile?: number | null };
+      if (await refuseSecurityProfileChange(request, reply, requested.securityProfile)) return;
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null) {
         const [current] = await db
@@ -1697,7 +1811,7 @@ export function stationRoutes(app: FastifyInstance): void {
           return;
         }
       }
-      const { password, securityProfile, ocppInterface, availability, ...body } =
+      const { password, securityProfile, ocppInterface, availability, dataPlan, ...body } =
         request.body as z.infer<typeof updateStationBody>;
       // Check access to the new site when the station moves. A site-restricted
       // user cannot remove a station from its site (siteId null): only
@@ -1780,18 +1894,39 @@ export function stationRoutes(app: FastifyInstance): void {
         );
       }
 
+      // An entered ICCID attaches its SIM, only while the SIM feature is on.
       const iccidEntry =
         body.iccid !== undefined
           ? {
-              by: (request.user as JwtPayload).userId,
-              withAllSites: await isAllSiteUser((request.user as JwtPayload).userId),
+              withAllSites: await isAllSiteUser(userId),
+              featureOn: isSimFeatureOn(await readSimSettings()),
             }
+          : null;
+      // The station keeps who entered the ICCID, so a later Refresh
+      // attaches it as entered by that person, never as station-reported.
+      if (iccidEntry != null) {
+        const entered = body.iccid != null && body.iccid.trim() !== '';
+        updates.iccidSource = entered ? 'entered' : 'reported';
+        updates.iccidEnteredBy = entered ? userId : null;
+        updates.iccidEnteredWithAllSites = entered && iccidEntry.withAllSites;
+      }
+
+      // A plan choice, an entered ICCID (a confirmed SIM) or a site move can
+      // change the station's effective data plan: compare after the commit.
+      const planBefore =
+        dataPlan !== undefined || iccidEntry != null || body.siteId !== undefined
+          ? await snapshotStationDataPlans(
+              iccidEntry?.featureOn === true
+                ? await stationsAffectedByIccidEntry(id, body.iccid)
+                : [id],
+              { log: request.log },
+            )
           : null;
 
       // Run the chargingStations UPDATE, any css_stations sync and the entered
       // ICCID atomically so a failure rolls the whole update back instead of
       // leaving the tables out of sync.
-      const station = await db.transaction(async (tx) => {
+      const result = await db.transaction(async (tx) => {
         const [updated] = await tx
           .update(chargingStations)
           .set(updates)
@@ -1828,8 +1963,8 @@ export function stationRoutes(app: FastifyInstance): void {
                 stationId: updated.stationId,
                 ocppProtocol: isOcpp2x(updated.ocppProtocol) ? updated.ocppProtocol : 'ocpp1.6',
                 securityProfile: updated.securityProfile,
-                serverUrl: process.env['OCPP_SERVER_URL'] ?? 'ws://ocpp:8080',
-                tlsServerUrl: process.env['OCPP_TLS_SERVER_URL'] ?? 'wss://ocpp:8443',
+                serverUrl: config.OCPP_SERVER_URL,
+                tlsServerUrl: config.OCPP_TLS_SERVER_URL,
                 password: password ?? null,
                 // SP3 cert population is out of scope for this task
               },
@@ -1840,28 +1975,31 @@ export function stationRoutes(app: FastifyInstance): void {
           }
         }
 
-        // An entered ICCID is the operator's word for the SIM: another SIM than
-        // the station held clears its match. The next Refresh confirms the entered
-        // one only when the person who entered it had access to every site.
-        if (iccidEntry != null) {
-          await recordEnteredIccid(
-            updated.id,
-            normalizeIccid(body.iccid),
-            iccidChanged(beforeStation?.iccid, body.iccid),
-            iccidEntry,
-            getAuditActor(request),
-            request.log,
-            tx,
-          );
-        }
+        // An entered ICCID is the operator's word for the SIM: it attaches the
+        // SIM, confirmed only when the person has access to every site. It never
+        // fails the update for a SIM conflict.
+        const simAttachment =
+          iccidEntry == null
+            ? 'off'
+            : await enterStationIccid(
+                updated.id,
+                body.iccid ?? null,
+                {
+                  actor: { audit: getAuditActor(request), userId },
+                  log: request.log,
+                  ...iccidEntry,
+                },
+                tx,
+              );
 
-        return updated;
+        return { updated, simAttachment };
       });
 
-      if (station == null) {
+      if (result == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
+      const { updated: station, simAttachment } = result;
 
       const actor = getAuditActor(request);
       // Determine the most specific action verb
@@ -1875,19 +2013,29 @@ export function stationRoutes(app: FastifyInstance): void {
       ) {
         action = 'simulator_toggled';
       }
-      await writeAudit(
-        { table: stationAuditLog, idColumn: 'station_id' },
-        {
-          entityId: station.id,
-          entityIdSnapshot: station.id,
-          action,
-          ...actor,
-          before: beforeStation ?? null,
-          after: station,
-        },
-        db,
-        request.log,
-      );
+      // A body with only a data plan choice is audited by the data plan
+      // service alone (one row per change, none for a no-op).
+      const onlyDataPlan =
+        dataPlan !== undefined &&
+        Object.keys(body).length === 0 &&
+        availability == null &&
+        password == null &&
+        securityProfile == null;
+      if (!onlyDataPlan) {
+        await writeAudit(
+          { table: stationAuditLog, idColumn: 'station_id' },
+          {
+            entityId: station.id,
+            entityIdSnapshot: station.id,
+            action,
+            ...actor,
+            before: beforeStation ?? null,
+            after: station,
+          },
+          db,
+          request.log,
+        );
+      }
 
       if (availabilityChanged || disableStateChanged) {
         await publishStationStatusChanged({ id, siteId: station.siteId }, request.log);
@@ -1915,7 +2063,15 @@ export function stationRoutes(app: FastifyInstance): void {
         await requestStationMessageRepush(request.log, { stationId: station.id });
       }
 
-      return station;
+      // The station data plan service writes the choice and its audit row;
+      // one push follows for every change of the effective plan.
+      if (dataPlan !== undefined) {
+        await changeStationDataPlan(id, dataPlan, actor, { log: request.log, push: false });
+      }
+      if (planBefore != null) await pushStationDataPlanChanges(planBefore, { log: request.log });
+
+      const reply200 = dataPlan !== undefined ? { ...station, dataPlan } : station;
+      return simAttachment === 'off' ? reply200 : { ...reply200, simAttachment };
     },
   );
 
@@ -2006,8 +2162,13 @@ export function stationRoutes(app: FastifyInstance): void {
         request.log,
       );
       // The response schema passes extra fields through, so the password hash
-      // is dropped here and only reported as hasPassword.
-      const { basicAuthPasswordHash, ...publicStation } = station;
+      // is dropped here and only reported as hasPassword. Who entered the
+      // ICCID is in no station reply: it would name an all-site user to a
+      // site-restricted one, and the reply stays as it was before SIMs.
+      const { basicAuthPasswordHash, ...rest } = station;
+      const publicStation = Object.fromEntries(
+        Object.entries(rest).filter(([key]) => !ICCID_ORIGIN_KEYS.has(key)),
+      );
       return { ...publicStation, hasPassword: basicAuthPasswordHash != null };
     },
   );
@@ -2118,7 +2279,33 @@ export function stationRoutes(app: FastifyInstance): void {
     connectorId: z.coerce.number().int().min(1).describe('OCPP connector ID (integer)'),
   });
 
-  const connectorTypes = ['CCS2', 'CHAdeMO', 'Type2', 'Type1', 'GBT', 'Tesla', 'NACS'] as const;
+  const connectorTypes = CONNECTOR_TYPES;
+
+  // An EVSE or connector write can change the station's charging kind (AC or
+  // DC): the kind is read before the write and, after a successful reply, the
+  // station gets the charging reading values of its new kind.
+  const chargingKindBefore = new WeakMap<
+    FastifyRequest,
+    Awaited<ReturnType<typeof snapshotStationDataPlans>>
+  >();
+  const snapshotChargingKind = async (request: FastifyRequest): Promise<void> => {
+    const { id } = request.params as { id: string };
+    chargingKindBefore.set(request, await snapshotStationDataPlans([id], { log: request.log }));
+  };
+  // onSend: the write committed and the reply status is known; the push runs
+  // before the reply goes out (fail-open, it never changes the reply).
+  const pushChargingKindChange = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+    payload: unknown,
+  ): Promise<unknown> => {
+    const before = chargingKindBefore.get(request);
+    chargingKindBefore.delete(request);
+    if (before != null && reply.statusCode < 300) {
+      await pushStationDataPlanChanges(before, { log: request.log });
+    }
+    return payload;
+  };
 
   const createEvseBody = z.object({
     evseId: z.number().int().min(1).describe('OCPP EVSE ID (integer)'),
@@ -2147,6 +2334,8 @@ export function stationRoutes(app: FastifyInstance): void {
     '/stations/:id/evses',
     {
       onRequest: [authorize('stations:write')],
+      preHandler: snapshotChargingKind,
+      onSend: pushChargingKindChange,
       schema: {
         tags: ['Stations'],
         summary: 'Add an EVSE with connectors to a station',
@@ -2311,6 +2500,8 @@ export function stationRoutes(app: FastifyInstance): void {
     '/stations/:id/evses/:evseId',
     {
       onRequest: [authorize('stations:write')],
+      preHandler: snapshotChargingKind,
+      onSend: pushChargingKindChange,
       schema: {
         tags: ['Stations'],
         summary: 'Update connectors on an EVSE',
@@ -2547,7 +2738,7 @@ export function stationRoutes(app: FastifyInstance): void {
   app.post(
     '/stations/:id/evses/:evseId/stop-active-session',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('RequestStopTransaction'))],
       schema: {
         tags: ['Stations'],
         summary: 'Force-stop the active charging session on this EVSE',
@@ -2735,6 +2926,8 @@ export function stationRoutes(app: FastifyInstance): void {
     '/stations/:id/evses/:evseId/connectors',
     {
       onRequest: [authorize('stations:write')],
+      preHandler: snapshotChargingKind,
+      onSend: pushChargingKindChange,
       schema: {
         tags: ['Stations'],
         summary: 'Add a connector to an EVSE',
@@ -2867,6 +3060,8 @@ export function stationRoutes(app: FastifyInstance): void {
     '/stations/:id/evses/:evseId',
     {
       onRequest: [authorize('stations:write')],
+      preHandler: snapshotChargingKind,
+      onSend: pushChargingKindChange,
       schema: {
         tags: ['Stations'],
         summary: 'Delete an EVSE and all its connectors',
@@ -2967,6 +3162,8 @@ export function stationRoutes(app: FastifyInstance): void {
     '/stations/:id/evses/:evseId/connectors/:connectorId',
     {
       onRequest: [authorize('stations:write')],
+      preHandler: snapshotChargingKind,
+      onSend: pushChargingKindChange,
       schema: {
         tags: ['Stations'],
         summary: 'Delete a connector from an EVSE',
@@ -3115,6 +3312,8 @@ export function stationRoutes(app: FastifyInstance): void {
     '/stations/:id/evses/:evseId/retire',
     {
       onRequest: [authorize('stations:write')],
+      preHandler: snapshotChargingKind,
+      onSend: pushChargingKindChange,
       schema: {
         tags: ['Stations'],
         summary: 'Retire an EVSE',
@@ -3143,6 +3342,8 @@ export function stationRoutes(app: FastifyInstance): void {
     '/stations/:id/evses/:evseId/restore',
     {
       onRequest: [authorize('stations:write')],
+      preHandler: snapshotChargingKind,
+      onSend: pushChargingKindChange,
       schema: {
         tags: ['Stations'],
         summary: 'Restore a retired EVSE',
@@ -3165,6 +3366,8 @@ export function stationRoutes(app: FastifyInstance): void {
     '/stations/:id/evses/:evseId/connectors/:connectorId/retire',
     {
       onRequest: [authorize('stations:write')],
+      preHandler: snapshotChargingKind,
+      onSend: pushChargingKindChange,
       schema: {
         tags: ['Stations'],
         summary: 'Retire a connector',
@@ -3193,6 +3396,8 @@ export function stationRoutes(app: FastifyInstance): void {
     '/stations/:id/evses/:evseId/connectors/:connectorId/restore',
     {
       onRequest: [authorize('stations:write')],
+      preHandler: snapshotChargingKind,
+      onSend: pushChargingKindChange,
       schema: {
         tags: ['Stations'],
         summary: 'Restore a retired connector',
@@ -3323,6 +3528,7 @@ export function stationRoutes(app: FastifyInstance): void {
         .where(
           and(
             eq(chargingSessions.stationId, id),
+            await stationSessionScope(userId),
             gte(chargingSessions.startedAt, since),
             until ? lte(chargingSessions.startedAt, until) : undefined,
           ),
@@ -3376,12 +3582,15 @@ export function stationRoutes(app: FastifyInstance): void {
         sql`${revenueItem.occurredAt} >= ${since.toISOString()}::timestamptz`,
       ];
       if (until) where.push(sql`${revenueItem.occurredAt} <= ${until.toISOString()}::timestamptz`);
+      where.push(...(await stationRevenueScope(userId)));
       const byDay = await queryRevenue({
         companyCurrency: await getCompanyCurrency(),
         key: sql`date_trunc('day', ${revenueItem.occurredAt} AT TIME ZONE ${tz})::date`,
         where,
       });
 
+      // Revenue needs payments:read (null without it); the counts stay.
+      const moneyVisible = await canReadMoney(request);
       return zeroFillDays(
         enumerateLocalDays(since, until, tz),
         [...byDay]
@@ -3392,7 +3601,7 @@ export function stationRoutes(app: FastifyInstance): void {
             sessionCount: revenue.sessionCount,
           })),
         (date) => ({ date, revenueCents: 0, sessionCount: 0 }),
-      );
+      ).map((day) => maskMoneyFields(day, REVENUE_HISTORY_MONEY_FIELDS, moneyVisible));
     },
   );
 
@@ -3590,7 +3799,13 @@ export function stationRoutes(app: FastifyInstance): void {
           totalSessions: count(),
         })
         .from(chargingSessions)
-        .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since)))
+        .where(
+          and(
+            eq(chargingSessions.stationId, id),
+            await stationSessionScope(userId),
+            gte(chargingSessions.startedAt, since),
+          ),
+        )
         .groupBy(sql`1`, sql`2`)
         .orderBy(sql`1`, sql`2`);
 
@@ -3698,6 +3913,7 @@ export function stationRoutes(app: FastifyInstance): void {
 
       const currency = await getCompanyCurrency();
       const billed = inCompanyCurrency(chargingSessions.currency, currency);
+      const sessionScope = await stationSessionScope(userId);
       // Three independent aggregations against the same WHERE — run in parallel.
       const [[sessionStats], [utilizationStats], [financialStats]] = await Promise.all([
         db
@@ -3709,14 +3925,26 @@ export function stationRoutes(app: FastifyInstance): void {
             avgDurationMinutes: sql<number>`coalesce(avg(extract(epoch from (${chargingSessions.endedAt} - ${chargingSessions.startedAt})) / 60) filter (where ${chargingSessions.endedAt} is not null), 0)`,
           })
           .from(chargingSessions)
-          .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since))),
+          .where(
+            and(
+              eq(chargingSessions.stationId, id),
+              sessionScope,
+              gte(chargingSessions.startedAt, since),
+            ),
+          ),
         db
           .select({
             sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
             portCount: sql<number>`(select count(*) from evses where station_id = ${id} and retired_at is null)`,
           })
           .from(chargingSessions)
-          .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since))),
+          .where(
+            and(
+              eq(chargingSessions.stationId, id),
+              sessionScope,
+              gte(chargingSessions.startedAt, since),
+            ),
+          ),
         db
           .select({
             totalElectricityCostCents:
@@ -3725,7 +3953,13 @@ export function stationRoutes(app: FastifyInstance): void {
               ),
           })
           .from(chargingSessions)
-          .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since))),
+          .where(
+            and(
+              eq(chargingSessions.stationId, id),
+              sessionScope,
+              gte(chargingSessions.startedAt, since),
+            ),
+          ),
       ]);
 
       // Revenue (session-revenue.ts): ended sessions and reservation fees,
@@ -3735,6 +3969,7 @@ export function stationRoutes(app: FastifyInstance): void {
         where: [
           sql`${revenueItem.stationId} = ${id}`,
           sql`${revenueItem.occurredAt} >= ${since.toISOString()}::timestamptz`,
+          ...(await stationRevenueScope(userId)),
         ],
       });
 
@@ -3771,34 +4006,39 @@ export function stationRoutes(app: FastifyInstance): void {
         | { disconnect_count: string; avg_downtime_minutes: string; max_downtime_minutes: string }
         | undefined;
 
-      return {
-        uptimePercent: Math.round(Number(uptimeRow?.uptime_percent ?? 100) * 100) / 100,
-        portCount: Number(uptimeRow?.port_count ?? 0),
-        utilizationPercent: utilization,
-        totalSessions: total,
-        completedSessions: completed,
-        faultedSessions: sessionStats?.faultedSessions ?? 0,
-        sessionSuccessPercent: total > 0 ? Math.round((completed / total) * 100) : 100,
-        totalEnergyWh: sessionStats?.totalEnergyWh ?? 0,
-        avgSessionDurationMinutes: Math.round(sessionStats?.avgDurationMinutes ?? 0),
-        disconnectCount: Number(disconnectRow?.disconnect_count ?? 0),
-        avgDowntimeMinutes: Math.round(Number(disconnectRow?.avg_downtime_minutes ?? 0)),
-        maxDowntimeMinutes: Math.round(Number(disconnectRow?.max_downtime_minutes ?? 0)),
-        totalRevenueCents: revenue.grossCents,
-        avgRevenueCentsPerSession:
-          revenue.sessionCount > 0
-            ? Math.round(revenue.sessionGrossCents / revenue.sessionCount)
-            : 0,
-        totalTransactions: revenue.itemCount,
-        totalElectricityCostCents: financialStats?.totalElectricityCostCents ?? 0,
-        totalNetRevenueCents: revenue.netCents,
-        totalTaxCents: revenue.taxCents,
-        totalProfitCents: profitCents(revenue, financialStats?.totalElectricityCostCents ?? 0),
-        costMissingSessionCount: revenue.costMissingCount,
-        costMissingRevenueCents: revenue.costMissingGrossCents,
-        periodMonths: months,
-        currency,
-      };
+      // Revenue, tax, cost and profit need payments:read (null without it).
+      return maskMoneyFields(
+        {
+          uptimePercent: Math.round(Number(uptimeRow?.uptime_percent ?? 100) * 100) / 100,
+          portCount: Number(uptimeRow?.port_count ?? 0),
+          utilizationPercent: utilization,
+          totalSessions: total,
+          completedSessions: completed,
+          faultedSessions: sessionStats?.faultedSessions ?? 0,
+          sessionSuccessPercent: total > 0 ? Math.round((completed / total) * 100) : 100,
+          totalEnergyWh: sessionStats?.totalEnergyWh ?? 0,
+          avgSessionDurationMinutes: Math.round(sessionStats?.avgDurationMinutes ?? 0),
+          disconnectCount: Number(disconnectRow?.disconnect_count ?? 0),
+          avgDowntimeMinutes: Math.round(Number(disconnectRow?.avg_downtime_minutes ?? 0)),
+          maxDowntimeMinutes: Math.round(Number(disconnectRow?.max_downtime_minutes ?? 0)),
+          totalRevenueCents: revenue.grossCents,
+          avgRevenueCentsPerSession:
+            revenue.sessionCount > 0
+              ? Math.round(revenue.sessionGrossCents / revenue.sessionCount)
+              : 0,
+          totalTransactions: revenue.itemCount,
+          totalElectricityCostCents: financialStats?.totalElectricityCostCents ?? 0,
+          totalNetRevenueCents: revenue.netCents,
+          totalTaxCents: revenue.taxCents,
+          totalProfitCents: profitCents(revenue, financialStats?.totalElectricityCostCents ?? 0),
+          costMissingSessionCount: revenue.costMissingCount,
+          costMissingRevenueCents: revenue.costMissingGrossCents,
+          periodMonths: months,
+          currency,
+        },
+        METRICS_MONEY_FIELDS,
+        await canReadMoney(request),
+      );
     },
   );
 
@@ -3838,6 +4078,8 @@ export function stationRoutes(app: FastifyInstance): void {
       const { page, limit, status } = request.query as z.infer<typeof sessionsQuery>;
       const offset = (page - 1) * limit;
       const conditions = [eq(chargingSessions.stationId, id)];
+      const sessionScope = await stationSessionScope(userId);
+      if (sessionScope != null) conditions.push(sessionScope);
       if (status != null) {
         if (status === 'idling') {
           conditions.push(eq(chargingSessions.status, 'active'));
@@ -4289,7 +4531,7 @@ export function stationRoutes(app: FastifyInstance): void {
   app.post(
     '/stations/:id/certificates/install',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('InstallCertificate'))],
       schema: {
         tags: ['Stations'],
         summary: 'Install a certificate on a station',
@@ -4372,7 +4614,7 @@ export function stationRoutes(app: FastifyInstance): void {
   app.post(
     '/stations/:id/certificates/delete',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('DeleteCertificate'))],
       schema: {
         tags: ['Stations'],
         summary: 'Delete a certificate from a station',
@@ -4447,7 +4689,7 @@ export function stationRoutes(app: FastifyInstance): void {
   app.post(
     '/stations/:id/certificates/query',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('GetInstalledCertificateIds'))],
       schema: {
         tags: ['Stations'],
         summary: 'Query installed certificate IDs from a station',
@@ -5321,7 +5563,7 @@ export function stationRoutes(app: FastifyInstance): void {
   app.post(
     '/stations/:id/charging-profiles/refresh',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('GetChargingProfiles'))],
       schema: {
         tags: ['Stations'],
         summary: 'Refresh charging profiles from the station via OCPP GetChargingProfiles',
@@ -5435,7 +5677,7 @@ export function stationRoutes(app: FastifyInstance): void {
   app.post(
     '/stations/:id/charging-profiles/composite',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('GetCompositeSchedule'))],
       schema: {
         tags: ['Stations'],
         summary: 'Get composite charging schedule from the station',
@@ -5552,7 +5794,7 @@ export function stationRoutes(app: FastifyInstance): void {
   app.post(
     '/stations/:id/charging-profiles/clear',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('ClearChargingProfile'))],
       schema: {
         tags: ['Stations'],
         summary: 'Clear charging profiles from the station',
@@ -5701,7 +5943,7 @@ export function stationRoutes(app: FastifyInstance): void {
   app.post(
     '/stations/:id/charging-profiles/push',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('SetChargingProfile'))],
       schema: {
         tags: ['Stations'],
         summary: 'Push a charging profile template to this station',
@@ -5776,7 +6018,7 @@ export function stationRoutes(app: FastifyInstance): void {
 
       // A template that targets another site or station is not found for a
       // site-restricted user, and a company-wide one needs access to every
-      // site to push (owner decision 2026-10-09).
+      // site to push.
       const profileSiteIds = await getUserSiteIds(userId);
       const template = await findScopedChargingProfileTemplate(body.templateId, profileSiteIds);
       if (template == null || isRestrictedCompanyWideWrite(profileSiteIds, template.targetFilter)) {
@@ -5907,12 +6149,12 @@ export function stationRoutes(app: FastifyInstance): void {
   app.post(
     '/stations/:id/configurations/push',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('SetVariables'))],
       schema: {
         tags: ['Stations'],
         summary: 'Push a configuration template to this station',
         description:
-          'Iterates the template variables and dispatches SetVariables (OCPP 2.1, batched) or one ChangeConfiguration per variable (OCPP 1.6). Per-variable results are returned with the per-variable status. After a successful push, a refresh (GetBaseReport on 2.1, GetConfiguration on 1.6) updates the CSMS mirror. Returns success=true only when every variable was Accepted. A template for an OCPP version other than the one the station uses is refused with 400 OCPP_VERSION_MISMATCH. A template that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords with POST /v1/stations/{id}/credentials.',
+          'Iterates the template variables and dispatches SetVariables (OCPP 2.1, batched) or one ChangeConfiguration per variable (OCPP 1.6). Per-variable results are returned with the per-variable status. After a successful push, a refresh (GetBaseReport on 2.1, GetConfiguration on 1.6) updates the CSMS mirror. Returns success=true only when every variable was Accepted. A template for an OCPP version other than the one the station uses is refused with 400 OCPP_VERSION_MISMATCH. A template that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords with POST /v1/stations/{id}/credentials. A template that names a boot-owned variable (the heartbeat interval or a meter value setting, which the station data plan sets at every boot) is refused with 400 DATA_PLAN_SETTING_IN_TEMPLATE, details.variables naming them. A 2.x variable with a variable instance is sent with that instance.',
         operationId: 'pushStationConfiguration',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -5932,6 +6174,11 @@ export function stationRoutes(app: FastifyInstance): void {
                           .string()
                           .describe('OCPP component name the variable belongs to'),
                         variable: z.string().describe('OCPP variable name'),
+                        variableInstance: z
+                          .string()
+                          .nullable()
+                          .optional()
+                          .describe('OCPP 2.x variable instance, absent when none'),
                         status: z
                           .string()
                           .describe(
@@ -5944,11 +6191,17 @@ export function stationRoutes(app: FastifyInstance): void {
               })
               .passthrough(),
           ),
-          400: errorWith('Station offline, another OCPP version or a station credential variable', [
-            ERROR_CODES.STATION_OFFLINE,
-            ERROR_CODES.OCPP_VERSION_MISMATCH,
-            ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
-          ]),
+          400: errorWith(
+            'Station offline, another OCPP version, a station credential, security or boot-owned variable',
+            [
+              ERROR_CODES.STATION_OFFLINE,
+              ERROR_CODES.OCPP_VERSION_MISMATCH,
+              ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
+              ERROR_CODES.STATION_SECURITY_ROUTE_REQUIRED,
+              ERROR_CODES.DATA_PLAN_SETTING_IN_TEMPLATE,
+            ],
+            templateRefusalDetails,
+          ),
           404: errorWith('Resource not found', [
             ERROR_CODES.STATION_NOT_FOUND,
             ERROR_CODES.TEMPLATE_NOT_FOUND,
@@ -5988,7 +6241,7 @@ export function stationRoutes(app: FastifyInstance): void {
 
       // A template bound to another site's station or site is not found for a
       // site-restricted user. A company-wide template needs access to every
-      // site to push (owner decision 2026-10-09), and a template bound to a
+      // site to push, and a template bound to a
       // station is pushed to that station only.
       const configSiteIds = await getUserSiteIds(userId);
       const template = await findScopedConfigTemplate(body.templateId, configSiteIds);
@@ -6001,11 +6254,7 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const variables = template.variables as Array<{
-        component: string;
-        variable: string;
-        value: string;
-      }>;
+      const variables = template.variables as ConfigPushVariable[];
 
       if (variables.length === 0) {
         return { success: true, results: [] };
@@ -6020,10 +6269,17 @@ export function stationRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      // A template saved before v0.1.45 can still name a credential.
+      // A template saved before v0.1.45 can still name a credential, and one
+      // saved before v0.1.48 a boot-owned variable.
       assertNoCredentialVariables(variables);
+      assertNoBootOwnedVariables(template.ocppVersion, variables);
 
-      const results: Array<{ component: string; variable: string; status: string }> = [];
+      const results: Array<{
+        component: string;
+        variable: string;
+        variableInstance?: string | null;
+        status: string;
+      }> = [];
       let hasFailure = false;
 
       if (ocppVersion === '1.6') {
@@ -6061,7 +6317,7 @@ export function stationRoutes(app: FastifyInstance): void {
           {
             setVariableData: variables.map((v) => ({
               component: { name: v.component },
-              variable: { name: v.variable },
+              variable: setVariableTarget(v),
               attributeValue: v.value,
             })),
           },
@@ -6070,7 +6326,12 @@ export function stationRoutes(app: FastifyInstance): void {
 
         if (result.error != null) {
           for (const v of variables) {
-            results.push({ component: v.component, variable: v.variable, status: result.error });
+            results.push({
+              component: v.component,
+              variable: v.variable,
+              ...(v.variableInstance != null ? { variableInstance: v.variableInstance } : {}),
+              status: result.error,
+            });
           }
           hasFailure = true;
         } else {
@@ -6078,7 +6339,7 @@ export function stationRoutes(app: FastifyInstance): void {
             setVariableResult?: Array<{
               attributeStatus?: string;
               component?: { name?: string };
-              variable?: { name?: string };
+              variable?: { name?: string; instance?: string };
             }>;
           };
           const setResults = response.setVariableResult ?? [];
@@ -6087,6 +6348,7 @@ export function stationRoutes(app: FastifyInstance): void {
             results.push({
               component: r.component?.name ?? '',
               variable: r.variable?.name ?? '',
+              ...(r.variable?.instance != null ? { variableInstance: r.variable.instance } : {}),
               status,
             });
             if (status !== 'Accepted') hasFailure = true;
@@ -6425,7 +6687,7 @@ export function stationRoutes(app: FastifyInstance): void {
   app.post(
     '/stations/:id/monitoring-rules',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('SetVariableMonitoring'))],
       schema: {
         tags: ['Stations'],
         summary: 'Create a variable monitoring rule and send SetVariableMonitoring',
@@ -6581,7 +6843,7 @@ export function stationRoutes(app: FastifyInstance): void {
   app.delete(
     '/stations/:id/monitoring-rules/:ruleId',
     {
-      onRequest: [authorize('stations:write')],
+      onRequest: [authorize(...ocppCommandRoutePermissions('ClearVariableMonitoring'))],
       schema: {
         tags: ['Stations'],
         summary: 'Clear a variable monitoring rule and send ClearVariableMonitoring',

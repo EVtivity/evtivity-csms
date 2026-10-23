@@ -7,8 +7,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { permissionCatalog } from '@evtivity/lib/permissions';
 
-const { getMock, editorValues } = vi.hoisted(() => ({
+const { getMock, postMock, putMock, editorValues } = vi.hoisted(() => ({
   getMock: vi.fn(),
+  postMock: vi.fn(),
+  putMock: vi.fn(),
   editorValues: [] as string[][],
 }));
 
@@ -22,7 +24,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@/lib/api', () => ({
-  api: { get: getMock, post: vi.fn(), put: vi.fn() },
+  api: { get: getMock, post: postMock, put: putMock },
   getApiErrorFieldDetails: () => ({}),
 }));
 
@@ -33,6 +35,21 @@ vi.mock('@/components/PermissionEditor', () => ({
   },
 }));
 
+// The proof field: a stand-in that reports a password proof when its button is pressed.
+vi.mock('@/components/FactorProofField', () => ({
+  FactorProofField: ({ onChange }: { onChange: (p: unknown) => void }) => (
+    <button
+      type="button"
+      onClick={() => {
+        onChange({ kind: 'password', password: 'secret' });
+      }}
+    >
+      give-proof
+    </button>
+  ),
+  proofRejection: () => ({ code: null }),
+}));
+
 import { UserCreate } from '../UserCreate';
 
 const ROLES = [
@@ -41,9 +58,15 @@ const ROLES = [
   { id: 'rol_viewer', name: 'viewer' },
 ];
 
-function renderCreate(): void {
+function renderCreate(proofKinds: string[] = []): void {
   getMock.mockImplementation((path: string) =>
-    Promise.resolve(path === '/v1/roles' ? ROLES : { data: [] }),
+    Promise.resolve(
+      path === '/v1/roles'
+        ? ROLES
+        : path === '/v1/users/me/mfa'
+          ? { factorProofKinds: proofKinds, mfaMethod: null }
+          : { data: [] },
+    ),
   );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -114,5 +137,54 @@ describe('UserCreate role defaults', () => {
     await screen.findByRole('option', { name: 'viewer' });
     expect(screen.queryByText('users.allSites')).toBeNull();
     siteAccess.all = true;
+  });
+});
+
+describe('UserCreate fresh proof', () => {
+  afterEach(() => {
+    cleanup();
+    getMock.mockReset();
+    postMock.mockReset();
+    putMock.mockReset();
+    editorValues.length = 0;
+  });
+
+  function fill(): void {
+    fireEvent.change(screen.getByLabelText('common.email'), { target: { value: 'a@b.example' } });
+    fireEvent.change(screen.getByLabelText('users.firstName'), { target: { value: 'A' } });
+    fireEvent.change(screen.getByLabelText('users.lastName'), { target: { value: 'B' } });
+    fireEvent.click(screen.getByLabelText('users.allSites'));
+  }
+
+  it('sends an admin with its permissions and the proof in one request', async () => {
+    postMock.mockResolvedValue({ id: 'usr_1' });
+    renderCreate(['password']);
+    await selectRole('rol_admin');
+    fill();
+    const create = screen.getByRole('button', { name: 'common.create' });
+    fireEvent.click(create);
+    expect(postMock).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByText('give-proof'));
+    fireEvent.click(create);
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledTimes(1);
+    });
+    const body = postMock.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body['permissions']).toEqual(permissionCatalog.defaultsFor('admin'));
+    expect(body['proof']).toEqual({ kind: 'password', password: 'secret' });
+    expect(putMock).not.toHaveBeenCalled();
+  });
+
+  it('asks no proof for a viewer', async () => {
+    postMock.mockResolvedValue({ id: 'usr_2' });
+    renderCreate(['password']);
+    await selectRole('rol_viewer');
+    fill();
+    expect(screen.queryByText('give-proof')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'common.create' }));
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledTimes(1);
+    });
+    expect((postMock.mock.calls[0]?.[1] as Record<string, unknown>)['proof']).toBeUndefined();
   });
 });
