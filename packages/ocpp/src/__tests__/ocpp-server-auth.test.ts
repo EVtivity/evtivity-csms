@@ -10,10 +10,18 @@ import { hash } from 'argon2';
 const { mockGetRegistrationPolicy } = vi.hoisted(() => ({
   mockGetRegistrationPolicy: vi.fn(() => Promise.resolve('approval-required')),
 }));
-vi.mock('@evtivity/database', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@evtivity/database')>()),
-  getRegistrationPolicy: mockGetRegistrationPolicy,
-}));
+// The data plan reads go to the shipped values: without a database (CI) a real
+// read waits on the connection and the handshakes time out.
+vi.mock('@evtivity/database', async (importOriginal) => {
+  const { DATA_PLAN_DEFAULTS } = await import('@evtivity/lib');
+  return {
+    ...(await importOriginal<typeof import('@evtivity/database')>()),
+    getRegistrationPolicy: mockGetRegistrationPolicy,
+    getDataPlanValues: (plan: keyof typeof DATA_PLAN_DEFAULTS) =>
+      Promise.resolve(DATA_PLAN_DEFAULTS[plan]),
+    readStationDataPlans: () => Promise.resolve(new Map()),
+  };
+});
 
 import { OcppServer } from '../server/ocpp-server.js';
 import type { ConnectionAuthLimits } from '../server/connection-auth-limiter.js';

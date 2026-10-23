@@ -9,6 +9,19 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EVENT_DRAIN_TIMEOUT_MS, OcppServer } from '../server/ocpp-server.js';
 import type { HandlerContext } from '../server/middleware/pipeline.js';
+import { DATA_PLAN_DEFAULTS } from '@evtivity/lib';
+
+// The data plan reads go to the shipped values: without a database (CI) a real
+// read waits on the connection.
+vi.mock('@evtivity/database', async (importOriginal) => {
+  const lib = await import('@evtivity/lib');
+  return {
+    ...(await importOriginal<typeof import('@evtivity/database')>()),
+    getDataPlanValues: (plan: keyof typeof lib.DATA_PLAN_DEFAULTS) =>
+      Promise.resolve(lib.DATA_PLAN_DEFAULTS[plan]),
+    readStationDataPlans: () => Promise.resolve(new Map()),
+  };
+});
 
 let testPort = 19080;
 let server: OcppServer | null = null;
@@ -118,7 +131,7 @@ describe('OcppServer integration', () => {
     expect(response[1]).toBe('msg-1');
     const payload = response[2] as Record<string, unknown>;
     expect(payload['status']).toBe('Accepted');
-    expect(payload['interval']).toBe(300);
+    expect(payload['interval']).toBe(DATA_PLAN_DEFAULTS.wifi_or_wired.heartbeatInterval);
     expect(payload['currentTime']).toBeDefined();
     ws.close();
   });

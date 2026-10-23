@@ -7,6 +7,18 @@ import type { HandlerContext } from '../server/middleware/pipeline.js';
 import { handleBootNotification } from '../handlers/v2_1/boot-notification.handler.js';
 import { handleHeartbeat } from '../handlers/v2_1/heartbeat.handler.js';
 import { handleDataTransfer } from '../handlers/v2_1/data-transfer.handler.js';
+import { DATA_PLAN_DEFAULTS } from '@evtivity/lib';
+
+// The boot reads its data plan: answer with the shipped values instead of a database.
+vi.mock('@evtivity/database', async (importOriginal) => {
+  const lib = await import('@evtivity/lib');
+  return {
+    ...(await importOriginal<typeof import('@evtivity/database')>()),
+    getDataPlanValues: (plan: keyof typeof lib.DATA_PLAN_DEFAULTS) =>
+      Promise.resolve(lib.DATA_PLAN_DEFAULTS[plan]),
+    readStationDataPlans: () => Promise.resolve(new Map()),
+  };
+});
 
 const logger = pino({ level: 'silent' });
 
@@ -62,7 +74,7 @@ describe('BootNotification handler', () => {
     const response = await handleBootNotification(ctx);
 
     expect(response).toHaveProperty('status', 'Accepted');
-    expect(response).toHaveProperty('interval', 300);
+    expect(response).toHaveProperty('interval', DATA_PLAN_DEFAULTS.wifi_or_wired.heartbeatInterval);
     expect(response).toHaveProperty('currentTime');
     expect(publishMock).toHaveBeenCalledOnce();
   });
