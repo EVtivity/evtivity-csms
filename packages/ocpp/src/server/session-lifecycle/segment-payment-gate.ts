@@ -28,6 +28,7 @@ interface SegmentGateRow {
   guest_email: string | null;
   guest_language: string | null;
   guest_payment_id: string | null;
+  guest_payment_terminal: boolean | null;
 }
 
 /**
@@ -60,7 +61,8 @@ export async function runSegmentPaymentGate(
            st.station_id AS ocpp_station_id, st.site_id, cs.is_roaming, cs.free_vend,
            cs.billing_mode, dt.prepaid_balance_cents,
            g.status AS guest_status, g.guest_email, g.language AS guest_language,
-           g.provider_payment_id AS guest_payment_id
+           g.provider_payment_id AS guest_payment_id,
+           g.payment_terminal AS guest_payment_terminal
     FROM charging_sessions cs
     JOIN charging_stations st ON st.id = cs.station_id
     LEFT JOIN driver_tokens dt ON dt.id = cs.token_id
@@ -72,6 +74,7 @@ export async function runSegmentPaymentGate(
   if (row.is_roaming || row.free_vend || row.billing_mode === 'account') return null;
   if (row.prepaid_balance_cents != null) return null;
   const isGuest = row.guest_status != null;
+  const guestHasHold = row.guest_payment_id != null || row.guest_payment_terminal === true;
   if (row.driver_id == null && !isGuest) return null;
 
   return runPaymentGate(deps, {
@@ -84,8 +87,18 @@ export async function runSegmentPaymentGate(
     isRoaming: false,
     idToken: undefined,
     // A guest who started free has no card hold: the gate stops the session.
-    guestStatus: isGuest ? (row.guest_payment_id != null ? row.guest_status : 'free_start') : null,
-    guestHasHold: row.guest_payment_id != null,
+    // A payment terminal authorization (ad hoc payment) counts as the hold.
+    // The joined guest session is linked, so a held guest reads `charging`:
+    // that is the authorization the gate allows, as the Started projection
+    // reads a guest linked to this session. Any other status stays as it is.
+    guestStatus: isGuest
+      ? guestHasHold
+        ? row.guest_status === 'charging'
+          ? 'payment_authorized'
+          : row.guest_status
+        : 'free_start'
+      : null,
+    guestHasHold,
     guestEmail: row.guest_email,
     guestLanguage: row.guest_language ?? null,
     prepaidBalanceCents: null,

@@ -3,7 +3,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { PgDialect } from 'drizzle-orm/pg-core';
-import { publicSiteListed, publicStationListed } from '../lib/public-station.js';
+import {
+  publicSiteListed,
+  publicStationListed,
+  qrCheckableStation,
+} from '../lib/public-station.js';
 
 // Building the condition runs no query: it is rendered to SQL here.
 const render = (condition: ReturnType<typeof publicStationListed>) =>
@@ -23,5 +27,17 @@ describe('publicSiteListed', () => {
     const text = render(publicSiteListed());
     expect(text).toContain('EXISTS (SELECT 1 FROM "charging_stations"');
     expect(text).toContain('"charging_stations"."is_conformance" = $2');
+  });
+});
+
+describe('qrCheckableStation', () => {
+  it('checks listed operator stations and accepted conformance stations only', () => {
+    const query = new PgDialect().sqlToQuery(qrCheckableStation());
+    const text = query.sql.replace(/\s+/g, ' ');
+    expect(text).toContain('"charging_stations"."onboarding_status" = $1');
+    expect(text).toContain('"charging_stations"."is_conformance" = $2');
+    expect(text).toContain(' or ');
+    expect(text).toContain('not "charging_stations"."is_conformance" = $4');
+    expect(query.params).toEqual(['accepted', false, 'accepted', false]);
   });
 });

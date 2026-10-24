@@ -3416,7 +3416,7 @@
       "tab": "Data Retention",
       "description": "How many days the CSMS keeps each kind of stored data. A prune job deletes older rows on its next run: the log and audit jobs run daily, the AI job every hour. These settings apply to every site.",
       "storageTitle": "Chaos Mode and Large Networks Need Large Storage",
-      "storageNote": "Every OCPP message a station sends or receives is a row in ocpp_message_logs, heartbeats included, and every meter reading is a row in meter_values. Both tables grow with the number of connected stations, even while no one charges. On a test network of about 2,000 simulated stations, the database reached 90 GB. Lower OCPP Messages and Meter Values to keep these tables smaller.",
+      "storageNote": "Every OCPP message a station sends or receives is a row in ocpp_message_logs, heartbeats included, and every meter reading is a row in meter_values. Both tables grow with the number of connected stations, even while no one charges. Lower OCPP Messages and Meter Values to keep these tables smaller.",
       "range": "{{min}} to {{max}} days. Default: {{default}}.",
       "keepForever": "0 keeps the data forever.",
       "saveFailed": "The data retention settings could not be saved.",

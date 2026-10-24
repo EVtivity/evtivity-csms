@@ -162,6 +162,8 @@ describe('POST /v1/ad-hoc-payments', () => {
         evseId: 1,
         sessionToken: 'PSP-4444',
         status: 'payment_authorized',
+        // The terminal holds the payment: the payment gate counts it as the hold.
+        paymentTerminal: true,
         guestEmail: '',
         maxCostCents: 5000,
         maxEnergyWh: 20000,

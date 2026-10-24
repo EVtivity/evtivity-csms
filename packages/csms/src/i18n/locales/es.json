@@ -3416,7 +3416,7 @@
       "tab": "Retención de Datos",
       "description": "Cuántos días conserva el CSMS cada tipo de dato almacenado. Un trabajo de depuración borra las filas más antiguas en su siguiente ejecución: los trabajos de registros y auditoría se ejecutan a diario y el de IA cada hora. Estos ajustes se aplican a todas las ubicaciones.",
       "storageTitle": "El Modo Caos y las Redes Grandes Necesitan Mucho Almacenamiento",
-      "storageNote": "Cada mensaje OCPP que una estación envía o recibe es una fila en ocpp_message_logs, incluidos los latidos, y cada lectura del medidor es una fila en meter_values. Ambas tablas crecen con el número de estaciones conectadas, aunque nadie esté cargando. En una red de prueba de unas 2.000 estaciones simuladas, la base de datos alcanzó 90 GB. Reduzca Mensajes OCPP y Valores del Medidor para mantener estas tablas más pequeñas.",
+      "storageNote": "Cada mensaje OCPP que una estación envía o recibe es una fila en ocpp_message_logs, incluidos los latidos, y cada lectura del medidor es una fila en meter_values. Ambas tablas crecen con el número de estaciones conectadas, aunque nadie esté cargando. Reduzca Mensajes OCPP y Valores del Medidor para mantener estas tablas más pequeñas.",
       "range": "De {{min}} a {{max}} días. Predeterminado: {{default}}.",
       "keepForever": "0 conserva los datos para siempre.",
       "saveFailed": "No se pudieron guardar los ajustes de retención de datos.",

@@ -137,9 +137,9 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
     t('OCPPCommCtrlr.HeartbeatInterval', '300', false),
     t('OCPPCommCtrlr.NetworkConfigurationPriority', '1', false),
     t('OCPPCommCtrlr.OfflineThreshold', '60', false),
-    t('OCPPCommCtrlr.MessageTimeout', '30', true),
     // Station-side values the data plan templates set (instanced where OCPP
-    // defines an instance), so each template push is Accepted.
+    // defines an instance), so each template push is Accepted. MessageTimeout
+    // exists only with its Default instance (2.1 appendix).
     t('OCPPCommCtrlr.MessageTimeout#Default', '30', false),
     t('OCPPCommCtrlr.MessageAttempts#TransactionEvent', '3', false),
     t('OCPPCommCtrlr.MessageAttemptInterval#TransactionEvent', '60', false),

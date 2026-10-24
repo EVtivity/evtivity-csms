@@ -70,8 +70,11 @@ export async function setTokenCostLimit(
   const rows = (list.body['data'] as Array<Record<string, unknown>> | undefined) ?? [];
   const token = rows.find((row) => row['idToken'] === idToken);
   if (token == null || typeof token['id'] !== 'string') return `Token ${idToken} not found`;
+  // The API changes a balance only with the balance the client read (compare and set).
+  const read = token['prepaidBalanceCents'];
   const res = await ctx.callApi('PATCH', `/tokens/${token['id']}`, {
     prepaidBalanceCents: maxCostCents,
+    expectedPrepaidBalanceCents: typeof read === 'number' ? read : null,
   });
   return res.status === 200 ? null : `Token update HTTP ${String(res.status)}`;
 }

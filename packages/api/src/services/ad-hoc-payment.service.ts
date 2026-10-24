@@ -135,6 +135,8 @@ export async function startAdHocPayment(
       evseId: input.evseId,
       guestEmail: input.email ?? '',
       status: 'payment_authorized',
+      // The terminal holds the payment: the payment gate counts this as the hold.
+      paymentTerminal: true,
       sessionToken: input.pspRef,
       expiresAt: new Date(Date.now() + PAYMENT_TTL_MS),
       maxCostCents: input.maxCostCents ?? null,

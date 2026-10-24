@@ -43,9 +43,10 @@ export interface PaymentGateInput {
   idToken: string | undefined;
   guestStatus: string | null;
   /**
-   * True when the guest session holds a card hold (`provider_payment_id`).
-   * A guest who checked out free has none: it is allowed only while the
-   * session's tariff is free. Absent counts as no hold.
+   * True when the guest session holds a card hold (`provider_payment_id`) or
+   * a payment terminal authorization (`payment_terminal`, an ad hoc payment
+   * the terminal settles). A guest who checked out free has neither: it is
+   * allowed only while the session's tariff is free. Absent counts as no hold.
    */
   guestHasHold?: boolean;
   guestEmail: string | null;

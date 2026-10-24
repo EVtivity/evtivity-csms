@@ -30,7 +30,7 @@ const STATION_QUERY = /\bchargingStations\b|\bcharging_stations\b/;
 // The helpers, and the shared queries built on them (public portal stations,
 // payment and revenue scopes).
 const HELPER =
-  /\b(?:isOperatorStation|inOperatorStation|operatorStationSql|operatorStationIdSql|publicStationListed|paymentRecordsOfOperatorStations|sessionItemsSql|revenueItemsSql)\b/;
+  /\b(?:isOperatorStation|inOperatorStation|operatorStationSql|operatorStationIdSql|publicStationListed|qrCheckableStation|paymentRecordsOfOperatorStations|sessionItemsSql|revenueItemsSql)\b/;
 
 /** Files that only touch stations by id, or define the helpers. */
 const BY_ID_ONLY = new Set([

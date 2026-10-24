@@ -944,7 +944,7 @@ export class TransactionProjector {
   } | null> {
     const guestRows = await this.deps.sql`
       SELECT status, guest_email, language, pre_auth_amount_cents, provider_payment_id,
-             max_cost_cents, charging_session_id
+             payment_terminal, max_cost_cents, charging_session_id
       FROM guest_sessions
       WHERE session_token = ${idToken} AND station_ocpp_id = ${stationId}
       LIMIT 1
@@ -984,7 +984,9 @@ export class TransactionProjector {
     }
     return {
       status,
-      hasHold: guest.provider_payment_id != null,
+      // A card hold, or the authorization of a payment terminal (ad hoc
+      // payment), which settles the session itself.
+      hasHold: guest.provider_payment_id != null || guest.payment_terminal === true,
       email: (guest.guest_email as string | null) ?? null,
       language: (guest.language as string | null | undefined) ?? null,
     };

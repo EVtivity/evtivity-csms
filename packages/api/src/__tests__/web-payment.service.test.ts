@@ -60,7 +60,7 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 vi.mock('drizzle-orm', () => ({ eq: vi.fn(), and: vi.fn(), gte: vi.fn(), isNull: vi.fn() }));
-vi.mock('../lib/public-station.js', () => ({ publicStationListed: () => 'PUBLIC_STATION_LISTED' }));
+vi.mock('../lib/public-station.js', () => ({ qrCheckableStation: () => 'QR_CHECKABLE_STATION' }));
 
 const sendOcppCommandAndWait = vi.fn();
 vi.mock('@evtivity/services/ocpp-command', () => ({
@@ -269,7 +269,7 @@ describe('validateQrCodeUrl', () => {
   };
   const url = (path: string) => `https://portal.example.com${path}?maxenergy=20000`;
 
-  it('looks the station up among the stations the portal lists', async () => {
+  it('looks the station up among the listed and conformance stations (qrCheckableStation)', async () => {
     const { and } = await import('drizzle-orm');
     vi.mocked(and).mockClear();
     dbResults = [[]];
@@ -279,7 +279,7 @@ describe('validateQrCodeUrl', () => {
       reason: 'unknown_station',
     });
     expect(
-      vi.mocked(and).mock.calls.some((c) => (c as unknown[]).includes('PUBLIC_STATION_LISTED')),
+      vi.mocked(and).mock.calls.some((c) => (c as unknown[]).includes('QR_CHECKABLE_STATION')),
     ).toBe(true);
   });
 

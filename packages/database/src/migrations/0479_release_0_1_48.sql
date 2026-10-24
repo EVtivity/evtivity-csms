@@ -1351,3 +1351,28 @@ DO $$ BEGIN
     END IF;
   END IF;
 END $$;
+
+--> statement-breakpoint
+-- Ad hoc payments (POST /v1/ad-hoc-payments): the guest session of a payment
+-- terminal or payment provider authorization holds no CSMS card hold, so the
+-- payment gate counts this flag as the hold instead of stopping the session at
+-- a paid tariff. Only when this adds the column, the open rows of that shape
+-- (no provider, no hold, no portal start claim: every portal checkout sets one
+-- of them at insert) take it. Never again after that.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'guest_sessions'
+      AND column_name = 'payment_terminal'
+  ) THEN
+    ALTER TABLE "guest_sessions" ADD COLUMN "payment_terminal" boolean NOT NULL DEFAULT false;
+    UPDATE "guest_sessions"
+    SET "payment_terminal" = true
+    WHERE "status" IN ('payment_authorized', 'charging')
+      AND "provider" IS NULL
+      AND "provider_payment_id" IS NULL
+      AND "pre_auth_amount_cents" IS NULL
+      AND "start_requested_at" IS NULL;
+  END IF;
+END $$;

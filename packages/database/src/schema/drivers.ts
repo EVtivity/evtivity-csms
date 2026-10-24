@@ -134,6 +134,12 @@ export const guestSessions = pgTable(
     // notices use it. Null: the company language.
     language: varchar('language', { length: 10 }),
     preAuthAmountCents: integer('pre_auth_amount_cents'),
+    // An ad hoc payment (POST /v1/ad-hoc-payments, OCPP 2.1 C24, C25): a
+    // stand-alone payment terminal or a payment provider authorized the card
+    // and settles the session, so the row has no CSMS hold. The payment gate
+    // counts it as the hold; the end completes it without a shortfall. Only
+    // the ad hoc payment service sets it.
+    paymentTerminal: boolean('payment_terminal').notNull().default(false),
     // Transaction limit returned in the OCPP 2.1 TransactionEventResponse when
     // the transaction starts (C24.FR.02, C25.FR.24). Null means no limit.
     maxCostCents: integer('max_cost_cents'),

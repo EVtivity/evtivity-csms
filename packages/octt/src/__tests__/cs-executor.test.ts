@@ -366,6 +366,12 @@ describe('executeCsTest', () => {
       clientCert: ctx.tls?.chargePoint.pem,
       targetUrl: expect.stringMatching(/^wss:\/\/localhost:/),
     });
+    // The station may move to the test servers only (TC_A_19_CS): the first
+    // one and the one the test started.
+    expect(stations[0]?.config['extraAllowedServerUrls']).toEqual([
+      stations[0]?.config['targetUrl'],
+      extraUrl,
+    ]);
   });
 
   it('a tls test on profile 1 stays on ws:// without client certificates', async () => {

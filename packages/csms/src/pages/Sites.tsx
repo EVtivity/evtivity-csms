@@ -363,7 +363,7 @@ export function Sites(): React.JSX.Element {
                 </FilterPopover>
               </div>
               <div className="hidden items-end gap-4 md:flex">
-                <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-4">
                   <div className="space-y-2">
                     <Label className="leading-6">{t('sites.search')}</Label>
                     {searchInput}

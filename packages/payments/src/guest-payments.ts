@@ -835,6 +835,7 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
         provider: guestSessions.provider,
         providerPaymentId: guestSessions.providerPaymentId,
         preAuthAmountCents: guestSessions.preAuthAmountCents,
+        paymentTerminal: guestSessions.paymentTerminal,
       })
       .from(guestSessions)
       .where(eq(guestSessions.chargingSessionId, sessionId));
@@ -904,6 +905,15 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
       .from(chargingSessions)
       .where(eq(chargingSessions.id, sessionId));
     const shortfallCents = ended?.finalCostCents ?? 0;
+    if (guest.paymentTerminal) {
+      // An ad hoc payment: the payment terminal or provider that authorized
+      // the card settles the session (OCPP 2.1 C24.FR.10, C25.FR.40), so a
+      // cost is not a shortfall.
+      await completeGuestSession(guest.id);
+      deps.logger.info({ guestSessionId: guest.id }, 'Payment terminal guest session completed');
+      await sendGuestReceipt(guest, sessionId, deps);
+      return;
+    }
     if (shortfallCents > 0) {
       deps.logger.error(
         { guestSessionId: guest.id, chargingSessionId: sessionId, shortfallCents },

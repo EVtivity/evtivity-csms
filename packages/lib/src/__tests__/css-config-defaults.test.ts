@@ -134,6 +134,17 @@ describe('buildCssConfigDefaults', () => {
       expect(CSS_RECONNECT_SPREAD_S).toBe(15);
     });
 
+    it('lists MessageTimeout once, with its Default instance and writable (2.1 appendix)', () => {
+      for (const ocppProtocol of ['ocpp2.1', 'ocpp2.0.1'] as const) {
+        const entries = buildCssConfigDefaults(baseInput({ ocppProtocol })).filter((d) =>
+          d.key.startsWith('OCPPCommCtrlr.MessageTimeout'),
+        );
+        expect(entries.map((d) => [d.key, d.value, d.readonly])).toEqual([
+          ['OCPPCommCtrlr.MessageTimeout#Default', '30', false],
+        ]);
+      }
+    });
+
     it('includes the OCPP 2.1 device model keys', () => {
       const m = keyMap(buildCssConfigDefaults(baseInput()));
 

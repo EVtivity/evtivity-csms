@@ -162,6 +162,14 @@ export interface StationConfig {
   configOverrides?: Record<string, string>;
   /** Random extra delay (ms) before the first reconnect after a connection loss. */
   reconnectSpreadMs?: number;
+  /**
+   * OCPP server URLs this station may also reconnect to through a network
+   * profile, next to the configured OCPP server (`simulatorServerUrls()`). Set
+   * in code only, by the conformance (OCTT) CS runner for its test servers; no
+   * env var, css_stations column or CSMS route sets it. Read at each reconnect
+   * decision, so the owner may add a server it starts later.
+   */
+  extraAllowedServerUrls?: readonly string[];
   evses: Array<{
     evseId: number;
     connectorId: number;
@@ -7773,10 +7781,12 @@ export class StationSimulator {
         },
       ];
     });
-    // Only the OCPP server: a network profile naming another origin would get
-    // the station password or certificate.
+    // Only the OCPP server (and the test servers the conformance runner allows
+    // in code): a network profile naming another origin would get the station
+    // password or certificate.
+    const serverUrls = [...simulatorServerUrls(), ...(this.config.extraAllowedServerUrls ?? [])];
     const allowed = candidates.filter((candidate) =>
-      isAllowedSimulatorTarget(candidate.serverUrl, simulatorServerUrls()),
+      isAllowedSimulatorTarget(candidate.serverUrl, serverUrls),
     );
     const first = allowed[0];
     if (

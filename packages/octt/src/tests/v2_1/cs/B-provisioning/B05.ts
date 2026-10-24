@@ -306,8 +306,10 @@ export const TC_B_39_CS: CsTestCase = {
       setVariableData: [
         {
           component: { name: 'OCPPCommCtrlr' },
-          variable: { name: 'MessageTimeout', instance: 'Default' },
-          attributeValue: '30',
+          // ReadOnly in the 2.1 device model. MessageTimeout#Default is writable on the
+          // simulator, since the station data plan templates set it.
+          variable: { name: 'FileTransferProtocols' },
+          attributeValue: 'HTTP',
         },
       ],
     });
@@ -335,9 +337,9 @@ export const TC_B_39_CS: CsTestCase = {
 
     steps.push({
       step: 2,
-      description: 'SetVariablesResponse: variable.name = MessageTimeout',
-      status: varName === 'MessageTimeout' ? 'passed' : 'failed',
-      expected: 'variable.name = MessageTimeout',
+      description: 'SetVariablesResponse: variable.name = FileTransferProtocols',
+      status: varName === 'FileTransferProtocols' ? 'passed' : 'failed',
+      expected: 'variable.name = FileTransferProtocols',
       actual: `variable.name = ${varName}`,
     });
 

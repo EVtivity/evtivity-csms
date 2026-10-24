@@ -57,6 +57,7 @@ const cardRow = {
   guest_status: null,
   guest_email: null,
   guest_payment_id: null,
+  guest_payment_terminal: false,
 };
 
 beforeEach(() => {
@@ -149,6 +150,71 @@ describe('runSegmentPaymentGate (B3, TC-T3-08)', () => {
     expect(mockRunPaymentGate).toHaveBeenCalledWith(
       deps,
       expect.objectContaining({ guestStatus: 'payment_authorized' }),
+    );
+  });
+});
+
+describe('runSegmentPaymentGate: payment terminal', () => {
+  it('counts the payment terminal authorization of an ad hoc payment as the hold', async () => {
+    const guest = {
+      ...cardRow,
+      driver_id: null,
+      billing_mode: null,
+      guest_status: 'payment_authorized',
+      guest_payment_id: null,
+      guest_payment_terminal: true,
+    };
+    const { deps, calls } = makeDeps([['FROM charging_sessions cs', [guest]]]);
+    await runSegmentPaymentGate(deps, 'ses_1', paid);
+    expect(calls[0]?.text).toContain('g.payment_terminal AS guest_payment_terminal');
+    expect(mockRunPaymentGate).toHaveBeenCalledWith(
+      deps,
+      expect.objectContaining({ guestStatus: 'payment_authorized', guestHasHold: true }),
+    );
+  });
+});
+
+describe('runSegmentPaymentGate: a linked guest session (status charging)', () => {
+  const linked = (over: Record<string, unknown>) => ({
+    ...cardRow,
+    driver_id: null,
+    billing_mode: null,
+    guest_status: 'charging',
+    guest_email: 'g@example.com',
+    ...over,
+  });
+
+  for (const [name, over] of [
+    ['a card hold', { guest_payment_id: 'pi_1' }],
+    ['a payment terminal authorization', { guest_payment_terminal: true }],
+  ] as const) {
+    it(`passes a guest with ${name} as authorized`, async () => {
+      const { deps } = makeDeps([['FROM charging_sessions cs', [linked(over)]]]);
+      await runSegmentPaymentGate(deps, 'ses_1', paid);
+      expect(mockRunPaymentGate).toHaveBeenCalledWith(
+        deps,
+        expect.objectContaining({ guestStatus: 'payment_authorized', guestHasHold: true }),
+      );
+    });
+  }
+
+  it('still gates a linked free checkout as not authorized', async () => {
+    const { deps } = makeDeps([['FROM charging_sessions cs', [linked({})]]]);
+    await runSegmentPaymentGate(deps, 'ses_1', paid);
+    expect(mockRunPaymentGate).toHaveBeenCalledWith(
+      deps,
+      expect.objectContaining({ guestStatus: 'free_start', guestHasHold: false }),
+    );
+  });
+
+  it('keeps a failed guest status, never reads it as authorized', async () => {
+    const { deps } = makeDeps([
+      ['FROM charging_sessions cs', [linked({ guest_status: 'failed', guest_payment_id: 'pi_1' })]],
+    ]);
+    await runSegmentPaymentGate(deps, 'ses_1', paid);
+    expect(mockRunPaymentGate).toHaveBeenCalledWith(
+      deps,
+      expect.objectContaining({ guestStatus: 'failed' }),
     );
   });
 });

@@ -276,6 +276,46 @@ describe('OCPP 2.1 password and security profile (A01, A05)', () => {
     expect(candidates?.some((c) => c.serverUrl.includes('evil.example')) ?? false).toBe(false);
   });
 
+  it('reconnects to a test server URL its owner allowed, and to no other origin (TC_A_19_CS)', async () => {
+    // The conformance (OCTT) CS runner allows its own test servers in code;
+    // the list is read at each reconnect, so a server started later counts.
+    const allowed: string[] = [];
+    const sim = makeSimulator('ocpp2.1', 1, {
+      caCert: csmsRootPem,
+      extraAllowedServerUrls: allowed,
+    });
+    allowed.push('wss://localhost:45678');
+    for (const [slot, url] of [
+      [2, 'wss://localhost:45678'],
+      [3, 'wss://evil.example:8443'],
+    ] as const) {
+      await call(sim, 'SetNetworkProfile', {
+        configurationSlot: slot,
+        connectionData: {
+          ocppInterface: 'Wired0',
+          ocppTransport: 'JSON',
+          messageTimeout: 30,
+          ocppCsmsUrl: url,
+          securityProfile: 2,
+          basicAuthPassword: 'slot-two-password-1',
+        },
+      });
+    }
+    await call(sim, 'SetVariables', {
+      setVariableData: [
+        {
+          component: { name: 'OCPPCommCtrlr' },
+          variable: { name: 'NetworkConfigurationPriority' },
+          attributeValue: '3,2,1',
+        },
+      ],
+    });
+
+    const candidates = internals(sim).rebootConnections.call(sim) ?? [];
+    expect(candidates[0]?.serverUrl).toBe('wss://localhost:45678');
+    expect(candidates.some((c) => c.serverUrl.includes('evil.example'))).toBe(false);
+  });
+
   it('makes the new profile permanent and drops lower slots once connected (A05.FR.06)', async () => {
     const sim = makeSimulator('ocpp2.1', 1, { caCert: csmsRootPem });
     await call(sim, 'SetNetworkProfile', {

@@ -3416,7 +3416,7 @@
       "tab": "Datenaufbewahrung",
       "description": "Wie viele Tage das CSMS jede Art gespeicherter Daten aufbewahrt. Ein Bereinigungsjob löscht ältere Zeilen bei seinem nächsten Lauf: Die Protokoll- und Audit-Jobs laufen täglich, der KI-Job stündlich. Diese Einstellungen gelten für alle Standorte.",
       "storageTitle": "Chaos-Modus und große Netzwerke brauchen viel Speicher",
-      "storageNote": "Jede OCPP-Nachricht, die eine Ladestation sendet oder empfängt, ist eine Zeile in ocpp_message_logs, Heartbeats eingeschlossen, und jeder Zählerwert ist eine Zeile in meter_values. Beide Tabellen wachsen mit der Zahl der verbundenen Ladestationen, auch wenn niemand lädt. In einem Testnetz mit etwa 2.000 simulierten Ladestationen erreichte die Datenbank 90 GB. Senken Sie OCPP-Nachrichten und Zählerwerte, um diese Tabellen kleiner zu halten.",
+      "storageNote": "Jede OCPP-Nachricht, die eine Ladestation sendet oder empfängt, ist eine Zeile in ocpp_message_logs, Heartbeats eingeschlossen, und jeder Zählerwert ist eine Zeile in meter_values. Beide Tabellen wachsen mit der Zahl der verbundenen Ladestationen, auch wenn niemand lädt. Senken Sie OCPP-Nachrichten und Zählerwerte, um diese Tabellen kleiner zu halten.",
       "range": "{{min}} bis {{max}} Tage. Standard: {{default}}.",
       "keepForever": "0 bewahrt die Daten dauerhaft auf.",
       "saveFailed": "Die Einstellungen zur Datenaufbewahrung konnten nicht gespeichert werden.",

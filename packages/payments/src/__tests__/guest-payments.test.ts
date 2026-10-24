@@ -1098,6 +1098,20 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     expect(m.dispatchSystemNotification).not.toHaveBeenCalled();
   });
 
+  it('completes a payment terminal session with a cost: the terminal settles it, no shortfall', async () => {
+    m.findSessionRecord.mockResolvedValue(null);
+    m.selectQueue.push([finalizeGuest({ paymentTerminal: true })], [{ finalCostCents: 450 }]);
+
+    await end();
+
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(guestUpdates().at(-1)?.values).toMatchObject({ status: 'completed' });
+    expect(logger.info).toHaveBeenCalledWith(
+      { guestSessionId: 21 },
+      'Payment terminal guest session completed',
+    );
+  });
+
   it('sends no receipt to a guest without an email', async () => {
     m.findSessionRecord.mockResolvedValue(null);
     m.selectQueue.push([{ ...finalizeGuest(), guestEmail: '' }]);

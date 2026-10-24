@@ -184,6 +184,10 @@ export async function executeCsTest(
     // Provision css_stations and css_evses rows so the simulator can track state in DB.
     const sql = getSql();
     const dbId = `octt-cs-${stationId}`;
+    // The test servers the station may move to through a network profile (A05,
+    // TC_A_19_CS): this one and every server the test starts. The simulator
+    // refuses any other origin than the configured OCPP server.
+    const testServerUrls: string[] = [url];
     const simulatorConfig: StationConfig = {
       id: dbId,
       stationId,
@@ -207,6 +211,7 @@ export async function executeCsTest(
         : {}),
       // A test station reconnects without the fleet's reconnect spread.
       reconnectSpreadMs: 0,
+      extraAllowedServerUrls: testServerUrls,
       evses: [
         {
           evseId: 1,
@@ -318,6 +323,7 @@ export async function executeCsTest(
           const extra = new OcppTestServer();
           extraServers.push(extra);
           const started = await extra.start(extraTls);
+          testServerUrls.push(started.url);
           extra.setMessageHandler(createDefaultMessageHandler(testCase.version));
           return { server: extra, url: started.url };
         },

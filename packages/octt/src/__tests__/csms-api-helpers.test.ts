@@ -318,7 +318,7 @@ describe('payment test helpers', () => {
             body: {
               data: [
                 { id: 'tok_other', idToken: 'TOKEN-10' },
-                { id: 'tok_1', idToken: 'TOKEN-1' },
+                { id: 'tok_1', idToken: 'TOKEN-1', prepaidBalanceCents: 70 },
               ],
             },
           }
@@ -328,6 +328,23 @@ describe('payment test helpers', () => {
     expect(callApi).toHaveBeenNthCalledWith(1, 'GET', '/tokens?search=TOKEN-1&limit=10');
     expect(callApi).toHaveBeenNthCalledWith(2, 'PATCH', '/tokens/tok_1', {
       prepaidBalanceCents: 250,
+      expectedPrepaidBalanceCents: 70,
+    });
+  });
+
+  it('setTokenCostLimit sends a null read balance for a postpaid token', async () => {
+    const { ctx, callApi } = makeCtx((method) =>
+      method === 'GET'
+        ? {
+            status: 200,
+            body: { data: [{ id: 'tok_1', idToken: 'TOKEN-1', prepaidBalanceCents: null }] },
+          }
+        : { status: 200, body: {} },
+    );
+    await expect(setTokenCostLimit(ctx, 'TOKEN-1', 10)).resolves.toBeNull();
+    expect(callApi).toHaveBeenNthCalledWith(2, 'PATCH', '/tokens/tok_1', {
+      prepaidBalanceCents: 10,
+      expectedPrepaidBalanceCents: null,
     });
   });
 

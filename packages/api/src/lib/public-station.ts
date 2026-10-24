@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, not, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { chargingStations, isOperatorStation, sites } from '@evtivity/database';
 
@@ -18,6 +18,22 @@ import { chargingStations, isOperatorStation, sites } from '@evtivity/database';
  */
 export function publicStationListed(): SQL {
   return and(eq(chargingStations.onboardingStatus, 'accepted'), isOperatorStation()) as SQL;
+}
+
+/**
+ * The stations the dynamic QR check (`validateQrCodeUrl`) looks up: the
+ * stations the portal lists, and accepted conformance (OCTT) stations, so the
+ * conformance test of the check (TC_C_131_CSMS) can scan its station. A
+ * hidden operator station (pending or blocked) answers like an unknown one, so
+ * the check never tells which unlisted stations have dynamic QR. A guest start
+ * still reads `publicStationListed()`, so a conformance station is never
+ * started from the portal.
+ */
+export function qrCheckableStation(): SQL {
+  return or(
+    publicStationListed(),
+    and(eq(chargingStations.onboardingStatus, 'accepted'), not(isOperatorStation())),
+  ) as SQL;
 }
 
 /**
