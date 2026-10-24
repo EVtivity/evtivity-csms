@@ -144,7 +144,7 @@ const tariffMappingItem = z
       .nullable()
       .describe('Display name of the OCPI partner, or null for every partner'),
   })
-  .passthrough();
+  .loose();
 
 const tariffMappingQuery = paginationQuery.extend({
   partnerId: ID_PARAMS.ocpiPartnerId.optional().describe('Filter by OCPI partner ID'),

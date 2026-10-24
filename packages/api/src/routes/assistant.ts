@@ -106,7 +106,7 @@ const renameBody = z.object({
 const messageBody = z.object({
   text: z.string().min(1).max(8000).describe('The user message'),
   attachmentIds: z
-    .array(z.string().uuid())
+    .array(z.guid())
     .max(20)
     .optional()
     .describe(
@@ -127,7 +127,7 @@ const statusResponse = z
     enabled: z.boolean().describe('The caller can chat with the assistant (shows the chat button)'),
     supportAssistEnabled: z.boolean().describe('The caller can draft support replies with AI'),
   })
-  .passthrough();
+  .loose();
 
 const conversationItem = z
   .object({
@@ -147,11 +147,11 @@ const conversationItem = z
             'The identifier people know the record by, shown after its kind: the OCPP station id (station, session, authorization), #<OCPP reservation id> or the insight id. Returned on create and get, when the caller can read the record',
           ),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Explain: the record the conversation is about, null for an ordinary conversation'),
   })
-  .passthrough();
+  .loose();
 
 const messageItem = z
   .object({
@@ -163,7 +163,7 @@ const messageItem = z
           .object({
             type: z.string().describe('Part type: text, tool_call, tool_result, image or document'),
           })
-          .passthrough()
+          .loose()
           .describe('A message part; tool results are redacted'),
       )
       .describe('Message content'),
@@ -173,7 +173,7 @@ const messageItem = z
         inputTokens: z.number().describe('Input tokens, cached included'),
         outputTokens: z.number().describe('Output tokens, reasoning included'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Token usage of an assistant message'),
     costMicros: z
@@ -184,11 +184,11 @@ const messageItem = z
       ),
     createdAt: z.string().describe('ISO 8601 creation time'),
   })
-  .passthrough();
+  .loose();
 
 const conversationDetail = conversationItem
   .extend({ messages: z.array(messageItem).describe('Messages, oldest first') })
-  .passthrough();
+  .loose();
 
 const STREAM_DESCRIPTION = `Server-sent events (protocol version ${String(AI_STREAM_PROTOCOL_VERSION)}): message_start, text_delta, tool_step, confirmation_required, citation, usage, error, done. Parse with readAiStream from @evtivity/lib/ai-stream.`;
 

@@ -72,7 +72,7 @@ const tokenItem = z
     driverLastName: z.string().nullable().describe('Assigned driver last name, null if unassigned'),
     driverEmail: z.string().nullable().describe('Assigned driver email, null if unassigned'),
   })
-  .passthrough();
+  .loose();
 
 const tokenCreated = z
   .object({
@@ -94,14 +94,14 @@ const tokenCreated = z
     createdAt: z.coerce.date().describe('Timestamp when the token was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const tokenImportResult = z
   .object({
     imported: z.number().describe('Number of tokens successfully imported'),
     errors: z.array(z.string()).describe('List of error messages for rows that failed to import'),
   })
-  .passthrough();
+  .loose();
 
 const tokenSessionItem = z
   .object({
@@ -123,7 +123,7 @@ const tokenSessionItem = z
     finalCostCents: z.number().nullable().describe('Final cost in cents'),
     currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
   })
-  .passthrough();
+  .loose();
 
 const tokenParams = z.object({
   id: ID_PARAMS.driverTokenId.describe('Token ID'),
@@ -224,7 +224,7 @@ export function tokenRoutes(app: FastifyInstance): void {
                   .array(z.string())
                   .describe('Distinct OCPP IdToken type values present in the system'),
               })
-              .passthrough(),
+              .loose(),
           ),
         },
       },
@@ -316,7 +316,7 @@ export function tokenRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({ updated: z.number().int().min(0).describe('Number of tokens updated') })
-              .passthrough(),
+              .loose(),
           ),
           409: errorWith('Inactive driver or a revoked Plug and Charge contract', [
             ERROR_CODES.DRIVER_INACTIVE,

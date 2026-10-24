@@ -25,7 +25,7 @@ const roamingChargerItem = z
     longitude: z.string().nullable().describe('Longitude in decimal degrees (string)'),
     evseCount: z.number().int().min(0).describe('Number of EVSEs at this roaming location'),
   })
-  .passthrough();
+  .loose();
 
 const searchQuery = z.object({
   q: z.string().min(1).max(255).optional().describe('Text search by location name'),

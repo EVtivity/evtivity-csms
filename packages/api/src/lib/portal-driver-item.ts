@@ -9,7 +9,7 @@ export const portalDriverItem = z
     id: z.string(),
     firstName: z.string().max(100).nullable(),
     lastName: z.string().max(100).nullable(),
-    email: z.string().email().max(255).nullable(),
+    email: z.email().max(255).nullable(),
     phone: z.string().max(50).nullable(),
     language: z.string().max(10).nullable(),
     timezone: z.string().max(50).nullable(),
@@ -25,4 +25,4 @@ export const portalDriverItem = z
     emailVerified: z.boolean(),
     createdAt: z.coerce.date(),
   })
-  .passthrough();
+  .loose();

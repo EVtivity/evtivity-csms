@@ -61,8 +61,8 @@ const auditQuerystring = paginationQuery.extend({
     .describe('Filter by actor type'),
   actorUserId: z.string().optional().describe('Filter by acting operator user id'),
   actorDriverId: z.string().optional().describe('Filter by acting driver id'),
-  from: z.string().datetime().optional().describe('ISO datetime, inclusive lower bound'),
-  to: z.string().datetime().optional().describe('ISO datetime, inclusive upper bound'),
+  from: z.iso.datetime().optional().describe('ISO datetime, inclusive lower bound'),
+  to: z.iso.datetime().optional().describe('ISO datetime, inclusive upper bound'),
 });
 
 const auditItem = z
@@ -81,8 +81,8 @@ const auditItem = z
       .string()
       .nullable()
       .describe('Resolved display name for the operator / driver / api key actor'),
-    before: z.unknown().nullable(),
-    after: z.unknown().nullable(),
+    before: z.unknown().nullable().optional(),
+    after: z.unknown().nullable().optional(),
     notes: z.string().nullable(),
     viaAi: z
       .object({
@@ -100,14 +100,14 @@ const auditItem = z
         proposalId: z.string().optional().describe('AI insight action the change ran for'),
         confirmedBy: z.string().optional().describe('User who confirmed the action'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe(
         'Set when an AI tool call, MCP call or confirmed AI insight action made the change. Rows written before the channel existed read as chat.',
       ),
     createdAt: z.string().describe('ISO datetime'),
   })
-  .passthrough();
+  .loose();
 
 interface NormalizedAuditRow {
   id: number;

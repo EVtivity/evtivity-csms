@@ -47,7 +47,7 @@ const runResponseSchema = z
     completedAt: z.string().nullable().describe('Run completion timestamp'),
     createdAt: z.string().describe('Row creation timestamp'),
   })
-  .passthrough();
+  .loose();
 
 const testResultSchema = z
   .object({
@@ -61,7 +61,11 @@ const testResultSchema = z
       .enum(TEST_STATUSES)
       .describe('Test status. notApplicable: the CSMS PICS excludes the test, so it never ran'),
     durationMs: z.number().int().min(0).describe('Test duration in ms'),
-    steps: z.array(z.record(z.unknown())).max(500).nullable().describe('Per-step result details'),
+    steps: z
+      .array(z.record(z.string(), z.unknown()))
+      .max(500)
+      .nullable()
+      .describe('Per-step result details'),
     error: z.string().max(10000).nullable().describe('Error message if the test failed or errored'),
     notApplicableItem: z
       .string()
@@ -75,7 +79,7 @@ const testResultSchema = z
       .describe('Why the PICS excludes the test, set when status is notApplicable'),
     createdAt: z.string().describe('Row creation timestamp'),
   })
-  .passthrough();
+  .loose();
 
 const moduleSummarySchema = z
   .object({
@@ -88,7 +92,7 @@ const moduleSummarySchema = z
     errors: z.number().int().min(0).describe('Number of tests that errored'),
     notApplicable: z.number().int().min(0).describe('Number of tests the CSMS PICS excludes'),
   })
-  .passthrough();
+  .loose();
 
 export function octtRoutes(app: FastifyInstance): void {
   // POST /octt/runs - Trigger a new test run
@@ -264,7 +268,7 @@ export function octtRoutes(app: FastifyInstance): void {
                 run: runResponseSchema,
                 results: z.array(testResultSchema),
               })
-              .passthrough(),
+              .loose(),
           ),
           404: errorWith('Run not found', [ERROR_CODES.OCTT_RUN_NOT_FOUND]),
         },

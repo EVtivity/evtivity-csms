@@ -122,7 +122,7 @@ const circuitItem = z
     createdAt: z.coerce.date().describe('Timestamp when created'),
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),
   })
-  .passthrough();
+  .loose();
 
 const stationCircuitItem = z
   .object({
@@ -133,7 +133,7 @@ const stationCircuitItem = z
       .nullable()
       .describe('Assigned circuit identifier, or null when unassigned'),
   })
-  .passthrough();
+  .loose();
 
 // --- Helpers ---
 
@@ -428,7 +428,7 @@ export function circuitRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(circuitParams),
         response: {
-          200: itemResponse(z.object({ success: z.literal(true) }).passthrough()),
+          200: itemResponse(z.object({ success: z.literal(true) }).loose()),
           404: errorWith('Circuit not found', [ERROR_CODES.CIRCUIT_NOT_FOUND]),
         },
       },

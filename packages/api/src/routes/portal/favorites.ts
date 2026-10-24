@@ -42,7 +42,7 @@ const favoriteItem = z
       ),
     createdAt: z.coerce.date().describe('Timestamp when the station was favorited'),
   })
-  .passthrough();
+  .loose();
 
 const addFavoriteBody = z.object({
   stationId: z.string().min(1).max(255).describe('OCPP station identifier'),
@@ -150,7 +150,7 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
                   .nullable()
                   .describe('Favorite record ID when isFavorite is true, otherwise null'),
               })
-              .passthrough(),
+              .loose(),
           ),
         },
       },
@@ -202,7 +202,7 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
               .object({
                 id: z.number().int().min(1).describe('Newly created favorite record ID'),
               })
-              .passthrough(),
+              .loose(),
           ),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           409: errorWith('Already favorited', [ERROR_CODES.ALREADY_FAVORITED]),

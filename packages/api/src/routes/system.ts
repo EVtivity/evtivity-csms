@@ -80,7 +80,7 @@ const systemInfoResponse = z
         cookieDomain: z.string().nullable().describe('Cookie domain used for auth cookies'),
         corsOrigin: z.string().describe('Configured CORS allowed origin(s)'),
       })
-      .passthrough()
+      .loose()
       .describe('Network listener and URL configuration'),
     rateLimits: z
       .object({
@@ -96,7 +96,7 @@ const systemInfoResponse = z
           .nullable()
           .describe('Maximum OCPP messages per second from one IP'),
       })
-      .passthrough()
+      .loose()
       .describe('Rate-limit configuration'),
     ocpp: z
       .object({
@@ -108,7 +108,7 @@ const systemInfoResponse = z
           .string()
           .describe('Station registration policy (approval-required or auto-approve)'),
       })
-      .passthrough()
+      .loose()
       .describe('OCPP server configuration'),
     ocpi: z
       .object({
@@ -117,7 +117,7 @@ const systemInfoResponse = z
         partyId: z.string().describe('OCPI party identifier'),
         businessName: z.string().nullable().describe('Business name advertised over OCPI'),
       })
-      .passthrough()
+      .loose()
       .describe('OCPI configuration'),
     simulator: z
       .object({
@@ -128,13 +128,13 @@ const systemInfoResponse = z
           .describe('Action interval in milliseconds when running in chaos mode'),
         stationLimit: z.string().nullable().describe('Maximum number of simulated stations'),
       })
-      .passthrough()
+      .loose()
       .describe('Charging station simulator configuration'),
     seed: z
       .object({
         seedDemo: z.string().describe('Whether demo data seeding is enabled'),
       })
-      .passthrough()
+      .loose()
       .describe('Database seeding configuration'),
     payments: z
       .object({
@@ -145,7 +145,7 @@ const systemInfoResponse = z
           .boolean()
           .describe('The selected provider is available in this process and has its credentials'),
       })
-      .passthrough()
+      .loose()
       .describe('Payment provider status'),
     secrets: z
       .object({
@@ -182,10 +182,10 @@ const systemInfoResponse = z
           .boolean()
           .describe('Whether the Google Maps API key is configured in settings'),
       })
-      .passthrough()
+      .loose()
       .describe('Configured-status flags for secrets (no secret values are returned)'),
   })
-  .passthrough();
+  .loose();
 
 export function systemRoutes(app: FastifyInstance): void {
   app.get(

@@ -95,7 +95,7 @@ const driverItem = z
     id: z.string().describe('Driver identifier'),
     firstName: z.string().max(100).nullable().describe('Driver first name'),
     lastName: z.string().max(100).nullable().describe('Driver last name'),
-    email: z.string().email().max(255).nullable().describe('Driver email address'),
+    email: z.email().max(255).nullable().describe('Driver email address'),
     phone: z.string().max(50).nullable().describe('Driver phone number in E.164 format'),
     language: z
       .string()
@@ -111,7 +111,7 @@ const driverItem = z
     createdAt: z.coerce.date().describe('Timestamp when the driver was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the driver was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const portalAccessItem = z
   .object({
@@ -125,14 +125,14 @@ const portalAccessItem = z
       .nullable()
       .describe('When the open invitation expires, or null when there is none'),
   })
-  .passthrough();
+  .loose();
 
 const fleetRefItem = z
   .object({
     id: z.string().describe('Fleet identifier'),
     name: z.string().max(255).describe('Fleet display name'),
   })
-  .passthrough();
+  .loose();
 
 const driverBillingItem = z
   .object({
@@ -168,24 +168,24 @@ const driverBillingItem = z
         id: z.string().describe('Pricing group identifier'),
         name: z.string().describe('Pricing group name'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('The driver or fleet pricing group, null when pricingSource is null'),
   })
-  .passthrough();
+  .loose();
 
 const driverDetailItem = driverItem
   .extend({
     portalAccess: portalAccessItem.describe('Driver portal access state'),
     billing: driverBillingItem.describe('Billing mode, billing fleet and pricing fleet'),
   })
-  .passthrough();
+  .loose();
 
 const portalInviteItem = z
   .object({
     expiresAt: z.coerce.date().describe('When the invitation link expires'),
   })
-  .passthrough();
+  .loose();
 
 const driverTokenItem = z
   .object({
@@ -200,7 +200,7 @@ const driverTokenItem = z
     createdAt: z.coerce.date().describe('Timestamp when the token was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the token was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const driverPricingGroupItem = z
   .object({
@@ -210,14 +210,14 @@ const driverPricingGroupItem = z
     isDefault: z.boolean().describe('Whether this is the system default pricing group'),
     tariffCount: z.number().int().min(0).describe('Number of tariffs in this pricing group'),
   })
-  .passthrough();
+  .loose();
 
 const driverPricingGroupRecordItem = z
   .object({
     driverId: z.string().describe('Driver identifier'),
     pricingGroupId: z.string().describe('Pricing group identifier'),
   })
-  .passthrough();
+  .loose();
 
 const addDriverPricingGroupBody = z.object({
   pricingGroupId: ID_PARAMS.pricingGroupId.describe('Pricing group ID to assign to the driver'),
@@ -246,7 +246,7 @@ const driverErasureItem = z
     vehiclesRemoved: z.number().int().min(0).describe('Vehicles removed'),
     tokensDeactivated: z.number().int().min(0).describe('Tokens deactivated'),
   })
-  .passthrough();
+  .loose();
 
 // A site-restricted user gets this before an erasure (requireAllSiteAccess).
 const DRIVER_NOT_FOUND_BODY = { error: 'Driver not found', code: 'DRIVER_NOT_FOUND' } as const;
@@ -286,7 +286,7 @@ const driverReservationItem = z
       .min(0)
       .describe('Fee actually charged (cents, tax included, 0 when waived)'),
   })
-  .passthrough();
+  .loose();
 
 const driverLanguage = z
   .enum(UI_LANGUAGES)
@@ -295,7 +295,7 @@ const driverLanguage = z
 const createDriverBody = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
-  email: z.string().email().max(255).optional(),
+  email: z.email().max(255).optional(),
   phone: z.string().max(50).optional(),
   language: driverLanguage.optional().describe('Preferred language (default en)'),
 });
@@ -304,7 +304,6 @@ const updateDriverBody = z.object({
   firstName: z.string().min(1).max(100).optional(),
   lastName: z.string().min(1).max(100).optional(),
   email: z
-    .string()
     .email()
     .max(255)
     .nullable()
@@ -374,7 +373,7 @@ const driverSessionItem = z
       .describe('Final billed cost in cents after session completes'),
     currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
   })
-  .passthrough();
+  .loose();
 
 const vehicleItem = z
   .object({
@@ -398,7 +397,7 @@ const vehicleItem = z
     createdAt: z.coerce.date().describe('Timestamp when the vehicle was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the vehicle was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const vehicleIdFields = {
   vin: z
@@ -467,7 +466,7 @@ const driverListQuery = paginationQuery.extend({
 
 // Safe column projection used by every operator-facing read of `drivers`.
 // Excludes `passwordHash` and `totpSecretEnc` so neither leaves the database
-// in an API response (the response Zod schema uses .passthrough() so an
+// in an API response (the response Zod schema uses .loose() so an
 // unfiltered select() would expose both fields to anyone with drivers:read).
 const driverSafeSelect = {
   id: drivers.id,
@@ -1315,11 +1314,11 @@ export function driverRoutes(app: FastifyInstance): void {
               make: z.string().describe('Vehicle make'),
               model: z.string().describe('Vehicle model'),
             })
-            .passthrough(),
+            .loose(),
         )
         .describe('Make/model pairs, optionally filtered by ?make='),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/vehicles/lookup',

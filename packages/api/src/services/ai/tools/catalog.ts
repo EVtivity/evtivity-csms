@@ -2782,10 +2782,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Charging station ID',
         },
         tokenIds: {
-          type: 'array',
-          items: { type: 'string' },
           minItems: 1,
           maxItems: 1000,
+          type: 'array',
+          items: { type: 'string' },
           description: 'Driver token IDs to add',
         },
       },
@@ -2802,10 +2802,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Charging station ID',
         },
         tokenIds: {
-          type: 'array',
-          items: { type: 'string' },
           minItems: 1,
           maxItems: 1000,
+          type: 'array',
+          items: { type: 'string' },
           description: 'Driver token IDs to add',
         },
       },
@@ -2830,9 +2830,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         siteId: { type: 'string', description: 'Site ID' },
         id: { type: 'string', description: 'Maintenance event ID' },
         stationIds: {
+          minItems: 1,
           type: 'array',
           items: { type: 'string' },
-          minItems: 1,
           description: 'Internal station IDs to add to the event',
         },
       },
@@ -2846,9 +2846,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         siteId: { type: 'string', description: 'Site ID' },
         id: { type: 'string', description: 'Maintenance event ID' },
         stationIds: {
+          minItems: 1,
           type: 'array',
           items: { type: 'string' },
-          minItems: 1,
           description: 'Internal station IDs to add to the event',
         },
       },
@@ -2899,9 +2899,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         maxPowerKw: { type: 'integer', minimum: 1, description: 'Maximum power output in kW' },
         maxCurrentAmps: {
+          description: 'Maximum current output in amps',
           type: ['integer', 'null'],
           minimum: 1,
-          description: 'Maximum current output in amps',
         },
       },
       required: ['id', 'evseId', 'connectorId', 'connectorType', 'maxPowerKw', 'maxCurrentAmps'],
@@ -2921,9 +2921,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         maxPowerKw: { type: 'integer', minimum: 1, description: 'Maximum power output in kW' },
         maxCurrentAmps: {
+          description: 'Maximum current output in amps',
           type: 'integer',
           minimum: 1,
-          description: 'Maximum current output in amps',
         },
       },
       required: ['id', 'evseId', 'connectorId', 'connectorType', 'maxPowerKw'],
@@ -2947,6 +2947,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
         evseId: { type: 'integer', minimum: 1, description: 'OCPP EVSE ID (integer)' },
         connectors: {
+          minItems: 1,
           type: 'array',
           items: {
             type: 'object',
@@ -2967,15 +2968,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 description: 'Maximum power output in kW',
               },
               maxCurrentAmps: {
+                description: 'Maximum current output in amps',
                 type: ['integer', 'null'],
                 minimum: 1,
-                description: 'Maximum current output in amps',
               },
             },
             required: ['connectorId', 'connectorType', 'maxPowerKw', 'maxCurrentAmps'],
             additionalProperties: false,
           },
-          minItems: 1,
         },
       },
       required: ['id', 'evseId', 'connectors'],
@@ -2988,6 +2988,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
         evseId: { type: 'integer', minimum: 1, description: 'OCPP EVSE ID (integer)' },
         connectors: {
+          minItems: 1,
           type: 'array',
           items: {
             type: 'object',
@@ -3008,15 +3009,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 description: 'Maximum power output in kW',
               },
               maxCurrentAmps: {
+                description: 'Maximum current output in amps',
                 type: 'integer',
                 minimum: 1,
-                description: 'Maximum current output in amps',
               },
             },
             required: ['connectorId', 'connectorType', 'maxPowerKw'],
             additionalProperties: false,
           },
-          minItems: 1,
         },
       },
       required: ['id', 'evseId', 'connectors'],
@@ -3047,8 +3047,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         id: { type: 'string', pattern: '^cas_[a-z0-9]{12}$', description: 'Support case ID' },
         body: { type: 'string' },
         isInternal: {
-          type: ['boolean', 'null'],
           description: 'If true, message is only visible to operators',
+          type: ['boolean', 'null'],
         },
       },
       required: ['id', 'body', 'isInternal'],
@@ -3061,8 +3061,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         id: { type: 'string', pattern: '^cas_[a-z0-9]{12}$', description: 'Support case ID' },
         body: { type: 'string', minLength: 1, maxLength: 10000 },
         isInternal: {
-          type: 'boolean',
           description: 'If true, message is only visible to operators',
+          type: 'boolean',
         },
       },
       required: ['id', 'body'],
@@ -3125,8 +3125,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         siteId: { type: 'string', description: 'Site ID' },
         stationId: { type: 'string', description: 'Station ID' },
         circuitId: {
-          type: ['string', 'null'],
           description: 'Circuit ID to assign, or null to unassign',
+          type: ['string', 'null'],
         },
       },
       required: ['siteId', 'stationId', 'circuitId'],
@@ -3139,9 +3139,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         siteId: { type: 'string', description: 'Site ID' },
         stationId: { type: 'string', description: 'Station ID' },
         circuitId: {
-          type: 'string',
           nullable: true,
           description: 'Circuit ID to assign, or null to unassign',
+          type: 'string',
         },
       },
       required: ['siteId', 'stationId', 'circuitId'],
@@ -3163,10 +3163,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         ids: {
-          type: 'array',
-          items: { type: 'string', pattern: '^dtk_[a-z0-9]{12}$' },
           minItems: 1,
           maxItems: 500,
+          type: 'array',
+          items: { type: 'string', pattern: '^dtk_[a-z0-9]{12}$' },
           description: 'Token IDs to update',
         },
         isActive: {
@@ -3182,10 +3182,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         ids: {
-          type: 'array',
-          items: { type: 'string', pattern: '^dtk_[a-z0-9]{12}$' },
           minItems: 1,
           maxItems: 500,
+          type: 'array',
+          items: { type: 'string', pattern: '^dtk_[a-z0-9]{12}$' },
           description: 'Token IDs to update',
         },
         isActive: {
@@ -3381,10 +3381,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
         chargingProfileId: {
-          type: ['integer', 'null'],
           description: 'Specific charging profile ID to clear',
+          type: ['integer', 'null'],
         },
         chargingProfilePurpose: {
+          description:
+            'Clear the profiles with this OCPP 2.1 purpose. External constraints and local generation profiles cannot be cleared (OCPP 2.1 K10.FR.06). OCPP 1.6 stations get ChargePointMaxProfile for ChargingStationMaxProfile.',
           type: ['string', 'null'],
           enum: [
             'ChargingStationMaxProfile',
@@ -3393,14 +3395,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'PriorityCharging',
             null,
           ],
-          description:
-            'Clear the profiles with this OCPP 2.1 purpose. External constraints and local generation profiles cannot be cleared (OCPP 2.1 K10.FR.06). OCPP 1.6 stations get ChargePointMaxProfile for ChargingStationMaxProfile.',
         },
-        stackLevel: { type: ['integer', 'null'], minimum: 0, description: 'Stack level to clear' },
+        stackLevel: { description: 'Stack level to clear', type: ['integer', 'null'], minimum: 0 },
         evseId: {
+          description: 'EVSE ID to clear profiles for (0 for station-wide profiles)',
           type: ['integer', 'null'],
           minimum: 0,
-          description: 'EVSE ID to clear profiles for (0 for station-wide profiles)',
         },
       },
       required: ['id', 'chargingProfileId', 'chargingProfilePurpose', 'stackLevel', 'evseId'],
@@ -3412,20 +3412,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
         chargingProfileId: {
-          type: 'integer',
           description: 'Specific charging profile ID to clear',
+          type: 'integer',
         },
         chargingProfilePurpose: {
-          type: 'string',
-          enum: ['ChargingStationMaxProfile', 'TxDefaultProfile', 'TxProfile', 'PriorityCharging'],
           description:
             'Clear the profiles with this OCPP 2.1 purpose. External constraints and local generation profiles cannot be cleared (OCPP 2.1 K10.FR.06). OCPP 1.6 stations get ChargePointMaxProfile for ChargingStationMaxProfile.',
+          type: 'string',
+          enum: ['ChargingStationMaxProfile', 'TxDefaultProfile', 'TxProfile', 'PriorityCharging'],
         },
-        stackLevel: { type: 'integer', minimum: 0, description: 'Stack level to clear' },
+        stackLevel: { description: 'Stack level to clear', type: 'integer', minimum: 0 },
         evseId: {
+          description: 'EVSE ID to clear profiles for (0 for station-wide profiles)',
           type: 'integer',
           minimum: 0,
-          description: 'EVSE ID to clear profiles for (0 for station-wide profiles)',
         },
       },
       required: ['id'],
@@ -3493,13 +3493,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Template name' },
-        description: { type: ['string', 'null'], description: 'Template description' },
+        description: { description: 'Template description', type: ['string', 'null'] },
         ocppVersion: {
+          description: 'OCPP version',
           type: ['string', 'null'],
           enum: ['2.1', '1.6', null],
-          description: 'OCPP version',
         },
-        profileId: { type: ['integer', 'null'], description: 'OCPP charging profile ID' },
+        profileId: { description: 'OCPP charging profile ID', type: ['integer', 'null'] },
         profilePurpose: {
           type: 'string',
           enum: [
@@ -3516,22 +3516,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Charging profile kind',
         },
         recurrencyKind: {
+          description: 'Recurrency kind (required if Recurring)',
           type: ['string', 'null'],
           enum: ['Daily', 'Weekly', null],
-          description: 'Recurrency kind (required if Recurring)',
         },
-        stackLevel: { type: ['integer', 'null'], minimum: 0, description: 'Stack level' },
+        stackLevel: { description: 'Stack level', type: ['integer', 'null'], minimum: 0 },
         evseId: {
+          description: 'EVSE ID (0 for station-wide)',
           type: ['integer', 'null'],
           minimum: 0,
-          description: 'EVSE ID (0 for station-wide)',
         },
         chargingRateUnit: {
+          description: 'Charging rate unit',
           type: ['string', 'null'],
           enum: ['W', 'A', null],
-          description: 'Charging rate unit',
         },
         schedulePeriods: {
+          minItems: 1,
           type: 'array',
           items: {
             type: 'object',
@@ -3548,27 +3549,27 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   'Charging rate limit. Negative values are permitted only for V2G discharge profiles per OCPP 2.1.',
               },
               numberPhases: {
+                description: 'Number of phases (1-3). Optional.',
                 type: ['integer', 'null'],
                 minimum: 1,
                 maximum: 3,
-                description: 'Number of phases (1-3). Optional.',
               },
             },
             required: ['startPeriod', 'limit', 'numberPhases'],
             additionalProperties: false,
           },
-          minItems: 1,
           description: 'Charging schedule periods (ordered by ascending startPeriod)',
         },
         startSchedule: {
-          type: ['string', 'null'],
           description:
             'Schedule start time (ISO 8601). Required: Absolute and Recurring profiles carry a start (OCPP 2.1 K01.FR.40)',
+          type: ['string', 'null'],
         },
-        duration: { type: ['integer', 'null'], description: 'Schedule duration in seconds' },
-        validFrom: { type: ['string', 'null'], description: 'Profile validity start (ISO 8601)' },
-        validTo: { type: ['string', 'null'], description: 'Profile validity end (ISO 8601)' },
+        duration: { description: 'Schedule duration in seconds', type: ['integer', 'null'] },
+        validFrom: { description: 'Profile validity start (ISO 8601)', type: ['string', 'null'] },
+        validTo: { description: 'Profile validity end (ISO 8601)', type: ['string', 'null'] },
         targetFilter: {
+          description: 'Filter to select target stations',
           type: ['object', 'null'],
           properties: {
             siteId: { type: ['string', 'null'] },
@@ -3576,7 +3577,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             model: { type: ['string', 'null'] },
           },
           additionalProperties: false,
-          description: 'Filter to select target stations',
           required: ['siteId', 'vendorId', 'model'],
         },
       },
@@ -3605,9 +3605,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         name: { type: 'string', minLength: 1, description: 'Template name' },
-        description: { type: 'string', description: 'Template description' },
-        ocppVersion: { type: 'string', enum: ['2.1', '1.6'], description: 'OCPP version' },
-        profileId: { type: 'integer', description: 'OCPP charging profile ID' },
+        description: { description: 'Template description', type: 'string' },
+        ocppVersion: { description: 'OCPP version', type: 'string', enum: ['2.1', '1.6'] },
+        profileId: { description: 'OCPP charging profile ID', type: 'integer' },
         profilePurpose: {
           type: 'string',
           enum: [
@@ -3624,14 +3624,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Charging profile kind',
         },
         recurrencyKind: {
+          description: 'Recurrency kind (required if Recurring)',
           type: 'string',
           enum: ['Daily', 'Weekly'],
-          description: 'Recurrency kind (required if Recurring)',
         },
-        stackLevel: { type: 'integer', minimum: 0, description: 'Stack level' },
-        evseId: { type: 'integer', minimum: 0, description: 'EVSE ID (0 for station-wide)' },
-        chargingRateUnit: { type: 'string', enum: ['W', 'A'], description: 'Charging rate unit' },
+        stackLevel: { description: 'Stack level', type: 'integer', minimum: 0 },
+        evseId: { description: 'EVSE ID (0 for station-wide)', type: 'integer', minimum: 0 },
+        chargingRateUnit: { description: 'Charging rate unit', type: 'string', enum: ['W', 'A'] },
         schedulePeriods: {
+          minItems: 1,
           type: 'array',
           items: {
             type: 'object',
@@ -3648,36 +3649,37 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   'Charging rate limit. Negative values are permitted only for V2G discharge profiles per OCPP 2.1.',
               },
               numberPhases: {
+                description: 'Number of phases (1-3). Optional.',
                 type: 'integer',
                 minimum: 1,
                 maximum: 3,
-                description: 'Number of phases (1-3). Optional.',
               },
             },
             required: ['startPeriod', 'limit'],
             additionalProperties: false,
           },
-          minItems: 1,
           description: 'Charging schedule periods (ordered by ascending startPeriod)',
         },
         startSchedule: {
-          type: 'string',
-          format: 'date-time',
           description:
             'Schedule start time (ISO 8601). Required: Absolute and Recurring profiles carry a start (OCPP 2.1 K01.FR.40)',
-        },
-        duration: { type: 'integer', description: 'Schedule duration in seconds' },
-        validFrom: {
           type: 'string',
           format: 'date-time',
+        },
+        duration: { description: 'Schedule duration in seconds', type: 'integer' },
+        validFrom: {
           description: 'Profile validity start (ISO 8601)',
+          type: 'string',
+          format: 'date-time',
         },
         validTo: {
+          description: 'Profile validity end (ISO 8601)',
           type: 'string',
           format: 'date-time',
-          description: 'Profile validity end (ISO 8601)',
         },
         targetFilter: {
+          nullable: true,
+          description: 'Filter to select target stations',
           type: 'object',
           properties: {
             siteId: { type: 'string' },
@@ -3685,8 +3687,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             model: { type: 'string' },
           },
           additionalProperties: false,
-          nullable: true,
-          description: 'Filter to select target stations',
         },
       },
       required: ['name', 'profilePurpose', 'profileKind', 'schedulePeriods'],
@@ -3737,14 +3737,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Breaker rating in amps',
         },
         phaseConnections: {
+          description: 'Phase connections (omit to inherit all panel phases)',
           type: ['string', 'null'],
           enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', 'L1L2L3', null],
-          description: 'Phase connections (omit to inherit all panel phases)',
         },
         voltageV: {
-          type: ['integer', 'null'],
           description:
             'Circuit voltage in volts when it runs below its single-phase panel (120 for a 120 V branch of a 240 V split-phase panel). Omit to use the panel voltage. Refused on a three-phase panel and above the panel voltage',
+          type: ['integer', 'null'],
         },
         sortOrder: { type: ['integer', 'null'], minimum: 0, maximum: 10000 },
       },
@@ -3773,14 +3773,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Breaker rating in amps',
         },
         phaseConnections: {
+          description: 'Phase connections (omit to inherit all panel phases)',
           type: 'string',
           enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', 'L1L2L3'],
-          description: 'Phase connections (omit to inherit all panel phases)',
         },
         voltageV: {
-          type: 'integer',
           description:
             'Circuit voltage in volts when it runs below its single-phase panel (120 for a 120 V branch of a 240 V split-phase panel). Omit to use the panel voltage. Refused on a three-phase panel and above the panel voltage',
+          type: 'integer',
         },
         sortOrder: { type: 'integer', minimum: 0, maximum: 10000 },
       },
@@ -3815,13 +3815,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Template name' },
-        description: { type: ['string', 'null'], description: 'Template description' },
+        description: { description: 'Template description', type: ['string', 'null'] },
         ocppVersion: {
+          description: 'OCPP version for this template',
           type: ['string', 'null'],
           enum: ['2.1', '1.6', null],
-          description: 'OCPP version for this template',
         },
         variables: {
+          minItems: 1,
+          maxItems: 500,
           type: 'array',
           items: {
             type: 'object',
@@ -3829,20 +3831,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               component: { type: 'string' },
               variable: { type: 'string' },
               variableInstance: {
-                type: ['string', 'null'],
                 description:
                   'OCPP 2.0.1 and 2.1 variable instance, such as Default for OCPPCommCtrlr.MessageTimeout or TransactionEvent for OCPPCommCtrlr.MessageAttempts. Null or absent: no instance. OCPP 1.6 templates have none',
+                type: ['string', 'null'],
               },
               value: { type: 'string' },
             },
             required: ['component', 'variable', 'variableInstance', 'value'],
             additionalProperties: false,
           },
-          minItems: 1,
-          maxItems: 500,
           description: 'Variable definitions to set on target stations',
         },
         targetFilter: {
+          description: 'Filter to select target stations',
           type: ['object', 'null'],
           properties: {
             siteId: { type: ['string', 'null'] },
@@ -3850,14 +3851,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             model: { type: ['string', 'null'] },
             stationId: { type: ['string', 'null'] },
             dataPlan: {
-              type: ['string', 'null'],
-              enum: ['wifi_or_wired', 'cellular', null],
               description:
                 "Only stations whose effective data plan is this one (the station's own choice, else cellular for a confirmed SIM, else the site's plan, else wifi_or_wired)",
+              type: ['string', 'null'],
+              enum: ['wifi_or_wired', 'cellular', null],
             },
           },
           additionalProperties: false,
-          description: 'Filter to select target stations',
           required: ['siteId', 'vendorId', 'model', 'stationId', 'dataPlan'],
         },
       },
@@ -3869,13 +3869,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         name: { type: 'string', minLength: 1, maxLength: 255, description: 'Template name' },
-        description: { type: 'string', maxLength: 1000, description: 'Template description' },
+        description: { description: 'Template description', type: 'string', maxLength: 1000 },
         ocppVersion: {
+          description: 'OCPP version for this template',
           type: 'string',
           enum: ['2.1', '1.6'],
-          description: 'OCPP version for this template',
         },
         variables: {
+          minItems: 1,
+          maxItems: 500,
           type: 'array',
           items: {
             type: 'object',
@@ -3883,23 +3885,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               component: { type: 'string', maxLength: 100 },
               variable: { type: 'string', minLength: 1, maxLength: 100 },
               variableInstance: {
+                description:
+                  'OCPP 2.0.1 and 2.1 variable instance, such as Default for OCPPCommCtrlr.MessageTimeout or TransactionEvent for OCPPCommCtrlr.MessageAttempts. Null or absent: no instance. OCPP 1.6 templates have none',
+                nullable: true,
                 type: 'string',
                 minLength: 1,
                 maxLength: 50,
-                nullable: true,
-                description:
-                  'OCPP 2.0.1 and 2.1 variable instance, such as Default for OCPPCommCtrlr.MessageTimeout or TransactionEvent for OCPPCommCtrlr.MessageAttempts. Null or absent: no instance. OCPP 1.6 templates have none',
               },
               value: { type: 'string', maxLength: 2500 },
             },
             required: ['component', 'variable', 'value'],
             additionalProperties: false,
           },
-          minItems: 1,
-          maxItems: 500,
           description: 'Variable definitions to set on target stations',
         },
         targetFilter: {
+          nullable: true,
+          description: 'Filter to select target stations',
           type: 'object',
           properties: {
             siteId: { type: 'string' },
@@ -3907,15 +3909,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             model: { type: 'string' },
             stationId: { type: 'string' },
             dataPlan: {
-              type: 'string',
-              enum: ['wifi_or_wired', 'cellular'],
               description:
                 "Only stations whose effective data plan is this one (the station's own choice, else cellular for a confirmed SIM, else the site's plan, else wifi_or_wired)",
+              type: 'string',
+              enum: ['wifi_or_wired', 'cellular'],
             },
           },
           additionalProperties: false,
-          nullable: true,
-          description: 'Filter to select target stations',
         },
       },
       required: ['name', 'variables'],
@@ -3980,32 +3980,32 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Content encoding format',
         },
         content: { type: 'string', minLength: 1, maxLength: 1024 },
-        language: { type: 'string', maxLength: 8, description: 'ISO 639-1 language code' },
+        language: { description: 'ISO 639-1 language code', type: 'string', maxLength: 8 },
         state: {
+          description: 'Show message only when station is in this state',
           type: 'string',
           enum: ['Charging', 'Faulted', 'Idle', 'Unavailable', 'Suspended', 'Discharging'],
-          description: 'Show message only when station is in this state',
         },
         startDateTime: {
+          description: 'ISO 8601 start time for the message',
           type: 'string',
           format: 'date-time',
-          description: 'ISO 8601 start time for the message',
         },
         endDateTime: {
+          description: 'ISO 8601 end time for the message',
           type: 'string',
           format: 'date-time',
-          description: 'ISO 8601 end time for the message',
         },
         transactionId: {
+          description: 'Limit display to this transaction',
           type: 'string',
           maxLength: 36,
-          description: 'Limit display to this transaction',
         },
-        evseId: { type: 'integer', minimum: 0, description: 'OCPP EVSE ID to target' },
+        evseId: { description: 'OCPP EVSE ID to target', type: 'integer', minimum: 0 },
         messageExtra: {
+          description: 'Additional OCPP message components',
           type: 'array',
           items: { type: 'object', additionalProperties: {} },
-          description: 'Additional OCPP message components',
         },
       },
       required: ['stationId', 'priority', 'format', 'content'],
@@ -4031,32 +4031,32 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Content encoding format',
         },
         content: { type: 'string', minLength: 1, maxLength: 1024 },
-        language: { type: 'string', maxLength: 8, description: 'ISO 639-1 language code' },
+        language: { description: 'ISO 639-1 language code', type: 'string', maxLength: 8 },
         state: {
+          description: 'Show message only when station is in this state',
           type: 'string',
           enum: ['Charging', 'Faulted', 'Idle', 'Unavailable', 'Suspended', 'Discharging'],
-          description: 'Show message only when station is in this state',
         },
         startDateTime: {
+          description: 'ISO 8601 start time for the message',
           type: 'string',
           format: 'date-time',
-          description: 'ISO 8601 start time for the message',
         },
         endDateTime: {
+          description: 'ISO 8601 end time for the message',
           type: 'string',
           format: 'date-time',
-          description: 'ISO 8601 end time for the message',
         },
         transactionId: {
+          description: 'Limit display to this transaction',
           type: 'string',
           maxLength: 36,
-          description: 'Limit display to this transaction',
         },
-        evseId: { type: 'integer', minimum: 0, description: 'OCPP EVSE ID to target' },
+        evseId: { description: 'OCPP EVSE ID to target', type: 'integer', minimum: 0 },
         messageExtra: {
+          description: 'Additional OCPP message components',
           type: 'array',
           items: { type: 'object', additionalProperties: {} },
-          description: 'Additional OCPP message components',
         },
       },
       required: ['stationId', 'priority', 'format', 'content'],
@@ -4096,9 +4096,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         firstName: { type: 'string' },
         lastName: { type: 'string' },
         language: {
+          description: 'Preferred language (default en)',
           type: ['string', 'null'],
           enum: ['en', 'de', 'es', 'ko', 'zh', 'zh-TW', null],
-          description: 'Preferred language (default en)',
         },
       },
       required: ['firstName', 'lastName', 'language'],
@@ -4111,9 +4111,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         firstName: { type: 'string', minLength: 1, maxLength: 100 },
         lastName: { type: 'string', minLength: 1, maxLength: 100 },
         language: {
+          description: 'Preferred language (default en)',
           type: 'string',
           enum: ['en', 'de', 'es', 'ko', 'zh', 'zh-TW'],
-          description: 'Preferred language (default en)',
         },
       },
       required: ['firstName', 'lastName'],
@@ -4218,11 +4218,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         make: { type: 'string', description: 'Vehicle make (e.g. Tesla, BMW)' },
         model: { type: 'string', description: 'Vehicle model (e.g. Model 3, i4)' },
         year: {
+          description: 'Model year (4-digit)',
           type: ['string', 'null'],
           pattern: '^\\d{4}$',
-          description: 'Model year (4-digit)',
         },
-        licensePlate: { type: ['string', 'null'], description: 'License plate number' },
+        licensePlate: { description: 'License plate number', type: ['string', 'null'] },
       },
       required: ['id', 'make', 'model', 'year', 'licensePlate'],
       additionalProperties: false,
@@ -4244,8 +4244,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           maxLength: 100,
           description: 'Vehicle model (e.g. Model 3, i4)',
         },
-        year: { type: 'string', pattern: '^\\d{4}$', description: 'Model year (4-digit)' },
-        licensePlate: { type: 'string', maxLength: 20, description: 'License plate number' },
+        year: { description: 'Model year (4-digit)', type: 'string', pattern: '^\\d{4}$' },
+        licensePlate: { description: 'License plate number', type: 'string', maxLength: 20 },
       },
       required: ['id', 'make', 'model'],
       additionalProperties: false,
@@ -4283,10 +4283,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         component: { type: 'string', description: 'OCPP component name' },
         variable: { type: 'string', description: 'OCPP variable name' },
         minSeverity: {
+          description: 'Minimum severity (0=Danger)',
           type: ['integer', 'null'],
           minimum: 0,
           maximum: 9,
-          description: 'Minimum severity (0=Danger)',
         },
         isEnabled: { type: ['boolean', 'null'] },
         notifyChannel: { type: ['string', 'null'], enum: ['email', 'webhook', 'sms', 'log', null] },
@@ -4311,10 +4311,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'OCPP variable name',
         },
         minSeverity: {
+          description: 'Minimum severity (0=Danger)',
           type: 'integer',
           minimum: 0,
           maximum: 9,
-          description: 'Minimum severity (0=Danger)',
         },
         isEnabled: { type: 'boolean' },
         notifyChannel: { type: 'string', enum: ['email', 'webhook', 'sms', 'log'] },
@@ -4393,11 +4393,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         fleetId: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
         name: {
+          description: 'Optional name for this fleet reservation',
           type: 'string',
           maxLength: 255,
-          description: 'Optional name for this fleet reservation',
         },
         slots: {
+          minItems: 1,
+          maxItems: 100,
           type: 'array',
           items: {
             type: 'object',
@@ -4409,18 +4411,16 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 description: 'OCPP station identifier',
               },
               evseId: {
+                description: 'EVSE ID on the station',
                 type: 'integer',
                 minimum: 1,
                 maximum: 2147483647,
-                description: 'EVSE ID on the station',
               },
-              driverId: { type: 'string', pattern: '^drv_[a-z0-9]{12}$', description: 'Driver ID' },
+              driverId: { description: 'Driver ID', type: 'string', pattern: '^drv_[a-z0-9]{12}$' },
             },
             required: ['stationOcppId'],
             additionalProperties: false,
           },
-          minItems: 1,
-          maxItems: 100,
           description: 'Array of reservation slots',
         },
         expiresAt: {
@@ -4428,11 +4428,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           format: 'date-time',
           description: 'ISO 8601 expiration date-time',
         },
-        startsAt: { type: 'string', format: 'date-time', description: 'ISO 8601 start date-time' },
+        startsAt: { description: 'ISO 8601 start date-time', type: 'string', format: 'date-time' },
         chargingProfile: {
+          description: 'Charging profile to set on stations',
           type: 'object',
           additionalProperties: {},
-          description: 'Charging profile to set on stations',
         },
       },
       required: ['fleetId', 'slots', 'expiresAt'],
@@ -4444,11 +4444,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         fleetId: { type: 'string', pattern: '^flt_[a-z0-9]{12}$', description: 'Fleet ID' },
         name: {
+          description: 'Optional name for this fleet reservation',
           type: 'string',
           maxLength: 255,
-          description: 'Optional name for this fleet reservation',
         },
         slots: {
+          minItems: 1,
+          maxItems: 100,
           type: 'array',
           items: {
             type: 'object',
@@ -4460,18 +4462,16 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 description: 'OCPP station identifier',
               },
               evseId: {
+                description: 'EVSE ID on the station',
                 type: 'integer',
                 minimum: 1,
                 maximum: 2147483647,
-                description: 'EVSE ID on the station',
               },
-              driverId: { type: 'string', pattern: '^drv_[a-z0-9]{12}$', description: 'Driver ID' },
+              driverId: { description: 'Driver ID', type: 'string', pattern: '^drv_[a-z0-9]{12}$' },
             },
             required: ['stationOcppId'],
             additionalProperties: false,
           },
-          minItems: 1,
-          maxItems: 100,
           description: 'Array of reservation slots',
         },
         expiresAt: {
@@ -4479,11 +4479,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           format: 'date-time',
           description: 'ISO 8601 expiration date-time',
         },
-        startsAt: { type: 'string', format: 'date-time', description: 'ISO 8601 start date-time' },
+        startsAt: { description: 'ISO 8601 start date-time', type: 'string', format: 'date-time' },
         chargingProfile: {
+          description: 'Charging profile to set on stations',
           type: 'object',
           additionalProperties: {},
-          description: 'Charging profile to set on stations',
         },
       },
       required: ['fleetId', 'slots', 'expiresAt'],
@@ -4529,8 +4529,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         startedAt: { type: 'string', description: 'ISO 8601 date-time when downtime started' },
         endedAt: {
-          type: ['string', 'null'],
           description: 'ISO 8601 date-time when downtime ended',
+          type: ['string', 'null'],
         },
         notes: { type: ['string', 'null'] },
       },
@@ -4555,7 +4555,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Reason for the excluded downtime',
         },
         startedAt: { type: 'string', description: 'ISO 8601 date-time when downtime started' },
-        endedAt: { type: 'string', description: 'ISO 8601 date-time when downtime ended' },
+        endedAt: { description: 'ISO 8601 date-time when downtime ended', type: 'string' },
         notes: { type: 'string', maxLength: 1000 },
       },
       required: ['stationId', 'evseId', 'reason', 'startedAt'],
@@ -4612,10 +4612,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         safetyMarginKw: { type: ['number', 'null'], minimum: 0, maximum: 10000 },
         oversubscriptionRatio: { type: ['number', 'null'], minimum: 1, maximum: 3 },
         phaseConnections: {
-          type: ['string', 'null'],
-          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', null],
           description:
             'Phases of the three-phase parent panel that feed this single-phase sub-panel (one phase line to neutral, two line to line). Omit when unknown: the sub-panel load then counts on every parent phase. Refused unless the panel is single-phase below a three-phase parent',
+          type: ['string', 'null'],
+          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', null],
         },
         sortOrder: { type: ['integer', 'null'], minimum: 0, maximum: 10000 },
       },
@@ -4639,7 +4639,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         siteId: { type: 'string', description: 'Site ID' },
         name: { type: 'string', minLength: 1, maxLength: 255 },
-        parentPanelId: { type: 'string', nullable: true },
+        parentPanelId: { nullable: true, type: 'string' },
         breakerRatingAmps: {
           type: 'integer',
           minimum: 1,
@@ -4651,10 +4651,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         safetyMarginKw: { type: 'number', minimum: 0, maximum: 10000 },
         oversubscriptionRatio: { type: 'number', minimum: 1, maximum: 3 },
         phaseConnections: {
-          type: 'string',
-          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3'],
           description:
             'Phases of the three-phase parent panel that feed this single-phase sub-panel (one phase line to neutral, two line to line). Omit when unknown: the sub-panel load then counts on every parent phase. Refused unless the panel is single-phase below a three-phase parent',
+          type: 'string',
+          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3'],
         },
         sortOrder: { type: 'integer', minimum: 0, maximum: 10000 },
       },
@@ -4714,21 +4714,21 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'How often the report runs',
         },
         dayOfWeek: {
+          description: 'Day of week for weekly schedules (0=Sunday, 6=Saturday)',
           type: 'integer',
           minimum: 0,
           maximum: 6,
-          description: 'Day of week for weekly schedules (0=Sunday, 6=Saturday)',
         },
         dayOfMonth: {
+          description: 'Day of month for monthly schedules (1-31)',
           type: 'integer',
           minimum: 1,
           maximum: 31,
-          description: 'Day of month for monthly schedules (1-31)',
         },
         filters: {
+          description: 'Key-value filter criteria for the report',
           type: 'object',
           additionalProperties: {},
-          description: 'Key-value filter criteria for the report',
         },
       },
       required: ['name', 'reportType', 'format', 'frequency'],
@@ -4760,21 +4760,21 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'How often the report runs',
         },
         dayOfWeek: {
+          description: 'Day of week for weekly schedules (0=Sunday, 6=Saturday)',
           type: 'integer',
           minimum: 0,
           maximum: 6,
-          description: 'Day of week for weekly schedules (0=Sunday, 6=Saturday)',
         },
         dayOfMonth: {
+          description: 'Day of month for monthly schedules (1-31)',
           type: 'integer',
           minimum: 1,
           maximum: 31,
-          description: 'Day of month for monthly schedules (1-31)',
         },
         filters: {
+          description: 'Key-value filter criteria for the report',
           type: 'object',
           additionalProperties: {},
-          description: 'Key-value filter criteria for the report',
         },
       },
       required: ['name', 'reportType', 'format', 'frequency'],
@@ -4808,24 +4808,24 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         stationId: { type: 'string', description: 'OCPP station identifier string' },
         evseId: {
+          description: 'EVSE ID on the station',
           type: ['integer', 'null'],
           minimum: 0,
           maximum: 2147483647,
-          description: 'EVSE ID on the station',
         },
         driverId: {
+          description: 'Driver ID to associate with the reservation',
           type: ['string', 'null'],
           pattern: '^drv_[a-z0-9]{12}$',
-          description: 'Driver ID to associate with the reservation',
         },
         tokenId: {
-          type: ['string', 'null'],
-          pattern: '^dtk_[a-z0-9]{12}$',
           description:
             'Optional driver token ID to bind to the reservation. When set, the StartTransaction handler can verify the card the driver actually taps matches.',
+          type: ['string', 'null'],
+          pattern: '^dtk_[a-z0-9]{12}$',
         },
         expiresAt: { type: 'string', description: 'ISO 8601 expiration date-time' },
-        startsAt: { type: ['string', 'null'], description: 'ISO 8601 start date-time' },
+        startsAt: { description: 'ISO 8601 start date-time', type: ['string', 'null'] },
       },
       required: ['stationId', 'evseId', 'driverId', 'tokenId', 'expiresAt', 'startsAt'],
       additionalProperties: false,
@@ -4836,28 +4836,28 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         stationId: { type: 'string', description: 'OCPP station identifier string' },
         evseId: {
+          description: 'EVSE ID on the station',
           type: 'integer',
           minimum: 0,
           maximum: 2147483647,
-          description: 'EVSE ID on the station',
         },
         driverId: {
+          description: 'Driver ID to associate with the reservation',
           type: 'string',
           pattern: '^drv_[a-z0-9]{12}$',
-          description: 'Driver ID to associate with the reservation',
         },
         tokenId: {
-          type: 'string',
-          pattern: '^dtk_[a-z0-9]{12}$',
           description:
             'Optional driver token ID to bind to the reservation. When set, the StartTransaction handler can verify the card the driver actually taps matches.',
+          type: 'string',
+          pattern: '^dtk_[a-z0-9]{12}$',
         },
         expiresAt: {
           type: 'string',
           format: 'date-time',
           description: 'ISO 8601 expiration date-time',
         },
-        startsAt: { type: 'string', format: 'date-time', description: 'ISO 8601 start date-time' },
+        startsAt: { description: 'ISO 8601 start date-time', type: 'string', format: 'date-time' },
       },
       required: ['stationId', 'expiresAt'],
       additionalProperties: false,
@@ -4900,27 +4900,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        name: {
-          allOf: [
-            { type: 'string', minLength: 1, maxLength: 255 },
-            { type: 'string', minLength: 1 },
-          ],
-        },
+        name: { type: 'string', minLength: 1, maxLength: 255 },
         address: { type: 'string', maxLength: 500 },
         city: { type: 'string', maxLength: 255 },
         state: { type: 'string', maxLength: 100 },
         postalCode: { type: 'string', maxLength: 20 },
         country: {
+          description: 'Country: ISO 3166-1 alpha-2 or alpha-3 code, or English name',
           type: 'string',
           maxLength: 100,
-          description: 'Country: ISO 3166-1 alpha-2 or alpha-3 code, or English name',
         },
         latitude: { type: 'string', maxLength: 20 },
         longitude: { type: 'string', maxLength: 20 },
         timezone: { type: 'string', maxLength: 100 },
         contactName: { type: 'string', maxLength: 255 },
         contactIsPublic: { type: 'boolean' },
-        hoursOfOperation: { type: 'string', maxLength: 500, nullable: true },
+        hoursOfOperation: { nullable: true, type: 'string', maxLength: 500 },
         metadata: { type: 'object', additionalProperties: {} },
       },
       required: ['name'],
@@ -4930,27 +4925,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     validation: {
       type: 'object',
       properties: {
-        name: {
-          allOf: [
-            { type: 'string', minLength: 1, maxLength: 255 },
-            { type: 'string', minLength: 1 },
-          ],
-        },
+        name: { type: 'string', minLength: 1, maxLength: 255 },
         address: { type: 'string', maxLength: 500 },
         city: { type: 'string', maxLength: 255 },
         state: { type: 'string', maxLength: 100 },
         postalCode: { type: 'string', maxLength: 20 },
         country: {
+          description: 'Country: ISO 3166-1 alpha-2 or alpha-3 code, or English name',
           type: 'string',
           maxLength: 100,
-          description: 'Country: ISO 3166-1 alpha-2 or alpha-3 code, or English name',
         },
         latitude: { type: 'string', maxLength: 20 },
         longitude: { type: 'string', maxLength: 20 },
         timezone: { type: 'string', maxLength: 100 },
         contactName: { type: 'string', maxLength: 255 },
         contactIsPublic: { type: 'boolean' },
-        hoursOfOperation: { type: 'string', maxLength: 500, nullable: true },
+        hoursOfOperation: { nullable: true, type: 'string', maxLength: 500 },
         metadata: { type: 'object', additionalProperties: {} },
       },
       required: ['name'],
@@ -4998,6 +4988,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'Wholesale electricity rate per kWh in the company currency (major units, up to 6 decimals)',
         },
         restrictions: {
+          description: 'When the period applies, or null/omitted for the default flat rate',
           type: ['object', 'null'],
           properties: {
             timeRange: {
@@ -5010,9 +5001,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               additionalProperties: false,
             },
             daysOfWeek: {
+              minItems: 1,
               type: ['array', 'null'],
               items: { type: 'integer', minimum: 0, maximum: 6 },
-              minItems: 1,
             },
             dateRange: {
               type: ['object', 'null'],
@@ -5025,7 +5016,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             },
           },
           additionalProperties: false,
-          description: 'When the period applies, or null/omitted for the default flat rate',
           required: ['timeRange', 'daysOfWeek', 'dateRange'],
         },
       },
@@ -5046,6 +5036,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'Wholesale electricity rate per kWh in the company currency (major units, up to 6 decimals)',
         },
         restrictions: {
+          description: 'When the period applies, or null/omitted for the default flat rate',
+          nullable: true,
           type: 'object',
           properties: {
             timeRange: {
@@ -5058,9 +5050,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               additionalProperties: false,
             },
             daysOfWeek: {
+              minItems: 1,
               type: 'array',
               items: { type: 'integer', minimum: 0, maximum: 6 },
-              minItems: 1,
             },
             dateRange: {
               type: 'object',
@@ -5073,8 +5065,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             },
           },
           additionalProperties: false,
-          nullable: true,
-          description: 'When the period applies, or null/omitted for the default flat rate',
         },
       },
       required: ['id', 'name', 'ratePerKwh'],
@@ -5105,12 +5095,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         siteId: { type: 'string', description: 'Site ID (e.g., sit_...)' },
         eventType: { type: 'string', enum: ['immediate', 'one_off'], description: 'Event type' },
-        plannedStartAt: { type: 'string', description: 'Planned start (ignored for immediate)' },
-        plannedEndAt: { type: 'string', description: 'Planned end' },
+        plannedStartAt: { description: 'Planned start (ignored for immediate)', type: 'string' },
+        plannedEndAt: { description: 'Planned end', type: 'string' },
         affectedStationIds: {
+          description: 'Affected station IDs; null/empty = entire site',
           type: ['array', 'null'],
           items: { type: 'string' },
-          description: 'Affected station IDs; null/empty = entire site',
         },
         activeSessionPolicy: { type: ['string', 'null'], enum: ['ignore', 'stop_graceful', null] },
         customMessage: { type: ['string', 'null'] },
@@ -5135,20 +5125,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         siteId: { type: 'string', description: 'Site ID (e.g., sit_...)' },
         eventType: { type: 'string', enum: ['immediate', 'one_off'], description: 'Event type' },
         plannedStartAt: {
+          description: 'Planned start (ignored for immediate)',
           type: 'string',
           format: 'date-time',
-          description: 'Planned start (ignored for immediate)',
         },
-        plannedEndAt: { type: 'string', format: 'date-time', description: 'Planned end' },
+        plannedEndAt: { description: 'Planned end', type: 'string', format: 'date-time' },
         affectedStationIds: {
+          description: 'Affected station IDs; null/empty = entire site',
+          nullable: true,
           type: 'array',
           items: { type: 'string' },
-          nullable: true,
-          description: 'Affected station IDs; null/empty = entire site',
         },
         activeSessionPolicy: { type: 'string', enum: ['ignore', 'stop_graceful'] },
-        customMessage: { type: 'string', maxLength: 2000, nullable: true },
-        reason: { type: 'string', maxLength: 500, nullable: true },
+        customMessage: { nullable: true, type: 'string', maxLength: 2000 },
+        reason: { nullable: true, type: 'string', maxLength: 500 },
       },
       required: ['siteId', 'eventType', 'plannedStartAt', 'plannedEndAt'],
       additionalProperties: false,
@@ -5201,26 +5191,26 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         model: { type: ['string', 'null'] },
         serialNumber: { type: ['string', 'null'] },
         vendorId: {
+          description: 'Vendor ID',
           type: ['string', 'null'],
           pattern: '^vnd_[a-z0-9]{12}$',
-          description: 'Vendor ID',
         },
         siteId: {
+          description: 'Site ID to assign the station to',
           type: ['string', 'null'],
           pattern: '^sit_[a-z0-9]{12}$',
-          description: 'Site ID to assign the station to',
         },
         ocppProtocol: {
+          description: 'OCPP protocol version: ocpp1.6, ocpp2.0.1 or ocpp2.1 (defaults to ocpp1.6)',
           type: ['string', 'null'],
           enum: ['ocpp1.6', 'ocpp2.0.1', 'ocpp2.1', null],
-          description: 'OCPP protocol version: ocpp1.6, ocpp2.0.1 or ocpp2.1 (defaults to ocpp1.6)',
         },
         isSimulator: {
-          type: ['boolean', 'null'],
           description: 'Whether this station is a simulator',
+          type: ['boolean', 'null'],
         },
-        latitude: { type: ['string', 'null'], description: 'Station latitude' },
-        longitude: { type: ['string', 'null'], description: 'Station longitude' },
+        latitude: { description: 'Station latitude', type: ['string', 'null'] },
+        longitude: { description: 'Station longitude', type: ['string', 'null'] },
       },
       required: [
         'stationId',
@@ -5247,20 +5237,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         model: { type: 'string', maxLength: 255 },
         serialNumber: { type: 'string', maxLength: 255 },
-        vendorId: { type: 'string', pattern: '^vnd_[a-z0-9]{12}$', description: 'Vendor ID' },
+        vendorId: { description: 'Vendor ID', type: 'string', pattern: '^vnd_[a-z0-9]{12}$' },
         siteId: {
+          description: 'Site ID to assign the station to',
           type: 'string',
           pattern: '^sit_[a-z0-9]{12}$',
-          description: 'Site ID to assign the station to',
         },
         ocppProtocol: {
+          description: 'OCPP protocol version: ocpp1.6, ocpp2.0.1 or ocpp2.1 (defaults to ocpp1.6)',
           type: 'string',
           enum: ['ocpp1.6', 'ocpp2.0.1', 'ocpp2.1'],
-          description: 'OCPP protocol version: ocpp1.6, ocpp2.0.1 or ocpp2.1 (defaults to ocpp1.6)',
         },
-        isSimulator: { type: 'boolean', description: 'Whether this station is a simulator' },
-        latitude: { type: 'string', maxLength: 20, description: 'Station latitude' },
-        longitude: { type: 'string', maxLength: 20, description: 'Station longitude' },
+        isSimulator: { description: 'Whether this station is a simulator', type: 'boolean' },
+        latitude: { description: 'Station latitude', type: 'string', maxLength: 20 },
+        longitude: { description: 'Station longitude', type: 'string', maxLength: 20 },
       },
       required: ['stationId'],
       additionalProperties: false,
@@ -5313,10 +5303,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         value: { type: 'number', description: 'Threshold value or interval' },
         severity: {
+          description: 'OCPP severity level 0-9',
           type: ['integer', 'null'],
           minimum: 0,
           maximum: 9,
-          description: 'OCPP severity level 0-9',
         },
       },
       required: ['id', 'component', 'variable', 'type', 'value', 'severity'],
@@ -5354,10 +5344,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         value: { type: 'number', description: 'Threshold value or interval' },
         severity: {
+          description: 'OCPP severity level 0-9',
           type: 'integer',
           minimum: 0,
           maximum: 9,
-          description: 'OCPP severity level 0-9',
         },
       },
       required: ['id', 'component', 'variable', 'type', 'value'],
@@ -5416,29 +5406,29 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Support case category',
         },
         priority: {
+          description: 'Priority level, defaults to medium',
           type: ['string', 'null'],
           enum: ['low', 'medium', 'high', 'urgent', null],
-          description: 'Priority level, defaults to medium',
         },
         driverId: {
+          description: 'Driver ID to link to this case',
           type: ['string', 'null'],
           pattern: '^drv_[a-z0-9]{12}$',
-          description: 'Driver ID to link to this case',
         },
         sessionIds: {
+          description: 'Charging session IDs to link',
           type: ['array', 'null'],
           items: { type: 'string', pattern: '^ses_[a-z0-9]{12}$' },
-          description: 'Charging session IDs to link',
         },
         stationId: {
+          description: 'Station ID related to this case',
           type: ['string', 'null'],
           pattern: '^sta_[a-z0-9]{12}$',
-          description: 'Station ID related to this case',
         },
         assignedTo: {
+          description: 'Operator ID to assign the case to',
           type: ['string', 'null'],
           pattern: '^usr_[a-z0-9]{12}$',
-          description: 'Operator ID to assign the case to',
         },
       },
       required: [
@@ -5473,29 +5463,29 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Support case category',
         },
         priority: {
+          description: 'Priority level, defaults to medium',
           type: 'string',
           enum: ['low', 'medium', 'high', 'urgent'],
-          description: 'Priority level, defaults to medium',
         },
         driverId: {
+          description: 'Driver ID to link to this case',
           type: 'string',
           pattern: '^drv_[a-z0-9]{12}$',
-          description: 'Driver ID to link to this case',
         },
         sessionIds: {
+          description: 'Charging session IDs to link',
           type: 'array',
           items: { type: 'string', pattern: '^ses_[a-z0-9]{12}$' },
-          description: 'Charging session IDs to link',
         },
         stationId: {
+          description: 'Station ID related to this case',
           type: 'string',
           pattern: '^sta_[a-z0-9]{12}$',
-          description: 'Station ID related to this case',
         },
         assignedTo: {
+          description: 'Operator ID to assign the case to',
           type: 'string',
           pattern: '^usr_[a-z0-9]{12}$',
-          description: 'Operator ID to assign the case to',
         },
       },
       required: ['subject', 'description', 'category'],
@@ -5530,9 +5520,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         driverId: {
+          description: 'Driver ID to assign this token to',
           type: ['string', 'null'],
           pattern: '^drv_[a-z0-9]{12}$',
-          description: 'Driver ID to assign this token to',
         },
         idToken: { type: 'string', description: 'Token identifier' },
         tokenType: {
@@ -5552,7 +5542,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           ],
           description: 'OCPP IdToken type',
         },
-        expiresAt: { type: ['string', 'null'], description: 'Optional expiration timestamp' },
+        expiresAt: { description: 'Optional expiration timestamp', type: ['string', 'null'] },
       },
       required: ['driverId', 'idToken', 'tokenType', 'expiresAt'],
       additionalProperties: false,
@@ -5562,9 +5552,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         driverId: {
+          description: 'Driver ID to assign this token to',
           type: 'string',
           pattern: '^drv_[a-z0-9]{12}$',
-          description: 'Driver ID to assign this token to',
         },
         idToken: { type: 'string', minLength: 1, maxLength: 255, description: 'Token identifier' },
         tokenType: {
@@ -5585,10 +5575,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'OCPP IdToken type',
         },
         expiresAt: {
+          description: 'Optional expiration timestamp',
+          nullable: true,
           type: 'string',
           format: 'date-time',
-          nullable: true,
-          description: 'Optional expiration timestamp',
         },
       },
       required: ['idToken', 'tokenType'],
@@ -5622,12 +5612,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         siteId: { type: 'string', description: 'Site ID' },
         panelId: {
-          type: ['string', 'null'],
           description: 'Panel ID (exactly one of panelId or circuitId required)',
+          type: ['string', 'null'],
         },
         circuitId: {
-          type: ['string', 'null'],
           description: 'Circuit ID (exactly one of panelId or circuitId required)',
+          type: ['string', 'null'],
         },
         name: { type: 'string' },
         estimatedDrawKw: {
@@ -5646,12 +5636,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         siteId: { type: 'string', description: 'Site ID' },
         panelId: {
-          type: 'string',
           description: 'Panel ID (exactly one of panelId or circuitId required)',
+          type: 'string',
         },
         circuitId: {
-          type: 'string',
           description: 'Circuit ID (exactly one of panelId or circuitId required)',
+          type: 'string',
         },
         name: { type: 'string', minLength: 1, maxLength: 255 },
         estimatedDrawKw: {
@@ -6558,9 +6548,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         format: { type: 'string', enum: ['csv', 'pdf', 'xlsx'], description: 'Output file format' },
         filters: {
+          description: 'Key-value filter criteria for the report',
           type: 'object',
           additionalProperties: {},
-          description: 'Key-value filter criteria for the report',
         },
       },
       required: ['name', 'reportType', 'format'],
@@ -6587,9 +6577,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         format: { type: 'string', enum: ['csv', 'pdf', 'xlsx'], description: 'Output file format' },
         filters: {
+          description: 'Key-value filter criteria for the report',
           type: 'object',
           additionalProperties: {},
-          description: 'Key-value filter criteria for the report',
         },
       },
       required: ['name', 'reportType', 'format'],
@@ -9289,17 +9279,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
-        evseId: { type: ['integer', 'null'], minimum: 0, description: 'EVSE ID (defaults to 0)' },
+        evseId: { description: 'EVSE ID (defaults to 0)', type: ['integer', 'null'], minimum: 0 },
         duration: {
+          description: 'Duration in seconds (1-31536000, defaults to 86400)',
           type: ['integer', 'null'],
           minimum: 1,
           maximum: 31536000,
-          description: 'Duration in seconds (1-31536000, defaults to 86400)',
         },
         chargingRateUnit: {
+          description: 'Charging rate unit (W or A)',
           type: ['string', 'null'],
           enum: ['W', 'A', null],
-          description: 'Charging rate unit (W or A)',
         },
       },
       required: ['id', 'evseId', 'duration', 'chargingRateUnit'],
@@ -9310,17 +9300,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', pattern: '^sta_[a-z0-9]{12}$', description: 'Station ID' },
-        evseId: { type: 'integer', minimum: 0, description: 'EVSE ID (defaults to 0)' },
+        evseId: { description: 'EVSE ID (defaults to 0)', type: 'integer', minimum: 0 },
         duration: {
+          description: 'Duration in seconds (1-31536000, defaults to 86400)',
           type: 'integer',
           minimum: 1,
           maximum: 31536000,
-          description: 'Duration in seconds (1-31536000, defaults to 86400)',
         },
         chargingRateUnit: {
+          description: 'Charging rate unit (W or A)',
           type: 'string',
           enum: ['W', 'A'],
-          description: 'Charging rate unit (W or A)',
         },
       },
       required: ['id'],
@@ -16269,14 +16259,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
-        id: { type: ['integer', 'null'], description: 'Charging profile ID' },
-        connectorId: { type: ['integer', 'null'], description: 'Connector ID' },
+        id: { description: 'Charging profile ID', type: ['integer', 'null'] },
+        connectorId: { description: 'Connector ID', type: ['integer', 'null'] },
         chargingProfilePurpose: {
+          description: 'Profile purpose filter',
           type: ['string', 'null'],
           enum: ['ChargePointMaxProfile', 'TxDefaultProfile', 'TxProfile', null],
-          description: 'Profile purpose filter',
         },
-        stackLevel: { type: ['integer', 'null'], description: 'Stack level filter' },
+        stackLevel: { description: 'Stack level filter', type: ['integer', 'null'] },
       },
       required: ['stationId', 'id', 'connectorId', 'chargingProfilePurpose', 'stackLevel'],
       additionalProperties: false,
@@ -16286,14 +16276,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
-        id: { type: 'integer', description: 'Charging profile ID' },
-        connectorId: { type: 'integer', description: 'Connector ID' },
+        id: { description: 'Charging profile ID', type: 'integer' },
+        connectorId: { description: 'Connector ID', type: 'integer' },
         chargingProfilePurpose: {
+          description: 'Profile purpose filter',
           type: 'string',
           enum: ['ChargePointMaxProfile', 'TxDefaultProfile', 'TxProfile'],
-          description: 'Profile purpose filter',
         },
-        stackLevel: { type: 'integer', description: 'Stack level filter' },
+        stackLevel: { description: 'Stack level filter', type: 'integer' },
       },
       required: ['stationId'],
       additionalProperties: false,
@@ -16327,7 +16317,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           ],
           description: 'Message type to trigger',
         },
-        connectorId: { type: ['integer', 'null'], description: 'Connector ID' },
+        connectorId: { description: 'Connector ID', type: ['integer', 'null'] },
       },
       required: ['stationId', 'requestedMessage', 'connectorId'],
       additionalProperties: false,
@@ -16350,7 +16340,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           ],
           description: 'Message type to trigger',
         },
-        connectorId: { type: 'integer', description: 'Connector ID' },
+        connectorId: { description: 'Connector ID', type: 'integer' },
       },
       required: ['stationId', 'requestedMessage'],
       additionalProperties: false,
@@ -16374,9 +16364,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         connectorId: { type: 'integer', description: 'Connector ID' },
         duration: { type: 'integer', description: 'Duration in seconds' },
         chargingRateUnit: {
+          description: 'Preferred rate unit',
           type: ['string', 'null'],
           enum: ['A', 'W', null],
-          description: 'Preferred rate unit',
         },
       },
       required: ['stationId', 'connectorId', 'duration', 'chargingRateUnit'],
@@ -16389,7 +16379,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         connectorId: { type: 'integer', description: 'Connector ID' },
         duration: { type: 'integer', description: 'Duration in seconds' },
-        chargingRateUnit: { type: 'string', enum: ['A', 'W'], description: 'Preferred rate unit' },
+        chargingRateUnit: { description: 'Preferred rate unit', type: 'string', enum: ['A', 'W'] },
       },
       required: ['stationId', 'connectorId', 'duration'],
       additionalProperties: false,
@@ -16411,9 +16401,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         key: {
+          description: 'Keys to retrieve',
           type: ['array', 'null'],
           items: { type: 'string' },
-          description: 'Keys to retrieve',
         },
       },
       required: ['stationId', 'key'],
@@ -16425,9 +16415,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         key: {
+          description: 'Keys to retrieve',
           type: 'array',
           items: { type: 'string', maxLength: 50 },
-          description: 'Keys to retrieve',
         },
       },
       required: ['stationId'],
@@ -16474,15 +16464,16 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
-        connectorId: { type: ['integer', 'null'], description: 'Connector ID' },
+        connectorId: { description: 'Connector ID', type: ['integer', 'null'] },
         idTag: { type: 'string', description: 'ID tag for authorization' },
         chargingProfile: {
+          description: 'Charging profile',
           type: ['object', 'null'],
           properties: {
             chargingProfileId: { type: 'integer', description: 'Unique profile identifier' },
             transactionId: {
-              type: ['integer', 'null'],
               description: 'Transaction this profile applies to',
+              type: ['integer', 'null'],
             },
             stackLevel: { type: 'integer', description: 'Stack level for profile stacking' },
             chargingProfilePurpose: {
@@ -16496,17 +16487,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Profile kind',
             },
             recurrencyKind: {
+              description: 'Recurrency kind',
               type: ['string', 'null'],
               enum: ['Daily', 'Weekly', null],
-              description: 'Recurrency kind',
             },
-            validFrom: { type: ['string', 'null'], description: 'ISO 8601 validity start' },
-            validTo: { type: ['string', 'null'], description: 'ISO 8601 validity end' },
+            validFrom: { description: 'ISO 8601 validity start', type: ['string', 'null'] },
+            validTo: { description: 'ISO 8601 validity end', type: ['string', 'null'] },
             chargingSchedule: {
               type: 'object',
               properties: {
-                duration: { type: ['integer', 'null'], description: 'Duration in seconds' },
-                startSchedule: { type: ['string', 'null'], description: 'ISO 8601 schedule start' },
+                duration: { description: 'Duration in seconds', type: ['integer', 'null'] },
+                startSchedule: { description: 'ISO 8601 schedule start', type: ['string', 'null'] },
                 chargingRateUnit: {
                   type: 'string',
                   enum: ['A', 'W'],
@@ -16522,7 +16513,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Start of period in seconds from schedule start',
                       },
                       limit: { type: 'number', description: 'Power or current limit' },
-                      numberPhases: { type: ['integer', 'null'], description: 'Number of phases' },
+                      numberPhases: { description: 'Number of phases', type: ['integer', 'null'] },
                     },
                     required: ['startPeriod', 'limit', 'numberPhases'],
                     additionalProperties: false,
@@ -16530,7 +16521,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   description: 'Schedule periods',
                 },
-                minChargingRate: { type: ['number', 'null'], description: 'Minimum charging rate' },
+                minChargingRate: { description: 'Minimum charging rate', type: ['number', 'null'] },
               },
               required: [
                 'duration',
@@ -16555,7 +16546,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'chargingSchedule',
           ],
           additionalProperties: false,
-          description: 'Charging profile',
         },
       },
       required: ['stationId', 'connectorId', 'idTag', 'chargingProfile'],
@@ -16566,13 +16556,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
-        connectorId: { type: 'integer', description: 'Connector ID' },
+        connectorId: { description: 'Connector ID', type: 'integer' },
         idTag: { type: 'string', maxLength: 20, description: 'ID tag for authorization' },
         chargingProfile: {
+          description: 'Charging profile',
           type: 'object',
           properties: {
             chargingProfileId: { type: 'integer', description: 'Unique profile identifier' },
-            transactionId: { type: 'integer', description: 'Transaction this profile applies to' },
+            transactionId: { description: 'Transaction this profile applies to', type: 'integer' },
             stackLevel: { type: 'integer', description: 'Stack level for profile stacking' },
             chargingProfilePurpose: {
               type: 'string',
@@ -16585,17 +16576,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Profile kind',
             },
             recurrencyKind: {
+              description: 'Recurrency kind',
               type: 'string',
               enum: ['Daily', 'Weekly'],
-              description: 'Recurrency kind',
             },
-            validFrom: { type: 'string', description: 'ISO 8601 validity start' },
-            validTo: { type: 'string', description: 'ISO 8601 validity end' },
+            validFrom: { description: 'ISO 8601 validity start', type: 'string' },
+            validTo: { description: 'ISO 8601 validity end', type: 'string' },
             chargingSchedule: {
               type: 'object',
               properties: {
-                duration: { type: 'integer', description: 'Duration in seconds' },
-                startSchedule: { type: 'string', description: 'ISO 8601 schedule start' },
+                duration: { description: 'Duration in seconds', type: 'integer' },
+                startSchedule: { description: 'ISO 8601 schedule start', type: 'string' },
                 chargingRateUnit: {
                   type: 'string',
                   enum: ['A', 'W'],
@@ -16611,7 +16602,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Start of period in seconds from schedule start',
                       },
                       limit: { type: 'number', description: 'Power or current limit' },
-                      numberPhases: { type: 'integer', description: 'Number of phases' },
+                      numberPhases: { description: 'Number of phases', type: 'integer' },
                     },
                     required: ['startPeriod', 'limit'],
                     additionalProperties: true,
@@ -16619,7 +16610,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   description: 'Schedule periods',
                 },
-                minChargingRate: { type: 'number', description: 'Minimum charging rate' },
+                minChargingRate: { description: 'Minimum charging rate', type: 'number' },
               },
               required: ['chargingRateUnit', 'chargingSchedulePeriod'],
               additionalProperties: true,
@@ -16634,7 +16625,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'chargingSchedule',
           ],
           additionalProperties: true,
-          description: 'Charging profile',
         },
       },
       required: ['stationId', 'idTag'],
@@ -16690,7 +16680,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         connectorId: { type: 'integer', description: 'Connector ID' },
         expiryDate: { type: 'string', description: 'ISO 8601 reservation expiry' },
         idTag: { type: 'string', description: 'ID tag for reservation' },
-        parentIdTag: { type: ['string', 'null'], description: 'Parent ID tag' },
+        parentIdTag: { description: 'Parent ID tag', type: ['string', 'null'] },
         reservationId: { type: 'integer', description: 'Reservation ID' },
       },
       required: ['stationId', 'connectorId', 'expiryDate', 'idTag', 'parentIdTag', 'reservationId'],
@@ -16704,7 +16694,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         connectorId: { type: 'integer', description: 'Connector ID' },
         expiryDate: { type: 'string', description: 'ISO 8601 reservation expiry' },
         idTag: { type: 'string', maxLength: 20, description: 'ID tag for reservation' },
-        parentIdTag: { type: 'string', maxLength: 20, description: 'Parent ID tag' },
+        parentIdTag: { description: 'Parent ID tag', type: 'string', maxLength: 20 },
         reservationId: { type: 'integer', description: 'Reservation ID' },
       },
       required: ['stationId', 'connectorId', 'expiryDate', 'idTag', 'reservationId'],
@@ -16764,19 +16754,21 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Update type (Differential or Full)',
         },
         localAuthorizationList: {
+          description: 'Authorization entries',
           type: ['array', 'null'],
           items: {
             type: 'object',
             properties: {
               idTag: { type: 'string', description: 'ID tag' },
               idTagInfo: {
+                description: 'ID tag info',
                 type: ['object', 'null'],
                 properties: {
                   expiryDate: {
-                    type: ['string', 'null'],
                     description: 'ISO 8601 expiry timestamp',
+                    type: ['string', 'null'],
                   },
-                  parentIdTag: { type: ['string', 'null'], description: 'Parent ID tag' },
+                  parentIdTag: { description: 'Parent ID tag', type: ['string', 'null'] },
                   status: {
                     type: 'string',
                     enum: ['Accepted', 'Blocked', 'Expired', 'Invalid', 'ConcurrentTx'],
@@ -16785,14 +16777,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 },
                 required: ['expiryDate', 'parentIdTag', 'status'],
                 additionalProperties: false,
-                description: 'ID tag info',
               },
             },
             required: ['idTag', 'idTagInfo'],
             additionalProperties: false,
             description: 'OCPP 1.6 authorization data',
           },
-          description: 'Authorization entries',
         },
       },
       required: ['stationId', 'listVersion', 'updateType', 'localAuthorizationList'],
@@ -16810,16 +16800,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Update type (Differential or Full)',
         },
         localAuthorizationList: {
+          description: 'Authorization entries',
           type: 'array',
           items: {
             type: 'object',
             properties: {
               idTag: { type: 'string', maxLength: 20, description: 'ID tag' },
               idTagInfo: {
+                description: 'ID tag info',
                 type: 'object',
                 properties: {
-                  expiryDate: { type: 'string', description: 'ISO 8601 expiry timestamp' },
-                  parentIdTag: { type: 'string', maxLength: 20, description: 'Parent ID tag' },
+                  expiryDate: { description: 'ISO 8601 expiry timestamp', type: 'string' },
+                  parentIdTag: { description: 'Parent ID tag', type: 'string', maxLength: 20 },
                   status: {
                     type: 'string',
                     enum: ['Accepted', 'Blocked', 'Expired', 'Invalid', 'ConcurrentTx'],
@@ -16828,14 +16820,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 },
                 required: ['status'],
                 additionalProperties: true,
-                description: 'ID tag info',
               },
             },
             required: ['idTag'],
             additionalProperties: true,
             description: 'OCPP 1.6 authorization data',
           },
-          description: 'Authorization entries',
         },
       },
       required: ['stationId', 'listVersion', 'updateType'],
@@ -16863,8 +16853,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           properties: {
             chargingProfileId: { type: 'integer', description: 'Unique profile identifier' },
             transactionId: {
-              type: ['integer', 'null'],
               description: 'Transaction this profile applies to',
+              type: ['integer', 'null'],
             },
             stackLevel: { type: 'integer', description: 'Stack level for profile stacking' },
             chargingProfilePurpose: {
@@ -16878,17 +16868,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Profile kind',
             },
             recurrencyKind: {
+              description: 'Recurrency kind',
               type: ['string', 'null'],
               enum: ['Daily', 'Weekly', null],
-              description: 'Recurrency kind',
             },
-            validFrom: { type: ['string', 'null'], description: 'ISO 8601 validity start' },
-            validTo: { type: ['string', 'null'], description: 'ISO 8601 validity end' },
+            validFrom: { description: 'ISO 8601 validity start', type: ['string', 'null'] },
+            validTo: { description: 'ISO 8601 validity end', type: ['string', 'null'] },
             chargingSchedule: {
               type: 'object',
               properties: {
-                duration: { type: ['integer', 'null'], description: 'Duration in seconds' },
-                startSchedule: { type: ['string', 'null'], description: 'ISO 8601 schedule start' },
+                duration: { description: 'Duration in seconds', type: ['integer', 'null'] },
+                startSchedule: { description: 'ISO 8601 schedule start', type: ['string', 'null'] },
                 chargingRateUnit: {
                   type: 'string',
                   enum: ['A', 'W'],
@@ -16904,7 +16894,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Start of period in seconds from schedule start',
                       },
                       limit: { type: 'number', description: 'Power or current limit' },
-                      numberPhases: { type: ['integer', 'null'], description: 'Number of phases' },
+                      numberPhases: { description: 'Number of phases', type: ['integer', 'null'] },
                     },
                     required: ['startPeriod', 'limit', 'numberPhases'],
                     additionalProperties: false,
@@ -16912,7 +16902,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   description: 'Schedule periods',
                 },
-                minChargingRate: { type: ['number', 'null'], description: 'Minimum charging rate' },
+                minChargingRate: { description: 'Minimum charging rate', type: ['number', 'null'] },
               },
               required: [
                 'duration',
@@ -16953,7 +16943,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'object',
           properties: {
             chargingProfileId: { type: 'integer', description: 'Unique profile identifier' },
-            transactionId: { type: 'integer', description: 'Transaction this profile applies to' },
+            transactionId: { description: 'Transaction this profile applies to', type: 'integer' },
             stackLevel: { type: 'integer', description: 'Stack level for profile stacking' },
             chargingProfilePurpose: {
               type: 'string',
@@ -16966,17 +16956,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Profile kind',
             },
             recurrencyKind: {
+              description: 'Recurrency kind',
               type: 'string',
               enum: ['Daily', 'Weekly'],
-              description: 'Recurrency kind',
             },
-            validFrom: { type: 'string', description: 'ISO 8601 validity start' },
-            validTo: { type: 'string', description: 'ISO 8601 validity end' },
+            validFrom: { description: 'ISO 8601 validity start', type: 'string' },
+            validTo: { description: 'ISO 8601 validity end', type: 'string' },
             chargingSchedule: {
               type: 'object',
               properties: {
-                duration: { type: 'integer', description: 'Duration in seconds' },
-                startSchedule: { type: 'string', description: 'ISO 8601 schedule start' },
+                duration: { description: 'Duration in seconds', type: 'integer' },
+                startSchedule: { description: 'ISO 8601 schedule start', type: 'string' },
                 chargingRateUnit: {
                   type: 'string',
                   enum: ['A', 'W'],
@@ -16992,7 +16982,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Start of period in seconds from schedule start',
                       },
                       limit: { type: 'number', description: 'Power or current limit' },
-                      numberPhases: { type: 'integer', description: 'Number of phases' },
+                      numberPhases: { description: 'Number of phases', type: 'integer' },
                     },
                     required: ['startPeriod', 'limit'],
                     additionalProperties: true,
@@ -17000,7 +16990,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   description: 'Schedule periods',
                 },
-                minChargingRate: { type: 'number', description: 'Minimum charging rate' },
+                minChargingRate: { description: 'Minimum charging rate', type: 'number' },
               },
               required: ['chargingRateUnit', 'chargingSchedulePeriod'],
               additionalProperties: true,
@@ -17049,7 +17039,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           ],
           description: 'Message type to trigger',
         },
-        connectorId: { type: ['integer', 'null'], description: 'Connector ID' },
+        connectorId: { description: 'Connector ID', type: ['integer', 'null'] },
       },
       required: ['stationId', 'requestedMessage', 'connectorId'],
       additionalProperties: false,
@@ -17071,7 +17061,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           ],
           description: 'Message type to trigger',
         },
-        connectorId: { type: 'integer', description: 'Connector ID' },
+        connectorId: { description: 'Connector ID', type: 'integer' },
       },
       required: ['stationId', 'requestedMessage'],
       additionalProperties: false,
@@ -17128,12 +17118,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'object',
           properties: {
             interval: {
-              type: ['integer', 'null'],
               description: 'Time in seconds after which stream data is sent.',
+              type: ['integer', 'null'],
             },
             values: {
-              type: ['integer', 'null'],
               description: 'Number of items to be sent together in stream.',
+              type: ['integer', 'null'],
             },
           },
           additionalProperties: false,
@@ -17154,12 +17144,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'object',
           properties: {
             interval: {
-              type: 'integer',
               description: 'Time in seconds after which stream data is sent.',
+              type: 'integer',
             },
             values: {
-              type: 'integer',
               description: 'Number of items to be sent together in stream.',
+              type: 'integer',
             },
           },
           additionalProperties: true,
@@ -17255,18 +17245,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Operational status',
         },
         evse: {
+          description: 'Target EVSE (omit for whole station)',
           type: ['object', 'null'],
           properties: {
             id: { type: 'integer', description: 'EVSE Identifier' },
             connectorId: {
-              type: ['integer', 'null'],
               description:
                 'An id to designate a specific connector (on an EVSE) by connector index number.',
+              type: ['integer', 'null'],
             },
           },
           required: ['id', 'connectorId'],
           additionalProperties: false,
-          description: 'Target EVSE (omit for whole station)',
         },
       },
       required: ['stationId', 'operationalStatus', 'evse'],
@@ -17283,18 +17273,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Operational status',
         },
         evse: {
+          description: 'Target EVSE (omit for whole station)',
           type: 'object',
           properties: {
             id: { type: 'integer', description: 'EVSE Identifier' },
             connectorId: {
-              type: 'integer',
               description:
                 'An id to designate a specific connector (on an EVSE) by connector index number.',
+              type: 'integer',
             },
           },
           required: ['id'],
           additionalProperties: true,
-          description: 'Target EVSE (omit for whole station)',
         },
       },
       required: ['stationId', 'operationalStatus'],
@@ -17342,15 +17332,16 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         chargingProfileId: {
-          type: ['integer', 'null'],
           description: 'Charging profile ID to clear',
+          type: ['integer', 'null'],
         },
         chargingProfileCriteria: {
+          description: 'Criteria for clearing',
           type: ['object', 'null'],
           properties: {
             evseId: {
-              type: ['integer', 'null'],
               description: 'Specifies the id of the EVSE for which to clear charging profiles',
+              type: ['integer', 'null'],
             },
             chargingProfilePurpose: {
               type: ['string', 'null'],
@@ -17367,13 +17358,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 'Specifies to purpose of the charging profiles that will be cleared, if they meet the other criter...',
             },
             stackLevel: {
-              type: ['integer', 'null'],
               description:
                 'Specifies the stackLevel for which charging profiles will be cleared, if they meet the other crit...',
+              type: ['integer', 'null'],
             },
           },
           additionalProperties: false,
-          description: 'Criteria for clearing',
           required: ['evseId', 'chargingProfilePurpose', 'stackLevel'],
         },
       },
@@ -17385,13 +17375,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
-        chargingProfileId: { type: 'integer', description: 'Charging profile ID to clear' },
+        chargingProfileId: { description: 'Charging profile ID to clear', type: 'integer' },
         chargingProfileCriteria: {
+          description: 'Criteria for clearing',
           type: 'object',
           properties: {
             evseId: {
-              type: 'integer',
               description: 'Specifies the id of the EVSE for which to clear charging profiles',
+              type: 'integer',
             },
             chargingProfilePurpose: {
               type: 'string',
@@ -17407,13 +17398,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 'Specifies to purpose of the charging profiles that will be cleared, if they meet the other criter...',
             },
             stackLevel: {
-              type: 'integer',
               description:
                 'Specifies the stackLevel for which charging profiles will be cleared, if they meet the other crit...',
+              type: 'integer',
             },
           },
           additionalProperties: true,
-          description: 'Criteria for clearing',
         },
       },
       required: ['stationId'],
@@ -17437,6 +17427,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         isDefault: { type: 'boolean', description: 'Clear default controls' },
         controlType: {
+          description: 'Control type to clear',
           type: ['string', 'null'],
           enum: [
             'EnterService',
@@ -17463,9 +17454,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'WattVar',
             null,
           ],
-          description: 'Control type to clear',
         },
-        controlId: { type: ['string', 'null'], description: 'Control ID to clear' },
+        controlId: { description: 'Control ID to clear', type: ['string', 'null'] },
       },
       required: ['stationId', 'isDefault', 'controlType', 'controlId'],
       additionalProperties: false,
@@ -17477,6 +17467,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         isDefault: { type: 'boolean', description: 'Clear default controls' },
         controlType: {
+          description: 'Control type to clear',
           type: 'string',
           enum: [
             'EnterService',
@@ -17502,9 +17493,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'WattPF',
             'WattVar',
           ],
-          description: 'Control type to clear',
         },
-        controlId: { type: 'string', description: 'Control ID to clear' },
+        controlId: { description: 'Control ID to clear', type: 'string' },
       },
       required: ['stationId', 'isDefault'],
       additionalProperties: false,
@@ -17661,8 +17651,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         requestId: { type: 'integer', description: 'Request ID' },
         evseId: {
-          type: ['integer', 'null'],
           description: 'EVSE ID (0 = grid connection, omit for all)',
+          type: ['integer', 'null'],
         },
         chargingProfile: {
           type: 'object',
@@ -17682,18 +17672,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 'Specifies to purpose of the charging profiles that will be cleared, if they meet the other criter...',
             },
             stackLevel: {
-              type: ['integer', 'null'],
               description: 'Value determining level in hierarchy stack of profiles',
+              type: ['integer', 'null'],
             },
             chargingProfileId: {
+              description: 'List of all the chargingProfileIds requested',
               type: ['array', 'null'],
               items: { type: 'integer' },
-              description: 'List of all the chargingProfileIds requested',
             },
             chargingLimitSource: {
+              description: 'For which charging limit sources, charging profiles SHALL be reported',
               type: ['array', 'null'],
               items: { type: 'string' },
-              description: 'For which charging limit sources, charging profiles SHALL be reported',
             },
           },
           additionalProperties: false,
@@ -17715,7 +17705,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         requestId: { type: 'integer', description: 'Request ID' },
-        evseId: { type: 'integer', description: 'EVSE ID (0 = grid connection, omit for all)' },
+        evseId: { description: 'EVSE ID (0 = grid connection, omit for all)', type: 'integer' },
         chargingProfile: {
           type: 'object',
           properties: {
@@ -17733,18 +17723,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 'Specifies to purpose of the charging profiles that will be cleared, if they meet the other criter...',
             },
             stackLevel: {
-              type: 'integer',
               description: 'Value determining level in hierarchy stack of profiles',
+              type: 'integer',
             },
             chargingProfileId: {
+              description: 'List of all the chargingProfileIds requested',
               type: 'array',
               items: { type: 'integer' },
-              description: 'List of all the chargingProfileIds requested',
             },
             chargingLimitSource: {
+              description: 'For which charging limit sources, charging profiles SHALL be reported',
               type: 'array',
               items: { type: 'string' },
-              description: 'For which charging limit sources, charging profiles SHALL be reported',
             },
           },
           additionalProperties: true,
@@ -17773,9 +17763,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         duration: { type: 'integer', description: 'Duration in seconds' },
         evseId: { type: 'integer', description: 'EVSE ID' },
         chargingRateUnit: {
+          description: 'Preferred rate unit',
           type: ['string', 'null'],
           enum: ['W', 'A', null],
-          description: 'Preferred rate unit',
         },
       },
       required: ['stationId', 'duration', 'evseId', 'chargingRateUnit'],
@@ -17788,7 +17778,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         duration: { type: 'integer', description: 'Duration in seconds' },
         evseId: { type: 'integer', description: 'EVSE ID' },
-        chargingRateUnit: { type: 'string', enum: ['W', 'A'], description: 'Preferred rate unit' },
+        chargingRateUnit: { description: 'Preferred rate unit', type: 'string', enum: ['W', 'A'] },
       },
       required: ['stationId', 'duration', 'evseId'],
       additionalProperties: false,
@@ -17810,8 +17800,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         requestId: { type: 'integer', description: 'Request ID' },
-        isDefault: { type: ['boolean', 'null'], description: 'Filter by default' },
+        isDefault: { description: 'Filter by default', type: ['boolean', 'null'] },
         controlType: {
+          description: 'Filter by control type',
           type: ['string', 'null'],
           enum: [
             'EnterService',
@@ -17838,9 +17829,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'WattVar',
             null,
           ],
-          description: 'Filter by control type',
         },
-        controlId: { type: ['string', 'null'], description: 'Filter by control ID' },
+        controlId: { description: 'Filter by control ID', type: ['string', 'null'] },
       },
       required: ['stationId', 'requestId', 'isDefault', 'controlType', 'controlId'],
       additionalProperties: false,
@@ -17851,8 +17841,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         requestId: { type: 'integer', description: 'Request ID' },
-        isDefault: { type: 'boolean', description: 'Filter by default' },
+        isDefault: { description: 'Filter by default', type: 'boolean' },
         controlType: {
+          description: 'Filter by control type',
           type: 'string',
           enum: [
             'EnterService',
@@ -17878,9 +17869,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'WattPF',
             'WattVar',
           ],
-          description: 'Filter by control type',
         },
-        controlId: { type: 'string', description: 'Filter by control ID' },
+        controlId: { description: 'Filter by control ID', type: 'string' },
       },
       required: ['stationId', 'requestId'],
       additionalProperties: false,
@@ -17903,19 +17893,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         requestId: { type: 'integer', description: 'Request ID' },
         id: {
+          description: 'Message IDs to query',
           type: ['array', 'null'],
           items: { type: 'integer' },
-          description: 'Message IDs to query',
         },
         priority: {
+          description: 'Priority filter',
           type: ['string', 'null'],
           enum: ['AlwaysFront', 'InFront', 'NormalCycle', null],
-          description: 'Priority filter',
         },
         state: {
+          description: 'State filter',
           type: ['string', 'null'],
           enum: ['Charging', 'Faulted', 'Idle', 'Unavailable', 'Suspended', 'Discharging', null],
-          description: 'State filter',
         },
       },
       required: ['stationId', 'requestId', 'id', 'priority', 'state'],
@@ -17927,16 +17917,16 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         requestId: { type: 'integer', description: 'Request ID' },
-        id: { type: 'array', items: { type: 'integer' }, description: 'Message IDs to query' },
+        id: { description: 'Message IDs to query', type: 'array', items: { type: 'integer' } },
         priority: {
+          description: 'Priority filter',
           type: 'string',
           enum: ['AlwaysFront', 'InFront', 'NormalCycle'],
-          description: 'Priority filter',
         },
         state: {
+          description: 'State filter',
           type: 'string',
           enum: ['Charging', 'Faulted', 'Idle', 'Unavailable', 'Suspended', 'Discharging'],
-          description: 'State filter',
         },
       },
       required: ['stationId', 'requestId'],
@@ -17985,6 +17975,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         requestId: { type: 'integer', description: 'Request ID' },
         componentVariable: {
+          description: 'Component variables to report',
           type: ['array', 'null'],
           items: {
             type: 'object',
@@ -17997,9 +17988,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     properties: {
                       id: { type: 'integer', description: 'EVSE Identifier' },
                       connectorId: {
-                        type: ['integer', 'null'],
                         description:
                           'An id to designate a specific connector (on an EVSE) by connector index number.',
+                        type: ['integer', 'null'],
                       },
                     },
                     required: ['id', 'connectorId'],
@@ -18008,9 +17999,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   name: { type: 'string', description: 'Name of the component' },
                   instance: {
-                    type: ['string', 'null'],
                     description:
                       'Name of instance in case the component exists as multiple instances',
+                    type: ['string', 'null'],
                   },
                 },
                 required: ['evse', 'name', 'instance'],
@@ -18022,9 +18013,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 properties: {
                   name: { type: 'string', description: 'Name of the variable' },
                   instance: {
-                    type: ['string', 'null'],
                     description:
                       'Name of instance in case the variable exists as multiple instances',
+                    type: ['string', 'null'],
                   },
                 },
                 required: ['name', 'instance'],
@@ -18037,15 +18028,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             description:
               'Class to report components, variables and variable attributes and characteristics.',
           },
-          description: 'Component variables to report',
         },
         monitoringCriteria: {
+          description: 'Monitoring criteria filter',
           type: ['array', 'null'],
           items: {
             type: 'string',
             enum: ['ThresholdMonitoring', 'DeltaMonitoring', 'PeriodicMonitoring'],
           },
-          description: 'Monitoring criteria filter',
         },
       },
       required: ['stationId', 'requestId', 'componentVariable', 'monitoringCriteria'],
@@ -18058,6 +18048,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         requestId: { type: 'integer', description: 'Request ID' },
         componentVariable: {
+          description: 'Component variables to report',
           type: 'array',
           items: {
             type: 'object',
@@ -18070,9 +18061,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     properties: {
                       id: { type: 'integer', description: 'EVSE Identifier' },
                       connectorId: {
-                        type: 'integer',
                         description:
                           'An id to designate a specific connector (on an EVSE) by connector index number.',
+                        type: 'integer',
                       },
                     },
                     required: ['id'],
@@ -18081,9 +18072,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   name: { type: 'string', description: 'Name of the component' },
                   instance: {
-                    type: 'string',
                     description:
                       'Name of instance in case the component exists as multiple instances',
+                    type: 'string',
                   },
                 },
                 required: ['name'],
@@ -18095,9 +18086,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 properties: {
                   name: { type: 'string', description: 'Name of the variable' },
                   instance: {
-                    type: 'string',
                     description:
                       'Name of instance in case the variable exists as multiple instances',
+                    type: 'string',
                   },
                 },
                 required: ['name'],
@@ -18110,15 +18101,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             description:
               'Class to report components, variables and variable attributes and characteristics.',
           },
-          description: 'Component variables to report',
         },
         monitoringCriteria: {
+          description: 'Monitoring criteria filter',
           type: 'array',
           items: {
             type: 'string',
             enum: ['ThresholdMonitoring', 'DeltaMonitoring', 'PeriodicMonitoring'],
           },
-          description: 'Monitoring criteria filter',
         },
       },
       required: ['stationId', 'requestId'],
@@ -18167,6 +18157,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         requestId: { type: 'integer', description: 'Request ID' },
         componentVariable: {
+          description: 'Component variables to report',
           type: ['array', 'null'],
           items: {
             type: 'object',
@@ -18179,9 +18170,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     properties: {
                       id: { type: 'integer', description: 'EVSE Identifier' },
                       connectorId: {
-                        type: ['integer', 'null'],
                         description:
                           'An id to designate a specific connector (on an EVSE) by connector index number.',
+                        type: ['integer', 'null'],
                       },
                     },
                     required: ['id', 'connectorId'],
@@ -18190,9 +18181,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   name: { type: 'string', description: 'Name of the component' },
                   instance: {
-                    type: ['string', 'null'],
                     description:
                       'Name of instance in case the component exists as multiple instances',
+                    type: ['string', 'null'],
                   },
                 },
                 required: ['evse', 'name', 'instance'],
@@ -18204,9 +18195,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 properties: {
                   name: { type: 'string', description: 'Name of the variable' },
                   instance: {
-                    type: ['string', 'null'],
                     description:
                       'Name of instance in case the variable exists as multiple instances',
+                    type: ['string', 'null'],
                   },
                 },
                 required: ['name', 'instance'],
@@ -18219,12 +18210,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             description:
               'Class to report components, variables and variable attributes and characteristics.',
           },
-          description: 'Component variables to report',
         },
         componentCriteria: {
+          description: 'Component criteria filter',
           type: ['array', 'null'],
           items: { type: 'string', enum: ['Active', 'Available', 'Enabled', 'Problem'] },
-          description: 'Component criteria filter',
         },
       },
       required: ['stationId', 'requestId', 'componentVariable', 'componentCriteria'],
@@ -18237,6 +18227,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         requestId: { type: 'integer', description: 'Request ID' },
         componentVariable: {
+          description: 'Component variables to report',
           type: 'array',
           items: {
             type: 'object',
@@ -18249,9 +18240,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     properties: {
                       id: { type: 'integer', description: 'EVSE Identifier' },
                       connectorId: {
-                        type: 'integer',
                         description:
                           'An id to designate a specific connector (on an EVSE) by connector index number.',
+                        type: 'integer',
                       },
                     },
                     required: ['id'],
@@ -18260,9 +18251,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   name: { type: 'string', description: 'Name of the component' },
                   instance: {
-                    type: 'string',
                     description:
                       'Name of instance in case the component exists as multiple instances',
+                    type: 'string',
                   },
                 },
                 required: ['name'],
@@ -18274,9 +18265,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 properties: {
                   name: { type: 'string', description: 'Name of the variable' },
                   instance: {
-                    type: 'string',
                     description:
                       'Name of instance in case the variable exists as multiple instances',
+                    type: 'string',
                   },
                 },
                 required: ['name'],
@@ -18289,12 +18280,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             description:
               'Class to report components, variables and variable attributes and characteristics.',
           },
-          description: 'Component variables to report',
         },
         componentCriteria: {
+          description: 'Component criteria filter',
           type: 'array',
           items: { type: 'string', enum: ['Active', 'Available', 'Enabled', 'Problem'] },
-          description: 'Component criteria filter',
         },
       },
       required: ['stationId', 'requestId'],
@@ -18348,8 +18338,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
         transactionId: {
-          type: ['string', 'null'],
           description: 'Transaction ID to query status for',
+          type: ['string', 'null'],
         },
       },
       required: ['stationId', 'transactionId'],
@@ -18360,7 +18350,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         stationId: { type: 'string', description: 'Target station OCPP ID' },
-        transactionId: { type: 'string', description: 'Transaction ID to query status for' },
+        transactionId: { description: 'Transaction ID to query status for', type: 'string' },
       },
       required: ['stationId'],
       additionalProperties: false,
@@ -18399,9 +18389,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     properties: {
                       id: { type: 'integer', description: 'EVSE Identifier' },
                       connectorId: {
-                        type: ['integer', 'null'],
                         description:
                           'An id to designate a specific connector (on an EVSE) by connector index number.',
+                        type: ['integer', 'null'],
                       },
                     },
                     required: ['id', 'connectorId'],
@@ -18410,9 +18400,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   name: { type: 'string', description: 'Name of the component' },
                   instance: {
-                    type: ['string', 'null'],
                     description:
                       'Name of instance in case the component exists as multiple instances',
+                    type: ['string', 'null'],
                   },
                 },
                 required: ['evse', 'name', 'instance'],
@@ -18424,9 +18414,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 properties: {
                   name: { type: 'string', description: 'Name of the variable' },
                   instance: {
-                    type: ['string', 'null'],
                     description:
                       'Name of instance in case the variable exists as multiple instances',
+                    type: ['string', 'null'],
                   },
                 },
                 required: ['name', 'instance'],
@@ -18467,9 +18457,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     properties: {
                       id: { type: 'integer', description: 'EVSE Identifier' },
                       connectorId: {
-                        type: 'integer',
                         description:
                           'An id to designate a specific connector (on an EVSE) by connector index number.',
+                        type: 'integer',
                       },
                     },
                     required: ['id'],
@@ -18478,9 +18468,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   name: { type: 'string', description: 'Name of the component' },
                   instance: {
-                    type: 'string',
                     description:
                       'Name of instance in case the component exists as multiple instances',
+                    type: 'string',
                   },
                 },
                 required: ['name'],
@@ -18492,9 +18482,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 properties: {
                   name: { type: 'string', description: 'Name of the variable' },
                   instance: {
-                    type: 'string',
                     description:
                       'Name of instance in case the variable exists as multiple instances',
+                    type: 'string',
                   },
                 },
                 required: ['name'],
@@ -18536,12 +18526,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               type: 'object',
               properties: {
                 interval: {
-                  type: ['integer', 'null'],
                   description: 'Time in seconds after which stream data is sent.',
+                  type: ['integer', 'null'],
                 },
                 values: {
-                  type: ['integer', 'null'],
                   description: 'Number of items to be sent together in stream.',
+                  type: ['integer', 'null'],
                 },
               },
               additionalProperties: false,
@@ -18573,12 +18563,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               type: 'object',
               properties: {
                 interval: {
-                  type: 'integer',
                   description: 'Time in seconds after which stream data is sent.',
+                  type: 'integer',
                 },
                 values: {
-                  type: 'integer',
                   description: 'Number of items to be sent together in stream.',
+                  type: 'integer',
                 },
               },
               additionalProperties: true,
@@ -18744,8 +18734,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           additionalProperties: false,
           description: 'ID token for authorization',
         },
-        evseId: { type: ['integer', 'null'], description: 'EVSE ID' },
+        evseId: { description: 'EVSE ID', type: ['integer', 'null'] },
         groupIdToken: {
+          description: 'Group ID token',
           type: ['object', 'null'],
           properties: {
             additionalInfo: {
@@ -18774,9 +18765,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           },
           required: ['additionalInfo', 'idToken', 'type'],
           additionalProperties: false,
-          description: 'Group ID token',
         },
         chargingProfile: {
+          description: 'Charging profile',
           type: ['object', 'null'],
           properties: {
             id: { type: 'integer', description: 'Id of ChargingProfile' },
@@ -18808,22 +18799,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Indicates the start point of a recurrence.',
             },
             validFrom: {
-              type: ['string', 'null'],
               description: 'Point in time at which the profile starts to be valid',
+              type: ['string', 'null'],
             },
             validTo: {
-              type: ['string', 'null'],
               description: 'Point in time at which the profile stops to be valid',
+              type: ['string', 'null'],
             },
             transactionId: {
-              type: ['string', 'null'],
               description:
                 'SHALL only be included if ChargingProfilePurpose is set to TxProfile in a SetChargingProfileRequest',
+              type: ['string', 'null'],
             },
             maxOfflineDuration: {
-              type: ['integer', 'null'],
               description:
                 'Period in seconds that this charging profile remains valid after the Charging Station has gone of...',
+              type: ['integer', 'null'],
             },
             chargingSchedule: {
               type: 'array',
@@ -18848,12 +18839,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     additionalProperties: false,
                   },
                   startSchedule: {
-                    type: ['string', 'null'],
                     description: 'Starting point of an absolute schedule or recurring schedule.',
+                    type: ['string', 'null'],
                   },
                   duration: {
-                    type: ['integer', 'null'],
                     description: 'Duration of the charging schedule in seconds',
+                    type: ['integer', 'null'],
                   },
                   chargingRateUnit: {
                     type: 'string',
@@ -18861,23 +18852,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     description: 'Can be used to force a power or current profile.',
                   },
                   minChargingRate: {
-                    type: ['number', 'null'],
                     description: 'Minimum charging rate supported by the EV',
+                    type: ['number', 'null'],
                   },
                   powerTolerance: {
-                    type: ['number', 'null'],
                     description: 'Power tolerance when following EVPowerProfile.',
+                    type: ['number', 'null'],
                   },
                   signatureId: {
-                    type: ['integer', 'null'],
                     description: 'Id of this element for referencing in a signature.',
+                    type: ['integer', 'null'],
                   },
                   digestValue: {
-                    type: ['string', 'null'],
                     description:
                       'Base64 encoded hash (SHA256 for ISO 15118-2, SHA512 for ISO 15118-20) of the EXI price schedule e...',
+                    type: ['string', 'null'],
                   },
-                  useLocalTime: { type: ['boolean', 'null'], description: 'Defaults to false' },
+                  useLocalTime: { description: 'Defaults to false', type: ['boolean', 'null'] },
                   chargingSchedulePeriod: {
                     type: 'array',
                     items: {
@@ -18888,88 +18879,88 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                           description: 'Start of the period, in seconds from the start of schedule',
                         },
                         limit: {
-                          type: ['number', 'null'],
                           description:
                             'Optional only when not required by the _operationMode_, as in CentralSetpoint, ExternalSetpoint, ...',
+                          type: ['number', 'null'],
                         },
                         limit_L2: {
-                          type: ['number', 'null'],
                           description:
                             'Charging rate limit on phase L2 in the applicable _chargingRateUnit_.',
+                          type: ['number', 'null'],
                         },
                         limit_L3: {
-                          type: ['number', 'null'],
                           description:
                             'Charging rate limit on phase L3 in the applicable _chargingRateUnit_.',
+                          type: ['number', 'null'],
                         },
                         numberPhases: {
-                          type: ['integer', 'null'],
                           description: 'The number of phases that can be used for charging',
+                          type: ['integer', 'null'],
                         },
                         phaseToUse: {
-                          type: ['integer', 'null'],
                           description:
                             'Values: 1..3, Used if numberPhases=1 and if the EVSE is capable of switching the phase connected ...',
+                          type: ['integer', 'null'],
                         },
                         dischargeLimit: {
-                          type: ['number', 'null'],
                           description:
                             'Limit in _chargingRateUnit_ that the EV is allowed to discharge with',
+                          type: ['number', 'null'],
                         },
                         dischargeLimit_L2: {
-                          type: ['number', 'null'],
                           description:
                             'Limit in _chargingRateUnit_ on phase L2 that the EV is allowed to discharge with.',
+                          type: ['number', 'null'],
                         },
                         dischargeLimit_L3: {
-                          type: ['number', 'null'],
                           description:
                             'Limit in _chargingRateUnit_ on phase L3 that the EV is allowed to discharge with.',
+                          type: ['number', 'null'],
                         },
                         setpoint: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow as close as possible',
+                          type: ['number', 'null'],
                         },
                         setpoint_L2: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow on phase L2 as close as possible.',
+                          type: ['number', 'null'],
                         },
                         setpoint_L3: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow on phase L3 as close as possible.',
+                          type: ['number', 'null'],
                         },
                         setpointReactive: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow as close...',
+                          type: ['number', 'null'],
                         },
                         setpointReactive_L2: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+                          type: ['number', 'null'],
                         },
                         setpointReactive_L3: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+                          type: ['number', 'null'],
                         },
                         preconditioningRequest: {
-                          type: ['boolean', 'null'],
                           description:
                             'If true, the EV should attempt to keep the BMS preconditioned for this time interval.',
+                          type: ['boolean', 'null'],
                         },
                         evseSleep: {
-                          type: ['boolean', 'null'],
                           description:
                             'If true, the EVSE must turn off power electronics/modules associated with this transaction',
+                          type: ['boolean', 'null'],
                         },
                         v2xBaseline: {
-                          type: ['number', 'null'],
                           description:
                             'Power value that, when present, is used as a baseline on top of which values from _v2xFreqWattCur...',
+                          type: ['number', 'null'],
                         },
                         operationMode: {
                           type: ['string', 'null'],
@@ -19052,7 +19043,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         'Charging schedule period structure defines a time period in a charging schedule',
                     },
                   },
-                  randomizedDelay: { type: ['integer', 'null'], description: 'Defaults to 0' },
+                  randomizedDelay: { description: 'Defaults to 0', type: ['integer', 'null'] },
                   salesTariff: {
                     type: ['object', 'null'],
                     properties: {
@@ -19061,14 +19052,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'SalesTariff identifier used to identify one sales tariff',
                       },
                       salesTariffDescription: {
-                        type: ['string', 'null'],
                         description:
                           'A human readable title/short description of the sales tariff e.g',
+                        type: ['string', 'null'],
                       },
                       numEPriceLevels: {
-                        type: ['integer', 'null'],
                         description:
                           'Defines the overall number of distinct price levels used across all provided SalesTariff elements.',
+                        type: ['integer', 'null'],
                       },
                       salesTariffEntry: {
                         type: 'array',
@@ -19083,17 +19074,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                   description: 'Start of the interval, in seconds from NOW.',
                                 },
                                 duration: {
-                                  type: ['integer', 'null'],
                                   description: 'Duration of the interval, in seconds.',
+                                  type: ['integer', 'null'],
                                 },
                               },
                               required: ['start', 'duration'],
                               additionalProperties: false,
                             },
                             ePriceLevel: {
-                              type: ['integer', 'null'],
                               description:
                                 'Defines the price level of this SalesTariffEntry (referring to NumEPriceLevels)',
+                              type: ['integer', 'null'],
                             },
                             consumptionCost: {
                               type: ['array', 'null'],
@@ -19125,9 +19116,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                           description: 'The estimated or actual cost per kWh',
                                         },
                                         amountMultiplier: {
-                                          type: ['integer', 'null'],
                                           description:
                                             'Values: -3..3, The amountMultiplier defines the exponent to base 10 (dec)',
+                                          type: ['integer', 'null'],
                                         },
                                       },
                                       required: ['costKind', 'amount', 'amountMultiplier'],
@@ -19166,8 +19157,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Unique ID of price schedule',
                       },
                       priceScheduleDescription: {
-                        type: ['string', 'null'],
                         description: 'Description of the price schedule.',
+                        type: ['string', 'null'],
                       },
                       currency: { type: 'string', description: 'Currency according to ISO 4217.' },
                       language: {
@@ -19227,18 +19218,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                 type: 'object',
                                 properties: {
                                   parkingFeePeriod: {
-                                    type: ['integer', 'null'],
                                     description:
                                       'The duration of the parking fee period (in seconds)',
+                                    type: ['integer', 'null'],
                                   },
                                   carbonDioxideEmission: {
-                                    type: ['integer', 'null'],
                                     description: 'Number of grams of CO2 per kWh.',
+                                    type: ['integer', 'null'],
                                   },
                                   renewableGenerationPercentage: {
-                                    type: ['integer', 'null'],
                                     description:
                                       'Percentage of the power that is created by renewable resources.',
+                                    type: ['integer', 'null'],
                                   },
                                   energyFee: {
                                     type: 'object',
@@ -19314,13 +19305,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                           properties: {
                             taxRuleID: { type: 'integer', description: 'Id for the tax rule.' },
                             taxRuleName: {
-                              type: ['string', 'null'],
                               description: 'Human readable string to identify the tax rule.',
+                              type: ['string', 'null'],
                             },
                             taxIncludedInPrice: {
-                              type: ['boolean', 'null'],
                               description:
                                 'Indicates whether the tax is included in any price or not.',
+                              type: ['boolean', 'null'],
                             },
                             appliesToEnergyFee: {
                               type: 'boolean',
@@ -19411,9 +19402,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                   description: 'Part of ISO 15118-20 price schedule.',
                                 },
                                 overstayRuleDescription: {
-                                  type: ['string', 'null'],
                                   description:
                                     'Human readable string to identify the overstay rule.',
+                                  type: ['string', 'null'],
                                 },
                                 startTime: {
                                   type: 'integer',
@@ -19436,8 +19427,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                             },
                           },
                           overstayTimeThreshold: {
-                            type: ['integer', 'null'],
                             description: 'Time till overstay is applied in seconds.',
+                            type: ['integer', 'null'],
                           },
                         },
                         required: [
@@ -19531,8 +19522,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Unique ID of this price schedule.',
                       },
                       priceScheduleDescription: {
-                        type: ['string', 'null'],
                         description: 'Description of the price schedule.',
+                        type: ['string', 'null'],
                       },
                       numberOfPriceLevels: {
                         type: 'integer',
@@ -19575,23 +19566,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               },
             },
             invalidAfterOfflineDuration: {
-              type: ['boolean', 'null'],
               description:
                 'When set to true this charging profile will not be valid anymore after being offline for more tha...',
+              type: ['boolean', 'null'],
             },
             dynUpdateInterval: {
-              type: ['integer', 'null'],
               description:
                 'Interval in seconds after receipt of last update, when to request a profile update by sending a P...',
+              type: ['integer', 'null'],
             },
             dynUpdateTime: {
-              type: ['string', 'null'],
               description:
                 'Time at which limits or setpoints in this charging profile were last updated by a PullDynamicSche...',
+              type: ['string', 'null'],
             },
             priceScheduleSignature: {
-              type: ['string', 'null'],
               description: 'ISO 15118-20 signature for all price schedules in _chargingSchedules_',
+              type: ['string', 'null'],
             },
           },
           required: [
@@ -19611,7 +19602,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'priceScheduleSignature',
           ],
           additionalProperties: false,
-          description: 'Charging profile',
         },
       },
       required: [
@@ -19661,8 +19651,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           additionalProperties: true,
           description: 'ID token for authorization',
         },
-        evseId: { type: 'integer', description: 'EVSE ID' },
+        evseId: { description: 'EVSE ID', type: 'integer' },
         groupIdToken: {
+          description: 'Group ID token',
           type: 'object',
           properties: {
             additionalInfo: {
@@ -19691,9 +19682,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           },
           required: ['idToken', 'type'],
           additionalProperties: true,
-          description: 'Group ID token',
         },
         chargingProfile: {
+          description: 'Charging profile',
           type: 'object',
           properties: {
             id: { type: 'integer', description: 'Id of ChargingProfile' },
@@ -19725,22 +19716,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Indicates the start point of a recurrence.',
             },
             validFrom: {
-              type: 'string',
               description: 'Point in time at which the profile starts to be valid',
+              type: 'string',
             },
             validTo: {
-              type: 'string',
               description: 'Point in time at which the profile stops to be valid',
+              type: 'string',
             },
             transactionId: {
-              type: 'string',
               description:
                 'SHALL only be included if ChargingProfilePurpose is set to TxProfile in a SetChargingProfileRequest',
+              type: 'string',
             },
             maxOfflineDuration: {
-              type: 'integer',
               description:
                 'Period in seconds that this charging profile remains valid after the Charging Station has gone of...',
+              type: 'integer',
             },
             chargingSchedule: {
               type: 'array',
@@ -19765,12 +19756,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     additionalProperties: true,
                   },
                   startSchedule: {
-                    type: 'string',
                     description: 'Starting point of an absolute schedule or recurring schedule.',
+                    type: 'string',
                   },
                   duration: {
-                    type: 'integer',
                     description: 'Duration of the charging schedule in seconds',
+                    type: 'integer',
                   },
                   chargingRateUnit: {
                     type: 'string',
@@ -19778,23 +19769,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     description: 'Can be used to force a power or current profile.',
                   },
                   minChargingRate: {
-                    type: 'number',
                     description: 'Minimum charging rate supported by the EV',
+                    type: 'number',
                   },
                   powerTolerance: {
-                    type: 'number',
                     description: 'Power tolerance when following EVPowerProfile.',
+                    type: 'number',
                   },
                   signatureId: {
-                    type: 'integer',
                     description: 'Id of this element for referencing in a signature.',
+                    type: 'integer',
                   },
                   digestValue: {
-                    type: 'string',
                     description:
                       'Base64 encoded hash (SHA256 for ISO 15118-2, SHA512 for ISO 15118-20) of the EXI price schedule e...',
+                    type: 'string',
                   },
-                  useLocalTime: { type: 'boolean', description: 'Defaults to false' },
+                  useLocalTime: { description: 'Defaults to false', type: 'boolean' },
                   chargingSchedulePeriod: {
                     type: 'array',
                     items: {
@@ -19805,88 +19796,88 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                           description: 'Start of the period, in seconds from the start of schedule',
                         },
                         limit: {
-                          type: 'number',
                           description:
                             'Optional only when not required by the _operationMode_, as in CentralSetpoint, ExternalSetpoint, ...',
+                          type: 'number',
                         },
                         limit_L2: {
-                          type: 'number',
                           description:
                             'Charging rate limit on phase L2 in the applicable _chargingRateUnit_.',
+                          type: 'number',
                         },
                         limit_L3: {
-                          type: 'number',
                           description:
                             'Charging rate limit on phase L3 in the applicable _chargingRateUnit_.',
+                          type: 'number',
                         },
                         numberPhases: {
-                          type: 'integer',
                           description: 'The number of phases that can be used for charging',
+                          type: 'integer',
                         },
                         phaseToUse: {
-                          type: 'integer',
                           description:
                             'Values: 1..3, Used if numberPhases=1 and if the EVSE is capable of switching the phase connected ...',
+                          type: 'integer',
                         },
                         dischargeLimit: {
-                          type: 'number',
                           description:
                             'Limit in _chargingRateUnit_ that the EV is allowed to discharge with',
+                          type: 'number',
                         },
                         dischargeLimit_L2: {
-                          type: 'number',
                           description:
                             'Limit in _chargingRateUnit_ on phase L2 that the EV is allowed to discharge with.',
+                          type: 'number',
                         },
                         dischargeLimit_L3: {
-                          type: 'number',
                           description:
                             'Limit in _chargingRateUnit_ on phase L3 that the EV is allowed to discharge with.',
+                          type: 'number',
                         },
                         setpoint: {
-                          type: 'number',
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow as close as possible',
+                          type: 'number',
                         },
                         setpoint_L2: {
-                          type: 'number',
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow on phase L2 as close as possible.',
+                          type: 'number',
                         },
                         setpoint_L3: {
-                          type: 'number',
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow on phase L3 as close as possible.',
+                          type: 'number',
                         },
                         setpointReactive: {
-                          type: 'number',
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow as close...',
+                          type: 'number',
                         },
                         setpointReactive_L2: {
-                          type: 'number',
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+                          type: 'number',
                         },
                         setpointReactive_L3: {
-                          type: 'number',
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+                          type: 'number',
                         },
                         preconditioningRequest: {
-                          type: 'boolean',
                           description:
                             'If true, the EV should attempt to keep the BMS preconditioned for this time interval.',
+                          type: 'boolean',
                         },
                         evseSleep: {
-                          type: 'boolean',
                           description:
                             'If true, the EVSE must turn off power electronics/modules associated with this transaction',
+                          type: 'boolean',
                         },
                         v2xBaseline: {
-                          type: 'number',
                           description:
                             'Power value that, when present, is used as a baseline on top of which values from _v2xFreqWattCur...',
+                          type: 'number',
                         },
                         operationMode: {
                           type: 'string',
@@ -19946,7 +19937,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         'Charging schedule period structure defines a time period in a charging schedule',
                     },
                   },
-                  randomizedDelay: { type: 'integer', description: 'Defaults to 0' },
+                  randomizedDelay: { description: 'Defaults to 0', type: 'integer' },
                   salesTariff: {
                     type: 'object',
                     properties: {
@@ -19955,14 +19946,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'SalesTariff identifier used to identify one sales tariff',
                       },
                       salesTariffDescription: {
-                        type: 'string',
                         description:
                           'A human readable title/short description of the sales tariff e.g',
+                        type: 'string',
                       },
                       numEPriceLevels: {
-                        type: 'integer',
                         description:
                           'Defines the overall number of distinct price levels used across all provided SalesTariff elements.',
+                        type: 'integer',
                       },
                       salesTariffEntry: {
                         type: 'array',
@@ -19977,17 +19968,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                   description: 'Start of the interval, in seconds from NOW.',
                                 },
                                 duration: {
-                                  type: 'integer',
                                   description: 'Duration of the interval, in seconds.',
+                                  type: 'integer',
                                 },
                               },
                               required: ['start'],
                               additionalProperties: true,
                             },
                             ePriceLevel: {
-                              type: 'integer',
                               description:
                                 'Defines the price level of this SalesTariffEntry (referring to NumEPriceLevels)',
+                              type: 'integer',
                             },
                             consumptionCost: {
                               type: 'array',
@@ -20019,9 +20010,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                           description: 'The estimated or actual cost per kWh',
                                         },
                                         amountMultiplier: {
-                                          type: 'integer',
                                           description:
                                             'Values: -3..3, The amountMultiplier defines the exponent to base 10 (dec)',
+                                          type: 'integer',
                                         },
                                       },
                                       required: ['costKind', 'amount'],
@@ -20055,8 +20046,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Unique ID of price schedule',
                       },
                       priceScheduleDescription: {
-                        type: 'string',
                         description: 'Description of the price schedule.',
+                        type: 'string',
                       },
                       currency: { type: 'string', description: 'Currency according to ISO 4217.' },
                       language: {
@@ -20116,18 +20107,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                 type: 'object',
                                 properties: {
                                   parkingFeePeriod: {
-                                    type: 'integer',
                                     description:
                                       'The duration of the parking fee period (in seconds)',
+                                    type: 'integer',
                                   },
                                   carbonDioxideEmission: {
-                                    type: 'integer',
                                     description: 'Number of grams of CO2 per kWh.',
+                                    type: 'integer',
                                   },
                                   renewableGenerationPercentage: {
-                                    type: 'integer',
                                     description:
                                       'Percentage of the power that is created by renewable resources.',
+                                    type: 'integer',
                                   },
                                   energyFee: {
                                     type: 'object',
@@ -20196,13 +20187,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                           properties: {
                             taxRuleID: { type: 'integer', description: 'Id for the tax rule.' },
                             taxRuleName: {
-                              type: 'string',
                               description: 'Human readable string to identify the tax rule.',
+                              type: 'string',
                             },
                             taxIncludedInPrice: {
-                              type: 'boolean',
                               description:
                                 'Indicates whether the tax is included in any price or not.',
+                              type: 'boolean',
                             },
                             appliesToEnergyFee: {
                               type: 'boolean',
@@ -20291,9 +20282,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                   description: 'Part of ISO 15118-20 price schedule.',
                                 },
                                 overstayRuleDescription: {
-                                  type: 'string',
                                   description:
                                     'Human readable string to identify the overstay rule.',
+                                  type: 'string',
                                 },
                                 startTime: {
                                   type: 'integer',
@@ -20311,8 +20302,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                             },
                           },
                           overstayTimeThreshold: {
-                            type: 'integer',
                             description: 'Time till overstay is applied in seconds.',
+                            type: 'integer',
                           },
                         },
                         required: ['overstayRule'],
@@ -20396,8 +20387,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Unique ID of this price schedule.',
                       },
                       priceScheduleDescription: {
-                        type: 'string',
                         description: 'Description of the price schedule.',
+                        type: 'string',
                       },
                       numberOfPriceLevels: {
                         type: 'integer',
@@ -20423,23 +20414,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               },
             },
             invalidAfterOfflineDuration: {
-              type: 'boolean',
               description:
                 'When set to true this charging profile will not be valid anymore after being offline for more tha...',
+              type: 'boolean',
             },
             dynUpdateInterval: {
-              type: 'integer',
               description:
                 'Interval in seconds after receipt of last update, when to request a profile update by sending a P...',
+              type: 'integer',
             },
             dynUpdateTime: {
-              type: 'string',
               description:
                 'Time at which limits or setpoints in this charging profile were last updated by a PullDynamicSche...',
+              type: 'string',
             },
             priceScheduleSignature: {
-              type: 'string',
               description: 'ISO 15118-20 signature for all price schedules in _chargingSchedules_',
+              type: 'string',
             },
           },
           required: [
@@ -20450,7 +20441,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'chargingSchedule',
           ],
           additionalProperties: true,
-          description: 'Charging profile',
         },
       },
       required: ['stationId', 'remoteStartId', 'idToken'],
@@ -20544,9 +20534,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           additionalProperties: false,
           description: 'ID token for reservation',
         },
-        connectorType: { type: ['string', 'null'], description: 'Connector type filter' },
-        evseId: { type: ['integer', 'null'], description: 'EVSE ID' },
+        connectorType: { description: 'Connector type filter', type: ['string', 'null'] },
+        evseId: { description: 'EVSE ID', type: ['integer', 'null'] },
         groupIdToken: {
+          description: 'Group ID token',
           type: ['object', 'null'],
           properties: {
             additionalInfo: {
@@ -20575,7 +20566,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           },
           required: ['additionalInfo', 'idToken', 'type'],
           additionalProperties: false,
-          description: 'Group ID token',
         },
       },
       required: [
@@ -20627,9 +20617,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           additionalProperties: true,
           description: 'ID token for reservation',
         },
-        connectorType: { type: 'string', description: 'Connector type filter' },
-        evseId: { type: 'integer', description: 'EVSE ID' },
+        connectorType: { description: 'Connector type filter', type: 'string' },
+        evseId: { description: 'EVSE ID', type: 'integer' },
         groupIdToken: {
+          description: 'Group ID token',
           type: 'object',
           properties: {
             additionalInfo: {
@@ -20658,7 +20649,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           },
           required: ['idToken', 'type'],
           additionalProperties: true,
-          description: 'Group ID token',
         },
       },
       required: ['stationId', 'id', 'expiryDateTime', 'idToken'],
@@ -20685,7 +20675,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['Immediate', 'OnIdle', 'ImmediateAndResume'],
           description: 'Reset type',
         },
-        evseId: { type: ['integer', 'null'], description: 'EVSE ID (omit for whole station)' },
+        evseId: { description: 'EVSE ID (omit for whole station)', type: ['integer', 'null'] },
       },
       required: ['stationId', 'type', 'evseId'],
       additionalProperties: false,
@@ -20700,7 +20690,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['Immediate', 'OnIdle', 'ImmediateAndResume'],
           description: 'Reset type',
         },
-        evseId: { type: 'integer', description: 'EVSE ID (omit for whole station)' },
+        evseId: { description: 'EVSE ID (omit for whole station)', type: 'integer' },
       },
       required: ['stationId', 'type'],
       additionalProperties: false,
@@ -20728,6 +20718,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Update type (Differential or Full)',
         },
         localAuthorizationList: {
+          description: 'Authorization entries',
           type: ['array', 'null'],
           items: {
             type: 'object',
@@ -20784,12 +20775,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     description: 'Current status of the ID Token.',
                   },
                   cacheExpiryDateTime: {
-                    type: ['string', 'null'],
                     description: 'Date and Time after which the token must be considered invalid.',
+                    type: ['string', 'null'],
                   },
                   chargingPriority: {
-                    type: ['integer', 'null'],
                     description: 'Priority from a business point of view',
+                    type: ['integer', 'null'],
                   },
                   groupIdToken: {
                     type: ['object', 'null'],
@@ -20827,18 +20818,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                       'Contains a case insensitive identifier to use for the authorization and the type of authorization...',
                   },
                   language1: {
-                    type: ['string', 'null'],
                     description: 'Preferred user interface language of identifier user',
+                    type: ['string', 'null'],
                   },
                   language2: {
-                    type: ['string', 'null'],
                     description: 'Second preferred user interface language of identifier user',
+                    type: ['string', 'null'],
                   },
                   evseId: {
-                    type: ['array', 'null'],
-                    items: { type: 'integer' },
                     description:
                       'Only used when the IdToken is only valid for one or more specific EVSEs, not for the entire Charg...',
+                    type: ['array', 'null'],
+                    items: { type: 'integer' },
                   },
                   personalMessage: {
                     type: ['object', 'null'],
@@ -20849,8 +20840,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Format of the message.',
                       },
                       language: {
-                        type: ['string', 'null'],
                         description: 'Message language identifier',
+                        type: ['string', 'null'],
                       },
                       content: { type: 'string', description: 'Required' },
                     },
@@ -20878,7 +20869,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             additionalProperties: false,
             description: 'Contains the identifier to use for authorization.',
           },
-          description: 'Authorization entries',
         },
       },
       required: ['stationId', 'versionNumber', 'updateType', 'localAuthorizationList'],
@@ -20896,6 +20886,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Update type (Differential or Full)',
         },
         localAuthorizationList: {
+          description: 'Authorization entries',
           type: 'array',
           items: {
             type: 'object',
@@ -20952,12 +20943,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     description: 'Current status of the ID Token.',
                   },
                   cacheExpiryDateTime: {
-                    type: 'string',
                     description: 'Date and Time after which the token must be considered invalid.',
+                    type: 'string',
                   },
                   chargingPriority: {
-                    type: 'integer',
                     description: 'Priority from a business point of view',
+                    type: 'integer',
                   },
                   groupIdToken: {
                     type: 'object',
@@ -20995,18 +20986,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                       'Contains a case insensitive identifier to use for the authorization and the type of authorization...',
                   },
                   language1: {
-                    type: 'string',
                     description: 'Preferred user interface language of identifier user',
+                    type: 'string',
                   },
                   language2: {
-                    type: 'string',
                     description: 'Second preferred user interface language of identifier user',
+                    type: 'string',
                   },
                   evseId: {
-                    type: 'array',
-                    items: { type: 'integer' },
                     description:
                       'Only used when the IdToken is only valid for one or more specific EVSEs, not for the entire Charg...',
+                    type: 'array',
+                    items: { type: 'integer' },
                   },
                   personalMessage: {
                     type: 'object',
@@ -21016,7 +21007,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         enum: ['ASCII', 'HTML', 'URI', 'UTF8', 'QRCODE'],
                         description: 'Format of the message.',
                       },
-                      language: { type: 'string', description: 'Message language identifier' },
+                      language: { description: 'Message language identifier', type: 'string' },
                       content: { type: 'string', description: 'Required' },
                     },
                     required: ['format', 'content'],
@@ -21034,7 +21025,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             additionalProperties: true,
             description: 'Contains the identifier to use for authorization.',
           },
-          description: 'Authorization entries',
         },
       },
       required: ['stationId', 'versionNumber', 'updateType'],
@@ -21089,22 +21079,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Indicates the start point of a recurrence.',
             },
             validFrom: {
-              type: ['string', 'null'],
               description: 'Point in time at which the profile starts to be valid',
+              type: ['string', 'null'],
             },
             validTo: {
-              type: ['string', 'null'],
               description: 'Point in time at which the profile stops to be valid',
+              type: ['string', 'null'],
             },
             transactionId: {
-              type: ['string', 'null'],
               description:
                 'SHALL only be included if ChargingProfilePurpose is set to TxProfile in a SetChargingProfileRequest',
+              type: ['string', 'null'],
             },
             maxOfflineDuration: {
-              type: ['integer', 'null'],
               description:
                 'Period in seconds that this charging profile remains valid after the Charging Station has gone of...',
+              type: ['integer', 'null'],
             },
             chargingSchedule: {
               type: 'array',
@@ -21129,12 +21119,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     additionalProperties: false,
                   },
                   startSchedule: {
-                    type: ['string', 'null'],
                     description: 'Starting point of an absolute schedule or recurring schedule.',
+                    type: ['string', 'null'],
                   },
                   duration: {
-                    type: ['integer', 'null'],
                     description: 'Duration of the charging schedule in seconds',
+                    type: ['integer', 'null'],
                   },
                   chargingRateUnit: {
                     type: 'string',
@@ -21142,23 +21132,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     description: 'Can be used to force a power or current profile.',
                   },
                   minChargingRate: {
-                    type: ['number', 'null'],
                     description: 'Minimum charging rate supported by the EV',
+                    type: ['number', 'null'],
                   },
                   powerTolerance: {
-                    type: ['number', 'null'],
                     description: 'Power tolerance when following EVPowerProfile.',
+                    type: ['number', 'null'],
                   },
                   signatureId: {
-                    type: ['integer', 'null'],
                     description: 'Id of this element for referencing in a signature.',
+                    type: ['integer', 'null'],
                   },
                   digestValue: {
-                    type: ['string', 'null'],
                     description:
                       'Base64 encoded hash (SHA256 for ISO 15118-2, SHA512 for ISO 15118-20) of the EXI price schedule e...',
+                    type: ['string', 'null'],
                   },
-                  useLocalTime: { type: ['boolean', 'null'], description: 'Defaults to false' },
+                  useLocalTime: { description: 'Defaults to false', type: ['boolean', 'null'] },
                   chargingSchedulePeriod: {
                     type: 'array',
                     items: {
@@ -21169,88 +21159,88 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                           description: 'Start of the period, in seconds from the start of schedule',
                         },
                         limit: {
-                          type: ['number', 'null'],
                           description:
                             'Optional only when not required by the _operationMode_, as in CentralSetpoint, ExternalSetpoint, ...',
+                          type: ['number', 'null'],
                         },
                         limit_L2: {
-                          type: ['number', 'null'],
                           description:
                             'Charging rate limit on phase L2 in the applicable _chargingRateUnit_.',
+                          type: ['number', 'null'],
                         },
                         limit_L3: {
-                          type: ['number', 'null'],
                           description:
                             'Charging rate limit on phase L3 in the applicable _chargingRateUnit_.',
+                          type: ['number', 'null'],
                         },
                         numberPhases: {
-                          type: ['integer', 'null'],
                           description: 'The number of phases that can be used for charging',
+                          type: ['integer', 'null'],
                         },
                         phaseToUse: {
-                          type: ['integer', 'null'],
                           description:
                             'Values: 1..3, Used if numberPhases=1 and if the EVSE is capable of switching the phase connected ...',
+                          type: ['integer', 'null'],
                         },
                         dischargeLimit: {
-                          type: ['number', 'null'],
                           description:
                             'Limit in _chargingRateUnit_ that the EV is allowed to discharge with',
+                          type: ['number', 'null'],
                         },
                         dischargeLimit_L2: {
-                          type: ['number', 'null'],
                           description:
                             'Limit in _chargingRateUnit_ on phase L2 that the EV is allowed to discharge with.',
+                          type: ['number', 'null'],
                         },
                         dischargeLimit_L3: {
-                          type: ['number', 'null'],
                           description:
                             'Limit in _chargingRateUnit_ on phase L3 that the EV is allowed to discharge with.',
+                          type: ['number', 'null'],
                         },
                         setpoint: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow as close as possible',
+                          type: ['number', 'null'],
                         },
                         setpoint_L2: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow on phase L2 as close as possible.',
+                          type: ['number', 'null'],
                         },
                         setpoint_L3: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow on phase L3 as close as possible.',
+                          type: ['number', 'null'],
                         },
                         setpointReactive: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow as close...',
+                          type: ['number', 'null'],
                         },
                         setpointReactive_L2: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+                          type: ['number', 'null'],
                         },
                         setpointReactive_L3: {
-                          type: ['number', 'null'],
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+                          type: ['number', 'null'],
                         },
                         preconditioningRequest: {
-                          type: ['boolean', 'null'],
                           description:
                             'If true, the EV should attempt to keep the BMS preconditioned for this time interval.',
+                          type: ['boolean', 'null'],
                         },
                         evseSleep: {
-                          type: ['boolean', 'null'],
                           description:
                             'If true, the EVSE must turn off power electronics/modules associated with this transaction',
+                          type: ['boolean', 'null'],
                         },
                         v2xBaseline: {
-                          type: ['number', 'null'],
                           description:
                             'Power value that, when present, is used as a baseline on top of which values from _v2xFreqWattCur...',
+                          type: ['number', 'null'],
                         },
                         operationMode: {
                           type: ['string', 'null'],
@@ -21333,7 +21323,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         'Charging schedule period structure defines a time period in a charging schedule',
                     },
                   },
-                  randomizedDelay: { type: ['integer', 'null'], description: 'Defaults to 0' },
+                  randomizedDelay: { description: 'Defaults to 0', type: ['integer', 'null'] },
                   salesTariff: {
                     type: ['object', 'null'],
                     properties: {
@@ -21342,14 +21332,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'SalesTariff identifier used to identify one sales tariff',
                       },
                       salesTariffDescription: {
-                        type: ['string', 'null'],
                         description:
                           'A human readable title/short description of the sales tariff e.g',
+                        type: ['string', 'null'],
                       },
                       numEPriceLevels: {
-                        type: ['integer', 'null'],
                         description:
                           'Defines the overall number of distinct price levels used across all provided SalesTariff elements.',
+                        type: ['integer', 'null'],
                       },
                       salesTariffEntry: {
                         type: 'array',
@@ -21364,17 +21354,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                   description: 'Start of the interval, in seconds from NOW.',
                                 },
                                 duration: {
-                                  type: ['integer', 'null'],
                                   description: 'Duration of the interval, in seconds.',
+                                  type: ['integer', 'null'],
                                 },
                               },
                               required: ['start', 'duration'],
                               additionalProperties: false,
                             },
                             ePriceLevel: {
-                              type: ['integer', 'null'],
                               description:
                                 'Defines the price level of this SalesTariffEntry (referring to NumEPriceLevels)',
+                              type: ['integer', 'null'],
                             },
                             consumptionCost: {
                               type: ['array', 'null'],
@@ -21406,9 +21396,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                           description: 'The estimated or actual cost per kWh',
                                         },
                                         amountMultiplier: {
-                                          type: ['integer', 'null'],
                                           description:
                                             'Values: -3..3, The amountMultiplier defines the exponent to base 10 (dec)',
+                                          type: ['integer', 'null'],
                                         },
                                       },
                                       required: ['costKind', 'amount', 'amountMultiplier'],
@@ -21447,8 +21437,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Unique ID of price schedule',
                       },
                       priceScheduleDescription: {
-                        type: ['string', 'null'],
                         description: 'Description of the price schedule.',
+                        type: ['string', 'null'],
                       },
                       currency: { type: 'string', description: 'Currency according to ISO 4217.' },
                       language: {
@@ -21508,18 +21498,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                 type: 'object',
                                 properties: {
                                   parkingFeePeriod: {
-                                    type: ['integer', 'null'],
                                     description:
                                       'The duration of the parking fee period (in seconds)',
+                                    type: ['integer', 'null'],
                                   },
                                   carbonDioxideEmission: {
-                                    type: ['integer', 'null'],
                                     description: 'Number of grams of CO2 per kWh.',
+                                    type: ['integer', 'null'],
                                   },
                                   renewableGenerationPercentage: {
-                                    type: ['integer', 'null'],
                                     description:
                                       'Percentage of the power that is created by renewable resources.',
+                                    type: ['integer', 'null'],
                                   },
                                   energyFee: {
                                     type: 'object',
@@ -21595,13 +21585,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                           properties: {
                             taxRuleID: { type: 'integer', description: 'Id for the tax rule.' },
                             taxRuleName: {
-                              type: ['string', 'null'],
                               description: 'Human readable string to identify the tax rule.',
+                              type: ['string', 'null'],
                             },
                             taxIncludedInPrice: {
-                              type: ['boolean', 'null'],
                               description:
                                 'Indicates whether the tax is included in any price or not.',
+                              type: ['boolean', 'null'],
                             },
                             appliesToEnergyFee: {
                               type: 'boolean',
@@ -21692,9 +21682,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                   description: 'Part of ISO 15118-20 price schedule.',
                                 },
                                 overstayRuleDescription: {
-                                  type: ['string', 'null'],
                                   description:
                                     'Human readable string to identify the overstay rule.',
+                                  type: ['string', 'null'],
                                 },
                                 startTime: {
                                   type: 'integer',
@@ -21717,8 +21707,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                             },
                           },
                           overstayTimeThreshold: {
-                            type: ['integer', 'null'],
                             description: 'Time till overstay is applied in seconds.',
+                            type: ['integer', 'null'],
                           },
                         },
                         required: [
@@ -21812,8 +21802,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Unique ID of this price schedule.',
                       },
                       priceScheduleDescription: {
-                        type: ['string', 'null'],
                         description: 'Description of the price schedule.',
+                        type: ['string', 'null'],
                       },
                       numberOfPriceLevels: {
                         type: 'integer',
@@ -21856,23 +21846,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               },
             },
             invalidAfterOfflineDuration: {
-              type: ['boolean', 'null'],
               description:
                 'When set to true this charging profile will not be valid anymore after being offline for more tha...',
+              type: ['boolean', 'null'],
             },
             dynUpdateInterval: {
-              type: ['integer', 'null'],
               description:
                 'Interval in seconds after receipt of last update, when to request a profile update by sending a P...',
+              type: ['integer', 'null'],
             },
             dynUpdateTime: {
-              type: ['string', 'null'],
               description:
                 'Time at which limits or setpoints in this charging profile were last updated by a PullDynamicSche...',
+              type: ['string', 'null'],
             },
             priceScheduleSignature: {
-              type: ['string', 'null'],
               description: 'ISO 15118-20 signature for all price schedules in _chargingSchedules_',
+              type: ['string', 'null'],
             },
           },
           required: [
@@ -21936,22 +21926,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Indicates the start point of a recurrence.',
             },
             validFrom: {
-              type: 'string',
               description: 'Point in time at which the profile starts to be valid',
+              type: 'string',
             },
             validTo: {
-              type: 'string',
               description: 'Point in time at which the profile stops to be valid',
+              type: 'string',
             },
             transactionId: {
-              type: 'string',
               description:
                 'SHALL only be included if ChargingProfilePurpose is set to TxProfile in a SetChargingProfileRequest',
+              type: 'string',
             },
             maxOfflineDuration: {
-              type: 'integer',
               description:
                 'Period in seconds that this charging profile remains valid after the Charging Station has gone of...',
+              type: 'integer',
             },
             chargingSchedule: {
               type: 'array',
@@ -21976,12 +21966,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     additionalProperties: true,
                   },
                   startSchedule: {
-                    type: 'string',
                     description: 'Starting point of an absolute schedule or recurring schedule.',
+                    type: 'string',
                   },
                   duration: {
-                    type: 'integer',
                     description: 'Duration of the charging schedule in seconds',
+                    type: 'integer',
                   },
                   chargingRateUnit: {
                     type: 'string',
@@ -21989,23 +21979,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     description: 'Can be used to force a power or current profile.',
                   },
                   minChargingRate: {
-                    type: 'number',
                     description: 'Minimum charging rate supported by the EV',
+                    type: 'number',
                   },
                   powerTolerance: {
-                    type: 'number',
                     description: 'Power tolerance when following EVPowerProfile.',
+                    type: 'number',
                   },
                   signatureId: {
-                    type: 'integer',
                     description: 'Id of this element for referencing in a signature.',
+                    type: 'integer',
                   },
                   digestValue: {
-                    type: 'string',
                     description:
                       'Base64 encoded hash (SHA256 for ISO 15118-2, SHA512 for ISO 15118-20) of the EXI price schedule e...',
+                    type: 'string',
                   },
-                  useLocalTime: { type: 'boolean', description: 'Defaults to false' },
+                  useLocalTime: { description: 'Defaults to false', type: 'boolean' },
                   chargingSchedulePeriod: {
                     type: 'array',
                     items: {
@@ -22016,88 +22006,88 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                           description: 'Start of the period, in seconds from the start of schedule',
                         },
                         limit: {
-                          type: 'number',
                           description:
                             'Optional only when not required by the _operationMode_, as in CentralSetpoint, ExternalSetpoint, ...',
+                          type: 'number',
                         },
                         limit_L2: {
-                          type: 'number',
                           description:
                             'Charging rate limit on phase L2 in the applicable _chargingRateUnit_.',
+                          type: 'number',
                         },
                         limit_L3: {
-                          type: 'number',
                           description:
                             'Charging rate limit on phase L3 in the applicable _chargingRateUnit_.',
+                          type: 'number',
                         },
                         numberPhases: {
-                          type: 'integer',
                           description: 'The number of phases that can be used for charging',
+                          type: 'integer',
                         },
                         phaseToUse: {
-                          type: 'integer',
                           description:
                             'Values: 1..3, Used if numberPhases=1 and if the EVSE is capable of switching the phase connected ...',
+                          type: 'integer',
                         },
                         dischargeLimit: {
-                          type: 'number',
                           description:
                             'Limit in _chargingRateUnit_ that the EV is allowed to discharge with',
+                          type: 'number',
                         },
                         dischargeLimit_L2: {
-                          type: 'number',
                           description:
                             'Limit in _chargingRateUnit_ on phase L2 that the EV is allowed to discharge with.',
+                          type: 'number',
                         },
                         dischargeLimit_L3: {
-                          type: 'number',
                           description:
                             'Limit in _chargingRateUnit_ on phase L3 that the EV is allowed to discharge with.',
+                          type: 'number',
                         },
                         setpoint: {
-                          type: 'number',
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow as close as possible',
+                          type: 'number',
                         },
                         setpoint_L2: {
-                          type: 'number',
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow on phase L2 as close as possible.',
+                          type: 'number',
                         },
                         setpoint_L3: {
-                          type: 'number',
                           description:
                             'Setpoint in _chargingRateUnit_ that the EV should follow on phase L3 as close as possible.',
+                          type: 'number',
                         },
                         setpointReactive: {
-                          type: 'number',
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow as close...',
+                          type: 'number',
                         },
                         setpointReactive_L2: {
-                          type: 'number',
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+                          type: 'number',
                         },
                         setpointReactive_L3: {
-                          type: 'number',
                           description:
                             'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+                          type: 'number',
                         },
                         preconditioningRequest: {
-                          type: 'boolean',
                           description:
                             'If true, the EV should attempt to keep the BMS preconditioned for this time interval.',
+                          type: 'boolean',
                         },
                         evseSleep: {
-                          type: 'boolean',
                           description:
                             'If true, the EVSE must turn off power electronics/modules associated with this transaction',
+                          type: 'boolean',
                         },
                         v2xBaseline: {
-                          type: 'number',
                           description:
                             'Power value that, when present, is used as a baseline on top of which values from _v2xFreqWattCur...',
+                          type: 'number',
                         },
                         operationMode: {
                           type: 'string',
@@ -22157,7 +22147,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         'Charging schedule period structure defines a time period in a charging schedule',
                     },
                   },
-                  randomizedDelay: { type: 'integer', description: 'Defaults to 0' },
+                  randomizedDelay: { description: 'Defaults to 0', type: 'integer' },
                   salesTariff: {
                     type: 'object',
                     properties: {
@@ -22166,14 +22156,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'SalesTariff identifier used to identify one sales tariff',
                       },
                       salesTariffDescription: {
-                        type: 'string',
                         description:
                           'A human readable title/short description of the sales tariff e.g',
+                        type: 'string',
                       },
                       numEPriceLevels: {
-                        type: 'integer',
                         description:
                           'Defines the overall number of distinct price levels used across all provided SalesTariff elements.',
+                        type: 'integer',
                       },
                       salesTariffEntry: {
                         type: 'array',
@@ -22188,17 +22178,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                   description: 'Start of the interval, in seconds from NOW.',
                                 },
                                 duration: {
-                                  type: 'integer',
                                   description: 'Duration of the interval, in seconds.',
+                                  type: 'integer',
                                 },
                               },
                               required: ['start'],
                               additionalProperties: true,
                             },
                             ePriceLevel: {
-                              type: 'integer',
                               description:
                                 'Defines the price level of this SalesTariffEntry (referring to NumEPriceLevels)',
+                              type: 'integer',
                             },
                             consumptionCost: {
                               type: 'array',
@@ -22230,9 +22220,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                           description: 'The estimated or actual cost per kWh',
                                         },
                                         amountMultiplier: {
-                                          type: 'integer',
                                           description:
                                             'Values: -3..3, The amountMultiplier defines the exponent to base 10 (dec)',
+                                          type: 'integer',
                                         },
                                       },
                                       required: ['costKind', 'amount'],
@@ -22266,8 +22256,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Unique ID of price schedule',
                       },
                       priceScheduleDescription: {
-                        type: 'string',
                         description: 'Description of the price schedule.',
+                        type: 'string',
                       },
                       currency: { type: 'string', description: 'Currency according to ISO 4217.' },
                       language: {
@@ -22327,18 +22317,18 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                 type: 'object',
                                 properties: {
                                   parkingFeePeriod: {
-                                    type: 'integer',
                                     description:
                                       'The duration of the parking fee period (in seconds)',
+                                    type: 'integer',
                                   },
                                   carbonDioxideEmission: {
-                                    type: 'integer',
                                     description: 'Number of grams of CO2 per kWh.',
+                                    type: 'integer',
                                   },
                                   renewableGenerationPercentage: {
-                                    type: 'integer',
                                     description:
                                       'Percentage of the power that is created by renewable resources.',
+                                    type: 'integer',
                                   },
                                   energyFee: {
                                     type: 'object',
@@ -22407,13 +22397,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                           properties: {
                             taxRuleID: { type: 'integer', description: 'Id for the tax rule.' },
                             taxRuleName: {
-                              type: 'string',
                               description: 'Human readable string to identify the tax rule.',
+                              type: 'string',
                             },
                             taxIncludedInPrice: {
-                              type: 'boolean',
                               description:
                                 'Indicates whether the tax is included in any price or not.',
+                              type: 'boolean',
                             },
                             appliesToEnergyFee: {
                               type: 'boolean',
@@ -22502,9 +22492,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                                   description: 'Part of ISO 15118-20 price schedule.',
                                 },
                                 overstayRuleDescription: {
-                                  type: 'string',
                                   description:
                                     'Human readable string to identify the overstay rule.',
+                                  type: 'string',
                                 },
                                 startTime: {
                                   type: 'integer',
@@ -22522,8 +22512,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                             },
                           },
                           overstayTimeThreshold: {
-                            type: 'integer',
                             description: 'Time till overstay is applied in seconds.',
+                            type: 'integer',
                           },
                         },
                         required: ['overstayRule'],
@@ -22607,8 +22597,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                         description: 'Unique ID of this price schedule.',
                       },
                       priceScheduleDescription: {
-                        type: 'string',
                         description: 'Description of the price schedule.',
+                        type: 'string',
                       },
                       numberOfPriceLevels: {
                         type: 'integer',
@@ -22634,23 +22624,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               },
             },
             invalidAfterOfflineDuration: {
-              type: 'boolean',
               description:
                 'When set to true this charging profile will not be valid anymore after being offline for more tha...',
+              type: 'boolean',
             },
             dynUpdateInterval: {
-              type: 'integer',
               description:
                 'Interval in seconds after receipt of last update, when to request a profile update by sending a P...',
+              type: 'integer',
             },
             dynUpdateTime: {
-              type: 'string',
               description:
                 'Time at which limits or setpoints in this charging profile were last updated by a PullDynamicSche...',
+              type: 'string',
             },
             priceScheduleSignature: {
-              type: 'string',
               description: 'ISO 15118-20 signature for all price schedules in _chargingSchedules_',
+              type: 'string',
             },
           },
           required: [
@@ -22727,6 +22717,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'DER control type',
         },
         curve: {
+          description: 'DER curve',
           type: ['object', 'null'],
           properties: {
             curveData: {
@@ -22753,24 +22744,24 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               type: ['object', 'null'],
               properties: {
                 hysteresisHigh: {
-                  type: ['number', 'null'],
                   description:
                     'High value for return to normal operation after a grid event, in absolute value',
+                  type: ['number', 'null'],
                 },
                 hysteresisLow: {
-                  type: ['number', 'null'],
                   description:
                     'Low value for return to normal operation after a grid event, in absolute value',
+                  type: ['number', 'null'],
                 },
                 hysteresisDelay: {
-                  type: ['number', 'null'],
                   description:
                     'Delay in seconds, once grid parameter within HysteresisLow and HysteresisHigh, for the EV to retu...',
+                  type: ['number', 'null'],
                 },
                 hysteresisGradient: {
-                  type: ['number', 'null'],
                   description:
                     'Set default rate of change (ramp rate %/s) for the EV to return to normal operation after a grid ...',
+                  type: ['number', 'null'],
                 },
               },
               additionalProperties: false,
@@ -22786,17 +22777,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               type: ['object', 'null'],
               properties: {
                 vRef: {
-                  type: ['number', 'null'],
                   description:
                     'Only for VoltVar curve: The nominal ac voltage (rms) adjustment to the voltage curve points for V...',
+                  type: ['number', 'null'],
                 },
                 autonomousVRefEnable: {
-                  type: ['boolean', 'null'],
                   description: 'Only for VoltVar: Enable/disable autonomous VRef adjustment',
+                  type: ['boolean', 'null'],
                 },
                 autonomousVRefTimeConstant: {
-                  type: ['number', 'null'],
                   description: 'Only for VoltVar: Adjustment range for VRef time constant',
+                  type: ['number', 'null'],
                 },
               },
               additionalProperties: false,
@@ -22806,14 +22797,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               type: ['object', 'null'],
               properties: {
                 hv10MinMeanValue: {
-                  type: ['number', 'null'],
                   description:
                     'EN 50549-1 chapter 4.9.3.4 Voltage threshold for the 10 min time window mean value monitoring',
+                  type: ['number', 'null'],
                 },
                 hv10MinMeanTripDelay: {
-                  type: ['number', 'null'],
                   description:
                     'Time for which the voltage is allowed to stay above the 10 min mean value',
+                  type: ['number', 'null'],
                 },
                 powerDuringCessation: {
                   type: ['string', 'null'],
@@ -22838,17 +22829,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Unit of the Y-axis of DER curve',
             },
             responseTime: {
-              type: ['number', 'null'],
               description:
                 'Open loop response time, the time to ramp up to 90% of the new target in response to the change i...',
+              type: ['number', 'null'],
             },
             startTime: {
-              type: ['string', 'null'],
               description: 'Point in time when this curve will become activated',
+              type: ['string', 'null'],
             },
             duration: {
-              type: ['number', 'null'],
               description: 'Duration in seconds that this curve will be active',
+              type: ['number', 'null'],
             },
           },
           required: [
@@ -22863,9 +22854,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'duration',
           ],
           additionalProperties: false,
-          description: 'DER curve',
         },
         enterService: {
+          description: 'Enter service settings',
           type: ['object', 'null'],
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
@@ -22873,14 +22864,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             lowVoltage: { type: 'number', description: 'Enter service voltage low' },
             highFreq: { type: 'number', description: 'Enter service frequency high' },
             lowFreq: { type: 'number', description: 'Enter service frequency low' },
-            delay: { type: ['number', 'null'], description: 'Enter service delay' },
+            delay: { description: 'Enter service delay', type: ['number', 'null'] },
             randomDelay: {
-              type: ['number', 'null'],
               description: 'Enter service randomized delay',
+              type: ['number', 'null'],
             },
             rampRate: {
-              type: ['number', 'null'],
               description: 'Enter service ramp rate in seconds',
+              type: ['number', 'null'],
             },
           },
           required: [
@@ -22894,9 +22885,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'rampRate',
           ],
           additionalProperties: false,
-          description: 'Enter service settings',
         },
         fixedPFAbsorb: {
+          description: 'Fixed power factor absorb',
           type: ['object', 'null'],
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
@@ -22910,19 +22901,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 'True when absorbing reactive power (under-excited), false when injecting reactive power (over-exc...',
             },
             startTime: {
-              type: ['string', 'null'],
               description: 'Time when this setting becomes active',
+              type: ['string', 'null'],
             },
             duration: {
-              type: ['number', 'null'],
               description: 'Duration in seconds that this setting is active.',
+              type: ['number', 'null'],
             },
           },
           required: ['priority', 'displacement', 'excitation', 'startTime', 'duration'],
           additionalProperties: false,
-          description: 'Fixed power factor absorb',
         },
         fixedPFInject: {
+          description: 'Fixed power factor inject',
           type: ['object', 'null'],
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
@@ -22936,19 +22927,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 'True when absorbing reactive power (under-excited), false when injecting reactive power (over-exc...',
             },
             startTime: {
-              type: ['string', 'null'],
               description: 'Time when this setting becomes active',
+              type: ['string', 'null'],
             },
             duration: {
-              type: ['number', 'null'],
               description: 'Duration in seconds that this setting is active.',
+              type: ['number', 'null'],
             },
           },
           required: ['priority', 'displacement', 'excitation', 'startTime', 'duration'],
           additionalProperties: false,
-          description: 'Fixed power factor inject',
         },
         fixedVar: {
+          description: 'Fixed var settings',
           type: ['object', 'null'],
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
@@ -22970,19 +22961,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Unit of the Y-axis of DER curve',
             },
             startTime: {
-              type: ['string', 'null'],
               description: 'Time when this setting becomes active.',
+              type: ['string', 'null'],
             },
             duration: {
-              type: ['number', 'null'],
               description: 'Duration in seconds that this setting is active.',
+              type: ['number', 'null'],
             },
           },
           required: ['priority', 'setpoint', 'unit', 'startTime', 'duration'],
           additionalProperties: false,
-          description: 'Fixed var settings',
         },
         freqDroop: {
+          description: 'Frequency droop settings',
           type: ['object', 'null'],
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
@@ -22992,12 +22983,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             underDroop: { type: 'number', description: 'Under-frequency droop per unit, uFDroop' },
             responseTime: { type: 'number', description: 'Open loop response time in seconds' },
             startTime: {
-              type: ['string', 'null'],
               description: 'Time when this setting becomes active',
+              type: ['string', 'null'],
             },
             duration: {
-              type: ['number', 'null'],
               description: 'Duration in seconds that this setting is active',
+              type: ['number', 'null'],
             },
           },
           required: [
@@ -23011,9 +23002,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'duration',
           ],
           additionalProperties: false,
-          description: 'Frequency droop settings',
         },
         gradient: {
+          description: 'Gradient settings',
           type: ['object', 'null'],
           properties: {
             priority: { type: 'integer', description: 'Id of setting' },
@@ -23028,15 +23019,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           },
           required: ['priority', 'gradient', 'softGradient'],
           additionalProperties: false,
-          description: 'Gradient settings',
         },
         limitMaxDischarge: {
+          description: 'Max discharge limit',
           type: ['object', 'null'],
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
             pctMaxDischargePower: {
-              type: ['number', 'null'],
               description: 'Only for PowerMonitoring',
+              type: ['number', 'null'],
             },
             powerMonitoringMustTrip: {
               type: ['object', 'null'],
@@ -23065,24 +23056,24 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   type: ['object', 'null'],
                   properties: {
                     hysteresisHigh: {
-                      type: ['number', 'null'],
                       description:
                         'High value for return to normal operation after a grid event, in absolute value',
+                      type: ['number', 'null'],
                     },
                     hysteresisLow: {
-                      type: ['number', 'null'],
                       description:
                         'Low value for return to normal operation after a grid event, in absolute value',
+                      type: ['number', 'null'],
                     },
                     hysteresisDelay: {
-                      type: ['number', 'null'],
                       description:
                         'Delay in seconds, once grid parameter within HysteresisLow and HysteresisHigh, for the EV to retu...',
+                      type: ['number', 'null'],
                     },
                     hysteresisGradient: {
-                      type: ['number', 'null'],
                       description:
                         'Set default rate of change (ramp rate %/s) for the EV to return to normal operation after a grid ...',
+                      type: ['number', 'null'],
                     },
                   },
                   additionalProperties: false,
@@ -23098,17 +23089,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   type: ['object', 'null'],
                   properties: {
                     vRef: {
-                      type: ['number', 'null'],
                       description:
                         'Only for VoltVar curve: The nominal ac voltage (rms) adjustment to the voltage curve points for V...',
+                      type: ['number', 'null'],
                     },
                     autonomousVRefEnable: {
-                      type: ['boolean', 'null'],
                       description: 'Only for VoltVar: Enable/disable autonomous VRef adjustment',
+                      type: ['boolean', 'null'],
                     },
                     autonomousVRefTimeConstant: {
-                      type: ['number', 'null'],
                       description: 'Only for VoltVar: Adjustment range for VRef time constant',
+                      type: ['number', 'null'],
                     },
                   },
                   additionalProperties: false,
@@ -23118,14 +23109,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   type: ['object', 'null'],
                   properties: {
                     hv10MinMeanValue: {
-                      type: ['number', 'null'],
                       description:
                         'EN 50549-1 chapter 4.9.3.4 Voltage threshold for the 10 min time window mean value monitoring',
+                      type: ['number', 'null'],
                     },
                     hv10MinMeanTripDelay: {
-                      type: ['number', 'null'],
                       description:
                         'Time for which the voltage is allowed to stay above the 10 min mean value',
+                      type: ['number', 'null'],
                     },
                     powerDuringCessation: {
                       type: ['string', 'null'],
@@ -23150,17 +23141,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   description: 'Unit of the Y-axis of DER curve',
                 },
                 responseTime: {
-                  type: ['number', 'null'],
                   description:
                     'Open loop response time, the time to ramp up to 90% of the new target in response to the change i...',
+                  type: ['number', 'null'],
                 },
                 startTime: {
-                  type: ['string', 'null'],
                   description: 'Point in time when this curve will become activated',
+                  type: ['string', 'null'],
                 },
                 duration: {
-                  type: ['number', 'null'],
                   description: 'Duration in seconds that this curve will be active',
+                  type: ['number', 'null'],
                 },
               },
               required: [
@@ -23177,12 +23168,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               additionalProperties: false,
             },
             startTime: {
-              type: ['string', 'null'],
               description: 'Time when this setting becomes active',
+              type: ['string', 'null'],
             },
             duration: {
-              type: ['number', 'null'],
               description: 'Duration in seconds that this setting is active',
+              type: ['number', 'null'],
             },
           },
           required: [
@@ -23193,7 +23184,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'duration',
           ],
           additionalProperties: false,
-          description: 'Max discharge limit',
         },
       },
       required: [
@@ -23248,6 +23238,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'DER control type',
         },
         curve: {
+          description: 'DER curve',
           type: 'object',
           properties: {
             curveData: {
@@ -23274,24 +23265,24 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               type: 'object',
               properties: {
                 hysteresisHigh: {
-                  type: 'number',
                   description:
                     'High value for return to normal operation after a grid event, in absolute value',
+                  type: 'number',
                 },
                 hysteresisLow: {
-                  type: 'number',
                   description:
                     'Low value for return to normal operation after a grid event, in absolute value',
+                  type: 'number',
                 },
                 hysteresisDelay: {
-                  type: 'number',
                   description:
                     'Delay in seconds, once grid parameter within HysteresisLow and HysteresisHigh, for the EV to retu...',
+                  type: 'number',
                 },
                 hysteresisGradient: {
-                  type: 'number',
                   description:
                     'Set default rate of change (ramp rate %/s) for the EV to return to normal operation after a grid ...',
+                  type: 'number',
                 },
               },
               additionalProperties: true,
@@ -23301,17 +23292,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               type: 'object',
               properties: {
                 vRef: {
-                  type: 'number',
                   description:
                     'Only for VoltVar curve: The nominal ac voltage (rms) adjustment to the voltage curve points for V...',
+                  type: 'number',
                 },
                 autonomousVRefEnable: {
-                  type: 'boolean',
                   description: 'Only for VoltVar: Enable/disable autonomous VRef adjustment',
+                  type: 'boolean',
                 },
                 autonomousVRefTimeConstant: {
-                  type: 'number',
                   description: 'Only for VoltVar: Adjustment range for VRef time constant',
+                  type: 'number',
                 },
               },
               additionalProperties: true,
@@ -23320,14 +23311,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               type: 'object',
               properties: {
                 hv10MinMeanValue: {
-                  type: 'number',
                   description:
                     'EN 50549-1 chapter 4.9.3.4 Voltage threshold for the 10 min time window mean value monitoring',
+                  type: 'number',
                 },
                 hv10MinMeanTripDelay: {
-                  type: 'number',
                   description:
                     'Time for which the voltage is allowed to stay above the 10 min mean value',
+                  type: 'number',
                 },
                 powerDuringCessation: {
                   type: 'string',
@@ -23351,24 +23342,24 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description: 'Unit of the Y-axis of DER curve',
             },
             responseTime: {
-              type: 'number',
               description:
                 'Open loop response time, the time to ramp up to 90% of the new target in response to the change i...',
+              type: 'number',
             },
             startTime: {
-              type: 'string',
               description: 'Point in time when this curve will become activated',
+              type: 'string',
             },
             duration: {
-              type: 'number',
               description: 'Duration in seconds that this curve will be active',
+              type: 'number',
             },
           },
           required: ['curveData', 'priority', 'yUnit'],
           additionalProperties: true,
-          description: 'DER curve',
         },
         enterService: {
+          description: 'Enter service settings',
           type: 'object',
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
@@ -23376,15 +23367,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             lowVoltage: { type: 'number', description: 'Enter service voltage low' },
             highFreq: { type: 'number', description: 'Enter service frequency high' },
             lowFreq: { type: 'number', description: 'Enter service frequency low' },
-            delay: { type: 'number', description: 'Enter service delay' },
-            randomDelay: { type: 'number', description: 'Enter service randomized delay' },
-            rampRate: { type: 'number', description: 'Enter service ramp rate in seconds' },
+            delay: { description: 'Enter service delay', type: 'number' },
+            randomDelay: { description: 'Enter service randomized delay', type: 'number' },
+            rampRate: { description: 'Enter service ramp rate in seconds', type: 'number' },
           },
           required: ['priority', 'highVoltage', 'lowVoltage', 'highFreq', 'lowFreq'],
           additionalProperties: true,
-          description: 'Enter service settings',
         },
         fixedPFAbsorb: {
+          description: 'Fixed power factor absorb',
           type: 'object',
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
@@ -23397,17 +23388,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description:
                 'True when absorbing reactive power (under-excited), false when injecting reactive power (over-exc...',
             },
-            startTime: { type: 'string', description: 'Time when this setting becomes active' },
+            startTime: { description: 'Time when this setting becomes active', type: 'string' },
             duration: {
-              type: 'number',
               description: 'Duration in seconds that this setting is active.',
+              type: 'number',
             },
           },
           required: ['priority', 'displacement', 'excitation'],
           additionalProperties: true,
-          description: 'Fixed power factor absorb',
         },
         fixedPFInject: {
+          description: 'Fixed power factor inject',
           type: 'object',
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
@@ -23420,17 +23411,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               description:
                 'True when absorbing reactive power (under-excited), false when injecting reactive power (over-exc...',
             },
-            startTime: { type: 'string', description: 'Time when this setting becomes active' },
+            startTime: { description: 'Time when this setting becomes active', type: 'string' },
             duration: {
-              type: 'number',
               description: 'Duration in seconds that this setting is active.',
+              type: 'number',
             },
           },
           required: ['priority', 'displacement', 'excitation'],
           additionalProperties: true,
-          description: 'Fixed power factor inject',
         },
         fixedVar: {
+          description: 'Fixed var settings',
           type: 'object',
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
@@ -23451,17 +23442,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               ],
               description: 'Unit of the Y-axis of DER curve',
             },
-            startTime: { type: 'string', description: 'Time when this setting becomes active.' },
+            startTime: { description: 'Time when this setting becomes active.', type: 'string' },
             duration: {
-              type: 'number',
               description: 'Duration in seconds that this setting is active.',
+              type: 'number',
             },
           },
           required: ['priority', 'setpoint', 'unit'],
           additionalProperties: true,
-          description: 'Fixed var settings',
         },
         freqDroop: {
+          description: 'Frequency droop settings',
           type: 'object',
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
@@ -23470,10 +23461,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             overDroop: { type: 'number', description: 'Over-frequency droop per unit, oFDroop' },
             underDroop: { type: 'number', description: 'Under-frequency droop per unit, uFDroop' },
             responseTime: { type: 'number', description: 'Open loop response time in seconds' },
-            startTime: { type: 'string', description: 'Time when this setting becomes active' },
+            startTime: { description: 'Time when this setting becomes active', type: 'string' },
             duration: {
-              type: 'number',
               description: 'Duration in seconds that this setting is active',
+              type: 'number',
             },
           },
           required: [
@@ -23485,9 +23476,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'responseTime',
           ],
           additionalProperties: true,
-          description: 'Frequency droop settings',
         },
         gradient: {
+          description: 'Gradient settings',
           type: 'object',
           properties: {
             priority: { type: 'integer', description: 'Id of setting' },
@@ -23502,13 +23493,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           },
           required: ['priority', 'gradient', 'softGradient'],
           additionalProperties: true,
-          description: 'Gradient settings',
         },
         limitMaxDischarge: {
+          description: 'Max discharge limit',
           type: 'object',
           properties: {
             priority: { type: 'integer', description: 'Priority of setting (0=highest)' },
-            pctMaxDischargePower: { type: 'number', description: 'Only for PowerMonitoring' },
+            pctMaxDischargePower: { description: 'Only for PowerMonitoring', type: 'number' },
             powerMonitoringMustTrip: {
               type: 'object',
               properties: {
@@ -23536,24 +23527,24 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   type: 'object',
                   properties: {
                     hysteresisHigh: {
-                      type: 'number',
                       description:
                         'High value for return to normal operation after a grid event, in absolute value',
+                      type: 'number',
                     },
                     hysteresisLow: {
-                      type: 'number',
                       description:
                         'Low value for return to normal operation after a grid event, in absolute value',
+                      type: 'number',
                     },
                     hysteresisDelay: {
-                      type: 'number',
                       description:
                         'Delay in seconds, once grid parameter within HysteresisLow and HysteresisHigh, for the EV to retu...',
+                      type: 'number',
                     },
                     hysteresisGradient: {
-                      type: 'number',
                       description:
                         'Set default rate of change (ramp rate %/s) for the EV to return to normal operation after a grid ...',
+                      type: 'number',
                     },
                   },
                   additionalProperties: true,
@@ -23563,17 +23554,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   type: 'object',
                   properties: {
                     vRef: {
-                      type: 'number',
                       description:
                         'Only for VoltVar curve: The nominal ac voltage (rms) adjustment to the voltage curve points for V...',
+                      type: 'number',
                     },
                     autonomousVRefEnable: {
-                      type: 'boolean',
                       description: 'Only for VoltVar: Enable/disable autonomous VRef adjustment',
+                      type: 'boolean',
                     },
                     autonomousVRefTimeConstant: {
-                      type: 'number',
                       description: 'Only for VoltVar: Adjustment range for VRef time constant',
+                      type: 'number',
                     },
                   },
                   additionalProperties: true,
@@ -23582,14 +23573,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   type: 'object',
                   properties: {
                     hv10MinMeanValue: {
-                      type: 'number',
                       description:
                         'EN 50549-1 chapter 4.9.3.4 Voltage threshold for the 10 min time window mean value monitoring',
+                      type: 'number',
                     },
                     hv10MinMeanTripDelay: {
-                      type: 'number',
                       description:
                         'Time for which the voltage is allowed to stay above the 10 min mean value',
+                      type: 'number',
                     },
                     powerDuringCessation: {
                       type: 'string',
@@ -23613,31 +23604,30 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   description: 'Unit of the Y-axis of DER curve',
                 },
                 responseTime: {
-                  type: 'number',
                   description:
                     'Open loop response time, the time to ramp up to 90% of the new target in response to the change i...',
+                  type: 'number',
                 },
                 startTime: {
-                  type: 'string',
                   description: 'Point in time when this curve will become activated',
+                  type: 'string',
                 },
                 duration: {
-                  type: 'number',
                   description: 'Duration in seconds that this curve will be active',
+                  type: 'number',
                 },
               },
               required: ['curveData', 'priority', 'yUnit'],
               additionalProperties: true,
             },
-            startTime: { type: 'string', description: 'Time when this setting becomes active' },
+            startTime: { description: 'Time when this setting becomes active', type: 'string' },
             duration: {
-              type: 'number',
               description: 'Duration in seconds that this setting is active',
+              type: 'number',
             },
           },
           required: ['priority'],
           additionalProperties: true,
-          description: 'Max discharge limit',
         },
       },
       required: ['stationId', 'isDefault', 'controlId', 'controlType'],
@@ -23670,9 +23660,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   properties: {
                     id: { type: 'integer', description: 'EVSE Identifier' },
                     connectorId: {
-                      type: ['integer', 'null'],
                       description:
                         'An id to designate a specific connector (on an EVSE) by connector index number.',
+                      type: ['integer', 'null'],
                     },
                   },
                   required: ['id', 'connectorId'],
@@ -23681,9 +23671,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 },
                 name: { type: 'string', description: 'Name of the component' },
                 instance: {
-                  type: ['string', 'null'],
                   description:
                     'Name of instance in case the component exists as multiple instances',
+                  type: ['string', 'null'],
                 },
               },
               required: ['evse', 'name', 'instance'],
@@ -23712,17 +23702,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 'If provided the Charging Station shall return Display Messages with the given state only.',
             },
             startDateTime: {
-              type: ['string', 'null'],
               description: 'From what date-time should this message be shown',
+              type: ['string', 'null'],
             },
             endDateTime: {
-              type: ['string', 'null'],
               description:
                 'Until what date-time should this message be shown, after this date/time this message SHALL be rem...',
+              type: ['string', 'null'],
             },
             transactionId: {
-              type: ['string', 'null'],
               description: 'During which transaction shall this message be shown',
+              type: ['string', 'null'],
             },
             message: {
               type: 'object',
@@ -23732,7 +23722,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   enum: ['ASCII', 'HTML', 'URI', 'UTF8', 'QRCODE'],
                   description: 'Format of the message.',
                 },
-                language: { type: ['string', 'null'], description: 'Message language identifier' },
+                language: { description: 'Message language identifier', type: ['string', 'null'] },
                 content: { type: 'string', description: 'Required' },
               },
               required: ['format', 'language', 'content'],
@@ -23751,8 +23741,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     description: 'Format of the message.',
                   },
                   language: {
-                    type: ['string', 'null'],
                     description: 'Message language identifier',
+                    type: ['string', 'null'],
                   },
                   content: { type: 'string', description: 'Required' },
                 },
@@ -23797,9 +23787,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   properties: {
                     id: { type: 'integer', description: 'EVSE Identifier' },
                     connectorId: {
-                      type: 'integer',
                       description:
                         'An id to designate a specific connector (on an EVSE) by connector index number.',
+                      type: 'integer',
                     },
                   },
                   required: ['id'],
@@ -23808,9 +23798,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 },
                 name: { type: 'string', description: 'Name of the component' },
                 instance: {
-                  type: 'string',
                   description:
                     'Name of instance in case the component exists as multiple instances',
+                  type: 'string',
                 },
               },
               required: ['name'],
@@ -23831,17 +23821,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 'If provided the Charging Station shall return Display Messages with the given state only.',
             },
             startDateTime: {
-              type: 'string',
               description: 'From what date-time should this message be shown',
+              type: 'string',
             },
             endDateTime: {
-              type: 'string',
               description:
                 'Until what date-time should this message be shown, after this date/time this message SHALL be rem...',
+              type: 'string',
             },
             transactionId: {
-              type: 'string',
               description: 'During which transaction shall this message be shown',
+              type: 'string',
             },
             message: {
               type: 'object',
@@ -23851,7 +23841,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   enum: ['ASCII', 'HTML', 'URI', 'UTF8', 'QRCODE'],
                   description: 'Format of the message.',
                 },
-                language: { type: 'string', description: 'Message language identifier' },
+                language: { description: 'Message language identifier', type: 'string' },
                 content: { type: 'string', description: 'Required' },
               },
               required: ['format', 'content'],
@@ -23869,7 +23859,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     enum: ['ASCII', 'HTML', 'URI', 'UTF8', 'QRCODE'],
                     description: 'Format of the message.',
                   },
-                  language: { type: 'string', description: 'Message language identifier' },
+                  language: { description: 'Message language identifier', type: 'string' },
                   content: { type: 'string', description: 'Required' },
                 },
                 required: ['format', 'content'],
@@ -23979,28 +23969,28 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             type: 'object',
             properties: {
               id: {
-                type: ['integer', 'null'],
                 description: 'An id SHALL only be given to replace an existing monitor',
+                type: ['integer', 'null'],
               },
               periodicEventStream: {
                 type: ['object', 'null'],
                 properties: {
                   interval: {
-                    type: ['integer', 'null'],
                     description: 'Time in seconds after which stream data is sent.',
+                    type: ['integer', 'null'],
                   },
                   values: {
-                    type: ['integer', 'null'],
                     description: 'Number of items to be sent together in stream.',
+                    type: ['integer', 'null'],
                   },
                 },
                 additionalProperties: false,
                 required: ['interval', 'values'],
               },
               transaction: {
-                type: ['boolean', 'null'],
                 description:
                   'Monitor only active when a transaction is ongoing on a component relevant to this transaction',
+                type: ['boolean', 'null'],
               },
               value: { type: 'number', description: 'Value for threshold or delta monitoring' },
               type: {
@@ -24029,9 +24019,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     properties: {
                       id: { type: 'integer', description: 'EVSE Identifier' },
                       connectorId: {
-                        type: ['integer', 'null'],
                         description:
                           'An id to designate a specific connector (on an EVSE) by connector index number.',
+                        type: ['integer', 'null'],
                       },
                     },
                     required: ['id', 'connectorId'],
@@ -24040,9 +24030,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   name: { type: 'string', description: 'Name of the component' },
                   instance: {
-                    type: ['string', 'null'],
                     description:
                       'Name of instance in case the component exists as multiple instances',
+                    type: ['string', 'null'],
                   },
                 },
                 required: ['evse', 'name', 'instance'],
@@ -24054,9 +24044,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 properties: {
                   name: { type: 'string', description: 'Name of the variable' },
                   instance: {
-                    type: ['string', 'null'],
                     description:
                       'Name of instance in case the variable exists as multiple instances',
+                    type: ['string', 'null'],
                   },
                 },
                 required: ['name', 'instance'],
@@ -24094,27 +24084,27 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             type: 'object',
             properties: {
               id: {
-                type: 'integer',
                 description: 'An id SHALL only be given to replace an existing monitor',
+                type: 'integer',
               },
               periodicEventStream: {
                 type: 'object',
                 properties: {
                   interval: {
-                    type: 'integer',
                     description: 'Time in seconds after which stream data is sent.',
+                    type: 'integer',
                   },
                   values: {
-                    type: 'integer',
                     description: 'Number of items to be sent together in stream.',
+                    type: 'integer',
                   },
                 },
                 additionalProperties: true,
               },
               transaction: {
-                type: 'boolean',
                 description:
                   'Monitor only active when a transaction is ongoing on a component relevant to this transaction',
+                type: 'boolean',
               },
               value: { type: 'number', description: 'Value for threshold or delta monitoring' },
               type: {
@@ -24143,9 +24133,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                     properties: {
                       id: { type: 'integer', description: 'EVSE Identifier' },
                       connectorId: {
-                        type: 'integer',
                         description:
                           'An id to designate a specific connector (on an EVSE) by connector index number.',
+                        type: 'integer',
                       },
                     },
                     required: ['id'],
@@ -24154,9 +24144,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   },
                   name: { type: 'string', description: 'Name of the component' },
                   instance: {
-                    type: 'string',
                     description:
                       'Name of instance in case the component exists as multiple instances',
+                    type: 'string',
                   },
                 },
                 required: ['name'],
@@ -24168,9 +24158,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 properties: {
                   name: { type: 'string', description: 'Name of the variable' },
                   instance: {
-                    type: 'string',
                     description:
                       'Name of instance in case the variable exists as multiple instances',
+                    type: 'string',
                   },
                 },
                 required: ['name'],
@@ -24224,20 +24214,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Message type to trigger',
         },
         evse: {
+          description: 'Target EVSE',
           type: ['object', 'null'],
           properties: {
             id: { type: 'integer', description: 'EVSE Identifier' },
             connectorId: {
-              type: ['integer', 'null'],
               description:
                 'An id to designate a specific connector (on an EVSE) by connector index number.',
+              type: ['integer', 'null'],
             },
           },
           required: ['id', 'connectorId'],
           additionalProperties: false,
-          description: 'Target EVSE',
         },
-        customTrigger: { type: ['string', 'null'], description: 'Custom trigger identifier' },
+        customTrigger: { description: 'Custom trigger identifier', type: ['string', 'null'] },
       },
       required: ['stationId', 'requestedMessage', 'evse', 'customTrigger'],
       additionalProperties: false,
@@ -24267,20 +24257,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Message type to trigger',
         },
         evse: {
+          description: 'Target EVSE',
           type: 'object',
           properties: {
             id: { type: 'integer', description: 'EVSE Identifier' },
             connectorId: {
-              type: 'integer',
               description:
                 'An id to designate a specific connector (on an EVSE) by connector index number.',
+              type: 'integer',
             },
           },
           required: ['id'],
           additionalProperties: true,
-          description: 'Target EVSE',
         },
-        customTrigger: { type: 'string', description: 'Custom trigger identifier' },
+        customTrigger: { description: 'Custom trigger identifier', type: 'string' },
       },
       required: ['stationId', 'requestedMessage'],
       additionalProperties: false,
@@ -24339,61 +24329,61 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'object',
           properties: {
             limit: {
-              type: ['number', 'null'],
               description:
                 'Optional only when not required by the _operationMode_, as in CentralSetpoint, ExternalSetpoint, ...',
+              type: ['number', 'null'],
             },
             limit_L2: {
-              type: ['number', 'null'],
               description: 'Charging rate limit on phase L2 in the applicable _chargingRateUnit_.',
+              type: ['number', 'null'],
             },
             limit_L3: {
-              type: ['number', 'null'],
               description: 'Charging rate limit on phase L3 in the applicable _chargingRateUnit_.',
+              type: ['number', 'null'],
             },
             dischargeLimit: {
-              type: ['number', 'null'],
               description: 'Limit in _chargingRateUnit_ that the EV is allowed to discharge with',
+              type: ['number', 'null'],
             },
             dischargeLimit_L2: {
-              type: ['number', 'null'],
               description:
                 'Limit in _chargingRateUnit_ on phase L2 that the EV is allowed to discharge with.',
+              type: ['number', 'null'],
             },
             dischargeLimit_L3: {
-              type: ['number', 'null'],
               description:
                 'Limit in _chargingRateUnit_ on phase L3 that the EV is allowed to discharge with.',
+              type: ['number', 'null'],
             },
             setpoint: {
-              type: ['number', 'null'],
               description:
                 'Setpoint in _chargingRateUnit_ that the EV should follow as close as possible',
+              type: ['number', 'null'],
             },
             setpoint_L2: {
-              type: ['number', 'null'],
               description:
                 'Setpoint in _chargingRateUnit_ that the EV should follow on phase L2 as close as possible.',
+              type: ['number', 'null'],
             },
             setpoint_L3: {
-              type: ['number', 'null'],
               description:
                 'Setpoint in _chargingRateUnit_ that the EV should follow on phase L3 as close as possible.',
+              type: ['number', 'null'],
             },
             setpointReactive: {
-              type: ['number', 'null'],
               description:
                 'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow as close...',
+              type: ['number', 'null'],
             },
             setpointReactive_L2: {
-              type: ['number', 'null'],
               description:
                 'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+              type: ['number', 'null'],
             },
             setpointReactive_L3: {
-              type: ['number', 'null'],
               description:
                 'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+              type: ['number', 'null'],
             },
           },
           additionalProperties: false,
@@ -24427,61 +24417,61 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'object',
           properties: {
             limit: {
-              type: 'number',
               description:
                 'Optional only when not required by the _operationMode_, as in CentralSetpoint, ExternalSetpoint, ...',
+              type: 'number',
             },
             limit_L2: {
-              type: 'number',
               description: 'Charging rate limit on phase L2 in the applicable _chargingRateUnit_.',
+              type: 'number',
             },
             limit_L3: {
-              type: 'number',
               description: 'Charging rate limit on phase L3 in the applicable _chargingRateUnit_.',
+              type: 'number',
             },
             dischargeLimit: {
-              type: 'number',
               description: 'Limit in _chargingRateUnit_ that the EV is allowed to discharge with',
+              type: 'number',
             },
             dischargeLimit_L2: {
-              type: 'number',
               description:
                 'Limit in _chargingRateUnit_ on phase L2 that the EV is allowed to discharge with.',
+              type: 'number',
             },
             dischargeLimit_L3: {
-              type: 'number',
               description:
                 'Limit in _chargingRateUnit_ on phase L3 that the EV is allowed to discharge with.',
+              type: 'number',
             },
             setpoint: {
-              type: 'number',
               description:
                 'Setpoint in _chargingRateUnit_ that the EV should follow as close as possible',
+              type: 'number',
             },
             setpoint_L2: {
-              type: 'number',
               description:
                 'Setpoint in _chargingRateUnit_ that the EV should follow on phase L2 as close as possible.',
+              type: 'number',
             },
             setpoint_L3: {
-              type: 'number',
               description:
                 'Setpoint in _chargingRateUnit_ that the EV should follow on phase L3 as close as possible.',
+              type: 'number',
             },
             setpointReactive: {
-              type: 'number',
               description:
                 'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow as close...',
+              type: 'number',
             },
             setpointReactive_L2: {
-              type: 'number',
               description:
                 'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+              type: 'number',
             },
             setpointReactive_L3: {
-              type: 'number',
               description:
                 'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
+              type: 'number',
             },
           },
           additionalProperties: true,
@@ -24654,8 +24644,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         eventType: { type: 'string', description: 'Event type identifier' },
         channel: { type: 'string', description: 'Notification delivery channel' },
         language: { type: 'string', description: 'ISO language code' },
-        subject: { type: 'string', nullable: true },
-        bodyHtml: { type: 'string', nullable: true },
+        subject: { nullable: true, type: 'string' },
+        bodyHtml: { nullable: true, type: 'string' },
       },
       required: ['eventType', 'channel', 'language'],
       additionalProperties: false,
@@ -24830,9 +24820,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'OCPP station identifier of the new station',
         },
         newEvseId: {
+          description: 'EVSE ID on the new station',
           type: ['integer', 'null'],
           minimum: 1,
-          description: 'EVSE ID on the new station',
         },
       },
       required: ['id', 'newStationOcppId', 'newEvseId'],
@@ -24847,7 +24837,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           type: 'string',
           description: 'OCPP station identifier of the new station',
         },
-        newEvseId: { type: 'integer', minimum: 1, description: 'EVSE ID on the new station' },
+        newEvseId: { description: 'EVSE ID on the new station', type: 'integer', minimum: 1 },
       },
       required: ['id', 'newStationOcppId'],
       additionalProperties: false,
@@ -25090,10 +25080,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Charging station ID',
         },
         entryIds: {
-          type: 'array',
-          items: { type: 'integer', minimum: 1 },
           minItems: 1,
           maxItems: 1000,
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
           description: 'Local auth entry IDs to remove',
         },
       },
@@ -25110,10 +25100,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Charging station ID',
         },
         entryIds: {
-          type: 'array',
-          items: { type: 'integer', minimum: 1 },
           minItems: 1,
           maxItems: 1000,
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
           description: 'Local auth entry IDs to remove',
         },
       },
@@ -25138,9 +25128,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         siteId: { type: 'string', description: 'Site ID' },
         id: { type: 'string', description: 'Maintenance event ID' },
         stationIds: {
+          minItems: 1,
           type: 'array',
           items: { type: 'string' },
-          minItems: 1,
           description: 'Internal station IDs to remove from the event',
         },
       },
@@ -25154,9 +25144,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         siteId: { type: 'string', description: 'Site ID' },
         id: { type: 'string', description: 'Maintenance event ID' },
         stationIds: {
+          minItems: 1,
           type: 'array',
           items: { type: 'string' },
-          minItems: 1,
           description: 'Internal station IDs to remove from the event',
         },
       },
@@ -25198,7 +25188,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Station ID' },
-        imageIds: { type: 'array', items: { type: 'integer', minimum: 1 }, minItems: 1 },
+        imageIds: { minItems: 1, type: 'array', items: { type: 'integer', minimum: 1 } },
       },
       required: ['id', 'imageIds'],
       additionalProperties: false,
@@ -25208,7 +25198,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', minLength: 1, description: 'Station ID' },
-        imageIds: { type: 'array', items: { type: 'integer', minimum: 1 }, minItems: 1 },
+        imageIds: { minItems: 1, type: 'array', items: { type: 'integer', minimum: 1 } },
       },
       required: ['id', 'imageIds'],
       additionalProperties: false,
@@ -25510,6 +25500,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         evseId: { type: ['integer', 'null'], minimum: 0 },
         chargingRateUnit: { type: ['string', 'null'], enum: ['W', 'A', null] },
         schedulePeriods: {
+          minItems: 1,
           type: ['array', 'null'],
           items: {
             type: 'object',
@@ -25526,16 +25517,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   'Charging rate limit. Negative values are permitted only for V2G discharge profiles per OCPP 2.1.',
               },
               numberPhases: {
+                description: 'Number of phases (1-3). Optional.',
                 type: ['integer', 'null'],
                 minimum: 1,
                 maximum: 3,
-                description: 'Number of phases (1-3). Optional.',
               },
             },
             required: ['startPeriod', 'limit', 'numberPhases'],
             additionalProperties: false,
           },
-          minItems: 1,
         },
         startSchedule: { type: ['string', 'null'] },
         duration: { type: ['integer', 'null'] },
@@ -25579,7 +25569,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         id: { type: 'string', description: 'Template ID' },
         name: { type: 'string', minLength: 1 },
-        description: { type: 'string', nullable: true },
+        description: { nullable: true, type: 'string' },
         ocppVersion: { type: 'string', enum: ['2.1', '1.6'] },
         profileId: { type: 'integer' },
         profilePurpose: {
@@ -25592,11 +25582,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           ],
         },
         profileKind: { type: 'string', enum: ['Absolute', 'Recurring'] },
-        recurrencyKind: { type: 'string', enum: ['Daily', 'Weekly', null], nullable: true },
+        recurrencyKind: { nullable: true, type: 'string', enum: ['Daily', 'Weekly', null] },
         stackLevel: { type: 'integer', minimum: 0 },
         evseId: { type: 'integer', minimum: 0 },
         chargingRateUnit: { type: 'string', enum: ['W', 'A'] },
         schedulePeriods: {
+          minItems: 1,
           type: 'array',
           items: {
             type: 'object',
@@ -25613,22 +25604,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                   'Charging rate limit. Negative values are permitted only for V2G discharge profiles per OCPP 2.1.',
               },
               numberPhases: {
+                description: 'Number of phases (1-3). Optional.',
                 type: 'integer',
                 minimum: 1,
                 maximum: 3,
-                description: 'Number of phases (1-3). Optional.',
               },
             },
             required: ['startPeriod', 'limit'],
             additionalProperties: false,
           },
-          minItems: 1,
         },
-        startSchedule: { type: 'string', format: 'date-time', nullable: true },
-        duration: { type: 'integer', nullable: true },
-        validFrom: { type: 'string', format: 'date-time', nullable: true },
-        validTo: { type: 'string', format: 'date-time', nullable: true },
+        startSchedule: { nullable: true, type: 'string', format: 'date-time' },
+        duration: { nullable: true, type: 'integer' },
+        validFrom: { nullable: true, type: 'string', format: 'date-time' },
+        validTo: { nullable: true, type: 'string', format: 'date-time' },
         targetFilter: {
+          nullable: true,
           type: 'object',
           properties: {
             siteId: { type: 'string' },
@@ -25636,7 +25627,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             model: { type: 'string' },
           },
           additionalProperties: false,
-          nullable: true,
         },
       },
       required: ['id'],
@@ -25683,14 +25673,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         name: { type: ['string', 'null'] },
         breakerRatingAmps: { type: ['integer', 'null'], minimum: 1, maximum: 10000 },
         phaseConnections: {
+          description: 'Phase connections; null puts the circuit back on every panel phase',
           type: ['string', 'null'],
           enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', 'L1L2L3', null],
-          description: 'Phase connections; null puts the circuit back on every panel phase',
         },
         voltageV: {
-          type: ['integer', 'null'],
           description:
             'Circuit voltage in volts when it runs below its single-phase panel; null uses the panel voltage. Refused on a three-phase panel and above the panel voltage',
+          type: ['integer', 'null'],
         },
         sortOrder: { type: ['integer', 'null'], minimum: 0, maximum: 10000 },
       },
@@ -25716,16 +25706,16 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         name: { type: 'string', minLength: 1, maxLength: 255 },
         breakerRatingAmps: { type: 'integer', minimum: 1, maximum: 10000 },
         phaseConnections: {
+          description: 'Phase connections; null puts the circuit back on every panel phase',
+          nullable: true,
           type: 'string',
           enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', 'L1L2L3', null],
-          nullable: true,
-          description: 'Phase connections; null puts the circuit back on every panel phase',
         },
         voltageV: {
-          type: 'integer',
-          nullable: true,
           description:
             'Circuit voltage in volts when it runs below its single-phase panel; null uses the panel voltage. Refused on a three-phase panel and above the panel voltage',
+          nullable: true,
+          type: 'integer',
         },
         sortOrder: { type: 'integer', minimum: 0, maximum: 10000 },
       },
@@ -25763,11 +25753,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         name: { type: ['string', 'null'] },
         description: { type: ['string', 'null'] },
         ocppVersion: {
+          description: 'OCPP version for this template',
           type: ['string', 'null'],
           enum: ['2.1', '1.6', null],
-          description: 'OCPP version for this template',
         },
         variables: {
+          minItems: 1,
+          maxItems: 500,
           type: ['array', 'null'],
           items: {
             type: 'object',
@@ -25775,17 +25767,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               component: { type: 'string' },
               variable: { type: 'string' },
               variableInstance: {
-                type: ['string', 'null'],
                 description:
                   'OCPP 2.0.1 and 2.1 variable instance, such as Default for OCPPCommCtrlr.MessageTimeout or TransactionEvent for OCPPCommCtrlr.MessageAttempts. Null or absent: no instance. OCPP 1.6 templates have none',
+                type: ['string', 'null'],
               },
               value: { type: 'string' },
             },
             required: ['component', 'variable', 'variableInstance', 'value'],
             additionalProperties: false,
           },
-          minItems: 1,
-          maxItems: 500,
         },
         targetFilter: {
           type: ['object', 'null'],
@@ -25795,10 +25785,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             model: { type: ['string', 'null'] },
             stationId: { type: ['string', 'null'] },
             dataPlan: {
-              type: ['string', 'null'],
-              enum: ['wifi_or_wired', 'cellular', null],
               description:
                 "Only stations whose effective data plan is this one (the station's own choice, else cellular for a confirmed SIM, else the site's plan, else wifi_or_wired)",
+              type: ['string', 'null'],
+              enum: ['wifi_or_wired', 'cellular', null],
             },
           },
           additionalProperties: false,
@@ -25816,11 +25806,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         name: { type: 'string', minLength: 1, maxLength: 255 },
         description: { type: 'string', maxLength: 1000 },
         ocppVersion: {
+          description: 'OCPP version for this template',
           type: 'string',
           enum: ['2.1', '1.6'],
-          description: 'OCPP version for this template',
         },
         variables: {
+          minItems: 1,
+          maxItems: 500,
           type: 'array',
           items: {
             type: 'object',
@@ -25828,22 +25820,21 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               component: { type: 'string', maxLength: 100 },
               variable: { type: 'string', minLength: 1, maxLength: 100 },
               variableInstance: {
+                description:
+                  'OCPP 2.0.1 and 2.1 variable instance, such as Default for OCPPCommCtrlr.MessageTimeout or TransactionEvent for OCPPCommCtrlr.MessageAttempts. Null or absent: no instance. OCPP 1.6 templates have none',
+                nullable: true,
                 type: 'string',
                 minLength: 1,
                 maxLength: 50,
-                nullable: true,
-                description:
-                  'OCPP 2.0.1 and 2.1 variable instance, such as Default for OCPPCommCtrlr.MessageTimeout or TransactionEvent for OCPPCommCtrlr.MessageAttempts. Null or absent: no instance. OCPP 1.6 templates have none',
               },
               value: { type: 'string', maxLength: 2500 },
             },
             required: ['component', 'variable', 'value'],
             additionalProperties: false,
           },
-          minItems: 1,
-          maxItems: 500,
         },
         targetFilter: {
+          nullable: true,
           type: 'object',
           properties: {
             siteId: { type: 'string' },
@@ -25851,14 +25842,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             model: { type: 'string' },
             stationId: { type: 'string' },
             dataPlan: {
-              type: 'string',
-              enum: ['wifi_or_wired', 'cellular'],
               description:
                 "Only stations whose effective data plan is this one (the station's own choice, else cellular for a confirmed SIM, else the site's plan, else wifi_or_wired)",
+              type: 'string',
+              enum: ['wifi_or_wired', 'cellular'],
             },
           },
           additionalProperties: false,
-          nullable: true,
         },
       },
       required: ['id'],
@@ -25905,13 +25895,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Preferred language of the portal, notifications and invoices',
         },
         isActive: {
-          type: ['boolean', 'null'],
           description:
             'Whether the driver account is active. false also deactivates every active token of the driver, ends the portal sessions and revokes the open emailed links; true does not reactivate the tokens.',
+          type: ['boolean', 'null'],
         },
         timezone: {
-          type: ['string', 'null'],
           description: 'IANA timezone (e.g. America/New_York)',
+          type: ['string', 'null'],
         },
       },
       required: ['id', 'firstName', 'lastName', 'language', 'isActive', 'timezone'],
@@ -25930,14 +25920,14 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Preferred language of the portal, notifications and invoices',
         },
         isActive: {
-          type: 'boolean',
           description:
             'Whether the driver account is active. false also deactivates every active token of the driver, ends the portal sessions and revokes the open emailed links; true does not reactivate the tokens.',
+          type: 'boolean',
         },
         timezone: {
+          description: 'IANA timezone (e.g. America/New_York)',
           type: 'string',
           maxLength: 50,
-          description: 'IANA timezone (e.g. America/New_York)',
         },
       },
       required: ['id'],
@@ -26021,11 +26011,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         make: { type: ['string', 'null'] },
         model: { type: ['string', 'null'] },
         year: {
+          description: 'Model year (4-digit). Null removes it.',
           type: ['string', 'null'],
           pattern: '^\\d{4}$',
-          description: 'Model year (4-digit). Null removes it.',
         },
-        licensePlate: { type: ['string', 'null'], description: 'License plate. Null removes it.' },
+        licensePlate: { description: 'License plate. Null removes it.', type: ['string', 'null'] },
       },
       required: ['id', 'vehicleId', 'make', 'model', 'year', 'licensePlate'],
       additionalProperties: false,
@@ -26039,16 +26029,16 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         make: { type: 'string', minLength: 1, maxLength: 100 },
         model: { type: 'string', minLength: 1, maxLength: 100 },
         year: {
+          description: 'Model year (4-digit). Null removes it.',
+          nullable: true,
           type: 'string',
           pattern: '^\\d{4}$',
-          nullable: true,
-          description: 'Model year (4-digit). Null removes it.',
         },
         licensePlate: {
+          description: 'License plate. Null removes it.',
+          nullable: true,
           type: 'string',
           maxLength: 20,
-          nullable: true,
-          description: 'License plate. Null removes it.',
         },
       },
       required: ['id', 'vehicleId'],
@@ -26202,8 +26192,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'ISO 8601 date-time when downtime started',
         },
         endedAt: {
-          type: ['string', 'null'],
           description: 'ISO 8601 date-time when downtime ended',
+          type: ['string', 'null'],
         },
         notes: { type: ['string', 'null'] },
       },
@@ -26229,7 +26219,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Reason for the excluded downtime',
         },
         startedAt: { type: 'string', description: 'ISO 8601 date-time when downtime started' },
-        endedAt: { type: 'string', description: 'ISO 8601 date-time when downtime ended' },
+        endedAt: { description: 'ISO 8601 date-time when downtime ended', type: 'string' },
         notes: { type: 'string', maxLength: 1000 },
       },
       required: ['id'],
@@ -26280,10 +26270,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         safetyMarginKw: { type: ['number', 'null'], minimum: 0, maximum: 10000 },
         oversubscriptionRatio: { type: ['number', 'null'], minimum: 1, maximum: 3 },
         phaseConnections: {
-          type: ['string', 'null'],
-          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', null],
           description:
             'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown (its load counts on every parent phase). Refused unless the panel is single-phase below a three-phase parent',
+          type: ['string', 'null'],
+          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', null],
         },
         sortOrder: { type: ['integer', 'null'], minimum: 0, maximum: 10000 },
       },
@@ -26314,11 +26304,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         safetyMarginKw: { type: 'number', minimum: 0, maximum: 10000 },
         oversubscriptionRatio: { type: 'number', minimum: 1, maximum: 3 },
         phaseConnections: {
-          type: 'string',
-          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', null],
-          nullable: true,
           description:
             'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown (its load counts on every parent phase). Refused unless the panel is single-phase below a three-phase parent',
+          nullable: true,
+          type: 'string',
+          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', null],
         },
         sortOrder: { type: 'integer', minimum: 0, maximum: 10000 },
       },
@@ -26388,23 +26378,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'How often the report runs',
         },
         dayOfWeek: {
+          description: 'Day of week for weekly schedules (0=Sunday, 6=Saturday)',
           type: 'integer',
           minimum: 0,
           maximum: 6,
-          description: 'Day of week for weekly schedules (0=Sunday, 6=Saturday)',
         },
         dayOfMonth: {
+          description: 'Day of month for monthly schedules (1-31)',
           type: 'integer',
           minimum: 1,
           maximum: 31,
-          description: 'Day of month for monthly schedules (1-31)',
         },
         filters: {
+          description: 'Key-value filter criteria for the report',
           type: 'object',
           additionalProperties: {},
-          description: 'Key-value filter criteria for the report',
         },
-        isEnabled: { type: 'boolean', description: 'Whether the schedule is active' },
+        isEnabled: { description: 'Whether the schedule is active', type: 'boolean' },
       },
       required: ['id'],
       additionalProperties: false,
@@ -26436,23 +26426,23 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'How often the report runs',
         },
         dayOfWeek: {
+          description: 'Day of week for weekly schedules (0=Sunday, 6=Saturday)',
           type: 'integer',
           minimum: 0,
           maximum: 6,
-          description: 'Day of week for weekly schedules (0=Sunday, 6=Saturday)',
         },
         dayOfMonth: {
+          description: 'Day of month for monthly schedules (1-31)',
           type: 'integer',
           minimum: 1,
           maximum: 31,
-          description: 'Day of month for monthly schedules (1-31)',
         },
         filters: {
+          description: 'Key-value filter criteria for the report',
           type: 'object',
           additionalProperties: {},
-          description: 'Key-value filter criteria for the report',
         },
-        isEnabled: { type: 'boolean', description: 'Whether the schedule is active' },
+        isEnabled: { description: 'Whether the schedule is active', type: 'boolean' },
       },
       required: ['id'],
       additionalProperties: false,
@@ -26485,22 +26475,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         id: { type: 'string', pattern: '^rsv_[a-z0-9]{12}$', description: 'Reservation ID' },
         driverId: {
+          description: 'Driver ID',
           type: ['string', 'null'],
           pattern: '^drv_[a-z0-9]{12}$',
-          description: 'Driver ID',
         },
         evseId: {
+          description: 'EVSE ID on the station',
           type: ['integer', 'null'],
           minimum: 0,
           maximum: 2147483647,
-          description: 'EVSE ID on the station',
         },
-        expiresAt: { type: ['string', 'null'], description: 'ISO 8601 expiration date-time' },
+        expiresAt: { description: 'ISO 8601 expiration date-time', type: ['string', 'null'] },
         tokenId: {
-          type: ['string', 'null'],
-          pattern: '^dtk_[a-z0-9]{12}$',
           description:
             'Driver token ID to bind, or null to unbind. Must belong to the same driver.',
+          type: ['string', 'null'],
+          pattern: '^dtk_[a-z0-9]{12}$',
         },
       },
       required: ['id', 'driverId', 'evseId', 'expiresAt', 'tokenId'],
@@ -26512,29 +26502,29 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         id: { type: 'string', pattern: '^rsv_[a-z0-9]{12}$', description: 'Reservation ID' },
         driverId: {
+          description: 'Driver ID',
+          nullable: true,
           type: 'string',
           pattern: '^drv_[a-z0-9]{12}$',
-          nullable: true,
-          description: 'Driver ID',
         },
         evseId: {
+          description: 'EVSE ID on the station',
+          nullable: true,
           type: 'integer',
           minimum: 0,
           maximum: 2147483647,
-          nullable: true,
-          description: 'EVSE ID on the station',
         },
         expiresAt: {
+          description: 'ISO 8601 expiration date-time',
           type: 'string',
           format: 'date-time',
-          description: 'ISO 8601 expiration date-time',
         },
         tokenId: {
-          type: 'string',
-          pattern: '^dtk_[a-z0-9]{12}$',
-          nullable: true,
           description:
             'Driver token ID to bind, or null to unbind. Must belong to the same driver.',
+          nullable: true,
+          type: 'string',
+          pattern: '^dtk_[a-z0-9]{12}$',
         },
       },
       required: ['id'],
@@ -26602,81 +26592,76 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
-        name: {
-          allOf: [
-            { type: 'string', minLength: 1, maxLength: 255 },
-            { type: 'string', minLength: 1 },
-          ],
-        },
+        name: { type: 'string', minLength: 1, maxLength: 255 },
         address: {
+          description: 'Street address. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 500,
-          nullable: true,
-          description: 'Street address. Null or an empty string clears it',
         },
         city: {
+          description: 'City name. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 255,
-          nullable: true,
-          description: 'City name. Null or an empty string clears it',
         },
         state: {
+          description: 'State, province, or region. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 100,
-          nullable: true,
-          description: 'State, province, or region. Null or an empty string clears it',
         },
         postalCode: {
+          description: 'Postal or ZIP code. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 20,
-          nullable: true,
-          description: 'Postal or ZIP code. Null or an empty string clears it',
         },
         country: {
-          type: 'string',
-          maxLength: 100,
-          nullable: true,
           description:
             'Country: ISO 3166-1 alpha-2 or alpha-3 code, or English name. Null or an empty string clears it',
+          nullable: true,
+          type: 'string',
+          maxLength: 100,
         },
         latitude: {
+          description: 'Latitude in decimal degrees. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 20,
-          nullable: true,
-          description: 'Latitude in decimal degrees. Null or an empty string clears it',
         },
         longitude: {
+          description: 'Longitude in decimal degrees. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 20,
-          nullable: true,
-          description: 'Longitude in decimal degrees. Null or an empty string clears it',
         },
         timezone: { type: 'string', maxLength: 100 },
         contactName: {
+          description: 'Site contact person name. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 255,
-          nullable: true,
-          description: 'Site contact person name. Null or an empty string clears it',
         },
         contactIsPublic: { type: 'boolean' },
-        hoursOfOperation: { type: 'string', maxLength: 500, nullable: true },
+        hoursOfOperation: { nullable: true, type: 'string', maxLength: 500 },
         metadata: { type: 'object', additionalProperties: {} },
         reservationsEnabled: {
-          type: 'boolean',
           description: 'Whether reservations are allowed at this site',
+          type: 'boolean',
         },
         autochargeEnabled: {
-          type: 'boolean',
-          nullable: true,
           description:
             'Autocharge (charge by plugging in) at this site. Null follows the autocharge.enabled setting',
+          nullable: true,
+          type: 'boolean',
         },
         stationMessageLanguage: {
-          type: 'string',
-          enum: ['en', 'de', 'es', 'ko', 'zh', 'zh-TW', null],
-          nullable: true,
           description:
             'Display language of the station screens at this site. Null follows the stationMessage.language setting',
+          nullable: true,
+          type: 'string',
+          enum: ['en', 'de', 'es', 'ko', 'zh', 'zh-TW', null],
         },
       },
       required: ['id'],
@@ -26687,81 +26672,76 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
-        name: {
-          allOf: [
-            { type: 'string', minLength: 1, maxLength: 255 },
-            { type: 'string', minLength: 1 },
-          ],
-        },
+        name: { type: 'string', minLength: 1, maxLength: 255 },
         address: {
+          description: 'Street address. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 500,
-          nullable: true,
-          description: 'Street address. Null or an empty string clears it',
         },
         city: {
+          description: 'City name. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 255,
-          nullable: true,
-          description: 'City name. Null or an empty string clears it',
         },
         state: {
+          description: 'State, province, or region. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 100,
-          nullable: true,
-          description: 'State, province, or region. Null or an empty string clears it',
         },
         postalCode: {
+          description: 'Postal or ZIP code. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 20,
-          nullable: true,
-          description: 'Postal or ZIP code. Null or an empty string clears it',
         },
         country: {
-          type: 'string',
-          maxLength: 100,
-          nullable: true,
           description:
             'Country: ISO 3166-1 alpha-2 or alpha-3 code, or English name. Null or an empty string clears it',
+          nullable: true,
+          type: 'string',
+          maxLength: 100,
         },
         latitude: {
+          description: 'Latitude in decimal degrees. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 20,
-          nullable: true,
-          description: 'Latitude in decimal degrees. Null or an empty string clears it',
         },
         longitude: {
+          description: 'Longitude in decimal degrees. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 20,
-          nullable: true,
-          description: 'Longitude in decimal degrees. Null or an empty string clears it',
         },
         timezone: { type: 'string', maxLength: 100 },
         contactName: {
+          description: 'Site contact person name. Null or an empty string clears it',
+          nullable: true,
           type: 'string',
           maxLength: 255,
-          nullable: true,
-          description: 'Site contact person name. Null or an empty string clears it',
         },
         contactIsPublic: { type: 'boolean' },
-        hoursOfOperation: { type: 'string', maxLength: 500, nullable: true },
+        hoursOfOperation: { nullable: true, type: 'string', maxLength: 500 },
         metadata: { type: 'object', additionalProperties: {} },
         reservationsEnabled: {
-          type: 'boolean',
           description: 'Whether reservations are allowed at this site',
+          type: 'boolean',
         },
         autochargeEnabled: {
-          type: 'boolean',
-          nullable: true,
           description:
             'Autocharge (charge by plugging in) at this site. Null follows the autocharge.enabled setting',
+          nullable: true,
+          type: 'boolean',
         },
         stationMessageLanguage: {
-          type: 'string',
-          enum: ['en', 'de', 'es', 'ko', 'zh', 'zh-TW', null],
-          nullable: true,
           description:
             'Display language of the station screens at this site. Null follows the stationMessage.language setting',
+          nullable: true,
+          type: 'string',
+          enum: ['en', 'de', 'es', 'ko', 'zh', 'zh-TW', null],
         },
       },
       required: ['id'],
@@ -26801,8 +26781,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
         regionCode: {
-          type: ['string', 'null'],
           description: 'Carbon intensity region code, or null to clear',
+          type: ['string', 'null'],
         },
       },
       required: ['id', 'regionCode'],
@@ -26814,9 +26794,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
         regionCode: {
-          type: 'string',
           nullable: true,
           description: 'Carbon intensity region code, or null to clear',
+          type: 'string',
         },
       },
       required: ['id', 'regionCode'],
@@ -26848,6 +26828,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'Wholesale electricity rate per kWh in the company currency (major units, up to 6 decimals)',
         },
         restrictions: {
+          description: 'When the period applies, or null/omitted for the default flat rate',
           type: ['object', 'null'],
           properties: {
             timeRange: {
@@ -26860,9 +26841,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               additionalProperties: false,
             },
             daysOfWeek: {
+              minItems: 1,
               type: ['array', 'null'],
               items: { type: 'integer', minimum: 0, maximum: 6 },
-              minItems: 1,
             },
             dateRange: {
               type: ['object', 'null'],
@@ -26875,7 +26856,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             },
           },
           additionalProperties: false,
-          description: 'When the period applies, or null/omitted for the default flat rate',
           required: ['timeRange', 'daysOfWeek', 'dateRange'],
         },
       },
@@ -26897,6 +26877,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'Wholesale electricity rate per kWh in the company currency (major units, up to 6 decimals)',
         },
         restrictions: {
+          description: 'When the period applies, or null/omitted for the default flat rate',
+          nullable: true,
           type: 'object',
           properties: {
             timeRange: {
@@ -26909,9 +26891,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
               additionalProperties: false,
             },
             daysOfWeek: {
+              minItems: 1,
               type: 'array',
               items: { type: 'integer', minimum: 0, maximum: 6 },
-              minItems: 1,
             },
             dateRange: {
               type: 'object',
@@ -26924,8 +26906,6 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             },
           },
           additionalProperties: false,
-          nullable: true,
-          description: 'When the period applies, or null/omitted for the default flat rate',
         },
       },
       required: ['id', 'periodId', 'name', 'ratePerKwh'],
@@ -27045,10 +27025,10 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         id: { type: 'string', description: 'Maintenance event ID' },
         plannedStartAt: { type: 'string', format: 'date-time' },
         plannedEndAt: { type: 'string', format: 'date-time' },
-        affectedStationIds: { type: 'array', items: { type: 'string' }, nullable: true },
+        affectedStationIds: { nullable: true, type: 'array', items: { type: 'string' } },
         activeSessionPolicy: { type: 'string', enum: ['ignore', 'stop_graceful'] },
-        customMessage: { type: 'string', maxLength: 2000, nullable: true },
-        reason: { type: 'string', maxLength: 500, nullable: true },
+        customMessage: { nullable: true, type: 'string', maxLength: 2000 },
+        reason: { nullable: true, type: 'string', maxLength: 500 },
       },
       required: ['siteId', 'id'],
       additionalProperties: false,
@@ -27103,17 +27083,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         model: { type: ['string', 'null'] },
         serialNumber: { type: ['string', 'null'] },
         availability: {
-          type: ['string', 'null'],
-          enum: ['available', 'unavailable', null],
           description:
             'Enable (available) or disable (unavailable) the station. Sends ChangeAvailability to the station. Faulted is computed, not set.',
+          type: ['string', 'null'],
+          enum: ['available', 'unavailable', null],
         },
         siteId: {
+          description: 'Site ID to assign the station to',
           type: ['string', 'null'],
           pattern: '^sit_[a-z0-9]{12}$',
-          description: 'Site ID to assign the station to',
         },
         ocppInterface: {
+          description:
+            'Network interface of the new network profile when an online OCPP 2.0.1 station moves to a higher security profile (required there, ignored otherwise)',
           type: ['string', 'null'],
           enum: [
             'Wired0',
@@ -27126,29 +27108,27 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'Wireless3',
             null,
           ],
-          description:
-            'Network interface of the new network profile when an online OCPP 2.0.1 station moves to a higher security profile (required there, ignored otherwise)',
         },
         isSimulator: {
-          type: ['boolean', 'null'],
           description: 'Whether this station is a simulator',
-        },
-        latitude: { type: ['string', 'null'], description: 'Station latitude' },
-        longitude: { type: ['string', 'null'], description: 'Station longitude' },
-        reservationsEnabled: {
           type: ['boolean', 'null'],
+        },
+        latitude: { description: 'Station latitude', type: ['string', 'null'] },
+        longitude: { description: 'Station longitude', type: ['string', 'null'] },
+        reservationsEnabled: {
           description: 'Whether reservations are allowed at this station',
+          type: ['boolean', 'null'],
         },
         iccid: {
-          type: ['string', 'null'],
-          pattern: '^([0-9]{19}[Ff]?|[0-9]{20})$',
           description:
             'SIM card ICCID of a station that does not report one: 19 or 20 digits, a 19-digit ICCID may end in an F; null removes it. A later BootNotification with another ICCID replaces it.',
+          type: ['string', 'null'],
+          pattern: '^([0-9]{19}[Ff]?|[0-9]{20})$',
         },
         imsi: {
+          description: 'SIM card IMSI (up to 15 digits); null removes it',
           type: ['string', 'null'],
           pattern: '^[0-9]{1,15}$',
-          description: 'SIM card IMSI (up to 15 digits); null removes it',
         },
       },
       required: [
@@ -27175,18 +27155,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         model: { type: 'string', maxLength: 255 },
         serialNumber: { type: 'string', maxLength: 255 },
         availability: {
-          type: 'string',
-          enum: ['available', 'unavailable'],
           description:
             'Enable (available) or disable (unavailable) the station. Sends ChangeAvailability to the station. Faulted is computed, not set.',
+          type: 'string',
+          enum: ['available', 'unavailable'],
         },
         siteId: {
+          description: 'Site ID to assign the station to',
+          nullable: true,
           type: 'string',
           pattern: '^sit_[a-z0-9]{12}$',
-          nullable: true,
-          description: 'Site ID to assign the station to',
         },
         ocppInterface: {
+          description:
+            'Network interface of the new network profile when an online OCPP 2.0.1 station moves to a higher security profile (required there, ignored otherwise)',
           type: 'string',
           enum: [
             'Wired0',
@@ -27198,28 +27180,26 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'Wireless2',
             'Wireless3',
           ],
-          description:
-            'Network interface of the new network profile when an online OCPP 2.0.1 station moves to a higher security profile (required there, ignored otherwise)',
         },
-        isSimulator: { type: 'boolean', description: 'Whether this station is a simulator' },
-        latitude: { type: 'string', maxLength: 20, description: 'Station latitude' },
-        longitude: { type: 'string', maxLength: 20, description: 'Station longitude' },
+        isSimulator: { description: 'Whether this station is a simulator', type: 'boolean' },
+        latitude: { description: 'Station latitude', type: 'string', maxLength: 20 },
+        longitude: { description: 'Station longitude', type: 'string', maxLength: 20 },
         reservationsEnabled: {
-          type: 'boolean',
           description: 'Whether reservations are allowed at this station',
+          type: 'boolean',
         },
         iccid: {
-          type: 'string',
-          pattern: '^([0-9]{19}[Ff]?|[0-9]{20})$',
-          nullable: true,
           description:
             'SIM card ICCID of a station that does not report one: 19 or 20 digits, a 19-digit ICCID may end in an F; null removes it. A later BootNotification with another ICCID replaces it.',
+          nullable: true,
+          type: 'string',
+          pattern: '^([0-9]{19}[Ff]?|[0-9]{20})$',
         },
         imsi: {
+          description: 'SIM card IMSI (up to 15 digits); null removes it',
+          nullable: true,
           type: 'string',
           pattern: '^[0-9]{1,15}$',
-          nullable: true,
-          description: 'SIM card IMSI (up to 15 digits); null removes it',
         },
       },
       required: ['id'],
@@ -27270,19 +27250,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 description: 'OCPP connector ID (integer)',
               },
               connectorType: {
+                description: 'Connector plug type',
                 type: ['string', 'null'],
                 enum: ['CCS1', 'CCS2', 'CHAdeMO', 'Type2', 'Type1', 'GBT', 'Tesla', 'NACS', null],
-                description: 'Connector plug type',
               },
               maxPowerKw: {
+                description: 'Maximum power output in kW',
                 type: ['integer', 'null'],
                 minimum: 1,
-                description: 'Maximum power output in kW',
               },
               maxCurrentAmps: {
+                description: 'Maximum current output in amps',
                 type: ['integer', 'null'],
                 minimum: 1,
-                description: 'Maximum current output in amps',
               },
             },
             required: ['connectorId', 'connectorType', 'maxPowerKw', 'maxCurrentAmps'],
@@ -27310,19 +27290,19 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 description: 'OCPP connector ID (integer)',
               },
               connectorType: {
+                description: 'Connector plug type',
                 type: 'string',
                 enum: ['CCS1', 'CCS2', 'CHAdeMO', 'Type2', 'Type1', 'GBT', 'Tesla', 'NACS'],
-                description: 'Connector plug type',
               },
               maxPowerKw: {
+                description: 'Maximum power output in kW',
                 type: 'integer',
                 minimum: 1,
-                description: 'Maximum power output in kW',
               },
               maxCurrentAmps: {
+                description: 'Maximum current output in amps',
                 type: 'integer',
                 minimum: 1,
-                description: 'Maximum current output in amps',
               },
             },
             required: ['connectorId'],
@@ -27358,7 +27338,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         id: { type: 'string', description: 'Station ID' },
         imageId: { type: 'integer', minimum: 1, description: 'Image ID' },
         caption: { type: ['string', 'null'] },
-        tags: { type: ['array', 'null'], items: { type: 'string' }, maxItems: 20 },
+        tags: { maxItems: 20, type: ['array', 'null'], items: { type: 'string' } },
         isDriverVisible: { type: ['boolean', 'null'] },
         isMainImage: { type: ['boolean', 'null'] },
         sortOrder: { type: ['integer', 'null'], minimum: 0 },
@@ -27372,8 +27352,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         id: { type: 'string', minLength: 1, description: 'Station ID' },
         imageId: { type: 'integer', minimum: 1, description: 'Image ID' },
-        caption: { type: 'string', maxLength: 1000, nullable: true },
-        tags: { type: 'array', items: { type: 'string', maxLength: 50 }, maxItems: 20 },
+        caption: { nullable: true, type: 'string', maxLength: 1000 },
+        tags: { maxItems: 20, type: 'array', items: { type: 'string', maxLength: 50 } },
         isDriverVisible: { type: 'boolean' },
         isMainImage: { type: 'boolean' },
         sortOrder: { type: 'integer', minimum: 0 },
@@ -27416,11 +27396,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Station ID (not the OCPP station identifier)',
         },
         loadMinPowerKw: {
+          description:
+            'Lowest power in kW a charging session at this station gets before load management stops it; null for no minimum',
           type: ['number', 'null'],
           minimum: 0,
           maximum: 1000,
-          description:
-            'Lowest power in kW a charging session at this station gets before load management stops it; null for no minimum',
         },
       },
       required: ['id', 'stationId', 'loadMinPowerKw'],
@@ -27437,12 +27417,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description: 'Station ID (not the OCPP station identifier)',
         },
         loadMinPowerKw: {
-          type: 'number',
-          minimum: 0,
-          maximum: 1000,
           nullable: true,
           description:
             'Lowest power in kW a charging session at this station gets before load management stops it; null for no minimum',
+          type: 'number',
+          minimum: 0,
+          maximum: 1000,
         },
       },
       required: ['id', 'stationId', 'loadMinPowerKw'],
@@ -27523,16 +27503,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         id: { type: 'string', pattern: '^cas_[a-z0-9]{12}$', description: 'Support case ID' },
         status: {
+          description: 'New case status',
           type: ['string', 'null'],
           enum: ['open', 'in_progress', 'waiting_on_driver', 'resolved', 'closed', null],
-          description: 'New case status',
         },
         priority: {
+          description: 'New priority level',
           type: ['string', 'null'],
           enum: ['low', 'medium', 'high', 'urgent', null],
-          description: 'New priority level',
         },
         category: {
+          description: 'New case category',
           type: ['string', 'null'],
           enum: [
             'billing_dispute',
@@ -27544,22 +27525,21 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'general_inquiry',
             null,
           ],
-          description: 'New case category',
         },
         assignedTo: {
+          description: 'Operator ID to assign, or null to unassign',
           type: ['string', 'null'],
           pattern: '^usr_[a-z0-9]{12}$',
-          description: 'Operator ID to assign, or null to unassign',
         },
         addSessionIds: {
+          description: 'Session IDs to link to this case',
           type: ['array', 'null'],
           items: { type: 'string', pattern: '^ses_[a-z0-9]{12}$' },
-          description: 'Session IDs to link to this case',
         },
         removeSessionIds: {
+          description: 'Session IDs to unlink from this case',
           type: ['array', 'null'],
           items: { type: 'string', pattern: '^ses_[a-z0-9]{12}$' },
-          description: 'Session IDs to unlink from this case',
         },
       },
       required: [
@@ -27579,16 +27559,17 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       properties: {
         id: { type: 'string', pattern: '^cas_[a-z0-9]{12}$', description: 'Support case ID' },
         status: {
+          description: 'New case status',
           type: 'string',
           enum: ['open', 'in_progress', 'waiting_on_driver', 'resolved', 'closed'],
-          description: 'New case status',
         },
         priority: {
+          description: 'New priority level',
           type: 'string',
           enum: ['low', 'medium', 'high', 'urgent'],
-          description: 'New priority level',
         },
         category: {
+          description: 'New case category',
           type: 'string',
           enum: [
             'billing_dispute',
@@ -27599,23 +27580,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'reservation_issue',
             'general_inquiry',
           ],
-          description: 'New case category',
         },
         assignedTo: {
+          description: 'Operator ID to assign, or null to unassign',
+          nullable: true,
           type: 'string',
           pattern: '^usr_[a-z0-9]{12}$',
-          nullable: true,
-          description: 'Operator ID to assign, or null to unassign',
         },
         addSessionIds: {
+          description: 'Session IDs to link to this case',
           type: 'array',
           items: { type: 'string', pattern: '^ses_[a-z0-9]{12}$' },
-          description: 'Session IDs to link to this case',
         },
         removeSessionIds: {
+          description: 'Session IDs to unlink from this case',
           type: 'array',
           items: { type: 'string', pattern: '^ses_[a-z0-9]{12}$' },
-          description: 'Session IDs to unlink from this case',
         },
       },
       required: ['id'],
@@ -27650,8 +27630,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', pattern: '^dtk_[a-z0-9]{12}$', description: 'Token ID' },
-        idToken: { type: ['string', 'null'], description: 'Token identifier' },
+        idToken: { description: 'Token identifier', type: ['string', 'null'] },
         tokenType: {
+          description: 'OCPP IdToken type',
           type: ['string', 'null'],
           enum: [
             'Central',
@@ -27667,21 +27648,20 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'VIN',
             null,
           ],
-          description: 'OCPP IdToken type',
         },
         driverId: {
+          description: 'Driver ID to assign this token to, or null to unassign',
           type: ['string', 'null'],
           pattern: '^drv_[a-z0-9]{12}$',
-          description: 'Driver ID to assign this token to, or null to unassign',
         },
-        isActive: { type: ['boolean', 'null'], description: 'Whether the token is active' },
+        isActive: { description: 'Whether the token is active', type: ['boolean', 'null'] },
         expiresAt: {
-          type: ['string', 'null'],
           description: 'Optional expiration timestamp; null clears expiry',
+          type: ['string', 'null'],
         },
         revokedReason: {
-          type: ['string', 'null'],
           description: 'Optional reason recorded when the token is deactivated',
+          type: ['string', 'null'],
         },
       },
       required: [
@@ -27700,8 +27680,9 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', pattern: '^dtk_[a-z0-9]{12}$', description: 'Token ID' },
-        idToken: { type: 'string', minLength: 1, maxLength: 255, description: 'Token identifier' },
+        idToken: { description: 'Token identifier', type: 'string', minLength: 1, maxLength: 255 },
         tokenType: {
+          description: 'OCPP IdToken type',
           type: 'string',
           enum: [
             'Central',
@@ -27716,26 +27697,25 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
             'NoAuthorization',
             'VIN',
           ],
-          description: 'OCPP IdToken type',
         },
         driverId: {
+          description: 'Driver ID to assign this token to, or null to unassign',
+          nullable: true,
           type: 'string',
           pattern: '^drv_[a-z0-9]{12}$',
-          nullable: true,
-          description: 'Driver ID to assign this token to, or null to unassign',
         },
-        isActive: { type: 'boolean', description: 'Whether the token is active' },
+        isActive: { description: 'Whether the token is active', type: 'boolean' },
         expiresAt: {
+          description: 'Optional expiration timestamp; null clears expiry',
+          nullable: true,
           type: 'string',
           format: 'date-time',
-          nullable: true,
-          description: 'Optional expiration timestamp; null clears expiry',
         },
         revokedReason: {
+          description: 'Optional reason recorded when the token is deactivated',
+          nullable: true,
           type: 'string',
           maxLength: 100,
-          nullable: true,
-          description: 'Optional reason recorded when the token is deactivated',
         },
       },
       required: ['id'],
@@ -27785,8 +27765,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         id: { type: 'string', description: 'Unmanaged load ID' },
         name: { type: 'string', minLength: 1, maxLength: 255 },
         estimatedDrawKw: { type: 'number', minimum: 0, maximum: 10000 },
-        panelId: { type: 'string', nullable: true },
-        circuitId: { type: 'string', nullable: true },
+        panelId: { nullable: true, type: 'string' },
+        circuitId: { nullable: true, type: 'string' },
       },
       required: ['siteId', 'id'],
       additionalProperties: false,
@@ -27830,38 +27810,38 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         operatorName: { type: ['string', 'null'] },
         operatorAddress: { type: ['string', 'null'] },
         installationCost: {
-          type: ['string', 'null'],
           description: 'Installation cost as a decimal string',
+          type: ['string', 'null'],
         },
         gridConnectionCost: {
-          type: ['string', 'null'],
           description: 'Grid connection cost as a decimal string',
+          type: ['string', 'null'],
         },
         maintenanceCostAnnual: {
-          type: ['string', 'null'],
           description: 'Annual maintenance cost as a decimal string',
+          type: ['string', 'null'],
         },
         maintenanceCostYear: {
-          type: ['integer', 'null'],
           description: 'Year the maintenance cost applies to',
+          type: ['integer', 'null'],
         },
         derCapacityKw: {
-          type: ['string', 'null'],
           description: 'Distributed energy resource capacity in kW',
+          type: ['string', 'null'],
         },
         derCapacityKwh: {
-          type: ['string', 'null'],
           description: 'Distributed energy resource capacity in kWh',
+          type: ['string', 'null'],
         },
         derType: {
-          type: ['string', 'null'],
           description: 'Type of distributed energy resource (e.g. solar, battery)',
+          type: ['string', 'null'],
         },
         programParticipation: {
+          description: 'List of NEVI program names the station participates in',
+          maxItems: 50,
           type: ['array', 'null'],
           items: { type: 'string' },
-          maxItems: 50,
-          description: 'List of NEVI program names the station participates in',
         },
       },
       required: [
@@ -27886,37 +27866,37 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         stationId: { type: 'string' },
         operatorName: { type: 'string', maxLength: 255 },
         operatorAddress: { type: 'string', maxLength: 500 },
-        installationCost: { type: 'string', description: 'Installation cost as a decimal string' },
+        installationCost: { description: 'Installation cost as a decimal string', type: 'string' },
         gridConnectionCost: {
-          type: 'string',
           description: 'Grid connection cost as a decimal string',
+          type: 'string',
         },
         maintenanceCostAnnual: {
-          type: 'string',
           description: 'Annual maintenance cost as a decimal string',
+          type: 'string',
         },
         maintenanceCostYear: {
-          type: 'integer',
           description: 'Year the maintenance cost applies to',
+          type: 'integer',
         },
         derCapacityKw: {
-          type: 'string',
           description: 'Distributed energy resource capacity in kW',
+          type: 'string',
         },
         derCapacityKwh: {
-          type: 'string',
           description: 'Distributed energy resource capacity in kWh',
+          type: 'string',
         },
         derType: {
+          description: 'Type of distributed energy resource (e.g. solar, battery)',
           type: 'string',
           maxLength: 100,
-          description: 'Type of distributed energy resource (e.g. solar, battery)',
         },
         programParticipation: {
+          description: 'List of NEVI program names the station participates in',
+          maxItems: 50,
           type: 'array',
           items: { type: 'string', maxLength: 100 },
-          maxItems: 50,
-          description: 'List of NEVI program names the station participates in',
         },
       },
       required: ['stationId'],

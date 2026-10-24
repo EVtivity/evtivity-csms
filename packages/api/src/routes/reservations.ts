@@ -77,7 +77,7 @@ const reservationListItem = z
       .nullable()
       .describe('Charging session ID that consumed this reservation, null until used'),
   })
-  .passthrough();
+  .loose();
 
 const reservationCreatedItem = z
   .object({
@@ -96,7 +96,7 @@ const reservationCreatedItem = z
     expiresAt: z.coerce.date().describe('Timestamp when the reservation expires automatically'),
     createdAt: z.coerce.date().describe('Timestamp the reservation was created'),
   })
-  .passthrough();
+  .loose();
 
 const reservationDetailItem = z
   .object({
@@ -194,7 +194,7 @@ const reservationDetailItem = z
       .describe('Timestamp the linked session stopped charging'),
     cancellationFee: reservationCancellationFeeSchema,
   })
-  .passthrough();
+  .loose();
 
 const cancelReservationResponse = z
   .object({
@@ -217,7 +217,7 @@ const cancelReservationResponse = z
         'station_cancel_failed when the station refused CancelReservation or did not answer. The reservation is cancelled; the station may still hold the EVSE until the reservation expires.',
       ),
   })
-  .passthrough();
+  .loose();
 
 /**
  * Body shape for DELETE /v1/reservations/:id. The route schema deliberately
@@ -242,7 +242,7 @@ const reassignReservationResponse = z
       .string()
       .describe('OCPP identity of the station the reservation was moved to'),
   })
-  .passthrough();
+  .loose();
 
 const reservationCommandItem = z
   .object({
@@ -254,7 +254,7 @@ const reservationCommandItem = z
       .string()
       .nullable()
       .describe('OCPP action name (ReserveNow, CancelReservation), null on RESULT/ERROR rows'),
-    payload: z.unknown().describe('Raw OCPP message payload as sent on the wire'),
+    payload: z.unknown().describe('Raw OCPP message payload as sent on the wire').optional(),
     errorCode: z
       .string()
       .nullable()
@@ -271,7 +271,7 @@ const reservationCommandItem = z
         'Round-trip time in milliseconds for paired CALL/RESULT messages, null on the CALL row',
       ),
   })
-  .passthrough();
+  .loose();
 
 const reservationAuditItem = z
   .object({
@@ -304,7 +304,7 @@ const reservationAuditItem = z
     notes: z.string().nullable().describe('Optional free-text note'),
     createdAt: z.coerce.date().describe('Timestamp of the audit entry'),
   })
-  .passthrough();
+  .loose();
 
 const reservationIdParams = z.object({ id: ID_PARAMS.reservationId.describe('Reservation ID') });
 
@@ -332,8 +332,8 @@ const createReservationBody = z.object({
     .describe(
       'Optional driver token ID to bind to the reservation. When set, the StartTransaction handler can verify the card the driver actually taps matches.',
     ),
-  expiresAt: z.string().datetime().describe('ISO 8601 expiration date-time'),
-  startsAt: z.string().datetime().optional().describe('ISO 8601 start date-time'),
+  expiresAt: z.iso.datetime().describe('ISO 8601 expiration date-time'),
+  startsAt: z.iso.datetime().optional().describe('ISO 8601 start date-time'),
 });
 
 const updateReservationBody = z.object({
@@ -346,7 +346,7 @@ const updateReservationBody = z.object({
     .nullable()
     .optional()
     .describe('EVSE ID on the station'),
-  expiresAt: z.string().datetime().optional().describe('ISO 8601 expiration date-time'),
+  expiresAt: z.iso.datetime().optional().describe('ISO 8601 expiration date-time'),
   tokenId: ID_PARAMS.driverTokenId
     .nullable()
     .optional()

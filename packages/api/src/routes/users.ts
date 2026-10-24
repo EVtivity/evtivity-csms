@@ -216,7 +216,7 @@ async function smsMfaNeedsPhone(userId: string, nextPhone: string | null): Promi
 }
 
 const loginBody = z.object({
-  email: z.string().email(),
+  email: z.email(),
   password: z.string().min(1),
   recaptchaToken: z
     .string()
@@ -238,10 +238,7 @@ const accountProof = factorProof
   );
 
 const createUserBody = z.object({
-  email: z
-    .string()
-    .email()
-    .transform((s) => s.trim().toLowerCase()),
+  email: z.email().transform((s) => s.trim().toLowerCase()),
   firstName: z.string().max(100).optional(),
   lastName: z.string().max(100).optional(),
   phone: z.string().max(50).optional().describe('Mobile phone number'),
@@ -277,7 +274,6 @@ const userLanguageEnum = z
 
 const updateUserBody = z.object({
   email: z
-    .string()
     .email()
     .max(255)
     .transform((v) => v.trim().toLowerCase())
@@ -367,7 +363,7 @@ const changePasswordBody = z.object({
 });
 
 const forgotPasswordBody = z.object({
-  email: z.string().email(),
+  email: z.email(),
   recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
 });
 
@@ -377,7 +373,7 @@ const resetPasswordWithTokenBody = z.object({
 });
 
 const forceChangePasswordBody = z.object({
-  email: z.string().email(),
+  email: z.email(),
   currentPassword: z.string().min(1),
   newPassword: newPasswordSchema,
 });
@@ -444,7 +440,7 @@ const userItem = z
       .describe('Timestamp of the most recent successful login'),
     createdAt: z.coerce.date().describe('Timestamp when the user was created'),
   })
-  .passthrough();
+  .loose();
 
 const userWithRole = z
   .object({
@@ -487,11 +483,11 @@ const userWithRole = z
         id: z.string().describe('Role identifier'),
         name: z.string().describe('Role display name'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Joined role record'),
   })
-  .passthrough();
+  .loose();
 
 const userCreated = z
   .object({
@@ -501,14 +497,14 @@ const userCreated = z
     lastName: z.string().nullable().describe('Last name'),
     roleId: z.string().describe('Identifier of the assigned role'),
   })
-  .passthrough();
+  .loose();
 
 const roleItem = z
   .object({
     id: z.string().describe('Identifier'),
     name: z.string().describe('Role name (e.g., admin, operator)'),
   })
-  .passthrough();
+  .loose();
 
 type AiConfigKind = 'chatbot' | 'support';
 
@@ -1712,7 +1708,7 @@ export function userRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z
               .object({ challengeId: z.number().int().describe('Send it back with the code') })
-              .passthrough(),
+              .loose(),
           ),
           400: errorWith(
             'No number, or the proof is missing or wrong',
@@ -3266,7 +3262,7 @@ export function userRoutes(app: FastifyInstance): void {
                   .min(1)
                   .describe('Identifier of the new MFA challenge that was created'),
               })
-              .passthrough(),
+              .loose(),
           ),
           400: errorWith('Bad request', [
             ERROR_CODES.MFA_NOT_CONFIGURED,
@@ -3523,7 +3519,7 @@ export function userRoutes(app: FastifyInstance): void {
           'Until when this session can send the sso proof (ISO 8601): 10 minutes after its SSO sign-in; null without a recent SSO sign-in',
         ),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/users/me/mfa',
@@ -3598,7 +3594,7 @@ export function userRoutes(app: FastifyInstance): void {
         .optional()
         .describe('Identifier of the email/SMS verification challenge'),
     })
-    .passthrough();
+    .loose();
 
   app.post(
     '/users/me/mfa/setup',
@@ -3754,7 +3750,7 @@ export function userRoutes(app: FastifyInstance): void {
           language: z.string().describe('Preferred UI language code'),
           timezone: z.string().optional().describe('IANA timezone identifier'),
         })
-        .passthrough()
+        .loose()
         .optional()
         .describe('With an enrollmentToken: the user now signed in'),
       role: z
@@ -3762,12 +3758,12 @@ export function userRoutes(app: FastifyInstance): void {
           id: z.string().describe('Role identifier'),
           name: z.string().describe('Role display name'),
         })
-        .passthrough()
+        .loose()
         .nullable()
         .optional()
         .describe('With an enrollmentToken: the role of the user now signed in'),
     })
-    .passthrough();
+    .loose();
 
   app.post(
     '/users/me/mfa/confirm',
@@ -4197,7 +4193,7 @@ export function userRoutes(app: FastifyInstance): void {
         .optional()
         .describe('Set when an email or SMS code was sent: send it back with the code'),
     })
-    .passthrough();
+    .loose();
 
   app.post(
     '/users/me/mfa/recovery-codes',
@@ -4385,7 +4381,7 @@ export function userRoutes(app: FastifyInstance): void {
         .nullable()
         .describe('Custom system prompt that overrides the default'),
     })
-    .passthrough();
+    .loose();
 
   // --- Notification Preferences ---
 
@@ -4398,7 +4394,7 @@ export function userRoutes(app: FastifyInstance): void {
           'Whether the operator gets the daily email of AI insight actions waiting for a decision (default off)',
         ),
     })
-    .passthrough();
+    .loose();
   // Either field alone: the one not sent keeps its stored value.
   const operatorNotificationPrefsBody = z.object({
     smsEnabled: z.boolean().optional().describe('Opt in to SMS notifications'),
@@ -4716,7 +4712,7 @@ export function userRoutes(app: FastifyInstance): void {
         .nullable()
         .describe('Tone preset used for drafting (professional, friendly, formal)'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/users/me/support-ai-config',
@@ -4934,7 +4930,7 @@ export function userRoutes(app: FastifyInstance): void {
         .array(z.string())
         .describe('The read and write permission strings of the resource'),
     })
-    .passthrough();
+    .loose();
 
   const permissionsArraySchema = z.object({
     permissions: z

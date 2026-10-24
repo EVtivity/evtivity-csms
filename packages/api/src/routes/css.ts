@@ -282,7 +282,6 @@ const createStationBody = z.object({
   ocppProtocol: z.enum(OCPP_PROTOCOLS).optional().describe('OCPP protocol version'),
   securityProfile: z.number().int().min(0).max(3).optional().describe('Security profile (0-3)'),
   targetUrl: z
-    .string()
     .url()
     .describe(
       'Target OCPP WebSocket URL: ws or wss on the origin of the OCPP server, else 400 VALIDATION_ERROR',
@@ -314,7 +313,6 @@ const updateStationBody = z.object({
       'Network interface of the new network profile when an online OCPP 2.0.1 station moves to a higher security profile (required there, ignored otherwise)',
     ),
   targetUrl: z
-    .string()
     .url()
     .optional()
     .describe(
@@ -367,17 +365,17 @@ const stationItem = z
     createdAt: z.string().describe('Timestamp when the simulator station was created'),
     updatedAt: z.string().describe('Timestamp when the simulator station was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const actionResponse = z
   .object({
     commandId: z.string().describe('Identifier for the dispatched simulator command'),
     data: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .optional()
       .describe('Optional structured data returned by the simulator action'),
   })
-  .passthrough();
+  .loose();
 
 // ---------------------------------------------------------------------------
 // Action body schemas
@@ -804,7 +802,7 @@ const sendSignCertificateBody = z.object({
 
 const sendGetCertificateStatusBody = z.object({
   ocspRequestData: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .describe(
       'OCSP request data object: { hashAlgorithm, issuerNameHash, issuerKeyHash, serialNumber, responderURL }',
     ),
@@ -842,11 +840,11 @@ const sendNotifySettlementBody = z
     receiptUrl: z.string().optional().describe('Receipt URL'),
     vatNumber: z.string().optional().describe('VAT number for company receipt'),
     vatCompany: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .optional()
       .describe('VAT company address: { name, address1, city, country, ... }'),
   })
-  .passthrough();
+  .loose();
 
 const sendNotifyPriorityChargingBody = z.object({
   transactionId: z.string().describe('Transaction ID'),
@@ -884,10 +882,10 @@ const sendGetCertificateChainStatusBody = z.object({
               issuerKeyHash: z.string().describe('Issuer key hash'),
               serialNumber: z.string().describe('Certificate serial number'),
             })
-            .passthrough()
+            .loose()
             .describe('Certificate hash data'),
         })
-        .passthrough(),
+        .loose(),
     )
     .min(1)
     .max(4)
@@ -908,7 +906,7 @@ const sendNotifyPeriodicEventStreamBody = z
     basetime: z.string().describe('ISO 8601 base time for the event stream data'),
     data: z.array(streamDataElementType).describe('Event stream data entries'),
   })
-  .passthrough();
+  .loose();
 
 const sendNotifyDERAlarmBody = z
   .object({
@@ -918,7 +916,7 @@ const sendNotifyDERAlarmBody = z
     gridEventFault: gridEventFaultEnum.optional().describe('Grid event fault type'),
     extraInfo: z.string().optional().describe('Extra information'),
   })
-  .passthrough();
+  .loose();
 
 const sendNotifyDERStartStopBody = z
   .object({
@@ -927,24 +925,21 @@ const sendNotifyDERStartStopBody = z
     timestamp: z.string().describe('ISO 8601 timestamp'),
     supersededIds: z.array(z.string()).optional().describe('IDs of superseded controls'),
   })
-  .passthrough();
+  .loose();
 
 const sendReportDERControlBody = z
   .object({
     requestId: z.number().int().describe('Request ID'),
     tbc: z.boolean().optional().describe('To be continued (default: false)'),
   })
-  .passthrough();
+  .loose();
 
 const sendBatterySwapBody = z.object({
   eventType: z
     .enum(['BatteryIn', 'BatteryOut', 'BatteryOutTimeout'])
     .describe('Battery swap event type'),
   requestId: z.number().int().describe('Request ID to correlate BatteryIn/Out events'),
-  idToken: z
-    .object({ idToken: z.string(), type: z.string() })
-    .passthrough()
-    .describe('ID token object'),
+  idToken: z.object({ idToken: z.string(), type: z.string() }).loose().describe('ID token object'),
   batteryData: z
     .array(
       z
@@ -956,7 +951,7 @@ const sendBatterySwapBody = z.object({
           productionDate: z.string().optional().describe('Production date'),
           vendorInfo: z.string().optional().describe('Vendor info'),
         })
-        .passthrough(),
+        .loose(),
     )
     .describe('Battery data array'),
 });

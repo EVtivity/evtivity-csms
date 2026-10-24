@@ -63,7 +63,7 @@ const cdrListItem = z
     createdAt: z.coerce.date().describe('Timestamp when the CDR was created'),
     partnerName: z.string().max(255).nullable().describe('Display name of the OCPI partner'),
   })
-  .passthrough();
+  .loose();
 
 const creditCdrResponse = z
   .object({
@@ -73,7 +73,7 @@ const creditCdrResponse = z
         'OCPI id of the credit CDR. Crediting a CDR that already has a credit CDR returns that one',
       ),
   })
-  .passthrough();
+  .loose();
 
 const cdrIdParams = z.object({
   id: z.string().min(1).max(36).describe('OCPI CDR identifier (ocpiCdrId)'),
@@ -92,14 +92,14 @@ const reissueCdrResponse = z
         'reissued: the credited CDRs were superseded and a new CDR is being issued; pending: a reissue was already asked for and its CDR is not issued yet',
       ),
   })
-  .passthrough();
+  .loose();
 
 const retryCdrPushResponse = z
   .object({
     cdrId: z.string().describe('OCPI CDR identifier pushed again'),
     pushStatus: z.literal('pending').describe('The CDR waits for the OCPI server to push it'),
   })
-  .passthrough();
+  .loose();
 
 const cdrQuery = paginationQuery.extend({
   partnerId: ID_PARAMS.ocpiPartnerId.optional().describe('Filter by OCPI partner ID'),

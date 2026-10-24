@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { z } from 'zod';
-import type { ZodRawShape, ZodTypeAny } from 'zod';
-import { zodSchema } from './zod-schema.js';
+import type { ZodRawShape } from 'zod';
+import { looseDescribed, zodSchema } from './zod-schema.js';
 import { ERROR_MESSAGES, type ErrorCode } from './error-codes.generated.js';
 
 const errorSchema = z
@@ -17,13 +17,13 @@ const errorSchema = z
         'Stable machine-readable error code (UPPER_SNAKE_CASE). Catalog: https://evtivity.com/api-reference/error-codes',
       ),
   })
-  .passthrough();
+  .loose();
 
 const successSchema = z
   .object({
     success: z.literal(true),
   })
-  .passthrough();
+  .loose();
 
 /**
  * Generic error response. Prefer `errorWith()` so docs show a specific
@@ -68,29 +68,31 @@ export function errorWith(
         code: codeEnum,
         ...extraFields,
       })
-      .passthrough()
+      .loose()
       .describe(description),
   );
 }
 
-export function paginatedResponse(itemSchema: ZodTypeAny): Record<string, unknown> {
+export function paginatedResponse(itemSchema: z.ZodType): Record<string, unknown> {
   return zodSchema(
     z
       .object({
         data: z.array(itemSchema),
         total: z.number(),
       })
-      .passthrough(),
+      .loose(),
   );
 }
 
-export function itemResponse(schema: ZodTypeAny): Record<string, unknown> {
-  if ('passthrough' in schema && typeof schema.passthrough === 'function') {
-    return zodSchema((schema as z.ZodObject<z.ZodRawShape>).passthrough());
-  }
+/**
+ * A response item: an object in its loose form (unnamed keys pass through).
+ * In Zod 4 a refined object is still a ZodObject, so it is loosened too.
+ */
+export function itemResponse(schema: z.ZodType): Record<string, unknown> {
+  if (schema instanceof z.ZodObject) return zodSchema(looseDescribed(schema));
   return zodSchema(schema);
 }
 
-export function arrayResponse(schema: ZodTypeAny): Record<string, unknown> {
+export function arrayResponse(schema: z.ZodType): Record<string, unknown> {
   return zodSchema(z.array(schema));
 }

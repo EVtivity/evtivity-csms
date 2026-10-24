@@ -179,7 +179,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
   return {
     ValidationError: actual.ValidationError,
     isValidTimezone: actual.isValidTimezone,
-    electricityRateRestrictionsSchema: z.object({}).passthrough(),
+    electricityRateRestrictionsSchema: z.object({}).loose(),
     deriveElectricityRatePriority: vi.fn(() => 0),
     revenueFromGrossGroups: actual.revenueFromGrossGroups,
     createLogger: actual.createLogger,

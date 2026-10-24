@@ -73,7 +73,7 @@ const localAuthEntryItem = z
       .nullable()
       .describe('Display name of the linked driver, or null when no driver is associated'),
   })
-  .passthrough();
+  .loose();
 
 const versionInfoItem = z
   .object({
@@ -91,7 +91,7 @@ const versionInfoItem = z
     entries: z.array(localAuthEntryItem).describe('Tracked local auth entries on the current page'),
     total: z.number().describe('Total number of tracked entries'),
   })
-  .passthrough();
+  .loose();
 
 const availableTokenItem = z
   .object({
@@ -100,7 +100,7 @@ const availableTokenItem = z
     tokenType: z.string().describe('OCPP token type (e.g., ISO14443, Central)'),
     driverName: z.string().nullable().describe('Display name of the driver who owns the token'),
   })
-  .passthrough();
+  .loose();
 
 const pushResponse = z
   .object({
@@ -108,14 +108,14 @@ const pushResponse = z
     entriesCount: z.number().describe('Number of entries pushed to the station'),
     version: z.number().describe('New version number recorded after the push'),
   })
-  .passthrough();
+  .loose();
 
 const mutateResponse = z
   .object({
     status: z.string().describe('Mutation outcome status'),
     count: z.number().describe('Number of entries affected by the operation'),
   })
-  .passthrough();
+  .loose();
 
 const addTokensBody = z.object({
   tokenIds: z.array(z.string()).min(1).max(1000).describe('Driver token IDs to add'),

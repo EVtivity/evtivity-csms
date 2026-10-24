@@ -119,11 +119,11 @@ const ocppCommandSuccess = z
     stationId: z.string().describe('Target station OCPP ID'),
     action: z.string().describe('OCPP action that was dispatched'),
     response: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .optional()
       .describe('Raw OCPP response payload from the station'),
   })
-  .passthrough();
+  .loose();
 
 const ocppCommandError = z
   .object({
@@ -133,7 +133,7 @@ const ocppCommandError = z
     action: z.string().describe('OCPP action that was dispatched'),
     error: z.string().describe('Human-readable error message'),
   })
-  .passthrough();
+  .loose();
 
 interface CommandResult {
   commandId: string;

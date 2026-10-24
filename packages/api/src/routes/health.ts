@@ -16,9 +16,9 @@ const healthResponse = z
     database: z.string(),
     redis: z.string(),
   })
-  .passthrough();
+  .loose();
 
-const versionResponse = z.object({ version: z.string() }).passthrough();
+const versionResponse = z.object({ version: z.string() }).loose();
 
 export function healthRoutes(app: FastifyInstance): void {
   app.get(

@@ -52,7 +52,7 @@ const adHocPaymentBody = z.object({
     .min(1)
     .optional()
     .describe('Duration limit in seconds. Returned as transactionLimit.maxTime'),
-  email: z.string().email().max(255).optional().describe('EV driver email for the receipt'),
+  email: z.email().max(255).optional().describe('EV driver email for the receipt'),
 });
 
 const adHocPaymentResponse = z
@@ -66,7 +66,7 @@ const adHocPaymentResponse = z
         'True when this pspRef already started a transaction on this EVSE and nothing was sent again',
       ),
   })
-  .passthrough();
+  .loose();
 
 export function adHocPaymentRoutes(app: FastifyInstance): void {
   app.post(

@@ -129,7 +129,7 @@ const portalDriverMe = portalDriverItem
       'The bill-to block of the invoices a fleet addresses to the driver (PATCH /v1/portal/driver/billing-address)',
     ),
   })
-  .passthrough();
+  .loose();
 
 // Mobile clients (X-Client: mobile) receive these in the body instead of cookies.
 const mobileSessionFields = {
@@ -182,26 +182,26 @@ const portalAuthLoginResponse = z
       .describe('With mfaEnrollmentRequired: a passkey or security key can be the enrolled factor'),
     ...mobileSessionFields,
   })
-  .passthrough();
+  .loose();
 
 const portalRefreshResponse = z
   .object({
     success: z.boolean().optional().describe('Web cookie mode'),
     ...mobileSessionFields,
   })
-  .passthrough();
+  .loose();
 
 const registerBody = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
-  email: z.string().email().max(255),
+  email: z.email().max(255),
   password: newPasswordSchema,
   phone: z.string().max(50).optional(),
   recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
 });
 
 const loginBody = z.object({
-  email: z.string().email(),
+  email: z.email(),
   password: z.string().min(1),
   recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
 });
@@ -214,7 +214,7 @@ const attestRegisterBody = z.object({
 
 const attestChallengeResponse = z
   .object({ challenge: z.string().describe('Single-use base64url nonce, valid 5 minutes') })
-  .passthrough();
+  .loose();
 
 /**
  * Records a portal login refused by the active-account lookup on the driver the
@@ -970,7 +970,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         .optional()
         .describe('After MFA with a recovery code: how many unused recovery codes are left'),
     })
-    .passthrough();
+    .loose();
 
   app.post(
     '/portal/auth/mfa/verify',
@@ -1270,7 +1270,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         security: [],
         body: zodSchema(mfaResendBody),
         response: {
-          200: itemResponse(z.object({ challengeId: z.number() }).passthrough()),
+          200: itemResponse(z.object({ challengeId: z.number() }).loose()),
           400: errorWith('Bad request', [
             ERROR_CODES.MFA_NOT_CONFIGURED,
             ERROR_CODES.MFA_TOKEN_INVALID,
@@ -1371,7 +1371,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
 
   // Forgot password
   const forgotPasswordBody = z.object({
-    email: z.string().email(),
+    email: z.email(),
     recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
   });
 

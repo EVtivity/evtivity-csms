@@ -115,9 +115,9 @@ const apiKeyItem = z
       .date()
       .nullable()
       .describe('Timestamp of the last successful authentication'),
-    permissions: z.unknown().nullable().describe('Permission scope granted to this key'),
+    permissions: z.unknown().nullable().describe('Permission scope granted to this key').optional(),
   })
-  .passthrough();
+  .loose();
 
 const apiKeyCreatedItem = z
   .object({
@@ -134,9 +134,9 @@ const apiKeyCreatedItem = z
       .nullable()
       .describe('Timestamp when the key expires (null if non-expiring)'),
     createdAt: z.coerce.date().describe('Timestamp when the key was created'),
-    permissions: z.unknown().nullable().describe('Permission scope granted to this key'),
+    permissions: z.unknown().nullable().describe('Permission scope granted to this key').optional(),
   })
-  .passthrough();
+  .loose();
 
 const idParams = z.object({ id: z.coerce.number().int().min(1) });
 

@@ -185,7 +185,7 @@ export type AiProposalPreconditionKind = (typeof AI_PROPOSAL_PRECONDITION_KINDS)
 
 export const aiProposalPreconditionSchema = z.object({
   kind: z.enum(AI_PROPOSAL_PRECONDITION_KINDS),
-  params: z.record(z.unknown()),
+  params: z.record(z.string(), z.unknown()),
 });
 export type AiProposalPrecondition = z.infer<typeof aiProposalPreconditionSchema>;
 
@@ -211,10 +211,10 @@ export const aiProposalDtoSchema = z.object({
   operationId: z.string(),
   method: z.string(),
   path: z.string(),
-  args: z.record(z.unknown()),
+  args: z.record(z.string(), z.unknown()),
   argsHash: z.string(),
   /** Structured fields for the localized confirmation card. */
-  summary: z.record(z.unknown()),
+  summary: z.record(z.string(), z.unknown()),
   precondition: aiProposalPreconditionSchema.nullable(),
   expiresAt: z.string(),
   decidedBy: z.string().nullable(),

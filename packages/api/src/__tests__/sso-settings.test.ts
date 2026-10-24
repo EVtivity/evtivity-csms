@@ -52,7 +52,7 @@ function makeChain() {
 const proofState = vi.hoisted(() => ({ allow: true, apiKey: false, calls: 0 }));
 vi.mock('../lib/mfa-factor-proof.js', async () => {
   const { z } = await import('zod');
-  return { factorProof: z.object({ kind: z.string() }).passthrough() };
+  return { factorProof: z.object({ kind: z.string() }).loose() };
 });
 vi.mock('../lib/session-proof.js', () => {
   return {

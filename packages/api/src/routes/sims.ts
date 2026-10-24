@@ -187,11 +187,11 @@ const importResultResponse = z
       .array(z.string())
       .describe('One "Row N: <reason>" per row refused or skipped; such a row changes nothing'),
   })
-  .passthrough();
+  .loose();
 
 const timelineQuery = z.object({
-  from: z.string().datetime({ offset: true }).optional().describe('Start, default 24 hours ago'),
-  to: z.string().datetime({ offset: true }).optional().describe('End, default and at most now'),
+  from: z.iso.datetime({ offset: true }).optional().describe('Start, default 24 hours ago'),
+  to: z.iso.datetime({ offset: true }).optional().describe('End, default and at most now'),
   limit: z.coerce.number().int().min(1).max(500).optional().describe('Items per page, default 200'),
   cursor: z.string().max(200).optional().describe('nextCursor of the previous page'),
 });
@@ -204,8 +204,8 @@ const refreshBody = z.object({
     .max(SIM_RANGE_MAX_DAYS)
     .optional()
     .describe('Days to fetch back from now: 1, 3, 7, 14 or 31; default sim.sessions.fetchDays'),
-  from: z.string().datetime({ offset: true }).optional().describe('Start of a date range'),
-  to: z.string().datetime({ offset: true }).optional().describe('End of a date range'),
+  from: z.iso.datetime({ offset: true }).optional().describe('Start of a date range'),
+  to: z.iso.datetime({ offset: true }).optional().describe('End of a date range'),
   retryLookup: z
     .boolean()
     .optional()
@@ -229,11 +229,11 @@ const storedStatusSchema = z
         periodEnd: z.string().nullable().describe('End of the billing period'),
         limitBytes: z.number().nullable().describe('Data limit of the period'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Data used this billing period'),
   })
-  .passthrough()
+  .loose()
   .describe('The provider status stored by the last Refresh');
 
 const userRefSchema = z
@@ -241,7 +241,7 @@ const userRefSchema = z
     id: z.string().describe('User ID'),
     name: z.string().nullable().describe('First and last name, null when not set'),
   })
-  .passthrough();
+  .loose();
 
 const attachmentSummarySchema = z
   .object({
@@ -262,7 +262,7 @@ const attachmentSummarySchema = z
       .describe('A person with access to every site confirmed it; until then nothing is fetched'),
     confirmedAt: z.string().nullable().describe('When it was confirmed'),
   })
-  .passthrough()
+  .loose()
   .describe('The open attachment');
 
 const simFields = {
@@ -291,7 +291,7 @@ const simFields = {
   attachment: attachmentSummarySchema.nullable(),
 };
 
-const simSchema = z.object(simFields).passthrough().describe('A SIM');
+const simSchema = z.object(simFields).loose().describe('A SIM');
 
 const capabilitiesSchema = z
   .object({
@@ -303,7 +303,7 @@ const capabilitiesSchema = z
     alerts: z.boolean().describe('Lists SIM alerts'),
     networkReset: z.boolean().describe('Can reset the SIM network connection'),
   })
-  .passthrough()
+  .loose()
   .describe('What the provider reports');
 
 const simDetailSchema = z
@@ -324,7 +324,7 @@ const simDetailSchema = z
         cellId: z.string().nullable().describe('Cell ID, null when not reported'),
         observedAt: z.string().describe('End of the newest stored session'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe(
         'Network of the newest stored session; for a site-restricted user, of the sessions at stations of their sites',
@@ -336,7 +336,7 @@ const simDetailSchema = z
             kind: z.string().describe('The alert kind'),
             receivedAt: z.string().describe('When the provider logged the alert'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('The five newest stored SIM alerts; alerts arrive only with a Refresh'),
     historyDays: z.number().nullable().describe('How far back the provider keeps data'),
@@ -347,7 +347,7 @@ const simDetailSchema = z
       .string()
       .describe("The time zone of the coverage days: the attached station's site, else the system"),
   })
-  .passthrough()
+  .loose()
   .describe('A SIM with its provider data');
 
 const createResponse = z
@@ -357,7 +357,7 @@ const createResponse = z
       .boolean()
       .describe('False when a SIM with this ICCID already existed: nothing changed'),
   })
-  .passthrough();
+  .loose();
 
 const attachmentItemSchema = z
   .object({
@@ -387,7 +387,7 @@ const attachmentItemSchema = z
       .nullable()
       .describe('detached, iccid_changed, replaced, displaced or deactivated'),
   })
-  .passthrough()
+  .loose()
   .describe('One attachment of the SIM');
 
 const confirmResponse = z
@@ -395,7 +395,7 @@ const confirmResponse = z
     confirmed: z.literal(true).describe('The attachment is confirmed'),
     confirmedAt: z.string().nullable().describe('When it was confirmed'),
   })
-  .passthrough();
+  .loose();
 
 const timelineResponse = z
   .object({
@@ -405,9 +405,9 @@ const timelineResponse = z
           at: z.string().describe('When it happened'),
           source: z.literal('sim').describe('The provider'),
           kind: z.string().describe('session, or an alert kind'),
-          details: z.record(z.unknown()).describe('Fields of the item'),
+          details: z.record(z.string(), z.unknown()).describe('Fields of the item'),
         })
-        .passthrough(),
+        .loose(),
     ),
     nextCursor: z.string().nullable().describe('The cursor of the next page, null at the end'),
     from: z.string().describe('Start of the range read'),
@@ -423,11 +423,11 @@ const timelineResponse = z
               .enum(['has_data', 'no_sessions', 'partial', 'pending', 'not_fetched', 'unavailable'])
               .describe('What the stored data of the day can show'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('What the stored SIM data of each day can show'),
   })
-  .passthrough();
+  .loose();
 
 const refreshResponse = z
   .object({
@@ -447,14 +447,14 @@ const refreshResponse = z
         alertsStored: z.number().optional().describe('Alerts stored by this Refresh'),
         retryAfter: z.number().optional().describe('Seconds to wait before the next try'),
       })
-      .passthrough()
+      .loose()
       .describe('The SIM provider part'),
   })
-  .passthrough();
+  .loose();
 
 const resetResponse = z
   .object({ status: z.literal('accepted').describe('The provider accepted the network reset') })
-  .passthrough();
+  .loose();
 
 const featureOff = errorWith('SIM features off', [ERROR_CODES.SIM_FEATURE_DISABLED]);
 const simNotFound = errorWith('SIM not found', [ERROR_CODES.SIM_NOT_FOUND]);

@@ -59,7 +59,7 @@ const neighborsItem = z
       .nullable()
       .describe('ID of the older sibling in default list order, null at the end'),
   })
-  .passthrough();
+  .loose();
 
 interface NeighborTarget {
   path: string;

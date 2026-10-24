@@ -20,7 +20,7 @@ export const ocppCommandQueued = z
       .string()
       .describe('Human-readable note explaining the command will be delivered on reconnect'),
   })
-  .passthrough();
+  .loose();
 
 export type OcppCommandQueuedBody = z.infer<typeof ocppCommandQueued>;
 

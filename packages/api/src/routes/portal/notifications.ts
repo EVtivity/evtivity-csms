@@ -30,13 +30,13 @@ const notificationItem = z
       .describe('Domain event type that triggered this notification'),
     createdAt: z.coerce.date().describe('Timestamp the notification was dispatched'),
   })
-  .passthrough();
+  .loose();
 
 const unreadCountResponse = z
   .object({
     count: z.number().int().min(0).describe('Number of notifications since lastNotificationReadAt'),
   })
-  .passthrough();
+  .loose();
 
 function driverPushFilter(driverId: string): ReturnType<typeof sql> {
   return sql`${notifications.metadata}->>'driverId' = ${driverId} AND ${notifications.channel} = 'push'`;

@@ -20,7 +20,7 @@ export const driverBillingAddressItem = z
     billingZip: z.string().nullable().describe('Postal code'),
     billingCountry: z.string().nullable().describe('Country'),
   })
-  .passthrough();
+  .loose();
 
 const optionalText = (max: number, what: string) =>
   z.string().max(max).nullable().optional().describe(`${what}; null or blank clears it`);

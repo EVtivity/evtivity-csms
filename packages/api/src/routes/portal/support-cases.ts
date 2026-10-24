@@ -17,7 +17,7 @@ import {
   chargingSessions,
   chargingStations,
 } from '@evtivity/database';
-import { zodSchema } from '../../lib/zod-schema.js';
+import { looseDescribed, zodSchema } from '../../lib/zod-schema.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { paginatedResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
@@ -70,7 +70,7 @@ const portalSupportCaseItem = z
     createdAt: z.coerce.date().describe('Timestamp the case was opened'),
     updatedAt: z.coerce.date().describe('Timestamp the case was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const attachmentItem = z
   .object({
@@ -81,7 +81,7 @@ const attachmentItem = z
     contentType: z.string().max(100).describe('MIME content type'),
     createdAt: z.coerce.date().describe('Timestamp the attachment was uploaded'),
   })
-  .passthrough();
+  .loose();
 
 const messageItem = z
   .object({
@@ -96,14 +96,14 @@ const messageItem = z
       .optional()
       .describe('Attachments uploaded with this message'),
   })
-  .passthrough();
+  .loose();
 
 const sessionRef = z
   .object({
     id: z.string().describe('Charging session ID'),
     transactionId: z.string().nullable().describe('OCPP transaction ID for the session'),
   })
-  .passthrough();
+  .loose();
 
 const portalSupportCaseDetail = portalSupportCaseItem
   .extend({
@@ -116,13 +116,13 @@ const portalSupportCaseDetail = portalSupportCaseItem
     messages: z
       .array(messageItem)
       .describe('Chronologically ordered driver-visible messages on the case'),
-    ai: driverAiCaseDetailSchema.passthrough(),
+    ai: looseDescribed(driverAiCaseDetailSchema),
   })
-  .passthrough();
+  .loose();
 
 const portalCreatedCase = portalSupportCaseItem
-  .extend({ ai: driverAiCreateStatusSchema.passthrough() })
-  .passthrough();
+  .extend({ ai: looseDescribed(driverAiCreateStatusSchema) })
+  .loose();
 
 const portalMessageResponse = z
   .object({
@@ -141,7 +141,7 @@ const portalMessageResponse = z
       .describe('Whether the message is an internal note (always false for portal replies)'),
     createdAt: z.coerce.date().describe('Timestamp the message was sent'),
   })
-  .passthrough();
+  .loose();
 
 const uploadUrlResponse = z
   .object({
@@ -150,19 +150,21 @@ const uploadUrlResponse = z
       .describe(
         'Presigned S3 POST URL. Send a multipart/form-data POST with every entry of fields, then the file as the last field named file. S3 enforces the size limit and the Content-Type.',
       ),
-    fields: z.record(z.string()).describe('Form fields to send unchanged before the file field'),
+    fields: z
+      .record(z.string(), z.string())
+      .describe('Form fields to send unchanged before the file field'),
     s3Key: z
       .string()
       .describe('Quarantine key of the upload. Pass it to the confirm endpoint after the POST.'),
     expiresAt: z.coerce.date().describe('Time after which S3 refuses the POST'),
   })
-  .passthrough();
+  .loose();
 
 const downloadUrlResponse = z
   .object({
     downloadUrl: z.string().describe('Presigned S3 GET URL valid for a short time'),
   })
-  .passthrough();
+  .loose();
 import {
   confirmSupportAttachment,
   requestSupportAttachmentUpload,
@@ -697,9 +699,9 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
                 status: z
                   .enum(supportCaseStatusEnum.enumValues)
                   .describe('Case status after the answer (resolved or open)'),
-                ai: driverAiCaseDetailSchema.passthrough(),
+                ai: looseDescribed(driverAiCaseDetailSchema),
               })
-              .passthrough(),
+              .loose(),
           ),
           404: errorWith('Support case not found', [ERROR_CODES.SUPPORT_CASE_NOT_FOUND]),
           409: errorWith('The case is not waiting for feedback', [

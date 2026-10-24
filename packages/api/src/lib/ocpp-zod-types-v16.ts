@@ -265,7 +265,7 @@ export const idTagInfoType = z
     parentIdTag: z.string().max(20).optional().describe('Parent ID tag'),
     status: authorizationStatusEnum.describe('Authorization status'),
   })
-  .passthrough()
+  .loose()
   .describe('OCPP 1.6 IdTagInfo');
 
 // --- SampledValue ---
@@ -279,7 +279,7 @@ export const sampledValueType = z
     location: locationEnum.optional().describe('Measurement location'),
     unit: unitEnum.optional().describe('Unit of measure'),
   })
-  .passthrough()
+  .loose()
   .describe('OCPP 1.6 sampled value');
 
 // --- MeterValue ---
@@ -288,7 +288,7 @@ export const meterValueType = z
     timestamp: z.string().describe('ISO 8601 timestamp'),
     sampledValue: z.array(sampledValueType).describe('Sampled values'),
   })
-  .passthrough()
+  .loose()
   .describe('OCPP 1.6 meter value');
 
 // --- ChargingSchedulePeriod ---
@@ -298,7 +298,7 @@ export const chargingSchedulePeriodType = z
     limit: z.number().describe('Power or current limit'),
     numberPhases: z.number().int().optional().describe('Number of phases'),
   })
-  .passthrough()
+  .loose()
   .describe('OCPP 1.6 charging schedule period');
 
 // --- ChargingSchedule ---
@@ -310,7 +310,7 @@ export const chargingScheduleType = z
     chargingSchedulePeriod: z.array(chargingSchedulePeriodType).describe('Schedule periods'),
     minChargingRate: z.number().optional().describe('Minimum charging rate'),
   })
-  .passthrough()
+  .loose()
   .describe('OCPP 1.6 charging schedule');
 
 // --- ChargingProfile ---
@@ -326,7 +326,7 @@ export const chargingProfileType = z
     validTo: z.string().optional().describe('ISO 8601 validity end'),
     chargingSchedule: chargingScheduleType.describe('Charging schedule'),
   })
-  .passthrough()
+  .loose()
   .describe('OCPP 1.6 charging profile');
 
 // --- AuthorizationData (SendLocalList entry) ---
@@ -335,7 +335,7 @@ export const authorizationDataType = z
     idTag: z.string().max(20).describe('ID tag'),
     idTagInfo: idTagInfoType.optional().describe('ID tag info'),
   })
-  .passthrough()
+  .loose()
   .describe('OCPP 1.6 authorization data');
 
 // --- KeyValue (GetConfiguration response) ---
@@ -345,7 +345,7 @@ export const keyValueType = z
     readonly: z.boolean().describe('Whether the key is read-only'),
     value: z.string().max(500).optional().describe('Configuration value'),
   })
-  .passthrough()
+  .loose()
   .describe('OCPP 1.6 configuration key-value');
 
 // ============================================================
@@ -357,13 +357,13 @@ export const authorizeRequestType = z
   .object({
     idTag: z.string().max(20).describe('ID tag to authorize'),
   })
-  .passthrough();
+  .loose();
 
 export const authorizeResponseType = z
   .object({
     idTagInfo: idTagInfoType.describe('Authorization result'),
   })
-  .passthrough();
+  .loose();
 
 // --- BootNotification ---
 export const bootNotificationRequestType = z
@@ -378,7 +378,7 @@ export const bootNotificationRequestType = z
     meterType: z.string().max(25).optional().describe('Meter type'),
     meterSerialNumber: z.string().max(25).optional().describe('Meter serial number'),
   })
-  .passthrough();
+  .loose();
 
 export const bootNotificationResponseType = z
   .object({
@@ -386,20 +386,20 @@ export const bootNotificationResponseType = z
     currentTime: z.string().describe('ISO 8601 current time'),
     interval: z.number().int().describe('Heartbeat interval in seconds'),
   })
-  .passthrough();
+  .loose();
 
 // --- CancelReservation ---
 export const cancelReservationRequestType = z
   .object({
     reservationId: z.number().int().describe('Reservation ID to cancel'),
   })
-  .passthrough();
+  .loose();
 
 export const cancelReservationResponseType = z
   .object({
     status: cancelReservationStatusEnum.describe('Cancellation result'),
   })
-  .passthrough();
+  .loose();
 
 // --- ChangeAvailability ---
 export const changeAvailabilityRequestType = z
@@ -407,13 +407,13 @@ export const changeAvailabilityRequestType = z
     connectorId: z.number().int().describe('Connector ID (0 = charge point)'),
     type: availabilityTypeEnum.describe('Availability type'),
   })
-  .passthrough();
+  .loose();
 
 export const changeAvailabilityResponseType = z
   .object({
     status: availabilityStatusEnum.describe('Availability change result'),
   })
-  .passthrough();
+  .loose();
 
 // --- ChangeConfiguration ---
 export const changeConfigurationRequestType = z
@@ -421,22 +421,22 @@ export const changeConfigurationRequestType = z
     key: z.string().max(50).describe('Configuration key'),
     value: z.string().max(500).describe('Configuration value'),
   })
-  .passthrough();
+  .loose();
 
 export const changeConfigurationResponseType = z
   .object({
     status: configurationStatusEnum.describe('Configuration change result'),
   })
-  .passthrough();
+  .loose();
 
 // --- ClearCache ---
-export const clearCacheRequestType = z.object({}).passthrough();
+export const clearCacheRequestType = z.object({}).loose();
 
 export const clearCacheResponseType = z
   .object({
     status: clearCacheStatusEnum.describe('Clear cache result'),
   })
-  .passthrough();
+  .loose();
 
 // --- ClearChargingProfile ---
 export const clearChargingProfileRequestType = z
@@ -448,13 +448,13 @@ export const clearChargingProfileRequestType = z
       .describe('Profile purpose filter'),
     stackLevel: z.number().int().optional().describe('Stack level filter'),
   })
-  .passthrough();
+  .loose();
 
 export const clearChargingProfileResponseType = z
   .object({
     status: clearChargingProfileStatusEnum.describe('Clear result'),
   })
-  .passthrough();
+  .loose();
 
 // --- DataTransfer ---
 export const dataTransferRequestType = z
@@ -463,32 +463,32 @@ export const dataTransferRequestType = z
     messageId: z.string().max(50).optional().describe('Message identifier'),
     data: z.string().optional().describe('Data payload'),
   })
-  .passthrough();
+  .loose();
 
 export const dataTransferResponseType = z
   .object({
     status: dataTransferStatusEnum.describe('Data transfer result'),
     data: z.string().optional().describe('Response data'),
   })
-  .passthrough();
+  .loose();
 
 // --- DiagnosticsStatusNotification ---
 export const diagnosticsStatusNotificationRequestType = z
   .object({
     status: diagnosticsStatusEnum.describe('Diagnostics upload status'),
   })
-  .passthrough();
+  .loose();
 
-export const diagnosticsStatusNotificationResponseType = z.object({}).passthrough();
+export const diagnosticsStatusNotificationResponseType = z.object({}).loose();
 
 // --- FirmwareStatusNotification ---
 export const firmwareStatusNotificationRequestType = z
   .object({
     status: firmwareStatusEnum.describe('Firmware update status'),
   })
-  .passthrough();
+  .loose();
 
-export const firmwareStatusNotificationResponseType = z.object({}).passthrough();
+export const firmwareStatusNotificationResponseType = z.object({}).loose();
 
 // --- GetCompositeSchedule ---
 export const getCompositeScheduleRequestType = z
@@ -497,7 +497,7 @@ export const getCompositeScheduleRequestType = z
     duration: z.number().int().describe('Duration in seconds'),
     chargingRateUnit: chargingRateUnitEnum.optional().describe('Preferred rate unit'),
   })
-  .passthrough();
+  .loose();
 
 export const getCompositeScheduleResponseType = z
   .object({
@@ -506,21 +506,21 @@ export const getCompositeScheduleResponseType = z
     scheduleStart: z.string().optional().describe('ISO 8601 schedule start'),
     chargingSchedule: chargingScheduleType.optional().describe('Composite schedule'),
   })
-  .passthrough();
+  .loose();
 
 // --- GetConfiguration ---
 export const getConfigurationRequestType = z
   .object({
     key: z.array(z.string().max(50)).optional().describe('Keys to retrieve'),
   })
-  .passthrough();
+  .loose();
 
 export const getConfigurationResponseType = z
   .object({
     configurationKey: z.array(keyValueType).optional().describe('Known configuration keys'),
     unknownKey: z.array(z.string().max(50)).optional().describe('Unknown requested keys'),
   })
-  .passthrough();
+  .loose();
 
 // --- GetDiagnostics ---
 export const getDiagnosticsRequestType = z
@@ -531,31 +531,31 @@ export const getDiagnosticsRequestType = z
     startTime: z.string().optional().describe('ISO 8601 log start time'),
     stopTime: z.string().optional().describe('ISO 8601 log end time'),
   })
-  .passthrough();
+  .loose();
 
 export const getDiagnosticsResponseType = z
   .object({
     fileName: z.string().max(255).optional().describe('Diagnostics file name'),
   })
-  .passthrough();
+  .loose();
 
 // --- GetLocalListVersion ---
-export const getLocalListVersionRequestType = z.object({}).passthrough();
+export const getLocalListVersionRequestType = z.object({}).loose();
 
 export const getLocalListVersionResponseType = z
   .object({
     listVersion: z.number().int().describe('Local list version number'),
   })
-  .passthrough();
+  .loose();
 
 // --- Heartbeat ---
-export const heartbeatRequestType = z.object({}).passthrough();
+export const heartbeatRequestType = z.object({}).loose();
 
 export const heartbeatResponseType = z
   .object({
     currentTime: z.string().describe('ISO 8601 current time'),
   })
-  .passthrough();
+  .loose();
 
 // --- MeterValues ---
 export const meterValuesRequestType = z
@@ -564,9 +564,9 @@ export const meterValuesRequestType = z
     transactionId: z.number().int().optional().describe('Transaction ID'),
     meterValue: z.array(meterValueType).describe('Meter values'),
   })
-  .passthrough();
+  .loose();
 
-export const meterValuesResponseType = z.object({}).passthrough();
+export const meterValuesResponseType = z.object({}).loose();
 
 // --- RemoteStartTransaction ---
 export const remoteStartTransactionRequestType = z
@@ -575,26 +575,26 @@ export const remoteStartTransactionRequestType = z
     idTag: z.string().max(20).describe('ID tag for authorization'),
     chargingProfile: chargingProfileType.optional().describe('Charging profile'),
   })
-  .passthrough();
+  .loose();
 
 export const remoteStartTransactionResponseType = z
   .object({
     status: remoteStartStopStatusEnum.describe('Remote start result'),
   })
-  .passthrough();
+  .loose();
 
 // --- RemoteStopTransaction ---
 export const remoteStopTransactionRequestType = z
   .object({
     transactionId: z.number().int().describe('Transaction ID to stop'),
   })
-  .passthrough();
+  .loose();
 
 export const remoteStopTransactionResponseType = z
   .object({
     status: remoteStartStopStatusEnum.describe('Remote stop result'),
   })
-  .passthrough();
+  .loose();
 
 // --- ReserveNow ---
 export const reserveNowRequestType = z
@@ -605,26 +605,26 @@ export const reserveNowRequestType = z
     parentIdTag: z.string().max(20).optional().describe('Parent ID tag'),
     reservationId: z.number().int().describe('Reservation ID'),
   })
-  .passthrough();
+  .loose();
 
 export const reserveNowResponseType = z
   .object({
     status: reservationStatusEnum.describe('Reservation result'),
   })
-  .passthrough();
+  .loose();
 
 // --- Reset ---
 export const resetRequestType = z
   .object({
     type: resetTypeEnum.describe('Reset type'),
   })
-  .passthrough();
+  .loose();
 
 export const resetResponseType = z
   .object({
     status: resetStatusEnum.describe('Reset result'),
   })
-  .passthrough();
+  .loose();
 
 // --- SendLocalList ---
 export const sendLocalListRequestType = z
@@ -636,13 +636,13 @@ export const sendLocalListRequestType = z
       .describe('Authorization entries'),
     updateType: updateTypeEnum.describe('Update type (Differential or Full)'),
   })
-  .passthrough();
+  .loose();
 
 export const sendLocalListResponseType = z
   .object({
     status: updateStatusEnum.describe('Update result'),
   })
-  .passthrough();
+  .loose();
 
 // --- SetChargingProfile ---
 export const setChargingProfileRequestType = z
@@ -650,13 +650,13 @@ export const setChargingProfileRequestType = z
     connectorId: z.number().int().describe('Connector ID'),
     csChargingProfiles: chargingProfileType.describe('Charging profile to set'),
   })
-  .passthrough();
+  .loose();
 
 export const setChargingProfileResponseType = z
   .object({
     status: chargingProfileStatusEnum.describe('Set profile result'),
   })
-  .passthrough();
+  .loose();
 
 // --- StartTransaction ---
 export const startTransactionRequestType = z
@@ -667,14 +667,14 @@ export const startTransactionRequestType = z
     reservationId: z.number().int().optional().describe('Reservation ID if applicable'),
     timestamp: z.string().describe('ISO 8601 transaction start time'),
   })
-  .passthrough();
+  .loose();
 
 export const startTransactionResponseType = z
   .object({
     idTagInfo: idTagInfoType.describe('Authorization result'),
     transactionId: z.number().int().describe('Assigned transaction ID'),
   })
-  .passthrough();
+  .loose();
 
 // --- StatusNotification ---
 export const statusNotificationRequestType = z
@@ -687,9 +687,9 @@ export const statusNotificationRequestType = z
     vendorId: z.string().max(255).optional().describe('Vendor identifier'),
     vendorErrorCode: z.string().max(50).optional().describe('Vendor-specific error code'),
   })
-  .passthrough();
+  .loose();
 
-export const statusNotificationResponseType = z.object({}).passthrough();
+export const statusNotificationResponseType = z.object({}).loose();
 
 // --- StopTransaction ---
 export const stopTransactionRequestType = z
@@ -701,13 +701,13 @@ export const stopTransactionRequestType = z
     reason: stopReasonEnum.optional().describe('Reason for stopping'),
     transactionData: z.array(meterValueType).optional().describe('Transaction meter data'),
   })
-  .passthrough();
+  .loose();
 
 export const stopTransactionResponseType = z
   .object({
     idTagInfo: idTagInfoType.optional().describe('Authorization result'),
   })
-  .passthrough();
+  .loose();
 
 // --- TriggerMessage ---
 export const triggerMessageRequestType = z
@@ -715,26 +715,26 @@ export const triggerMessageRequestType = z
     requestedMessage: messageTriggerEnum.describe('Message type to trigger'),
     connectorId: z.number().int().optional().describe('Connector ID'),
   })
-  .passthrough();
+  .loose();
 
 export const triggerMessageResponseType = z
   .object({
     status: triggerMessageStatusEnum.describe('Trigger result'),
   })
-  .passthrough();
+  .loose();
 
 // --- UnlockConnector ---
 export const unlockConnectorRequestType = z
   .object({
     connectorId: z.number().int().describe('Connector ID to unlock'),
   })
-  .passthrough();
+  .loose();
 
 export const unlockConnectorResponseType = z
   .object({
     status: unlockStatusEnum.describe('Unlock result'),
   })
-  .passthrough();
+  .loose();
 
 // --- UpdateFirmware ---
 export const updateFirmwareRequestType = z
@@ -744,9 +744,9 @@ export const updateFirmwareRequestType = z
     retrieveDate: z.string().describe('ISO 8601 retrieve date'),
     retryInterval: z.number().int().optional().describe('Seconds between retries'),
   })
-  .passthrough();
+  .loose();
 
-export const updateFirmwareResponseType = z.object({}).passthrough();
+export const updateFirmwareResponseType = z.object({}).loose();
 
 // ============================================================
 // Inferred TypeScript Types

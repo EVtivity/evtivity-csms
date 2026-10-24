@@ -40,7 +40,7 @@ const workerJobLogItem = z
       .nullable()
       .describe('Timestamp when the job finished, or null if still running'),
   })
-  .passthrough();
+  .loose();
 
 const listWorkerLogsQuery = paginationQuery.extend({
   status: z.enum(workerJobStatusEnum.enumValues).optional().describe('Filter by job status'),

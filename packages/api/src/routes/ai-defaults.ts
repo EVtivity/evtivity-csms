@@ -29,7 +29,7 @@ const surfaceDefaults = z
       .string()
       .describe('Rules always added to the system prompt; they cannot be changed or removed'),
   })
-  .passthrough();
+  .loose();
 
 const modelOption = z
   .object({
@@ -38,7 +38,7 @@ const modelOption = z
     vision: z.boolean().describe('Whether the model reads image attachments'),
     pdf: z.boolean().describe('Whether the model reads PDF attachments'),
   })
-  .passthrough();
+  .loose();
 
 const providerModels = z
   .object({
@@ -47,7 +47,7 @@ const providerModels = z
     modelsDocsUrl: z.string().describe("The provider's official page listing its model ids"),
     models: z.array(modelOption).describe('Models known to this release'),
   })
-  .passthrough();
+  .loose();
 
 const aiDefaultsResponse = z
   .object({
@@ -62,7 +62,7 @@ const aiDefaultsResponse = z
     ),
     providers: z.array(providerModels).describe('Known models per provider'),
   })
-  .passthrough();
+  .loose();
 
 /**
  * Built-in AI defaults: system prompts, the fixed rules and the model

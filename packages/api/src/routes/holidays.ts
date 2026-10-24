@@ -42,7 +42,7 @@ const holidayItem = z
     date: z.string().describe('Holiday date in YYYY-MM-DD format'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
   })
-  .passthrough();
+  .loose();
 
 const createHolidayBody = z.object({
   name: z.string().max(255).describe('Holiday name'),
@@ -78,13 +78,13 @@ const bulkCreateResponse = z
               .enum(['duplicate'])
               .describe('Why the row was skipped (currently always duplicate)'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe(
         'Holidays that collided with an existing date. Operators can use this to verify import coverage instead of refetching the full list.',
       ),
   })
-  .passthrough();
+  .loose();
 
 const idParams = z.object({
   id: z.coerce.number().int().min(1).describe('Holiday ID'),

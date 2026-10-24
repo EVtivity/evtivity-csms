@@ -53,17 +53,18 @@ const neviStationDataItem = z
     derType: z.string().max(100).nullable().describe('Type of distributed energy resource'),
     programParticipation: z
       .unknown()
-      .describe('JSON array of NEVI program names the station participates in'),
+      .describe('JSON array of NEVI program names the station participates in')
+      .optional(),
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().describe('Updated timestamp (ISO 8601)'),
   })
-  .passthrough();
+  .loose();
 
 const neviStationDataList = z
   .object({
     data: z.array(neviStationDataItem).describe('NEVI station data rows for accessible stations'),
   })
-  .passthrough();
+  .loose();
 
 const neviExcludedDowntimeItem = z
   .object({
@@ -91,7 +92,7 @@ const neviExcludedDowntimeItem = z
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().optional().describe('Updated timestamp (ISO 8601)'),
   })
-  .passthrough();
+  .loose();
 
 const upsertStationDataBody = z.object({
   operatorName: z.string().max(255).optional(),

@@ -40,7 +40,7 @@ const upgradePendingSchema = z
       .nullable()
       .describe('When the worker watch last ran (ISO 8601), or null when it has not run'),
   })
-  .passthrough()
+  .loose()
   .describe('Why the provider-switch guard refuses the provider');
 
 const providerEntrySchema = z
@@ -68,10 +68,10 @@ const providerEntrySchema = z
           .string()
           .describe('Site host payout model: none, destination_charge or split_instructions'),
       })
-      .passthrough()
+      .loose()
       .describe('Provider capabilities the settings UI shows'),
   })
-  .passthrough()
+  .loose()
   .describe('A payment provider registered in this API process');
 
 const paymentSettingsResponse = z
@@ -98,7 +98,7 @@ const paymentSettingsResponse = z
           .max(1)
           .describe('Failure rate of test provider methods without a scenario (0 to 1)'),
       })
-      .passthrough()
+      .loose()
       .describe('Test (simulated) provider settings'),
     providers: z
       .array(providerEntrySchema)
@@ -106,7 +106,7 @@ const paymentSettingsResponse = z
         'Providers registered in this API process. The simulated provider is listed only where PAYMENTS_ALLOW_SIMULATED is true.',
       ),
   })
-  .passthrough()
+  .loose()
   .describe('Provider-neutral payment settings');
 
 const updatePaymentSettingsBody = z.object({

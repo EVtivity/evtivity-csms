@@ -151,7 +151,7 @@ const templateOperationResponse = z
         'True when an operation of this template was still running: pushId is that operation and nothing new started',
       ),
   })
-  .passthrough();
+  .loose();
 
 const templateItem = z
   .object({
@@ -166,13 +166,13 @@ const templateItem = z
     stackLevel: z.number().describe('Stack level'),
     evseId: z.number().describe('EVSE ID (0 for station-wide)'),
     chargingRateUnit: z.enum(['W', 'A']).describe('Charging rate unit'),
-    schedulePeriods: z.unknown().describe('Charging schedule periods (JSONB array)'),
+    schedulePeriods: z.unknown().describe('Charging schedule periods (JSONB array)').optional(),
     startSchedule: z.string().nullable().describe('Schedule start time (ISO 8601)'),
     duration: z.number().nullable().describe('Schedule duration in seconds'),
     validFrom: z.string().nullable().describe('Profile validity start (ISO 8601)'),
     validTo: z.string().nullable().describe('Profile validity end (ISO 8601)'),
     targetFilter: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .nullable()
       .describe('Filter to select target stations (siteId/vendorId/model)'),
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
@@ -182,7 +182,7 @@ const templateItem = z
       .optional()
       .describe('Number of stations matching the target filter (only on list endpoint)'),
   })
-  .passthrough();
+  .loose();
 const templateParams = z.object({ id: z.string().describe('Template ID') });
 
 const filterOptionsItem = z
@@ -194,7 +194,7 @@ const filterOptionsItem = z
             id: z.string().describe('Site identifier'),
             name: z.string().describe('Site display name'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('Sites the user can access'),
     vendors: z
@@ -204,12 +204,12 @@ const filterOptionsItem = z
             id: z.string().describe('Vendor identifier'),
             name: z.string().describe('Vendor display name'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('All vendors'),
     models: z.array(z.string()).describe('Distinct station model names'),
   })
-  .passthrough();
+  .loose();
 
 const matchingStationItem = z
   .object({
@@ -219,7 +219,7 @@ const matchingStationItem = z
     siteName: z.string().nullable().describe('Site name'),
     vendorName: z.string().nullable().describe('Vendor name'),
   })
-  .passthrough();
+  .loose();
 
 const pushItem = z
   .object({
@@ -235,7 +235,7 @@ const pushItem = z
     rejectedCount: z.number().describe('Stations that rejected the profile'),
     failedCount: z.number().describe('Stations where dispatch failed'),
   })
-  .passthrough();
+  .loose();
 
 const pushDetailItem = z
   .object({
@@ -261,12 +261,12 @@ const pushDetailItem = z
             errorInfo: z.string().nullable().describe('Error info when failed/rejected'),
             updatedAt: z.string().describe('Updated timestamp (ISO 8601)'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('Per-station push results (paginated)'),
     stationsTotal: z.number().describe('Total number of stations in this push'),
   })
-  .passthrough();
+  .loose();
 
 // Postgres unique-violation (23505) on the profile_id constraint. Used as a
 // race-safe backstop for the JS-side pre-check on concurrent inserts.
@@ -381,16 +381,15 @@ const createTemplateBody = z
         { message: 'schedulePeriods must be ordered by strictly increasing startPeriod' },
       )
       .describe('Charging schedule periods (ordered by ascending startPeriod)'),
-    startSchedule: z
-      .string()
+    startSchedule: z.iso
       .datetime()
       .optional()
       .describe(
         'Schedule start time (ISO 8601). Required: Absolute and Recurring profiles carry a start (OCPP 2.1 K01.FR.40)',
       ),
     duration: z.number().int().optional().describe('Schedule duration in seconds'),
-    validFrom: z.string().datetime().optional().describe('Profile validity start (ISO 8601)'),
-    validTo: z.string().datetime().optional().describe('Profile validity end (ISO 8601)'),
+    validFrom: z.iso.datetime().optional().describe('Profile validity start (ISO 8601)'),
+    validTo: z.iso.datetime().optional().describe('Profile validity end (ISO 8601)'),
     targetFilter: targetFilterSchema.describe('Filter to select target stations'),
   })
   .refine(
@@ -436,10 +435,10 @@ const updateTemplateBody = z
     evseId: z.number().int().min(0).optional(),
     chargingRateUnit: z.enum(['W', 'A']).optional(),
     schedulePeriods: z.array(schedulePeriodSchema).min(1).optional(),
-    startSchedule: z.string().datetime().optional().nullable(),
+    startSchedule: z.iso.datetime().optional().nullable(),
     duration: z.number().int().optional().nullable(),
-    validFrom: z.string().datetime().optional().nullable(),
-    validTo: z.string().datetime().optional().nullable(),
+    validFrom: z.iso.datetime().optional().nullable(),
+    validTo: z.iso.datetime().optional().nullable(),
     targetFilter: targetFilterSchema,
   })
   .refine(

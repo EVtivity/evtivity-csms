@@ -32,15 +32,15 @@ export const registrationCredential = z
         attestationObject: base64url.describe('Attestation object (base64url)'),
         transports: z.array(z.string().max(32)).max(10).optional().describe('Transports'),
       })
-      .passthrough()
+      .loose()
       .describe('Authenticator attestation response'),
     authenticatorAttachment: z
       .enum(['platform', 'cross-platform'])
       .optional()
       .describe('Platform (built-in) or cross-platform (security key, phone)'),
-    clientExtensionResults: z.record(z.unknown()).describe('Client extension results'),
+    clientExtensionResults: z.record(z.string(), z.unknown()).describe('Client extension results'),
   })
-  .passthrough()
+  .loose()
   .describe('The PublicKeyCredential of navigator.credentials.create, as JSON');
 
 // Control and format characters (bidi overrides, zero-width spaces) are dropped before the
@@ -73,30 +73,30 @@ export const credentialItem = z
     createdAt: z.string().describe('When the credential was registered (ISO 8601)'),
     lastUsedAt: z.string().nullable().describe('Last sign-in with it (ISO 8601)'),
   })
-  .passthrough();
+  .loose();
 
 export const creationOptions = z
   .object({
     challenge: z.string().describe('Challenge (base64url), valid for 5 minutes and one response'),
     rp: z
       .object({ id: z.string().optional(), name: z.string() })
-      .passthrough()
+      .loose()
       .describe('Relying party: the RP ID and the company name'),
     user: z
       .object({ id: z.string(), name: z.string(), displayName: z.string() })
-      .passthrough()
+      .loose()
       .describe('WebAuthn user: handle, email and name'),
     pubKeyCredParams: z
-      .array(z.object({ alg: z.number(), type: z.string() }).passthrough())
+      .array(z.object({ alg: z.number(), type: z.string() }).loose())
       .describe('Accepted public key algorithms'),
     timeout: z.number().optional().describe('Prompt timeout in milliseconds'),
     excludeCredentials: z
-      .array(z.object({ id: z.string(), type: z.string() }).passthrough())
+      .array(z.object({ id: z.string(), type: z.string() }).loose())
       .optional()
       .describe('Credentials already registered'),
     attestation: z.string().optional().describe('Always none'),
   })
-  .passthrough()
+  .loose()
   .describe('PublicKeyCredentialCreationOptionsJSON for navigator.credentials.create');
 
 export const requestOptions = z
@@ -106,11 +106,11 @@ export const requestOptions = z
     timeout: z.number().optional().describe('Prompt timeout in milliseconds'),
     userVerification: z.string().optional().describe('required (passkey sign-in) or preferred'),
     allowCredentials: z
-      .array(z.object({ id: z.string(), type: z.string() }).passthrough())
+      .array(z.object({ id: z.string(), type: z.string() }).loose())
       .optional()
       .describe('The account credentials (second factor only)'),
   })
-  .passthrough()
+  .loose()
   .describe('PublicKeyCredentialRequestOptionsJSON for navigator.credentials.get');
 
 export const registrationResponse = z
@@ -121,7 +121,7 @@ export const registrationResponse = z
       .optional()
       .describe('Ten recovery codes, when the credential is the first factor of the account'),
   })
-  .passthrough();
+  .loose();
 
 export const idParams = z.object({
   id: z.coerce.number().int().min(1).describe('Credential identifier'),
@@ -190,7 +190,7 @@ export const factorProofResponse = z
         'passkey: the options for navigator.credentials.get; send the response as proof.credential',
       ),
   })
-  .passthrough();
+  .loose();
 
 /** The outcome of a passkey proof for new recovery codes. */
 export type RecoveryCodesPasskeyProof = 'verified' | 'challenge_expired' | 'failed';

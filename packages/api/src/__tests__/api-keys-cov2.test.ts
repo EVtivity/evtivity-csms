@@ -97,7 +97,7 @@ vi.mock('../lib/mfa-factor-proof.js', async () => {
     FACTOR_PROOF_KINDS: ['totp', 'code', 'passkey', 'password'],
     factorProof: z
       .object({ kind: z.string(), password: z.string().optional(), code: z.string().optional() })
-      .passthrough(),
+      .loose(),
     checkFactorProof: proofCheck.checkFactorProof,
     sendFactorProofRefusal: async (
       reply: { status: (n: number) => { send: (body: unknown) => Promise<unknown> } },

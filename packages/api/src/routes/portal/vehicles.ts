@@ -36,7 +36,7 @@ const vehicleItem = z
       .describe('The operator blocked Autocharge for this vehicle; the driver cannot turn it on'),
     createdAt: z.coerce.date().describe('Timestamp when the vehicle was added'),
   })
-  .passthrough();
+  .loose();
 
 const vehicleIdFields = {
   vin: z
@@ -110,7 +110,7 @@ const efficiencyResponse = z
   .object({
     efficiencyMiPerKwh: z.number().min(0).max(20).describe('Energy efficiency in miles per kWh'),
   })
-  .passthrough();
+  .loose();
 
 const lookupQuery = z.object({
   make: z.string().optional().describe('Filter models by make (case-insensitive)'),
@@ -126,11 +126,11 @@ const lookupResponse = z
             make: z.string().describe('Vehicle make'),
             model: z.string().describe('Vehicle model'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('Make/model pairs, optionally filtered by ?make='),
   })
-  .passthrough();
+  .loose();
 
 export function portalVehicleRoutes(app: FastifyInstance): void {
   app.get(

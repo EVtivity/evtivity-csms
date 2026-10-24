@@ -46,8 +46,8 @@ const ocpiPartnerItem = z
     name: z.string().max(255).describe('Partner name'),
     countryCode: z.string().length(2).describe('ISO 3166-1 alpha-2 country code'),
     partyId: z.string().max(3).describe('OCPI party identifier'),
-    roles: z.unknown().describe('OCPI roles advertised by the partner'),
-    ourRoles: z.unknown().describe('OCPI roles advertised by this CSMS to the partner'),
+    roles: z.unknown().describe('OCPI roles advertised by the partner').optional(),
+    ourRoles: z.unknown().describe('OCPI roles advertised by this CSMS to the partner').optional(),
     approvedRoles: z
       .array(z.string().max(10))
       .describe(
@@ -82,7 +82,7 @@ const ocpiPartnerItem = z
     createdAt: z.string().describe('Row creation timestamp'),
     updatedAt: z.string().describe('Row last update timestamp'),
   })
-  .passthrough();
+  .loose();
 
 interface PartnerRow {
   id: string;
@@ -125,7 +125,7 @@ const createPartnerResponse = z
       .max(255)
       .describe('One-time registration token to share with the partner'),
   })
-  .passthrough();
+  .loose();
 
 const syncLogItem = z
   .object({
@@ -144,7 +144,7 @@ const syncLogItem = z
     errorMessage: z.string().max(1000).nullable().describe('Error details when the sync failed'),
     createdAt: z.coerce.date().describe('Timestamp when the sync ran'),
   })
-  .passthrough();
+  .loose();
 
 const partnerParams = z.object({
   id: ID_PARAMS.ocpiPartnerId.describe('OCPI partner ID'),
@@ -155,7 +155,7 @@ const createPartnerBody = z.object({
   approvedRoles: approvedRolesField.optional(),
   countryCode: z.string().length(2).describe('ISO 3166-1 alpha-2 country code'),
   partyId: z.string().min(1).max(3).describe('OCPI party identifier'),
-  versionUrl: z.string().url().max(2048).optional().describe('OCPI versions endpoint URL'),
+  versionUrl: z.url().max(2048).optional().describe('OCPI versions endpoint URL'),
   allowPrivateNetwork: z
     .boolean()
     .optional()
@@ -188,7 +188,6 @@ const updatePartnerBody = z.object({
       'Partner connection status. connected only resumes a suspended partner that completed the credentials handshake; a partner becomes connected through the handshake.',
     ),
   versionUrl: z
-    .string()
     .url()
     .max(2048)
     .optional()
@@ -224,7 +223,7 @@ const registrationTokenResponse = z
       .max(255)
       .describe('New one-time registration token to share with the partner'),
   })
-  .passthrough();
+  .loose();
 
 /** Whether the partner holds an active credentials token we issued (it registered). */
 async function hasIssuedCredentialsToken(partnerId: string): Promise<boolean> {

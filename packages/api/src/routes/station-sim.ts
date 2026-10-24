@@ -101,7 +101,7 @@ const capabilitiesSchema = z
     alerts: z.boolean().describe('Lists SIM alerts'),
     networkReset: z.boolean().describe('Can reset the SIM network connection'),
   })
-  .passthrough()
+  .loose()
   .describe('What the provider reports');
 
 const storedStatusSchema = z
@@ -121,11 +121,11 @@ const storedStatusSchema = z
         periodEnd: z.string().nullable(),
         limitBytes: z.number().nullable(),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Data used this billing period'),
   })
-  .passthrough();
+  .loose();
 
 const signalReadingSchema = z
   .object({
@@ -137,7 +137,7 @@ const signalReadingSchema = z
       .enum(['good', 'fair', 'poor', 'unknown'])
       .describe('From sim.signal.goodDbm and sim.signal.fairDbm (RSSI thresholds)'),
   })
-  .passthrough();
+  .loose();
 
 const stationSignalSchema = z
   .object({
@@ -150,24 +150,24 @@ const stationSignalSchema = z
       ),
     readAt: z.string().nullable().describe('When the station last reported these values'),
     values: z
-      .record(z.string().nullable())
+      .record(z.string(), z.string().nullable())
       .describe('Every stored value by name: DataLink[instance].Variable, or the 1.6 key'),
     dataLinks: z
       .array(
         z
           .object({
             instance: z.string().nullable().describe('The DataLink component instance'),
-            values: z.record(z.string().nullable()),
+            values: z.record(z.string(), z.string().nullable()),
             signalUnit: z.string().nullable(),
             signal: signalReadingSchema.nullable(),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('One entry per DataLink instance (OCPP 2.x)'),
     activeNetworkProfile: z.string().nullable(),
-    thresholds: z.object({ goodDbm: z.number(), fairDbm: z.number() }).passthrough(),
+    thresholds: z.object({ goodDbm: z.number(), fairDbm: z.number() }).loose(),
   })
-  .passthrough();
+  .loose();
 
 const simStatusResponse = z
   .object({
@@ -195,7 +195,7 @@ const simStatusResponse = z
         cellId: z.string().nullable(),
         observedAt: z.string().describe('End of the newest stored session'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Network of the newest stored session'),
     attachment: z
@@ -213,7 +213,7 @@ const simStatusResponse = z
             id: z.string(),
             name: z.string().nullable().describe('First and last name, null when not set'),
           })
-          .passthrough()
+          .loose()
           .nullable()
           .describe(
             'The person who attached the SIM; null for a station report or a person a site-restricted reader may not see (an all-site user or a user of another site)',
@@ -225,7 +225,7 @@ const simStatusResponse = z
             'When a person with access to every site confirmed the SIM. Until then nothing is fetched from the provider and no reset is possible',
           ),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe("The station's open SIM attachment, null without one"),
     lastFetchedAt: z.string().nullable().describe('When the sessions were last fetched'),
@@ -240,7 +240,7 @@ const simStatusResponse = z
               ),
             receivedAt: z.string().describe('When the provider logged the alert'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('The five newest stored SIM alerts; alerts arrive only with a Refresh'),
     station: stationSignalSchema
@@ -254,11 +254,11 @@ const simStatusResponse = z
       .string()
       .describe('The time zone of the coverage days: the site, else the system time zone'),
   })
-  .passthrough();
+  .loose();
 
 const timelineQuery = z.object({
-  from: z.string().datetime({ offset: true }).optional().describe('Start, default 24 hours ago'),
-  to: z.string().datetime({ offset: true }).optional().describe('End, default and at most now'),
+  from: z.iso.datetime({ offset: true }).optional().describe('Start, default 24 hours ago'),
+  to: z.iso.datetime({ offset: true }).optional().describe('End, default and at most now'),
   limit: z.coerce.number().int().min(1).max(500).optional().describe('Items per page, default 200'),
   cursor: z.string().max(200).optional().describe('nextCursor of the previous page'),
 });
@@ -273,12 +273,12 @@ const timelineItem = z
         'connected, disconnected, signal_low, signal_restored (the low signal monitor), session, or an alert kind',
       ),
     details: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .describe(
         'Fields of the item. A disconnect carries offlineCause: server, sim_account, station, network, pending or unknown, computed from stored data',
       ),
   })
-  .passthrough();
+  .loose();
 
 const timelineResponse = z
   .object({
@@ -302,11 +302,11 @@ const timelineResponse = z
               'unavailable',
             ]),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('What the stored SIM data of each day can show, in the station time zone'),
   })
-  .passthrough();
+  .loose();
 
 const refreshBody = z.object({
   days: z
@@ -316,8 +316,8 @@ const refreshBody = z.object({
     .max(SIM_RANGE_MAX_DAYS)
     .optional()
     .describe('Days to fetch back from now: 1, 3, 7, 14 or 31; default sim.sessions.fetchDays'),
-  from: z.string().datetime({ offset: true }).optional().describe('Start of a date range'),
-  to: z.string().datetime({ offset: true }).optional().describe('End of a date range'),
+  from: z.iso.datetime({ offset: true }).optional().describe('Start of a date range'),
+  to: z.iso.datetime({ offset: true }).optional().describe('End of a date range'),
   retryLookup: z
     .boolean()
     .optional()
@@ -340,7 +340,7 @@ const providerPartSchema = z
     alertsStored: z.number().optional(),
     retryAfter: z.number().optional(),
   })
-  .passthrough();
+  .loose();
 
 const refreshResponse = z
   .object({
@@ -360,18 +360,18 @@ const refreshResponse = z
           .describe('timeout, command_failed, unsupported or unavailable for a failed part'),
         readAt: z.string().optional(),
       })
-      .passthrough()
+      .loose()
       .describe('The station signal part'),
   })
-  .passthrough();
+  .loose();
 
 const resetResponse = z
   .object({ status: z.literal('accepted').describe('The provider accepted the network reset') })
-  .passthrough();
+  .loose();
 
 const confirmResponse = z
   .object({ confirmed: z.literal(true), confirmedAt: z.string().nullable() })
-  .passthrough();
+  .loose();
 
 const confirmBody = z.object({
   attachmentId: z

@@ -64,7 +64,9 @@ const ssoSettingsBody = z.object({
     .describe('IdP X.509 certificate PEM (stored encrypted). Only sent when changed.'),
   autoProvision: z.boolean().describe('Auto-create users from SAML assertions'),
   defaultRoleId: z.string().describe('Role assigned to auto-provisioned users'),
-  attributeMapping: z.record(z.string()).describe('Maps IdP SAML attributes to user fields'),
+  attributeMapping: z
+    .record(z.string(), z.string())
+    .describe('Maps IdP SAML attributes to user fields'),
   allowedDomains: z
     .array(z.string().min(1).max(253))
     .max(100)
@@ -165,7 +167,7 @@ export function ssoSettingsRoutes(app: FastifyInstance): void {
         operationId: 'getSsoSettings',
         security: [{ bearerAuth: [] }],
         response: {
-          200: itemResponse(z.record(z.unknown())),
+          200: itemResponse(z.record(z.string(), z.unknown())),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
         },
       },

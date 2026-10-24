@@ -147,13 +147,13 @@ export const aiStreamEventSchema = z.discriminatedUnion('type', [
       path: z.string().min(1).max(2000),
       summary: z.string().min(1).max(2000),
       /** Redacted arguments, shown on the confirm card. */
-      arguments: z.record(z.unknown()),
+      arguments: z.record(z.string(), z.unknown()),
       /**
        * How many argument values the redaction hid from `arguments` while the
        * stored ones run unchanged; omitted when none.
        */
       maskedCount: nonNegativeInt.optional(),
-      expiresAt: z.string().datetime({ offset: true }),
+      expiresAt: z.iso.datetime({ offset: true }),
     })
     .strict(),
   z
@@ -161,10 +161,7 @@ export const aiStreamEventSchema = z.discriminatedUnion('type', [
       type: z.literal('citation'),
       id,
       title: z.string().min(1).max(500),
-      url: z
-        .string()
-        .url()
-        .refine((u) => u.startsWith('https://'), 'citation URLs are https'),
+      url: z.url().refine((u) => u.startsWith('https://'), 'citation URLs are https'),
       anchor: z.string().max(200).optional(),
     })
     .strict(),

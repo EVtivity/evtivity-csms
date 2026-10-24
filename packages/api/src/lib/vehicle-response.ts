@@ -33,7 +33,7 @@ export const vehicleLastSeenItem = z
     siteName: z.string().nullable().describe('Site of the station'),
     at: z.coerce.date().describe('Start of the session in which the charger sent the id'),
   })
-  .passthrough()
+  .loose()
   .nullable()
   .describe(
     'The last session in which a charger sent one of the vehicle ids, null when none (operators see sessions at their sites only)',
@@ -74,7 +74,7 @@ export const sessionVehicleCaptureItem = z
         'id_token: the 2.1 idToken itself; additional_info: an additionalInfo entry of the 2.1 idToken; id_tag: a 1.6 idTag',
       ),
   })
-  .passthrough()
+  .loose()
   .nullable()
   .describe('The vehicle id the charger sent at the start, null when none');
 

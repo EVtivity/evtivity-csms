@@ -156,14 +156,14 @@ const sitePricingGroupItem = z
     isDefault: z.boolean().describe('Whether this is the system default pricing group'),
     tariffCount: z.number().int().min(0).describe('Number of tariffs in this pricing group'),
   })
-  .passthrough();
+  .loose();
 
 const sitePricingGroupRecordItem = z
   .object({
     siteId: z.string().describe('Site identifier'),
     pricingGroupId: z.string().describe('Pricing group identifier assigned to the site'),
   })
-  .passthrough();
+  .loose();
 
 const addSitePricingGroupBody = z.object({
   pricingGroupId: ID_PARAMS.pricingGroupId.describe('Pricing group ID to assign to the site'),
@@ -242,16 +242,16 @@ const createSiteBody = z.object({
     .refine(isValidTimezone, { message: 'Invalid IANA timezone' })
     .optional(),
   contactName: z.string().max(255).optional(),
-  contactEmail: z.string().email().max(255).optional(),
+  contactEmail: z.email().max(255).optional(),
   contactPhone: z.string().max(50).optional(),
   contactIsPublic: z.boolean().optional(),
   hoursOfOperation: hoursOfOperationField,
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 // An optional site field that an update can clear: null or an empty string
 // stores null, omitted keeps the stored value.
-function clearable(field: z.ZodType<string, z.ZodTypeDef, string>, description: string) {
+function clearable(field: z.ZodType<string, string>, description: string) {
   return field
     .nullable()
     .optional()
@@ -261,7 +261,7 @@ function clearable(field: z.ZodType<string, z.ZodTypeDef, string>, description: 
 
 const emptyOr = (check: (value: string) => boolean) => (value: string) =>
   value === '' || check(value);
-const isEmail = (value: string): boolean => z.string().email().safeParse(value).success;
+const isEmail = (value: string): boolean => z.email().safeParse(value).success;
 const isLatitude = (value: string): boolean => {
   const n = Number(value);
   return Number.isFinite(n) && n >= -90 && n <= 90;
@@ -314,7 +314,7 @@ const updateSiteBody = z.object({
   contactPhone: clearable(z.string().max(50), 'Site contact phone number'),
   contactIsPublic: z.boolean().optional(),
   hoursOfOperation: hoursOfOperationField,
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   reservationsEnabled: z
     .boolean()
     .optional()
@@ -482,7 +482,10 @@ const siteItem = z
       .boolean()
       .describe('Whether contact information is visible to drivers in the portal'),
     hoursOfOperation: z.string().nullable().describe('Free-form description of operating hours'),
-    metadata: z.record(z.unknown()).nullable().describe('Arbitrary site metadata as JSON object'),
+    metadata: z
+      .record(z.string(), z.unknown())
+      .nullable()
+      .describe('Arbitrary site metadata as JSON object'),
     createdAt: z.coerce.date().describe('Timestamp when the site was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the site was last updated'),
     stationCount: z.number().describe('Number of charging stations at this site'),
@@ -535,7 +538,7 @@ const siteItem = z
     aiInsightsSuppressedByName: z.string().nullable().describe('Name of that user'),
     aiInsightsSuppressedReason: z.string().nullable().describe('Reason given for the suppression'),
   })
-  .passthrough();
+  .loose();
 
 const siteBase = z
   .object({
@@ -553,7 +556,10 @@ const siteBase = z
       .describe('Longitude in decimal degrees as string for precision'),
     timezone: z.string().nullable().describe('IANA timezone name (e.g. America/Los_Angeles)'),
     hoursOfOperation: z.string().nullable().describe('Free-form description of operating hours'),
-    metadata: z.record(z.unknown()).nullable().describe('Arbitrary site metadata as JSON object'),
+    metadata: z
+      .record(z.string(), z.unknown())
+      .nullable()
+      .describe('Arbitrary site metadata as JSON object'),
     dataPlan: z
       .enum(DATA_PLANS)
       .nullable()
@@ -580,7 +586,7 @@ const siteBase = z
     createdAt: z.coerce.date().describe('Timestamp when the site was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the site was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const importResultResponse = z
   .object({
@@ -596,7 +602,7 @@ const importResultResponse = z
       .array(z.string())
       .describe('List of error messages encountered during import, one per failing row'),
   })
-  .passthrough();
+  .loose();
 
 const siteMetricsResponse = z
   .object({
@@ -685,7 +691,7 @@ const siteMetricsResponse = z
         'Company currency (ISO 4217) of the revenue, cost, and profit amounts. Those amounts sum only sessions billed in this currency.',
       ),
   })
-  .passthrough();
+  .loose();
 
 const siteStationItem = z
   .object({
@@ -731,14 +737,14 @@ const siteStationItem = z
       .boolean()
       .describe('Whether an active maintenance event currently covers this station'),
   })
-  .passthrough();
+  .loose();
 
 const energyHistoryItem = z
   .object({
     date: z.string().describe('Calendar date in YYYY-MM-DD format (in site timezone)'),
     energyWh: z.number().describe('Total energy delivered on this date in watt-hours'),
   })
-  .passthrough();
+  .loose();
 
 const revenueHistoryItem = z
   .object({
@@ -757,7 +763,7 @@ const revenueHistoryItem = z
         'Number of ended sessions billed in the company currency that started on this date',
       ),
   })
-  .passthrough();
+  .loose();
 
 const meterValueGroup = z
   .object({
@@ -772,11 +778,11 @@ const meterValueGroup = z
             timestamp: z.coerce.date().describe('Timestamp when this meter sample was taken'),
             value: z.string().describe('Meter reading value as a string for numeric precision'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('Chronologically ordered list of meter readings for this measurand'),
   })
-  .passthrough();
+  .loose();
 
 const siteSessionItem = z
   .object({
@@ -813,7 +819,7 @@ const siteSessionItem = z
       .boolean()
       .describe('Whether the session was a free-vend session (no driver authorization or payment)'),
   })
-  .passthrough();
+  .loose();
 
 const layoutConnector = z
   .object({
@@ -832,14 +838,14 @@ const layoutConnector = z
       .nullable()
       .describe('Energy delivered during the active session in watt-hours, or null if idle'),
   })
-  .passthrough();
+  .loose();
 
 const layoutEvse = z
   .object({
     evseId: z.number().describe('OCPP EVSE ID within the station'),
     connectors: z.array(layoutConnector).describe('Connectors belonging to this EVSE'),
   })
-  .passthrough();
+  .loose();
 
 const layoutStation = z
   .object({
@@ -868,7 +874,7 @@ const layoutStation = z
       .describe('Most recent accepted display message text shown on the station, if any'),
     evses: z.array(layoutEvse).describe('EVSEs installed on this station'),
   })
-  .passthrough();
+  .loose();
 
 const sitesListQuery = paginationQuery.extend({
   city: z.string().optional().describe('Filter by city'),
@@ -887,14 +893,14 @@ const locationOption = z
     city: z.string().describe('City name'),
     state: z.string().describe('State, province, or region'),
   })
-  .passthrough();
+  .loose();
 const filterOptionsResponse = z
   .object({
     locations: z
       .array(locationOption)
       .describe('Distinct city and state combinations across the user-accessible sites'),
   })
-  .passthrough();
+  .loose();
 
 export function siteRoutes(app: FastifyInstance): void {
   app.get(
@@ -1190,7 +1196,7 @@ export function siteRoutes(app: FastifyInstance): void {
                   .int()
                   .describe('Stations whose effective data plan would change'),
               })
-              .passthrough(),
+              .loose(),
           ),
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
         },
@@ -1214,8 +1220,7 @@ export function siteRoutes(app: FastifyInstance): void {
 
   const aiSuppressBody = z.object({
     reason: z.string().trim().min(1).max(500).describe('Why the AI insights are suppressed'),
-    until: z
-      .string()
+    until: z.iso
       .datetime({ offset: true })
       .optional()
       .describe('End of the suppression (ISO 8601, in the future); omitted for until resumed'),
@@ -1243,7 +1248,7 @@ export function siteRoutes(app: FastifyInstance): void {
           'Waiting insight actions of the site and its stations expired by the suppression',
         ),
     })
-    .passthrough();
+    .loose();
 
   // Per-site AI insight suppression (site-ai-insights.service.ts).
   app.post(
@@ -2118,7 +2123,7 @@ export function siteRoutes(app: FastifyInstance): void {
         .number()
         .describe('Average number of sessions started in this day-of-week and hour bucket'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/sites/:id/popular-times',
@@ -2584,7 +2589,7 @@ export function siteRoutes(app: FastifyInstance): void {
               .object({
                 ok: z.boolean().describe('True when the layout positions were saved successfully'),
               })
-              .passthrough(),
+              .loose(),
           ),
           404: errorWith('Site or station not found', [
             ERROR_CODES.SITE_NOT_FOUND,
@@ -2900,7 +2905,7 @@ export function siteRoutes(app: FastifyInstance): void {
           'Identifier of the OCPP 1.6 config push (free vend on, or the authorization restore when off) for stations at the site, empty when no online station got one',
         ),
     })
-    .passthrough();
+    .loose();
 
   app.post(
     '/sites/:id/free-vend',
@@ -2983,7 +2988,7 @@ export function siteRoutes(app: FastifyInstance): void {
           'Carbon intensity for this region in kilograms of CO2 per kilowatt-hour, as string for precision',
         ),
     })
-    .passthrough();
+    .loose();
 
   const carbonRegionBody = z.object({
     regionCode: z.string().nullable().describe('Carbon intensity region code, or null to clear'),
@@ -3114,7 +3119,7 @@ export function siteRoutes(app: FastifyInstance): void {
       name: z.string().describe('Rate period name'),
       ratePerKwh: z.number().describe('Wholesale electricity rate per kWh in the company currency'),
       restrictions: z
-        .record(z.unknown())
+        .record(z.string(), z.unknown())
         .nullable()
         .describe(
           'When the period applies (timeRange/daysOfWeek/dateRange), or null for the default flat rate',
@@ -3122,7 +3127,7 @@ export function siteRoutes(app: FastifyInstance): void {
       priority: z.number().int().describe('Resolution priority derived from the restriction shape'),
       isDefault: z.boolean().describe('True for the flat-rate fallback period'),
     })
-    .passthrough();
+    .loose();
 
   const electricityRateBody = z.object({
     name: z.string().min(1).max(100).describe('Rate period name'),
@@ -3442,7 +3447,7 @@ export function siteRoutes(app: FastifyInstance): void {
           'Billed sessions at the site still without an electricity cost: send the request again while it is above 0 and updated was above 0 (one request writes at most 5000 costs); sessions whose end time matches no rate period stay',
         ),
     })
-    .passthrough();
+    .loose();
 
   app.post(
     '/sites/:id/electricity-cost/recalculate',

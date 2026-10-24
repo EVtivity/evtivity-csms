@@ -70,7 +70,7 @@ const pricingGroupItem = z
     createdAt: z.coerce.date().describe('Timestamp when the pricing group was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the pricing group was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const tariffItem = z
   .object({
@@ -94,7 +94,8 @@ const tariffItem = z
       .nullable()
       .describe(
         'JSONB restrictions: timeRange, daysOfWeek, dateRange, holidays, energyThresholdKwh',
-      ),
+      )
+      .optional(),
     reservationFeePerMinute: z
       .string()
       .nullable()
@@ -112,7 +113,7 @@ const tariffItem = z
     createdAt: z.coerce.date().describe('Timestamp when the tariff was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the tariff was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const scheduleItem = z
   .object({
@@ -134,7 +135,8 @@ const scheduleItem = z
       .nullable()
       .describe(
         'JSONB restrictions: timeRange, daysOfWeek, dateRange, holidays, energyThresholdKwh',
-      ),
+      )
+      .optional(),
     priority: z
       .number()
       .int()
@@ -147,7 +149,7 @@ const scheduleItem = z
         'Whether this tariff is the one resolved as active right now, evaluated in the `timezone` query parameter or, without it, the system timezone setting (a pricing group has no site of its own). GET /v1/stations/:id/active-tariff resolves in the station site timezone.',
       ),
   })
-  .passthrough();
+  .loose();
 
 const activeTariffItem = z
   .object({
@@ -169,7 +171,8 @@ const activeTariffItem = z
       .nullable()
       .describe(
         'JSONB restrictions: timeRange, daysOfWeek, dateRange, holidays, energyThresholdKwh',
-      ),
+      )
+      .optional(),
     priority: z
       .number()
       .int()
@@ -179,7 +182,7 @@ const activeTariffItem = z
     pricingGroupId: z.string().describe('Pricing group identifier this tariff belongs to'),
     pricingGroupName: z.string().describe('Pricing group display name'),
   })
-  .passthrough();
+  .loose();
 
 const groupParams = z.object({
   id: ID_PARAMS.pricingGroupId.describe('Pricing group ID'),
@@ -204,7 +207,7 @@ const stationParams = z.object({
   id: ID_PARAMS.stationId.describe('Station ID'),
 });
 
-// Bounds are expressed as regex patterns rather than .refine(): zod-to-json-schema
+// Bounds are expressed as regex patterns rather than .refine(): the JSON Schema conversion
 // strips refines when converting to the JSON Schema Fastify actually validates,
 // so a refine here would let "0,49" through to Postgres and surface as a 500.
 // The API accepts "." as the only decimal separator; locale formats are
@@ -244,7 +247,7 @@ const createTariffBody = z.object({
     ),
   taxRate: taxRate.optional().describe('Tax rate as a decimal (e.g. 0.08 for 8%)'),
   restrictions: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .nullable()
     .optional()
     .describe('Tariff restrictions (time-of-day, etc.)'),
@@ -274,7 +277,7 @@ const updateTariffBody = z.object({
     .describe('Reservation holding fee per minute; null to clear'),
   taxRate: taxRate.nullable().optional().describe('Tax rate; null to clear'),
   restrictions: z
-    .record(z.unknown())
+    .record(z.string(), z.unknown())
     .nullable()
     .optional()
     .describe('Tariff restrictions; null to clear'),
@@ -1228,12 +1231,20 @@ export function pricingRoutes(app: FastifyInstance): void {
       entityId: z.string().describe('id of the audited entity'),
       action: z.string().describe('created | updated | deleted'),
       actorUserId: z.string().nullable().describe('Operator user id'),
-      before: z.unknown().nullable().describe('JSONB snapshot of the entity before the mutation'),
-      after: z.unknown().nullable().describe('JSONB snapshot of the entity after the mutation'),
+      before: z
+        .unknown()
+        .nullable()
+        .describe('JSONB snapshot of the entity before the mutation')
+        .optional(),
+      after: z
+        .unknown()
+        .nullable()
+        .describe('JSONB snapshot of the entity after the mutation')
+        .optional(),
       notes: z.string().nullable().describe('Optional free-text note'),
       createdAt: z.coerce.date().describe('Audit timestamp'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/pricing-audit',

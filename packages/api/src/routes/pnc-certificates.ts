@@ -93,7 +93,7 @@ const caCertItem = z
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().describe('Updated timestamp (ISO 8601)'),
   })
-  .passthrough();
+  .loose();
 
 const csrItem = z
   .object({
@@ -127,7 +127,7 @@ const csrItem = z
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().describe('Updated timestamp (ISO 8601)'),
   })
-  .passthrough();
+  .loose();
 
 const stationCertItem = z
   .object({
@@ -159,7 +159,7 @@ const stationCertItem = z
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().describe('Updated timestamp (ISO 8601)'),
   })
-  .passthrough();
+  .loose();
 
 const caCertQuery = paginationQuery.extend({
   certificateType: z.enum(PKI_CERTIFICATE_TYPES).optional().describe('Filter by certificate type'),
@@ -222,7 +222,7 @@ const rootRefreshResult = z
       .int()
       .describe('Root certificates stored by this refresh (already stored roots are skipped)'),
   })
-  .passthrough();
+  .loose();
 
 /**
  * Asks the OCPP server, which holds the PKI providers, to refresh the root

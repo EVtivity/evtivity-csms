@@ -82,7 +82,7 @@ const maintenanceItem = z
               ),
             total: z.number().int().describe('Distinct stations commanded offline'),
           })
-          .passthrough()
+          .loose()
           .nullable()
           .describe('Net take-offline outcome; null until the first run records results'),
         reasserted: z
@@ -96,7 +96,7 @@ const maintenanceItem = z
               .int()
               .describe('Distinct stations re-commanded offline after reconnecting mid-window'),
           })
-          .passthrough()
+          .loose()
           .nullable()
           .describe('Net re-assert outcome; null when no station reconnected mid-window'),
         restored: z
@@ -107,17 +107,17 @@ const maintenanceItem = z
               .describe('Stations whose latest restore command was accepted'),
             total: z.number().int().describe('Distinct stations commanded back into service'),
           })
-          .passthrough()
+          .loose()
           .nullable()
           .describe('Net restore outcome; null until a release run records results'),
       })
-      .passthrough()
+      .loose()
       .optional()
       .describe(
         'Per-station net fan-out outcome, aggregated by the latest command per station per direction (list endpoint only)',
       ),
   })
-  .passthrough();
+  .loose();
 
 const fanoutStationItem = z
   .object({
@@ -146,7 +146,7 @@ const fanoutStationItem = z
       .describe('Live derived station status right now (null when the station was deleted)'),
     createdAt: z.coerce.date().describe('When the fan-out recorded this row'),
   })
-  .passthrough();
+  .loose();
 
 const fanoutStationsQuery = paginationQuery.extend({
   phase: z.string().max(20).optional().describe('Filter by fan-out phase'),
@@ -187,7 +187,7 @@ const statusSummary = z
     current: maintenanceItem.nullable(),
     upcoming: z.array(maintenanceItem),
   })
-  .passthrough();
+  .loose();
 
 const stationPreviewQuery = z.object({
   startAt: z.coerce.date().describe('Planned start'),
@@ -212,7 +212,7 @@ const stationPreviewItem = z
         transactionId: z.string().nullable(),
         driverName: z.string().nullable(),
       })
-      .passthrough()
+      .loose()
       .nullable(),
     upcomingReservationCount: z.number().int(),
     upcomingReservations: z.array(
@@ -223,10 +223,10 @@ const stationPreviewItem = z
           endsAt: z.coerce.date().nullable(),
           driverName: z.string().nullable(),
         })
-        .passthrough(),
+        .loose(),
     ),
   })
-  .passthrough();
+  .loose();
 
 const previewMessageBody = z.object({
   template: z.string().max(2000).optional(),
@@ -1166,7 +1166,7 @@ export function maintenancePreviewRoutes(app: FastifyInstance): void {
         body: zodSchema(previewMessageBody),
         response: {
           200: itemResponse(
-            z.object({ rendered: z.string().describe('Rendered message text') }).passthrough(),
+            z.object({ rendered: z.string().describe('Rendered message text') }).loose(),
           ),
           400: errorWith('The template is not valid', [ERROR_CODES.VALIDATION_ERROR]),
         },

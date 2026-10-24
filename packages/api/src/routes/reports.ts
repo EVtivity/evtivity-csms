@@ -111,7 +111,7 @@ const reportTypeItem = z
       .boolean()
       .describe('Whether the dashboard Generate and Schedules tabs offer this type'),
   })
-  .passthrough();
+  .loose();
 
 const reportItem = z
   .object({
@@ -132,24 +132,24 @@ const reportItem = z
     createdAt: z.coerce.date().describe('Timestamp when the report was queued'),
     completedAt: z.coerce.date().nullable().describe('Timestamp when generation finished'),
   })
-  .passthrough();
+  .loose();
 
 const reportDetail = reportItem
   .extend({
     filters: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .nullable()
       .describe('Filter criteria the report was generated with'),
     generatedById: z.string().nullable().describe('User ID that requested the report'),
   })
-  .passthrough();
+  .loose();
 
 const reportQueuedResponse = z
   .object({
     id: z.string().describe('Identifier of the queued report'),
     status: z.string().describe('Initial status (typically "pending")'),
   })
-  .passthrough();
+  .loose();
 
 const scheduleItem = z
   .object({
@@ -163,7 +163,10 @@ const scheduleItem = z
       .nullable()
       .describe('Day of week for weekly schedules (0=Sunday, 6=Saturday)'),
     dayOfMonth: z.number().nullable().describe('Day of month for monthly schedules (1-31)'),
-    filters: z.record(z.unknown()).nullable().describe('Filter criteria applied each run'),
+    filters: z
+      .record(z.string(), z.unknown())
+      .nullable()
+      .describe('Filter criteria applied each run'),
     recipientEmails: z
       .array(z.string())
       .describe('Email addresses that receive the generated report'),
@@ -178,13 +181,16 @@ const scheduleItem = z
     createdAt: z.coerce.date().describe('Timestamp when created'),
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),
   })
-  .passthrough();
+  .loose();
 
 const generateBody = z.object({
   name: z.string().min(1).max(255),
   reportType: z.enum(REPORT_TYPES).describe('Report type identifier'),
   format: z.enum(REPORT_FORMATS).describe('Output file format'),
-  filters: z.record(z.unknown()).optional().describe('Key-value filter criteria for the report'),
+  filters: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('Key-value filter criteria for the report'),
 });
 
 const reportListQuery = paginationQuery.extend({
@@ -210,9 +216,12 @@ const createScheduleBody = z.object({
     .max(31)
     .optional()
     .describe('Day of month for monthly schedules (1-31)'),
-  filters: z.record(z.unknown()).optional().describe('Key-value filter criteria for the report'),
+  filters: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('Key-value filter criteria for the report'),
   recipientEmails: z
-    .array(z.string().email())
+    .array(z.email())
     .max(50)
     .optional()
     .describe('Email addresses to receive the generated report'),
@@ -675,7 +684,7 @@ export function reportRoutes(app: FastifyInstance): void {
           'Site-restricted users see only schedules within their sites; all-site users see every schedule.',
         operationId: 'listReportSchedules',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(z.object({ data: z.array(scheduleItem) }).passthrough()) },
+        response: { 200: itemResponse(z.object({ data: z.array(scheduleItem) }).loose()) },
       },
     },
     async (request) => {

@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { connectionName } from '@evtivity/lib';
 
 const dbConfigSchema = z.object({
-  DATABASE_URL: z.string().url().default('postgres://evtivity:evtivity@localhost:5433/evtivity'),
+  DATABASE_URL: z.url().default('postgres://evtivity:evtivity@localhost:5433/evtivity'),
   DB_POOL_MAX: z.coerce.number().int().positive().default(20),
   DB_POOL_IDLE_TIMEOUT: z.coerce.number().int().nonnegative().default(30),
   DB_POOL_MAX_LIFETIME: z.coerce.number().int().positive().default(300),

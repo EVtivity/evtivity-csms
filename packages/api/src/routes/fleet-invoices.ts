@@ -118,11 +118,11 @@ const billingRecipientMoveResponse = z
                 'moved, unchanged (already billed to the recipient), or why it did not move: not_found, not_on_account, invoiced (credit the invoice first), billing_off, not_member',
               ),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('Every session the move looked at'),
   })
-  .passthrough();
+  .loose();
 
 const fleetInvoiceListQuery = paginationQuery.extend({
   recipient: z
@@ -140,7 +140,7 @@ const fleetInvoiceListItem = invoiceListItem
       .nullable()
       .describe('On a member invoice: the name of the driver it is addressed to'),
   })
-  .passthrough();
+  .loose();
 
 const batchResponse = z
   .object({
@@ -150,7 +150,7 @@ const batchResponse = z
       .int()
       .describe('Drivers a member invoice is being issued for in the background'),
   })
-  .passthrough();
+  .loose();
 
 const driverTotal = z
   .object({
@@ -162,7 +162,7 @@ const driverTotal = z
     taxCents: z.number().int().describe('Tax in cents'),
     totalCents: z.number().int().describe('Gross amount in cents (the subtotal of the driver)'),
   })
-  .passthrough();
+  .loose();
 
 const excludedSession = z
   .object({
@@ -178,7 +178,7 @@ const excludedSession = z
     currency: z.string().describe('Currency of the session'),
     finalCostCents: z.number().int().nullable().describe('Final cost in cents'),
   })
-  .passthrough();
+  .loose();
 
 const periodInvoice = z
   .object({
@@ -186,7 +186,7 @@ const periodInvoice = z
     invoiceNumber: z.string().describe('Invoice number'),
     status: z.string().describe('Invoice status (issued or paid)'),
   })
-  .passthrough();
+  .loose();
 
 const memberTotal = z
   .object({
@@ -209,7 +209,7 @@ const memberTotal = z
         'The driver has a billing address (street and city); without one the invoice prints name and email',
       ),
   })
-  .passthrough();
+  .loose();
 
 const unbilledResponse = z
   .object({
@@ -239,7 +239,7 @@ const unbilledResponse = z
         'Member invoices of the period, ordered by name: each driver with unbilled member-billed sessions with a cost or a live member invoice of the period. The totals above cover the fleet sessions only',
       ),
   })
-  .passthrough();
+  .loose();
 
 const createResponse = invoiceDetailItem
   .extend({
@@ -254,7 +254,7 @@ const createResponse = invoiceDetailItem
         'The invoice was emailed to the fleet billing contacts (false when the fleet has none or the email failed)',
       ),
   })
-  .passthrough();
+  .loose();
 
 const memberCreateResponse = invoiceDetailItem
   .extend({
@@ -269,7 +269,7 @@ const memberCreateResponse = invoiceDetailItem
         'The invoice was sent to the driver (false when the driver has no email or the send failed)',
       ),
   })
-  .passthrough();
+  .loose();
 
 /** Writes `invoice_generated` for an account invoice issued on demand. Fail-open (P9). */
 async function auditGenerated(

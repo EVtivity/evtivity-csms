@@ -22,7 +22,7 @@ const stripeAck = itemResponse(
     .object({
       received: z.literal(true).describe('Acknowledgement that the webhook was processed'),
     })
-    .passthrough(),
+    .loose(),
 );
 
 const adyenAck = zodSchema(

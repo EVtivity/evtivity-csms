@@ -183,7 +183,7 @@ const settingParams = z.object({
 });
 
 const updateSettingBody = z.object({
-  value: z.unknown(),
+  value: z.unknown().optional(),
 });
 
 const COMPANY_CURRENCY_KEY = 'company.currency';
@@ -621,9 +621,9 @@ function clearCachesForKey(key: string): void {
 const settingItem = z
   .object({
     key: z.string().max(100).describe('Setting key'),
-    value: z.unknown().describe('Setting value (any JSON type)'),
+    value: z.unknown().describe('Setting value (any JSON type)').optional(),
   })
-  .passthrough();
+  .loose();
 
 const s3StatusResponse = z
   .object({
@@ -631,13 +631,13 @@ const s3StatusResponse = z
       .boolean()
       .describe('Whether S3 storage is fully configured (bucket, region, and credentials present)'),
   })
-  .passthrough();
+  .loose();
 
 const webhookSigningStatus = z
   .object({
     configured: z.boolean().describe('A webhook signing secret is stored'),
   })
-  .passthrough();
+  .loose();
 
 const webhookSigningSecretResponse = z
   .object({
@@ -648,7 +648,7 @@ const webhookSigningSecretResponse = z
         'The new signing secret, shown once. Receivers check X-EVtivity-Signature (t=<unix>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">) with it.',
       ),
   })
-  .passthrough();
+  .loose();
 
 /** Writes the webhook signing secret (empty removes it), audited, and refreshes every process. */
 async function writeWebhookSigningSecret(request: FastifyRequest, secret: string): Promise<void> {
@@ -770,7 +770,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(
             z
-              .record(z.string())
+              .record(z.string(), z.string())
               .describe(
                 'Public branding values. Every company.* and marketing.* setting under its key without the prefix (for example name, logo, favicon), currency, priceDisplay, taxBasis, portalUrl (company.portalUrl, else the PORTAL_URL the API runs with), and qrCodeIcon (the SVG drawn in the center of station QR codes, absent when none is set). Values that are not strings are returned as an empty string',
               ),
@@ -903,7 +903,7 @@ export function settingsRoutes(app: FastifyInstance): void {
                     'Present (true) only while station signal reads are on (a Refresh also sends one OCPP request to the station). Absent while they are off',
                   ),
               })
-              .passthrough(),
+              .loose(),
           ),
         },
       },
@@ -956,7 +956,7 @@ export function settingsRoutes(app: FastifyInstance): void {
   });
   const contentItem = z
     .object({ html: z.string().describe('Rendered HTML content for the requested legal document') })
-    .passthrough();
+    .loose();
 
   app.get(
     '/portal/content/:type',
@@ -993,7 +993,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         summary: 'Get all settings',
         operationId: 'listSettings',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(z.record(z.unknown())) },
+        response: { 200: itemResponse(z.record(z.string(), z.unknown())) },
       },
     },
     async (request) => {

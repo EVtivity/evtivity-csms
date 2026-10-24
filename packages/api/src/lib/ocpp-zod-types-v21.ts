@@ -948,7 +948,7 @@ export const acChargingParametersType = z
       .describe('Maximum current (amps) supported by the electric vehicle (per phase)'),
     evMaxVoltage: z.number().describe('Maximum voltage supported by the electric vehicle'),
   })
-  .passthrough()
+  .loose()
   .describe('EV AC charging parameters for ISO 15118-2');
 
 // --- APN Configuration (SetNetworkProfile) ---
@@ -965,7 +965,7 @@ export const apnType = z
     useOnlyPreferredNetwork: z.boolean().optional().describe('Default: false'),
     apnAuthentication: apnAuthenticationEnum,
   })
-  .passthrough()
+  .loose()
   .describe(
     'Collection of configuration data needed to make a data-connection over a cellular network',
   );
@@ -976,7 +976,7 @@ export const rationalNumberType = z
     exponent: z.number().int().describe('The exponent to base 10 (dec)'),
     value: z.number().int().describe('Value which shall be multiplied.'),
   })
-  .passthrough()
+  .loose()
   .describe('Part of ISO 15118-20 price schedule.');
 
 // --- Price Rule (ISO 15118-20 price schedules) ---
@@ -997,7 +997,7 @@ export const priceRuleType = z
     parkingFee: rationalNumberType.optional(),
     powerRangeStart: rationalNumberType,
   })
-  .passthrough()
+  .loose()
   .describe('Part of ISO 15118-20 price schedule.');
 
 // --- Price Rule Stack (ISO 15118-20 price schedules) ---
@@ -1006,7 +1006,7 @@ export const priceRuleStackType = z
     duration: z.number().int().describe('Duration of the stack of price rules'),
     priceRule: z.array(priceRuleType),
   })
-  .passthrough()
+  .loose()
   .describe('Part of ISO 15118-20 price schedule.');
 
 // --- Tax Rule (ISO 15118-20 price schedules) ---
@@ -1030,7 +1030,7 @@ export const taxRuleType = z
       .describe('Indicates whether this tax applies to Minimum/Maximum Cost.'),
     taxRate: rationalNumberType,
   })
-  .passthrough()
+  .loose()
   .describe('Part of ISO 15118-20 price schedule.');
 
 // --- Overstay Rule (ISO 15118-20 price schedules) ---
@@ -1049,7 +1049,7 @@ export const overstayRuleType = z
       ),
     overstayFeePeriod: z.number().int().describe('Time till overstay will be reapplied'),
   })
-  .passthrough()
+  .loose()
   .describe('Part of ISO 15118-20 price schedule.');
 
 // --- Overstay Rule List (ISO 15118-20 price schedules) ---
@@ -1063,7 +1063,7 @@ export const overstayRuleListType = z
       .optional()
       .describe('Time till overstay is applied in seconds.'),
   })
-  .passthrough()
+  .loose()
   .describe('Part of ISO 15118-20 price schedule.');
 
 // --- Additional Selected Services (ISO 15118-20 price schedules) ---
@@ -1072,7 +1072,7 @@ export const additionalSelectedServicesType = z
     serviceFee: rationalNumberType,
     serviceName: z.string().describe('Human readable string to identify this service.'),
   })
-  .passthrough()
+  .loose()
   .describe('Part of ISO 15118-20 price schedule.');
 
 // --- Absolute Price Schedule (ISO 15118-20 price schedules) ---
@@ -1099,7 +1099,7 @@ export const absolutePriceScheduleType = z
     overstayRuleList: overstayRuleListType.optional(),
     additionalSelectedServices: z.array(additionalSelectedServicesType).optional(),
   })
-  .passthrough()
+  .loose()
   .describe(
     'The AbsolutePriceScheduleType is modeled after the same type that is defined in ISO 15118-20, suc...',
   );
@@ -1114,7 +1114,7 @@ export const additionalInfoType = z
         '_additionalInfo_ can be used to send extra information to CSMS in addition to the regular authori...',
       ),
   })
-  .passthrough()
+  .loose()
   .describe(
     'Contains a case insensitive identifier to use for the authorization and the type of authorization...',
   );
@@ -1129,7 +1129,7 @@ export const addressType = z
     postalCode: z.string().optional().describe('Postal code'),
     country: z.string().describe('Country name'),
   })
-  .passthrough()
+  .loose()
   .describe('A generic address format.');
 
 // --- ID Token (shared: Authorize, TransactionEvent, ReserveNow, RequestStartTransaction, SendLocalList) ---
@@ -1139,7 +1139,7 @@ export const idTokenType = z
     idToken: z.string().describe('IdToken is case insensitive'),
     type: z.string().describe('Enumeration of possible idToken types'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'Contains a case insensitive identifier to use for the authorization and the type of authorization...',
   );
@@ -1151,7 +1151,7 @@ export const messageContentType = z
     language: z.string().optional().describe('Message language identifier'),
     content: z.string().describe('Required'),
   })
-  .passthrough()
+  .loose()
   .describe('Contains message details, for a message to be displayed on a Charging Station.');
 
 // --- ID Token Info (shared: Authorize, TransactionEvent, RequestStartTransaction) ---
@@ -1184,7 +1184,7 @@ export const idTokenInfoType = z
       ),
     personalMessage: messageContentType.optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Contains status information about an identifier');
 
 // --- Authorization Data (SendLocalList) ---
@@ -1193,7 +1193,7 @@ export const authorizationData = z
     idToken: idTokenType,
     idTokenInfo: idTokenInfoType.optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Contains the identifier to use for authorization.');
 
 // --- Battery Data (BatterySwap) ---
@@ -1209,7 +1209,7 @@ export const batteryDataType = z
       .optional()
       .describe('Vendor-specific info from battery in undefined format.'),
   })
-  .passthrough();
+  .loose();
 
 // --- Certificate Hash Data (shared: DeleteCertificate, GetInstalledCertificateIds, GetCertificateStatus) ---
 export const certificateHashDataType = z
@@ -1231,7 +1231,7 @@ export const certificateHashDataType = z
         'The string representation of the hexadecimal value of the serial number without the prefix "0x" a...',
       ),
   })
-  .passthrough();
+  .loose();
 
 // --- Certificate Hash Data Chain (GetInstalledCertificateIds) ---
 export const certificateHashDataChainType = z
@@ -1240,7 +1240,7 @@ export const certificateHashDataChainType = z
     certificateType: getCertificateIdUseEnum,
     childCertificateHashData: z.array(certificateHashDataType).optional(),
   })
-  .passthrough();
+  .loose();
 
 // --- Certificate Status Request Info (GetCertificateChainStatus) ---
 export const certificateStatusRequestInfoType = z
@@ -1249,7 +1249,7 @@ export const certificateStatusRequestInfoType = z
     source: certificateStatusSourceEnum,
     urls: z.array(z.string()).describe('URL(s) of _source_.'),
   })
-  .passthrough()
+  .loose()
   .describe('Data necessary to request the revocation status of a certificate.');
 
 // --- Certificate Status (GetCertificateChainStatus) ---
@@ -1260,7 +1260,7 @@ export const certificateStatusType = z
     status: certificateStatusEnum,
     nextUpdate: z.string(),
   })
-  .passthrough()
+  .loose()
   .describe('Revocation status of certificate');
 
 // --- Charging Limit (NotifyChargingLimit, ReportChargingProfiles) ---
@@ -1278,7 +1278,7 @@ export const chargingLimitType = z
       .optional()
       .describe('Indicates whether the charging limit is critical for the grid.'),
   })
-  .passthrough();
+  .loose();
 
 // --- DER Charging Parameters (NotifyEVChargingNeeds, ISO 15118-20) ---
 export const derChargingParametersType = z
@@ -1462,7 +1462,7 @@ export const derChargingParametersType = z
         'Total energy value, in Wh, that EV is allowed to provide during the entire V2G session',
       ),
   })
-  .passthrough()
+  .loose()
   .describe(
     'DERChargingParametersType is used in ChargingNeedsType during an ISO 15118-20 session for AC_BPT_...',
   );
@@ -1477,7 +1477,7 @@ export const evPriceRuleType = z
         'The EnergyFee applies between this value and the value of the PowerRangeStart of the subsequent E...',
       ),
   })
-  .passthrough()
+  .loose()
   .describe('An entry in price schedule over time for which EV is willing to discharge.');
 
 // --- EV Absolute Price Schedule Entry (NotifyEVChargingNeeds) ---
@@ -1486,7 +1486,7 @@ export const evAbsolutePriceScheduleEntryType = z
     duration: z.number().int().describe('The amount of seconds of this entry.'),
     evPriceRule: z.array(evPriceRuleType),
   })
-  .passthrough()
+  .loose()
   .describe('An entry in price schedule over time for which EV is willing to discharge.');
 
 // --- EV Absolute Price Schedule (NotifyEVChargingNeeds) ---
@@ -1499,7 +1499,7 @@ export const evAbsolutePriceScheduleType = z
       .string()
       .describe('ISO 15118-20 URN of price algorithm: Power, PeakPower, StackedEnergy.'),
   })
-  .passthrough()
+  .loose()
   .describe('Price schedule of EV energy offer.');
 
 // --- EV Power Schedule Entry (NotifyEVChargingNeeds) ---
@@ -1512,7 +1512,7 @@ export const evPowerScheduleEntryType = z
         'Defines maximum amount of power for the duration of this EVPowerScheduleEntry to be discharged fr...',
       ),
   })
-  .passthrough()
+  .loose()
   .describe('An entry in schedule of the energy amount over time that EV is willing to discharge');
 
 // --- EV Power Schedule (NotifyEVChargingNeeds) ---
@@ -1523,7 +1523,7 @@ export const evPowerScheduleType = z
       .string()
       .describe('The time that defines the starting point for the EVEnergyOffer.'),
   })
-  .passthrough()
+  .loose()
   .describe('Schedule of EV energy offer.');
 
 // --- EV Energy Offer (NotifyEVChargingNeeds, V2X) ---
@@ -1532,7 +1532,7 @@ export const evEnergyOfferType = z
     evAbsolutePriceSchedule: evAbsolutePriceScheduleType.optional(),
     evPowerSchedule: evPowerScheduleType,
   })
-  .passthrough()
+  .loose()
   .describe('A schedule of the energy amount over time that EV is willing to discharge');
 
 // --- DC Charging Parameters (NotifyEVChargingNeeds, ISO 15118-2) ---
@@ -1567,7 +1567,7 @@ export const dcChargingParametersType = z
       .optional()
       .describe('Percentage of SoC at which the EV considers a fast charging process to end'),
   })
-  .passthrough()
+  .loose()
   .describe('EV DC charging parameters for ISO 15118-2');
 
 // --- V2X Charging Parameters (NotifyEVChargingNeeds, ISO 15118-20) ---
@@ -1695,7 +1695,7 @@ export const v2xChargingParametersType = z
       .optional()
       .describe('Target state of charge at departure as percentage'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'Charging parameters for ISO 15118-20, also supporting V2X charging/discharging.+ All values are g...',
   );
@@ -1717,7 +1717,7 @@ export const chargingNeedsType = z
     mobilityNeedsMode: mobilityNeedsModeEnum.optional(),
     departureTime: z.string().optional().describe('Estimated departure time of the EV'),
   })
-  .passthrough();
+  .loose();
 
 // --- Cost Dimension (TransactionEvent running cost) ---
 export const costDimensionType = z
@@ -1727,7 +1727,7 @@ export const costDimensionType = z
       .number()
       .describe('Volume of the dimension consumed, measured according to the dimension type.'),
   })
-  .passthrough()
+  .loose()
   .describe('Volume consumed of cost dimension.');
 
 // --- Charging Period (TransactionEvent running cost) ---
@@ -1740,7 +1740,7 @@ export const chargingPeriodType = z
       .describe('Unique identifier of the Tariff that was used to calculate cost'),
     startPeriod: z.string().describe('Start timestamp of charging period'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'A ChargingPeriodType consists of a start time, and a list of possible values that influence this ...',
   );
@@ -1763,7 +1763,7 @@ export const chargingProfileCriterionType = z
       .optional()
       .describe('For which charging limit sources, charging profiles SHALL be reported'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'A ChargingProfileCriterionType is a filter for charging profiles to be selected by a GetChargingP...',
   );
@@ -1777,7 +1777,7 @@ export const limitAtSoCType = z
       .describe('The SoC value beyond which the charging rate limit should be applied.'),
     limit: z.number().describe('Charging rate limit beyond the SoC value'),
   })
-  .passthrough();
+  .loose();
 
 // --- V2X Frequency-Watt Point (SetChargingProfile DER curves) ---
 export const v2xFreqWattPointType = z
@@ -1787,7 +1787,7 @@ export const v2xFreqWattPointType = z
       .number()
       .describe('Power in W to charge (positive) or discharge (negative) at specified frequency.'),
   })
-  .passthrough()
+  .loose()
   .describe('A point of a frequency-watt curve.');
 
 // --- V2X Signal-Watt Point (SetChargingProfile DER curves) ---
@@ -1798,7 +1798,7 @@ export const v2xSignalWattPointType = z
       .number()
       .describe('Power in W to charge (positive) or discharge (negative) at specified frequency.'),
   })
-  .passthrough()
+  .loose()
   .describe('A point of a signal-watt curve.');
 
 // --- Charging Schedule Period (SetChargingProfile, NotifyEVChargingSchedule) ---
@@ -1906,7 +1906,7 @@ export const chargingSchedulePeriodType = z
     v2xFreqWattCurve: z.array(v2xFreqWattPointType).optional(),
     v2xSignalWattCurve: z.array(v2xSignalWattPointType).optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Charging schedule period structure defines a time period in a charging schedule');
 
 // --- Relative Time Interval (Sales tariff entries) ---
@@ -1915,7 +1915,7 @@ export const relativeTimeIntervalType = z
     start: z.number().int().describe('Start of the interval, in seconds from NOW.'),
     duration: z.number().int().optional().describe('Duration of the interval, in seconds.'),
   })
-  .passthrough();
+  .loose();
 
 // --- Cost (Sales tariff consumption cost) ---
 export const costType = z
@@ -1928,7 +1928,7 @@ export const costType = z
       .optional()
       .describe('Values: -3..3, The amountMultiplier defines the exponent to base 10 (dec)'),
   })
-  .passthrough();
+  .loose();
 
 // --- Consumption Cost (Sales tariff entries) ---
 export const consumptionCostType = z
@@ -1940,7 +1940,7 @@ export const consumptionCostType = z
       ),
     cost: z.array(costType),
   })
-  .passthrough();
+  .loose();
 
 // --- Sales Tariff Entry (SetChargingProfile) ---
 export const salesTariffEntryType = z
@@ -1953,7 +1953,7 @@ export const salesTariffEntryType = z
       .describe('Defines the price level of this SalesTariffEntry (referring to NumEPriceLevels)'),
     consumptionCost: z.array(consumptionCostType).optional(),
   })
-  .passthrough();
+  .loose();
 
 // --- Sales Tariff (SetChargingProfile) ---
 export const salesTariffType = z
@@ -1972,7 +1972,7 @@ export const salesTariffType = z
       ),
     salesTariffEntry: z.array(salesTariffEntryType),
   })
-  .passthrough()
+  .loose()
   .describe('A SalesTariff provided by a Mobility Operator (EMSP) ');
 
 // --- Price Level Schedule Entry (ISO 15118-20 price schedules) ---
@@ -1991,7 +1991,7 @@ export const priceLevelScheduleEntryType = z
         'Defines the price level of this PriceLevelScheduleEntry (referring to NumberOfPriceLevels)',
       ),
   })
-  .passthrough()
+  .loose()
   .describe('Part of ISO 15118-20 price schedule.');
 
 // --- Price Level Schedule (ISO 15118-20 price schedules) ---
@@ -2008,7 +2008,7 @@ export const priceLevelScheduleType = z
         'Defines the overall number of distinct price level elements used across all PriceLevelSchedules.',
       ),
   })
-  .passthrough()
+  .loose()
   .describe(
     'The PriceLevelScheduleType is modeled after the same type that is defined in ISO 15118-20, such t...',
   );
@@ -2047,7 +2047,7 @@ export const chargingScheduleType = z
     absolutePriceSchedule: absolutePriceScheduleType.optional(),
     priceLevelSchedule: priceLevelScheduleType.optional(),
   })
-  .passthrough()
+  .loose()
   .describe(
     'Charging schedule structure defines a list of charging periods, as used in: NotifyEVChargingSched...',
   );
@@ -2103,7 +2103,7 @@ export const chargingProfileType = z
       .optional()
       .describe('ISO 15118-20 signature for all price schedules in _chargingSchedules_'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'A ChargingProfile consists of 1 to 3 ChargingSchedules with a list of ChargingSchedulePeriods, de...',
   );
@@ -2176,7 +2176,7 @@ export const chargingScheduleUpdateType = z
         'Setpoint for reactive power (or current) in _chargingRateUnit_ that the EV should follow on phase...',
       ),
   })
-  .passthrough()
+  .loose()
   .describe('Updates to a ChargingSchedulePeriodType for dynamic charging profiles.');
 
 // --- Modem (BootNotification) ---
@@ -2185,7 +2185,7 @@ export const modemType = z
     iccid: z.string().optional().describe('This contains the ICCID of the modem’s SIM card.'),
     imsi: z.string().optional().describe('This contains the IMSI of the modem’s SIM card.'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'Defines parameters required for initiating and maintaining wireless communication with other devi...',
   );
@@ -2202,7 +2202,7 @@ export const chargingStationType = z
       .optional()
       .describe('This contains the firmware version of the Charging Station.'),
   })
-  .passthrough()
+  .loose()
   .describe('The physical system where an Electrical Vehicle (EV) can be charged.');
 
 // --- Clear Charging Profile (ClearChargingProfile) ---
@@ -2222,7 +2222,7 @@ export const clearChargingProfileType = z
         'Specifies the stackLevel for which charging profiles will be cleared, if they meet the other crit...',
       ),
   })
-  .passthrough()
+  .loose()
   .describe(
     'A ClearChargingProfileType is a filter for charging profiles to be cleared by ClearChargingProfil...',
   );
@@ -2238,7 +2238,7 @@ export const statusInfoType = z
       .optional()
       .describe('Additional text to provide detailed information.'),
   })
-  .passthrough()
+  .loose()
   .describe('Element providing more information about the status.');
 
 // --- Clear Monitoring Result (ClearVariableMonitoring) ---
@@ -2248,7 +2248,7 @@ export const clearMonitoringResultType = z
     id: z.number().int().describe('Id of the monitor of which a clear was requested.'),
     statusInfo: statusInfoType.optional(),
   })
-  .passthrough();
+  .loose();
 
 // --- Clear Tariffs Result (ClearTariffs) ---
 export const clearTariffsResultType = z
@@ -2257,7 +2257,7 @@ export const clearTariffsResultType = z
     tariffId: z.string().optional().describe('Id of tariff for which _status_ is reported'),
     status: tariffClearStatusEnum,
   })
-  .passthrough();
+  .loose();
 
 // --- EVSE (shared: StatusNotification, TransactionEvent, ChangeAvailability, ReserveNow) ---
 export const evseType = z
@@ -2269,7 +2269,7 @@ export const evseType = z
       .optional()
       .describe('An id to designate a specific connector (on an EVSE) by connector index number.'),
   })
-  .passthrough()
+  .loose()
   .describe('Electric Vehicle Supply Equipment');
 
 // --- Component (shared: GetVariables, SetVariables, GetBaseReport, NotifyEvent) ---
@@ -2282,7 +2282,7 @@ export const componentType = z
       .optional()
       .describe('Name of instance in case the component exists as multiple instances'),
   })
-  .passthrough()
+  .loose()
   .describe('A physical or logical component');
 
 // --- Variable (shared: GetVariables, SetVariables, GetBaseReport, NotifyEvent) ---
@@ -2294,7 +2294,7 @@ export const variableType = z
       .optional()
       .describe('Name of instance in case the variable exists as multiple instances'),
   })
-  .passthrough()
+  .loose()
   .describe('Reference key to a component-variable.');
 
 // --- Component Variable (GetMonitoringReport, SetMonitoringBase) ---
@@ -2303,7 +2303,7 @@ export const componentVariableType = z
     component: componentType,
     variable: variableType.optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Class to report components, variables and variable attributes and characteristics.');
 
 // --- Composite Schedule (GetCompositeSchedule) ---
@@ -2315,7 +2315,7 @@ export const compositeScheduleType = z
     chargingRateUnit: chargingRateUnitEnum,
     chargingSchedulePeriod: z.array(chargingSchedulePeriodType),
   })
-  .passthrough();
+  .loose();
 
 // --- Periodic Event Stream Params (OpenPeriodicEventStream, NotifyPeriodicEventStream) ---
 export const periodicEventStreamParamsType = z
@@ -2327,7 +2327,7 @@ export const periodicEventStreamParamsType = z
       .describe('Time in seconds after which stream data is sent.'),
     values: z.number().int().optional().describe('Number of items to be sent together in stream.'),
   })
-  .passthrough();
+  .loose();
 
 // --- Constant Stream Data (OpenPeriodicEventStream) ---
 export const constantStreamDataType = z
@@ -2336,7 +2336,7 @@ export const constantStreamDataType = z
     params: periodicEventStreamParamsType,
     variableMonitoringId: z.number().int().describe('Id of monitor used to report his event'),
   })
-  .passthrough();
+  .loose();
 
 // --- Tax Rate (Tariff types, running cost) ---
 export const taxRateType = z
@@ -2345,7 +2345,7 @@ export const taxRateType = z
     tax: z.number().describe('Tax percentage'),
     stack: z.number().int().optional().describe('Stack level for this type of tax'),
   })
-  .passthrough()
+  .loose()
   .describe('Tax percentage');
 
 // --- Price (TransactionEvent running cost) ---
@@ -2355,7 +2355,7 @@ export const priceType = z
     inclTax: z.number().optional().describe('Price/cost including tax'),
     taxRates: z.array(taxRateType).optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Price with and without tax');
 
 // --- Total Price (TransactionEvent running cost) ---
@@ -2364,7 +2364,7 @@ export const totalPriceType = z
     exclTax: z.number().optional().describe('Price/cost excluding tax'),
     inclTax: z.number().optional().describe('Price/cost including tax'),
   })
-  .passthrough()
+  .loose()
   .describe('Total cost with and without tax');
 
 // --- Total Cost (TransactionEvent running cost) ---
@@ -2380,7 +2380,7 @@ export const totalCostType = z
     reservationFixed: priceType.optional(),
     total: totalPriceType,
   })
-  .passthrough()
+  .loose()
   .describe('This contains the cost calculated during a transaction');
 
 // --- Total Usage (TransactionEvent running cost) ---
@@ -2401,7 +2401,7 @@ export const totalUsageType = z
       ),
     reservationTime: z.number().int().optional().describe('Total time of reservation in seconds.'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'This contains the calculated usage of energy, charging time and idle time during a transaction.',
   );
@@ -2421,7 +2421,7 @@ export const costDetailsType = z
       .optional()
       .describe('Optional human-readable reason text in case of failure to calculate.'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'CostDetailsType contains the cost as calculated by Charging Station based on provided TariffType',
   );
@@ -2440,7 +2440,7 @@ export const derCurvePointsType = z
         'The data value of the Y-axis (dependent) variable, depending on the &lt;&lt;cmn_derunitenumtype&g...',
       ),
   })
-  .passthrough();
+  .loose();
 
 // --- Hysteresis (DER curve parameters) ---
 export const hysteresisType = z
@@ -2466,7 +2466,7 @@ export const hysteresisType = z
         'Set default rate of change (ramp rate %/s) for the EV to return to normal operation after a grid ...',
       ),
   })
-  .passthrough();
+  .loose();
 
 // --- Reactive Power Params (DER VoltVar curve) ---
 export const reactivePowerParamsType = z
@@ -2486,7 +2486,7 @@ export const reactivePowerParamsType = z
       .optional()
       .describe('Only for VoltVar: Adjustment range for VRef time constant'),
   })
-  .passthrough();
+  .loose();
 
 // --- Voltage Params (DER voltage curve) ---
 export const voltageParamsType = z
@@ -2503,7 +2503,7 @@ export const voltageParamsType = z
       .describe('Time for which the voltage is allowed to stay above the 10 min mean value'),
     powerDuringCessation: powerDuringCessationEnum.optional(),
   })
-  .passthrough();
+  .loose();
 
 // --- DER Curve (SetDERControl, GetDERControl) ---
 export const derCurveType = z
@@ -2526,7 +2526,7 @@ export const derCurveType = z
       .describe('Point in time when this curve will become activated'),
     duration: z.number().optional().describe('Duration in seconds that this curve will be active'),
   })
-  .passthrough();
+  .loose();
 
 // --- DER Curve Get (GetDERControl) ---
 export const derCurveGetType = z
@@ -2539,7 +2539,7 @@ export const derCurveGetType = z
       .boolean()
       .describe('True if this setting is superseded by a higher priority setting (i.e'),
   })
-  .passthrough();
+  .loose();
 
 // --- Enter Service (SetDERControl) ---
 export const enterServiceType = z
@@ -2553,7 +2553,7 @@ export const enterServiceType = z
     randomDelay: z.number().optional().describe('Enter service randomized delay'),
     rampRate: z.number().optional().describe('Enter service ramp rate in seconds'),
   })
-  .passthrough();
+  .loose();
 
 // --- Enter Service Get (GetDERControl) ---
 export const enterServiceGetType = z
@@ -2561,7 +2561,7 @@ export const enterServiceGetType = z
     enterService: enterServiceType,
     id: z.string().describe('Id of setting'),
   })
-  .passthrough();
+  .loose();
 
 // --- Event Data (NotifyEvent) ---
 export const eventDataType = z
@@ -2606,7 +2606,7 @@ export const eventDataType = z
         'Severity associated with the monitor in _variableMonitoringId_ or with the hardwired notification.',
       ),
   })
-  .passthrough()
+  .loose()
   .describe('Class to report an event notification for a component-variable.');
 
 // --- Firmware (UpdateFirmware) ---
@@ -2626,7 +2626,7 @@ export const firmwareType = z
       .describe('Certificate with which the firmware was signed'),
     signature: z.string().optional().describe('Base64 encoded firmware signature.'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'Represents a copy of the firmware that can be loaded/updated on the Charging Station.',
   );
@@ -2644,7 +2644,7 @@ export const fixedPFType = z
     startTime: z.string().optional().describe('Time when this setting becomes active'),
     duration: z.number().optional().describe('Duration in seconds that this setting is active.'),
   })
-  .passthrough();
+  .loose();
 
 // --- Fixed Power Factor Get (GetDERControl) ---
 export const fixedPFGetType = z
@@ -2656,7 +2656,7 @@ export const fixedPFGetType = z
       .boolean()
       .describe('True if this setting is superseded by a lower priority setting.'),
   })
-  .passthrough();
+  .loose();
 
 // --- Fixed Var (SetDERControl) ---
 export const fixedVarType = z
@@ -2671,7 +2671,7 @@ export const fixedVarType = z
     startTime: z.string().optional().describe('Time when this setting becomes active.'),
     duration: z.number().optional().describe('Duration in seconds that this setting is active.'),
   })
-  .passthrough();
+  .loose();
 
 // --- Fixed Var Get (GetDERControl) ---
 export const fixedVarGetType = z
@@ -2683,7 +2683,7 @@ export const fixedVarGetType = z
       .boolean()
       .describe('True if this setting is superseded by a lower priority setting'),
   })
-  .passthrough();
+  .loose();
 
 // --- Frequency Droop (SetDERControl) ---
 export const freqDroopType = z
@@ -2697,7 +2697,7 @@ export const freqDroopType = z
     startTime: z.string().optional().describe('Time when this setting becomes active'),
     duration: z.number().optional().describe('Duration in seconds that this setting is active'),
   })
-  .passthrough();
+  .loose();
 
 // --- Frequency Droop Get (GetDERControl) ---
 export const freqDroopGetType = z
@@ -2709,7 +2709,7 @@ export const freqDroopGetType = z
       .boolean()
       .describe('True if this setting is superseded by a higher priority setting (i.e'),
   })
-  .passthrough();
+  .loose();
 
 // --- Get Variable Data (GetVariables) ---
 export const getVariableDataType = z
@@ -2718,7 +2718,7 @@ export const getVariableDataType = z
     component: componentType,
     variable: variableType,
   })
-  .passthrough()
+  .loose()
   .describe('Class to hold parameters for GetVariables request.');
 
 // --- Get Variable Result (GetVariables) ---
@@ -2734,7 +2734,7 @@ export const getVariableResultType = z
     component: componentType,
     variable: variableType,
   })
-  .passthrough()
+  .loose()
   .describe('Class to hold results of GetVariables request.');
 
 // --- Gradient (SetDERControl) ---
@@ -2744,7 +2744,7 @@ export const gradientType = z
     gradient: z.number().describe('Default ramp rate in seconds (0 if not applicable)'),
     softGradient: z.number().describe('Soft-start ramp rate in seconds (0 if not applicable)'),
   })
-  .passthrough();
+  .loose();
 
 // --- Gradient Get (GetDERControl) ---
 export const gradientGetType = z
@@ -2752,7 +2752,7 @@ export const gradientGetType = z
     gradient: gradientType,
     id: z.string().describe('Id of setting'),
   })
-  .passthrough();
+  .loose();
 
 // --- Limit Max Discharge (SetDERControl) ---
 export const limitMaxDischargeType = z
@@ -2763,7 +2763,7 @@ export const limitMaxDischargeType = z
     startTime: z.string().optional().describe('Time when this setting becomes active'),
     duration: z.number().optional().describe('Duration in seconds that this setting is active'),
   })
-  .passthrough();
+  .loose();
 
 // --- Limit Max Discharge Get (GetDERControl) ---
 export const limitMaxDischargeGetType = z
@@ -2775,7 +2775,7 @@ export const limitMaxDischargeGetType = z
       .describe('True if this setting is superseded by a higher priority setting (i.e'),
     limitMaxDischarge: limitMaxDischargeType,
   })
-  .passthrough();
+  .loose();
 
 // --- Log Parameters (GetLog) ---
 export const logParametersType = z
@@ -2796,7 +2796,7 @@ export const logParametersType = z
         'This contains the date and time of the latest logging information to include in the diagnostics.',
       ),
   })
-  .passthrough()
+  .loose()
   .describe('Generic class for the configuration of logging entries.');
 
 // --- Message Info (SetDisplayMessage, GetDisplayMessages, NotifyDisplayMessages) ---
@@ -2823,7 +2823,7 @@ export const messageInfoType = z
     message: messageContentType,
     messageExtra: z.array(messageContentType).optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Contains message details, for a message to be displayed on a Charging Station.');
 
 // --- Signed Meter Value (MeterValues, TransactionEvent) ---
@@ -2843,7 +2843,7 @@ export const signedMeterValueType = z
         'Base64 encoded, sending depends on configuration variable _PublicKeyWithSignedMeterValue_.',
       ),
   })
-  .passthrough()
+  .loose()
   .describe('Represent a signed version of the meter value.');
 
 // --- Unit of Measure (MeterValues, TransactionEvent) ---
@@ -2856,7 +2856,7 @@ export const unitOfMeasureType = z
       .optional()
       .describe('Multiplier, this value represents the exponent to base 10'),
   })
-  .passthrough()
+  .loose()
   .describe('Represents a UnitOfMeasure with a multiplier');
 
 // --- Sampled Value (MeterValues, TransactionEvent) ---
@@ -2870,7 +2870,7 @@ export const sampledValueType = z
     signedMeterValue: signedMeterValueType.optional(),
     unitOfMeasure: unitOfMeasureType.optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Single sampled value in MeterValues');
 
 // --- Meter Value (MeterValues, TransactionEvent) ---
@@ -2879,7 +2879,7 @@ export const meterValueType = z
     sampledValue: z.array(sampledValueType),
     timestamp: z.string().describe('Timestamp for measured value(s).'),
   })
-  .passthrough()
+  .loose()
   .describe('Collection of one or more sampled values in MeterValuesRequest and TransactionEvent');
 
 // --- Variable Monitoring (NotifyMonitoringReport) ---
@@ -2899,7 +2899,7 @@ export const variableMonitoringType = z
       .describe('The severity that will be assigned to an event that is triggered by this monitor'),
     eventNotificationType: eventNotificationEnum,
   })
-  .passthrough()
+  .loose()
   .describe('A monitoring setting for a variable.');
 
 // --- Monitoring Data (NotifyMonitoringReport) ---
@@ -2909,7 +2909,7 @@ export const monitoringDataType = z
     variable: variableType,
     variableMonitoring: z.array(variableMonitoringType),
   })
-  .passthrough()
+  .loose()
   .describe('Class to hold parameters of SetVariableMonitoring request.');
 
 // --- VPN (SetNetworkProfile) ---
@@ -2922,7 +2922,7 @@ export const vpnType = z
     key: z.string().describe('VPN shared secret.'),
     type: vpnEnum,
   })
-  .passthrough()
+  .loose()
   .describe('VPN Configuration settings');
 
 // --- Network Connection Profile (SetNetworkProfile) ---
@@ -2959,7 +2959,7 @@ export const networkConnectionProfileType = z
       .describe('BasicAuthPassword to use for security profile 1 or 2.'),
     vpn: vpnType.optional(),
   })
-  .passthrough()
+  .loose()
   .describe(
     'The NetworkConnectionProfile defines the functional and technical parameters of a communication l...',
   );
@@ -2985,7 +2985,7 @@ export const ocspRequestDataType = z
       ),
     responderURL: z.string().describe('This contains the responder URL (Case insensitive).'),
   })
-  .passthrough()
+  .loose()
   .describe('Information about a certificate for an OCSP check.');
 
 // --- Variable Attribute (NotifyReport, GetBaseReport) ---
@@ -3003,7 +3003,7 @@ export const variableAttributeType = z
       .optional()
       .describe('If true, value that will never be changed by the Charging Station at runtime'),
   })
-  .passthrough()
+  .loose()
   .describe('Attribute data of a variable.');
 
 // --- Variable Characteristics (NotifyReport, GetBaseReport) ---
@@ -3028,7 +3028,7 @@ export const variableCharacteristicsType = z
       .boolean()
       .describe('Flag indicating if this variable supports monitoring.'),
   })
-  .passthrough()
+  .loose()
   .describe('Fixed read-only parameters of a variable.');
 
 // --- Report Data (NotifyReport) ---
@@ -3039,7 +3039,7 @@ export const reportDataType = z
     variableAttribute: z.array(variableAttributeType),
     variableCharacteristics: variableCharacteristicsType.optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Class to report components, variables and variable attributes and characteristics.');
 
 // --- Set Monitoring Data (SetVariableMonitoring) ---
@@ -3066,7 +3066,7 @@ export const setMonitoringDataType = z
     component: componentType,
     variable: variableType,
   })
-  .passthrough()
+  .loose()
   .describe('Class to hold parameters of SetVariableMonitoring request.');
 
 // --- Set Monitoring Result (SetVariableMonitoring) ---
@@ -3087,7 +3087,7 @@ export const setMonitoringResultType = z
       .int()
       .describe('The severity that will be assigned to an event that is triggered by this monitor'),
   })
-  .passthrough()
+  .loose()
   .describe('Class to hold result of SetVariableMonitoring request.');
 
 // --- Set Variable Data (SetVariables) ---
@@ -3098,7 +3098,7 @@ export const setVariableDataType = z
     component: componentType,
     variable: variableType,
   })
-  .passthrough();
+  .loose();
 
 // --- Set Variable Result (SetVariables) ---
 export const setVariableResultType = z
@@ -3109,7 +3109,7 @@ export const setVariableResultType = z
     component: componentType,
     variable: variableType,
   })
-  .passthrough();
+  .loose();
 
 // --- Stream Data Element (NotifyPeriodicEventStream) ---
 export const streamDataElementType = z
@@ -3117,7 +3117,7 @@ export const streamDataElementType = z
     t: z.number().describe('Offset relative to _basetime_ of this message'),
     v: z.string(),
   })
-  .passthrough();
+  .loose();
 
 // --- Tariff Assignment (GetTariffs) ---
 export const tariffAssignmentType = z
@@ -3128,7 +3128,7 @@ export const tariffAssignmentType = z
     evseIds: z.array(z.number().int()).optional(),
     idTokens: z.array(z.string()).optional().describe('IdTokens related to tariff'),
   })
-  .passthrough()
+  .loose()
   .describe('Shows assignment of tariffs to EVSE or IdToken.');
 
 // --- Tariff Conditions Fixed (SetDefaultTariff, SetDriverTariff) ---
@@ -3152,7 +3152,7 @@ export const tariffConditionsFixedType = z
       .describe('For which payment brand this (adhoc) tariff applies'),
     paymentRecognition: z.string().optional().describe('Type of adhoc payment, e.g'),
   })
-  .passthrough()
+  .loose()
   .describe('These conditions describe if a FixedPrice applies at start of the transaction');
 
 // --- Tariff Conditions (SetDefaultTariff, SetDriverTariff) ---
@@ -3223,7 +3223,7 @@ export const tariffConditionsType = z
       .optional()
       .describe('Maximum duration in seconds the idle period (i.e'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'These conditions describe if and when a TariffEnergyType or TariffTimeType applies during a trans...',
   );
@@ -3234,7 +3234,7 @@ export const tariffEnergyPriceType = z
     priceKwh: z.number().describe('Price per kWh (excl'),
     conditions: tariffConditionsType.optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Tariff with optional conditions for an energy price.');
 
 // --- Tariff Energy (SetDefaultTariff, SetDriverTariff) ---
@@ -3243,7 +3243,7 @@ export const tariffEnergyType = z
     prices: z.array(tariffEnergyPriceType),
     taxRates: z.array(taxRateType).optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Price elements and tax for energy');
 
 // --- Tariff Fixed Price (SetDefaultTariff, SetDriverTariff) ---
@@ -3252,7 +3252,7 @@ export const tariffFixedPriceType = z
     conditions: tariffConditionsFixedType.optional(),
     priceFixed: z.number().describe('Fixed price for this element e.g'),
   })
-  .passthrough()
+  .loose()
   .describe('Tariff with optional conditions for a fixed price.');
 
 // --- Tariff Fixed (SetDefaultTariff, SetDriverTariff) ---
@@ -3261,7 +3261,7 @@ export const tariffFixedType = z
     prices: z.array(tariffFixedPriceType),
     taxRates: z.array(taxRateType).optional(),
   })
-  .passthrough();
+  .loose();
 
 // --- Tariff Time Price (SetDefaultTariff, SetDriverTariff) ---
 export const tariffTimePriceType = z
@@ -3269,7 +3269,7 @@ export const tariffTimePriceType = z
     priceMinute: z.number().describe('Price per minute (excl'),
     conditions: tariffConditionsType.optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Tariff with optional conditions for a time duration price.');
 
 // --- Tariff Time (SetDefaultTariff, SetDriverTariff) ---
@@ -3278,7 +3278,7 @@ export const tariffTimeType = z
     prices: z.array(tariffTimePriceType),
     taxRates: z.array(taxRateType).optional(),
   })
-  .passthrough()
+  .loose()
   .describe('Price elements and tax for time');
 
 // --- Tariff (SetDefaultTariff, SetDriverTariff, GetTariffs) ---
@@ -3297,7 +3297,7 @@ export const tariffType = z
     minCost: priceType.optional(),
     maxCost: priceType.optional(),
   })
-  .passthrough()
+  .loose()
   .describe(
     'A tariff is described by fields with prices for: energy, charging time, idle time, fixed fee, res...',
   );
@@ -3320,7 +3320,7 @@ export const transactionLimitType = z
       .describe('Maximum duration of transaction in seconds from start to end.'),
     maxSoC: z.number().int().optional().describe('Maximum State of Charge of EV in percentage.'),
   })
-  .passthrough()
+  .loose()
   .describe('Cost, energy, time or SoC limit for a transaction.');
 
 // --- Transaction (TransactionEvent) ---
@@ -3347,7 +3347,7 @@ export const transactionType = z
     tariffId: z.string().optional().describe('Id of tariff in use for transaction'),
     transactionLimit: transactionLimitType.optional(),
   })
-  .passthrough();
+  .loose();
 
 // ============================================================
 // Inferred TypeScript Types

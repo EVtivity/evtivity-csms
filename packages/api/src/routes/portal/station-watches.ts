@@ -47,7 +47,7 @@ const watchItem = z
     createdAt: z.coerce.date().describe('Timestamp when the watch was created'),
     expiresAt: z.coerce.date().describe('Timestamp when the watch auto-expires'),
   })
-  .passthrough();
+  .loose();
 
 const addWatchBody = z.object({
   stationId: z.string().min(1).max(255).describe('OCPP station identifier'),
@@ -156,7 +156,7 @@ export function portalStationWatchRoutes(app: FastifyInstance): void {
                   .nullable()
                   .describe('Watch record ID when isWatching is true, otherwise null'),
               })
-              .passthrough(),
+              .loose(),
           ),
         },
       },
@@ -202,7 +202,7 @@ export function portalStationWatchRoutes(app: FastifyInstance): void {
         body: zodSchema(addWatchBody),
         response: {
           201: itemResponse(
-            z.object({ id: z.number().int().min(1).describe('Watch record ID') }).passthrough(),
+            z.object({ id: z.number().int().min(1).describe('Watch record ID') }).loose(),
           ),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           409: errorWith('Cannot watch this station', [

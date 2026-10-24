@@ -6,7 +6,7 @@ import { proxyEntryProblem } from '@evtivity/lib/trust-proxy';
 import { resolveNotificationTestSinkUrl } from '@evtivity/lib/notification-test-sink';
 
 // Compose passes an unset variable as an empty string.
-function optionalInt<T extends z.ZodTypeAny>(schema: T) {
+function optionalInt<T extends z.ZodType>(schema: T) {
   return z.preprocess((v) => (v === '' ? undefined : v), schema.optional());
 }
 
@@ -26,8 +26,8 @@ const schema = z.object({
   OCPP_TLS_CERT_PEM: z.string().optional(),
   OCPP_TLS_KEY_PEM: z.string().optional(),
   OCPP_TLS_CA_PEM: z.string().optional(),
-  DATABASE_URL: z.string().url().default('postgres://evtivity:evtivity@localhost:5433/evtivity'),
-  REDIS_URL: z.string().url().default('redis://localhost:6379'),
+  DATABASE_URL: z.url().default('postgres://evtivity:evtivity@localhost:5433/evtivity'),
+  REDIS_URL: z.url().default('redis://localhost:6379'),
   SETTINGS_ENCRYPTION_KEY: z.string().min(1),
   OCPP_INSTANCE_ID: z.string().optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
@@ -89,10 +89,7 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
-  NOTIFICATIONS_TEST_SINK_URL: z.preprocess(
-    (v) => (v === '' ? undefined : v),
-    z.string().url().optional(),
-  ),
+  NOTIFICATIONS_TEST_SINK_URL: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
 });
 
 export type OcppConfig = z.infer<typeof schema>;

@@ -89,12 +89,15 @@ const campaignItem = z
         'Install time sent as firmware.installDateTime, null installs when the station can',
       ),
     status: z.enum(firmwareCampaignStatusEnum.enumValues).describe('Campaign status'),
-    targetFilter: z.record(z.unknown()).nullable().describe('Filter selecting target stations'),
+    targetFilter: z
+      .record(z.string(), z.unknown())
+      .nullable()
+      .describe('Filter selecting target stations'),
     createdById: z.string().nullable().describe('User ID that created the campaign'),
     createdAt: z.string().describe('Row creation timestamp'),
     updatedAt: z.string().describe('Row last update timestamp'),
   })
-  .passthrough();
+  .loose();
 
 const fwMatchingStationItem = z
   .object({
@@ -106,7 +109,7 @@ const fwMatchingStationItem = z
     siteName: z.string().nullable().describe('Site name'),
     vendorName: z.string().nullable().describe('Vendor name'),
   })
-  .passthrough();
+  .loose();
 
 const filterOptionsResponse = z
   .object({
@@ -117,7 +120,7 @@ const filterOptionsResponse = z
             id: z.string().describe('Site identifier'),
             name: z.string().describe('Site display name'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('Sites available for targeting'),
     vendors: z
@@ -127,7 +130,7 @@ const filterOptionsResponse = z
             id: z.string().describe('Vendor identifier'),
             name: z.string().describe('Vendor display name'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('Vendors available for targeting'),
     models: z.array(z.string()).describe('Distinct station models available for targeting'),
@@ -138,11 +141,11 @@ const filterOptionsResponse = z
             id: z.string().describe('Station UUID'),
             stationId: z.string().describe('Human-readable station identifier'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('Stations matching the current filter'),
   })
-  .passthrough();
+  .loose();
 
 const campaignParams = z.object({ id: z.string().describe('Campaign ID') });
 
@@ -160,14 +163,13 @@ const retryIntervalField = z
   .describe(
     `Seconds between download retries (1 to ${String(FIRMWARE_RETRY_INTERVAL_MAX_SECONDS)})`,
   );
-const installDateTimeField = z
-  .string()
+const installDateTimeField = z.iso
   .datetime({ offset: true })
   .describe('Install time (ISO 8601); the station downloads first and installs at this time');
 
 const createCampaignBody = z.object({
   name: z.string().min(1).describe('Campaign name'),
-  firmwareUrl: z.string().url().describe('Firmware download URL'),
+  firmwareUrl: z.url().describe('Firmware download URL'),
   version: z.string().optional().describe('Firmware version'),
   retries: retriesField.optional(),
   retryInterval: retryIntervalField.optional(),
@@ -188,7 +190,7 @@ const createCampaignBody = z.object({
 
 const updateCampaignBody = z.object({
   name: z.string().min(1).optional(),
-  firmwareUrl: z.string().url().optional(),
+  firmwareUrl: z.url().optional(),
   version: z.string().optional(),
   retries: retriesField.nullable().optional(),
   retryInterval: retryIntervalField.nullable().optional(),

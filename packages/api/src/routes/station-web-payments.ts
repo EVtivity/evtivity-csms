@@ -57,7 +57,7 @@ const webPaymentConfig = z
       .nullable()
       .describe('WebPaymentsCtrlr.URLTemplate pointing to the portal, null when disabled'),
   })
-  .passthrough();
+  .loose();
 
 const supportQuery = z.object({
   live: z
@@ -101,7 +101,7 @@ const webPaymentSupport = z
       .nullable()
       .describe('When the station answered or last reported the component, null when not asked'),
   })
-  .passthrough();
+  .loose();
 
 function isLiveCheck(request: FastifyRequest): boolean {
   return (request.query as { live?: unknown } | undefined)?.live === 'true';

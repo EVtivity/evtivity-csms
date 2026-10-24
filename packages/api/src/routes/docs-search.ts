@@ -57,7 +57,7 @@ const passage = z
     url: z.string().describe('Link to the section on evtivity.com'),
     text: z.string().describe('Section text (markdown)'),
   })
-  .passthrough();
+  .loose();
 
 const searchResponse = z
   .object({
@@ -67,7 +67,7 @@ const searchResponse = z
       .describe('True when the requested language had no match and English passages are returned'),
     results: z.array(passage).describe('Best matching passages, best first'),
   })
-  .passthrough();
+  .loose();
 
 async function userLanguage(userId: string | undefined): Promise<DocsLanguage> {
   if (userId === undefined) return 'en';

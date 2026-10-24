@@ -4,15 +4,15 @@
 import { z } from 'zod';
 
 const schema = z.object({
-  DATABASE_URL: z.string().url().default('postgres://evtivity:evtivity@localhost:5433/evtivity'),
+  DATABASE_URL: z.url().default('postgres://evtivity:evtivity@localhost:5433/evtivity'),
   // Connection pool size, as for the other services (@evtivity/database).
   DB_POOL_MAX: z.coerce.number().int().positive().default(10),
-  REDIS_URL: z.string().url().default('redis://localhost:6379'),
-  OCPP_SERVER_URL: z.string().url().default('ws://localhost:7103'),
-  OCPP_TLS_SERVER_URL: z.string().url().default('wss://localhost:8443'),
+  REDIS_URL: z.url().default('redis://localhost:6379'),
+  OCPP_SERVER_URL: z.url().default('ws://localhost:7103'),
+  OCPP_TLS_SERVER_URL: z.url().default('wss://localhost:8443'),
   // The TLS address the CSMS gives stations moved to TLS (the API's value).
   // A simulator moved to TLS by a security profile change connects there.
-  OCPP_STATION_TLS_URL: z.string().url().optional(),
+  OCPP_STATION_TLS_URL: z.url().optional(),
   // Enum-constrain so a typo (e.g. 'chaoss', 'CHAOS') fails fast at startup
   // instead of silently falling through to standby. Default to standby on
   // missing env. Per the simulator rule the only two valid modes are

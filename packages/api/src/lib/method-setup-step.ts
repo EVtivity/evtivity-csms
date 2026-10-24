@@ -3,7 +3,7 @@
 
 import type { FastifyReply } from 'fastify';
 import { z } from 'zod';
-import type { ZodTypeAny } from 'zod';
+import type { ZodType } from 'zod';
 import type { DriverPaymentMethod, SetupStepOutcome } from '@evtivity/payments';
 import { errorWith, itemResponse } from './response-schemas.js';
 import { ERROR_CODES } from './error-codes.generated.js';
@@ -22,8 +22,7 @@ const providerField = z
   .describe('Provider of the setup session the client ran its card UI for (session.provider)');
 
 const attemptIdField = z
-  .string()
-  .uuid()
+  .guid()
   .describe(
     'UUID the client generates when the card form opens; the same id makes a retried step idempotent',
   );
@@ -35,7 +34,8 @@ export const setupSubmitBody = z.object({
     .unknown()
     .describe(
       "The card the provider's card UI collected. Stripe: { paymentMethodId } of the confirmed SetupIntent. Test provider: { testCard }. Adyen: the Card component state.data plus the setup session currency ({ paymentMethod, browserInfo?, currency }). Card numbers are never accepted, except the test provider's listed test cards.",
-    ),
+    )
+    .optional(),
   browser: shopperBrowserBody
     .optional()
     .describe(
@@ -63,7 +63,8 @@ export const setupDetailsBody = z.object({
     .unknown()
     .describe(
       'Result of the client action (3D Secure). Adyen: the onAdditionalDetails state.data, or { details: { redirectResult } } from the return page. Test provider: { methodId, outcome: approve | fail } of its challenge.',
-    ),
+    )
+    .optional(),
 });
 
 const actionRequiredResponse = z
@@ -72,26 +73,29 @@ const actionRequiredResponse = z
     action: z
       .object({
         provider: z.string().describe('Provider whose client UI handles the action'),
-        data: z.unknown().describe('Provider action data (3D Secure, test provider challenge)'),
+        data: z
+          .unknown()
+          .describe('Provider action data (3D Secure, test provider challenge)')
+          .optional(),
       })
-      .passthrough()
+      .loose()
       .describe('Action for the card UI; post its result to setup/details'),
   })
-  .passthrough()
+  .loose()
   .describe('The card needs a client action before it is saved');
 
-function savedResponse(methodItem: ZodTypeAny): ZodTypeAny {
+function savedResponse(methodItem: ZodType): ZodType {
   return z
     .object({
       status: z.literal('saved').describe('The card is saved'),
       method: methodItem,
     })
-    .passthrough()
+    .loose()
     .describe('The saved card');
 }
 
 /** Response schemas of a setup step route, with the route's payment method item. */
-export function setupStepResponses(methodItem: ZodTypeAny): Record<number, unknown> {
+export function setupStepResponses(methodItem: ZodType): Record<number, unknown> {
   return {
     200: itemResponse(actionRequiredResponse),
     201: itemResponse(savedResponse(methodItem)),

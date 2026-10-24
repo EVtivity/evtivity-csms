@@ -87,7 +87,7 @@ const portalInvoiceItem = z
       .describe('Total amount in cents (net plus tax), negative on a credit note'),
     createdAt: z.coerce.date().describe('When the invoice was created'),
   })
-  .passthrough();
+  .loose();
 
 const portalInvoiceLine = z
   .object({
@@ -118,7 +118,7 @@ const portalInvoiceLine = z
     energyWh: z.number().nullable().describe('On session lines: energy delivered in Wh'),
     stationName: z.string().nullable().describe('On member invoice session lines: the station'),
   })
-  .passthrough();
+  .loose();
 
 const portalInvoiceTaxLine = z
   .object({
@@ -127,19 +127,19 @@ const portalInvoiceTaxLine = z
     taxCents: z.number().int().describe('Tax amount at this rate, in cents'),
     grossCents: z.number().int().describe('Net amount plus tax at this rate, in cents'),
   })
-  .passthrough();
+  .loose();
 
 const portalInvoiceReference = z
   .object({
     id: z.string().describe('Invoice ID'),
     invoiceNumber: z.string().describe('Invoice or credit note number'),
   })
-  .passthrough();
+  .loose();
 
 const portalInvoiceDetail = portalInvoiceItem
   .extend({
     billTo: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .nullable()
       .describe(
         'On a member invoice: the bill-to block at issue (name, address, email). Null on ordinary driver invoices, which bill the driver by name and email',
@@ -154,7 +154,7 @@ const portalInvoiceDetail = portalInvoiceItem
       .nullable()
       .describe('On a credited invoice: the credit note that credited it'),
   })
-  .passthrough();
+  .loose();
 
 type PortalInvoiceLine = z.infer<typeof portalInvoiceLine>;
 

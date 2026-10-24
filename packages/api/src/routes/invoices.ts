@@ -98,7 +98,7 @@ export const invoiceListItem = z
     createdAt: z.coerce.date().describe('Timestamp when the invoice was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the invoice was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const invoiceRecord = z
   .object({
@@ -135,7 +135,7 @@ const invoiceRecord = z
         'On a fleet invoice: when the overdue notice (invoice.FleetOverdue) went to the fleet billing contacts, null until then',
       ),
     billTo: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .nullable()
       .describe(
         'On a fleet invoice: the bill-to block of the fleet billing profile at issue (name, street, city, state, zip, country, taxId)',
@@ -182,11 +182,11 @@ const invoiceRecord = z
       .number()
       .int()
       .describe('Total amount in cents (subtotal + tax), negative on a credit note'),
-    metadata: z.record(z.unknown()).nullable().describe('Free-form invoice metadata'),
+    metadata: z.record(z.string(), z.unknown()).nullable().describe('Free-form invoice metadata'),
     createdAt: z.string().describe('Timestamp when the invoice was created'),
     updatedAt: z.string().describe('Timestamp when the invoice was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const invoiceLineItem = z
   .object({
@@ -218,14 +218,14 @@ const invoiceLineItem = z
       .string()
       .describe('Tax rate of this line item as a decimal fraction string (0.19 is 19%)'),
     metadata: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .nullable()
       .describe(
         'Line item metadata. kind (energy, time, sessionFee, idleFee, reservationFee, session, cancellationFee, noShowFee) says what the line bills; segment is the 1-based tariff segment of a split session; sessionDate and energyWh describe session lines; chargeDate is the charge date of a reservation fee line; on fleet invoices driverId, driverName and stationName describe session and idleFee lines, and idleMinutes is the idle time billed on an idleFee line (a session idle fee shown as its own line).',
       ),
     createdAt: z.string().describe('Timestamp when the line item was created'),
   })
-  .passthrough();
+  .loose();
 
 const invoiceDriver = z
   .object({
@@ -235,7 +235,7 @@ const invoiceDriver = z
     email: z.string().nullable().describe('Driver email address'),
     language: z.string().describe('Driver preferred language; the invoice PDF renders in it'),
   })
-  .passthrough();
+  .loose();
 
 const invoiceTaxBreakdownLine = z
   .object({
@@ -244,7 +244,7 @@ const invoiceTaxBreakdownLine = z
     taxCents: z.number().int().describe('Tax amount at this rate, in cents'),
     grossCents: z.number().int().describe('Net amount plus tax at this rate, in cents'),
   })
-  .passthrough();
+  .loose();
 
 const invoiceReference = z
   .object({
@@ -258,7 +258,7 @@ const invoiceReference = z
         'When the credited invoice was paid; a refund of that money is made outside EVtivity',
       ),
   })
-  .passthrough();
+  .loose();
 
 export const invoiceDetailItem = z
   .object({
@@ -281,7 +281,7 @@ export const invoiceDetailItem = z
         id: z.string().describe('Fleet ID'),
         name: z.string().describe('Fleet name'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .optional()
       .describe(
@@ -300,7 +300,7 @@ export const invoiceDetailItem = z
         'On a credited invoice: the credit note that credited it. Null otherwise. Present on the detail response.',
       ),
   })
-  .passthrough();
+  .loose();
 import { authorize } from '../middleware/rbac.js';
 import { sendAccountInvoiceEmail } from '@evtivity/services/fleet-invoice-notice';
 import {
@@ -340,8 +340,7 @@ const creditNoteBody = z.object({
 });
 
 const markPaidBody = z.object({
-  paidAt: z
-    .string()
+  paidAt: z.iso
     .datetime({ offset: true })
     .describe('When the payment was received (ISO 8601). Must not be in the future'),
   reference: z
@@ -358,8 +357,8 @@ const PAID_AT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
 
 const aggregatedInvoiceBody = z.object({
   driverId: ID_PARAMS.driverId.describe('Driver ID to invoice'),
-  startDate: z.string().datetime().describe('Start of billing period (ISO 8601)'),
-  endDate: z.string().datetime().describe('End of billing period (ISO 8601)'),
+  startDate: z.iso.datetime().describe('Start of billing period (ISO 8601)'),
+  endDate: z.iso.datetime().describe('End of billing period (ISO 8601)'),
 });
 
 /**
@@ -542,7 +541,7 @@ const printLogoResponse = z
         'The PDF logo as a data URI: data:image/png;base64,... (an SVG logo is rasterized as for the PDF) or data:image/jpeg;base64,...',
       ),
   })
-  .passthrough();
+  .loose();
 
 /** PNG or JPEG bytes (as loadPdfBranding returns them) as a data URI. */
 function imageDataUri(bytes: Buffer): string {

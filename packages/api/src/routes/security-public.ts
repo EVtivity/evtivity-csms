@@ -35,7 +35,7 @@ const passwordPolicyResponse = z
       .boolean()
       .describe('Whether a password needs an ASCII character that is not a letter, digit or space'),
   })
-  .passthrough()
+  .loose()
   .describe('Rules a new operator or driver password must meet');
 
 const publicSecurityResponse = z
@@ -64,7 +64,7 @@ const publicSecurityResponse = z
     supportAiEnabled: z.boolean().describe('Whether the support case AI assist feature is enabled'),
     passwordPolicy: passwordPolicyResponse,
   })
-  .passthrough();
+  .loose();
 
 export function securityPublicRoutes(app: FastifyInstance): void {
   app.get(

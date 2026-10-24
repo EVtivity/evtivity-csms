@@ -9,7 +9,7 @@ export const methodSetupSessionSchema = z
     provider: z.string().describe('Provider id the client loads its card UI for'),
     customerId: z.string().describe('Provider customer the card is saved to'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'Card setup session of the active provider. Stripe: clientSecret, publishableKey. Simulated: resultMode, testCards. Adyen: clientKey, environment, paymentMethodsResponse, countryCode, currency.',
   );
@@ -42,7 +42,7 @@ export const providerRefundsSchema = z
           .optional()
           .describe('When the provider confirmed or failed the refund (ISO 8601)'),
       })
-      .passthrough(),
+      .loose(),
   )
   .optional()
   .describe('Refunds of this payment at the provider, oldest first');

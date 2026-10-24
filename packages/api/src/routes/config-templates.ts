@@ -71,7 +71,7 @@ const templateVariableSchema = z
     variableInstance: z.string().nullable().optional().describe(VARIABLE_INSTANCE_DESCRIPTION),
     value: z.string().describe('Variable value to set'),
   })
-  .passthrough();
+  .loose();
 
 const targetFilterResponseSchema = z
   .object({
@@ -81,7 +81,7 @@ const targetFilterResponseSchema = z
     stationId: z.string().optional(),
     dataPlan: z.enum(DATA_PLANS).optional().describe(DATA_PLAN_FILTER_DESCRIPTION),
   })
-  .passthrough();
+  .loose();
 
 const templateItem = z
   .object({
@@ -102,28 +102,28 @@ const templateItem = z
       .optional()
       .describe('Count of stations matching the target filter (list endpoint only)'),
   })
-  .passthrough();
+  .loose();
 
 const filterOptionSiteSchema = z
   .object({
     id: z.string().describe('Site ID'),
     name: z.string().describe('Site name'),
   })
-  .passthrough();
+  .loose();
 
 const filterOptionVendorSchema = z
   .object({
     id: z.string().describe('Vendor ID'),
     name: z.string().describe('Vendor name'),
   })
-  .passthrough();
+  .loose();
 
 const filterOptionStationSchema = z
   .object({
     id: z.string().describe('Station UUID'),
     stationId: z.string().describe('Human-readable station identifier'),
   })
-  .passthrough();
+  .loose();
 
 const filterOptionsItem = z
   .object({
@@ -133,7 +133,7 @@ const filterOptionsItem = z
     stations: z.array(filterOptionStationSchema).describe('Available stations for filtering'),
     dataPlans: z.array(z.enum(DATA_PLANS)).describe('Data plans a target filter can name'),
   })
-  .passthrough();
+  .loose();
 
 const matchingStationItem = z
   .object({
@@ -144,7 +144,7 @@ const matchingStationItem = z
     siteName: z.string().nullable().describe('Site name'),
     vendorName: z.string().nullable().describe('Vendor name'),
   })
-  .passthrough();
+  .loose();
 
 const configDriftItem = z
   .object({
@@ -155,7 +155,7 @@ const configDriftItem = z
     actualValue: z.string().nullable().describe('Value currently set on the station'),
     hasDrift: z.boolean().describe('Whether the actual value differs from the expected value'),
   })
-  .passthrough();
+  .loose();
 
 const pushItem = z
   .object({
@@ -170,7 +170,7 @@ const pushItem = z
     rejectedCount: z.number().describe('Stations that rejected the configuration'),
     failedCount: z.number().describe('Stations where the push failed'),
   })
-  .passthrough();
+  .loose();
 
 const pushStationItem = z
   .object({
@@ -181,7 +181,7 @@ const pushStationItem = z
     errorInfo: z.string().nullable().describe('Error details when status is rejected or failed'),
     updatedAt: z.string().describe('ISO timestamp when this row was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const pushDetailItem = z
   .object({
@@ -198,7 +198,7 @@ const pushDetailItem = z
     stations: z.array(pushStationItem).describe('Paginated per-station results'),
     stationsTotal: z.number().describe('Total number of stations in this push'),
   })
-  .passthrough();
+  .loose();
 
 const templateParams = z.object({ id: z.string().describe('Template ID') });
 
@@ -214,7 +214,7 @@ export const templateRefusalDetails = {
           'DATA_PLAN_SETTING_IN_TEMPLATE: the refused variables (Component.Variable, or the OCPP 1.6 key); VALIDATION_ERROR: the variable problem',
         ),
     })
-    .passthrough()
+    .loose()
     .optional()
     .describe('Details of the refusal'),
 };
@@ -896,7 +896,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
         response: {
-          200: itemResponse(z.object({ success: z.boolean(), pushId: z.string() }).passthrough()),
+          200: itemResponse(z.object({ success: z.boolean(), pushId: z.string() }).loose()),
           400: errorWith(
             'Station credential, security or boot-owned variable',
             [

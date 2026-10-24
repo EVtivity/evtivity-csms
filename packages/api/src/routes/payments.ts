@@ -128,14 +128,15 @@ const sitePaymentConfigItem = z
     createdAt: z.coerce.date().describe('Timestamp when the configuration was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the configuration was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const stripeSettingsResponse = z
   .object({
     publishableKey: z
       .unknown()
       .nullable()
-      .describe('Stripe publishable API key for client-side Stripe.js'),
+      .describe('Stripe publishable API key for client-side Stripe.js')
+      .optional(),
     secretKey: z
       .string()
       .nullable()
@@ -162,7 +163,7 @@ const stripeSettingsResponse = z
       .boolean()
       .describe('A signing secret of the Connect webhook endpoint is stored'),
   })
-  .passthrough()
+  .loose()
   .describe(
     'Stripe settings. The secrets are returned decrypted only to callers that also hold settings.system:read; every caller gets whether each one is stored. The pre-authorization amount and platform fee are in GET /v1/settings/payments.',
   );
@@ -196,7 +197,7 @@ const driverPaymentMethodItem = z
     createdAt: z.coerce.date().describe('Timestamp when the payment method was added'),
     updatedAt: z.coerce.date().describe('Timestamp when the payment method was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const setupIntentResponse = z
   .object({
@@ -212,7 +213,7 @@ const setupIntentResponse = z
       .describe('Stripe publishable API key for client-side Stripe.js'),
     session: methodSetupSessionSchema,
   })
-  .passthrough();
+  .loose();
 
 const paymentRecordItem = z
   .object({
@@ -305,7 +306,7 @@ const paymentRecordItem = z
     createdAt: z.coerce.date().describe('Timestamp when the payment record was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the payment record was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const refundResponseItem = paymentRecordItem
   .extend({
@@ -315,7 +316,7 @@ const refundResponseItem = paymentRecordItem
         'succeeded: the refund is done and counted in refundedAmountCents. pending: an asynchronous provider (Adyen) accepted it and confirms it by webhook; providerRefunds lists it as pending until then.',
       ),
   })
-  .passthrough();
+  .loose();
 
 const RESERVATION_FEE_CHARGE_TYPES = ['reservation_cancellation', 'reservation_no_show'] as const;
 
@@ -330,11 +331,11 @@ const feePaymentItem = paymentRecordItem
       .nullable()
       .describe('Tax rate the fee was charged at, as a decimal (e.g. 0.19)'),
   })
-  .passthrough();
+  .loose();
 
 const feeRefundResponseItem = feePaymentItem
   .extend({ refundStatus: refundResponseItem.shape.refundStatus })
-  .passthrough();
+  .loose();
 
 const preAuthFailedResponse = z
   .object({
@@ -347,7 +348,7 @@ const preAuthFailedResponse = z
         'Payment record of the failed pre-authorization (the session already had one when not new). Absent on a 400 VALIDATION_ERROR of the body',
       ),
   })
-  .passthrough();
+  .loose();
 
 const reconciliationRunItem = z
   .object({
@@ -384,7 +385,7 @@ const reconciliationRunItem = z
       .describe('Detailed error entries from this reconciliation run'),
     createdAt: z.coerce.date().describe('Timestamp when the reconciliation run completed'),
   })
-  .passthrough();
+  .loose();
 
 const reconciliationResultItem = z
   .object({
@@ -403,7 +404,7 @@ const reconciliationResultItem = z
       .array(z.unknown())
       .describe('Detailed error entries encountered during reconciliation'),
   })
-  .passthrough();
+  .loose();
 import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { clearPaymentCaches, paymentContext, paymentRegistry } from '../lib/payments.js';
 import { writePaymentSettings } from '../lib/payment-settings-writes.js';
@@ -699,7 +700,7 @@ const webhookEndpointItem = z
       .describe('API version of the event payloads; null when the account default applies'),
     active: z.boolean().describe('Whether the provider currently sends events to the endpoint'),
   })
-  .passthrough();
+  .loose();
 
 const otherWebhookEndpoints = z
   .array(webhookEndpointItem)
@@ -726,11 +727,11 @@ const stripeWebhookSetupResponse = z
         platform: z.array(z.string()).describe('Events of the platform endpoint'),
         connect: z.array(z.string()).describe('Events of the Connect endpoint'),
       })
-      .passthrough()
+      .loose()
       .describe('Events a new registration subscribes to'),
     apiVersion: z.string().describe('Stripe API version of the endpoints EVtivity creates'),
   })
-  .passthrough();
+  .loose();
 
 const stripeWebhookRegistrationResponse = z
   .object({
@@ -740,7 +741,7 @@ const stripeWebhookRegistrationResponse = z
         'The endpoints created, followed by any earlier endpoint at this URL Stripe did not delete',
       ),
   })
-  .passthrough();
+  .loose();
 
 const webhookExistsResponse = z
   .object({
@@ -751,7 +752,7 @@ const webhookExistsResponse = z
       .describe('The endpoints at the requested URL; send replace: true to replace them'),
     otherEndpoints: otherWebhookEndpoints,
   })
-  .passthrough()
+  .loose()
   .describe('An EVtivity webhook already exists');
 
 const createStripeWebhookBody = z.object({

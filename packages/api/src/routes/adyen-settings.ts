@@ -149,7 +149,7 @@ const webhookEndpointSchema = z
     apiVersion: z.string().nullable().describe('Always null for Adyen'),
     active: z.boolean().describe('Adyen sends events to this webhook'),
   })
-  .passthrough()
+  .loose()
   .describe('An EVtivity webhook on the Adyen merchant account');
 
 const otherWebhookEndpoints = z
@@ -203,7 +203,7 @@ const adyenWebhookExistsResponse = z
       .describe('The webhooks at the requested URL; send replace: true to update it'),
     otherEndpoints: otherWebhookEndpoints,
   })
-  .passthrough()
+  .loose()
   .describe('A webhook already exists at this URL');
 
 const createAdyenWebhookResponse = z

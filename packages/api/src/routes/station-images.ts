@@ -65,12 +65,12 @@ const uploadUrlResponse = z
       .string()
       .describe('Presigned S3 POST URL the client sends the form to (the file field last)'),
     fields: z
-      .record(z.string())
+      .record(z.string(), z.string())
       .describe('Form fields to send unchanged before the file field (the POST policy)'),
     s3Key: z.string().describe('Quarantine key of the upload, sent back at confirm'),
     s3Bucket: z.string().describe('S3 bucket the file is uploaded to'),
   })
-  .passthrough();
+  .loose();
 
 const confirmUploadBody = z.object({
   fileName: z.string().min(1).max(255),
@@ -116,7 +116,7 @@ const imageItem = z
     createdAt: z.string().describe('Timestamp when the image was uploaded'),
     updatedAt: z.string().describe('Timestamp when the image was last updated'),
   })
-  .passthrough();
+  .loose();
 
 /** Deletes a clean object whose row was never stored (fail-open: logged, the object stays). */
 async function removeStoredImage(s3: S3Config, key: string, log: FastifyBaseLogger): Promise<void> {
@@ -522,7 +522,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
               .object({
                 downloadUrl: z.string().describe('Presigned S3 GET URL for downloading the image'),
               })
-              .passthrough(),
+              .loose(),
           ),
           400: errorWith('S3 not configured', [ERROR_CODES.STORAGE_NOT_CONFIGURED]),
           404: errorWith('Resource not found', [

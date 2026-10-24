@@ -29,7 +29,7 @@ export const driverBillingSchema = z
         "Who gets the monthly invoice of the driver's account sessions: fleet (the fleet's invoice, never shown to the driver) or member (the driver's own invoice, listed by GET /v1/portal/invoices); null for card",
       ),
   })
-  .passthrough();
+  .loose();
 
 export type DriverBilling = z.infer<typeof driverBillingSchema>;
 
@@ -69,7 +69,7 @@ export const sessionAccountBillingSchema = z
       .nullable()
       .describe('On a member-billed session: the number of that invoice, null until invoiced'),
   })
-  .passthrough();
+  .loose();
 
 export type SessionAccountBilling = z.infer<typeof sessionAccountBillingSchema>;
 

@@ -128,7 +128,7 @@ const locationPublishListItem = z
       .nullable()
       .describe('Custom OCPI location identifier exposed to partners'),
   })
-  .passthrough();
+  .loose();
 
 const locationPublishDetail = z
   .object({
@@ -149,7 +149,7 @@ const locationPublishDetail = z
         'Partner IDs the site is visible to when publishToAll is false. Omitted for users without access to every site (roaming partners are company-wide)',
       ),
   })
-  .passthrough();
+  .loose();
 
 const siteParams = z.object({
   siteId: ID_PARAMS.siteId.describe('Site ID'),

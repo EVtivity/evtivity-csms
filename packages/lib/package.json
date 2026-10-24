@@ -210,7 +210,7 @@
     "reflect-metadata": "^0.2.2",
     "tsyringe": "^4.8.0",
     "undici": "^8.11.2",
-    "zod": "^3.24.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/html-to-text": "^9.0.4",

@@ -304,7 +304,7 @@ export function webauthnRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         body: zodSchema(registrationBody),
         response: {
-          200: itemResponse(registrationResponse.merge(loginResponse.partial()).passthrough()),
+          200: itemResponse(registrationResponse.extend(loginResponse.partial().shape).loose()),
           400: errorWith(
             'Not verified, or the proof is missing or wrong',
             [

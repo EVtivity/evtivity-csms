@@ -57,7 +57,7 @@ const MAX_BILLING_CONTACTS = 10;
 // The fleet billing profile, as stored on the fleet (features/fleet-billing.md).
 const billingProfileFields = {
   billingContactEmails: z
-    .array(z.string().email().max(255))
+    .array(z.email().max(255))
     .describe('Billing contacts: the fleet invoice is emailed to these addresses'),
   billingLegalName: z
     .string()
@@ -114,7 +114,7 @@ const fleetListItem = z
         "Number of stations assigned to this fleet; for a site-restricted user only the stations of the user's sites",
       ),
   })
-  .passthrough();
+  .loose();
 
 const fleetItem = z
   .object({
@@ -156,14 +156,14 @@ const fleetItem = z
     createdAt: z.coerce.date().describe('Timestamp when the fleet was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the fleet was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const fleetDriverItem = z
   .object({
     id: z.string().describe('Driver identifier'),
     firstName: z.string().max(100).nullable().describe('Driver first name'),
     lastName: z.string().max(100).nullable().describe('Driver last name'),
-    email: z.string().email().max(255).nullable().describe('Driver email address'),
+    email: z.email().max(255).nullable().describe('Driver email address'),
     phone: z.string().max(50).nullable().describe('Driver phone number in E.164 format'),
     isActive: z.boolean().describe('Whether the driver account is enabled'),
     accountBillingOptOut: z
@@ -173,7 +173,7 @@ const fleetDriverItem = z
       ),
     createdAt: z.coerce.date().describe('Timestamp when the driver was created'),
   })
-  .passthrough();
+  .loose();
 
 const fleetDriverRecordItem = z
   .object({
@@ -186,7 +186,7 @@ const fleetDriverRecordItem = z
         'The member pays by card although the fleet bills on account (opt-out of charge on account)',
       ),
   })
-  .passthrough();
+  .loose();
 
 const fleetStationItem = z
   .object({
@@ -230,14 +230,14 @@ const fleetStationItem = z
       .describe('Timestamp of the most recent OCPP heartbeat'),
     createdAt: z.coerce.date().describe('Timestamp when the station was registered'),
   })
-  .passthrough();
+  .loose();
 
 const fleetStationRecordItem = z
   .object({
     fleetId: z.string().describe('Fleet identifier'),
     stationId: z.string().describe('Station identifier'),
   })
-  .passthrough();
+  .loose();
 
 const fleetVehicleItem = z
   .object({
@@ -254,7 +254,7 @@ const fleetVehicleItem = z
     vin: z.string().max(17).nullable().describe('Vehicle identification number (17 chars)'),
     licensePlate: z.string().max(20).nullable().describe('Vehicle license plate'),
   })
-  .passthrough();
+  .loose();
 
 const fleetSessionItem = z
   .object({
@@ -290,7 +290,7 @@ const fleetSessionItem = z
       .describe('Final billed cost in cents after session completes'),
     currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
   })
-  .passthrough();
+  .loose();
 
 const fleetMetricsItem = z
   .object({
@@ -325,14 +325,14 @@ const fleetMetricsItem = z
     totalVehicles: z.number().describe('Total number of vehicles owned by fleet drivers'),
     periodMonths: z.number().describe('Number of months included in the metrics window'),
   })
-  .passthrough();
+  .loose();
 
 const energyHistoryItem = z
   .object({
     date: z.string().describe('Day in ISO date format (YYYY-MM-DD)'),
     energyWh: z.number().describe('Total energy delivered on this day in watt-hours'),
   })
-  .passthrough();
+  .loose();
 
 const fleetPricingGroupItem = z
   .object({
@@ -342,14 +342,14 @@ const fleetPricingGroupItem = z
     isDefault: z.boolean().describe('Whether this is the system default pricing group'),
     tariffCount: z.number().describe('Number of tariffs in this pricing group'),
   })
-  .passthrough();
+  .loose();
 
 const fleetPricingGroupRecordItem = z
   .object({
     fleetId: z.string().describe('Fleet identifier'),
     pricingGroupId: z.string().describe('Pricing group identifier'),
   })
-  .passthrough();
+  .loose();
 
 const fleetParams = z.object({
   id: ID_PARAMS.fleetId.describe('Fleet ID'),
@@ -392,7 +392,7 @@ const optionalText = (max: number, what: string) =>
 
 const fleetBillingProfileBody = z.object({
   billingContactEmails: z
-    .array(z.string().trim().email().max(255))
+    .array(z.email().trim().max(255))
     .max(MAX_BILLING_CONTACTS)
     .optional()
     .describe(
@@ -457,7 +457,7 @@ const fleetCreditExposure = z
     totalCents: z.number().int().describe('Sum of the three: the exposure checked at a start'),
     currency: z.string().length(3).describe('Company currency of the amounts'),
   })
-  .passthrough();
+  .loose();
 
 const fleetCreditLimitResponse = z
   .object({
@@ -477,7 +477,7 @@ const fleetCreditLimitResponse = z
         'reached: account starts are refused; warning: at or above the warning percent; null: no limit',
       ),
   })
-  .passthrough();
+  .loose();
 
 const memberBillingBody = z.object({
   accountBillingOptOut: z

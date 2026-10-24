@@ -72,7 +72,7 @@ const attemptItem = z
       .describe('Autocharge vehicle that authorized or refused the start'),
     createdAt: z.coerce.date().describe('Timestamp of the attempt'),
   })
-  .passthrough();
+  .loose();
 
 const listQuery = paginationQuery.extend({
   stationId: z

@@ -66,7 +66,7 @@ const caCertificate = z
       .string()
       .describe('PEM certificate (public), for example the V2G root to install on stations'),
   })
-  .passthrough();
+  .loose();
 const localCaStatus = z
   .object({
     configured: z.boolean().describe('Whether the local contract CA exists'),
@@ -80,7 +80,7 @@ const localCaStatus = z
       .array(caCertificate)
       .describe('CA certificates of both hierarchies (no private keys)'),
   })
-  .passthrough();
+  .loose();
 
 const contractItem = z
   .object({
@@ -93,7 +93,7 @@ const contractItem = z
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     revokedAt: z.string().nullable().describe('Revoked timestamp (ISO 8601)'),
   })
-  .passthrough();
+  .loose();
 
 const driverParams = z.object({ id: ID_PARAMS.driverId.describe('Driver ID') });
 const contractParams = z.object({

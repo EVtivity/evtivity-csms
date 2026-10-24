@@ -35,6 +35,66 @@ describe('zodSchema', () => {
     });
   });
 
+  it('refuses unnamed keys of a plain object and allows them on a loose one', () => {
+    expect(zodSchema(z.object({ a: z.string() }))).toEqual({
+      type: 'object',
+      properties: { a: { type: 'string' } },
+      required: ['a'],
+      additionalProperties: false,
+    });
+    expect(zodSchema(z.object({ a: z.string() }).loose())['additionalProperties']).toBe(true);
+  });
+
+  it('publishes a string format as the format alone, without the Zod pattern', () => {
+    const schema = zodSchema(
+      z.object({
+        email: z.email(),
+        id: z.guid(),
+        url: z.url(),
+        at: z.iso.datetime(),
+        code: z.string().regex(/^[A-Z]{2}$/),
+      }),
+    );
+
+    expect(schema['properties']).toEqual({
+      email: { type: 'string', format: 'email' },
+      id: { type: 'string', format: 'uuid' },
+      url: { type: 'string', format: 'uri' },
+      at: { type: 'string', format: 'date-time' },
+      code: { type: 'string', pattern: '^[A-Z]{2}$' },
+    });
+  });
+
+  it('keeps the format next to a custom pattern and drops formats Ajv does not know', () => {
+    const schema = zodSchema(
+      z.object({ email: z.email().regex(/@example\.com$/), key: z.string().startsWith('k_') }),
+    );
+
+    expect(schema['properties']).toEqual({
+      email: { type: 'string', format: 'email', pattern: '@example\\.com$' },
+      key: { type: 'string', pattern: '^k_.*' },
+    });
+  });
+
+  it('publishes an integer without implicit bounds and a date as a date-time string', () => {
+    const schema = zodSchema(z.object({ n: z.number().int().min(1), d: z.date() }));
+
+    expect(schema['properties']).toEqual({
+      n: { type: 'integer', minimum: 1 },
+      d: { type: 'string', format: 'date-time' },
+    });
+  });
+
+  it('is the request side: a field with a default is optional and carries it', () => {
+    const schema = zodSchema(z.object({ page: z.coerce.number().int().default(1) }));
+
+    expect(schema).toEqual({
+      type: 'object',
+      properties: { page: { type: 'integer', default: 1 } },
+      additionalProperties: false,
+    });
+  });
+
   describe('request validation', () => {
     const app = Fastify();
     app.patch(
@@ -96,10 +156,7 @@ describe('parseZodRequest', () => {
   });
 
   const contact = z.object({
-    email: z
-      .string()
-      .email()
-      .transform((s) => s.trim().toLowerCase()),
+    email: z.email().transform((s) => s.trim().toLowerCase()),
     name: z.string().trim().min(1),
     from: z.coerce.date().optional(),
   });

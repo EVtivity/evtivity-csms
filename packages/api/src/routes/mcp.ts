@@ -58,9 +58,12 @@ const querySchema = z.object({
 const jsonRpcResponse = z
   .object({
     jsonrpc: z.literal('2.0').describe('JSON-RPC version'),
-    id: z.unknown().describe('The id of the request this answers: a string, a number or null'),
+    id: z
+      .unknown()
+      .describe('The id of the request this answers: a string, a number or null')
+      .optional(),
     result: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .optional()
       .describe('The MCP result (server/discover, tools/list, tools/call)'),
     error: z
@@ -69,16 +72,19 @@ const jsonRpcResponse = z
         message: z.string().describe('Error message'),
         data: z.unknown().optional().describe('Error detail'),
       })
-      .passthrough()
+      .loose()
       .optional()
       .describe('The JSON-RPC error, when the request failed'),
   })
-  .passthrough();
+  .loose();
 
 const rateLimitedResponse = z
   .object({
     jsonrpc: z.literal('2.0').describe('JSON-RPC version'),
-    id: z.unknown().describe('The id of the refused request: a string, a number or null'),
+    id: z
+      .unknown()
+      .describe('The id of the refused request: a string, a number or null')
+      .optional(),
     error: z
       .object({
         code: z.number().int().describe('JSON-RPC error code (-32000)'),
@@ -89,13 +95,13 @@ const rateLimitedResponse = z
             scope: z.enum(['minute', 'day']).describe('Which limit was reached'),
             retryAfterSeconds: z.number().int().describe('Seconds until the window resets'),
           })
-          .passthrough()
+          .loose()
           .describe('EVtivity detail'),
       })
-      .passthrough()
+      .loose()
       .describe('The JSON-RPC error'),
   })
-  .passthrough()
+  .loose()
   .describe('MCP rate limit of the API key reached');
 
 const BATCH_REFUSED_MESSAGE =
@@ -104,7 +110,7 @@ const BATCH_REFUSED_MESSAGE =
 const batchRefusedResponse = z
   .object({
     jsonrpc: z.literal('2.0').describe('JSON-RPC version'),
-    id: z.unknown().describe('Always null: a batch has no single id'),
+    id: z.unknown().describe('Always null: a batch has no single id').optional(),
     error: z
       .object({
         code: z.literal(-32600).describe('JSON-RPC error code (-32600, invalid request)'),
@@ -113,14 +119,14 @@ const batchRefusedResponse = z
           .object({
             code: z.literal('VALIDATION_ERROR').describe('EVtivity error code'),
           })
-          .passthrough()
+          .loose()
           .describe('EVtivity detail'),
       })
-      .passthrough()
+      .loose()
       .describe('The JSON-RPC error'),
     code: z.literal('VALIDATION_ERROR').describe('EVtivity error code'),
   })
-  .passthrough()
+  .loose()
   .describe('A JSON-RPC batch (array body) was sent');
 
 const unknownToolsetResponse = z
@@ -128,7 +134,7 @@ const unknownToolsetResponse = z
     error: z.string().describe('Error message naming the unknown and the available toolsets'),
     code: z.literal('VALIDATION_ERROR').describe('Error code returned at this status'),
   })
-  .passthrough()
+  .loose()
   .describe('Unknown toolset');
 
 function notFound(request: FastifyRequest, reply: FastifyReply): FastifyReply {

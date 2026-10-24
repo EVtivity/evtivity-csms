@@ -58,12 +58,12 @@ const schema = z.object({
   // Public wss:// address stations use for security profiles 2 and 3, without
   // the station identity. Needed to move a connected 2.1 station from plain
   // WebSocket to TLS (OCPP 2.1 A05); unset disables that upgrade.
-  OCPP_STATION_TLS_URL: z.string().url().optional(),
+  OCPP_STATION_TLS_URL: z.url().optional(),
   // The OCPP server endpoints the simulators connect to, plain and TLS: the
   // URLs the simulator pairing stores and the only simulator targets the API
   // accepts. The same defaults as the simulator's own config (local dev).
-  OCPP_SERVER_URL: z.string().url().default('ws://ocpp:8080'),
-  OCPP_TLS_SERVER_URL: z.string().url().default('wss://ocpp:8443'),
+  OCPP_SERVER_URL: z.url().default('ws://ocpp:8080'),
+  OCPP_TLS_SERVER_URL: z.url().default('wss://ocpp:8443'),
   // Allows the simulated (test) payment provider in this process (D-T1). Default:
   // on when NODE_ENV is development or test, off otherwise (unset included: the
   // service images set production).
@@ -79,18 +79,12 @@ const schema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
-  NOTIFICATIONS_TEST_SINK_URL: z.preprocess(
-    (v) => (v === '' ? undefined : v),
-    z.string().url().optional(),
-  ),
+  NOTIFICATIONS_TEST_SINK_URL: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
   // SIM provider mock (local development and tests only, off by default): the
   // SIM provider adapters call this base URL instead of the vendor hosts. Only
   // NODE_ENV development or test accepts it (resolveSimProviderTestBaseUrl
   // below). Helm and CDK refuse it.
-  SIM_PROVIDER_TEST_BASE_URL: z.preprocess(
-    (v) => (v === '' ? undefined : v),
-    z.string().url().optional(),
-  ),
+  SIM_PROVIDER_TEST_BASE_URL: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
 });
 
 export type ApiConfig = z.infer<typeof schema>;

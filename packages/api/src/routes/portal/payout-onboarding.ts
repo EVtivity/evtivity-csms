@@ -55,7 +55,7 @@ const linkResponse = z
       .nullable()
       .describe('active when there is nothing to onboard, else null'),
   })
-  .passthrough();
+  .loose();
 
 const statusResponse = z
   .object({
@@ -65,7 +65,7 @@ const statusResponse = z
         'Payout account state read from Stripe: onboarding, action_required, pending (Stripe is verifying), active, disabled',
       ),
   })
-  .passthrough();
+  .loose();
 
 const rateLimit = {
   rateLimit: { max: apiConfig.AUTH_RATE_LIMIT_MAX, timeWindow: apiConfig.AUTH_RATE_LIMIT_WINDOW },

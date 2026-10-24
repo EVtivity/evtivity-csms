@@ -55,15 +55,15 @@ export const authenticationCredential = z
         signature: base64url.describe('Assertion signature (base64url)'),
         userHandle: z.string().max(1024).optional().describe('User handle (base64url)'),
       })
-      .passthrough()
+      .loose()
       .describe('Authenticator assertion response'),
     authenticatorAttachment: z
       .enum(['platform', 'cross-platform'])
       .optional()
       .describe('Platform (built-in) or cross-platform (security key, phone)'),
-    clientExtensionResults: z.record(z.unknown()).describe('Client extension results'),
+    clientExtensionResults: z.record(z.string(), z.unknown()).describe('Client extension results'),
   })
-  .passthrough()
+  .loose()
   .describe('The PublicKeyCredential of navigator.credentials.get, as JSON');
 
 export const FACTOR_PROOF_KINDS = [

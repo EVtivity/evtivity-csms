@@ -15,7 +15,7 @@ const paymentProviderDescriptor = z
       .object({
         provider: z.string().describe('Provider id the client loads its card UI for'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe(
         'Browser-safe client config of the active provider (Stripe: publishableKey; Adyen: clientKey, environment; simulated: resultMode, testCards). Null when payments are off.',
@@ -28,11 +28,11 @@ const paymentProviderDescriptor = z
           .boolean()
           .describe('The native mobile card sheet (ephemeral-key route) is available'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Capabilities of the active provider. Null when payments are off.'),
   })
-  .passthrough()
+  .loose()
   .describe('The payment provider the portal and mobile app add cards with');
 
 export function portalPaymentProviderRoutes(app: FastifyInstance): void {

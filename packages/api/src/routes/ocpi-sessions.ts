@@ -45,7 +45,7 @@ const roamingSessionItem = z
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),
     partnerName: z.string().nullable().describe('Display name of the OCPI partner'),
   })
-  .passthrough();
+  .loose();
 
 const sessionQuery = paginationQuery.extend({
   partnerId: ID_PARAMS.ocpiPartnerId.optional().describe('Filter by OCPI partner ID'),

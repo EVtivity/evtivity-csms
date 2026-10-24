@@ -178,7 +178,7 @@ const ocppEventSettingItem = z
     createdAt: z.coerce.date().describe('Timestamp when the setting was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the setting was last updated'),
   })
-  .passthrough();
+  .loose();
 
 // Item shape of the driver event settings (driver_event_settings).
 const eventToggleSettingItem = z
@@ -189,7 +189,7 @@ const eventToggleSettingItem = z
     createdAt: z.coerce.date().describe('Timestamp when the setting was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the setting was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const notificationHistoryItem = z
   .object({
@@ -206,12 +206,12 @@ const notificationHistoryItem = z
       .enum(['pending', 'sent', 'failed'])
       .describe('Delivery status (pending, sent, failed)'),
     metadata: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .nullable()
       .describe('Arbitrary metadata about the notification (driverId, error details, etc.)'),
     createdAt: z.coerce.date().describe('Timestamp when the notification was dispatched'),
   })
-  .passthrough();
+  .loose();
 
 const notificationTemplateItem = z
   .object({
@@ -234,7 +234,7 @@ const notificationTemplateItem = z
       .boolean()
       .describe('True if this template is customized in the database, false if from default file'),
   })
-  .passthrough();
+  .loose();
 
 const notificationTemplateDbItem = z
   .object({
@@ -257,7 +257,7 @@ const notificationTemplateDbItem = z
     createdAt: z.coerce.date().describe('Timestamp when the template was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the template was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const emailWrapperPreviewBody = z.object({
   wrapperTemplate: z
@@ -272,7 +272,7 @@ const emailWrapperPreviewResponse = z
       .string()
       .describe('The draft layout rendered around a sample email with company details'),
   })
-  .passthrough();
+  .loose();
 
 // Sample body the Email Layout preview wraps, so operators see a realistic email.
 const EMAIL_WRAPPER_SAMPLE_BODY = `<p style="color:#4b5563;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">Hi John,</p>
@@ -295,13 +295,13 @@ const templatePreviewResponse = z
       .nullable()
       .describe('Rendered template body with sample variables (HTML for email, text for SMS)'),
   })
-  .passthrough();
+  .loose();
 
 const ocppEventTemplateResponse = z
   .object({
     template: z.string().describe('Default Handlebars template content from the .hbs file'),
   })
-  .passthrough();
+  .loose();
 
 // The account variables every security notice has; `isDriver` picks the advice line.
 const SECURITY_NOTICE_VARIABLES = ['firstName', 'lastName', 'email', 'isDriver'];
@@ -474,7 +474,7 @@ const testBody = z.object({
   recipient: z.string().max(500).describe('Email address or phone number'),
 });
 
-// Recipient validators applied inside handlers because `zod-to-json-schema`
+// Recipient validators applied inside handlers because the JSON Schema conversion (`z.toJSONSchema`)
 // strips `.refine()` from the published OpenAPI doc, leaving a 400 that
 // looks unmotivated. Validating in the handler lets us return a proper
 // VALIDATION_ERROR with a useful message.
@@ -501,12 +501,12 @@ function isValidWebhookUrl(value: string): boolean {
 
 const notificationChannelValues = ['email', 'sms', 'webhook', 'push', 'log'] as const;
 
-const notificationListQuery = paginationQuery.merge(
+const notificationListQuery = paginationQuery.extend(
   z.object({
     channel: z.enum(notificationChannelValues).optional(),
     status: z.enum(['pending', 'sent', 'failed']).optional(),
     eventType: z.string().optional().describe('Filter by event type'),
-  }),
+  }).shape,
 );
 
 const templateCrudQuery = z.object({

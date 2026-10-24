@@ -22,7 +22,7 @@ export const loginResponse = z
         language: z.string().describe('Preferred UI language code'),
         timezone: z.string().optional().describe('IANA timezone identifier'),
       })
-      .passthrough()
+      .loose()
       .optional()
       .describe('Authenticated user, omitted when MFA is required'),
     role: z
@@ -30,7 +30,7 @@ export const loginResponse = z
         id: z.string().describe('Role identifier'),
         name: z.string().describe('Role display name'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .optional()
       .describe('Role assigned to the user'),
@@ -94,4 +94,4 @@ export const loginResponse = z
       .optional()
       .describe('After MFA with a recovery code: how many unused recovery codes are left'),
   })
-  .passthrough();
+  .loose();

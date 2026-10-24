@@ -43,7 +43,7 @@ const tokenItem = z
       ),
     createdAt: z.coerce.date().describe('Timestamp the token was registered'),
   })
-  .passthrough();
+  .loose();
 
 const createTokenBody = z.object({
   idToken: z

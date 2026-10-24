@@ -102,7 +102,7 @@ const guestPricingInfo = z
       .optional()
       .describe('True when the station&#39;s site has free vend enabled'),
   })
-  .passthrough();
+  .loose();
 
 const chargerConfigResponse = z
   .object({
@@ -119,7 +119,7 @@ const chargerConfigResponse = z
       .object({
         provider: z.string().describe('Provider id the guest checkout loads its payment UI for'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe(
         'Browser-safe client config of the active payment provider. Null when payments are off.',
@@ -143,14 +143,14 @@ const chargerConfigResponse = z
       .optional()
       .describe('Resolved pricing for this station (null when no tariff is assigned)'),
   })
-  .passthrough();
+  .loose();
 
 const guestActionSchema = z
   .object({
     provider: z.string().describe('Provider whose client UI handles the action'),
-    data: z.unknown().describe('Provider action data (Adyen: the 3D Secure action)'),
+    data: z.unknown().describe('Provider action data (Adyen: the 3D Secure action)').optional(),
   })
-  .passthrough()
+  .loose()
   .describe(
     'Action for the card UI; post its result to POST /v1/portal/guest/payment-details/{sessionToken}',
   );
@@ -168,14 +168,15 @@ const guestStartResponse = z
       .describe('Opaque session token used to track the guest session lifecycle'),
     action: guestActionSchema.optional().describe('Present when status is action_required'),
   })
-  .passthrough();
+  .loose();
 
 const guestDetailsBody = z.object({
   details: z
     .unknown()
     .describe(
       'Result of the 3D Secure action. Adyen: the onAdditionalDetails state.data, or { details: { redirectResult } } from the return page',
-    ),
+    )
+    .optional(),
 });
 
 const limitReachedField = z
@@ -252,14 +253,14 @@ const guestStatusResponse = z
       .optional()
       .describe('Timestamp the EV stopped drawing power, used to bill idle fees'),
   })
-  .passthrough();
+  .loose();
 
 const guestPowerHistoryItem = z
   .object({
     timestamp: z.coerce.date().describe('Meter sample timestamp'),
     powerW: z.number().min(0).describe('Active power in Watts'),
   })
-  .passthrough();
+  .loose();
 
 const guestEnergyHistoryItem = z
   .object({
@@ -269,7 +270,7 @@ const guestEnergyHistoryItem = z
       .min(0)
       .describe('Cumulative energy delivered in Watt-hours since session start'),
   })
-  .passthrough();
+  .loose();
 
 const chargerConfigParams = z.object({
   stationId: z.string().min(1).max(255).describe('OCPP station identifier'),
@@ -298,7 +299,8 @@ const guestStartBody = z.object({
         .unknown()
         .describe(
           'The one-time card. Stripe: the PaymentMethod id string. Test provider: { testCard }. Adyen: the Card component state.data',
-        ),
+        )
+        .optional(),
       browser: shopperBrowserBody
         .optional()
         .describe(
@@ -307,7 +309,7 @@ const guestStartBody = z.object({
     })
     .optional()
     .describe('The one-time card, tagged with the provider that collected it'),
-  guestEmail: z.string().email().max(255).optional(),
+  guestEmail: z.email().max(255).optional(),
   maxEnergyWh: z
     .number()
     .int()
@@ -390,7 +392,7 @@ const qrValidateResponse = z
       .optional()
       .describe('Why the URL is not valid'),
   })
-  .passthrough();
+  .loose();
 
 /**
  * Records a guest start or stop on the station's audit log
@@ -539,7 +541,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
               .object({
                 connectorStatus: z.string().describe('Refreshed connector status'),
               })
-              .passthrough(),
+              .loose(),
           ),
           400: errorWith('Station is offline', [ERROR_CODES.STATION_OFFLINE]),
           404: errorWith('Resource not found', [
@@ -1466,7 +1468,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
                   .array(guestPowerHistoryItem)
                   .describe('Time-ordered power samples for the guest session'),
               })
-              .passthrough(),
+              .loose(),
           ),
           404: errorWith('Session not found', [ERROR_CODES.SESSION_NOT_FOUND]),
           429: errorWith('Rate limited', [ERROR_CODES.RATE_LIMITED]),
@@ -1529,7 +1531,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
                   .array(guestEnergyHistoryItem)
                   .describe('Time-ordered cumulative energy samples for the guest session'),
               })
-              .passthrough(),
+              .loose(),
           ),
           404: errorWith('Session not found', [ERROR_CODES.SESSION_NOT_FOUND]),
           429: errorWith('Rate limited', [ERROR_CODES.RATE_LIMITED]),

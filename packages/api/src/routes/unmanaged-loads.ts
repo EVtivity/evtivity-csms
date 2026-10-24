@@ -69,7 +69,7 @@ const loadItem = z
     createdAt: z.coerce.date().describe('Timestamp when created'),
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),
   })
-  .passthrough();
+  .loose();
 
 // --- Helpers ---
 
@@ -400,7 +400,7 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(loadIdParam),
         response: {
-          200: itemResponse(z.object({ success: z.literal(true) }).passthrough()),
+          200: itemResponse(z.object({ success: z.literal(true) }).loose()),
           404: errorWith('Load not found', [ERROR_CODES.LOAD_NOT_FOUND]),
         },
       },

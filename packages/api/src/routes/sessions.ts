@@ -152,7 +152,7 @@ const sessionListItem = z
       .describe('The session was authorized by an Autocharge vehicle (charge by plugging in)'),
     createdAt: z.coerce.date().describe('Timestamp the session row was created in the CSMS'),
   })
-  .passthrough();
+  .loose();
 
 const transactionEventItem = z
   .object({
@@ -165,7 +165,7 @@ const transactionEventItem = z
     triggerReason: z.string().max(50).describe('OCPP trigger that caused this event'),
     offline: z.boolean().describe('True when the event was queued offline by the station'),
   })
-  .passthrough();
+  .loose();
 
 const paymentRecordItem = z
   .object({
@@ -203,7 +203,7 @@ const paymentRecordItem = z
     pendingOperation: pendingOperationSchema,
     providerRefunds: providerRefundsSchema,
   })
-  .passthrough();
+  .loose();
 
 const sessionDetail = z
   .object({
@@ -361,13 +361,13 @@ const sessionDetail = z
             pcid: z.string().describe('Provisioning certificate ID of the vehicle'),
             status: z.enum(['active', 'revoked']).describe('Contract status now'),
           })
-          .passthrough()
+          .loose()
           .nullable()
           .describe(
             'Plug and Charge contract whose eMAID authorized the session (ISO 15118), null otherwise',
           ),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe(
         'Driver token used to authorize this session, null when no registered token was matched',
@@ -381,7 +381,7 @@ const sessionDetail = z
         licensePlate: z.string().nullable().describe('Vehicle license plate'),
         autochargeEnabled: z.boolean().describe('Autocharge is on for the vehicle'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Vehicle linked to this session, null when no vehicle is associated'),
     vehicleCapture: sessionVehicleCaptureItem,
@@ -389,7 +389,7 @@ const sessionDetail = z
       .boolean()
       .describe('The session was authorized by an Autocharge vehicle (charge by plugging in)'),
     metadata: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .nullable()
       .describe(
         'Session metadata jsonb. May include reservationTokenMismatch when reservation.token_id did not match the session token.',
@@ -408,7 +408,7 @@ const sessionDetail = z
         sessionToken: z
           .string()
           .describe('Opaque token used by the guest portal to view this session'),
-        guestEmail: z.string().email().describe('Email address provided by the guest at checkout'),
+        guestEmail: z.email().describe('Email address provided by the guest at checkout'),
         status: z.string().max(50).describe('Guest session status (active, completed, expired)'),
         preAuthAmountCents: z
           .number()
@@ -429,11 +429,11 @@ const sessionDetail = z
         expiresAt: z.coerce.date().describe('Timestamp when the guest session token expires'),
         createdAt: z.coerce.date().describe('Timestamp the guest session was created'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Guest session details, null when the session was started by a registered driver'),
   })
-  .passthrough();
+  .loose();
 
 const meterValueItem = z
   .object({
@@ -462,7 +462,7 @@ const meterValueItem = z
       .nullable()
       .describe('OCPP reading context (e.g. Sample.Periodic, Transaction.Begin, Transaction.End)'),
   })
-  .passthrough();
+  .loose();
 
 const meterValueQuery = paginationQuery.extend({
   measurand: z.string().max(50).optional().describe('Filter by measurand name'),
@@ -532,7 +532,7 @@ const rebillResponse = z
       .nullable()
       .describe('Provider reason of a declined charge, null otherwise'),
   })
-  .passthrough();
+  .loose();
 
 const sessionParams = z.object({
   id: ID_PARAMS.sessionId.describe('Session ID'),
@@ -553,7 +553,7 @@ const billingRecipientResponse = z
     memberBilled: z.boolean().describe("True when the session goes on the driver's member invoice"),
     moved: z.boolean().describe('False when the session was already billed to the recipient'),
   })
-  .passthrough();
+  .loose();
 
 export function sessionRoutes(app: FastifyInstance): void {
   app.get(
@@ -993,7 +993,7 @@ export function sessionRoutes(app: FastifyInstance): void {
                 created: z.boolean().describe('A new vehicle was created'),
                 autochargeEnabled: z.boolean().describe('Autocharge is on for the vehicle'),
               })
-              .passthrough(),
+              .loose(),
           ),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Not found', [
@@ -1226,7 +1226,7 @@ export function sessionRoutes(app: FastifyInstance): void {
                 sessionId: z.string().describe('Session whose end was requested'),
                 transactionId: z.string().nullable().describe('OCPP transaction id of the session'),
               })
-              .passthrough(),
+              .loose(),
           ),
           404: errorWith('Session not found', [ERROR_CODES.SESSION_NOT_FOUND]),
           409: errorWith('Session not active or station online', [

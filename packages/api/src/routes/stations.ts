@@ -266,14 +266,14 @@ const stationPricingGroupItem = z
       .describe('Whether this is the default pricing group used when no other group matches'),
     tariffCount: z.number().describe('Number of tariffs configured under this pricing group'),
   })
-  .passthrough();
+  .loose();
 
 const stationPricingGroupRecordItem = z
   .object({
     stationId: z.string().describe('Internal station identifier (nanoid)'),
     pricingGroupId: z.string().describe('Pricing group identifier assigned to the station'),
   })
-  .passthrough();
+  .loose();
 
 const addStationPricingGroupBody = z.object({
   pricingGroupId: ID_PARAMS.pricingGroupId.describe('Pricing group ID to assign to the station'),
@@ -307,13 +307,13 @@ const stationMeterValueItem = z
       .nullable()
       .describe('Reading context (e.g., Sample.Periodic, Transaction.Begin, Transaction.End)'),
   })
-  .passthrough();
+  .loose();
 
 const stationMeterValueQuery = paginationQuery.extend({
   measurand: z.string().optional().describe('Filter by measurand name'),
 });
 
-const stationListQuery = paginationQuery.merge(
+const stationListQuery = paginationQuery.extend(
   z.object({
     siteId: ID_PARAMS.siteId.optional().describe('Filter by site ID'),
     status: z
@@ -332,7 +332,7 @@ const stationListQuery = paginationQuery.merge(
       .describe(
         'Filter by AI insight scope: suppressed (by an operator on the station or its site, or by an active maintenance event) or in_scope',
       ),
-  }),
+  }).shape,
 );
 
 // OCPP passwordString, 16-40 characters (2.1 A00.FR.205). The 1.6 limit of 20
@@ -430,7 +430,7 @@ const confirmRealStationResponse = z
       .boolean()
       .describe('Whether the station was flagged as a simulator before this call'),
   })
-  .passthrough();
+  .loose();
 
 const setCredentialsBody = z.object({
   password: stationPassword,
@@ -444,7 +444,7 @@ const passwordChangeResponse = z
         'station: the station accepted the password. stored: saved for an offline station or one not using a password yet; configure it on the station.',
       ),
   })
-  .passthrough();
+  .loose();
 
 const stationItem = z
   .object({
@@ -522,7 +522,7 @@ const stationItem = z
       .boolean()
       .describe('Whether a Basic Auth password is configured for this station'),
     metadata: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .nullable()
       .describe('Free-form operator metadata stored as a JSON object'),
     createdAt: z.coerce.date().describe('When the station record was created'),
@@ -555,7 +555,7 @@ const stationItem = z
         'True while no AI insight is created for the station: an operator suppressed the station (until aiInsightsSuppressedUntil, or until resumed) or its site, or an active maintenance event covers it',
       ),
   })
-  .passthrough();
+  .loose();
 
 const stationDetail = z
   .object({
@@ -653,7 +653,7 @@ const stationDetail = z
       .boolean()
       .describe('Whether a Basic Auth password is configured for this station'),
     metadata: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .nullable()
       .describe('Free-form operator metadata stored as a JSON object'),
     createdAt: z.coerce.date().describe('When the station record was created'),
@@ -720,7 +720,7 @@ const stationDetail = z
       .enum(CHARGING_KINDS)
       .describe('AC or DC, from the connector types; picks the charging reading values'),
   })
-  .passthrough();
+  .loose();
 
 const stationCreated = z
   .object({
@@ -771,7 +771,7 @@ const stationCreated = z
     createdAt: z.coerce.date().describe('When the station record was created'),
     updatedAt: z.coerce.date().describe('When the station record was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const stationUpdated = stationCreated
   .extend({
@@ -794,7 +794,7 @@ const stationUpdated = stationCreated
       .optional()
       .describe("Present when the body held dataPlan: the station's own data plan choice"),
   })
-  .passthrough();
+  .loose();
 
 const connectorDetail = z
   .object({
@@ -825,7 +825,7 @@ const connectorDetail = z
         'When the connector was retired (out of service, history kept), null when in service',
       ),
   })
-  .passthrough();
+  .loose();
 
 const evseDetail = z
   .object({
@@ -839,7 +839,7 @@ const evseDetail = z
       .describe('When the EVSE was retired (out of service, history kept), null when in service'),
     connectors: z.array(connectorDetail).describe('Connectors on this EVSE'),
   })
-  .passthrough();
+  .loose();
 
 const connectorResponse = z
   .object({
@@ -852,18 +852,18 @@ const connectorResponse = z
     maxCurrentAmps: z.number().nullable().describe('Maximum charging current in amps'),
     status: z.string().describe('Current connector operational status'),
   })
-  .passthrough();
+  .loose();
 
 const evseResponse = z
   .object({
     evseId: z.number().describe('OCPP EVSE id (1-based)'),
     connectors: z.array(connectorResponse).describe('Connectors on this EVSE'),
   })
-  .passthrough();
+  .loose();
 
 const deleteResponse = z
   .object({ status: z.string().describe('Result of the delete operation (e.g., "deleted")') })
-  .passthrough();
+  .loose();
 
 const meterValueGroup = z
   .object({
@@ -876,18 +876,18 @@ const meterValueGroup = z
             timestamp: z.coerce.date().describe('Timestamp when the sample was taken'),
             value: z.string().describe('Sample value (string to preserve numeric precision)'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('Time-ordered list of meter samples for this measurand'),
   })
-  .passthrough();
+  .loose();
 
 const energyHistoryItem = z
   .object({
     date: z.string().describe('Calendar date in YYYY-MM-DD (in the site timezone)'),
     energyWh: z.number().describe('Total energy delivered on that date in watt-hours'),
   })
-  .passthrough();
+  .loose();
 
 const revenueHistoryItem = z
   .object({
@@ -906,7 +906,7 @@ const revenueHistoryItem = z
         'Number of ended sessions billed in the company currency that started on this date',
       ),
   })
-  .passthrough();
+  .loose();
 
 const stationMetricsResponse = z
   .object({
@@ -999,7 +999,7 @@ const stationMetricsResponse = z
         'Company currency (ISO 4217) of the revenue, cost, and profit amounts. Those amounts sum only sessions billed in this currency.',
       ),
   })
-  .passthrough();
+  .loose();
 
 const sessionItem = z
   .object({
@@ -1036,7 +1036,7 @@ const sessionItem = z
       .boolean()
       .describe('Whether this session was started by an unauthenticated guest with a card payment'),
   })
-  .passthrough();
+  .loose();
 
 const ocppLogItem = z
   .object({
@@ -1065,7 +1065,7 @@ const ocppLogItem = z
       .describe(
         'OCPP message id used to correlate request and response (the command id for a queued command)',
       ),
-    payload: z.unknown().describe('Raw OCPP payload object'),
+    payload: z.unknown().describe('Raw OCPP payload object').optional(),
     errorCode: z.string().nullable().describe('OCPP error code (CALLERROR only)'),
     errorDescription: z
       .string()
@@ -1073,7 +1073,7 @@ const ocppLogItem = z
       .describe('OCPP error description text (CALLERROR only)'),
     createdAt: z.coerce.date().describe('When the message was logged'),
   })
-  .passthrough();
+  .loose();
 
 const ocppLogsResponse = z
   .object({
@@ -1083,7 +1083,7 @@ const ocppLogsResponse = z
       .array(z.string())
       .describe('Distinct OCPP action names seen on this station, for filter dropdowns'),
   })
-  .passthrough();
+  .loose();
 
 const securityLogItem = z
   .object({
@@ -1110,10 +1110,13 @@ const securityLogItem = z
       .describe(
         'Remote IP address of the station when the event occurred (connection source only)',
       ),
-    metadata: z.record(z.unknown()).nullable().describe('Event-specific metadata as a JSON object'),
+    metadata: z
+      .record(z.string(), z.unknown())
+      .nullable()
+      .describe('Event-specific metadata as a JSON object'),
     createdAt: z.coerce.date().describe('When the event was recorded'),
   })
-  .passthrough();
+  .loose();
 
 const certificateItem = z
   .object({
@@ -1130,7 +1133,7 @@ const certificateItem = z
     createdAt: z.coerce.date().describe('When the certificate was first stored'),
     updatedAt: z.coerce.date().describe('When the certificate record was last updated'),
   })
-  .passthrough();
+  .loose();
 
 /**
  * The sessions of a station a user may see: those whose own site
@@ -1388,8 +1391,7 @@ export function stationRoutes(app: FastifyInstance): void {
 
   const aiSuppressBody = z.object({
     reason: z.string().trim().min(1).max(500).describe('Why the AI insights are suppressed'),
-    until: z
-      .string()
+    until: z.iso
       .datetime({ offset: true })
       .optional()
       .describe('End of the suppression (ISO 8601, in the future); omitted for until resumed'),
@@ -1415,7 +1417,7 @@ export function stationRoutes(app: FastifyInstance): void {
         .optional()
         .describe('Waiting insight actions of the station expired by the suppression'),
     })
-    .passthrough();
+    .loose();
 
   // Per-station AI insight suppression (station-ai-insights.service.ts).
   app.post(
@@ -2662,7 +2664,7 @@ export function stationRoutes(app: FastifyInstance): void {
               .object({
                 status: z.string().describe('Fresh connector status reported by the station'),
               })
-              .passthrough(),
+              .loose(),
           ),
           400: errorWith('Station is offline', [ERROR_CODES.STATION_OFFLINE]),
           404: errorWith('Resource not found', [
@@ -2763,7 +2765,7 @@ export function stationRoutes(app: FastifyInstance): void {
                     'True when the station rejected with TxNotFound and the session end was requested',
                   ),
               })
-              .passthrough(),
+              .loose(),
           ),
           404: errorWith('Resource not found', [
             ERROR_CODES.EVSE_NOT_FOUND,
@@ -3278,7 +3280,7 @@ export function stationRoutes(app: FastifyInstance): void {
         .describe('When the EVSE or connector was retired, null when it is in service'),
       changed: z.boolean().describe('False when it already was in the requested state'),
     })
-    .passthrough();
+    .loose();
 
   const retireDescription =
     'Takes the EVSE out of service and keeps its history: drivers, roaming partners (OCPI REMOVED), new sessions and reservations, the derived station status and uptime leave it out, and the station is told it is Inoperative. Returns 409 CONNECTOR_OCCUPIED while it is in use and 409 EVSE_RESERVED while it has an active or upcoming reservation. Idempotent: changed is false when it already was retired.';
@@ -3622,7 +3624,7 @@ export function stationRoutes(app: FastifyInstance): void {
         .number()
         .describe('Average uptime percentage across all ports for that day (0-100)'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/stations/:id/uptime-history',
@@ -3755,7 +3757,7 @@ export function stationRoutes(app: FastifyInstance): void {
         .number()
         .describe('Average number of sessions started in that day-of-week / hour bucket'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/stations/:id/popular-times',
@@ -5106,15 +5108,15 @@ export function stationRoutes(app: FastifyInstance): void {
         .describe('Optional vendor-specific technical information about the event'),
       createdAt: z.coerce.date().describe('When the event row was inserted into the CSMS'),
     })
-    .passthrough();
+    .loose();
 
-  const securityEventsQuery = paginationQuery.merge(
+  const securityEventsQuery = paginationQuery.extend(
     z.object({
       severity: z
         .enum(['critical', 'high', 'medium', 'low', 'info'])
         .optional()
         .describe('Filter by severity level'),
-    }),
+    }).shape,
   );
 
   app.get(
@@ -5182,10 +5184,10 @@ export function stationRoutes(app: FastifyInstance): void {
       generatedAt: z.string().describe('Timestamp when the event was generated on the station'),
       seqNo: z.number().describe('Per-station sequence number'),
       tbc: z.boolean().describe('To-be-continued flag for multi-part reports'),
-      eventData: z.record(z.unknown()).describe('Raw OCPP event payload'),
+      eventData: z.record(z.string(), z.unknown()).describe('Raw OCPP event payload'),
       createdAt: z.string().describe('When the row was inserted'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/stations/:id/events',
@@ -5264,7 +5266,7 @@ export function stationRoutes(app: FastifyInstance): void {
       createdAt: z.string().describe('When the row was first observed'),
       updatedAt: z.string().describe('When the row was last updated'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/stations/:id/variables',
@@ -5361,7 +5363,10 @@ export function stationRoutes(app: FastifyInstance): void {
         .nullable()
         .describe('When the station should retrieve the firmware'),
       status: z.string().nullable().describe('Latest firmware update status reported by station'),
-      statusInfo: z.record(z.unknown()).nullable().describe('Additional OCPP status info'),
+      statusInfo: z
+        .record(z.string(), z.unknown())
+        .nullable()
+        .describe('Additional OCPP status info'),
       campaignId: z.string().nullable().describe('Linked firmware campaign ID, if any'),
       initiatedAt: z.string().describe('When the firmware update was initiated'),
       lastStatusAt: z.string().nullable().describe('When the most recent status was received'),
@@ -5372,7 +5377,7 @@ export function stationRoutes(app: FastifyInstance): void {
         .nullable()
         .describe('Target firmware version from the linked campaign, if any'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/stations/:id/firmware-history',
@@ -5457,7 +5462,10 @@ export function stationRoutes(app: FastifyInstance): void {
       requestId: z.number().nullable().describe('OCPP request ID'),
       chargingLimitSource: z.string().nullable().describe('OCPP charging limit source'),
       tbc: z.boolean().describe('To-be-continued flag for multi-part reports'),
-      profileData: z.unknown().describe('Raw OCPP charging profile payload (object or array)'),
+      profileData: z
+        .unknown()
+        .describe('Raw OCPP charging profile payload (object or array)')
+        .optional(),
       sentAt: z.string().nullable().describe('When the CSMS sent the profile to the station'),
       reportedAt: z.string().nullable().describe('When the station reported the profile'),
       createdAt: z.string().describe('Row creation timestamp'),
@@ -5470,7 +5478,7 @@ export function stationRoutes(app: FastifyInstance): void {
         .nullable()
         .describe('Linked charging profile template name, if any (csms_set rows only)'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/stations/:id/charging-profiles',
@@ -5669,10 +5677,16 @@ export function stationRoutes(app: FastifyInstance): void {
   const compositeScheduleResponse = z
     .object({
       status: z.string().optional().describe('OCPP composite schedule status (Accepted/Rejected)'),
-      statusInfo: z.record(z.unknown()).optional().describe('Additional OCPP status info'),
-      schedule: z.record(z.unknown()).optional().describe('Composite charging schedule payload'),
+      statusInfo: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('Additional OCPP status info'),
+      schedule: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('Composite charging schedule payload'),
     })
-    .passthrough();
+    .loose();
 
   app.post(
     '/stations/:id/charging-profiles/composite',
@@ -5786,10 +5800,13 @@ export function stationRoutes(app: FastifyInstance): void {
   const clearChargingProfileResponse = z
     .object({
       status: z.string().optional().describe('OCPP clear status (Accepted/Unknown)'),
-      statusInfo: z.record(z.unknown()).optional().describe('Additional OCPP status info'),
+      statusInfo: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe('Additional OCPP status info'),
       success: z.boolean().optional().describe('Set when no station response was available'),
     })
-    .passthrough();
+    .loose();
 
   app.post(
     '/stations/:id/charging-profiles/clear',
@@ -5968,7 +5985,7 @@ export function stationRoutes(app: FastifyInstance): void {
                   .optional()
                   .describe('Error description when the push failed or was rejected'),
               })
-              .passthrough(),
+              .loose(),
           ),
           400: errorWith(
             'Station offline, profile id reserved by the station, the profile would override load management, or OCPP 2.0.1 cannot take the template',
@@ -6185,11 +6202,11 @@ export function stationRoutes(app: FastifyInstance): void {
                             'Per-variable result (Accepted, Rejected, NotSupported, error message, etc.)',
                           ),
                       })
-                      .passthrough(),
+                      .loose(),
                   )
                   .describe('Per-variable push result, in the order the variables were sent'),
               })
-              .passthrough(),
+              .loose(),
           ),
           400: errorWith(
             'Station offline, another OCPP version, a station credential, security or boot-owned variable',
@@ -6397,7 +6414,9 @@ export function stationRoutes(app: FastifyInstance): void {
       id: z.number().describe('EV charging needs row ID'),
       stationId: z.string().describe('Station ID'),
       evseId: z.number().describe('EVSE ID the needs apply to'),
-      chargingNeeds: z.record(z.unknown()).describe('Raw OCPP NotifyEVChargingNeeds payload'),
+      chargingNeeds: z
+        .record(z.string(), z.unknown())
+        .describe('Raw OCPP NotifyEVChargingNeeds payload'),
       departureTime: z.string().nullable().describe('Driver-provided departure time'),
       requestedEnergyTransfer: z
         .string()
@@ -6406,7 +6425,7 @@ export function stationRoutes(app: FastifyInstance): void {
       controlMode: z.string().nullable().describe('Control mode (e.g., ScheduledControl)'),
       maxScheduleTuples: z.number().nullable().describe('Maximum number of schedule tuples'),
       csmsChargingProfile: z
-        .record(z.unknown())
+        .record(z.string(), z.unknown())
         .nullable()
         .describe(
           'The ISO 15118 TxProfile the CSMS sent for these needs: { payload: SetChargingProfile payload, renegotiations }, null when none was sent',
@@ -6414,7 +6433,7 @@ export function stationRoutes(app: FastifyInstance): void {
       createdAt: z.string().describe('Row creation timestamp'),
       updatedAt: z.string().describe('Row update timestamp'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/stations/:id/ev-charging-needs',
@@ -6469,7 +6488,7 @@ export function stationRoutes(app: FastifyInstance): void {
         .nullable()
         .describe('Time the schedule periods are relative to (ISO 8601)'),
       chargingSchedule: z
-        .record(z.unknown())
+        .record(z.string(), z.unknown())
         .describe('The charging schedule the EV reported (OCPP ChargingScheduleType)'),
       withinLimits: z
         .boolean()
@@ -6479,7 +6498,7 @@ export function stationRoutes(app: FastifyInstance): void {
         ),
       createdAt: z.string().describe('Time the CSMS received the schedule'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/stations/:id/ev-charging-schedules',
@@ -6567,7 +6586,7 @@ export function stationRoutes(app: FastifyInstance): void {
       createdAt: z.string().describe('Row creation timestamp'),
       updatedAt: z.string().describe('Row update timestamp'),
     })
-    .passthrough();
+    .loose();
 
   // The reply keeps the columns it had before the low signal monitor columns
   // (component instance, source) were added.
@@ -6986,7 +7005,7 @@ export function stationRoutes(app: FastifyInstance): void {
       acknowledgedBy: z.string().nullable().describe('User ID that acknowledged the alert'),
       createdAt: z.string().describe('Row creation timestamp'),
     })
-    .passthrough();
+    .loose();
 
   const eventAlertsQuery = paginationQuery.extend({
     severity: z.coerce.number().int().min(0).max(9).optional().describe('Filter by max severity'),

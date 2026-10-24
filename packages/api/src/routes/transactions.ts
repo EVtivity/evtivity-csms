@@ -42,10 +42,13 @@ const transactionEventItem = z
       .nullable()
       .describe('Number of phases in use during the event'),
     cableMaxCurrent: z.number().min(0).nullable().describe('Cable max current rating in amps'),
-    payload: z.record(z.unknown()).nullable().describe('Raw OCPP transaction event payload'),
+    payload: z
+      .record(z.string(), z.unknown())
+      .nullable()
+      .describe('Raw OCPP transaction event payload'),
     createdAt: z.string().describe('Timestamp the row was inserted in the CSMS'),
   })
-  .passthrough();
+  .loose();
 
 const transactionSessionItem = z
   .object({
@@ -90,13 +93,13 @@ const transactionSessionItem = z
       .string()
       .nullable()
       .describe('Last driver-update notification timestamp'),
-    metadata: z.record(z.unknown()).nullable().describe('Free-form metadata'),
+    metadata: z.record(z.string(), z.unknown()).nullable().describe('Free-form metadata'),
     freeVend: z.boolean().describe('Whether the session ran in free vend mode'),
     co2AvoidedKg: z.string().nullable().describe('Estimated CO2 avoided in kg'),
     createdAt: z.string().describe('Row creation timestamp'),
     updatedAt: z.string().describe('Row last update timestamp'),
   })
-  .passthrough();
+  .loose();
 
 const sessionParams = z.object({
   sessionId: ID_PARAMS.sessionId.describe('Charging session ID'),

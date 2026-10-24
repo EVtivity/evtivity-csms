@@ -123,7 +123,7 @@ const portalConnectorItem = z
         'Live connector status (available, occupied, charging, preparing, ev_connected, suspended_ev, suspended_evse, idle, finishing, reserved, faulted, unavailable)',
       ),
   })
-  .passthrough();
+  .loose();
 
 const portalChargerDetail = z
   .object({
@@ -160,7 +160,7 @@ const portalChargerDetail = z
         plannedEndAt: z.coerce.date().nullable(),
         message: z.string().nullable(),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Active maintenance window for the site; null when none'),
     stationUnavailable: z
@@ -169,7 +169,7 @@ const portalChargerDetail = z
         'True when the whole station cannot charge right now (disabled, firmware install, or a station-level fault)',
       ),
   })
-  .passthrough();
+  .loose();
 
 const portalEvseItem = z
   .object({
@@ -186,7 +186,7 @@ const portalEvseItem = z
         'True when the active reservation belongs to the signed-in driver (false for anonymous callers)',
       ),
   })
-  .passthrough();
+  .loose();
 
 const portalStationDetail = z
   .object({
@@ -229,7 +229,7 @@ const portalStationDetail = z
           .nullable()
           .describe('Rendered driver-facing message for the active window'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Active maintenance window for the site; null when none'),
     stationUnavailable: z
@@ -238,7 +238,7 @@ const portalStationDetail = z
         'True when the whole station cannot charge right now (disabled, firmware install, or a station-level fault)',
       ),
   })
-  .passthrough();
+  .loose();
 
 const portalConnectorSummary = z
   .object({
@@ -251,7 +251,7 @@ const portalConnectorSummary = z
     maxCurrentAmps: z.number().min(0).nullable().describe('Maximum current in Amps'),
     status: z.string().max(50).describe('Live connector status'),
   })
-  .passthrough();
+  .loose();
 
 const portalChargerSearch = z
   .object({
@@ -273,7 +273,7 @@ const portalChargerSearch = z
       .array(portalConnectorSummary)
       .describe('Summary of all connectors on the station for filtering and display'),
   })
-  .passthrough();
+  .loose();
 
 const startChargingResponse = z
   .object({
@@ -281,7 +281,7 @@ const startChargingResponse = z
       .string()
       .describe('Newly created charging session ID, used to poll session state'),
   })
-  .passthrough();
+  .loose();
 
 const activeSessionItem = z
   .object({
@@ -298,7 +298,7 @@ const activeSessionItem = z
     currentCostCents: z.number().int().min(0).nullable().describe('Running cost in cents'),
     currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
   })
-  .passthrough();
+  .loose();
 
 const stopSessionResponse = z
   .object({
@@ -309,7 +309,7 @@ const stopSessionResponse = z
       ),
     chargingSessionId: z.string().describe('Charging session ID'),
   })
-  .passthrough();
+  .loose();
 
 const reservationItem = z
   .object({
@@ -331,7 +331,7 @@ const reservationItem = z
     cancellationFee: reservationCancellationFeeSchema,
     noShowFee: reservationNoShowFeeSchema,
   })
-  .passthrough();
+  .loose();
 
 const reservationDetail = z
   .object({
@@ -368,7 +368,7 @@ const reservationDetail = z
     cancellationFee: reservationCancellationFeeSchema,
     noShowFee: reservationNoShowFeeSchema,
   })
-  .passthrough();
+  .loose();
 
 const reservationCreated = z
   .object({
@@ -380,7 +380,7 @@ const reservationCreated = z
     expiresAt: z.coerce.date().describe('Reservation window end'),
     createdAt: z.coerce.date().describe('Timestamp the reservation was created'),
   })
-  .passthrough();
+  .loose();
 
 const cancelReservationResponse = z
   .object({
@@ -403,7 +403,7 @@ const cancelReservationResponse = z
         'Set when the station refused the CancelReservation or did not answer. The reservation is cancelled.',
       ),
   })
-  .passthrough();
+  .loose();
 
 const sessionIdParams = z.object({
   sessionId: ID_PARAMS.sessionId.describe('Charging session ID'),
@@ -422,12 +422,8 @@ const createDriverReservationBody = z.object({
     .max(2147483647)
     .optional()
     .describe('EVSE ID on the station'),
-  expiresAt: z.string().datetime().describe('ISO 8601 reservation expiration time'),
-  startsAt: z
-    .string()
-    .datetime()
-    .optional()
-    .describe('ISO 8601 start date-time for delayed scheduling'),
+  expiresAt: z.iso.datetime().describe('ISO 8601 reservation expiration time'),
+  startsAt: z.iso.datetime().optional().describe('ISO 8601 start date-time for delayed scheduling'),
 });
 
 const chargerParams = z.object({
@@ -474,7 +470,8 @@ const portalPricingInfo = z
       .nullable()
       .describe(
         'When present, identifies the conditions under which the resolved tariff applies (time-of-day, days-of-week, seasonal date range, holiday-only, or energy threshold). Drivers should see this so they understand why a non-default rate is showing -- otherwise a "Peak rate $0.50/kWh" reads like the always-on price when it actually only applies 09:00-17:00.',
-      ),
+      )
+      .optional(),
     billing: driverBillingSchema
       .nullable()
       .describe(
@@ -497,7 +494,7 @@ const portalPricingInfo = z
         'True when split billing is on and the pricing group has a paid tariff: a session that starts on a free tariff can become paid, so the start needs a payment method like a paid tariff',
       ),
   })
-  .passthrough();
+  .loose();
 
 const searchQuery = z.object({
   q: z.string().min(1),
@@ -531,7 +528,7 @@ const portalNearbyStation = z
       .array(portalConnectorSummary)
       .describe('Summary of all connectors on the station for filtering and display'),
   })
-  .passthrough();
+  .loose();
 
 const startChargingBody = z.object({
   paymentMethodId: z.coerce
@@ -1052,7 +1049,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       defaultLng: z.number().describe('Default map center longitude'),
       defaultZoom: z.number().describe('Default Google Maps zoom level'),
     })
-    .passthrough();
+    .loose();
 
   app.get(
     '/portal/chargers/map-config',
@@ -1160,11 +1157,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
                   'Whether a driver can start here now: the station is online, enabled and not under maintenance, the EVSE is not reserved, and the connector status is startable',
                 ),
             })
-            .passthrough(),
+            .loose(),
         )
         .describe('One row per EVSE connector at the site, ordered by station and EVSE'),
     })
-    .passthrough();
+    .loose();
 
   const portalLocationImage = z
     .object({
@@ -1175,7 +1172,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       contentType: z.string().describe('MIME content type'),
       caption: z.string().nullable().describe('Operator-supplied caption shown to drivers'),
     })
-    .passthrough();
+    .loose();
 
   const popularTimesQuery = z.object({
     weeks: z.coerce
@@ -1195,7 +1192,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .number()
         .describe('Average sessions per (dow, hour) bucket over the requested weeks'),
     })
-    .passthrough();
+    .loose();
 
   const imageIdParams = z.object({
     siteId: z.string().describe('Site ID'),
@@ -1362,7 +1359,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
               .object({
                 downloadUrl: z.string().describe('Presigned S3 GET URL valid for a short time'),
               })
-              .passthrough(),
+              .loose(),
           ),
           404: errorWith('Resource not found', [
             ERROR_CODES.IMAGE_NOT_FOUND,
@@ -1680,7 +1677,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
               .object({
                 connectorStatus: z.string().describe('Refreshed connector status'),
               })
-              .passthrough(),
+              .loose(),
           ),
           400: errorWith('Station is offline', [ERROR_CODES.STATION_OFFLINE]),
           404: errorWith('Resource not found', [
@@ -2588,7 +2585,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
                   .array(activeSessionItem)
                   .describe('Active charging sessions for the authenticated driver'),
               })
-              .passthrough(),
+              .loose(),
           ),
         },
       },
@@ -2755,7 +2752,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
                   .array(reservationItem)
                   .describe('Reservations for the authenticated driver, newest first'),
               })
-              .passthrough(),
+              .loose(),
           ),
         },
       },

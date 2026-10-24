@@ -45,7 +45,7 @@ const ruleItem = z
       .max(500)
       .describe('Recipient address for the chosen channel (empty when none is set)'),
   })
-  .passthrough();
+  .loose();
 
 // A `$name` placeholder (the old `$admin` default) was never resolved to an
 // address, so it is refused instead of being stored as a recipient.

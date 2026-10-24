@@ -105,34 +105,34 @@ const dashboardStatsResponse = z
       .min(0)
       .describe('Number of accepted stations currently in faulted state'),
     statusCounts: z
-      .record(z.number().int().min(0))
+      .record(z.string(), z.number().int().min(0))
       .describe('Map of station availability status to count, accepted stations'),
     onboardingStatusCounts: z
-      .record(z.number().int().min(0))
+      .record(z.string(), z.number().int().min(0))
       .describe(
         'Map of station onboarding status (accepted, pending, blocked) to count, every station',
       ),
   })
-  .passthrough();
+  .loose();
 
 const dateValueItem = z
   .object({
     date: z.string().describe('Date in YYYY-MM-DD format (local timezone)'),
     energyWh: z.number().min(0).describe('Energy delivered on this date in watt-hours'),
   })
-  .passthrough();
+  .loose();
 const dateCountItem = z
   .object({
     date: z.string().describe('Date in YYYY-MM-DD format (local timezone)'),
     count: z.number().int().min(0).describe('Number of sessions started on this date'),
   })
-  .passthrough();
+  .loose();
 const stationStatusItem = z
   .object({
     status: z.string().max(50).describe('Connector status (available, occupied, faulted, etc.)'),
     count: z.number().int().min(0).describe('Number of connectors in this status'),
   })
-  .passthrough();
+  .loose();
 const siteLocationItem = z
   .object({
     siteId: z.string().describe('Site ID'),
@@ -141,7 +141,7 @@ const siteLocationItem = z
     longitude: z.string().describe('Site longitude in decimal degrees'),
     stationCount: z.number().int().min(0).describe('Number of stations at this site'),
   })
-  .passthrough();
+  .loose();
 const utilizationItem = z
   .object({
     site: z.string().max(255).nullable().describe('Site name, null if site has no name'),
@@ -153,7 +153,7 @@ const utilizationItem = z
         'Utilization percentage (0-100, not rounded): charging hours of the sessions at the site, clipped to the period, over the port-hours of its EVSEs in service (not retired) for the period so far',
       ),
   })
-  .passthrough();
+  .loose();
 const peakUsageItem = z
   .object({
     hour: z.number().int().min(0).max(23).describe('Hour of day (0-23, local timezone)'),
@@ -164,7 +164,7 @@ const peakUsageItem = z
       .min(0)
       .describe('Number of sessions started in this hour/day-of-week bucket'),
   })
-  .passthrough();
+  .loose();
 
 const financialStatsResponse = z
   .object({
@@ -263,7 +263,7 @@ const financialStatsResponse = z
     billedOnAccountCount: z.number().int().min(0).describe('Number of those account sessions'),
     currency: z.string().length(3).describe('Company currency (ISO 4217) of every amount'),
   })
-  .passthrough();
+  .loose();
 
 const revenueHistoryItem = z
   .object({
@@ -283,7 +283,7 @@ const revenueHistoryItem = z
         'Number of ended sessions billed in the company currency that started on this date',
       ),
   })
-  .passthrough();
+  .loose();
 
 const paymentBreakdownItem = z
   .object({
@@ -297,7 +297,7 @@ const paymentBreakdownItem = z
         'Total captured amount minus the amount refunded for payments in this status, in cents, as revenue counts it. Only payments in the company currency are summed.',
       ),
   })
-  .passthrough();
+  .loose();
 
 const uptimeResponse = z
   .object({
@@ -317,7 +317,7 @@ const uptimeResponse = z
       .min(0)
       .describe('Number of stations with uptime below the 97% threshold'),
   })
-  .passthrough();
+  .loose();
 
 const ocppInstanceHealth = z
   .object({
@@ -339,7 +339,7 @@ const ocppInstanceHealth = z
     serverStartedAt: z.coerce.date().describe('Timestamp when this process started'),
     updatedAt: z.coerce.date().describe('Timestamp of the last health report of this process'),
   })
-  .passthrough();
+  .loose();
 
 const ocppHealthResponse = z
   .object({
@@ -399,7 +399,7 @@ const ocppHealthResponse = z
         'Health of each running OCPP server process, sorted by instance ID. Omitted for a user restricted to some sites.',
       ),
   })
-  .passthrough();
+  .loose();
 
 const MONEY_HIDDEN = ' Null for a user without payments:read, who does not see revenue.';
 
@@ -495,14 +495,14 @@ const snapshotFields = {
     .describe('Percentage of OCPP pings that received a pong response (0-100)'),
 };
 
-const snapshotItem = z.object(snapshotFields).passthrough();
+const snapshotItem = z.object(snapshotFields).loose();
 
 const datedSnapshotItem = z
   .object({
     date: z.string().describe('Snapshot date in YYYY-MM-DD format (system timezone)'),
     ...snapshotFields,
   })
-  .passthrough();
+  .loose();
 
 const trendResponse = z
   .object({
@@ -512,7 +512,7 @@ const trendResponse = z
         'Per-day snapshot rows of the last 14 days in the system timezone, newest first. Only days with a snapshot are listed, so hasData is always true.',
       ),
   })
-  .passthrough();
+  .loose();
 
 const dayOverDayResponse = z
   .object({
@@ -521,7 +521,7 @@ const dayOverDayResponse = z
     ),
     previous: datedSnapshotItem.describe('The calendar day before current'),
   })
-  .passthrough();
+  .loose();
 
 const snapshotDateQuery = z.object({
   date: z
@@ -1648,7 +1648,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         .number()
         .describe('Average CO2 avoided per session in kilograms'),
     })
-    .passthrough();
+    .loose();
 
   const carbonStatsQuery = z.object({
     from: z.string().optional().describe('Start date (YYYY-MM-DD)'),
@@ -1677,7 +1677,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const { from: fromDate, to: toDate } = request.query as z.infer<typeof carbonStatsQuery>;
       // from > to silently returns 0 from the aggregation, indistinguishable
       // from "no data exists" on the dashboard. (Zod .refine() doesn't help
-      // here -- zod-to-json-schema strips refines before Fastify validates.)
+      // here -- the JSON Schema conversion strips refines before Fastify validates.)
       if (fromDate != null && toDate != null && fromDate > toDate) {
         await reply.status(400).send({
           error: '"from" date must be on or before "to" date',

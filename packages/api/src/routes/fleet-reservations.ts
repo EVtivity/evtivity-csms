@@ -60,7 +60,7 @@ const fleetReservationListItem = z
       .min(0)
       .describe('Number of individual reservations under this fleet reservation'),
   })
-  .passthrough();
+  .loose();
 
 const slotResultItem = z
   .object({
@@ -73,7 +73,7 @@ const slotResultItem = z
     status: z.enum(['confirmed', 'rejected']).describe('Outcome of this slot'),
     error: z.string().max(500).nullable().describe('Error message when the slot was rejected'),
   })
-  .passthrough();
+  .loose();
 
 const createFleetReservationResponse = z
   .object({
@@ -88,7 +88,7 @@ const createFleetReservationResponse = z
     total: z.number().int().min(0).describe('Total number of slots requested'),
     results: z.array(slotResultItem).describe('Per-slot outcome details'),
   })
-  .passthrough();
+  .loose();
 
 const cancelFleetReservationResponse = z
   .object({
@@ -105,7 +105,7 @@ const cancelFleetReservationResponse = z
         'Number of reservations this request cancelled (a slot a concurrent change ended first, or whose cancel failed, is not counted)',
       ),
   })
-  .passthrough();
+  .loose();
 
 type FleetSlotStation = ReservationStation;
 
@@ -215,9 +215,12 @@ const createFleetReservationBody = z.object({
     .min(1)
     .max(100)
     .describe('Array of reservation slots'),
-  expiresAt: z.string().datetime().describe('ISO 8601 expiration date-time'),
-  startsAt: z.string().datetime().optional().describe('ISO 8601 start date-time'),
-  chargingProfile: z.record(z.unknown()).optional().describe('Charging profile to set on stations'),
+  expiresAt: z.iso.datetime().describe('ISO 8601 expiration date-time'),
+  startsAt: z.iso.datetime().optional().describe('ISO 8601 start date-time'),
+  chargingProfile: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('Charging profile to set on stations'),
 });
 
 export function fleetReservationRoutes(app: FastifyInstance): void {

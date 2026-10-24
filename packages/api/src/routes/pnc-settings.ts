@@ -40,7 +40,7 @@ const ALL_SITES_SETTING_NOT_FOUND = {
 
 const testProviderResponse = z
   .object({ success: z.boolean().describe('Whether the provider connectivity test succeeded') })
-  .passthrough();
+  .loose();
 
 const PNC_KEYS = [
   'pnc.enabled',
@@ -56,7 +56,7 @@ const PNC_KEYS = [
   'pnc.local.emaidProviderId',
 ];
 
-// Checked in the handler (parseAllowedPrivateHosts): zod-to-json-schema strips
+// Checked in the handler (parseAllowedPrivateHosts): the JSON Schema conversion strips
 // .refine(), .trim(), and .toLowerCase(), and Fastify validates the body with
 // the JSON Schema only.
 const ocspAllowedHost = z.string().max(253);
@@ -138,7 +138,7 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         operationId: 'getPncSettings',
         security: [{ bearerAuth: [] }],
         response: {
-          200: itemResponse(z.record(z.unknown())),
+          200: itemResponse(z.record(z.string(), z.unknown())),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
         },
       },

@@ -169,11 +169,11 @@ const testConnectionResponse = z
             name: z.string().describe('Organization name'),
             deviceCount: z.number().describe('SIMs in that organization'),
           })
-          .passthrough(),
+          .loose(),
       )
       .describe('Other organizations the API key reaches (at most 10), with their SIM counts'),
   })
-  .passthrough();
+  .loose();
 
 async function readStoredSimSettings(): Promise<Map<string, unknown>> {
   const rows = await db

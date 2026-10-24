@@ -71,26 +71,26 @@ const displayMessageItem = z
       .describe('OCPP transaction the message is scoped to'),
     evseId: z.number().int().min(0).nullable().describe('OCPP EVSE the message targets'),
     messageExtra: z
-      .array(z.record(z.unknown()))
+      .array(z.record(z.string(), z.unknown()))
       .max(50)
       .nullable()
       .describe('Additional OCPP message components'),
     ocppResponse: z
-      .record(z.unknown())
+      .record(z.string(), z.unknown())
       .nullable()
       .describe('Raw response payload from the station'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),
   })
-  .passthrough();
+  .loose();
 
 const clearMessageResponse = z
   .object({ status: z.literal('cleared').describe('Outcome status') })
-  .passthrough();
+  .loose();
 
 const refreshMessageResponse = z
   .object({ status: z.string().describe('Result status returned by the station') })
-  .passthrough();
+  .loose();
 
 const stationIdParams = z.object({
   stationId: ID_PARAMS.stationId.describe('Charging station ID'),
@@ -118,12 +118,12 @@ const createMessageBody = z.object({
     .enum(['Charging', 'Faulted', 'Idle', 'Unavailable', 'Suspended', 'Discharging'])
     .optional()
     .describe('Show message only when station is in this state'),
-  startDateTime: z.string().datetime().optional().describe('ISO 8601 start time for the message'),
-  endDateTime: z.string().datetime().optional().describe('ISO 8601 end time for the message'),
+  startDateTime: z.iso.datetime().optional().describe('ISO 8601 start time for the message'),
+  endDateTime: z.iso.datetime().optional().describe('ISO 8601 end time for the message'),
   transactionId: z.string().max(36).optional().describe('Limit display to this transaction'),
   evseId: z.coerce.number().int().min(0).optional().describe('OCPP EVSE ID to target'),
   messageExtra: z
-    .array(z.record(z.unknown()))
+    .array(z.record(z.string(), z.unknown()))
     .optional()
     .describe('Additional OCPP message components'),
 });

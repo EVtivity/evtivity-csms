@@ -52,17 +52,23 @@ const accessLogItem = z
     durationMs: z.number().nullable().describe('Request duration in milliseconds'),
     remoteAddress: z.string().nullable().describe('IP address of the client'),
     userAgent: z.string().nullable().describe('User-Agent header from the request'),
-    metadata: z.record(z.unknown()).nullable().describe('Additional structured metadata'),
+    metadata: z
+      .record(z.string(), z.unknown())
+      .nullable()
+      .describe('Additional structured metadata'),
     createdAt: z.coerce.date().describe('Timestamp when the entry was recorded'),
     userEmail: z.string().nullable().describe('Email of the actor (operator or driver)'),
     userFirstName: z.string().nullable().describe('First name of the actor'),
     userLastName: z.string().nullable().describe('Last name of the actor'),
   })
-  .passthrough();
+  .loose();
 
 const createLogBody = z.object({
   action: z.string().min(1).max(100).describe('Action name to log'),
-  metadata: z.record(z.unknown()).optional().describe('Additional metadata for the log entry'),
+  metadata: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe('Additional metadata for the log entry'),
 });
 
 const listLogsQuery = paginationQuery.extend({

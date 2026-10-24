@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fail if any route file declares a loose response schema placeholder.
 #
-# `z.object({}).passthrough()` and `z.object({})` produce empty objects in
+# `z.object({}).loose()` and `z.object({})` produce empty objects in
 # the generated OpenAPI spec, which the website renders as a generic object
 # with no field detail. Every response/item schema must enumerate its fields
 # with `.describe()` strings.
@@ -20,20 +20,20 @@ if [ ! -d "$ROUTES_DIR" ]; then
   exit 2
 fi
 
-# Loose response schemas use `z.object({}).passthrough()` to short-circuit
+# Loose response schemas use `z.object({}).loose()` to short-circuit
 # the response-shape declaration. They render as empty objects in the
 # generated OpenAPI spec, which the docs site shows as "object" with no
 # field detail. Empty bodies (`z.object({})` for endpoints with no request
 # body) are fine and not flagged.
-PATTERN='z\.object\(\{\}\)\.passthrough\(\)'
+PATTERN='z\.object\(\{\}\)\.loose\(\)|z\.looseObject\(\{\}\)'
 
 if matches=$(grep -rEn "$PATTERN" "$ROUTES_DIR" 2>/dev/null); then
   count=$(echo "$matches" | wc -l | tr -d ' ')
   echo "error: $count loose response schema(s) found in route files."
   echo
-  echo "z.object({}).passthrough() generates an empty object in the OpenAPI spec, which"
+  echo "z.object({}).loose() generates an empty object in the OpenAPI spec, which"
   echo "renders as a no-detail object on the docs site. Replace with a typed Zod schema"
-  echo "that enumerates fields with .describe() strings and ends in .passthrough()."
+  echo "that enumerates fields with .describe() strings and ends in .loose()."
   echo
   echo "$matches"
   exit 1

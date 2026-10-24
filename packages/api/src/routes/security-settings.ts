@@ -254,7 +254,7 @@ const securitySettingsResponse = z
       .optional()
       .describe('Whether a reCAPTCHA secret is stored (every caller)'),
   })
-  .passthrough()
+  .loose()
   .describe('Stored security.* setting keys, plus the parsed MFA, password and session groups');
 
 const PASSWORD_KEYS: Record<keyof z.infer<typeof passwordPolicyBody>, string> = {

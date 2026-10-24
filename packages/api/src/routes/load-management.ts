@@ -84,7 +84,7 @@ const hierarchyStationSchema = z
     isOnline: z.boolean().describe('Whether the station is online'),
     hasActiveSession: z.boolean().describe('Whether the station has an active charging session'),
   })
-  .passthrough();
+  .loose();
 
 const hierarchyCircuitSchema = z
   .object({
@@ -99,9 +99,11 @@ const hierarchyCircuitSchema = z
       .nullable()
       .describe('Circuit voltage in volts; null uses the panel voltage'),
     stations: z.array(hierarchyStationSchema).describe('Stations attached to this circuit'),
-    unmanagedLoads: z.array(z.record(z.unknown())).describe('Unmanaged loads on this circuit'),
+    unmanagedLoads: z
+      .array(z.record(z.string(), z.unknown()))
+      .describe('Unmanaged loads on this circuit'),
   })
-  .passthrough();
+  .loose();
 
 // Mirrors the shape annotateHierarchy() emits: panels carry `circuits` and
 // `childPanels`, never `stations`/`children`. A mismatch here makes
@@ -128,13 +130,15 @@ const hierarchyNodeSchema = z
       ),
     circuits: z.array(hierarchyCircuitSchema).describe('Circuits on this panel'),
     childPanels: z
-      .array(z.record(z.unknown()))
+      .array(z.record(z.string(), z.unknown()))
       .describe(
         'Nested sub-panels, each with the fields of this node, its own childPanels included',
       ),
-    unmanagedLoads: z.array(z.record(z.unknown())).describe('Unmanaged loads on this panel'),
+    unmanagedLoads: z
+      .array(z.record(z.string(), z.unknown()))
+      .describe('Unmanaged loads on this panel'),
   })
-  .passthrough();
+  .loose();
 
 const loadStationItem = z
   .object({
@@ -158,7 +162,7 @@ const loadStationItem = z
     isOnline: z.boolean().describe('Whether the station is online'),
     hasActiveSession: z.boolean().describe('Whether a charging session is active'),
   })
-  .passthrough();
+  .loose();
 
 const loadManagementItem = z
   .object({
@@ -174,7 +178,7 @@ const loadManagementItem = z
       .describe('Electrical hierarchy of panels and circuits at the site'),
     stations: z.array(loadStationItem).describe('Stations and their current allocation state'),
   })
-  .passthrough();
+  .loose();
 
 const siteLoadManagementRecord = z
   .object({
@@ -185,7 +189,7 @@ const siteLoadManagementRecord = z
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().describe('Updated timestamp (ISO 8601)'),
   })
-  .passthrough();
+  .loose();
 
 const loadPriorityItem = z
   .object({
@@ -193,7 +197,7 @@ const loadPriorityItem = z
     stationId: z.string().describe('OCPP station ID'),
     loadPriority: z.number().describe('Load priority from 1 (lowest) to 10 (highest)'),
   })
-  .passthrough();
+  .loose();
 
 const loadMinPowerItem = z
   .object({
@@ -204,7 +208,7 @@ const loadMinPowerItem = z
       .nullable()
       .describe('Minimum power in kW of a charging session, or null for none'),
   })
-  .passthrough();
+  .loose();
 
 const historyItem = z
   .object({
@@ -217,7 +221,7 @@ const historyItem = z
       .describe('Strategy used for this allocation cycle'),
     createdAt: z.string().describe('Timestamp of the allocation cycle'),
   })
-  .passthrough();
+  .loose();
 
 function toConfigRecord(
   row: typeof siteLoadManagement.$inferSelect | undefined,

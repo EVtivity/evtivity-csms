@@ -261,11 +261,11 @@ export function sanitizeInsightModelOutput(
   };
 }
 
-function valueAt(answer: unknown, path: readonly (string | number)[]): unknown {
+function valueAt(answer: unknown, path: readonly PropertyKey[]): unknown {
   let value = answer;
   for (const key of path) {
     if (value === null || typeof value !== 'object') return undefined;
-    value = (value as Record<string | number, unknown>)[key];
+    value = (value as Record<PropertyKey, unknown>)[key];
   }
   return value;
 }
@@ -285,9 +285,9 @@ export function insightAnswerProblem(answer: unknown): string | null {
   return parsed.error.issues
     .slice(0, 5)
     .map((issue) => {
-      const field = issue.path.length > 0 ? issue.path.join('.') : 'answer';
+      const field = issue.path.length > 0 ? issue.path.map(String).join('.') : 'answer';
       const value = valueAt(answer, issue.path);
-      if (issue.code === 'too_big' && issue.type === 'string' && typeof value === 'string') {
+      if (issue.code === 'too_big' && issue.origin === 'string' && typeof value === 'string') {
         return `${field} has ${String(value.trim().length)} characters, at most ${String(issue.maximum)} are allowed`;
       }
       return `${field}: ${issue.code}`;

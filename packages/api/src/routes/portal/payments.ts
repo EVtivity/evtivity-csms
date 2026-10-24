@@ -55,7 +55,7 @@ const paymentMethodItem = z
     createdAt: z.coerce.date().describe('Timestamp the payment method was added'),
     updatedAt: z.coerce.date().describe('Timestamp the payment method was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const setupIntentResponse = z
   .object({
@@ -71,7 +71,7 @@ const setupIntentResponse = z
       .describe('Stripe publishable key for the configured Stripe account'),
     session: methodSetupSessionSchema,
   })
-  .passthrough();
+  .loose();
 
 const ephemeralKeyResponse = z
   .object({
@@ -89,7 +89,7 @@ const ephemeralKeyResponse = z
       .nullable()
       .describe('Client secret of the card-only SetupIntent created with the key'),
   })
-  .passthrough();
+  .loose();
 
 const ephemeralKeyQuery = z.object({
   stripeVersion: z.string().min(1).describe('Stripe API version pinned by the mobile SDK'),

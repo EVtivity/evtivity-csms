@@ -25,7 +25,7 @@ const carbonFactorItem = z
     source: z.string().max(255).describe('Data source (e.g., EPA eGRID, Ember)'),
     updatedAt: z.string().describe('Timestamp when the factor was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const reportMonthlySummary = z
   .object({
@@ -34,7 +34,7 @@ const reportMonthlySummary = z
     energyWh: z.number().min(0).describe('Energy delivered this month, in watt-hours'),
     sessionCount: z.number().int().min(0).describe('Number of completed sessions this month'),
   })
-  .passthrough();
+  .loose();
 
 const reportSiteBreakdown = z
   .object({
@@ -44,7 +44,7 @@ const reportSiteBreakdown = z
     energyWh: z.number().min(0).describe('Energy delivered at this site, in watt-hours'),
     sessionCount: z.number().int().min(0).describe('Number of completed sessions at this site'),
   })
-  .passthrough();
+  .loose();
 
 const reportResponse = z
   .object({
@@ -66,10 +66,10 @@ const reportResponse = z
           .min(0)
           .describe('Equivalent number of trees absorbing the CO2 for one year (EPA estimate)'),
       })
-      .passthrough()
+      .loose()
       .describe('Cumulative totals across the reporting window'),
   })
-  .passthrough();
+  .loose();
 
 const countryQuery = z.object({
   country: z.string().length(2).optional().describe('Filter by ISO 3166-1 country code'),
@@ -214,7 +214,7 @@ export function carbonRoutes(app: FastifyInstance): void {
       // from > to silently returns empty rows from the SQL aggregation,
       // which looks identical to "no carbon data exists" in the UI. Surface
       // the swapped input as a 400 so the operator sees the cause. (Cannot
-      // use Zod .refine() here because zod-to-json-schema strips refines
+      // use Zod .refine() here because the JSON Schema conversion strips refines
       // when converting to the JSON Schema Fastify actually validates.)
       if (from != null && to != null && from > to) {
         await reply.status(400).send({

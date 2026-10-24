@@ -98,7 +98,7 @@ describe('insight model output', () => {
     const problem = insightAnswerProblem({ ...answer, summary: long });
     expect(problem).toBe('summary has 727 characters, at most 600 are allowed');
     expect(insightAnswerProblem({ ...answer, category: 'weather' })).toBe(
-      'category: invalid_enum_value',
+      'category: invalid_value',
     );
     expect(insightAnswerProblem('connectivity')).toBe('the answer is not a JSON object');
     expect(insightAnswerProblem({ category: 'hardware', confidence: 'low', summary: 'x' })).toBe(

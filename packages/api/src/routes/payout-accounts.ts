@@ -67,7 +67,7 @@ const payoutAccountResponse = z
             'Stripe disabled reason, or account_invalid for an account the platform cannot access',
           ),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('Details of the last read, or null when never read'),
     checkedAt: z.coerce.date().nullable().describe('When the status was last read from Stripe'),
@@ -80,11 +80,11 @@ const payoutAccountResponse = z
           .describe('Address the link was emailed to, or null when it was only copied'),
         lastUsedAt: z.coerce.date().nullable().describe('When the site host last opened the link'),
       })
-      .passthrough()
+      .loose()
       .nullable()
       .describe('The open onboarding link of the site (never its token), or null'),
   })
-  .passthrough();
+  .loose();
 
 const createPayoutAccountBody = z.object({
   country: z
@@ -93,7 +93,6 @@ const createPayoutAccountBody = z.object({
     .optional()
     .describe("ISO 3166-1 alpha-2 country of the site host's business; default the site's country"),
   contactEmail: z
-    .string()
     .email()
     .max(255)
     .optional()
@@ -121,7 +120,7 @@ const payoutInviteResponse = z
       .nullable()
       .describe('Address the link was emailed to, or null when it was only created'),
   })
-  .passthrough();
+  .loose();
 
 const providerErrors = errorWith('Stripe is not configured or refused the call', [
   ERROR_CODES.VALIDATION_ERROR,

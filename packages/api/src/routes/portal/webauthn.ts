@@ -132,14 +132,14 @@ const driverRegistrationResponse = registrationResponse
       .describe('With an enrollmentToken: the driver now signed in (session cookies)'),
     ...mobileSessionFields,
   })
-  .passthrough();
+  .loose();
 
 const driverSignInResponse = z
   .object({
     driver: portalDriverItem.describe('The driver now signed in (session cookies)'),
     ...mobileSessionFields,
   })
-  .passthrough();
+  .loose();
 
 const driverSecondFactorResponse = z
   .object({
@@ -168,7 +168,7 @@ const driverSecondFactorResponse = z
       .describe('With mfaEnrollmentRequired: a passkey or security key can be the enrolled factor'),
     ...mobileSessionFields,
   })
-  .passthrough();
+  .loose();
 
 const removeBody = z.object({
   proof: factorProof
@@ -601,7 +601,7 @@ export function portalWebauthnRoutes(app: FastifyInstance): void {
                 success: z.literal(true).describe('Removed'),
                 ...mobileSessionFields,
               })
-              .passthrough(),
+              .loose(),
           ),
           400: errorWith(
             'The proof is missing or wrong',

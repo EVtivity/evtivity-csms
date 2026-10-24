@@ -127,7 +127,7 @@ const panelItem = z
     createdAt: z.coerce.date().describe('Timestamp when created'),
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),
   })
-  .passthrough();
+  .loose();
 
 const panelCircuitItem = z
   .object({
@@ -152,7 +152,7 @@ const panelCircuitItem = z
     updatedAt: z.coerce.date().describe('Row last update timestamp'),
     stationCount: z.number().int().min(0).describe('Number of stations attached to this circuit'),
   })
-  .passthrough();
+  .loose();
 
 const panelUnmanagedLoadItem = z
   .object({
@@ -165,7 +165,7 @@ const panelUnmanagedLoadItem = z
     createdAt: z.coerce.date().describe('Row creation timestamp'),
     updatedAt: z.coerce.date().describe('Row last update timestamp'),
   })
-  .passthrough();
+  .loose();
 
 const panelDetailItem = z
   .object({
@@ -203,7 +203,7 @@ const panelDetailItem = z
       .array(panelUnmanagedLoadItem)
       .describe('Unmanaged loads attached to this panel'),
   })
-  .passthrough();
+  .loose();
 
 // --- Helpers ---
 
@@ -642,7 +642,7 @@ export function panelRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(panelIdParam),
         response: {
-          200: itemResponse(z.object({ success: z.literal(true) }).passthrough()),
+          200: itemResponse(z.object({ success: z.literal(true) }).loose()),
           404: errorWith('Panel not found', [ERROR_CODES.PANEL_NOT_FOUND]),
         },
       },

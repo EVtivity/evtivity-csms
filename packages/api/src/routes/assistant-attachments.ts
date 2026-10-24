@@ -22,7 +22,7 @@ const READ = 'aiAssistant:read';
 const WRITE = 'aiAssistant:write';
 
 const attachmentIdParams = z.object({
-  id: z.string().uuid().describe('Attachment ID'),
+  id: z.guid().describe('Attachment ID'),
 });
 
 const uploadUrlBody = z.object({
@@ -48,10 +48,12 @@ const uploadUrlResponse = z
       .describe(
         'Presigned S3 POST URL. Send a multipart/form-data POST with every entry of fields, then the file as the last field named file. S3 enforces the size limit and the Content-Type.',
       ),
-    fields: z.record(z.string()).describe('Form fields to send unchanged before the file field'),
+    fields: z
+      .record(z.string(), z.string())
+      .describe('Form fields to send unchanged before the file field'),
     expiresAt: z.coerce.date().describe('Time after which S3 refuses the POST'),
   })
-  .passthrough();
+  .loose();
 
 const attachmentResponse = z
   .object({
@@ -73,7 +75,7 @@ const attachmentResponse = z
       .describe('Conversation that uses the attachment, null until a message uses it'),
     createdAt: z.coerce.date().describe('Time the upload was requested'),
   })
-  .passthrough();
+  .loose();
 
 const downloadUrlResponse = z
   .object({
@@ -81,7 +83,7 @@ const downloadUrlResponse = z
       .string()
       .describe('Presigned S3 GET URL that downloads the file as an attachment'),
   })
-  .passthrough();
+  .loose();
 
 const notFound = errorWith('Attachment not found', [ERROR_CODES.ATTACHMENT_NOT_FOUND]);
 

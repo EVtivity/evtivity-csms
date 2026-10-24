@@ -100,7 +100,7 @@ const supportCaseListItem = z
     isRead: z.boolean().describe('True if the current operator has read the latest messages'),
     createdAt: z.coerce.date().describe('Timestamp when the case was created'),
   })
-  .passthrough();
+  .loose();
 
 const supportCaseItem = z
   .object({
@@ -120,7 +120,7 @@ const supportCaseItem = z
     createdAt: z.coerce.date().describe('Timestamp when the case was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the case was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const attachmentItem = z
   .object({
@@ -137,7 +137,7 @@ const attachmentItem = z
       .describe('Content type sniffed from the file (images are stored as JPEG or PNG)'),
     createdAt: z.coerce.date().describe('Timestamp when the attachment was uploaded'),
   })
-  .passthrough();
+  .loose();
 
 const supportCaseMessageItem = z
   .object({
@@ -154,14 +154,14 @@ const supportCaseMessageItem = z
     createdAt: z.coerce.date().describe('Timestamp when the message was created'),
     attachments: z.array(attachmentItem).optional().describe('Attachments on this message'),
   })
-  .passthrough();
+  .loose();
 
 const sessionRef = z
   .object({
     id: z.string().describe('Charging session ID'),
     transactionId: z.string().nullable().describe('OCPP transaction ID for the session'),
   })
-  .passthrough();
+  .loose();
 
 const supportCaseDetail = supportCaseItem
   .extend({
@@ -195,7 +195,7 @@ const supportCaseDetail = supportCaseItem
       .nullable()
       .describe('Who resolved the case (operator or ai); null while it is not resolved'),
   })
-  .passthrough();
+  .loose();
 
 const uploadUrlResponse = z
   .object({
@@ -204,19 +204,21 @@ const uploadUrlResponse = z
       .describe(
         'Presigned S3 POST URL. Send a multipart/form-data POST with every entry of fields, then the file as the last field named file. S3 enforces the size limit and the Content-Type.',
       ),
-    fields: z.record(z.string()).describe('Form fields to send unchanged before the file field'),
+    fields: z
+      .record(z.string(), z.string())
+      .describe('Form fields to send unchanged before the file field'),
     s3Key: z
       .string()
       .describe('Quarantine key of the upload. Pass it to the confirm endpoint after the POST.'),
     expiresAt: z.coerce.date().describe('Time after which S3 refuses the POST'),
   })
-  .passthrough();
+  .loose();
 
 const downloadUrlResponse = z
   .object({
     downloadUrl: z.string().describe('Presigned S3 GET URL for downloading the attachment'),
   })
-  .passthrough();
+  .loose();
 
 const paymentRecordItem = z
   .object({
@@ -233,7 +235,7 @@ const paymentRecordItem = z
     createdAt: z.coerce.date().describe('Timestamp when the payment record was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the payment record was last updated'),
   })
-  .passthrough();
+  .loose();
 
 const supportRefundItem = paymentRecordItem
   .extend({
@@ -243,7 +245,7 @@ const supportRefundItem = paymentRecordItem
         'succeeded: the refund is done. pending: an asynchronous provider (Adyen) accepted it and confirms it by webhook; the driver is notified then.',
       ),
   })
-  .passthrough();
+  .loose();
 import { getS3Config, deleteObject } from '../services/s3.service.js';
 import {
   confirmSupportAttachment,
@@ -617,7 +619,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
                   .number()
                   .describe('Number of unread support cases assigned to the current operator'),
               })
-              .passthrough(),
+              .loose(),
           ),
         },
       },
@@ -667,7 +669,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
                     'Number of open support cases with no assignee in the sites the current operator can access',
                   ),
               })
-              .passthrough(),
+              .loose(),
           ),
         },
       },
@@ -717,7 +719,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
                     'Whether S3 storage is configured, so attachments can be uploaded to support case messages',
                   ),
               })
-              .passthrough(),
+              .loose(),
           ),
         },
       },
