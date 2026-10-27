@@ -20,7 +20,7 @@ export function UseVehicleButton({
   disabled,
 }: UseVehicleButtonProps): React.JSX.Element {
   return (
-    <Button onClick={onClick} disabled={disabled}>
+    <Button size="wrap" onClick={onClick} disabled={disabled}>
       <PlugZap className="h-4 w-4" aria-hidden="true" />
       {label}
     </Button>

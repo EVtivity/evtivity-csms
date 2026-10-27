@@ -203,7 +203,7 @@ export function SiteDetailsTab({
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
-          <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+          <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
             {canWrite && !editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
             {canWrite && (
               <RemoveButton

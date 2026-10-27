@@ -173,7 +173,7 @@ export function GeneratedReportsTab(): React.JSX.Element {
                   </TableCell>
                   <TableCell>{formatDateTime(report.createdAt, timezone)}</TableCell>
                   <TableCell>
-                    <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+                    <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
                       {report.status === 'completed' && (
                         <Button
                           variant="outline"

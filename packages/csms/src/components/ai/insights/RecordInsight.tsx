@@ -28,8 +28,11 @@ export function RecordInsight({ filter, onOpen }: RecordInsightProps): React.JSX
   if (pickShownInsight(insights) == null) return null;
   const live = insights.filter(isLiveInsight);
   const waiting = live.some((i) => i.status === 'pending');
+  // The pulse and the count sit beside the button, not inside it: the pulse scales to twice
+  // the button and the count overhangs its corner, which made the button's own content wider
+  // than the button (the phone layout check read its label as cut off).
   return (
-    <div className="fixed bottom-24 right-6 z-40">
+    <div className="fixed bottom-24 right-6 z-40 flex">
       <Button
         type="button"
         size="fab"
@@ -37,29 +40,29 @@ export function RecordInsight({ filter, onOpen }: RecordInsightProps): React.JSX
         aria-label={t('aiInsights.openPanel', { count: Math.max(live.length, 1) })}
         data-testid="record-insight-trigger"
         onClick={onOpen}
-        className="relative"
       >
-        {live.length > 0 && (
-          // Pulses while an insight asks for attention; still with reduced motion.
-          <span
-            aria-hidden="true"
-            data-testid="record-insight-pulse"
-            className={cn(
-              'absolute inset-0 rounded-full animate-ping motion-reduce:animate-none',
-              waiting ? 'bg-warning/40' : 'bg-info/40',
-            )}
-          />
-        )}
-        <Lightbulb className="relative h-5 w-5" aria-hidden="true" />
-        {live.length > 1 && (
-          <span
-            aria-hidden="true"
-            className="absolute -right-1 -top-1 min-w-5 rounded-full bg-warning px-1 text-xs font-semibold text-foreground"
-          >
-            {live.length}
-          </span>
-        )}
+        <Lightbulb className="h-5 w-5" aria-hidden="true" />
       </Button>
+      {live.length > 0 && (
+        // Pulses while an insight asks for attention; still with reduced motion.
+        <span
+          aria-hidden="true"
+          data-testid="record-insight-pulse"
+          className={cn(
+            'pointer-events-none absolute inset-0 rounded-full animate-ping motion-reduce:animate-none',
+            waiting ? 'bg-warning/40' : 'bg-info/40',
+          )}
+        />
+      )}
+      {live.length > 1 && (
+        <span
+          aria-hidden="true"
+          data-testid="record-insight-count"
+          className="pointer-events-none absolute -right-1 -top-1 min-w-5 rounded-full bg-warning px-1 text-center text-xs font-semibold text-foreground"
+        >
+          {live.length}
+        </span>
+      )}
     </div>
   );
 }

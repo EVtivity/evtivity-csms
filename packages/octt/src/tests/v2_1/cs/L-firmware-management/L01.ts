@@ -3,12 +3,7 @@
 
 import type { CsTestCase, CsTestContext, StepResult } from '../../../../cs-types.js';
 import type { TestResult } from '../../../../types.js';
-import {
-  sleep,
-  startFileServer,
-  waitForChargingState,
-  type FileServer,
-} from '../../../../cs-test-helpers.js';
+import { sleep, waitForChargingState, type FileServer } from '../../../../cs-test-helpers.js';
 import {
   BROKEN_FIRMWARE_IMAGE_BASE64,
   BROKEN_FIRMWARE_SIGNATURE,
@@ -37,12 +32,14 @@ function useCsmsHandler(ctx: CsTestContext): void {
 }
 
 /** <Configured firmware_location> (and the broken image for TC_L_08). */
-async function serveFirmware(): Promise<{ valid: FileServer; broken: FileServer }> {
-  const valid = await startFileServer(
+async function serveFirmware(
+  ctx: CsTestContext,
+): Promise<{ valid: FileServer; broken: FileServer }> {
+  const valid = await ctx.startFileServer(
     '/firmware/css-firmware.bin',
     Buffer.from(FIRMWARE_IMAGE_BASE64, 'base64'),
   );
-  const broken = await startFileServer(
+  const broken = await ctx.startFileServer(
     '/firmware/css-firmware-broken.bin',
     Buffer.from(BROKEN_FIRMWARE_IMAGE_BASE64, 'base64'),
   );
@@ -242,7 +239,7 @@ function successfulUpdate(schedule: 'none' | 'install' | 'download') {
   return async (ctx: CsTestContext): Promise<TestResult> => {
     const steps: StepResult[] = [];
     useCsmsHandler(ctx);
-    const files = await serveFirmware();
+    const files = await serveFirmware(ctx);
     try {
       const resp = await updateFirmware(ctx, {
         requestId: 1,
@@ -298,7 +295,7 @@ export const TC_L_05_CS = create(
   async (ctx) => {
     const steps: StepResult[] = [];
     useCsmsHandler(ctx);
-    const files = await serveFirmware();
+    const files = await serveFirmware(ctx);
     try {
       // <Generated invalid firmware signingCertificate>: issued by the trusted
       // manufacturer root, but expired.
@@ -325,7 +322,7 @@ export const TC_L_06_CS = create(
   async (ctx) => {
     const steps: StepResult[] = [];
     useCsmsHandler(ctx);
-    const files = await serveFirmware();
+    const files = await serveFirmware(ctx);
     try {
       const resp = await updateFirmware(ctx, {
         requestId: 1,
@@ -352,7 +349,7 @@ export const TC_L_07_CS = create(
   async (ctx) => {
     const steps: StepResult[] = [];
     useCsmsHandler(ctx);
-    const files = await serveFirmware();
+    const files = await serveFirmware(ctx);
     try {
       const resp = await updateFirmware(ctx, {
         requestId: 1,
@@ -378,7 +375,7 @@ export const TC_L_08_CS = create(
   async (ctx) => {
     const steps: StepResult[] = [];
     useCsmsHandler(ctx);
-    const files = await serveFirmware();
+    const files = await serveFirmware(ctx);
     try {
       const resp = await updateFirmware(ctx, {
         requestId: 1,
@@ -421,7 +418,7 @@ export const TC_L_10_CS = create(
   async (ctx) => {
     const steps: StepResult[] = [];
     useCsmsHandler(ctx);
-    const files = await serveFirmware();
+    const files = await serveFirmware(ctx);
     try {
       // The first request is still busy (its download is scheduled) when the second arrives.
       const first = await updateFirmware(ctx, {
@@ -480,7 +477,7 @@ export const TC_L_11_CS = create(
     // PICS C-60); the runner reports it notApplicable for the simulator.
     const steps: StepResult[] = [];
     useCsmsHandler(ctx);
-    const files = await serveFirmware();
+    const files = await serveFirmware(ctx);
     try {
       const first = await updateFirmware(ctx, {
         requestId: 1,
@@ -514,7 +511,7 @@ function updateDuringTransaction(allowNewSessions: boolean, secondTransaction: b
   return async (ctx: CsTestContext): Promise<TestResult> => {
     const steps: StepResult[] = [];
     useCsmsHandler(ctx);
-    const files = await serveFirmware();
+    const files = await serveFirmware(ctx);
     try {
       const config = await ctx.server.sendCommand('SetVariables', {
         setVariableData: [
@@ -624,7 +621,7 @@ export const TC_L_16_CS = create(
     // C-43); the runner reports it notApplicable for the simulator.
     const steps: StepResult[] = [];
     useCsmsHandler(ctx);
-    const files = await serveFirmware();
+    const files = await serveFirmware(ctx);
     try {
       if (!(await energyTransferStarted(ctx, 1, TOKEN, steps))) return result(steps);
       const resp = await updateFirmware(ctx, {
@@ -650,7 +647,7 @@ export const TC_L_18_CS = create(
   async (ctx) => {
     const steps: StepResult[] = [];
     useCsmsHandler(ctx);
-    const files = await serveFirmware();
+    const files = await serveFirmware(ctx);
     try {
       const resp = await updateFirmware(ctx, { requestId: 1, location: files.valid.url });
       steps.push(responseStep(2, resp, ['Rejected', 'InvalidCertificate']));

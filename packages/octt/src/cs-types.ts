@@ -13,6 +13,7 @@ import type { Logger } from 'pino';
 import type { OcppClient } from '@evtivity/css/ocpp-client';
 import type { StationSimulator } from '@evtivity/css/station-simulator';
 import type { TestCertificate } from './cs-security-pki.js';
+import type { FileServer } from './cs-test-helpers.js';
 
 /**
  * OCPP versions of the CS test cases. The 2.0.1 cases are the 2.1 cases with
@@ -68,6 +69,16 @@ export interface CsTestContext {
   startServer(options: {
     securityProfile: number;
   }): Promise<{ server: OcppTestServer; url: string }>;
+  /**
+   * Serve one file, such as a firmware image, on 127.0.0.1 (`startFileServer`). The station
+   * under test may download from it (its host and port join the station's
+   * `extraAllowedFileTransferHosts`); the executor closes it after the test.
+   */
+  startFileServer(
+    path: string,
+    content: Buffer,
+    options?: { delayMs?: number },
+  ): Promise<FileServer>;
 }
 
 export interface CsTestSecurity {

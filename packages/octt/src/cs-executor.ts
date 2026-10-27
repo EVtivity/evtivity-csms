@@ -12,6 +12,7 @@ import type { CsOcppVersion, CsTestCase, CsTestCaseResult, CsTlsMaterial } from 
 import { OcppTestServer, type TestServerTls } from './cs-server.js';
 import { createRootCertificate, issueCertificate } from './cs-security-pki.js';
 import { newTestPassword } from './security-test-helpers.js';
+import { startFileServer, type FileServer } from './cs-test-helpers.js';
 import { ocppVersionLabel } from './ocpp-schema-check.js';
 
 /** wss:// settings of a test server for a security profile, or undefined for ws://. */
@@ -136,6 +137,7 @@ export async function executeCsTest(
   const stationId = generateCsStationId(testCase.module, testCase.id);
   const server = new OcppTestServer();
   const extraServers: OcppTestServer[] = [];
+  const fileServers: FileServer[] = [];
 
   const log = logger.child({ testId: testCase.id, stationId });
   const start = Date.now();
@@ -188,6 +190,10 @@ export async function executeCsTest(
     // TC_A_19_CS): this one and every server the test starts. The simulator
     // refuses any other origin than the configured OCPP server.
     const testServerUrls: string[] = [url];
+    // The hosts (127.0.0.1:<port>) of the file servers a test case starts (ctx.startFileServer),
+    // the only loopback addresses the station's firmware downloads may reach outside
+    // development and test (Helm and CDK workers run with NODE_ENV production).
+    const testFileHosts: string[] = [];
     const simulatorConfig: StationConfig = {
       id: dbId,
       stationId,
@@ -212,6 +218,7 @@ export async function executeCsTest(
       // A test station reconnects without the fleet's reconnect spread.
       reconnectSpreadMs: 0,
       extraAllowedServerUrls: testServerUrls,
+      extraAllowedFileTransferHosts: testFileHosts,
       // The N01 and 1.6 diagnostics test cases name upload servers that do not exist
       // (logs.example.com): the station fakes the upload (status notifications only).
       simulatedFileTransfers: true,
@@ -330,6 +337,12 @@ export async function executeCsTest(
           extra.setMessageHandler(createDefaultMessageHandler(testCase.version));
           return { server: extra, url: started.url };
         },
+        startFileServer: async (path, content, options) => {
+          const fileServer = await startFileServer(path, content, options);
+          fileServers.push(fileServer);
+          testFileHosts.push(new URL(fileServer.url).host);
+          return fileServer;
+        },
       }),
       new Promise<never>((_resolve, reject) => {
         setTimeout(() => {
@@ -377,6 +390,7 @@ export async function executeCsTest(
     }
     await server.stop().catch(() => {});
     for (const extra of extraServers) await extra.stop().catch(() => {});
+    for (const fileServer of fileServers) await fileServer.close();
 
     // Clean up css_* rows for this test station
     const sql = getSql();

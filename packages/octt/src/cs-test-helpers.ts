@@ -135,16 +135,30 @@ export interface FileServer {
   close: () => Promise<void>;
 }
 
-export async function startFileServer(path: string, content: Buffer): Promise<FileServer> {
+/**
+ * Serves `content` at `path` on 127.0.0.1. `delayMs` holds each answer back, so the station is
+ * still downloading when a test acts. A CS test case starts it through `ctx.startFileServer`,
+ * which lets the station under test reach it.
+ */
+export async function startFileServer(
+  path: string,
+  content: Buffer,
+  options: { delayMs?: number } = {},
+): Promise<FileServer> {
   let downloads = 0;
+  const delayMs = options.delayMs ?? 0;
   const server = createServer((req, res) => {
     if (req.method === 'GET' && req.url === path) {
-      downloads++;
-      res.writeHead(200, {
-        'content-type': 'application/octet-stream',
-        'content-length': content.length,
-      });
-      res.end(content);
+      const send = (): void => {
+        downloads++;
+        res.writeHead(200, {
+          'content-type': 'application/octet-stream',
+          'content-length': content.length,
+        });
+        res.end(content);
+      };
+      if (delayMs > 0) setTimeout(send, delayMs);
+      else send();
       return;
     }
     res.writeHead(404).end();

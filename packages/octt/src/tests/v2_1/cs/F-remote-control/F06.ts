@@ -1,8 +1,6 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import {
   FIRMWARE_IMAGE_BASE64,
   FIRMWARE_SIGNING_CERTIFICATE,
@@ -470,24 +468,17 @@ export const TC_F_19_CS: CsTestCase = {
 
     // <Configured firmware_location>: a file server that takes 3 s to deliver
     // the image, so the station is still downloading when the trigger arrives.
-    const image = Buffer.from(FIRMWARE_IMAGE_BASE64, 'base64');
-    const fileServer = createServer((_req, res) => {
-      setTimeout(() => {
-        res.writeHead(200, { 'content-length': image.length }).end(image);
-      }, 3000);
-    });
-    await new Promise<void>((resolve) => {
-      fileServer.listen(0, '127.0.0.1', () => {
-        resolve();
-      });
-    });
-    const address = fileServer.address() as AddressInfo;
+    const fileServer = await ctx.startFileServer(
+      '/firmware.bin',
+      Buffer.from(FIRMWARE_IMAGE_BASE64, 'base64'),
+      { delayMs: 3000 },
+    );
     try {
       // Step 1-2: Send UpdateFirmwareRequest to start firmware download
       const updateRes = await ctx.server.sendCommand('UpdateFirmware', {
         requestId: 1,
         firmware: {
-          location: `http://127.0.0.1:${String(address.port)}/firmware.bin`,
+          location: fileServer.url,
           retrieveDateTime: new Date(Date.now() - 7_200_000).toISOString(),
           signingCertificate: FIRMWARE_SIGNING_CERTIFICATE,
           signature: INVALID_FIRMWARE_SIGNATURE,
@@ -543,7 +534,7 @@ export const TC_F_19_CS: CsTestCase = {
         if (msg['status'] === 'InvalidSignature') break;
       }
     } finally {
-      fileServer.close();
+      await fileServer.close();
     }
 
     const allPassed = steps.every((s) => s.status === 'passed');

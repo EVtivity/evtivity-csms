@@ -171,7 +171,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
             {partner.countryCode}-{partner.partyId}
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+        <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
           {canWrite && partner.status !== 'connected' && (
             <Button
               variant="outline"

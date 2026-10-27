@@ -1342,7 +1342,7 @@ export function StationCommands({
             <Button
               key={action}
               variant="outline"
-              size="sm"
+              size="wrap"
               onClick={() => {
                 openQuickAction(action);
               }}

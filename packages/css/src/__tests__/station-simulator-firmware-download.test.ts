@@ -12,6 +12,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { call, makeHarness, silenceConsole } from './sim-harness.js';
 import { SIMULATOR_FIRMWARE_MAX_BYTES } from '../station-simulator.js';
 import { logger } from '../lib/logger.js';
+import { config as cssConfig } from '../lib/config.js';
 
 let server: Server | null = null;
 
@@ -78,5 +79,62 @@ describe('simulator firmware download', () => {
       0,
     );
     expect(large).toBeNull();
+  });
+});
+
+// Outside development and test (Helm, CDK) a station reaches a loopback firmware server only
+// when its owner named the host in code (extraAllowedFileTransferHosts, the OCTT CS runner).
+describe('simulator firmware download in production', () => {
+  let nodeEnv: string | undefined;
+  beforeEach(() => {
+    nodeEnv = cssConfig.NODE_ENV;
+    cssConfig.NODE_ENV = 'production';
+  });
+  afterEach(() => {
+    cssConfig.NODE_ENV = nodeEnv;
+  });
+
+  it('downloads from 127.0.0.1 only for a station whose owner allowed that host and port', async () => {
+    const url = await serve(16);
+    const hostPort = new URL(url).host;
+    const allowed = await makeHarness({
+      protocol: 'ocpp1.6',
+      config: { extraAllowedFileTransferHosts: [hostPort] },
+    });
+    const image = await call(allowed, 'downloadFirmware16', url, 0, 0);
+    expect((image as Buffer).length).toBe(16);
+
+    const other = await makeHarness({ protocol: 'ocpp1.6' });
+    expect(await call(other, 'downloadFirmware16', url, 0, 0)).toBeNull();
+
+    const otherPort = await makeHarness({
+      protocol: 'ocpp1.6',
+      config: { extraAllowedFileTransferHosts: ['127.0.0.1:1'] },
+    });
+    expect(await call(otherPort, 'downloadFirmware16', url, 0, 0)).toBeNull();
+  });
+
+  it('reads the allowance at each download, so a server added later is reached', async () => {
+    const url = await serve(8);
+    const hosts: string[] = [];
+    const h = await makeHarness({
+      protocol: 'ocpp1.6',
+      config: { extraAllowedFileTransferHosts: hosts },
+    });
+    expect(await call(h, 'downloadFirmware16', url, 0, 0)).toBeNull();
+    hosts.push(new URL(url).host);
+    expect(((await call(h, 'downloadFirmware16', url, 0, 0)) as Buffer).length).toBe(8);
+  });
+
+  it('refuses the cloud metadata address even when the owner names it', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    const h = await makeHarness({
+      protocol: 'ocpp1.6',
+      config: { extraAllowedFileTransferHosts: ['169.254.169.254'] },
+    });
+    const image = await call(h, 'downloadFirmware16', 'http://169.254.169.254/latest/x', 0, 0);
+    expect(image).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

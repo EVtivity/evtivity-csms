@@ -14,7 +14,7 @@ import {
   type HashAlgorithm,
   type TestCertificate,
 } from '../../../cs-security-pki.js';
-import { startFileServer, type FileServer } from '../../../cs-test-helpers.js';
+import type { FileServer } from '../../../cs-test-helpers.js';
 import {
   TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
   TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
@@ -591,7 +591,7 @@ async function prepareSignedFirmware(
     return null;
   }
   const firmware = crypto.randomBytes(64 * 1024);
-  const server = await startFileServer('/firmware/octt-firmware.bin', firmware);
+  const server = await ctx.startFileServer('/firmware/octt-firmware.bin', firmware);
   return { firmware, signer, server };
 }
 

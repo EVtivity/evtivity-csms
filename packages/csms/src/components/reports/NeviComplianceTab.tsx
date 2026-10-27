@@ -840,7 +840,7 @@ function ExcludedDowntimeSection(): React.JSX.Element {
                   </TableCell>
                   <TableCell className="max-w-[200px] truncate">{record.notes ?? '-'}</TableCell>
                   <TableCell>
-                    <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+                    <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
                       <EditButton
                         label={t('nevi.editDowntime')}
                         onClick={() => {

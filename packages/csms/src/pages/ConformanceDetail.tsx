@@ -422,7 +422,7 @@ export function ConformanceDetail(): React.JSX.Element {
                     {Math.min(page * pageSize, detail?.results.length ?? 0)} {t('conformance.of')}{' '}
                     {detail?.results.length ?? 0}
                   </p>
-                  <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+                  <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
                     <Button
                       variant="outline"
                       size="sm"

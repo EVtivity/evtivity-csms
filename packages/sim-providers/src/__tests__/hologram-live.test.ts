@@ -58,7 +58,9 @@ function expectListShape(body: Json): void {
   expect(typeof body['size']).toBe('number');
 }
 
-describe.skipIf(!live)('Hologram live API (opt-in)', () => {
+// Each test makes several live calls of up to 15 s each (the request timeout above), so the
+// 5 s default test timeout failed a slow provider reply rather than a wrong one.
+describe.skipIf(!live)('Hologram live API (opt-in)', { timeout: 60_000 }, () => {
   const provider = new HologramProvider({ apiKey, orgId });
 
   async function liveSim(): Promise<{ iccid: string; ref: SimRef; link: Json; device: Json }> {

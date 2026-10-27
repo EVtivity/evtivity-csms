@@ -179,6 +179,15 @@ export interface StationConfig {
    */
   extraAllowedServerUrls?: readonly string[];
   /**
+   * Hosts (`host` or `host:port`) this station's file transfers may reach on a loopback or
+   * private address, next to CSS_FILE_TRANSFER_ALLOWED_HOSTS. Set in code only, by the
+   * conformance (OCTT) CS runner for the firmware servers its test cases start on
+   * 127.0.0.1; no env var, css_stations column or CSMS route sets it, and the
+   * SimulatorManager never does. Read at each transfer, so the owner may add a server it
+   * starts later. Unroutable and cloud metadata addresses stay refused.
+   */
+  extraAllowedFileTransferHosts?: readonly string[];
+  /**
    * Fake log and diagnostics uploads (status notifications only, a location naming
    * `nonexistent`, `redirect`, `failedLocation` or `127.0.0.1` fails) instead of real ones.
    * Set in code only, by the conformance (OCTT) CS runner, whose test cases name upload
@@ -7266,13 +7275,17 @@ export class StationSimulator {
   /**
    * Server trust and address rules of a file transfer: the CSMS CA next to the system roots
    * for https and ftps, the SFTP host key while servers are verified, and private addresses
-   * only in development and test or for CSS_FILE_TRANSFER_ALLOWED_HOSTS.
+   * only in development and test, for CSS_FILE_TRANSFER_ALLOWED_HOSTS or for the hosts this
+   * station's owner allowed in code (extraAllowedFileTransferHosts).
    */
   private fileTransferOptions(): FileTransferOptions {
     const options: FileTransferOptions = {
       rejectUnauthorized: resolveVerifyServerCertificate(this.config.verifyServerCertificate),
       allowPrivateNetworks: fileTransferAllowsPrivateNetworks(),
-      allowedPrivateHosts: fileTransferAllowedHosts(),
+      allowedPrivateHosts: [
+        ...fileTransferAllowedHosts(),
+        ...(this.config.extraAllowedFileTransferHosts ?? []),
+      ],
     };
     if (this.config.caCert != null) options.caPem = this.config.caCert;
     const hostKey = this.config.sftpHostKeySha256 ?? cssConfig.CSS_SFTP_HOST_KEY_SHA256;

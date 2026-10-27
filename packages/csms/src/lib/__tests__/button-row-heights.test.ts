@@ -50,6 +50,7 @@ const CSMS_SCALE: Scale = {
     'icon-xs': 6,
     chip: 6,
     fab: 12,
+    wrap: 10,
   },
   control: 10,
 };

@@ -38,6 +38,7 @@ describe('buttonVariants sizes', () => {
     ['row-sm', ['h-auto', 'w-full', 'justify-start', 'text-xs']],
     ['cell', ['h-auto', 'p-0', 'whitespace-normal']],
     ['fab', ['h-12', 'w-12', 'rounded-full', 'shadow-lg']],
+    ['wrap', ['h-auto', 'min-h-10', 'whitespace-normal', 'text-center']],
   ] as const)('%s has its shared classes and keeps the focus ring', (size, expected) => {
     const classes = buttonVariants({ size }).split(' ');
     for (const c of expected) expect(classes).toContain(c);

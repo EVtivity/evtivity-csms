@@ -436,6 +436,23 @@ describe('record pages', () => {
     expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights?stationId=st1&limit=10&language=ko');
   });
 
+  it('keeps the pulse and the count outside the button, so its content never overflows it', async () => {
+    apiMock.get.mockResolvedValue({
+      data: [insight({ id: 'a' }), insight({ id: 'b', status: 'pending' })],
+      total: 2,
+    });
+    wrap(<RecordInsight filter={{ stationId: 'st1' }} onOpen={vi.fn()} />);
+    const pulse = await screen.findByTestId('record-insight-pulse');
+    const count = screen.getByTestId('record-insight-count');
+    const trigger = screen.getByTestId('record-insight-trigger');
+    expect(count.textContent).toBe('2');
+    expect(trigger.contains(pulse)).toBe(false);
+    expect(trigger.contains(count)).toBe(false);
+    expect(pulse.className).toContain('pointer-events-none');
+    expect(count.className).toContain('pointer-events-none');
+    expect(pulse.parentElement).toBe(trigger.parentElement);
+  });
+
   it('TC-AI-IN-UI-02: the session card renders nothing without an insight to show', async () => {
     apiMock.get.mockResolvedValue({ data: [insight({ status: 'skipped' })], total: 1 });
     wrap(<RecordInsight filter={{ sessionId: 'se1' }} onOpen={vi.fn()} />);

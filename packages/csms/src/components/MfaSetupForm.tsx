@@ -230,7 +230,7 @@ export function MfaSetupForm<T>({
           </p>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+      <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
         <Button type="submit" disabled={confirmMutation.isPending} className="relative">
           {confirmMutation.isPending && (
             <span className="absolute inset-0 flex items-center justify-center">

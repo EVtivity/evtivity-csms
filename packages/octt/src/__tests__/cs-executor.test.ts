@@ -389,6 +389,44 @@ describe('executeCsTest', () => {
     expect(stations[0]?.config['clientCert']).toBeUndefined();
   });
 
+  it('lets the station download only from the file servers the test starts, and closes them', async () => {
+    let allowedAtStart: readonly string[] = [];
+    let firstUrl = '';
+    let laterUrl = '';
+    let served = '';
+    await executeCsTest(
+      testCase(
+        async (ctx) => {
+          allowedAtStart = [
+            ...((stations[0]?.config['extraAllowedFileTransferHosts'] as string[] | undefined) ??
+              []),
+          ];
+          firstUrl = (await ctx.startFileServer('/fw.bin', Buffer.from('fw'))).url;
+          // A server started later joins the same list the station reads at each transfer.
+          const later = await ctx.startFileServer('/late.bin', Buffer.from('late'), {
+            delayMs: 10,
+          });
+          laterUrl = later.url;
+          served = Buffer.from(await (await fetch(later.url)).arrayBuffer()).toString();
+          return passed();
+        },
+        { skipAutoBoot: true },
+      ),
+      config,
+      logger,
+    );
+    expect(allowedAtStart).toEqual([]);
+    expect(served).toBe('late');
+    expect(stations[0]?.config['extraAllowedFileTransferHosts']).toEqual([
+      new URL(firstUrl).host,
+      new URL(laterUrl).host,
+    ]);
+    expect(new URL(firstUrl).hostname).toBe('127.0.0.1');
+    // The executor closed both servers after the test.
+    await expect(fetch(firstUrl)).rejects.toThrow();
+    await expect(fetch(laterUrl)).rejects.toThrow();
+  });
+
   it('startServer serves ws:// for profile 1 and refuses profile 2 without tls', async () => {
     let plainUrl = '';
     const out = await executeCsTest(

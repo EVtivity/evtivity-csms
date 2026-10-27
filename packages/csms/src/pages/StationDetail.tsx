@@ -322,7 +322,7 @@ export function StationDetail(): React.JSX.Element {
           <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm">{t('stations.pendingApproval')}</p>
             {canWriteStations && (
-              <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex sm:shrink-0">
+              <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0 sm:shrink-0">
                 <Button
                   variant="outline"
                   size="sm"
