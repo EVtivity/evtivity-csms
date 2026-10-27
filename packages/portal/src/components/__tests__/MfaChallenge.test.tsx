@@ -102,6 +102,15 @@ afterEach(() => {
 });
 
 describe('portal MfaChallenge', () => {
+  it('centers Back to Sign In on its own row below Resend', () => {
+    state.mfaPending = pending({ factors: ['email'] });
+    render(<MfaChallenge />);
+    const back = screen.getByRole('button', { name: 'auth.backToLogin' });
+    const resend = screen.getByRole('button', { name: 'auth.mfaResend' });
+    expect(back.parentElement?.className).toContain('justify-center');
+    expect(resend.parentElement).not.toBe(back.parentElement);
+  });
+
   it('keeps the code form alone when no recovery code is offered', () => {
     state.mfaPending = pending({});
     render(<MfaChallenge />);

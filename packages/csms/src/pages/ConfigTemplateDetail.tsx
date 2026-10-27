@@ -53,10 +53,10 @@ export function ConfigTemplateDetail(): React.JSX.Element {
 
   return (
     <div className="px-4 py-4 md:px-6 md:py-6 space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/settings?tab=configuration" />
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">{template.name}</h1>
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{template.name}</h1>
           <CopyableId id={template.id} />
         </div>
         <EntityNavButtons

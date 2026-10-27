@@ -11,6 +11,12 @@ vi.mock('react-i18next', () => ({
 }));
 
 import { SecurityProfileBadge } from '../SecurityProfileBadge';
+import en from '@/i18n/locales/en.json';
+import de from '@/i18n/locales/de.json';
+import es from '@/i18n/locales/es.json';
+import ko from '@/i18n/locales/ko.json';
+import zh from '@/i18n/locales/zh.json';
+import zhTW from '@/i18n/locales/zh-TW.json';
 
 describe('SecurityProfileBadge', () => {
   it.each([
@@ -40,6 +46,13 @@ describe('SecurityProfileBadge', () => {
   ])('labels OCPP 1.6 profile %i with %s', (profile, key) => {
     const { container } = render(<SecurityProfileBadge profile={profile} ocppProtocol="ocpp1.6" />);
     expect(container.textContent).toBe(key);
+  });
+
+  it('names profile 0 No Auth for OCPP 1.6 and 2.x in every language', () => {
+    for (const locale of [en, de, es, ko, zh, zhTW]) {
+      expect(locale.stations.sp16_0).toBe(locale.stations.sp0);
+    }
+    expect(en.stations.sp0).toBe('No Auth');
   });
 
   it('falls back to the Basic Auth label and warning variant for unknown profiles', () => {

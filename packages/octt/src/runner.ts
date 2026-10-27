@@ -372,7 +372,11 @@ async function deleteRunData(logger: pino.Logger): Promise<void> {
   });
   await bestEffort(logger, 'OCTT test driver cleanup failed', async () => {
     const result = await deleteConformanceTestDriver();
-    if (result.detachedRows > 0 || result.pricingGroupsKept > 0) {
+    if (
+      result.detachedRows > 0 ||
+      result.pricingGroupsKept > 0 ||
+      result.avatarCleanupError != null
+    ) {
       logger.warn(result, 'OCTT test driver deleted; rows outside the run referenced it');
     } else {
       logger.info(result, 'OCTT test driver, tokens and pricing group deleted');

@@ -84,10 +84,24 @@ export const users = pgTable(
     proofFailedCount: integer('proof_failed_count').notNull().default(0),
     proofLockedUntil: timestamp('proof_locked_until', { withTimezone: true }),
     lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+    // The user's avatar, written only by the user avatar service: 'generated'
+    // with the DiceBear options (@evtivity/lib/account-avatar), or 'image' with
+    // the clean S3 object of an uploaded picture. Same shapes as drivers.
+    avatarKind: varchar('avatar_kind', { length: 16 }),
+    avatarOptions: jsonb('avatar_options'),
+    avatarS3Key: text('avatar_s3_key'),
+    avatarS3Bucket: text('avatar_s3_bucket'),
+    avatarUpdatedAt: timestamp('avatar_updated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    check(
+      'users_avatar_check',
+      sql`(${table.avatarKind} IS NULL AND ${table.avatarOptions} IS NULL AND ${table.avatarS3Key} IS NULL AND ${table.avatarS3Bucket} IS NULL)
+        OR (${table.avatarKind} = 'generated' AND ${table.avatarOptions} IS NOT NULL AND ${table.avatarS3Key} IS NULL AND ${table.avatarS3Bucket} IS NULL)
+        OR (${table.avatarKind} = 'image' AND ${table.avatarOptions} IS NULL AND ${table.avatarS3Key} IS NOT NULL AND ${table.avatarS3Bucket} IS NOT NULL)`,
+    ),
     index('idx_users_email').on(table.email),
     index('idx_users_role_id').on(table.roleId),
     uniqueIndex('idx_users_sso_subject')
@@ -323,3 +337,16 @@ export const userNotificationPreferences = pgTable(
   },
   (table) => [unique('uq_user_notification_prefs_user').on(table.userId)],
 );
+
+/**
+ * The Live dashboard layout of a user: chart order and visibility
+ * (`DashboardLayout`, `@evtivity/lib/dashboard-layout`). No row: the default
+ * layout. Written only through `lib/dashboard-layout.ts`.
+ */
+export const userDashboardLayouts = pgTable('user_dashboard_layouts', {
+  userId: text('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  layout: jsonb('layout').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

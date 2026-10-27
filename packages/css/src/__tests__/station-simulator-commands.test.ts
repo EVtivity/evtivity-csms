@@ -819,8 +819,8 @@ describe('simple CSMS requests', () => {
     ]);
   });
 
-  it('GetLog starts an upload and a second request cancels the first', async () => {
-    const h = await makeHarness();
+  it('GetLog of a simulated (OCTT) station starts an upload and a second request cancels the first', async () => {
+    const h = await makeHarness({ config: { simulatedFileTransfers: true } });
     const first = await h.invoke('GetLog', {
       requestId: 1,
       logType: 'DiagnosticsLog',

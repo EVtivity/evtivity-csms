@@ -4,7 +4,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, Trash2 } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   DEFAULT_CURRENCY,
@@ -213,22 +213,8 @@ export function CompanySettings({
     },
   });
 
-  const logoRemoveMutation = useMutation({
-    mutationFn: () => api.delete('/v1/settings/company.logo'),
-    onSuccess: () => {
-      void invalidateSettings();
-    },
-  });
-
   const faviconUploadMutation = useMutation({
     mutationFn: (dataUri: string) => api.put('/v1/settings/company.favicon', { value: dataUri }),
-    onSuccess: () => {
-      void invalidateSettings();
-    },
-  });
-
-  const faviconRemoveMutation = useMutation({
-    mutationFn: () => api.delete('/v1/settings/company.favicon'),
     onSuccess: () => {
       void invalidateSettings();
     },
@@ -241,22 +227,8 @@ export function CompanySettings({
     },
   });
 
-  const ogImageRemoveMutation = useMutation({
-    mutationFn: () => api.delete('/v1/settings/company.ogImage'),
-    onSuccess: () => {
-      void invalidateSettings();
-    },
-  });
-
   const uploadMutation = useMutation({
     mutationFn: (svg: string) => api.put('/v1/settings/qr_code_icon', { value: svg }),
-    onSuccess: () => {
-      void invalidateSettings();
-    },
-  });
-
-  const removeMutation = useMutation({
-    mutationFn: () => api.delete('/v1/settings/qr_code_icon'),
     onSuccess: () => {
       void invalidateSettings();
     },
@@ -355,19 +327,6 @@ export function CompanySettings({
                 <p className="text-sm text-muted-foreground">{t('settings.noLogo')}</p>
               )}
               <div className="flex flex-wrap items-center gap-2">
-                {settings != null && typeof settings['company.logo'] === 'string' && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      logoRemoveMutation.mutate();
-                    }}
-                    disabled={logoRemoveMutation.isPending}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {t('settings.removeLogo')}
-                  </Button>
-                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -381,6 +340,7 @@ export function CompanySettings({
                 </Button>
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">{t('settings.uploadReplacesHint')}</p>
           </div>
 
           <div className="space-y-2">
@@ -425,19 +385,6 @@ export function CompanySettings({
               <p className="text-sm text-muted-foreground">{t('settings.noIcon')}</p>
             )}
             <div className="flex flex-wrap items-center gap-2">
-              {hasIcon && svgDataUri != null && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    removeMutation.mutate();
-                  }}
-                  disabled={removeMutation.isPending}
-                >
-                  <Trash2 className="h-4 w-4" />
-                  {t('settings.removeIcon')}
-                </Button>
-              )}
               <Button
                 variant="outline"
                 size="sm"
@@ -450,6 +397,7 @@ export function CompanySettings({
                 {t('settings.uploadSvg')}
               </Button>
             </div>
+            <p className="text-xs text-muted-foreground">{t('settings.uploadReplacesHint')}</p>
           </div>
         </div>
 
@@ -477,21 +425,6 @@ export function CompanySettings({
                 <p className="text-sm text-muted-foreground">{t('settings.noFavicon')}</p>
               )}
               <div className="flex flex-wrap items-center gap-2">
-                {settings != null &&
-                  typeof settings['company.favicon'] === 'string' &&
-                  settings['company.favicon'] !== '' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        faviconRemoveMutation.mutate();
-                      }}
-                      disabled={faviconRemoveMutation.isPending}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      {t('settings.removeFavicon')}
-                    </Button>
-                  )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -505,6 +438,7 @@ export function CompanySettings({
                 </Button>
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">{t('settings.uploadReplacesHint')}</p>
           </div>
 
           <div className="space-y-2">
@@ -530,21 +464,6 @@ export function CompanySettings({
                 <p className="text-sm text-muted-foreground">{t('settings.noOgImage')}</p>
               )}
               <div className="flex flex-wrap items-center gap-2">
-                {settings != null &&
-                  typeof settings['company.ogImage'] === 'string' &&
-                  settings['company.ogImage'] !== '' && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        ogImageRemoveMutation.mutate();
-                      }}
-                      disabled={ogImageRemoveMutation.isPending}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      {t('settings.removeOgImage')}
-                    </Button>
-                  )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -558,6 +477,7 @@ export function CompanySettings({
                 </Button>
               </div>
             </div>
+            <p className="text-xs text-muted-foreground">{t('settings.uploadReplacesHint')}</p>
           </div>
         </div>
 

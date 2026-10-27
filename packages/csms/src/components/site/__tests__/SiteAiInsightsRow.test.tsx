@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const { apiMock, perms, toastMock } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), post: vi.fn() },
@@ -33,9 +34,11 @@ function renderRow(site: SiteAiInsightsState): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <dl>
-        <SiteAiInsightsRow siteId="sit_1" site={site} timezone="UTC" />
-      </dl>
+      <MemoryRouter>
+        <dl>
+          <SiteAiInsightsRow siteId="sit_1" site={site} timezone="UTC" />
+        </dl>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -51,6 +54,36 @@ afterEach(() => {
 });
 
 describe('SiteAiInsightsRow', () => {
+  it('says Off and why and offers no Suppress for a site outside the scope', () => {
+    perms.add('sites:write');
+    perms.add('settings.system:read');
+    renderRow({
+      aiInsightsSuppressed: false,
+      aiInsightsSuppressedAt: null,
+      aiInsightsScope: { enabled: false, reason: 'site_not_selected' },
+    });
+    expect(screen.getByTestId('site-ai-insights-badge').textContent).toBe(
+      'aiInsights.scopeStatus.off',
+    );
+    expect(screen.getByTestId('site-ai-insights-scope').textContent).toContain(
+      'aiInsights.scopeStatus.reason.site_not_selected',
+    );
+    expect(screen.queryByRole('button', { name: 'sites.aiInsights.suppress' })).toBeNull();
+  });
+
+  it('says system-initiated AI is off as the reason', () => {
+    perms.add('sites:write');
+    renderRow({
+      aiInsightsSuppressed: false,
+      aiInsightsSuppressedAt: null,
+      aiInsightsScope: { enabled: false, reason: 'feature_off' },
+    });
+    expect(screen.getByTestId('site-ai-insights-scope').textContent).toBe(
+      'aiInsights.scopeStatus.reason.feature_off',
+    );
+    expect(screen.queryByRole('button', { name: 'sites.aiInsights.suppress' })).toBeNull();
+  });
+
   it('shows In Scope and no buttons without sites:write', () => {
     renderRow({ aiInsightsSuppressed: false, aiInsightsSuppressedAt: null });
     expect(screen.getByTestId('site-ai-insights-badge').textContent).toBe(

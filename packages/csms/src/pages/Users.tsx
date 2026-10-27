@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { AccountAvatar, type AvatarData } from '@/components/AccountAvatar';
 import { Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -55,6 +56,7 @@ interface User {
   mustResetPassword: boolean;
   lastLoginAt: string | null;
   createdAt: string;
+  avatar?: AvatarData | null;
 }
 
 interface Role {
@@ -264,7 +266,14 @@ export function UsersPage(): React.JSX.Element {
                     className="font-medium text-link whitespace-nowrap"
                     data-testid="row-click-target"
                   >
-                    {[user.firstName, user.lastName].filter(Boolean).join(' ') || '-'}
+                    <span className="inline-flex items-center gap-2">
+                      <AccountAvatar
+                        avatar={user.avatar}
+                        firstName={user.firstName}
+                        lastName={user.lastName}
+                      />
+                      {[user.firstName, user.lastName].filter(Boolean).join(' ') || '-'}
+                    </span>
                   </TableCell>
                   <TableCell>{user.email}</TableCell>
                   <TableCell>

@@ -101,6 +101,9 @@
     "./firmware-campaign": {
       "import": "./src/firmware-campaign.ts"
     },
+    "./account-avatar": {
+      "import": "./src/account-avatar.ts"
+    },
     "./languages": {
       "import": "./src/languages.ts"
     },
@@ -118,6 +121,9 @@
     },
     "./worker-queues": {
       "import": "./src/worker-queues.ts"
+    },
+    "./avatar-cleanup": {
+      "import": "./src/avatar-cleanup.ts"
     },
     "./safe-json": {
       "import": "./src/safe-json.ts"
@@ -158,6 +164,9 @@
     "./data-retention": {
       "import": "./src/data-retention.ts"
     },
+    "./dashboard-layout": {
+      "import": "./src/dashboard-layout.ts"
+    },
     "./signal-grade": {
       "import": "./src/signal-grade.ts"
     },
@@ -194,6 +203,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@dicebear/core": "10.7.0",
+    "@dicebear/styles": "10.6.0",
     "@sentry/node": "^10.57.0",
     "@xmldom/xmldom": "^0.9.12",
     "bullmq": "^6.3.14",

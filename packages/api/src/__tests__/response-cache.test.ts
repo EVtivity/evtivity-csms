@@ -231,6 +231,10 @@ describe('response cache hooks', () => {
       return reply.type('text/csv').send('a,b\n1,2\n');
     });
     app.post('/v1/stations', async () => ({ id: 'sta_new' }));
+    app.put('/v1/stations', async (request) => {
+      request.responseCacheUnchanged = true;
+      return { id: 'sta_1' };
+    });
     app.get('/v1/portal/chargers/:id', async (request) => {
       handlerCalls++;
       const driver = request.headers['x-test-driver'];
@@ -266,6 +270,15 @@ describe('response cache hooks', () => {
     expect(handlerCalls).toBe(2);
     expect(redis.store.get('rc:ver:stations')).toBe('1');
     expect(redis.store.get('rc:ver:dashboard')).toBe('1');
+  });
+
+  it('bumps no tag for a write the handler marked unchanged', async () => {
+    await app.inject({ method: 'GET', url: '/v1/stations' });
+    await app.inject({ method: 'PUT', url: '/v1/stations' });
+
+    const after = await app.inject({ method: 'GET', url: '/v1/stations' });
+    expect(after.headers['x-cache']).toBe('HIT');
+    expect(redis.store.get('rc:ver:stations')).toBeUndefined();
   });
 
   it('separates cache entries per user', async () => {

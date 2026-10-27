@@ -212,6 +212,9 @@ export async function executeCsTest(
       // A test station reconnects without the fleet's reconnect spread.
       reconnectSpreadMs: 0,
       extraAllowedServerUrls: testServerUrls,
+      // The N01 and 1.6 diagnostics test cases name upload servers that do not exist
+      // (logs.example.com): the station fakes the upload (status notifications only).
+      simulatedFileTransfers: true,
       evses: [
         {
           evseId: 1,

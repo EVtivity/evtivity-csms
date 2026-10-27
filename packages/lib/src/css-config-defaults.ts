@@ -39,6 +39,12 @@ export const CSS_STATUS_REPORTING_VALUES = ['Both', 'StatusNotification', 'Notif
 export type CssStatusReporting = (typeof CSS_STATUS_REPORTING_VALUES)[number];
 export const CSS_STATUS_REPORTING_DEFAULT: CssStatusReporting = 'Both';
 
+// File transfer protocols the simulator uploads logs and downloads firmware with
+// (ReadOnly: OCPP 2.x OCPPCommCtrlr.FileTransferProtocols, 1.6 SupportedFileTransferProtocols,
+// whose value list has no SFTP). The simulator sets them at every boot.
+export const CSS_FILE_TRANSFER_PROTOCOLS_2X = 'FTP,FTPS,HTTP,HTTPS,SFTP';
+export const CSS_FILE_TRANSFER_PROTOCOLS_16 = 'FTP,FTPS,HTTP,HTTPS';
+
 // A simulator fleet spreads its reconnects after a CSMS restart over this window
 // (seconds), so the server does not take every station at once. 1.6 stations add a
 // random delay up to it to their first attempt (OcppClient reconnectSpreadMs).
@@ -103,6 +109,7 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
         'Core,FirmwareManagement,LocalAuthListManagement,Reservation,SmartCharging,RemoteTrigger',
         true,
       ),
+      t('SupportedFileTransferProtocols', CSS_FILE_TRANSFER_PROTOCOLS_16, true),
       t('ChargeProfileMaxStackLevel', '5', true),
       t('ChargingScheduleAllowedChargingRateUnit', 'Current,Power', true),
       t('ChargingScheduleMaxPeriods', '24', true),
@@ -162,7 +169,7 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
     ),
     t('OCPPCommCtrlr.NetworkProfileConnectionAttempts', '3', false),
     t('OCPPCommCtrlr.PublicKeyWithSignedMeterValue', 'Never', false),
-    t('OCPPCommCtrlr.FileTransferProtocols', 'HTTP,HTTPS', true),
+    t('OCPPCommCtrlr.FileTransferProtocols', CSS_FILE_TRANSFER_PROTOCOLS_2X, true),
     t('ChargingStation.AllowNewSessionsPendingFirmwareUpdate', 'true', false),
     t('ChargingStation.VendorName', input.vendorName, true),
     t('ChargingStation.Model', input.model, true),

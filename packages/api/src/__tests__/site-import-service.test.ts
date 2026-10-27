@@ -55,6 +55,13 @@ const { mockRecompute, mockSetDisabled, mockSendAvailability, mockPublishStatus 
   }),
 );
 
+// The AI insights scope reads the database; these tests cover the routes only.
+vi.mock('../services/ai-insight-scope.service.js', () => ({
+  initialSiteAiInsightsSelected: vi.fn().mockResolvedValue(true),
+  isOutsideAiInsightScope: () => false,
+  siteAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
+  stationAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
+}));
 vi.mock('@evtivity/services/availability-command', () => ({
   sendAvailabilityCommand: mockSendAvailability,
 }));

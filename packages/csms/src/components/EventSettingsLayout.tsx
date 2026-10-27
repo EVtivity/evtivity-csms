@@ -173,8 +173,8 @@ export function EventSettingsLayout({
   }, []);
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
-      <div className="space-y-4">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[300px_1fr]">
+      <div className="min-w-0 space-y-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{sidebarTitle}</CardTitle>
@@ -230,7 +230,7 @@ export function EventSettingsLayout({
         </Card>
       </div>
 
-      <div className="space-y-4">
+      <div className="min-w-0 space-y-4">
         {!selectionComplete && (
           <Card>
             <CardContent className="p-6 text-center text-sm text-muted-foreground">

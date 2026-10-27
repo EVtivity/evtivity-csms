@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
 import {
   connectionName,
+  processVersion,
   CONNECTION_NAME_PREFIX,
   LEGACY_CONNECTION_NAME,
 } from '../connection-name.js';
@@ -19,6 +20,10 @@ describe('connectionName', () => {
   it('is evtivity@ plus the package version', () => {
     expect(connectionName()).toBe(`evtivity@${pkg.version}`);
     expect(connectionName().startsWith(CONNECTION_NAME_PREFIX)).toBe(true);
+  });
+
+  it('reports the package version as the process version', () => {
+    expect(processVersion()).toBe(pkg.version);
   });
 
   it('differs from the postgres.js default that older releases send', () => {

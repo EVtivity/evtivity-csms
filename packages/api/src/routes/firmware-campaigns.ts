@@ -7,7 +7,7 @@ import {
   FIRMWARE_RETRIES_MAX,
   FIRMWARE_RETRY_INTERVAL_MAX_SECONDS,
 } from '@evtivity/lib';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, count, isNotNull, asc, inArray, type SQL } from 'drizzle-orm';
 import {
@@ -51,7 +51,9 @@ import {
 } from '../lib/fleet-operation-scope.js';
 
 const CAMPAIGN_NOT_FOUND = { error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' };
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
+import { REDACTED, maskUrlPassword } from '@evtivity/lib/secret-config';
+import { assertMaskableUrlPasswords } from '../lib/station-credential-guard.js';
 import {
   assertFirmwareSignature,
   firmwareSignatureField,
@@ -169,7 +171,7 @@ const installDateTimeField = z.iso
 
 const createCampaignBody = z.object({
   name: z.string().min(1).describe('Campaign name'),
-  firmwareUrl: z.url().describe('Firmware download URL'),
+  firmwareUrl: z.url().max(2000).describe('Firmware download URL, at most 2000 characters'),
   version: z.string().optional().describe('Firmware version'),
   retries: retriesField.optional(),
   retryInterval: retryIntervalField.optional(),
@@ -190,7 +192,7 @@ const createCampaignBody = z.object({
 
 const updateCampaignBody = z.object({
   name: z.string().min(1).optional(),
-  firmwareUrl: z.url().optional(),
+  firmwareUrl: z.url().max(2000).optional(),
   version: z.string().optional(),
   retries: retriesField.nullable().optional(),
   retryInterval: retryIntervalField.nullable().optional(),
@@ -239,6 +241,37 @@ function targetFilterConditions(filter: CampaignTargetFilter | null): SQL[] {
     conditions.push(eq(chargingStations.firmwareVersion, filter.firmwareVersion));
   }
   return conditions;
+}
+
+/**
+ * A campaign as a reply shows it. The stored firmware URL keeps the password
+ * of its userinfo (`ftp://user:password@host/fw.bin`): stations still to be
+ * sent the campaign need it. A reply shows it only to a caller with
+ * `settings.system:read`, the permission that reads stored secrets (P12);
+ * everyone else gets the password as `[redacted]`.
+ */
+function campaignView<T extends { firmwareUrl: string }>(campaign: T, showSecrets: boolean): T {
+  return showSecrets
+    ? campaign
+    : { ...campaign, firmwareUrl: maskUrlPassword(campaign.firmwareUrl) };
+}
+
+async function showsCampaignSecrets(request: FastifyRequest): Promise<boolean> {
+  return requestHasPermission(request, 'settings.system:read');
+}
+
+/**
+ * Whether a sent firmware URL still holds the masked password a reply showed
+ * (`[redacted]`, or `%5Bredacted%5D` after a URL parser encoded it): stored,
+ * the placeholder would become the password. The raw form fails the `uri`
+ * schema already; the CSMS sends the URL only when the operator changed it.
+ */
+function holdsMaskedPassword(url: string): boolean {
+  const lower = url.toLowerCase();
+  return (
+    lower.includes(`:${REDACTED}@`) ||
+    lower.includes(`:${encodeURIComponent(REDACTED).toLowerCase()}@`)
+  );
 }
 
 function emptyToNull(value: string | null | undefined): string | null {
@@ -352,9 +385,11 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         db.select({ total: count() }).from(firmwareCampaigns).where(scope),
       ]);
 
-      return { data, total: countResult[0]?.total ?? 0 } satisfies PaginatedResponse<
-        (typeof data)[number]
-      >;
+      const showSecrets = await showsCampaignSecrets(request);
+      return {
+        data: data.map((c) => campaignView(c, showSecrets)),
+        total: countResult[0]?.total ?? 0,
+      } satisfies PaginatedResponse<(typeof data)[number]>;
     },
   );
 
@@ -425,7 +460,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       }
 
       return {
-        ...campaign,
+        ...campaignView(campaign, await showsCampaignSecrets(request)),
         stations,
         stationsTotal: countResult?.total ?? 0,
         installedCount: counts['installed'] ?? 0,
@@ -463,6 +498,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = request.body as z.infer<typeof createCampaignBody>;
       const userId = (request.user as { userId: string }).userId;
+      assertMaskableUrlPasswords(body.firmwareUrl);
       assertFirmwareSignature(body.signingCertificate, body.signature);
       const createSiteIds = await getUserSiteIds(userId);
       // A campaign without a site or station targets every site: creating
@@ -509,7 +545,11 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         );
       }
 
-      return reply.status(201).send(campaign);
+      return reply
+        .status(201)
+        .send(
+          campaign != null ? campaignView(campaign, await showsCampaignSecrets(request)) : campaign,
+        );
     },
   );
 
@@ -570,6 +610,15 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         return;
       }
 
+      if (fields.firmwareUrl !== undefined && holdsMaskedPassword(fields.firmwareUrl)) {
+        await reply.status(400).send({
+          error: 'Enter the firmware URL password again: the sent URL holds the masked password',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+      if (fields.firmwareUrl !== undefined) assertMaskableUrlPasswords(fields.firmwareUrl);
+
       // The signing fields are checked as the campaign will hold them.
       const nextSigningCertificate =
         signingCertificate !== undefined
@@ -616,7 +665,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         request.log,
       );
 
-      return updated;
+      return campaignView(updated, await showsCampaignSecrets(request));
     },
   );
 
@@ -908,7 +957,9 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
             dispatches.map(({ target, requestId }) => ({
               stationId: target.id,
               requestId,
-              firmwareUrl: campaign.firmwareUrl,
+              // The update history shows the URL; the campaign row keeps the
+              // real one for the stations still to be sent it.
+              firmwareUrl: maskUrlPassword(campaign.firmwareUrl),
               retrieveDateTime,
               campaignId: id,
               initiatedAt,

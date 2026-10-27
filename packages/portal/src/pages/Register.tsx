@@ -18,6 +18,7 @@ import { passwordRulesMessage } from '@/lib/password-rules';
 import { usePasswordPolicy, useWeakPasswordReply } from '@/hooks/use-password-policy';
 import { PasswordRequirements } from '@/components/PasswordRequirements';
 import type { PasswordRule } from '@evtivity/lib/password-policy';
+import { AvatarField, type GeneratedAvatarChoice } from '@/components/account/AvatarEditor';
 
 interface SecurityPublic {
   recaptchaEnabled: boolean;
@@ -35,6 +36,8 @@ export function Register(): React.JSX.Element {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
+  // A generated avatar chosen here is stored with the new account; a photo needs a sign-in.
+  const [avatar, setAvatar] = useState<GeneratedAvatarChoice | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
@@ -89,6 +92,7 @@ export function Register(): React.JSX.Element {
         email,
         password,
         ...(phone !== '' ? { phone } : {}),
+        ...(avatar != null ? { avatar } : {}),
         ...(recaptchaToken != null ? { recaptchaToken } : {}),
       });
       setSubmittedEmail(email);
@@ -235,6 +239,13 @@ export function Register(): React.JSX.Element {
               showUnmet={hasSubmitted}
             />
           </div>
+          <AvatarField
+            avatar={avatar == null ? null : { kind: 'generated', updatedAt: null, ...avatar }}
+            firstName={firstName}
+            lastName={lastName}
+            mode="deferred"
+            onChoose={setAvatar}
+          />
           <Button type="submit" className="w-full" size="lg" disabled={loading}>
             {loading ? t('auth.creatingAccount') : t('auth.createAccount')}
           </Button>

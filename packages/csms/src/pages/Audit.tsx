@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
@@ -29,6 +30,9 @@ import {
   auditEntityLabel,
 } from '@/lib/audit-labels';
 import { FilterPopover } from '@/components/FilterBar';
+import { LogDateRangeFilter } from '@/components/LogDateRangeFilter';
+import { useUrlDateRange } from '@/hooks/use-url-date-range';
+import { AuditEntryDialog } from '@/components/audit/AuditEntryDialog';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
@@ -46,40 +50,55 @@ export function Audit(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
-  const [entityType, setEntityType] = useState('');
-  const [actor, setActor] = useState('');
-  const [action, setAction] = useState('');
-  const [entityId, setEntityId] = useState('');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [openEntry, setOpenEntry] = useState<AuditEntry | null>(null);
+  // Every filter lives in the URL, so it survives Back, a reload and a shared link.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const entityType = searchParams.get('entityType') ?? '';
+  const actor = searchParams.get('actor') ?? '';
+  const action = searchParams.get('action') ?? '';
+  const urlEntityId = searchParams.get('entityId') ?? '';
+  const range = useUrlDateRange();
+  const [entityId, setEntityId] = useState(urlEntityId);
+
+  const setParam = useCallback(
+    (key: string, value: string) => {
+      setSearchParams(
+        () => {
+          // From the URL as it is now, not `prev` (frontend/ui.md).
+          const next = new URLSearchParams(window.location.search);
+          if (value === '') next.delete(key);
+          else next.set(key, value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   const limit = 25;
 
-  // Debounce the only remaining free-text filter (entityId) so a 10-keystroke
-  // input does not fire 10 audit queries. Selects (entityType, actor, action)
-  // and date pickers commit immediately because they're click-driven.
-  const [debouncedEntityId, setDebouncedEntityId] = useState('');
+  // Debounce the only free-text filter (entityId) so a 10-keystroke input
+  // does not fire 10 audit queries. Selects and date pickers commit at once.
   useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedEntityId(entityId);
+    if (entityId === urlEntityId) return;
+    const timer = setTimeout(() => {
+      setParam('entityId', entityId);
     }, 300);
     return () => {
-      clearTimeout(t);
+      clearTimeout(timer);
     };
-  }, [entityId]);
+  }, [entityId, urlEntityId, setParam]);
 
   const queryString = useMemo(() => {
     const p = new URLSearchParams({ page: String(page), limit: String(limit) });
     if (entityType !== '') p.set('entityType', entityType);
     if (actor !== '') p.set('actor', actor);
     if (action !== '') p.set('action', action);
-    if (debouncedEntityId !== '') p.set('entityId', debouncedEntityId);
-    // Interpret the picked date in the operator's local timezone (no `Z`),
-    // then convert to UTC ISO so the API filter aligns with the local day.
-    if (from !== '') p.set('from', new Date(`${from}T00:00:00`).toISOString());
-    if (to !== '') p.set('to', new Date(`${to}T23:59:59.999`).toISOString());
+    if (urlEntityId !== '') p.set('entityId', urlEntityId);
+    for (const [key, value] of Object.entries(range.apiParams)) p.set(key, value);
     return p.toString();
-  }, [page, entityType, actor, action, debouncedEntityId, from, to]);
+  }, [page, entityType, actor, action, urlEntityId, range.apiParams]);
 
   const { data, isLoading, error } = useQuery<AuditPage>({
     queryKey: ['audit-global', queryString],
@@ -95,8 +114,8 @@ export function Audit(): React.JSX.Element {
     (actor !== '' ? 1 : 0) +
     (action !== '' ? 1 : 0) +
     (entityId !== '' ? 1 : 0) +
-    (from !== '' ? 1 : 0) +
-    (to !== '' ? 1 : 0);
+    (range.from !== '' ? 1 : 0) +
+    (range.to !== '' ? 1 : 0);
 
   const filters = (
     <>
@@ -106,7 +125,7 @@ export function Audit(): React.JSX.Element {
           aria-label={t('audit.entityType', 'Entity type')}
           value={entityType}
           onChange={(e) => {
-            setEntityType(e.target.value);
+            setParam('entityType', e.target.value);
             setPage(1);
           }}
         >
@@ -124,7 +143,7 @@ export function Audit(): React.JSX.Element {
           aria-label={t('audit.actor', 'Actor')}
           value={actor}
           onChange={(e) => {
-            setActor(e.target.value);
+            setParam('actor', e.target.value);
             setPage(1);
           }}
         >
@@ -142,7 +161,7 @@ export function Audit(): React.JSX.Element {
           aria-label={t('audit.action', 'Action')}
           value={action}
           onChange={(e) => {
-            setAction(e.target.value);
+            setParam('action', e.target.value);
             setPage(1);
           }}
         >
@@ -165,38 +184,27 @@ export function Audit(): React.JSX.Element {
           }}
         />
       </div>
-      <div className="space-y-2">
-        <Label className="leading-6">{t('audit.from', 'From')}</Label>
-        <Input
-          type="date"
-          value={from}
-          onChange={(e) => {
-            setFrom(e.target.value);
-            setPage(1);
-          }}
-        />
-      </div>
-      <div className="space-y-2">
-        <Label className="leading-6">{t('audit.to', 'To')}</Label>
-        <Input
-          type="date"
-          value={to}
-          onChange={(e) => {
-            setTo(e.target.value);
-            setPage(1);
-          }}
-        />
-      </div>
+      <LogDateRangeFilter
+        range={range}
+        onChange={() => {
+          setPage(1);
+        }}
+      />
     </>
   );
 
   const clearAllFilters = (): void => {
-    setEntityType('');
-    setActor('');
-    setAction('');
+    setSearchParams(
+      () => {
+        const next = new URLSearchParams(window.location.search);
+        for (const key of ['entityType', 'actor', 'action', 'entityId', 'from', 'to']) {
+          next.delete(key);
+        }
+        return next;
+      },
+      { replace: true },
+    );
     setEntityId('');
-    setFrom('');
-    setTo('');
     setPage(1);
   };
 
@@ -253,8 +261,18 @@ export function Audit(): React.JSX.Element {
                 </TableHeader>
                 <TableBody>
                   {rows.map((row) => (
-                    <TableRow key={`${row.entityType}-${String(row.id)}`}>
-                      <TableCell className="whitespace-nowrap text-xs">
+                    <TableRow
+                      key={`${row.entityType}-${String(row.id)}`}
+                      className="cursor-pointer"
+                      data-testid={`audit-row-${row.entityType}-${String(row.id)}`}
+                      onClick={() => {
+                        setOpenEntry(row);
+                      }}
+                    >
+                      <TableCell
+                        className="whitespace-nowrap text-xs"
+                        data-testid="row-click-target"
+                      >
                         {formatTimestamp(row.createdAt, timezone)}
                       </TableCell>
                       <TableCell>
@@ -290,6 +308,12 @@ export function Audit(): React.JSX.Element {
           ) : null}
         </CardContent>
       </Card>
+      <AuditEntryDialog
+        entry={openEntry}
+        onOpenChange={(open) => {
+          if (!open) setOpenEntry(null);
+        }}
+      />
     </div>
   );
 }

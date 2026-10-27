@@ -4054,12 +4054,13 @@ describe('Event projections - coverage expansion', () => {
   // ---- command.GetDiagnostics ----
 
   describe('command.GetDiagnostics', () => {
-    it('creates initial log_uploads record', async () => {
+    it('completes the row a status notification started before the command', async () => {
       await setup();
 
+      sqlCountOverrides.set(1, 1); // UPDATE completes one row
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
-        [], // INSERT log_uploads
+        [], // UPDATE log_uploads (count=1 by default)
       );
 
       await eventBus.emit(
@@ -4071,7 +4072,29 @@ describe('Event projections - coverage expansion', () => {
       );
 
       expect(sqlCalls.length).toBe(2);
-      expect(sqlCalls[1]?.strings.join('')).toContain('DiagnosticsLog');
+      expect(sqlCalls[1]?.strings.join('')).toContain('UPDATE log_uploads');
+    });
+
+    it('creates initial log_uploads record', async () => {
+      await setup();
+
+      sqlCountOverrides.set(1, 0); // UPDATE returns count=0
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // UPDATE log_uploads -> count=0
+        [], // INSERT log_uploads
+      );
+
+      await eventBus.emit(
+        'command.GetDiagnostics',
+        makeDomainEvent('command.GetDiagnostics', 'CS-TEST', {
+          request: { location: 'ftp://example.com/diagnostics' },
+          response: {},
+        }),
+      );
+
+      expect(sqlCalls.length).toBe(3);
+      expect(sqlCalls[2]?.strings.join('')).toContain('INSERT INTO log_uploads');
     });
   });
 

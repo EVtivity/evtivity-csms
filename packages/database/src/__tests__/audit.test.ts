@@ -205,6 +205,22 @@ describe('writeAudit', () => {
     expect(out['id']).toBe('ocpiPartner_1');
   });
 
+  it('redactAuditPayload masks the password of a firmware campaign URL', () => {
+    expect(
+      redactAuditPayload({
+        firmwareUrl: 'ftp://fw:UrlSecret99@files.example.com:21/fw.bin',
+        name: 'Fall rollout',
+        retries: 3,
+        nested: ['sftp://u:p@[2001:db8::1]/x', 'https://files.example.com/fw.bin'],
+      }),
+    ).toEqual({
+      firmwareUrl: 'ftp://fw:[redacted]@files.example.com:21/fw.bin',
+      name: 'Fall rollout',
+      retries: 3,
+      nested: ['sftp://u:[redacted]@[2001:db8::1]/x', 'https://files.example.com/fw.bin'],
+    });
+  });
+
   it('redactAuditPayload redacts the value of a setting row whose key is encrypted at rest', () => {
     expect(redactAuditPayload({ key: 'stripe.secretKeyEnc', value: 'abc' })).toEqual({
       key: 'stripe.secretKeyEnc',

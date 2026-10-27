@@ -73,6 +73,8 @@ vi.mock('drizzle-orm', () => {
     desc: vi.fn(),
     count: vi.fn(),
     asc: vi.fn(),
+    gte: vi.fn(),
+    lte: vi.fn(),
   };
 });
 
@@ -98,6 +100,7 @@ vi.mock('../lib/site-access.js', () => ({ isAllSiteUser: siteAccess.isAllSiteUse
 import { registerAuth } from '../plugins/auth.js';
 import { accessLogRoutes } from '../routes/access-logs.js';
 import { db } from '@evtivity/database';
+import { gte, lte } from 'drizzle-orm';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -362,6 +365,30 @@ describe('Access log routes', () => {
       const body = response.json();
       expect(body.data).toEqual([]);
       expect(body.total).toBe(0);
+    });
+
+    it('filters by a date range, both bounds included', async () => {
+      setupDbResults([], [{ count: 0 }]);
+      const from = '2026-10-01T00:00:00.000+02:00';
+      const to = '2026-10-02T00:00:00.000+02:00';
+      const response = await app.inject({
+        method: 'GET',
+        url: `/access-logs?category=api&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(vi.mocked(gte)).toHaveBeenCalledWith(undefined, new Date(from));
+      expect(vi.mocked(lte)).toHaveBeenCalledWith(undefined, new Date(to));
+    });
+
+    it('refuses a from after to', async () => {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/access-logs?from=2026-10-02T00:00:00Z&to=2026-10-01T00:00:00Z',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
     });
 
     it('returns 200 with search filter', async () => {

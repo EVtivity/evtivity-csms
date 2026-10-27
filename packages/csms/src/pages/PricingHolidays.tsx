@@ -21,6 +21,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -219,6 +220,7 @@ export function PricingHolidays(): React.JSX.Element {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{t('pricing.addHoliday')}</DialogTitle>
+            <DialogDescription>{t('pricing.addHolidayDescription')}</DialogDescription>
           </DialogHeader>
           <form
             onSubmit={(e) => {
@@ -226,6 +228,8 @@ export function PricingHolidays(): React.JSX.Element {
               handleCreate();
             }}
             noValidate
+            className="grid gap-4"
+            data-testid="holiday-create-form"
           >
             <div className="grid gap-4">
               <div className="grid gap-2">
@@ -277,34 +281,44 @@ export function PricingHolidays(): React.JSX.Element {
         <DialogContent className="max-w-[95vw] md:max-w-lg">
           <DialogHeader>
             <DialogTitle>{t('pricing.bulkAdd')}</DialogTitle>
+            <DialogDescription>{t('pricing.bulkAddDescription')}</DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
-            <Label>{t('pricing.holidays')}</Label>
-            <textarea
-              className="flex min-h-40 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              value={bulkText}
-              onChange={(e) => {
-                setBulkText(e.target.value);
-              }}
-              placeholder={t('pricing.bulkAddPlaceholder')}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setBulkOpen(false);
-              }}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={handleBulkAdd}
-              disabled={bulkMutation.isPending || bulkText.trim() === ''}
-            >
-              {t('pricing.bulkAdd')}
-            </Button>
-          </DialogFooter>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleBulkAdd();
+            }}
+            noValidate
+            className="grid gap-4"
+            data-testid="holiday-bulk-form"
+          >
+            <div className="grid gap-2">
+              <Label htmlFor="holiday-bulk">{t('pricing.holidays')}</Label>
+              <textarea
+                id="holiday-bulk"
+                className="flex min-h-40 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                value={bulkText}
+                onChange={(e) => {
+                  setBulkText(e.target.value);
+                }}
+                placeholder={t('pricing.bulkAddPlaceholder')}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setBulkOpen(false);
+                }}
+              >
+                {t('common.cancel')}
+              </Button>
+              <Button type="submit" disabled={bulkMutation.isPending || bulkText.trim() === ''}>
+                {t('pricing.bulkAdd')}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

@@ -9,6 +9,7 @@ import {
 } from '../lib/hubject-url.js';
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { AI_INSIGHT_SCOPE_SETTING_KEY } from '@evtivity/lib/ai-insights';
 import { invalidateAutochargeCaches } from '../lib/autocharge-invalidation.js';
 import { eq, like, or, inArray } from 'drizzle-orm';
 import {
@@ -160,7 +161,7 @@ async function invalidateNotificationSettings(): Promise<void> {
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { clearS3ConfigCache } from '../services/s3.service.js';
+import { clearS3ConfigCache, getS3Config } from '../services/s3.service.js';
 import { DEFAULT_CONTENT } from './default-content.js';
 import { authorize } from '../middleware/rbac.js';
 import { isAllSiteUser, requireAllSiteAccess } from '../lib/site-access.js';
@@ -442,20 +443,23 @@ const serverManagedSettingError = {
  * write and return them (`/v1/sso/settings`, `/v1/security/*`: the
  * settings.security permissions and all-site access), never the generic ones.
  * The SIM and data retention settings have their own routes too, which check
- * each value's range (`/v1/settings/sim-providers`, `/v1/settings/data-retention`).
+ * each value's range (`/v1/settings/sim-providers`, `/v1/settings/data-retention`),
+ * and so does the AI insights scope, whose change closes the insights of
+ * what leaves it (`/v1/settings/ai/insights-scope`).
  */
 function isDedicatedRouteSetting(key: string): boolean {
   return (
     key.startsWith('sso.') ||
     key.startsWith('security.') ||
     key.startsWith('sim.') ||
-    isDataRetentionSettingKey(key)
+    isDataRetentionSettingKey(key) ||
+    key === AI_INSIGHT_SCOPE_SETTING_KEY
   );
 }
 
 const dedicatedRouteSettingError = {
   error:
-    'This setting is written through /v1/sso/settings, /v1/security/*, /v1/settings/sim-providers or /v1/settings/data-retention',
+    'This setting is written through /v1/sso/settings, /v1/security/*, /v1/settings/sim-providers, /v1/settings/data-retention or /v1/settings/ai/insights-scope',
   code: 'VALIDATION_ERROR',
 };
 
@@ -683,6 +687,16 @@ async function writeWebhookSigningSecret(request: FastifyRequest, secret: string
   await invalidateNotificationSettings();
 }
 
+/** Whether drivers may upload an avatar image: file storage is configured. False when it cannot be read. */
+async function isAvatarUploadEnabled(log: FastifyBaseLogger): Promise<boolean> {
+  try {
+    return (await getS3Config()) != null;
+  } catch (err) {
+    log.warn({ err }, 'S3 settings read failed; avatar upload reported off');
+    return false;
+  }
+}
+
 export function settingsRoutes(app: FastifyInstance): void {
   // Webhook signing secret: generated here and shown once; the
   // generic settings routes never return or write it (server managed).
@@ -890,6 +904,11 @@ export function settingsRoutes(app: FastifyInstance): void {
                   .describe(
                     'Company currency (ISO 4217) used to format any monetary value in this response, including the reservation cancellation fee',
                   ),
+                avatarUploadEnabled: z
+                  .boolean()
+                  .describe(
+                    'Whether drivers can upload an avatar image (file storage is configured). The avatar generator works either way',
+                  ),
                 simEnabled: z
                   .literal(true)
                   .optional()
@@ -908,7 +927,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         },
       },
     },
-    async () => {
+    async (request) => {
       const reservationEnabled = await isReservationEnabled();
       const supportEnabled = await isSupportEnabled();
       const roamingEnabled = await isRoamingEnabled();
@@ -922,6 +941,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const reservationConfig = await getReservationSettings();
       const currency = await getCompanyCurrency();
       const simSettings = await readSimSettings();
+      const avatarUploadEnabled = await isAvatarUploadEnabled(request.log);
       // Left out while off, so the reply stays as it was before SIM providers existed.
       const simFlags = {
         ...(isSimFeatureOn(simSettings) ? { simEnabled: true as const } : {}),
@@ -943,6 +963,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         reservationCancellationWindowMinutes: reservationConfig.cancellationWindowMinutes,
         reservationMaxHours: reservationConfig.maxHours,
         currency,
+        avatarUploadEnabled,
         ...simFlags,
       };
     },

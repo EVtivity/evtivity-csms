@@ -45,8 +45,11 @@ import { stationSimRoutes } from './routes/station-sim.js';
 import { simRoutes } from './routes/sims.js';
 import { sessionRoutes } from './routes/sessions.js';
 import { userRoutes } from './routes/users.js';
+import { userAvatarRoutes } from './routes/user-avatar.js';
 import { webauthnRoutes } from './routes/webauthn.js';
+import { userDashboardLayoutRoutes } from './routes/user-dashboard-layout.js';
 import { driverRoutes } from './routes/drivers.js';
+import { driverAvatarRoutes } from './routes/driver-avatar.js';
 import { pricingRoutes } from './routes/pricing.js';
 import { holidayRoutes } from './routes/holidays.js';
 import { ocppCommandRoutes } from './routes/ocpp-commands.js';
@@ -69,6 +72,7 @@ import { notificationRoutes } from './routes/notifications.js';
 import { portalAuthRoutes } from './routes/portal/auth.js';
 import { portalDriverRoutes } from './routes/portal/driver.js';
 import { portalWebauthnRoutes } from './routes/portal/webauthn.js';
+import { portalDriverAvatarRoutes } from './routes/portal/driver-avatar.js';
 import { portalPaymentRoutes } from './routes/portal/payments.js';
 import { portalPaymentProviderRoutes } from './routes/portal/payment-provider.js';
 import { portalSessionRoutes } from './routes/portal/sessions.js';
@@ -105,6 +109,7 @@ import { ocpiTariffRoutes } from './routes/ocpi-tariffs.js';
 import { pncSettingsRoutes } from './routes/pnc-settings.js';
 import { simProviderSettingsRoutes } from './routes/sim-provider-settings.js';
 import { dataRetentionSettingsRoutes } from './routes/data-retention-settings.js';
+import { aiInsightScopeRoutes } from './routes/ai-insight-scope.js';
 import { pncCertificateRoutes } from './routes/pnc-certificates.js';
 import { pncLocalRoutes } from './routes/pnc-local.js';
 import { securitySettingsRoutes } from './routes/security-settings.js';
@@ -165,6 +170,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // The server process counts in Redis, one limit for every API replica.
   // Tests and the spec generators keep per-instance counters.
   await registerRateLimit(app, rateLimitRedis != null ? { redis: rateLimitRedis } : {});
+  // System Information reports whether the counters are shared (routes/system.ts).
+  app.decorate('sharedRateLimit', rateLimitRedis != null);
   await registerAuth(app);
   await registerOpenApi(app);
   registerResponseCache(app);
@@ -212,8 +219,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       await v1.register(simRoutes);
       await v1.register(sessionRoutes);
       await v1.register(userRoutes);
+      await v1.register(userAvatarRoutes);
       await v1.register(webauthnRoutes);
+      await v1.register(userDashboardLayoutRoutes);
       await v1.register(driverRoutes);
+      await v1.register(driverAvatarRoutes);
       await v1.register(pricingRoutes);
       await v1.register(holidayRoutes);
       await v1.register(ocppCommandRoutes);
@@ -239,6 +249,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       await v1.register(portalAuthRoutes);
       await v1.register(portalDriverRoutes);
       await v1.register(portalWebauthnRoutes);
+      await v1.register(portalDriverAvatarRoutes);
       await v1.register(portalPaymentRoutes);
       await v1.register(portalPaymentProviderRoutes);
       await v1.register(portalSessionRoutes);
@@ -273,6 +284,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       await v1.register(pncSettingsRoutes);
       await v1.register(simProviderSettingsRoutes);
       await v1.register(dataRetentionSettingsRoutes);
+      await v1.register(aiInsightScopeRoutes);
       await v1.register(pncCertificateRoutes);
       await v1.register(pncLocalRoutes);
       await v1.register(securitySettingsRoutes);

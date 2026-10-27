@@ -9,7 +9,7 @@
  *    (`isSecretShapedKey`) is dropped.
  * 2. Values: secrets inside any string (JWTs, PEM blocks, provider and
  *    payment keys, AWS key ids, bearer tokens, long hex after a key-like
- *    label) are masked.
+ *    label, the password of a URL userinfo) are masked.
  * 3. Configuration values: the `value` or `attributeValue` of an entry whose
  *    `key`, `name` or `variable.name` is secret-shaped (an OCPP 1.6
  *    `AuthorizationKey`, a 2.1 `SecurityCtrlr.BasicAuthPassword` in a logged
@@ -21,6 +21,8 @@
  *    masked. `idToken` and OCPP 1.6 `idTag` values are replaced by a short
  *    hash on support and cut to their last 4 characters on driver, where the
  *    driver recognizes their own card.
+ * 5. Avatars: a driver `avatar` (DiceBear options or a presigned image URL,
+ *    which is a bearer link) has no value to the model and is dropped.
  *
  * The second layer is the schema gate: the tool codegen and TC-AI-R-01 fail
  * when an exposed tool's response schema has a secret-shaped field.
@@ -41,7 +43,9 @@ import {
   isConfigAttributeList,
   isConfigValueKey,
   isSecretConfigEntry,
+  maskUrlPassword,
   normalizeSecretName,
+  urlPasswordUnmaskable,
 } from '@evtivity/lib/secret-config';
 import { TEXT_DOCUMENT_MIMES } from './core/types.js';
 import type { AiAttachmentResolver, AiPart, AiRequest } from './core/types.js';
@@ -69,6 +73,9 @@ export interface RedactionCounts {
 }
 
 export { REDACTED };
+
+/** A field dropped whatever it holds: the driver avatar (a presigned URL is a bearer link). */
+const DROPPED_OBJECT_KEY = 'avatar';
 
 /** Secret-shaped names, compared lowercased without `_`, `-` and `.`. */
 const SECRET_KEY_SUFFIX =
@@ -250,7 +257,11 @@ function maskCard(match: string, w: Walk): string {
 }
 
 function redactString(input: string, w: Walk, options: { contiguousCards: boolean }): string {
-  let out = redactPemBlocks(input, () => {
+  // A file transfer URL's password (`ftp://user:password@host`), before the
+  // email pattern reads `password@host` as an address.
+  let out = maskUrlPassword(input);
+  if (out !== input) w.counts.values++;
+  out = redactPemBlocks(out, () => {
     w.counts.values++;
   });
   for (const pattern of SECRET_VALUE_PATTERNS) {
@@ -309,6 +320,12 @@ function redactNode(value: unknown, key: string | null, w: Walk, secretConfig: b
     return REDACTED;
   }
   if (typeof value === 'string') {
+    // A URL password the masker cannot show masked (a space, a control, or a
+    // raw `/`, `?` or `#` in the userinfo): the whole value.
+    if (urlPasswordUnmaskable(value)) {
+      w.counts.values++;
+      return REDACTED;
+    }
     if (key != null && CARD_KEYS.test(normalizeKey(key)) && /^[\d -]+$/.test(value)) {
       return maskCard(value, w);
     }
@@ -338,6 +355,10 @@ function redactNode(value: unknown, key: string | null, w: Walk, secretConfig: b
       // A secret is a scalar: an object under a secret-shaped name (a
       // session's `token` object) is walked, a boolean flag is kept.
       if (isSecretShapedKey(k) && (typeof v === 'string' || typeof v === 'number')) {
+        w.counts.keys++;
+        continue;
+      }
+      if (k === DROPPED_OBJECT_KEY) {
         w.counts.keys++;
         continue;
       }

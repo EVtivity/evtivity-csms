@@ -261,6 +261,7 @@ export type {
   OcppFleetHealth,
   OcppInstanceHealth,
   OcppInstanceHealthSnapshot,
+  OcppProcessConfig,
 } from './lib/ocpp-server-health.js';
 export {
   STATION_WATCH_JOB_NAME,
@@ -586,6 +587,16 @@ export type {
   ConformanceDriverDeleteResult,
 } from './lib/conformance-stations.js';
 export {
+  insightScopeSelectedSql,
+  insightSubjectInScope,
+  siteInsightScopeReasonSql,
+  siteInsightsInScope,
+  siteInsightsInScopeSql,
+  stationIdsInInsightScope,
+  stationInsightScopeReasonSql,
+  stationInsightsInScopeSql,
+} from './lib/ai-insight-scope.js';
+export {
   SITE_INSIGHT_SUPPRESSION_SOURCES,
   STATION_INSIGHT_SUPPRESSION_SOURCES,
   siteInsightsOperatorSuppressedSql,
@@ -614,3 +625,8 @@ export {
   setStationDataPlan,
 } from './lib/station-data-plan.js';
 export type { DataPlanChange, DataPlanDb, StationDataPlanState } from './lib/station-data-plan.js';
+export {
+  deleteUserDashboardLayout,
+  getUserDashboardLayout,
+  saveUserDashboardLayout,
+} from './lib/dashboard-layout.js';

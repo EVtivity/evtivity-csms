@@ -110,7 +110,7 @@ export function AiInsightDetail(): React.JSX.Element {
             <CardTitle className="text-base">{t('aiInsights.detail.recordTitle')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+            <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-[auto_1fr] sm:gap-y-2 [&>dt:not(:first-child)]:mt-2 sm:[&>dt:not(:first-child)]:mt-0">
               <Row label={t('aiInsights.list.kind')}>{t(`aiInsights.kind.${insight.kind}`)}</Row>
               {insight.stationId != null && (
                 <Row label={t('aiInsights.list.station')}>

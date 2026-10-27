@@ -117,6 +117,7 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'user',
     service: 'api/src/services/mfa-factor.service.ts',
   },
+  'DELETE /users/me/dashboard-layout': { allow: 'personal dashboard layout, no shared state' },
   'DELETE /users/me/support-ai-config': { audited: 'user' },
   'PATCH /api-keys/:id': { audited: 'api_key' },
   'PATCH /assistant/conversations/:id': {
@@ -194,6 +195,39 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'PATCH /tokens/:id': { audited: 'token', service: 'api/src/services/token.service.ts' },
   'PATCH /users/:id': { audited: 'user' },
+  'PUT /users/me/avatar': { audited: 'user', service: 'api/src/services/user-avatar.service.ts' },
+  'DELETE /users/me/avatar': {
+    audited: 'user',
+    service: 'api/src/services/user-avatar.service.ts',
+  },
+  'POST /users/me/avatar/image': {
+    audited: 'user',
+    service: 'api/src/services/user-avatar.service.ts',
+  },
+  'POST /users/me/avatar/upload-url': { allow: 'issues an upload URL, nothing stored' },
+  'PUT /users/:id/avatar': { audited: 'user', service: 'api/src/services/user-avatar.service.ts' },
+  'DELETE /users/:id/avatar': {
+    audited: 'user',
+    service: 'api/src/services/user-avatar.service.ts',
+  },
+  'POST /users/:id/avatar/image': {
+    audited: 'user',
+    service: 'api/src/services/user-avatar.service.ts',
+  },
+  'POST /users/:id/avatar/upload-url': { allow: 'issues an upload URL, nothing stored' },
+  'PUT /drivers/:id/avatar': {
+    audited: 'driver',
+    service: 'api/src/services/driver-avatar.service.ts',
+  },
+  'DELETE /drivers/:id/avatar': {
+    audited: 'driver',
+    service: 'api/src/services/driver-avatar.service.ts',
+  },
+  'POST /drivers/:id/avatar/image': {
+    audited: 'driver',
+    service: 'api/src/services/driver-avatar.service.ts',
+  },
+  'POST /drivers/:id/avatar/upload-url': { allow: 'issues an upload URL, nothing stored' },
   'PATCH /users/me': { audited: 'user' },
   'PATCH /users/me/webauthn/:id': {
     audited: 'user',
@@ -653,6 +687,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'PUT /settings/:key': { audited: 'setting' },
   'PUT /settings/adyen': { audited: 'setting', service: 'api/src/lib/payment-settings-writes.ts' },
   'PUT /settings/data-retention': { audited: 'setting' },
+  'PUT /settings/ai/insights-scope': {
+    audited: ['setting', 'site', 'station'],
+    service: 'api/src/services/ai-insight-scope.service.ts',
+  },
   'PUT /settings/sim-providers': { audited: 'setting' },
   'PUT /settings/payments': {
     audited: 'setting',
@@ -682,6 +720,7 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'PUT /users/:id/permissions': { audited: 'user' },
   'PUT /users/me/chatbot-ai-config': { audited: 'user' },
+  'PUT /users/me/dashboard-layout': { allow: 'personal dashboard layout, no shared state' },
   'PUT /users/me/notification-preferences': { audited: 'user' },
   'PUT /users/me/support-ai-config': { audited: 'user' },
   'DELETE /portal/driver/mfa': { audited: 'driver' },
@@ -712,6 +751,19 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'api/src/services/mfa-factor.service.ts',
   },
   'PATCH /portal/driver/profile': { audited: 'driver' },
+  'PUT /portal/driver/avatar': {
+    audited: 'driver',
+    service: 'api/src/services/driver-avatar.service.ts',
+  },
+  'POST /portal/driver/avatar/image': {
+    audited: 'driver',
+    service: 'api/src/services/driver-avatar.service.ts',
+  },
+  'DELETE /portal/driver/avatar': {
+    audited: 'driver',
+    service: 'api/src/services/driver-avatar.service.ts',
+  },
+  'POST /portal/driver/avatar/upload-url': { allow: 'issues an upload URL, nothing stored' },
   'PATCH /portal/payment-methods/:pmId/default': {
     audited: 'driver',
     service: 'payments/src/methods.ts',

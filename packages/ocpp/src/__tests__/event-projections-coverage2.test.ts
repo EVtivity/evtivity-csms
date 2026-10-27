@@ -1632,7 +1632,7 @@ describe('Event projections - coverage round 2', () => {
   describe('command.GetLog and GetDiagnostics', () => {
     it('GetLog inserts a log_uploads row with remoteLocation', async () => {
       await setup();
-      setupSqlResults(STA, []);
+      setupSqlResults(STA, EMPTY, []); // no row a status notification started
       await emit('command.GetLog', 'CS-1', {
         request: { requestId: 1, logType: 'DiagnosticsLog', log: { remoteLocation: 'https://x' } },
       });
@@ -1642,10 +1642,22 @@ describe('Event projections - coverage round 2', () => {
 
     it('GetDiagnostics inserts a DiagnosticsLog row', async () => {
       await setup();
-      setupSqlResults(STA, []);
+      setupSqlResults(STA, EMPTY, []); // no row a status notification started
       await emit('command.GetDiagnostics', 'CS-1', { request: { location: 'ftp://d' } });
       const ins = findSql(/INSERT INTO log_uploads/);
       expect(ins?.values).toContain('ftp://d');
+    });
+
+    it('GetLog completes the row its Uploading started instead of inserting', async () => {
+      await setup();
+      setupSqlResults(STA, [{}]); // UPDATE count=1
+      await emit('command.GetLog', 'CS-1', {
+        request: { requestId: 3, logType: 'DiagnosticsLog', log: { remoteLocation: 'ftp://l/' } },
+      });
+      expect(findSql(/UPDATE log_uploads/)?.values).toEqual(
+        expect.arrayContaining(['ftp://l/', 3]),
+      );
+      expect(findSql(/INSERT INTO log_uploads/)).toBeUndefined();
     });
   });
 

@@ -23,6 +23,7 @@
     "seed:dev": "node --env-file-if-exists=../../.env --import=tsx/esm src/seed-dev-stations.ts",
     "seed:ai-insights": "node --env-file-if-exists=../../.env --import=tsx/esm src/seed-ai-insights-run.ts",
     "seed:member-invoices": "node --env-file-if-exists=../../.env --import=tsx/esm src/seed-member-invoices-run.ts",
+    "seed:demo-features": "node --env-file-if-exists=../../.env --import=tsx/esm src/seed-demo-features-run.ts",
     "studio": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs studio",
     "test": "vitest run"
   },

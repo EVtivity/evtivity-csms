@@ -258,6 +258,53 @@ describe('sanitizeImage', () => {
     const res = await sanitizeImage(png.subarray(0, 40));
     expect(res).toMatchObject({ ok: false, code: 'AI_ATTACHMENT_REJECTED' });
   });
+
+  describe('square shape (driver avatars)', () => {
+    const square = { maxEdgePx: 512, square: true };
+
+    it('crops a large landscape JPEG to a 512 square', async () => {
+      const res = await sanitizeImage(await solidImage(1200, 800, 'jpeg'), square);
+      expect(res).toMatchObject({ ok: true, width: 512, height: 512, contentType: 'image/jpeg' });
+    });
+
+    it('crops a small PNG with alpha to its short side and keeps PNG', async () => {
+      const res = await sanitizeImage(await solidImage(300, 200, 'png', true), square);
+      expect(res).toMatchObject({ ok: true, width: 200, height: 200, contentType: 'image/png' });
+    });
+
+    it('crops a WebP portrait to a square', async () => {
+      const res = await sanitizeImage(await solidImage(600, 1500, 'webp'), square);
+      expect(res).toMatchObject({ ok: true, width: 512, height: 512 });
+    });
+
+    it('drops EXIF from a square output', async () => {
+      const withExif = await sharp({
+        create: { width: 640, height: 480, channels: 3, background: '#808080' },
+      })
+        .withExif({ IFD0: { Model: 'Secret Model' } })
+        .jpeg()
+        .toBuffer();
+      const res = await sanitizeImage(withExif, square);
+      expect(res.ok).toBe(true);
+      if (res.ok) {
+        expect((await sharp(res.bytes).metadata()).exif).toBeUndefined();
+        expect(res.bytes.includes(Buffer.from('Secret Model'))).toBe(false);
+      }
+    });
+
+    it('still refuses a decompression bomb', async () => {
+      const res = await sanitizeImage(pngClaiming(30_000, 30_000), square);
+      expect(res).toMatchObject({ ok: false, code: 'AI_ATTACHMENT_TOO_LARGE' });
+    });
+
+    it('reaches sanitizeImage through processAttachment', async () => {
+      const res = await processAttachment(await solidImage(900, 700, 'png'), 'image/png', {
+        maxPdfPages: MAX_PAGES,
+        image: square,
+      });
+      expect(res).toMatchObject({ ok: true, width: 512, height: 512 });
+    });
+  });
 });
 
 describe('inspectPdf', () => {

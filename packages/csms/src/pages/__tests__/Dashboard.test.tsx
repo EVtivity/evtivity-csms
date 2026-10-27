@@ -28,10 +28,18 @@ vi.mock('react-i18next', () => ({
 // By default the financial stats answer with account sessions waiting for
 // their fleet invoice; every other query stays pending (loading). A test sets
 // `answers` to make a path answer or fail.
-const { answers, requested } = vi.hoisted(() => ({
+// The saved dashboard layout answers the default unless a test sets one.
+const { answers, requested, writes } = vi.hoisted(() => ({
   answers: new Map<string, () => Promise<unknown>>(),
   requested: [] as string[],
+  writes: [] as Array<{ method: string; path: string; body?: unknown }>,
 }));
+const LAYOUT_PATH = '/v1/users/me/dashboard-layout';
+const defaultLayoutReply = () =>
+  import('@evtivity/lib/dashboard-layout').then((m) => ({
+    layout: m.defaultDashboardLayout(),
+    customized: false,
+  }));
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return {
@@ -41,13 +49,37 @@ vi.mock('@/lib/api', async (importOriginal) => {
         requested.push(path);
         const answer = answers.get(path.split('?')[0] ?? path);
         if (answer != null) return answer();
+        if (path === LAYOUT_PATH) return defaultLayoutReply();
         return path === '/v1/dashboard/financial-stats'
           ? Promise.resolve({ billedOnAccountCents: 20550, billedOnAccountCount: 9 })
           : new Promise(() => {});
       },
+      put: (path: string, body: unknown) => {
+        writes.push({ method: 'PUT', path, body });
+        return Promise.resolve({ layout: body, customized: true });
+      },
+      delete: (path: string) => {
+        writes.push({ method: 'DELETE', path });
+        return defaultLayoutReply();
+      },
     },
   };
 });
+vi.mock('@/hooks/use-feature-flags', () => ({
+  useFeatureFlags: () => ({ flags: { aiInsightsEnabled: true } }),
+}));
+vi.mock('@/components/charts/LocationsByCityChart', () => ({
+  LocationsByCityChart: () => <div data-testid="chart-locations-by-city" />,
+}));
+vi.mock('@/components/charts/EvsesByConnectorTypeChart', () => ({
+  EvsesByConnectorTypeChart: () => <div data-testid="chart-evses-by-connector-type" />,
+}));
+vi.mock('@/components/charts/PlugAndChargeChart', () => ({
+  PlugAndChargeChart: () => <div data-testid="chart-plug-and-charge" />,
+}));
+vi.mock('@/components/charts/FreeVendChart', () => ({
+  FreeVendChart: () => <div data-testid="chart-free-vend" />,
+}));
 vi.mock('@/hooks/use-update-check', () => ({ useUpdateCheck: () => undefined }));
 vi.mock('@/components/ai/insights/ActiveInsightsWidget', () => ({
   ActiveInsightsWidget: () => <div data-testid="active-insights" />,
@@ -106,11 +138,17 @@ vi.stubGlobal(
 
 import { Dashboard, statGridClass } from '../Dashboard';
 import { useAuth } from '@/lib/auth';
+import {
+  defaultDashboardLayout,
+  resolveDashboardLayout,
+  type DashboardLayout,
+} from '@evtivity/lib/dashboard-layout';
 
-function renderDashboard(
+/** Renders the dashboard and waits for the saved layout (the Live charts wait for it). */
+async function renderDashboard(
   role: string,
   permissions: string[] = ['dashboard:read', 'payments:read'],
-): void {
+): Promise<void> {
   useAuth.setState({ role, permissions, hasAllSiteAccess: true });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -120,6 +158,7 @@ function renderDashboard(
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  await screen.findByTestId('dashboard-charts');
 }
 
 /** True when `a` comes before `b` in the document. */
@@ -131,11 +170,12 @@ afterEach(() => {
   cleanup();
   answers.clear();
   requested.length = 0;
+  writes.length = 0;
 });
 
 describe('Dashboard layout (plan v0.1.45, section 6)', () => {
-  it('TC-UI-LY-01 the admin dashboard shows Active insights after the stat cards, before the charts', () => {
-    renderDashboard('admin');
+  it('TC-UI-LY-01 the admin dashboard shows Active insights after the stat cards, before the charts', async () => {
+    await renderDashboard('admin', ['dashboard:read', 'payments:read', 'aiInsights:read']);
     const insights = screen.getAllByTestId('active-insights');
     expect(insights).toHaveLength(1);
     const widget = insights[0] as HTMLElement;
@@ -146,8 +186,8 @@ describe('Dashboard layout (plan v0.1.45, section 6)', () => {
     expect(before(screen.getByText('dashboard.title'), widget)).toBe(true);
   });
 
-  it('TC-UI-LY-02 every role gets the same dashboard in the same order', () => {
-    renderDashboard('operator');
+  it('TC-UI-LY-02 every role gets the same dashboard in the same order', async () => {
+    await renderDashboard('operator', ['dashboard:read', 'payments:read', 'aiInsights:read']);
     const insights = screen.getAllByTestId('active-insights');
     expect(insights).toHaveLength(1);
     const widget = insights[0] as HTMLElement;
@@ -160,7 +200,7 @@ describe('Dashboard layout (plan v0.1.45, section 6)', () => {
   });
 
   it('renders the account cards through the shared stat card, in a row that fits them', async () => {
-    renderDashboard('admin');
+    await renderDashboard('admin');
     const billed = await screen.findByText('dashboard.billedOnAccount');
     const unpaid = screen.getByText('dashboard.billedOnAccountSessions');
     const revenue = screen.getByText('dashboard.totalRevenue');
@@ -200,8 +240,8 @@ describe('Dashboard layout (plan v0.1.45, section 6)', () => {
 });
 
 describe('Dashboard states and permissions', () => {
-  it('shows the loading mark on a card while its query loads, never a zero', () => {
-    renderDashboard('admin');
+  it('shows the loading mark on a card while its query loads, never a zero', async () => {
+    await renderDashboard('admin');
     const card = screen.getAllByText('dashboard.totalStations')[0]?.closest('div.rounded-lg');
     expect(card).not.toBeNull();
     expect(within(card as HTMLElement).getByRole('status')).toBeTruthy();
@@ -214,7 +254,7 @@ describe('Dashboard states and permissions', () => {
       calls += 1;
       return Promise.reject(new Error('down'));
     });
-    renderDashboard('admin');
+    await renderDashboard('admin');
     const errors = await screen.findAllByText('common.loadError');
     expect(errors.length).toBeGreaterThan(0);
     const card = screen.getAllByText('dashboard.totalStations')[0]?.closest('div.rounded-lg');
@@ -240,17 +280,17 @@ describe('Dashboard states and permissions', () => {
         onboardingStatusCounts: { accepted: 4, pending: 2, blocked: 1 },
       }),
     );
-    renderDashboard('admin');
+    await renderDashboard('admin');
     expect(await screen.findByText('dashboard.stationsNotAccepted')).toBeTruthy();
   });
 
-  it('asks for the uptime of the last 30 days', () => {
-    renderDashboard('admin');
+  it('asks for the uptime of the last 30 days', async () => {
+    await renderDashboard('admin');
     expect(requested).toContain('/v1/dashboard/uptime?days=30');
   });
 
-  it('hides the money row and asks for no money without payments:read', () => {
-    renderDashboard('viewer', ['dashboard:read', 'stations:read']);
+  it('hides the money row and asks for no money without payments:read', async () => {
+    await renderDashboard('viewer', ['dashboard:read', 'stations:read']);
     expect(screen.queryByText('dashboard.totalRevenue')).toBeNull();
     expect(screen.queryByText('dashboard.profit')).toBeNull();
     expect(screen.getAllByText('dashboard.totalStations').length).toBeGreaterThan(0);
@@ -272,7 +312,7 @@ describe('Dashboard states and permissions', () => {
           resolve = r;
         }),
     );
-    renderDashboard('admin', ['dashboard:read', 'sessions:read']);
+    await renderDashboard('admin', ['dashboard:read', 'sessions:read']);
     expect(screen.getByText('charts.activeSessions')).toBeTruthy();
     const table = screen.getByTestId('sessions-table');
     expect(table.getAttribute('data-loading')).toBe('true');
@@ -291,7 +331,7 @@ describe('Dashboard states and permissions', () => {
         total: 45,
       }),
     );
-    renderDashboard('admin', ['dashboard:read', 'sessions:read']);
+    await renderDashboard('admin', ['dashboard:read', 'sessions:read']);
     // The page controls the card renders itself (SessionsTable has none).
     const next = await screen.findByRole('button', { name: /common\.next/ });
     expect(screen.getByText('common.pageOf')).toBeTruthy();
@@ -307,7 +347,7 @@ describe('Dashboard states and permissions', () => {
       calls += 1;
       return Promise.reject(new Error('down'));
     });
-    renderDashboard('admin', ['dashboard:read', 'sessions:read']);
+    await renderDashboard('admin', ['dashboard:read', 'sessions:read']);
     const title = screen.getByText('charts.activeSessions');
     const card = title.closest('div.rounded-lg') as HTMLElement;
     const retry = await within(card).findByRole('button', { name: 'common.retry' });
@@ -318,9 +358,137 @@ describe('Dashboard states and permissions', () => {
     });
   });
 
-  it('hides the Active Sessions card without sessions:read', () => {
-    renderDashboard('viewer', ['dashboard:read']);
+  it('hides the Active Sessions card without sessions:read', async () => {
+    await renderDashboard('viewer', ['dashboard:read']);
     expect(screen.queryByText('charts.activeSessions')).toBeNull();
     expect(requested.some((r) => r.startsWith('/v1/sessions'))).toBe(false);
+  });
+});
+
+describe('Dashboard layout customizing', () => {
+  /** Answers the saved layout: the given charts first, the rest in the default order. */
+  function savedLayout(stored: Record<string, unknown>): void {
+    answers.set(LAYOUT_PATH, () =>
+      Promise.resolve({ layout: resolveDashboardLayout(stored), customized: true }),
+    );
+  }
+
+  const NEW_CHART_PATHS = [
+    '/v1/dashboard/locations-by-city',
+    '/v1/dashboard/evses-by-connector-type',
+    '/v1/dashboard/plug-and-charge',
+    '/v1/dashboard/free-vend',
+  ];
+
+  it('hides Active insights without aiInsights:read', async () => {
+    await renderDashboard('admin');
+    expect(screen.queryByTestId('active-insights')).toBeNull();
+  });
+
+  it('hides the four new charts by default and never fetches them', async () => {
+    await renderDashboard('admin');
+    for (const id of [
+      'locations-by-city',
+      'evses-by-connector-type',
+      'plug-and-charge',
+      'free-vend',
+    ]) {
+      expect(screen.queryByTestId(`chart-${id}`)).toBeNull();
+    }
+    for (const path of NEW_CHART_PATHS) {
+      expect(requested.some((r) => r.startsWith(path))).toBe(false);
+    }
+  });
+
+  it('renders the saved chart order, hides hidden charts and fetches a shown new chart', async () => {
+    savedLayout({
+      version: 1,
+      charts: [
+        { id: 'chart.freeVend', hidden: false },
+        { id: 'chart.stationStatus', hidden: true },
+      ],
+    });
+    await renderDashboard('admin');
+    const freeVend = screen.getByTestId('chart-free-vend');
+    // Energy is the only mocked chart left with the "chart" test id.
+    const charts = screen.getAllByTestId('chart');
+    expect(charts).toHaveLength(1);
+    expect(before(freeVend, charts[0] as HTMLElement)).toBe(true);
+    expect(requested.some((r) => r.startsWith('/v1/dashboard/free-vend'))).toBe(true);
+    expect(requested.some((r) => r.startsWith('/v1/dashboard/plug-and-charge'))).toBe(false);
+  });
+
+  it('keeps the stat cards fixed whatever a layout stored before says', async () => {
+    savedLayout({
+      version: 1,
+      cards: [
+        { id: 'card.totalPorts', hidden: false },
+        { id: 'card.uptime', hidden: true },
+      ],
+      charts: [],
+    });
+    await renderDashboard('admin');
+    const ports = screen.getByText('dashboard.totalPorts');
+    const stations = screen.getAllByText('dashboard.totalStations')[0] as HTMLElement;
+    expect(before(stations, ports)).toBe(true);
+    expect(screen.getByText('dashboard.uptime')).toBeTruthy();
+  });
+
+  it('gives the stat cards no drag handle or hide button and never lists them as hidden', async () => {
+    await renderDashboard('admin');
+    fireEvent.click(screen.getByRole('button', { name: 'dashboard.customize' }));
+    expect(document.querySelector('[data-widget^="card."]')).toBeNull();
+    const uptime = screen.getByText('dashboard.uptime').closest('div.rounded-lg') as HTMLElement;
+    expect(within(uptime).queryByRole('button', { name: 'dashboard.hideWidget' })).toBeNull();
+    const show = screen.getAllByRole('button', { name: 'dashboard.showWidget' });
+    expect(show.map((b) => b.textContent)).not.toContain('dashboard.uptime');
+  });
+
+  it('keeps a money chart hidden without payments:read whatever the layout', async () => {
+    savedLayout({ version: 1, charts: [{ id: 'chart.revenue', hidden: false }] });
+    await renderDashboard('viewer', ['dashboard:read']);
+    expect(screen.queryByText('dashboard.totalRevenue')).toBeNull();
+    expect(document.querySelector('[data-widget="chart.revenue"]')).toBeNull();
+  });
+
+  it('hides a chart, offers it back, and resets the layout', async () => {
+    savedLayout({ version: 1, charts: [{ id: 'chart.freeVend', hidden: false }] });
+    await renderDashboard('admin');
+    fireEvent.click(screen.getByRole('button', { name: 'dashboard.customize' }));
+    const freeVend = screen
+      .getByTestId('chart-free-vend')
+      .closest('[data-widget="chart.freeVend"]') as HTMLElement;
+    fireEvent.click(within(freeVend).getByRole('button', { name: 'dashboard.hideWidget' }));
+    const charts = screen.getByTestId('dashboard-charts');
+    await waitFor(() => {
+      expect(within(charts).queryByTestId('chart-free-vend')).toBeNull();
+    });
+    const hidePut = writes.find((w) => w.method === 'PUT');
+    expect(hidePut?.path).toBe(LAYOUT_PATH);
+    const body = hidePut?.body as DashboardLayout & { cards?: unknown };
+    expect(body.cards).toBeUndefined();
+    expect(body.charts.find((c) => c.id === 'chart.freeVend')?.hidden).toBe(true);
+    // The hidden list offers it back, with the other new charts hidden by default.
+    const show = screen.getAllByRole('button', { name: 'dashboard.showWidget' });
+    expect(show.map((b) => b.textContent)).toEqual(
+      expect.arrayContaining(['dashboard.freeVend', 'dashboard.plugAndCharge']),
+    );
+    fireEvent.click(show.find((b) => b.textContent === 'dashboard.freeVend') as HTMLElement);
+    expect(await within(charts).findByTestId('chart-free-vend')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'dashboard.resetLayout' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'dashboard.resetLayout' }));
+    await waitFor(() => {
+      expect(writes.some((w) => w.method === 'DELETE' && w.path === LAYOUT_PATH)).toBe(true);
+    });
+    expect(defaultDashboardLayout().charts[0]?.id).toBe('chart.aiInsights');
+  });
+
+  it('offers Customize in the Live view only', async () => {
+    await renderDashboard('admin');
+    expect(screen.getByRole('button', { name: 'dashboard.customize' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'dashboard.trend' }));
+    expect(screen.queryByRole('button', { name: 'dashboard.customize' })).toBeNull();
   });
 });

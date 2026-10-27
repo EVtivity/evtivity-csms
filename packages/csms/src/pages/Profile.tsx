@@ -17,6 +17,7 @@ import { ProfileSupportAi } from '@/components/profile/ProfileSupportAi';
 import { api } from '@/lib/api';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { LoadingLogo } from '@/components/loading-logo';
+import type { AvatarData } from '@/components/AccountAvatar';
 
 export interface UserMe {
   id: string;
@@ -33,6 +34,7 @@ export interface UserMe {
   role: { id: string; name: string } | null;
   ssoLinkAllowed?: boolean;
   ssoLinked?: boolean;
+  avatar?: AvatarData | null;
 }
 
 export function Profile(): React.JSX.Element {

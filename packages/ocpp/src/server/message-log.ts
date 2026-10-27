@@ -7,9 +7,11 @@
  * the `ocpp_message_logs` row (event-projections.ts) and the notification
  * dispatcher reads the event. Station credentials in the payload (2.1
  * BasicAuthPassword values, the 1.6 AuthorizationKey, SetNetworkProfile
- * `basicAuthPassword`) are masked here (`maskStationCredentials`, the rule the
- * AI redactor shares), so neither the log, the CSMS OCPP log view, the API log
- * routes, a notification nor the AI read them.
+ * `basicAuthPassword`) and the password of a file transfer URL's userinfo
+ * (GetLog, GetDiagnostics, UpdateFirmware, PublishFirmware locations, also in
+ * a CALLERROR description) are masked here (`maskStationCredentials`, the rule
+ * the AI redactor shares), so neither the log, the CSMS OCPP log view, the API
+ * log routes, a notification nor the AI read them.
  */
 
 import type { EventBus } from '@evtivity/lib';
@@ -95,8 +97,8 @@ export function publishMessageLog(eventBus: EventBus, entry: MessageLogEntry): b
     return false;
   }
   const { payload, errorCode, errorDescription, ...rest } = entry;
-  const code = boundedText(errorCode);
-  const description = boundedText(errorDescription);
+  const code = boundedText(maskStationCredentials(errorCode));
+  const description = boundedText(maskStationCredentials(errorDescription));
   void eventBus.publish({
     eventType: MESSAGE_LOG_EVENT,
     aggregateType: 'ChargingStation',

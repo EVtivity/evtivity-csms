@@ -329,10 +329,14 @@ describe('AI tool policy and catalog', () => {
     expect(names).not.toContain('delete_notification_template');
   });
 
-  it('the assistant cannot change a site AI budget or insight switch (review 2, AI I4)', () => {
-    expect(toolPolicy('updateSite').omit).toEqual(
-      expect.arrayContaining(['aiMonthlyTokenBudget', 'aiInsightsEnabled']),
-    );
+  it('the assistant cannot change a site AI budget or the AI insights scope (review 2, AI I4)', () => {
+    expect(toolPolicy('updateSite').omit).toEqual(expect.arrayContaining(['aiMonthlyTokenBudget']));
+    // The site PATCH no longer takes the insights switch: the scope has its own routes.
+    const updateSite = AI_TOOL_CATALOG.find((t) => t.operationId === 'updateSite');
+    expect(JSON.stringify(updateSite?.parameters ?? {})).not.toContain('aiInsightsEnabled');
+    for (const id of ['getAiInsightScope', 'listAiInsightScopeStations', 'updateAiInsightScope']) {
+      expect(toolPolicy(id).exposure, id).toBe('never');
+    }
   });
 
   it('catalog tools have unique names, closed strict schemas and a validation schema', () => {

@@ -1,7 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { S3Client, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
+} from '@aws-sdk/client-s3';
 import { like } from 'drizzle-orm';
 import { db, settings } from '@evtivity/database';
 import { decryptSettingOrNull } from '@evtivity/lib';
@@ -73,4 +78,55 @@ export async function loadS3Config(encryptionKey: string): Promise<S3Config | nu
 /** Delete one object. S3 answers success for a key that does not exist. */
 export async function deleteObject(s3: S3Config, bucket: string, key: string): Promise<void> {
   await s3.client.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+}
+
+/** Keys of one multi-object delete (the S3 limit). */
+const DELETE_BATCH = 1000;
+
+/**
+ * Deletes every object under `prefix`: lists a page (at most 1000 keys), then
+ * deletes it in one batch, until the listing is empty. Throws when a list or a
+ * delete fails, or when S3 reports a key it could not delete. Returns how many
+ * objects it deleted.
+ */
+export async function deleteObjectsUnderPrefix(
+  s3: S3Config,
+  bucket: string,
+  prefix: string,
+): Promise<number> {
+  if (prefix === '' || !prefix.endsWith('/')) {
+    throw new Error('deleteObjectsUnderPrefix needs a folder prefix ending in /');
+  }
+  let deleted = 0;
+  let continuationToken: string | undefined;
+  do {
+    const page = await s3.client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        MaxKeys: DELETE_BATCH,
+        ...(continuationToken != null ? { ContinuationToken: continuationToken } : {}),
+      }),
+    );
+    const keys = (page.Contents ?? [])
+      .map((object) => object.Key)
+      .filter((key): key is string => key != null && key.startsWith(prefix));
+    if (keys.length > 0) {
+      const result = await s3.client.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+        }),
+      );
+      const errors = result.Errors ?? [];
+      if (errors.length > 0) {
+        throw new Error(
+          `S3 could not delete ${String(errors.length)} object(s) under ${prefix}: ${errors[0]?.Code ?? 'unknown'}`,
+        );
+      }
+      deleted += keys.length;
+    }
+    continuationToken = page.IsTruncated === true ? page.NextContinuationToken : undefined;
+  } while (continuationToken != null);
+  return deleted;
 }

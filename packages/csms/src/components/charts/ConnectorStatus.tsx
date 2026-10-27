@@ -75,6 +75,32 @@ const CONNECTOR_TYPE_GROUPS: ReadonlyArray<{
   },
 ];
 
+/**
+ * The display label of a connector type, matched without case (the dashboard
+ * groups types in lower case). Unknown and unlisted types return null.
+ */
+export function connectorTypeLabel(value: string): string | null {
+  const key = value.toLowerCase();
+  for (const group of CONNECTOR_TYPE_GROUPS) {
+    for (const ct of group.types) {
+      if (ct.value.toLowerCase() === key) return ct.value === 'Unknown' ? null : ct.label;
+    }
+  }
+  return null;
+}
+
+/**
+ * The standard name of a connector type without its expansion ("CCS1" for
+ * "CCS1 (Combined Charging System 1)"), for chart axes. Unknown and unlisted
+ * types return null.
+ */
+export function connectorTypeShortLabel(value: string): string | null {
+  const label = connectorTypeLabel(value);
+  if (label == null) return null;
+  const paren = label.indexOf(' (');
+  return paren > 0 ? label.slice(0, paren) : label;
+}
+
 function ConnectorTypeOptions(): React.JSX.Element {
   const { t } = useTranslation();
   const regionLabel: Record<ConnectorRegion, string> = {

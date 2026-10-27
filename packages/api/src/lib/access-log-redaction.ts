@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { maskStationCredentials } from '@evtivity/lib/secret-config';
+import { maskStationCredentials, urlPasswordUnmaskable } from '@evtivity/lib/secret-config';
 
 export const REDACTED = '[REDACTED]';
 
@@ -64,6 +64,18 @@ function redact(value: unknown, depth: number): unknown {
   return out;
 }
 
+function dropUnmaskableUrls(value: unknown, depth: number): unknown {
+  if (typeof value === 'string') return urlPasswordUnmaskable(value) ? REDACTED : value;
+  if (depth > MAX_DEPTH) return REDACTED;
+  if (Array.isArray(value)) return value.map((v) => dropUnmaskableUrls(v, depth + 1));
+  if (value == null || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    out[k] = dropUnmaskableUrls(v, depth + 1);
+  }
+  return out;
+}
+
 /**
  * The request body as stored in the access log, with secret fields replaced
  * by `[REDACTED]` at any depth. On `/v1/settings/<key>` the `value` is
@@ -77,7 +89,13 @@ export function redactAccessLogBody(
   // A station password in an OCPP command body (SetVariables BasicAuthPassword,
   // ChangeConfiguration AuthorizationKey) sits under a value field, not a
   // secret name: the shared station credential rule masks it first.
-  const sanitized = redact(maskStationCredentials(body), 0) as Record<string, unknown>;
+  // A URL password the masker cannot show masked (a space, a control, or a raw
+  // `/`, `?` or `#` in the userinfo) is refused by the routes, but the body of
+  // the refused request is still logged: it is stored as the marker whole.
+  const sanitized = redact(maskStationCredentials(dropUnmaskableUrls(body, 0)), 0) as Record<
+    string,
+    unknown
+  >;
   if (path.startsWith('/v1/settings/') && 'value' in sanitized) {
     sanitized['value'] = REDACTED;
   }

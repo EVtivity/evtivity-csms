@@ -8,7 +8,6 @@ import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Toggle } from '@/components/ui/toggle';
 import { api } from '@/lib/api';
 import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { formatNumber } from '@/lib/formatting';
@@ -20,7 +19,6 @@ import { AI_USAGE_KEY, useAiCostFormatter, useSiteAiUsage } from './usage-api';
 const MAX_SITE_BUDGET = 1_000_000_000_000;
 
 export interface SiteAiFields {
-  aiInsightsEnabled?: boolean;
   aiMonthlyTokenBudget?: number | null;
 }
 
@@ -35,9 +33,11 @@ export function parseSiteBudget(value: string): number | null | undefined {
 
 /**
  * Site Detail AI card: this month's usage against
- * the site budget for users with `aiUsage:read`, and the budget override and
- * the automatic insights switch for users with access to every site and
- * `sites:write` (the API answers 404 to anyone else that sends them).
+ * the site budget for users with `aiUsage:read`, and the budget override for
+ * users with access to every site and `sites:write` (the API answers 404 to
+ * anyone else that sends it). Whether insights run for the site is the AI
+ * insights scope (Settings > AI > Automatic Insights), shown in the AI
+ * Insights row of the Details tab.
  */
 export function SiteAiCard({
   siteId,
@@ -113,23 +113,6 @@ export function SiteAiCard({
             )}
           </div>
         )}
-
-        <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
-          <div className="space-y-1">
-            <Label htmlFor="site-ai-insights" className="leading-6">
-              {t('aiUsage.siteInsights')}
-            </Label>
-            <p className="text-xs text-muted-foreground">{t('aiUsage.siteInsightsHelp')}</p>
-          </div>
-          <Toggle
-            id="site-ai-insights"
-            checked={site.aiInsightsEnabled !== false}
-            disabled={!canEdit || patch.isPending}
-            onCheckedChange={(checked) => {
-              patch.mutate({ aiInsightsEnabled: checked });
-            }}
-          />
-        </div>
 
         <div className="space-y-2">
           <Label htmlFor="site-ai-budget" className="leading-6">

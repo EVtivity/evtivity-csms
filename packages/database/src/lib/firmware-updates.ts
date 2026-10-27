@@ -195,7 +195,9 @@ export async function rejectFirmwareUpdate(
  * (`offline_command_queue`, `pending`) are failed, so the station does not
  * install the firmware on its next connection, and their updates end as
  * Rejected (`CampaignCanceled`). The `status = 'pending'` guard loses cleanly to
- * a drain that already sent the command. Returns the number dropped.
+ * a drain that already sent the command. The same UPDATE masks the firmware
+ * URL password of the dropped payload (`evtivity_mask_url_passwords_jsonb`).
+ * Returns the number dropped.
  */
 export async function dropQueuedCampaignFirmwareUpdates(
   sql: postgres.Sql,
@@ -203,7 +205,8 @@ export async function dropQueuedCampaignFirmwareUpdates(
 ): Promise<number> {
   const dropped = await sql<Array<{ station_uuid: string; request_id: number }>>`
     UPDATE offline_command_queue o
-    SET status = 'failed', failed_reason = 'Firmware campaign cancelled'
+    SET status = 'failed', failed_reason = 'Firmware campaign cancelled',
+      payload = public.evtivity_mask_url_passwords_jsonb(o.payload)
     FROM firmware_updates fu
     JOIN charging_stations cs ON cs.id = fu.station_id
     WHERE fu.campaign_id = ${campaignId}

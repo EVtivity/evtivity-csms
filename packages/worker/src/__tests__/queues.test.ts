@@ -76,6 +76,7 @@ describe('createQueues', () => {
       QUEUE_NAMES.PAYMENT_WEBHOOKS,
       QUEUE_NAMES.PAYMENT_STOPS,
       QUEUE_NAMES.REMOTE_START_TIMEOUTS,
+      QUEUE_NAMES.DRIVER_AVATAR_CLEANUP,
       QUEUE_NAMES.STATION_MESSAGES,
       QUEUE_NAMES.REPORTS,
       QUEUE_NAMES.AI_WORKERS,
@@ -96,6 +97,7 @@ describe('createQueues', () => {
       'payment-webhooks',
       'payment-stops',
       'remote-start-timeouts',
+      'driver-avatar-cleanup',
       'station-messages',
       'reports',
       'ai-workers',
@@ -109,7 +111,7 @@ describe('createQueues', () => {
     const { createQueues } = queuesModule;
     createQueues('redis://localhost:6379');
 
-    expect(createBullMQConnection).toHaveBeenCalledTimes(18);
+    expect(createBullMQConnection).toHaveBeenCalledTimes(19);
     expect(createBullMQConnection).toHaveBeenCalledWith('redis://localhost:6379');
     for (const call of queueCalls) {
       expect(call.opts.connection).toBe(mockConnection);
@@ -151,6 +153,13 @@ describe('createQueues', () => {
     expect(byName['member-invoices']?.['defaultJobOptions']).toEqual(
       byName['fleet-invoices']?.['defaultJobOptions'],
     );
+    // Avatar cleanup retries a storage outage for about 17 hours; a finished job frees its id.
+    expect(byName['driver-avatar-cleanup']?.['defaultJobOptions']).toEqual({
+      removeOnComplete: true,
+      removeOnFail: { count: 500 },
+      attempts: 10,
+      backoff: { type: 'exponential', delay: 60_000 },
+    });
   });
 
   it('configures retry attempts and exponential backoff on guest-session and reservation queues', async () => {

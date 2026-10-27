@@ -1376,3 +1376,319 @@ DO $$ BEGIN
       AND "start_requested_at" IS NULL;
   END IF;
 END $$;
+--> statement-breakpoint
+-- beta.6 block C: OCPP process settings in the health row. Each OCPP process
+-- writes the settings it runs with (no secrets) for System Information; a
+-- process of an earlier release leaves it null.
+ALTER TABLE "ocpp_server_health" ADD COLUMN IF NOT EXISTS "config" jsonb;
+
+--> statement-breakpoint
+-- Dashboard layouts: the Live dashboard widget order and visibility of each
+-- user (one row per user, no row means the default layout).
+CREATE TABLE IF NOT EXISTS "user_dashboard_layouts" (
+  "user_id" text PRIMARY KEY NOT NULL,
+  "layout" jsonb NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "user_dashboard_layouts" ADD CONSTRAINT "user_dashboard_layouts_user_id_users_id_fk"
+    FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+--> statement-breakpoint
+-- beta.6 block B: driver avatars. A driver either builds a generated avatar
+-- (avatar_options) or uploads an image (avatar_s3_key and avatar_s3_bucket),
+-- never both; the CHECK holds the three shapes. Every existing row is null,
+-- so dropping and adding the CHECK on a rerun validates at once.
+ALTER TABLE "drivers" ADD COLUMN IF NOT EXISTS "avatar_kind" varchar(16);
+--> statement-breakpoint
+ALTER TABLE "drivers" ADD COLUMN IF NOT EXISTS "avatar_options" jsonb;
+--> statement-breakpoint
+ALTER TABLE "drivers" ADD COLUMN IF NOT EXISTS "avatar_s3_key" text;
+--> statement-breakpoint
+ALTER TABLE "drivers" ADD COLUMN IF NOT EXISTS "avatar_s3_bucket" text;
+--> statement-breakpoint
+ALTER TABLE "drivers" ADD COLUMN IF NOT EXISTS "avatar_updated_at" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "drivers" DROP CONSTRAINT IF EXISTS "drivers_avatar_check";
+--> statement-breakpoint
+ALTER TABLE "drivers" ADD CONSTRAINT "drivers_avatar_check" CHECK (
+  ("avatar_kind" IS NULL AND "avatar_options" IS NULL AND "avatar_s3_key" IS NULL AND "avatar_s3_bucket" IS NULL)
+  OR ("avatar_kind" = 'generated' AND "avatar_options" IS NOT NULL AND "avatar_s3_key" IS NULL AND "avatar_s3_bucket" IS NULL)
+  OR ("avatar_kind" = 'image' AND "avatar_options" IS NULL AND "avatar_s3_key" IS NOT NULL AND "avatar_s3_bucket" IS NOT NULL)
+);
+--> statement-breakpoint
+-- beta.6 block C: CSMS user avatars, the same three shapes as the driver
+-- avatars of block B. Only the user avatar service writes them, so a rerun
+-- validates the CHECK against rows that already hold it.
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatar_kind" varchar(16);
+--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatar_options" jsonb;
+--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatar_s3_key" text;
+--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatar_s3_bucket" text;
+--> statement-breakpoint
+ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatar_updated_at" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "users" DROP CONSTRAINT IF EXISTS "users_avatar_check";
+--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_avatar_check" CHECK (
+  ("avatar_kind" IS NULL AND "avatar_options" IS NULL AND "avatar_s3_key" IS NULL AND "avatar_s3_bucket" IS NULL)
+  OR ("avatar_kind" = 'generated' AND "avatar_options" IS NOT NULL AND "avatar_s3_key" IS NULL AND "avatar_s3_bucket" IS NULL)
+  OR ("avatar_kind" = 'image' AND "avatar_options" IS NULL AND "avatar_s3_key" IS NOT NULL AND "avatar_s3_bucket" IS NOT NULL)
+);
+--> statement-breakpoint
+-- beta.6 block D: file transfer URL passwords. An OCPP file transfer URL can
+-- carry its credentials in the userinfo (`ftp://user:password@host/path`,
+-- GetLog log.remoteLocation, 1.6 GetDiagnostics location, UpdateFirmware
+-- firmware.location or 1.6 location, PublishFirmware location). From this
+-- release every stored copy masks the password as `[redacted]` and keeps the
+-- scheme, user, host, port and path (`maskUrlPassword`,
+-- `@evtivity/lib/secret-config`). This block creates the two masking
+-- functions and masks the copies stored before it.
+--
+-- The rule is the one of `maskUrlPassword`, applied to decoded string values,
+-- never to JSON text (a quote or a backslash in a password is stored as `\"`
+-- or `\\` in JSON text): from `scheme://user:` to the last `@` before the
+-- next ASCII control or space, through any `/`, `?` or `#` (parsers disagree
+-- on where such an authority ends, so it over-masks rather than leaves a
+-- password).
+-- - evtivity_mask_url_passwords(text): one string.
+-- - evtivity_mask_url_passwords_jsonb(jsonb): every string value at any
+--   depth (object keys stay).
+-- Both stay: the OCPP drain, the worker expiry and the firmware campaign
+-- cancel mask an offline_command_queue payload in the UPDATE that moves it
+-- out of pending. The earlier helper evtivity_0479_mask_url_passwords is
+-- dropped.
+--
+-- Kept unmasked on purpose: firmware_campaigns.firmware_url (stations still
+-- to be sent a campaign need the real URL) and pending offline_command_queue
+-- rows (delivered on reconnect). Sent, failed and expired queue rows are
+-- masked: nothing delivers them again.
+--
+-- Cost. Each table is read only where such a URL can be, and a row is
+-- rewritten only when its text holds both `://` and `@`, or is longer than
+-- the scan bound (strpos and length, a linear superset test on the JSON
+-- text), and masking changes it:
+-- - ocpp_message_logs: the rows of GetLog, GetDiagnostics, UpdateFirmware,
+--   SignedUpdateFirmware, PublishFirmware, LogStatusNotification and
+--   FirmwareStatusNotification (idx_ocpp_message_logs_action), payload and
+--   error_description.
+-- - domain_events: command.UpdateFirmware, command.GetLog,
+--   command.GetDiagnostics and command.Queued (idx_domain_events_event_type).
+-- - access_logs: the OCPP command and firmware campaign routes, one pass over
+--   the path column.
+-- - firmware_updates, log_uploads, firmware_campaign_audit_log and the
+--   non-pending offline_command_queue rows: one pass each (small tables).
+-- Idempotent: a masked password stays `[redacted]`, so a rerun writes no row.
+DROP FUNCTION IF EXISTS public.evtivity_0479_mask_url_passwords(text);
+--> statement-breakpoint
+-- A linear scan, no regular expression (a backtracking match let a crafted
+-- string take polynomial time): the code points go into an int[] (fixed
+-- width, so element reads and writes are constant time), each `://` is looked
+-- at once, the scheme walk back, the user walk and the password run of each
+-- break-free run cover disjoint text, and the last @ of a run is found once.
+-- A text longer than 65536 code points that holds a `:` is replaced whole.
+-- The same scan as `maskUrlPassword` in TypeScript.
+CREATE OR REPLACE FUNCTION public.evtivity_mask_url_passwords(t text) RETURNS text
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+DECLARE
+  n int;
+  c int[];
+  st int[];
+  search_from int := 1;
+  floor_at int := 1;
+  k int;
+  j int;
+  colon int;
+  i int;
+  run_end int := 0;
+  last_at int := 0;
+  matched boolean := false;
+BEGIN
+  IF t IS NULL OR strpos(t, ':') = 0 THEN
+    RETURN t;
+  END IF;
+  n := length(t);
+  -- Past the bound any colon counts: breaks inside the separator (`ftp:/ /`)
+  -- hide `://` from a literal check, and parsers drop them.
+  IF n > 65536 THEN
+    RETURN '[redacted]';
+  END IF;
+  IF strpos(t, '://') = 0 THEN
+    RETURN t;
+  END IF;
+  SELECT array_agg(ascii(u.ch) ORDER BY u.ord) INTO c
+  FROM unnest(string_to_array(t, NULL)) WITH ORDINALITY AS u(ch, ord);
+  st := array_fill(0, ARRAY[n]);
+  LOOP
+    -- The next `://` at or after search_from.
+    k := 0;
+    i := search_from;
+    WHILE i <= n - 2 LOOP
+      IF c[i] = 58 AND c[i + 1] = 47 AND c[i + 2] = 47 THEN
+        k := i;
+        EXIT;
+      END IF;
+      i := i + 1;
+    END LOOP;
+    EXIT WHEN k = 0;
+    search_from := k + 1;
+    -- A scheme right before it: a letter, then [A-Za-z0-9+.-], at or after floor_at.
+    j := k;
+    WHILE j > floor_at AND (c[j - 1] BETWEEN 65 AND 90 OR c[j - 1] BETWEEN 97 AND 122
+                            OR c[j - 1] BETWEEN 48 AND 57 OR c[j - 1] IN (43, 45, 46)) LOOP
+      j := j - 1;
+    END LOOP;
+    WHILE j < k AND NOT (c[j] BETWEEN 65 AND 90 OR c[j] BETWEEN 97 AND 122) LOOP
+      j := j + 1;
+    END LOOP;
+    CONTINUE WHEN j >= k;
+    -- The user ends in a `:` and holds no `/`, `?`, `#` or break.
+    colon := 0;
+    i := k + 3;
+    WHILE i <= n LOOP
+      EXIT WHEN c[i] <= 32 OR c[i] IN (47, 63, 35);
+      IF c[i] = 58 THEN
+        colon := i;
+        EXIT;
+      END IF;
+      i := i + 1;
+    END LOOP;
+    CONTINUE WHEN colon = 0;
+    -- The break-free run holding the password, and its last @ (once per run).
+    IF colon + 1 >= run_end THEN
+      run_end := colon + 1;
+      WHILE run_end <= n AND c[run_end] > 32 LOOP
+        run_end := run_end + 1;
+      END LOOP;
+      last_at := 0;
+      i := run_end - 1;
+      WHILE i >= colon + 2 LOOP
+        IF c[i] = 64 THEN
+          last_at := i;
+          EXIT;
+        END IF;
+        i := i - 1;
+      END LOOP;
+    END IF;
+    IF last_at < colon + 2 THEN
+      search_from := greatest(search_from, run_end);
+      CONTINUE;
+    END IF;
+    -- The password (colon + 1 .. last_at - 1) becomes [redacted].
+    st[colon + 1] := 1;
+    FOR i IN colon + 2 .. last_at - 1 LOOP
+      st[i] := 2;
+    END LOOP;
+    matched := true;
+    floor_at := last_at + 1;
+    search_from := last_at + 1;
+  END LOOP;
+  IF NOT matched THEN
+    RETURN t;
+  END IF;
+  RETURN (
+    SELECT string_agg(CASE WHEN u.s = 1 THEN '[redacted]' ELSE u.ch END, '' ORDER BY u.ord)
+    FROM unnest(string_to_array(t, NULL), st) WITH ORDINALITY AS u(ch, s, ord)
+    WHERE u.s <> 2
+  );
+END
+$$;
+--> statement-breakpoint
+CREATE OR REPLACE FUNCTION public.evtivity_mask_url_passwords_jsonb(j jsonb) RETURNS jsonb
+LANGUAGE plpgsql IMMUTABLE PARALLEL SAFE AS $$
+BEGIN
+  CASE jsonb_typeof(j)
+    WHEN 'string' THEN
+      RETURN to_jsonb(public.evtivity_mask_url_passwords(j #>> '{}'));
+    WHEN 'object' THEN
+      RETURN COALESCE(
+        (SELECT jsonb_object_agg(e.key, public.evtivity_mask_url_passwords_jsonb(e.value))
+         FROM jsonb_each(j) AS e),
+        '{}'::jsonb);
+    WHEN 'array' THEN
+      RETURN COALESCE(
+        (SELECT jsonb_agg(public.evtivity_mask_url_passwords_jsonb(e.value) ORDER BY e.ord)
+         FROM jsonb_array_elements(j) WITH ORDINALITY AS e(value, ord)),
+        '[]'::jsonb);
+    ELSE
+      RETURN j;
+  END CASE;
+END
+$$;
+--> statement-breakpoint
+UPDATE ocpp_message_logs AS l
+SET payload = m.masked,
+    error_description = public.evtivity_mask_url_passwords(l.error_description)
+FROM (
+  SELECT id, public.evtivity_mask_url_passwords_jsonb(payload) AS masked
+  FROM ocpp_message_logs
+  WHERE action IN ('GetLog', 'GetDiagnostics', 'UpdateFirmware', 'SignedUpdateFirmware',
+                   'PublishFirmware', 'LogStatusNotification', 'FirmwareStatusNotification')
+    AND (((strpos(payload::text, '://') > 0 AND strpos(payload::text, '@') > 0) OR length(payload::text) > 65536)
+         OR ((strpos(error_description, '://') > 0 AND strpos(error_description, '@') > 0) OR length(error_description) > 65536))
+) AS m
+WHERE l.id = m.id
+  AND (m.masked IS DISTINCT FROM l.payload
+       OR public.evtivity_mask_url_passwords(l.error_description) IS DISTINCT FROM l.error_description);
+--> statement-breakpoint
+UPDATE domain_events AS d
+SET payload = m.masked
+FROM (
+  SELECT id, public.evtivity_mask_url_passwords_jsonb(payload) AS masked, payload AS original
+  FROM domain_events
+  WHERE event_type IN ('command.UpdateFirmware', 'command.GetLog', 'command.GetDiagnostics',
+                       'command.Queued')
+    AND ((strpos(payload::text, '://') > 0 AND strpos(payload::text, '@') > 0) OR length(payload::text) > 65536)
+) AS m
+WHERE d.id = m.id AND m.masked IS DISTINCT FROM m.original;
+--> statement-breakpoint
+UPDATE access_logs AS a
+SET metadata = m.masked
+FROM (
+  SELECT id, public.evtivity_mask_url_passwords_jsonb(metadata) AS masked, metadata AS original
+  FROM access_logs
+  WHERE (path LIKE '/v1/ocpp/commands/%' OR path LIKE '/v1/firmware-campaigns%')
+    AND ((strpos(metadata::text, '://') > 0 AND strpos(metadata::text, '@') > 0) OR length(metadata::text) > 65536)
+) AS m
+WHERE a.id = m.id AND m.masked IS DISTINCT FROM m.original;
+--> statement-breakpoint
+UPDATE firmware_updates
+SET firmware_url = public.evtivity_mask_url_passwords(firmware_url)
+WHERE ((strpos(firmware_url, '://') > 0 AND strpos(firmware_url, '@') > 0) OR length(firmware_url) > 65536)
+  AND public.evtivity_mask_url_passwords(firmware_url) IS DISTINCT FROM firmware_url;
+--> statement-breakpoint
+UPDATE log_uploads
+SET remote_location = public.evtivity_mask_url_passwords(remote_location)
+WHERE ((strpos(remote_location, '://') > 0 AND strpos(remote_location, '@') > 0) OR length(remote_location) > 65536)
+  AND public.evtivity_mask_url_passwords(remote_location) IS DISTINCT FROM remote_location;
+--> statement-breakpoint
+UPDATE firmware_campaign_audit_log
+SET before = public.evtivity_mask_url_passwords_jsonb(before),
+    after = public.evtivity_mask_url_passwords_jsonb(after)
+WHERE (((strpos(before::text, '://') > 0 AND strpos(before::text, '@') > 0) OR length(before::text) > 65536)
+       OR ((strpos(after::text, '://') > 0 AND strpos(after::text, '@') > 0) OR length(after::text) > 65536))
+  AND (public.evtivity_mask_url_passwords_jsonb(before) IS DISTINCT FROM before
+       OR public.evtivity_mask_url_passwords_jsonb(after) IS DISTINCT FROM after);
+--> statement-breakpoint
+UPDATE offline_command_queue
+SET payload = public.evtivity_mask_url_passwords_jsonb(payload)
+WHERE status <> 'pending'
+  AND ((strpos(payload::text, '://') > 0 AND strpos(payload::text, '@') > 0) OR length(payload::text) > 65536)
+  AND public.evtivity_mask_url_passwords_jsonb(payload) IS DISTINCT FROM payload;
+--> statement-breakpoint
+-- AI insights scope: `aiInsights.scope` is 'all' (every site and station) or
+-- 'selected' (the sites with sites.ai_insights_enabled, and inside them the
+-- stations with charging_stations.ai_insights_enabled). Before this release
+-- a site switched off had no insights while every other site had them, so an
+-- install with such a site starts on 'selected' (its other sites stay
+-- selected) and every other install on 'all'. ON CONFLICT keeps a value a
+-- rerun or the seed already wrote.
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "ai_insights_enabled" boolean NOT NULL DEFAULT true;
+--> statement-breakpoint
+INSERT INTO "settings" ("key", "value")
+SELECT 'aiInsights.scope',
+  to_jsonb(CASE WHEN EXISTS (SELECT 1 FROM "sites" WHERE NOT "ai_insights_enabled") THEN 'selected' ELSE 'all' END)
+ON CONFLICT ("key") DO NOTHING;

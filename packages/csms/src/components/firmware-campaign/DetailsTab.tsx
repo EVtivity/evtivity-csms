@@ -238,7 +238,11 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
                 const signature = editSigning.signature.trim();
                 const body: UpdateCampaignBody = {
                   name: editName,
-                  firmwareUrl: editFirmwareUrl,
+                  // Sent only when changed: the shown URL can hold a masked
+                  // password, which the stored URL keeps.
+                  ...(editFirmwareUrl !== campaign.firmwareUrl
+                    ? { firmwareUrl: editFirmwareUrl }
+                    : {}),
                   // Both empty clears them (an unsigned update).
                   signingCertificate: signingCertificate !== '' ? signingCertificate : null,
                   signature: signature !== '' ? signature : null,

@@ -9,6 +9,11 @@ import {
   AiInsightsSuppressDialog,
   invalidateAiInsightsSuppression,
 } from '@/components/ai/insights/AiInsightsSuppressDialog';
+import {
+  AiInsightsScopeNote,
+  aiInsightsScopeOff,
+} from '@/components/ai/insights/AiInsightsScopeNote';
+import type { AiInsightsScopeStatus } from '@/components/ai/insights/AiInsightsScopeNote';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -29,6 +34,8 @@ export interface StationAiInsightsState {
   aiInsightsSuppressedUntil?: string | null;
   aiInsightsSuppressedByName?: string | null;
   aiInsightsSuppressedReason?: string | null;
+  /** Whether AI insights run for the station and why (AI switch and scope). */
+  aiInsightsScope?: AiInsightsScopeStatus;
 }
 
 /**
@@ -38,7 +45,10 @@ export interface StationAiInsightsState {
  * site", linking the site) and an active maintenance event also suppress the
  * insights. While the site is suppressed the station cannot be resumed (the
  * API answers 409 STATION_SITE_SUPPRESSED), so Resume is hidden; its own
- * Suppress still works and is kept for when the site resumes.
+ * Suppress still works and is kept for when the site resumes. While AI
+ * Insights are off, or the station is outside the AI insights scope, the row
+ * says Off and why, and Suppress is not offered (the API answers 409
+ * AI_INSIGHTS_NOT_IN_SCOPE): there is nothing to suppress.
  */
 export function StationAiInsightsRow({
   stationId,
@@ -59,6 +69,7 @@ export function StationAiInsightsRow({
   const operatorSuppressed = station.aiInsightsSuppressedAt != null;
   const suppressed = station.aiInsightsSuppressed === true;
   const withSite = station.aiInsightsSuppressedSources?.includes('site') === true;
+  const off = aiInsightsScopeOff(station.aiInsightsScope);
 
   const resumeMutation = useMutation({
     mutationFn: () => api.post(`/v1/stations/${stationId}/ai-insights/resume`, {}),
@@ -83,12 +94,16 @@ export function StationAiInsightsRow({
       <dd className="space-y-1 font-medium">
         <div className="flex flex-wrap items-center gap-2">
           <Badge
-            variant={suppressed ? 'warning' : 'success'}
+            variant={off ? 'secondary' : suppressed ? 'warning' : 'success'}
             data-testid="station-ai-insights-badge"
           >
-            {suppressed ? t('stations.aiInsights.suppressed') : t('stations.aiInsights.inScope')}
+            {off
+              ? t('aiInsights.scopeStatus.off')
+              : suppressed
+                ? t('stations.aiInsights.suppressed')
+                : t('stations.aiInsights.inScope')}
           </Badge>
-          {canWrite && !operatorSuppressed && (
+          {canWrite && !operatorSuppressed && !off && (
             <Button
               variant="outline"
               size="sm"
@@ -111,6 +126,12 @@ export function StationAiInsightsRow({
             </Button>
           )}
         </div>
+        {off && station.aiInsightsScope != null && (
+          <AiInsightsScopeNote
+            scope={station.aiInsightsScope}
+            data-testid="station-ai-insights-scope"
+          />
+        )}
         {withSite && (
           <p
             className="text-sm font-normal text-muted-foreground"

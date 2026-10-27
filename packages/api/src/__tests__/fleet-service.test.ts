@@ -829,7 +829,28 @@ describe('getFleetDrivers', () => {
 
     const result = await getFleetDrivers('f1', 1, 10);
 
-    expect(result).toEqual({ data: drivers, total: 1 });
+    expect(result).toEqual({ data: [{ ...drivers[0], avatar: null }], total: 1 });
+  });
+
+  it('turns the avatar columns into the avatar view', async () => {
+    const options = { style: 'avataaars', seed: 'abc', options: { topVariant: 'bob' } };
+    setupDbResults(
+      [
+        {
+          id: 'd1',
+          avatarKind: 'generated',
+          avatarOptions: options,
+          avatarS3Key: null,
+          avatarS3Bucket: null,
+          avatarUpdatedAt: null,
+        },
+      ],
+      [{ count: 1 }],
+    );
+    const result = await getFleetDrivers('f1', 1, 10);
+    expect(result.data).toEqual([
+      { id: 'd1', avatar: { kind: 'generated', updatedAt: null, ...options } },
+    ]);
   });
 });
 

@@ -199,7 +199,7 @@ function FleetUnbilledCard({
           <CardTitle>{t('fleets.invoices.unbilledTitle')}</CardTitle>
           <CardDescription>{t('fleets.invoices.unbilledDescription')}</CardDescription>
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
             <Label htmlFor="fleet-invoice-period">{t('fleets.invoices.period')}</Label>
             <MonthPicker

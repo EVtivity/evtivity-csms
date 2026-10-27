@@ -96,7 +96,8 @@
     "startDate": "Fecha de inicio",
     "endDate": "Fecha de fin",
     "dateRange": "Rango de fechas",
-    "copyFailed": "No se pudo copiar"
+    "copyFailed": "No se pudo copiar",
+    "clearDates": "Borrar Fechas"
   },
   "status": {
     "online": "En línea",
@@ -384,7 +385,7 @@
     "passkeyResetRequired": "Debe cambiar su contraseña. Inicie sesión con su correo y contraseña para cambiarla.",
     "mfaSetupPasskeyHint": "Use su huella, su rostro, el bloqueo de pantalla o una llave de seguridad.",
     "mfaSetupUsePasskey": "Configurar una Llave de Acceso o de Seguridad",
-    "chargingPortalLink": "Portal de carga de {{name}}",
+    "chargingPortalLink": "Portal de carga",
     "ssoLinkRequired": "Esta cuenta aún no está vinculada al inicio de sesión único. Inicie sesión con su contraseña y permita el inicio de sesión con SSO en su perfil, o consulte a su administrador."
   },
   "dashboard": {
@@ -513,7 +514,46 @@
     "stationsNotAccepted": "Pendientes: {{pending}}, bloqueadas: {{blocked}}",
     "siteMapNotConfigured": "Configure una clave de API de Google Maps en Configuración para mostrar el mapa de sitios.",
     "siteMapLoadError": "No se pudo cargar el mapa.",
-    "siteMapMarker": "{{name}} (estaciones: {{count}})"
+    "siteMapMarker": "{{name}} (estaciones: {{count}})",
+    "customize": "Personalizar",
+    "doneCustomizing": "Listo",
+    "customizeHint": "Arrastre un gráfico por su asa para moverlo, u ocúltelo. Las tarjetas de estadísticas no cambian de lugar. Su diseño se guarda para su cuenta.",
+    "hiddenWidgets": "Ocultos",
+    "noHiddenWidgets": "Ninguno",
+    "resetLayout": "Restablecer Diseño",
+    "resetLayoutTitle": "Restablecer Diseño",
+    "resetLayoutDescription": "El panel en vivo vuelve al orden predeterminado de los gráficos y muestra los gráficos predeterminados. Se elimina su diseño guardado.",
+    "showWidget": "Mostrar {{name}}",
+    "hideWidget": "Ocultar {{name}}",
+    "moveWidget": "Mover {{name}}",
+    "layoutSaveFailed": "No se pudo guardar el diseño del panel.",
+    "dnd": {
+      "instructions": "Para tomar una tarjeta o un gráfico, pulse Espacio o Intro. Muévalo con las flechas, pulse Espacio o Intro para soltarlo, o pulse Escape para cancelar.",
+      "pickedUp": "Se tomó {{name}}.",
+      "movedOver": "{{name}} está sobre {{over}}.",
+      "dropped": "{{name}} se movió al lugar de {{over}}.",
+      "cancelled": "Se canceló el movimiento de {{name}}."
+    },
+    "locationsByCity": "Ubicaciones por Ciudad",
+    "locationsByCityInfo": "Estaciones aceptadas por ciudad de sus sitios, con el número de sitios en la descripción emergente. Las ciudades se comparan sin mayúsculas ni espacios adicionales.",
+    "unknownCity": "Ciudad Desconocida",
+    "otherCities": "Otras Ciudades",
+    "noLocations": "No hay sitios",
+    "cityTooltip": "{{stations}} estaciones, {{sites}} sitios",
+    "chartStations": "Estaciones",
+    "evsesByConnectorType": "EVSE por Tipo de Conector",
+    "evsesByConnectorTypeInfo": "EVSE en servicio por tipo de conector en sus estaciones aceptadas. Un EVSE con conectores de dos tipos cuenta en cada tipo. La descripción emergente muestra los conectores.",
+    "chartEvses": "EVSE",
+    "connectorTypeTooltip": "{{evses}} EVSE, {{connectors}} conectores",
+    "noEvses": "No hay EVSE",
+    "plugAndCharge": "Plug & Charge",
+    "plugAndChargeInfo": "Sesiones iniciadas con un contrato de Plug & Charge en sus sitios y su energía. Los contratos activos se muestran a los usuarios con acceso a todos los sitios que pueden leer conductores.",
+    "activeContractsCount": "Contratos Activos: {{value}}",
+    "noPlugAndChargeSessions": "No hay sesiones de Plug & Charge en este período",
+    "freeVend": "Carga Libre",
+    "freeVendInfo": "Sesiones de carga libre en sus sitios y su energía, con el número de sus sitios que tienen la carga libre activada.",
+    "freeVendSites": "Sitios con carga libre: {{value}}",
+    "noFreeVendSessions": "No hay sesiones de carga libre en este período"
   },
   "sites": {
     "title": "Sitios",
@@ -763,7 +803,7 @@
     "sp2Desc": "Cifrado TLS con HTTP Basic Auth",
     "sp3Desc": "TLS mutuo con certificado de cliente. Sin contraseña requerida.",
     "sp3CertNote": "Requiere certificado de cliente. Configurar en la pestaña Certificados.",
-    "sp16_0": "Sin Seguridad",
+    "sp16_0": "Sin Autenticación",
     "sp16_1": "Autenticación Básica",
     "sp16_2": "TLS + Autenticación Básica",
     "sp16_0Desc": "Sin autenticación requerida",
@@ -1859,7 +1899,9 @@
     "deleteHoliday": "Eliminar festivo",
     "bulkAddPlaceholder": "Un festivo por línea: AAAA-MM-DD Nombre del festivo",
     "bulkHolidaySummary": "Se importaron {{created}} festivo(s); {{skipped}} omitidos porque la fecha ya existe.",
-    "bulkHolidayAllImported": "Se importaron {{count}} festivo(s)."
+    "bulkHolidayAllImported": "Se importaron {{count}} festivo(s).",
+    "addHolidayDescription": "Las tarifas limitadas a festivos se aplican en esta fecha.",
+    "bulkAddDescription": "Agregue varios festivos a la vez, uno por línea. Las fechas ya incluidas se omiten."
   },
   "users": {
     "title": "Usuarios",
@@ -2613,7 +2655,38 @@
     "rateLimits": "Límites de tasa",
     "simulator": "Simulador",
     "integrations": "Integraciones",
-    "secretsNote": "Los valores secretos (contraseñas, tokens, claves de cifrado) nunca se exponen. \"Configurado\" solo indica si hay un valor establecido."
+    "secretsNote": "Los valores secretos (contraseñas, tokens, claves de cifrado) nunca se exponen. \"Configurado\" solo indica si hay un valor establecido.",
+    "description": "La configuración con la que se ejecutan los procesos del CSMS. Los valores secretos nunca se muestran.",
+    "search": "Buscar configuración",
+    "section": "Sección",
+    "allSections": "Todas las Secciones",
+    "noMatches": "No hay configuraciones que coincidan",
+    "setting": "Configuración",
+    "value": "Valor",
+    "security": "Seguridad",
+    "ocppProcesses": "Procesos OCPP",
+    "ocpi": "OCPI",
+    "simProviders": "Proveedores de SIM",
+    "dataPlans": "Planes de Datos de las Estaciones",
+    "configured": "Configurado",
+    "notSet": "Sin Configurar",
+    "none": "Ninguno",
+    "enabled": "Activado",
+    "disabled": "Desactivado",
+    "processes": "Procesos",
+    "noOcppProcesses": "Ningún proceso OCPP ha informado en los últimos 90 segundos.",
+    "connectedStations": "Estaciones Conectadas",
+    "startedAt": "Iniciado",
+    "settings": "Configuración",
+    "notReported": "No informado (el proceso ejecuta una versión anterior)",
+    "sharedRateLimit": "Límites de Tasa Compartidos",
+    "simulatorStations": "Estaciones del Simulador",
+    "stationsWifiOrWired": "Estaciones con Wi-Fi o Cable",
+    "stationsCellular": "Estaciones con Red Móvil",
+    "sitesWifiOrWired": "Sitios con Wi-Fi o Cable",
+    "sitesCellular": "Sitios con Red Móvil",
+    "webhookSigning": "Secreto de Firma de Webhooks",
+    "simHologramKey": "Clave API de Hologram"
   },
   "settings": {
     "title": "Configuración",
@@ -2621,7 +2694,6 @@
     "qrCodeIcon": "Icono de código QR",
     "qrCodeIconDescription": "Suba un icono SVG para insertar en el centro de los códigos QR.",
     "uploadSvg": "Subir SVG",
-    "removeIcon": "Eliminar icono",
     "preview": "Vista previa",
     "iconUploaded": "Icono subido.",
     "iconRemoved": "Icono eliminado.",
@@ -2745,13 +2817,11 @@
     "invoicePaymentSaved": "Información de pago guardada",
     "invoicePaymentSaveFailed": "No se pudo guardar la información de pago.",
     "uploadLogo": "Subir logotipo",
-    "removeLogo": "Eliminar logotipo",
     "noLogo": "No hay logotipo subido.",
     "invalidImage": "El archivo debe ser una imagen.",
     "logoTooLarge": "La imagen debe ser menor a 512 KB.",
     "favicon": "Favicon",
     "uploadFavicon": "Subir favicon",
-    "removeFavicon": "Eliminar favicon",
     "noFavicon": "No hay favicon subido.",
     "faviconDescription": "Se muestra en la pestaña del navegador. Tamaño recomendado: 32x32 o 64x64 píxeles.",
     "seoSettings": "SEO y redes sociales",
@@ -2761,7 +2831,6 @@
     "metaKeywordsHelper": "Palabras clave separadas por comas para motores de búsqueda.",
     "ogImage": "Imagen para compartir",
     "uploadOgImage": "Subir imagen",
-    "removeOgImage": "Eliminar imagen",
     "noOgImage": "No hay imagen para compartir subida.",
     "ogImageDescription": "Se muestra al compartir enlaces en redes sociales. Tamaño recomendado: 1200x630 píxeles.",
     "themeColor": "Color del tema",
@@ -2808,7 +2877,7 @@
     "s3PolicyDescription": "Su usuario IAM necesita los siguientes permisos en el bucket S3. Reemplace YOUR_BUCKET_NAME con el nombre real de su bucket.",
     "s3BucketPrivateNote": "El bucket S3 no debe ser público. Todo el acceso a archivos se gestiona mediante URLs prefirmadas generadas por el servidor.",
     "s3CorsTitle": "Configuración CORS",
-    "s3CorsDescription": "Su bucket S3 necesita una política CORS para permitir la carga de archivos directamente desde el navegador. Agregue esto en Bucket > Permisos > CORS. Reemplace YOUR_FRONTEND_ORIGIN con la URL de su panel (ej. http://localhost:7100).",
+    "s3CorsDescription": "Su bucket S3 necesita una regla CORS para que los navegadores suban archivos directamente con solicitudes POST prefirmadas (imágenes de estaciones y adjuntos de soporte desde el panel, fotos de conductores desde el portal) y los abran con GET. Agréguela en Bucket > Permisos > CORS. El ejemplo incluye los orígenes de este panel y del portal de conductores. Cámbielos si los usuarios acceden a alguna de las dos aplicaciones desde otra dirección.",
     "pnc": "Plug & Charge",
     "pncEnabled": "Habilitar Plug & Charge (ISO 15118)",
     "pncDescription": "Cuando está habilitado, el sistema gestiona certificados PKI para ISO 15118 Plug and Charge.",
@@ -3236,7 +3305,8 @@
       "ops": {
         "title": "Análisis automáticos y procesos",
         "description": "El modelo de los análisis automáticos y los procesos en segundo plano. Se ejecutan sin usuario y usan la clave del proveedor de la empresa.",
-        "enabled": "Activar la IA iniciada por el sistema"
+        "enabled": "Activar la IA iniciada por el sistema",
+        "offNote": "Estos ajustes solo tienen efecto mientras la IA iniciada por el sistema está activada. Sus valores se conservan."
       },
       "driver": {
         "title": "Soporte a conductores",
@@ -3286,6 +3356,30 @@
         "empty": "No hay valoraciones en los últimos {{days}} días.",
         "viewWrong": "Ver análisis marcados como incorrectos"
       }
+    },
+    "aiInsightsScope": {
+      "title": "Alcance de los Análisis de IA",
+      "siteListLabel": "Sitios",
+      "description": "Elija qué sitios y estaciones analizan los análisis automáticos y las tareas en segundo plano.",
+      "mode": {
+        "all": "Todos los Sitios",
+        "selected": "Sitios Seleccionados"
+      },
+      "modeHint": {
+        "all": "Todos los sitios y estaciones, incluidos los que se añadan después.",
+        "selected": "Solo los sitios que seleccione. Dentro de un sitio seleccionado puede desactivar estaciones concretas. Los sitios nuevos empiezan sin seleccionar y las estaciones nuevas siguen a su sitio."
+      },
+      "search": "Buscar sitios",
+      "noSites": "Ningún sitio coincide.",
+      "noStations": "Este sitio no tiene estaciones.",
+      "stationsSummary_one": "{{count}} estación, {{off}} desactivadas",
+      "stationsSummary_other": "{{count}} estaciones, {{off}} desactivadas",
+      "siteToggle": "Analizar {{name}}",
+      "stationsWithoutSite_one": "{{count}} estación sin sitio no se analiza mientras solo se analicen los sitios seleccionados.",
+      "stationsWithoutSite_other": "{{count}} estaciones sin sitio no se analizan mientras solo se analicen los sitios seleccionados.",
+      "removeHint": "Los sitios y estaciones que saque del alcance no reciben análisis nuevos. Sus análisis abiertos se descartan y sus acciones pendientes caducan.",
+      "loadFailed": "No se pudo cargar el alcance de los análisis de IA.",
+      "stationsFailed": "No se pudieron cargar las estaciones."
     },
     "aiMcp": {
       "title": "Servidor MCP",
@@ -3496,7 +3590,8 @@
         }
       },
       "proofHint": "Confirme que es usted para acortar el tiempo que se conserva el historial de auditoría, de inicios de sesión o de eventos de seguridad. Cada administrador recibe un aviso."
-    }
+    },
+    "uploadReplacesHint": "Al subir una imagen nueva se reemplaza la actual."
   },
   "pnc": {
     "certificates": "Certificados",
@@ -3806,7 +3901,8 @@
     "changes": "Cambios",
     "token": "Token",
     "evse": "EVSE",
-    "removeSlotStation": "Quitar estación"
+    "removeSlotStation": "Quitar estación",
+    "noConnectors": "Sin Conectores"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "Cuenta desactivada",
@@ -4134,6 +4230,7 @@
     "AI_INSIGHT_NOT_FOUND": "Análisis no encontrado",
     "AI_INSIGHT_COOLDOWN": "Este análisis se regeneró hace poco. Inténtalo de nuevo más tarde",
     "AI_INSIGHTS_DISABLED": "Los análisis automáticos están desactivados",
+    "AI_INSIGHTS_NOT_IN_SCOPE": "Los análisis de IA no están activados para este sitio o estación. Añádalo primero al alcance de los análisis de IA en Configuración",
     "AI_SITE_BUDGET_EXCEEDED": "Se alcanzó el límite diario de uso de IA del sitio",
     "AI_MONTHLY_BUDGET_EXCEEDED": "Se alcanzó el límite mensual de uso de IA",
     "AI_CONTEXT_NOT_FOUND": "No se encontró el registro que quieres explicar",
@@ -5430,7 +5527,24 @@
       "api_key": "Clave de API",
       "system": "Sistema",
       "ocpp": "OCPP"
-    }
+    },
+    "changes": "Cambios",
+    "field": "Campo",
+    "before": "Antes",
+    "after": "Después",
+    "showUnchanged": "Mostrar Campos Sin Cambios",
+    "hideUnchanged": "Ocultar Campos Sin Cambios",
+    "noChanges": "Esta entrada no registra valores de campos.",
+    "redacted": "Oculto",
+    "goToEntity": "Ir a la Entidad",
+    "entityDeleted": "Eliminado",
+    "viaAi": "Mediante IA",
+    "viaAiChannels": {
+      "chat": "Asistente de IA",
+      "mcp": "MCP",
+      "proposal": "Acción de IA confirmada"
+    },
+    "entryTitle": "{{action}} ({{entity}})"
   },
   "maintenance": {
     "colType": "Tipo",
@@ -5829,7 +5943,7 @@
       "resolved_before_analysis": "Resuelto antes del análisis",
       "cooldown": "Analizado hace poco",
       "site_daily_cap": "Se alcanzó el límite diario de análisis del sitio",
-      "site_disabled": "Los análisis están desactivados para este sitio",
+      "site_disabled": "Este sitio o estación está fuera del alcance de los análisis de IA",
       "budget_exceeded": "El presupuesto de IA está agotado",
       "disabled": "Los análisis automáticos se desactivaron",
       "provider_paused": "La cuenta del proveedor de IA no tiene saldo ni cuota"
@@ -5878,6 +5992,18 @@
       "sessionsFailedSameReason24h_other": "{{count}} sesiones fallidas por el mismo motivo en 24 horas",
       "tokenRefusals_one": "{{count}} token rechazado",
       "tokenRefusals_other": "{{count}} tokens rechazados"
+    },
+    "scopeStatus": {
+      "off": "Desactivado",
+      "settingsLink": "Alcance de los Análisis de IA",
+      "reason": {
+        "all_sites": "Activado para todos los sitios",
+        "selected": "Activado: seleccionado en el alcance de los análisis de IA",
+        "feature_off": "Desactivado porque la IA iniciada por el sistema está desactivada",
+        "no_site": "Desactivado porque la estación no tiene sitio y solo se analizan los sitios seleccionados",
+        "site_not_selected": "Desactivado porque el sitio no está seleccionado en el alcance de los análisis de IA",
+        "station_turned_off": "Desactivado porque la estación está desactivada en el alcance de los análisis de IA"
+      }
     },
     "regenerateQueued": "Se está preparando un nuevo análisis.",
     "widget": {
@@ -6115,8 +6241,6 @@
     },
     "siteBudget": "Presupuesto mensual de tokens",
     "siteBudgetHelp": "Déjelo vacío para usar el presupuesto predeterminado por sitio de Configuración > IA. 0 significa sin límite.",
-    "siteInsights": "Análisis automáticos",
-    "siteInsightsHelp": "Desactívelo para detener los análisis automáticos de este sitio.",
     "allSitesOnly": "Solo los usuarios con acceso a todos los sitios pueden cambiar esto."
   },
   "aiAlerts": {
@@ -6324,5 +6448,55 @@
       "alignedMeasurandsHelp": "Mediciones separadas por comas de las lecturas en reposo. Solo se envían cuando el intervalo es mayor que 0.",
       "txEndedMeasurandsHelp": "Mediciones separadas por comas de los valores al final de una sesión."
     }
+  },
+  "avatar": {
+    "alt": "Avatar de {{name}}",
+    "edit": "Editar Avatar",
+    "remove": "Eliminar Avatar",
+    "create": "Crear",
+    "upload": "Subir",
+    "random": "Aleatorio",
+    "tooLarge": "La imagen debe ocupar menos de 1 MB.",
+    "wrongType": "Elige una imagen JPEG, PNG o WebP.",
+    "uploadHint": "JPEG, PNG o WebP, de menos de 1 MB. La imagen se recorta en un cuadrado.",
+    "chooseImage": "Elegir imagen",
+    "saved": "Avatar guardado",
+    "saveFailed": "No se pudo guardar el avatar",
+    "removed": "Avatar eliminado",
+    "options": {
+      "topVariant": "Pelo o sombrero",
+      "accessoriesVariant": "Gafas",
+      "eyebrowsVariant": "Cejas",
+      "eyesVariant": "Ojos",
+      "mouthVariant": "Boca",
+      "facialHairVariant": "Vello facial",
+      "clothesVariant": "Ropa",
+      "clothesGraphicVariant": "Estampado de la camiseta",
+      "skinColor": "Color de piel",
+      "hairColor": "Color de pelo",
+      "facialHairColor": "Color del vello facial",
+      "clothesColor": "Color de la ropa",
+      "hatColor": "Color del sombrero",
+      "accessoriesColor": "Color de las gafas",
+      "backgroundColor": "Color de fondo",
+      "flip": "Orientación"
+    },
+    "none": {
+      "topVariant": "Sin pelo ni sombrero",
+      "accessoriesVariant": "Sin gafas",
+      "facialHairVariant": "Sin vello facial"
+    },
+    "values": {
+      "none": "Predeterminada",
+      "horizontal": "Reflejada"
+    },
+    "label": "Avatar",
+    "removeConfirmTitle": "Quitar Avatar",
+    "removeConfirm": "¿Quitar este avatar? Se elimina la foto subida y se muestran las iniciales.",
+    "editDescription": "Cree un avatar o suba una foto. Aparece en el menú de usuario de la barra lateral y en la lista de usuarios.",
+    "editDescriptionUser": "Cree un avatar o suba una foto para este usuario. Se muestra en la lista de usuarios y en la página del usuario.",
+    "editDescriptionDriver": "Cree un avatar o suba una foto para este conductor. Se muestra en la lista de conductores, en los miembros de la flota y en la página del conductor. El conductor puede cambiarlo.",
+    "savedWithNewAccount": "Opcional. El avatar se guarda al crear la cuenta.",
+    "applyFailed": "La cuenta se creó, pero no se pudo guardar el avatar. Vuelva a configurarlo en la pestaña Detalles."
   }
 }

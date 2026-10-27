@@ -97,7 +97,11 @@ export async function sweepConformanceStations(
   if (!(await conformanceTestDriverInUse(idleBefore))) {
     const driver = await deleteConformanceTestDriver();
     result.driverDeleted = driver.driverDeleted;
-    if (driver.detachedRows > 0 || driver.pricingGroupsKept > 0) {
+    if (
+      driver.detachedRows > 0 ||
+      driver.pricingGroupsKept > 0 ||
+      driver.avatarCleanupError != null
+    ) {
       log.warn(driver, 'Conformance test driver deleted; rows outside the run referenced it');
     }
   }

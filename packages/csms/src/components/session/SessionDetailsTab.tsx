@@ -81,7 +81,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
   return (
     <div className="flex items-start gap-2 text-sm">
       <span className="text-muted-foreground shrink-0 w-32">{label}</span>
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-w-0 flex-1 wrap-anywhere">{children}</div>
     </div>
   );
 }
@@ -215,20 +215,20 @@ export function SessionDetailsTab({
               <Row label={t('sessions.token')}>
                 <Link to={`/tokens/${session.token.id}`} className="text-link hover:underline">
                   {session.token.idToken}
-                </Link>
-                <span className="ml-2 text-muted-foreground">{session.token.tokenType}</span>
+                </Link>{' '}
+                <span className="ml-1 text-muted-foreground">{session.token.tokenType}</span>
               </Row>
             )}
             {session.token?.pncContract != null && (
               <Row label={t('sessions.pncContract')}>
                 <span data-testid="session-pnc-contract">
                   {t('sessions.pncContractPcid', { pcid: session.token.pncContract.pcid })}
-                </span>
+                </span>{' '}
                 <Badge
                   variant={
                     session.token.pncContract.status === 'active' ? 'success' : 'destructive'
                   }
-                  className="ml-2"
+                  className="ml-1"
                 >
                   {t(`drivers.pncContractStatus.${session.token.pncContract.status}`)}
                 </Badge>

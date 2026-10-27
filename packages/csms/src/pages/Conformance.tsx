@@ -135,10 +135,10 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
         )}
 
         {canRun && (
-          <div className="flex items-center gap-2 ml-auto">
+          <div className="grid grid-cols-2 gap-2 sm:ml-auto sm:flex sm:items-center">
             <Select
               aria-label={t('conformance.systemUnderTest')}
-              className="w-[220px]"
+              className="sm:w-[220px]"
               value={selectedSut}
               onChange={(e) => {
                 setSelectedSut(e.target.value === 'cs' ? 'cs' : 'csms');
@@ -149,7 +149,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
             </Select>
             <Select
               aria-label={t('conformance.ocppVersion')}
-              className="w-[140px]"
+              className="sm:w-[140px]"
               value={selectedVersion}
               onChange={(e) => {
                 setSelectedVersion(e.target.value);
@@ -165,7 +165,7 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
               onClick={() => {
                 setConfirmOpen(true);
               }}
-              className="relative"
+              className="relative col-span-2 sm:col-span-1"
             >
               {triggerRun.isPending && (
                 <div className="absolute inset-0 flex items-center justify-center">

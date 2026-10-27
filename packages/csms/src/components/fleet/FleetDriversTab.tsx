@@ -17,6 +17,7 @@ import { api } from '@/lib/api';
 import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { useUserTimezone } from '@/lib/timezone';
+import type { AvatarData } from '@/components/AccountAvatar';
 
 interface FleetDriver {
   id: string;
@@ -28,6 +29,7 @@ interface FleetDriver {
   /** The member pays by card although the fleet bills on account. */
   accountBillingOptOut?: boolean;
   createdAt: string;
+  avatar?: AvatarData | null;
 }
 
 interface FleetDriversTabProps {

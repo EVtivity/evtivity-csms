@@ -362,6 +362,11 @@ vi.mock('../services/user-status.service.js', () => ({
   revokeUserEmailLinks: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../services/user-avatar.service.js', () => ({
+  userAvatarColumns: {},
+  purgeUserAvatarOnDelete: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../lib/password-changed-notice.js', () => ({
   sendPasswordChangedNotice: vi.fn(),
 }));
@@ -439,6 +444,7 @@ import {
   ssoManagedUser,
 } from '../lib/operator-session.js';
 import { applyUserDeactivation, revokeUserEmailLinks } from '../services/user-status.service.js';
+import { purgeUserAvatarOnDelete } from '../services/user-avatar.service.js';
 import { sendPasswordChangedNotice } from '../lib/password-changed-notice.js';
 import {
   createRefreshToken,
@@ -2700,6 +2706,11 @@ describe('User routes (extended coverage)', () => {
       expect(opsFor('delete', 'users')).toHaveLength(0);
       // Sessions, API keys, links, caches and streams end in the user status service.
       expect(applyUserDeactivation).toHaveBeenCalledWith(OTHER, { log: expect.anything() });
+      // The avatar and every stored object of the user go with it.
+      expect(purgeUserAvatarOnDelete).toHaveBeenCalledWith(
+        OTHER,
+        expect.objectContaining({ note: 'Avatar removed with the user' }),
+      );
       expect(auditCall()).toMatchObject({ entityId: OTHER, action: 'deleted', before: row });
     });
   });

@@ -194,3 +194,31 @@ export function fillDates<T extends { date: string }>(
   const byDate = new Map(rows.map((r) => [r.date, r]));
   return dates.map((date) => byDate.get(date) ?? empty(date));
 }
+
+/**
+ * Optional time bounds of a log list, both included (as the audit list). The
+ * CSMS sends the start of the first picked day and the end of the last one.
+ */
+export const logTimeRangeQuery = {
+  from: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe('ISO datetime, inclusive lower bound of the entry time'),
+  to: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe('ISO datetime, inclusive upper bound of the entry time; must not be before `from`'),
+};
+
+/** The bounds as dates; a `from` after `to` is refused (400 `VALIDATION_ERROR`). */
+export function parseLogTimeRange(query: { from?: string | undefined; to?: string | undefined }): {
+  from: Date | null;
+  to: Date | null;
+} {
+  const from = query.from != null ? new Date(query.from) : null;
+  const to = query.to != null ? new Date(query.to) : null;
+  if (from != null && to != null && from.getTime() > to.getTime()) {
+    throw new ValidationError('"from" must be on or before "to"');
+  }
+  return { from, to };
+}

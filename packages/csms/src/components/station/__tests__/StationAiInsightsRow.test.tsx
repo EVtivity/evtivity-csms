@@ -54,6 +54,53 @@ afterEach(() => {
 });
 
 describe('StationAiInsightsRow', () => {
+  it('says Off and why, links the settings and offers no Suppress outside the scope', () => {
+    perms.add('stations:write');
+    perms.add('settings.system:read');
+    renderRow({
+      aiInsightsSuppressed: false,
+      aiInsightsSuppressedAt: null,
+      aiInsightsScope: { enabled: false, reason: 'station_turned_off' },
+    });
+    expect(screen.getByTestId('station-ai-insights-badge').textContent).toBe(
+      'aiInsights.scopeStatus.off',
+    );
+    const note = screen.getByTestId('station-ai-insights-scope');
+    expect(note.textContent).toContain('aiInsights.scopeStatus.reason.station_turned_off');
+    expect(
+      within(note)
+        .getByRole('link', { name: 'aiInsights.scopeStatus.settingsLink' })
+        .getAttribute('href'),
+    ).toBe('/settings?tab=ai&sub=insights');
+    expect(screen.queryByRole('button', { name: 'stations.aiInsights.suppress' })).toBeNull();
+  });
+
+  it('says system-initiated AI is off as the reason, without the link for a user who cannot read settings', () => {
+    perms.add('stations:write');
+    renderRow({
+      aiInsightsSuppressed: false,
+      aiInsightsSuppressedAt: null,
+      aiInsightsScope: { enabled: false, reason: 'feature_off' },
+    });
+    const note = screen.getByTestId('station-ai-insights-scope');
+    expect(note.textContent).toBe('aiInsights.scopeStatus.reason.feature_off');
+    expect(screen.queryByRole('button', { name: 'stations.aiInsights.suppress' })).toBeNull();
+  });
+
+  it('offers Suppress while in the scope', () => {
+    perms.add('stations:write');
+    renderRow({
+      aiInsightsSuppressed: false,
+      aiInsightsSuppressedAt: null,
+      aiInsightsScope: { enabled: true, reason: 'selected' },
+    });
+    expect(screen.getByTestId('station-ai-insights-badge').textContent).toBe(
+      'stations.aiInsights.inScope',
+    );
+    expect(screen.queryByTestId('station-ai-insights-scope')).toBeNull();
+    expect(screen.getByRole('button', { name: 'stations.aiInsights.suppress' })).toBeTruthy();
+  });
+
   it('shows In Scope and no buttons without stations:write', () => {
     renderRow({ aiInsightsSuppressed: false, aiInsightsSuppressedAt: null });
     expect(screen.getByTestId('station-ai-insights-badge').textContent).toBe(

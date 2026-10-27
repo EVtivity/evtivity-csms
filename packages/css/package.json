@@ -47,13 +47,16 @@
     "@peculiar/asn1-schema": "^2.10.0",
     "@peculiar/asn1-x509": "^2.10.0",
     "@peculiar/x509": "^2.1.0",
+    "basic-ftp": "^6.2.3",
     "postgres": "^3.4.5",
     "reflect-metadata": "^0.2.2",
+    "ssh2": "^1.17.0",
     "ws": "^8.19.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
+    "@types/ssh2": "^1.15.6",
     "@types/ws": "^8.18.1",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",

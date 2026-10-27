@@ -4,6 +4,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import type { AiAuditVia } from '@evtivity/lib/ai-proposals';
+import { maskUrlPassword } from '@evtivity/lib/secret-config';
 import { db as defaultDb } from '../config.js';
 
 export type AuditActor = 'operator' | 'driver' | 'api_key' | 'system' | 'ocpp';
@@ -105,9 +106,12 @@ export function isSensitiveAuditKey(key: string): boolean {
  * Returns a redacted copy of `obj` with sensitive fields replaced by the
  * literal string '<redacted>'. Recurses into nested plain objects AND arrays
  * so a sensitive field at any depth is caught (e.g. `before.driver.profile.passwordHash`
- * or `before.tokens[0].tokenHash`). Dates and primitives pass through unchanged.
+ * or `before.tokens[0].tokenHash`). A string keeps everything but the password
+ * of a URL userinfo (`ftp://user:[redacted]@host/fw.bin`, a firmware campaign
+ * URL). Dates and other primitives pass through unchanged.
  */
 export function redactAuditPayload(obj: unknown): unknown {
+  if (typeof obj === 'string') return maskUrlPassword(obj);
   if (obj == null || typeof obj !== 'object') return obj;
   if (obj instanceof Date) return obj;
   if (Array.isArray(obj)) return obj.map((item) => redactAuditPayload(item));

@@ -13,6 +13,7 @@ import {
   boolean,
   timestamp,
   date,
+  jsonb,
   smallint,
   check,
   index,
@@ -87,11 +88,25 @@ export const drivers = pgTable(
     // When the driver's personal data was erased (POST /v1/drivers/:id/erase).
     // The row stays as an anonymized stub for the sessions and invoices.
     erasedAt: timestamp('erased_at', { withTimezone: true }),
+    // The driver's avatar, written only by the driver avatar service:
+    // 'generated' with the DiceBear options (@evtivity/lib/account-avatar), or
+    // 'image' with the clean S3 object of an uploaded picture. Null: initials.
+    avatarKind: varchar('avatar_kind', { length: 16 }),
+    avatarOptions: jsonb('avatar_options'),
+    avatarS3Key: text('avatar_s3_key'),
+    avatarS3Bucket: text('avatar_s3_bucket'),
+    avatarUpdatedAt: timestamp('avatar_updated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_drivers_email').on(table.email),
+    check(
+      'drivers_avatar_check',
+      sql`(${table.avatarKind} IS NULL AND ${table.avatarOptions} IS NULL AND ${table.avatarS3Key} IS NULL AND ${table.avatarS3Bucket} IS NULL)
+        OR (${table.avatarKind} = 'generated' AND ${table.avatarOptions} IS NOT NULL AND ${table.avatarS3Key} IS NULL AND ${table.avatarS3Bucket} IS NULL)
+        OR (${table.avatarKind} = 'image' AND ${table.avatarOptions} IS NULL AND ${table.avatarS3Key} IS NOT NULL AND ${table.avatarS3Bucket} IS NOT NULL)`,
+    ),
     // Partial unique index on LOWER(email) is defined in migration
     // 0052_drivers_email_partial_unique.sql (Drizzle's uniqueIndex does not
     // support expression columns or partial WHERE clauses, so the index is

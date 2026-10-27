@@ -20,6 +20,7 @@ import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { paymentContext } from '../lib/payments.js';
 import { applyDriverDeactivation } from './driver-status.service.js';
 import { deleteRecoveryCodes, deleteWebauthnCredentials } from './mfa-factor.service.js';
+import { clearAvatarInErasure, purgeDriverAvatarStorage } from './driver-avatar.service.js';
 
 interface Logger {
   warn: (obj: unknown, msg?: string) => void;
@@ -33,6 +34,7 @@ export interface DriverErasureResult {
   paymentMethodsRemoved: number;
   vehiclesRemoved: number;
   tokensDeactivated: number;
+  avatarRemoved: boolean;
 }
 
 /** 409 DRIVER_ERASED: the driver's personal data was erased; the stub cannot change. */
@@ -49,7 +51,10 @@ export function driverErasedError(): AppError {
  *   so sessions, payment records, invoices and credit notes keep their
  *   driver id and their own snapshots for accounting.
  * - Deletes the vehicles, notification preferences, push tokens, MFA
- *   challenges, recovery codes, passkeys and emailed links.
+ *   challenges, recovery codes, passkeys and emailed links, and clears the
+ *   avatar. After the commit every avatar object of the driver is deleted
+ *   from S3 (the current image, images an earlier failed delete left and
+ *   unconfirmed uploads), else queued for the worker.
  * - Detaches and deletes the saved payment methods and provider customers
  *   through the payments methods service.
  * - Deactivates the tokens, revokes the sessions and ends the portal streams
@@ -87,7 +92,7 @@ export async function eraseDriver(
   }
 
   const erasedAt = new Date();
-  const vehiclesRemoved = await db.transaction(async (tx) => {
+  const { vehiclesRemoved, avatar } = await db.transaction(async (tx) => {
     // Guarded on erased_at, so of two concurrent erasures one wins.
     const [stub] = await tx
       .update(drivers)
@@ -116,6 +121,7 @@ export async function eraseDriver(
       .where(and(eq(drivers.id, driverId), isNull(drivers.erasedAt)))
       .returning({ id: drivers.id });
     if (stub == null) throw driverErasedError();
+    const clearedAvatar = await clearAvatarInErasure(tx, driverId);
 
     // Sessions keep their history: vehicle_id is set null by the foreign key.
     const removedVehicles = await tx
@@ -130,8 +136,13 @@ export async function eraseDriver(
     await deleteRecoveryCodes({ driverId }, tx);
     await deleteWebauthnCredentials({ driverId }, tx);
     await tx.delete(userTokens).where(eq(userTokens.driverId, driverId));
-    return removedVehicles.length;
+    return { vehiclesRemoved: removedVehicles.length, avatar: clearedAvatar };
   });
+
+  // The row no longer points at an image: every object under the driver's
+  // prefixes goes, and a storage failure queues the purge for the worker.
+  await purgeDriverAvatarStorage(driverId, avatar.object?.bucket ?? null, ctx.log);
+  const avatarRemoved = avatar.removed;
 
   // After the commit: the row is already anonymized, so the token
   // notifications below find no address to send to.
@@ -149,11 +160,17 @@ export async function eraseDriver(
       action: 'erased',
       ...ctx.actor,
       before: null,
-      after: { erased: true, paymentMethodsRemoved, vehiclesRemoved, tokensDeactivated },
+      after: {
+        erased: true,
+        paymentMethodsRemoved,
+        vehiclesRemoved,
+        tokensDeactivated,
+        avatarRemoved,
+      },
     },
     db,
     ctx.log,
   );
 
-  return { erasedAt, paymentMethodsRemoved, vehiclesRemoved, tokensDeactivated };
+  return { erasedAt, paymentMethodsRemoved, vehiclesRemoved, tokensDeactivated, avatarRemoved };
 }

@@ -30,7 +30,10 @@ import { ocppCommandQueued, ocppCommandQueuedBody } from '../lib/ocpp-command-qu
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { assertFirmwareSignature } from '../lib/firmware-signature.js';
-import { assertNoStationCredentialWrite } from '../lib/station-credential-guard.js';
+import {
+  assertMaskableUrlPasswords,
+  assertNoStationCredentialWrite,
+} from '../lib/station-credential-guard.js';
 import {
   isLoadManagedStationIdentity,
   isReservedProfileId,
@@ -537,6 +540,8 @@ function commandRoute(
       const { stationId, ...payload } = body;
       // Station passwords change only through the station security service (P3).
       assertNoStationCredentialWrite(commandName, payload);
+      // A file transfer URL password every stored copy can mask.
+      assertMaskableUrlPasswords(payload);
       // A certificate signing trigger is a certificate action.
       const payloadPermission = ocppCommandPayloadPermission(commandName, payload);
       if (payloadPermission != null && !(await requestHasPermission(request, payloadPermission))) {
@@ -655,10 +660,26 @@ const clearCacheV21Body = z.object({
   stationId: stationIdField,
 });
 
+/**
+ * A file transfer URL is at most 2000 characters, as the OCPP 2.1 schemas
+ * bound GetLog `remoteLocation`, UpdateFirmware and PublishFirmware
+ * `location`; the 1.6 GetDiagnostics and UpdateFirmware `location` have no
+ * schema bound and take the same one here. It also keeps every URL well
+ * under the URL password scan bound (`MAX_URL_SCAN_LENGTH`).
+ */
+const FILE_TRANSFER_URL_MAX = 2000;
+
 const updateFirmwareV21Body = z.object({
   stationId: stationIdField,
   requestId: z.number().int().describe('Request ID'),
-  firmware: firmwareType.describe('Firmware details'),
+  firmware: firmwareType
+    .extend({
+      location: z
+        .string()
+        .max(FILE_TRANSFER_URL_MAX)
+        .describe('URI defining the origin of the firmware.'),
+    })
+    .describe('Firmware details'),
   retries: z.number().int().optional().describe('Number of retries'),
   retryInterval: z.number().int().optional().describe('Seconds between retries'),
 });
@@ -699,7 +720,14 @@ const getLogV21Body = z.object({
   stationId: stationIdField,
   logType: logEnum.describe('Log type'),
   requestId: z.number().int().describe('Request ID'),
-  log: logParametersType.describe('Log parameters'),
+  log: logParametersType
+    .extend({
+      remoteLocation: z
+        .string()
+        .max(FILE_TRANSFER_URL_MAX)
+        .describe('The URL of the location at the remote system where the log should be stored.'),
+    })
+    .describe('Log parameters'),
   retries: z.number().int().optional().describe('Number of retries'),
   retryInterval: z.number().int().optional().describe('Seconds between retries'),
 });
@@ -859,7 +887,7 @@ const updateDynamicScheduleV21Body = z.object({
 
 const publishFirmwareV21Body = z.object({
   stationId: stationIdField,
-  location: z.string().describe('URI of firmware image'),
+  location: z.string().max(FILE_TRANSFER_URL_MAX).describe('URI of firmware image'),
   checksum: z.string().describe('MD5 checksum of firmware'),
   requestId: z.number().int().describe('Request ID'),
   retries: z.number().int().optional().describe('Number of retries'),
@@ -1020,7 +1048,7 @@ const clearCacheV16Body = z.object({
 
 const updateFirmwareV16Body = z.object({
   stationId: stationIdField,
-  location: z.string().describe('URI of firmware image'),
+  location: z.string().max(FILE_TRANSFER_URL_MAX).describe('URI of firmware image'),
   retrieveDate: z.string().describe('ISO 8601 retrieve date'),
   retries: z.number().int().optional().describe('Number of retries'),
   retryInterval: z.number().int().optional().describe('Seconds between retries'),
@@ -1060,7 +1088,7 @@ const changeConfigurationV16Body = z.object({
 
 const getDiagnosticsV16Body = z.object({
   stationId: stationIdField,
-  location: z.string().describe('URI for diagnostics upload'),
+  location: z.string().max(FILE_TRANSFER_URL_MAX).describe('URI for diagnostics upload'),
   retries: z.number().int().optional().describe('Number of retries'),
   retryInterval: z.number().int().optional().describe('Seconds between retries'),
   startTime: z.string().optional().describe('ISO 8601 log start time'),

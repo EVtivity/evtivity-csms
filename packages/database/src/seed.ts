@@ -21,7 +21,11 @@ import { db, client } from './config.js';
 import { sql, eq, and, inArray, isNotNull, isNull } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { sessionSiteIdSql } from './lib/session-site.js';
-import { getCompanyCurrency, clearSystemSettingsCache } from './lib/system-settings.js';
+import {
+  getCompanyCurrency,
+  getCompanyTaxBasis,
+  clearSystemSettingsCache,
+} from './lib/system-settings.js';
 import {
   settings,
   sites,
@@ -808,6 +812,7 @@ async function seed(): Promise<void> {
     'aiInsights.primaryLanguage': 'en',
     'aiInsights.retentionDays': 90,
     'aiInsights.expireAfterDays': 7,
+    'aiInsights.scope': 'all',
     'aiWorkers.networkSummary.enabled': false,
     'aiWorkers.stuckSessions.enabled': false,
     'aiWorkers.stuckSessions.idleMinutes': 90,
@@ -2832,6 +2837,28 @@ async function seed(): Promise<void> {
       subjectSecret: process.env['SETTINGS_ENCRYPTION_KEY'] ?? '',
     });
     console.log(`  ${String(aiInsights)} AI insights created.`);
+  }
+
+  // ------ Plug and Charge, free vend and SIM providers ------
+  // Contracts and the sessions their eMAID tokens started on two SP3 stations,
+  // a free vend site with two stations and its sessions, and SIMs confirmed on
+  // four SP3 stations with the history a Refresh stores (seed-demo-features.ts).
+  // Turns pnc.enabled and sim.hologram.enabled on (no provider credential).
+  {
+    const [featureActor] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, initialAdminEmail));
+    const { seedDemoFeatures } = await import('./seed-demo-features.js');
+    const features = await seedDemoFeatures(client, {
+      now: seedNow,
+      currency: companyCurrency,
+      taxBasis: await getCompanyTaxBasis(),
+      actorUserId: featureActor?.id ?? null,
+    });
+    console.log(
+      `  Demo features created (${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs).`,
+    );
   }
 
   // Portal driver support cases (the portal Support page should show data)

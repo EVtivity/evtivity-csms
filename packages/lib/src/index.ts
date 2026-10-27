@@ -5,6 +5,7 @@ export { createBullMQConnection, logBullMQErrors } from './bullmq.js';
 
 export {
   connectionName,
+  processVersion,
   CONNECTION_NAME_PREFIX,
   LEGACY_CONNECTION_NAME,
 } from './connection-name.js';
@@ -572,6 +573,8 @@ export {
   CSS_STATUS_REPORTING_KEY,
   CSS_STATUS_REPORTING_VALUES,
   CSS_STATUS_REPORTING_DEFAULT,
+  CSS_FILE_TRANSFER_PROTOCOLS_2X,
+  CSS_FILE_TRANSFER_PROTOCOLS_16,
   CSS_SIGNAL_STRENGTH_KEY,
   CSS_SIGNAL_STRENGTH_DEFAULT_DBM,
   cssSecurityCtrlrDefaults,

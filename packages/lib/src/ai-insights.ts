@@ -533,6 +533,45 @@ export const AI_INSIGHT_SETTING_KEYS = {
 } as const;
 
 /**
+ * The AI insights scope (owner decision v0.1.48): `all` analyzes every site
+ * and station (the default, and the behavior before the scope existed);
+ * `selected` analyzes only the selected sites (`sites.ai_insights_enabled`)
+ * and, inside them, the stations not turned off
+ * (`charging_stations.ai_insights_enabled`). A station without a site is out
+ * of a `selected` scope. Written only through `PUT /v1/settings/ai/insights-scope`.
+ */
+export const AI_INSIGHT_SCOPE_SETTING_KEY = 'aiInsights.scope';
+export const AI_INSIGHT_SCOPE_MODES = ['all', 'selected'] as const;
+export type AiInsightScopeMode = (typeof AI_INSIGHT_SCOPE_MODES)[number];
+export const DEFAULT_AI_INSIGHT_SCOPE_MODE: AiInsightScopeMode = 'all';
+
+export function isAiInsightScopeMode(value: unknown): value is AiInsightScopeMode {
+  return typeof value === 'string' && (AI_INSIGHT_SCOPE_MODES as readonly string[]).includes(value);
+}
+
+/**
+ * Why AI insights run or not for a station or site, first match wins:
+ * `feature_off` (AI Insights off), `no_site` (a station without a site in a
+ * `selected` scope), `site_not_selected`, `station_turned_off`; in scope:
+ * `all_sites` or `selected`.
+ */
+export const AI_INSIGHT_SCOPE_REASONS = [
+  'all_sites',
+  'selected',
+  'feature_off',
+  'no_site',
+  'site_not_selected',
+  'station_turned_off',
+] as const;
+export type AiInsightScopeReason = (typeof AI_INSIGHT_SCOPE_REASONS)[number];
+
+/** Reasons that mean insights are produced. */
+export const AI_INSIGHT_IN_SCOPE_REASONS: readonly AiInsightScopeReason[] = [
+  'all_sites',
+  'selected',
+];
+
+/**
  * One-off event insights: nothing the system watches clears them, so an open
  * one is closed `expired` after `aiInsights.expireAfterDays` (never one whose
  * action waits). Every other kind resolves when its condition clears.

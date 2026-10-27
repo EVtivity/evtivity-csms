@@ -57,13 +57,18 @@ vi.mock('@/lib/auth', () => {
   };
 });
 
+const branding = vi.hoisted(() => ({
+  companyName: null as string | null,
+  portalUrl: null as string | null,
+}));
+
 vi.mock('@/components/AuthBranding', () => ({
   AuthBranding: () => null,
   AuthFooter: () => null,
   useAuthBranding: () => ({
-    companyName: null,
+    companyName: branding.companyName,
     companyLogo: null,
-    portalUrl: null,
+    portalUrl: branding.portalUrl,
     themeColor: null,
   }),
 }));
@@ -96,7 +101,20 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   authState.mfaEnrollment = null;
+  branding.companyName = null;
+  branding.portalUrl = null;
   window.history.replaceState(null, '', '/');
+});
+
+describe('Login charging portal link', () => {
+  it('names the portal without the company name', async () => {
+    branding.companyName = 'Acme Energy';
+    branding.portalUrl = 'https://portal.example.com';
+    await renderLogin('/login');
+    const link = await screen.findByRole('link', { name: 'Charging Portal' });
+    expect(link.getAttribute('href')).toBe('https://portal.example.com');
+    expect(screen.queryByText(/Acme Energy/)).toBeNull();
+  });
 });
 
 describe('Login and required MFA', () => {

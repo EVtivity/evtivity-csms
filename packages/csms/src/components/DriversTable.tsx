@@ -17,6 +17,7 @@ import {
 import { formatDate } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 import { LoadingLogo } from '@/components/loading-logo';
+import { AccountAvatar, type AvatarData } from '@/components/AccountAvatar';
 
 export const DRIVERS_COLUMNS: ColumnMeta[] = [
   {
@@ -49,6 +50,8 @@ export interface Driver {
   /** Set when the personal data was erased: the name is blank. */
   erasedAt?: string | null;
   createdAt: string;
+  /** The avatar the driver set in the portal or app. */
+  avatar?: AvatarData | null;
 }
 
 /** An extra column a caller adds before the remove button (the fleet member billing switch). */
@@ -126,9 +129,18 @@ export function DriversTable({
                 )}
                 {isVisible('driverName') && (
                   <TableCell className="font-medium text-link" data-testid="row-click-target">
-                    {driver.erasedAt != null
-                      ? t('drivers.erasedName')
-                      : `${driver.firstName} ${driver.lastName}`}
+                    <span className="inline-flex items-center gap-2">
+                      {driver.erasedAt == null && (
+                        <AccountAvatar
+                          avatar={driver.avatar}
+                          firstName={driver.firstName}
+                          lastName={driver.lastName}
+                        />
+                      )}
+                      {driver.erasedAt != null
+                        ? t('drivers.erasedName')
+                        : `${driver.firstName} ${driver.lastName}`}
+                    </span>
                   </TableCell>
                 )}
                 {isVisible('email') && <TableCell>{driver.email ?? '-'}</TableCell>}

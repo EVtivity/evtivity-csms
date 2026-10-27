@@ -19,7 +19,11 @@ import type { CommandDispatcher } from './command-dispatcher.js';
 import { CommandTimeoutError } from './message-correlator.js';
 import { Ocpp201CommandError } from './ocpp201/to-ocpp201.js';
 import { publishMessageLog } from './message-log.js';
-import { holdsStationCredential, maskStationCredentials } from '@evtivity/lib/secret-config';
+import {
+  holdsStationCredential,
+  maskStationCredentials,
+  maskUrlPassword,
+} from '@evtivity/lib/secret-config';
 import {
   MESSAGE_TYPE_CALL,
   MESSAGE_TYPE_CALLRESULT,
@@ -254,25 +258,27 @@ export class CommandListener {
         });
       } else if (action === 'UpdateFirmware' || action === 'SignedUpdateFirmware') {
         // 1.6 SignedUpdateFirmware has the 2.1 UpdateFirmware payload shape.
+        // The file transfer URL's password is masked: the projection stores
+        // the URL in the update history and the event is persisted.
         void this.eventBus.publish({
           eventType: 'command.UpdateFirmware',
           aggregateType: 'ChargingStation',
           aggregateId: stationId,
-          payload: { request: payload, response },
+          payload: maskStationCredentials({ request: payload, response }),
         });
       } else if (action === 'GetLog') {
         void this.eventBus.publish({
           eventType: 'command.GetLog',
           aggregateType: 'ChargingStation',
           aggregateId: stationId,
-          payload: { request: payload, response },
+          payload: maskStationCredentials({ request: payload, response }),
         });
       } else if (action === 'GetDiagnostics') {
         void this.eventBus.publish({
           eventType: 'command.GetDiagnostics',
           aggregateType: 'ChargingStation',
           aggregateId: stationId,
-          payload: { request: payload, response },
+          payload: maskStationCredentials({ request: payload, response }),
         });
       } else if (action === 'ReserveNow') {
         // Worker handler dispatches scheduled reservations fire-and-forget.
@@ -409,7 +415,10 @@ export class CommandListener {
           'Command refused for OCPP 2.0.1',
         );
       } else {
-        this.logger.error({ stationId, action, error: errorMessage }, 'Command failed');
+        this.logger.error(
+          { stationId, action, error: maskUrlPassword(errorMessage) },
+          'Command failed',
+        );
 
         // Log inbound CALLERROR from station
         publishMessageLog(this.eventBus, {
@@ -449,7 +458,7 @@ export class CommandListener {
           eventType: 'command.UpdateFirmware',
           aggregateType: 'ChargingStation',
           aggregateId: stationId,
-          payload: { request: payload, error: errorMessage },
+          payload: maskStationCredentials({ request: payload, error: errorMessage }),
         });
       }
       // A charging profile the station answered with a CALLERROR is refused like

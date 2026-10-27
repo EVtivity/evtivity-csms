@@ -968,6 +968,23 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
       { path: 'sessionCount', all: 3, a: 1 },
     ],
   }),
+  // Stations of sites only: the unsited station is in no city.
+  l('/dashboard/locations-by-city', 'dashboard:read', undefined, {
+    counts: [{ path: 'cities.@sum:stationCount', all: 2, a: 1 }],
+  }),
+  l('/dashboard/evses-by-connector-type', 'dashboard:read', undefined, {
+    counts: [
+      { path: '@sum:evseCount', all: 3, a: 1 },
+      { path: '@sum:connectorCount', all: 3, a: 1 },
+    ],
+  }),
+  // The fixture sessions are neither Plug and Charge nor free vend sessions.
+  l('/dashboard/plug-and-charge', 'dashboard:read', undefined, {
+    provenBy: 'counts Plug and Charge and free vend sessions only at the user sites',
+  }),
+  l('/dashboard/free-vend', 'dashboard:read', undefined, {
+    provenBy: 'counts Plug and Charge and free vend sessions only at the user sites',
+  }),
 
   // display messages
   s(
@@ -3141,6 +3158,30 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     { body: () => ({}) },
   ),
 
+  // AI insights scope (company-wide, like every AI setting)
+  c(
+    'GET',
+    '/settings/ai/insights-scope',
+    'settings.system:read',
+    () => '/settings/ai/insights-scope',
+    'SETTING_NOT_FOUND',
+  ),
+  c(
+    'GET',
+    '/settings/ai/insights-scope/sites/:siteId/stations',
+    'settings.system:read',
+    (f) => `/settings/ai/insights-scope/sites/${f.site}/stations`,
+    'SETTING_NOT_FOUND',
+  ),
+  c(
+    'PUT',
+    '/settings/ai/insights-scope',
+    'settings.system:write',
+    () => '/settings/ai/insights-scope',
+    'SETTING_NOT_FOUND',
+    { body: () => ({ mode: 'all' }) },
+  ),
+
   // SIM provider settings (company-wide)
   c(
     'GET',
@@ -4090,6 +4131,42 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     },
   ),
   s('DELETE', '/users/:id', 'users:write', (f) => `/users/${f.user}`, 'USER_NOT_FOUND'),
+  // Another user's avatar: the profile field scope of PATCH /users/:id.
+  s('PUT', '/users/:id/avatar', 'users:write', (f) => `/users/${f.user}/avatar`, 'USER_NOT_FOUND', {
+    body: () => ({ style: 'avataaars', seed: 'Matrix', options: {} }),
+  }),
+  s(
+    'DELETE',
+    '/users/:id/avatar',
+    'users:write',
+    (f) => `/users/${f.user}/avatar`,
+    'USER_NOT_FOUND',
+  ),
+  s(
+    'POST',
+    '/users/:id/avatar/upload-url',
+    'users:write',
+    (f) => `/users/${f.user}/avatar/upload-url`,
+    'USER_NOT_FOUND',
+    {
+      body: () => ({ fileName: 'a.png', contentType: 'image/png', fileSize: 10 }),
+      control: ctl(400, 'STORAGE_NOT_CONFIGURED', NO_S3),
+    },
+  ),
+  s(
+    'POST',
+    '/users/:id/avatar/image',
+    'users:write',
+    (f) => `/users/${f.user}/avatar/image`,
+    'USER_NOT_FOUND',
+    {
+      body: (f) => ({
+        s3Key: `ai-uploads/quarantine/avatars/users/${f.user}/0b9a4c1e-2d3f-4a5b-8c7d-9e0f1a2b3c4d/avatar`,
+        s3Bucket: 'bucket',
+      }),
+      control: ctl(400, 'STORAGE_NOT_CONFIGURED', NO_S3),
+    },
+  ),
   s(
     'DELETE',
     '/users/:id/sso-link',
@@ -4547,6 +4624,10 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
       ['GET', '/drivers'],
       ['GET', '/drivers/:id'],
       ['POST', '/drivers/:id/portal-invite'],
+      ['PUT', '/drivers/:id/avatar'],
+      ['DELETE', '/drivers/:id/avatar'],
+      ['POST', '/drivers/:id/avatar/upload-url'],
+      ['POST', '/drivers/:id/avatar/image'],
       ['GET', '/drivers/:id/billing-address'],
       ['PATCH', '/drivers/:id/billing-address'],
       ['POST', '/drivers'],
@@ -4741,6 +4822,13 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
       ['PUT', '/users/me/support-ai-config'],
       ['DELETE', '/users/me/support-ai-config'],
       ['GET', '/users/me/permissions'],
+      ['PUT', '/users/me/avatar'],
+      ['DELETE', '/users/me/avatar'],
+      ['POST', '/users/me/avatar/upload-url'],
+      ['POST', '/users/me/avatar/image'],
+      ['GET', '/users/me/dashboard-layout'],
+      ['PUT', '/users/me/dashboard-layout'],
+      ['DELETE', '/users/me/dashboard-layout'],
     ] as const
   ).map(([method, path]) => ({ method, path, reason: "the caller's own profile" })),
   {

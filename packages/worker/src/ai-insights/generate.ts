@@ -25,7 +25,7 @@
  */
 
 import { dispatchAiBudgetNotices } from '@evtivity/services/ai-alerts';
-import { client, recordAiUsage } from '@evtivity/database';
+import { client, insightSubjectInScope, recordAiUsage } from '@evtivity/database';
 import type { AiUsageRecord } from '@evtivity/database';
 import { aiUsageCostMicros } from '@evtivity/lib/pricing-engine';
 import type { Logger, PubSubClient } from '@evtivity/lib';
@@ -128,12 +128,16 @@ export function kindEnabled(kind: InsightKind, settings: AiSettings): boolean {
   return false;
 }
 
-export async function siteInsightsEnabled(siteId: string | null): Promise<boolean> {
-  if (siteId == null) return true;
-  const [row] = await client<{ enabled: boolean }[]>`
-    SELECT ai_insights_enabled AS enabled FROM sites WHERE id = ${siteId}
-  `;
-  return row?.enabled ?? true;
+/**
+ * Whether the insight's subject is in the AI insights scope now
+ * (`insightSubjectInScope`): its station, else its site. Generations and
+ * translations of a subject outside the scope end without a model call.
+ */
+export async function insightInScope(row: {
+  siteId: string | null;
+  stationId: string | null;
+}): Promise<boolean> {
+  return insightSubjectInScope({ siteId: row.siteId, stationId: row.stationId });
 }
 
 /** Model insights generated for the site in the last 24 hours. */
@@ -407,7 +411,7 @@ export async function generateInsight(
   const kind = row.kind as InsightKind;
   const settings = await deps.getSettings();
   if (!settings.ops.enabled || !kindEnabled(kind, settings)) return skip(deps, row, 'disabled');
-  if (!(await siteInsightsEnabled(row.siteId))) return skip(deps, row, 'site_disabled');
+  if (!(await insightInScope(row))) return skip(deps, row, 'site_disabled');
   if (await conditionCleared(subjectRef(row))) return skip(deps, row, 'resolved_before_analysis');
 
   const now = deps.now();

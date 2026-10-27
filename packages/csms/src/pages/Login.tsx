@@ -127,7 +127,7 @@ export function Login(): React.JSX.Element {
   const page = useRef({ active: true });
 
   const [searchParams] = useSearchParams();
-  const { companyName, portalUrl, themeColor } = useAuthBranding();
+  const { portalUrl, themeColor } = useAuthBranding();
 
   // An SSO login of a user with MFA lands here with the MFA pending state in
   // the URL fragment: show the MFA challenge and drop the token from the URL.
@@ -391,7 +391,7 @@ export function Login(): React.JSX.Element {
             className="fixed top-8 right-0 inline-flex items-center gap-2 rounded-l-full px-5 py-3 text-sm font-medium text-primary-foreground shadow-md transition-opacity hover:opacity-90"
             style={{ backgroundColor: themeColor }}
           >
-            {t('auth.chargingPortalLink', { name: companyName ?? 'EVtivity' })}
+            {t('auth.chargingPortalLink')}
           </a>
         )
       }

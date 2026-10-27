@@ -90,7 +90,13 @@ import {
   buildDerivedStatusSubquery,
   buildStatusReasonSubquery,
 } from '@evtivity/services/station-derived-status';
-import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { ERROR_CODES, ERROR_MESSAGES } from '../lib/error-codes.generated.js';
+import { AI_INSIGHT_SCOPE_REASONS } from '@evtivity/lib/ai-insights';
+import {
+  initialSiteAiInsightsSelected,
+  isOutsideAiInsightScope,
+  siteAiInsightsScopeStatus,
+} from '../services/ai-insight-scope.service.js';
 import {
   exportSitesCsv,
   exportSitesTemplateCsv,
@@ -333,10 +339,6 @@ const updateSiteBody = z.object({
     .describe(
       'Display language of the station screens at this site. Null follows the stationMessage.language setting',
     ),
-  aiInsightsEnabled: z
-    .boolean()
-    .optional()
-    .describe('Whether automatic insights run for this site. Users with access to every site only'),
   aiMonthlyTokenBudget: z
     .number()
     .int()
@@ -357,7 +359,7 @@ const updateSiteBody = z.object({
 });
 
 /** Site fields only a user with access to every site may change (a restricted user gets 404). */
-const ALL_SITE_FIELDS = ['aiInsightsEnabled', 'aiMonthlyTokenBudget'] as const;
+const ALL_SITE_FIELDS = ['aiMonthlyTokenBudget'] as const;
 
 /** Site columns the OCPI location carries: a change pushes the location to partners. */
 const OCPI_LOCATION_FIELDS = [
@@ -501,7 +503,11 @@ const siteItem = z
       .describe(
         'Display language of the station screens at this site (en, de, es, ko, zh, zh-TW). Null follows the stationMessage.language setting',
       ),
-    aiInsightsEnabled: z.boolean().describe('Whether automatic insights run for this site'),
+    aiInsightsEnabled: z
+      .boolean()
+      .describe(
+        'Selected in the AI insights scope (true for every site while every site is analyzed); aiInsightsScope tells whether insights run',
+      ),
     dataPlan: z
       .enum(DATA_PLANS)
       .nullable()
@@ -537,6 +543,21 @@ const siteItem = z
     aiInsightsSuppressedBy: z.string().nullable().describe('User who suppressed them'),
     aiInsightsSuppressedByName: z.string().nullable().describe('Name of that user'),
     aiInsightsSuppressedReason: z.string().nullable().describe('Reason given for the suppression'),
+    aiInsightsScope: z
+      .object({
+        enabled: z
+          .boolean()
+          .describe('AI insights are produced for the site now: AI Insights on and in the scope'),
+        reason: z
+          .enum(AI_INSIGHT_SCOPE_REASONS)
+          .describe(
+            'all_sites or selected: in scope; feature_off: AI Insights (system-initiated AI) are off; site_not_selected: only selected sites are analyzed and this one is not',
+          ),
+      })
+      .optional()
+      .describe(
+        'Whether AI insights run for the site and why (Settings > AI > Automatic Insights). Site detail only',
+      ),
   })
   .loose();
 
@@ -576,7 +597,11 @@ const siteBase = z
       .describe(
         'Display language of the station screens at this site (en, de, es, ko, zh, zh-TW). Null follows the stationMessage.language setting',
       ),
-    aiInsightsEnabled: z.boolean().describe('Whether automatic insights run for this site'),
+    aiInsightsEnabled: z
+      .boolean()
+      .describe(
+        'Selected in the AI insights scope (true for every site while every site is analyzed); aiInsightsScope tells whether insights run',
+      ),
     aiMonthlyTokenBudget: z
       .number()
       .nullable()
@@ -1163,7 +1188,7 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
-      return row;
+      return { ...row, aiInsightsScope: await siteAiInsightsScopeStatus(row.id) };
     },
   );
 
@@ -1259,7 +1284,7 @@ export function siteRoutes(app: FastifyInstance): void {
         tags: ['Sites'],
         summary: 'Suppress the AI insights of a site',
         description:
-          'Until `until` (or until resumed), every station of the site counts as suppressed (stations added later included: the insight scan and the AI workers create no station insight or action for them, as for a suppressed station), and the site gets no site-level insight (site incidents, site summaries, tariff findings). The open insights of the site and its stations close dismissed with the reason, and their waiting actions expire. The end date passing resumes the insights with no action. Audited in the site history. 400 VALIDATION_ERROR for an end date that is not in the future.',
+          'Until `until` (or until resumed), every station of the site counts as suppressed (stations added later included: the insight scan and the AI workers create no station insight or action for them, as for a suppressed station), and the site gets no site-level insight (site incidents, site summaries, tariff findings). The open insights of the site and its stations close dismissed with the reason, and their waiting actions expire. The end date passing resumes the insights with no action. Audited in the site history. 400 VALIDATION_ERROR for an end date that is not in the future; 409 AI_INSIGHTS_NOT_IN_SCOPE for a site outside the AI insights scope (not selected), which gets no insight to suppress.',
         operationId: 'suppressSiteAiInsights',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteParams),
@@ -1268,6 +1293,9 @@ export function siteRoutes(app: FastifyInstance): void {
           200: itemResponse(aiSuppressionResponse),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+          409: errorWith('Site outside the AI insights scope', [
+            ERROR_CODES.AI_INSIGHTS_NOT_IN_SCOPE,
+          ]),
         },
       },
       config: { invalidatesCacheTags: ['stations'] },
@@ -1285,6 +1313,16 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply
           .status(400)
           .send({ error: 'The end date must be in the future', code: 'VALIDATION_ERROR' });
+        return;
+      }
+      // Suppression is offered only where insights run: a site outside the
+      // scope gets none to suppress.
+      const scope = await siteAiInsightsScopeStatus(id);
+      if (scope != null && isOutsideAiInsightScope(scope)) {
+        await reply.status(409).send({
+          error: ERROR_MESSAGES.AI_INSIGHTS_NOT_IN_SCOPE,
+          code: ERROR_CODES.AI_INSIGHTS_NOT_IN_SCOPE,
+        });
         return;
       }
       const result = await suppressSiteAiInsights(
@@ -1395,7 +1433,11 @@ export function siteRoutes(app: FastifyInstance): void {
 
       let site: typeof sites.$inferSelect | undefined;
       try {
-        [site] = await db.insert(sites).values(body).returning();
+        // A site created while only selected sites are analyzed starts unselected.
+        [site] = await db
+          .insert(sites)
+          .values({ ...body, aiInsightsEnabled: await initialSiteAiInsightsSelected() })
+          .returning();
       } catch (err) {
         // A concurrent create took the name after the check above.
         if (!isSiteNameUniqueViolation(err)) throw err;
@@ -1432,6 +1474,8 @@ export function siteRoutes(app: FastifyInstance): void {
       preValidation: [
         rejectUnknownBodyKeys(updateSiteBody, {
           freeVendEnabled: 'free vend is set with POST /v1/sites/:id/free-vend',
+          aiInsightsEnabled:
+            'the AI insights scope is set with PUT /v1/settings/ai/insights-scope (settings.system:write)',
         }),
       ],
       schema: {

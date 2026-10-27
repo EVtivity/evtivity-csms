@@ -21,6 +21,8 @@ import { Select } from '@/components/ui/select';
 import { SearchInput } from '@/components/search-input';
 import { FilterPopover } from '@/components/FilterBar';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
+import { useUrlDateRange, type UrlDateRange } from '@/hooks/use-url-date-range';
+import { LogDateRangeFilter } from '@/components/LogDateRangeFilter';
 import { httpMethodVariant, httpStatusVariant, workerStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
@@ -87,12 +89,83 @@ function DetailRow({ log, colSpan }: { log: AccessLog; colSpan: number }): React
   );
 }
 
+/**
+ * The filter card of a log tab: on phones the search and a filter popover, from
+ * `md` the search and every filter in one grid. The date range lives in the
+ * URL, so it stays when the tab changes.
+ */
+function LogFilterCard({
+  search,
+  setSearch,
+  filters,
+  activeCount,
+  onClearAll,
+  range,
+  onRangeChange,
+}: {
+  search: string;
+  setSearch: (value: string) => void;
+  filters?: React.ReactNode;
+  activeCount: number;
+  onClearAll: () => void;
+  range: UrlDateRange;
+  onRangeChange: () => void;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const searchInput = (
+    <SearchInput
+      value={search}
+      onDebouncedChange={setSearch}
+      placeholder={t('logs.searchPlaceholder')}
+      className="w-full"
+    />
+  );
+  const allFilters = (
+    <>
+      {filters}
+      <LogDateRangeFilter range={range} onChange={onRangeChange} />
+    </>
+  );
+  const rangeCount = (range.from !== '' ? 1 : 0) + (range.to !== '' ? 1 : 0);
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 md:hidden">
+          <div className="flex-1">{searchInput}</div>
+          <FilterPopover
+            activeCount={activeCount + rangeCount}
+            onClearAll={() => {
+              onClearAll();
+              range.clear();
+              onRangeChange();
+            }}
+          >
+            {allFilters}
+          </FilterPopover>
+        </div>
+        <div className="hidden items-end gap-4 md:flex">
+          <div
+            className={`grid flex-1 grid-cols-1 gap-4 ${filters != null ? 'md:grid-cols-3 lg:grid-cols-5' : 'md:grid-cols-3'}`}
+          >
+            <div className="space-y-2">
+              <Label className="leading-6">{t('logs.search')}</Label>
+              {searchInput}
+            </div>
+            {allFilters}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function BrowserLogTab(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const extraParams = useMemo(() => ({ category: 'csms' }), []);
+  const range = useUrlDateRange();
+  const extraParams = useMemo(() => ({ category: 'csms', ...range.apiParams }), [range.apiParams]);
 
   const {
     data: logs,
@@ -106,16 +179,16 @@ function BrowserLogTab(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="p-4">
-          <SearchInput
-            value={search}
-            onDebouncedChange={setSearch}
-            placeholder={t('logs.searchPlaceholder')}
-            className="w-full sm:max-w-half-vw"
-          />
-        </CardContent>
-      </Card>
+      <LogFilterCard
+        search={search}
+        setSearch={setSearch}
+        activeCount={0}
+        onClearAll={() => undefined}
+        range={range}
+        onRangeChange={() => {
+          setPage(1);
+        }}
+      />
 
       <Card>
         <CardContent className="overflow-x-auto p-0">
@@ -177,7 +250,11 @@ function PortalLogTab(): React.JSX.Element {
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  const extraParams = useMemo(() => ({ category: 'portal' }), []);
+  const range = useUrlDateRange();
+  const extraParams = useMemo(
+    () => ({ category: 'portal', ...range.apiParams }),
+    [range.apiParams],
+  );
 
   const {
     data: logs,
@@ -191,16 +268,16 @@ function PortalLogTab(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="p-4">
-          <SearchInput
-            value={search}
-            onDebouncedChange={setSearch}
-            placeholder={t('logs.searchPlaceholder')}
-            className="w-full sm:max-w-half-vw"
-          />
-        </CardContent>
-      </Card>
+      <LogFilterCard
+        search={search}
+        setSearch={setSearch}
+        activeCount={0}
+        onClearAll={() => undefined}
+        range={range}
+        onRangeChange={() => {
+          setPage(1);
+        }}
+      />
 
       <Card>
         <CardContent className="overflow-x-auto p-0">
@@ -264,11 +341,12 @@ function ApiLogTab(): React.JSX.Element {
   const [filterMethod, setFilterMethod] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
+  const range = useUrlDateRange();
   const extraParams = useMemo(() => {
-    const params: Record<string, string> = { category: 'api' };
+    const params: Record<string, string> = { category: 'api', ...range.apiParams };
     if (filterMethod) params['method'] = filterMethod;
     return params;
-  }, [filterMethod]);
+  }, [filterMethod, range.apiParams]);
 
   const {
     data: logs,
@@ -290,15 +368,6 @@ function ApiLogTab(): React.JSX.Element {
       return true;
     });
   }, [logs, filterStatus]);
-
-  const searchInput = (
-    <SearchInput
-      value={search}
-      onDebouncedChange={setSearch}
-      placeholder={t('logs.searchPlaceholder')}
-      className="w-full"
-    />
-  );
 
   const filters = (
     <>
@@ -342,31 +411,21 @@ function ApiLogTab(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center gap-2 md:hidden">
-            <div className="flex-1">{searchInput}</div>
-            <FilterPopover
-              activeCount={activeFilterCount}
-              onClearAll={() => {
-                setFilterMethod('');
-                setFilterStatus('');
-              }}
-            >
-              {filters}
-            </FilterPopover>
-          </div>
-          <div className="hidden items-end gap-4 md:flex">
-            <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label className="leading-6">{t('logs.search')}</Label>
-                {searchInput}
-              </div>
-              {filters}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <LogFilterCard
+        search={search}
+        setSearch={setSearch}
+        filters={filters}
+        activeCount={activeFilterCount}
+        onClearAll={() => {
+          setFilterMethod('');
+          setFilterStatus('');
+          setPage(1);
+        }}
+        range={range}
+        onRangeChange={() => {
+          setPage(1);
+        }}
+      />
 
       <Card>
         <CardContent className="overflow-x-auto p-0">
@@ -459,12 +518,13 @@ function WorkerLogTab(): React.JSX.Element {
   const [filterQueue, setFilterQueue] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
 
+  const range = useUrlDateRange();
   const extraParams = useMemo(() => {
-    const params: Record<string, string> = {};
+    const params: Record<string, string> = { ...range.apiParams };
     if (filterQueue) params['queue'] = filterQueue;
     if (filterStatus) params['status'] = filterStatus;
     return params;
-  }, [filterQueue, filterStatus]);
+  }, [filterQueue, filterStatus, range.apiParams]);
 
   const {
     data: logs,
@@ -475,15 +535,6 @@ function WorkerLogTab(): React.JSX.Element {
     search,
     setSearch,
   } = usePaginatedQuery<WorkerJobLog>('worker-logs', '/v1/worker-logs', extraParams);
-
-  const searchInput = (
-    <SearchInput
-      value={search}
-      onDebouncedChange={setSearch}
-      placeholder={t('logs.searchPlaceholder')}
-      className="w-full"
-    />
-  );
 
   const filters = (
     <>
@@ -526,32 +577,21 @@ function WorkerLogTab(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center gap-2 md:hidden">
-            <div className="flex-1">{searchInput}</div>
-            <FilterPopover
-              activeCount={activeFilterCount}
-              onClearAll={() => {
-                setFilterQueue('');
-                setFilterStatus('');
-                setPage(1);
-              }}
-            >
-              {filters}
-            </FilterPopover>
-          </div>
-          <div className="hidden items-end gap-4 md:flex">
-            <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label className="leading-6">{t('logs.search')}</Label>
-                {searchInput}
-              </div>
-              {filters}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <LogFilterCard
+        search={search}
+        setSearch={setSearch}
+        filters={filters}
+        activeCount={activeFilterCount}
+        onClearAll={() => {
+          setFilterQueue('');
+          setFilterStatus('');
+          setPage(1);
+        }}
+        range={range}
+        onRangeChange={() => {
+          setPage(1);
+        }}
+      />
 
       <Card>
         <CardContent className="overflow-x-auto p-0">

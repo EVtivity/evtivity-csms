@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { auditActionLabel, auditActorLabel } from '@/lib/audit-labels';
+import { AuditEntryDialog } from '@/components/audit/AuditEntryDialog';
 
 export interface AuditEntry {
   id: number;
@@ -36,6 +37,15 @@ export interface AuditEntry {
   before: unknown;
   after: unknown;
   notes: string | null;
+  /** Set when the change came from the AI assistant, MCP or a confirmed AI action. */
+  viaAi?: {
+    channel: string;
+    conversationId?: string;
+    toolCallId?: string;
+    mcpCallId?: string;
+    proposalId?: string;
+    confirmedBy?: string;
+  } | null;
   createdAt: string;
 }
 
@@ -117,6 +127,7 @@ export function EntityHistoryTab({
   // to suppress when the surrounding container already labels the section.
   const resolvedTitle = title ?? t('audit.history');
   const [page, setPage] = useState(1);
+  const [openEntry, setOpenEntry] = useState<AuditEntry | null>(null);
   const typeFilter =
     relatedEntityTypes.length > 0
       ? `entityTypes=${[entityType, ...relatedEntityTypes].map(encodeURIComponent).join(',')}`
@@ -183,8 +194,15 @@ export function EntityHistoryTab({
               </TableHeader>
               <TableBody>
                 {rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="whitespace-nowrap text-xs">
+                  <TableRow
+                    key={row.id}
+                    className="cursor-pointer"
+                    data-testid={`audit-row-${String(row.id)}`}
+                    onClick={() => {
+                      setOpenEntry(row);
+                    }}
+                  >
+                    <TableCell className="whitespace-nowrap text-xs" data-testid="row-click-target">
                       {formatTimestamp(row.createdAt, timezone)}
                     </TableCell>
                     <TableCell>
@@ -216,6 +234,12 @@ export function EntityHistoryTab({
           </div>
         ) : null}
       </CardContent>
+      <AuditEntryDialog
+        entry={openEntry}
+        onOpenChange={(open) => {
+          if (!open) setOpenEntry(null);
+        }}
+      />
     </Card>
   );
 }

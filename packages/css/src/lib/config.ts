@@ -33,6 +33,16 @@ const schema = z.object({
   CSS_CLIENT_CERT_PEM: z.string().optional(),
   CSS_CLIENT_KEY_PEM: z.string().optional(),
   CSS_CA_PEM: z.string().optional(),
+  // Development relaxations (private network file transfers) need development or test.
+  NODE_ENV: z.string().optional(),
+  // Hosts (host or host:port, comma-separated) a station may reach on a loopback or
+  // private address for log uploads and firmware downloads, such as the Compose test
+  // servers. Outside development and test every other private address is refused;
+  // unroutable and cloud metadata addresses are refused always.
+  CSS_FILE_TRANSFER_ALLOWED_HOSTS: z.string().default(''),
+  // The SFTP server host key a station verifies (OpenSSH SHA256 fingerprint) while it
+  // verifies servers (TLS_REJECT_UNAUTHORIZED not false). Unset: sftp fails closed then.
+  CSS_SFTP_HOST_KEY_SHA256: z.string().optional(),
 });
 
 export type SimulatorConfig = z.infer<typeof schema>;
@@ -46,4 +56,16 @@ export const config: SimulatorConfig = schema.parse(process.env);
  */
 export function simulatorServerUrls(): Array<string | undefined> {
   return [config.OCPP_SERVER_URL, config.OCPP_TLS_SERVER_URL, config.OCPP_STATION_TLS_URL];
+}
+
+/** Whether file transfers may reach any private address (development and test only). */
+export function fileTransferAllowsPrivateNetworks(): boolean {
+  return config.NODE_ENV === 'development' || config.NODE_ENV === 'test';
+}
+
+/** CSS_FILE_TRANSFER_ALLOWED_HOSTS as a list. */
+export function fileTransferAllowedHosts(): string[] {
+  return config.CSS_FILE_TRANSFER_ALLOWED_HOSTS.split(',')
+    .map((h) => h.trim())
+    .filter((h) => h !== '');
 }

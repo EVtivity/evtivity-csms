@@ -44,6 +44,7 @@ import {
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { INVOICE_LANGUAGES } from '@evtivity/services/invoice-labels';
+import { avatarItem } from '../lib/avatar-item.js';
 
 // Company-wide configuration: a site-restricted user gets this 404 before any
 // read or write (requireAllSiteAccess, features/site-access-control.md).
@@ -172,6 +173,7 @@ const fleetDriverItem = z
         'The member pays by card although the fleet bills on account (opt-out of charge on account)',
       ),
     createdAt: z.coerce.date().describe('Timestamp when the driver was created'),
+    avatar: avatarItem.optional(),
   })
   .loose();
 

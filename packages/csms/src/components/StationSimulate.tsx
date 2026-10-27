@@ -246,14 +246,19 @@ export function StationSimulate({
                 onClick={() => {
                   void handleAction(config);
                 }}
-                className="relative w-full"
+                className="relative w-full min-w-0"
               >
                 {isLoading && (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <Spinner className="h-4 w-4" />
                   </div>
                 )}
-                <span className={isLoading ? 'invisible' : ''}>{config.label}</span>
+                {/* Two lines inside the 40 px button when a label is wider than a phone column. */}
+                <span
+                  className={`whitespace-normal text-center leading-tight ${isLoading ? 'invisible' : ''}`}
+                >
+                  {config.label}
+                </span>
               </Button>
             );
             if (isInvalidForState && invalidReason != null) {

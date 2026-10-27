@@ -25,6 +25,9 @@ import {
   type ProofRejection,
 } from '@/components/FactorProofField';
 import { useMfaStatus } from '@/components/profile/mfa-status';
+import { PendingAvatarField } from '@/components/avatar/PendingAvatarField';
+import { useToast } from '@/components/ui/toast';
+import { applyAvatarChoice, userAvatarPath, type AvatarChoice } from '@/lib/avatar';
 
 interface User {
   id: string;
@@ -59,6 +62,8 @@ export function UserCreate(): React.JSX.Element {
   const [selectedSiteIds, setSelectedSiteIds] = useState<string[]>([]);
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>([]);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [avatar, setAvatar] = useState<AvatarChoice | null>(null);
+  const { toast } = useToast();
   // A signed-in session proves the account again to create an admin-equivalent user.
   const { data: mfaStatus } = useMfaStatus();
   const proofKinds = mfaStatus?.factorProofKinds ?? [];
@@ -95,11 +100,31 @@ export function UserCreate(): React.JSX.Element {
       siteIds?: string[];
       permissions: string[];
       proof?: FactorProof;
-    }) => api.post<User>('/v1/users', body),
+    }) => {
+      const created = await api.post<User>('/v1/users', body);
+      // The avatar is stored right after the user exists; a failure there
+      // keeps the new user and says so (the Details tab can set it again).
+      let avatarError: unknown = null;
+      if (avatar != null) {
+        try {
+          await applyAvatarChoice(userAvatarPath(created.id, null), avatar);
+        } catch (err) {
+          avatarError = err;
+        }
+      }
+      return { created, avatarError };
+    },
     onError: (err: unknown) => {
       setProofFailure(proofRejection(err));
     },
-    onSuccess: (created) => {
+    onSuccess: ({ created, avatarError }) => {
+      if (avatarError != null) {
+        toast({
+          title: t('avatar.applyFailed'),
+          description: getErrorMessage(avatarError, t, 'avatar.saveFailed'),
+          variant: 'destructive',
+        });
+      }
       void queryClient.invalidateQueries({ queryKey: ['users'] });
       void navigate(`/users/${created.id}`);
     },
@@ -148,6 +173,14 @@ export function UserCreate(): React.JSX.Element {
       <Card>
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="grid gap-6">
+            <PendingAvatarField
+              choice={avatar}
+              onChange={setAvatar}
+              firstName={firstName}
+              lastName={lastName}
+              description={t('avatar.editDescriptionUser')}
+              hint={t('avatar.savedWithNewAccount')}
+            />
             <div className="space-y-2">
               <Label htmlFor="user-email" className="leading-6">
                 {t('common.email')}

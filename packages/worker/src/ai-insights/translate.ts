@@ -25,7 +25,7 @@ import {
   storeInsightTranslation,
 } from '@evtivity/services/ai-insight.service';
 import type { InsightJobDeps } from './generate.js';
-import { INSIGHT_MAX_OUTPUT_TOKENS, kindEnabled, siteInsightsEnabled } from './generate.js';
+import { INSIGHT_MAX_OUTPUT_TOKENS, kindEnabled, insightInScope } from './generate.js';
 import type { InsightKind } from '@evtivity/lib/ai-insights';
 import { translationSystemBlocks } from './prompt.js';
 
@@ -53,13 +53,13 @@ export async function translateInsight(
   };
   if (original == null) return unavailable();
 
-  // The same switches as a generation: a site or kind turned off pays for no
-  // translation either.
+  // The same switches as a generation: a kind turned off, or a subject
+  // outside the AI insights scope, pays for no translation either.
   const settings = await deps.getSettings();
   if (
     !settings.ops.enabled ||
     !kindEnabled(row.kind as InsightKind, settings) ||
-    !(await siteInsightsEnabled(row.siteId))
+    !(await insightInScope(row))
   ) {
     return unavailable();
   }

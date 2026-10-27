@@ -29,6 +29,7 @@ import { setSimulatedEventSink } from './lib/payments.js';
 import { queueSimulatedSink } from '@evtivity/payments';
 import { closeJobQueues, initJobQueues } from '@evtivity/lib/job-queues';
 import { config } from './lib/config.js';
+import { buildOcppProcessConfig } from './lib/process-config.js';
 import {
   createRedisKnownGoodStore,
   createRedisStationAttemptStore,
@@ -118,7 +119,12 @@ async function start(): Promise<void> {
     OCPP_TLS_CERT != null && OCPP_TLS_KEY != null
       ? { cert: OCPP_TLS_CERT, key: OCPP_TLS_KEY, ca: OCPP_TLS_CA, port: OCPP_TLS_PORT }
       : undefined;
-  await server.start({ port: OCPP_PORT, host: OCPP_HOST, tls, instanceId });
+  const processConfig = buildOcppProcessConfig(config, {
+    enabled: tls != null,
+    port: tls != null ? OCPP_TLS_PORT : null,
+    clientCaConfigured: OCPP_TLS_CA != null,
+  });
+  await server.start({ port: OCPP_PORT, host: OCPP_HOST, tls, instanceId, processConfig });
 
   pubsub = new RedisPubSubClient(REDIS_URL);
   setAuthorizeLogPubSub(pubsub);

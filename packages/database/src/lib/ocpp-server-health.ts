@@ -25,6 +25,27 @@ export const OCPP_HEALTH_PRUNE_MS = 10 * 60_000;
 /** The shared row of v0.1.42 processes. */
 export const LEGACY_OCPP_HEALTH_ID = 'singleton';
 
+/**
+ * The settings an OCPP process runs with, as it reports them in its health
+ * row. No secret: flags say whether a secret-bearing value is set.
+ */
+export interface OcppProcessConfig {
+  /** Release version of the process. */
+  version: string;
+  /** WebSocket permessage-deflate on (OCPP_WS_COMPRESSION). */
+  wsCompression: boolean;
+  /** Whether the TLS listener runs (a certificate and key are set). */
+  tlsEnabled: boolean;
+  tlsPort: number | null;
+  /** Whether a CA for security profile 3 client certificates is set (OCPP_TLS_CA). */
+  clientCaConfigured: boolean;
+  maxConnectionsPerIp: number;
+  maxMessagesPerIpPerSecond: number;
+  maxPendingAuthPerIp: number;
+  /** Whether OCPP_TRUSTED_PROXY_CIDRS lists any proxy. */
+  trustedProxiesConfigured: boolean;
+}
+
 export interface OcppInstanceHealthSnapshot {
   connectedStations: number;
   avgPingLatencyMs: number;
@@ -33,6 +54,8 @@ export interface OcppInstanceHealthSnapshot {
   totalPingsSent: number;
   totalPongsReceived: number;
   serverStartedAt: Date;
+  /** The process's settings; null from a process older than v0.1.48. */
+  config?: OcppProcessConfig | null;
 }
 
 export interface OcppInstanceHealth extends OcppInstanceHealthSnapshot {
@@ -116,6 +139,7 @@ interface HealthRow {
   total_pongs_received: number;
   server_started_at: Date;
   updated_at: Date;
+  config: OcppProcessConfig | null;
   now: Date;
 }
 
@@ -130,7 +154,7 @@ export async function getOcppFleetHealth(
   const rows = await sql<HealthRow[]>`
     SELECT id, connected_stations, avg_ping_latency_ms, max_ping_latency_ms,
            ping_success_rate, total_pings_sent, total_pongs_received,
-           server_started_at, updated_at, now() AS now
+           server_started_at, updated_at, config, now() AS now
     FROM ocpp_server_health
   `;
   // postgres.js returns int4 and float8 as numbers, timestamptz as Date.
@@ -146,6 +170,7 @@ export async function getOcppFleetHealth(
       totalPongsReceived: r.total_pongs_received,
       serverStartedAt: new Date(r.server_started_at),
       updatedAt: new Date(r.updated_at),
+      config: r.config ?? null,
     })),
     new Date(now),
     staleMs,
@@ -162,7 +187,7 @@ export async function writeOcppInstanceHealth(
     INSERT INTO ocpp_server_health (
       id, connected_stations, avg_ping_latency_ms, max_ping_latency_ms,
       ping_success_rate, total_pings_sent, total_pongs_received,
-      server_started_at, updated_at
+      server_started_at, config, updated_at
     )
     VALUES (
       ${instanceId},
@@ -173,6 +198,7 @@ export async function writeOcppInstanceHealth(
       ${snapshot.totalPingsSent},
       ${snapshot.totalPongsReceived},
       ${snapshot.serverStartedAt.toISOString()},
+      ${snapshot.config == null ? null : sql.json(snapshot.config as unknown as postgres.JSONValue)},
       now()
     )
     ON CONFLICT (id) DO UPDATE SET
@@ -183,6 +209,7 @@ export async function writeOcppInstanceHealth(
       total_pings_sent = EXCLUDED.total_pings_sent,
       total_pongs_received = EXCLUDED.total_pongs_received,
       server_started_at = EXCLUDED.server_started_at,
+      config = EXCLUDED.config,
       updated_at = now()
   `;
 }

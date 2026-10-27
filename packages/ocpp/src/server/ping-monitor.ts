@@ -13,6 +13,7 @@ import {
   pruneStaleOcppHealth,
   writeOcppInstanceHealth,
 } from '@evtivity/database';
+import type { OcppProcessConfig } from '@evtivity/database';
 
 export interface HealthSnapshot {
   connectedStations: number;
@@ -22,6 +23,8 @@ export interface HealthSnapshot {
   totalPingsSent: number;
   totalPongsReceived: number;
   serverStartedAt: Date;
+  /** The settings this process runs with, written to its health row. */
+  config: OcppProcessConfig | null;
 }
 
 const MAX_LATENCY_HISTORY = 1000;
@@ -58,11 +61,19 @@ export class PingMonitor {
   // Key of this process's ocpp_server_health row. The server passes the
   // connection registry instance ID; without one the process gets a unique ID.
   private instanceId = `ocpp-${randomUUID()}`;
+  // Built once at start from the process configuration; it never changes.
+  private processConfig: OcppProcessConfig | null = null;
 
-  start(sql?: postgres.Sql | null, pubsub?: PubSubClient | null, instanceId?: string): void {
+  start(
+    sql?: postgres.Sql | null,
+    pubsub?: PubSubClient | null,
+    instanceId?: string,
+    processConfig?: OcppProcessConfig | null,
+  ): void {
     this.sql = sql ?? null;
     this.pubsub = pubsub ?? null;
     if (instanceId != null && instanceId !== '') this.instanceId = instanceId;
+    this.processConfig = processConfig ?? null;
 
     this.cycleInterval = setInterval(() => {
       this.pingDue();
@@ -151,6 +162,7 @@ export class PingMonitor {
       totalPingsSent: this.totalPingsSent,
       totalPongsReceived: this.totalPongsReceived,
       serverStartedAt: this.serverStartedAt,
+      config: this.processConfig,
     };
   }
 

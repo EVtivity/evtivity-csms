@@ -3,7 +3,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, and, ilike, sql, desc } from 'drizzle-orm';
+import { eq, and, ilike, sql, desc, gte, lte } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { workerJobLogs, workerJobStatusEnum } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -12,6 +12,7 @@ import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
 import { isAllSiteUser } from '../lib/site-access.js';
+import { logTimeRangeQuery, parseLogTimeRange } from '../lib/date-range.js';
 
 // The route stays hidden from site-restricted users: operator-wide logs need
 // access to every site, so they get the same 404 as a route that does not
@@ -45,6 +46,7 @@ const workerJobLogItem = z
 const listWorkerLogsQuery = paginationQuery.extend({
   status: z.enum(workerJobStatusEnum.enumValues).optional().describe('Filter by job status'),
   queue: z.string().optional().describe('Filter by queue name'),
+  ...logTimeRangeQuery,
 });
 
 export function workerLogRoutes(app: FastifyInstance): void {
@@ -62,13 +64,17 @@ export function workerLogRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { page, limit, search, status, queue } = request.query as z.infer<
+      const { page, limit, search, status, queue, from, to } = request.query as z.infer<
         typeof listWorkerLogsQuery
       >;
       const offset = (page - 1) * limit;
       if (!(await allowAllSiteUsersOnly(request, reply))) return;
+      const range = parseLogTimeRange({ from, to });
 
       const conditions = [];
+
+      if (range.from != null) conditions.push(gte(workerJobLogs.startedAt, range.from));
+      if (range.to != null) conditions.push(lte(workerJobLogs.startedAt, range.to));
 
       if (status) {
         conditions.push(eq(workerJobLogs.status, status));

@@ -201,18 +201,16 @@ describe('Site AI card (TC-AI-US-11, decision D17)', () => {
     surfaces: [],
   };
 
-  it('lets an all-site user with sites:write change the budget and the insights switch', async () => {
+  it('lets an all-site user with sites:write change the budget, with no insights switch', async () => {
     perms.add('aiUsage:read');
     perms.add('sites:write');
     apiMock.get.mockResolvedValue(siteUsage);
     apiMock.patch.mockResolvedValue({});
-    wrap(<SiteAiCard siteId="s1" site={{ aiInsightsEnabled: true, aiMonthlyTokenBudget: null }} />);
+    wrap(<SiteAiCard siteId="s1" site={{ aiMonthlyTokenBudget: null }} />);
     expect(await screen.findByText('aiUsage.percentUsed(160)')).toBeTruthy();
     expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/usage/sites/s1');
-    fireEvent.click(screen.getByRole('switch'));
-    await waitFor(() => {
-      expect(apiMock.patch).toHaveBeenCalledWith('/v1/sites/s1', { aiInsightsEnabled: false });
-    });
+    // Whether insights run for the site is the AI insights scope in Settings.
+    expect(screen.queryByRole('switch')).toBeNull();
     fireEvent.change(screen.getByLabelText('aiUsage.siteBudget'), { target: { value: '5000' } });
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => {
@@ -225,9 +223,8 @@ describe('Site AI card (TC-AI-US-11, decision D17)', () => {
     perms.add('sites:write');
     access.allSites = false;
     apiMock.get.mockResolvedValue(siteUsage);
-    wrap(<SiteAiCard siteId="s1" site={{ aiInsightsEnabled: true, aiMonthlyTokenBudget: 10 }} />);
+    wrap(<SiteAiCard siteId="s1" site={{ aiMonthlyTokenBudget: 10 }} />);
     expect(await screen.findByText('aiUsage.allSitesOnly')).toBeTruthy();
-    expect(screen.getByRole<HTMLButtonElement>('switch').disabled).toBe(true);
     expect(screen.getByLabelText<HTMLInputElement>('aiUsage.siteBudget').disabled).toBe(true);
     expect(screen.queryByRole('button', { name: /save/i })).toBeNull();
   });

@@ -10,6 +10,9 @@ import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { useAuthBranding } from './AuthBranding';
 import { NotificationDrawer } from './NotificationDrawer';
+import { DriverAvatar } from './account/DriverAvatar';
+import { useDriverAvatar } from '@/lib/avatar';
+import { useAuth } from '@/lib/auth';
 import { usePortalEvents } from '@/hooks/use-portal-events';
 
 const navItems = [
@@ -75,6 +78,8 @@ export function Layout(): React.JSX.Element {
     staleTime: 5 * 60_000,
   });
   const reservationEnabled = features?.reservationEnabled ?? true;
+  const driver = useAuth((s) => s.driver);
+  const { data: avatar } = useDriverAvatar();
   const visibleNavItems = navItems.filter(
     (item) => item.to !== '/reservations' || reservationEnabled,
   );
@@ -136,6 +141,20 @@ export function Layout(): React.JSX.Element {
                 {unreadCount}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => {
+              void navigate('/account');
+            }}
+            className="h-10 w-10 flex items-center justify-center rounded-full"
+            aria-label={t('nav.account')}
+          >
+            <DriverAvatar
+              avatar={avatar}
+              firstName={driver?.firstName}
+              lastName={driver?.lastName}
+              size="md"
+            />
           </button>
         </div>
       </header>

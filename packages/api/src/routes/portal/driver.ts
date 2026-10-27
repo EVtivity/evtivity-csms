@@ -44,6 +44,9 @@ import {
   issueDriverTokens,
 } from '../../lib/driver-session.js';
 import { driverSessionColumns } from '../../lib/driver-session-columns.js';
+import { avatarItem } from '../../lib/avatar-item.js';
+import { driverAvatarColumns } from '../../services/driver-avatar.service.js';
+import { withAvatars } from '../../services/account-avatar.js';
 import {
   authenticateDriverOrMfaEnrollment,
   driverMfaPolicy,
@@ -157,6 +160,7 @@ const portalDriverProfile = z
       ),
     isActive: z.boolean().describe('Whether the driver account is active'),
     createdAt: z.coerce.date().describe('Timestamp the driver account was created'),
+    avatar: avatarItem,
   })
   .loose();
 
@@ -333,6 +337,7 @@ export function portalDriverRoutes(app: FastifyInstance): void {
           priceDisplay: drivers.priceDisplay,
           isActive: drivers.isActive,
           createdAt: drivers.createdAt,
+          ...driverAvatarColumns,
         });
 
       if (updated == null) {
@@ -379,7 +384,8 @@ export function portalDriverRoutes(app: FastifyInstance): void {
         );
       }
 
-      return updated;
+      const [profile] = await withAvatars([updated]);
+      return profile;
     },
   );
 

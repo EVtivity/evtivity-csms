@@ -96,7 +96,8 @@
     "startDate": "Startdatum",
     "endDate": "Enddatum",
     "dateRange": "Zeitraum",
-    "copyFailed": "Kopieren fehlgeschlagen"
+    "copyFailed": "Kopieren fehlgeschlagen",
+    "clearDates": "Daten Löschen"
   },
   "status": {
     "online": "Online",
@@ -384,7 +385,7 @@
     "passkeyResetRequired": "Ihr Passwort muss geändert werden. Melden Sie sich mit E-Mail und Passwort an, um es zu ändern.",
     "mfaSetupPasskeyHint": "Nutzen Sie Fingerabdruck, Gesicht, Displaysperre oder einen Sicherheitsschlüssel.",
     "mfaSetupUsePasskey": "Passkey oder Sicherheitsschlüssel einrichten",
-    "chargingPortalLink": "{{name}} Ladeportal",
+    "chargingPortalLink": "Ladeportal",
     "ssoLinkRequired": "Dieses Konto ist noch nicht mit Single Sign-On verknüpft. Melden Sie sich mit Ihrem Passwort an und erlauben Sie die SSO-Anmeldung in Ihrem Profil, oder wenden Sie sich an Ihren Administrator."
   },
   "dashboard": {
@@ -513,7 +514,46 @@
     "stationsNotAccepted": "Ausstehend: {{pending}}, gesperrt: {{blocked}}",
     "siteMapNotConfigured": "Hinterlegen Sie in den Einstellungen einen Google-Maps-API-Schlüssel, um die Standortkarte anzuzeigen.",
     "siteMapLoadError": "Die Karte konnte nicht geladen werden.",
-    "siteMapMarker": "{{name}} (Stationen: {{count}})"
+    "siteMapMarker": "{{name}} (Stationen: {{count}})",
+    "customize": "Anpassen",
+    "doneCustomizing": "Fertig",
+    "customizeHint": "Ziehen Sie ein Diagramm am Griff, um es zu verschieben, oder blenden Sie es aus. Die Kennzahlenkarten bleiben an ihrem Platz. Ihr Layout wird für Ihr Konto gespeichert.",
+    "hiddenWidgets": "Ausgeblendet",
+    "noHiddenWidgets": "Keine",
+    "resetLayout": "Layout Zurücksetzen",
+    "resetLayoutTitle": "Layout Zurücksetzen",
+    "resetLayoutDescription": "Das Live-Dashboard kehrt zur Standardreihenfolge der Diagramme zurück und zeigt die Standarddiagramme. Ihr gespeichertes Layout wird entfernt.",
+    "showWidget": "{{name}} einblenden",
+    "hideWidget": "{{name}} ausblenden",
+    "moveWidget": "{{name}} verschieben",
+    "layoutSaveFailed": "Das Dashboard-Layout konnte nicht gespeichert werden.",
+    "dnd": {
+      "instructions": "Drücken Sie Leertaste oder Eingabe, um eine Karte oder ein Diagramm aufzunehmen. Verschieben Sie es mit den Pfeiltasten, legen Sie es mit Leertaste oder Eingabe ab oder brechen Sie mit Escape ab.",
+      "pickedUp": "{{name}} aufgenommen.",
+      "movedOver": "{{name}} ist über {{over}}.",
+      "dropped": "{{name}} an die Stelle von {{over}} verschoben.",
+      "cancelled": "Verschieben von {{name}} abgebrochen."
+    },
+    "locationsByCity": "Standorte nach Stadt",
+    "locationsByCityInfo": "Akzeptierte Stationen pro Stadt Ihrer Standorte, mit der Anzahl der Standorte im Tooltip. Städte werden ohne Groß- und Kleinschreibung und zusätzliche Leerzeichen verglichen.",
+    "unknownCity": "Unbekannte Stadt",
+    "otherCities": "Andere Städte",
+    "noLocations": "Keine Standorte",
+    "cityTooltip": "{{stations}} Stationen, {{sites}} Standorte",
+    "chartStations": "Stationen",
+    "evsesByConnectorType": "EVSEs nach Anschlusstyp",
+    "evsesByConnectorTypeInfo": "EVSEs in Betrieb pro Anschlusstyp an Ihren akzeptierten Stationen. Ein EVSE mit Anschlüssen zweier Typen zählt bei jedem Typ. Der Tooltip zeigt die Anschlüsse.",
+    "chartEvses": "EVSEs",
+    "connectorTypeTooltip": "{{evses}} EVSEs, {{connectors}} Anschlüsse",
+    "noEvses": "Keine EVSEs",
+    "plugAndCharge": "Plug & Charge",
+    "plugAndChargeInfo": "Mit einem Plug & Charge-Vertrag gestartete Ladevorgänge an Ihren Standorten und ihre Energie. Aktive Verträge sehen Benutzer mit Zugriff auf alle Standorte, die Fahrer lesen dürfen.",
+    "activeContractsCount": "Aktive Verträge: {{value}}",
+    "noPlugAndChargeSessions": "Keine Plug & Charge-Ladevorgänge in diesem Zeitraum",
+    "freeVend": "Freies Laden",
+    "freeVendInfo": "Ladevorgänge mit freiem Laden an Ihren Standorten und ihre Energie, mit der Anzahl Ihrer Standorte mit aktiviertem freiem Laden.",
+    "freeVendSites": "Standorte mit freiem Laden: {{value}}",
+    "noFreeVendSessions": "Keine Ladevorgänge mit freiem Laden in diesem Zeitraum"
   },
   "sites": {
     "title": "Standorte",
@@ -763,7 +803,7 @@
     "sp2Desc": "TLS-Verschlüsselung mit HTTP Basic Auth",
     "sp3Desc": "Mutual TLS mit Client-Zertifikat. Kein Passwort erforderlich.",
     "sp3CertNote": "Erfordert ein Client-Zertifikat. Konfigurieren Sie es im Tab Zertifikate.",
-    "sp16_0": "Keine Sicherheit",
+    "sp16_0": "Keine Authentifizierung",
     "sp16_1": "Basic Auth",
     "sp16_2": "TLS + Basic Auth",
     "sp16_0Desc": "Keine Authentifizierung erforderlich",
@@ -1859,7 +1899,9 @@
     "deleteHoliday": "Feiertag löschen",
     "bulkAddPlaceholder": "Ein Feiertag pro Zeile: JJJJ-MM-TT Feiertagsname",
     "bulkHolidaySummary": "{{created}} Feiertag(e) importiert; {{skipped}} übersprungen, weil das Datum bereits existiert.",
-    "bulkHolidayAllImported": "{{count}} Feiertag(e) importiert."
+    "bulkHolidayAllImported": "{{count}} Feiertag(e) importiert.",
+    "addHolidayDescription": "Auf Feiertage beschränkte Tarife gelten an diesem Datum.",
+    "bulkAddDescription": "Mehrere Feiertage auf einmal hinzufügen, einen pro Zeile. Bereits vorhandene Daten werden übersprungen."
   },
   "users": {
     "title": "Benutzer",
@@ -2613,7 +2655,38 @@
     "rateLimits": "Ratenlimits",
     "simulator": "Simulator",
     "integrations": "Integrationen",
-    "secretsNote": "Geheime Werte (Passwörter, Token, Verschlüsselungsschlüssel) werden niemals offengelegt. \"Configured\" gibt nur an, ob ein Wert gesetzt ist."
+    "secretsNote": "Geheime Werte (Passwörter, Token, Verschlüsselungsschlüssel) werden niemals offengelegt. \"Configured\" gibt nur an, ob ein Wert gesetzt ist.",
+    "description": "Die Einstellungen, mit denen die CSMS-Prozesse laufen. Geheime Werte werden nie angezeigt.",
+    "search": "Einstellungen durchsuchen",
+    "section": "Bereich",
+    "allSections": "Alle Bereiche",
+    "noMatches": "Keine passenden Einstellungen",
+    "setting": "Einstellung",
+    "value": "Wert",
+    "security": "Sicherheit",
+    "ocppProcesses": "OCPP-Prozesse",
+    "ocpi": "OCPI",
+    "simProviders": "SIM-Anbieter",
+    "dataPlans": "Datentarife der Ladestationen",
+    "configured": "Konfiguriert",
+    "notSet": "Nicht Gesetzt",
+    "none": "Keine",
+    "enabled": "Ein",
+    "disabled": "Aus",
+    "processes": "Prozesse",
+    "noOcppProcesses": "Kein OCPP-Prozess hat sich in den letzten 90 Sekunden gemeldet.",
+    "connectedStations": "Verbundene Ladestationen",
+    "startedAt": "Gestartet",
+    "settings": "Einstellungen",
+    "notReported": "Nicht gemeldet (der Prozess läuft mit einer früheren Version)",
+    "sharedRateLimit": "Gemeinsame Ratenlimits",
+    "simulatorStations": "Simulator-Ladestationen",
+    "stationsWifiOrWired": "Ladestationen mit WLAN oder Kabel",
+    "stationsCellular": "Ladestationen mit Mobilfunk",
+    "sitesWifiOrWired": "Standorte mit WLAN oder Kabel",
+    "sitesCellular": "Standorte mit Mobilfunk",
+    "webhookSigning": "Webhook-Signaturschlüssel",
+    "simHologramKey": "Hologram-API-Schlüssel"
   },
   "settings": {
     "title": "Einstellungen",
@@ -2621,7 +2694,6 @@
     "qrCodeIcon": "QR-Code-Symbol",
     "qrCodeIconDescription": "Laden Sie ein SVG-Symbol hoch, das in der Mitte von QR-Codes eingebettet wird.",
     "uploadSvg": "SVG hochladen",
-    "removeIcon": "Symbol entfernen",
     "preview": "Vorschau",
     "iconUploaded": "Symbol hochgeladen.",
     "iconRemoved": "Symbol entfernt.",
@@ -2745,13 +2817,11 @@
     "invoicePaymentSaved": "Zahlungsinformationen gespeichert",
     "invoicePaymentSaveFailed": "Die Zahlungsinformationen konnten nicht gespeichert werden.",
     "uploadLogo": "Logo hochladen",
-    "removeLogo": "Logo entfernen",
     "noLogo": "Kein Logo hochgeladen.",
     "invalidImage": "Datei muss ein Bild sein.",
     "logoTooLarge": "Bild muss kleiner als 512 KB sein.",
     "favicon": "Favicon",
     "uploadFavicon": "Favicon hochladen",
-    "removeFavicon": "Favicon entfernen",
     "noFavicon": "Kein Favicon hochgeladen.",
     "faviconDescription": "Wird im Browser-Tab angezeigt. Empfohlene Größe: 32x32 oder 64x64 Pixel.",
     "seoSettings": "SEO und Social",
@@ -2761,7 +2831,6 @@
     "metaKeywordsHelper": "Kommagetrennte Schlüsselwörter für Suchmaschinen.",
     "ogImage": "Social-Share-Bild",
     "uploadOgImage": "Bild hochladen",
-    "removeOgImage": "Bild entfernen",
     "noOgImage": "Kein Social-Share-Bild hochgeladen.",
     "ogImageDescription": "Wird beim Teilen von Links in sozialen Medien angezeigt. Empfohlene Größe: 1200x630 Pixel.",
     "themeColor": "Designfarbe",
@@ -2808,7 +2877,7 @@
     "s3PolicyDescription": "Ihr IAM-Benutzer benötigt die folgenden Berechtigungen für den S3-Bucket. Ersetzen Sie YOUR_BUCKET_NAME durch Ihren tatsächlichen Bucket-Namen.",
     "s3BucketPrivateNote": "Der S3-Bucket sollte nicht öffentlich sein. Der gesamte Dateizugriff erfolgt über vom Server generierte signierte URLs.",
     "s3CorsTitle": "CORS-Konfiguration",
-    "s3CorsDescription": "Ihr S3-Bucket benötigt eine CORS-Richtlinie, um direkte Datei-Uploads aus dem Browser zu erlauben. Fügen Sie diese unter Bucket > Berechtigungen > CORS hinzu. Ersetzen Sie YOUR_FRONTEND_ORIGIN durch Ihre Dashboard-URL (z. B. http://localhost:7100).",
+    "s3CorsDescription": "Ihr S3-Bucket benötigt eine CORS-Regel, damit Browser Dateien mit vorsignierten POST-Anfragen direkt hochladen (Stationsbilder und Support-Anhänge aus dem Dashboard, Fahrerfotos aus dem Portal) und mit GET öffnen können. Fügen Sie sie unter Bucket > Berechtigungen > CORS hinzu. Das Beispiel nennt die Origins dieses Dashboards und des Fahrerportals. Ändern Sie sie, wenn Benutzer eine der beiden Apps unter einer anderen Adresse aufrufen.",
     "pnc": "Plug & Charge",
     "pncEnabled": "Plug & Charge (ISO 15118) aktivieren",
     "pncDescription": "Wenn aktiviert, verwaltet das System PKI-Zertifikate für ISO 15118 Plug and Charge. Beim Deaktivieren wird der Bereich Zertifikate ausgeblendet und Zertifikatsoperationen werden blockiert.",
@@ -3236,7 +3305,8 @@
       "ops": {
         "title": "Automatische Analysen und Worker",
         "description": "Das Modell für automatische Analysen und Hintergrund-Worker. Sie laufen ohne Benutzer und verwenden den Anbieterschlüssel des Unternehmens.",
-        "enabled": "Systemgesteuerte KI einschalten"
+        "enabled": "Systemgesteuerte KI einschalten",
+        "offNote": "Diese Einstellungen wirken nur, solange die systemgesteuerte KI eingeschaltet ist. Ihre Werte bleiben erhalten."
       },
       "driver": {
         "title": "Fahrer-Support",
@@ -3286,6 +3356,30 @@
         "empty": "Keine Bewertungen in den letzten {{days}} Tagen.",
         "viewWrong": "Als falsch markierte Analysen anzeigen"
       }
+    },
+    "aiInsightsScope": {
+      "title": "Umfang der KI-Erkenntnisse",
+      "siteListLabel": "Standorte",
+      "description": "Wählen Sie, welche Standorte und Ladestationen automatische Erkenntnisse und Hintergrundaufgaben analysieren.",
+      "mode": {
+        "all": "Alle Standorte",
+        "selected": "Ausgewählte Standorte"
+      },
+      "modeHint": {
+        "all": "Jeder Standort und jede Ladestation, auch später hinzugefügte.",
+        "selected": "Nur die ausgewählten Standorte. Innerhalb eines ausgewählten Standorts können Sie einzelne Ladestationen ausschalten. Neue Standorte sind zunächst nicht ausgewählt, neue Ladestationen folgen ihrem Standort."
+      },
+      "search": "Standorte suchen",
+      "noSites": "Keine passenden Standorte.",
+      "noStations": "Dieser Standort hat keine Ladestationen.",
+      "stationsSummary_one": "{{count}} Ladestation, {{off}} ausgeschaltet",
+      "stationsSummary_other": "{{count}} Ladestationen, {{off}} ausgeschaltet",
+      "siteToggle": "{{name}} analysieren",
+      "stationsWithoutSite_one": "{{count}} Ladestation ohne Standort wird nicht analysiert, solange nur ausgewählte Standorte analysiert werden.",
+      "stationsWithoutSite_other": "{{count}} Ladestationen ohne Standort werden nicht analysiert, solange nur ausgewählte Standorte analysiert werden.",
+      "removeHint": "Standorte und Ladestationen, die Sie aus dem Umfang nehmen, erhalten keine neuen Erkenntnisse. Ihre offenen Erkenntnisse werden verworfen und ihre wartenden Aktionen laufen ab.",
+      "loadFailed": "Der Umfang der KI-Erkenntnisse konnte nicht geladen werden.",
+      "stationsFailed": "Die Ladestationen konnten nicht geladen werden."
     },
     "aiMcp": {
       "title": "MCP-Server",
@@ -3496,7 +3590,8 @@
         }
       },
       "proofHint": "Bestätigen Sie Ihre Identität, um die Aufbewahrung des Audit-Verlaufs, des Anmeldeverlaufs oder der Sicherheitsereignisse zu verkürzen. Jeder Administrator erhält eine Benachrichtigung."
-    }
+    },
+    "uploadReplacesHint": "Ein neues Bild ersetzt das aktuelle."
   },
   "pnc": {
     "certificates": "Zertifikate",
@@ -3806,7 +3901,8 @@
     "changes": "Änderungen",
     "token": "Token",
     "evse": "EVSE",
-    "removeSlotStation": "Station entfernen"
+    "removeSlotStation": "Station entfernen",
+    "noConnectors": "Keine Anschlüsse"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "Konto deaktiviert",
@@ -4134,6 +4230,7 @@
     "AI_INSIGHT_NOT_FOUND": "Analyse nicht gefunden",
     "AI_INSIGHT_COOLDOWN": "Diese Analyse wurde vor Kurzem neu erstellt. Versuchen Sie es später erneut",
     "AI_INSIGHTS_DISABLED": "Automatische Analysen sind ausgeschaltet",
+    "AI_INSIGHTS_NOT_IN_SCOPE": "KI-Erkenntnisse sind für diesen Standort oder diese Ladestation nicht eingeschaltet. Nehmen Sie ihn zuerst in den Umfang der KI-Erkenntnisse in den Einstellungen auf",
     "AI_SITE_BUDGET_EXCEEDED": "Das tägliche KI-Nutzungslimit des Standorts ist erreicht",
     "AI_MONTHLY_BUDGET_EXCEEDED": "Das monatliche KI-Nutzungslimit ist erreicht",
     "AI_CONTEXT_NOT_FOUND": "Der zu erklärende Datensatz wurde nicht gefunden",
@@ -5430,7 +5527,24 @@
       "api_key": "API-Schlüssel",
       "system": "System",
       "ocpp": "OCPP"
-    }
+    },
+    "changes": "Änderungen",
+    "field": "Feld",
+    "before": "Vorher",
+    "after": "Nachher",
+    "showUnchanged": "Unveränderte Felder Anzeigen",
+    "hideUnchanged": "Unveränderte Felder Ausblenden",
+    "noChanges": "Dieser Eintrag enthält keine Feldwerte.",
+    "redacted": "Ausgeblendet",
+    "goToEntity": "Zur Entität",
+    "entityDeleted": "Gelöscht",
+    "viaAi": "Über KI",
+    "viaAiChannels": {
+      "chat": "KI-Assistent",
+      "mcp": "MCP",
+      "proposal": "Bestätigte KI-Aktion"
+    },
+    "entryTitle": "{{action}} ({{entity}})"
   },
   "maintenance": {
     "colType": "Typ",
@@ -5829,7 +5943,7 @@
       "resolved_before_analysis": "Vor der Analyse behoben",
       "cooldown": "Vor Kurzem analysiert",
       "site_daily_cap": "Das tägliche Analyselimit des Standorts ist erreicht",
-      "site_disabled": "Analysen sind für diesen Standort ausgeschaltet",
+      "site_disabled": "Dieser Standort oder diese Ladestation liegt außerhalb des Umfangs der KI-Erkenntnisse",
       "budget_exceeded": "Das KI-Budget ist aufgebraucht",
       "disabled": "Automatische Analysen wurden ausgeschaltet",
       "provider_paused": "Das Konto beim KI-Anbieter hat kein Guthaben oder Kontingent mehr"
@@ -5878,6 +5992,18 @@
       "sessionsFailedSameReason24h_other": "{{count}} Sitzungen in 24 Stunden aus demselben Grund fehlgeschlagen",
       "tokenRefusals_one": "{{count}} abgelehnter Token",
       "tokenRefusals_other": "{{count}} abgelehnte Token"
+    },
+    "scopeStatus": {
+      "off": "Aus",
+      "settingsLink": "Umfang der KI-Erkenntnisse",
+      "reason": {
+        "all_sites": "Für alle Standorte an",
+        "selected": "An: im Umfang der KI-Erkenntnisse ausgewählt",
+        "feature_off": "Aus, weil die systemgesteuerte KI ausgeschaltet ist",
+        "no_site": "Aus, weil die Ladestation keinen Standort hat und nur ausgewählte Standorte analysiert werden",
+        "site_not_selected": "Aus, weil der Standort im Umfang der KI-Erkenntnisse nicht ausgewählt ist",
+        "station_turned_off": "Aus, weil die Ladestation im Umfang der KI-Erkenntnisse ausgeschaltet ist"
+      }
     },
     "regenerateQueued": "Eine neue Analyse wird erstellt.",
     "widget": {
@@ -6115,8 +6241,6 @@
     },
     "siteBudget": "Monatliches Token-Budget",
     "siteBudgetHelp": "Leer lassen, um das Standardbudget pro Standort aus Einstellungen > KI zu verwenden. 0 bedeutet kein Limit.",
-    "siteInsights": "Automatische Analysen",
-    "siteInsightsHelp": "Ausschalten, um automatische Analysen für diesen Standort zu beenden.",
     "allSitesOnly": "Nur Benutzer mit Zugriff auf alle Standorte können dies ändern."
   },
   "aiAlerts": {
@@ -6324,5 +6448,55 @@
       "alignedMeasurandsHelp": "Kommagetrennte Messgrößen der Messwerte im Leerlauf. Nur gesendet, wenn das Intervall über 0 liegt.",
       "txEndedMeasurandsHelp": "Kommagetrennte Messgrößen der Werte am Ende einer Sitzung."
     }
+  },
+  "avatar": {
+    "alt": "Avatar von {{name}}",
+    "edit": "Avatar Bearbeiten",
+    "remove": "Avatar Entfernen",
+    "create": "Erstellen",
+    "upload": "Hochladen",
+    "random": "Zufällig",
+    "tooLarge": "Das Bild muss kleiner als 1 MB sein.",
+    "wrongType": "Wählen Sie ein JPEG-, PNG- oder WebP-Bild.",
+    "uploadHint": "JPEG, PNG oder WebP, kleiner als 1 MB. Das Bild wird quadratisch zugeschnitten.",
+    "chooseImage": "Bild auswählen",
+    "saved": "Avatar gespeichert",
+    "saveFailed": "Der Avatar konnte nicht gespeichert werden",
+    "removed": "Avatar entfernt",
+    "options": {
+      "topVariant": "Haare oder Kopfbedeckung",
+      "accessoriesVariant": "Brille",
+      "eyebrowsVariant": "Augenbrauen",
+      "eyesVariant": "Augen",
+      "mouthVariant": "Mund",
+      "facialHairVariant": "Bart",
+      "clothesVariant": "Kleidung",
+      "clothesGraphicVariant": "Shirt-Motiv",
+      "skinColor": "Hautfarbe",
+      "hairColor": "Haarfarbe",
+      "facialHairColor": "Bartfarbe",
+      "clothesColor": "Kleidungsfarbe",
+      "hatColor": "Farbe der Kopfbedeckung",
+      "accessoriesColor": "Brillenfarbe",
+      "backgroundColor": "Hintergrundfarbe",
+      "flip": "Richtung"
+    },
+    "none": {
+      "topVariant": "Keine Haare oder Kopfbedeckung",
+      "accessoriesVariant": "Keine Brille",
+      "facialHairVariant": "Kein Bart"
+    },
+    "values": {
+      "none": "Standard",
+      "horizontal": "Gespiegelt"
+    },
+    "label": "Avatar",
+    "removeConfirmTitle": "Avatar Entfernen",
+    "removeConfirm": "Diesen Avatar entfernen? Ein hochgeladenes Foto wird gelöscht und Initialen werden angezeigt.",
+    "editDescription": "Erstellen Sie einen Avatar oder laden Sie ein Foto hoch. Er erscheint im Benutzermenü der Seitenleiste und in der Benutzerliste.",
+    "editDescriptionUser": "Erstellen Sie einen Avatar oder laden Sie ein Foto für diesen Benutzer hoch. Er erscheint in der Benutzerliste und auf der Benutzerseite.",
+    "editDescriptionDriver": "Erstellen Sie einen Avatar oder laden Sie ein Foto für diesen Fahrer hoch. Er erscheint in der Fahrerliste, bei den Flottenmitgliedern und auf der Fahrerseite. Der Fahrer kann ihn ändern.",
+    "savedWithNewAccount": "Optional. Der Avatar wird gespeichert, wenn das Konto erstellt wird.",
+    "applyFailed": "Das Konto wurde erstellt, aber der Avatar konnte nicht gespeichert werden. Legen Sie ihn auf dem Tab Details erneut fest."
   }
 }

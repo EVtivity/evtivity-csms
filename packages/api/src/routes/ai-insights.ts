@@ -38,6 +38,7 @@ import {
   isReservationEnabled,
   isOpsAiEnabled,
   reservations,
+  insightSubjectInScope,
   sites,
   supportCases,
   supportCaseSessions,
@@ -679,14 +680,9 @@ async function supportCaseFilter(
   return { stationId: caseRow.stationId, sessionIds };
 }
 
-async function siteSwitchOn(row: AiInsightRow): Promise<boolean> {
-  if (row.siteId == null) return true;
-  const [site] = await db
-    .select({ enabled: sites.aiInsightsEnabled })
-    .from(sites)
-    .where(eq(sites.id, row.siteId))
-    .limit(1);
-  return site?.enabled ?? true;
+/** The insight's station, else its site, is in the AI insights scope. */
+async function subjectInScope(row: AiInsightRow): Promise<boolean> {
+  return insightSubjectInScope({ siteId: row.siteId, stationId: row.stationId });
 }
 
 export interface AiInsightRouteOptions {
@@ -898,7 +894,7 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
         !opsEnabled ||
         !REGENERATABLE.has(kind) ||
         !kindSwitch(kind, settings) ||
-        !(await siteSwitchOn(row))
+        !(await subjectInScope(row))
       ) {
         return reply.status(400).send({
           error: ERROR_MESSAGES.AI_INSIGHTS_DISABLED,

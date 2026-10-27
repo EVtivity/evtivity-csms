@@ -45,10 +45,17 @@ function rejected(reason: string): ProcessResult {
  * Sniff the bytes, check them against the declared type, and sanitize them
  * (plan 3.8 steps 2 and 3). Never trusts the declared type or file name.
  */
+export interface ImageShape {
+  /** Longest output edge in pixels. */
+  maxEdgePx: number;
+  /** Crop to a centered square before scaling (driver avatars). */
+  square: boolean;
+}
+
 export async function processAttachment(
   bytes: Buffer,
   declaredType: AttachmentMime,
-  options: { maxPdfPages: number },
+  options: { maxPdfPages: number; image?: ImageShape },
 ): Promise<ProcessResult> {
   if (bytes.length === 0) return rejected('empty');
   const kind = attachmentKind(declaredType);
@@ -64,18 +71,21 @@ export async function processAttachment(
   if (sniffed?.mime !== declaredType) {
     return rejected(`sniffed ${sniffed?.mime ?? 'unknown'}, declared ${declaredType}`);
   }
-  if (kind === 'image') return sanitizeImage(bytes);
+  if (kind === 'image') return sanitizeImage(bytes, options.image);
   return inspectPdf(bytes, options.maxPdfPages);
 }
 
 /**
  * Re-encode an image: EXIF, GPS and every other metadata dropped (sharp keeps
  * none unless asked), orientation applied, long edge at most
- * `MAX_IMAGE_LONG_EDGE_PX`, first frame only. Output is PNG when the image has
- * an alpha channel, else JPEG. Re-encoding drops any bytes appended to the
- * image (polyglots). `limitInputPixels` refuses decompression bombs.
+ * `MAX_IMAGE_LONG_EDGE_PX` (or `shape.maxEdgePx`), first frame only. With
+ * `shape.square` the image is cropped to its centered square first, then
+ * scaled down to at most `maxEdgePx` on each side (never enlarged). Output is
+ * PNG when the image has an alpha channel, else JPEG. Re-encoding drops any
+ * bytes appended to the image (polyglots). `limitInputPixels` refuses
+ * decompression bombs.
  */
-export async function sanitizeImage(bytes: Buffer): Promise<ProcessResult> {
+export async function sanitizeImage(bytes: Buffer, shape?: ImageShape): Promise<ProcessResult> {
   try {
     const input = sharp(bytes, {
       limitInputPixels: MAX_IMAGE_INPUT_PIXELS,
@@ -90,12 +100,25 @@ export async function sanitizeImage(bytes: Buffer): Promise<ProcessResult> {
         reason: `image of ${String(meta.width)}x${String(meta.height)} pixels exceeds the pixel limit`,
       };
     }
-    const resized = input.rotate().resize({
-      width: MAX_IMAGE_LONG_EDGE_PX,
-      height: MAX_IMAGE_LONG_EDGE_PX,
-      fit: 'inside',
-      withoutEnlargement: true,
-    });
+    const edge = shape?.maxEdgePx ?? MAX_IMAGE_LONG_EDGE_PX;
+    let resized;
+    if (shape?.square === true) {
+      // The shorter side is the same before and after the orientation is applied.
+      const side = Math.min(meta.width, meta.height, edge);
+      resized = input.rotate().resize({
+        width: side,
+        height: side,
+        fit: 'cover',
+        position: 'centre',
+      });
+    } else {
+      resized = input.rotate().resize({
+        width: edge,
+        height: edge,
+        fit: 'inside',
+        withoutEnlargement: true,
+      });
+    }
     const usePng = meta.hasAlpha;
     const encoded = usePng
       ? resized.png({ compressionLevel: 9 })

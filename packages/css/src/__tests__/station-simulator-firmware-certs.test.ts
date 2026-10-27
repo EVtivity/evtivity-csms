@@ -235,14 +235,14 @@ describe('UpdateFirmware OCPP 2.1 (L01)', () => {
     expect(priv(h, 'activeFirmwareUpdate21')).toBeNull();
   });
 
-  it('reports DownloadFailed without fetching for a non-http location', async () => {
+  it('reports DownloadFailed without fetching for an unsupported protocol', async () => {
     const h = await makeHarness();
     const signer = await trustedSigner(h);
     const fetchMock = stubFetch(firmwareImage('x'));
     await h.invoke('UpdateFirmware', {
       requestId: 5,
       firmware: {
-        location: 'ftp://fw.example/fw.bin',
+        location: 'gopher://fw.example/fw.bin',
         retrieveDateTime: new Date().toISOString(),
         signingCertificate: signer.pem,
         signature: 'AAAA',
@@ -890,9 +890,10 @@ describe('OCPP 2.1 certificate signing (A02)', () => {
   });
 });
 
-describe('log and diagnostics upload', () => {
+// The fake uploads of a conformance (OCTT) station; real uploads: station-simulator-file-upload.test.ts.
+describe('simulated log and diagnostics upload', () => {
   it('GetLog to a nonexistent location reports UploadFailure', async () => {
-    const h = await makeHarness();
+    const h = await makeHarness({ config: { simulatedFileTransfers: true } });
     const res = await h.invoke('GetLog', {
       requestId: 5,
       logType: 'DiagnosticsLog',
@@ -908,7 +909,7 @@ describe('log and diagnostics upload', () => {
   });
 
   it('1.6 GetDiagnostics uploads and reports Uploading then Uploaded', async () => {
-    const h = await makeHarness({ protocol: 'ocpp1.6' });
+    const h = await makeHarness({ protocol: 'ocpp1.6', config: { simulatedFileTransfers: true } });
     expect(await h.invoke('GetDiagnostics', { location: 'ftp://diag.example/up' })).toEqual({
       fileName: 'diagnostics.txt',
     });
@@ -917,14 +918,14 @@ describe('log and diagnostics upload', () => {
   });
 
   it('1.6 GetDiagnostics to an unreachable location reports UploadFailed', async () => {
-    const h = await makeHarness({ protocol: 'ocpp1.6' });
+    const h = await makeHarness({ protocol: 'ocpp1.6', config: { simulatedFileTransfers: true } });
     await h.invoke('GetDiagnostics', { location: 'ftp://127.0.0.1/failedLocation' });
     await vi.advanceTimersByTimeAsync(1100);
     expect(statuses(h, 'DiagnosticsStatusNotification')).toEqual(['Uploading', 'UploadFailed']);
   });
 
   it('1.6 GetDiagnostics stops after the simulator is destroyed', async () => {
-    const h = await makeHarness({ protocol: 'ocpp1.6' });
+    const h = await makeHarness({ protocol: 'ocpp1.6', config: { simulatedFileTransfers: true } });
     await h.invoke('GetDiagnostics', { location: 'ftp://diag.example/up' });
     await vi.advanceTimersByTimeAsync(600);
     h.p['destroyed'] = true;

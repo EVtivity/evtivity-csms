@@ -11,16 +11,24 @@ import {
   CSS_STATUS_REPORTING_KEY,
   CSS_STATUS_REPORTING_VALUES,
   cssSecurityCtrlrDefaults,
+  CSS_FILE_TRANSFER_PROTOCOLS_16,
+  CSS_FILE_TRANSFER_PROTOCOLS_2X,
   isAllowedSimulatorTarget,
-  readCappedBody,
-  safeFetch,
   TOTP_VERSION_V1,
   totpV1,
 } from '@evtivity/lib';
 import { validateStationPassword } from '@evtivity/lib/station-password';
 import { isOcpp2x, type OcppProtocol } from '@evtivity/lib/ocpp-version';
-import { OcppClient } from './ocpp-client.js';
-import { config as cssConfig, simulatorServerUrls } from './lib/config.js';
+import { OcppClient, resolveVerifyServerCertificate } from './ocpp-client.js';
+import { FileTransferError, downloadFile, uploadFile } from './lib/file-transfer.js';
+import type { FileTransferOptions } from './lib/file-transfer.js';
+import {
+  config as cssConfig,
+  fileTransferAllowedHosts,
+  fileTransferAllowsPrivateNetworks,
+  simulatorServerUrls,
+} from './lib/config.js';
+import { maskUrlPassword } from '@evtivity/lib/secret-config';
 import { logger } from './lib/logger.js';
 import {
   PNC16_VENDOR_ID,
@@ -170,6 +178,19 @@ export interface StationConfig {
    * decision, so the owner may add a server it starts later.
    */
   extraAllowedServerUrls?: readonly string[];
+  /**
+   * Fake log and diagnostics uploads (status notifications only, a location naming
+   * `nonexistent`, `redirect`, `failedLocation` or `127.0.0.1` fails) instead of real ones.
+   * Set in code only, by the conformance (OCTT) CS runner, whose test cases name upload
+   * servers that do not exist (logs.example.com); every other station uploads for real.
+   */
+  simulatedFileTransfers?: boolean;
+  /**
+   * The SFTP server host key this station trusts (OpenSSH `SHA256:` fingerprint), in place
+   * of CSS_SFTP_HOST_KEY_SHA256. Checked while the station verifies servers
+   * (verifyServerCertificate); set in code only.
+   */
+  sftpHostKeySha256?: string;
   evses: Array<{
     evseId: number;
     connectorId: number;
@@ -262,6 +283,33 @@ export type ReservationReply = (typeof RESERVATION_REPLIES)[number];
 
 /** Largest firmware image the simulator downloads. */
 export const SIMULATOR_FIRMWARE_MAX_BYTES = 50 * 1024 * 1024;
+
+// Upload failures worth another attempt: a server that is down, slow or answers an error.
+const RETRYABLE_UPLOAD_FAILURES: ReadonlySet<string> = new Set(['TransferFailed']);
+
+/** A non-negative integer request field (retries, retryInterval), else 0. */
+function nonNegativeInt(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 0;
+}
+
+/** Waits `ms`; false when `signal` aborts first. */
+function sleepUnlessAborted(ms: number, signal: AbortSignal | null): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (signal?.aborted === true) {
+      resolve(false);
+      return;
+    }
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve(true);
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 export class StationSimulator {
   readonly client: OcppClient;
@@ -445,6 +493,8 @@ export class StationSimulator {
 
   // Active log upload tracking
   private activeLogUploadRequestId: number | null = null;
+  // The real upload running for activeLogUploadRequestId (a new GetLog cancels it).
+  private activeLogUpload: { requestId: number; controller: AbortController } | null = null;
 
   // Customer data store, backed by css_customer_data so CustomerInformation
   // updates survive a power cycle.
@@ -3612,17 +3662,20 @@ export class StationSimulator {
     }
   }
 
-  async sendLogStatusNotification(status: string, requestId?: number): Promise<void> {
+  async sendLogStatusNotification(
+    status: string,
+    requestId?: number,
+    reasonCode?: string,
+  ): Promise<void> {
     if (this.is16) {
       // OCPP 1.6 Security Whitepaper: requestId is optional and omitted when idle.
       const payload: Record<string, unknown> = { status };
       if (requestId != null) payload['requestId'] = requestId;
       await this.client.sendCall('LogStatusNotification', payload);
     } else {
-      await this.client.sendCall('LogStatusNotification', {
-        status,
-        requestId: requestId ?? 0,
-      });
+      const payload: Record<string, unknown> = { status, requestId: requestId ?? 0 };
+      if (reasonCode != null) payload['statusInfo'] = { reasonCode };
+      await this.client.sendCall('LogStatusNotification', payload);
     }
   }
 
@@ -5991,6 +6044,9 @@ export class StationSimulator {
         const logLocation = (logObj?.['remoteLocation'] as string | undefined) ?? '';
         const logKind = payload['logType'] === 'SecurityLog' ? 'security' : 'diagnostics';
         const logFilename = `${logKind}-${this.config.stationId}-${String(Date.now())}.log`;
+        if (this.config.simulatedFileTransfers !== true) {
+          return this.startLogUpload(payload, logLocation, logFilename);
+        }
 
         // If there is an active upload, a second request cancels it
         if (this.activeLogUploadRequestId != null) {
@@ -6855,8 +6911,17 @@ export class StationSimulator {
 
       case 'GetDiagnostics': {
         const diagLocation = payload['location'] as string;
-        void this.simulateDiagnosticsUpload(diagLocation).catch(() => {});
-        return { fileName: 'diagnostics.txt' };
+        if (this.config.simulatedFileTransfers === true) {
+          void this.simulateDiagnosticsUpload(diagLocation).catch(() => {});
+          return { fileName: 'diagnostics.txt' };
+        }
+        const diagFileName = `diagnostics-${this.config.stationId}-${String(Date.now())}.log`;
+        void this.runDiagnosticsUpload(payload, diagLocation, diagFileName).catch(
+          (err: unknown) => {
+            logger.warn({ err, stationId: this.config.stationId }, 'Diagnostics upload stopped');
+          },
+        );
+        return { fileName: diagFileName };
       }
 
       default:
@@ -7169,30 +7234,50 @@ export class StationSimulator {
     retries: number,
     retryIntervalSec: number,
   ): Promise<Buffer | null> {
-    const url = URL.parse(location);
-    if (url == null) return null;
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
     for (let attempt = 0; attempt <= retries; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, retryIntervalSec * 1000));
       try {
         // The firmware URL is operator input and the simulator shares the
-        // platform network: safeFetch refuses cloud metadata and
-        // other unroutable addresses (private networks stay allowed for test
-        // servers), and the body is read up to SIMULATOR_FIRMWARE_MAX_BYTES.
-        const response = await safeFetch(url.href, {
-          allowPrivateNetworks: true,
-          signal: AbortSignal.timeout(30_000),
+        // platform network: downloadFile refuses cloud metadata and other
+        // unroutable addresses (private networks stay allowed for test
+        // servers), over HTTP(S), FTP(S) and SFTP, and reads the file up to
+        // SIMULATOR_FIRMWARE_MAX_BYTES.
+        return await downloadFile(location, SIMULATOR_FIRMWARE_MAX_BYTES, {
+          ...this.fileTransferOptions(),
+          timeoutMs: 60_000,
         });
-        if (response.ok) return await readCappedBody(response, SIMULATOR_FIRMWARE_MAX_BYTES);
-        await response.body?.cancel();
       } catch (err) {
         logger.warn(
-          { err, stationId: this.config.stationId, location, attempt },
+          { err, stationId: this.config.stationId, location: maskUrlPassword(location), attempt },
           'Firmware download failed',
         );
+        // A URL that is not one, or a protocol the station does not speak, fails every attempt.
+        if (
+          err instanceof FileTransferError &&
+          (err.reason === 'InvalidUrl' || err.reason === 'UnsupportedProtocol')
+        ) {
+          return null;
+        }
       }
     }
     return null;
+  }
+
+  /**
+   * Server trust and address rules of a file transfer: the CSMS CA next to the system roots
+   * for https and ftps, the SFTP host key while servers are verified, and private addresses
+   * only in development and test or for CSS_FILE_TRANSFER_ALLOWED_HOSTS.
+   */
+  private fileTransferOptions(): FileTransferOptions {
+    const options: FileTransferOptions = {
+      rejectUnauthorized: resolveVerifyServerCertificate(this.config.verifyServerCertificate),
+      allowPrivateNetworks: fileTransferAllowsPrivateNetworks(),
+      allowedPrivateHosts: fileTransferAllowedHosts(),
+    };
+    if (this.config.caCert != null) options.caPem = this.config.caCert;
+    const hostKey = this.config.sftpHostKeySha256 ?? cssConfig.CSS_SFTP_HOST_KEY_SHA256;
+    if (hostKey != null) options.sftpHostKeySha256 = hostKey;
+    return options;
   }
 
   private async runSignedFirmwareUpdate16(
@@ -8072,11 +8157,180 @@ export class StationSimulator {
       this.firmwareUpdateStatus = 'Idle';
     } catch (err) {
       logger.warn(
-        { err, stationId: this.config.stationId, location, requestId },
+        { err, stationId: this.config.stationId, location: maskUrlPassword(location), requestId },
         'Firmware update stopped, status set to Idle',
       );
       this.firmwareUpdateStatus = 'Idle';
     }
+  }
+
+  /**
+   * GetLog (2.x N01, 1.6 Security Whitepaper): starts a real upload of a generated log file.
+   * A running upload is canceled (N01.FR.12) and the request answered AcceptedCanceled.
+   */
+  private startLogUpload(
+    payload: Record<string, unknown>,
+    location: string,
+    fileName: string,
+  ): Record<string, unknown> {
+    const requestId = payload['requestId'] as number;
+    const previous = this.activeLogUpload;
+    const upload = { requestId, controller: new AbortController() };
+    this.activeLogUpload = upload;
+    this.activeLogUploadRequestId = requestId;
+    previous?.controller.abort();
+    const logType = typeof payload['logType'] === 'string' ? payload['logType'] : 'DiagnosticsLog';
+    const body = this.buildLogFile(
+      logType,
+      requestId,
+      payload['log'] as Record<string, unknown> | undefined,
+    );
+    void this.runLogUpload(upload, location, fileName, body, payload).catch((err: unknown) => {
+      logger.warn({ err, stationId: this.config.stationId, requestId }, 'Log upload stopped');
+    });
+    return { status: previous != null ? 'AcceptedCanceled' : 'Accepted', filename: fileName };
+  }
+
+  private async runLogUpload(
+    upload: { requestId: number; controller: AbortController },
+    location: string,
+    fileName: string,
+    body: Buffer,
+    payload: Record<string, unknown>,
+  ): Promise<void> {
+    const { requestId, controller } = upload;
+    const send = async (status: string, reasonCode?: string): Promise<void> => {
+      if (this.destroyed) return;
+      try {
+        await this.sendLogStatusNotification(status, requestId, reasonCode);
+      } catch (err) {
+        logger.warn(
+          { err, stationId: this.config.stationId, requestId, status },
+          'LogStatusNotification failed',
+        );
+      }
+    };
+    this.logUploadStatus = 'Uploading';
+    await send('Uploading');
+    const failure = await this.uploadWithRetries(
+      location,
+      fileName,
+      body,
+      payload,
+      controller.signal,
+    );
+    if (this.destroyed) return;
+    if (failure?.reason === 'Canceled') {
+      // N01.FR.20; the 1.6 upload status has no AcceptedCanceled.
+      if (!this.is16) await send('AcceptedCanceled');
+      return;
+    }
+    // N01.FR.09/10: the failure reason goes in statusInfo (2.x), RedirectNotAllowed per N01.FR.30.
+    if (failure == null) await send('Uploaded');
+    else await send('UploadFailure', failure.reason);
+    if (this.activeLogUpload === upload) {
+      this.activeLogUpload = null;
+      this.activeLogUploadRequestId = null;
+      this.logUploadStatus = 'Idle';
+    }
+  }
+
+  /** GetDiagnostics (1.6): uploads a generated diagnostics file into the location (a directory). */
+  private async runDiagnosticsUpload(
+    payload: Record<string, unknown>,
+    location: string,
+    fileName: string,
+  ): Promise<void> {
+    const directory = location.endsWith('/') ? location : `${location}/`;
+    const body = this.buildLogFile('DiagnosticsLog', null, {
+      oldestTimestamp: payload['startTime'],
+      latestTimestamp: payload['stopTime'],
+    });
+    if (this.isDestroyed()) return;
+    await this.sendDiagnosticsStatusNotification('Uploading');
+    const failure = await this.uploadWithRetries(directory, fileName, body, payload, null);
+    if (this.isDestroyed()) return;
+    await this.sendDiagnosticsStatusNotification(failure == null ? 'Uploaded' : 'UploadFailed');
+  }
+
+  /**
+   * Uploads with the request's retries and retryInterval (seconds). Returns null when the
+   * file was uploaded, else the last failure. A redirect, an unsupported protocol, a bad URL
+   * or a refused address is not retried; neither is a canceled upload.
+   */
+  private async uploadWithRetries(
+    location: string,
+    fileName: string,
+    body: Buffer,
+    payload: Record<string, unknown>,
+    signal: AbortSignal | null,
+  ): Promise<FileTransferError | null> {
+    const retries = nonNegativeInt(payload['retries']);
+    const retryIntervalMs = nonNegativeInt(payload['retryInterval']) * 1000;
+    let failure: FileTransferError | null = null;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      if (attempt > 0 && !(await sleepUnlessAborted(retryIntervalMs, signal))) {
+        return new FileTransferError('Canceled', 'The upload was canceled');
+      }
+      if (this.destroyed) return failure;
+      const options: FileTransferOptions = this.fileTransferOptions();
+      if (signal != null) options.signal = signal;
+      try {
+        await uploadFile(location, fileName, body, options);
+        return null;
+      } catch (err) {
+        failure =
+          err instanceof FileTransferError
+            ? err
+            : new FileTransferError('TransferFailed', 'The upload failed', { cause: err });
+        logger.warn(
+          { stationId: this.config.stationId, reason: failure.reason, attempt },
+          `File upload failed: ${failure.message}`,
+        );
+        if (!RETRYABLE_UPLOAD_FAILURES.has(failure.reason)) return failure;
+      }
+    }
+    return failure;
+  }
+
+  /**
+   * The uploaded log: a few KB of text naming the station, the log type and the time. No
+   * configuration values, credentials or certificates.
+   */
+  private buildLogFile(
+    logType: string,
+    requestId: number | null,
+    window: Record<string, unknown> | undefined,
+  ): Buffer {
+    const now = new Date();
+    const lines = [
+      `# EVtivity simulator ${logType}`,
+      `station: ${this.config.stationId}`,
+      `protocol: ${this.config.ocppProtocol}`,
+      `vendor: ${this.config.vendorName}`,
+      `model: ${this.config.model}`,
+      `firmware: ${this.config.firmwareVersion}`,
+      `generated: ${now.toISOString()}`,
+    ];
+    if (requestId != null) lines.push(`requestId: ${String(requestId)}`);
+    for (const key of ['oldestTimestamp', 'latestTimestamp']) {
+      const value = window?.[key];
+      if (typeof value === 'string') lines.push(`${key}: ${value}`);
+    }
+    lines.push('');
+    for (const evse of this.config.evses) {
+      const status = this.evseConnectorStatus.get(evse.evseId) ?? 'Available';
+      const tx = this.evseContexts.get(evse.evseId)?.transactionId != null ? 'ongoing' : 'none';
+      lines.push(
+        `evse ${String(evse.evseId)} connector ${String(evse.connectorId)}: ${status}, transaction ${tx}`,
+      );
+    }
+    // Sample entries so the file has a realistic size (about 3 KB).
+    for (let i = 40; i > 0; i--) {
+      const at = new Date(now.getTime() - i * 60_000).toISOString();
+      lines.push(`${at} INFO ${this.config.stationId} heartbeat sent, connection healthy`);
+    }
+    return Buffer.from(`${lines.join('\n')}\n`, 'utf8');
   }
 
   private async simulateLogUpload(requestId: number, remoteLocation: string): Promise<void> {
@@ -8610,7 +8864,7 @@ export class StationSimulator {
       await this.sendDiagnosticsStatusNotification('Uploaded');
     } catch (err) {
       logger.warn(
-        { err, stationId: this.config.stationId, location },
+        { err, stationId: this.config.stationId, location: maskUrlPassword(location) },
         'Diagnostics upload stopped',
       );
     }
@@ -10026,6 +10280,15 @@ export class StationSimulator {
         }
       }
     }
+    // The file transfer protocols are a property of the firmware (ReadOnly): a station
+    // provisioned with an older list reports the protocols it implements now.
+    this.configVariables.set(
+      this.is16 ? 'SupportedFileTransferProtocols' : 'OCPPCommCtrlr.FileTransferProtocols',
+      {
+        value: this.is16 ? CSS_FILE_TRANSFER_PROTOCOLS_16 : CSS_FILE_TRANSFER_PROTOCOLS_2X,
+        readonly: true,
+      },
+    );
     await this.installedCertificatesCache.load();
     if (this.installedCertificatesCache.size === 0) {
       if (this.is16) {

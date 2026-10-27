@@ -107,12 +107,17 @@ export function CaCertificatesTab(): React.JSX.Element {
       <TabsContent value="ca">
         <Card>
           <CardHeader>
-            <div className="flex flex-row items-center justify-between gap-2">
+            <div
+              className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+              data-testid="ca-certificates-header"
+            >
               <CardTitle>{t('pnc.caCertificates')}</CardTitle>
-              <div className="flex flex-col gap-2 *:w-full sm:flex-row sm:items-center sm:*:w-auto">
+              {/* Phones: the buttons share one full-width row, the filter icon keeps its size. */}
+              <div className="flex flex-wrap items-center gap-2">
                 {canManageTrustStore && (
                   <>
                     <Button
+                      className="grow sm:grow-0"
                       variant="outline"
                       onClick={() => {
                         refreshRootsMutation.mutate();
@@ -127,6 +132,7 @@ export function CaCertificatesTab(): React.JSX.Element {
                       {t('pnc.refreshRootCerts')}
                     </Button>
                     <Button
+                      className="grow sm:grow-0"
                       onClick={() => {
                         setUploadOpen(true);
                       }}

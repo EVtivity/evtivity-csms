@@ -286,6 +286,24 @@ describe('LogStatusNotification handler', () => {
       expect.objectContaining({ eventType: 'ocpp.LogStatusNotification' }),
     );
   });
+
+  it('passes the statusInfo of a failed upload to the projection', async () => {
+    const { ctx, publishMock } = makeCtx('LogStatusNotification', {
+      status: 'UploadFailure',
+      requestId: 2,
+      statusInfo: { reasonCode: 'RedirectNotAllowed' },
+    });
+    await handleLogStatusNotification(ctx);
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          status: 'UploadFailure',
+          requestId: 2,
+          statusInfo: { reasonCode: 'RedirectNotAllowed' },
+        }) as unknown,
+      }),
+    );
+  });
 });
 
 describe('MeterValues handler', () => {

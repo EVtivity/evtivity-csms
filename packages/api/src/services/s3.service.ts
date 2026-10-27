@@ -66,6 +66,8 @@ export interface DownloadOptions {
    * browser may show it, only for a type that runs no script (a raster image).
    */
   disposition?: 'attachment' | 'inline';
+  /** Served as the response `Cache-Control` (S3 default when omitted). */
+  cacheControl?: string;
 }
 
 /**
@@ -89,6 +91,7 @@ export async function generateDownloadUrl(
               ? contentDispositionInline(options.fileName)
               : contentDispositionAttachment(options.fileName),
           ResponseContentType: options.contentType,
+          ...(options.cacheControl != null ? { ResponseCacheControl: options.cacheControl } : {}),
         }
       : {}),
   });

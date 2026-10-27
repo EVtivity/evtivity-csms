@@ -16,6 +16,7 @@ import {
   getAiWorkerSettings,
   getOpsAiSettings,
   getStaleSessionTimeoutHours,
+  siteInsightsInScope,
 } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
 import { isOcpp2x } from '@evtivity/lib';
@@ -362,6 +363,9 @@ export async function runTariffAnomalies(
     if (siteId === null) return { status: 'skipped' };
     if (await siteInsightsSuppressed(siteId)) {
       return { status: 'skipped', output: { siteSuppressed: true } };
+    }
+    if (!(await siteInsightsInScope(siteId))) {
+      return { status: 'skipped', output: { siteOutOfScope: true } };
     }
     const findings = await tariffAnomalies({ siteId, now });
     if (findings.length === 0) return { status: 'completed', output: { findings } };

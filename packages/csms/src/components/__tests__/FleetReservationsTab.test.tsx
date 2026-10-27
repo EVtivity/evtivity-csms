@@ -45,18 +45,33 @@ vi.mock('@/components/fleet/BulkReservationSlotRow', () => ({
   BulkReservationSlotRow: ({
     slot,
     onChange,
+    excludeConnectorKeys,
   }: {
-    slot: { station: unknown };
+    slot: { station: unknown; connectorKey: string };
     onChange: (next: unknown) => void;
+    excludeConnectorKeys?: ReadonlySet<string>;
   }) => (
-    <button
-      type="button"
-      onClick={() => {
-        onChange({ ...slot, station: { id: 'sta_1', stationId: 'CS-001' } });
-      }}
-    >
-      pick-station
-    </button>
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          onChange({ ...slot, station: { id: 'sta_1', stationId: 'CS-001' } });
+        }}
+      >
+        pick-station
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          onChange({ ...slot, station: { id: 'sta_1', stationId: 'CS-001' }, connectorKey: '1-1' });
+        }}
+      >
+        pick-connector
+      </button>
+      <span data-testid="excluded-connectors">
+        {[...(excludeConnectorKeys ?? new Set<string>())].join(',')}
+      </span>
+    </div>
   ),
 }));
 
@@ -179,6 +194,48 @@ describe('FleetReservationsTab', () => {
       '/v1/fleets/flt_000000000001/reservations',
       expect.objectContaining({ slots: [{ stationOcppId: 'CS-001' }] }),
     );
+  });
+
+  it('offers a station in a second slot without the connector the first slot picked', async () => {
+    mockList([]);
+    renderTab();
+    await screen.findByText('reservations.noReservations');
+    fireEvent.click(screen.getByText('fleets.newBulkReservation'));
+    fireEvent.click(await screen.findByText('fleets.addStation'));
+    const connectorButtons = screen.getAllByText('pick-connector');
+    fireEvent.click(connectorButtons[0] as HTMLElement);
+    const excluded = screen.getAllByTestId('excluded-connectors');
+    expect(excluded[0]?.textContent).toBe('');
+    // The second slot has no station yet, so nothing is hidden from it.
+    expect(excluded[1]?.textContent).toBe('');
+    fireEvent.click(screen.getAllByText('pick-station')[1] as HTMLElement);
+    expect(screen.getAllByTestId('excluded-connectors')[1]?.textContent).toBe('1-1');
+  });
+
+  it('sends a reservation name already used in the list', async () => {
+    mockList([BOOKING]);
+    postMock.mockResolvedValue({
+      id: 'frs_000000000002',
+      status: 'active',
+      confirmed: 1,
+      failed: 0,
+      total: 1,
+      results: [],
+    });
+    renderTab();
+    await screen.findByText('Morning Shift');
+    fireEvent.click(screen.getByText('fleets.newBulkReservation'));
+    fireEvent.change(await screen.findByLabelText('fleets.fleetReservationName'), {
+      target: { value: 'Morning Shift' },
+    });
+    fireEvent.click(screen.getByText('pick-station'));
+    fireEvent.click(screen.getByText('common.create'));
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        '/v1/fleets/flt_000000000001/reservations',
+        expect.objectContaining({ name: 'Morning Shift' }),
+      );
+    });
   });
 
   it('stops adding stations at the slot limit the API accepts', async () => {

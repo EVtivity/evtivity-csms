@@ -476,13 +476,19 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
               <Label>{t('fleets.stations')}</Label>
               <div className="grid gap-3">
                 {slots.map((slot, index) => {
-                  // Exclude every OTHER slot's picked station so this row's
-                  // combobox can't surface it as a duplicate option.
+                  // A station can appear in several slots, but each connector
+                  // only once: hide the connectors other slots picked here.
                   const others = new Set<string>();
                   for (let j = 0; j < slots.length; j++) {
                     if (j === index) continue;
-                    const id = slots[j]?.station?.id;
-                    if (id != null) others.add(id);
+                    const other = slots[j];
+                    if (
+                      other?.station != null &&
+                      other.station.id === slot.station?.id &&
+                      other.connectorKey !== ''
+                    ) {
+                      others.add(other.connectorKey);
+                    }
                   }
                   return (
                     <BulkReservationSlotRow
@@ -498,7 +504,7 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
                             }
                           : null
                       }
-                      excludeStationIds={others}
+                      excludeConnectorKeys={others}
                     />
                   );
                 })}

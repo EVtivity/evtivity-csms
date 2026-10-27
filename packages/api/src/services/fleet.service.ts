@@ -56,6 +56,8 @@ import {
   buildDerivedStatusSubquery,
   buildStatusReasonSubquery,
 } from '@evtivity/services/station-derived-status';
+import { driverAvatarColumns } from './driver-avatar.service.js';
+import { withAvatars } from './account-avatar.js';
 
 /**
  * Lists fleets. Fleets are company-wide records, so every fleet is listed;
@@ -706,6 +708,7 @@ export async function getFleetDrivers(fleetId: string, page: number, limit: numb
         isActive: drivers.isActive,
         accountBillingOptOut: fleetDrivers.accountBillingOptOut,
         createdAt: drivers.createdAt,
+        ...driverAvatarColumns,
       })
       .from(fleetDrivers)
       .innerJoin(drivers, eq(fleetDrivers.driverId, drivers.id))
@@ -719,7 +722,7 @@ export async function getFleetDrivers(fleetId: string, page: number, limit: numb
       .where(eq(fleetDrivers.fleetId, fleetId)),
   ]);
 
-  return { data, total: countRows[0]?.count ?? 0 };
+  return { data: await withAvatars(data), total: countRows[0]?.count ?? 0 };
 }
 
 export async function addDriverToFleet(fleetId: string, driverId: string) {

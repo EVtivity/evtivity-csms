@@ -2762,15 +2762,19 @@ export function registerProjections(
     };
     const status = STATUS_MAP[rawStatus] ?? rawStatus;
 
-    // Update the most recent log_uploads row for this station
+    // Update the most recent GetDiagnostics row of this station (1.6 has no requestId)
+    // while its upload is open: a finished upload keeps its status (P5), and a status
+    // that arrives before the command row (the station reports right after its answer)
+    // starts a row the command.GetDiagnostics projection then completes.
     const updated = await sql`
       UPDATE log_uploads
       SET status = ${status}, last_status_at = now(), updated_at = now()
       WHERE id = (
         SELECT id FROM log_uploads
-        WHERE station_id = ${stationUuid}
+        WHERE station_id = ${stationUuid} AND request_id IS NULL
         ORDER BY created_at DESC LIMIT 1
       )
+      AND (status IS NULL OR status NOT IN ('Uploaded', 'UploadFailed'))
     `;
 
     if (updated.count === 0) {
@@ -3177,6 +3181,18 @@ export function registerProjections(
     const log = request.log as Record<string, unknown> | undefined;
     const remoteLocation = log != null ? ((log.remoteLocation as string | undefined) ?? '') : null;
 
+    // The station may report Uploading before this projection runs (it starts the upload
+    // right after its answer): complete the row that status notification created.
+    if (requestId != null) {
+      const completed = await sql`
+        UPDATE log_uploads
+        SET log_type = ${logType}, remote_location = ${remoteLocation}, initiated_at = now(),
+            updated_at = now()
+        WHERE station_id = ${stationUuid} AND request_id = ${requestId}
+          AND remote_location IS NULL AND initiated_at IS NULL
+      `;
+      if (completed.count > 0) return;
+    }
     await sql`
       INSERT INTO log_uploads (station_id, request_id, log_type, remote_location, initiated_at)
       VALUES (${stationUuid}, ${requestId}, ${logType}, ${remoteLocation}, now())
@@ -3190,6 +3206,22 @@ export function registerProjections(
     const request = event.payload.request as Record<string, unknown>;
     const location = (request.location as string | undefined) ?? null;
 
+    // A DiagnosticsStatusNotification that arrived first (the station reports right after
+    // its answer) started a row without a command: complete it instead of adding a second.
+    const completed = await sql`
+      UPDATE log_uploads
+      SET log_type = 'DiagnosticsLog', remote_location = ${location}, initiated_at = now(),
+          updated_at = now()
+      WHERE id = (
+        SELECT id FROM log_uploads
+        WHERE station_id = ${stationUuid} AND request_id IS NULL
+        ORDER BY created_at DESC LIMIT 1
+      )
+      AND initiated_at IS NULL AND remote_location IS NULL
+      AND status IN ('Uploading', 'Uploaded', 'UploadFailed')
+      AND created_at > now() - interval '5 minutes'
+    `;
+    if (completed.count > 0) return;
     await sql`
       INSERT INTO log_uploads (station_id, log_type, remote_location, initiated_at)
       VALUES (${stationUuid}, 'DiagnosticsLog', ${location}, now())

@@ -363,8 +363,8 @@ export function MfaChallenge(): React.JSX.Element {
                 </Button>
               )}
             </div>
-            <div className="flex items-center justify-between gap-4">
-              {canResend && (
+            {canResend && (
+              <div className="flex justify-center">
                 <Button
                   type="button"
                   variant="link"
@@ -374,14 +374,10 @@ export function MfaChallenge(): React.JSX.Element {
                 >
                   {resending ? t('auth.mfaResending') : t('auth.mfaResend')}
                 </Button>
-              )}
-              <Button
-                type="button"
-                variant="link"
-                size="inline"
-                className="ml-auto"
-                onClick={clearMfaPending}
-              >
+              </div>
+            )}
+            <div className="flex justify-center">
+              <Button type="button" variant="link" size="inline" onClick={clearMfaPending}>
                 {t('auth.backToLogin')}
               </Button>
             </div>

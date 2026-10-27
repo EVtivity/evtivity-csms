@@ -259,6 +259,7 @@ describe('docker/redis/acl-rules.conf', () => {
     // survive a stopped worker, and to no other queue.
     const producerQueues = {
       api: [
+        'driver-avatar-cleanup',
         'fleet-billing-fanout',
         'maintenance-fanout',
         'member-invoices',
@@ -286,7 +287,7 @@ describe('docker/redis/acl-rules.conf', () => {
       expect(grantsKey(user('api'), `bull:${queue}:wait`, 'r'), queue).toBe(false);
       expect(grantsKey(user('ocpp'), `bull:${queue}:wait`, 'r'), queue).toBe(false);
     }
-    for (const queue of ['fleet-billing-fanout', 'member-invoices']) {
+    for (const queue of ['driver-avatar-cleanup', 'fleet-billing-fanout', 'member-invoices']) {
       expect(grantsKey(user('ocpp'), `bull:${queue}:wait`, 'r'), queue).toBe(false);
     }
 

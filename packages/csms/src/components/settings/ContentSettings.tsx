@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { UiLanguage } from '@evtivity/lib/languages';
+import { isUiLanguage, type UiLanguage } from '@evtivity/lib/languages';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTab } from '@/hooks/use-tab';
 import { SaveButton } from '@/components/save-button';
@@ -11,7 +11,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { WysiwygEditor } from '@/components/wysiwyg-editor';
-import { LANGUAGES } from '@/components/ui/language-select';
+import { LanguageSelect, LANGUAGES } from '@/components/ui/language-select';
+import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 
 export function ContentSettings(): React.JSX.Element {
@@ -66,30 +67,38 @@ export function ContentSettings(): React.JSX.Element {
         <CardTitle>{t('settings.content')}</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-[180px_1fr] gap-6">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-[180px_1fr]">
           <div className="space-y-1">
-            <Label className="mb-2 block text-xs text-muted-foreground">
+            <Label htmlFor="content-language" className="mb-2 block text-xs text-muted-foreground">
               {t('settings.language')}
             </Label>
-            {LANGUAGES.map(({ code: lang, label }) => (
-              <button
-                key={lang}
-                type="button"
-                onClick={() => {
-                  setContentLang(lang);
-                }}
-                className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
-                  contentLang === lang
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-foreground hover:bg-muted'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+            <LanguageSelect
+              id="content-language"
+              className="md:hidden"
+              value={contentLang}
+              onChange={(value) => {
+                if (isUiLanguage(value)) setContentLang(value);
+              }}
+            />
+            <div className="hidden space-y-1 md:block">
+              {LANGUAGES.map(({ code: lang, label }) => (
+                <Button
+                  key={lang}
+                  type="button"
+                  variant={contentLang === lang ? 'default' : 'ghost'}
+                  size="row"
+                  aria-pressed={contentLang === lang}
+                  onClick={() => {
+                    setContentLang(lang);
+                  }}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <Tabs value={contentSubTab} onValueChange={setContentSubTab}>
               <TabsList>
                 <TabsTrigger value="privacy">{t('settings.privacyPolicy')}</TabsTrigger>

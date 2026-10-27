@@ -27,7 +27,7 @@ vi.mock('../AiPanel', () => ({
   ),
 }));
 
-import { AiAssistantLauncher, isAiShortcut } from '../AiAssistantLauncher';
+import { AiAssistantLauncher, isAiShortcut, preloadAiPanel } from '../AiAssistantLauncher';
 import { useAiPanelStore } from '../use-ai-panel-store';
 
 function renderLauncher(): void {
@@ -158,5 +158,55 @@ describe('AiAssistantLauncher', () => {
     expect(isAiShortcut(ev({ key: 'k' }))).toBe(false);
     expect(isAiShortcut(ev({ key: 'k', ctrlKey: true, shiftKey: true }))).toBe(false);
     expect(isAiShortcut(ev({ key: 'j', ctrlKey: true }))).toBe(false);
+  });
+});
+
+describe('AiAssistantLauncher panel preload', () => {
+  afterEach(() => {
+    // Unmount first: the unmount cancels the idle callback through the stubbed global.
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('schedules the panel download for when the browser is idle once the launcher shows', async () => {
+    const requestIdle = vi.fn((cb: IdleRequestCallback) => {
+      cb({ didTimeout: false, timeRemaining: () => 50 });
+      return 7;
+    });
+    vi.stubGlobal('requestIdleCallback', requestIdle);
+    vi.stubGlobal('cancelIdleCallback', vi.fn());
+    getMock.mockResolvedValue({ enabled: true, supportAssistEnabled: false });
+    renderLauncher();
+    await screen.findByTestId('ai-launcher');
+    expect(requestIdle).toHaveBeenCalledWith(expect.any(Function), { timeout: 2000 });
+  });
+
+  it('schedules nothing while the assistant is unavailable', async () => {
+    const requestIdle = vi.fn(() => 1);
+    vi.stubGlobal('requestIdleCallback', requestIdle);
+    vi.stubGlobal('cancelIdleCallback', vi.fn());
+    getMock.mockResolvedValue({ enabled: false, supportAssistEnabled: false });
+    renderLauncher();
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalled();
+    });
+    expect(requestIdle).not.toHaveBeenCalled();
+  });
+
+  it('fetches the panel code once, however often it is asked for', async () => {
+    const first = preloadAiPanel();
+    expect(preloadAiPanel()).toBe(first);
+    await expect(first).resolves.toHaveProperty('default');
+  });
+
+  it('starts the download on hover and focus without opening the panel', async () => {
+    getMock.mockResolvedValue({ enabled: true, supportAssistEnabled: false });
+    renderLauncher();
+    const launcher = await screen.findByTestId('ai-launcher');
+    fireEvent.pointerEnter(launcher);
+    fireEvent.focus(launcher);
+    expect(screen.queryByTestId('ai-panel')).toBeNull();
+    fireEvent.click(launcher);
+    expect(await screen.findByTestId('ai-panel')).toBeTruthy();
   });
 });

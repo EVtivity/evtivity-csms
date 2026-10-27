@@ -102,3 +102,20 @@ describe('CompanySettings tax basis', () => {
     expect(putMock).not.toHaveBeenCalled();
   });
 });
+
+describe('CompanySettings images', () => {
+  it('offers Upload with a replace hint and no Remove for each stored image', () => {
+    renderSettings({
+      ...SETTINGS,
+      'company.logo': 'data:image/png;base64,AAAA',
+      'company.favicon': 'data:image/png;base64,AAAA',
+      'company.ogImage': 'data:image/png;base64,AAAA',
+    });
+    expect(screen.getByText('settings.uploadLogo')).toBeTruthy();
+    expect(screen.getByText('settings.uploadFavicon')).toBeTruthy();
+    expect(screen.getByText('settings.uploadOgImage')).toBeTruthy();
+    expect(screen.getByText('settings.uploadSvg')).toBeTruthy();
+    expect(screen.getAllByText('settings.uploadReplacesHint')).toHaveLength(4);
+    expect(screen.queryByText(/settings\.remove/)).toBeNull();
+  });
+});

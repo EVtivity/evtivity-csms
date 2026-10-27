@@ -173,9 +173,9 @@ export function ConformanceDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/conformance" />
-        <h1 className="text-2xl md:text-3xl font-bold">
+        <h1 className="text-2xl md:text-3xl font-bold min-w-0 wrap-anywhere">
           {t('conformance.runDetail')} #{run.id}
         </h1>
         <EntityNavButtons resource="octt/runs" basePath="/conformance" currentId={runId} />

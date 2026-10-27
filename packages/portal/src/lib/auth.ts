@@ -52,6 +52,8 @@ interface AuthState {
     password: string;
     phone?: string;
     recaptchaToken?: string;
+    /** A generated avatar chosen on the form, stored with the new account. */
+    avatar?: { style: 'avataaars'; seed: string; options: Record<string, string | number> };
   }) => Promise<void>;
   completeMfaLogin: (driver: Driver) => Promise<void>;
   clearMfaPending: () => void;

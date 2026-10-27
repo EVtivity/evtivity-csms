@@ -327,6 +327,33 @@ describe('Driver routes (operator)', () => {
       expect(res.statusCode).toBe(401);
     });
 
+    it('returns the generated avatar of a driver without its raw columns', async () => {
+      const options = { style: 'avataaars', seed: 'abc', options: { topVariant: 'bob' } };
+      setupDbResults(
+        [
+          {
+            ...makeDriver(),
+            avatarKind: 'generated',
+            avatarOptions: options,
+            avatarS3Key: null,
+            avatarS3Bucket: null,
+            avatarUpdatedAt: null,
+          },
+        ],
+        [{ count: 1 }],
+      );
+      const res = await app.inject({
+        method: 'GET',
+        url: '/drivers',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const [row] = res.json().data as Array<Record<string, unknown>>;
+      expect(row?.['avatar']).toEqual({ kind: 'generated', updatedAt: null, ...options });
+      expect(row).not.toHaveProperty('avatarKind');
+      expect(row).not.toHaveProperty('avatarS3Key');
+    });
+
     it('returns 200 with no search param', async () => {
       const driver = makeDriver();
       // First result: data rows, second result: count rows
@@ -340,7 +367,7 @@ describe('Driver routes (operator)', () => {
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.data).toEqual([driver]);
+      expect(body.data).toEqual([{ ...driver, avatar: null }]);
       expect(body.total).toBe(1);
     });
 
@@ -356,7 +383,7 @@ describe('Driver routes (operator)', () => {
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.data).toEqual([driver]);
+      expect(body.data).toEqual([{ ...driver, avatar: null }]);
       expect(body.total).toBe(1);
     });
 

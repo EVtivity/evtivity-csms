@@ -279,6 +279,10 @@ services:
       CSS_ACTION_INTERVAL_MS: ${CSS_ACTION_INTERVAL_MS:-3000}
       CSS_STATION_LIMIT: ${CSS_STATION_LIMIT:-0}
       TLS_REJECT_UNAUTHORIZED: ${TLS_REJECT_UNAUTHORIZED:-false}
+      # The file transfer test servers (tools profile) a station may upload logs to and
+      # download firmware from on their private addresses.
+      CSS_FILE_TRANSFER_ALLOWED_HOSTS: ${CSS_FILE_TRANSFER_ALLOWED_HOSTS:-ftp,sftp,file-receiver}
+      CSS_SFTP_HOST_KEY_SHA256: ${CSS_SFTP_HOST_KEY_SHA256:-}
     depends_on:
       ocpp:
         condition: service_healthy
@@ -485,6 +489,54 @@ services:
       FTP_PASSIVE_PORTS: 30000:30009
     volumes:
       - ftpdata:/home/evtivity
+    profiles:
+      - tools
+
+  # SFTP test server for station log uploads and firmware downloads (dev tools). User
+  # evtivity/evtivity (dev only), writable folder /upload: sftp://evtivity:evtivity@sftp/upload/
+  sftp:
+    image: atmoz/sftp:alpine@sha256:43dd1c023cf1bae487127d4b54660b0aee6e94c188a6599be36fb89ba115f961
+    platform: linux/amd64
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.25
+    command: ['evtivity:evtivity:1001::upload']
+    ports:
+      - '${INFRA_BIND_IP:-127.0.0.1}:${SFTP_PORT:-2222}:22'
+    # No volume: the image creates /upload owned by the user only when it is missing,
+    # and uploaded files are test data.
+    profiles:
+      - tools
+
+  # HTTP and HTTPS upload receiver for station log uploads (dev tools, see
+  # docker/file-receiver/server.mjs). Basic auth evtivity/evtivity (dev only):
+  # http://evtivity:evtivity@file-receiver:8080/upload/ (HTTPS on 8443, self-signed).
+  file-receiver:
+    image: node:24-alpine
+    restart: unless-stopped
+    command: ['node', '/app/server.mjs']
+    working_dir: /app
+    volumes:
+      - ./docker/file-receiver:/app:ro
+    environment:
+      FILE_RECEIVER_USER: evtivity
+      FILE_RECEIVER_PASSWORD: evtivity
+    ports:
+      - '${INFRA_BIND_IP:-127.0.0.1}:${FILE_RECEIVER_PORT:-7112}:8080'
+      - '${INFRA_BIND_IP:-127.0.0.1}:${FILE_RECEIVER_TLS_PORT:-7113}:8443'
+    mem_limit: 256m
+    cpus: 0.25
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:8080/health').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     profiles:
       - tools
 

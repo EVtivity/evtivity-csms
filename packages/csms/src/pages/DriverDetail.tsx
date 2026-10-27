@@ -31,6 +31,7 @@ import { DriverPricingTab } from '@/components/driver/DriverPricingTab';
 import { DriverReservationsTab } from '@/components/driver/DriverReservationsTab';
 import { AuthorizeLogView } from '@/components/AuthorizeLogView';
 import { LoadingLogo } from '@/components/loading-logo';
+import { AccountAvatar, type AvatarData } from '@/components/AccountAvatar';
 
 interface Driver {
   id: string;
@@ -45,6 +46,7 @@ interface Driver {
   updatedAt: string;
   portalAccess?: PortalAccess;
   billing?: DriverBilling;
+  avatar?: AvatarData | null;
 }
 
 interface DriverToken {
@@ -109,24 +111,37 @@ export function DriverDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <BackButton to="/drivers" />
-        <div className="min-w-0">
-          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">
+      <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+          <BackButton to="/drivers" />
+          {driver.erasedAt == null && (
+            <AccountAvatar
+              avatar={driver.avatar}
+              firstName={driver.firstName}
+              lastName={driver.lastName}
+              size="lg"
+            />
+          )}
+          <div className="min-w-0">
+            <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">
+              {driver.erasedAt != null
+                ? t('drivers.erasedName')
+                : `${driver.firstName} ${driver.lastName}`}
+            </h1>
+            <CopyableId id={driver.id} />
+          </div>
+          <Badge variant={driver.isActive ? 'default' : 'outline'}>
             {driver.erasedAt != null
-              ? t('drivers.erasedName')
-              : `${driver.firstName} ${driver.lastName}`}
-          </h1>
-          <CopyableId id={driver.id} />
+              ? t('drivers.erased')
+              : driver.isActive
+                ? t('common.active')
+                : t('common.inactive')}
+          </Badge>
         </div>
-        <Badge variant={driver.isActive ? 'default' : 'outline'}>
-          {driver.erasedAt != null
-            ? t('drivers.erased')
-            : driver.isActive
-              ? t('common.active')
-              : t('common.inactive')}
-        </Badge>
-        <EntityNavButtons resource="drivers" basePath="/drivers" currentId={id} />
+        {/* items-start: Prev and Next line up with the top of the title row. The avatar is read-only here: drivers:write edits it in the Details tab edit form. */}
+        <div className="flex flex-wrap items-start gap-2" data-testid="driver-header-actions">
+          <EntityNavButtons resource="drivers" basePath="/drivers" currentId={id} />
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>

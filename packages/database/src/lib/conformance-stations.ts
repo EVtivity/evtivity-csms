@@ -4,6 +4,7 @@
 import { eq, sql, type SQL } from 'drizzle-orm';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { OCTT_TEST_DRIVER_EMAIL } from '@evtivity/lib';
+import { enqueueDriverAvatarPurge } from '@evtivity/lib/avatar-cleanup';
 import { client } from '../config.js';
 import { chargingStations } from '../schema/index.js';
 import { raiseStationSimHistoryFloor } from './sim-inventory.js';
@@ -198,6 +199,14 @@ export interface ConformanceDriverDeleteResult {
    * (sessions and access logs), detached.
    */
   detachedRows: number;
+  /**
+   * Deleted drivers whose avatar objects the worker purges
+   * (`driver-avatar-cleanup` queue). Fewer than the deleted drivers when the
+   * queue could not be reached (a CLI run without the worker queues): the
+   * objects stay, `avatarCleanupError` says why.
+   */
+  avatarCleanupQueued: number;
+  avatarCleanupError?: string;
 }
 
 /**
@@ -207,15 +216,19 @@ export interface ConformanceDriverDeleteResult {
  * reference the driver and the tariffs. A row elsewhere that still references
  * the driver (a session started with a test token at an operator station) is
  * detached instead of blocking the delete; a pricing group whose tariff an
- * operator session's tariff segment uses is kept.
+ * operator session's tariff segment uses is kept. After the commit the
+ * avatar objects of the deleted drivers are queued for the worker, the same
+ * cleanup the driver erasure falls back to.
  */
 export async function deleteConformanceTestDriver(): Promise<ConformanceDriverDeleteResult> {
-  return client.begin(async (tx) => {
+  const deletedDriverIds: string[] = [];
+  const result = await client.begin(async (tx) => {
     const result: ConformanceDriverDeleteResult = {
       driverDeleted: false,
       pricingGroupsDeleted: 0,
       pricingGroupsKept: 0,
       detachedRows: 0,
+      avatarCleanupQueued: 0,
     };
     const drivers = await tx<{ id: string }[]>`
       SELECT id FROM drivers WHERE email = ${OCTT_TEST_DRIVER_EMAIL}
@@ -281,6 +294,17 @@ export async function deleteConformanceTestDriver(): Promise<ConformanceDriverDe
     // notification preferences and the other per-driver rows.
     const removedDrivers = await tx`DELETE FROM drivers WHERE id = ANY(${driverIds})`;
     result.driverDeleted = removedDrivers.count > 0;
+    if (result.driverDeleted) deletedDriverIds.push(...driverIds);
     return result;
   });
+  for (const driverId of deletedDriverIds) {
+    try {
+      await enqueueDriverAvatarPurge({ driverId, buckets: [] });
+      result.avatarCleanupQueued += 1;
+    } catch (err) {
+      // fail-open: the drivers are gone; the callers log the result, objects stay
+      result.avatarCleanupError = err instanceof Error ? err.message : String(err);
+    }
+  }
+  return result;
 }

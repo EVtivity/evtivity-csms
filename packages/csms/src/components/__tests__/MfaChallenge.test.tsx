@@ -129,6 +129,21 @@ describe('MfaChallenge', () => {
     expect(completeMfaLogin).not.toHaveBeenCalled();
   });
 
+  it('centers Back to Sign In on its own row, with and without Resend', () => {
+    state.mfaPending = pending({ factors: ['totp'] });
+    render(<MfaChallenge />);
+    const back = screen.getByRole('button', { name: 'auth.backToLogin' });
+    expect(back.parentElement?.className).toContain('justify-center');
+    expect(screen.queryByText('auth.mfaResend')).toBeNull();
+    cleanup();
+    state.mfaPending = pending({ mfaMethod: 'email', factors: ['email'] });
+    render(<MfaChallenge />);
+    const resend = screen.getByRole('button', { name: 'auth.mfaResend' });
+    const backWithResend = screen.getByRole('button', { name: 'auth.backToLogin' });
+    expect(backWithResend.parentElement?.className).toContain('justify-center');
+    expect(resend.parentElement).not.toBe(backWithResend.parentElement);
+  });
+
   it('offers no recovery code when the factors have none', () => {
     state.mfaPending = pending({ factors: ['totp'] });
     render(<MfaChallenge />);

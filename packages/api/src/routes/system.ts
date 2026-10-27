@@ -3,8 +3,19 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { inArray } from 'drizzle-orm';
-import { db, settings } from '@evtivity/database';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import {
+  client,
+  cssStations,
+  db,
+  effectiveDataPlanSql,
+  getOcppFleetHealth,
+  isOperatorStation,
+  settings,
+  sites,
+  chargingStations,
+} from '@evtivity/database';
+import { WEBHOOK_SIGNING_SECRET_KEY } from '@evtivity/lib';
 import { authorize } from '../middleware/rbac.js';
 import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -12,7 +23,18 @@ import { requireAllSiteAccess } from '../lib/site-access.js';
 import { isWeakJwtSecret, isWeakSettingsEncryptionKey } from '@evtivity/lib/deployment-secrets';
 import { APP_VERSION } from '../lib/app-version.js';
 import { activePaymentProvider } from '../lib/payments.js';
+import { config } from '../lib/config.js';
+import { storedSecretDecrypts } from '../lib/settings-crypto.js';
 
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** Whether the API counts its rate limits in Redis, shared by every replica (buildApp). */
+    sharedRateLimit: boolean;
+  }
+}
+
+// Values only Docker Compose or the other services set: read from the
+// environment, as no API config field holds them.
 function envStr(key: string): string {
   return process.env[key] ?? '';
 }
@@ -37,6 +59,13 @@ const INTEGRATION_SETTING_KEYS = [
   'security.recaptcha.secretKeyEnc',
   'pnc.hubject.baseUrl',
   'googleMaps.apiKeyEnc',
+  'ocpp.registrationPolicy',
+  'sim.hologram.enabled',
+  'sim.hologram.orgId',
+  'sim.hologram.apiKeyEnc',
+  'sim.sessions.fetchDays',
+  'sim.stationSignal.enabled',
+  WEBHOOK_SIGNING_SECRET_KEY,
 ] as const;
 
 async function loadIntegrationSettings(): Promise<Map<string, unknown>> {
@@ -51,6 +80,71 @@ function settingHasValue(map: Map<string, unknown>, key: string): boolean {
   const value = map.get(key);
   return typeof value === 'string' && value !== '';
 }
+
+function settingBoolean(map: Map<string, unknown>, key: string): boolean {
+  const value = map.get(key);
+  return value === true || value === 'true';
+}
+
+function settingNumber(map: Map<string, unknown>, key: string): number | null {
+  const value = map.get(key);
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Accepted operator stations per effective data plan, and sites per explicit plan. */
+async function loadDataPlanCounts(): Promise<{
+  stations: { wifiOrWired: number; cellular: number };
+  sites: { wifiOrWired: number; cellular: number };
+}> {
+  const [stationRows, siteRows] = await Promise.all([
+    db
+      .select({ plan: effectiveDataPlanSql, count: sql<number>`count(*)::int` })
+      .from(chargingStations)
+      .where(and(isOperatorStation(), eq(chargingStations.onboardingStatus, 'accepted')))
+      .groupBy(sql`1`),
+    db
+      .select({ plan: sites.dataPlan, count: sql<number>`count(*)::int` })
+      .from(sites)
+      .where(isNotNull(sites.dataPlan))
+      .groupBy(sites.dataPlan),
+  ]);
+  const tally = (rows: Array<{ plan: string | null; count: number }>) => ({
+    wifiOrWired: rows.find((r) => r.plan === 'wifi_or_wired')?.count ?? 0,
+    cellular: rows.find((r) => r.plan === 'cellular')?.count ?? 0,
+  });
+  return { stations: tally(stationRows), sites: tally(siteRows) };
+}
+
+async function countSimulatorStations(): Promise<number> {
+  const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(cssStations);
+  return row?.count ?? 0;
+}
+
+const ocppProcessConfigSchema = z
+  .object({
+    version: z.string().describe('Release version of the OCPP process'),
+    wsCompression: z.boolean().describe('WebSocket permessage-deflate on (OCPP_WS_COMPRESSION)'),
+    tlsEnabled: z.boolean().describe('Whether the TLS (wss) listener runs'),
+    tlsPort: z.number().nullable().describe('TLS listener port, when it runs'),
+    clientCaConfigured: z
+      .boolean()
+      .describe('Whether a CA for security profile 3 client certificates is set (OCPP_TLS_CA)'),
+    maxConnectionsPerIp: z.number().describe('OCPP_MAX_CONNECTIONS_PER_IP'),
+    maxMessagesPerIpPerSecond: z.number().describe('OCPP_MAX_MESSAGES_PER_IP_PER_SECOND'),
+    maxPendingAuthPerIp: z.number().describe('OCPP_MAX_PENDING_AUTH_PER_IP'),
+    trustedProxiesConfigured: z
+      .boolean()
+      .describe('Whether OCPP_TRUSTED_PROXY_CIDRS lists any proxy'),
+  })
+  .loose();
+
+const dataPlanCounts = z
+  .object({
+    wifiOrWired: z.number().describe('Count on the Wi-Fi or wired plan'),
+    cellular: z.number().describe('Count on the cellular plan'),
+  })
+  .loose();
 
 const systemInfoResponse = z
   .object({
@@ -67,11 +161,10 @@ const systemInfoResponse = z
           ),
         apiPort: z.string().describe('REST API listening port'),
         apiHost: z.string().describe('REST API listening host'),
-        ocppPort: z.string().describe('OCPP WebSocket listening port'),
-        ocppHost: z.string().describe('OCPP WebSocket listening host'),
-        ocppHealthPort: z.string().describe('OCPP health check port'),
-        ocppTlsPort: z.string().nullable().describe('OCPP TLS port, when TLS is enabled'),
-        ocppTlsEnabled: z.boolean().describe('Whether OCPP TLS (wss) is enabled'),
+        ocppStationTlsUrl: z
+          .string()
+          .nullable()
+          .describe('Public wss:// address stations use for security profiles 2 and 3'),
         ocpiPort: z.string().nullable().describe('OCPI server port'),
         ocpiHost: z.string().nullable().describe('OCPI server host'),
         metricsPort: z.string().describe('Prometheus metrics port'),
@@ -87,29 +180,48 @@ const systemInfoResponse = z
         rateLimitMax: z.string().describe('Default request rate limit per window'),
         rateLimitWindow: z.string().describe('Default rate limit window duration'),
         authRateLimitMax: z.string().describe('Login rate limit per window'),
-        ocppMaxConnectionsPerIp: z
-          .string()
-          .nullable()
-          .describe('Maximum simultaneous OCPP connections allowed from one IP'),
-        ocppMaxMessagesPerIpPerSecond: z
-          .string()
-          .nullable()
-          .describe('Maximum OCPP messages per second from one IP'),
+        authRateLimitWindow: z.string().describe('Login rate limit window duration'),
       })
       .loose()
-      .describe('Rate-limit configuration'),
+      .describe('Rate-limit configuration of the API'),
+    security: z
+      .object({
+        trustProxyConfigured: z
+          .boolean()
+          .describe('Whether TRUST_PROXY lists the proxies in front of the API'),
+        webauthnRpId: z
+          .string()
+          .nullable()
+          .describe('WebAuthn relying party ID (WEBAUTHN_RP_ID); null uses the CSMS host'),
+        sharedRateLimit: z
+          .boolean()
+          .describe('Whether the API counts rate limits in Redis, shared by every replica'),
+      })
+      .loose()
+      .describe('API security configuration (no secret values)'),
     ocpp: z
       .object({
-        instanceId: z
-          .string()
-          .nullable()
-          .describe('Pod identifier used by RedisConnectionRegistry for horizontal scaling'),
         registrationPolicy: z
           .string()
-          .describe('Station registration policy (approval-required or auto-approve)'),
+          .describe('Station registration policy setting (approval-required or open)'),
       })
       .loose()
-      .describe('OCPP server configuration'),
+      .describe('OCPP configuration'),
+    ocppProcesses: z
+      .array(
+        z
+          .object({
+            instanceId: z.string().describe('Process instance ID (pod or task)'),
+            connectedStations: z.number().describe('Stations connected to the process'),
+            serverStartedAt: z.coerce.date().describe('When the process started'),
+            updatedAt: z.coerce.date().describe('When the process last wrote its health row'),
+            config: ocppProcessConfigSchema
+              .nullable()
+              .describe('Settings the process runs with; null from an older process'),
+          })
+          .loose(),
+      )
+      .describe('Running OCPP processes and the settings each reports'),
     ocpi: z
       .object({
         baseUrl: z.string().nullable().describe('Public OCPI base URL exposed to partners'),
@@ -127,6 +239,7 @@ const systemInfoResponse = z
           .nullable()
           .describe('Action interval in milliseconds when running in chaos mode'),
         stationLimit: z.string().nullable().describe('Maximum number of simulated stations'),
+        stationCount: z.number().describe('Simulator stations stored (css_stations)'),
       })
       .loose()
       .describe('Charging station simulator configuration'),
@@ -147,6 +260,28 @@ const systemInfoResponse = z
       })
       .loose()
       .describe('Payment provider status'),
+    simProviders: z
+      .object({
+        hologram: z
+          .object({
+            enabled: z.boolean().describe('sim.hologram.enabled'),
+            configured: z
+              .boolean()
+              .describe('Whether the Hologram organization id and API key are set'),
+          })
+          .loose(),
+        sessionsFetchDays: z.number().nullable().describe('sim.sessions.fetchDays'),
+        stationSignalEnabled: z.boolean().describe('sim.stationSignal.enabled'),
+      })
+      .loose()
+      .describe('SIM provider settings (no secret values)'),
+    dataPlans: z
+      .object({
+        stations: dataPlanCounts.describe('Accepted operator stations per effective data plan'),
+        sites: dataPlanCounts.describe('Sites with an explicit data plan'),
+      })
+      .loose()
+      .describe('Station data plans'),
     secrets: z
       .object({
         jwtConfigured: z
@@ -181,6 +316,12 @@ const systemInfoResponse = z
         googleMapsConfigured: z
           .boolean()
           .describe('Whether the Google Maps API key is configured in settings'),
+        webhookSigningConfigured: z
+          .boolean()
+          .describe('Whether a webhook signing secret is stored and decrypts'),
+        simHologramConfigured: z
+          .boolean()
+          .describe('Whether the Hologram API key is stored and decrypts'),
       })
       .loose()
       .describe('Configured-status flags for secrets (no secret values are returned)'),
@@ -213,40 +354,59 @@ export function systemRoutes(app: FastifyInstance): void {
         }))
       )
         return;
-      const integration = await loadIntegrationSettings();
+      const [integration, fleet, dataPlans, simulatorStations] = await Promise.all([
+        loadIntegrationSettings(),
+        getOcppFleetHealth(client),
+        loadDataPlanCounts(),
+        countSimulatorStations(),
+      ]);
       const selected = integration.get('payments.provider');
+      const policy = integration.get('ocpp.registrationPolicy');
+      const hologramConfigured =
+        settingHasValue(integration, 'sim.hologram.orgId') &&
+        storedSecretDecrypts('sim.hologram.apiKeyEnc', integration.get('sim.hologram.apiKeyEnc'));
       return {
         version: APP_VERSION,
-        nodeEnv: envStr('NODE_ENV') || 'production',
-        logLevel: envStr('LOG_LEVEL') || 'info',
+        nodeEnv: config.NODE_ENV,
+        logLevel: config.LOG_LEVEL,
         network: {
           bindIp: envOptional('BIND_IP'),
-          apiPort: envStr('API_PORT') || '7102',
-          apiHost: envStr('API_HOST') || '0.0.0.0',
-          ocppPort: envStr('OCPP_PORT') || '7103',
-          ocppHost: envStr('OCPP_HOST') || '0.0.0.0',
-          ocppHealthPort: envStr('OCPP_HEALTH_PORT') || '8081',
-          ocppTlsPort: envOptional('OCPP_TLS_PORT'),
-          ocppTlsEnabled: envHasValue('OCPP_TLS_CERT'),
+          apiPort: String(config.API_PORT),
+          apiHost: config.API_HOST,
+          ocppStationTlsUrl: config.OCPP_STATION_TLS_URL ?? null,
           ocpiPort: envOptional('OCPI_PORT'),
           ocpiHost: envOptional('OCPI_HOST'),
-          metricsPort: envStr('METRICS_PORT') || '9091',
-          csmsUrl: envOptional('CSMS_URL'),
-          portalUrl: envOptional('PORTAL_URL'),
-          cookieDomain: envOptional('COOKIE_DOMAIN'),
-          corsOrigin: envStr('CORS_ORIGIN') || '*',
+          metricsPort: String(config.METRICS_PORT),
+          csmsUrl: config.CSMS_URL,
+          portalUrl: config.PORTAL_URL,
+          cookieDomain:
+            config.COOKIE_DOMAIN != null && config.COOKIE_DOMAIN !== ''
+              ? config.COOKIE_DOMAIN
+              : null,
+          corsOrigin: config.CORS_ORIGIN,
         },
         rateLimits: {
-          rateLimitMax: envStr('RATE_LIMIT_MAX') || '3000',
-          rateLimitWindow: envStr('RATE_LIMIT_WINDOW') || '1 minute',
-          authRateLimitMax: envStr('AUTH_RATE_LIMIT_MAX') || '30',
-          ocppMaxConnectionsPerIp: envOptional('OCPP_MAX_CONNECTIONS_PER_IP'),
-          ocppMaxMessagesPerIpPerSecond: envOptional('OCPP_MAX_MESSAGES_PER_IP_PER_SECOND'),
+          rateLimitMax: String(config.RATE_LIMIT_MAX),
+          rateLimitWindow: config.RATE_LIMIT_WINDOW,
+          authRateLimitMax: String(config.AUTH_RATE_LIMIT_MAX),
+          authRateLimitWindow: config.AUTH_RATE_LIMIT_WINDOW,
+        },
+        security: {
+          trustProxyConfigured: config.TRUST_PROXY !== false,
+          webauthnRpId: config.WEBAUTHN_RP_ID ?? null,
+          sharedRateLimit: app.hasDecorator('sharedRateLimit') && app.sharedRateLimit,
         },
         ocpp: {
-          instanceId: envOptional('OCPP_INSTANCE_ID'),
-          registrationPolicy: envStr('REGISTRATION_POLICY') || 'approval-required',
+          registrationPolicy:
+            typeof policy === 'string' && policy !== '' ? policy : 'approval-required',
         },
+        ocppProcesses: fleet.instances.map((instance) => ({
+          instanceId: instance.instanceId,
+          connectedStations: instance.connectedStations,
+          serverStartedAt: instance.serverStartedAt,
+          updatedAt: instance.updatedAt,
+          config: instance.config ?? null,
+        })),
         ocpi: {
           baseUrl: envOptional('OCPI_BASE_URL'),
           countryCode: envStr('OCPI_COUNTRY_CODE') || 'US',
@@ -257,6 +417,7 @@ export function systemRoutes(app: FastifyInstance): void {
           mode: envStr('CSS_MODE') || 'standby',
           actionIntervalMs: envOptional('CSS_ACTION_INTERVAL_MS'),
           stationLimit: envOptional('CSS_STATION_LIMIT'),
+          stationCount: simulatorStations,
         },
         seed: {
           seedDemo: envStr('SEED_DEMO') || 'false',
@@ -265,11 +426,20 @@ export function systemRoutes(app: FastifyInstance): void {
           provider: typeof selected === 'string' && selected !== '' ? selected : 'none',
           configured: (await activePaymentProvider(request.log)) != null,
         },
+        simProviders: {
+          hologram: {
+            enabled: settingBoolean(integration, 'sim.hologram.enabled'),
+            configured: hologramConfigured,
+          },
+          sessionsFetchDays: settingNumber(integration, 'sim.sessions.fetchDays'),
+          stationSignalEnabled: settingBoolean(integration, 'sim.stationSignal.enabled'),
+        },
+        dataPlans,
         secrets: {
           // A short or published value (Compose, .env.example) is not configured.
-          jwtConfigured: !isWeakJwtSecret(envStr('JWT_SECRET')),
+          jwtConfigured: !isWeakJwtSecret(config.JWT_SECRET),
           settingsEncryptionConfigured: !isWeakSettingsEncryptionKey(
-            envStr('SETTINGS_ENCRYPTION_KEY'),
+            config.SETTINGS_ENCRYPTION_KEY,
           ),
           stripeConfigured: settingHasValue(integration, 'stripe.secretKeyEnc'),
           adyenConfigured: settingHasValue(integration, 'adyen.apiKeyEnc'),
@@ -279,6 +449,14 @@ export function systemRoutes(app: FastifyInstance): void {
           recaptchaConfigured: settingHasValue(integration, 'security.recaptcha.secretKeyEnc'),
           hubjectConfigured: settingHasValue(integration, 'pnc.hubject.baseUrl'),
           googleMapsConfigured: settingHasValue(integration, 'googleMaps.apiKeyEnc'),
+          webhookSigningConfigured: storedSecretDecrypts(
+            WEBHOOK_SIGNING_SECRET_KEY,
+            integration.get(WEBHOOK_SIGNING_SECRET_KEY),
+          ),
+          simHologramConfigured: storedSecretDecrypts(
+            'sim.hologram.apiKeyEnc',
+            integration.get('sim.hologram.apiKeyEnc'),
+          ),
         },
       };
     },

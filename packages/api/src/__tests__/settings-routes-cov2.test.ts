@@ -30,6 +30,7 @@ const { state, rec, mocks } = vi.hoisted(() => ({
     clearAiSettingsCache: vi.fn(),
     getReservationSettings: vi.fn(),
     clearS3ConfigCache: vi.fn(),
+    getS3Config: vi.fn(),
     readSimSettings: vi.fn(),
   },
 }));
@@ -175,7 +176,7 @@ vi.mock('../lib/config.js', () => ({
 
 vi.mock('../services/s3.service.js', () => ({
   clearS3ConfigCache: mocks.clearS3ConfigCache,
-  getS3Config: vi.fn(),
+  getS3Config: mocks.getS3Config,
 }));
 
 vi.mock('../middleware/rbac.js', () => ({
@@ -284,7 +285,35 @@ describe('settings routes (cov2)', () => {
       reservationCancellationWindowMinutes: 15,
       reservationMaxHours: 4,
       currency: 'EUR',
+      avatarUploadEnabled: false,
     });
+  });
+
+  it('GET /portal/features reports avatar upload only while file storage is configured', async () => {
+    for (const flag of [
+      mocks.isReservationEnabled,
+      mocks.isSupportEnabled,
+      mocks.isRoamingEnabled,
+      mocks.isPncEnabled,
+      mocks.isFleetEnabled,
+      mocks.isGuestChargingEnabled,
+      mocks.isChatbotAiEnabled,
+      mocks.isAiInsightsEnabled,
+    ]) {
+      flag.mockResolvedValue(false);
+    }
+    mocks.getReservationSettings.mockResolvedValue({
+      cancellationFeeCents: 0,
+      cancellationWindowMinutes: 0,
+      maxHours: 1,
+    });
+    mocks.getS3Config.mockResolvedValueOnce({ bucket: 'b' });
+    let res = await app.inject({ method: 'GET', url: '/portal/features' });
+    expect(res.json()).toMatchObject({ avatarUploadEnabled: true });
+    mocks.getS3Config.mockRejectedValueOnce(new Error('settings unreadable'));
+    res = await app.inject({ method: 'GET', url: '/portal/features' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ avatarUploadEnabled: false });
   });
 
   it('GET /portal/features adds the SIM switches only while they are on', async () => {

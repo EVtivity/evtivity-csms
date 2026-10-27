@@ -8,6 +8,11 @@ import {
   AiInsightsSuppressDialog,
   invalidateAiInsightsSuppression,
 } from '@/components/ai/insights/AiInsightsSuppressDialog';
+import {
+  AiInsightsScopeNote,
+  aiInsightsScopeOff,
+} from '@/components/ai/insights/AiInsightsScopeNote';
+import type { AiInsightsScopeStatus } from '@/components/ai/insights/AiInsightsScopeNote';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -25,6 +30,8 @@ export interface SiteAiInsightsState {
   aiInsightsSuppressedUntil?: string | null;
   aiInsightsSuppressedByName?: string | null;
   aiInsightsSuppressedReason?: string | null;
+  /** Whether AI insights run for the site and why (AI switch and scope). */
+  aiInsightsScope?: AiInsightsScopeStatus;
 }
 
 /**
@@ -32,6 +39,8 @@ export interface SiteAiInsightsState {
  * (until a date, by whom, why), with Suppress and Resume for a user with
  * sites:write. A suppressed site suppresses every one of its stations; an
  * active maintenance event of the whole site also suppresses the insights.
+ * While AI Insights are off, or the site is not selected in the AI insights
+ * scope, the row says Off and why, and Suppress is not offered.
  */
 export function SiteAiInsightsRow({
   siteId,
@@ -51,6 +60,7 @@ export function SiteAiInsightsRow({
 
   const operatorSuppressed = site.aiInsightsSuppressedAt != null;
   const suppressed = site.aiInsightsSuppressed === true;
+  const off = aiInsightsScopeOff(site.aiInsightsScope);
   const byMaintenance = site.aiInsightsSuppressedSources?.includes('maintenance') === true;
 
   const resumeMutation = useMutation({
@@ -72,10 +82,17 @@ export function SiteAiInsightsRow({
       <dt className="text-muted-foreground">{t('sites.aiInsights.label')}</dt>
       <dd className="space-y-1 font-medium">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={suppressed ? 'warning' : 'success'} data-testid="site-ai-insights-badge">
-            {suppressed ? t('sites.aiInsights.suppressed') : t('sites.aiInsights.inScope')}
+          <Badge
+            variant={off ? 'secondary' : suppressed ? 'warning' : 'success'}
+            data-testid="site-ai-insights-badge"
+          >
+            {off
+              ? t('aiInsights.scopeStatus.off')
+              : suppressed
+                ? t('sites.aiInsights.suppressed')
+                : t('sites.aiInsights.inScope')}
           </Badge>
-          {canWrite && !operatorSuppressed && (
+          {canWrite && !operatorSuppressed && !off && (
             <Button
               variant="outline"
               size="sm"
@@ -98,6 +115,9 @@ export function SiteAiInsightsRow({
             </Button>
           )}
         </div>
+        {off && site.aiInsightsScope != null && (
+          <AiInsightsScopeNote scope={site.aiInsightsScope} data-testid="site-ai-insights-scope" />
+        )}
         {operatorSuppressed && (
           <p
             className="text-sm font-normal text-muted-foreground"

@@ -83,6 +83,9 @@ import {
   vehicleAutochargeFields,
   vehicleLastSeen,
 } from '../lib/vehicle-response.js';
+import { avatarItem } from '../lib/avatar-item.js';
+import { driverAvatarColumns } from '../services/driver-avatar.service.js';
+import { withAvatars } from '../services/account-avatar.js';
 
 // Company-wide configuration: a site-restricted user gets this 404 before any
 // read or write (requireAllSiteAccess, features/site-access-control.md).
@@ -110,6 +113,9 @@ const driverItem = z
       ),
     createdAt: z.coerce.date().describe('Timestamp when the driver was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the driver was last updated'),
+    avatar: avatarItem
+      .optional()
+      .describe('The avatar the driver set in the portal or app. Read-only for operators'),
   })
   .loose();
 
@@ -245,6 +251,9 @@ const driverErasureItem = z
     paymentMethodsRemoved: z.number().int().min(0).describe('Saved payment methods removed'),
     vehiclesRemoved: z.number().int().min(0).describe('Vehicles removed'),
     tokensDeactivated: z.number().int().min(0).describe('Tokens deactivated'),
+    avatarRemoved: z
+      .boolean()
+      .describe('Whether an avatar was removed (an uploaded image is deleted from storage)'),
   })
   .loose();
 
@@ -544,13 +553,14 @@ export function driverRoutes(app: FastifyInstance): void {
 
       const [data, countRows] = await Promise.all([
         db
-          .select(driverSafeSelect)
+          .select({ ...driverSafeSelect, ...driverAvatarColumns })
           .from(drivers)
           .where(where)
           // Stable ordering so pagination doesn't shuffle rows between pages.
           .orderBy(desc(drivers.createdAt), desc(drivers.id))
           .limit(limit)
-          .offset(offset),
+          .offset(offset)
+          .then((rows) => withAvatars(rows)),
         db
           .select({ count: sql<number>`count(*)::int` })
           .from(drivers)
@@ -581,11 +591,16 @@ export function driverRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof driverParams>;
-      const [driver] = await db.select(driverSafeSelect).from(drivers).where(eq(drivers.id, id));
-      if (driver == null) {
+      const [row] = await db
+        .select({ ...driverSafeSelect, ...driverAvatarColumns })
+        .from(drivers)
+        .where(eq(drivers.id, id));
+      if (row == null) {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
         return;
       }
+      const [driver] = await withAvatars([row]);
+      if (driver == null) return;
       const [portalAccess, billingFleet, pricing] = await Promise.all([
         getPortalAccess(driver.id),
         resolveAccountBilling(client, driver.id),

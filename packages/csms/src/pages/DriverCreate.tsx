@@ -14,6 +14,9 @@ import { LanguageSelect } from '@/components/ui/language-select';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { PendingAvatarField } from '@/components/avatar/PendingAvatarField';
+import { useToast } from '@/components/ui/toast';
+import { applyAvatarChoice, driverAvatarPath, type AvatarChoice } from '@/lib/avatar';
 
 interface Driver {
   id: string;
@@ -43,10 +46,32 @@ export function DriverCreate(): React.JSX.Element {
   const [phone, setPhone] = useState('');
   const [language, setLanguage] = useState('en');
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [avatar, setAvatar] = useState<AvatarChoice | null>(null);
+  const { toast } = useToast();
 
   const createMutation = useMutation({
-    mutationFn: (body: CreateDriverBody) => api.post<Driver>('/v1/drivers', body),
-    onSuccess: (created) => {
+    // The avatar is stored right after the driver exists; a failure there
+    // keeps the new driver and says so (the Details tab can set it again).
+    mutationFn: async (body: CreateDriverBody) => {
+      const created = await api.post<Driver>('/v1/drivers', body);
+      let avatarError: unknown = null;
+      if (avatar != null) {
+        try {
+          await applyAvatarChoice(driverAvatarPath(created.id), avatar);
+        } catch (err) {
+          avatarError = err;
+        }
+      }
+      return { created, avatarError };
+    },
+    onSuccess: ({ created, avatarError }) => {
+      if (avatarError != null) {
+        toast({
+          title: t('avatar.applyFailed'),
+          description: getErrorMessage(avatarError, t, 'avatar.saveFailed'),
+          variant: 'destructive',
+        });
+      }
       void queryClient.invalidateQueries({ queryKey: ['drivers'] });
       void navigate(`/drivers/${created.id}`);
     },
@@ -82,6 +107,14 @@ export function DriverCreate(): React.JSX.Element {
       <Card>
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
+            <PendingAvatarField
+              choice={avatar}
+              onChange={setAvatar}
+              firstName={firstName}
+              lastName={lastName}
+              description={t('avatar.editDescriptionDriver')}
+              hint={t('avatar.savedWithNewAccount')}
+            />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="driver-firstName" className="leading-6">

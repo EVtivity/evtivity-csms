@@ -33,6 +33,7 @@ import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { PNC_TOKEN_TYPE } from '../lib/pnc-session-sql.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { containsPattern } from '../lib/like-pattern.js';
@@ -905,7 +906,7 @@ export function sessionRoutes(app: FastifyInstance): void {
 
       // A Plug and Charge session: the contract whose eMAID authorized it.
       const [pncContract] =
-        tokenId != null && tokenType === 'eMAID'
+        tokenId != null && tokenType === PNC_TOKEN_TYPE
           ? await db
               .select({ id: pncContracts.id, pcid: pncContracts.pcid, status: pncContracts.status })
               .from(pncContracts)

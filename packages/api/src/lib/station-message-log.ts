@@ -3,6 +3,7 @@
 
 import { sql, type SQL } from 'drizzle-orm';
 import { db, toDate } from '@evtivity/database';
+import { maskStationCredentials } from '@evtivity/lib/secret-config';
 
 /**
  * A station's OCPP message log: the messages exchanged (`processed`) and the
@@ -149,7 +150,9 @@ export async function listStationMessageLog(
       messageType: r.message_type,
       messageId: r.message_id,
       action: r.action,
-      payload: r.payload,
+      // A queued command keeps its real file transfer URL until it is sent
+      // (the station needs it); the log shows it with the password masked.
+      payload: maskStationCredentials(r.payload),
       errorCode: r.error_code,
       errorDescription: r.error_description,
       createdAt: toDate(r.created_at),

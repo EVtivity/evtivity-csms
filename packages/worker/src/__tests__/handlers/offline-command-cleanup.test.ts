@@ -52,6 +52,13 @@ describe('offlineCommandCleanupHandler', () => {
     expect(log.info).toHaveBeenCalledWith({ count: 3 }, 'Expired stale offline commands');
   });
 
+  it('masks the URL passwords of the payload in the UPDATE that expires the row', async () => {
+    await offlineCommandCleanupModule.offlineCommandCleanupHandler(makeLog());
+    expect(lastQuery.sql).toMatch(
+      /SET status = 'expired',\s+payload = public\.evtivity_mask_url_passwords_jsonb\(q\.payload\)/,
+    );
+  });
+
   it('ends an expired queued firmware update so its campaign can complete', async () => {
     mockClient.rows = [
       {

@@ -36,7 +36,13 @@ function readVersion(): string {
   return 'unknown';
 }
 
-const name = `${CONNECTION_NAME_PREFIX}${readVersion()}`;
+const version = readVersion();
+const name = `${CONNECTION_NAME_PREFIX}${version}`;
+
+/** The release version of this process (its package.json), or `unknown`. */
+export function processVersion(): string {
+  return version;
+}
 
 /**
  * The Postgres `application_name` for this process, `evtivity@<version>`.

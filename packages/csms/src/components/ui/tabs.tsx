@@ -77,6 +77,19 @@ const TabsList = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEl
 );
 TabsList.displayName = 'TabsList';
 
+/** Scrolls the tab strip, and only the strip, so the tab is fully visible. */
+function revealTab(tab: HTMLElement | null): void {
+  const strip = tab?.closest('[role="tablist"]');
+  if (tab == null || !(strip instanceof HTMLElement)) return;
+  const stripBox = strip.getBoundingClientRect();
+  const tabBox = tab.getBoundingClientRect();
+  if (tabBox.left < stripBox.left) {
+    strip.scrollLeft -= stripBox.left - tabBox.left + 24;
+  } else if (tabBox.right > stripBox.right) {
+    strip.scrollLeft += tabBox.right - stripBox.right + 24;
+  }
+}
+
 interface TabsTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   value: string;
 }
@@ -87,9 +100,24 @@ const TabsTrigger = React.forwardRef<HTMLButtonElement, TabsTriggerProps>(
     const { register } = ctx;
     useEffect(() => register(value), [register, value]);
     const isActive = ctx.value === value;
+    const ownRef = React.useRef<HTMLButtonElement | null>(null);
+    const setRefs = useCallback(
+      (node: HTMLButtonElement | null) => {
+        ownRef.current = node;
+        if (typeof ref === 'function') ref(node);
+        else if (ref != null) ref.current = node;
+      },
+      [ref],
+    );
+    // On a phone the tab strip scrolls sideways: bring the active tab into view (a tab
+    // opened from a link, such as ?tab=conformance, sits past the right edge otherwise).
+    useEffect(() => {
+      if (!isActive) return;
+      revealTab(ownRef.current);
+    }, [isActive]);
     return (
       <button
-        ref={ref}
+        ref={setRefs}
         type="button"
         role="tab"
         aria-selected={isActive}

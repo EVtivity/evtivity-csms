@@ -136,6 +136,7 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(401).send({ error: 'Unauthorized' });
       }
     },
+  requestHasPermission: vi.fn(() => Promise.resolve(false)),
   invalidatePermissionCache: vi.fn(),
 }));
 

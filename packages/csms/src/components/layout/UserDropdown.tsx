@@ -3,9 +3,13 @@
 
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { UserCircle, LogOut, User, Languages, Check, Sun, Moon } from 'lucide-react';
 import { SpeedDial } from '@/components/SpeedDial';
+import { AccountAvatar } from '@/components/AccountAvatar';
+import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import type { UserMe } from '@/pages/Profile';
 import { cn } from '@/lib/utils';
 
 const languages = [
@@ -30,13 +34,28 @@ export function UserDropdown({ collapsed, onNavClick }: UserDropdownProps): Reac
   const theme = useAuth((s) => s.theme);
   const user = useAuth((s) => s.user);
   const navigate = useNavigate();
+  // The own avatar, from the query the Profile page reads and refreshes after a change.
+  const { data: me } = useQuery({
+    queryKey: ['users', 'me'],
+    queryFn: () => api.get<UserMe>('/v1/users/me'),
+    enabled: user != null,
+    staleTime: 5 * 60_000,
+  });
+  const avatar = me?.avatar ?? null;
 
   return (
     <div className={cn(collapsed ? 'p-2' : 'p-4')}>
       <SpeedDial
         collapsed={collapsed}
         trigger={
-          user?.firstName != null || user?.lastName != null ? (
+          avatar != null && user != null ? (
+            <AccountAvatar
+              avatar={avatar}
+              firstName={user.firstName}
+              lastName={user.lastName}
+              className="h-6 w-6 text-xs"
+            />
+          ) : user?.firstName != null || user?.lastName != null ? (
             <span
               className={cn(
                 'flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-link',

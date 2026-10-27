@@ -43,6 +43,9 @@ import {
   client,
   getInsightAiSettings,
   stationAvailabilitySql,
+  siteInsightsInScope,
+  stationIdsInInsightScope,
+  stationInsightsInScopeSql,
   stationInsightsSuppressedSql,
   operatorStationSql,
 } from '@evtivity/database';
@@ -179,10 +182,9 @@ async function offlineCandidates(
         SELECT l.id, l.station_id, cs.site_id
         FROM connection_logs l
         JOIN charging_stations cs ON cs.id = l.station_id
-        LEFT JOIN sites s ON s.id = cs.site_id
         WHERE l.id > ${window.last} AND l.id <= ${window.upper} AND l.event = 'disconnected'
           AND (l.metadata ->> 'reason') IS DISTINCT FROM ${SERVER_SHUTDOWN_DISCONNECT_REASON}
-          AND (s.id IS NULL OR s.ai_insights_enabled)
+          AND ${client.unsafe(stationInsightsInScopeSql('cs'))}
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
           AND ${client.unsafe(operatorStationSql('cs'))}
         ORDER BY l.id
@@ -217,9 +219,8 @@ async function faultedCandidates(
           SELECT p.id, p.station_id, cs.site_id
           FROM port_status_log p
           JOIN charging_stations cs ON cs.id = p.station_id
-          LEFT JOIN sites s ON s.id = cs.site_id
-          WHERE p.id > ${window.last} AND p.id <= ${window.upper} AND p.new_status = 'faulted'
-            AND (s.id IS NULL OR s.ai_insights_enabled)
+            WHERE p.id > ${window.last} AND p.id <= ${window.upper} AND p.new_status = 'faulted'
+            AND ${client.unsafe(stationInsightsInScopeSql('cs'))}
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
           AND ${client.unsafe(operatorStationSql('cs'))}
           ORDER BY p.id
@@ -251,8 +252,7 @@ async function faultedCandidates(
       to_char(date_trunc('hour', coalesce(cs.reported_status_at, cs.updated_at)) AT TIME ZONE 'UTC',
         'YYYY-MM-DD"T"HH24') AS bucket
     FROM charging_stations cs
-    LEFT JOIN sites s ON s.id = cs.site_id
-    WHERE cs.reported_status = 'faulted' AND (s.id IS NULL OR s.ai_insights_enabled)
+    WHERE cs.reported_status = 'faulted' AND ${client.unsafe(stationInsightsInScopeSql('cs'))}
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
           AND ${client.unsafe(operatorStationSql('cs'))}
       AND NOT EXISTS (
@@ -287,9 +287,8 @@ async function alertCandidates(language: string, on: boolean, marks: Marks): Pro
         SELECT a.id, a.station_id, cs.site_id
         FROM event_alerts a
         JOIN charging_stations cs ON cs.id = a.station_id
-        LEFT JOIN sites s ON s.id = cs.site_id
         WHERE a.id > ${window.last} AND a.id <= ${window.upper}
-          AND (s.id IS NULL OR s.ai_insights_enabled)
+          AND ${client.unsafe(stationInsightsInScopeSql('cs'))}
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
           AND ${client.unsafe(operatorStationSql('cs'))}
         ORDER BY a.id
@@ -334,9 +333,8 @@ async function authorizationCandidates(
         SELECT a.id, a.id_token, a.created_at, cs.id AS station_db_id, cs.site_id
         FROM authorize_attempts a
         JOIN charging_stations cs ON cs.station_id = a.station_id
-        LEFT JOIN sites s ON s.id = cs.site_id
         WHERE a.id > ${window.last} AND a.id <= ${window.upper} AND a.outcome <> 'accepted'
-          AND (s.id IS NULL OR s.ai_insights_enabled)
+          AND ${client.unsafe(stationInsightsInScopeSql('cs'))}
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
           AND ${client.unsafe(operatorStationSql('cs'))}
         ORDER BY a.id
@@ -408,10 +406,10 @@ async function sessionCandidates(
     );
   }
   if (!on) return [];
-  const enabledSites = await siteSwitches(rows.map((r) => r.site_id));
+  const inScope = await stationIdsInInsightScope(rows.map((r) => r.station_id));
   const out: Candidate[] = [];
   for (const r of rows) {
-    if (r.site_id != null && enabledSites.get(r.site_id) === false) continue;
+    if (!inScope.has(r.station_id)) continue;
     out.push({
       incidentMember: false,
       insight: {
@@ -457,10 +455,9 @@ async function reservationCandidates(
         FROM reservation_audit_log a
         JOIN reservations r ON r.id = a.reservation_id
         JOIN charging_stations cs ON cs.id = r.station_id
-        LEFT JOIN sites s ON s.id = cs.site_id
         WHERE a.id > ${window.last} AND a.id <= ${window.upper}
           AND a.action::text = ANY(${RESERVATION_TRIGGER_ACTIONS}::text[])
-          AND (s.id IS NULL OR s.ai_insights_enabled)
+          AND ${client.unsafe(stationInsightsInScopeSql('cs'))}
           AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
           AND ${client.unsafe(operatorStationSql('cs'))}
         ORDER BY a.id
@@ -527,15 +524,6 @@ async function stationIncidentParent(insight: NewInsight): Promise<string | null
   return row?.id ?? null;
 }
 
-async function siteSwitches(ids: readonly (string | null)[]): Promise<Map<string, boolean>> {
-  const siteIds = [...new Set(ids.filter((id): id is string => id != null))];
-  if (siteIds.length === 0) return new Map();
-  const rows = await client<{ id: string; enabled: boolean }[]>`
-    SELECT id, ai_insights_enabled AS enabled FROM sites WHERE id = ANY(${siteIds}::text[])
-  `;
-  return new Map(rows.map((r) => [r.id, r.enabled]));
-}
-
 /**
  * The first session insight at the same site with the same stop reason in
  * the last hour: a new one groups under it (no model call of its own).
@@ -578,9 +566,11 @@ async function groupIncidents(
         AND created_at > now() - make_interval(secs => ${Math.max(settings.insights.debounceSeconds, 60)})
     `;
     if (members.length === 0) continue;
-    // A suppressed site raises no incident (its stations raise no member
-    // either; this covers members created just before the suppression).
+    // A suppressed site, or one outside the AI insights scope, raises no
+    // incident (its stations raise no member either; this covers members
+    // created just before the suppression or the scope change).
     if (await siteInsightsSuppressed(siteId)) continue;
+    if (!(await siteInsightsInScope(siteId))) continue;
     const [open] = await client<{ id: string }[]>`
       SELECT id FROM ai_insights
       WHERE site_id = ${siteId} AND kind = 'site_incident' AND status IN ('analyzing', 'open', 'pending')

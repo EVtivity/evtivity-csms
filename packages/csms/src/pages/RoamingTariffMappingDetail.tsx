@@ -111,10 +111,10 @@ export function RoamingTariffMappingDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/roaming/tariffs" />
-        <div>
-          <h1 className="text-2xl font-bold md:text-3xl">{displayName}</h1>
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold md:text-3xl wrap-anywhere">{displayName}</h1>
           <CopyableId id={String(mapping.id)} />
         </div>
       </div>

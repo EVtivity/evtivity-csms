@@ -143,7 +143,7 @@ export function PopularTimesChart({ data, weeks = 4 }: PopularTimesChartProps): 
             }
           />
         </CardTitle>
-        <div className="flex gap-1">
+        <div className="grid grid-cols-7 gap-1 sm:flex">
           {DOW_KEYS.map((key, i) => (
             <button
               key={key}
@@ -151,7 +151,7 @@ export function PopularTimesChart({ data, weeks = 4 }: PopularTimesChartProps): 
               onClick={() => {
                 setSelectedDow(i);
               }}
-              className={`px-2 py-1 text-xs font-medium rounded-md transition-colors uppercase ${
+              className={`min-w-0 rounded-md py-1 text-xs font-medium uppercase transition-colors sm:px-2 ${
                 selectedDow === i
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted'

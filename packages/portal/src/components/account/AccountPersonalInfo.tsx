@@ -17,6 +17,8 @@ import { useCompanyPriceDisplay } from '@/hooks/use-price-display';
 import { isPriceDisplay, type PriceDisplay } from '@evtivity/lib/price-display';
 import { proofRejection, type ProofRejection } from '@/components/FactorProofField';
 import { MFA_STATUS_KEY, type PortalMfaStatus } from '@/lib/mfa-status';
+import { useDriverAvatar } from '@/lib/avatar';
+import { AvatarField } from './AvatarEditor';
 import {
   PhoneChangeProof,
   phoneChangeNeedsProof,
@@ -32,6 +34,7 @@ function comparablePhone(phone: string | null | undefined): string | null {
 export function AccountPersonalInfo(): React.JSX.Element {
   const { t } = useTranslation();
   const driver = useAuth((s) => s.driver);
+  const { data: avatar } = useDriverAvatar();
   const hydrate = useAuth((s) => s.hydrate);
   const applyLanguageLocal = useAuth((s) => s.applyLanguageLocal);
   const applyTimezoneLocal = useAuth((s) => s.applyTimezoneLocal);
@@ -123,6 +126,12 @@ export function AccountPersonalInfo(): React.JSX.Element {
   return (
     <form onSubmit={(e) => void handleProfileUpdate(e)} className="space-y-4">
       {profileMsg !== '' && <p className="text-sm text-muted-foreground">{profileMsg}</p>}
+      <AvatarField
+        avatar={avatar}
+        firstName={driver?.firstName}
+        lastName={driver?.lastName}
+        mode="live"
+      />
       <div className="space-y-2">
         <label htmlFor="acctEmail" className="block text-sm font-medium leading-6">
           {t('profile.email')}

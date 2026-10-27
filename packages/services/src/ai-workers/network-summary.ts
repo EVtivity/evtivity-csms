@@ -13,7 +13,9 @@
 import {
   client,
   operatorStationSql,
+  siteInsightsInScopeSql,
   siteInsightsSuppressedSql,
+  stationInsightsInScopeSql,
   stationInsightsSuppressedSql,
   toDate,
 } from '@evtivity/database';
@@ -123,8 +125,10 @@ export async function siteHealthMetrics(input: {
         WHERE cs.site_id = s.id AND ${client.unsafe(operatorStationSql('cs'))} AND e.created_at >= b.prior_start AND e.created_at < b.day_start) AS alerts_prior
     FROM sites s CROSS JOIN bounds b
     WHERE ${siteFilter}
-      -- A suppressed site gets no summary and stays out of the company one.
+      -- A suppressed site, or one outside the AI insights scope, gets no
+      -- summary and stays out of the company one.
       AND NOT ${client.unsafe(siteInsightsSuppressedSql('s'))}
+      AND ${client.unsafe(siteInsightsInScopeSql('s'))}
     ORDER BY s.name, s.id
   `;
   return rows.map((r) => ({
@@ -177,6 +181,7 @@ export async function longFaultedStations(input: {
     WHERE cs.site_id = ${input.siteId} AND cs.is_online AND cs.availability = 'faulted'
       AND ${client.unsafe(operatorStationSql('cs'))}
       AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
+      AND ${client.unsafe(stationInsightsInScopeSql('cs'))}
       AND NOT EXISTS (
         SELECT 1 FROM port_status_log p
         WHERE p.station_id = cs.id AND p.new_status <> 'faulted'

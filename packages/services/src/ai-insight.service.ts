@@ -402,9 +402,19 @@ export async function dismissInsight(id: string, actor: InsightAuditActor): Prom
 }
 
 /** Closes the open and analyzing insights matching `where` as dismissed, audited with `cause`. */
+/**
+ * Why a suppression or scope change dismissed an insight (the `cause` of its
+ * `dismissed` audit row): an operator suppressed the station or the site, or
+ * the station or site left the AI insights scope.
+ */
+export type InsightDismissCause =
+  | 'station_ai_insights_suppressed'
+  | 'site_ai_insights_suppressed'
+  | 'ai_insights_scope';
+
 async function dismissSuppressedInsights(
   where: SQL,
-  cause: 'station_ai_insights_suppressed' | 'site_ai_insights_suppressed',
+  cause: InsightDismissCause,
   reason: string,
   actor: InsightAuditActor,
   pubsub: PubSubClient,
@@ -459,10 +469,11 @@ export async function dismissStationInsights(
   reason: string,
   actor: InsightAuditActor,
   pubsub: PubSubClient,
+  cause: InsightDismissCause = 'station_ai_insights_suppressed',
 ): Promise<string[]> {
   return dismissSuppressedInsights(
     eq(aiInsights.stationId, stationId),
-    'station_ai_insights_suppressed',
+    cause,
     reason,
     actor,
     pubsub,
@@ -481,10 +492,11 @@ export async function dismissSiteInsights(
   reason: string,
   actor: InsightAuditActor,
   pubsub: PubSubClient,
+  cause: InsightDismissCause = 'site_ai_insights_suppressed',
 ): Promise<string[]> {
   return dismissSuppressedInsights(
     sql`(${aiInsights.siteId} = ${siteId} OR ${aiInsights.stationId} IN (SELECT cs.id FROM charging_stations cs WHERE cs.site_id = ${siteId} AND ${sql.raw(operatorStationSql('cs'))}))`,
-    'site_ai_insights_suppressed',
+    cause,
     reason,
     actor,
     pubsub,

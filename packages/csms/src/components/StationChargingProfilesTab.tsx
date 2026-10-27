@@ -222,7 +222,7 @@ export function StationChargingProfilesTab({
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('stations.chargingProfiles')}</CardTitle>
         {canManageProfiles && (
-          <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+          <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
             <Button
               variant="outline"
               size="sm"

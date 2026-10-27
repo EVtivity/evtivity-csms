@@ -22,6 +22,11 @@ import { DriverPncContractsCard } from './DriverPncContractsCard';
 import { DriverBillingCard, type DriverBilling } from './DriverBillingCard';
 import { DriverBillingAddressCard } from './DriverBillingAddressCard';
 import { DriverEraseCard } from './DriverEraseCard';
+import { AvatarField } from '@/components/avatar/AvatarField';
+import type { AvatarData } from '@/components/AccountAvatar';
+import { useToast } from '@/components/ui/toast';
+import { useHasPermission } from '@/lib/auth';
+import { applyAvatarChoice, driverAvatarPath, type AvatarChoice } from '@/lib/avatar';
 
 interface Driver {
   id: string;
@@ -36,6 +41,7 @@ interface Driver {
   updatedAt: string;
   portalAccess?: PortalAccess;
   billing?: DriverBilling;
+  avatar?: AvatarData | null;
 }
 
 export interface DriverDetailsTabProps {
@@ -46,6 +52,8 @@ export interface DriverDetailsTabProps {
 export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const canWrite = useHasPermission('drivers:write');
 
   const [editing, setEditing] = useState(false);
   const [firstName, setFirstName] = useState('');
@@ -103,6 +111,18 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
 
   const editErrors = getEditValidationErrors();
 
+  /** The avatar is stored at once, apart from the form's Save (drivers:write). */
+  async function saveAvatar(choice: AvatarChoice): Promise<void> {
+    await applyAvatarChoice(driverAvatarPath(driver.id), choice);
+    toast({
+      title: t(choice.kind === 'remove' ? 'avatar.removed' : 'avatar.saved'),
+      variant: 'success',
+    });
+    // The driver page, the driver list and fleet member rows show it.
+    void queryClient.invalidateQueries({ queryKey: ['drivers'] });
+    void queryClient.invalidateQueries({ queryKey: ['fleets'] });
+  }
+
   function handleSave(e: React.SyntheticEvent): void {
     e.preventDefault();
     setHasSubmittedEdit(true);
@@ -141,6 +161,13 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
         <CardContent>
           {editing ? (
             <form onSubmit={handleSave} noValidate className="space-y-4">
+              <AvatarField
+                avatar={driver.avatar}
+                firstName={driver.firstName}
+                lastName={driver.lastName}
+                description={t('avatar.editDescriptionDriver')}
+                {...(canWrite ? { onSave: saveAvatar } : {})}
+              />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="edit-first" className="leading-6">

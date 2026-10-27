@@ -18,7 +18,11 @@
  */
 
 import { AppError, isBootOwnedStationSetting } from '@evtivity/lib';
-import { holdsStationCredential, isCredentialName } from '@evtivity/lib/secret-config';
+import {
+  holdsStationCredential,
+  holdsUnmaskableUrlPassword,
+  isCredentialName,
+} from '@evtivity/lib/secret-config';
 import { ERROR_CODES } from './error-codes.generated.js';
 
 /** The OCPP commands that write station configuration. */
@@ -45,6 +49,22 @@ export function assertNoStationCredentialWrite(
   payload: Record<string, unknown>,
 ): void {
   if (CONFIGURATION_WRITE_ACTIONS.has(action) && holdsStationCredential(payload)) refuse();
+}
+
+export const UNMASKABLE_URL_PASSWORD_MESSAGE =
+  'A URL password must not hold spaces, tabs, line breaks or other control characters: encode them (%20) so the stored copies can mask the password';
+
+/**
+ * Throws 400 `VALIDATION_ERROR` when a string of a command payload or a
+ * firmware URL holds a URL password the stored copies could not mask
+ * (`urlPasswordUnmaskable`, `@evtivity/lib/secret-config`): a space or a
+ * control character inside the userinfo, which a station parser reads as part
+ * of the password while the masker ends the URL there.
+ */
+export function assertMaskableUrlPasswords(payload: unknown): void {
+  if (holdsUnmaskableUrlPassword(payload)) {
+    throw new AppError(UNMASKABLE_URL_PASSWORD_MESSAGE, 400, ERROR_CODES.VALIDATION_ERROR);
+  }
 }
 
 export const STATION_SECURITY_ROUTE_MESSAGE =

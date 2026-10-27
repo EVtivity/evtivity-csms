@@ -32,6 +32,9 @@ export const EXTERNAL = [
   // Native libvips binding (AI and support attachment re-encoding); the
   // platform binary comes from its @img/sharp-<platform> optional dependency.
   'sharp',
+  // SFTP client of the station simulator: loads its optional native crypto binding
+  // (and cpu-features) with require() at runtime, which a bundle cannot carry.
+  'ssh2',
 ];
 
 export const BANNER =

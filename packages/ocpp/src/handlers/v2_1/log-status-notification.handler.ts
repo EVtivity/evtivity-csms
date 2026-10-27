@@ -6,7 +6,11 @@ import type { HandlerContext } from '../../server/middleware/pipeline.js';
 export async function handleLogStatusNotification(
   ctx: HandlerContext,
 ): Promise<Record<string, unknown>> {
-  const request = ctx.payload as { status: string; requestId?: number };
+  const request = ctx.payload as {
+    status: string;
+    requestId?: number;
+    statusInfo?: Record<string, unknown>;
+  };
 
   ctx.logger.info(
     { stationId: ctx.stationId, status: request.status, requestId: request.requestId },
@@ -22,6 +26,8 @@ export async function handleLogStatusNotification(
       stationDbId: ctx.stationDbId,
       status: request.status,
       requestId: request.requestId,
+      // 2.1 only: why an upload failed (N01.FR.30 RedirectNotAllowed), stored in log_uploads.
+      ...(request.statusInfo != null ? { statusInfo: request.statusInfo } : {}),
     },
   });
 

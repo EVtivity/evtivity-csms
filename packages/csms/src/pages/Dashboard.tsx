@@ -20,6 +20,7 @@ import { StationMapChart } from '@/components/charts/StationMapChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
 import { SessionsTable } from '@/components/SessionsTable';
 import { Pagination } from '@/components/ui/pagination';
+import { ScrollSnapRow } from '@/components/ui/scroll-snap-row';
 import type { Session } from '@/components/SessionsTable';
 import { useUserTimezone } from '@/lib/timezone';
 import { PaymentBreakdownChart } from '@/components/charts/PaymentBreakdownChart';
@@ -29,7 +30,31 @@ import { useDateRange } from '@/hooks/useDateRange';
 import { localDateString } from '@/lib/date-range';
 import { useUpdateCheck } from '@/hooks/use-update-check';
 import { ActiveInsightsWidget } from '@/components/ai/insights/ActiveInsightsWidget';
-import { ScrollSnapRow } from '@/components/ui/scroll-snap-row';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
+import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
+import { SortableZone } from '@/components/dashboard/SortableZone';
+import { SortableWidget } from '@/components/dashboard/SortableWidget';
+import {
+  DashboardCustomizeBar,
+  DashboardCustomizeButton,
+} from '@/components/dashboard/DashboardCustomizeBar';
+import {
+  LocationsByCityChart,
+  type LocationsByCityData,
+} from '@/components/charts/LocationsByCityChart';
+import {
+  EvsesByConnectorTypeChart,
+  type EvsesByConnectorTypePoint,
+} from '@/components/charts/EvsesByConnectorTypeChart';
+import { PlugAndChargeChart, type PlugAndChargeData } from '@/components/charts/PlugAndChargeChart';
+import { FreeVendChart, type FreeVendData } from '@/components/charts/FreeVendChart';
+import { arrayMove } from '@dnd-kit/sortable';
+import {
+  dashboardWidget,
+  defaultDashboardLayout,
+  type DashboardLayout,
+  type DashboardLayoutItem,
+} from '@evtivity/lib/dashboard-layout';
 import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-context';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { formatCalendarDate, formatCents, formatNumber, formatNumberUpTo } from '@/lib/formatting';
@@ -82,6 +107,19 @@ function StatGrid({ children }: { children: React.ReactNode }): React.JSX.Elemen
 }
 
 type DashboardMode = 'live' | 'historical' | 'trend';
+
+/** The default layout, which the Historical and Trend views always use. */
+const DEFAULT_LAYOUT = defaultDashboardLayout();
+
+/** The chart grid: one column on phones, two from lg; a full-width chart spans both. */
+const CHART_GRID_CLASS = 'grid gap-4 grid-cols-1 lg:grid-cols-2';
+
+/** One widget of the Live view: its name, whether the user may see it, and its content. */
+interface DashboardWidgetView {
+  name: string;
+  visible: boolean;
+  render: () => React.ReactNode;
+}
 
 interface EnergyPoint {
   date: string;
@@ -443,7 +481,7 @@ function ModeToggle({
                 setPickerOpen(false);
               }
             }}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors first:rounded-l-md last:rounded-r-md ${
+            className={`h-10 px-3 text-sm font-medium transition-colors first:rounded-l-md last:rounded-r-md ${
               mode === m
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-background text-muted-foreground hover:bg-muted'
@@ -503,10 +541,13 @@ function money(value: number | null): number {
  */
 function DashboardBody({
   mode,
+  editing,
   fromDate,
   toDate,
 }: {
   mode: DashboardMode;
+  /** The Live view is being customized. */
+  editing: boolean;
   fromDate: string;
   toDate: string;
 }): React.JSX.Element {
@@ -515,13 +556,22 @@ function DashboardBody({
   const hasAllSiteAccess = useHasAllSiteAccess();
   const canSeeMoney = useHasPermission('payments:read');
   const canSeeSessions = useHasPermission('sessions:read');
+  const canReadInsights = useHasPermission('aiInsights:read');
+  const featureFlags = useFeatureFlags();
   const timezone = useUserTimezone();
+  const dashboardLayout = useDashboardLayout();
+  // A chart the Live layout shows; the four new charts fetch only then.
+  const isChartShown = (id: string): boolean =>
+    mode === 'live' &&
+    dashboardLayout.layout?.charts.some((c) => c.id === id && !c.hidden) === true;
 
   const energy = useDateRange();
   const sessions = useDateRange();
   const utilRange = useDateRange();
   const peak = useDateRange();
   const revenue = useDateRange();
+  const pncRange = useDateRange();
+  const freeVendRange = useDateRange();
 
   const statsQuery = useQuery({
     queryKey: ['dashboard', 'stats'],
@@ -596,6 +646,35 @@ function DashboardBody({
     queryKey: ['dashboard', 'carbon-stats'],
     queryFn: () => api.get<CarbonStats>('/v1/dashboard/carbon-stats'),
     refetchInterval: REFETCH_INTERVAL,
+  });
+
+  const locationsByCity = useQuery({
+    queryKey: ['dashboard', 'locations-by-city'],
+    queryFn: () => api.get<LocationsByCityData>('/v1/dashboard/locations-by-city'),
+    refetchInterval: REFETCH_INTERVAL,
+    enabled: isChartShown('chart.locationsByCity'),
+  });
+
+  const evsesByConnectorType = useQuery({
+    queryKey: ['dashboard', 'evses-by-connector-type'],
+    queryFn: () => api.get<EvsesByConnectorTypePoint[]>('/v1/dashboard/evses-by-connector-type'),
+    refetchInterval: REFETCH_INTERVAL,
+    enabled: isChartShown('chart.evsesByConnectorType'),
+  });
+
+  const plugAndCharge = useQuery({
+    queryKey: ['dashboard', 'plug-and-charge', pncRange.dateQuery],
+    queryFn: () =>
+      api.get<PlugAndChargeData>(`/v1/dashboard/plug-and-charge?${pncRange.dateQuery}`),
+    refetchInterval: REFETCH_INTERVAL,
+    enabled: isChartShown('chart.plugAndCharge'),
+  });
+
+  const freeVend = useQuery({
+    queryKey: ['dashboard', 'free-vend', freeVendRange.dateQuery],
+    queryFn: () => api.get<FreeVendData>(`/v1/dashboard/free-vend?${freeVendRange.dateQuery}`),
+    refetchInterval: REFETCH_INTERVAL,
+    enabled: isChartShown('chart.freeVend'),
   });
 
   const [activeSessionsPage, setActiveSessionsPage] = useState(1);
@@ -948,6 +1027,62 @@ function DashboardBody({
     );
   }
 
+  /** The layout to render: the user's in the Live view, the default in the others. */
+  const layout: DashboardLayout | null = mode === 'live' ? dashboardLayout.layout : DEFAULT_LAYOUT;
+
+  function moveChart(activeId: string, overId: string): void {
+    if (dashboardLayout.layout == null) return;
+    const items = dashboardLayout.layout.charts;
+    const from = items.findIndex((i) => i.id === activeId);
+    const to = items.findIndex((i) => i.id === overId);
+    if (from === -1 || to === -1) return;
+    dashboardLayout.save({ ...dashboardLayout.layout, charts: arrayMove(items, from, to) });
+  }
+
+  function setChartHidden(id: string, hidden: boolean): void {
+    const current = dashboardLayout.layout;
+    if (current == null) return;
+    dashboardLayout.save({
+      ...current,
+      charts: current.charts.map((i) => (i.id === id ? { ...i, hidden } : i)),
+    });
+  }
+
+  /** The charts: the shown ones in layout order, sortable while editing. */
+  function renderCharts(
+    items: DashboardLayoutItem[],
+    widgets: Record<string, DashboardWidgetView>,
+    editable: boolean,
+  ): React.JSX.Element {
+    const shown = items.filter((i) => !i.hidden && widgets[i.id]?.visible === true);
+    const names = Object.fromEntries(shown.map((i) => [i.id, widgets[i.id]?.name ?? i.id]));
+    return (
+      <SortableZone
+        ids={shown.map((i) => i.id)}
+        names={names}
+        editing={editable}
+        onMove={moveChart}
+      >
+        <div className={CHART_GRID_CLASS} data-testid="dashboard-charts">
+          {shown.map((item) => (
+            <SortableWidget
+              key={item.id}
+              id={item.id}
+              name={names[item.id] ?? item.id}
+              editing={editable}
+              className={dashboardWidget(item.id)?.span === 'full' ? 'lg:col-span-2' : undefined}
+              onHide={(id) => {
+                setChartHidden(id, true);
+              }}
+            >
+              {widgets[item.id]?.render()}
+            </SortableWidget>
+          ))}
+        </div>
+      </SortableZone>
+    );
+  }
+
   function noSnapshotMessage(
     isLoading: boolean,
     isError: boolean,
@@ -1158,80 +1293,104 @@ function DashboardBody({
     );
   }
 
-  return (
-    <>
-      {canSeeMoney && company.isError && <LoadErrorRetry onRetry={company.refetch} />}
-      <div className="relative">
-        {mode !== 'live' && (
-          <div className="hidden lg:block invisible space-y-4" aria-hidden="true">
-            {renderLiveStatCards()}
-          </div>
-        )}
-        <div className={mode !== 'live' ? 'space-y-4 lg:absolute lg:inset-0' : 'space-y-4'}>
-          {mode === 'live' && renderLiveStatCards()}
-          {mode === 'historical' && renderHistoricalStatCards()}
-          {mode === 'trend' && renderTrendStatCards()}
-        </div>
-      </div>
-
-      <ActiveInsightsWidget />
-
-      <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+  // Every chart of the Live view by widget id; `visible` holds the
+  // permission gates: a saved layout only orders and hides, it never shows a
+  // chart the user may not see.
+  const chartWidgets: Record<string, DashboardWidgetView> = {
+    'chart.aiInsights': {
+      name: t('aiInsights.activeInsights'),
+      visible: canReadInsights && featureFlags.flags.aiInsightsEnabled,
+      render: () => <ActiveInsightsWidget />,
+    },
+    'chart.stationStatus': {
+      name: t('charts.stationStatus'),
+      visible: true,
+      render: () => (
         <StationStatusChart
           data={stationStatus.data ?? []}
           info={t('dashboard.info.stationStatus')}
           state={queryState(stationStatus)}
         />
+      ),
+    },
+    'chart.utilization': {
+      name: t('charts.topUtilization'),
+      visible: true,
+      render: () => (
         <UtilizationChart
           data={utilization.data ?? []}
           actions={dateControl(utilRange)}
           info={t('dashboard.info.utilization')}
           state={queryState(utilization)}
         />
-      </div>
-
-      <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
+      ),
+    },
+    'chart.energy': {
+      name: t('charts.energyDelivered'),
+      visible: true,
+      render: () => (
         <EnergyChart
           data={energyHistory.data ?? []}
           actions={dateControl(energy)}
           info={t('dashboard.info.energyChart')}
           state={queryState(energyHistory)}
         />
+      ),
+    },
+    'chart.sessions': {
+      name: t('charts.sessionsPerDay'),
+      visible: true,
+      render: () => (
         <SessionsChart
           data={sessionHistory.data ?? []}
           actions={dateControl(sessions)}
           info={t('dashboard.info.sessionsChart')}
           state={queryState(sessionHistory)}
         />
-      </div>
-
-      {canSeeMoney && (
-        <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
-          <RevenueChart
-            data={revenueHistory.data ?? []}
-            currency={companyCurrency}
-            currencyError={company.isError}
-            onRetry={company.refetch}
-            actions={dateControl(revenue)}
-            info={t('dashboard.info.revenueChart')}
-            state={queryState(revenueHistory)}
-          />
-          <PaymentBreakdownChart
-            data={paymentBreakdown.data ?? []}
-            info={t('dashboard.info.paymentBreakdown')}
-            state={queryState(paymentBreakdown)}
-          />
-        </div>
-      )}
-
-      <PeakUsageChart
-        data={peakUsage.data ?? []}
-        actions={dateControl(peak)}
-        info={t('dashboard.info.peakUsage')}
-        state={queryState(peakUsage)}
-      />
-
-      {canSeeSessions && (
+      ),
+    },
+    'chart.revenue': {
+      name: t('charts.revenuePerDay'),
+      visible: canSeeMoney,
+      render: () => (
+        <RevenueChart
+          data={revenueHistory.data ?? []}
+          currency={companyCurrency}
+          currencyError={company.isError}
+          onRetry={company.refetch}
+          actions={dateControl(revenue)}
+          info={t('dashboard.info.revenueChart')}
+          state={queryState(revenueHistory)}
+        />
+      ),
+    },
+    'chart.paymentBreakdown': {
+      name: t('charts.paymentBreakdown'),
+      visible: canSeeMoney,
+      render: () => (
+        <PaymentBreakdownChart
+          data={paymentBreakdown.data ?? []}
+          info={t('dashboard.info.paymentBreakdown')}
+          state={queryState(paymentBreakdown)}
+        />
+      ),
+    },
+    'chart.peakUsage': {
+      name: t('charts.peakUsage'),
+      visible: true,
+      render: () => (
+        <PeakUsageChart
+          data={peakUsage.data ?? []}
+          actions={dateControl(peak)}
+          info={t('dashboard.info.peakUsage')}
+          state={queryState(peakUsage)}
+        />
+      ),
+    },
+    'chart.activeSessions': {
+      name: t('charts.activeSessions'),
+      visible: canSeeSessions,
+      render: () => (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-1.5">
@@ -1269,9 +1428,100 @@ function DashboardBody({
             )}
           </CardContent>
         </Card>
-      )}
+      ),
+    },
+    'chart.stationMap': {
+      name: t('dashboard.siteMap'),
+      visible: true,
+      render: () => <StationMapChart info={t('dashboard.info.siteMap')} />,
+    },
+    'chart.locationsByCity': {
+      name: t('dashboard.locationsByCity'),
+      visible: true,
+      render: () => (
+        <LocationsByCityChart
+          data={locationsByCity.data}
+          info={t('dashboard.locationsByCityInfo')}
+          state={queryState(locationsByCity)}
+        />
+      ),
+    },
+    'chart.evsesByConnectorType': {
+      name: t('dashboard.evsesByConnectorType'),
+      visible: true,
+      render: () => (
+        <EvsesByConnectorTypeChart
+          data={evsesByConnectorType.data ?? []}
+          info={t('dashboard.evsesByConnectorTypeInfo')}
+          state={queryState(evsesByConnectorType)}
+        />
+      ),
+    },
+    'chart.plugAndCharge': {
+      name: t('dashboard.plugAndCharge'),
+      visible: true,
+      render: () => (
+        <PlugAndChargeChart
+          data={plugAndCharge.data}
+          actions={dateControl(pncRange)}
+          info={t('dashboard.plugAndChargeInfo')}
+          state={queryState(plugAndCharge)}
+        />
+      ),
+    },
+    'chart.freeVend': {
+      name: t('dashboard.freeVend'),
+      visible: true,
+      render: () => (
+        <FreeVendChart
+          data={freeVend.data}
+          actions={dateControl(freeVendRange)}
+          info={t('dashboard.freeVendInfo')}
+          state={queryState(freeVend)}
+        />
+      ),
+    },
+  };
 
-      <StationMapChart info={t('dashboard.info.siteMap')} />
+  // The hidden charts the user may see, offered back while customizing.
+  const hiddenWidgets =
+    dashboardLayout.layout == null
+      ? []
+      : [...dashboardLayout.layout.charts.map((i) => ({ item: i, widget: chartWidgets[i.id] }))]
+          .filter(({ item, widget }) => item.hidden && widget?.visible === true)
+          .map(({ item, widget }) => ({ id: item.id, name: widget?.name ?? item.id }));
+
+  return (
+    <>
+      {canSeeMoney && company.isError && <LoadErrorRetry onRetry={company.refetch} />}
+      {editing && dashboardLayout.layout != null && (
+        <DashboardCustomizeBar
+          hidden={hiddenWidgets}
+          onShow={(id) => {
+            setChartHidden(id, false);
+          }}
+          onReset={dashboardLayout.reset}
+          isResetting={dashboardLayout.isResetting}
+        />
+      )}
+      <div className="relative">
+        {mode !== 'live' && (
+          <div className="hidden lg:block invisible space-y-4" aria-hidden="true">
+            {renderLiveStatCards()}
+          </div>
+        )}
+        <div className={mode !== 'live' ? 'space-y-4 lg:absolute lg:inset-0' : 'space-y-4'}>
+          {mode === 'live' && renderLiveStatCards()}
+          {mode === 'historical' && renderHistoricalStatCards()}
+          {mode === 'trend' && renderTrendStatCards()}
+        </div>
+      </div>
+
+      {layout == null ? (
+        <LoadingLogo size="inline" />
+      ) : (
+        renderCharts(layout.charts, chartWidgets, editing)
+      )}
     </>
   );
 }
@@ -1280,16 +1530,31 @@ export function Dashboard(): React.JSX.Element {
   const { t } = useTranslation();
   useUpdateCheck();
   const [mode, setMode] = useState<DashboardMode>('live');
+  const [editing, setEditing] = useState(false);
   const historical = useDateRange();
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <h1 className="text-2xl md:text-3xl font-bold">{t('dashboard.title')}</h1>
-        <ModeToggle mode={mode} onModeChange={setMode} range={historical} />
+        <div className="flex flex-wrap items-center gap-2">
+          {mode === 'live' && (
+            <DashboardCustomizeButton editing={editing} onEditingChange={setEditing} />
+          )}
+          <ModeToggle
+            mode={mode}
+            onModeChange={(next) => {
+              setMode(next);
+              // Customizing applies to the Live view only.
+              if (next !== 'live') setEditing(false);
+            }}
+            range={historical}
+          />
+        </div>
       </div>
       <DashboardBody
         mode={mode}
+        editing={mode === 'live' && editing}
         fromDate={historical.effectiveFrom}
         toDate={historical.effectiveTo}
       />

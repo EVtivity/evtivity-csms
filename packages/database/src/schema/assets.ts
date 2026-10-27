@@ -94,7 +94,9 @@ export const sites = pgTable(
     carbonRegionCode: varchar('carbon_region_code', { length: 20 }),
     // Station display language of the site; null follows stationMessage.language.
     stationMessageLanguage: varchar('station_message_language', { length: 10 }),
-    // Automatic insights for this site (decision D17); all-site users change it.
+    // Selected in the AI insights scope (aiInsights.scope 'selected'); every
+    // site is in scope while the scope is 'all'. Written only by
+    // ai-insight-scope.service.ts (site create sets the initial value).
     aiInsightsEnabled: boolean('ai_insights_enabled').notNull().default(true),
     // Monthly AI token budget of the site; null follows ai.budget.siteMonthlyTokens, 0 is no limit.
     aiMonthlyTokenBudget: bigint('ai_monthly_token_budget', { mode: 'number' }),
@@ -198,6 +200,10 @@ export const chargingStations = pgTable(
     aiInsightsSuppressedUntil: timestamp('ai_insights_suppressed_until', { withTimezone: true }),
     aiInsightsSuppressedBy: text('ai_insights_suppressed_by'),
     aiInsightsSuppressedReason: varchar('ai_insights_suppressed_reason', { length: 500 }),
+    // Turned off in the AI insights scope (false): no insight for the station
+    // while the scope is 'selected', even when its site is selected. Written
+    // only by ai-insight-scope.service.ts.
+    aiInsightsEnabled: boolean('ai_insights_enabled').notNull().default(true),
     metadata: jsonb('metadata'),
     latitude: varchar('latitude', { length: 20 }),
     longitude: varchar('longitude', { length: 20 }),

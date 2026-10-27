@@ -335,6 +335,19 @@ describe('Fleet reservation routes', () => {
       );
     });
 
+    it('creates two reservations of one fleet with the same name', async () => {
+      for (const rsv of ['rsv_1', 'rsv_2']) {
+        seed([station('CS-001')]);
+        mockCreateReservation.mockResolvedValueOnce(reservationRow(rsv, 11));
+        const res = await post({
+          name: 'Morning charge',
+          slots: [{ stationOcppId: 'CS-001' }],
+          expiresAt: EXPIRES,
+        });
+        expect(res.statusCode).toBe(201);
+      }
+    });
+
     it('TC-RES-20: rejects a slot the service refuses with its message', async () => {
       seed([station('CS-001')]);
       mockCreateReservation

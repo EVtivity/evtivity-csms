@@ -118,6 +118,9 @@
     "./s3-storage": {
       "import": "./src/s3-storage.ts"
     },
+    "./avatar-storage": {
+      "import": "./src/avatar-storage.ts"
+    },
     "./reservation-expiry": {
       "import": "./src/reservation-expiry.ts"
     },

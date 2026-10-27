@@ -45,6 +45,11 @@ import {
 } from '@evtivity/database';
 import type { StationInsightSuppressionSource } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { AI_INSIGHT_SCOPE_REASONS } from '@evtivity/lib/ai-insights';
+import {
+  isOutsideAiInsightScope,
+  stationAiInsightsScopeStatus,
+} from '../services/ai-insight-scope.service.js';
 import { auditStationChange } from '../lib/station-audit.js';
 import {
   assertNotLoadManaged,
@@ -114,7 +119,7 @@ import {
   revenueItem,
   revenueAtSites,
 } from '@evtivity/services/session-revenue';
-import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { ERROR_CODES, ERROR_MESSAGES } from '../lib/error-codes.generated.js';
 import {
   getUserSiteIds,
   checkStationSiteAccess,
@@ -704,6 +709,20 @@ const stationDetail = z
     aiInsightsSuppressedBy: z.string().nullable().describe('User who suppressed them'),
     aiInsightsSuppressedByName: z.string().nullable().describe('Name of that user'),
     aiInsightsSuppressedReason: z.string().nullable().describe('Reason given for the suppression'),
+    aiInsightsScope: z
+      .object({
+        enabled: z
+          .boolean()
+          .describe(
+            'AI insights are produced for it now: AI Insights on and in the AI insights scope',
+          ),
+        reason: z
+          .enum(AI_INSIGHT_SCOPE_REASONS)
+          .describe(
+            'all_sites or selected: in scope; feature_off: AI Insights (system-initiated AI) are off; no_site: a station without a site while only selected sites are analyzed; site_not_selected; station_turned_off',
+          ),
+      })
+      .describe('Whether AI insights run for it and why (Settings > AI > Automatic Insights)'),
     dataPlan: z
       .enum(DATA_PLANS)
       .nullable()
@@ -1385,7 +1404,11 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       const planState = (await readStationDataPlans([station.id])).get(station.id);
-      return { ...station, chargingKind: planState?.chargingKind ?? 'ac' };
+      return {
+        ...station,
+        chargingKind: planState?.chargingKind ?? 'ac',
+        aiInsightsScope: await stationAiInsightsScopeStatus(station.id),
+      };
     },
   );
 
@@ -1428,7 +1451,7 @@ export function stationRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Suppress the AI insights of a station',
         description:
-          'Until `until` (or until resumed), the insight scan and the AI workers create no insight or insight action for the station (station offline, faulted, alert and long faulted, stuck sessions, authorization refusals and reservation problems at the station; site incidents leave it out). The station open insights close dismissed with the reason, and its waiting actions expire. The end date passing resumes the insights with no action. Audited in the station history. 400 VALIDATION_ERROR for an end date that is not in the future.',
+          'Until `until` (or until resumed), the insight scan and the AI workers create no insight or insight action for the station (station offline, faulted, alert and long faulted, stuck sessions, authorization refusals and reservation problems at the station; site incidents leave it out). The station open insights close dismissed with the reason, and its waiting actions expire. The end date passing resumes the insights with no action. Audited in the station history. 400 VALIDATION_ERROR for an end date that is not in the future; 409 AI_INSIGHTS_NOT_IN_SCOPE for a station outside the AI insights scope (its site not selected, or the station turned off), which gets no insight to suppress.',
         operationId: 'suppressStationAiInsights',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -1437,6 +1460,9 @@ export function stationRoutes(app: FastifyInstance): void {
           200: itemResponse(aiSuppressionResponse),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          409: errorWith('Station outside the AI insights scope', [
+            ERROR_CODES.AI_INSIGHTS_NOT_IN_SCOPE,
+          ]),
         },
       },
       config: { invalidatesCacheTags: ['stations'] },
@@ -1454,6 +1480,16 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply
           .status(400)
           .send({ error: 'The end date must be in the future', code: 'VALIDATION_ERROR' });
+        return;
+      }
+      // Suppression is offered only where insights run: a station outside the
+      // scope gets none to suppress.
+      const scope = await stationAiInsightsScopeStatus(id);
+      if (scope != null && isOutsideAiInsightScope(scope)) {
+        await reply.status(409).send({
+          error: ERROR_MESSAGES.AI_INSIGHTS_NOT_IN_SCOPE,
+          code: ERROR_CODES.AI_INSIGHTS_NOT_IN_SCOPE,
+        });
         return;
       }
       const result = await suppressStationAiInsights(

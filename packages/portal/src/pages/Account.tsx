@@ -20,6 +20,8 @@ import {
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth';
+import { useDriverAvatar } from '@/lib/avatar';
+import { DriverAvatar } from '@/components/account/DriverAvatar';
 
 interface RowProps {
   icon: React.ReactNode;
@@ -53,6 +55,7 @@ export function Account(): React.JSX.Element {
   const navigate = useNavigate();
   const driver = useAuth((s) => s.driver);
   const logout = useAuth((s) => s.logout);
+  const { data: avatar } = useDriverAvatar();
 
   const fullName = driver != null ? `${driver.firstName} ${driver.lastName}`.trim() : '';
 
@@ -63,9 +66,28 @@ export function Account(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-bold">{fullName.length > 0 ? fullName : t('account.title')}</h1>
-        {driver?.email != null && <p className="text-sm text-muted-foreground">{driver.email}</p>}
+      <div className="flex items-center gap-4">
+        <button
+          type="button"
+          className="rounded-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={t('account.editAvatar')}
+          onClick={() => {
+            void navigate('/account/personal');
+          }}
+        >
+          <DriverAvatar
+            avatar={avatar}
+            firstName={driver?.firstName}
+            lastName={driver?.lastName}
+            size="lg"
+          />
+        </button>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold">
+            {fullName.length > 0 ? fullName : t('account.title')}
+          </h1>
+          {driver?.email != null && <p className="text-sm text-muted-foreground">{driver.email}</p>}
+        </div>
       </div>
 
       <Card className="overflow-hidden p-0">

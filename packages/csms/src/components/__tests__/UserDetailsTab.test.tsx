@@ -9,7 +9,11 @@ const { getMock, patchMock } = vi.hoisted(() => ({ getMock: vi.fn(), patchMock: 
 
 // Access to every site (useHasAllSiteAccess), set per test.
 const siteAccess = vi.hoisted(() => ({ all: false }));
-vi.mock('@/lib/auth', () => ({ useHasAllSiteAccess: () => siteAccess.all }));
+vi.mock('@/lib/auth', () => ({
+  useHasAllSiteAccess: () => siteAccess.all,
+  useHasPermission: () => true,
+  useAuth: (select: (s: Record<string, unknown>) => unknown) => select({ user: { id: 'usr_me' } }),
+}));
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },

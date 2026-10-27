@@ -36,6 +36,7 @@ import { siteInScope } from '../lib/site-scope.js';
 import { circuitIdAfterSiteChange } from '../lib/station-circuit.js';
 import { createStationConfigTemplate } from '../lib/station-config-template.js';
 import { applyStationSiteMove } from '@evtivity/services/maintenance.service';
+import { initialSiteAiInsightsSelected } from './ai-insight-scope.service.js';
 
 interface ImportActor {
   actor: 'operator' | 'driver' | 'api_key' | 'system' | 'ocpp';
@@ -264,6 +265,8 @@ export async function importSitesCsv(
     namedStationIds,
     logger != null ? { log: logger } : {},
   );
+  // A site created while only selected sites are analyzed starts unselected.
+  const newSiteAiInsightsSelected = await initialSiteAiInsightsSelected();
   await db.transaction(async (tx) => {
     const siteIdByName = new Map<string, string>();
     const evseUuidByKey = new Map<string, string>();
@@ -315,7 +318,10 @@ export async function importSitesCsv(
           result.errors.push(`Site "${siteName}" already exists, skipped`);
         }
       } else {
-        const [site] = await tx.insert(sites).values({ name: siteName }).returning();
+        const [site] = await tx
+          .insert(sites)
+          .values({ name: siteName, aiInsightsEnabled: newSiteAiInsightsSelected })
+          .returning();
         if (site != null) {
           siteIdByName.set(siteName, site.id);
           result.sitesCreated++;

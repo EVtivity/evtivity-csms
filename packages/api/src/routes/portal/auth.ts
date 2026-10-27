@@ -36,6 +36,10 @@ import {
 import { clearAuthCookies, isSecureRequest, readRefreshCookie } from '../../lib/auth-cookies.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { portalDriverItem } from '../../lib/portal-driver-item.js';
+import { avatarItem, generatedAvatarBody } from '../../lib/avatar-item.js';
+import { generatedAvatarProblem } from '@evtivity/lib/account-avatar';
+import { driverAvatarColumns, setGeneratedAvatar } from '../../services/driver-avatar.service.js';
+import { withAvatars } from '../../services/account-avatar.js';
 import { emailEquals } from '../../lib/email-match.js';
 import { generateUserToken, hashUserToken } from '../../lib/user-token.js';
 import {
@@ -128,6 +132,7 @@ const portalDriverMe = portalDriverItem
     billingAddress: driverBillingAddressItem.describe(
       'The bill-to block of the invoices a fleet addresses to the driver (PATCH /v1/portal/driver/billing-address)',
     ),
+    avatar: avatarItem,
   })
   .loose();
 
@@ -198,6 +203,11 @@ const registerBody = z.object({
   password: newPasswordSchema,
   phone: z.string().max(50).optional(),
   recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
+  avatar: generatedAvatarBody
+    .optional()
+    .describe(
+      'A generated avatar chosen on the registration form, stored with the new account (a photo can be uploaded after the first sign-in)',
+    ),
 });
 
 const loginBody = z.object({
@@ -346,14 +356,14 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         tags: ['Portal Auth'],
         summary: 'Register a new driver account',
         description:
-          'Answers 202 { success: true } for a new and for an existing email alike, so the answer does not reveal whether an account exists, and signs nobody in. A new email gets a driver row (registrationSource=portal, argon2 password) and a verification email; the driver signs in after opening the link. An existing email (active or not, with or without portal access) changes nothing and gets driver.RegistrationAttempt, an email with the sign-in and password reset links. Verifies the reCAPTCHA token when enabled (web) or the device attestation (mobile apps). Returns 400 WEAK_PASSWORD, 400 VALIDATION_ERROR for a phone number that does not parse (stored in E.164), 429 PHONE_REGISTRATION_LIMITED when the phone number was used in three portal registrations in the last 24 hours, and 403 if portal registration is disabled by settings.',
+          'Answers 202 { success: true } for a new and for an existing email alike, so the answer does not reveal whether an account exists, and signs nobody in. A new email gets a driver row (registrationSource=portal, argon2 password) and a verification email; the driver signs in after opening the link. An existing email (active or not, with or without portal access) changes nothing and gets driver.RegistrationAttempt, an email with the sign-in and password reset links. Verifies the reCAPTCHA token when enabled (web) or the device attestation (mobile apps). Returns 400 WEAK_PASSWORD, 400 VALIDATION_ERROR for a phone number that does not parse (stored in E.164) or an avatar off the allow-list, 429 PHONE_REGISTRATION_LIMITED when the phone number was used in three portal registrations in the last 24 hours, and 403 if portal registration is disabled by settings.',
         operationId: 'portalRegister',
         security: [],
         body: zodSchema(registerBody),
         response: {
           202: successResponse,
           400: errorWith(
-            'Weak password or invalid phone number',
+            'Weak password, invalid phone number or avatar',
             [ERROR_CODES.WEAK_PASSWORD, ERROR_CODES.VALIDATION_ERROR],
             weakPasswordFields,
           ),
@@ -393,6 +403,13 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       const weakPassword = await validatePassword(body.password);
       if (weakPassword != null) {
         await reply.status(400).send(weakPassword);
+        return;
+      }
+
+      // Checked before the email lookup, so its answer says nothing about the email.
+      const avatarProblem = body.avatar == null ? null : generatedAvatarProblem(body.avatar);
+      if (avatarProblem != null) {
+        await reply.status(400).send({ error: avatarProblem, code: 'VALIDATION_ERROR' });
         return;
       }
 
@@ -490,6 +507,26 @@ export function portalAuthRoutes(app: FastifyInstance): void {
           db,
           request.log,
         );
+
+        // The avatar chosen on the form, through the only writer of the avatar columns.
+        if (body.avatar != null) {
+          try {
+            await setGeneratedAvatar(driver.id, body.avatar, {
+              actor: {
+                actor: 'driver',
+                actorUserId: null,
+                actorDriverId: driver.id,
+                actorApiKeyId: null,
+                actorLabel: null,
+              },
+              log: request.log,
+              note: 'Avatar chosen at registration',
+            });
+          } catch (err) {
+            // fail-open: the account exists; the driver can set the avatar after signing in
+            request.log.warn({ err, driverId: driver.id }, 'Registration avatar not stored');
+          }
+        }
 
         if (driver.email != null) {
           await sendDriverEmailVerification({ ...driver, email: driver.email }, request.log);
@@ -886,7 +923,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
 
       const [row] = await db
-        .select({ ...driverSessionColumns, ...driverBillingAddressColumns })
+        .select({ ...driverSessionColumns, ...driverBillingAddressColumns, ...driverAvatarColumns })
         .from(drivers)
         .where(eq(drivers.id, driverId));
 
@@ -902,8 +939,9 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         billingState,
         billingZip,
         billingCountry,
-        ...driver
+        ...withAvatar
       } = row;
+      const [driver] = await withAvatars([withAvatar]);
       return {
         ...driver,
         billing: toDriverBilling(await resolveAccountBilling(client, driverId)),

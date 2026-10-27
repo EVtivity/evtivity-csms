@@ -305,7 +305,10 @@ export function SupportCaseDetail(): React.JSX.Element {
                     {caseDetail.driverName}
                   </Link>
                   {caseDetail.driverEmail != null && (
-                    <span className="ml-2 text-muted-foreground">({caseDetail.driverEmail})</span>
+                    <>
+                      {' '}
+                      <span className="ml-1 text-muted-foreground">({caseDetail.driverEmail})</span>
+                    </>
                   )}
                 </Row>
               )}
@@ -584,7 +587,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
   return (
     <div className="flex items-start gap-2 text-sm">
       <span className="text-muted-foreground shrink-0 w-24">{label}</span>
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className="min-w-0 flex-1 wrap-anywhere">{children}</div>
     </div>
   );
 }

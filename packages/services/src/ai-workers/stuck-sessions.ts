@@ -17,6 +17,7 @@
 import {
   client,
   operatorStationSql,
+  stationInsightsInScopeSql,
   stationInsightsSuppressedSql,
   toDate,
   toDateOrNull,
@@ -157,6 +158,7 @@ export async function findStuckSessions(input: {
       )
       AND ${client.unsafe(operatorStationSql('cs'))}
       AND NOT ${client.unsafe(stationInsightsSuppressedSql('cs'))}
+      AND ${client.unsafe(stationInsightsInScopeSql('cs'))}
       AND NOT EXISTS (
         SELECT 1 FROM ai_insight_cooldowns c
         WHERE c.subject_type = 'session' AND c.subject_id = s.id

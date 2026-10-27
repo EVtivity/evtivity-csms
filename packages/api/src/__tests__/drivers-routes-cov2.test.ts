@@ -845,6 +845,7 @@ describe('Driver routes (operator), uncovered paths', () => {
         paymentMethodsRemoved: 1,
         vehiclesRemoved: 2,
         tokensDeactivated: 3,
+        avatarRemoved: true,
       });
       const res = await app.inject({
         method: 'POST',
@@ -857,6 +858,7 @@ describe('Driver routes (operator), uncovered paths', () => {
         paymentMethodsRemoved: 1,
         vehiclesRemoved: 2,
         tokensDeactivated: 3,
+        avatarRemoved: true,
       });
       expect(eraseDriverMock).toHaveBeenCalledWith(
         DRIVER_ID,

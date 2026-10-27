@@ -96,7 +96,8 @@
     "startDate": "開始日期",
     "endDate": "結束日期",
     "dateRange": "日期範圍",
-    "copyFailed": "複製失敗"
+    "copyFailed": "複製失敗",
+    "clearDates": "清除日期"
   },
   "status": {
     "online": "線上",
@@ -384,7 +385,7 @@
     "passkeyResetRequired": "您必須變更密碼。請使用電子郵件和密碼登入以變更密碼。",
     "mfaSetupPasskeyHint": "使用指紋、臉部、螢幕鎖定或安全金鑰。",
     "mfaSetupUsePasskey": "設定密碼金鑰或安全金鑰",
-    "chargingPortalLink": "{{name}} 充電入口網站",
+    "chargingPortalLink": "充電入口網站",
     "ssoLinkRequired": "此帳戶尚未連結單一登入。請使用密碼登入並在個人資料中允許 SSO 登入，或聯絡您的管理員。"
   },
   "dashboard": {
@@ -513,7 +514,46 @@
     "stationsNotAccepted": "待審核：{{pending}}，已封鎖：{{blocked}}",
     "siteMapNotConfigured": "請在設定中配置 Google Maps API 金鑰以顯示站點地圖。",
     "siteMapLoadError": "無法載入地圖。",
-    "siteMapMarker": "{{name}}（充電站：{{count}}）"
+    "siteMapMarker": "{{name}}（充電站：{{count}}）",
+    "customize": "自訂",
+    "doneCustomizing": "完成",
+    "customizeHint": "拖曳圖表的握把來移動它，或將其隱藏。統計卡片保持原位。版面配置會儲存到您的帳戶。",
+    "hiddenWidgets": "已隱藏",
+    "noHiddenWidgets": "無",
+    "resetLayout": "重設版面配置",
+    "resetLayoutTitle": "重設版面配置",
+    "resetLayoutDescription": "即時儀表板將恢復預設的圖表順序，並顯示預設圖表。您儲存的版面配置將被刪除。",
+    "showWidget": "顯示{{name}}",
+    "hideWidget": "隱藏{{name}}",
+    "moveWidget": "移動{{name}}",
+    "layoutSaveFailed": "無法儲存儀表板版面配置。",
+    "dnd": {
+      "instructions": "按空白鍵或 Enter 鍵拿起卡片或圖表。用方向鍵移動，按空白鍵或 Enter 鍵放下，或按 Escape 取消。",
+      "pickedUp": "已拿起{{name}}。",
+      "movedOver": "{{name}}位於{{over}}上方。",
+      "dropped": "{{name}}已移到{{over}}的位置。",
+      "cancelled": "已取消移動{{name}}。"
+    },
+    "locationsByCity": "依城市統計的位置",
+    "locationsByCityInfo": "您的站點所在各城市已接受的充電站數量，提示中顯示站點數量。城市比較時不區分大小寫並忽略多餘空格。",
+    "unknownCity": "未知城市",
+    "otherCities": "其他城市",
+    "noLocations": "沒有站點",
+    "cityTooltip": "{{stations}} 個充電站，{{sites}} 個站點",
+    "chartStations": "充電站",
+    "evsesByConnectorType": "依連接器類型統計的 EVSE",
+    "evsesByConnectorTypeInfo": "您已接受的充電站中依連接器類型統計的使用中 EVSE。帶有兩種類型連接器的 EVSE 在每種類型下各計一次。提示中顯示連接器數量。",
+    "chartEvses": "EVSE",
+    "connectorTypeTooltip": "{{evses}} 個 EVSE，{{connectors}} 個連接器",
+    "noEvses": "沒有 EVSE",
+    "plugAndCharge": "Plug & Charge",
+    "plugAndChargeInfo": "您的站點中使用 Plug & Charge 合約啟動的工作階段及其能量。有效合約僅向可存取所有站點且可讀取駕駛員的使用者顯示。",
+    "activeContractsCount": "有效合約：{{value}}",
+    "noPlugAndChargeSessions": "此期間沒有 Plug & Charge 工作階段",
+    "freeVend": "免費充電",
+    "freeVendInfo": "您的站點中的免費充電工作階段及其能量，以及已開啟免費充電的站點數量。",
+    "freeVendSites": "開啟免費充電的站點：{{value}}",
+    "noFreeVendSessions": "此期間沒有免費充電工作階段"
   },
   "sites": {
     "title": "站點",
@@ -763,7 +803,7 @@
     "sp2Desc": "TLS 加密 + HTTP Basic Auth 驗證",
     "sp3Desc": "雙向 TLS 用戶端憑證驗證，無需密碼。",
     "sp3CertNote": "需要用戶端憑證。請在憑證分頁中設定。",
-    "sp16_0": "無安全",
+    "sp16_0": "無驗證",
     "sp16_1": "基本驗證",
     "sp16_2": "TLS + 基本驗證",
     "sp16_0Desc": "無需驗證",
@@ -1859,7 +1899,9 @@
     "deleteHoliday": "刪除節假日",
     "bulkAddPlaceholder": "每行一個節假日: YYYY-MM-DD 節假日名稱",
     "bulkHolidaySummary": "已匯入 {{created}} 個節假日；因日期已存在跳過 {{skipped}} 個。",
-    "bulkHolidayAllImported": "已匯入 {{count}} 個節假日。"
+    "bulkHolidayAllImported": "已匯入 {{count}} 個節假日。",
+    "addHolidayDescription": "限於假日的費率在此日期適用。",
+    "bulkAddDescription": "一次新增多個假日，每行一個。已存在的日期將略過。"
   },
   "users": {
     "title": "使用者",
@@ -2613,7 +2655,38 @@
     "rateLimits": "速率限制",
     "simulator": "模擬器",
     "integrations": "整合",
-    "secretsNote": "永遠不會公開機密值（密碼、權杖、加密金鑰）。\"Configured\" 僅表示是否已設定值。"
+    "secretsNote": "永遠不會公開機密值（密碼、權杖、加密金鑰）。\"Configured\" 僅表示是否已設定值。",
+    "description": "CSMS 處理程序執行時使用的設定。機密值從不顯示。",
+    "search": "搜尋設定",
+    "section": "區段",
+    "allSections": "所有區段",
+    "noMatches": "沒有符合的設定",
+    "setting": "設定",
+    "value": "值",
+    "security": "安全性",
+    "ocppProcesses": "OCPP 處理程序",
+    "ocpi": "OCPI",
+    "simProviders": "SIM 供應商",
+    "dataPlans": "充電站數據方案",
+    "configured": "已設定",
+    "notSet": "未設定",
+    "none": "無",
+    "enabled": "開啟",
+    "disabled": "關閉",
+    "processes": "處理程序",
+    "noOcppProcesses": "過去 90 秒內沒有 OCPP 處理程序回報。",
+    "connectedStations": "已連線的充電站",
+    "startedAt": "啟動時間",
+    "settings": "設定",
+    "notReported": "未回報（該處理程序執行較早的版本）",
+    "sharedRateLimit": "共用速率限制",
+    "simulatorStations": "模擬器充電站",
+    "stationsWifiOrWired": "Wi-Fi 或有線充電站",
+    "stationsCellular": "行動網路充電站",
+    "sitesWifiOrWired": "設為 Wi-Fi 或有線的站點",
+    "sitesCellular": "設為行動網路的站點",
+    "webhookSigning": "Webhook 簽章密鑰",
+    "simHologramKey": "Hologram API 金鑰"
   },
   "settings": {
     "title": "設定",
@@ -2621,7 +2694,6 @@
     "qrCodeIcon": "QR Code 圖示",
     "qrCodeIconDescription": "上傳 SVG 圖示嵌入 QR Code 中心。",
     "uploadSvg": "上傳 SVG",
-    "removeIcon": "移除圖示",
     "preview": "預覽",
     "iconUploaded": "圖示已上傳。",
     "iconRemoved": "圖示已移除。",
@@ -2745,13 +2817,11 @@
     "invoicePaymentSaved": "發票付款資訊已儲存",
     "invoicePaymentSaveFailed": "無法儲存發票付款資訊。",
     "uploadLogo": "上傳標誌",
-    "removeLogo": "移除標誌",
     "noLogo": "未上傳標誌。",
     "invalidImage": "檔案必須是圖片。",
     "logoTooLarge": "圖片大小不能超過 512 KB。",
     "favicon": "網站圖示",
     "uploadFavicon": "上傳網站圖示",
-    "removeFavicon": "移除網站圖示",
     "noFavicon": "未上傳網站圖示。",
     "faviconDescription": "顯示在瀏覽器分頁中。推薦尺寸: 32x32 或 64x64 畫素。",
     "seoSettings": "SEO 和社交分享",
@@ -2761,7 +2831,6 @@
     "metaKeywordsHelper": "用逗號分隔的搜尋引擎關鍵字。",
     "ogImage": "社交分享圖片",
     "uploadOgImage": "上傳圖片",
-    "removeOgImage": "移除圖片",
     "noOgImage": "未上傳社交分享圖片。",
     "ogImageDescription": "在社交媒體上分享連結時顯示。推薦尺寸: 1200x630 畫素。",
     "themeColor": "主題顏色",
@@ -2808,7 +2877,7 @@
     "s3PolicyDescription": "您的 IAM 使用者需要以下 S3 儲存桶權限。請將 YOUR_BUCKET_NAME 替換為您的實際儲存桶名稱。",
     "s3BucketPrivateNote": "S3 儲存桶不應設為公開。所有檔案存取均透過伺服器生成的預簽名 URL 進行。",
     "s3CorsTitle": "CORS 設定",
-    "s3CorsDescription": "您的 S3 儲存桶需要 CORS 策略才能允許從瀏覽器直接上傳檔案。請在儲存桶 > 權限 > CORS 中新增以下設定。將 YOUR_FRONTEND_ORIGIN 替換為您的管理面板 URL（例如 http://localhost:7100）。",
+    "s3CorsDescription": "您的 S3 儲存桶需要 CORS 規則，瀏覽器才能透過預簽名 POST 請求直接上傳檔案（管理面板中的充電站圖片和支援附件，入口網站中的駕駛員照片）並透過 GET 開啟。請在儲存桶 > 權限 > CORS 中新增。範例列出了本管理面板和駕駛員入口網站的來源。如果使用者透過其他位址存取任一應用程式，請修改這些值。",
     "pnc": "即插即充",
     "pncEnabled": "啟用即插即充 (ISO 15118)",
     "pncDescription": "啟用後，系統將管理 ISO 15118 即插即充的 PKI 憑證。停用將隱藏憑證部分並阻止憑證操作。",
@@ -3236,7 +3305,8 @@
       "ops": {
         "title": "自動洞察與背景工作",
         "description": "自動洞察和背景工作使用的模型。它們在沒有使用者的情況下執行，並使用公司的供應商金鑰。",
-        "enabled": "開啟系統發起的 AI"
+        "enabled": "開啟系統發起的 AI",
+        "offNote": "這些設定僅在系統發起的 AI 開啟時生效。其值會保留。"
       },
       "driver": {
         "title": "駕駛員支援",
@@ -3286,6 +3356,30 @@
         "empty": "最近 {{days}} 天內沒有評價。",
         "viewWrong": "查看標記為錯誤的洞察"
       }
+    },
+    "aiInsightsScope": {
+      "title": "AI 洞察範圍",
+      "siteListLabel": "站點",
+      "description": "選擇自動洞察和背景工作分析哪些站點和充電站。",
+      "mode": {
+        "all": "所有站點",
+        "selected": "所選站點"
+      },
+      "modeHint": {
+        "all": "所有站點和充電站，包括以後新增的。",
+        "selected": "僅分析您選擇的站點。在所選站點內，您可以關閉個別充電站。新站點預設不選取，新充電站跟隨其站點。"
+      },
+      "search": "搜尋站點",
+      "noSites": "沒有符合的站點。",
+      "noStations": "該站點沒有充電站。",
+      "stationsSummary_one": "{{count}} 個充電站，{{off}} 個已關閉",
+      "stationsSummary_other": "{{count}} 個充電站，{{off}} 個已關閉",
+      "siteToggle": "分析 {{name}}",
+      "stationsWithoutSite_one": "僅分析所選站點時，{{count}} 個沒有站點的充電站不會被分析。",
+      "stationsWithoutSite_other": "僅分析所選站點時，{{count}} 個沒有站點的充電站不會被分析。",
+      "removeHint": "移出範圍的站點和充電站不會產生新的洞察。其未關閉的洞察會被忽略，等待中的操作會過期。",
+      "loadFailed": "無法載入 AI 洞察範圍。",
+      "stationsFailed": "無法載入充電站。"
     },
     "aiMcp": {
       "title": "MCP 伺服器",
@@ -3496,7 +3590,8 @@
         }
       },
       "proofHint": "請確認是您本人，以縮短稽核記錄、登入記錄或安全事件記錄的保留期。每位管理員都會收到通知。"
-    }
+    },
+    "uploadReplacesHint": "上傳新圖片會取代目前的圖片。"
   },
   "pnc": {
     "certificates": "憑證",
@@ -3806,7 +3901,8 @@
     "changes": "變更",
     "token": "權杖",
     "evse": "EVSE",
-    "removeSlotStation": "移除充電站"
+    "removeSlotStation": "移除充電站",
+    "noConnectors": "無連接器"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "帳號已停用",
@@ -4134,6 +4230,7 @@
     "AI_INSIGHT_NOT_FOUND": "找不到洞察",
     "AI_INSIGHT_COOLDOWN": "此洞察最近已重新產生，請稍後再試",
     "AI_INSIGHTS_DISABLED": "自動洞察已關閉",
+    "AI_INSIGHTS_NOT_IN_SCOPE": "此站點或充電站未開啟 AI 洞察。請先在設定中將其加入 AI 洞察範圍",
     "AI_SITE_BUDGET_EXCEEDED": "已達到站點每日 AI 使用上限",
     "AI_MONTHLY_BUDGET_EXCEEDED": "已達到每月 AI 使用上限",
     "AI_CONTEXT_NOT_FOUND": "找不到要說明的紀錄",
@@ -5430,7 +5527,24 @@
       "api_key": "API 金鑰",
       "system": "系統",
       "ocpp": "OCPP"
-    }
+    },
+    "changes": "變更",
+    "field": "欄位",
+    "before": "之前",
+    "after": "之後",
+    "showUnchanged": "顯示未變更的欄位",
+    "hideUnchanged": "隱藏未變更的欄位",
+    "noChanges": "此項目未記錄欄位值。",
+    "redacted": "已隱藏",
+    "goToEntity": "前往實體",
+    "entityDeleted": "已刪除",
+    "viaAi": "透過 AI",
+    "viaAiChannels": {
+      "chat": "AI 助理",
+      "mcp": "MCP",
+      "proposal": "已確認的 AI 操作"
+    },
+    "entryTitle": "{{action}}（{{entity}}）"
   },
   "maintenance": {
     "colType": "類型",
@@ -5829,7 +5943,7 @@
       "resolved_before_analysis": "分析前已解決",
       "cooldown": "最近已分析",
       "site_daily_cap": "已達到站點每日洞察上限",
-      "site_disabled": "此站點的洞察已關閉",
+      "site_disabled": "該站點或充電站不在 AI 洞察範圍內",
       "budget_exceeded": "AI 預算已用完",
       "disabled": "自動洞察已關閉",
       "provider_paused": "AI 供應商帳戶的額度或配額已用完"
@@ -5878,6 +5992,18 @@
       "sessionsFailedSameReason24h_other": "24 小時內 {{count}} 個工作階段因相同原因失敗",
       "tokenRefusals_one": "{{count}} 次權杖被拒",
       "tokenRefusals_other": "{{count}} 次權杖被拒"
+    },
+    "scopeStatus": {
+      "off": "關閉",
+      "settingsLink": "AI 洞察範圍",
+      "reason": {
+        "all_sites": "對所有站點開啟",
+        "selected": "開啟：已在 AI 洞察範圍中選取",
+        "feature_off": "已關閉，因為系統發起的 AI 已關閉",
+        "no_site": "已關閉，因為該充電站沒有站點且僅分析所選站點",
+        "site_not_selected": "已關閉，因為該站點未在 AI 洞察範圍中選取",
+        "station_turned_off": "已關閉，因為該充電站在 AI 洞察範圍中已關閉"
+      }
     },
     "regenerateQueued": "正在產生新的洞察。",
     "widget": {
@@ -6115,8 +6241,6 @@
     },
     "siteBudget": "每月 Token 預算",
     "siteBudgetHelp": "留空則使用「設定 > AI」中的預設站點預算。0 表示不限制。",
-    "siteInsights": "自動洞察",
-    "siteInsightsHelp": "關閉後將停止此站點的自動洞察。",
     "allSitesOnly": "只有可存取所有站點的使用者才能變更此項。"
   },
   "aiAlerts": {
@@ -6324,5 +6448,55 @@
       "alignedMeasurandsHelp": "閒置讀數的測量值，以逗號分隔。僅在間隔大於 0 時傳送。",
       "txEndedMeasurandsHelp": "工作階段結束時數值中的測量值，以逗號分隔。"
     }
+  },
+  "avatar": {
+    "alt": "{{name}} 的頭像",
+    "edit": "編輯頭像",
+    "remove": "刪除頭像",
+    "create": "建立",
+    "upload": "上傳",
+    "random": "隨機",
+    "tooLarge": "圖片必須小於 1 MB。",
+    "wrongType": "請選擇 JPEG、PNG 或 WebP 圖片。",
+    "uploadHint": "JPEG、PNG 或 WebP，小於 1 MB。圖片會被裁切為正方形。",
+    "chooseImage": "選擇圖片",
+    "saved": "頭像已儲存",
+    "saveFailed": "無法儲存頭像",
+    "removed": "頭像已刪除",
+    "options": {
+      "topVariant": "頭髮或頭飾",
+      "accessoriesVariant": "眼鏡",
+      "eyebrowsVariant": "眉毛",
+      "eyesVariant": "眼睛",
+      "mouthVariant": "嘴巴",
+      "facialHairVariant": "鬍子",
+      "clothesVariant": "衣服",
+      "clothesGraphicVariant": "襯衫圖案",
+      "skinColor": "膚色",
+      "hairColor": "髮色",
+      "facialHairColor": "鬍子顏色",
+      "clothesColor": "衣服顏色",
+      "hatColor": "頭飾顏色",
+      "accessoriesColor": "眼鏡顏色",
+      "backgroundColor": "背景顏色",
+      "flip": "方向"
+    },
+    "none": {
+      "topVariant": "無頭髮或頭飾",
+      "accessoriesVariant": "無眼鏡",
+      "facialHairVariant": "無鬍子"
+    },
+    "values": {
+      "none": "預設",
+      "horizontal": "鏡像"
+    },
+    "label": "頭像",
+    "removeConfirmTitle": "移除頭像",
+    "removeConfirm": "移除此頭像？上傳的照片將被刪除，並顯示姓名首字母。",
+    "editDescription": "建立頭像或上傳照片。它會顯示在側邊欄的使用者選單和使用者清單中。",
+    "editDescriptionUser": "為此使用者建立頭像或上傳照片。頭像顯示在使用者列表和使用者頁面中。",
+    "editDescriptionDriver": "為此駕駛員建立頭像或上傳照片。頭像顯示在駕駛員列表、車隊成員和駕駛員頁面中。駕駛員可以變更它。",
+    "savedWithNewAccount": "選填。帳戶建立時儲存頭像。",
+    "applyFailed": "帳戶已建立，但頭像未能儲存。請在詳細資料分頁中重新設定。"
   }
 }

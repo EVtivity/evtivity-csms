@@ -893,6 +893,52 @@ describe('CommandListener', () => {
     );
   });
 
+  it('sends the real file transfer URL and publishes only the masked one', async () => {
+    const url = 'ftp://fw:UrlSecret99@files.example.com:21/fw.bin';
+    const masked = 'ftp://fw:[redacted]@files.example.com:21/fw.bin';
+    await createAndStart();
+    for (const [action, request] of [
+      ['UpdateFirmware', { requestId: 1, firmware: { location: url, retrieveDateTime: 'x' } }],
+      ['GetLog', { logType: 'DiagnosticsLog', requestId: 2, log: { remoteLocation: url } }],
+      ['GetDiagnostics', { location: url }],
+    ] as const) {
+      subscribeHandler!(
+        JSON.stringify({ commandId: `c-${action}`, stationId: 'CS-001', action, payload: request }),
+      );
+    }
+    await new Promise((r) => setTimeout(r, 10));
+
+    // The station gets the real URL.
+    const sent = JSON.stringify(dispatcher.sendVersionAwareCommand.mock.calls);
+    expect(sent).toContain(url);
+    // Every published event (message log and command events) holds the masked one.
+    const published = JSON.stringify(eventBus.publish.mock.calls);
+    expect(published).not.toContain('UrlSecret99');
+    for (const type of ['command.UpdateFirmware', 'command.GetLog', 'command.GetDiagnostics']) {
+      const event = eventBus.publish.mock.calls.find(([e]) => e.eventType === type)?.[0];
+      expect(JSON.stringify(event?.payload), type).toContain(masked);
+    }
+  });
+
+  it('queues an offline UpdateFirmware with the real URL (the station needs it)', async () => {
+    const url = 'ftp://fw:UrlSecret99@files.example.com/fw.bin';
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+      new Error('Station CS-001 is not connected'),
+    );
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-q',
+        stationId: 'CS-001',
+        action: 'UpdateFirmware',
+        payload: { requestId: 3, firmware: { location: url, retrieveDateTime: 'x' } },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    const queued = eventBus.publish.mock.calls.find(([e]) => e.eventType === 'command.Queued');
+    expect(JSON.stringify(queued?.[0].payload)).toContain(url);
+  });
+
   it('rethrows and logs when subscribing fails', async () => {
     const failingPubsub: PubSubClient = {
       publish: mockPublish,

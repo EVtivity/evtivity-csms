@@ -226,7 +226,7 @@ function PanelNode({
                 {formatNumber(panel.maxContinuousKw, 1)} kW max
               </span>
               {panel.totalConnectedKw > panel.maxContinuousKw && (
-                <Badge variant="warning" className="text-xs">
+                <Badge variant="warning" className="max-w-full whitespace-normal text-xs">
                   {t('loadManagement.oversubscribed')}{' '}
                   {formatNumber(panel.totalConnectedKw / panel.maxContinuousKw, 2)}x
                 </Badge>
@@ -345,7 +345,7 @@ function PanelNode({
               />
             ))}
 
-            <div className="flex gap-2 pl-4">
+            <div className="flex flex-wrap gap-2 pl-4">
               <Button
                 variant="outline"
                 size="sm"
@@ -477,7 +477,7 @@ function CircuitNode({
     <div className="ml-4 rounded-md border bg-background p-3">
       <div className="flex items-start gap-2">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm font-medium">{circuit.name}</p>
             <span className="text-xs text-muted-foreground">{circuit.breakerRatingAmps}A</span>
             {circuit.phaseConnections != null && (

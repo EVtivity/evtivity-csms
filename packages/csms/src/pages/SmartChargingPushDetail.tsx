@@ -95,10 +95,12 @@ export function SmartChargingPushDetail(): React.JSX.Element {
 
   return (
     <div className="px-4 py-4 md:px-6 md:py-6 space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to={`/smart-charging/${push.templateId}`} />
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">{t('smartCharging.pushProgress')}</h1>
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">
+            {t('smartCharging.pushProgress')}
+          </h1>
           <p className="text-sm text-muted-foreground">
             {formatDateTime(push.createdAt, timezone)}
           </p>

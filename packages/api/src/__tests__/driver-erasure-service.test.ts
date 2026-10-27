@@ -49,14 +49,25 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn(),
 }));
 
-const { eraseMethodsMock, deactivateMock, deleteCodesMock, deleteCredentialsMock } = vi.hoisted(
-  () => ({
-    eraseMethodsMock: vi.fn(),
-    deactivateMock: vi.fn(),
-    deleteCodesMock: vi.fn(),
-    deleteCredentialsMock: vi.fn(),
-  }),
-);
+const {
+  eraseMethodsMock,
+  deactivateMock,
+  deleteCodesMock,
+  deleteCredentialsMock,
+  clearAvatarMock,
+  purgeAvatarMock,
+} = vi.hoisted(() => ({
+  eraseMethodsMock: vi.fn(),
+  deactivateMock: vi.fn(),
+  deleteCodesMock: vi.fn(),
+  deleteCredentialsMock: vi.fn(),
+  clearAvatarMock: vi.fn(),
+  purgeAvatarMock: vi.fn(),
+}));
+vi.mock('../services/driver-avatar.service.js', () => ({
+  clearAvatarInErasure: clearAvatarMock,
+  purgeDriverAvatarStorage: purgeAvatarMock,
+}));
 vi.mock('../services/mfa-factor.service.js', () => ({
   deleteRecoveryCodes: deleteCodesMock,
   deleteWebauthnCredentials: deleteCredentialsMock,
@@ -94,6 +105,8 @@ describe('eraseDriver', () => {
     chains.length = 0;
     eraseMethodsMock.mockResolvedValue({ removed: 2 });
     deactivateMock.mockResolvedValue({ tokensDeactivated: 3 });
+    clearAvatarMock.mockReset().mockResolvedValue({ removed: false, object: null });
+    purgeAvatarMock.mockReset().mockResolvedValue(undefined);
   });
 
   it('anonymizes the row, removes personal data, then methods and tokens, and audits counts only', async () => {
@@ -114,6 +127,7 @@ describe('eraseDriver', () => {
       paymentMethodsRemoved: 2,
       vehiclesRemoved: 1,
       tokensDeactivated: 3,
+      avatarRemoved: false,
     });
     expect(setFor('drivers')).toMatchObject({
       firstName: '',
@@ -142,7 +156,13 @@ describe('eraseDriver', () => {
       expect.objectContaining({
         action: 'erased',
         before: null,
-        after: { erased: true, paymentMethodsRemoved: 2, vehiclesRemoved: 1, tokensDeactivated: 3 },
+        after: {
+          erased: true,
+          paymentMethodsRemoved: 2,
+          vehiclesRemoved: 1,
+          tokensDeactivated: 3,
+          avatarRemoved: false,
+        },
       }),
       expect.anything(),
       log,
@@ -160,6 +180,44 @@ describe('eraseDriver', () => {
     });
     await eraseDriver(DRIVER_ID, { actor, log });
     expect(order).toEqual(['methods after 1 updates']);
+  });
+
+  it('clears the avatar in the transaction and deletes every object of the driver after the commit', async () => {
+    dbResults = [[{ id: DRIVER_ID, erasedAt: null }], [], [{ id: DRIVER_ID }]];
+    const object = { key: `avatars/${DRIVER_ID}/x.jpg`, bucket: 'b' };
+    const order: string[] = [];
+    clearAvatarMock.mockImplementation(() => {
+      order.push('clear');
+      return Promise.resolve({ removed: true, object });
+    });
+    purgeAvatarMock.mockImplementation(() => {
+      order.push('delete');
+      return Promise.resolve();
+    });
+    eraseMethodsMock.mockImplementation(() => {
+      order.push('methods');
+      return Promise.resolve({ removed: 0 });
+    });
+    const result = await eraseDriver(DRIVER_ID, { actor, log });
+    expect(result.avatarRemoved).toBe(true);
+    expect(clearAvatarMock).toHaveBeenCalledWith(expect.anything(), DRIVER_ID);
+    expect(purgeAvatarMock).toHaveBeenCalledWith(DRIVER_ID, 'b', log);
+    expect(order).toEqual(['clear', 'delete', 'methods']);
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ after: expect.objectContaining({ avatarRemoved: true }) }),
+      expect.anything(),
+      log,
+    );
+  });
+
+  it('never touches the avatar when a concurrent erasure won', async () => {
+    dbResults = [[{ id: DRIVER_ID, erasedAt: null }], [], []];
+    await expect(eraseDriver(DRIVER_ID, { actor, log })).rejects.toMatchObject({
+      code: 'DRIVER_ERASED',
+    });
+    expect(clearAvatarMock).not.toHaveBeenCalled();
+    expect(purgeAvatarMock).not.toHaveBeenCalled();
   });
 
   it('answers 404 for an unknown driver', async () => {

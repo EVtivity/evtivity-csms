@@ -189,6 +189,23 @@ describe('PingMonitor', () => {
     monitor.writeNow();
   });
 
+  it('reports no settings until started with them, then the settings it was given', () => {
+    expect(monitor.getSnapshot().config).toBeNull();
+    const config = {
+      version: '0.1.48',
+      wsCompression: false,
+      tlsEnabled: true,
+      tlsPort: 8443,
+      clientCaConfigured: true,
+      maxConnectionsPerIp: 10,
+      maxMessagesPerIpPerSecond: 20,
+      maxPendingAuthPerIp: 5,
+      trustedProxiesConfigured: true,
+    };
+    monitor.start(null, null, 'ocpp-test', config);
+    expect(monitor.getSnapshot().config).toEqual(config);
+  });
+
   it('getSnapshot returns correct serverStartedAt date', () => {
     const snapshot = monitor.getSnapshot();
     expect(snapshot.serverStartedAt).toBeInstanceOf(Date);

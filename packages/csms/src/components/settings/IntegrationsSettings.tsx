@@ -20,6 +20,8 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
+import { PORTAL_BASE_URL } from '@/lib/config';
+import { buildS3CorsExample } from '@/lib/s3-cors-example';
 import { ReservationSettings } from '@/components/settings/ReservationSettings';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { StationMessageSettings } from '@/components/settings/StationMessageSettings';
@@ -1332,16 +1334,11 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               {s3CorsOpen && (
                 <div className="mt-3 space-y-2">
                   <p className="text-sm text-muted-foreground">{t('settings.s3CorsDescription')}</p>
-                  <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs">
-                    {`[
-  {
-    "AllowedHeaders": ["*"],
-    "AllowedMethods": ["PUT", "GET"],
-    "AllowedOrigins": ["YOUR_FRONTEND_ORIGIN"],
-    "ExposeHeaders": [],
-    "MaxAgeSeconds": 300
-  }
-]`}
+                  <pre
+                    className="overflow-x-auto rounded-md bg-muted p-4 text-xs"
+                    data-testid="s3-cors-example"
+                  >
+                    {buildS3CorsExample(window.location.origin, PORTAL_BASE_URL)}
                   </pre>
                 </div>
               )}

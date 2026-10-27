@@ -4,6 +4,7 @@
 import { randomInt } from 'node:crypto';
 import type postgres from 'postgres';
 import { buildCampaignUpdateFirmware, publishOcppCommand, type PubSubClient } from '@evtivity/lib';
+import { maskUrlPassword } from '@evtivity/lib/secret-config';
 import { rejectFirmwareUpdate, applyFirmwareCampaignStationStatus } from './firmware-updates.js';
 
 /** A random UpdateFirmware requestId (OCPP integer, positive). */
@@ -59,7 +60,7 @@ export async function dispatchPendingFirmwareCampaigns(
       const retrieveDateTime = new Date();
       await sql`
         INSERT INTO firmware_updates (station_id, request_id, firmware_url, retrieve_date_time, campaign_id, initiated_at)
-        VALUES (${station.stationUuid}, ${requestId}, ${row.firmware_url}, ${retrieveDateTime}, ${row.campaign_id}, now())
+        VALUES (${station.stationUuid}, ${requestId}, ${maskUrlPassword(row.firmware_url)}, ${retrieveDateTime}, ${row.campaign_id}, now())
         ON CONFLICT (station_id, request_id) WHERE request_id IS NOT NULL DO NOTHING
       `;
       const payload = buildCampaignUpdateFirmware(

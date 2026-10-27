@@ -79,6 +79,8 @@ export const ocppServerHealth = pgTable('ocpp_server_health', {
   totalPongsReceived: integer('total_pongs_received').notNull().default(0),
   serverStartedAt: timestamp('server_started_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  // The settings the process runs with (OcppProcessConfig); null from older processes.
+  config: jsonb('config'),
 });
 
 export const accessLogs = pgTable(

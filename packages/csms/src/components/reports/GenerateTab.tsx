@@ -166,6 +166,7 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
               <Input
                 type="date"
                 aria-label={t('common.startDate')}
+                className="min-w-0 flex-1"
                 value={dateFrom}
                 onChange={(e) => {
                   setDateFrom(e.target.value);
@@ -175,6 +176,7 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
               <Input
                 type="date"
                 aria-label={t('common.endDate')}
+                className="min-w-0 flex-1"
                 value={dateTo}
                 onChange={(e) => {
                   setDateTo(e.target.value);

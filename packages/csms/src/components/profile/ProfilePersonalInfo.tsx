@@ -19,6 +19,9 @@ import { LANGUAGES, LanguageSelect } from '@/components/ui/language-select';
 import type { UserMe } from '@/pages/Profile';
 import { proofRejection, type ProofRejection } from '@/components/FactorProofField';
 import { getErrorMessage } from '@/lib/error-message';
+import { AvatarField } from '@/components/avatar/AvatarField';
+import { useToast } from '@/components/ui/toast';
+import { applyAvatarChoice, OWN_AVATAR_PATH, type AvatarChoice } from '@/lib/avatar';
 import { useMfaStatus } from './mfa-status';
 import {
   PhoneChangeProof,
@@ -41,6 +44,7 @@ interface ProfilePersonalInfoProps {
 export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const hydrate = useAuth((s) => s.hydrate);
   const applyLanguageLocal = useAuth((s) => s.applyLanguageLocal);
   const applyTimezoneLocal = useAuth((s) => s.applyTimezoneLocal);
@@ -127,13 +131,31 @@ export function ProfilePersonalInfo({ user }: ProfilePersonalInfoProps): React.J
 
   const displayName = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.email;
 
+  /** The own avatar is stored at once, apart from the form's Save. */
+  async function saveAvatar(choice: AvatarChoice): Promise<void> {
+    await applyAvatarChoice(OWN_AVATAR_PATH, choice);
+    toast({
+      title: t(choice.kind === 'remove' ? 'avatar.removed' : 'avatar.saved'),
+      variant: 'success',
+    });
+    // The header user menu reads the same query.
+    void queryClient.invalidateQueries({ queryKey: ['users', 'me'] });
+    void queryClient.invalidateQueries({ queryKey: ['users'] });
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('profile.personalInfo')}</CardTitle>
         {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <AvatarField
+          avatar={user.avatar}
+          firstName={user.firstName}
+          lastName={user.lastName}
+          {...(editing ? { onSave: saveAvatar } : {})}
+        />
         {editing ? (
           <form onSubmit={handleSave} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

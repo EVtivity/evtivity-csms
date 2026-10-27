@@ -18,6 +18,53 @@ describe('AI tool result redactor', () => {
     expect(counts.keys).toBe(8);
   });
 
+  it('drops the driver avatar on every surface (a presigned URL is a bearer link)', () => {
+    const driver = {
+      id: 'drv_1',
+      firstName: 'Ana',
+      avatar: {
+        kind: 'image',
+        url: 'https://s3.example/a.jpg?X-Amz-Signature=abc',
+        expiresAt: null,
+      },
+    };
+    for (const surface of ['chatbot', 'support', 'driver'] as const) {
+      const { value, counts } = redactToolValue(
+        { data: [driver, { ...driver, avatar: null }] },
+        surface,
+      );
+      expect(JSON.stringify(value)).not.toContain('avatar');
+      expect(JSON.stringify(value)).not.toContain('X-Amz-Signature');
+      expect(counts.keys).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it('masks the password of a file transfer URL before the email rule reads it', () => {
+    for (const surface of ['chatbot', 'support'] as const) {
+      const { value, counts } = redactToolValue(
+        { log: { remoteLocation: 'sftp://logs:UrlSecret99@logs.example.com:22/upload' } },
+        surface,
+      );
+      expect(JSON.stringify(value), surface).not.toContain('UrlSecret99');
+      expect(counts.values, surface).toBeGreaterThanOrEqual(1);
+    }
+    expect(
+      redactToolValue({ firmwareUrl: 'ftp://fw:pw@files.example.com/fw.bin' }, 'chatbot').value,
+    ).toEqual({ firmwareUrl: 'ftp://fw:[redacted]@files.example.com/fw.bin' });
+    expect(redactToolText('GET ftp://a:b@h/x failed', 'chatbot').text).toBe(
+      'GET ftp://a:[redacted]@h/x failed',
+    );
+  });
+
+  it('redacts whole a URL value whose password the masker cannot show masked', () => {
+    // A tool call the route refuses (a space or control in the userinfo) still
+    // reaches the conversation with its arguments.
+    for (const url of ['ftp://fw:Pa ss99@h/fw.bin', 'ftp://fw:Pa\nss99@h/fw.bin']) {
+      const { value } = redactToolValue({ log: { remoteLocation: url } }, 'chatbot');
+      expect(value, url).toEqual({ log: { remoteLocation: '[redacted]' } });
+    }
+  });
+
   it('keeps flags, driver token ids and objects under secret-shaped names', () => {
     const input = {
       hasPassword: true,

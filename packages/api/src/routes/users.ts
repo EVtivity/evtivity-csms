@@ -164,6 +164,9 @@ import {
 } from '../lib/mfa-enrollment.js';
 import { hasMfa, mfaMethodGate, passkeyGate, usableFactors } from '../lib/mfa-factors.js';
 import { authorize, invalidatePermissionCache, selfService } from '../middleware/rbac.js';
+import { avatarItem } from '../lib/avatar-item.js';
+import { withAvatars } from '../services/account-avatar.js';
+import { purgeUserAvatarOnDelete, userAvatarColumns } from '../services/user-avatar.service.js';
 import { invalidateUserActiveCache } from '../lib/user-active.js';
 import { invalidateSiteAccessCache, assertSitesWithinScope } from '../lib/site-access.js';
 import {
@@ -439,6 +442,11 @@ const userItem = z
       .nullable()
       .describe('Timestamp of the most recent successful login'),
     createdAt: z.coerce.date().describe('Timestamp when the user was created'),
+    avatar: avatarItem
+      .optional()
+      .describe(
+        'The user avatar (GET /users, GET /users/:id). Read-only: only the user sets it (PUT /users/me/avatar)',
+      ),
   })
   .loose();
 
@@ -486,6 +494,7 @@ const userWithRole = z
       .loose()
       .nullable()
       .describe('Joined role record'),
+    avatar: avatarItem.optional().describe('The own avatar (GET /users/me, PATCH /users/me)'),
   })
   .loose();
 
@@ -1380,7 +1389,11 @@ export function userRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { userId } = request.user as { userId: string; roleId: string };
 
-      const [user] = await db.select(userSelect).from(users).where(eq(users.id, userId));
+      const [row] = await db
+        .select({ ...userSelect, ...userAvatarColumns })
+        .from(users)
+        .where(eq(users.id, userId));
+      const [user] = row == null ? [] : await withAvatars([row]);
 
       if (user == null) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
@@ -1545,7 +1558,10 @@ export function userRoutes(app: FastifyInstance): void {
             .where(eq(roles.id, updated.roleId))
         : [];
 
-      return { ...updated, role: role ?? null };
+      const [withAvatar] = await withAvatars(
+        await db.select(userAvatarColumns).from(users).where(eq(users.id, userId)),
+      );
+      return { ...updated, role: role ?? null, avatar: withAvatar?.avatar ?? null };
     },
   );
 
@@ -1843,12 +1859,13 @@ export function userRoutes(app: FastifyInstance): void {
 
       const [data, countRows] = await Promise.all([
         db
-          .select(userSelect)
+          .select({ ...userSelect, ...userAvatarColumns })
           .from(users)
           .where(where)
           .orderBy(desc(users.createdAt), desc(users.id))
           .limit(limit)
-          .offset(offset),
+          .offset(offset)
+          .then((rows) => withAvatars(rows)),
         db
           .select({ count: sql<number>`count(*)::int` })
           .from(users)
@@ -2132,7 +2149,11 @@ export function userRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof userParams>;
 
-      const [user] = await db.select(userSelect).from(users).where(eq(users.id, id));
+      const [row] = await db
+        .select({ ...userSelect, ...userAvatarColumns })
+        .from(users)
+        .where(eq(users.id, id));
+      const [user] = row == null ? [] : await withAvatars([row]);
 
       if (user == null || !(await canManageUser(await getUserManagementActor(request), id))) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
@@ -2800,6 +2821,12 @@ export function userRoutes(app: FastifyInstance): void {
       await applyUserDeactivation(id, { log: request.log });
 
       const actor = getAuditActor(request);
+      // A deleted user keeps no picture: the avatar and every stored object go.
+      await purgeUserAvatarOnDelete(id, {
+        actor,
+        log: request.log,
+        note: 'Avatar removed with the user',
+      });
       await writeAudit(
         { table: userAuditLog, idColumn: 'user_id' },
         {

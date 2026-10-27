@@ -9,8 +9,21 @@ import {
   aggregateOcppHealth,
   getOcppFleetHealth,
   pruneStaleOcppHealth,
+  writeOcppInstanceHealth,
 } from '../lib/ocpp-server-health.js';
-import type { OcppInstanceHealth } from '../lib/ocpp-server-health.js';
+import type { OcppInstanceHealth, OcppProcessConfig } from '../lib/ocpp-server-health.js';
+
+const CONFIG: OcppProcessConfig = {
+  version: '0.1.48',
+  wsCompression: true,
+  tlsEnabled: false,
+  tlsPort: null,
+  clientCaConfigured: false,
+  maxConnectionsPerIp: 2500,
+  maxMessagesPerIpPerSecond: 5000,
+  maxPendingAuthPerIp: 50,
+  trustedProxiesConfigured: false,
+};
 
 const NOW = new Date('2026-10-09T12:00:00Z');
 
@@ -139,6 +152,7 @@ describe('getOcppFleetHealth', () => {
         total_pongs_received: 5,
         server_started_at: new Date('2026-10-09T11:00:00Z'),
         updated_at: new Date('2026-10-09T11:59:50Z'),
+        config: CONFIG,
         now: dbNow,
       },
       {
@@ -151,6 +165,7 @@ describe('getOcppFleetHealth', () => {
         total_pongs_received: 9,
         server_started_at: new Date('2026-10-09T10:00:00Z'),
         updated_at: new Date('2026-10-09T11:50:00Z'),
+        config: null,
         now: dbNow,
       },
     ];
@@ -161,6 +176,74 @@ describe('getOcppFleetHealth', () => {
     expect(fleet.instanceCount).toBe(1);
     expect(fleet.connectedStations).toBe(5);
     expect(fleet.avgPingLatencyMs).toBe(12);
+    expect(fleet.instances[0]?.config).toEqual(CONFIG);
+  });
+
+  it('reads a row without settings (an older process) as config null', async () => {
+    const sql = vi.fn().mockResolvedValue([
+      {
+        id: 'ocpp-old',
+        connected_stations: 1,
+        avg_ping_latency_ms: 1,
+        max_ping_latency_ms: 1,
+        ping_success_rate: 100,
+        total_pings_sent: 1,
+        total_pongs_received: 1,
+        server_started_at: new Date('2026-10-09T11:00:00Z'),
+        updated_at: new Date('2026-10-09T11:59:50Z'),
+        config: null,
+        now: new Date('2026-10-09T12:00:00Z'),
+      },
+    ]) as unknown as postgres.Sql;
+    const fleet = await getOcppFleetHealth(sql);
+    expect(fleet.instances[0]?.config).toBeNull();
+  });
+});
+
+describe('writeOcppInstanceHealth', () => {
+  function sqlMock(): {
+    sql: postgres.Sql;
+    tag: ReturnType<typeof vi.fn>;
+    json: ReturnType<typeof vi.fn>;
+  } {
+    const tag = vi.fn().mockResolvedValue([]);
+    const json = vi.fn((v: unknown) => ({ json: v }));
+    const sql = Object.assign(tag, { json }) as unknown as postgres.Sql;
+    return { sql, tag, json };
+  }
+
+  it('writes the process settings as JSON and replaces them on conflict', async () => {
+    const { sql, tag, json } = sqlMock();
+    await writeOcppInstanceHealth(sql, 'ocpp-a', {
+      connectedStations: 1,
+      avgPingLatencyMs: 1,
+      maxPingLatencyMs: 1,
+      pingSuccessRate: 100,
+      totalPingsSent: 1,
+      totalPongsReceived: 1,
+      serverStartedAt: new Date('2026-10-09T11:00:00Z'),
+      config: CONFIG,
+    });
+    expect(json).toHaveBeenCalledWith(CONFIG);
+    const [strings, ...values] = tag.mock.calls[0] as [readonly string[], ...unknown[]];
+    expect(strings.join('?')).toContain('config = EXCLUDED.config');
+    expect(values).toContainEqual({ json: CONFIG });
+  });
+
+  it('writes null without settings', async () => {
+    const { sql, tag, json } = sqlMock();
+    await writeOcppInstanceHealth(sql, 'ocpp-a', {
+      connectedStations: 0,
+      avgPingLatencyMs: 0,
+      maxPingLatencyMs: 0,
+      pingSuccessRate: 100,
+      totalPingsSent: 0,
+      totalPongsReceived: 0,
+      serverStartedAt: new Date('2026-10-09T11:00:00Z'),
+    });
+    expect(json).not.toHaveBeenCalled();
+    const [, ...values] = tag.mock.calls[0] as [readonly string[], ...unknown[]];
+    expect(values).toContain(null);
   });
 });
 

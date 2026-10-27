@@ -132,6 +132,8 @@ const PERMISSION_ARGS = permissionArguments();
 
 // Dynamic arguments with their own check. Keyed `file: argument`.
 const DYNAMIC_ALLOWED = new Set([
+  // The page permission of an audited entity (AUDIT_ENTITY_ROUTES, typed Permission).
+  '../../components/audit/AuditEntryDialog.tsx: permission',
   // The hooks pass their own parameter on.
   '../auth.ts: perm',
   '../auth.ts: p',

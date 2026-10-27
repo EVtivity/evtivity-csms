@@ -170,6 +170,32 @@ describe('Register', () => {
     expect(recaptchaMock).toHaveBeenCalledWith('site-key', 'register');
   });
 
+  it('sends the generated avatar chosen in the editor', async () => {
+    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    registerMock.mockResolvedValue(undefined);
+    renderPage();
+    fireEvent.click(screen.getByRole('button', { name: 'account.editAvatar' }));
+    const dialog = await screen.findByRole('dialog');
+    // Generator only: no upload before the account exists.
+    expect(screen.queryByRole('button', { name: 'account.avatarUpload' })).toBeNull();
+    const top = await screen.findByLabelText<HTMLSelectElement>('account.avatarOptions.topVariant');
+    fireEvent.change(top, { target: { value: 'bob' } });
+    fireEvent.click(
+      Array.from(dialog.querySelectorAll('button')).find(
+        (b) => b.textContent === 'common.save',
+      ) as HTMLButtonElement,
+    );
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fill('Abcdefghijk1');
+    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    await waitFor(() => {
+      expect(registerMock).toHaveBeenCalled();
+    });
+    const body = registerMock.mock.calls[0]?.[0] as { avatar?: Record<string, unknown> };
+    expect(body.avatar).toMatchObject({ style: 'avataaars', options: { topVariant: 'bob' } });
+    expect(body.avatar).not.toHaveProperty('kind');
+  });
+
   it('asks to check the inbox after the request, for a new and a known email alike', async () => {
     getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
     registerMock.mockResolvedValue(undefined);
@@ -179,5 +205,6 @@ describe('Register', () => {
     expect(await screen.findByText('auth.registerCheckEmailTitle')).toBeTruthy();
     expect(screen.getByText('auth.registerCheckEmail')).toBeTruthy();
     expect(screen.queryByLabelText('auth.password')).toBeNull();
+    expect(registerMock.mock.calls[0]?.[0]).not.toHaveProperty('avatar');
   });
 });

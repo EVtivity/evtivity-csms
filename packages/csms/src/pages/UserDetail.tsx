@@ -22,6 +22,7 @@ import { api } from '@/lib/api';
 import { isSubsetOf } from '@evtivity/lib/permissions';
 import { useAuth } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
+import { AccountAvatar } from '@/components/AccountAvatar';
 
 export function UserDetail(): React.JSX.Element {
   const { t } = useTranslation();
@@ -74,6 +75,12 @@ export function UserDetail(): React.JSX.Element {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/users" />
+        <AccountAvatar
+          avatar={user.avatar}
+          firstName={user.firstName}
+          lastName={user.lastName}
+          size="lg"
+        />
         <div className="min-w-0">
           <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{user.email}</h1>
           <CopyableId id={user.id} />

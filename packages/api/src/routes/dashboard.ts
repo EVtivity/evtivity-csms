@@ -4,6 +4,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { sql, eq, and, gte, lt, count, inArray, isNull } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import {
   client,
   db,
@@ -22,6 +23,7 @@ import {
   evses,
   sites,
   paymentRecords,
+  pncContracts,
 } from '@evtivity/database';
 import { ValidationError } from '@evtivity/lib';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
@@ -54,7 +56,8 @@ import {
   resolveCalendarRange,
 } from '../lib/date-range.js';
 import type { JwtPayload } from '../plugins/auth.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
+import { isPncSessionToken } from '../lib/pnc-session-sql.js';
 import { cachedDashboardTotals, siteScopeKey } from '../lib/dashboard-totals.js';
 import {
   averageSnapshotDays,
@@ -548,6 +551,101 @@ const uptimeQuery = z.object({
     .optional()
     .describe('Number of trailing months to compute uptime over (1-24, defaults to 12).'),
 });
+
+/** The most cities the locations chart lists; the rest are summed in `other`. */
+export const LOCATIONS_BY_CITY_LIMIT = 20;
+
+const cityCountsShape = {
+  siteCount: z.number().int().min(0).describe('Sites in the city'),
+  stationCount: z
+    .number()
+    .int()
+    .min(0)
+    .describe('Accepted stations (onboarding status accepted) at those sites'),
+};
+
+const locationsByCityResponse = z
+  .object({
+    cities: z
+      .array(
+        z
+          .object({
+            city: z
+              .string()
+              .nullable()
+              .describe(
+                'City as entered on a site (cities compared without case and outer spaces). Null for sites without a city',
+              ),
+            ...cityCountsShape,
+          })
+          .loose(),
+      )
+      .describe(
+        `Cities with the most stations, then the most sites, at most ${String(LOCATIONS_BY_CITY_LIMIT)}`,
+      ),
+    other: z
+      .object(cityCountsShape)
+      .loose()
+      .describe('Sites and stations of the cities past the list'),
+  })
+  .loose();
+
+const evsesByConnectorTypeItem = z
+  .object({
+    connectorType: z
+      .string()
+      .describe('Connector type in lower case (such as ccs2, type2), unknown when not reported'),
+    evseCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe('EVSEs in service with at least one connector of this type'),
+    connectorCount: z.number().int().min(0).describe('Connectors in service of this type'),
+  })
+  .loose();
+
+const dayActivityItem = z
+  .object({
+    date: z.string().describe('Date in YYYY-MM-DD format (system timezone)'),
+    sessionCount: z.number().int().min(0).describe('Sessions started on this date'),
+    energyWh: z.number().min(0).describe('Energy delivered by those sessions in watt-hours'),
+  })
+  .loose();
+
+const activityTotals = z
+  .object({
+    sessionCount: z.number().int().min(0).describe('Sessions started in the range'),
+    energyWh: z.number().min(0).describe('Energy delivered by those sessions in watt-hours'),
+  })
+  .loose()
+  .describe('Totals of the range');
+
+const plugAndChargeResponse = z
+  .object({
+    days: z.array(dayActivityItem).describe('Plug and Charge sessions per day, every day'),
+    totals: activityTotals,
+    activeContracts: z
+      .number()
+      .int()
+      .min(0)
+      .nullable()
+      .describe(
+        'Active Plug and Charge contracts of the company. Null unless the user has all-site access and drivers:read',
+      ),
+  })
+  .loose();
+
+const freeVendResponse = z
+  .object({
+    days: z.array(dayActivityItem).describe('Free vend sessions per day, every day'),
+    totals: activityTotals,
+    freeVendSiteCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Sites of the user with free vend turned on'),
+  })
+  .loose();
 
 /**
  * How far before the period an ended session may have started and still be
@@ -1486,6 +1584,243 @@ export function dashboardRoutes(app: FastifyInstance): void {
         longitude: r.longitude as string,
         stationCount: r.stationCount,
       }));
+    },
+  );
+
+  app.get(
+    '/dashboard/locations-by-city',
+    {
+      onRequest: [authorize('dashboard:read')],
+      schema: {
+        tags: ['Dashboard'],
+        summary: 'Sites and stations per city',
+        operationId: 'getDashboardLocationsByCity',
+        security: [{ bearerAuth: [] }],
+        response: { 200: itemResponse(locationsByCityResponse) },
+      },
+      config: DASHBOARD_RATE_LIMIT,
+    },
+    async (request) => {
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      const empty = { cities: [], other: { siteCount: 0, stationCount: 0 } };
+      if (siteIds != null && siteIds.length === 0) return empty;
+
+      // One group per city, compared without case and outer spaces; a site
+      // without a city (or a blank one) is in the null group.
+      const cityKey = sql`nullif(lower(btrim(${sites.city})), '')`;
+      const rows = await db
+        .select({
+          city: sql<string | null>`min(nullif(btrim(${sites.city}), ''))`,
+          siteCount: sql<number>`count(DISTINCT ${sites.id})`.mapWith(Number),
+          stationCount: sql<number>`count(DISTINCT ${chargingStations.id})`.mapWith(Number),
+        })
+        .from(sites)
+        .leftJoin(
+          chargingStations,
+          and(
+            eq(chargingStations.siteId, sites.id),
+            eq(chargingStations.onboardingStatus, 'accepted'),
+            isOperatorStation(),
+          ),
+        )
+        .where(siteIds != null ? inArray(sites.id, siteIds) : undefined)
+        .groupBy(cityKey);
+
+      rows.sort(
+        (a, b) =>
+          b.stationCount - a.stationCount ||
+          b.siteCount - a.siteCount ||
+          (a.city ?? '￿').localeCompare(b.city ?? '￿'),
+      );
+      const cities = rows.slice(0, LOCATIONS_BY_CITY_LIMIT);
+      const other = rows.slice(LOCATIONS_BY_CITY_LIMIT).reduce(
+        (sum, r) => ({
+          siteCount: sum.siteCount + r.siteCount,
+          stationCount: sum.stationCount + r.stationCount,
+        }),
+        { siteCount: 0, stationCount: 0 },
+      );
+      return { cities, other };
+    },
+  );
+
+  app.get(
+    '/dashboard/evses-by-connector-type',
+    {
+      onRequest: [authorize('dashboard:read')],
+      schema: {
+        tags: ['Dashboard'],
+        summary: 'EVSEs and connectors per connector type',
+        description:
+          'EVSEs and connectors in service at accepted stations. An EVSE with connectors of two types counts under each type.',
+        operationId: 'getDashboardEvsesByConnectorType',
+        security: [{ bearerAuth: [] }],
+        response: { 200: arrayResponse(evsesByConnectorTypeItem) },
+      },
+      config: DASHBOARD_RATE_LIMIT,
+    },
+    async (request) => {
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null && siteIds.length === 0) return [];
+
+      const typeKey = sql<string>`coalesce(nullif(lower(btrim(${connectors.connectorType})), ''), 'unknown')`;
+      const conditions = [
+        isNull(connectors.retiredAt),
+        isNull(evses.retiredAt),
+        eq(chargingStations.onboardingStatus, 'accepted'),
+        isOperatorStation(),
+      ];
+      if (siteIds != null) conditions.push(inArray(chargingStations.siteId, siteIds));
+
+      const rows = await db
+        .select({
+          connectorType: typeKey,
+          evseCount: sql<number>`count(DISTINCT ${evses.id})`.mapWith(Number),
+          connectorCount: sql<number>`count(${connectors.id})`.mapWith(Number),
+        })
+        .from(connectors)
+        .innerJoin(evses, eq(connectors.evseId, evses.id))
+        .innerJoin(chargingStations, eq(evses.stationId, chargingStations.id))
+        .where(and(...conditions))
+        .groupBy(sql`1`);
+
+      return rows.sort(
+        (a, b) => b.evseCount - a.evseCount || a.connectorType.localeCompare(b.connectorType),
+      );
+    },
+  );
+
+  /**
+   * Sessions and energy per day of the sessions matching `filter`, started
+   * in the range, at the user's sites (the session's own site), every day.
+   */
+  async function sessionActivity(
+    request: FastifyRequest,
+    siteIds: string[] | null,
+    filter: SQL,
+  ): Promise<{
+    days: Array<{ date: string; sessionCount: number; energyWh: number }>;
+    totals: { sessionCount: number; energyWh: number };
+  }> {
+    const tz = await getSystemTimezone();
+    const range = resolveCalendarRange(
+      request.query as { days?: string; from?: string; to?: string },
+      tz,
+    );
+    const empty = (date: string) => ({ date, sessionCount: 0, energyWh: 0 });
+    if (siteIds != null && siteIds.length === 0) {
+      return { days: range.dates.map(empty), totals: { sessionCount: 0, energyWh: 0 } };
+    }
+    const conditions = [
+      gte(chargingSessions.startedAt, range.since),
+      lt(chargingSessions.startedAt, range.until),
+      inOperatorStation(chargingSessions.stationId),
+      filter,
+    ];
+    if (siteIds != null) conditions.push(inArray(chargingSessions.siteId, siteIds));
+
+    const rows = await db
+      .select({
+        date: sql<string>`(${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
+        sessionCount: count(),
+        energyWh:
+          sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`.mapWith(
+            Number,
+          ),
+      })
+      .from(chargingSessions)
+      .where(and(...conditions))
+      .groupBy(sql`1`);
+
+    const days = fillDates(range.dates, rows, empty);
+    const totals = days.reduce(
+      (sum, d) => ({
+        sessionCount: sum.sessionCount + d.sessionCount,
+        energyWh: sum.energyWh + d.energyWh,
+      }),
+      { sessionCount: 0, energyWh: 0 },
+    );
+    return { days, totals };
+  }
+
+  app.get(
+    '/dashboard/plug-and-charge',
+    {
+      onRequest: [authorize('dashboard:read')],
+      schema: {
+        tags: ['Dashboard'],
+        summary: 'Plug and Charge sessions per day',
+        description:
+          'Sessions started with a Plug and Charge contract token, at the sites of the user. The company-wide active contract count needs all-site access and drivers:read.',
+        operationId: 'getDashboardPlugAndCharge',
+        security: [{ bearerAuth: [] }],
+        querystring: zodSchema(dateRangeQuery),
+        response: {
+          200: itemResponse(plugAndChargeResponse),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+        },
+      },
+      config: DASHBOARD_RATE_LIMIT,
+    },
+    async (request) => {
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      const activity = await sessionActivity(
+        request,
+        siteIds,
+        isPncSessionToken(chargingSessions.tokenId),
+      );
+      // Contracts have no site: a company-wide count, for all-site users who
+      // may read driver contracts only.
+      let activeContracts: number | null = null;
+      if (siteIds == null && (await requestHasPermission(request, 'drivers:read'))) {
+        const [row] = await db
+          .select({ count: count() })
+          .from(pncContracts)
+          .where(eq(pncContracts.status, 'active'));
+        activeContracts = row?.count ?? 0;
+      }
+      return { ...activity, activeContracts };
+    },
+  );
+
+  app.get(
+    '/dashboard/free-vend',
+    {
+      onRequest: [authorize('dashboard:read')],
+      schema: {
+        tags: ['Dashboard'],
+        summary: 'Free vend sessions per day',
+        operationId: 'getDashboardFreeVend',
+        security: [{ bearerAuth: [] }],
+        querystring: zodSchema(dateRangeQuery),
+        response: {
+          200: itemResponse(freeVendResponse),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+        },
+      },
+      config: DASHBOARD_RATE_LIMIT,
+    },
+    async (request) => {
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      const activity = await sessionActivity(request, siteIds, eq(chargingSessions.freeVend, true));
+      let freeVendSiteCount = 0;
+      if (siteIds == null || siteIds.length > 0) {
+        const [row] = await db
+          .select({ count: count() })
+          .from(sites)
+          .where(
+            and(
+              eq(sites.freeVendEnabled, true),
+              siteIds != null ? inArray(sites.id, siteIds) : undefined,
+            ),
+          );
+        freeVendSiteCount = row?.count ?? 0;
+      }
+      return { ...activity, freeVendSiteCount };
     },
   );
 

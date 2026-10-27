@@ -11,6 +11,7 @@ import type { AddressInfo } from 'node:net';
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { call, makeHarness, silenceConsole } from './sim-harness.js';
 import { SIMULATOR_FIRMWARE_MAX_BYTES } from '../station-simulator.js';
+import { logger } from '../lib/logger.js';
 
 let server: Server | null = null;
 
@@ -38,6 +39,22 @@ async function serve(bytes: number): Promise<string> {
 }
 
 describe('simulator firmware download', () => {
+  it('never logs the password of a firmware URL', async () => {
+    const warn = vi.spyOn(logger, 'warn');
+    const h = await makeHarness({ protocol: 'ocpp1.6' });
+    const image = await call(
+      h,
+      'downloadFirmware16',
+      'ftp://fw:s3cret-pass@169.254.169.254/fw.bin',
+      0,
+      0,
+    );
+    expect(image).toBeNull();
+    expect(warn).toHaveBeenCalled();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('s3cret-pass');
+    expect(JSON.stringify(warn.mock.calls)).toContain('169.254.169.254');
+  });
+
   it('refuses the cloud metadata address without a request', async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal('fetch', fetchSpy);

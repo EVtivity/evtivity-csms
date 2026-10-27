@@ -47,7 +47,9 @@ const ev = vi.hoisted(() => ({
 }));
 const ledger = vi.hoisted(() => ({ recordAiUsage: vi.fn() }));
 const dbState = vi.hoisted(() => ({
+  /** Whether the insight's subject is in the AI insights scope. */
   siteEnabled: true,
+  scopeChecks: [] as { siteId: string | null; stationId: string | null }[],
   modelToday: 0,
   stoppedReason: null as string | null,
   outcome: null as string | null,
@@ -66,13 +68,14 @@ vi.mock('@evtivity/services/ai-evidence', async (importOriginal) => {
 });
 vi.mock('@evtivity/database', () => ({
   recordAiUsage: ledger.recordAiUsage,
+  insightSubjectInScope: (subject: { siteId: string | null; stationId: string | null }) => {
+    dbState.scopeChecks.push(subject);
+    return Promise.resolve(dbState.siteEnabled);
+  },
   toIsoOrNull: (v: Date | string | null | undefined) =>
     v == null ? null : new Date(v).toISOString(),
   client: (strings: TemplateStringsArray) => {
     const text = strings.join('?');
-    if (text.includes('ai_insights_enabled')) {
-      return Promise.resolve([{ enabled: dbState.siteEnabled }]);
-    }
     if (text.includes("generated_by = 'model'"))
       return Promise.resolve([{ n: dbState.modelToday }]);
     if (text.includes('stopped_reason FROM charging_sessions')) {
@@ -236,6 +239,7 @@ function deps(
 beforeEach(() => {
   vi.clearAllMocks();
   dbState.siteEnabled = true;
+  dbState.scopeChecks = [];
   dbState.modelToday = 0;
   dbState.stoppedReason = null;
   dbState.outcome = null;
@@ -340,6 +344,14 @@ describe('insight generation', () => {
     const { d } = deps([]);
     expect(await generateInsight('ain_1', d, log)).toBe('skipped');
     expect(svc.skipInsight).toHaveBeenCalledWith('ain_1', 'site_disabled');
+  });
+
+  it('checks the AI insights scope of the station and its site before any model call', async () => {
+    dbState.siteEnabled = false;
+    const { d, adapter } = deps([]);
+    expect(await generateInsight('ain_1', d, log)).toBe('skipped');
+    expect(dbState.scopeChecks).toEqual([{ siteId: 'sit_a', stationId: 'sta_1' }]);
+    expect(adapter.calls).toHaveLength(0);
   });
 
   it('skips with site_daily_cap at the daily count of model insights', async () => {

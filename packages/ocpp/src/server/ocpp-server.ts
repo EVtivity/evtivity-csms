@@ -21,6 +21,7 @@ import {
 } from '@evtivity/lib';
 import type { DataPlan, DataPlanValues } from '@evtivity/lib';
 import { getDataPlanValues } from '@evtivity/database';
+import type { OcppProcessConfig } from '@evtivity/database';
 import { refreshSessionDataPlan } from './session-data-plan.js';
 import type { Logger, EventBus, EventPersistence, PubSubClient, Subscription } from '@evtivity/lib';
 import { ConnectionManager } from './connection-manager.js';
@@ -162,6 +163,9 @@ export interface OcppServerOptions {
   passwordVerifier?: StationPasswordVerifier | undefined;
   // Pending authentications per client address (OCPP_MAX_PENDING_AUTH_PER_IP).
   maxPendingAuthPerIp?: number | undefined;
+  // The settings this process runs with, reported in its ocpp_server_health
+  // row for System Information (no secrets).
+  processConfig?: OcppProcessConfig | undefined;
 }
 
 // Refused connection authentications are logged at most this often.
@@ -386,7 +390,7 @@ export class OcppServer {
       );
     }
 
-    this.pingMonitor.start(this.sql, null, options.instanceId);
+    this.pingMonitor.start(this.sql, null, options.instanceId, options.processConfig ?? null);
 
     if (this.sql != null) {
       await this.refreshPlanValues();

@@ -12,7 +12,11 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useHasAllSiteAccess } from '@/lib/auth';
+import { useAuth, useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
+import type { AvatarData } from '@/components/AccountAvatar';
+import { AvatarField } from '@/components/avatar/AvatarField';
+import { useToast } from '@/components/ui/toast';
+import { applyAvatarChoice, userAvatarPath, type AvatarChoice } from '@/lib/avatar';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { getErrorMessage } from '@/lib/error-message';
@@ -46,6 +50,8 @@ export interface UserDetailUser {
   ssoLinkAllowed?: boolean;
   /** The account is bound to its identity provider user. */
   ssoLinked?: boolean;
+  /** The user's avatar (GET /v1/users/:id). */
+  avatar?: AvatarData | null;
   lastLoginAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -83,6 +89,12 @@ export function UserDetailsTab({
   const { t } = useTranslation();
   const canGrantAllSites = useHasAllSiteAccess();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const ownUserId = useAuth((s) => s.user?.id);
+  // Everyone edits the own avatar; another user's needs users:write. An avatar
+  // grants no access, so it is a profile field like the name (no proof).
+  const isSelf = ownUserId === userId;
+  const canEditAvatar = useHasPermission('users:write') || isSelf;
 
   const [editing, setEditing] = useState(false);
   const [email, setEmail] = useState('');
@@ -184,6 +196,17 @@ export function UserDetailsTab({
 
   const editErrors = getEditValidationErrors();
 
+  /** The avatar is stored at once, apart from the form's Save. */
+  async function saveAvatar(choice: AvatarChoice): Promise<void> {
+    await applyAvatarChoice(userAvatarPath(userId, ownUserId), choice);
+    toast({
+      title: t(choice.kind === 'remove' ? 'avatar.removed' : 'avatar.saved'),
+      variant: 'success',
+    });
+    // The user page and list, and for the own account the sidebar user menu.
+    void queryClient.invalidateQueries({ queryKey: ['users'] });
+  }
+
   function handleSave(e: React.SyntheticEvent): void {
     e.preventDefault();
     setHasSubmittedEdit(true);
@@ -220,6 +243,13 @@ export function UserDetailsTab({
       <CardContent>
         {editing ? (
           <form onSubmit={handleSave} noValidate className="grid gap-6">
+            <AvatarField
+              avatar={user.avatar}
+              firstName={user.firstName}
+              lastName={user.lastName}
+              {...(isSelf ? {} : { description: t('avatar.editDescriptionUser') })}
+              {...(canEditAvatar ? { onSave: saveAvatar } : {})}
+            />
             <div className="space-y-2">
               <Label htmlFor="edit-email" className="leading-6">
                 {t('common.email')}

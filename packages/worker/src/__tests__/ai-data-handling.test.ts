@@ -48,6 +48,7 @@ vi.mock('@evtivity/services/ai-ops-config', () => ({
 }));
 vi.mock('../lib/config.js', () => ({ config: { SETTINGS_ENCRYPTION_KEY: 'test-key' } }));
 vi.mock('@evtivity/database', () => ({
+  insightSubjectInScope: () => Promise.resolve(true),
   recordAiUsage: vi.fn().mockResolvedValue([]),
   checkAiBudgets: vi.fn(() => Promise.resolve({ allowed: true })),
   getAiSettings: () => Promise.resolve(settingsState.settings),

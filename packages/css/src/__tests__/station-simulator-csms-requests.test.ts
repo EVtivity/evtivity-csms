@@ -540,8 +540,8 @@ describe('certificate and firmware requests not handled by 2.1', () => {
     });
   });
 
-  it('1.6: GetDiagnostics answers with the file name', async () => {
-    const h = await makeHarness({ protocol: 'ocpp1.6' });
+  it('1.6: GetDiagnostics of a simulated (OCTT) station answers with the file name', async () => {
+    const h = await makeHarness({ protocol: 'ocpp1.6', config: { simulatedFileTransfers: true } });
     vi.spyOn(
       h.p as { simulateDiagnosticsUpload: (l: string) => Promise<void> },
       'simulateDiagnosticsUpload',

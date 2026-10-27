@@ -71,10 +71,10 @@ export function TokenDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/tokens" />
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">{token.idToken}</h1>
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{token.idToken}</h1>
           <CopyableId id={token.id} />
         </div>
         <TokenStatusBadge token={token} />

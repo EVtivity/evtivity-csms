@@ -29,6 +29,7 @@ export const ERROR_CODES = {
   AI_INSIGHT_COOLDOWN: 'AI_INSIGHT_COOLDOWN',
   AI_INSIGHT_NOT_FOUND: 'AI_INSIGHT_NOT_FOUND',
   AI_INSIGHTS_DISABLED: 'AI_INSIGHTS_DISABLED',
+  AI_INSIGHTS_NOT_IN_SCOPE: 'AI_INSIGHTS_NOT_IN_SCOPE',
   AI_MCP_RATE_LIMITED: 'AI_MCP_RATE_LIMITED',
   AI_MODEL_UNAVAILABLE: 'AI_MODEL_UNAVAILABLE',
   AI_MONTHLY_BUDGET_EXCEEDED: 'AI_MONTHLY_BUDGET_EXCEEDED',
@@ -405,6 +406,7 @@ export type ErrorCode =
   | 'AI_INSIGHT_COOLDOWN'
   | 'AI_INSIGHT_NOT_FOUND'
   | 'AI_INSIGHTS_DISABLED'
+  | 'AI_INSIGHTS_NOT_IN_SCOPE'
   | 'AI_MCP_RATE_LIMITED'
   | 'AI_MODEL_UNAVAILABLE'
   | 'AI_MONTHLY_BUDGET_EXCEEDED'
@@ -792,6 +794,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   AI_INSIGHT_COOLDOWN: 'This insight was regenerated recently. Try again later',
   AI_INSIGHT_NOT_FOUND: 'Insight not found',
   AI_INSIGHTS_DISABLED: 'Automatic insights are turned off',
+  AI_INSIGHTS_NOT_IN_SCOPE:
+    'AI insights are not on for this site or station. Add it to the AI insights scope in Settings first',
   AI_MCP_RATE_LIMITED: 'Too many MCP requests. Try again later',
   AI_MODEL_UNAVAILABLE: 'The configured AI model does not exist or is retired',
   AI_MONTHLY_BUDGET_EXCEEDED: 'The monthly AI usage limit is reached',

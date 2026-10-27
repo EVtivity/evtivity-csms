@@ -108,6 +108,13 @@ const mocks = vi.hoisted(() => ({
   sqlCalls: [] as unknown[][],
 }));
 
+// The AI insights scope reads the database; these tests cover the routes only.
+vi.mock('../services/ai-insight-scope.service.js', () => ({
+  initialSiteAiInsightsSelected: vi.fn().mockResolvedValue(true),
+  isOutsideAiInsightScope: () => false,
+  siteAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
+  stationAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
+}));
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({ publish: mocks.publish, subscribe: mocks.subscribe })),
   setPubSub: vi.fn(),

@@ -228,9 +228,9 @@ export function SiteElectricityRatesTab({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('sites.electricityRates')}</CardTitle>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {rates.length > 0 && (
             <RecalculateElectricityCostAction siteId={siteId} siteName={siteName} size="default" />
           )}

@@ -57,6 +57,77 @@ describe('OCPP message log credential masking', () => {
     expect(payload.setVariableData[0]?.attributeValue).toBe(PASSWORD);
   });
 
+  it('masks the password of file transfer URLs in both directions and versions', () => {
+    const url = 'sftp://logs:UrlSecret99@logs.example.com:22/upload';
+    const masked = `sftp://logs:${REDACTED}@logs.example.com:22/upload`;
+    const cases: Array<{ action: string; direction: 'inbound' | 'outbound'; payload: unknown }> = [
+      // 2.1 GetLog CALL
+      {
+        action: 'GetLog',
+        direction: 'outbound',
+        payload: { logType: 'DiagnosticsLog', requestId: 7, log: { remoteLocation: url } },
+      },
+      // 1.6 GetDiagnostics CALL
+      { action: 'GetDiagnostics', direction: 'outbound', payload: { location: url, retries: 1 } },
+      // 2.1 and 1.6 signed UpdateFirmware CALL
+      {
+        action: 'UpdateFirmware',
+        direction: 'outbound',
+        payload: { requestId: 8, firmware: { location: url, retrieveDateTime: 'now' } },
+      },
+      {
+        action: 'SignedUpdateFirmware',
+        direction: 'outbound',
+        payload: { requestId: 9, firmware: { location: url, retrieveDateTime: 'now' } },
+      },
+      // 1.6 UpdateFirmware CALL
+      {
+        action: 'UpdateFirmware',
+        direction: 'outbound',
+        payload: { location: url, retrieveDate: 'now' },
+      },
+      // 2.1 PublishFirmware CALL
+      {
+        action: 'PublishFirmware',
+        direction: 'outbound',
+        payload: { location: url, checksum: 'abc', requestId: 10 },
+      },
+      // A station that echoes the URL in an inbound status
+      {
+        action: 'LogStatusNotification',
+        direction: 'inbound',
+        payload: { status: 'UploadFailure', statusInfo: { additionalInfo: `PUT ${url} 403` } },
+      },
+    ];
+    for (const c of cases) {
+      const { eventBus, events } = bus();
+      publishMessageLog(eventBus, {
+        stationId: 'CS-1',
+        direction: c.direction,
+        messageType: 2,
+        messageId: 'm',
+        action: c.action,
+        payload: c.payload,
+      });
+      const stored = JSON.stringify(events[0]?.payload);
+      expect(stored, c.action).not.toContain('UrlSecret99');
+      expect(stored, c.action).toContain(masked);
+      // The payload sent to the station is untouched.
+      expect(JSON.stringify(c.payload), c.action).toContain(url);
+    }
+    const { eventBus, events } = bus();
+    publishMessageLog(eventBus, {
+      stationId: 'CS-1',
+      direction: 'inbound',
+      messageType: 4,
+      messageId: 'm',
+      action: 'GetLog',
+      errorCode: 'GenericError',
+      errorDescription: `cannot reach ${url}`,
+    });
+    expect(JSON.stringify(events[0]?.payload)).not.toContain('UrlSecret99');
+  });
+
   it('masks a 1.6 AuthorizationKey and a GetConfiguration CALLRESULT', () => {
     const { eventBus, events } = bus();
     publishMessageLog(eventBus, {

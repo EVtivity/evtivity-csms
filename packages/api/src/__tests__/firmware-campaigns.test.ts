@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -31,6 +31,7 @@ const TEST_SIGNATURE = 'c2lnbmF0dXJlLWJ5dGVz';
 
 // -- DB mock helpers --
 
+let mockShowsSecrets = false;
 let dbResults: unknown[][] = [];
 let dbCallIndex = 0;
 
@@ -188,6 +189,7 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(401).send({ error: 'Unauthorized' });
       }
     },
+  requestHasPermission: vi.fn(() => Promise.resolve(mockShowsSecrets)),
   invalidatePermissionCache: vi.fn(),
 }));
 
@@ -1442,6 +1444,141 @@ describe('Firmware campaign routes', () => {
       });
       expect(response.statusCode).toBe(404);
       expect(JSON.parse(response.body).code).toBe('CAMPAIGN_NOT_FOUND');
+    });
+  });
+
+  // ===================================================================
+  // File transfer URL passwords
+  // ===================================================================
+
+  describe('firmware URL password', () => {
+    const { db } = databaseModule;
+    const URL_WITH_PASSWORD = 'ftp://fw:UrlSecret99@files.example.com:21/fw.bin';
+    const MASKED = 'ftp://fw:[redacted]@files.example.com:21/fw.bin';
+    const campaign = {
+      id: 'camp-pw',
+      name: 'Password campaign',
+      firmwareUrl: URL_WITH_PASSWORD,
+      version: '1.0.0',
+      signingCertificate: null,
+      retries: null,
+      retryInterval: null,
+      installDateTime: null,
+      signature: null,
+      status: 'draft',
+      targetFilter: null,
+      createdById: 'test-user-id',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    afterEach(() => {
+      mockShowsSecrets = false;
+    });
+
+    it('masks the password in the list and detail replies without settings.system:read', async () => {
+      setupDbResults([campaign], [{ total: 1 }]);
+      const list = await app.inject({
+        method: 'GET',
+        url: '/v1/firmware-campaigns',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(list.statusCode).toBe(200);
+      expect(list.body).not.toContain('UrlSecret99');
+      expect(JSON.parse(list.body).data[0].firmwareUrl).toBe(MASKED);
+
+      setupDbResults([campaign], [], [{ total: 0 }], []);
+      const detail = await app.inject({
+        method: 'GET',
+        url: '/v1/firmware-campaigns/camp-pw',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(detail.statusCode).toBe(200);
+      expect(JSON.parse(detail.body).firmwareUrl).toBe(MASKED);
+    });
+
+    it('shows the stored URL to a caller with settings.system:read', async () => {
+      mockShowsSecrets = true;
+      setupDbResults([campaign], [{ total: 1 }]);
+      const list = await app.inject({
+        method: 'GET',
+        url: '/v1/firmware-campaigns',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(JSON.parse(list.body).data[0].firmwareUrl).toBe(URL_WITH_PASSWORD);
+    });
+
+    it('masks the password in the create reply and the audit row', async () => {
+      setupDbResults([campaign]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/firmware-campaigns',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Password campaign', firmwareUrl: URL_WITH_PASSWORD }),
+      });
+      expect(response.statusCode).toBe(201);
+      expect(JSON.parse(response.body).firmwareUrl).toBe(MASKED);
+      // The campaign row keeps the real URL: stations still to be sent it need it.
+      const insertChain = vi.mocked(db.insert).mock.results[0]?.value as {
+        values: { mock: { calls: unknown[][] } };
+      };
+      expect(JSON.stringify(insertChain.values.mock.calls[0]?.[0])).toContain(URL_WITH_PASSWORD);
+    });
+
+    it('keeps the stored URL when an update does not send it', async () => {
+      setupDbResults([campaign], [campaign]);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/v1/firmware-campaigns/camp-pw',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Renamed' }),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.body).firmwareUrl).toBe(MASKED);
+      const updateChain = vi.mocked(db.update).mock.results[0]?.value as {
+        set: { mock: { calls: Array<[{ firmwareUrl?: string }]> } };
+      };
+      expect(updateChain.set.mock.calls[0]?.[0].firmwareUrl).toBeUndefined();
+    });
+
+    it('refuses an update that sends the masked password back', async () => {
+      setupDbResults([campaign]);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/v1/firmware-campaigns/camp-pw',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ firmwareUrl: 'ftp://fw:%5Bredacted%5D@other.example.com/fw.bin' }),
+      });
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
+      expect(vi.mocked(db.update)).not.toHaveBeenCalled();
+    });
+
+    it('refuses a URL password with a space or control on create and update', async () => {
+      for (const firmwareUrl of [
+        'ftp://fw:pa ss@files.example.com/fw.bin',
+        'ftp://fw:pa\tss@files.example.com/fw.bin',
+      ]) {
+        setupDbResults([campaign]);
+        const created = await app.inject({
+          method: 'POST',
+          url: '/v1/firmware-campaigns',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ name: 'Password campaign', firmwareUrl }),
+        });
+        expect(created.statusCode, firmwareUrl).toBe(400);
+        expect(vi.mocked(db.insert)).not.toHaveBeenCalled();
+
+        setupDbResults([campaign]);
+        const updated = await app.inject({
+          method: 'PATCH',
+          url: '/v1/firmware-campaigns/camp-pw',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ firmwareUrl }),
+        });
+        expect(updated.statusCode, firmwareUrl).toBe(400);
+        expect(vi.mocked(db.update)).not.toHaveBeenCalled();
+      }
     });
   });
 });

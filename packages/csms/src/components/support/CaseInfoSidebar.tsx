@@ -150,7 +150,7 @@ export function CaseInfoSidebar({
     <div className="space-y-4">
       <Card>
         <CardContent className="space-y-4 pt-6">
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="case-status-select">{t('common.status')}</Label>
             <Select
               id="case-status-select"
@@ -172,7 +172,7 @@ export function CaseInfoSidebar({
               ))}
             </Select>
           </div>
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="case-priority-edit">{t('supportCases.priority')}</Label>
             <Select
               id="case-priority-edit"
@@ -188,7 +188,7 @@ export function CaseInfoSidebar({
               ))}
             </Select>
           </div>
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="case-category-edit">{t('supportCases.category')}</Label>
             <Select
               id="case-category-edit"
@@ -204,7 +204,7 @@ export function CaseInfoSidebar({
               ))}
             </Select>
           </div>
-          <div>
+          <div className="space-y-2">
             <Label htmlFor="case-assigned-to-edit">{t('supportCases.assignedTo')}</Label>
             <Select
               id="case-assigned-to-edit"

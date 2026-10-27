@@ -96,7 +96,8 @@
     "startDate": "Start date",
     "endDate": "End date",
     "dateRange": "Date range",
-    "copyFailed": "Copy failed"
+    "copyFailed": "Copy failed",
+    "clearDates": "Clear Dates"
   },
   "status": {
     "online": "Online",
@@ -384,7 +385,7 @@
     "passkeyResetRequired": "Your password must be changed. Sign in with your email and password to change it.",
     "mfaSetupPasskeyHint": "Use your fingerprint, face, screen lock or a security key.",
     "mfaSetupUsePasskey": "Set Up a Passkey or Security Key",
-    "chargingPortalLink": "{{name}} Charging Portal",
+    "chargingPortalLink": "Charging Portal",
     "ssoLinkRequired": "This account is not linked to single sign-on yet. Sign in with your password and allow SSO sign-in in your profile, or ask your administrator."
   },
   "dashboard": {
@@ -513,7 +514,46 @@
     "stationsNotAccepted": "Pending: {{pending}}, blocked: {{blocked}}",
     "siteMapNotConfigured": "Configure a Google Maps API key in Settings to show the site map.",
     "siteMapLoadError": "The map could not be loaded.",
-    "siteMapMarker": "{{name}} (stations: {{count}})"
+    "siteMapMarker": "{{name}} (stations: {{count}})",
+    "customize": "Customize",
+    "doneCustomizing": "Done",
+    "customizeHint": "Drag a chart by its handle to move it, or hide it. The stat cards stay in place. Your layout is saved for your account.",
+    "hiddenWidgets": "Hidden",
+    "noHiddenWidgets": "None",
+    "resetLayout": "Reset Layout",
+    "resetLayoutTitle": "Reset Layout",
+    "resetLayoutDescription": "The Live dashboard returns to the default chart order and shows the default charts. Your saved layout is removed.",
+    "showWidget": "Show {{name}}",
+    "hideWidget": "Hide {{name}}",
+    "moveWidget": "Move {{name}}",
+    "layoutSaveFailed": "The dashboard layout could not be saved.",
+    "dnd": {
+      "instructions": "To pick up a card or chart, press Space or Enter. Use the arrow keys to move it, press Space or Enter to drop it, or press Escape to cancel.",
+      "pickedUp": "Picked up {{name}}.",
+      "movedOver": "{{name}} is over {{over}}.",
+      "dropped": "{{name}} moved to the place of {{over}}.",
+      "cancelled": "Moving {{name}} was cancelled."
+    },
+    "locationsByCity": "Locations by City",
+    "locationsByCityInfo": "Accepted stations per city of your sites, with the number of sites in the tooltip. Cities are matched without case or extra spaces.",
+    "unknownCity": "Unknown City",
+    "otherCities": "Other Cities",
+    "noLocations": "No sites",
+    "cityTooltip": "{{stations}} stations, {{sites}} sites",
+    "chartStations": "Stations",
+    "evsesByConnectorType": "EVSEs by Connector Type",
+    "evsesByConnectorTypeInfo": "EVSEs in service per connector type at your accepted stations. An EVSE with connectors of two types counts under each type. The tooltip shows the connectors.",
+    "chartEvses": "EVSEs",
+    "connectorTypeTooltip": "{{evses}} EVSEs, {{connectors}} connectors",
+    "noEvses": "No EVSEs",
+    "plugAndCharge": "Plug & Charge",
+    "plugAndChargeInfo": "Sessions started with a Plug & Charge contract at your sites, and their energy. Active contracts show to users with access to all sites who can read drivers.",
+    "activeContractsCount": "Active Contracts: {{value}}",
+    "noPlugAndChargeSessions": "No Plug & Charge sessions for this period",
+    "freeVend": "Free Vend",
+    "freeVendInfo": "Free vend sessions at your sites and their energy, with the number of your sites that have free vend turned on.",
+    "freeVendSites": "Sites with free vend: {{value}}",
+    "noFreeVendSessions": "No free vend sessions for this period"
   },
   "sites": {
     "title": "Sites",
@@ -764,7 +804,7 @@
     "sp2Desc": "TLS encryption with HTTP Basic Auth",
     "sp3Desc": "Mutual TLS with client certificate. No password required.",
     "sp3CertNote": "Requires client certificate. Configure via Certificates tab.",
-    "sp16_0": "No Security",
+    "sp16_0": "No Auth",
     "sp16_1": "Basic Auth",
     "sp16_2": "TLS + Basic Auth",
     "sp16_0Desc": "No authentication required",
@@ -1859,7 +1899,9 @@
     "deleteHoliday": "Delete Holiday",
     "bulkAddPlaceholder": "One holiday per line: YYYY-MM-DD Holiday Name",
     "bulkHolidaySummary": "Imported {{created}} holiday(s); {{skipped}} skipped because the date already exists.",
-    "bulkHolidayAllImported": "Imported {{count}} holiday(s)."
+    "bulkHolidayAllImported": "Imported {{count}} holiday(s).",
+    "addHolidayDescription": "Tariffs limited to holidays apply on this date.",
+    "bulkAddDescription": "Add several holidays at once, one per line. Dates already listed are skipped."
   },
   "users": {
     "title": "Users",
@@ -2613,7 +2655,38 @@
     "rateLimits": "Rate Limits",
     "simulator": "Simulator",
     "integrations": "Integrations",
-    "secretsNote": "Secret values (passwords, tokens, encryption keys) are never exposed. \"Configured\" only indicates whether a value is set."
+    "secretsNote": "Secret values (passwords, tokens, encryption keys) are never exposed. \"Configured\" only indicates whether a value is set.",
+    "description": "The settings the CSMS processes run with. Secret values are never shown.",
+    "search": "Search settings",
+    "section": "Section",
+    "allSections": "All Sections",
+    "noMatches": "No matching settings",
+    "setting": "Setting",
+    "value": "Value",
+    "security": "Security",
+    "ocppProcesses": "OCPP Processes",
+    "ocpi": "OCPI",
+    "simProviders": "SIM Providers",
+    "dataPlans": "Station Data Plans",
+    "configured": "Configured",
+    "notSet": "Not Set",
+    "none": "None",
+    "enabled": "On",
+    "disabled": "Off",
+    "processes": "Processes",
+    "noOcppProcesses": "No OCPP process has reported in the last 90 seconds.",
+    "connectedStations": "Connected Stations",
+    "startedAt": "Started",
+    "settings": "Settings",
+    "notReported": "Not reported (the process runs an earlier release)",
+    "sharedRateLimit": "Shared Rate Limits",
+    "simulatorStations": "Simulator Stations",
+    "stationsWifiOrWired": "Stations on Wi-Fi or Wired",
+    "stationsCellular": "Stations on Cellular",
+    "sitesWifiOrWired": "Sites Set to Wi-Fi or Wired",
+    "sitesCellular": "Sites Set to Cellular",
+    "webhookSigning": "Webhook Signing Secret",
+    "simHologramKey": "Hologram API Key"
   },
   "settings": {
     "title": "Settings",
@@ -2621,7 +2694,6 @@
     "qrCodeIcon": "QR Code Icon",
     "qrCodeIconDescription": "Upload an SVG icon to embed in the center of QR codes.",
     "uploadSvg": "Upload SVG",
-    "removeIcon": "Remove Icon",
     "preview": "Preview",
     "iconUploaded": "Icon uploaded.",
     "iconRemoved": "Icon removed.",
@@ -2745,13 +2817,11 @@
     "invoicePaymentSaved": "Invoice payment information saved",
     "invoicePaymentSaveFailed": "Could not save the invoice payment information.",
     "uploadLogo": "Upload Logo",
-    "removeLogo": "Remove Logo",
     "noLogo": "No logo uploaded.",
     "invalidImage": "File must be an image.",
     "logoTooLarge": "Image must be under 512 KB.",
     "favicon": "Favicon",
     "uploadFavicon": "Upload Favicon",
-    "removeFavicon": "Remove Favicon",
     "noFavicon": "No favicon uploaded.",
     "faviconDescription": "Displayed in the browser tab. Recommended size: 32x32 or 64x64 pixels.",
     "seoSettings": "SEO and Social",
@@ -2761,7 +2831,6 @@
     "metaKeywordsHelper": "Comma-separated keywords for search engines.",
     "ogImage": "Social Share Image",
     "uploadOgImage": "Upload Image",
-    "removeOgImage": "Remove Image",
     "noOgImage": "No social share image uploaded.",
     "ogImageDescription": "Displayed when sharing links on social media. Recommended size: 1200x630 pixels.",
     "themeColor": "Theme Color",
@@ -2808,7 +2877,7 @@
     "s3PolicyDescription": "Your IAM user needs the following permissions on the S3 bucket. Replace YOUR_BUCKET_NAME with your actual bucket name.",
     "s3BucketPrivateNote": "The S3 bucket should not be public. All file access is handled through presigned URLs generated by the server.",
     "s3CorsTitle": "CORS Configuration",
-    "s3CorsDescription": "Your S3 bucket needs a CORS policy to allow direct file uploads from the browser. Add this under Bucket > Permissions > CORS. Replace YOUR_FRONTEND_ORIGIN with your dashboard URL (e.g. http://localhost:7100).",
+    "s3CorsDescription": "Your S3 bucket needs a CORS rule so browsers can upload files straight to it with presigned POST requests (station images and support attachments from the dashboard, driver photos from the portal) and open them with GET. Add this under Bucket > Permissions > CORS. The example lists the origins of this dashboard and of the driver portal. Change them if users reach either app at another address.",
     "pnc": "Plug & Charge",
     "pncEnabled": "Enable Plug & Charge (ISO 15118)",
     "pncDescription": "When enabled, the system manages PKI certificates for ISO 15118 Plug and Charge. Disabling hides the Certificates section and blocks certificate operations.",
@@ -3236,7 +3305,8 @@
       "ops": {
         "title": "Automatic Insights and Workers",
         "description": "The model for automatic insights and background workers. They run without a user and use the company provider key.",
-        "enabled": "Turn on system-initiated AI"
+        "enabled": "Turn on system-initiated AI",
+        "offNote": "These settings take effect only while system-initiated AI is on. Their values are kept."
       },
       "driver": {
         "title": "Driver Support",
@@ -3286,6 +3356,30 @@
         "empty": "No votes in the last {{days}} days.",
         "viewWrong": "View Insights Marked Wrong"
       }
+    },
+    "aiInsightsScope": {
+      "title": "AI Insights Scope",
+      "siteListLabel": "Sites",
+      "description": "Choose which sites and stations automatic insights and background workers analyze.",
+      "mode": {
+        "all": "All Sites",
+        "selected": "Selected Sites"
+      },
+      "modeHint": {
+        "all": "Every site and station, including ones added later.",
+        "selected": "Only the sites you select. Inside a selected site you can turn off single stations. New sites start unselected, and new stations follow their site."
+      },
+      "search": "Search sites",
+      "noSites": "No sites match.",
+      "noStations": "This site has no stations.",
+      "stationsSummary_one": "{{count}} station, {{off}} turned off",
+      "stationsSummary_other": "{{count}} stations, {{off}} turned off",
+      "siteToggle": "Analyze {{name}}",
+      "stationsWithoutSite_one": "{{count}} station without a site is not analyzed while only selected sites are.",
+      "stationsWithoutSite_other": "{{count}} stations without a site are not analyzed while only selected sites are.",
+      "removeHint": "Sites and stations you take out of the scope get no new insights. Their open insights are dismissed and their waiting actions expire.",
+      "loadFailed": "Failed to load the AI insights scope.",
+      "stationsFailed": "Failed to load the stations."
     },
     "aiMcp": {
       "title": "MCP Server",
@@ -3496,7 +3590,8 @@
         }
       },
       "proofHint": "Confirm it is you to shorten how long the audit, sign-in or security event history is kept. Every administrator gets a notice."
-    }
+    },
+    "uploadReplacesHint": "Uploading a new image replaces the current one."
   },
   "pnc": {
     "certificates": "Certificates",
@@ -3806,7 +3901,8 @@
     "changes": "Changes",
     "token": "Token",
     "evse": "EVSE",
-    "removeSlotStation": "Remove station"
+    "removeSlotStation": "Remove station",
+    "noConnectors": "No Connectors"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "Account deactivated",
@@ -4134,6 +4230,7 @@
     "AI_INSIGHT_NOT_FOUND": "Insight not found",
     "AI_INSIGHT_COOLDOWN": "This insight was regenerated recently. Try again later",
     "AI_INSIGHTS_DISABLED": "Automatic insights are turned off",
+    "AI_INSIGHTS_NOT_IN_SCOPE": "AI insights are not on for this site or station. Add it to the AI insights scope in Settings first",
     "AI_SITE_BUDGET_EXCEEDED": "The site's daily AI usage limit is reached",
     "AI_MONTHLY_BUDGET_EXCEEDED": "The monthly AI usage limit is reached",
     "AI_CONTEXT_NOT_FOUND": "Explain context not found",
@@ -5430,7 +5527,24 @@
       "api_key": "API key",
       "system": "System",
       "ocpp": "OCPP"
-    }
+    },
+    "changes": "Changes",
+    "field": "Field",
+    "before": "Before",
+    "after": "After",
+    "showUnchanged": "Show Unchanged Fields",
+    "hideUnchanged": "Hide Unchanged Fields",
+    "noChanges": "This entry records no field values.",
+    "redacted": "Hidden",
+    "goToEntity": "Go to Entity",
+    "entityDeleted": "Deleted",
+    "viaAi": "Via AI",
+    "viaAiChannels": {
+      "chat": "AI assistant",
+      "mcp": "MCP",
+      "proposal": "Confirmed AI action"
+    },
+    "entryTitle": "{{action}} ({{entity}})"
   },
   "maintenance": {
     "colType": "Type",
@@ -5829,7 +5943,7 @@
       "resolved_before_analysis": "Resolved before the analysis",
       "cooldown": "Analyzed recently",
       "site_daily_cap": "The daily insight limit of the site is reached",
-      "site_disabled": "Insights are off for this site",
+      "site_disabled": "This site or station is outside the AI insights scope",
       "budget_exceeded": "The AI budget is used up",
       "disabled": "Automatic insights were turned off",
       "provider_paused": "The AI provider account is out of credit or quota"
@@ -5878,6 +5992,18 @@
       "sessionsFailedSameReason24h_other": "{{count}} sessions failed for the same reason in 24 hours",
       "tokenRefusals_one": "{{count}} token refusal",
       "tokenRefusals_other": "{{count}} token refusals"
+    },
+    "scopeStatus": {
+      "off": "Off",
+      "settingsLink": "AI Insights Scope",
+      "reason": {
+        "all_sites": "On for all sites",
+        "selected": "On: selected in the AI insights scope",
+        "feature_off": "Off because system-initiated AI is off",
+        "no_site": "Off because the station has no site and only selected sites are analyzed",
+        "site_not_selected": "Off because the site is not selected in the AI insights scope",
+        "station_turned_off": "Off because the station is turned off in the AI insights scope"
+      }
     },
     "regenerateQueued": "A new insight is being prepared.",
     "widget": {
@@ -6115,8 +6241,6 @@
     },
     "siteBudget": "Monthly token budget",
     "siteBudgetHelp": "Leave empty to use the default site budget from Settings > AI. 0 means no limit.",
-    "siteInsights": "Automatic insights",
-    "siteInsightsHelp": "Turn off to stop automatic insights for this site.",
     "allSitesOnly": "Only users with access to every site can change this."
   },
   "aiAlerts": {
@@ -6324,5 +6448,55 @@
       "alignedMeasurandsHelp": "Comma-separated measurands of the idle readings. Sent only when the interval is above 0.",
       "txEndedMeasurandsHelp": "Comma-separated measurands in the values at the end of a session."
     }
+  },
+  "avatar": {
+    "alt": "Avatar of {{name}}",
+    "edit": "Edit Avatar",
+    "remove": "Remove Avatar",
+    "create": "Create",
+    "upload": "Upload",
+    "random": "Random",
+    "tooLarge": "The image must be smaller than 1 MB.",
+    "wrongType": "Choose a JPEG, PNG or WebP image.",
+    "uploadHint": "JPEG, PNG or WebP, smaller than 1 MB. The image is cropped to a square.",
+    "chooseImage": "Choose Image",
+    "saved": "Avatar saved",
+    "saveFailed": "The avatar could not be saved",
+    "removed": "Avatar removed",
+    "options": {
+      "topVariant": "Hair or Headwear",
+      "accessoriesVariant": "Glasses",
+      "eyebrowsVariant": "Eyebrows",
+      "eyesVariant": "Eyes",
+      "mouthVariant": "Mouth",
+      "facialHairVariant": "Facial Hair",
+      "clothesVariant": "Clothes",
+      "clothesGraphicVariant": "Shirt Graphic",
+      "skinColor": "Skin Color",
+      "hairColor": "Hair Color",
+      "facialHairColor": "Facial Hair Color",
+      "clothesColor": "Clothes Color",
+      "hatColor": "Headwear Color",
+      "accessoriesColor": "Glasses Color",
+      "backgroundColor": "Background Color",
+      "flip": "Direction"
+    },
+    "none": {
+      "topVariant": "No Hair or Headwear",
+      "accessoriesVariant": "No Glasses",
+      "facialHairVariant": "No Facial Hair"
+    },
+    "values": {
+      "none": "Default",
+      "horizontal": "Mirrored"
+    },
+    "label": "Avatar",
+    "removeConfirmTitle": "Remove Avatar",
+    "removeConfirm": "Remove this avatar? An uploaded photo is deleted and initials are shown.",
+    "editDescription": "Create an avatar or upload a photo. It shows in the sidebar user menu and the user list.",
+    "editDescriptionUser": "Create an avatar or upload a photo for this user. It shows in the user list and on the user page.",
+    "editDescriptionDriver": "Create an avatar or upload a photo for this driver. It shows in the driver list, the fleet members and on the driver page. The driver can change it.",
+    "savedWithNewAccount": "Optional. The avatar is saved when the account is created.",
+    "applyFailed": "The account was created, but the avatar could not be saved. Set it again on the Details tab."
   }
 }

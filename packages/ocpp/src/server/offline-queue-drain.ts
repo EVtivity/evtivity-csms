@@ -23,6 +23,12 @@ export interface OfflineQueueDrainResult {
  * command such as a reset or a remote start must not run twice). A claimed
  * command whose publish fails goes back to `pending` for the next drain,
  * unless it expired meanwhile, when it is left to the expiry cleanup.
+ *
+ * A row that leaves `pending` (sent, superseded) keeps its payload with every
+ * URL password masked (`evtivity_mask_url_passwords_jsonb`, the rule of
+ * `maskUrlPassword`), in the same UPDATE; the claim returns the payload as it
+ * was before (the `due` row), so the station gets the real URL, and a row
+ * returned to `pending` gets that payload back.
  */
 export async function drainOfflineCommandQueue(
   sql: postgres.Sql,
@@ -52,23 +58,25 @@ export async function drainOfflineCommandQueue(
       WHERE target IS NOT NULL
     )
     UPDATE offline_command_queue q
-    SET status = 'expired', failed_reason = 'Superseded by a newer queued command'
+    SET status = 'expired', failed_reason = 'Superseded by a newer queued command',
+      payload = public.evtivity_mask_url_passwords_jsonb(q.payload)
     FROM ranked
     WHERE q.id = ranked.id AND ranked.rn > 1 AND q.status = 'pending'
   `;
 
   const claimed = await sql`
     WITH due AS (
-      SELECT id FROM offline_command_queue
+      SELECT id, payload FROM offline_command_queue
       WHERE station_id = ${stationOcppId} AND status = 'pending' AND expires_at > now()
       ORDER BY created_at ASC, id ASC
       FOR UPDATE SKIP LOCKED
     )
     UPDATE offline_command_queue q
-    SET status = 'sent', sent_at = now()
+    SET status = 'sent', sent_at = now(),
+      payload = public.evtivity_mask_url_passwords_jsonb(q.payload)
     FROM due
     WHERE q.id = due.id AND q.status = 'pending'
-    RETURNING q.id, q.command_id, q.action, q.payload, q.version, q.created_at
+    RETURNING q.id, q.command_id, q.action, due.payload, q.version, q.created_at
   `;
   const commands = [...claimed].sort((a, b) => {
     const at = new Date(a.created_at as string).getTime();
@@ -95,7 +103,8 @@ export async function drainOfflineCommandQueue(
       try {
         await sql`
           UPDATE offline_command_queue
-          SET status = 'pending', sent_at = NULL
+          SET status = 'pending', sent_at = NULL,
+            payload = ${sql.json(cmd.payload as postgres.JSONValue)}
           WHERE id = ${cmd.id as number} AND status = 'sent' AND expires_at > now()
         `;
       } catch (revertErr) {
