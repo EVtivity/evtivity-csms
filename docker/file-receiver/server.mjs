@@ -74,11 +74,29 @@ function readBody(req) {
   });
 }
 
+// The boundary parameter of a Content-Type, as /boundary=("?)([^";]+)\1/ reads it, by a
+// scan: the regular expression backtracks quadratically on a long header.
+function multipartBoundary(type) {
+  for (let at = type.indexOf('boundary='); at >= 0; at = type.indexOf('boundary=', at + 1)) {
+    const start = at + 'boundary='.length;
+    if (type[start] === '"') {
+      const close = type.indexOf('"', start + 1);
+      const quoted = close > start + 1 ? type.slice(start + 1, close) : '';
+      if (quoted !== '' && !quoted.includes(';')) return quoted;
+    }
+    let end = start;
+    while (end < type.length && type[end] !== '"' && type[end] !== ';') end++;
+    // An unquoted value ends at a quote or a semicolon; the regex then needs no closing quote.
+    if (end > start) return type.slice(start, end);
+  }
+  return undefined;
+}
+
 // A POST (N01.FR.19) names the file in Content-Disposition; a multipart body holds it in
 // its first part.
 function postedFile(req, body, fallbackName) {
   const type = req.headers['content-type'] ?? '';
-  const boundary = /boundary=("?)([^";]+)\1/.exec(type)?.[2];
+  const boundary = multipartBoundary(type);
   if (type.startsWith('multipart/form-data') && boundary != null) {
     const text = body.toString('latin1');
     const start = text.indexOf(`--${boundary}`);

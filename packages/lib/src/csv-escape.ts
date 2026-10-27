@@ -15,7 +15,35 @@ const FORMULA_PREFIXES = new Set(['=', '+', '-', '@', '\t', '\r']);
 // line, and a tab-separated import splits on TAB. A formula character after
 // one of them would then start a new cell (OWASP CSV Injection), so a single
 // quote goes in front of it. A comma inside a quoted field never splits it.
-const SPLIT_FORMULA = /([;\t]\s*)([=+\-@])/g;
+// Whitespace between the separator and the formula character does not stop
+// it. A linear scan, not a regular expression: `[;\t]\s*` backtracks
+// quadratically on a long run of TABs, and exports hold user-typed text.
+const SPLIT_SEPARATORS = new Set([';', '\t']);
+const SPLIT_FORMULA_CHARS = new Set(['=', '+', '-', '@']);
+const WHITESPACE = /\s/;
+
+function neutraliseSplitFormulas(text: string): string {
+  let out = '';
+  let copied = 0;
+  let i = 0;
+  while (i < text.length) {
+    if (!SPLIT_SEPARATORS.has(text.charAt(i))) {
+      i++;
+      continue;
+    }
+    // Every separator inside this whitespace run ends at the same character,
+    // so the run is read once.
+    let j = i + 1;
+    while (j < text.length && WHITESPACE.test(text.charAt(j))) j++;
+    if (j < text.length && SPLIT_FORMULA_CHARS.has(text.charAt(j))) {
+      out += `${text.slice(copied, j)}'`;
+      copied = j;
+      j++;
+    }
+    i = j;
+  }
+  return copied === 0 ? text : out + text.slice(copied);
+}
 
 export function neutraliseSpreadsheetFormula(value: string): string {
   if (value === '') return value;
@@ -33,7 +61,7 @@ export function csvEscape(value: unknown): string {
     // JSON) is neutralized, so text inside a serialized value cannot start a
     // formula either.
     const text = typeof value === 'string' ? value : JSON.stringify(value);
-    str = neutraliseSpreadsheetFormula(text).replace(SPLIT_FORMULA, "$1'$2");
+    str = neutraliseSplitFormulas(neutraliseSpreadsheetFormula(text));
   }
   // RFC 4180: fields containing CR, LF, comma, or double-quote must be
   // enclosed in double-quotes. Without quoting bare CR, an embedded \r in

@@ -408,14 +408,20 @@ class CappedSink extends Writable {
 
 /** The OpenSSH SHA-256 fingerprint of a host key blob, without prefix and padding. */
 export function hostKeySha256(key: Buffer): string {
-  return createHash('sha256').update(key).digest('base64').replace(/=+$/, '');
+  return trimTrailingPadding(createHash('sha256').update(key).digest('base64'));
 }
 
-function normalizeFingerprint(value: string): string {
-  return value
-    .trim()
-    .replace(/^SHA256:/i, '')
-    .replace(/=+$/, '');
+// A backwards scan, linear in the length. The regex form /=+$/ is quadratic on
+// a value with many `=` that do not end it.
+function trimTrailingPadding(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 61) end--;
+  return value.slice(0, end);
+}
+
+/** A configured fingerprint without the `SHA256:` prefix and padding (exported for tests). */
+export function normalizeFingerprint(value: string): string {
+  return trimTrailingPadding(value.trim().replace(/^SHA256:/i, ''));
 }
 
 // The host key is checked against `sftpHostKeySha256` while verification is on (no

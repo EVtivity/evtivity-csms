@@ -164,6 +164,7 @@ import {
   bulkSetActive,
   exportTokensCsv,
   importTokensCsv,
+  hasEmailShape,
   DuplicateTokenError,
   VehicleIdTokenInUseError,
   VehicleShapedCardError,
@@ -1018,6 +1019,41 @@ describe('importTokensCsv', () => {
 
     expect(result.imported).toBe(0);
     expect(result.errors).toEqual(['Row 2: unknown tokenType Bogus', 'Row 3: invalid driverEmail']);
+  });
+
+  it('checks the driver email shape as the reference pattern, in linear time', () => {
+    const reference = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    for (const value of [
+      'a@b.c',
+      'a@.b.c',
+      'a@b.',
+      'a@.b',
+      'a@b..c',
+      '@b.c',
+      'a@@b.c',
+      'a@b.c@d',
+      'a b@c.d',
+      'a@b\t.c',
+      'x.y@z',
+    ]) {
+      expect(hasEmailShape(value), value).toBe(reference.test(value));
+    }
+    const alphabet = ['a', '.', '@', ' ', '!'];
+    let seed = 5;
+    const next = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed;
+    };
+    for (let n = 0; n < 20_000; n++) {
+      let value = '';
+      const length = next() % 10;
+      for (let k = 0; k < length; k++) value += alphabet[next() % alphabet.length] ?? '';
+      expect(hasEmailShape(value), JSON.stringify(value)).toBe(reference.test(value));
+    }
+    const started = performance.now();
+    expect(hasEmailShape(`!@!.${'!.'.repeat(100_000)}@`)).toBe(false);
+    expect(hasEmailShape(`a@${'b.'.repeat(100_000)}`)).toBe(true);
+    expect(performance.now() - started).toBeLessThan(50);
   });
 
   it('treats a blank expiresAt string as no expiry', async () => {

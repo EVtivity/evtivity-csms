@@ -107,6 +107,34 @@ describe('csvEscape', () => {
       }
     });
 
+    it('scans a long run of TABs or semicolons in linear time', () => {
+      for (const crafted of ['\t'.repeat(100_000), `x${';\t '.repeat(50_000)}y`]) {
+        const started = performance.now();
+        csvEscape(crafted);
+        expect(performance.now() - started).toBeLessThan(50);
+      }
+      expect(csvEscape(`a${'\t'.repeat(1000)}=1`)).toBe(`"a${'\t'.repeat(1000)}'=1"`);
+    });
+
+    it('breaks split formulas exactly as the reference pattern does', () => {
+      const reference = (value: string) => value.replace(/([;\t]\s*)([=+\-@])/g, "$1'$2");
+      const alphabet = [';', '\t', ' ', '\n', '=', '+', '-', '@', 'a', ' '];
+      let seed = 7;
+      const next = () => {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed;
+      };
+      for (let n = 0; n < 5000; n++) {
+        let value = 'x';
+        const length = next() % 12;
+        for (let k = 0; k < length; k++) value += alphabet[next() % alphabet.length] ?? '';
+        const expected = reference(value);
+        expect(csvEscape(value)).toBe(
+          /[,"\n\r;\t]/.test(expected) ? `"${expected.replace(/"/g, '""')}"` : expected,
+        );
+      }
+    });
+
     it('formula prefix combines with quoting when needed', () => {
       expect(csvEscape('=A1,B1')).toBe('"\'=A1,B1"');
     });

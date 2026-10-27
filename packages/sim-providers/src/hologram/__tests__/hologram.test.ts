@@ -10,7 +10,7 @@ import {
   hologramFactory,
   hologramTimeToIso,
 } from '../adapter.js';
-import { HOLOGRAM_BASE_URL, HologramRequestError } from '../client.js';
+import { HOLOGRAM_BASE_URL, HologramClient, HologramRequestError } from '../client.js';
 import { HOLOGRAM_NETWORK_STATES, mapHologramState } from '../states.js';
 import { SimProviderError } from '../../types.js';
 import type { SimProviderErrorKind } from '../../types.js';
@@ -164,6 +164,21 @@ async function errorKind(promise: Promise<unknown>): Promise<SimProviderErrorKin
 const REF = { providerSimId: '4001', linkId: '5001', simcardId: '6001' };
 
 describe('Hologram adapter requests', () => {
+  it('drops trailing slashes of the base URL, in linear time on crafted input', async () => {
+    const fake = fakeFetch(() => ({ status: 200, body: { success: true } }));
+    const client = new HologramClient({
+      apiKey: API_KEY,
+      orgId: ORG_ID,
+      baseUrl: `${BASE}///`,
+      fetch: fake.fetch,
+    });
+    await client.request({ method: 'GET', path: '/devices/count', label: 'count' });
+    expect(fake.requests[0]?.url.href.startsWith(`${BASE}/devices/count`)).toBe(true);
+    const started = performance.now();
+    new HologramClient({ apiKey: API_KEY, orgId: ORG_ID, baseUrl: `${'/'.repeat(100_000)}x` });
+    expect(performance.now() - started).toBeLessThan(50);
+  });
+
   it('sends Basic auth with user apikey and the organization id on every call', async () => {
     const { sim, requests } = provider((req) => {
       const path = req.url.pathname;

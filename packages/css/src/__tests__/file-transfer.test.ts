@@ -12,6 +12,7 @@ import {
   FileTransferError,
   downloadFile as downloadFileGuarded,
   hostKeySha256,
+  normalizeFingerprint,
   uploadFile as uploadFileGuarded,
   uploadTargetUrl,
   type FileTransferOptions,
@@ -272,6 +273,15 @@ describe('SFTP', () => {
 
   it('computes the OpenSSH fingerprint of a host key blob', () => {
     expect(hostKeySha256(Buffer.from('key'))).toBe('LHDhK3oGRvkiefQnx7OOczTY5Tic/xZ6HcMOc/gmtoM');
+  });
+
+  it('drops the prefix and padding of a configured fingerprint, in linear time', () => {
+    expect(normalizeFingerprint(' sha256:AbC/+1== ')).toBe('AbC/+1');
+    expect(normalizeFingerprint('AbC=x=')).toBe('AbC=x');
+    const started = performance.now();
+    expect(normalizeFingerprint(`${'='.repeat(100_000)}x`)).toHaveLength(100_001);
+    expect(normalizeFingerprint('='.repeat(100_000))).toBe('');
+    expect(performance.now() - started).toBeLessThan(50);
   });
 
   it('reports a wrong password and a refused path as PermissionDenied', async () => {

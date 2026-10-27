@@ -78,8 +78,50 @@ const NO_HOST_SCHEMES = new Set(['mailto:', 'tel:']);
 const LINK_PLACEHOLDER_ORIGIN = 'https://evtivity-link.invalid';
 const VARIABLE_PLACEHOLDER = 'evtivityvar';
 
-// `//host` or `scheme://host` (a backslash counts as a slash, as browsers parse it).
-const HOST_REFERENCE_RE = /([a-z][a-z0-9+.-]*:)?[/\\]{2,}([^\s"'<>()\\/?#]*)/gi;
+// `//host` or `scheme://host` (a backslash counts as a slash, as browsers parse
+// it): the matches of `/([a-z][a-z0-9+.-]*:)?[/\\]{2,}([^\s"'<>()\\/?#]*)/gi`,
+// found by a linear scan. As a regular expression the optional scheme is tried
+// from every letter of a long word, which is quadratic in the text length.
+const SLASH_RUN_RE = /[/\\]{2,}/g;
+const HOST_PART_RE = /[^\s"'<>()\\/?#]*/y;
+const SCHEME_FIRST_RE = /[a-z]/i;
+const SCHEME_REST_RE = /[a-z0-9+.-]/i;
+
+export interface HostReference {
+  /** The scheme with its colon, when one precedes the slashes. */
+  scheme: string | undefined;
+  /** What follows the slashes up to the first character that ends a host. */
+  hostPart: string;
+}
+
+/** The `//host` and `scheme://host` references of a text, in order (exported for tests). */
+export function hostReferences(text: string): HostReference[] {
+  const references: HostReference[] = [];
+  let from = 0;
+  SLASH_RUN_RE.lastIndex = 0;
+  let run: RegExpExecArray | null;
+  while ((run = SLASH_RUN_RE.exec(text)) !== null) {
+    const slashes = run.index;
+    let scheme: string | undefined;
+    if (slashes - 1 > from && text.charAt(slashes - 1) === ':') {
+      // The leftmost letter after the previous match from which every
+      // character up to the colon is a scheme character.
+      let start = slashes - 1;
+      let first = -1;
+      while (start > from && SCHEME_REST_RE.test(text.charAt(start - 1))) {
+        start--;
+        if (SCHEME_FIRST_RE.test(text.charAt(start))) first = start;
+      }
+      if (first >= 0) scheme = text.slice(first, slashes);
+    }
+    HOST_PART_RE.lastIndex = slashes + run[0].length;
+    const hostPart = HOST_PART_RE.exec(text)?.[0] ?? '';
+    references.push({ scheme, hostPart });
+    from = HOST_PART_RE.lastIndex;
+    SLASH_RUN_RE.lastIndex = from;
+  }
+  return references;
+}
 // `https:host` without slashes, which browsers also read as an absolute URL.
 const SLASHLESS_URL_RE = /\b(?:https?|wss?|ftp):(?![/\\])/i;
 
@@ -100,8 +142,8 @@ function hostAllowed(
 /** Problems with the URLs in a piece of text (an attribute value, text, a comment). */
 function urlProblem(text: string, trusted: readonly URL[]): string | null {
   if (SLASHLESS_URL_RE.test(text)) return 'Write links in full (https://...)';
-  for (const match of text.matchAll(HOST_REFERENCE_RE)) {
-    if (!hostAllowed(match[1]?.toLowerCase(), match[2] ?? '', trusted)) {
+  for (const { scheme, hostPart } of hostReferences(text)) {
+    if (!hostAllowed(scheme?.toLowerCase(), hostPart, trusted)) {
       return 'A security template may link only to the CSMS or the driver portal';
     }
   }

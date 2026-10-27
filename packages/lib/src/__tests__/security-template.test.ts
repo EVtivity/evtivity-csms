@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { SECURITY_TEMPLATE_EVENTS, isSecurityTemplateEventType } from '../notification-events.js';
 import {
+  hostReferences,
   securityTemplateRenderProblem,
   securityTemplateSaveProblems,
 } from '../security-template.js';
@@ -48,6 +49,43 @@ describe('security template event list', () => {
     }
     expect(isSecurityTemplateEventType('session.Receipt')).toBe(false);
     expect(isSecurityTemplateEventType('__proto__')).toBe(false);
+  });
+});
+
+describe('hostReferences', () => {
+  const REFERENCE = /([a-z][a-z0-9+.-]*:)?[/\\]{2,}([^\s"'<>()\\/?#]*)/gi;
+
+  it('finds what the reference pattern matches', () => {
+    expect(hostReferences('x 1ab://h.example/p //c.example a:b:\\\\d')).toEqual([
+      { scheme: 'ab:', hostPart: 'h.example' },
+      { scheme: undefined, hostPart: 'c.example' },
+      { scheme: 'b:', hostPart: 'd' },
+    ]);
+    const alphabet = ['a', 'B', '1', '+', '.', '-', ':', '/', '\\', ' ', '"', '@', '?'];
+    let seed = 11;
+    const next = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed;
+    };
+    for (let n = 0; n < 20_000; n++) {
+      let text = '';
+      const length = next() % 16;
+      for (let k = 0; k < length; k++) text += alphabet[next() % alphabet.length] ?? '';
+      const expected = [...text.matchAll(REFERENCE)].map((m) => ({
+        scheme: m[1],
+        hostPart: m[2] ?? '',
+      }));
+      expect(hostReferences(text), JSON.stringify(text)).toEqual(expected);
+    }
+  });
+
+  it('scans crafted input in linear time', () => {
+    for (const crafted of ['a'.repeat(100_000), 'a1'.repeat(50_000), `${'a'.repeat(100_000)}:/`]) {
+      const started = performance.now();
+      hostReferences(crafted);
+      save(`<p>${crafted}</p><a href="{{resetUrl}}">x</a>`);
+      expect(performance.now() - started).toBeLessThan(50);
+    }
   });
 });
 

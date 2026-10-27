@@ -107,6 +107,14 @@ function errorText(body: unknown): string | null {
   return typeof error === 'string' ? error : null;
 }
 
+// A backwards scan, linear in the length. The regex form /\/+$/ is quadratic
+// on a value with many slashes that do not end it.
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+  return value.slice(0, end);
+}
+
 /**
  * HTTP calls to the Hologram REST API: Basic auth with user `apikey` and the
  * organization id on every call. Error messages name the method, the request
@@ -122,7 +130,7 @@ export class HologramClient {
   constructor(options: HologramClientOptions) {
     this.authorization = `Basic ${Buffer.from(`apikey:${options.apiKey}`).toString('base64')}`;
     this.orgId = options.orgId;
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(options.baseUrl);
     this.fetchImpl = options.fetch ?? fetch;
     this.timeoutMs = options.timeoutMs ?? HOLOGRAM_TIMEOUT_MS;
   }

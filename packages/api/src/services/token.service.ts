@@ -1053,8 +1053,23 @@ export interface TokenImportRow {
 }
 
 const MAX_ID_TOKEN_LENGTH = 255;
-// A loose shape check: the driver lookup decides whether the address is known.
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const WHITESPACE = /\s/;
+
+/**
+ * A loose shape check, `local@domain.tld` (the driver lookup decides whether
+ * the address is known): the matches of `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`,
+ * checked by scanning. As a regular expression the two dotted parts after the
+ * `@` backtrack quadratically on a long imported value. Exported for tests.
+ */
+export function hasEmailShape(value: string): boolean {
+  if (WHITESPACE.test(value)) return false;
+  const at = value.indexOf('@');
+  if (at < 1 || value.includes('@', at + 1)) return false;
+  const domain = value.slice(at + 1);
+  // A dot with at least one character on each side.
+  const dot = domain.indexOf('.', 1);
+  return dot > 0 && dot < domain.length - 1;
+}
 
 export async function importTokensCsv(
   rows: TokenImportRow[],
@@ -1098,7 +1113,7 @@ export async function importTokensCsv(
       continue;
     }
     const driverEmail = (row.driverEmail ?? '').trim();
-    if (driverEmail !== '' && !EMAIL_SHAPE.test(driverEmail)) {
+    if (driverEmail !== '' && !hasEmailShape(driverEmail)) {
       errors.push(`${rowLabel}: invalid driverEmail`);
       continue;
     }
