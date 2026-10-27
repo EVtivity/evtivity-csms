@@ -54,8 +54,11 @@ describe('NotificationDrawer', () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it('shows empty state when no notifications', () => {
+  it('shows loading, then the empty state when no notifications', async () => {
     render(<NotificationDrawer open={true} onClose={() => {}} />, { wrapper: createWrapper() });
-    expect(screen.getByText('notifications.noNotifications')).toBeTruthy();
+    expect(screen.getByRole('status')).toBeTruthy();
+    expect((await screen.findByTestId('empty-state')).textContent).toBe(
+      'notifications.noNotifications',
+    );
   });
 });

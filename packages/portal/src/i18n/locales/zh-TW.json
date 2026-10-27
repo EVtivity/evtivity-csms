@@ -26,7 +26,9 @@
     "toggleSuggestions": "顯示或隱藏建議",
     "copyFailed": "複製失敗",
     "notCharged": "未收費",
-    "copy": "複製"
+    "copy": "複製",
+    "loadError": "資料載入失敗，請重試。",
+    "retry": "重試"
   },
   "nav": {
     "home": "首頁",

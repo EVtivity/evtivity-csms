@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
 import {
   Table,
@@ -46,7 +46,12 @@ export function ConfigTemplatePushesTab({ templateId }: Props): React.JSX.Elemen
   const [page, setPage] = useState(1);
   const limit = 10;
 
-  const { data: pushes } = useQuery({
+  const {
+    data: pushes,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['config-templates', templateId, 'pushes', page],
     queryFn: () =>
       api.get<{ data: PushRecord[]; total: number }>(
@@ -59,72 +64,70 @@ export function ConfigTemplatePushesTab({ templateId }: Props): React.JSX.Elemen
   const totalPages = Math.ceil(total / limit);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('configTemplates.pushes')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {total === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">
-            {t('configTemplates.noPushes')}
-          </p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('common.timestamp')}</TableHead>
-                    <TableHead>{t('common.status')}</TableHead>
-                    <TableHead>{t('nav.stations')}</TableHead>
-                    <TableHead>{t('configTemplates.accepted')}</TableHead>
-                    <TableHead>{t('configTemplates.rejected')}</TableHead>
-                    <TableHead>{t('configTemplates.failed')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pushes?.data.map((push) => (
-                    <TableRow
-                      key={push.id}
-                      className="cursor-pointer"
-                      data-testid={`config-push-row-${push.id}`}
-                      onClick={() => {
-                        void navigate(`/station-configuration-pushes/${push.id}`);
-                      }}
-                    >
-                      <TableCell className="text-xs" data-testid="row-click-target">
-                        {formatDateTime(push.createdAt, timezone)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={PUSH_STATUS_VARIANT[push.status] ?? 'outline'}>
-                          {push.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{push.stationCount}</TableCell>
-                      <TableCell>{push.acceptedCount}</TableCell>
-                      <TableCell>
-                        {push.rejectedCount > 0 ? (
-                          <span className="text-warning">{push.rejectedCount}</span>
-                        ) : (
-                          0
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {push.failedCount > 0 ? (
-                          <span className="text-destructive">{push.failedCount}</span>
-                        ) : (
-                          0
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <TabPanel
+      title={t('configTemplates.pushes')}
+      isLoading={isLoading}
+      isError={isError}
+      onRetry={() => {
+        void refetch();
+      }}
+      isEmpty={total === 0}
+      emptyMessage={t('configTemplates.noPushes')}
+    >
+      <>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('common.timestamp')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead>{t('nav.stations')}</TableHead>
+                <TableHead>{t('configTemplates.accepted')}</TableHead>
+                <TableHead>{t('configTemplates.rejected')}</TableHead>
+                <TableHead>{t('configTemplates.failed')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {pushes?.data.map((push) => (
+                <TableRow
+                  key={push.id}
+                  className="cursor-pointer"
+                  data-testid={`config-push-row-${push.id}`}
+                  onClick={() => {
+                    void navigate(`/station-configuration-pushes/${push.id}`);
+                  }}
+                >
+                  <TableCell className="text-xs" data-testid="row-click-target">
+                    {formatDateTime(push.createdAt, timezone)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={PUSH_STATUS_VARIANT[push.status] ?? 'outline'}>
+                      {push.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{push.stationCount}</TableCell>
+                  <TableCell>{push.acceptedCount}</TableCell>
+                  <TableCell>
+                    {push.rejectedCount > 0 ? (
+                      <span className="text-warning">{push.rejectedCount}</span>
+                    ) : (
+                      0
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {push.failedCount > 0 ? (
+                      <span className="text-destructive">{push.failedCount}</span>
+                    ) : (
+                      0
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      </>
+    </TabPanel>
   );
 }

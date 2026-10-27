@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   FactorProofField,
   proofRejection,
@@ -87,91 +87,86 @@ export function SsoLinkCard({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('users.ssoLinkTitle')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">{t('users.ssoLinkDescription')}</p>
-        {asking != null ? (
-          <div className="space-y-4">
-            {proofKinds.length > 0 && (
-              <FactorProofField
-                key={`sso-link-${String(proofRound)}`}
-                idPrefix="sso-link-proof"
-                kinds={proofKinds}
-                codeMethod={mfaStatus?.mfaMethod ?? null}
-                description={t(
-                  asking === 'unlink' ? 'users.ssoUnlinkProofHint' : 'users.ssoLinkProofHint',
-                )}
-                onChange={setProof}
-                rejection={proofFailure}
-                showMissing={proofAsked}
-              />
-            )}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setAsking(null);
-                }}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button type="button" disabled={allowMutation.isPending} onClick={confirm}>
-                {t(asking === 'unlink' ? 'users.ssoUnlink' : 'users.ssoLinkAllow')}
-              </Button>
-            </div>
+    <TabPanel title={t('users.ssoLinkTitle')} bodyClassName="space-y-4">
+      <p className="text-sm text-muted-foreground">{t('users.ssoLinkDescription')}</p>
+      {asking != null ? (
+        <div className="space-y-4">
+          {proofKinds.length > 0 && (
+            <FactorProofField
+              key={`sso-link-${String(proofRound)}`}
+              idPrefix="sso-link-proof"
+              kinds={proofKinds}
+              codeMethod={mfaStatus?.mfaMethod ?? null}
+              description={t(
+                asking === 'unlink' ? 'users.ssoUnlinkProofHint' : 'users.ssoLinkProofHint',
+              )}
+              onChange={setProof}
+              rejection={proofFailure}
+              showMissing={proofAsked}
+            />
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setAsking(null);
+              }}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button type="button" disabled={allowMutation.isPending} onClick={confirm}>
+              {t(asking === 'unlink' ? 'users.ssoUnlink' : 'users.ssoLinkAllow')}
+            </Button>
           </div>
-        ) : linked ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-sm">{t('users.ssoLinked')}</p>
-            {unlink != null && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  start('unlink');
-                }}
-              >
-                {t('users.ssoUnlink')}
-              </Button>
-            )}
-          </div>
-        ) : allowed ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="text-sm">{t('users.ssoLinkPending')}</p>
-            {withdraw != null && (
-              <Button
-                type="button"
-                variant="outline"
-                disabled={withdrawMutation.isPending}
-                onClick={() => {
-                  withdrawMutation.mutate();
-                }}
-              >
-                {t('users.ssoLinkWithdraw')}
-              </Button>
-            )}
-          </div>
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              start('allow');
-            }}
-          >
-            {t('users.ssoLinkAllow')}
-          </Button>
-        )}
-        {(allowMutation.isError || withdrawMutation.isError) && (
-          <p className="text-sm text-destructive" role="alert">
-            {getErrorMessage(allowMutation.error ?? withdrawMutation.error, t)}
-          </p>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      ) : linked ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm">{t('users.ssoLinked')}</p>
+          {unlink != null && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                start('unlink');
+              }}
+            >
+              {t('users.ssoUnlink')}
+            </Button>
+          )}
+        </div>
+      ) : allowed ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="text-sm">{t('users.ssoLinkPending')}</p>
+          {withdraw != null && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={withdrawMutation.isPending}
+              onClick={() => {
+                withdrawMutation.mutate();
+              }}
+            >
+              {t('users.ssoLinkWithdraw')}
+            </Button>
+          )}
+        </div>
+      ) : (
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => {
+            start('allow');
+          }}
+        >
+          {t('users.ssoLinkAllow')}
+        </Button>
+      )}
+      {(allowMutation.isError || withdrawMutation.isError) && (
+        <p className="text-sm text-destructive" role="alert">
+          {getErrorMessage(allowMutation.error ?? withdrawMutation.error, t)}
+        </p>
+      )}
+    </TabPanel>
   );
 }

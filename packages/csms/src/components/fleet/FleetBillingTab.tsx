@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -140,59 +140,58 @@ export function FleetBillingTab({ fleet }: FleetBillingTabProps): React.JSX.Elem
           };
 
   return (
-    <Card data-testid="fleet-billing">
-      <CardHeader>
-        <CardTitle>{t('fleets.billing.title')}</CardTitle>
-        <CardDescription>{t('fleets.billing.description')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <Toggle
-              id="fleet-account-billing"
-              checked={enabled}
-              disabled={!canWrite || mutation.isPending}
-              aria-label={t('fleets.billing.chargeOnAccount')}
-              onCheckedChange={() => {
-                setPending({ kind: 'enabled', value: !enabled });
-              }}
-            />
-            <Label htmlFor="fleet-account-billing">{t('fleets.billing.chargeOnAccount')}</Label>
-            <Badge variant={enabled ? 'success' : 'outline'}>
-              {enabled ? t('fleets.billing.on') : t('fleets.billing.off')}
-            </Badge>
-          </div>
-          <p className="text-muted-foreground">
-            {enabled ? t('fleets.billing.helpOn') : t('fleets.billing.helpOff')}
-          </p>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="fleet-invoice-recipient">{t('fleets.billing.invoiceTo')}</Label>
-          <Select
-            id="fleet-invoice-recipient"
-            className="sm:max-w-xs"
-            value={recipient}
+    <TabPanel
+      data-testid="fleet-billing"
+      title={t('fleets.billingTab')}
+      description={t('fleets.billing.description')}
+      bodyClassName="space-y-4 text-sm"
+    >
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <Toggle
+            id="fleet-account-billing"
+            checked={enabled}
             disabled={!canWrite || mutation.isPending}
-            onChange={(event) => {
-              const value = event.target.value as AccountInvoiceRecipient;
-              if (value !== recipient) setPending({ kind: 'recipient', value });
+            aria-label={t('fleets.billing.chargeOnAccount')}
+            onCheckedChange={() => {
+              setPending({ kind: 'enabled', value: !enabled });
             }}
-          >
-            <option value="fleet">{t('fleets.billing.recipientFleet')}</option>
-            <option value="member">{t('fleets.billing.recipientMember')}</option>
-          </Select>
-          <p className="text-muted-foreground">
-            {recipient === 'member'
-              ? t('fleets.billing.recipientHelpMember')
-              : t('fleets.billing.recipientHelpFleet')}
-          </p>
+          />
+          <Label htmlFor="fleet-account-billing">{t('fleets.billing.chargeOnAccount')}</Label>
+          <Badge variant={enabled ? 'success' : 'outline'}>
+            {enabled ? t('fleets.billing.on') : t('fleets.billing.off')}
+          </Badge>
         </div>
-        {upgradeError != null && (
-          <p className="text-destructive" role="alert" data-testid="fleet-billing-upgrade-error">
-            {upgradeError}
-          </p>
-        )}
-      </CardContent>
+        <p className="text-muted-foreground">
+          {enabled ? t('fleets.billing.helpOn') : t('fleets.billing.helpOff')}
+        </p>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="fleet-invoice-recipient">{t('fleets.billing.invoiceTo')}</Label>
+        <Select
+          id="fleet-invoice-recipient"
+          className="sm:max-w-xs"
+          value={recipient}
+          disabled={!canWrite || mutation.isPending}
+          onChange={(event) => {
+            const value = event.target.value as AccountInvoiceRecipient;
+            if (value !== recipient) setPending({ kind: 'recipient', value });
+          }}
+        >
+          <option value="fleet">{t('fleets.billing.recipientFleet')}</option>
+          <option value="member">{t('fleets.billing.recipientMember')}</option>
+        </Select>
+        <p className="text-muted-foreground">
+          {recipient === 'member'
+            ? t('fleets.billing.recipientHelpMember')
+            : t('fleets.billing.recipientHelpFleet')}
+        </p>
+      </div>
+      {upgradeError != null && (
+        <p className="text-destructive" role="alert" data-testid="fleet-billing-upgrade-error">
+          {upgradeError}
+        </p>
+      )}
       <ConfirmDialog
         open={pending != null}
         onOpenChange={(open) => {
@@ -208,6 +207,6 @@ export function FleetBillingTab({ fleet }: FleetBillingTabProps): React.JSX.Elem
           return false;
         }}
       />
-    </Card>
+    </TabPanel>
   );
 }

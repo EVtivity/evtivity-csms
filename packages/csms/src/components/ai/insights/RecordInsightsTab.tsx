@@ -4,10 +4,8 @@
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { isVisibleInsightStatus } from '@evtivity/lib/ai-insights';
-import { LoadingLogo } from '@/components/loading-logo';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   Table,
   TableBody,
@@ -39,92 +37,84 @@ export function RecordInsightsTab({ filter }: { filter: InsightFilter }): React.
   const showSession = filter.stationId != null;
 
   return (
-    <Card>
-      <CardContent className="pt-6">
-        {isLoading ? (
-          <LoadingLogo size="inline" />
-        ) : isError ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm text-destructive">{t('common.loadError')}</p>
-            <Button type="button" variant="outline" size="sm" onClick={refetch}>
-              {t('common.retry')}
-            </Button>
-          </div>
-        ) : rows.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">{t('aiInsights.empty')}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('aiInsights.list.insight')}</TableHead>
-                  {showStation && <TableHead>{t('aiInsights.list.station')}</TableHead>}
-                  {showSession && <TableHead>{t('aiInsights.detail.session')}</TableHead>}
-                  <TableHead>{t('common.status')}</TableHead>
-                  <TableHead>{t('aiInsights.categoryLabel')}</TableHead>
-                  <TableHead>{t('common.created')}</TableHead>
+    <TabPanel
+      title={t('aiInsights.list.title')}
+      isLoading={isLoading}
+      isError={isError}
+      onRetry={refetch}
+      isEmpty={rows.length === 0}
+      emptyMessage={t('aiInsights.empty')}
+    >
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('aiInsights.list.insight')}</TableHead>
+              {showStation && <TableHead>{t('aiInsights.list.station')}</TableHead>}
+              {showSession && <TableHead>{t('aiInsights.detail.session')}</TableHead>}
+              <TableHead>{t('common.status')}</TableHead>
+              <TableHead>{t('aiInsights.categoryLabel')}</TableHead>
+              <TableHead>{t('common.created')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((insight) => {
+              const category = shownCategory(insight);
+              return (
+                <TableRow
+                  key={insight.id}
+                  className="cursor-pointer"
+                  data-testid={`record-insight-row-${insight.id}`}
+                  onClick={() => {
+                    void navigate(`/ai/insights/${encodeURIComponent(insight.id)}`);
+                  }}
+                >
+                  <TableCell className="font-medium text-link">
+                    {insightHeadline(t, insight)}
+                  </TableCell>
+                  {showStation && (
+                    <TableCell className="whitespace-nowrap">
+                      {insight.stationId != null ? (
+                        <InsightRecordLink
+                          kind="station"
+                          id={insight.stationId}
+                          label={insight.stationName}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                  )}
+                  {showSession && (
+                    <TableCell className="whitespace-nowrap">
+                      {insight.sessionId != null ? (
+                        <InsightRecordLink
+                          kind="session"
+                          id={insight.sessionId}
+                          label={insight.sessionId}
+                        />
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+                  )}
+                  <TableCell data-testid="row-click-target">
+                    {isVisibleInsightStatus(insight.status) && (
+                      <Badge variant={insightStatusVariant(insight.status)}>
+                        {t(`aiInsights.status.${insight.status}`)}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {category != null ? t(`aiInsights.category.${category}`) : t('common.na')}
+                  </TableCell>
+                  <TableCell>{formatDateTime(insight.createdAt, timezone)}</TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((insight) => {
-                  const category = shownCategory(insight);
-                  return (
-                    <TableRow
-                      key={insight.id}
-                      className="cursor-pointer"
-                      data-testid={`record-insight-row-${insight.id}`}
-                      onClick={() => {
-                        void navigate(`/ai/insights/${encodeURIComponent(insight.id)}`);
-                      }}
-                    >
-                      <TableCell className="font-medium text-link">
-                        {insightHeadline(t, insight)}
-                      </TableCell>
-                      {showStation && (
-                        <TableCell className="whitespace-nowrap">
-                          {insight.stationId != null ? (
-                            <InsightRecordLink
-                              kind="station"
-                              id={insight.stationId}
-                              label={insight.stationName}
-                            />
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                      )}
-                      {showSession && (
-                        <TableCell className="whitespace-nowrap">
-                          {insight.sessionId != null ? (
-                            <InsightRecordLink
-                              kind="session"
-                              id={insight.sessionId}
-                              label={insight.sessionId}
-                            />
-                          ) : (
-                            <span className="text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                      )}
-                      <TableCell data-testid="row-click-target">
-                        {isVisibleInsightStatus(insight.status) && (
-                          <Badge variant={insightStatusVariant(insight.status)}>
-                            {t(`aiInsights.status.${insight.status}`)}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {category != null ? t(`aiInsights.category.${category}`) : t('common.na')}
-                      </TableCell>
-                      <TableCell>{formatDateTime(insight.createdAt, timezone)}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </TabPanel>
   );
 }

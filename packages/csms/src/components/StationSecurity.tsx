@@ -16,7 +16,8 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/components/ui/toast';
 import { SecurityProfileBadge } from '@/components/SecurityProfileBadge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Pagination } from '@/components/ui/pagination';
 import { JsonDetailBlock, JsonPreviewToggle } from '@/components/ExpandableJson';
@@ -137,7 +138,12 @@ export function StationSecurity({
   const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
   const [hasSubmittedProfilePassword, setHasSubmittedProfilePassword] = useState(false);
 
-  const { data: logsResponse } = useQuery({
+  const {
+    data: logsResponse,
+    isLoading: logsLoading,
+    isError: logsError,
+    refetch: refetchLogs,
+  } = useQuery({
     queryKey: [
       'stations',
       stationDbId,
@@ -356,515 +362,506 @@ export function StationSecurity({
   return (
     <div className="space-y-6">
       {/* Security Profile & Credentials */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('stations.securityProfile')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-3">
-            <SecurityProfileBadge profile={securityProfile} ocppProtocol={ocppProtocol} />
-            <span className="text-sm text-muted-foreground">
-              {t(getProfileDescLabel(securityProfile, is16))}
-            </span>
-          </div>
+      <TabPanel title={t('stations.security')} bodyClassName="space-y-4">
+        <div className="flex items-center gap-3">
+          <SecurityProfileBadge profile={securityProfile} ocppProtocol={ocppProtocol} />
+          <span className="text-sm text-muted-foreground">
+            {t(getProfileDescLabel(securityProfile, is16))}
+          </span>
+        </div>
 
-          {pendingSecurityProfile != null && (
-            <Alert variant="info">
-              <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  {t('stations.profileUpgradePending', { profile: pendingSecurityProfile })}
-                </span>
-                {canChangeProfile && (
+        {pendingSecurityProfile != null && (
+          <Alert variant="info">
+            <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+              <span>
+                {t('stations.profileUpgradePending', { profile: pendingSecurityProfile })}
+              </span>
+              {canChangeProfile && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={updateProfileMutation.isPending}
+                  onClick={() => {
+                    updateProfileMutation.mutate({ securityProfile });
+                  }}
+                >
+                  {t('stations.cancelProfileUpgrade')}
+                </Button>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {
+          <>
+            <div className="flex items-center gap-2 flex-wrap">
+              {canChangeProfile && (
+                <Label htmlFor="security-profile" className="text-sm whitespace-nowrap">
+                  {t('stations.changeProfile')}:
+                </Label>
+              )}
+              {canChangeProfile && (
+                <Select
+                  id="security-profile"
+                  value={String(pendingProfile ?? securityProfile)}
+                  onChange={(e) => {
+                    handleProfileSelect(Number(e.target.value));
+                  }}
+                  disabled={updateProfileMutation.isPending}
+                >
+                  {/* A connected station cannot be moved to a lower profile over OCPP. */}
+                  {[0, 1, 2, 3]
+                    .filter((profile) => !is16 || profile < 3)
+                    .map((profile) => (
+                      <option
+                        key={profile}
+                        value={String(profile)}
+                        disabled={isOnline && profile < securityProfile}
+                      >
+                        {t(PROFILE_LABELS[profile] ?? 'stations.sp0')}
+                      </option>
+                    ))}
+                </Select>
+              )}
+              {securityProfile >= 1 && securityProfile < 3 && pendingProfile == null && (
+                <>
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={updateProfileMutation.isPending}
                     onClick={() => {
-                      updateProfileMutation.mutate({ securityProfile });
+                      if (!showPasswordForm) {
+                        setPassword('');
+                        setConfirmPassword('');
+                      }
+                      setShowPasswordForm(!showPasswordForm);
                     }}
                   >
-                    {t('stations.cancelProfileUpgrade')}
+                    {t('stations.changePassword')}
                   </Button>
-                )}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {
-            <>
-              <div className="flex items-center gap-2 flex-wrap">
-                {canChangeProfile && (
-                  <Label htmlFor="security-profile" className="text-sm whitespace-nowrap">
-                    {t('stations.changeProfile')}:
-                  </Label>
-                )}
-                {canChangeProfile && (
-                  <Select
-                    id="security-profile"
-                    value={String(pendingProfile ?? securityProfile)}
-                    onChange={(e) => {
-                      handleProfileSelect(Number(e.target.value));
-                    }}
-                    disabled={updateProfileMutation.isPending}
-                  >
-                    {/* A connected station cannot be moved to a lower profile over OCPP. */}
-                    {[0, 1, 2, 3]
-                      .filter((profile) => !is16 || profile < 3)
-                      .map((profile) => (
-                        <option
-                          key={profile}
-                          value={String(profile)}
-                          disabled={isOnline && profile < securityProfile}
-                        >
-                          {t(PROFILE_LABELS[profile] ?? 'stations.sp0')}
-                        </option>
-                      ))}
-                  </Select>
-                )}
-                {securityProfile >= 1 && securityProfile < 3 && pendingProfile == null && (
-                  <>
+                  {hasPassword && (
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => {
-                        if (!showPasswordForm) {
-                          setPassword('');
-                          setConfirmPassword('');
+                        if (showPasswordForm) {
+                          resetPasswordForm();
+                        } else {
+                          handleRotateCredentials();
                         }
-                        setShowPasswordForm(!showPasswordForm);
                       }}
                     >
-                      {t('stations.changePassword')}
+                      <RotateCcw className="h-4 w-4" />
+                      {t('stations.rotateCredentials')}
                     </Button>
-                    {hasPassword && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          if (showPasswordForm) {
-                            resetPasswordForm();
-                          } else {
-                            handleRotateCredentials();
-                          }
-                        }}
-                      >
-                        <RotateCcw className="h-4 w-4" />
-                        {t('stations.rotateCredentials')}
-                      </Button>
-                    )}
-                  </>
+                  )}
+                </>
+              )}
+            </div>
+            {securityProfile >= 1 && securityProfile < 3 && pendingProfile == null && (
+              <p className="text-xs text-muted-foreground">{t('stations.rotateHelpText')}</p>
+            )}
+            {securityProfile === 3 && pendingProfile == null && (
+              <p className="text-xs text-muted-foreground">{t('stations.sp3CertNote')}</p>
+            )}
+
+            {/* Inline password form when upgrading to a password-based profile */}
+            {needsPassword && (
+              <div className="rounded-md border p-4 space-y-3">
+                <p className="text-sm font-medium">{t('stations.passwordRequiredForProfile')}</p>
+                <div className="space-y-2">
+                  <Label htmlFor="profile-password" className="leading-6">
+                    {t('stations.password')}
+                  </Label>
+                  <PasswordInput
+                    id="profile-password"
+                    value={profilePassword}
+                    onChange={(e) => {
+                      setProfilePassword(e.target.value);
+                    }}
+                    placeholder={t('stations.passwordPlaceholder', passwordRules)}
+                    className={
+                      hasSubmittedProfilePassword && profilePasswordErrors.profilePassword
+                        ? 'border-destructive'
+                        : ''
+                    }
+                  />
+                  {hasSubmittedProfilePassword && profilePasswordErrors.profilePassword && (
+                    <p className="text-sm text-destructive">
+                      {profilePasswordErrors.profilePassword}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="profile-password-confirm" className="leading-6">
+                    {t('stations.confirmPassword')}
+                  </Label>
+                  <PasswordInput
+                    id="profile-password-confirm"
+                    value={profilePasswordConfirm}
+                    onChange={(e) => {
+                      setProfilePasswordConfirm(e.target.value);
+                    }}
+                    className={
+                      hasSubmittedProfilePassword && profilePasswordErrors.profilePasswordConfirm
+                        ? 'border-destructive'
+                        : ''
+                    }
+                  />
+                  {hasSubmittedProfilePassword && profilePasswordErrors.profilePasswordConfirm && (
+                    <p className="text-sm text-destructive">
+                      {profilePasswordErrors.profilePasswordConfirm}
+                    </p>
+                  )}
+                </div>
+                {networkInterfaceField}
+                {!isOnline && (
+                  <p className="text-xs text-destructive">
+                    {t('stations.profileChangeOcppOffline')}
+                  </p>
                 )}
-              </div>
-              {securityProfile >= 1 && securityProfile < 3 && pendingProfile == null && (
-                <p className="text-xs text-muted-foreground">{t('stations.rotateHelpText')}</p>
-              )}
-              {securityProfile === 3 && pendingProfile == null && (
-                <p className="text-xs text-muted-foreground">{t('stations.sp3CertNote')}</p>
-              )}
-
-              {/* Inline password form when upgrading to a password-based profile */}
-              {needsPassword && (
-                <div className="rounded-md border p-4 space-y-3">
-                  <p className="text-sm font-medium">{t('stations.passwordRequiredForProfile')}</p>
-                  <div className="space-y-2">
-                    <Label htmlFor="profile-password" className="leading-6">
-                      {t('stations.password')}
-                    </Label>
-                    <PasswordInput
-                      id="profile-password"
-                      value={profilePassword}
-                      onChange={(e) => {
-                        setProfilePassword(e.target.value);
-                      }}
-                      placeholder={t('stations.passwordPlaceholder', passwordRules)}
-                      className={
-                        hasSubmittedProfilePassword && profilePasswordErrors.profilePassword
-                          ? 'border-destructive'
-                          : ''
-                      }
-                    />
-                    {hasSubmittedProfilePassword && profilePasswordErrors.profilePassword && (
-                      <p className="text-sm text-destructive">
-                        {profilePasswordErrors.profilePassword}
-                      </p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="profile-password-confirm" className="leading-6">
-                      {t('stations.confirmPassword')}
-                    </Label>
-                    <PasswordInput
-                      id="profile-password-confirm"
-                      value={profilePasswordConfirm}
-                      onChange={(e) => {
-                        setProfilePasswordConfirm(e.target.value);
-                      }}
-                      className={
-                        hasSubmittedProfilePassword && profilePasswordErrors.profilePasswordConfirm
-                          ? 'border-destructive'
-                          : ''
-                      }
-                    />
-                    {hasSubmittedProfilePassword &&
-                      profilePasswordErrors.profilePasswordConfirm && (
-                        <p className="text-sm text-destructive">
-                          {profilePasswordErrors.profilePasswordConfirm}
-                        </p>
-                      )}
-                  </div>
-                  {networkInterfaceField}
-                  {!isOnline && (
-                    <p className="text-xs text-destructive">
-                      {t('stations.profileChangeOcppOffline')}
-                    </p>
-                  )}
-                  <div className="flex justify-end gap-2">
-                    <CancelButton onClick={resetPendingProfile} />
-                    <SaveButton
-                      isPending={updateProfileMutation.isPending}
-                      type="button"
-                      onClick={() => {
-                        setHasSubmittedProfilePassword(true);
-                        if (Object.keys(profilePasswordErrors).length > 0) return;
-                        handleProfileSave();
-                      }}
-                      label={t('stations.savePassword')}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Inline profile change confirm */}
-              {showProfileConfirm && (
-                <div className="rounded-md border p-4 space-y-3">
-                  <p className="text-sm font-medium">{t('stations.changeProfile')}</p>
-                  {isOnline && (
-                    <p className="text-xs text-muted-foreground">
-                      {t('stations.profileChangeOnline')}
-                    </p>
-                  )}
-                  {networkInterfaceField}
-                  {!isOnline && (
-                    <p className="text-xs text-destructive">
-                      {t('stations.profileChangeOcppOffline')}
-                    </p>
-                  )}
-                  <div className="flex justify-end gap-2">
-                    <CancelButton onClick={resetPendingProfile} />
-                    <SaveButton
-                      isPending={updateProfileMutation.isPending}
-                      type="button"
-                      onClick={handleProfileSave}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Inline change password form */}
-              {showPasswordForm && !needsPassword && (
-                <div className="rounded-md border p-4 space-y-3">
-                  <p className="text-sm font-medium">{t('stations.changePassword')}</p>
-                  <div className="space-y-2">
-                    <Label htmlFor="new-password" className="leading-6">
-                      {t('stations.newPassword')}
-                    </Label>
-                    <PasswordInput
-                      id="new-password"
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                      }}
-                      placeholder={t('stations.passwordPlaceholder', passwordRules)}
-                      className={
-                        hasSubmittedPassword && passwordErrors.password ? 'border-destructive' : ''
-                      }
-                    />
-                    {hasSubmittedPassword && passwordErrors.password && (
-                      <p className="text-sm text-destructive">{passwordErrors.password}</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="confirm-password" className="leading-6">
-                      {t('stations.confirmPassword')}
-                    </Label>
-                    <PasswordInput
-                      id="confirm-password"
-                      value={confirmPassword}
-                      onChange={(e) => {
-                        setConfirmPassword(e.target.value);
-                      }}
-                      className={
-                        hasSubmittedPassword && passwordErrors.confirmPassword
-                          ? 'border-destructive'
-                          : ''
-                      }
-                    />
-                    {hasSubmittedPassword && passwordErrors.confirmPassword && (
-                      <p className="text-sm text-destructive">{passwordErrors.confirmPassword}</p>
-                    )}
-                  </div>
-                  {!isOnline && (
-                    <p className="text-xs text-destructive">
-                      {t('stations.changePasswordOcppOffline')}
-                    </p>
-                  )}
-                  <div className="flex justify-end gap-2">
-                    <CancelButton onClick={resetPasswordForm} />
-                    <SaveButton
-                      isPending={setPasswordMutation.isPending}
-                      type="button"
-                      onClick={() => {
-                        setHasSubmittedPassword(true);
-                        if (Object.keys(passwordErrors).length > 0) return;
-                        if (isOnline) {
-                          setPasswordConfirmOpen(true);
-                        } else {
-                          setPasswordMutation.mutate(password);
-                        }
-                      }}
-                      label={t('stations.changePassword')}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <div className="border-t pt-4">
-                <div className="flex items-center gap-3">
-                  <span className="text-sm">{t('stations.passwordStatus')}</span>
-                  <Badge variant={hasPassword ? 'default' : 'outline'}>
-                    {hasPassword ? t('stations.passwordSet') : t('stations.passwordNotSet')}
-                  </Badge>
+                <div className="flex justify-end gap-2">
+                  <CancelButton onClick={resetPendingProfile} />
+                  <SaveButton
+                    isPending={updateProfileMutation.isPending}
+                    type="button"
+                    onClick={() => {
+                      setHasSubmittedProfilePassword(true);
+                      if (Object.keys(profilePasswordErrors).length > 0) return;
+                      handleProfileSave();
+                    }}
+                    label={t('stations.savePassword')}
+                  />
                 </div>
               </div>
-            </>
-          }
-        </CardContent>
-      </Card>
+            )}
+
+            {/* Inline profile change confirm */}
+            {showProfileConfirm && (
+              <div className="rounded-md border p-4 space-y-3">
+                <p className="text-sm font-medium">{t('stations.changeProfile')}</p>
+                {isOnline && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('stations.profileChangeOnline')}
+                  </p>
+                )}
+                {networkInterfaceField}
+                {!isOnline && (
+                  <p className="text-xs text-destructive">
+                    {t('stations.profileChangeOcppOffline')}
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <CancelButton onClick={resetPendingProfile} />
+                  <SaveButton
+                    isPending={updateProfileMutation.isPending}
+                    type="button"
+                    onClick={handleProfileSave}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Inline change password form */}
+            {showPasswordForm && !needsPassword && (
+              <div className="rounded-md border p-4 space-y-3">
+                <p className="text-sm font-medium">{t('stations.changePassword')}</p>
+                <div className="space-y-2">
+                  <Label htmlFor="new-password" className="leading-6">
+                    {t('stations.newPassword')}
+                  </Label>
+                  <PasswordInput
+                    id="new-password"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                    }}
+                    placeholder={t('stations.passwordPlaceholder', passwordRules)}
+                    className={
+                      hasSubmittedPassword && passwordErrors.password ? 'border-destructive' : ''
+                    }
+                  />
+                  {hasSubmittedPassword && passwordErrors.password && (
+                    <p className="text-sm text-destructive">{passwordErrors.password}</p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-password" className="leading-6">
+                    {t('stations.confirmPassword')}
+                  </Label>
+                  <PasswordInput
+                    id="confirm-password"
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                    }}
+                    className={
+                      hasSubmittedPassword && passwordErrors.confirmPassword
+                        ? 'border-destructive'
+                        : ''
+                    }
+                  />
+                  {hasSubmittedPassword && passwordErrors.confirmPassword && (
+                    <p className="text-sm text-destructive">{passwordErrors.confirmPassword}</p>
+                  )}
+                </div>
+                {!isOnline && (
+                  <p className="text-xs text-destructive">
+                    {t('stations.changePasswordOcppOffline')}
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <CancelButton onClick={resetPasswordForm} />
+                  <SaveButton
+                    isPending={setPasswordMutation.isPending}
+                    type="button"
+                    onClick={() => {
+                      setHasSubmittedPassword(true);
+                      if (Object.keys(passwordErrors).length > 0) return;
+                      if (isOnline) {
+                        setPasswordConfirmOpen(true);
+                      } else {
+                        setPasswordMutation.mutate(password);
+                      }
+                    }}
+                    label={t('stations.changePassword')}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="border-t pt-4">
+              <div className="flex items-center gap-3">
+                <span className="text-sm">{t('stations.passwordStatus')}</span>
+                <Badge variant={hasPassword ? 'default' : 'outline'}>
+                  {hasPassword ? t('stations.passwordSet') : t('stations.passwordNotSet')}
+                </Badge>
+              </div>
+            </div>
+          </>
+        }
+      </TabPanel>
 
       {/* Security Event Log */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('stations.securityLog')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 mb-4">
-            <div className="space-y-1">
-              <Label htmlFor="security-logs-source" className="text-xs leading-6">
-                {t('stations.securityLogSource')}
-              </Label>
+      <TabPanel title={t('stations.securityLog')}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 mb-4">
+          <div className="space-y-1">
+            <Label htmlFor="security-logs-source" className="text-xs leading-6">
+              {t('stations.securityLogSource')}
+            </Label>
+            <Select
+              id="security-logs-source"
+              value={logsSource}
+              onChange={(e) => {
+                const source = e.target.value as '' | 'connection' | 'security';
+                setLogsSource(source);
+                setLogsEvent('');
+                // Connection rows have no severity.
+                if (source === 'connection') setLogsSeverity('');
+                setLogsPage(1);
+              }}
+            >
+              <option value="">{t('common.all')}</option>
+              <option value="connection">{t('stations.securityLogSourceConnection')}</option>
+              <option value="security">{t('stations.securityLogSourceSecurity')}</option>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="security-logs-event" className="text-xs leading-6">
+              {t('stations.eventType')}
+            </Label>
+            {logsSource === 'connection' ? (
               <Select
-                id="security-logs-source"
-                value={logsSource}
+                id="security-logs-event"
+                value={logsEvent}
                 onChange={(e) => {
-                  const source = e.target.value as '' | 'connection' | 'security';
-                  setLogsSource(source);
-                  setLogsEvent('');
-                  // Connection rows have no severity.
-                  if (source === 'connection') setLogsSeverity('');
+                  setLogsEvent(e.target.value);
                   setLogsPage(1);
                 }}
               >
                 <option value="">{t('common.all')}</option>
-                <option value="connection">{t('stations.securityLogSourceConnection')}</option>
-                <option value="security">{t('stations.securityLogSourceSecurity')}</option>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="security-logs-event" className="text-xs leading-6">
-                {t('stations.eventType')}
-              </Label>
-              {logsSource === 'connection' ? (
-                <Select
-                  id="security-logs-event"
-                  value={logsEvent}
-                  onChange={(e) => {
-                    setLogsEvent(e.target.value);
-                    setLogsPage(1);
-                  }}
-                >
-                  <option value="">{t('common.all')}</option>
-                  {CONNECTION_EVENT_OPTIONS.map((evt) => (
-                    <option key={evt} value={evt}>
-                      {evt}
-                    </option>
-                  ))}
-                </Select>
-              ) : (
-                <Input
-                  id="security-logs-event"
-                  type="text"
-                  placeholder={t('stations.eventTypePlaceholder')}
-                  value={logsEvent}
-                  onChange={(e) => {
-                    setLogsEvent(e.target.value);
-                    setLogsPage(1);
-                  }}
-                />
-              )}
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="security-logs-severity" className="text-xs leading-6">
-                {t('common.severity')}
-              </Label>
-              <Select
-                id="security-logs-severity"
-                value={logsSeverity}
-                disabled={logsSource === 'connection'}
-                onChange={(e) => {
-                  setLogsSeverity(e.target.value);
-                  setLogsPage(1);
-                }}
-              >
-                <option value="">{t('common.all')}</option>
-                {SEVERITY_OPTIONS.map((severity) => (
-                  <option key={severity} value={severity}>
-                    {t(`severity.${severity}`)}
+                {CONNECTION_EVENT_OPTIONS.map((evt) => (
+                  <option key={evt} value={evt}>
+                    {evt}
                   </option>
                 ))}
               </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="security-logs-from" className="text-xs leading-6">
-                {t('common.from')}
-              </Label>
+            ) : (
               <Input
-                id="security-logs-from"
-                type="datetime-local"
-                aria-label={t('common.from')}
-                value={logsFrom}
+                id="security-logs-event"
+                type="text"
+                placeholder={t('stations.eventTypePlaceholder')}
+                value={logsEvent}
                 onChange={(e) => {
-                  setLogsFrom(e.target.value);
+                  setLogsEvent(e.target.value);
                   setLogsPage(1);
                 }}
               />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="security-logs-to" className="text-xs leading-6">
-                {t('common.to')}
-              </Label>
-              <Input
-                id="security-logs-to"
-                type="datetime-local"
-                aria-label={t('common.to')}
-                value={logsTo}
-                onChange={(e) => {
-                  setLogsTo(e.target.value);
-                  setLogsPage(1);
-                }}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="security-logs-limit" className="text-xs leading-6">
-                {t('common.pageSize')}
-              </Label>
-              <Select
-                id="security-logs-limit"
-                value={String(logsLimit)}
-                onChange={(e) => {
-                  setLogsLimit(Number(e.target.value));
-                  setLogsPage(1);
-                }}
-              >
-                <option value="20">20</option>
-                <option value="50">50</option>
-                <option value="100">100</option>
-                <option value="200">200</option>
-              </Select>
-            </div>
+            )}
           </div>
-          {logsResponse != null && logsResponse.data.length > 0 ? (
-            <>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b text-left">
-                      <th className="pb-2 pr-4">{t('common.timestamp')}</th>
-                      <th className="pb-2 pr-4">{t('common.source')}</th>
-                      <th className="pb-2 pr-4">{t('stations.eventType')}</th>
-                      <th className="pb-2 pr-4">{t('common.severity')}</th>
-                      <th className="pb-2 pr-4">{t('stations.remoteAddress')}</th>
-                      <th className="pb-2">{t('common.details')}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {logsResponse.data.map((log) => {
-                      const metadata = log.metadata;
-                      const isExpanded = metadata != null && expandedLogId === log.id;
-                      const toggle = (): void => {
-                        setExpandedLogId(isExpanded ? null : log.id);
-                      };
-                      const detailId = `security-log-${log.id.replace(':', '-')}-details`;
-                      return (
-                        <Fragment key={log.id}>
-                          <tr
-                            className={metadata != null ? 'border-b cursor-pointer' : 'border-b'}
-                            data-testid={`security-log-row-${log.id}`}
-                            onClick={metadata != null ? toggle : undefined}
-                          >
-                            <td className="py-2 pr-4 text-muted-foreground whitespace-nowrap">
-                              {formatDateTime(log.createdAt, timezone)}
-                            </td>
-                            <td className="py-2 pr-4">
-                              <Badge variant={log.source === 'security' ? 'info' : 'secondary'}>
-                                {t(
-                                  `stations.securityLogSource${log.source === 'security' ? 'Security' : 'Connection'}`,
-                                )}
+          <div className="space-y-1">
+            <Label htmlFor="security-logs-severity" className="text-xs leading-6">
+              {t('common.severity')}
+            </Label>
+            <Select
+              id="security-logs-severity"
+              value={logsSeverity}
+              disabled={logsSource === 'connection'}
+              onChange={(e) => {
+                setLogsSeverity(e.target.value);
+                setLogsPage(1);
+              }}
+            >
+              <option value="">{t('common.all')}</option>
+              {SEVERITY_OPTIONS.map((severity) => (
+                <option key={severity} value={severity}>
+                  {t(`severity.${severity}`)}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="security-logs-from" className="text-xs leading-6">
+              {t('common.from')}
+            </Label>
+            <Input
+              id="security-logs-from"
+              type="datetime-local"
+              aria-label={t('common.from')}
+              value={logsFrom}
+              onChange={(e) => {
+                setLogsFrom(e.target.value);
+                setLogsPage(1);
+              }}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="security-logs-to" className="text-xs leading-6">
+              {t('common.to')}
+            </Label>
+            <Input
+              id="security-logs-to"
+              type="datetime-local"
+              aria-label={t('common.to')}
+              value={logsTo}
+              onChange={(e) => {
+                setLogsTo(e.target.value);
+                setLogsPage(1);
+              }}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="security-logs-limit" className="text-xs leading-6">
+              {t('common.pageSize')}
+            </Label>
+            <Select
+              id="security-logs-limit"
+              value={String(logsLimit)}
+              onChange={(e) => {
+                setLogsLimit(Number(e.target.value));
+                setLogsPage(1);
+              }}
+            >
+              <option value="20">20</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+              <option value="200">200</option>
+            </Select>
+          </div>
+        </div>
+        {logsLoading ? (
+          <LoadingState />
+        ) : logsError ? (
+          <ErrorState
+            onRetry={() => {
+              void refetchLogs();
+            }}
+          />
+        ) : logsResponse != null && logsResponse.data.length > 0 ? (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left">
+                    <th className="pb-2 pr-4">{t('common.timestamp')}</th>
+                    <th className="pb-2 pr-4">{t('common.source')}</th>
+                    <th className="pb-2 pr-4">{t('stations.eventType')}</th>
+                    <th className="pb-2 pr-4">{t('common.severity')}</th>
+                    <th className="pb-2 pr-4">{t('stations.remoteAddress')}</th>
+                    <th className="pb-2">{t('common.details')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {logsResponse.data.map((log) => {
+                    const metadata = log.metadata;
+                    const isExpanded = metadata != null && expandedLogId === log.id;
+                    const toggle = (): void => {
+                      setExpandedLogId(isExpanded ? null : log.id);
+                    };
+                    const detailId = `security-log-${log.id.replace(':', '-')}-details`;
+                    return (
+                      <Fragment key={log.id}>
+                        <tr
+                          className={metadata != null ? 'border-b cursor-pointer' : 'border-b'}
+                          data-testid={`security-log-row-${log.id}`}
+                          onClick={metadata != null ? toggle : undefined}
+                        >
+                          <td className="py-2 pr-4 text-muted-foreground whitespace-nowrap">
+                            {formatDateTime(log.createdAt, timezone)}
+                          </td>
+                          <td className="py-2 pr-4">
+                            <Badge variant={log.source === 'security' ? 'info' : 'secondary'}>
+                              {t(
+                                `stations.securityLogSource${log.source === 'security' ? 'Security' : 'Connection'}`,
+                              )}
+                            </Badge>
+                          </td>
+                          <td className="py-2 pr-4">
+                            <Badge variant="outline">{log.event}</Badge>
+                          </td>
+                          <td className="py-2 pr-4">
+                            {log.severity != null ? (
+                              <Badge variant={SEVERITY_VARIANT[log.severity] ?? 'outline'}>
+                                {t(`severity.${log.severity}`, { defaultValue: log.severity })}
                               </Badge>
-                            </td>
-                            <td className="py-2 pr-4">
-                              <Badge variant="outline">{log.event}</Badge>
-                            </td>
-                            <td className="py-2 pr-4">
-                              {log.severity != null ? (
-                                <Badge variant={SEVERITY_VARIANT[log.severity] ?? 'outline'}>
-                                  {t(`severity.${log.severity}`, { defaultValue: log.severity })}
-                                </Badge>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">-</span>
-                              )}
-                            </td>
-                            <td className="py-2 pr-4 text-xs">{log.remoteAddress ?? '-'}</td>
-                            <td className="py-2 text-xs text-muted-foreground max-w-md">
-                              {metadata != null ? (
-                                <JsonPreviewToggle
-                                  value={metadata}
-                                  expanded={isExpanded}
-                                  onToggle={toggle}
-                                  controlsId={detailId}
-                                />
-                              ) : (
-                                '-'
-                              )}
+                            ) : (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-4 text-xs">{log.remoteAddress ?? '-'}</td>
+                          <td className="py-2 text-xs text-muted-foreground max-w-md">
+                            {metadata != null ? (
+                              <JsonPreviewToggle
+                                value={metadata}
+                                expanded={isExpanded}
+                                onToggle={toggle}
+                                controlsId={detailId}
+                              />
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="border-b bg-muted/30">
+                            <td colSpan={6} className="p-3">
+                              <JsonDetailBlock id={detailId} value={metadata} />
                             </td>
                           </tr>
-                          {isExpanded && (
-                            <tr className="border-b bg-muted/30">
-                              <td colSpan={6} className="p-3">
-                                <JsonDetailBlock id={detailId} value={metadata} />
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="mt-4">
-                <Pagination
-                  page={logsPage}
-                  totalPages={logsTotalPages}
-                  onPageChange={setLogsPage}
-                />
-              </div>
-            </>
-          ) : (
-            <p className="text-center text-sm text-muted-foreground">
-              {t('stations.noSecurityLogs')}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4">
+              <Pagination page={logsPage} totalPages={logsTotalPages} onPageChange={setLogsPage} />
+            </div>
+          </>
+        ) : (
+          <EmptyState>{t('stations.noSecurityLogs')}</EmptyState>
+        )}
+      </TabPanel>
 
       {/* Profile Change Confirm Dialog (online) */}
       <ConfirmDialog

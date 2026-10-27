@@ -7,7 +7,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Mail } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/toast';
@@ -80,32 +80,33 @@ export function DriverPortalAccessCard({
   );
 
   return (
-    <Card data-testid="driver-portal-access">
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('drivers.portalAccess')}</CardTitle>
-        {canWrite &&
-          access.status !== 'active' &&
-          (disabledReason != null ? (
+    <TabPanel
+      data-testid="driver-portal-access"
+      title={t('drivers.portalAccess')}
+      actions={
+        canWrite && access.status !== 'active' ? (
+          disabledReason != null ? (
             <Tooltip content={disabledReason}>{inviteButton}</Tooltip>
           ) : (
             inviteButton
-          ))}
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <div>
-          <Badge variant={STATUS_VARIANT[access.status]}>
-            {t(`drivers.portalStatus.${access.status}`)}
-          </Badge>
-        </div>
-        {access.status === 'invited' && access.inviteExpiresAt != null && (
-          <p className="text-muted-foreground">
-            {t('drivers.portalInviteExpires', {
-              date: formatDateTime(access.inviteExpiresAt, timezone),
-            })}
-          </p>
-        )}
-        <p className="text-muted-foreground">{t(`drivers.portalStatusHelp.${access.status}`)}</p>
-      </CardContent>
+          )
+        ) : undefined
+      }
+      bodyClassName="space-y-2 text-sm"
+    >
+      <div>
+        <Badge variant={STATUS_VARIANT[access.status]}>
+          {t(`drivers.portalStatus.${access.status}`)}
+        </Badge>
+      </div>
+      {access.status === 'invited' && access.inviteExpiresAt != null && (
+        <p className="text-muted-foreground">
+          {t('drivers.portalInviteExpires', {
+            date: formatDateTime(access.inviteExpiresAt, timezone),
+          })}
+        </p>
+      )}
+      <p className="text-muted-foreground">{t(`drivers.portalStatusHelp.${access.status}`)}</p>
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
@@ -119,6 +120,6 @@ export function DriverPortalAccessCard({
           return false;
         }}
       />
-    </Card>
+    </TabPanel>
   );
 }

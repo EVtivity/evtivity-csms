@@ -121,20 +121,20 @@ function SimDetailView({ sim }: { sim: SimDetailData }): React.JSX.Element {
           )}
         </TabsList>
 
-        <TabsContent value="details" className="mt-4">
+        <TabsContent value="details">
           <SimDetailsTab sim={sim} controller={controller} timezone={timezone} />
         </TabsContent>
 
-        <TabsContent value="sessions" className="mt-4">
+        <TabsContent value="sessions">
           <SimSessionsTab sim={sim} controller={controller} timezone={timezone} />
         </TabsContent>
 
-        <TabsContent value="attachments" className="mt-4">
+        <TabsContent value="attachments">
           <SimAttachmentsTab sim={sim} timezone={timezone} />
         </TabsContent>
 
         {canReadAudit && (
-          <TabsContent value="history" className="mt-4">
+          <TabsContent value="history">
             <EntityHistoryTab entityType="sim" entityId={sim.id} />
           </TabsContent>
         )}

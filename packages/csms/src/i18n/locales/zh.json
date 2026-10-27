@@ -580,7 +580,6 @@
     "map": "地图",
     "noSitesFound": "未找到站点",
     "siteNotFound": "未找到站点",
-    "siteMetrics": "指标",
     "metrics": "指标",
     "payment": "支付",
     "contact": "联系方式",
@@ -683,7 +682,6 @@
     "tabs": {
       "ai": "AI 用量"
     },
-    "stationLayout": "充电站布局",
     "layoutDraw": "功率",
     "levelDcFast": "直流快充",
     "levelL2": "二级",
@@ -988,7 +986,6 @@
     "onboardingStatusFilter": "入网",
     "meterValuesDescription": "在充电会话之外报告的独立电表读数。包括时钟对齐的间隔读数和通过MeterValues消息发送的EVSE级遥测数据。",
     "events": "事件",
-    "notifyEvents": "NotifyEvent",
     "notifyEventsDescription": "充电站通过OCPP NotifyEvent报告的变量监控事件，如阈值超限、周期性读取和增量变化。",
     "seqNo": "序列号",
     "noEvents": "没有记录的事件",
@@ -1121,7 +1118,6 @@
     },
     "sim": {
       "tab": "连接",
-      "refreshTitle": "SIM 和信号数据",
       "period": "周期",
       "lastDays_one": "最近 {{count}} 天",
       "lastDays_other": "最近 {{count}} 天",
@@ -1407,7 +1403,6 @@
         "attachments": "关联",
         "history": "历史"
       },
-      "detailsTitle": "SIM 详情",
       "iccid": "ICCID",
       "imsi": "IMSI",
       "label": "标签",
@@ -1444,7 +1439,6 @@
       "notesHint": "最多 {{max}} 个字符。",
       "saveFailed": "SIM 未保存。请重试。",
       "attachments": {
-        "currentTitle": "当前关联",
         "historyTitle": "关联历史",
         "notAttached": "此 SIM 未关联到充电站。",
         "noHistory": "此 SIM 尚未关联过。",
@@ -1530,7 +1524,6 @@
     "allStatuses": "所有状态",
     "energyKwh": "{{value}} kWh",
     "durationFormat": "{{hours}}小时 {{minutes}}分钟",
-    "overview": "概览",
     "transactionEvents": "交易事件",
     "payment": "支付",
     "stoppedReason": "停止原因",
@@ -2163,7 +2156,6 @@
     "cancelFleetReservation": "取消全部",
     "billingTab": "计费",
     "billing": {
-      "title": "车队记账",
       "description": "车队记账：成员无需银行卡即可充电，其会话计入此车队账单。已选择退出的成员使用银行卡支付。",
       "chargeOnAccount": "车队记账",
       "on": "已开启",
@@ -2344,7 +2336,6 @@
     "toggleActive": "激活",
     "toggleInactive": "停用",
     "backToTokens": "返回令牌列表",
-    "tokenDetails": "令牌详情",
     "lastUpdated": "最后更新",
     "actions": "操作",
     "tokenNotFound": "未找到令牌",
@@ -2387,7 +2378,6 @@
     "deactivationReason": "停用原因"
   },
   "commands": {
-    "title": "命令",
     "advancedCommand": "高级命令",
     "action": "操作",
     "payloadJson": "载荷 (JSON)",
@@ -2472,7 +2462,6 @@
     "utilization": "利用率",
     "activeSessions": "活动会话",
     "recentSessions": "最近会话",
-    "connectors": "连接器",
     "transaction": "交易",
     "station": "充电站",
     "duration": "时长",
@@ -3889,7 +3878,6 @@
     "maxHoursHint": "最长预约时长为 {{hours}} 小时。",
     "paymentMethodRequired": "所选驾驶员没有默认支付方式。请先添加再创建预约。",
     "commands": "OCPP日志",
-    "commandLog": "OCPP命令日志",
     "direction": "方向",
     "action": "操作",
     "responseTime": "响应时间",
@@ -4876,7 +4864,6 @@
   },
   "simulate": {
     "tab": "模拟",
-    "title": "模拟器操作",
     "evseId": "EVSE ID",
     "idToken": "ID 令牌",
     "plugIn": "插入",
@@ -4905,7 +4892,6 @@
     "invalidForState": "当前连接器状态（{{status}}）下不可用。"
   },
   "loadManagement": {
-    "configuration": "负载管理配置",
     "allocationStrategy": "分配策略",
     "equalShare": "均等分配",
     "priorityBased": "基于优先级",
@@ -5560,7 +5546,6 @@
     "statusCompleted": "已完成",
     "statusCancelled": "已取消",
     "empty": "无维护窗口",
-    "statusTitle": "维护状态",
     "schedule": "安排维护",
     "activeNow": "站点正在维护",
     "endNow": "立即结束",
@@ -6201,7 +6186,6 @@
     }
   },
   "aiUsage": {
-    "title": "AI 用量",
     "month": "月份",
     "period": "期间",
     "budget": "预算",
@@ -6252,7 +6236,6 @@
     "openUsage": "查看 AI 用量"
   },
   "stationChargingNeeds": {
-    "needsTitle": "电动汽车充电需求",
     "noNeeds": "没有电动汽车为活动会话报告 ISO 15118 充电需求。",
     "evse": "EVSE",
     "energyTransfer": "能量传输",

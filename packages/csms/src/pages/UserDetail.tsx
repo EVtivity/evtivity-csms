@@ -113,7 +113,7 @@ export function UserDetail(): React.JSX.Element {
         </TabsContent>
 
         {canAdminister && (
-          <TabsContent value="security" className="space-y-6">
+          <TabsContent value="security">
             <UserSecurityTab userId={user.id} />
             <UserAccessCards
               userId={user.id}

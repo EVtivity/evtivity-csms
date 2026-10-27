@@ -166,7 +166,7 @@ export function ReservationDetail(): React.JSX.Element {
           )}
         </TabsList>
 
-        <TabsContent value="details" className="space-y-6">
+        <TabsContent value="details">
           <ReservationDetailsTab reservation={reservation} timezone={timezone} />
           <ReservationFeePayments reservationId={reservation.id} timezone={timezone} />
         </TabsContent>

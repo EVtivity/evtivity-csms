@@ -10,7 +10,7 @@ export interface DriverPricingTabProps {
 
 export function DriverPricingTab({ driverId }: DriverPricingTabProps): React.JSX.Element {
   return (
-    <TabsContent value="pricing" className="space-y-6">
+    <TabsContent value="pricing">
       <PricingAssignmentTab
         resourceType="driver"
         resourceId={driverId}

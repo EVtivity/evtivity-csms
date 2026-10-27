@@ -17,6 +17,7 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { formatVehicleId } from '@evtivity/lib/vehicle-id';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 const CURRENT_YEAR = new Date().getFullYear();
 // Reasonable EV window: current model year + next year (manufacturers preview
@@ -59,7 +60,12 @@ export function AccountVehicles(): React.JSX.Element {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const timezone = useDriverTimezone();
-  const { data: vehicles } = useQuery({
+  const {
+    data: vehicles,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['portal-vehicles'],
     queryFn: () => api.get<Vehicle[]>('/v1/portal/vehicles'),
   });
@@ -157,8 +163,18 @@ export function AccountVehicles(): React.JSX.Element {
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">{t('vehicles.helper')}</p>
 
+      {isLoading && <LoadingState />}
+
+      {isError && (
+        <ErrorState
+          onRetry={() => {
+            void refetch();
+          }}
+        />
+      )}
+
       {vehicles != null && vehicles.length === 0 && (
-        <p className="text-center text-sm text-muted-foreground">{t('vehicles.noVehicles')}</p>
+        <EmptyState>{t('vehicles.noVehicles')}</EmptyState>
       )}
 
       {/* Card list mirrors Payment Methods / RFID Cards: Car icon + name on the

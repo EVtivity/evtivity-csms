@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { CreateButton } from '@/components/create-button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   Table,
   TableBody,
@@ -19,7 +19,6 @@ import { DEFAULT_TAX_BASIS } from '@evtivity/lib/price-display';
 import { useCompanyTaxBasis } from '@/hooks/use-company-tax-basis';
 import { api } from '@/lib/api';
 import { useHasCompanyWidePermission } from '@/lib/auth';
-import { LoadingLogo } from '@/components/loading-logo';
 import { Badge } from '@/components/ui/badge';
 import {
   formatRestrictionSummary,
@@ -60,89 +59,92 @@ export function PricingGroupTariffsTab({
 
   const restrictionLabels = useRestrictionLabels();
 
-  const { data: tariffs, isLoading: tariffsLoading } = useQuery({
+  const {
+    data: tariffs,
+    isLoading: tariffsLoading,
+    isError: tariffsError,
+    refetch: refetchTariffs,
+  } = useQuery({
     queryKey: ['tariffs', groupId],
     queryFn: () => api.get<Tariff[]>(`/v1/pricing-groups/${groupId}/tariffs`),
   });
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('pricing.tariffs')}</CardTitle>
-        {canWrite && (
+    <TabPanel
+      title={t('pricing.tariffs')}
+      description={t('pricing.defaultTariffHelper')}
+      actions={
+        canWrite ? (
           <CreateButton
             label={t('pricing.createTariff')}
             onClick={() => {
               void navigate(`/pricing/${groupId}/tariffs/new`);
             }}
           />
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">{t('pricing.defaultTariffHelper')}</p>
-        {tariffsLoading && <LoadingLogo size="inline" />}
-
-        {tariffs != null && tariffs.length === 0 && (
-          <p className="text-center text-sm text-muted-foreground">{t('pricing.noTariffsFound')}</p>
-        )}
-
-        {tariffs != null && tariffs.length > 0 && (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('pricing.tariffId')}</TableHead>
-                  <TableHead>{t('pricing.tariffName')}</TableHead>
-                  <TableHead>{t('pricing.tariffType')}</TableHead>
-                  <TableHead>{t('pricing.perKwh', { context: taxBasis })}</TableHead>
-                  <TableHead>{t('pricing.perMin', { context: taxBasis })}</TableHead>
-                  <TableHead>{t('pricing.perSession', { context: taxBasis })}</TableHead>
-                  <TableHead>{t('pricing.idleFeePricePerMinute', { context: taxBasis })}</TableHead>
-                  <TableHead>
-                    {t('pricing.reservationFeePerMinute', { context: taxBasis })}
-                  </TableHead>
-                  <TableHead>{t('pricing.taxRate')}</TableHead>
+        ) : undefined
+      }
+      isLoading={tariffsLoading}
+      isError={tariffsError}
+      onRetry={() => {
+        void refetchTariffs();
+      }}
+      isEmpty={tariffs != null && tariffs.length === 0}
+      emptyMessage={t('pricing.noTariffsFound')}
+    >
+      {tariffs != null && tariffs.length > 0 && (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('pricing.tariffId')}</TableHead>
+                <TableHead>{t('pricing.tariffName')}</TableHead>
+                <TableHead>{t('pricing.tariffType')}</TableHead>
+                <TableHead>{t('pricing.perKwh', { context: taxBasis })}</TableHead>
+                <TableHead>{t('pricing.perMin', { context: taxBasis })}</TableHead>
+                <TableHead>{t('pricing.perSession', { context: taxBasis })}</TableHead>
+                <TableHead>{t('pricing.idleFeePricePerMinute', { context: taxBasis })}</TableHead>
+                <TableHead>{t('pricing.reservationFeePerMinute', { context: taxBasis })}</TableHead>
+                <TableHead>{t('pricing.taxRate')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tariffs.map((tariff) => (
+                <TableRow
+                  key={tariff.id}
+                  className="cursor-pointer"
+                  data-testid={`tariff-row-${tariff.id}`}
+                  onClick={() => {
+                    void navigate(`/pricing/${groupId}/tariffs/${tariff.id}`);
+                  }}
+                >
+                  <TableCell className="text-muted-foreground">{tariff.id}</TableCell>
+                  <TableCell className="font-medium text-link" data-testid="row-click-target">
+                    {tariff.name}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {formatRestrictionSummary(tariff.restrictions, restrictionLabels)}
+                      {tariff.isDefault && (
+                        <Badge variant="secondary">{t('pricing.defaultTariff')}</Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>{formatDecimal(tariff.pricePerKwh)}</TableCell>
+                  <TableCell>{formatDecimal(tariff.pricePerMinute)}</TableCell>
+                  <TableCell>{formatDecimal(tariff.pricePerSession)}</TableCell>
+                  <TableCell>{formatDecimal(tariff.idleFeePricePerMinute)}</TableCell>
+                  <TableCell>{formatDecimal(tariff.reservationFeePerMinute)}</TableCell>
+                  <TableCell>
+                    {tariff.taxRate == null
+                      ? t('common.na')
+                      : t('invoices.taxRateValue', { rate: formatTaxPercent(tariff.taxRate) })}
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tariffs.map((tariff) => (
-                  <TableRow
-                    key={tariff.id}
-                    className="cursor-pointer"
-                    data-testid={`tariff-row-${tariff.id}`}
-                    onClick={() => {
-                      void navigate(`/pricing/${groupId}/tariffs/${tariff.id}`);
-                    }}
-                  >
-                    <TableCell className="text-muted-foreground">{tariff.id}</TableCell>
-                    <TableCell className="font-medium text-link" data-testid="row-click-target">
-                      {tariff.name}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {formatRestrictionSummary(tariff.restrictions, restrictionLabels)}
-                        {tariff.isDefault && (
-                          <Badge variant="secondary">{t('pricing.defaultTariff')}</Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>{formatDecimal(tariff.pricePerKwh)}</TableCell>
-                    <TableCell>{formatDecimal(tariff.pricePerMinute)}</TableCell>
-                    <TableCell>{formatDecimal(tariff.pricePerSession)}</TableCell>
-                    <TableCell>{formatDecimal(tariff.idleFeePricePerMinute)}</TableCell>
-                    <TableCell>{formatDecimal(tariff.reservationFeePerMinute)}</TableCell>
-                    <TableCell>
-                      {tariff.taxRate == null
-                        ? t('common.na')
-                        : t('invoices.taxRateValue', { rate: formatTaxPercent(tariff.taxRate) })}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </TabPanel>
   );
 }

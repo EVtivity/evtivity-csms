@@ -14,7 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
-import { LoadingLogo } from '@/components/loading-logo';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { Badge } from '@/components/ui/badge';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { formatVehicleId } from '@evtivity/lib/vehicle-id';
@@ -41,6 +41,8 @@ interface VehiclesTableProps {
   onPageChange: (page: number) => void;
   showDriver?: boolean;
   isLoading?: boolean;
+  isError?: boolean;
+  onRetry?: (() => void) | undefined;
   emptyMessage?: string;
   onEdit?: (vehicle: Vehicle) => void;
   onDelete?: (vehicle: Vehicle) => void;
@@ -56,6 +58,8 @@ export function VehiclesTable({
   onPageChange,
   showDriver = false,
   isLoading,
+  isError = false,
+  onRetry,
   emptyMessage,
   onEdit,
   onDelete,
@@ -94,11 +98,14 @@ export function VehiclesTable({
           </TableHeader>
           <TableBody>
             {isLoading === true && (
-              <TableRow>
-                <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                  <LoadingLogo size="inline" />
-                </TableCell>
-              </TableRow>
+              <TableStateRow colSpan={colSpan}>
+                <LoadingState />
+              </TableStateRow>
+            )}
+            {isError && isLoading !== true && (
+              <TableStateRow colSpan={colSpan}>
+                <ErrorState onRetry={onRetry} />
+              </TableStateRow>
             )}
             {vehicles?.map((v) => (
               <TableRow
@@ -189,12 +196,10 @@ export function VehiclesTable({
                 )}
               </TableRow>
             ))}
-            {vehicles?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                  {emptyMessage ?? t('vehicles.noVehicles')}
-                </TableCell>
-              </TableRow>
+            {!isLoading && !isError && vehicles?.length === 0 && (
+              <TableStateRow colSpan={colSpan}>
+                <EmptyState>{emptyMessage ?? t('vehicles.noVehicles')}</EmptyState>
+              </TableStateRow>
             )}
           </TableBody>
         </Table>

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -51,25 +51,20 @@ export function DriverEraseCard({
 
   if (driver.erasedAt != null) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('drivers.eraseTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            {t('drivers.erasedOn', { date: formatDateTime(driver.erasedAt, timezone) })}
-          </p>
-        </CardContent>
-      </Card>
+      <TabPanel title={t('drivers.eraseTitle')}>
+        <p className="text-sm text-muted-foreground">
+          {t('drivers.erasedOn', { date: formatDateTime(driver.erasedAt, timezone) })}
+        </p>
+      </TabPanel>
     );
   }
 
   if (!canWrite || !hasAllSiteAccess) return null;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('drivers.eraseTitle')}</CardTitle>
+    <TabPanel
+      title={t('drivers.eraseTitle')}
+      actions={
         <RemoveButton
           label={t('drivers.erase')}
           onClick={() => {
@@ -79,10 +74,9 @@ export function DriverEraseCard({
             setOpen(true);
           }}
         />
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground">{t('drivers.eraseHelp')}</p>
-      </CardContent>
+      }
+    >
+      <p className="text-sm text-muted-foreground">{t('drivers.eraseHelp')}</p>
       <ConfirmDialog
         open={open}
         onOpenChange={setOpen}
@@ -120,6 +114,6 @@ export function DriverEraseCard({
           )}
         </div>
       </ConfirmDialog>
-    </Card>
+    </TabPanel>
   );
 }

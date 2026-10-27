@@ -5,7 +5,8 @@ import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState } from '@/components/ui/content-state';
 import {
   Table,
   TableBody,
@@ -51,7 +52,12 @@ export function FirmwareCampaignsTab({ campaignId }: Props): React.JSX.Element {
   // standalone Progress page renders that detail).
   // No refetchInterval: SSE invalidates ['firmware-campaigns', campaignId, ...]
   // when the projection emits firmwareCampaign.stationUpdated / .completed.
-  const { data: campaign } = useQuery({
+  const {
+    data: campaign,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['firmware-campaigns', campaignId, 'history'],
     queryFn: () => api.get<CampaignSummary>(`/v1/firmware-campaigns/${campaignId}?page=1&limit=1`),
     enabled: campaignId !== '',
@@ -74,57 +80,60 @@ export function FirmwareCampaignsTab({ campaignId }: Props): React.JSX.Element {
           : 'completed';
 
   return (
-    <Card>
-      <CardContent className="pt-6">
-        {!hasRun ? (
-          <p className="text-center text-sm text-muted-foreground">
-            {t('firmwareCampaigns.noCampaignRuns')}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('common.timestamp')}</TableHead>
-                  <TableHead>{t('common.status')}</TableHead>
-                  <TableHead>{t('firmwareCampaigns.totalStations')}</TableHead>
-                  <TableHead>{t('firmwareCampaigns.completedStations')}</TableHead>
-                  <TableHead>{t('firmwareCampaigns.failedStations')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow
-                  className="cursor-pointer"
-                  data-testid={`campaign-run-row-${campaign.id}`}
-                  onClick={() => {
-                    void navigate(`/firmware-campaigns/${campaignId}/progress`);
-                  }}
-                >
-                  <TableCell className="text-xs" data-testid="row-click-target">
-                    {formatDateTime(campaign.updatedAt, timezone)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={STATUS_VARIANT[displayStatus] ?? 'outline'}>
-                      {t(`firmwareCampaigns.statuses.${displayStatus}`, {
-                        defaultValue: displayStatus,
-                      })}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>{campaign.stationsTotal}</TableCell>
-                  <TableCell>{completedCount}</TableCell>
-                  <TableCell>
-                    {campaign.failedCount > 0 ? (
-                      <span className="text-destructive">{campaign.failedCount}</span>
-                    ) : (
-                      0
-                    )}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    <TabPanel
+      title={t('firmwareCampaigns.progress')}
+      isLoading={isLoading}
+      isError={isError}
+      onRetry={() => {
+        void refetch();
+      }}
+    >
+      {!hasRun ? (
+        <EmptyState>{t('firmwareCampaigns.noCampaignRuns')}</EmptyState>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('common.timestamp')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead>{t('firmwareCampaigns.totalStations')}</TableHead>
+                <TableHead>{t('firmwareCampaigns.completedStations')}</TableHead>
+                <TableHead>{t('firmwareCampaigns.failedStations')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow
+                className="cursor-pointer"
+                data-testid={`campaign-run-row-${campaign.id}`}
+                onClick={() => {
+                  void navigate(`/firmware-campaigns/${campaignId}/progress`);
+                }}
+              >
+                <TableCell className="text-xs" data-testid="row-click-target">
+                  {formatDateTime(campaign.updatedAt, timezone)}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={STATUS_VARIANT[displayStatus] ?? 'outline'}>
+                    {t(`firmwareCampaigns.statuses.${displayStatus}`, {
+                      defaultValue: displayStatus,
+                    })}
+                  </Badge>
+                </TableCell>
+                <TableCell>{campaign.stationsTotal}</TableCell>
+                <TableCell>{completedCount}</TableCell>
+                <TableCell>
+                  {campaign.failedCount > 0 ? (
+                    <span className="text-destructive">{campaign.failedCount}</span>
+                  ) : (
+                    0
+                  )}
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </TabPanel>
   );
 }

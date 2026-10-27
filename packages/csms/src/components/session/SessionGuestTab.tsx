@@ -4,7 +4,7 @@
 import { useTranslation } from 'react-i18next';
 import { ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { CopyableId } from '@/components/copyable-id';
 import { PORTAL_BASE_URL } from '@/lib/config';
 import { formatDateTime } from '@/lib/timezone';
@@ -47,51 +47,44 @@ export function SessionGuestTab({
   const portalUrl = `${PORTAL_BASE_URL}/guest-session/${guest.sessionToken}`;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('sessions.guestSessionTab')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Row label={t('sessions.guestPortalLink')}>
-          <a
-            href={portalUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-link hover:underline break-all"
-          >
-            {portalUrl}
-            <ExternalLink className="h-3 w-3 shrink-0" />
-          </a>
-        </Row>
-        <Row label={t('sessions.guestSessionToken')}>
-          <CopyableId id={guest.sessionToken} variant="detail" />
-        </Row>
-        <Row label={t('sessions.guestEmail')}>
-          {guest.guestEmail !== '' ? guest.guestEmail : '-'}
-        </Row>
-        <Row label={t('common.status')}>
-          <Badge variant="secondary">{guest.status}</Badge>
-        </Row>
-        <Row label={t('sessions.guestPreAuthAmount')}>
-          {guest.preAuthAmountCents != null ? formatCents(guest.preAuthAmountCents, currency) : '-'}
-        </Row>
-        <Row label={t('sessions.guestPaymentProvider')}>
-          {guest.provider != null && guest.provider !== '' ? (
-            <Badge variant="secondary">{providerLabel(guest.provider, t)}</Badge>
-          ) : (
-            '-'
-          )}
-        </Row>
-        <Row label={t('sessions.guestProviderPayment')}>
-          {guest.providerPaymentId != null && guest.providerPaymentId !== '' ? (
-            <CopyableId id={guest.providerPaymentId} variant="detail" />
-          ) : (
-            '-'
-          )}
-        </Row>
-        <Row label={t('sessions.guestCreatedAt')}>{formatDateTime(guest.createdAt, timezone)}</Row>
-        <Row label={t('sessions.guestExpiresAt')}>{formatDateTime(guest.expiresAt, timezone)}</Row>
-      </CardContent>
-    </Card>
+    <TabPanel title={t('sessions.guestSessionTab')} bodyClassName="space-y-3">
+      <Row label={t('sessions.guestPortalLink')}>
+        <a
+          href={portalUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-link hover:underline break-all"
+        >
+          {portalUrl}
+          <ExternalLink className="h-3 w-3 shrink-0" />
+        </a>
+      </Row>
+      <Row label={t('sessions.guestSessionToken')}>
+        <CopyableId id={guest.sessionToken} variant="detail" />
+      </Row>
+      <Row label={t('sessions.guestEmail')}>{guest.guestEmail !== '' ? guest.guestEmail : '-'}</Row>
+      <Row label={t('common.status')}>
+        <Badge variant="secondary">{guest.status}</Badge>
+      </Row>
+      <Row label={t('sessions.guestPreAuthAmount')}>
+        {guest.preAuthAmountCents != null ? formatCents(guest.preAuthAmountCents, currency) : '-'}
+      </Row>
+      <Row label={t('sessions.guestPaymentProvider')}>
+        {guest.provider != null && guest.provider !== '' ? (
+          <Badge variant="secondary">{providerLabel(guest.provider, t)}</Badge>
+        ) : (
+          '-'
+        )}
+      </Row>
+      <Row label={t('sessions.guestProviderPayment')}>
+        {guest.providerPaymentId != null && guest.providerPaymentId !== '' ? (
+          <CopyableId id={guest.providerPaymentId} variant="detail" />
+        ) : (
+          '-'
+        )}
+      </Row>
+      <Row label={t('sessions.guestCreatedAt')}>{formatDateTime(guest.createdAt, timezone)}</Row>
+      <Row label={t('sessions.guestExpiresAt')}>{formatDateTime(guest.expiresAt, timezone)}</Row>
+    </TabPanel>
   );
 }

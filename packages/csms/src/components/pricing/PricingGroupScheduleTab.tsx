@@ -4,7 +4,7 @@
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   Table,
   TableBody,
@@ -16,7 +16,6 @@ import {
 import { formatDecimal } from '@/lib/formatting';
 import { api } from '@/lib/api';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
-import { LoadingLogo } from '@/components/loading-logo';
 import {
   formatRestrictionSummary,
   useRestrictionLabels,
@@ -49,7 +48,12 @@ export function PricingGroupScheduleTab({
 
   const restrictionLabels = useRestrictionLabels();
 
-  const { data: schedule, isLoading: scheduleLoading } = useQuery({
+  const {
+    data: schedule,
+    isLoading: scheduleLoading,
+    isError: scheduleError,
+    refetch: refetchSchedule,
+  } = useQuery({
     queryKey: ['tariff-schedule', groupId],
     queryFn: () => api.get<ScheduleItem[]>(`/v1/pricing-groups/${groupId}/schedule`),
   });
@@ -66,55 +70,51 @@ export function PricingGroupScheduleTab({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('pricing.schedule')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {scheduleLoading && <LoadingLogo size="inline" />}
-
-        {schedule != null && schedule.length === 0 && (
-          <p className="text-center text-sm text-muted-foreground">{t('pricing.noTariffsFound')}</p>
-        )}
-
-        {schedule != null && schedule.length > 0 && (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('pricing.tariffName')}</TableHead>
-                  <TableHead>{t('pricing.tariffType')}</TableHead>
-                  <TableHead>{t('pricing.priority')}</TableHead>
-                  <TableHead>{t('pricing.costFormula')}</TableHead>
-                  <TableHead>{t('pricing.status')}</TableHead>
+    <TabPanel
+      title={t('pricing.schedule')}
+      isLoading={scheduleLoading}
+      isError={scheduleError}
+      onRetry={() => {
+        void refetchSchedule();
+      }}
+      isEmpty={schedule != null && schedule.length === 0}
+      emptyMessage={t('pricing.noTariffsFound')}
+    >
+      {schedule != null && schedule.length > 0 && (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('pricing.tariffName')}</TableHead>
+                <TableHead>{t('pricing.tariffType')}</TableHead>
+                <TableHead>{t('pricing.priority')}</TableHead>
+                <TableHead>{t('pricing.costFormula')}</TableHead>
+                <TableHead>{t('pricing.status')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {schedule.map((item) => (
+                <TableRow key={item.id} className={item.isCurrent ? 'bg-primary/5' : ''}>
+                  <TableCell className="font-medium">{item.name}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {formatRestrictionSummary(item.restrictions, restrictionLabels)}
+                  </TableCell>
+                  <TableCell>{item.priority}</TableCell>
+                  <TableCell className="text-sm">{formatCompactRates(item)}</TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1.5">
+                      {item.isDefault && (
+                        <Badge variant="secondary">{t('pricing.defaultTariff')}</Badge>
+                      )}
+                      {item.isCurrent && <Badge variant="success">{t('pricing.isCurrent')}</Badge>}
+                    </div>
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {schedule.map((item) => (
-                  <TableRow key={item.id} className={item.isCurrent ? 'bg-primary/5' : ''}>
-                    <TableCell className="font-medium">{item.name}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatRestrictionSummary(item.restrictions, restrictionLabels)}
-                    </TableCell>
-                    <TableCell>{item.priority}</TableCell>
-                    <TableCell className="text-sm">{formatCompactRates(item)}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1.5">
-                        {item.isDefault && (
-                          <Badge variant="secondary">{t('pricing.defaultTariff')}</Badge>
-                        )}
-                        {item.isCurrent && (
-                          <Badge variant="success">{t('pricing.isCurrent')}</Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </TabPanel>
   );
 }

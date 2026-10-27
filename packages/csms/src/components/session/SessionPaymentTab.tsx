@@ -9,7 +9,8 @@ import { RefundButton } from '@/components/refund-button';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState } from '@/components/ui/content-state';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { parseMajorInputToCents } from '@evtivity/lib/currency';
@@ -176,107 +177,97 @@ export function SessionPaymentTab({
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>{title ?? t('sessions.payment')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {payment == null ? (
-            <div className="space-y-4">
-              <p className="text-center text-sm text-muted-foreground">{t('sessions.noPayment')}</p>
-              {noPaymentReason != null && <SessionNoPaymentReason {...noPaymentReason} />}
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Row label={t('payments.paymentStatus')}>
-                  <Badge variant={paymentStatusVariant(payment.status)}>
-                    {t(
-                      (PAYMENT_STATUS_I18N[payment.status] ??
-                        payment.status) as 'payments.statuses.pending',
-                      payment.status,
-                    )}
+      <TabPanel title={title ?? t('sessions.payment')}>
+        {payment == null ? (
+          <div className="space-y-4">
+            <EmptyState>{t('sessions.noPayment')}</EmptyState>
+            {noPaymentReason != null && <SessionNoPaymentReason {...noPaymentReason} />}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Row label={t('payments.paymentStatus')}>
+                <Badge variant={paymentStatusVariant(payment.status)}>
+                  {t(
+                    (PAYMENT_STATUS_I18N[payment.status] ??
+                      payment.status) as 'payments.statuses.pending',
+                    payment.status,
+                  )}
+                </Badge>
+              </Row>
+              <Row label={t('sessions.paymentSource')}>
+                {t(
+                  (PAYMENT_SOURCE_I18N[payment.paymentSource] ??
+                    payment.paymentSource) as 'payments.sources.operator',
+                  payment.paymentSource,
+                )}
+              </Row>
+              {showPreAuth && (
+                <Row label={t('sessions.preAuthAmount')}>
+                  {formatCents(payment.preAuthAmountCents, payment.currency)}
+                </Row>
+              )}
+              <Row label={t('sessions.capturedAmount')}>
+                {formatCents(payment.capturedAmountCents, payment.currency)}
+              </Row>
+              <Row label={t('sessions.refundedAmount')}>
+                {formatCents(payment.refundedAmountCents, payment.currency)}
+              </Row>
+              {payment.pendingOperation != null && (
+                <Row label={t('sessions.providerConfirmation')}>
+                  <Badge variant="warning">
+                    {t(PENDING_OPERATION_I18N[payment.pendingOperation])}
                   </Badge>
                 </Row>
-                <Row label={t('sessions.paymentSource')}>
-                  {t(
-                    (PAYMENT_SOURCE_I18N[payment.paymentSource] ??
-                      payment.paymentSource) as 'payments.sources.operator',
-                    payment.paymentSource,
-                  )}
-                </Row>
-                {showPreAuth && (
-                  <Row label={t('sessions.preAuthAmount')}>
-                    {formatCents(payment.preAuthAmountCents, payment.currency)}
-                  </Row>
-                )}
-                <Row label={t('sessions.capturedAmount')}>
-                  {formatCents(payment.capturedAmountCents, payment.currency)}
-                </Row>
-                <Row label={t('sessions.refundedAmount')}>
-                  {formatCents(payment.refundedAmountCents, payment.currency)}
-                </Row>
-                {payment.pendingOperation != null && (
-                  <Row label={t('sessions.providerConfirmation')}>
-                    <Badge variant="warning">
-                      {t(PENDING_OPERATION_I18N[payment.pendingOperation])}
-                    </Badge>
-                  </Row>
-                )}
-                {payment.failureReason != null && (
-                  <Row label={t('sessions.failureReason')}>
-                    <span className="text-destructive">{payment.failureReason}</span>
-                  </Row>
-                )}
-              </div>
-              {payment.providerRefunds != null && payment.providerRefunds.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">{t('sessions.providerRefunds')}</p>
-                  <ul className="space-y-1">
-                    {payment.providerRefunds.map((refund) => (
-                      <li
-                        key={refund.refundId}
-                        className="flex flex-wrap items-center gap-2 text-sm"
-                      >
-                        <span>{formatCents(refund.amountCents, payment.currency)}</span>
-                        <Badge variant={REFUND_STATE_VARIANT[refund.state]}>
-                          {t(REFUND_STATE_I18N[refund.state])}
-                        </Badge>
-                        <span className="text-muted-foreground">
-                          {formatDateTime(refund.settledAt ?? refund.requestedAt, timezone)}
-                        </span>
-                        <span className="font-mono text-xs text-muted-foreground">
-                          {refund.refundId}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
               )}
-              {payment.pendingOperation === 'capture' && (
-                <p className="text-sm text-muted-foreground">
-                  {t('sessions.refundAfterConfirmation')}
-                </p>
-              )}
-              {canRefund && (
-                <RefundButton
-                  label={t('sessions.refund')}
-                  onClick={() => {
-                    const remaining = refundableCents(payment);
-                    setRefundAmount((remaining / 100).toFixed(2));
-                    setShowRefund(true);
-                  }}
-                />
-              )}
-              {refundMutation.isError && (
-                <p className="text-sm text-destructive">
-                  {getErrorMessage(refundMutation.error, t)}
-                </p>
+              {payment.failureReason != null && (
+                <Row label={t('sessions.failureReason')}>
+                  <span className="text-destructive">{payment.failureReason}</span>
+                </Row>
               )}
             </div>
-          )}
-        </CardContent>
-      </Card>
+            {payment.providerRefunds != null && payment.providerRefunds.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">{t('sessions.providerRefunds')}</p>
+                <ul className="space-y-1">
+                  {payment.providerRefunds.map((refund) => (
+                    <li key={refund.refundId} className="flex flex-wrap items-center gap-2 text-sm">
+                      <span>{formatCents(refund.amountCents, payment.currency)}</span>
+                      <Badge variant={REFUND_STATE_VARIANT[refund.state]}>
+                        {t(REFUND_STATE_I18N[refund.state])}
+                      </Badge>
+                      <span className="text-muted-foreground">
+                        {formatDateTime(refund.settledAt ?? refund.requestedAt, timezone)}
+                      </span>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {refund.refundId}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {payment.pendingOperation === 'capture' && (
+              <p className="text-sm text-muted-foreground">
+                {t('sessions.refundAfterConfirmation')}
+              </p>
+            )}
+            {canRefund && (
+              <RefundButton
+                label={t('sessions.refund')}
+                onClick={() => {
+                  const remaining = refundableCents(payment);
+                  setRefundAmount((remaining / 100).toFixed(2));
+                  setShowRefund(true);
+                }}
+              />
+            )}
+            {refundMutation.isError && (
+              <p className="text-sm text-destructive">{getErrorMessage(refundMutation.error, t)}</p>
+            )}
+          </div>
+        )}
+      </TabPanel>
 
       <ConfirmDialog
         open={showRefund}

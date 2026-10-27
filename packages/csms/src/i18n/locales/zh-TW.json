@@ -580,7 +580,6 @@
     "map": "地圖",
     "noSitesFound": "找不到站點",
     "siteNotFound": "站點不存在",
-    "siteMetrics": "指標",
     "metrics": "指標",
     "payment": "支付",
     "contact": "聯絡方式",
@@ -683,7 +682,6 @@
     "tabs": {
       "ai": "AI 用量"
     },
-    "stationLayout": "充電站佈局",
     "layoutDraw": "功率",
     "levelDcFast": "直流快充",
     "levelL2": "二級",
@@ -988,7 +986,6 @@
     "onboardingStatusFilter": "入網",
     "meterValuesDescription": "在充電工作階段之外報告的獨立電錶讀數。包括時鐘對齊的間隔讀數和透過 MeterValues 訊息傳送的 EVSE 級遙測資料。",
     "events": "事件",
-    "notifyEvents": "NotifyEvent",
     "notifyEventsDescription": "充電站透過 OCPP NotifyEvent 報告的變數監控事件，如臨界值超限、週期性讀取和增量變化。",
     "seqNo": "序列號",
     "noEvents": "沒有記錄的事件",
@@ -1121,7 +1118,6 @@
     },
     "sim": {
       "tab": "連線",
-      "refreshTitle": "SIM 和訊號資料",
       "period": "期間",
       "lastDays_one": "最近 {{count}} 天",
       "lastDays_other": "最近 {{count}} 天",
@@ -1407,7 +1403,6 @@
         "attachments": "關聯",
         "history": "歷程記錄"
       },
-      "detailsTitle": "SIM 詳細資料",
       "iccid": "ICCID",
       "imsi": "IMSI",
       "label": "標籤",
@@ -1444,7 +1439,6 @@
       "notesHint": "最多 {{max}} 個字元。",
       "saveFailed": "SIM 未儲存。請再試一次。",
       "attachments": {
-        "currentTitle": "目前關聯",
         "historyTitle": "關聯歷程",
         "notAttached": "此 SIM 未關聯到充電站。",
         "noHistory": "此 SIM 尚未關聯過。",
@@ -1530,7 +1524,6 @@
     "allStatuses": "所有狀態",
     "energyKwh": "{{value}} kWh",
     "durationFormat": "{{hours}}小時 {{minutes}}分鐘",
-    "overview": "概覽",
     "transactionEvents": "交易事件",
     "payment": "支付",
     "stoppedReason": "停止原因",
@@ -2163,7 +2156,6 @@
     "cancelFleetReservation": "取消全部",
     "billingTab": "計費",
     "billing": {
-      "title": "車隊記帳",
       "description": "車隊記帳：成員無需信用卡即可充電，其工作階段計入此車隊帳單。已選擇退出的成員以信用卡付款。",
       "chargeOnAccount": "車隊記帳",
       "on": "已開啟",
@@ -2344,7 +2336,6 @@
     "toggleActive": "啟用",
     "toggleInactive": "停用",
     "backToTokens": "返回權杖列表",
-    "tokenDetails": "權杖詳細資料",
     "lastUpdated": "最後更新",
     "actions": "操作",
     "tokenNotFound": "找不到權杖",
@@ -2387,7 +2378,6 @@
     "deactivationReason": "停用原因"
   },
   "commands": {
-    "title": "命令",
     "advancedCommand": "高階命令",
     "action": "操作",
     "payloadJson": "載荷 (JSON)",
@@ -2472,7 +2462,6 @@
     "utilization": "利用率",
     "activeSessions": "活躍工作階段",
     "recentSessions": "最近工作階段",
-    "connectors": "連接器",
     "transaction": "交易",
     "station": "充電站",
     "duration": "時長",
@@ -3889,7 +3878,6 @@
     "maxHoursHint": "最長預約時長為 {{hours}} 小時。",
     "paymentMethodRequired": "所選駕駛員沒有預設支付方式。請先新增再建立預約。",
     "commands": "OCPP 日誌",
-    "commandLog": "OCPP 命令日誌",
     "direction": "方向",
     "action": "操作",
     "responseTime": "回應時間",
@@ -4876,7 +4864,6 @@
   },
   "simulate": {
     "tab": "模擬",
-    "title": "模擬器操作",
     "evseId": "EVSE ID",
     "idToken": "ID 權杖",
     "plugIn": "插入",
@@ -4905,7 +4892,6 @@
     "invalidForState": "目前連接器狀態（{{status}}）下不可用。"
   },
   "loadManagement": {
-    "configuration": "負載管理設定",
     "allocationStrategy": "分配策略",
     "equalShare": "均等分配",
     "priorityBased": "基於優先順序",
@@ -5560,7 +5546,6 @@
     "statusCompleted": "已完成",
     "statusCancelled": "已取消",
     "empty": "無維護時段",
-    "statusTitle": "維護狀態",
     "schedule": "安排維護",
     "activeNow": "站點正在維護中",
     "endNow": "立即結束",
@@ -6201,7 +6186,6 @@
     }
   },
   "aiUsage": {
-    "title": "AI 用量",
     "month": "月份",
     "period": "期間",
     "budget": "預算",
@@ -6252,7 +6236,6 @@
     "openUsage": "檢視 AI 用量"
   },
   "stationChargingNeeds": {
-    "needsTitle": "電動車充電需求",
     "noNeeds": "沒有電動車為進行中的工作階段回報 ISO 15118 充電需求。",
     "evse": "EVSE",
     "energyTransfer": "能量傳輸",

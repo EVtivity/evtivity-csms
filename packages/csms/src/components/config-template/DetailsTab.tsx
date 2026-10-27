@@ -13,7 +13,7 @@ import { RemoveButton } from '@/components/remove-button';
 import { SaveButton } from '@/components/save-button';
 import { TargetFilterFields, type TargetFilterValue } from '@/components/TargetFilterFields';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -227,9 +227,9 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>{t('common.details')}</CardTitle>
+      <TabPanel
+        title={t('common.details')}
+        actions={
           <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
             {!editing && canManageTemplate && (
               <EditButton label={t('common.edit')} onClick={startEdit} />
@@ -265,249 +265,244 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
               />
             )}
           </div>
-        </CardHeader>
-        <CardContent>
-          {editing ? (
-            <form
-              className="grid gap-4"
-              noValidate
-              onSubmit={(e) => {
-                e.preventDefault();
-                setHasSubmitted(true);
-                if (Object.keys(validationErrors).length > 0) return;
-                const body: {
-                  name?: string;
-                  description?: string;
-                  ocppVersion?: OcppVersion;
-                  variables?: TemplateVariable[];
-                  targetFilter?: TargetFilterValue | null;
-                } = {
-                  name: editName,
-                  ocppVersion: editOcppVersion,
-                  variables: templateVariablesForSave(editVariables, editOcppVersion),
-                };
-                if (editDescription !== '') body.description = editDescription;
-                if (!isStationTemplate) {
-                  body.targetFilter = Object.keys(editFilter).length > 0 ? editFilter : null;
-                }
-                updateMutation.mutate(body);
-              }}
-            >
-              <div className="grid gap-2">
-                <Label htmlFor="ctd-edit-name">{t('common.name')}</Label>
-                <Input
-                  id="ctd-edit-name"
-                  value={editName}
-                  onChange={(e) => {
-                    setEditName(e.target.value);
-                  }}
-                  className={hasSubmitted && validationErrors.editName ? 'border-destructive' : ''}
-                />
-                {hasSubmitted && validationErrors.editName && (
-                  <p className="text-sm text-destructive">{validationErrors.editName}</p>
-                )}
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="ctd-edit-description">{t('common.description')}</Label>
-                <Input
-                  id="ctd-edit-description"
-                  value={editDescription}
-                  onChange={(e) => {
-                    setEditDescription(e.target.value);
-                  }}
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label>{t('configTemplates.ocppVersion')}</Label>
-                <div className="flex gap-1">
-                  <Button
-                    type="button"
-                    variant={editOcppVersion === '2.1' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => {
-                      handleEditVersionChange('2.1');
-                    }}
-                  >
-                    OCPP 2.1
-                  </Button>
-                  <Button
-                    type="button"
-                    variant={editOcppVersion === '1.6' ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => {
-                      handleEditVersionChange('1.6');
-                    }}
-                  >
-                    OCPP 1.6
-                  </Button>
-                </div>
-                {editVariables.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {t('configTemplates.versionSwitchWarning')}
-                  </p>
-                )}
-              </div>
-
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between gap-2">
-                  <Label className="whitespace-nowrap">{t('configTemplates.variables')}</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={addVariable}
-                  >
-                    <Plus className="h-4 w-4" />
-                    {t('configTemplates.addVariable')}
-                  </Button>
-                </div>
-                <TemplateVariableRows
-                  idPrefix="detail"
-                  ocppVersion={editOcppVersion}
-                  variables={editVariables}
-                  onChange={setEditVariables}
-                  bootOwnedRefused={isBootOwnedRefusal(updateMutation.error)}
-                  showDuplicates={hasSubmitted}
-                />
-              </div>
-
-              {!isStationTemplate && (
-                <TargetFilterFields
-                  endpoint="/v1/config-templates/filter-options"
-                  queryKeyPrefix={['config-template-filter-options']}
-                  value={editFilter}
-                  onChange={setEditFilter}
-                  idPrefix="ct-edit-filter"
-                  showDataPlan
-                />
+        }
+      >
+        {editing ? (
+          <form
+            className="grid gap-4"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              setHasSubmitted(true);
+              if (Object.keys(validationErrors).length > 0) return;
+              const body: {
+                name?: string;
+                description?: string;
+                ocppVersion?: OcppVersion;
+                variables?: TemplateVariable[];
+                targetFilter?: TargetFilterValue | null;
+              } = {
+                name: editName,
+                ocppVersion: editOcppVersion,
+                variables: templateVariablesForSave(editVariables, editOcppVersion),
+              };
+              if (editDescription !== '') body.description = editDescription;
+              if (!isStationTemplate) {
+                body.targetFilter = Object.keys(editFilter).length > 0 ? editFilter : null;
+              }
+              updateMutation.mutate(body);
+            }}
+          >
+            <div className="grid gap-2">
+              <Label htmlFor="ctd-edit-name">{t('common.name')}</Label>
+              <Input
+                id="ctd-edit-name"
+                value={editName}
+                onChange={(e) => {
+                  setEditName(e.target.value);
+                }}
+                className={hasSubmitted && validationErrors.editName ? 'border-destructive' : ''}
+              />
+              {hasSubmitted && validationErrors.editName && (
+                <p className="text-sm text-destructive">{validationErrors.editName}</p>
               )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="ctd-edit-description">{t('common.description')}</Label>
+              <Input
+                id="ctd-edit-description"
+                value={editDescription}
+                onChange={(e) => {
+                  setEditDescription(e.target.value);
+                }}
+              />
+            </div>
 
-              {updateMutation.isError && (
-                <p className="text-sm text-destructive">
-                  {getErrorMessage(updateMutation.error, t)}
+            <div className="grid gap-2">
+              <Label>{t('configTemplates.ocppVersion')}</Label>
+              <div className="flex gap-1">
+                <Button
+                  type="button"
+                  variant={editOcppVersion === '2.1' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => {
+                    handleEditVersionChange('2.1');
+                  }}
+                >
+                  OCPP 2.1
+                </Button>
+                <Button
+                  type="button"
+                  variant={editOcppVersion === '1.6' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => {
+                    handleEditVersionChange('1.6');
+                  }}
+                >
+                  OCPP 1.6
+                </Button>
+              </div>
+              {editVariables.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {t('configTemplates.versionSwitchWarning')}
                 </p>
               )}
-
-              <div className="flex justify-end gap-2">
-                <CancelButton
-                  onClick={() => {
-                    setEditing(false);
-                    setHasSubmitted(false);
-                  }}
-                />
-                <SaveButton isPending={updateMutation.isPending} />
-              </div>
-            </form>
-          ) : (
-            <div className="space-y-4">
-              <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <dt className="text-muted-foreground">{t('common.description')}</dt>
-                  <dd className="font-medium">{template.description ?? 'n/a'}</dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">{t('configTemplates.ocppVersion')}</dt>
-                  <dd className="font-medium">OCPP {templateVersion}</dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">{t('common.created')}</dt>
-                  <dd className="font-medium">{formatDateTime(template.createdAt, timezone)}</dd>
-                </div>
-                {hasFilter && (
-                  <>
-                    {template.targetFilter?.siteId != null && (
-                      <div>
-                        <dt className="text-muted-foreground">{t('configTemplates.site')}</dt>
-                        <dd className="font-medium">
-                          {resolveSiteName(template.targetFilter.siteId)}
-                        </dd>
-                      </div>
-                    )}
-                    {template.targetFilter?.vendorId != null && (
-                      <div>
-                        <dt className="text-muted-foreground">{t('configTemplates.vendor')}</dt>
-                        <dd className="font-medium">
-                          {resolveVendorName(template.targetFilter.vendorId)}
-                        </dd>
-                      </div>
-                    )}
-                    {template.targetFilter?.model != null && (
-                      <div>
-                        <dt className="text-muted-foreground">{t('configTemplates.model')}</dt>
-                        <dd className="font-medium">{template.targetFilter.model}</dd>
-                      </div>
-                    )}
-                    {template.targetFilter?.stationId != null && (
-                      <div>
-                        <dt className="text-muted-foreground">{t('configTemplates.station')}</dt>
-                        <dd className="font-medium">
-                          {resolveStationName(template.targetFilter.stationId)}
-                        </dd>
-                      </div>
-                    )}
-                    {isDataPlan(template.targetFilter?.dataPlan) && (
-                      <div>
-                        <dt className="text-muted-foreground">{t('dataPlan.title')}</dt>
-                        <dd className="font-medium">
-                          {t(`dataPlan.plans.${template.targetFilter.dataPlan}`)}
-                        </dd>
-                      </div>
-                    )}
-                  </>
-                )}
-              </dl>
-
-              <div>
-                <h3 className="text-sm font-medium mb-2">
-                  {t('configTemplates.variables')} ({variables.length})
-                </h3>
-                {variables.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    {t('configTemplates.noVariables')}
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          {templateVersion !== '1.6' && (
-                            <TableHead>{t('configTemplates.component')}</TableHead>
-                          )}
-                          <TableHead>
-                            {templateVersion === '1.6'
-                              ? t('configTemplates.configKey')
-                              : t('configTemplates.variable')}
-                          </TableHead>
-                          {templateVersion !== '1.6' && hasInstances && (
-                            <TableHead>{t('configTemplates.variableInstance')}</TableHead>
-                          )}
-                          <TableHead>{t('common.value')}</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {variables.map((v, i) => (
-                          <TableRow key={i}>
-                            {templateVersion !== '1.6' && (
-                              <TableCell className="text-xs">{v.component}</TableCell>
-                            )}
-                            <TableCell className="text-xs">{v.variable}</TableCell>
-                            {templateVersion !== '1.6' && hasInstances && (
-                              <TableCell className="text-xs">{v.variableInstance ?? ''}</TableCell>
-                            )}
-                            <TableCell className="text-xs">{v.value}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="whitespace-nowrap">{t('configTemplates.variables')}</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={addVariable}
+                >
+                  <Plus className="h-4 w-4" />
+                  {t('configTemplates.addVariable')}
+                </Button>
+              </div>
+              <TemplateVariableRows
+                idPrefix="detail"
+                ocppVersion={editOcppVersion}
+                variables={editVariables}
+                onChange={setEditVariables}
+                bootOwnedRefused={isBootOwnedRefusal(updateMutation.error)}
+                showDuplicates={hasSubmitted}
+              />
+            </div>
+
+            {!isStationTemplate && (
+              <TargetFilterFields
+                endpoint="/v1/config-templates/filter-options"
+                queryKeyPrefix={['config-template-filter-options']}
+                value={editFilter}
+                onChange={setEditFilter}
+                idPrefix="ct-edit-filter"
+                showDataPlan
+              />
+            )}
+
+            {updateMutation.isError && (
+              <p className="text-sm text-destructive">{getErrorMessage(updateMutation.error, t)}</p>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <CancelButton
+                onClick={() => {
+                  setEditing(false);
+                  setHasSubmitted(false);
+                }}
+              />
+              <SaveButton isPending={updateMutation.isPending} />
+            </div>
+          </form>
+        ) : (
+          <div className="space-y-4">
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div>
+                <dt className="text-muted-foreground">{t('common.description')}</dt>
+                <dd className="font-medium">{template.description ?? 'n/a'}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('configTemplates.ocppVersion')}</dt>
+                <dd className="font-medium">OCPP {templateVersion}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('common.created')}</dt>
+                <dd className="font-medium">{formatDateTime(template.createdAt, timezone)}</dd>
+              </div>
+              {hasFilter && (
+                <>
+                  {template.targetFilter?.siteId != null && (
+                    <div>
+                      <dt className="text-muted-foreground">{t('configTemplates.site')}</dt>
+                      <dd className="font-medium">
+                        {resolveSiteName(template.targetFilter.siteId)}
+                      </dd>
+                    </div>
+                  )}
+                  {template.targetFilter?.vendorId != null && (
+                    <div>
+                      <dt className="text-muted-foreground">{t('configTemplates.vendor')}</dt>
+                      <dd className="font-medium">
+                        {resolveVendorName(template.targetFilter.vendorId)}
+                      </dd>
+                    </div>
+                  )}
+                  {template.targetFilter?.model != null && (
+                    <div>
+                      <dt className="text-muted-foreground">{t('configTemplates.model')}</dt>
+                      <dd className="font-medium">{template.targetFilter.model}</dd>
+                    </div>
+                  )}
+                  {template.targetFilter?.stationId != null && (
+                    <div>
+                      <dt className="text-muted-foreground">{t('configTemplates.station')}</dt>
+                      <dd className="font-medium">
+                        {resolveStationName(template.targetFilter.stationId)}
+                      </dd>
+                    </div>
+                  )}
+                  {isDataPlan(template.targetFilter?.dataPlan) && (
+                    <div>
+                      <dt className="text-muted-foreground">{t('dataPlan.title')}</dt>
+                      <dd className="font-medium">
+                        {t(`dataPlan.plans.${template.targetFilter.dataPlan}`)}
+                      </dd>
+                    </div>
+                  )}
+                </>
+              )}
+            </dl>
+
+            <div>
+              <h3 className="text-sm font-medium mb-2">
+                {t('configTemplates.variables')} ({variables.length})
+              </h3>
+              {variables.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t('configTemplates.noVariables')}</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        {templateVersion !== '1.6' && (
+                          <TableHead>{t('configTemplates.component')}</TableHead>
+                        )}
+                        <TableHead>
+                          {templateVersion === '1.6'
+                            ? t('configTemplates.configKey')
+                            : t('configTemplates.variable')}
+                        </TableHead>
+                        {templateVersion !== '1.6' && hasInstances && (
+                          <TableHead>{t('configTemplates.variableInstance')}</TableHead>
+                        )}
+                        <TableHead>{t('common.value')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {variables.map((v, i) => (
+                        <TableRow key={i}>
+                          {templateVersion !== '1.6' && (
+                            <TableCell className="text-xs">{v.component}</TableCell>
+                          )}
+                          <TableCell className="text-xs">{v.variable}</TableCell>
+                          {templateVersion !== '1.6' && hasInstances && (
+                            <TableCell className="text-xs">{v.variableInstance ?? ''}</TableCell>
+                          )}
+                          <TableCell className="text-xs">{v.value}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </TabPanel>
 
       <ConfirmDialog
         open={deleteOpen}

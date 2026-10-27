@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Label } from '@/components/ui/label';
 import { Toggle } from '@/components/ui/toggle';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { TabsContent } from '@/components/ui/tabs';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
@@ -38,6 +38,9 @@ export function SiteFreeVendTab({ site, siteId }: SiteFreeVendTabProps): React.J
   // Free vend changes what every driver at the site pays: confirm both ways.
   const [confirmOpen, setConfirmOpen] = useState(false);
   const enabling = !site.freeVendEnabled;
+  const showDisabledNote =
+    !site.freeVendEnabled &&
+    (site.freeVendRestoreTemplateId21 != null || site.freeVendRestoreTemplateId16 != null);
 
   const freeVendMutation = useMutation({
     mutationFn: (enabled: boolean) => api.post(`/v1/sites/${siteId}/free-vend`, { enabled }),
@@ -48,32 +51,33 @@ export function SiteFreeVendTab({ site, siteId }: SiteFreeVendTabProps): React.J
   });
 
   return (
-    <TabsContent value="free-vend" className="space-y-6">
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between">
-            <div className="grid gap-1">
-              <Label>{t('sites.freeVend')}</Label>
-              <p className="text-xs text-muted-foreground">{t('sites.freeVendDescription')}</p>
-            </div>
-            <Toggle
-              aria-label={t('sites.freeVend')}
-              size="lg"
-              checked={site.freeVendEnabled}
-              onCheckedChange={() => {
-                freeVendMutation.reset();
-                setConfirmOpen(true);
-              }}
-              disabled={!canWrite || freeVendMutation.isPending}
-            />
+    <TabsContent value="free-vend">
+      <TabPanel
+        title={t('sites.freeVend')}
+        description={showDisabledNote ? t('sites.freeVendDisabledNote') : undefined}
+      >
+        <div className="flex items-center justify-between">
+          <div className="grid gap-1">
+            <Label>{t('sites.freeVend')}</Label>
+            <p className="text-xs text-muted-foreground">{t('sites.freeVendDescription')}</p>
           </div>
-          {freeVendMutation.isError && !confirmOpen && (
-            <p className="mt-3 text-sm text-destructive">
-              {getErrorMessage(freeVendMutation.error, t)}
-            </p>
-          )}
-        </CardContent>
-      </Card>
+          <Toggle
+            aria-label={t('sites.freeVend')}
+            size="lg"
+            checked={site.freeVendEnabled}
+            onCheckedChange={() => {
+              freeVendMutation.reset();
+              setConfirmOpen(true);
+            }}
+            disabled={!canWrite || freeVendMutation.isPending}
+          />
+        </div>
+        {freeVendMutation.isError && !confirmOpen && (
+          <p className="mt-3 text-sm text-destructive">
+            {getErrorMessage(freeVendMutation.error, t)}
+          </p>
+        )}
+      </TabPanel>
 
       <ConfirmDialog
         open={confirmOpen}
@@ -95,74 +99,50 @@ export function SiteFreeVendTab({ site, siteId }: SiteFreeVendTabProps): React.J
         )}
       </ConfirmDialog>
 
-      {!site.freeVendEnabled &&
-        (site.freeVendRestoreTemplateId21 != null || site.freeVendRestoreTemplateId16 != null) && (
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">{t('sites.freeVendDisabledNote')}</p>
-            </CardContent>
-          </Card>
-        )}
-
       {site.freeVendTemplateId21 != null && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('sites.freeVendOcpp21Template')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Link
-              to={`/station-configurations/${site.freeVendTemplateId21}`}
-              className="text-link hover:underline text-sm"
-            >
-              {t('sites.freeVendViewTemplate')}
-            </Link>
-          </CardContent>
-        </Card>
+        <TabPanel title={t('sites.freeVendOcpp21Template')}>
+          <Link
+            to={`/station-configurations/${site.freeVendTemplateId21}`}
+            className="text-link hover:underline text-sm"
+          >
+            {t('sites.freeVendViewTemplate')}
+          </Link>
+        </TabPanel>
       )}
 
       {site.freeVendTemplateId16 != null && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('sites.freeVendOcpp16Template')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Link
-              to={`/station-configurations/${site.freeVendTemplateId16}`}
-              className="text-link hover:underline text-sm"
-            >
-              {t('sites.freeVendViewTemplate')}
-            </Link>
-            <p className="text-xs text-muted-foreground mt-2">{t('sites.freeVendOcpp16Note')}</p>
-          </CardContent>
-        </Card>
+        <TabPanel title={t('sites.freeVendOcpp16Template')} bodyClassName="space-y-2">
+          <Link
+            to={`/station-configurations/${site.freeVendTemplateId16}`}
+            className="text-link hover:underline text-sm"
+          >
+            {t('sites.freeVendViewTemplate')}
+          </Link>
+          <p className="text-xs text-muted-foreground mt-2">{t('sites.freeVendOcpp16Note')}</p>
+        </TabPanel>
       )}
       {(site.freeVendRestoreTemplateId21 != null || site.freeVendRestoreTemplateId16 != null) && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('sites.freeVendRestoreTitle')}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <p className="text-xs text-muted-foreground">{t('sites.freeVendRestoreDescription')}</p>
-            {(
-              [
-                ['freeVendOcpp21Template', site.freeVendRestoreTemplateId21],
-                ['freeVendOcpp16Template', site.freeVendRestoreTemplateId16],
-              ] as const
-            ).map(([labelKey, templateId]) =>
-              templateId != null ? (
-                <div key={labelKey} className="flex flex-wrap items-center gap-x-2 text-sm">
-                  <span className="text-muted-foreground">{t(`sites.${labelKey}`)}</span>
-                  <Link
-                    to={`/station-configurations/${templateId}`}
-                    className="text-link hover:underline"
-                  >
-                    {t('sites.freeVendViewTemplate')}
-                  </Link>
-                </div>
-              ) : null,
-            )}
-          </CardContent>
-        </Card>
+        <TabPanel title={t('sites.freeVendRestoreTitle')} bodyClassName="space-y-2">
+          <p className="text-xs text-muted-foreground">{t('sites.freeVendRestoreDescription')}</p>
+          {(
+            [
+              ['freeVendOcpp21Template', site.freeVendRestoreTemplateId21],
+              ['freeVendOcpp16Template', site.freeVendRestoreTemplateId16],
+            ] as const
+          ).map(([labelKey, templateId]) =>
+            templateId != null ? (
+              <div key={labelKey} className="flex flex-wrap items-center gap-x-2 text-sm">
+                <span className="text-muted-foreground">{t(`sites.${labelKey}`)}</span>
+                <Link
+                  to={`/station-configurations/${templateId}`}
+                  className="text-link hover:underline"
+                >
+                  {t('sites.freeVendViewTemplate')}
+                </Link>
+              </div>
+            ) : null,
+          )}
+        </TabPanel>
       )}
     </TabsContent>
   );

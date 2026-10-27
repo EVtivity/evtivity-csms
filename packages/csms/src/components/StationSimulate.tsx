@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { ClearableInput } from '@/components/ui/clearable-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
@@ -171,107 +171,102 @@ export function StationSimulate({
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('simulate.title')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="sim-evse">{t('simulate.evseId')}</Label>
-            <Input
-              id="sim-evse"
-              type="number"
-              min={1}
-              value={selectedEvse}
-              onChange={(e) => {
-                setSelectedEvse(Number(e.target.value));
-              }}
-            />
-          </div>
-          <div className="grid gap-2">
-            <div className="flex items-center justify-between gap-2">
-              <Label htmlFor="sim-token" className="whitespace-nowrap">
-                {t('simulate.idToken')}
-              </Label>
-              <span className="text-xs text-muted-foreground">{t('simulate.tokenUsedBy')}</span>
-            </div>
-            <ClearableInput
-              id="sim-token"
-              value={idToken}
-              onChange={(v) => {
-                setIdToken(v);
-                setTokenError(null);
-              }}
-              onClear={() => {
-                setTokenError(null);
-              }}
-              invalid={tokenError != null}
-              clearLabel={t('common.clear')}
-            />
-            {tokenError != null && (
-              <p className="flex items-center gap-1 text-xs text-destructive">
-                <AlertCircle className="h-3 w-3" />
-                {tokenError}
-              </p>
-            )}
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="sim-fault-mode">{t('simulate.faultMode')}</Label>
-            <Select
-              id="sim-fault-mode"
-              value={faultMode}
-              onChange={(e) => {
-                setFaultMode(e.target.value === 'suspend' ? 'suspend' : 'end');
-              }}
-            >
-              <option value="end">{t('simulate.faultModeEnd')}</option>
-              <option value="suspend">{t('simulate.faultModeSuspend')}</option>
-            </Select>
-          </div>
+    <TabPanel title={t('simulate.tab')} bodyClassName="space-y-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid gap-2">
+          <Label htmlFor="sim-evse">{t('simulate.evseId')}</Label>
+          <Input
+            id="sim-evse"
+            type="number"
+            min={1}
+            value={selectedEvse}
+            onChange={(e) => {
+              setSelectedEvse(Number(e.target.value));
+            }}
+          />
         </div>
+        <div className="grid gap-2">
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="sim-token" className="whitespace-nowrap">
+              {t('simulate.idToken')}
+            </Label>
+            <span className="text-xs text-muted-foreground">{t('simulate.tokenUsedBy')}</span>
+          </div>
+          <ClearableInput
+            id="sim-token"
+            value={idToken}
+            onChange={(v) => {
+              setIdToken(v);
+              setTokenError(null);
+            }}
+            onClear={() => {
+              setTokenError(null);
+            }}
+            invalid={tokenError != null}
+            clearLabel={t('common.clear')}
+          />
+          {tokenError != null && (
+            <p className="flex items-center gap-1 text-xs text-destructive">
+              <AlertCircle className="h-3 w-3" />
+              {tokenError}
+            </p>
+          )}
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="sim-fault-mode">{t('simulate.faultMode')}</Label>
+          <Select
+            id="sim-fault-mode"
+            value={faultMode}
+            onChange={(e) => {
+              setFaultMode(e.target.value === 'suspend' ? 'suspend' : 'end');
+            }}
+          >
+            <option value="end">{t('simulate.faultModeEnd')}</option>
+            <option value="suspend">{t('simulate.faultModeSuspend')}</option>
+          </Select>
+        </div>
+      </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-          {actions.map((config) => {
-            const isLoading = activeAction === config.action && actionMutation.isPending;
-            const isInvalidForState = !validActions.has(config.action);
-            const disabled = actionMutation.isPending || isInvalidForState;
-            // The spinner is absolutely positioned over invisible text so the
-            // label stays in the DOM and the button width doesn't shift on click.
-            const button = (
-              <Button
-                key={config.action}
-                variant="outline"
-                disabled={disabled}
-                onClick={() => {
-                  void handleAction(config);
-                }}
-                className="relative w-full min-w-0"
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+        {actions.map((config) => {
+          const isLoading = activeAction === config.action && actionMutation.isPending;
+          const isInvalidForState = !validActions.has(config.action);
+          const disabled = actionMutation.isPending || isInvalidForState;
+          // The spinner is absolutely positioned over invisible text so the
+          // label stays in the DOM and the button width doesn't shift on click.
+          const button = (
+            <Button
+              key={config.action}
+              variant="outline"
+              disabled={disabled}
+              onClick={() => {
+                void handleAction(config);
+              }}
+              className="relative w-full min-w-0"
+            >
+              {isLoading && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Spinner className="h-4 w-4" />
+                </div>
+              )}
+              {/* Two lines inside the 40 px button when a label is wider than a phone column. */}
+              <span
+                className={`whitespace-normal text-center leading-tight ${isLoading ? 'invisible' : ''}`}
               >
-                {isLoading && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Spinner className="h-4 w-4" />
-                  </div>
-                )}
-                {/* Two lines inside the 40 px button when a label is wider than a phone column. */}
-                <span
-                  className={`whitespace-normal text-center leading-tight ${isLoading ? 'invisible' : ''}`}
-                >
-                  {config.label}
-                </span>
-              </Button>
+                {config.label}
+              </span>
+            </Button>
+          );
+          if (isInvalidForState && invalidReason != null) {
+            return (
+              <Tooltip key={config.action} content={invalidReason}>
+                {button}
+              </Tooltip>
             );
-            if (isInvalidForState && invalidReason != null) {
-              return (
-                <Tooltip key={config.action} content={invalidReason}>
-                  {button}
-                </Tooltip>
-              );
-            }
-            return <div key={config.action}>{button}</div>;
-          })}
-        </div>
-      </CardContent>
-    </Card>
+          }
+          return <div key={config.action}>{button}</div>;
+        })}
+      </div>
+    </TabPanel>
   );
 }

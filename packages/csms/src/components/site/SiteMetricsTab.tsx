@@ -3,8 +3,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { TabsContent } from '@/components/ui/tabs';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { StationPowerChart } from '@/components/charts/StationPowerChart';
 import { StationEnergyChart } from '@/components/charts/StationEnergyChart';
 import { RevenueChart } from '@/components/charts/RevenueChart';
@@ -78,6 +77,7 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
 
   const {
     data: metrics,
+    isLoading: metricsLoading,
     isError: metricsError,
     refetch: refetchMetrics,
   } = useQuery({
@@ -118,120 +118,118 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
   });
 
   return (
-    <TabsContent value="metrics" className="space-y-6">
-      {metrics != null && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('sites.siteMetrics')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.uptime')}</p>
-                <p className={`text-2xl font-bold ${uptimeColor(metrics.uptimePercent)}`}>
-                  {String(metrics.uptimePercent)}%
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.utilization')}</p>
-                <p className="text-2xl font-bold">{String(metrics.utilizationPercent)}%</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.sessionSuccess')}</p>
-                <p className="text-2xl font-bold">{String(metrics.sessionSuccessPercent)}%</p>
-                <p className="text-xs text-muted-foreground">
-                  {String(metrics.completedSessions)}/{String(metrics.totalSessions)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.energyDelivered')}</p>
-                <p className="text-2xl font-bold">{formatEnergy(metrics.totalEnergyWh)}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.avgSession')}</p>
-                <p className="text-2xl font-bold">
-                  {formatDurationMinutes(metrics.avgSessionDurationMinutes)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.faultedSessions')}</p>
-                <p className="text-2xl font-bold">{String(metrics.faultedSessions)}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.disconnects')}</p>
-                <p className="text-2xl font-bold">{String(metrics.disconnectCount)}</p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.avgDowntime')}</p>
-                <p className="text-2xl font-bold">
-                  {formatDurationMinutes(metrics.avgDowntimeMinutes)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">{t('metrics.maxDowntime')}</p>
-                <p className="text-2xl font-bold">
-                  {formatDurationMinutes(metrics.maxDowntimeMinutes)}
-                </p>
-              </div>
-              {canReadPayments && (
-                <>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">{t('metrics.totalRevenue')}</p>
-                    <p className="text-2xl font-bold">
-                      {formatCents(metrics.totalRevenueCents ?? 0, metrics.currency)}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">{t('metrics.netRevenue')}</p>
-                    <p className="text-2xl font-bold">
-                      {formatCents(metrics.totalNetRevenueCents ?? 0, metrics.currency)}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">{t('metrics.taxCollected')}</p>
-                    <p className="text-2xl font-bold">
-                      {formatCents(metrics.totalTaxCents ?? 0, metrics.currency)}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">
-                      {t('metrics.revenuePerSession')}
-                    </p>
-                    <p className="text-2xl font-bold">
-                      {formatCents(metrics.avgRevenueCentsPerSession ?? 0, metrics.currency)}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">
-                      {t('metrics.totalTransactions')}
-                    </p>
-                    <p className="text-2xl font-bold">{String(metrics.totalTransactions)}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">{t('metrics.electricityCost')}</p>
-                    <p className="text-2xl font-bold">
-                      {formatCents(metrics.totalElectricityCostCents ?? 0, metrics.currency)}
-                    </p>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm text-muted-foreground">{t('metrics.profit')}</p>
-                    <p
-                      className={`text-2xl font-bold ${(metrics.totalProfitCents ?? 0) >= 0 ? 'text-success' : 'text-destructive'}`}
-                    >
-                      {formatCents(metrics.totalProfitCents ?? 0, metrics.currency)}
-                    </p>
-                    {(metrics.costMissingSessionCount ?? 0) > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        {t('metrics.costMissing', { count: metrics.costMissingSessionCount })}
-                      </p>
-                    )}
-                  </div>
-                </>
-              )}
+    <>
+      <TabPanel
+        title={t('sites.metrics')}
+        isLoading={metricsLoading}
+        isError={metricsError}
+        onRetry={() => {
+          void refetchMetrics();
+        }}
+      >
+        {metrics != null && (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('metrics.uptime')}</p>
+              <p className={`text-2xl font-bold ${uptimeColor(metrics.uptimePercent)}`}>
+                {String(metrics.uptimePercent)}%
+              </p>
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('metrics.utilization')}</p>
+              <p className="text-2xl font-bold">{String(metrics.utilizationPercent)}%</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('metrics.sessionSuccess')}</p>
+              <p className="text-2xl font-bold">{String(metrics.sessionSuccessPercent)}%</p>
+              <p className="text-xs text-muted-foreground">
+                {String(metrics.completedSessions)}/{String(metrics.totalSessions)}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('metrics.energyDelivered')}</p>
+              <p className="text-2xl font-bold">{formatEnergy(metrics.totalEnergyWh)}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('metrics.avgSession')}</p>
+              <p className="text-2xl font-bold">
+                {formatDurationMinutes(metrics.avgSessionDurationMinutes)}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('metrics.faultedSessions')}</p>
+              <p className="text-2xl font-bold">{String(metrics.faultedSessions)}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('metrics.disconnects')}</p>
+              <p className="text-2xl font-bold">{String(metrics.disconnectCount)}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('metrics.avgDowntime')}</p>
+              <p className="text-2xl font-bold">
+                {formatDurationMinutes(metrics.avgDowntimeMinutes)}
+              </p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-muted-foreground">{t('metrics.maxDowntime')}</p>
+              <p className="text-2xl font-bold">
+                {formatDurationMinutes(metrics.maxDowntimeMinutes)}
+              </p>
+            </div>
+            {canReadPayments && (
+              <>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">{t('metrics.totalRevenue')}</p>
+                  <p className="text-2xl font-bold">
+                    {formatCents(metrics.totalRevenueCents ?? 0, metrics.currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">{t('metrics.netRevenue')}</p>
+                  <p className="text-2xl font-bold">
+                    {formatCents(metrics.totalNetRevenueCents ?? 0, metrics.currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">{t('metrics.taxCollected')}</p>
+                  <p className="text-2xl font-bold">
+                    {formatCents(metrics.totalTaxCents ?? 0, metrics.currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">{t('metrics.revenuePerSession')}</p>
+                  <p className="text-2xl font-bold">
+                    {formatCents(metrics.avgRevenueCentsPerSession ?? 0, metrics.currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">{t('metrics.totalTransactions')}</p>
+                  <p className="text-2xl font-bold">{String(metrics.totalTransactions)}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">{t('metrics.electricityCost')}</p>
+                  <p className="text-2xl font-bold">
+                    {formatCents(metrics.totalElectricityCostCents ?? 0, metrics.currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">{t('metrics.profit')}</p>
+                  <p
+                    className={`text-2xl font-bold ${(metrics.totalProfitCents ?? 0) >= 0 ? 'text-success' : 'text-destructive'}`}
+                  >
+                    {formatCents(metrics.totalProfitCents ?? 0, metrics.currency)}
+                  </p>
+                  {(metrics.costMissingSessionCount ?? 0) > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('metrics.costMissing', { count: metrics.costMissingSessionCount })}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </TabPanel>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {meterData != null && <StationPowerChart data={meterData} />}
@@ -253,6 +251,6 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
       {popularTimesData != null && popularTimesData.length > 0 && (
         <PopularTimesChart data={popularTimesData} />
       )}
-    </TabsContent>
+    </>
   );
 }

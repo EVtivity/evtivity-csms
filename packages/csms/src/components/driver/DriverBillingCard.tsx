@@ -4,7 +4,7 @@
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 
 interface FleetRef {
   id: string;
@@ -43,59 +43,58 @@ export function DriverBillingCard({ billing }: DriverBillingCardProps): React.JS
   const onAccount = billing.mode === 'account';
   const invoicedToMember = onAccount && billing.invoicedTo === 'member';
   return (
-    <Card data-testid="driver-billing">
-      <CardHeader>
-        <CardTitle>{t('drivers.billing.title')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3 text-sm">
-        <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <TabPanel
+      data-testid="driver-billing"
+      title={t('drivers.billing.title')}
+      bodyClassName="space-y-3 text-sm"
+    >
+      <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div>
+          <dt className="text-muted-foreground">{t('drivers.billing.mode')}</dt>
+          <dd>
+            <Badge variant={onAccount ? 'info' : 'outline'}>
+              {onAccount ? t('drivers.billing.modeAccount') : t('drivers.billing.modeCard')}
+            </Badge>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">{t('drivers.billing.billingFleet')}</dt>
+          <dd className="font-medium">
+            <FleetLink fleet={billing.billingFleet} none={t('drivers.billing.none')} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">{t('drivers.billing.pricingFleet')}</dt>
+          <dd className="font-medium">
+            {billing.pricingSource === 'driver' ? (
+              <span data-testid="driver-pricing-override">
+                {t('drivers.billing.pricingDriverGroup', {
+                  group: billing.pricingGroup?.name ?? '',
+                })}
+              </span>
+            ) : (
+              <FleetLink fleet={billing.pricingFleet} none={t('drivers.billing.none')} />
+            )}
+          </dd>
+        </div>
+        {onAccount && (
           <div>
-            <dt className="text-muted-foreground">{t('drivers.billing.mode')}</dt>
-            <dd>
-              <Badge variant={onAccount ? 'info' : 'outline'}>
-                {onAccount ? t('drivers.billing.modeAccount') : t('drivers.billing.modeCard')}
-              </Badge>
+            <dt className="text-muted-foreground">{t('drivers.billing.invoicedTo')}</dt>
+            <dd className="font-medium" data-testid="driver-invoiced-to">
+              {invoicedToMember
+                ? t('drivers.billing.invoicedToMember')
+                : t('drivers.billing.invoicedToFleet')}
             </dd>
           </div>
-          <div>
-            <dt className="text-muted-foreground">{t('drivers.billing.billingFleet')}</dt>
-            <dd className="font-medium">
-              <FleetLink fleet={billing.billingFleet} none={t('drivers.billing.none')} />
-            </dd>
-          </div>
-          <div>
-            <dt className="text-muted-foreground">{t('drivers.billing.pricingFleet')}</dt>
-            <dd className="font-medium">
-              {billing.pricingSource === 'driver' ? (
-                <span data-testid="driver-pricing-override">
-                  {t('drivers.billing.pricingDriverGroup', {
-                    group: billing.pricingGroup?.name ?? '',
-                  })}
-                </span>
-              ) : (
-                <FleetLink fleet={billing.pricingFleet} none={t('drivers.billing.none')} />
-              )}
-            </dd>
-          </div>
-          {onAccount && (
-            <div>
-              <dt className="text-muted-foreground">{t('drivers.billing.invoicedTo')}</dt>
-              <dd className="font-medium" data-testid="driver-invoiced-to">
-                {invoicedToMember
-                  ? t('drivers.billing.invoicedToMember')
-                  : t('drivers.billing.invoicedToFleet')}
-              </dd>
-            </div>
-          )}
-        </dl>
-        <p className="text-muted-foreground">
-          {invoicedToMember
-            ? t('drivers.billing.helpAccountMember')
-            : onAccount
-              ? t('drivers.billing.helpAccount')
-              : t('drivers.billing.helpCard')}
-        </p>
-      </CardContent>
-    </Card>
+        )}
+      </dl>
+      <p className="text-muted-foreground">
+        {invoicedToMember
+          ? t('drivers.billing.helpAccountMember')
+          : onAccount
+            ? t('drivers.billing.helpAccount')
+            : t('drivers.billing.helpCard')}
+      </p>
+    </TabPanel>
   );
 }

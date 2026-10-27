@@ -9,7 +9,8 @@ import { AlertTriangle, Link2, ShieldCheck, Unlink } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState } from '@/components/ui/content-state';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DescriptionItem, DescriptionList } from '@/components/ui/description-list';
 import { Pagination } from '@/components/ui/pagination';
@@ -22,7 +23,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
-import { LoadingLogo } from '@/components/loading-logo';
 import { DisabledWithReason } from '@/components/sim/DisabledWithReason';
 import { simErrorMessage, simKey } from '@/components/sim/sim-connectivity';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
@@ -139,9 +139,11 @@ function CurrentAttachmentCard({ sim, timezone }: SimAttachmentsTabProps): React
   );
 
   return (
-    <Card data-testid="sim-current-attachment">
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('sims.detail.attachments.currentTitle')}</CardTitle>
+    <TabPanel
+      data-testid="sim-current-attachment"
+      title={t('sims.detail.tabs.attachments')}
+      bodyClassName="space-y-4"
+      actions={
         <div className="flex flex-wrap gap-2">
           {attachment == null &&
             canAttach &&
@@ -177,56 +179,53 @@ function CurrentAttachmentCard({ sim, timezone }: SimAttachmentsTabProps): React
             </Button>
           )}
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {attachment == null ? (
-          <p className="text-center text-sm text-muted-foreground">
-            {t('sims.detail.attachments.notAttached')}
-          </p>
-        ) : (
-          <>
-            {!attachment.confirmed && (
-              <Alert variant="warning">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  {t('sims.detail.attachments.unconfirmedNotice', { station })}
-                </AlertDescription>
-              </Alert>
-            )}
-            <DescriptionList>
-              <DescriptionItem label={t('sims.detail.attachments.station')}>
-                <StationText
-                  stationId={attachment.stationId}
-                  stationOcppId={attachment.stationOcppId}
-                />
-              </DescriptionItem>
-              <DescriptionItem label={t('sims.detail.attachments.site')}>
-                <span className="wrap-anywhere">{attachment.siteName ?? t('common.na')}</span>
-              </DescriptionItem>
-              <DescriptionItem label={t('sims.detail.attachments.source')}>
-                <SourceText source={attachment.source} />
-              </DescriptionItem>
-              <DescriptionItem label={t('sims.detail.attachments.attached')}>
-                {formatDateTime(attachment.attachedAt, timezone)}
-              </DescriptionItem>
-              <DescriptionItem label={t('sims.detail.attachments.attachedBy')}>
-                {sim.attachedBy?.name ?? t('common.na')}
-              </DescriptionItem>
-              <DescriptionItem label={t('sims.detail.attachments.confirmed')}>
-                {attachment.confirmed ? (
-                  <Badge variant="success">
-                    {attachment.confirmedAt == null
-                      ? t('common.yes')
-                      : formatDateTime(attachment.confirmedAt, timezone)}
-                  </Badge>
-                ) : (
-                  <Badge variant="warning">{t('sims.detail.attachments.notConfirmed')}</Badge>
-                )}
-              </DescriptionItem>
-            </DescriptionList>
-          </>
-        )}
-      </CardContent>
+      }
+    >
+      {attachment == null ? (
+        <EmptyState>{t('sims.detail.attachments.notAttached')}</EmptyState>
+      ) : (
+        <>
+          {!attachment.confirmed && (
+            <Alert variant="warning">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                {t('sims.detail.attachments.unconfirmedNotice', { station })}
+              </AlertDescription>
+            </Alert>
+          )}
+          <DescriptionList>
+            <DescriptionItem label={t('sims.detail.attachments.station')}>
+              <StationText
+                stationId={attachment.stationId}
+                stationOcppId={attachment.stationOcppId}
+              />
+            </DescriptionItem>
+            <DescriptionItem label={t('sims.detail.attachments.site')}>
+              <span className="wrap-anywhere">{attachment.siteName ?? t('common.na')}</span>
+            </DescriptionItem>
+            <DescriptionItem label={t('sims.detail.attachments.source')}>
+              <SourceText source={attachment.source} />
+            </DescriptionItem>
+            <DescriptionItem label={t('sims.detail.attachments.attached')}>
+              {formatDateTime(attachment.attachedAt, timezone)}
+            </DescriptionItem>
+            <DescriptionItem label={t('sims.detail.attachments.attachedBy')}>
+              {sim.attachedBy?.name ?? t('common.na')}
+            </DescriptionItem>
+            <DescriptionItem label={t('sims.detail.attachments.confirmed')}>
+              {attachment.confirmed ? (
+                <Badge variant="success">
+                  {attachment.confirmedAt == null
+                    ? t('common.yes')
+                    : formatDateTime(attachment.confirmedAt, timezone)}
+                </Badge>
+              ) : (
+                <Badge variant="warning">{t('sims.detail.attachments.notConfirmed')}</Badge>
+              )}
+            </DescriptionItem>
+          </DescriptionList>
+        </>
+      )}
       <AttachSimDialog open={attachOpen} onOpenChange={setAttachOpen} simId={sim.id} />
       {attachment != null && (
         <>
@@ -263,7 +262,7 @@ function CurrentAttachmentCard({ sim, timezone }: SimAttachmentsTabProps): React
           />
         </>
       )}
-    </Card>
+    </TabPanel>
   );
 }
 
@@ -282,96 +281,75 @@ function AttachmentHistoryCard({
   const rows = history.data ?? [];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('sims.detail.attachments.historyTitle')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {history.isLoading ? (
-          <LoadingLogo size="inline" />
-        ) : history.isError ? (
-          <div className="space-y-2 text-center">
-            <p className="text-sm text-destructive">{t('common.loadError')}</p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                history.refetch();
-              }}
-            >
-              {t('common.retry')}
-            </Button>
-          </div>
-        ) : rows.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">
-            {t('sims.detail.attachments.noHistory')}
-          </p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('sims.detail.attachments.columns.station')}</TableHead>
-                    <TableHead>{t('sims.detail.attachments.columns.site')}</TableHead>
-                    <TableHead>{t('sims.detail.attachments.columns.source')}</TableHead>
-                    <TableHead>{t('sims.detail.attachments.columns.attached')}</TableHead>
-                    <TableHead>{t('sims.detail.attachments.columns.detached')}</TableHead>
-                    <TableHead>{t('sims.detail.attachments.columns.reason')}</TableHead>
+    <TabPanel
+      title={t('sims.detail.attachments.historyTitle')}
+      bodyClassName="space-y-4"
+      isLoading={history.isLoading}
+      isError={history.isError}
+      onRetry={history.refetch}
+      isEmpty={rows.length === 0}
+      emptyMessage={t('sims.detail.attachments.noHistory')}
+    >
+      <>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('sims.detail.attachments.columns.station')}</TableHead>
+                <TableHead>{t('sims.detail.attachments.columns.site')}</TableHead>
+                <TableHead>{t('sims.detail.attachments.columns.source')}</TableHead>
+                <TableHead>{t('sims.detail.attachments.columns.attached')}</TableHead>
+                <TableHead>{t('sims.detail.attachments.columns.detached')}</TableHead>
+                <TableHead>{t('sims.detail.attachments.columns.reason')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => {
+                const reasonKey =
+                  row.detachReason == null ? null : detachReasonKey(row.detachReason);
+                return (
+                  <TableRow key={row.id} data-testid={`sim-attachment-row-${String(row.id)}`}>
+                    <TableCell>
+                      <StationText stationId={row.stationId} stationOcppId={row.stationOcppId} />
+                    </TableCell>
+                    <TableCell>{row.siteName ?? t('common.na')}</TableCell>
+                    <TableCell>
+                      <SourceText source={row.source} />
+                      {row.attachedBy?.name != null && (
+                        <span className="block text-xs text-muted-foreground">
+                          {row.attachedBy.name}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {formatDateTime(row.attachedAt, timezone)}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {row.detachedAt == null ? (
+                        <Badge variant="success">{t('sims.detail.attachments.open')}</Badge>
+                      ) : (
+                        formatDateTime(row.detachedAt, timezone)
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {row.detachReason == null
+                        ? ''
+                        : reasonKey != null
+                          ? t(reasonKey)
+                          : row.detachReason}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((row) => {
-                    const reasonKey =
-                      row.detachReason == null ? null : detachReasonKey(row.detachReason);
-                    return (
-                      <TableRow key={row.id} data-testid={`sim-attachment-row-${String(row.id)}`}>
-                        <TableCell>
-                          <StationText
-                            stationId={row.stationId}
-                            stationOcppId={row.stationOcppId}
-                          />
-                        </TableCell>
-                        <TableCell>{row.siteName ?? t('common.na')}</TableCell>
-                        <TableCell>
-                          <SourceText source={row.source} />
-                          {row.attachedBy?.name != null && (
-                            <span className="block text-xs text-muted-foreground">
-                              {row.attachedBy.name}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {formatDateTime(row.attachedAt, timezone)}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {row.detachedAt == null ? (
-                            <Badge variant="success">{t('sims.detail.attachments.open')}</Badge>
-                          ) : (
-                            formatDateTime(row.detachedAt, timezone)
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {row.detachReason == null
-                            ? ''
-                            : reasonKey != null
-                              ? t(reasonKey)
-                              : row.detachReason}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-            <Pagination
-              page={history.page}
-              totalPages={history.totalPages}
-              onPageChange={history.setPage}
-            />
-          </>
-        )}
-      </CardContent>
-    </Card>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+        <Pagination
+          page={history.page}
+          totalPages={history.totalPages}
+          onPageChange={history.setPage}
+        />
+      </>
+    </TabPanel>
   );
 }

@@ -8,10 +8,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MapPin, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 interface FavoriteStation {
   id: number;
@@ -32,7 +32,12 @@ export function Favorites(): React.JSX.Element {
   const { toast } = useToast();
   const [removeTarget, setRemoveTarget] = useState<FavoriteStation | null>(null);
 
-  const { data: favorites, isLoading } = useQuery({
+  const {
+    data: favorites,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['portal-favorites'],
     queryFn: () => api.get<FavoriteStation[]>('/v1/portal/favorites'),
   });
@@ -55,16 +60,18 @@ export function Favorites(): React.JSX.Element {
     <div className="space-y-4">
       <PageHeader title={t('favorites.title')} />
 
-      {isLoading && (
-        <div className="space-y-3">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-20 w-full" />
-        </div>
+      {isLoading && <LoadingState />}
+
+      {isError && (
+        <ErrorState
+          onRetry={() => {
+            void refetch();
+          }}
+        />
       )}
 
-      {!isLoading && (favorites == null || favorites.length === 0) && (
-        <p className="text-center text-sm text-muted-foreground">{t('favorites.noFavorites')}</p>
+      {!isLoading && !isError && (favorites == null || favorites.length === 0) && (
+        <EmptyState>{t('favorites.noFavorites')}</EmptyState>
       )}
 
       <div className="space-y-3">

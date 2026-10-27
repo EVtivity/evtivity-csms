@@ -7,7 +7,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, ShieldPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState } from '@/components/ui/content-state';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import {
@@ -60,7 +61,12 @@ export function StationCertificates({ stationId }: StationCertificatesProps): Re
   const [installCertType, setInstallCertType] = useState('V2GRootCertificate');
   const [installPem, setInstallPem] = useState('');
 
-  const { data: certs } = useQuery({
+  const {
+    data: certs,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['stations', stationId, 'certificates'],
     queryFn: () =>
       api.get<{ data: StationCertificate[]; total: number }>(
@@ -85,46 +91,50 @@ export function StationCertificates({ stationId }: StationCertificatesProps): Re
   const certificates = certs?.data ?? [];
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0">
-        <CardTitle>{t('pnc.certificates')}</CardTitle>
-        {canManage && (
-          <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                queryInstalledMutation.mutate();
-              }}
-              disabled={queryInstalledMutation.isPending}
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${queryInstalledMutation.isPending ? 'animate-spin' : ''}`}
-              />
-              {t('stations.refreshConfigurations')}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setInstallOpen(true);
-              }}
-            >
-              <ShieldPlus className="h-4 w-4" />
-              {t('pnc.installCertificate')}
-            </Button>
-          </div>
-        )}
-      </CardHeader>
-      <CardContent>
+    <>
+      <TabPanel
+        title={t('pnc.certificates')}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+        actions={
+          canManage ? (
+            <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  queryInstalledMutation.mutate();
+                }}
+                disabled={queryInstalledMutation.isPending}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${queryInstalledMutation.isPending ? 'animate-spin' : ''}`}
+                />
+                {t('stations.refreshConfigurations')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setInstallOpen(true);
+                }}
+              >
+                <ShieldPlus className="h-4 w-4" />
+                {t('pnc.installCertificate')}
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
         {queryInstalledMutation.isSuccess && (
           <p className="text-sm text-success">{t('pnc.commandSent')}</p>
         )}
 
         {certificates.length === 0 ? (
-          <p className="py-4 text-center text-sm text-muted-foreground">
-            {t('pnc.noStationCertificates')}
-          </p>
+          <EmptyState>{t('pnc.noStationCertificates')}</EmptyState>
         ) : (
           <Table>
             <TableHeader>
@@ -157,62 +167,62 @@ export function StationCertificates({ stationId }: StationCertificatesProps): Re
             </TableBody>
           </Table>
         )}
+      </TabPanel>
 
-        <Dialog open={installOpen} onOpenChange={setInstallOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{t('pnc.installCertificate')}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="install-cert-type" className="leading-6">
-                  {t('pnc.certificateType')}
-                </Label>
-                <Select
-                  id="install-cert-type"
-                  value={installCertType}
-                  onChange={(e) => {
-                    setInstallCertType(e.target.value);
-                  }}
-                >
-                  <option value="V2GRootCertificate">V2G Root Certificate</option>
-                  <option value="MORootCertificate">MO Root Certificate</option>
-                  <option value="CSMSRootCertificate">CSMS Root Certificate</option>
-                  <option value="ManufacturerRootCertificate">Manufacturer Root Certificate</option>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="install-pem" className="leading-6">
-                  PEM
-                </Label>
-                <textarea
-                  id="install-pem"
-                  className="h-48 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm"
-                  value={installPem}
-                  onChange={(e) => {
-                    setInstallPem(e.target.value);
-                  }}
-                  placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
-                  spellCheck={false}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                onClick={() => {
-                  installMutation.mutate({
-                    certificateType: installCertType,
-                    certificate: installPem,
-                  });
+      <Dialog open={installOpen} onOpenChange={setInstallOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('pnc.installCertificate')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="install-cert-type" className="leading-6">
+                {t('pnc.certificateType')}
+              </Label>
+              <Select
+                id="install-cert-type"
+                value={installCertType}
+                onChange={(e) => {
+                  setInstallCertType(e.target.value);
                 }}
-                disabled={installMutation.isPending || installPem.trim() === ''}
               >
-                {t('pnc.installCertificate')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
+                <option value="V2GRootCertificate">V2G Root Certificate</option>
+                <option value="MORootCertificate">MO Root Certificate</option>
+                <option value="CSMSRootCertificate">CSMS Root Certificate</option>
+                <option value="ManufacturerRootCertificate">Manufacturer Root Certificate</option>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="install-pem" className="leading-6">
+                PEM
+              </Label>
+              <textarea
+                id="install-pem"
+                className="h-48 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm"
+                value={installPem}
+                onChange={(e) => {
+                  setInstallPem(e.target.value);
+                }}
+                placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
+                spellCheck={false}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={() => {
+                installMutation.mutate({
+                  certificateType: installCertType,
+                  certificate: installPem,
+                });
+              }}
+              disabled={installMutation.isPending || installPem.trim() === ''}
+            >
+              {t('pnc.installCertificate')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

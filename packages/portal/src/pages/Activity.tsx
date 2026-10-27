@@ -18,7 +18,7 @@ import {
   formatNumber,
 } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
-import { LoadingLogo } from '@/components/loading-logo';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 interface Session {
   id: string;
   status: string;
@@ -115,6 +115,9 @@ export function Activity(): React.JSX.Element {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    isLoading: sessionsLoading,
+    isError: sessionsError,
+    refetch: refetchSessions,
   } = useInfiniteQuery({
     queryKey: ['portal-sessions-month', monthParam],
     queryFn: ({ pageParam }) =>
@@ -248,7 +251,7 @@ export function Activity(): React.JSX.Element {
           </div>
           {trendLoading ? (
             <div className="flex justify-center">
-              <LoadingLogo size="inline" />
+              <LoadingState />
             </div>
           ) : (
             <div
@@ -319,8 +322,18 @@ export function Activity(): React.JSX.Element {
       </Card>
 
       {/* Session list */}
-      {sessionList.length === 0 && (
-        <p className="py-8 text-center text-sm text-muted-foreground">{t('activity.noSessions')}</p>
+      {sessionsLoading && <LoadingState />}
+
+      {sessionsError && (
+        <ErrorState
+          onRetry={() => {
+            void refetchSessions();
+          }}
+        />
+      )}
+
+      {!sessionsLoading && !sessionsError && sessionList.length === 0 && (
+        <EmptyState>{t('activity.noSessions')}</EmptyState>
       )}
 
       <div className="space-y-2">
@@ -365,7 +378,7 @@ export function Activity(): React.JSX.Element {
           </Card>
         ))}
         <div ref={sentinelRef} />
-        {isFetchingNextPage && <LoadingLogo size="inline" />}
+        {isFetchingNextPage && <LoadingState />}
       </div>
     </div>
   );

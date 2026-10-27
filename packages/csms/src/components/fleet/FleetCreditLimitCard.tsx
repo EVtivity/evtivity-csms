@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -59,7 +59,7 @@ export function FleetCreditLimitCard({ fleetId }: FleetCreditLimitCardProps): Re
   const [errors, setErrors] = useState<{ limit?: string; percent?: string }>({});
 
   const queryKey = ['fleets', fleetId, 'credit-limit'];
-  const { data, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey,
     queryFn: () => api.get<FleetCreditLimit>(`/v1/fleets/${fleetId}/credit-limit`),
     staleTime: 30_000,
@@ -112,110 +112,112 @@ export function FleetCreditLimitCard({ fleetId }: FleetCreditLimitCardProps): Re
   const currency = data?.exposure.currency ?? '';
 
   return (
-    <Card data-testid="fleet-credit-limit">
-      <CardHeader className="flex flex-row items-start justify-between gap-2 space-y-0">
-        <div className="space-y-1.5">
-          <CardTitle>{t('fleets.creditLimit.title')}</CardTitle>
-          <CardDescription>{t('fleets.creditLimit.description')}</CardDescription>
-        </div>
-        {canWrite && !editing && data != null && (
+    <TabPanel
+      data-testid="fleet-credit-limit"
+      title={t('fleets.creditLimit.title')}
+      description={t('fleets.creditLimit.description')}
+      actions={
+        canWrite && !editing && data != null ? (
           <EditButton label={t('common.edit')} onClick={startEdit} />
-        )}
-      </CardHeader>
-      <CardContent className="space-y-4 text-sm">
-        {isError && <p className="text-destructive">{t('fleets.creditLimit.loadFailed')}</p>}
-        {data != null && editing && (
-          <form onSubmit={save} className="space-y-4" noValidate>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="fleet-credit-limit">
-                  {t('fleets.creditLimit.limit')}
-                  {currency !== '' ? ` (${currency})` : ''}
-                </Label>
-                <DecimalInput
-                  id="fleet-credit-limit"
-                  value={limit}
-                  onChange={setLimit}
-                  decimalScale={2}
-                  className={errors.limit != null ? 'border-destructive' : ''}
-                />
-                {errors.limit != null ? (
-                  <p className="text-destructive">{errors.limit}</p>
-                ) : (
-                  <p className="text-muted-foreground">{t('fleets.creditLimit.limitHelp')}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="fleet-credit-warning">
-                  {t('fleets.creditLimit.warningPercent')}
-                </Label>
-                <Input
-                  id="fleet-credit-warning"
-                  type="number"
-                  min={1}
-                  max={99}
-                  step={1}
-                  value={percent}
-                  onChange={(e) => {
-                    setPercent(e.target.value);
-                  }}
-                  className={errors.percent != null ? 'border-destructive' : ''}
-                />
-                {errors.percent != null ? (
-                  <p className="text-destructive">{errors.percent}</p>
-                ) : (
-                  <p className="text-muted-foreground">{t('fleets.creditLimit.warningHelp')}</p>
-                )}
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <CancelButton
-                onClick={() => {
-                  setEditing(false);
-                }}
+        ) : undefined
+      }
+      bodyClassName="space-y-4 text-sm"
+      isLoading={isLoading}
+      isError={isError}
+      errorMessage={t('fleets.creditLimit.loadFailed')}
+      onRetry={() => {
+        void refetch();
+      }}
+    >
+      {data != null && editing && (
+        <form onSubmit={save} className="space-y-4" noValidate>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="fleet-credit-limit">
+                {t('fleets.creditLimit.limit')}
+                {currency !== '' ? ` (${currency})` : ''}
+              </Label>
+              <DecimalInput
+                id="fleet-credit-limit"
+                value={limit}
+                onChange={setLimit}
+                decimalScale={2}
+                className={errors.limit != null ? 'border-destructive' : ''}
               />
-              <SaveButton isPending={mutation.isPending} />
+              {errors.limit != null ? (
+                <p className="text-destructive">{errors.limit}</p>
+              ) : (
+                <p className="text-muted-foreground">{t('fleets.creditLimit.limitHelp')}</p>
+              )}
             </div>
-          </form>
-        )}
-        {data != null && !editing && (
-          <dl className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <dt className="text-muted-foreground">{t('fleets.creditLimit.limit')}</dt>
-              <dd className="flex items-center gap-2 font-medium">
-                {data.creditLimitCents != null
-                  ? formatCents(data.creditLimitCents, currency)
-                  : t('fleets.creditLimit.noLimit')}
-                {data.level != null && (
-                  <Badge variant={LEVEL_VARIANT[data.level]}>{t(LEVEL_LABEL[data.level])}</Badge>
-                )}
-              </dd>
+            <div className="space-y-2">
+              <Label htmlFor="fleet-credit-warning">{t('fleets.creditLimit.warningPercent')}</Label>
+              <Input
+                id="fleet-credit-warning"
+                type="number"
+                min={1}
+                max={99}
+                step={1}
+                value={percent}
+                onChange={(e) => {
+                  setPercent(e.target.value);
+                }}
+                className={errors.percent != null ? 'border-destructive' : ''}
+              />
+              {errors.percent != null ? (
+                <p className="text-destructive">{errors.percent}</p>
+              ) : (
+                <p className="text-muted-foreground">{t('fleets.creditLimit.warningHelp')}</p>
+              )}
             </div>
-            <div>
-              <dt className="text-muted-foreground">{t('fleets.creditLimit.warningPercent')}</dt>
-              <dd className="font-medium">{data.warningPercent}</dd>
+          </div>
+          <div className="flex justify-end gap-2">
+            <CancelButton
+              onClick={() => {
+                setEditing(false);
+              }}
+            />
+            <SaveButton isPending={mutation.isPending} />
+          </div>
+        </form>
+      )}
+      {data != null && !editing && (
+        <dl className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div>
+            <dt className="text-muted-foreground">{t('fleets.creditLimit.limit')}</dt>
+            <dd className="flex items-center gap-2 font-medium">
+              {data.creditLimitCents != null
+                ? formatCents(data.creditLimitCents, currency)
+                : t('fleets.creditLimit.noLimit')}
+              {data.level != null && (
+                <Badge variant={LEVEL_VARIANT[data.level]}>{t(LEVEL_LABEL[data.level])}</Badge>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">{t('fleets.creditLimit.warningPercent')}</dt>
+            <dd className="font-medium">{data.warningPercent}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">{t('fleets.creditLimit.exposure')}</dt>
+            <dd className="font-medium">{formatCents(data.exposure.totalCents, currency)}</dd>
+          </div>
+          <div className="space-y-1">
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">{t('fleets.creditLimit.unbilled')}</span>
+              <span>{formatCents(data.exposure.unbilledCents, currency)}</span>
             </div>
-            <div>
-              <dt className="text-muted-foreground">{t('fleets.creditLimit.exposure')}</dt>
-              <dd className="font-medium">{formatCents(data.exposure.totalCents, currency)}</dd>
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">{t('fleets.creditLimit.invoiced')}</span>
+              <span>{formatCents(data.exposure.invoicedCents, currency)}</span>
             </div>
-            <div className="space-y-1">
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">{t('fleets.creditLimit.unbilled')}</span>
-                <span>{formatCents(data.exposure.unbilledCents, currency)}</span>
-              </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">{t('fleets.creditLimit.invoiced')}</span>
-                <span>{formatCents(data.exposure.invoicedCents, currency)}</span>
-              </div>
-              <div className="flex justify-between gap-4">
-                <span className="text-muted-foreground">{t('fleets.creditLimit.running')}</span>
-                <span>{formatCents(data.exposure.runningCents, currency)}</span>
-              </div>
+            <div className="flex justify-between gap-4">
+              <span className="text-muted-foreground">{t('fleets.creditLimit.running')}</span>
+              <span>{formatCents(data.exposure.runningCents, currency)}</span>
             </div>
-          </dl>
-        )}
-      </CardContent>
-    </Card>
+          </div>
+        </dl>
+      )}
+    </TabPanel>
   );
 }

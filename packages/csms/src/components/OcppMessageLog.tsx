@@ -25,7 +25,7 @@ export function OcppMessageLog({ stationDbId, timezone }: OcppMessageLogProps): 
   const [actionFilter, setActionFilter] = useState('');
   const limit = 10;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['stations', stationDbId, 'ocpp-logs', page, actionFilter],
     queryFn: () => {
       const params = new URLSearchParams({
@@ -55,6 +55,10 @@ export function OcppMessageLog({ stationDbId, timezone }: OcppMessageLogProps): 
       timezone={timezone}
       emptyMessage={t('ocppLogs.noMessages')}
       isLoading={isLoading}
+      isError={isError}
+      onRetry={() => {
+        void refetch();
+      }}
       rowTestIdPrefix="ocpp-message-row"
       showProcessingStatusColumn
       actions={actions}

@@ -24,7 +24,7 @@ import {
   getFirmwareDeliveryErrors,
   type FirmwareDeliveryValue,
 } from '@/components/FirmwareDeliveryFields';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -200,9 +200,9 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>{t('common.details')}</CardTitle>
+      <TabPanel
+        title={t('common.details')}
+        actions={
           <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
             {campaign.status === 'draft' && !editing && canEditCampaign && (
               <EditButton label={t('common.edit')} onClick={startEdit} />
@@ -224,201 +224,196 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
               />
             )}
           </div>
-        </CardHeader>
-        <CardContent>
-          {editing ? (
-            <form
-              className="grid gap-4"
-              noValidate
-              onSubmit={(e) => {
-                e.preventDefault();
-                setHasSubmitted(true);
-                if (Object.keys(validationErrors).length > 0) return;
-                const signingCertificate = editSigning.signingCertificate.trim();
-                const signature = editSigning.signature.trim();
-                const body: UpdateCampaignBody = {
-                  name: editName,
-                  // Sent only when changed: the shown URL can hold a masked
-                  // password, which the stored URL keeps.
-                  ...(editFirmwareUrl !== campaign.firmwareUrl
-                    ? { firmwareUrl: editFirmwareUrl }
-                    : {}),
-                  // Both empty clears them (an unsigned update).
-                  signingCertificate: signingCertificate !== '' ? signingCertificate : null,
-                  signature: signature !== '' ? signature : null,
-                  // An empty field clears the stored value.
-                  ...firmwareDeliveryPayload(editDelivery, true),
-                };
-                if (editVersion !== '') body.version = editVersion;
-                body.targetFilter = Object.keys(editFilter).length > 0 ? editFilter : null;
-                updateMutation.mutate(body);
-              }}
-            >
-              <div className="grid gap-2">
-                <Label htmlFor="fcd-edit-name">{t('common.name')}</Label>
+        }
+      >
+        {editing ? (
+          <form
+            className="grid gap-4"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              setHasSubmitted(true);
+              if (Object.keys(validationErrors).length > 0) return;
+              const signingCertificate = editSigning.signingCertificate.trim();
+              const signature = editSigning.signature.trim();
+              const body: UpdateCampaignBody = {
+                name: editName,
+                // Sent only when changed: the shown URL can hold a masked
+                // password, which the stored URL keeps.
+                ...(editFirmwareUrl !== campaign.firmwareUrl
+                  ? { firmwareUrl: editFirmwareUrl }
+                  : {}),
+                // Both empty clears them (an unsigned update).
+                signingCertificate: signingCertificate !== '' ? signingCertificate : null,
+                signature: signature !== '' ? signature : null,
+                // An empty field clears the stored value.
+                ...firmwareDeliveryPayload(editDelivery, true),
+              };
+              if (editVersion !== '') body.version = editVersion;
+              body.targetFilter = Object.keys(editFilter).length > 0 ? editFilter : null;
+              updateMutation.mutate(body);
+            }}
+          >
+            <div className="grid gap-2">
+              <Label htmlFor="fcd-edit-name">{t('common.name')}</Label>
+              <Input
+                id="fcd-edit-name"
+                value={editName}
+                onChange={(e) => {
+                  setEditName(e.target.value);
+                }}
+                className={hasSubmitted && validationErrors.editName ? 'border-destructive' : ''}
+              />
+              {hasSubmitted && validationErrors.editName && (
+                <p className="text-sm text-destructive">{validationErrors.editName}</p>
+              )}
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-10 gap-4">
+              <div className="grid gap-2 md:col-span-7">
+                <Label htmlFor="fcd-edit-firmware-url">{t('firmwareCampaigns.firmwareUrl')}</Label>
                 <Input
-                  id="fcd-edit-name"
-                  value={editName}
+                  id="fcd-edit-firmware-url"
+                  value={editFirmwareUrl}
                   onChange={(e) => {
-                    setEditName(e.target.value);
+                    setEditFirmwareUrl(e.target.value);
                   }}
-                  className={hasSubmitted && validationErrors.editName ? 'border-destructive' : ''}
+                  className={
+                    hasSubmitted && validationErrors.editFirmwareUrl ? 'border-destructive' : ''
+                  }
                 />
-                {hasSubmitted && validationErrors.editName && (
-                  <p className="text-sm text-destructive">{validationErrors.editName}</p>
+                {hasSubmitted && validationErrors.editFirmwareUrl && (
+                  <p className="text-sm text-destructive">{validationErrors.editFirmwareUrl}</p>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-10 gap-4">
-                <div className="grid gap-2 md:col-span-7">
-                  <Label htmlFor="fcd-edit-firmware-url">
-                    {t('firmwareCampaigns.firmwareUrl')}
-                  </Label>
-                  <Input
-                    id="fcd-edit-firmware-url"
-                    value={editFirmwareUrl}
-                    onChange={(e) => {
-                      setEditFirmwareUrl(e.target.value);
-                    }}
-                    className={
-                      hasSubmitted && validationErrors.editFirmwareUrl ? 'border-destructive' : ''
-                    }
-                  />
-                  {hasSubmitted && validationErrors.editFirmwareUrl && (
-                    <p className="text-sm text-destructive">{validationErrors.editFirmwareUrl}</p>
-                  )}
-                </div>
-                <div className="grid gap-2 md:col-span-3">
-                  <Label htmlFor="fcd-edit-version">{t('firmwareCampaigns.version')}</Label>
-                  <Input
-                    id="fcd-edit-version"
-                    value={editVersion}
-                    onChange={(e) => {
-                      setEditVersion(e.target.value);
-                    }}
-                  />
-                </div>
-              </div>
-
-              <FirmwareDeliveryFields
-                value={editDelivery}
-                onChange={setEditDelivery}
-                idPrefix="fcd-edit"
-                errors={hasSubmitted ? deliveryErrors : {}}
-              />
-
-              <FirmwareSignatureFields
-                value={editSigning}
-                onChange={setEditSigning}
-                idPrefix="fcd-edit"
-                errors={hasSubmitted ? signingErrors : {}}
-              />
-
-              <TargetFilterFields
-                endpoint="/v1/firmware-campaigns/filter-options"
-                queryKeyPrefix={['firmware-campaign-filter-options']}
-                value={editFilter}
-                onChange={setEditFilter}
-                idPrefix="fw-edit-filter"
-                helpText={t('firmwareCampaigns.targetFilterHelp')}
-              />
-              {hasSubmitted && validationErrors.editTargetFilter && (
-                <p className="text-sm text-destructive">{validationErrors.editTargetFilter}</p>
-              )}
-
-              <div className="flex justify-end gap-2">
-                <CancelButton
-                  onClick={() => {
-                    setEditing(false);
-                    setHasSubmitted(false);
+              <div className="grid gap-2 md:col-span-3">
+                <Label htmlFor="fcd-edit-version">{t('firmwareCampaigns.version')}</Label>
+                <Input
+                  id="fcd-edit-version"
+                  value={editVersion}
+                  onChange={(e) => {
+                    setEditVersion(e.target.value);
                   }}
                 />
-                <SaveButton isPending={updateMutation.isPending} />
               </div>
-            </form>
-          ) : (
-            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <dt className="text-muted-foreground">{t('firmwareCampaigns.firmwareUrl')}</dt>
-                <dd className="font-medium break-all">{campaign.firmwareUrl}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('firmwareCampaigns.version')}</dt>
-                <dd className="font-medium">{campaign.version ?? 'n/a'}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('firmwareCampaigns.signatureStatus')}</dt>
-                <dd className="font-medium">
-                  {campaign.signingCertificate != null && campaign.signature != null
-                    ? t('firmwareCampaigns.signed')
-                    : t('firmwareCampaigns.unsigned')}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('firmwareCampaigns.retries')}</dt>
-                <dd className="font-medium">
-                  {campaign.retries ?? t('firmwareCampaigns.stationDecides')}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('firmwareCampaigns.retryInterval')}</dt>
-                <dd className="font-medium">
-                  {campaign.retryInterval ?? t('firmwareCampaigns.stationDecides')}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('firmwareCampaigns.installDateTime')}</dt>
-                <dd className="font-medium">
-                  {campaign.installDateTime != null
-                    ? formatDateTime(campaign.installDateTime, timezone)
-                    : t('firmwareCampaigns.afterDownload')}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('common.created')}</dt>
-                <dd className="font-medium">{formatDateTime(campaign.createdAt, timezone)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('common.lastUpdated')}</dt>
-                <dd className="font-medium">{formatDateTime(campaign.updatedAt, timezone)}</dd>
-              </div>
-              {hasFilter && (
-                <>
-                  {campaign.targetFilter?.siteId != null && (
-                    <div>
-                      <dt className="text-muted-foreground">{t('firmwareCampaigns.site')}</dt>
-                      <dd className="font-medium">
-                        {resolveSiteName(campaign.targetFilter.siteId)}
-                      </dd>
-                    </div>
-                  )}
-                  {campaign.targetFilter?.vendorId != null && (
-                    <div>
-                      <dt className="text-muted-foreground">{t('firmwareCampaigns.vendor')}</dt>
-                      <dd className="font-medium">
-                        {resolveVendorName(campaign.targetFilter.vendorId)}
-                      </dd>
-                    </div>
-                  )}
-                  {campaign.targetFilter?.model != null && (
-                    <div>
-                      <dt className="text-muted-foreground">{t('firmwareCampaigns.model')}</dt>
-                      <dd className="font-medium">{campaign.targetFilter.model}</dd>
-                    </div>
-                  )}
-                  {campaign.targetFilter?.stationId != null && (
-                    <div>
-                      <dt className="text-muted-foreground">{t('configTemplates.station')}</dt>
-                      <dd className="font-medium">
-                        {resolveStationName(campaign.targetFilter.stationId)}
-                      </dd>
-                    </div>
-                  )}
-                </>
-              )}
-            </dl>
-          )}
-        </CardContent>
-      </Card>
+            </div>
+
+            <FirmwareDeliveryFields
+              value={editDelivery}
+              onChange={setEditDelivery}
+              idPrefix="fcd-edit"
+              errors={hasSubmitted ? deliveryErrors : {}}
+            />
+
+            <FirmwareSignatureFields
+              value={editSigning}
+              onChange={setEditSigning}
+              idPrefix="fcd-edit"
+              errors={hasSubmitted ? signingErrors : {}}
+            />
+
+            <TargetFilterFields
+              endpoint="/v1/firmware-campaigns/filter-options"
+              queryKeyPrefix={['firmware-campaign-filter-options']}
+              value={editFilter}
+              onChange={setEditFilter}
+              idPrefix="fw-edit-filter"
+              helpText={t('firmwareCampaigns.targetFilterHelp')}
+            />
+            {hasSubmitted && validationErrors.editTargetFilter && (
+              <p className="text-sm text-destructive">{validationErrors.editTargetFilter}</p>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <CancelButton
+                onClick={() => {
+                  setEditing(false);
+                  setHasSubmitted(false);
+                }}
+              />
+              <SaveButton isPending={updateMutation.isPending} />
+            </div>
+          </form>
+        ) : (
+          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <dt className="text-muted-foreground">{t('firmwareCampaigns.firmwareUrl')}</dt>
+              <dd className="font-medium break-all">{campaign.firmwareUrl}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('firmwareCampaigns.version')}</dt>
+              <dd className="font-medium">{campaign.version ?? 'n/a'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('firmwareCampaigns.signatureStatus')}</dt>
+              <dd className="font-medium">
+                {campaign.signingCertificate != null && campaign.signature != null
+                  ? t('firmwareCampaigns.signed')
+                  : t('firmwareCampaigns.unsigned')}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('firmwareCampaigns.retries')}</dt>
+              <dd className="font-medium">
+                {campaign.retries ?? t('firmwareCampaigns.stationDecides')}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('firmwareCampaigns.retryInterval')}</dt>
+              <dd className="font-medium">
+                {campaign.retryInterval ?? t('firmwareCampaigns.stationDecides')}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('firmwareCampaigns.installDateTime')}</dt>
+              <dd className="font-medium">
+                {campaign.installDateTime != null
+                  ? formatDateTime(campaign.installDateTime, timezone)
+                  : t('firmwareCampaigns.afterDownload')}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('common.created')}</dt>
+              <dd className="font-medium">{formatDateTime(campaign.createdAt, timezone)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('common.lastUpdated')}</dt>
+              <dd className="font-medium">{formatDateTime(campaign.updatedAt, timezone)}</dd>
+            </div>
+            {hasFilter && (
+              <>
+                {campaign.targetFilter?.siteId != null && (
+                  <div>
+                    <dt className="text-muted-foreground">{t('firmwareCampaigns.site')}</dt>
+                    <dd className="font-medium">{resolveSiteName(campaign.targetFilter.siteId)}</dd>
+                  </div>
+                )}
+                {campaign.targetFilter?.vendorId != null && (
+                  <div>
+                    <dt className="text-muted-foreground">{t('firmwareCampaigns.vendor')}</dt>
+                    <dd className="font-medium">
+                      {resolveVendorName(campaign.targetFilter.vendorId)}
+                    </dd>
+                  </div>
+                )}
+                {campaign.targetFilter?.model != null && (
+                  <div>
+                    <dt className="text-muted-foreground">{t('firmwareCampaigns.model')}</dt>
+                    <dd className="font-medium">{campaign.targetFilter.model}</dd>
+                  </div>
+                )}
+                {campaign.targetFilter?.stationId != null && (
+                  <div>
+                    <dt className="text-muted-foreground">{t('configTemplates.station')}</dt>
+                    <dd className="font-medium">
+                      {resolveStationName(campaign.targetFilter.stationId)}
+                    </dd>
+                  </div>
+                )}
+              </>
+            )}
+          </dl>
+        )}
+      </TabPanel>
 
       <ConfirmDialog
         open={startOpen}

@@ -196,8 +196,8 @@ describe('SiteLayout', () => {
 
   it('labels the layout in the user language and hides saving without sites:write', async () => {
     wrap(<SiteLayout siteId="sit_1" />);
-    expect(await screen.findByText('sites.stationLayout')).toBeDefined();
-    expect(screen.getByText('status.online')).toBeDefined();
+    expect(await screen.findByText('sites.layout')).toBeDefined();
+    expect(await screen.findByText('status.online')).toBeDefined();
     expect(screen.getByText(/stations\.sp1/)).toBeDefined();
     expect(screen.queryByText('common.save')).toBeNull();
   });
@@ -205,7 +205,7 @@ describe('SiteLayout', () => {
   it('shows saving with sites:write', async () => {
     permissions.add('sites:write');
     wrap(<SiteLayout siteId="sit_1" />);
-    expect(await screen.findByText('sites.stationLayout')).toBeDefined();
-    expect(screen.getByRole('button', { name: /save/i })).toBeDefined();
+    expect(await screen.findByText('sites.layout')).toBeDefined();
+    expect(await screen.findByRole('button', { name: /save/i })).toBeDefined();
   });
 });

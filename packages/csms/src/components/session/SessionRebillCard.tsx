@@ -8,7 +8,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Receipt } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/toast';
@@ -153,23 +153,22 @@ export function SessionRebillCard({ session }: SessionRebillCardProps): React.JS
   if (session.rebillStatus === 'billed' || session.rebillStatus === 'manual') {
     const manual = session.rebillStatus === 'manual';
     return (
-      <Card data-testid="session-rebill">
-        <CardHeader>
-          <CardTitle>{t('sessions.rebill.cardTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2 text-sm">
-          <Badge variant={manual ? 'warning' : 'success'}>
-            {manual ? t('sessions.manualBilling') : t('sessions.rebill.billedBadge')}
-          </Badge>
-          <p className="text-muted-foreground">
-            {manual
-              ? t('sessions.rebill.manualHelp', {
-                  cost: formatCents(session.finalCostCents ?? 0, session.currency),
-                })
-              : t('sessions.rebill.billedHelp')}
-          </p>
-        </CardContent>
-      </Card>
+      <TabPanel
+        data-testid="session-rebill"
+        title={t('sessions.rebill.cardTitle')}
+        bodyClassName="space-y-2 text-sm"
+      >
+        <Badge variant={manual ? 'warning' : 'success'}>
+          {manual ? t('sessions.manualBilling') : t('sessions.rebill.billedBadge')}
+        </Badge>
+        <p className="text-muted-foreground">
+          {manual
+            ? t('sessions.rebill.manualHelp', {
+                cost: formatCents(session.finalCostCents ?? 0, session.currency),
+              })
+            : t('sessions.rebill.billedHelp')}
+        </p>
+      </TabPanel>
     );
   }
 
@@ -190,20 +189,24 @@ export function SessionRebillCard({ session }: SessionRebillCardProps): React.JS
   );
 
   return (
-    <Card data-testid="session-rebill">
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('sessions.rebill.cardTitle')}</CardTitle>
-        {canBill &&
-          (disabledReason != null ? (
-            <Tooltip content={disabledReason}>{billButton}</Tooltip>
-          ) : (
-            billButton
-          ))}
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
+    <>
+      <TabPanel
+        data-testid="session-rebill"
+        title={t('sessions.rebill.cardTitle')}
+        bodyClassName="space-y-2 text-sm"
+        actions={
+          canBill ? (
+            disabledReason != null ? (
+              <Tooltip content={disabledReason}>{billButton}</Tooltip>
+            ) : (
+              billButton
+            )
+          ) : undefined
+        }
+      >
         <Badge variant="destructive">{t('sessions.rebill.unbilledBadge')}</Badge>
         <p className="text-muted-foreground">{t('sessions.rebill.unbilledHelp')}</p>
-      </CardContent>
+      </TabPanel>
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
@@ -217,6 +220,6 @@ export function SessionRebillCard({ session }: SessionRebillCardProps): React.JS
           return false;
         }}
       />
-    </Card>
+    </>
   );
 }

@@ -5,7 +5,6 @@ import { memo } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
   Table,
   TableBody,
@@ -18,7 +17,7 @@ import { formatDuration, formatNumber, formatCents } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
 import { sessionStatusVariant } from '@/lib/status-variants';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
-import { LoadingLogo } from '@/components/loading-logo';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { formatVehicleId } from '@evtivity/lib/vehicle-id';
 import { sessionDisplayCostCents } from '@evtivity/lib/session-cost';
 
@@ -204,23 +203,14 @@ export const SessionsTable = memo(function SessionsTable({
           </TableHeader>
           <TableBody>
             {isLoading === true && (
-              <TableRow>
-                <TableCell colSpan={colCount} className="text-center text-muted-foreground">
-                  <LoadingLogo size="inline" />
-                </TableCell>
-              </TableRow>
+              <TableStateRow colSpan={colCount}>
+                <LoadingState />
+              </TableStateRow>
             )}
             {isError && isLoading !== true && (
-              <TableRow>
-                <TableCell colSpan={colCount} className="text-center">
-                  <span className="text-destructive">{t('common.loadError')}</span>
-                  {onRetry != null && (
-                    <Button variant="outline" size="sm" className="ml-3" onClick={onRetry}>
-                      {t('common.retry')}
-                    </Button>
-                  )}
-                </TableCell>
-              </TableRow>
+              <TableStateRow colSpan={colCount}>
+                <ErrorState onRetry={onRetry} />
+              </TableStateRow>
             )}
             {sessions?.map((session) => (
               <TableRow
@@ -336,12 +326,10 @@ export const SessionsTable = memo(function SessionsTable({
                 )}
               </TableRow>
             ))}
-            {!isError && sessions?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={colCount} className="text-center text-muted-foreground">
-                  {emptyMessage ?? t('sessions.noSessionsFound')}
-                </TableCell>
-              </TableRow>
+            {!isLoading && !isError && sessions?.length === 0 && (
+              <TableStateRow colSpan={colCount}>
+                <EmptyState>{emptyMessage ?? t('sessions.noSessionsFound')}</EmptyState>
+              </TableStateRow>
             )}
           </TableBody>
         </Table>

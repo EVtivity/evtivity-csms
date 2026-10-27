@@ -29,22 +29,25 @@ afterEach(() => {
   postMock.mockReset();
 });
 
-function renderImages(): HTMLInputElement {
+async function renderImages(): Promise<HTMLInputElement> {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const { container } = render(
     <QueryClientProvider client={client}>
       <StationImages stationId="sta_1" />
     </QueryClientProvider>,
   );
-  const input = container.querySelector('input[type="file"]');
-  if (!(input instanceof HTMLInputElement)) throw new Error('no file input');
-  return input;
+  // The file input appears once the image list has loaded.
+  return waitFor(() => {
+    const input = container.querySelector('input[type="file"]');
+    if (!(input instanceof HTMLInputElement)) throw new Error('no file input');
+    return input;
+  });
 }
 
 describe('StationImages upload', () => {
   it('offers raster images only', async () => {
     getMock.mockResolvedValue([]);
-    const input = renderImages();
+    const input = await renderImages();
     await waitFor(() => {
       expect(getMock).toHaveBeenCalled();
     });
@@ -67,7 +70,7 @@ describe('StationImages upload', () => {
     );
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal('fetch', fetchMock);
-    const input = renderImages();
+    const input = await renderImages();
     const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' });
     fireEvent.change(input, { target: { files: [file] } });
 

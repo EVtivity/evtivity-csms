@@ -17,7 +17,7 @@ import { formatDate } from '@/lib/utils';
 import { cancellationFeeApplies, cancellationFeeWarning } from '@/lib/reservation-fee';
 import type { ReservationFee } from '@/lib/reservation-fee';
 import { useDriverTimezone } from '@/lib/timezone';
-import { LoadingLogo } from '@/components/loading-logo';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 interface Reservation {
   id: string;
@@ -77,7 +77,7 @@ export function Reservations(): React.JSX.Element {
   const [pendingCancel, setPendingCancel] = useState<Reservation | null>(null);
   const [tab, setTab] = useState<'upcoming' | 'past'>('upcoming');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['portal-reservations'],
     queryFn: () => api.get<ReservationsResponse>('/v1/portal/reservations'),
   });
@@ -153,12 +153,18 @@ export function Reservations(): React.JSX.Element {
         ))}
       </div>
 
-      {isLoading && <LoadingLogo size="inline" />}
+      {isLoading && <LoadingState />}
 
-      {!isLoading && items.length === 0 && (
-        <p className="text-center text-sm text-muted-foreground">
-          {t('reservations.noReservations')}
-        </p>
+      {isError && (
+        <ErrorState
+          onRetry={() => {
+            void refetch();
+          }}
+        />
+      )}
+
+      {!isLoading && !isError && items.length === 0 && (
+        <EmptyState>{t('reservations.noReservations')}</EmptyState>
       )}
 
       <div className="space-y-2">

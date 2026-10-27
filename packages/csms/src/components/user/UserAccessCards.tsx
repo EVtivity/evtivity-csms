@@ -6,7 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShieldOff, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Table,
@@ -71,7 +72,12 @@ export function UserAccessCards({
   // Remounts the proof field for each dialog, so a proof never carries over.
   const [proofRound, setProofRound] = useState(0);
 
-  const { data: keys, isError: keysError } = useQuery({
+  const {
+    data: keys,
+    isLoading: keysLoading,
+    isError: keysError,
+    refetch: refetchKeys,
+  } = useQuery({
     queryKey: ['users', userId, 'api-keys'],
     queryFn: () => api.get<UserApiKey[]>(`/v1/users/${userId}/api-keys`),
     staleTime: 30_000,
@@ -128,90 +134,87 @@ export function UserAccessCards({
 
   return (
     <>
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('users.mfaTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">
-            {mfaEnabled
-              ? t('users.mfaOnDescription', { method: mfaMethod ?? '' })
-              : t('users.mfaOffDescription')}
-          </p>
-          {mfaEnabled && canWrite && (
-            <Button type="button" variant="outline" className="w-fit" onClick={openMfaReset}>
-              <ShieldOff className="h-4 w-4" />
-              {t('users.mfaReset')}
-            </Button>
-          )}
-        </CardContent>
-      </Card>
+      <TabPanel title={t('users.mfaTitle')} bodyClassName="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          {mfaEnabled
+            ? t('users.mfaOnDescription', { method: mfaMethod ?? '' })
+            : t('users.mfaOffDescription')}
+        </p>
+        {mfaEnabled && canWrite && (
+          <Button type="button" variant="outline" className="w-fit" onClick={openMfaReset}>
+            <ShieldOff className="h-4 w-4" />
+            {t('users.mfaReset')}
+          </Button>
+        )}
+      </TabPanel>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('settings.apiKeys')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground">{t('users.apiKeysDescription')}</p>
-          {keysError ? (
-            <p className="text-sm text-destructive">{t('errors.unknown')}</p>
-          ) : keys == null || keys.length === 0 ? (
-            <p className="text-sm text-muted-foreground">{t('users.noApiKeys')}</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('settings.apiKeyNameColumn')}</TableHead>
-                    <TableHead>{t('settings.apiKeyKeyColumn')}</TableHead>
-                    <TableHead>{t('settings.apiKeyCreatedColumn')}</TableHead>
-                    <TableHead>{t('settings.apiKeyLastUsedColumn')}</TableHead>
-                    <TableHead>{t('settings.apiKeyExpiresColumn')}</TableHead>
+      <TabPanel
+        title={t('settings.apiKeys')}
+        description={t('users.apiKeysDescription')}
+        bodyClassName="space-y-4"
+      >
+        {keysLoading ? (
+          <LoadingState />
+        ) : keysError ? (
+          <ErrorState
+            onRetry={() => {
+              void refetchKeys();
+            }}
+          />
+        ) : keys == null || keys.length === 0 ? (
+          <EmptyState>{t('users.noApiKeys')}</EmptyState>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('settings.apiKeyNameColumn')}</TableHead>
+                  <TableHead>{t('settings.apiKeyKeyColumn')}</TableHead>
+                  <TableHead>{t('settings.apiKeyCreatedColumn')}</TableHead>
+                  <TableHead>{t('settings.apiKeyLastUsedColumn')}</TableHead>
+                  <TableHead>{t('settings.apiKeyExpiresColumn')}</TableHead>
+                  {canWrite && <TableHead className="text-right">{t('common.actions')}</TableHead>}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {keys.map((key) => (
+                  <TableRow key={key.id}>
+                    <TableCell className="font-medium">{key.name ?? ''}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {key.tokenSuffix != null ? `...${key.tokenSuffix}` : 'n/a'}
+                    </TableCell>
+                    <TableCell>{formatDate(key.createdAt, timezone)}</TableCell>
+                    <TableCell>
+                      {key.lastUsedAt != null
+                        ? formatDate(key.lastUsedAt, timezone)
+                        : t('settings.apiKeyNeverUsed')}
+                    </TableCell>
+                    <TableCell>
+                      {key.expiresAt == null
+                        ? t('settings.apiKeyNever')
+                        : formatDate(key.expiresAt, timezone)}
+                    </TableCell>
                     {canWrite && (
-                      <TableHead className="text-right">{t('common.actions')}</TableHead>
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t('settings.apiKeyRevoke')}
+                          onClick={() => {
+                            setRevokeKeyId(key.id);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
                     )}
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {keys.map((key) => (
-                    <TableRow key={key.id}>
-                      <TableCell className="font-medium">{key.name ?? ''}</TableCell>
-                      <TableCell className="text-muted-foreground">
-                        {key.tokenSuffix != null ? `...${key.tokenSuffix}` : 'n/a'}
-                      </TableCell>
-                      <TableCell>{formatDate(key.createdAt, timezone)}</TableCell>
-                      <TableCell>
-                        {key.lastUsedAt != null
-                          ? formatDate(key.lastUsedAt, timezone)
-                          : t('settings.apiKeyNeverUsed')}
-                      </TableCell>
-                      <TableCell>
-                        {key.expiresAt == null
-                          ? t('settings.apiKeyNever')
-                          : formatDate(key.expiresAt, timezone)}
-                      </TableCell>
-                      {canWrite && (
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={t('settings.apiKeyRevoke')}
-                            onClick={() => {
-                              setRevokeKeyId(key.id);
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </TabPanel>
 
       <ConfirmDialog
         open={confirmMfaReset}

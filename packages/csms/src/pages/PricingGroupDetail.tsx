@@ -61,7 +61,7 @@ export function PricingGroupDetail(): React.JSX.Element {
           {canReadAudit && <TabsTrigger value="history">{t('common.history')}</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="details" className="space-y-6">
+        <TabsContent value="details">
           <PricingGroupDetailsTab
             group={group}
             timezone={timezone}
@@ -71,15 +71,15 @@ export function PricingGroupDetail(): React.JSX.Element {
           />
         </TabsContent>
 
-        <TabsContent value="tariffs" className="space-y-6">
+        <TabsContent value="tariffs">
           <PricingGroupTariffsTab groupId={id ?? ''} />
         </TabsContent>
 
-        <TabsContent value="schedule" className="space-y-6">
+        <TabsContent value="schedule">
           <PricingGroupScheduleTab groupId={id ?? ''} />
         </TabsContent>
 
-        <TabsContent value="history" className="space-y-6">
+        <TabsContent value="history">
           <EntityHistoryTab entityType="pricing_group" entityId={id ?? ''} />
         </TabsContent>
       </Tabs>

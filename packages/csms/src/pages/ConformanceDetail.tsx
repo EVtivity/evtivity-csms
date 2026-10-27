@@ -16,8 +16,10 @@ import {
   ChevronLeft,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { LoadingLogo } from '@/components/loading-logo';
+import { Card, CardContent } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState } from '@/components/ui/content-state';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -142,11 +144,18 @@ export function ConformanceDetail(): React.JSX.Element {
     if (!isRunInProgress && isPolling && detail != null) setIsPolling(false);
   }, [isRunInProgress, isPolling, detail]);
 
-  const { data: moduleSummary } = useQuery({
+  const {
+    data: moduleSummary,
+    isLoading: moduleSummaryLoading,
+    isError: moduleSummaryError,
+    refetch: refetchModuleSummary,
+  } = useQuery({
     queryKey: ['octt-runs', runId, 'summary'],
     queryFn: () => api.get<ModuleSummary[]>(`/v1/octt/runs/${runId ?? ''}/summary`),
     refetchInterval: isPolling ? 3000 : false,
   });
+
+  const moduleVersions = [...new Set((moduleSummary ?? []).map((m) => m.ocppVersion))].sort();
 
   const toggleExpand = (id: number): void => {
     setExpandedTests((prev) => {
@@ -158,11 +167,7 @@ export function ConformanceDetail(): React.JSX.Element {
   };
 
   if (isLoading) {
-    return (
-      <div className="flex justify-center py-12">
-        <Spinner className="h-8 w-8" />
-      </div>
-    );
+    return <LoadingLogo />;
   }
 
   const run = detail?.run;
@@ -242,78 +247,65 @@ export function ConformanceDetail(): React.JSX.Element {
         </TabsList>
 
         <TabsContent value="modules">
-          {moduleSummary != null && moduleSummary.length > 0 ? (
-            (() => {
-              const versions = [...new Set(moduleSummary.map((m) => m.ocppVersion))].sort();
+          <TabPanel
+            title={t('conformance.moduleBreakdown')}
+            bodyClassName="space-y-6"
+            isLoading={moduleSummaryLoading}
+            isError={moduleSummaryError}
+            onRetry={() => {
+              void refetchModuleSummary();
+            }}
+            isEmpty={moduleSummary == null || moduleSummary.length === 0}
+            emptyMessage={t('conformance.noModuleData')}
+          >
+            {moduleVersions.map((version) => {
+              const versionModules = (moduleSummary ?? []).filter((m) => m.ocppVersion === version);
               return (
-                <Card>
-                  <CardContent className="p-6 space-y-6">
-                    {versions.map((version) => {
-                      const versionModules = moduleSummary.filter((m) => m.ocppVersion === version);
-                      return (
-                        <div key={version}>
-                          <h3 className="text-sm font-semibold text-muted-foreground mb-2">
-                            {OCPP_VERSION_LABELS[version] ?? version}
-                          </h3>
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>{t('conformance.module')}</TableHead>
-                                <TableHead className="text-right">
-                                  {t('conformance.total')}
-                                </TableHead>
-                                <TableHead className="text-right">
-                                  {t('conformance.passed')}
-                                </TableHead>
-                                <TableHead className="text-right">
-                                  {t('conformance.failed')}
-                                </TableHead>
-                                <TableHead className="text-right">
-                                  {t('conformance.notApplicable')}
-                                </TableHead>
-                                <TableHead className="text-right">
-                                  {t('conformance.passRate')}
-                                </TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {versionModules.map((m) => (
-                                <TableRow key={`${version}-${m.module}`}>
-                                  <TableCell className="font-medium">{m.module}</TableCell>
-                                  <TableCell className="text-right">{m.total}</TableCell>
-                                  <TableCell className="text-right text-success">
-                                    {m.passed}
-                                  </TableCell>
-                                  <TableCell className="text-right text-destructive">
-                                    {m.failed}
-                                  </TableCell>
-                                  <TableCell className="text-right text-muted-foreground">
-                                    {m.notApplicable}
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    {passRate(m.passed, m.total, m.notApplicable, 0)}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      );
-                    })}
-                  </CardContent>
-                </Card>
+                <div key={version}>
+                  <h3 className="text-sm font-semibold text-muted-foreground mb-2">
+                    {OCPP_VERSION_LABELS[version] ?? version}
+                  </h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t('conformance.module')}</TableHead>
+                        <TableHead className="text-right">{t('conformance.total')}</TableHead>
+                        <TableHead className="text-right">{t('conformance.passed')}</TableHead>
+                        <TableHead className="text-right">{t('conformance.failed')}</TableHead>
+                        <TableHead className="text-right">
+                          {t('conformance.notApplicable')}
+                        </TableHead>
+                        <TableHead className="text-right">{t('conformance.passRate')}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {versionModules.map((m) => (
+                        <TableRow key={`${version}-${m.module}`}>
+                          <TableCell className="font-medium">{m.module}</TableCell>
+                          <TableCell className="text-right">{m.total}</TableCell>
+                          <TableCell className="text-right text-success">{m.passed}</TableCell>
+                          <TableCell className="text-right text-destructive">{m.failed}</TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {m.notApplicable}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {passRate(m.passed, m.total, m.notApplicable, 0)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               );
-            })()
-          ) : (
-            <p className="text-sm text-muted-foreground py-4">{t('conformance.noModuleData')}</p>
-          )}
+            })}
+          </TabPanel>
         </TabsContent>
 
         <TabsContent value="results">
-          <Card>
-            <CardHeader>
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
-                <CardTitle className="text-lg">{t('conformance.testResults')}</CardTitle>
+          <TabPanel
+            title={t('conformance.testResults')}
+            actions={
+              <>
                 <div className="hidden md:flex md:flex-wrap md:items-center md:gap-2">
                   <Select
                     aria-label={t('common.filterByModule')}
@@ -386,70 +378,72 @@ export function ConformanceDetail(): React.JSX.Element {
                     <option value="notApplicable">{t('conformance.notApplicable')}</option>
                   </Select>
                 </FilterPopover>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-8" />
-                    <TableHead>{t('conformance.testId')}</TableHead>
-                    <TableHead>{t('conformance.version')}</TableHead>
-                    <TableHead>{t('conformance.testName')}</TableHead>
-                    <TableHead>{t('conformance.module')}</TableHead>
-                    <TableHead>{t('conformance.status')}</TableHead>
-                    <TableHead className="text-right">{t('conformance.duration')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {detail?.results.slice((page - 1) * pageSize, page * pageSize).map((result) => (
-                    <ResultRow
-                      key={result.id}
-                      result={result}
-                      expanded={expandedTests.has(result.id)}
-                      onToggle={() => {
-                        toggleExpand(result.id);
-                      }}
-                      t={t}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-              {(detail?.results.length ?? 0) > pageSize && (
-                <div className="flex items-center justify-between border-t pt-4 mt-4">
-                  <p className="text-sm text-muted-foreground">
-                    {t('conformance.showing')} {(page - 1) * pageSize + 1}-
-                    {Math.min(page * pageSize, detail?.results.length ?? 0)} {t('conformance.of')}{' '}
-                    {detail?.results.length ?? 0}
-                  </p>
-                  <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={page <= 1}
-                      onClick={() => {
-                        setPage((p) => p - 1);
-                      }}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                      {t('conformance.prev')}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={page * pageSize >= (detail?.results.length ?? 0)}
-                      onClick={() => {
-                        setPage((p) => p + 1);
-                      }}
-                    >
-                      {t('conformance.next')}
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
+              </>
+            }
+          >
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-8" />
+                  <TableHead>{t('conformance.testId')}</TableHead>
+                  <TableHead>{t('conformance.version')}</TableHead>
+                  <TableHead>{t('conformance.testName')}</TableHead>
+                  <TableHead>{t('conformance.module')}</TableHead>
+                  <TableHead>{t('conformance.status')}</TableHead>
+                  <TableHead className="text-right">{t('conformance.duration')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {detail?.results.slice((page - 1) * pageSize, page * pageSize).map((result) => (
+                  <ResultRow
+                    key={result.id}
+                    result={result}
+                    expanded={expandedTests.has(result.id)}
+                    onToggle={() => {
+                      toggleExpand(result.id);
+                    }}
+                    t={t}
+                  />
+                ))}
+              </TableBody>
+            </Table>
+            {(detail?.results.length ?? 0) === 0 && (
+              <EmptyState>{t('common.noResults')}</EmptyState>
+            )}
+            {(detail?.results.length ?? 0) > pageSize && (
+              <div className="flex items-center justify-between border-t pt-4 mt-4">
+                <p className="text-sm text-muted-foreground">
+                  {t('conformance.showing')} {(page - 1) * pageSize + 1}-
+                  {Math.min(page * pageSize, detail?.results.length ?? 0)} {t('conformance.of')}{' '}
+                  {detail?.results.length ?? 0}
+                </p>
+                <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => {
+                      setPage((p) => p - 1);
+                    }}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    {t('conformance.prev')}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page * pageSize >= (detail?.results.length ?? 0)}
+                    onClick={() => {
+                      setPage((p) => p + 1);
+                    }}
+                  >
+                    {t('conformance.next')}
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </div>
+            )}
+          </TabPanel>
         </TabsContent>
       </Tabs>
     </div>

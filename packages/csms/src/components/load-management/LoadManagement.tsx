@@ -26,7 +26,8 @@ import { api } from '@/lib/api';
 import { PowerBar } from './PowerBar';
 import { PanelTree } from './PanelTree';
 import { PanelForm } from './PanelForm';
-import { LoadingLogo } from '@/components/loading-logo';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState } from '@/components/ui/content-state';
 import { formatNumber } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
@@ -130,7 +131,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
   const [showHistory, setShowHistory] = useState(false);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['sites', siteId, 'load-management'],
     queryFn: () => api.get<LoadManagementData>(`/v1/sites/${siteId}/load-management`),
     refetchInterval: 5000,
@@ -195,8 +196,17 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
     void queryClient.invalidateQueries({ queryKey: ['sites', siteId, 'load-management'] });
   }
 
-  if (isLoading) {
-    return <LoadingLogo />;
+  if (isLoading || isError) {
+    return (
+      <TabPanel
+        title={t('sites.loadManagement')}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
+    );
   }
 
   const hierarchy = data?.hierarchy ?? [];
@@ -205,46 +215,41 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
   return (
     <div className="space-y-6">
       {/* Configuration Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('loadManagement.configuration')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSave} className="space-y-4">
-            <div className="grid gap-2">
-              <Label htmlFor="strategy">{t('loadManagement.allocationStrategy')}</Label>
-              <Select
-                id="strategy"
-                value={strategy}
-                onChange={(e) => {
-                  setStrategy(e.target.value as LoadAllocationStrategy);
-                }}
-              >
-                <option value="equal_share">{t('loadManagement.equalShare')}</option>
-                <option value="priority_based">{t('loadManagement.priorityBased')}</option>
-              </Select>
-            </div>
-            <div className="flex justify-end items-center gap-2">
-              <input
-                id="lm-enabled"
-                type="checkbox"
-                checked={isEnabled}
-                onChange={(e) => {
-                  setIsEnabled(e.target.checked);
-                }}
-                className="h-4 w-4"
-              />
-              <Label htmlFor="lm-enabled">{t('loadManagement.enableLoadManagement')}</Label>
-            </div>
-            <SaveButton isPending={saveMutation.isPending} />
-          </form>
-        </CardContent>
-      </Card>
+      <TabPanel title={t('sites.loadManagement')}>
+        <form onSubmit={handleSave} className="space-y-4">
+          <div className="grid gap-2">
+            <Label htmlFor="strategy">{t('loadManagement.allocationStrategy')}</Label>
+            <Select
+              id="strategy"
+              value={strategy}
+              onChange={(e) => {
+                setStrategy(e.target.value as LoadAllocationStrategy);
+              }}
+            >
+              <option value="equal_share">{t('loadManagement.equalShare')}</option>
+              <option value="priority_based">{t('loadManagement.priorityBased')}</option>
+            </Select>
+          </div>
+          <div className="flex justify-end items-center gap-2">
+            <input
+              id="lm-enabled"
+              type="checkbox"
+              checked={isEnabled}
+              onChange={(e) => {
+                setIsEnabled(e.target.checked);
+              }}
+              className="h-4 w-4"
+            />
+            <Label htmlFor="lm-enabled">{t('loadManagement.enableLoadManagement')}</Label>
+          </div>
+          <SaveButton isPending={saveMutation.isPending} />
+        </form>
+      </TabPanel>
 
       {/* Electrical Infrastructure Card */}
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>{t('loadManagement.electricalInfrastructure')}</CardTitle>
+      <TabPanel
+        title={t('loadManagement.electricalInfrastructure')}
+        actions={
           <Button
             size="sm"
             onClick={() => {
@@ -254,16 +259,15 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
             <Plus className="h-4 w-4" />
             {t('loadManagement.addPanel')}
           </Button>
-        </CardHeader>
-        <CardContent>
-          <PanelTree
-            siteId={siteId}
-            hierarchy={hierarchy}
-            stations={stations}
-            onRefresh={handleRefresh}
-          />
-        </CardContent>
-      </Card>
+        }
+      >
+        <PanelTree
+          siteId={siteId}
+          hierarchy={hierarchy}
+          stations={stations}
+          onRefresh={handleRefresh}
+        />
+      </TabPanel>
 
       {/* Station Allocations Card */}
       {stations.length > 0 && (
@@ -331,9 +335,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
                 ))}
               </div>
             ) : (
-              <p className="text-center text-sm text-muted-foreground">
-                {t('loadManagement.noAllocations')}
-              </p>
+              <EmptyState>{t('loadManagement.noAllocations')}</EmptyState>
             )}
           </CardContent>
         )}
@@ -376,90 +378,85 @@ function StationAllocationsTable({
   );
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('loadManagement.stationAllocations')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t('loadManagement.station')}</TableHead>
-                <TableHead>{t('loadManagement.priority')}</TableHead>
-                <TableHead>{t('loadManagement.minPower')}</TableHead>
-                <TableHead>{t('loadManagement.limitUnit')}</TableHead>
-                <TableHead>{t('common.status')}</TableHead>
-                <TableHead>{t('loadManagement.session')}</TableHead>
-                <TableHead className="min-w-[200px]">{t('loadManagement.powerDraw')}</TableHead>
+    <TabPanel title={t('loadManagement.stationAllocations')}>
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('loadManagement.station')}</TableHead>
+              <TableHead>{t('loadManagement.priority')}</TableHead>
+              <TableHead>{t('loadManagement.minPower')}</TableHead>
+              <TableHead>{t('loadManagement.limitUnit')}</TableHead>
+              <TableHead>{t('common.status')}</TableHead>
+              <TableHead>{t('loadManagement.session')}</TableHead>
+              <TableHead className="min-w-[200px]">{t('loadManagement.powerDraw')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paginatedStations.map((station) => (
+              <TableRow key={station.id}>
+                <TableCell className="font-medium">{station.stationId}</TableCell>
+                <TableCell>
+                  <Select
+                    aria-label={t('loadManagement.priorityFor', { stationId: station.stationId })}
+                    value={station.loadPriority}
+                    onChange={(e) => {
+                      priorityMutation.mutate({
+                        stationId: station.id,
+                        loadPriority: Number(e.target.value),
+                      });
+                    }}
+                    className="w-20"
+                    disabled={strategy !== 'priority_based'}
+                  >
+                    {Array.from({ length: 10 }, (_, i) => i + 1).map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </Select>
+                </TableCell>
+                <TableCell>
+                  <MinPowerInput station={station} onSave={minPowerMutation.mutate} />
+                </TableCell>
+                <TableCell>{station.rateUnit}</TableCell>
+                <TableCell>
+                  <Badge variant={station.isOnline ? 'success' : 'outline'}>
+                    {station.isOnline ? t('status.online') : t('status.offline')}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  {station.hasActiveSession ? (
+                    <Badge variant="success">{t('common.active')}</Badge>
+                  ) : (
+                    <span className="text-muted-foreground">{t('common.na')}</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <PowerBar
+                    currentKw={station.currentDrawKw}
+                    limitKw={station.allocatedLimitKw ?? 0}
+                    maxKw={
+                      station.allocatedLimitKw != null
+                        ? station.allocatedLimitKw
+                        : station.maxPowerKw > 0
+                          ? station.maxPowerKw
+                          : 22
+                    }
+                  />
+                </TableCell>
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {paginatedStations.map((station) => (
-                <TableRow key={station.id}>
-                  <TableCell className="font-medium">{station.stationId}</TableCell>
-                  <TableCell>
-                    <Select
-                      aria-label={t('loadManagement.priorityFor', { stationId: station.stationId })}
-                      value={station.loadPriority}
-                      onChange={(e) => {
-                        priorityMutation.mutate({
-                          stationId: station.id,
-                          loadPriority: Number(e.target.value),
-                        });
-                      }}
-                      className="w-20"
-                      disabled={strategy !== 'priority_based'}
-                    >
-                      {Array.from({ length: 10 }, (_, i) => i + 1).map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    <MinPowerInput station={station} onSave={minPowerMutation.mutate} />
-                  </TableCell>
-                  <TableCell>{station.rateUnit}</TableCell>
-                  <TableCell>
-                    <Badge variant={station.isOnline ? 'success' : 'outline'}>
-                      {station.isOnline ? t('status.online') : t('status.offline')}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {station.hasActiveSession ? (
-                      <Badge variant="success">{t('common.active')}</Badge>
-                    ) : (
-                      <span className="text-muted-foreground">{t('common.na')}</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <PowerBar
-                      currentKw={station.currentDrawKw}
-                      limitKw={station.allocatedLimitKw ?? 0}
-                      maxKw={
-                        station.allocatedLimitKw != null
-                          ? station.allocatedLimitKw
-                          : station.maxPowerKw > 0
-                            ? station.maxPowerKw
-                            : 22
-                      }
-                    />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <p className="mt-3 text-xs text-muted-foreground">{t('loadManagement.minPowerHint')}</p>
+      {totalPages > 1 && (
+        <div className="mt-4">
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">{t('loadManagement.minPowerHint')}</p>
-        {totalPages > 1 && (
-          <div className="mt-4">
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-          </div>
-        )}
-      </CardContent>
-    </Card>
+      )}
+    </TabPanel>
   );
 }
 

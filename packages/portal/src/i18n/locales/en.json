@@ -26,7 +26,9 @@
     "toggleSuggestions": "Toggle suggestions",
     "copyFailed": "Copy failed",
     "notCharged": "Not Charged",
-    "copy": "Copy"
+    "copy": "Copy",
+    "loadError": "Failed to load data. Please try again.",
+    "retry": "Retry"
   },
   "nav": {
     "home": "Home",

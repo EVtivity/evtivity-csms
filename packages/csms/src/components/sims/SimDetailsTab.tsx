@@ -8,7 +8,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Power, PowerOff, RotateCcw, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DescriptionItem, DescriptionList } from '@/components/ui/description-list';
 import { IdText } from '@/components/ui/id-text';
@@ -128,10 +128,10 @@ function SimInfoCard({
   );
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('sims.detail.detailsTitle')}</CardTitle>
-        {canManage && (
+    <TabPanel
+      title={t('sims.detail.tabs.details')}
+      actions={
+        canManage ? (
           <div className="flex flex-wrap gap-2">
             <Button
               variant={active ? 'outline' : 'default'}
@@ -154,57 +154,54 @@ function SimInfoCard({
               deleteButton
             )}
           </div>
-        )}
-      </CardHeader>
-      <CardContent>
-        <DescriptionList>
-          <DescriptionItem label={t('sims.detail.iccid')}>
-            <IdText value={sim.iccid} />
-          </DescriptionItem>
-          <DescriptionItem label={t('sims.detail.imsi')}>
-            {sim.imsi == null ? na : <IdText value={sim.imsi} />}
-          </DescriptionItem>
-          <DescriptionItem label={t('sims.detail.label')}>
-            <span className="wrap-anywhere">{sim.label ?? na}</span>
-          </DescriptionItem>
-          <DescriptionItem label={t('sims.detail.notes')}>
-            <span className="whitespace-pre-wrap wrap-anywhere">{sim.notes ?? na}</span>
-          </DescriptionItem>
-          <DescriptionItem label={t('sims.detail.csmsStatus')}>
-            <span className="flex flex-col gap-1">
-              <span className="flex flex-wrap items-center gap-2">
-                <Badge variant={active ? 'success' : 'secondary'}>
-                  {t(`sims.csmsStatus.${sim.status}`)}
-                </Badge>
-                {!active && sim.deactivatedAt != null && (
-                  <span className="text-xs text-muted-foreground">
-                    {sim.deactivatedByUser?.name != null
-                      ? t('sims.detail.deactivatedBy', {
-                          time: formatDateTime(sim.deactivatedAt, timezone),
-                          name: sim.deactivatedByUser.name,
-                        })
-                      : t('sims.detail.deactivatedAt', {
-                          time: formatDateTime(sim.deactivatedAt, timezone),
-                        })}
-                  </span>
-                )}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {t('sims.detail.csmsStatusHint')}
-              </span>
+        ) : undefined
+      }
+    >
+      <DescriptionList>
+        <DescriptionItem label={t('sims.detail.iccid')}>
+          <IdText value={sim.iccid} />
+        </DescriptionItem>
+        <DescriptionItem label={t('sims.detail.imsi')}>
+          {sim.imsi == null ? na : <IdText value={sim.imsi} />}
+        </DescriptionItem>
+        <DescriptionItem label={t('sims.detail.label')}>
+          <span className="wrap-anywhere">{sim.label ?? na}</span>
+        </DescriptionItem>
+        <DescriptionItem label={t('sims.detail.notes')}>
+          <span className="whitespace-pre-wrap wrap-anywhere">{sim.notes ?? na}</span>
+        </DescriptionItem>
+        <DescriptionItem label={t('sims.detail.csmsStatus')}>
+          <span className="flex flex-col gap-1">
+            <span className="flex flex-wrap items-center gap-2">
+              <Badge variant={active ? 'success' : 'secondary'}>
+                {t(`sims.csmsStatus.${sim.status}`)}
+              </Badge>
+              {!active && sim.deactivatedAt != null && (
+                <span className="text-xs text-muted-foreground">
+                  {sim.deactivatedByUser?.name != null
+                    ? t('sims.detail.deactivatedBy', {
+                        time: formatDateTime(sim.deactivatedAt, timezone),
+                        name: sim.deactivatedByUser.name,
+                      })
+                    : t('sims.detail.deactivatedAt', {
+                        time: formatDateTime(sim.deactivatedAt, timezone),
+                      })}
+                </span>
+              )}
             </span>
-          </DescriptionItem>
-          <DescriptionItem label={t('sims.detail.provider')}>
-            {sim.provider == null ? na : providerName(sim.provider)}
-          </DescriptionItem>
-          <DescriptionItem label={t('sims.detail.providerRef')}>
-            {sim.providerRef == null ? na : <IdText value={sim.providerRef} />}
-          </DescriptionItem>
-          <DescriptionItem label={t('sims.detail.created')}>
-            {formatDateTime(sim.createdAt, timezone)}
-          </DescriptionItem>
-        </DescriptionList>
-      </CardContent>
+            <span className="text-xs text-muted-foreground">{t('sims.detail.csmsStatusHint')}</span>
+          </span>
+        </DescriptionItem>
+        <DescriptionItem label={t('sims.detail.provider')}>
+          {sim.provider == null ? na : providerName(sim.provider)}
+        </DescriptionItem>
+        <DescriptionItem label={t('sims.detail.providerRef')}>
+          {sim.providerRef == null ? na : <IdText value={sim.providerRef} />}
+        </DescriptionItem>
+        <DescriptionItem label={t('sims.detail.created')}>
+          {formatDateTime(sim.createdAt, timezone)}
+        </DescriptionItem>
+      </DescriptionList>
       <ConfirmDialog
         open={statusOpen}
         onOpenChange={setStatusOpen}
@@ -232,7 +229,7 @@ function SimInfoCard({
           return false;
         }}
       />
-    </Card>
+    </TabPanel>
   );
 }
 
@@ -259,11 +256,8 @@ function SimProviderCard({ sim, controller, timezone }: SimDetailsTabProps): Rea
   if (sim.provider == null) {
     const notFound = sim.lookupMissReason === 'not_found';
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('stations.sim.fromProviderTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3 text-center" data-testid="sim-no-provider">
+      <TabPanel title={t('stations.sim.fromProviderTitle')}>
+        <div className="space-y-3 text-center" data-testid="sim-no-provider">
           <p className="text-sm text-muted-foreground">
             {notFound ? t('sims.detail.providerNotFound') : t('sims.detail.noProvider')}
           </p>
@@ -278,8 +272,8 @@ function SimProviderCard({ sim, controller, timezone }: SimDetailsTabProps): Rea
               {t('stations.sim.lookUpAgain')}
             </Button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </TabPanel>
     );
   }
 

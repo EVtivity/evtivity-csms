@@ -6,7 +6,8 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -191,7 +192,12 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
     return event.affectedStationIds.map((id) => ({ id, stationId: stationIdLookup.get(id) ?? id }));
   }
 
-  const { data: status } = useQuery({
+  const {
+    data: status,
+    isLoading: statusLoading,
+    isError: statusError,
+    refetch: refetchStatus,
+  } = useQuery({
     queryKey: ['maintenance', 'status', siteId],
     queryFn: () => api.get<StatusSummary>(`/v1/sites/${siteId}/maintenance/status`),
   });
@@ -199,7 +205,12 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
   const [historyPage, setHistoryPage] = useState(1);
   const HISTORY_PAGE_SIZE = 10;
 
-  const { data: listData } = useQuery({
+  const {
+    data: listData,
+    isLoading: listLoading,
+    isError: listError,
+    refetch: refetchList,
+  } = useQuery({
     queryKey: ['maintenance', 'site-events', siteId, historyPage],
     queryFn: () =>
       api.get<{ data: MaintenanceEvent[]; total: number }>(
@@ -314,10 +325,16 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>{t('maintenance.statusTitle')}</CardTitle>
-          {canWrite && !createOpen && (
+      <TabPanel
+        title={t('nav.maintenance')}
+        bodyClassName="space-y-3"
+        isLoading={statusLoading}
+        isError={statusError}
+        onRetry={() => {
+          void refetchStatus();
+        }}
+        actions={
+          canWrite && !createOpen ? (
             <Button
               onClick={() => {
                 setCreateOpen(true);
@@ -325,289 +342,267 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
             >
               {t('maintenance.schedule')}
             </Button>
-          )}
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {status?.current != null ? (
-            (() => {
-              const cur = status.current;
-              if (editingEventId === cur.id) {
-                return (
-                  <EditEventForm
-                    event={cur}
-                    siteId={siteId}
-                    timezone={timezone}
-                    isPending={editEventMutation.isPending}
-                    onCancel={() => {
-                      setEditingEventId(null);
-                    }}
-                    onSave={(payload) => {
-                      editEventMutation.mutate({ eventId: cur.id, ...payload });
-                    }}
-                  />
-                );
-              }
-              const stationCount = cur.affectedStationIds?.length ?? 0;
-              const isAllStations = cur.affectedStationIds == null || stationCount === 0;
+          ) : undefined
+        }
+      >
+        {status?.current != null ? (
+          (() => {
+            const cur = status.current;
+            if (editingEventId === cur.id) {
               return (
-                <div className="rounded-md border border-warning/40 bg-warning/10 p-3 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-1">
-                      <p className="font-semibold text-sm">{t('maintenance.activeNow')}</p>
-                      {cur.rollout?.offline == null && (
-                        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Spinner />
-                          {t('maintenance.rollingOut')}
-                        </p>
-                      )}
-                      <p className="text-sm">
-                        {t('maintenance.endsAt', {
-                          time: formatDateTime(cur.plannedEndAt, timezone),
-                        })}
-                      </p>
-                    </div>
-                    {canWrite && (
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setEditingEventId(cur.id);
-                          }}
-                        >
-                          {t('common.edit')}
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setConfirmCancelId(cur.id);
-                          }}
-                        >
-                          {t('maintenance.endNow')}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="font-medium">{t('maintenance.scopeLabel')}:</span>{' '}
-                      {isAllStations
-                        ? t('maintenance.allStations')
-                        : t('maintenance.nStations', { count: stationCount })}
-                    </div>
-                    <div>
-                      <span className="font-medium">{t('maintenance.sessionPolicy')}:</span>{' '}
-                      {cur.activeSessionPolicy === 'stop_graceful'
-                        ? t('maintenance.policyStop')
-                        : t('maintenance.policyIgnore')}
-                    </div>
-                    {cur.sessionsStoppedCount > 0 && (
-                      <div>
-                        <span className="font-medium">{t('maintenance.colSessionsStopped')}:</span>{' '}
-                        {cur.sessionsStoppedCount}
-                      </div>
-                    )}
-                    {cur.reservationsCancelledCount > 0 && (
-                      <div>
-                        <span className="font-medium">
-                          {t('maintenance.colReservationsCancelled')}:
-                        </span>{' '}
-                        {cur.reservationsCancelledCount}
-                      </div>
-                    )}
-                  </div>
-                  {cur.reason != null && cur.reason.length > 0 && (
-                    <p className="text-sm">
-                      <span className="font-medium">{t('maintenance.reason')}:</span> {cur.reason}
-                    </p>
-                  )}
-                  {cur.customMessage != null && cur.customMessage.length > 0 && (
-                    <p className="text-sm text-muted-foreground line-clamp-2">
-                      {cur.customMessage}
-                    </p>
-                  )}
-                  <EventStationList event={cur} stations={resolveEventStations(cur)} />
-                </div>
+                <EditEventForm
+                  event={cur}
+                  siteId={siteId}
+                  timezone={timezone}
+                  isPending={editEventMutation.isPending}
+                  onCancel={() => {
+                    setEditingEventId(null);
+                  }}
+                  onSave={(payload) => {
+                    editEventMutation.mutate({ eventId: cur.id, ...payload });
+                  }}
+                />
               );
-            })()
-          ) : (
-            <p className="text-sm text-muted-foreground">{t('maintenance.noneActive')}</p>
-          )}
+            }
+            const stationCount = cur.affectedStationIds?.length ?? 0;
+            const isAllStations = cur.affectedStationIds == null || stationCount === 0;
+            return (
+              <div className="rounded-md border border-warning/40 bg-warning/10 p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-1">
+                    <p className="font-semibold text-sm">{t('maintenance.activeNow')}</p>
+                    {cur.rollout?.offline == null && (
+                      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Spinner />
+                        {t('maintenance.rollingOut')}
+                      </p>
+                    )}
+                    <p className="text-sm">
+                      {t('maintenance.endsAt', {
+                        time: formatDateTime(cur.plannedEndAt, timezone),
+                      })}
+                    </p>
+                  </div>
+                  {canWrite && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditingEventId(cur.id);
+                        }}
+                      >
+                        {t('common.edit')}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setConfirmCancelId(cur.id);
+                        }}
+                      >
+                        {t('maintenance.endNow')}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                  <div>
+                    <span className="font-medium">{t('maintenance.scopeLabel')}:</span>{' '}
+                    {isAllStations
+                      ? t('maintenance.allStations')
+                      : t('maintenance.nStations', { count: stationCount })}
+                  </div>
+                  <div>
+                    <span className="font-medium">{t('maintenance.sessionPolicy')}:</span>{' '}
+                    {cur.activeSessionPolicy === 'stop_graceful'
+                      ? t('maintenance.policyStop')
+                      : t('maintenance.policyIgnore')}
+                  </div>
+                  {cur.sessionsStoppedCount > 0 && (
+                    <div>
+                      <span className="font-medium">{t('maintenance.colSessionsStopped')}:</span>{' '}
+                      {cur.sessionsStoppedCount}
+                    </div>
+                  )}
+                  {cur.reservationsCancelledCount > 0 && (
+                    <div>
+                      <span className="font-medium">
+                        {t('maintenance.colReservationsCancelled')}:
+                      </span>{' '}
+                      {cur.reservationsCancelledCount}
+                    </div>
+                  )}
+                </div>
+                {cur.reason != null && cur.reason.length > 0 && (
+                  <p className="text-sm">
+                    <span className="font-medium">{t('maintenance.reason')}:</span> {cur.reason}
+                  </p>
+                )}
+                {cur.customMessage != null && cur.customMessage.length > 0 && (
+                  <p className="text-sm text-muted-foreground line-clamp-2">{cur.customMessage}</p>
+                )}
+                <EventStationList event={cur} stations={resolveEventStations(cur)} />
+              </div>
+            );
+          })()
+        ) : (
+          <p className="text-sm text-muted-foreground">{t('maintenance.noneActive')}</p>
+        )}
 
-          {(status?.upcoming.length ?? 0) > 0 && (
-            <div className="space-y-2">
-              <p className="text-sm font-medium">{t('maintenance.upcoming')}</p>
-              <ul className="space-y-2">
-                {status?.upcoming.map((u) => {
-                  if (editingEventId === u.id) {
-                    return (
-                      <li key={u.id} className="rounded-md border p-3">
-                        <EditEventForm
-                          event={u}
-                          siteId={siteId}
-                          timezone={timezone}
-                          isPending={editEventMutation.isPending}
-                          onCancel={() => {
-                            setEditingEventId(null);
-                          }}
-                          onSave={(payload) => {
-                            editEventMutation.mutate({ eventId: u.id, ...payload });
-                          }}
-                        />
-                      </li>
-                    );
-                  }
-                  const stationCount = u.affectedStationIds?.length ?? 0;
-                  const isAllStations = u.affectedStationIds == null || stationCount === 0;
-                  const durationMinutes = Math.max(
-                    0,
-                    Math.round(
-                      (new Date(u.plannedEndAt).getTime() - new Date(u.plannedStartAt).getTime()) /
-                        60_000,
-                    ),
-                  );
+        {(status?.upcoming.length ?? 0) > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">{t('maintenance.upcoming')}</p>
+            <ul className="space-y-2">
+              {status?.upcoming.map((u) => {
+                if (editingEventId === u.id) {
                   return (
-                    <li key={u.id} className="rounded-md border p-3 space-y-2">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="space-y-1">
-                          <div className="text-sm font-medium">
-                            {formatDateTime(u.plannedStartAt, timezone)} →{' '}
-                            {formatDateTime(u.plannedEndAt, timezone)}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {t('maintenance.durationLabel', { minutes: durationMinutes })}
-                          </div>
-                        </div>
-                        {canWrite && (
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setEditingEventId(u.id);
-                              }}
-                            >
-                              {t('common.edit')}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setConfirmCancelId(u.id);
-                              }}
-                            >
-                              {t('common.cancel')}
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                        <div>
-                          <span className="font-medium">{t('maintenance.scopeLabel')}:</span>{' '}
-                          {isAllStations
-                            ? t('maintenance.allStations')
-                            : t('maintenance.nStations', { count: stationCount })}
-                        </div>
-                        <div>
-                          <span className="font-medium">{t('maintenance.sessionPolicy')}:</span>{' '}
-                          {u.activeSessionPolicy === 'stop_graceful'
-                            ? t('maintenance.policyStop')
-                            : t('maintenance.policyIgnore')}
-                        </div>
-                        <div>
-                          <span className="font-medium">{t('maintenance.colType')}:</span>{' '}
-                          {u.eventType === 'immediate'
-                            ? t('maintenance.typeImmediate')
-                            : t('maintenance.typeOneOff')}
-                        </div>
-                      </div>
-                      {u.reason != null && u.reason.length > 0 && (
-                        <p className="text-sm">
-                          <span className="font-medium">{t('maintenance.reason')}:</span> {u.reason}
-                        </p>
-                      )}
-                      {u.customMessage != null && u.customMessage.length > 0 && (
-                        <p className="text-sm text-muted-foreground line-clamp-2">
-                          {u.customMessage}
-                        </p>
-                      )}
-                      <EventStationList event={u} stations={resolveEventStations(u)} />
+                    <li key={u.id} className="rounded-md border p-3">
+                      <EditEventForm
+                        event={u}
+                        siteId={siteId}
+                        timezone={timezone}
+                        isPending={editEventMutation.isPending}
+                        onCancel={() => {
+                          setEditingEventId(null);
+                        }}
+                        onSave={(payload) => {
+                          editEventMutation.mutate({ eventId: u.id, ...payload });
+                        }}
+                      />
                     </li>
                   );
-                })}
-              </ul>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                }
+                const stationCount = u.affectedStationIds?.length ?? 0;
+                const isAllStations = u.affectedStationIds == null || stationCount === 0;
+                const durationMinutes = Math.max(
+                  0,
+                  Math.round(
+                    (new Date(u.plannedEndAt).getTime() - new Date(u.plannedStartAt).getTime()) /
+                      60_000,
+                  ),
+                );
+                return (
+                  <li key={u.id} className="rounded-md border p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="space-y-1">
+                        <div className="text-sm font-medium">
+                          {formatDateTime(u.plannedStartAt, timezone)} →{' '}
+                          {formatDateTime(u.plannedEndAt, timezone)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {t('maintenance.durationLabel', { minutes: durationMinutes })}
+                        </div>
+                      </div>
+                      {canWrite && (
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditingEventId(u.id);
+                            }}
+                          >
+                            {t('common.edit')}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setConfirmCancelId(u.id);
+                            }}
+                          >
+                            {t('common.cancel')}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <span className="font-medium">{t('maintenance.scopeLabel')}:</span>{' '}
+                        {isAllStations
+                          ? t('maintenance.allStations')
+                          : t('maintenance.nStations', { count: stationCount })}
+                      </div>
+                      <div>
+                        <span className="font-medium">{t('maintenance.sessionPolicy')}:</span>{' '}
+                        {u.activeSessionPolicy === 'stop_graceful'
+                          ? t('maintenance.policyStop')
+                          : t('maintenance.policyIgnore')}
+                      </div>
+                      <div>
+                        <span className="font-medium">{t('maintenance.colType')}:</span>{' '}
+                        {u.eventType === 'immediate'
+                          ? t('maintenance.typeImmediate')
+                          : t('maintenance.typeOneOff')}
+                      </div>
+                    </div>
+                    {u.reason != null && u.reason.length > 0 && (
+                      <p className="text-sm">
+                        <span className="font-medium">{t('maintenance.reason')}:</span> {u.reason}
+                      </p>
+                    )}
+                    {u.customMessage != null && u.customMessage.length > 0 && (
+                      <p className="text-sm text-muted-foreground line-clamp-2">
+                        {u.customMessage}
+                      </p>
+                    )}
+                    <EventStationList event={u} stations={resolveEventStations(u)} />
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </TabPanel>
 
       {createOpen && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('maintenance.schedule')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="leading-6">{t('maintenance.mode')}</Label>
-                  <div className="flex items-center gap-4 text-sm">
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="m-mode"
-                        checked={mode === 'immediate'}
-                        onChange={() => {
-                          setMode('immediate');
-                        }}
-                      />
-                      {t('maintenance.modeNow')}
-                    </label>
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name="m-mode"
-                        checked={mode === 'one_off'}
-                        onChange={() => {
-                          setMode('one_off');
-                        }}
-                      />
-                      {t('maintenance.modeScheduled')}
-                    </label>
-                  </div>
+        <TabPanel title={t('maintenance.schedule')}>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="leading-6">{t('maintenance.mode')}</Label>
+                <div className="flex items-center gap-4 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="m-mode"
+                      checked={mode === 'immediate'}
+                      onChange={() => {
+                        setMode('immediate');
+                      }}
+                    />
+                    {t('maintenance.modeNow')}
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="m-mode"
+                      checked={mode === 'one_off'}
+                      onChange={() => {
+                        setMode('one_off');
+                      }}
+                    />
+                    {t('maintenance.modeScheduled')}
+                  </label>
                 </div>
+              </div>
 
-                {mode === 'one_off' ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                      <Label htmlFor="m-starts" className="leading-6">
-                        {t('maintenance.start')}
-                      </Label>
-                      <Input
-                        id="m-starts"
-                        type="datetime-local"
-                        value={startsAt}
-                        onChange={(e) => {
-                          setStartsAt(e.target.value);
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="m-ends" className="leading-6">
-                        {t('maintenance.end')}
-                      </Label>
-                      <Input
-                        id="m-ends"
-                        type="datetime-local"
-                        value={endsAt}
-                        onChange={(e) => {
-                          setEndsAt(e.target.value);
-                        }}
-                      />
-                    </div>
+              {mode === 'one_off' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="m-starts" className="leading-6">
+                      {t('maintenance.start')}
+                    </Label>
+                    <Input
+                      id="m-starts"
+                      type="datetime-local"
+                      value={startsAt}
+                      onChange={(e) => {
+                        setStartsAt(e.target.value);
+                      }}
+                    />
                   </div>
-                ) : (
                   <div className="space-y-2">
                     <Label htmlFor="m-ends" className="leading-6">
                       {t('maintenance.end')}
@@ -621,254 +616,271 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                       }}
                     />
                   </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="m-policy" className="leading-6">
-                    {t('maintenance.sessionPolicy')}
-                  </Label>
-                  <Select
-                    id="m-policy"
-                    value={policy}
-                    onChange={(e) => {
-                      setPolicy(e.target.value as 'ignore' | 'stop_graceful');
-                    }}
-                  >
-                    <option value="ignore">{t('maintenance.policyIgnore')}</option>
-                    <option value="stop_graceful">{t('maintenance.policyStop')}</option>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {t('maintenance.reservationsAlwaysCancelled')}
-                  </p>
                 </div>
-
+              ) : (
                 <div className="space-y-2">
-                  <Label htmlFor="m-message" className="leading-6">
-                    {t('maintenance.customMessage')}
-                  </Label>
-                  <Textarea
-                    id="m-message"
-                    value={customMessage}
-                    onChange={(e) => {
-                      setCustomMessage(e.target.value);
-                    }}
-                    placeholder={t('maintenance.customMessagePlaceholder')}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="m-reason" className="leading-6">
-                    {t('maintenance.reason')}
+                  <Label htmlFor="m-ends" className="leading-6">
+                    {t('maintenance.end')}
                   </Label>
                   <Input
-                    id="m-reason"
-                    value={reason}
+                    id="m-ends"
+                    type="datetime-local"
+                    value={endsAt}
                     onChange={(e) => {
-                      setReason(e.target.value);
+                      setEndsAt(e.target.value);
                     }}
                   />
                 </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="m-policy" className="leading-6">
+                  {t('maintenance.sessionPolicy')}
+                </Label>
+                <Select
+                  id="m-policy"
+                  value={policy}
+                  onChange={(e) => {
+                    setPolicy(e.target.value as 'ignore' | 'stop_graceful');
+                  }}
+                >
+                  <option value="ignore">{t('maintenance.policyIgnore')}</option>
+                  <option value="stop_graceful">{t('maintenance.policyStop')}</option>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {t('maintenance.reservationsAlwaysCancelled')}
+                </p>
               </div>
 
-              <MaintenanceStationSelector
-                previewStations={previewStations}
-                previewLoading={previewLoading}
-                previewRangeValid={previewRangeValid}
-                selectAllStations={selectAllStations}
-                onSelectAllChange={setSelectAllStations}
-                selectedStationIds={selectedStationIds}
-                onSelectedChange={setSelectedStationIds}
-                effectiveSelected={effectiveSelected}
-                stationSearch={stationSearch}
-                onSearchChange={setStationSearch}
-                stationFilter={stationFilter}
-                onFilterChange={setStationFilter}
-                inputIdPrefix="create-station"
-                impactPreview={{
-                  totalSessions,
-                  totalReservations,
-                  acknowledged,
-                  onAcknowledgeChange: setAcknowledged,
-                  requiresAck,
-                }}
-              />
+              <div className="space-y-2">
+                <Label htmlFor="m-message" className="leading-6">
+                  {t('maintenance.customMessage')}
+                </Label>
+                <Textarea
+                  id="m-message"
+                  value={customMessage}
+                  onChange={(e) => {
+                    setCustomMessage(e.target.value);
+                  }}
+                  placeholder={t('maintenance.customMessagePlaceholder')}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="m-reason" className="leading-6">
+                  {t('maintenance.reason')}
+                </Label>
+                <Input
+                  id="m-reason"
+                  value={reason}
+                  onChange={(e) => {
+                    setReason(e.target.value);
+                  }}
+                />
+              </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setCreateOpen(false);
-                  resetForm();
-                }}
-              >
-                {t('common.cancel')}
-              </Button>
-              <Button
-                onClick={() => {
-                  createMutation.mutate();
-                }}
-                disabled={saveDisabled}
-              >
-                {createMutation.isPending ? t('common.loading') : t('common.save')}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+            <MaintenanceStationSelector
+              previewStations={previewStations}
+              previewLoading={previewLoading}
+              previewRangeValid={previewRangeValid}
+              selectAllStations={selectAllStations}
+              onSelectAllChange={setSelectAllStations}
+              selectedStationIds={selectedStationIds}
+              onSelectedChange={setSelectedStationIds}
+              effectiveSelected={effectiveSelected}
+              stationSearch={stationSearch}
+              onSearchChange={setStationSearch}
+              stationFilter={stationFilter}
+              onFilterChange={setStationFilter}
+              inputIdPrefix="create-station"
+              impactPreview={{
+                totalSessions,
+                totalReservations,
+                acknowledged,
+                onAcknowledgeChange: setAcknowledged,
+                requiresAck,
+              }}
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setCreateOpen(false);
+                resetForm();
+              }}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={() => {
+                createMutation.mutate();
+              }}
+              disabled={saveDisabled}
+            >
+              {createMutation.isPending ? t('common.loading') : t('common.save')}
+            </Button>
+          </div>
+        </TabPanel>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('maintenance.windows')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('maintenance.colStart')}</TableHead>
-                  <TableHead>{t('maintenance.colEnd')}</TableHead>
-                  <TableHead>{t('maintenance.colStatus')}</TableHead>
-                  <TableHead>{t('maintenance.colType')}</TableHead>
-                  <TableHead>
-                    <span className="inline-flex items-center gap-1">
-                      {t('maintenance.colTakenOffline')}
-                      <InfoTooltip content={t('maintenance.takenOfflineHint')} />
-                    </span>
-                  </TableHead>
-                  <TableHead>
-                    <span className="inline-flex items-center gap-1">
-                      {t('maintenance.colReasserted')}
-                      <InfoTooltip content={t('maintenance.reassertedHint')} />
-                    </span>
-                  </TableHead>
-                  <TableHead>
-                    <span className="inline-flex items-center gap-1">
-                      {t('maintenance.colRestored')}
-                      <InfoTooltip content={t('maintenance.restoredHint')} />
-                    </span>
-                  </TableHead>
-                  <TableHead>{t('maintenance.reason')}</TableHead>
-                  <TableHead className="text-right">
-                    {t('maintenance.colSessionsStopped')}
-                  </TableHead>
-                  <TableHead className="text-right">
-                    {t('maintenance.colReservationsCancelled')}
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {events.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={10} className="text-center text-muted-foreground py-6">
-                      {t('maintenance.empty')}
+      <TabPanel title={t('maintenance.windows')}>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('maintenance.colStart')}</TableHead>
+                <TableHead>{t('maintenance.colEnd')}</TableHead>
+                <TableHead>{t('maintenance.colStatus')}</TableHead>
+                <TableHead>{t('maintenance.colType')}</TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center gap-1">
+                    {t('maintenance.colTakenOffline')}
+                    <InfoTooltip content={t('maintenance.takenOfflineHint')} />
+                  </span>
+                </TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center gap-1">
+                    {t('maintenance.colReasserted')}
+                    <InfoTooltip content={t('maintenance.reassertedHint')} />
+                  </span>
+                </TableHead>
+                <TableHead>
+                  <span className="inline-flex items-center gap-1">
+                    {t('maintenance.colRestored')}
+                    <InfoTooltip content={t('maintenance.restoredHint')} />
+                  </span>
+                </TableHead>
+                <TableHead>{t('maintenance.reason')}</TableHead>
+                <TableHead className="text-right">{t('maintenance.colSessionsStopped')}</TableHead>
+                <TableHead className="text-right">
+                  {t('maintenance.colReservationsCancelled')}
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {listLoading ? (
+                <TableStateRow colSpan={10}>
+                  <LoadingState />
+                </TableStateRow>
+              ) : listError ? (
+                <TableStateRow colSpan={10}>
+                  <ErrorState
+                    onRetry={() => {
+                      void refetchList();
+                    }}
+                  />
+                </TableStateRow>
+              ) : events.length === 0 ? (
+                <TableStateRow colSpan={10}>
+                  <EmptyState>{t('maintenance.empty')}</EmptyState>
+                </TableStateRow>
+              ) : (
+                events.map((e) => (
+                  <TableRow
+                    key={e.id}
+                    className="cursor-pointer"
+                    data-testid={`maintenance-row-${e.id}`}
+                    onClick={() => {
+                      void navigate(`/sites/${siteId}/maintenance/${e.id}`);
+                    }}
+                  >
+                    <TableCell data-testid="row-click-target">
+                      {formatDateTime(e.plannedStartAt, timezone)}
                     </TableCell>
+                    <TableCell>{formatDateTime(e.plannedEndAt, timezone)}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{t(STATUS_I18N_KEY[e.status])}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {e.eventType === 'immediate'
+                        ? t('maintenance.typeImmediate')
+                        : t('maintenance.typeOneOff')}
+                    </TableCell>
+                    <TableCell>
+                      {e.rollout?.offline != null ? (
+                        <Badge
+                          variant={
+                            e.rollout.offline.accepted === e.rollout.offline.total
+                              ? 'success'
+                              : 'warning'
+                          }
+                          className="whitespace-nowrap normal-case"
+                        >
+                          {t('maintenance.nOfM', {
+                            n: e.rollout.offline.accepted,
+                            m: e.rollout.offline.total,
+                          })}
+                        </Badge>
+                      ) : e.status === 'active' || e.status === 'scheduled' ? (
+                        <span className="text-muted-foreground text-sm">
+                          {t('maintenance.rolloutPending')}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">{t('common.na')}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {e.rollout?.reasserted != null ? (
+                        <Badge
+                          variant={
+                            e.rollout.reasserted.accepted === e.rollout.reasserted.total
+                              ? 'success'
+                              : 'warning'
+                          }
+                          className="whitespace-nowrap normal-case"
+                        >
+                          {t('maintenance.nOfM', {
+                            n: e.rollout.reasserted.accepted,
+                            m: e.rollout.reasserted.total,
+                          })}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">{t('common.na')}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {e.rollout?.restored != null ? (
+                        <Badge
+                          variant={
+                            e.rollout.restored.accepted === e.rollout.restored.total
+                              ? 'success'
+                              : 'warning'
+                          }
+                          className="whitespace-nowrap normal-case"
+                        >
+                          {t('maintenance.nOfM', {
+                            n: e.rollout.restored.accepted,
+                            m: e.rollout.restored.total,
+                          })}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">{t('common.na')}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="max-w-xs truncate" title={e.reason ?? ''}>
+                      {e.reason != null && e.reason.length > 0 ? (
+                        e.reason
+                      ) : (
+                        <span className="text-muted-foreground">{t('common.na')}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">{e.sessionsStoppedCount}</TableCell>
+                    <TableCell className="text-right">{e.reservationsCancelledCount}</TableCell>
                   </TableRow>
-                ) : (
-                  events.map((e) => (
-                    <TableRow
-                      key={e.id}
-                      className="cursor-pointer"
-                      data-testid={`maintenance-row-${e.id}`}
-                      onClick={() => {
-                        void navigate(`/sites/${siteId}/maintenance/${e.id}`);
-                      }}
-                    >
-                      <TableCell data-testid="row-click-target">
-                        {formatDateTime(e.plannedStartAt, timezone)}
-                      </TableCell>
-                      <TableCell>{formatDateTime(e.plannedEndAt, timezone)}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{t(STATUS_I18N_KEY[e.status])}</Badge>
-                      </TableCell>
-                      <TableCell>
-                        {e.eventType === 'immediate'
-                          ? t('maintenance.typeImmediate')
-                          : t('maintenance.typeOneOff')}
-                      </TableCell>
-                      <TableCell>
-                        {e.rollout?.offline != null ? (
-                          <Badge
-                            variant={
-                              e.rollout.offline.accepted === e.rollout.offline.total
-                                ? 'success'
-                                : 'warning'
-                            }
-                            className="whitespace-nowrap normal-case"
-                          >
-                            {t('maintenance.nOfM', {
-                              n: e.rollout.offline.accepted,
-                              m: e.rollout.offline.total,
-                            })}
-                          </Badge>
-                        ) : e.status === 'active' || e.status === 'scheduled' ? (
-                          <span className="text-muted-foreground text-sm">
-                            {t('maintenance.rolloutPending')}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">{t('common.na')}</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {e.rollout?.reasserted != null ? (
-                          <Badge
-                            variant={
-                              e.rollout.reasserted.accepted === e.rollout.reasserted.total
-                                ? 'success'
-                                : 'warning'
-                            }
-                            className="whitespace-nowrap normal-case"
-                          >
-                            {t('maintenance.nOfM', {
-                              n: e.rollout.reasserted.accepted,
-                              m: e.rollout.reasserted.total,
-                            })}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">{t('common.na')}</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {e.rollout?.restored != null ? (
-                          <Badge
-                            variant={
-                              e.rollout.restored.accepted === e.rollout.restored.total
-                                ? 'success'
-                                : 'warning'
-                            }
-                            className="whitespace-nowrap normal-case"
-                          >
-                            {t('maintenance.nOfM', {
-                              n: e.rollout.restored.accepted,
-                              m: e.rollout.restored.total,
-                            })}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">{t('common.na')}</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate" title={e.reason ?? ''}>
-                        {e.reason != null && e.reason.length > 0 ? (
-                          e.reason
-                        ) : (
-                          <span className="text-muted-foreground">{t('common.na')}</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right">{e.sessionsStoppedCount}</TableCell>
-                      <TableCell className="text-right">{e.reservationsCancelledCount}</TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          <Pagination
-            page={historyPage}
-            totalPages={historyTotalPages}
-            onPageChange={setHistoryPage}
-          />
-        </CardContent>
-      </Card>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        <Pagination
+          page={historyPage}
+          totalPages={historyTotalPages}
+          onPageChange={setHistoryPage}
+        />
+      </TabPanel>
 
       <ConfirmDialog
         open={confirmCancelId != null}

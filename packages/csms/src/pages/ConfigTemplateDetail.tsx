@@ -78,13 +78,13 @@ export function ConfigTemplateDetail(): React.JSX.Element {
           </TabsTrigger>
           {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
-        <TabsContent value="details" className="space-y-6">
+        <TabsContent value="details">
           <ConfigTemplateDetailsTab template={template} />
         </TabsContent>
-        <TabsContent value="pushes" className="space-y-6">
+        <TabsContent value="pushes">
           <ConfigTemplatePushesTab templateId={templateId} />
         </TabsContent>
-        <TabsContent value="matching" className="space-y-6">
+        <TabsContent value="matching">
           <ConfigTemplateMatchingStationsTab templateId={templateId} />
         </TabsContent>
         <TabsContent value="history">

@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { PORTAL_ID_TOKEN_TYPES, type PortalIdTokenType } from '@evtivity/lib/id-token-types';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 interface DriverToken {
   id: string;
@@ -47,7 +48,12 @@ export function AccountRfidCards(): React.JSX.Element {
   const [addError, setAddError] = useState('');
   const [confirmDeactivate, setConfirmDeactivate] = useState<DriverToken | null>(null);
 
-  const { data: tokens } = useQuery({
+  const {
+    data: tokens,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['portal-tokens'],
     queryFn: () => api.get<DriverToken[]>('/v1/portal/tokens'),
   });
@@ -104,10 +110,20 @@ export function AccountRfidCards(): React.JSX.Element {
         {t('rfid.addCard')}
       </Button>
 
+      {isLoading && <LoadingState />}
+
+      {isError && (
+        <ErrorState
+          onRetry={() => {
+            void refetch();
+          }}
+        />
+      )}
+
       {sortedTokens != null && sortedTokens.length === 0 && (
-        <div className="flex flex-col items-center gap-2 py-8 text-center">
+        <div className="flex flex-col items-center gap-2 pt-8">
           <Nfc className="h-10 w-10 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">{t('rfid.noCards')}</p>
+          <EmptyState className="pt-0 pb-8">{t('rfid.noCards')}</EmptyState>
         </div>
       )}
 

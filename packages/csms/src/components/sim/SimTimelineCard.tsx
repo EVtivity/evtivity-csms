@@ -6,10 +6,10 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { LoadingLogo } from '@/components/loading-logo';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCalendarDate } from '@/lib/formatting';
@@ -94,12 +94,15 @@ export function SimTimelineCard({
   lastFetchedAt,
   reportingDelayHours,
   disabledReason = null,
+  title,
 }: {
   controller: SimRefreshController;
   timezone: string;
   lastFetchedAt: string | null;
   reportingDelayHours: number | null;
   disabledReason?: string | null;
+  /** The card title; the SIM Sessions tab passes its tab label. */
+  title?: string;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const { source, info, range } = controller;
@@ -129,152 +132,137 @@ export function SimTimelineCard({
   const rows = timelineRows(items, runs, coverageZone, !timeline.hasNextPage);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('stations.sim.timelineTitle')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="sim-timeline-range">{t('stations.sim.timelineRange')}</Label>
-          <Select
-            id="sim-timeline-range"
-            className="w-auto"
-            value={range.kind === 'preset' ? String(range.hours) : 'custom'}
-            onChange={(e) => {
-              const hours = TIMELINE_PRESETS.find((h) => String(h) === e.target.value);
-              if (hours != null) onRangeChange({ kind: 'preset', hours, anchor: Date.now() });
-            }}
-          >
-            {TIMELINE_PRESETS.map((h) => (
-              <option key={h} value={String(h)}>
-                {t(PRESET_KEYS[h])}
-              </option>
-            ))}
-            {range.kind === 'custom' && (
-              <option value="custom">
-                {t('stations.sim.timelineCustom', {
-                  from: formatDateTime(range.from, timezone),
-                  to: formatDateTime(range.to, timezone),
-                })}
-              </option>
-            )}
-          </Select>
-        </div>
-        <div className="space-y-1 text-xs text-muted-foreground">
-          <p>
-            {lastFetchedAt == null
-              ? t('stations.sim.notFetchedYet')
-              : t('stations.sim.lastFetched', {
-                  time: formatDateTime(lastFetchedAt, timezone),
-                })}
-          </p>
-          {info.provider != null && reportingDelayHours != null && (
-            <p className="flex items-start gap-1">
-              <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
-              {t('stations.sim.reportingNote', {
-                provider: providerName(info.provider),
-                hours: reportingDelayHours,
+    <TabPanel title={title ?? t('stations.sim.timelineTitle')} bodyClassName="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="sim-timeline-range">{t('stations.sim.timelineRange')}</Label>
+        <Select
+          id="sim-timeline-range"
+          className="w-auto"
+          value={range.kind === 'preset' ? String(range.hours) : 'custom'}
+          onChange={(e) => {
+            const hours = TIMELINE_PRESETS.find((h) => String(h) === e.target.value);
+            if (hours != null) onRangeChange({ kind: 'preset', hours, anchor: Date.now() });
+          }}
+        >
+          {TIMELINE_PRESETS.map((h) => (
+            <option key={h} value={String(h)}>
+              {t(PRESET_KEYS[h])}
+            </option>
+          ))}
+          {range.kind === 'custom' && (
+            <option value="custom">
+              {t('stations.sim.timelineCustom', {
+                from: formatDateTime(range.from, timezone),
+                to: formatDateTime(range.to, timezone),
               })}
-            </p>
+            </option>
           )}
-          {first?.capped === true && <p>{t('stations.sim.timelineCapped')}</p>}
-        </div>
+        </Select>
+      </div>
+      <div className="space-y-1 text-xs text-muted-foreground">
+        <p>
+          {lastFetchedAt == null
+            ? t('stations.sim.notFetchedYet')
+            : t('stations.sim.lastFetched', {
+                time: formatDateTime(lastFetchedAt, timezone),
+              })}
+        </p>
+        {info.provider != null && reportingDelayHours != null && (
+          <p className="flex items-start gap-1">
+            <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
+            {t('stations.sim.reportingNote', {
+              provider: providerName(info.provider),
+              hours: reportingDelayHours,
+            })}
+          </p>
+        )}
+        {first?.capped === true && <p>{t('stations.sim.timelineCapped')}</p>}
+      </div>
 
-        {timeline.isLoading ? (
-          <LoadingLogo size="inline" />
-        ) : timeline.isError ? (
-          <div className="space-y-2 text-center">
-            <p className="text-sm text-destructive">
-              {getErrorMessage(timeline.error, t, 'common.loadError')}
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                void timeline.refetch();
+      {timeline.isLoading ? (
+        <LoadingState />
+      ) : timeline.isError ? (
+        <ErrorState
+          message={getErrorMessage(timeline.error, t, 'common.loadError')}
+          onRetry={() => {
+            void timeline.refetch();
+          }}
+        />
+      ) : (
+        <>
+          {days.length > 0 && (
+            <SimCoverageStrip
+              days={days}
+              disabledReason={disabledReason}
+              onSelectDay={(date) => {
+                onFetchRange(date, date);
               }}
-            >
-              {t('common.retry')}
-            </Button>
-          </div>
-        ) : (
-          <>
-            {days.length > 0 && (
-              <SimCoverageStrip
-                days={days}
-                disabledReason={disabledReason}
-                onSelectDay={(date) => {
-                  onFetchRange(date, date);
-                }}
-              />
-            )}
-            {rows.length === 0 ? (
-              <p className="text-center text-sm text-muted-foreground">
-                {t('stations.sim.timelineEmpty')}
-              </p>
-            ) : (
-              <ul className="divide-y" data-testid="sim-timeline">
-                {rows.map((row) =>
-                  row.type === 'gap' ? (
-                    <li
-                      key={`gap-${row.from}`}
-                      className="flex flex-wrap items-center justify-between gap-2 py-2"
-                      data-testid="sim-timeline-gap"
-                    >
-                      <span className="text-sm text-muted-foreground">
-                        {t('stations.simCoverage.notFetchedRange', {
-                          from: formatCalendarDate(row.from),
-                          to: formatCalendarDate(row.to),
-                        })}
-                      </span>
-                      {disabledReason != null ? (
-                        <DisabledWithReason reason={disabledReason}>
-                          <Button variant="outline" disabled>
-                            {t('stations.sim.fetch')}
-                          </Button>
-                        </DisabledWithReason>
-                      ) : (
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            onFetchRange(row.from, row.to);
-                          }}
-                        >
+            />
+          )}
+          {rows.length === 0 ? (
+            <EmptyState>{t('stations.sim.timelineEmpty')}</EmptyState>
+          ) : (
+            <ul className="divide-y" data-testid="sim-timeline">
+              {rows.map((row) =>
+                row.type === 'gap' ? (
+                  <li
+                    key={`gap-${row.from}`}
+                    className="flex flex-wrap items-center justify-between gap-2 py-2"
+                    data-testid="sim-timeline-gap"
+                  >
+                    <span className="text-sm text-muted-foreground">
+                      {t('stations.simCoverage.notFetchedRange', {
+                        from: formatCalendarDate(row.from),
+                        to: formatCalendarDate(row.to),
+                      })}
+                    </span>
+                    {disabledReason != null ? (
+                      <DisabledWithReason reason={disabledReason}>
+                        <Button variant="outline" disabled>
                           {t('stations.sim.fetch')}
                         </Button>
-                      )}
-                    </li>
-                  ) : (
-                    <TimelineRow key={row.key} item={row.item} timezone={timezone} />
-                  ),
+                      </DisabledWithReason>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          onFetchRange(row.from, row.to);
+                        }}
+                      >
+                        {t('stations.sim.fetch')}
+                      </Button>
+                    )}
+                  </li>
+                ) : (
+                  <TimelineRow key={row.key} item={row.item} timezone={timezone} />
+                ),
+              )}
+            </ul>
+          )}
+          {timeline.hasNextPage && (
+            <div className="flex justify-center">
+              <Button
+                variant="outline"
+                className="relative"
+                disabled={timeline.isFetchingNextPage}
+                onClick={() => {
+                  void timeline.fetchNextPage();
+                }}
+              >
+                {timeline.isFetchingNextPage && (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  </div>
                 )}
-              </ul>
-            )}
-            {timeline.hasNextPage && (
-              <div className="flex justify-center">
-                <Button
-                  variant="outline"
-                  className="relative"
-                  disabled={timeline.isFetchingNextPage}
-                  onClick={() => {
-                    void timeline.fetchNextPage();
-                  }}
-                >
-                  {timeline.isFetchingNextPage && (
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                    </div>
-                  )}
-                  <span className={timeline.isFetchingNextPage ? 'invisible' : ''}>
-                    {t('stations.sim.loadMore')}
-                  </span>
-                </Button>
-              </div>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
+                <span className={timeline.isFetchingNextPage ? 'invisible' : ''}>
+                  {t('stations.sim.loadMore')}
+                </span>
+              </Button>
+            </div>
+          )}
+        </>
+      )}
+    </TabPanel>
   );
 }
 

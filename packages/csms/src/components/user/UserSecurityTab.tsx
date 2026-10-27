@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { api, getApiErrorCode } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { generateRandomPassword } from '@/lib/generate-password';
@@ -91,99 +91,89 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('users.resetPassword')}</CardTitle>
-        <p className="text-sm text-muted-foreground">{t('users.resetPasswordDescription')}</p>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={handleResetPassword} noValidate className="grid gap-6">
-          <div className="space-y-2">
-            <Label htmlFor="new-password" className="leading-6">
-              {t('users.newPassword')}
-            </Label>
-            <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-              <PasswordInput
-                id="new-password"
-                value={newPassword}
-                aria-invalid={hasSubmittedPassword && passwordErrors.newPassword ? true : undefined}
-                aria-describedby={
-                  hasSubmittedPassword && passwordErrors.newPassword
-                    ? 'new-password-error new-password-requirements'
-                    : 'new-password-requirements'
-                }
-                onChange={(e) => {
-                  setNewPassword(e.target.value);
-                  setServerMissing(null);
-                  resetPasswordMutation.reset();
-                }}
-                className={
-                  hasSubmittedPassword && passwordErrors.newPassword ? 'border-destructive' : ''
-                }
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setNewPassword(generateRandomPassword(passwordPolicy));
-                  setServerMissing(null);
-                  resetPasswordMutation.reset();
-                }}
-              >
-                <RefreshCw className="h-4 w-4" />
-                {t('users.generatePassword')}
-              </Button>
-            </div>
-            {hasSubmittedPassword && passwordErrors.newPassword && (
-              <p id="new-password-error" className="text-sm text-destructive">
-                {passwordErrors.newPassword}
-              </p>
-            )}
-            <PasswordRequirements
-              policy={passwordPolicy}
-              serverMissing={serverMissing}
-              id="new-password-requirements"
-              password={newPassword}
-              showUnmet={hasSubmittedPassword}
+    <TabPanel title={t('users.securityTab')} description={t('users.resetPasswordDescription')}>
+      <form onSubmit={handleResetPassword} noValidate className="grid gap-6">
+        <div className="space-y-2">
+          <Label htmlFor="new-password" className="leading-6">
+            {t('users.newPassword')}
+          </Label>
+          <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+            <PasswordInput
+              id="new-password"
+              value={newPassword}
+              aria-invalid={hasSubmittedPassword && passwordErrors.newPassword ? true : undefined}
+              aria-describedby={
+                hasSubmittedPassword && passwordErrors.newPassword
+                  ? 'new-password-error new-password-requirements'
+                  : 'new-password-requirements'
+              }
+              onChange={(e) => {
+                setNewPassword(e.target.value);
+                setServerMissing(null);
+                resetPasswordMutation.reset();
+              }}
+              className={
+                hasSubmittedPassword && passwordErrors.newPassword ? 'border-destructive' : ''
+              }
             />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setNewPassword(generateRandomPassword(passwordPolicy));
+                setServerMissing(null);
+                resetPasswordMutation.reset();
+              }}
+            >
+              <RefreshCw className="h-4 w-4" />
+              {t('users.generatePassword')}
+            </Button>
           </div>
-          {proofKinds.length > 0 && (
-            <FactorProofField
-              key={`reset-${String(proofRound)}`}
-              idPrefix="user-reset-proof"
-              kinds={proofKinds}
-              codeMethod={mfaStatus?.mfaMethod ?? null}
-              description={t('users.resetProofHint')}
-              onChange={setProof}
-              rejection={proofFailure}
-              showMissing={hasSubmittedPassword}
-            />
+          {hasSubmittedPassword && passwordErrors.newPassword && (
+            <p id="new-password-error" className="text-sm text-destructive">
+              {passwordErrors.newPassword}
+            </p>
           )}
-          <Button
-            type="submit"
-            className="relative w-fit"
-            disabled={resetPasswordMutation.isPending}
-          >
-            {resetPasswordMutation.isPending && (
-              <span className="absolute inset-0 flex items-center justify-center">
-                <Spinner className="h-4 w-4" />
-              </span>
-            )}
-            <span className={resetPasswordMutation.isPending ? 'invisible' : ''}>
-              {t('users.resetPassword')}
+          <PasswordRequirements
+            policy={passwordPolicy}
+            serverMissing={serverMissing}
+            id="new-password-requirements"
+            password={newPassword}
+            showUnmet={hasSubmittedPassword}
+          />
+        </div>
+        {proofKinds.length > 0 && (
+          <FactorProofField
+            key={`reset-${String(proofRound)}`}
+            idPrefix="user-reset-proof"
+            kinds={proofKinds}
+            codeMethod={mfaStatus?.mfaMethod ?? null}
+            description={t('users.resetProofHint')}
+            onChange={setProof}
+            rejection={proofFailure}
+            showMissing={hasSubmittedPassword}
+          />
+        )}
+        <Button type="submit" className="relative w-fit" disabled={resetPasswordMutation.isPending}>
+          {resetPasswordMutation.isPending && (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <Spinner className="h-4 w-4" />
             </span>
-          </Button>
-          {resetPasswordMutation.isError &&
-            getApiErrorCode(resetPasswordMutation.error) !== 'WEAK_PASSWORD' && (
-              <p className="text-sm text-destructive" role="alert">
-                {getErrorMessage(resetPasswordMutation.error, t)}
-              </p>
-            )}
-          {resetPasswordMutation.isSuccess && (
-            <p className="text-sm text-success">{t('users.passwordResetSuccess')}</p>
           )}
-        </form>
-      </CardContent>
-    </Card>
+          <span className={resetPasswordMutation.isPending ? 'invisible' : ''}>
+            {t('users.resetPassword')}
+          </span>
+        </Button>
+        {resetPasswordMutation.isError &&
+          getApiErrorCode(resetPasswordMutation.error) !== 'WEAK_PASSWORD' && (
+            <p className="text-sm text-destructive" role="alert">
+              {getErrorMessage(resetPasswordMutation.error, t)}
+            </p>
+          )}
+        {resetPasswordMutation.isSuccess && (
+          <p className="text-sm text-success">{t('users.passwordResetSuccess')}</p>
+        )}
+      </form>
+    </TabPanel>
   );
 }

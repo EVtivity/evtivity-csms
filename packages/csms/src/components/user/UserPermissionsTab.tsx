@@ -7,7 +7,8 @@ import { useTranslation } from 'react-i18next';
 import { EditButton } from '@/components/edit-button';
 import { CancelButton } from '@/components/cancel-button';
 import { SaveButton } from '@/components/save-button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState } from '@/components/ui/content-state';
 import { PermissionEditor } from '@/components/PermissionEditor';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -42,7 +43,12 @@ export function UserPermissionsTab({
   const [proofAsked, setProofAsked] = useState(false);
   const [proofRound, setProofRound] = useState(0);
 
-  const { data: userPermissions = [] } = useQuery({
+  const {
+    data: userPermissions = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['users', userId, 'permissions'],
     queryFn: () => api.get<string[]>(`/v1/users/${userId}/permissions`),
   });
@@ -83,54 +89,58 @@ export function UserPermissionsTab({
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('users.permissions')}</CardTitle>
-        {canEdit && !editingPermissions && (
+    <TabPanel
+      title={t('users.permissions')}
+      description={t('users.writeImpliesRead')}
+      actions={
+        canEdit && !editingPermissions ? (
           <EditButton label={t('common.edit')} onClick={startEditPermissions} />
-        )}
-      </CardHeader>
-      <CardContent>
-        <p className="text-sm text-muted-foreground mb-4">{t('users.writeImpliesRead')}</p>
-        {userPermissions.length === 0 && !editingPermissions ? (
-          <p className="text-center text-sm text-muted-foreground">{t('users.noPermissions')}</p>
-        ) : (
-          <div className="space-y-4">
-            <PermissionEditor
-              value={editingPermissions ? editPermissions : userPermissions}
-              onChange={setEditPermissions}
-              disabled={!editingPermissions}
+        ) : undefined
+      }
+      isLoading={isLoading}
+      isError={isError}
+      onRetry={() => {
+        void refetch();
+      }}
+    >
+      {userPermissions.length === 0 && !editingPermissions ? (
+        <EmptyState>{t('users.noPermissions')}</EmptyState>
+      ) : (
+        <div className="space-y-4">
+          <PermissionEditor
+            value={editingPermissions ? editPermissions : userPermissions}
+            onChange={setEditPermissions}
+            disabled={!editingPermissions}
+          />
+          {needsProof && (
+            <FactorProofField
+              key={`permissions-${String(proofRound)}`}
+              idPrefix="user-permissions-proof"
+              kinds={proofKinds}
+              codeMethod={mfaStatus?.mfaMethod ?? null}
+              description={t('users.grantProofHint')}
+              onChange={setProof}
+              rejection={proofFailure}
+              showMissing={proofAsked}
             />
-            {needsProof && (
-              <FactorProofField
-                key={`permissions-${String(proofRound)}`}
-                idPrefix="user-permissions-proof"
-                kinds={proofKinds}
-                codeMethod={mfaStatus?.mfaMethod ?? null}
-                description={t('users.grantProofHint')}
-                onChange={setProof}
-                rejection={proofFailure}
-                showMissing={proofAsked}
+          )}
+          {permissionsMutation.isError && (
+            <p className="text-sm text-destructive" role="alert">
+              {getErrorMessage(permissionsMutation.error, t)}
+            </p>
+          )}
+          {editingPermissions && (
+            <div className="flex justify-end gap-2">
+              <CancelButton
+                onClick={() => {
+                  setEditingPermissions(false);
+                }}
               />
-            )}
-            {permissionsMutation.isError && (
-              <p className="text-sm text-destructive" role="alert">
-                {getErrorMessage(permissionsMutation.error, t)}
-              </p>
-            )}
-            {editingPermissions && (
-              <div className="flex justify-end gap-2">
-                <CancelButton
-                  onClick={() => {
-                    setEditingPermissions(false);
-                  }}
-                />
-                <SaveButton isPending={permissionsMutation.isPending} onClick={save} />
-              </div>
-            )}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+              <SaveButton isPending={permissionsMutation.isPending} onClick={save} />
+            </div>
+          )}
+        </div>
+      )}
+    </TabPanel>
   );
 }

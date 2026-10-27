@@ -141,7 +141,12 @@ export function StationDetail(): React.JSX.Element {
     enabled: id != null,
   });
 
-  const { data: connectorsData } = useQuery({
+  const {
+    data: connectorsData,
+    isLoading: connectorsLoading,
+    isError: connectorsError,
+    refetch: refetchConnectors,
+  } = useQuery({
     queryKey: ['stations', id, 'connectors'],
     queryFn: () => api.get<Evse[]>(`/v1/stations/${id ?? ''}/connectors`),
     enabled: id != null,
@@ -417,7 +422,7 @@ export function StationDetail(): React.JSX.Element {
           {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="info" className="space-y-6">
+        <TabsContent value="info">
           <StationInfoTab
             station={station}
             stationId={id ?? ''}
@@ -430,7 +435,7 @@ export function StationDetail(): React.JSX.Element {
           <StationImages stationId={id ?? ''} />
         </TabsContent>
 
-        <TabsContent value="metrics" className="space-y-6">
+        <TabsContent value="metrics">
           <StationMetricsTab stationId={id ?? ''} />
         </TabsContent>
 
@@ -438,20 +443,23 @@ export function StationDetail(): React.JSX.Element {
           <StationSessionsTab stationId={id ?? ''} timezone={siteTimezone} />
         </TabsContent>
 
-        <TabsContent value="connectors" className="space-y-6">
-          {connectorsData != null && (
-            <ConnectorStatus
-              data={connectorsData}
-              stationId={station.id}
-              stationOcppId={station.stationId}
-              ocppProtocol={station.ocppProtocol}
-              isOnline={station.isOnline}
-              isSimulator={station.isSimulator}
-            />
-          )}
+        <TabsContent value="connectors">
+          <ConnectorStatus
+            data={connectorsData}
+            isLoading={connectorsLoading}
+            isError={connectorsError}
+            onRetry={() => {
+              void refetchConnectors();
+            }}
+            stationId={station.id}
+            stationOcppId={station.stationId}
+            ocppProtocol={station.ocppProtocol}
+            isOnline={station.isOnline}
+            isSimulator={station.isSimulator}
+          />
         </TabsContent>
 
-        <TabsContent value="commands" className="space-y-6">
+        <TabsContent value="commands">
           <StationCommands stationId={station.stationId} ocppProtocol={station.ocppProtocol} />
           <OcppMessageLog stationDbId={station.id} timezone={siteTimezone} />
         </TabsContent>
@@ -505,25 +513,25 @@ export function StationDetail(): React.JSX.Element {
           />
         </TabsContent>
 
-        <TabsContent value="events" className="space-y-6">
+        <TabsContent value="events">
           <StationEventsTab stationId={station.id} timezone={siteTimezone} />
         </TabsContent>
 
-        <TabsContent value="configurations" className="space-y-6">
-          <StationDataPlanCard station={station} />
+        <TabsContent value="configurations">
           <StationConfigurationsTab
             stationId={station.id}
             stationOcppId={station.stationId}
             isOnline={station.isOnline}
             ocppProtocol={station.ocppProtocol}
           />
+          <StationDataPlanCard station={station} />
         </TabsContent>
 
-        <TabsContent value="firmware-history" className="space-y-6">
+        <TabsContent value="firmware-history">
           <StationFirmwareTab stationId={station.id} timezone={siteTimezone} />
         </TabsContent>
 
-        <TabsContent value="charging-profiles" className="space-y-6">
+        <TabsContent value="charging-profiles">
           <StationChargingProfilesTab
             stationId={station.id}
             timezone={siteTimezone}
@@ -533,7 +541,7 @@ export function StationDetail(): React.JSX.Element {
         </TabsContent>
 
         {station.ocppProtocol !== 'ocpp1.6' && (
-          <TabsContent value="charging-needs" className="space-y-6">
+          <TabsContent value="charging-needs">
             <StationChargingNeedsTab
               stationId={station.id}
               isOnline={station.isOnline}
@@ -553,7 +561,7 @@ export function StationDetail(): React.JSX.Element {
           />
         </TabsContent>
 
-        <TabsContent value="pricing" className="space-y-6">
+        <TabsContent value="pricing">
           <StationPricingTab
             stationId={id ?? ''}
             siteTimezone={station.siteTimezone ?? undefined}
@@ -571,6 +579,7 @@ export function StationDetail(): React.JSX.Element {
         {canReadAuthorizeLog && (
           <TabsContent value="authorize-log">
             <AuthorizeLogView
+              title={t('tokens.authorizeLog')}
               fixedFilters={{ stationId: station.stationId }}
               hideStationColumn
               queryKey={`authorize-attempts-station-${station.id}`}
@@ -579,7 +588,7 @@ export function StationDetail(): React.JSX.Element {
         )}
 
         {reservationEnabled && (
-          <TabsContent value="reservations" className="space-y-6">
+          <TabsContent value="reservations">
             <StationReservationsTab station={station} timezone={siteTimezone} />
           </TabsContent>
         )}

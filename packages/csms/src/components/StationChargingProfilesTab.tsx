@@ -9,7 +9,7 @@ import { RefreshCw, Upload, Eye, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { Select } from '@/components/ui/select';
 import {
   Table,
@@ -113,7 +113,7 @@ export function StationChargingProfilesTab({
 
   const isOcpp16 = ocppProtocol === 'ocpp1.6';
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['stations', stationId, 'charging-profiles', page],
     queryFn: () =>
       api.get<{ data: ChargingProfile[]; total: number }>(
@@ -218,133 +218,138 @@ export function StationChargingProfilesTab({
   const periods = compositeSchedule?.schedule?.chargingSchedulePeriod ?? [];
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('stations.chargingProfiles')}</CardTitle>
-        {canManageProfiles && (
-          <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!isOnline || isOcpp16 || isRefreshing}
-              onClick={() => {
-                refreshMutation.mutate();
-              }}
-              title={isOcpp16 ? t('stations.notSupportedOcpp16') : undefined}
-            >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? t('stations.refreshing') : t('stations.refreshProfiles')}
-            </Button>
-            <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenPush}>
-              <Upload className="h-4 w-4" />
-              {t('stations.pushChargingProfile')}
-            </Button>
-            <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenComposite}>
-              <Eye className="h-4 w-4" />
-              {t('stations.viewComposite')}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!isOnline}
-              onClick={() => {
-                setClearAllDialogOpen(true);
-              }}
-              className="text-destructive"
-            >
-              <Trash2 className="h-4 w-4" />
-              {t('stations.clearAllProfiles')}
-            </Button>
-          </div>
-        )}
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <LoadingLogo size="inline" />
-        ) : data == null || data.data.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">
-            {t('stations.noChargingProfiles')}
-          </p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('common.source')}</TableHead>
-                    <TableHead>EVSE</TableHead>
-                    <TableHead>{t('stations.limitSource')}</TableHead>
-                    <TableHead>{t('smartCharging.template')}</TableHead>
-                    <TableHead>{t('common.created')}</TableHead>
-                    <TableHead className="text-right">{t('common.actions')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.data.map((profile) => (
-                    <TableRow key={profile.id}>
-                      <TableCell>
-                        <Badge variant={profile.source === 'csms_set' ? 'default' : 'secondary'}>
-                          {profile.source === 'csms_set'
-                            ? t('stations.profileSourceCsms')
-                            : t('stations.profileSourceStation')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {profile.evseId != null ? String(profile.evseId) : t('common.na')}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {profile.chargingLimitSource ?? t('common.na')}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {profile.templateId != null ? (
-                          <Link
-                            to={`/smart-charging/${profile.templateId}`}
-                            className="text-link hover:underline"
-                          >
-                            {profile.templateName ?? profile.templateId}
-                          </Link>
-                        ) : (
-                          t('common.na')
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {formatDateTime(profile.createdAt, timezone)}
-                      </TableCell>
-                      <TableCell className="text-right">
+    <>
+      <TabPanel
+        title={t('stations.chargingProfiles')}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+        isEmpty={data == null || data.data.length === 0}
+        emptyMessage={t('stations.noChargingProfiles')}
+        actions={
+          canManageProfiles ? (
+            <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!isOnline || isOcpp16 || isRefreshing}
+                onClick={() => {
+                  refreshMutation.mutate();
+                }}
+                title={isOcpp16 ? t('stations.notSupportedOcpp16') : undefined}
+              >
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                {isRefreshing ? t('stations.refreshing') : t('stations.refreshProfiles')}
+              </Button>
+              <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenPush}>
+                <Upload className="h-4 w-4" />
+                {t('stations.pushChargingProfile')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!isOnline}
+                onClick={handleOpenComposite}
+              >
+                <Eye className="h-4 w-4" />
+                {t('stations.viewComposite')}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!isOnline}
+                onClick={() => {
+                  setClearAllDialogOpen(true);
+                }}
+                className="text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
+                {t('stations.clearAllProfiles')}
+              </Button>
+            </div>
+          ) : undefined
+        }
+      >
+        <>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('common.source')}</TableHead>
+                  <TableHead>EVSE</TableHead>
+                  <TableHead>{t('stations.limitSource')}</TableHead>
+                  <TableHead>{t('smartCharging.template')}</TableHead>
+                  <TableHead>{t('common.created')}</TableHead>
+                  <TableHead className="text-right">{t('common.actions')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(data?.data ?? []).map((profile) => (
+                  <TableRow key={profile.id}>
+                    <TableCell>
+                      <Badge variant={profile.source === 'csms_set' ? 'default' : 'secondary'}>
+                        {profile.source === 'csms_set'
+                          ? t('stations.profileSourceCsms')
+                          : t('stations.profileSourceStation')}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {profile.evseId != null ? String(profile.evseId) : t('common.na')}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {profile.chargingLimitSource ?? t('common.na')}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {profile.templateId != null ? (
+                        <Link
+                          to={`/smart-charging/${profile.templateId}`}
+                          className="text-link hover:underline"
+                        >
+                          {profile.templateName ?? profile.templateId}
+                        </Link>
+                      ) : (
+                        t('common.na')
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {formatDateTime(profile.createdAt, timezone)}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          setViewProfile(profile);
+                        }}
+                        aria-label={t('common.view')}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      {canManageProfiles && (
                         <Button
                           variant="ghost"
                           size="icon"
+                          disabled={!isOnline || ocppProfileId(profile) == null}
                           onClick={() => {
-                            setViewProfile(profile);
+                            const ocppId = ocppProfileId(profile);
+                            if (ocppId != null) setClearProfileId(ocppId);
                           }}
-                          aria-label={t('common.view')}
+                          aria-label={t('stations.clearProfile')}
                         >
-                          <Eye className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
-                        {canManageProfiles && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={!isOnline || ocppProfileId(profile) == null}
-                            onClick={() => {
-                              const ocppId = ocppProfileId(profile);
-                              if (ocppId != null) setClearProfileId(ocppId);
-                            }}
-                            aria-label={t('stations.clearProfile')}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-          </>
-        )}
-      </CardContent>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        </>
+      </TabPanel>
 
       {/* Clear All Profiles confirm dialog */}
       <ConfirmDialog
@@ -617,6 +622,6 @@ export function StationChargingProfilesTab({
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </>
   );
 }

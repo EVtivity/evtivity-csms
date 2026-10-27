@@ -20,16 +20,14 @@ import smartChargingTemplate from '../../pages/SmartChargingTemplateDetail.tsx?r
 import supportCase from '../../pages/SupportCaseDetail.tsx?raw';
 import aiInsight from '../../pages/AiInsightDetail.tsx?raw';
 
-const STACKED_HEADER =
-  'CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"';
-
 describe('Phone-width layouts', () => {
   it('stacks the site Electricity Rates and Maintenance headers over their actions until sm', () => {
-    expect(electricityRates).toContain(STACKED_HEADER);
+    // TabPanel stacks its header over its actions until sm.
+    expect(electricityRates).toContain('<TabPanel');
     expect(electricityRates).toContain(
       '<div className="flex flex-wrap items-center gap-2 sm:justify-end">',
     );
-    expect(maintenance).toContain(STACKED_HEADER);
+    expect(maintenance).toContain('<TabPanel');
   });
 
   it('wraps the station tab header actions so a long label keeps its own width', () => {

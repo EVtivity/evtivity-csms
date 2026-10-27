@@ -12,7 +12,7 @@ export interface SitePricingTabProps {
 
 export function SitePricingTab({ siteId, timezone }: SitePricingTabProps): React.JSX.Element {
   return (
-    <TabsContent value="pricing" className="space-y-6">
+    <TabsContent value="pricing">
       <PricingAssignmentTab
         resourceType="site"
         resourceId={siteId}

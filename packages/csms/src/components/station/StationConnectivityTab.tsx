@@ -12,7 +12,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
-import { LoadingLogo } from '@/components/loading-logo';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { DisabledWithReason } from '@/components/sim/DisabledWithReason';
 import { SimProviderStatusCard } from '@/components/sim/SimProviderStatusCard';
 import { SimRefreshCard, SimRefreshRangeDialog } from '@/components/sim/SimRefreshCard';
@@ -49,21 +49,17 @@ export function StationConnectivityTab({
   const { t } = useTranslation();
   const { data: sim, isLoading, isError, error, refetch } = useStationSim(stationId);
 
-  if (isLoading) return <LoadingLogo size="inline" />;
-  if (isError || sim == null) {
+  if (isLoading || isError || sim == null) {
     return (
-      <div className="space-y-2 text-center">
-        <p className="text-sm text-destructive">{getErrorMessage(error, t, 'common.loadError')}</p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            void refetch();
-          }}
-        >
-          {t('common.retry')}
-        </Button>
-      </div>
+      <TabPanel
+        title={t('stations.sim.tab')}
+        isLoading={isLoading}
+        isError
+        errorMessage={getErrorMessage(error, t, 'common.loadError')}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
     );
   }
   return (
@@ -91,7 +87,7 @@ function ConnectivityContent({
     <div className="space-y-6">
       <SimRefreshCard
         controller={controller}
-        title={t('stations.sim.refreshTitle')}
+        title={t('stations.sim.tab')}
         hint={
           stationSignalEnabled
             ? t('stations.sim.refreshHint')

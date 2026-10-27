@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   Dialog,
   DialogContent,
@@ -1329,250 +1329,245 @@ export function StationCommands({
     quickActions.length < allQuickActions.length || csmsActions.length < allCsmsActions.length;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('commands.title')}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {someCommandsHidden && (
-          <p className="text-sm text-muted-foreground">{t('commands.hiddenByPermission')}</p>
-        )}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
-          {quickActions.map(({ action, labelKey }) => (
-            <Button
-              key={action}
-              variant="outline"
-              size="wrap"
-              onClick={() => {
-                openQuickAction(action);
-              }}
-            >
-              {t(labelKey)}
-            </Button>
-          ))}
-        </div>
+    <TabPanel title={t('stations.ocppCommands')} bodyClassName="space-y-6">
+      {someCommandsHidden && (
+        <p className="text-sm text-muted-foreground">{t('commands.hiddenByPermission')}</p>
+      )}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+        {quickActions.map(({ action, labelKey }) => (
+          <Button
+            key={action}
+            variant="outline"
+            size="wrap"
+            onClick={() => {
+              openQuickAction(action);
+            }}
+          >
+            {t(labelKey)}
+          </Button>
+        ))}
+      </div>
 
-        <div className="space-y-3">
-          <h3 className="text-sm font-medium">{t('commands.advancedCommand')}</h3>
-          <div className="space-y-2">
-            <Label htmlFor="advanced-action-select" className="leading-6">
-              {t('commands.action')}
-            </Label>
-            <Select
-              id="advanced-action-select"
-              value={advancedAction}
-              onChange={(e) => {
-                setAdvancedAction(e.target.value);
-                setSchemaFormValues({});
-                setValidationErrors({});
-                setAdvancedPayload('{}');
-                setRawMode(false);
-                setAdvancedResult(null);
-              }}
-            >
-              <option value="">{t('common.select')}</option>
-              {csmsActions.map((a) => (
-                <option key={a} value={a}>
-                  {a}
-                </option>
-              ))}
-            </Select>
-          </div>
-          {advancedAction !== '' && (
-            <>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <Label className="whitespace-nowrap">{t('commands.payloadJson')}</Label>
-                  {!schemaLoading && !schemaError && (
-                    <button
-                      type="button"
-                      className="text-xs text-muted-foreground hover:text-foreground underline"
-                      onClick={() => {
-                        if (rawMode) {
-                          syncJsonToForm();
-                        } else {
-                          syncFormToJson();
-                        }
-                        setValidationErrors({});
-                        setRawMode((prev) => !prev);
-                      }}
-                    >
-                      {rawMode ? t('commands.switchToForm') : t('commands.switchToJson')}
-                    </button>
-                  )}
-                </div>
-                {schemaLoading ? (
-                  <LoadingLogo size="inline" />
-                ) : rawMode || schemaError ? (
-                  <textarea
-                    value={advancedPayload}
-                    onChange={(e) => {
-                      setAdvancedPayload(e.target.value);
-                    }}
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
-                    rows={4}
-                  />
-                ) : (
-                  <SchemaForm
-                    fields={resolvedFields}
-                    values={schemaFormValues}
-                    errors={translateIssues(validationErrors)}
-                    onChange={(values) => {
-                      setSchemaFormValues(values);
-                      // Re-validate live once errors are showing so fixed
-                      // fields clear as the operator types.
-                      if (Object.keys(validationErrors).length > 0) {
-                        setValidationErrors(
-                          validatePayload(
-                            formValuesToPayload(values, resolvedFields),
-                            resolvedFields,
-                          ),
-                        );
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium">{t('commands.advancedCommand')}</h3>
+        <div className="space-y-2">
+          <Label htmlFor="advanced-action-select" className="leading-6">
+            {t('commands.action')}
+          </Label>
+          <Select
+            id="advanced-action-select"
+            value={advancedAction}
+            onChange={(e) => {
+              setAdvancedAction(e.target.value);
+              setSchemaFormValues({});
+              setValidationErrors({});
+              setAdvancedPayload('{}');
+              setRawMode(false);
+              setAdvancedResult(null);
+            }}
+          >
+            <option value="">{t('common.select')}</option>
+            {csmsActions.map((a) => (
+              <option key={a} value={a}>
+                {a}
+              </option>
+            ))}
+          </Select>
+        </div>
+        {advancedAction !== '' && (
+          <>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="whitespace-nowrap">{t('commands.payloadJson')}</Label>
+                {!schemaLoading && !schemaError && (
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground underline"
+                    onClick={() => {
+                      if (rawMode) {
+                        syncJsonToForm();
+                      } else {
+                        syncFormToJson();
                       }
+                      setValidationErrors({});
+                      setRawMode((prev) => !prev);
                     }}
-                  />
+                  >
+                    {rawMode ? t('commands.switchToForm') : t('commands.switchToJson')}
+                  </button>
                 )}
               </div>
-              <Button
-                size="sm"
-                onClick={() => {
-                  advancedMutation.reset();
-                  handleAdvancedSubmit();
-                }}
-                disabled={advancedMutation.isPending}
-              >
-                {advancedMutation.isPending && <Spinner className="h-4 w-4" />}
+              {schemaLoading ? (
+                <LoadingLogo size="inline" />
+              ) : rawMode || schemaError ? (
+                <textarea
+                  value={advancedPayload}
+                  onChange={(e) => {
+                    setAdvancedPayload(e.target.value);
+                  }}
+                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                  rows={4}
+                />
+              ) : (
+                <SchemaForm
+                  fields={resolvedFields}
+                  values={schemaFormValues}
+                  errors={translateIssues(validationErrors)}
+                  onChange={(values) => {
+                    setSchemaFormValues(values);
+                    // Re-validate live once errors are showing so fixed
+                    // fields clear as the operator types.
+                    if (Object.keys(validationErrors).length > 0) {
+                      setValidationErrors(
+                        validatePayload(
+                          formValuesToPayload(values, resolvedFields),
+                          resolvedFields,
+                        ),
+                      );
+                    }
+                  }}
+                />
+              )}
+            </div>
+            <Button
+              size="sm"
+              onClick={() => {
+                advancedMutation.reset();
+                handleAdvancedSubmit();
+              }}
+              disabled={advancedMutation.isPending}
+            >
+              {advancedMutation.isPending && <Spinner className="h-4 w-4" />}
+              {t('common.send')}
+            </Button>
+          </>
+        )}
+      </div>
+
+      <Dialog
+        open={activeAction != null}
+        onOpenChange={(open) => {
+          if (!open) closeQuickAction();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{activeAction}</DialogTitle>
+          </DialogHeader>
+          <div className="min-w-0" data-testid="quick-command-body">
+            {activeAction != null &&
+              (is16 ? (
+                <QuickActionForm16
+                  action={activeAction as QuickAction16}
+                  form={form}
+                  onChange={(patch) => {
+                    setForm((prev) => ({ ...prev, ...patch }));
+                  }}
+                  internalStationId={internalStationId}
+                />
+              ) : (
+                <QuickActionForm
+                  action={activeAction as QuickAction}
+                  form={form}
+                  onChange={(patch) => {
+                    setForm((prev) => ({ ...prev, ...patch }));
+                  }}
+                  internalStationId={internalStationId}
+                />
+              ))}
+            {result != null && (
+              <div className="mt-4">
+                <div className="flex items-center gap-2">
+                  <Label className="m-0 whitespace-nowrap">{t('commands.response')}</Label>
+                  {result.status === 'queued' && (
+                    <Badge variant="warning">{t('commands.queued')}</Badge>
+                  )}
+                </div>
+                {/* w-0 min-w-full: a long line scrolls inside the block, never widens the dialog. */}
+                <div className="mt-1 w-0 min-w-full" data-testid="quick-command-response">
+                  <CodeBlock code={JSON.stringify(result, null, 2)} language="JSON" bounded />
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeQuickAction}>
+              {t('common.close')}
+            </Button>
+            {/* A queued command is sent on reconnect: no second copy from this dialog. */}
+            {result?.status !== 'queued' && (
+              <Button onClick={handleQuickSubmit} disabled={mutation.isPending}>
+                {mutation.isPending && <Spinner className="h-4 w-4" />}
                 {t('common.send')}
               </Button>
-            </>
-          )}
-        </div>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        <Dialog
-          open={activeAction != null}
-          onOpenChange={(open) => {
-            if (!open) closeQuickAction();
-          }}
-        >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{activeAction}</DialogTitle>
-            </DialogHeader>
-            <div className="min-w-0" data-testid="quick-command-body">
-              {activeAction != null &&
-                (is16 ? (
-                  <QuickActionForm16
-                    action={activeAction as QuickAction16}
-                    form={form}
-                    onChange={(patch) => {
-                      setForm((prev) => ({ ...prev, ...patch }));
-                    }}
-                    internalStationId={internalStationId}
+      <ConfirmDialog
+        open={confirmPending}
+        onOpenChange={setConfirmPending}
+        title={
+          activeAction != null
+            ? t('commands.confirmTitle', { action: activeAction })
+            : t('common.confirm')
+        }
+        description={
+          activeAction != null
+            ? t('commands.confirmDescription', { action: activeAction, stationId })
+            : ''
+        }
+        confirmLabel={t('common.send')}
+        variant="destructive"
+        onConfirm={() => {
+          performQuickSubmit();
+        }}
+      />
+
+      <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{advancedAction}</DialogTitle>
+          </DialogHeader>
+          <div className="min-w-0" data-testid="advanced-command-body">
+            {advancedMutation.isPending && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Spinner className="h-4 w-4" />
+                {t('commands.waitingForResponse')}
+              </div>
+            )}
+            {advancedResult != null && (
+              <div>
+                <div className="flex items-center gap-2">
+                  <Label className="m-0 whitespace-nowrap">{t('commands.response')}</Label>
+                  {advancedResult.status === 'queued' && (
+                    <Badge variant="warning">{t('commands.queued')}</Badge>
+                  )}
+                </div>
+                {/* w-0 min-w-full: a long line scrolls inside the block, never widens the dialog. */}
+                <div className="mt-1 w-0 min-w-full" data-testid="advanced-command-response">
+                  <CodeBlock
+                    code={JSON.stringify(advancedResult, null, 2)}
+                    language="JSON"
+                    bounded
                   />
-                ) : (
-                  <QuickActionForm
-                    action={activeAction as QuickAction}
-                    form={form}
-                    onChange={(patch) => {
-                      setForm((prev) => ({ ...prev, ...patch }));
-                    }}
-                    internalStationId={internalStationId}
-                  />
-                ))}
-              {result != null && (
-                <div className="mt-4">
-                  <div className="flex items-center gap-2">
-                    <Label className="m-0 whitespace-nowrap">{t('commands.response')}</Label>
-                    {result.status === 'queued' && (
-                      <Badge variant="warning">{t('commands.queued')}</Badge>
-                    )}
-                  </div>
-                  {/* w-0 min-w-full: a long line scrolls inside the block, never widens the dialog. */}
-                  <div className="mt-1 w-0 min-w-full" data-testid="quick-command-response">
-                    <CodeBlock code={JSON.stringify(result, null, 2)} language="JSON" bounded />
-                  </div>
                 </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={closeQuickAction}>
-                {t('common.close')}
-              </Button>
-              {/* A queued command is sent on reconnect: no second copy from this dialog. */}
-              {result?.status !== 'queued' && (
-                <Button onClick={handleQuickSubmit} disabled={mutation.isPending}>
-                  {mutation.isPending && <Spinner className="h-4 w-4" />}
-                  {t('common.send')}
-                </Button>
-              )}
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        <ConfirmDialog
-          open={confirmPending}
-          onOpenChange={setConfirmPending}
-          title={
-            activeAction != null
-              ? t('commands.confirmTitle', { action: activeAction })
-              : t('common.confirm')
-          }
-          description={
-            activeAction != null
-              ? t('commands.confirmDescription', { action: activeAction, stationId })
-              : ''
-          }
-          confirmLabel={t('common.send')}
-          variant="destructive"
-          onConfirm={() => {
-            performQuickSubmit();
-          }}
-        />
-
-        <Dialog open={advancedOpen} onOpenChange={setAdvancedOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>{advancedAction}</DialogTitle>
-            </DialogHeader>
-            <div className="min-w-0" data-testid="advanced-command-body">
-              {advancedMutation.isPending && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Spinner className="h-4 w-4" />
-                  {t('commands.waitingForResponse')}
-                </div>
-              )}
-              {advancedResult != null && (
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Label className="m-0 whitespace-nowrap">{t('commands.response')}</Label>
-                    {advancedResult.status === 'queued' && (
-                      <Badge variant="warning">{t('commands.queued')}</Badge>
-                    )}
-                  </div>
-                  {/* w-0 min-w-full: a long line scrolls inside the block, never widens the dialog. */}
-                  <div className="mt-1 w-0 min-w-full" data-testid="advanced-command-response">
-                    <CodeBlock
-                      code={JSON.stringify(advancedResult, null, 2)}
-                      language="JSON"
-                      bounded
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setAdvancedOpen(false);
-                }}
-              >
-                {t('common.close')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setAdvancedOpen(false);
+              }}
+            >
+              {t('common.close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </TabPanel>
   );
 }

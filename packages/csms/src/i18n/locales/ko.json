@@ -580,7 +580,6 @@
     "map": "지도",
     "noSitesFound": "사이트를 찾을 수 없습니다",
     "siteNotFound": "사이트를 찾을 수 없습니다",
-    "siteMetrics": "지표",
     "metrics": "지표",
     "payment": "결제",
     "contact": "연락처",
@@ -683,7 +682,6 @@
     "tabs": {
       "ai": "AI 사용량"
     },
-    "stationLayout": "충전소 배치",
     "layoutDraw": "소비",
     "levelDcFast": "DC 급속",
     "levelL2": "레벨 2",
@@ -988,7 +986,6 @@
     "onboardingStatusFilter": "모든 온보딩 상태",
     "meterValuesDescription": "충전 세션 외부에서 보고된 독립 계량 판독값입니다. 클록 정렬 간격 판독값과 MeterValues 메시지를 통해 전송된 EVSE 수준 텔레메트리를 포함합니다.",
     "events": "이벤트",
-    "notifyEvents": "NotifyEvent",
     "notifyEventsDescription": "OCPP NotifyEvent를 통해 충전소가 보고한 변수 모니터링 이벤트로, 임계값 초과, 주기적 판독, 변화 감지 등을 포함합니다.",
     "seqNo": "시퀀스 번호",
     "noEvents": "기록된 이벤트가 없습니다",
@@ -1121,7 +1118,6 @@
     },
     "sim": {
       "tab": "연결",
-      "refreshTitle": "SIM 및 신호 데이터",
       "period": "기간",
       "lastDays_one": "최근 {{count}}일",
       "lastDays_other": "최근 {{count}}일",
@@ -1407,7 +1403,6 @@
         "attachments": "연결",
         "history": "기록"
       },
-      "detailsTitle": "SIM 세부 정보",
       "iccid": "ICCID",
       "imsi": "IMSI",
       "label": "라벨",
@@ -1444,7 +1439,6 @@
       "notesHint": "최대 {{max}}자입니다.",
       "saveFailed": "SIM을 저장하지 못했습니다. 다시 시도하세요.",
       "attachments": {
-        "currentTitle": "현재 연결",
         "historyTitle": "연결 기록",
         "notAttached": "이 SIM은 충전소에 연결되어 있지 않습니다.",
         "noHistory": "이 SIM은 아직 연결된 적이 없습니다.",
@@ -1530,7 +1524,6 @@
     "allStatuses": "전체 상태",
     "energyKwh": "{{value}} kWh",
     "durationFormat": "{{hours}}시간 {{minutes}}분",
-    "overview": "개요",
     "transactionEvents": "거래 이벤트",
     "payment": "결제",
     "stoppedReason": "중단 사유",
@@ -2163,7 +2156,6 @@
     "cancelFleetReservation": "전체 취소",
     "billingTab": "청구",
     "billing": {
-      "title": "차량대 청구",
       "description": "차량대 청구: 구성원은 카드 없이 충전하며 세션은 이 차량대로 청구됩니다. 제외를 선택한 구성원은 카드로 결제합니다.",
       "chargeOnAccount": "차량대 청구",
       "on": "켜짐",
@@ -2344,7 +2336,6 @@
     "toggleActive": "활성화",
     "toggleInactive": "비활성화",
     "backToTokens": "토큰으로 돌아가기",
-    "tokenDetails": "토큰 상세",
     "lastUpdated": "최종 수정일",
     "actions": "작업",
     "tokenNotFound": "토큰을 찾을 수 없습니다",
@@ -2387,7 +2378,6 @@
     "deactivationReason": "비활성화 사유"
   },
   "commands": {
-    "title": "명령",
     "advancedCommand": "고급 명령",
     "action": "작업",
     "payloadJson": "페이로드 (JSON)",
@@ -2472,7 +2462,6 @@
     "utilization": "이용률",
     "activeSessions": "활성 세션",
     "recentSessions": "최근 세션",
-    "connectors": "커넥터",
     "transaction": "거래",
     "station": "충전소",
     "duration": "소요 시간",
@@ -3889,7 +3878,6 @@
     "maxHoursHint": "최대 예약 시간은 {{hours}}시간입니다.",
     "paymentMethodRequired": "선택한 운전자는 기본 결제 수단이 없습니다. 예약을 생성하기 전에 추가하세요.",
     "commands": "OCPP 로그",
-    "commandLog": "OCPP 명령 로그",
     "direction": "방향",
     "action": "작업",
     "responseTime": "응답 시간",
@@ -4876,7 +4864,6 @@
   },
   "simulate": {
     "tab": "시뮬레이션",
-    "title": "시뮬레이터 작업",
     "evseId": "EVSE ID",
     "idToken": "ID 토큰",
     "plugIn": "플러그 인",
@@ -4905,7 +4892,6 @@
     "invalidForState": "현재 커넥터 상태({{status}})에서 사용할 수 없습니다."
   },
   "loadManagement": {
-    "configuration": "부하 관리 구성",
     "allocationStrategy": "할당 전략",
     "equalShare": "균등 분배",
     "priorityBased": "우선순위 기반",
@@ -5560,7 +5546,6 @@
     "statusCompleted": "완료",
     "statusCancelled": "취소됨",
     "empty": "유지보수 일정 없음",
-    "statusTitle": "유지보수 상태",
     "schedule": "유지보수 일정 잡기",
     "activeNow": "사이트가 유지보수 중입니다",
     "endNow": "지금 종료",
@@ -6201,7 +6186,6 @@
     }
   },
   "aiUsage": {
-    "title": "AI 사용량",
     "month": "월",
     "period": "기간",
     "budget": "예산",
@@ -6252,7 +6236,6 @@
     "openUsage": "AI 사용량 보기"
   },
   "stationChargingNeeds": {
-    "needsTitle": "EV 충전 요구",
     "noNeeds": "활성 세션에 대해 ISO 15118 충전 요구를 보고한 EV가 없습니다.",
     "evse": "EVSE",
     "energyTransfer": "에너지 전송",

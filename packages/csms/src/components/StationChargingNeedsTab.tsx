@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   Table,
   TableBody,
@@ -180,12 +180,12 @@ export function StationChargingNeedsTab({
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const limit = 10;
 
-  const { data: needs } = useQuery({
+  const needsQuery = useQuery({
     queryKey: ['stations', stationId, 'ev-charging-needs'],
     queryFn: () => api.get<EvChargingNeedsRow[]>(`/v1/stations/${stationId}/ev-charging-needs`),
   });
 
-  const { data: schedules } = useQuery({
+  const schedulesQuery = useQuery({
     queryKey: ['stations', stationId, 'ev-charging-schedules', schedulePage],
     queryFn: () =>
       api.get<{ data: EvChargingScheduleRow[]; total: number }>(
@@ -193,13 +193,17 @@ export function StationChargingNeedsTab({
       ),
   });
 
-  const { data: rules } = useQuery({
+  const rulesQuery = useQuery({
     queryKey: ['stations', stationId, 'monitoring-rules', rulePage],
     queryFn: () =>
       api.get<{ data: MonitoringRule[]; total: number }>(
         `/v1/stations/${stationId}/monitoring-rules?page=${String(rulePage)}&limit=${String(limit)}`,
       ),
   });
+
+  const needs = needsQuery.data;
+  const schedules = schedulesQuery.data;
+  const rules = rulesQuery.data;
 
   const createMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
@@ -264,122 +268,121 @@ export function StationChargingNeedsTab({
   const ruleRows = rules?.data ?? [];
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('stationChargingNeeds.needsTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {needsRows.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground">
-              {t('stationChargingNeeds.noNeeds')}
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('stationChargingNeeds.evse')}</TableHead>
-                  <TableHead>{t('stationChargingNeeds.energyTransfer')}</TableHead>
-                  <TableHead>{t('stationChargingNeeds.controlMode')}</TableHead>
-                  <TableHead>{t('stationChargingNeeds.requestedEnergy')}</TableHead>
-                  <TableHead>{t('stationChargingNeeds.departureTime')}</TableHead>
-                  <TableHead>{t('stationChargingNeeds.csmsLimit')}</TableHead>
-                  <TableHead>{t('stationChargingNeeds.updated')}</TableHead>
+    <>
+      <TabPanel
+        title={t('stations.chargingNeedsTab')}
+        isLoading={needsQuery.isLoading}
+        isError={needsQuery.isError}
+        onRetry={() => {
+          void needsQuery.refetch();
+        }}
+        isEmpty={needsRows.length === 0}
+        emptyMessage={t('stationChargingNeeds.noNeeds')}
+      >
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('stationChargingNeeds.evse')}</TableHead>
+              <TableHead>{t('stationChargingNeeds.energyTransfer')}</TableHead>
+              <TableHead>{t('stationChargingNeeds.controlMode')}</TableHead>
+              <TableHead>{t('stationChargingNeeds.requestedEnergy')}</TableHead>
+              <TableHead>{t('stationChargingNeeds.departureTime')}</TableHead>
+              <TableHead>{t('stationChargingNeeds.csmsLimit')}</TableHead>
+              <TableHead>{t('stationChargingNeeds.updated')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {needsRows.map((row) => {
+              const energy = requestedEnergyWh(row.chargingNeeds);
+              const csmsLimit = firstLimit(
+                row.csmsChargingProfile?.payload?.chargingProfile?.chargingSchedule?.[0],
+              );
+              return (
+                <TableRow key={row.id}>
+                  <TableCell>{String(row.evseId)}</TableCell>
+                  <TableCell>{row.requestedEnergyTransfer ?? '-'}</TableCell>
+                  <TableCell>{row.controlMode ?? '-'}</TableCell>
+                  <TableCell>{energy != null ? formatEnergy(energy) : '-'}</TableCell>
+                  <TableCell>
+                    {row.departureTime != null ? formatDateTime(row.departureTime, timezone) : '-'}
+                  </TableCell>
+                  <TableCell>{csmsLimit ?? t('stationChargingNeeds.noProfileSent')}</TableCell>
+                  <TableCell>{formatDateTime(row.updatedAt, timezone)}</TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {needsRows.map((row) => {
-                  const energy = requestedEnergyWh(row.chargingNeeds);
-                  const csmsLimit = firstLimit(
-                    row.csmsChargingProfile?.payload?.chargingProfile?.chargingSchedule?.[0],
-                  );
-                  return (
-                    <TableRow key={row.id}>
-                      <TableCell>{String(row.evseId)}</TableCell>
-                      <TableCell>{row.requestedEnergyTransfer ?? '-'}</TableCell>
-                      <TableCell>{row.controlMode ?? '-'}</TableCell>
-                      <TableCell>{energy != null ? formatEnergy(energy) : '-'}</TableCell>
-                      <TableCell>
-                        {row.departureTime != null
-                          ? formatDateTime(row.departureTime, timezone)
-                          : '-'}
-                      </TableCell>
-                      <TableCell>{csmsLimit ?? t('stationChargingNeeds.noProfileSent')}</TableCell>
-                      <TableCell>{formatDateTime(row.updatedAt, timezone)}</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </TabPanel>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('stationChargingNeeds.schedulesTitle')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {scheduleRows.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground">
-              {t('stationChargingNeeds.noSchedules')}
-            </p>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('stationChargingNeeds.evse')}</TableHead>
-                    <TableHead>{t('stationChargingNeeds.timeBase')}</TableHead>
-                    <TableHead>{t('stationChargingNeeds.firstLimit')}</TableHead>
-                    <TableHead>{t('stationChargingNeeds.periods')}</TableHead>
-                    <TableHead>{t('stationChargingNeeds.check')}</TableHead>
-                    <TableHead>{t('stationChargingNeeds.received')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {scheduleRows.map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell>{String(row.evseId)}</TableCell>
-                      <TableCell>
-                        {row.timeBase != null ? formatDateTime(row.timeBase, timezone) : '-'}
-                      </TableCell>
-                      <TableCell>{firstLimit(row.chargingSchedule) ?? '-'}</TableCell>
-                      <TableCell>
-                        {String(row.chargingSchedule.chargingSchedulePeriod?.length ?? 0)}
-                      </TableCell>
-                      <TableCell>
-                        {row.withinLimits == null ? (
-                          <Badge variant="outline">{t('stationChargingNeeds.notChecked')}</Badge>
-                        ) : row.withinLimits ? (
-                          <Badge variant="default">{t('stationChargingNeeds.withinLimits')}</Badge>
-                        ) : (
-                          <Badge variant="destructive">
-                            {t('stationChargingNeeds.exceedsLimits')}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>{formatDateTime(row.createdAt, timezone)}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              <div className="mt-4">
-                <Pagination
-                  page={schedulePage}
-                  totalPages={Math.max(1, Math.ceil((schedules?.total ?? 0) / limit))}
-                  onPageChange={setSchedulePage}
-                />
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+      <TabPanel
+        title={t('stationChargingNeeds.schedulesTitle')}
+        isLoading={schedulesQuery.isLoading}
+        isError={schedulesQuery.isError}
+        onRetry={() => {
+          void schedulesQuery.refetch();
+        }}
+        isEmpty={scheduleRows.length === 0}
+        emptyMessage={t('stationChargingNeeds.noSchedules')}
+      >
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('stationChargingNeeds.evse')}</TableHead>
+                <TableHead>{t('stationChargingNeeds.timeBase')}</TableHead>
+                <TableHead>{t('stationChargingNeeds.firstLimit')}</TableHead>
+                <TableHead>{t('stationChargingNeeds.periods')}</TableHead>
+                <TableHead>{t('stationChargingNeeds.check')}</TableHead>
+                <TableHead>{t('stationChargingNeeds.received')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {scheduleRows.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell>{String(row.evseId)}</TableCell>
+                  <TableCell>
+                    {row.timeBase != null ? formatDateTime(row.timeBase, timezone) : '-'}
+                  </TableCell>
+                  <TableCell>{firstLimit(row.chargingSchedule) ?? '-'}</TableCell>
+                  <TableCell>
+                    {String(row.chargingSchedule.chargingSchedulePeriod?.length ?? 0)}
+                  </TableCell>
+                  <TableCell>
+                    {row.withinLimits == null ? (
+                      <Badge variant="outline">{t('stationChargingNeeds.notChecked')}</Badge>
+                    ) : row.withinLimits ? (
+                      <Badge variant="default">{t('stationChargingNeeds.withinLimits')}</Badge>
+                    ) : (
+                      <Badge variant="destructive">{t('stationChargingNeeds.exceedsLimits')}</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>{formatDateTime(row.createdAt, timezone)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <div className="mt-4">
+            <Pagination
+              page={schedulePage}
+              totalPages={Math.max(1, Math.ceil((schedules?.total ?? 0) / limit))}
+              onPageChange={setSchedulePage}
+            />
+          </div>
+        </>
+      </TabPanel>
 
-      <Card>
-        <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4">
-          <CardTitle>{t('stationChargingNeeds.monitorsTitle')}</CardTitle>
-          {canWrite && (
+      <TabPanel
+        title={t('stationChargingNeeds.monitorsTitle')}
+        isLoading={rulesQuery.isLoading}
+        isError={rulesQuery.isError}
+        onRetry={() => {
+          void rulesQuery.refetch();
+        }}
+        isEmpty={ruleRows.length === 0}
+        emptyMessage={t('stationChargingNeeds.noMonitors')}
+        actions={
+          canWrite ? (
             <Button
               variant="outline"
               size="sm"
@@ -393,79 +396,72 @@ export function StationChargingNeedsTab({
               <Plus className="h-4 w-4" />
               {t('stationChargingNeeds.addMonitor')}
             </Button>
-          )}
-        </CardHeader>
-        <CardContent>
-          {ruleRows.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground">
-              {t('stationChargingNeeds.noMonitors')}
-            </p>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('stationChargingNeeds.component')}</TableHead>
-                    <TableHead>{t('stationChargingNeeds.variable')}</TableHead>
-                    <TableHead>{t('stationChargingNeeds.monitorType')}</TableHead>
-                    <TableHead>{t('stationChargingNeeds.value')}</TableHead>
-                    <TableHead>{t('stationChargingNeeds.severity')}</TableHead>
-                    <TableHead>{t('stationChargingNeeds.monitorId')}</TableHead>
-                    <TableHead>{t('common.status')}</TableHead>
-                    <TableHead>{t('common.created')}</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {ruleRows.map((rule) => (
-                    <TableRow key={rule.id}>
-                      <TableCell>{rule.component}</TableCell>
-                      <TableCell>{rule.variable}</TableCell>
-                      <TableCell>{rule.type}</TableCell>
-                      <TableCell>{rule.value}</TableCell>
-                      <TableCell>{String(rule.severity)}</TableCell>
-                      <TableCell>
-                        {rule.monitoringId != null ? String(rule.monitoringId) : '-'}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={RULE_STATUS_VARIANTS[rule.status] ?? 'outline'}
-                          title={rule.errorInfo ?? undefined}
-                        >
-                          {t(ruleStatusLabel(rule.status))}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{formatDateTime(rule.createdAt, timezone)}</TableCell>
-                      <TableCell>
-                        {canWrite && rule.status !== 'cleared' && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            aria-label={t('stationChargingNeeds.clearMonitor')}
-                            disabled={clearMutation.isPending}
-                            onClick={() => {
-                              setClearTarget(rule);
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              <div className="mt-4">
-                <Pagination
-                  page={rulePage}
-                  totalPages={Math.max(1, Math.ceil((rules?.total ?? 0) / limit))}
-                  onPageChange={setRulePage}
-                />
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+          ) : undefined
+        }
+      >
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('stationChargingNeeds.component')}</TableHead>
+                <TableHead>{t('stationChargingNeeds.variable')}</TableHead>
+                <TableHead>{t('stationChargingNeeds.monitorType')}</TableHead>
+                <TableHead>{t('stationChargingNeeds.value')}</TableHead>
+                <TableHead>{t('stationChargingNeeds.severity')}</TableHead>
+                <TableHead>{t('stationChargingNeeds.monitorId')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead>{t('common.created')}</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {ruleRows.map((rule) => (
+                <TableRow key={rule.id}>
+                  <TableCell>{rule.component}</TableCell>
+                  <TableCell>{rule.variable}</TableCell>
+                  <TableCell>{rule.type}</TableCell>
+                  <TableCell>{rule.value}</TableCell>
+                  <TableCell>{String(rule.severity)}</TableCell>
+                  <TableCell>
+                    {rule.monitoringId != null ? String(rule.monitoringId) : '-'}
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={RULE_STATUS_VARIANTS[rule.status] ?? 'outline'}
+                      title={rule.errorInfo ?? undefined}
+                    >
+                      {t(ruleStatusLabel(rule.status))}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{formatDateTime(rule.createdAt, timezone)}</TableCell>
+                  <TableCell>
+                    {canWrite && rule.status !== 'cleared' && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={t('stationChargingNeeds.clearMonitor')}
+                        disabled={clearMutation.isPending}
+                        onClick={() => {
+                          setClearTarget(rule);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          <div className="mt-4">
+            <Pagination
+              page={rulePage}
+              totalPages={Math.max(1, Math.ceil((rules?.total ?? 0) / limit))}
+              onPageChange={setRulePage}
+            />
+          </div>
+        </>
+      </TabPanel>
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
@@ -594,6 +590,6 @@ export function StationChargingNeedsTab({
           if (clearTarget != null) clearMutation.mutate(clearTarget.id);
         }}
       />
-    </div>
+    </>
   );
 }

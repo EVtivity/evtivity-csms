@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   Table,
   TableBody,
@@ -121,7 +121,12 @@ export function StationDisplayMessages({
 
   const limit = 10;
 
-  const { data: messagesResponse } = useQuery({
+  const {
+    data: messagesResponse,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['display-messages', stationId, page],
     queryFn: () =>
       api.get<{ data: DisplayMessage[]; total: number }>(
@@ -219,89 +224,91 @@ export function StationDisplayMessages({
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4">
-        <CardTitle>{t('stations.displayMessages')}</CardTitle>
-        <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
-          <RefreshButton
-            label={
-              refreshMutation.isPending ? t('stations.refreshing') : t('stations.refreshMessages')
-            }
-            disabled={!isOnline}
-            isPending={refreshMutation.isPending}
-            onClick={() => {
-              refreshMutation.mutate();
-            }}
-          />
-          <SendButton
-            label={t('stations.sendMessage')}
-            disabled={!isOnline}
-            onClick={() => {
-              setHasSubmitted(false);
-              setCreateOpen(true);
-            }}
-          />
-        </div>
-      </CardHeader>
-      <CardContent>
-        {messages.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">
-            {t('stations.noDisplayMessages')}
-          </p>
-        ) : (
-          <>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('stations.messageId')}</TableHead>
-                  <TableHead>{t('stations.messagePriority')}</TableHead>
-                  <TableHead>{t('stations.messageContent')}</TableHead>
-                  <TableHead>{t('stations.messageFormat')}</TableHead>
-                  <TableHead>{t('stations.messageState')}</TableHead>
-                  <TableHead>{t('common.status')}</TableHead>
-                  <TableHead>{t('common.created')}</TableHead>
-                  <TableHead />
+    <>
+      <TabPanel
+        title={t('stations.displayMessages')}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+        isEmpty={messages.length === 0}
+        emptyMessage={t('stations.noDisplayMessages')}
+        actions={
+          <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
+            <RefreshButton
+              label={
+                refreshMutation.isPending ? t('stations.refreshing') : t('stations.refreshMessages')
+              }
+              disabled={!isOnline}
+              isPending={refreshMutation.isPending}
+              onClick={() => {
+                refreshMutation.mutate();
+              }}
+            />
+            <SendButton
+              label={t('stations.sendMessage')}
+              disabled={!isOnline}
+              onClick={() => {
+                setHasSubmitted(false);
+                setCreateOpen(true);
+              }}
+            />
+          </div>
+        }
+      >
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('stations.messageId')}</TableHead>
+                <TableHead>{t('stations.messagePriority')}</TableHead>
+                <TableHead>{t('stations.messageContent')}</TableHead>
+                <TableHead>{t('stations.messageFormat')}</TableHead>
+                <TableHead>{t('stations.messageState')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead>{t('common.created')}</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {messages.map((msg) => (
+                <TableRow key={msg.id}>
+                  <TableCell>{String(msg.ocppMessageId)}</TableCell>
+                  <TableCell>{msg.priority}</TableCell>
+                  <TableCell className="max-w-[200px] truncate">{msg.content}</TableCell>
+                  <TableCell>{msg.format}</TableCell>
+                  <TableCell>{msg.state ?? '-'}</TableCell>
+                  <TableCell>
+                    <Badge variant={STATUS_VARIANTS[msg.status] ?? 'outline'}>{msg.status}</Badge>
+                  </TableCell>
+                  <TableCell>{formatDateTime(msg.createdAt, timezone)}</TableCell>
+                  <TableCell>
+                    {msg.status === 'accepted' && (
+                      // Enabled offline too: the OCPP server queues the clear
+                      // and sends it when the station reconnects.
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label={t('stations.clearMessage')}
+                        disabled={clearMutation.isPending}
+                        onClick={() => {
+                          setClearTarget(msg);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {messages.map((msg) => (
-                  <TableRow key={msg.id}>
-                    <TableCell>{String(msg.ocppMessageId)}</TableCell>
-                    <TableCell>{msg.priority}</TableCell>
-                    <TableCell className="max-w-[200px] truncate">{msg.content}</TableCell>
-                    <TableCell>{msg.format}</TableCell>
-                    <TableCell>{msg.state ?? '-'}</TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_VARIANTS[msg.status] ?? 'outline'}>{msg.status}</Badge>
-                    </TableCell>
-                    <TableCell>{formatDateTime(msg.createdAt, timezone)}</TableCell>
-                    <TableCell>
-                      {msg.status === 'accepted' && (
-                        // Enabled offline too: the OCPP server queues the clear
-                        // and sends it when the station reconnects.
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={t('stations.clearMessage')}
-                          disabled={clearMutation.isPending}
-                          onClick={() => {
-                            setClearTarget(msg);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <div className="mt-4">
-              <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-            </div>
-          </>
-        )}
-      </CardContent>
+              ))}
+            </TableBody>
+          </Table>
+          <div className="mt-4">
+            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+          </div>
+        </>
+      </TabPanel>
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
@@ -491,6 +498,6 @@ export function StationDisplayMessages({
           }
         }}
       />
-    </Card>
+    </>
   );
 }

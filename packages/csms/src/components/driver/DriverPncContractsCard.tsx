@@ -7,7 +7,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CreateButton } from '@/components/create-button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -62,7 +63,12 @@ export function DriverPncContractsCard({
   const {
     flags: { pncEnabled },
   } = useFeatureFlags();
-  const { data: contracts } = useQuery({
+  const {
+    data: contracts,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['drivers', driverId, 'pnc-contracts'],
     queryFn: () => api.get<PncContract[]>(`/v1/drivers/${driverId}/pnc-contracts`),
     staleTime: 30_000,
@@ -118,67 +124,76 @@ export function DriverPncContractsCard({
   const pcidValid = PCID_PATTERN.test(pcid);
 
   return (
-    <Card data-testid="driver-pnc-contracts">
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('drivers.pncContracts')}</CardTitle>
-        {canWrite && (
+    <TabPanel
+      data-testid="driver-pnc-contracts"
+      title={t('drivers.pncContracts')}
+      description={t('drivers.pncContractsHelp')}
+      actions={
+        canWrite ? (
           <CreateButton
             label={t('drivers.pncContractCreate')}
             onClick={() => {
               setCreateOpen(true);
             }}
           />
-        )}
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        <p className="text-muted-foreground">{t('drivers.pncContractsHelp')}</p>
-        {list.length === 0 ? (
-          <p className="text-muted-foreground">{t('drivers.pncContractsEmpty')}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('drivers.pncEmaid')}</TableHead>
-                  <TableHead>{t('drivers.pncPcid')}</TableHead>
-                  <TableHead>{t('common.status')}</TableHead>
-                  <TableHead>{t('common.created')}</TableHead>
-                  {canWrite && <TableHead />}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {list.map((contract) => (
-                  <TableRow key={contract.id}>
-                    <TableCell className="font-mono">{contract.emaid}</TableCell>
-                    <TableCell className="font-mono">{contract.pcid}</TableCell>
-                    <TableCell>
-                      <Badge variant={contract.status === 'active' ? 'success' : 'destructive'}>
-                        {t(`drivers.pncContractStatus.${contract.status}`)}
-                      </Badge>
+        ) : undefined
+      }
+      bodyClassName="space-y-2 text-sm"
+    >
+      {isLoading ? (
+        <LoadingState />
+      ) : isError ? (
+        <ErrorState
+          onRetry={() => {
+            void refetch();
+          }}
+        />
+      ) : list.length === 0 ? (
+        <EmptyState>{t('drivers.pncContractsEmpty')}</EmptyState>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('drivers.pncEmaid')}</TableHead>
+                <TableHead>{t('drivers.pncPcid')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead>{t('common.created')}</TableHead>
+                {canWrite && <TableHead />}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {list.map((contract) => (
+                <TableRow key={contract.id}>
+                  <TableCell className="font-mono">{contract.emaid}</TableCell>
+                  <TableCell className="font-mono">{contract.pcid}</TableCell>
+                  <TableCell>
+                    <Badge variant={contract.status === 'active' ? 'success' : 'destructive'}>
+                      {t(`drivers.pncContractStatus.${contract.status}`)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{formatDateTime(contract.createdAt, timezone)}</TableCell>
+                  {canWrite && (
+                    <TableCell className="text-right">
+                      {contract.status === 'active' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setRevokeTarget(contract);
+                          }}
+                        >
+                          {t('drivers.pncContractRevoke')}
+                        </Button>
+                      )}
                     </TableCell>
-                    <TableCell>{formatDateTime(contract.createdAt, timezone)}</TableCell>
-                    {canWrite && (
-                      <TableCell className="text-right">
-                        {contract.status === 'active' && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setRevokeTarget(contract);
-                            }}
-                          >
-                            {t('drivers.pncContractRevoke')}
-                          </Button>
-                        )}
-                      </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
       <ConfirmDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
@@ -223,6 +238,6 @@ export function DriverPncContractsCard({
           return false;
         }}
       />
-    </Card>
+    </TabPanel>
   );
 }

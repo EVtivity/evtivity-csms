@@ -15,6 +15,7 @@ import { PopularTimesChart } from '@/components/PopularTimesChart';
 import type { PopularTimesData } from '@/components/PopularTimesChart';
 import { api } from '@/lib/api';
 import { connectorStatusVariant, connectorStatusClassName } from '@/lib/connector-status';
+import { EmptyState } from '@/components/ui/content-state';
 
 interface ChargerInfo {
   stationId: string;
@@ -212,7 +213,7 @@ export function LocationDetail(): React.JSX.Element {
                 </div>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">{t('location.noStations')}</p>
+              <EmptyState>{t('location.noStations')}</EmptyState>
             )}
           </CardContent>
         </Card>

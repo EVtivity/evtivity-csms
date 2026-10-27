@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
 import { SessionsTable } from '@/components/SessionsTable';
 import { api } from '@/lib/api';
@@ -40,7 +40,12 @@ export function FleetSessionsTab({ fleetId }: FleetSessionsTabProps): React.JSX.
   const [page, setPage] = useState(1);
   const limit = 10;
 
-  const { data: response } = useQuery({
+  const {
+    data: response,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['fleets', fleetId, 'sessions', page],
     queryFn: () =>
       api.get<{ data: SessionRow[]; total: number }>(
@@ -51,20 +56,20 @@ export function FleetSessionsTab({ fleetId }: FleetSessionsTabProps): React.JSX.
   const totalPages = Math.max(1, Math.ceil((response?.total ?? 0) / limit));
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('sessions.title')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <SessionsTable
-          sessions={response?.data}
-          page={page}
-          totalPages={totalPages}
-          onPageChange={setPage}
-          timezone={timezone}
-        />
-        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-      </CardContent>
-    </Card>
+    <TabPanel title={t('sessions.title')}>
+      <SessionsTable
+        sessions={response?.data}
+        page={page}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        timezone={timezone}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+    </TabPanel>
   );
 }

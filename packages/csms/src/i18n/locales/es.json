@@ -580,7 +580,6 @@
     "map": "Mapa",
     "noSitesFound": "No se encontraron sitios",
     "siteNotFound": "Sitio no encontrado",
-    "siteMetrics": "Métricas",
     "metrics": "Métricas",
     "payment": "Pago",
     "contact": "Contacto",
@@ -683,7 +682,6 @@
     "tabs": {
       "ai": "Uso de IA"
     },
-    "stationLayout": "Distribución de estaciones",
     "layoutDraw": "Consumo",
     "levelDcFast": "CC rápida",
     "levelL2": "Nivel 2",
@@ -988,7 +986,6 @@
     "onboardingStatusFilter": "Todos los estados de incorporación",
     "meterValuesDescription": "Lecturas de medidor independientes reportadas fuera de sesiones de carga. Incluyen lecturas de intervalos alineados al reloj y telemetría a nivel de EVSE enviadas vía el mensaje MeterValues.",
     "events": "Eventos",
-    "notifyEvents": "NotifyEvent",
     "notifyEventsDescription": "Eventos de monitoreo de variables reportados por la estación vía OCPP NotifyEvent, como umbrales superados, lecturas periódicas y cambios delta.",
     "seqNo": "N.º de Sec.",
     "noEvents": "No hay eventos registrados",
@@ -1121,7 +1118,6 @@
     },
     "sim": {
       "tab": "Conectividad",
-      "refreshTitle": "Datos de SIM y señal",
       "period": "Período",
       "lastDays_one": "Último {{count}} día",
       "lastDays_other": "Últimos {{count}} días",
@@ -1407,7 +1403,6 @@
         "attachments": "Asignaciones",
         "history": "Historial"
       },
-      "detailsTitle": "Detalles de la SIM",
       "iccid": "ICCID",
       "imsi": "IMSI",
       "label": "Etiqueta",
@@ -1444,7 +1439,6 @@
       "notesHint": "Como máximo {{max}} caracteres.",
       "saveFailed": "La SIM no se guardó. Inténtelo de nuevo.",
       "attachments": {
-        "currentTitle": "Asignación actual",
         "historyTitle": "Historial de asignaciones",
         "notAttached": "Esta SIM no está asignada a ninguna estación.",
         "noHistory": "Esta SIM todavía no se ha asignado.",
@@ -1530,7 +1524,6 @@
     "allStatuses": "Todos los estados",
     "energyKwh": "{{value}} kWh",
     "durationFormat": "{{hours}}h {{minutes}}m",
-    "overview": "Resumen",
     "transactionEvents": "Eventos de Transacción",
     "payment": "Pago",
     "stoppedReason": "Motivo de Parada",
@@ -2163,7 +2156,6 @@
     "cancelFleetReservation": "Cancelar Todas",
     "billingTab": "Facturación",
     "billing": {
-      "title": "Facturación a la flota",
       "description": "Carga a cuenta de la flota: los miembros cargan sin tarjeta y sus sesiones se facturan a esta flota. Los miembros excluidos pagan con tarjeta.",
       "chargeOnAccount": "Carga a cuenta de la flota",
       "on": "Activada",
@@ -2344,7 +2336,6 @@
     "toggleActive": "Activar",
     "toggleInactive": "Desactivar",
     "backToTokens": "Volver a tokens",
-    "tokenDetails": "Detalles del token",
     "lastUpdated": "Última actualización",
     "actions": "Acciones",
     "tokenNotFound": "Token no encontrado",
@@ -2387,7 +2378,6 @@
     "deactivationReason": "Motivo de Desactivación"
   },
   "commands": {
-    "title": "Comandos",
     "advancedCommand": "Comando avanzado",
     "action": "Acción",
     "payloadJson": "Carga útil (JSON)",
@@ -2472,7 +2462,6 @@
     "utilization": "Utilización",
     "activeSessions": "Sesiones activas",
     "recentSessions": "Sesiones recientes",
-    "connectors": "Conectores",
     "transaction": "Transacción",
     "station": "Estación",
     "duration": "Duración",
@@ -3889,7 +3878,6 @@
     "maxHoursHint": "La duración máxima de la reserva es de {{hours}} horas.",
     "paymentMethodRequired": "El conductor seleccionado no tiene un método de pago predeterminado. Agregue uno antes de crear la reserva.",
     "commands": "Registros OCPP",
-    "commandLog": "Registro de comandos OCPP",
     "direction": "Dirección",
     "action": "Acción",
     "responseTime": "Tiempo de respuesta",
@@ -4876,7 +4864,6 @@
   },
   "simulate": {
     "tab": "Simular",
-    "title": "Acciones del simulador",
     "evseId": "ID de EVSE",
     "idToken": "Token de ID",
     "plugIn": "Conectar",
@@ -4905,7 +4892,6 @@
     "invalidForState": "No válido para el estado actual del conector ({{status}})."
   },
   "loadManagement": {
-    "configuration": "Configuración de gestión de carga",
     "allocationStrategy": "Estrategia de asignación",
     "equalShare": "Reparto equitativo",
     "priorityBased": "Basado en prioridad",
@@ -5560,7 +5546,6 @@
     "statusCompleted": "Completada",
     "statusCancelled": "Cancelada",
     "empty": "Sin ventanas de mantenimiento",
-    "statusTitle": "Estado del mantenimiento",
     "schedule": "Programar mantenimiento",
     "activeNow": "Sitio en mantenimiento",
     "endNow": "Terminar ahora",
@@ -6201,7 +6186,6 @@
     }
   },
   "aiUsage": {
-    "title": "Uso de IA",
     "month": "Mes",
     "period": "Periodo",
     "budget": "Presupuesto",
@@ -6252,7 +6236,6 @@
     "openUsage": "Ver el uso de IA"
   },
   "stationChargingNeeds": {
-    "needsTitle": "Necesidades de Carga del VE",
     "noNeeds": "Ningún VE ha informado necesidades de carga ISO 15118 para una sesión activa.",
     "evse": "EVSE",
     "energyTransfer": "Transferencia de Energía",

@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   Table,
   TableBody,
@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { Badge } from '@/components/ui/badge';
-import { LoadingLogo } from '@/components/loading-logo';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { auditActionLabel, auditActorLabel } from '@/lib/audit-labels';
 import { AuditEntryDialog } from '@/components/audit/AuditEntryDialog';
@@ -86,7 +85,7 @@ interface Props {
   pageSize?: number;
   /** Entity-specific columns inserted between Actor and Notes. */
   extraColumns?: AuditExtraColumn[];
-  /** When provided, renders a CardHeader/CardTitle above the audit table. Use when the History card stands alone (not inside a Tabs panel that already labels it). */
+  /** The card title; defaults to History (the tab label). Pass '' for a card without a header inside another container. */
   title?: string;
   /** Extra classes for the outer Card, such as removing its border inside another container. */
   className?: string;
@@ -136,7 +135,7 @@ export function EntityHistoryTab({
     entityId == null
       ? `/v1/audit?${typeFilter}&page=${String(page)}&limit=${String(pageSize)}`
       : `/v1/audit/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}?page=${String(page)}&limit=${String(pageSize)}`;
-  const { data, isLoading, error } = useQuery<AuditPage>({
+  const { data, isLoading, isError, refetch } = useQuery<AuditPage>({
     queryKey: ['audit', entityType, entityId ?? '__all__', page, pageSize, relatedEntityTypes],
     queryFn: () => api.get<AuditPage>(auditUrl),
     // Refetch every time the History tab mounts so operators see new entries
@@ -160,86 +159,80 @@ export function EntityHistoryTab({
   if (!canReadAudit) return <></>;
 
   return (
-    <Card className={className}>
-      {resolvedTitle !== '' && (
-        <CardHeader>
-          <CardTitle>{resolvedTitle}</CardTitle>
-        </CardHeader>
-      )}
-      <CardContent className="p-0">
-        {isLoading ? (
-          <LoadingLogo size="inline" />
-        ) : error != null ? (
-          <p className="p-6 text-center text-sm text-destructive">
-            {t('audit.loadFailed', 'Failed to load audit history')}
-          </p>
-        ) : rows.length === 0 ? (
-          <p className="p-6 text-center text-sm text-muted-foreground">
-            {t('audit.noEntries', 'No audit entries yet')}
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('audit.when', 'When')}</TableHead>
-                  <TableHead>{t('audit.action', 'Action')}</TableHead>
-                  <TableHead>{t('audit.actorType', 'Type')}</TableHead>
-                  <TableHead>{t('audit.actor', 'Actor')}</TableHead>
-                  {extraColumns.map((col) => (
-                    <TableHead key={col.header}>{col.header}</TableHead>
-                  ))}
-                  <TableHead>{t('audit.notes', 'Notes')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow
-                    key={row.id}
-                    className="cursor-pointer"
-                    data-testid={`audit-row-${String(row.id)}`}
-                    onClick={() => {
-                      setOpenEntry(row);
-                    }}
-                  >
-                    <TableCell className="whitespace-nowrap text-xs" data-testid="row-click-target">
-                      {formatTimestamp(row.createdAt, timezone)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary" title={row.action}>
-                        {auditActionLabel(t, row.action)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <AuditActorBadge actor={row.actor} />
-                    </TableCell>
-                    <TableCell className="text-sm">{actorDisplay(row)}</TableCell>
-                    {extraColumns.map((col) => (
-                      <TableCell key={col.header} className={col.className ?? 'text-xs'}>
-                        {col.render(row)}
-                      </TableCell>
-                    ))}
-                    <TableCell className="text-xs text-muted-foreground">
-                      {row.notes ?? '--'}
-                    </TableCell>
-                  </TableRow>
+    <>
+      <TabPanel
+        {...(resolvedTitle !== '' ? { title: resolvedTitle } : {})}
+        className={className}
+        body="flush"
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+        isEmpty={rows.length === 0}
+        emptyMessage={t('audit.noEntries', 'No audit entries yet')}
+      >
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('audit.when', 'When')}</TableHead>
+                <TableHead>{t('audit.action', 'Action')}</TableHead>
+                <TableHead>{t('audit.actorType', 'Type')}</TableHead>
+                <TableHead>{t('audit.actor', 'Actor')}</TableHead>
+                {extraColumns.map((col) => (
+                  <TableHead key={col.header}>{col.header}</TableHead>
                 ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
+                <TableHead>{t('audit.notes', 'Notes')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow
+                  key={row.id}
+                  className="cursor-pointer"
+                  data-testid={`audit-row-${String(row.id)}`}
+                  onClick={() => {
+                    setOpenEntry(row);
+                  }}
+                >
+                  <TableCell className="whitespace-nowrap text-xs" data-testid="row-click-target">
+                    {formatTimestamp(row.createdAt, timezone)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="secondary" title={row.action}>
+                      {auditActionLabel(t, row.action)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <AuditActorBadge actor={row.actor} />
+                  </TableCell>
+                  <TableCell className="text-sm">{actorDisplay(row)}</TableCell>
+                  {extraColumns.map((col) => (
+                    <TableCell key={col.header} className={col.className ?? 'text-xs'}>
+                      {col.render(row)}
+                    </TableCell>
+                  ))}
+                  <TableCell className="text-xs text-muted-foreground">
+                    {row.notes ?? '--'}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
         {totalPages > 1 ? (
           <div className="border-t p-3">
             <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
           </div>
         ) : null}
-      </CardContent>
+      </TabPanel>
       <AuditEntryDialog
         entry={openEntry}
         onOpenChange={(open) => {
           if (!open) setOpenEntry(null);
         }}
       />
-    </Card>
+    </>
   );
 }

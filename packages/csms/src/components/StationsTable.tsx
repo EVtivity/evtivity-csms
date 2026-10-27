@@ -20,7 +20,7 @@ import { StationStatusBadge } from '@/components/StationStatusBadge';
 import { SVG_COLORS } from '@/lib/chart-theme';
 import { formatDateTime, formatRelativeTime } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
-import { LoadingLogo } from '@/components/loading-logo';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 
 export const STATIONS_COLUMNS: ColumnMeta[] = [
   {
@@ -316,6 +316,8 @@ interface StationsTableProps {
   emptyMessage?: string;
   siteMap?: Map<string, string>;
   isLoading?: boolean;
+  isError?: boolean;
+  onRetry?: (() => void) | undefined;
   onRemove?: (station: Station) => void;
   visibility?: ColumnVisibility;
 }
@@ -326,6 +328,8 @@ export function StationsTable({
   emptyMessage,
   siteMap,
   isLoading,
+  isError = false,
+  onRetry,
   onRemove,
   visibility,
 }: StationsTableProps): React.JSX.Element {
@@ -418,11 +422,14 @@ export function StationsTable({
         </TableHeader>
         <TableBody>
           {isLoading === true && (
-            <TableRow>
-              <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                <LoadingLogo size="inline" />
-              </TableCell>
-            </TableRow>
+            <TableStateRow colSpan={colSpan}>
+              <LoadingState />
+            </TableStateRow>
+          )}
+          {isError && isLoading !== true && (
+            <TableStateRow colSpan={colSpan}>
+              <ErrorState onRetry={onRetry} />
+            </TableStateRow>
           )}
           {stations?.map((station) => (
             <TableRow
@@ -568,10 +575,8 @@ export function StationsTable({
           ))}
         </TableBody>
       </Table>
-      {stations?.length === 0 && isLoading !== true && (
-        <div className="text-center text-sm text-muted-foreground py-8">
-          {emptyMessage ?? t('stations.noStationsFound')}
-        </div>
+      {stations?.length === 0 && isLoading !== true && !isError && (
+        <EmptyState>{emptyMessage ?? t('stations.noStationsFound')}</EmptyState>
       )}
     </>
   );

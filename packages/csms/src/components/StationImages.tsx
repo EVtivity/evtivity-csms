@@ -6,7 +6,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Trash2, Plus, ImageIcon, X, Star } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -64,7 +64,12 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
 
   const queryKey = ['stations', stationId, 'images'];
 
-  const { data: images = [] } = useQuery({
+  const {
+    data: images = [],
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey,
     queryFn: () => api.get<StationImage[]>(`/v1/stations/${stationId}/images`),
   });
@@ -278,52 +283,61 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
     contentType: img.contentType,
   }));
 
+  if (isLoading || isError) {
+    return (
+      <TabPanel
+        title={t('stations.images')}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+      />
+    );
+  }
+
   // Empty state
   if (images.length === 0 && !uploading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('stations.images')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-border py-12 gap-4">
-            <ImageIcon className="h-12 w-12 text-muted-foreground" />
-            <div className="text-center">
-              <p className="text-sm font-medium">{t('stations.noImages')}</p>
-              <p className="text-xs text-muted-foreground mt-1">
-                {t('stations.noImagesDescription')}
-              </p>
-            </div>
-            <Button
-              onClick={() => {
-                fileInputRef.current?.click();
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              {t('stations.uploadImages')}
-            </Button>
+      <TabPanel title={t('stations.images')}>
+        <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-border py-12 gap-4">
+          <ImageIcon className="h-12 w-12 text-muted-foreground" />
+          <div className="text-center">
+            <p className="text-sm font-medium">{t('stations.noImages')}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('stations.noImagesDescription')}
+            </p>
           </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={STATION_IMAGE_ACCEPT}
-            className="hidden"
-            onChange={(e) => {
-              if (e.target.files != null && e.target.files.length > 0) {
-                void handleUpload(e.target.files);
-              }
+          <Button
+            onClick={() => {
+              fileInputRef.current?.click();
             }}
-          />
-        </CardContent>
-      </Card>
+          >
+            <Plus className="h-4 w-4" />
+            {t('stations.uploadImages')}
+          </Button>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept={STATION_IMAGE_ACCEPT}
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files != null && e.target.files.length > 0) {
+              void handleUpload(e.target.files);
+            }
+          }}
+        />
+      </TabPanel>
     );
   }
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <CardTitle>{t('stations.images')}</CardTitle>
+    <TabPanel
+      title={t('stations.images')}
+      bodyClassName="grid gap-6"
+      actions={
         <div className="flex items-center gap-2">
           {uploading && uploadProgress != null && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -344,186 +358,185 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
             {t('stations.uploadImages')}
           </Button>
         </div>
-      </CardHeader>
-      <CardContent className="grid gap-6">
-        {/* Carousel area */}
-        <div className="grid gap-4">
-          {/* Main image */}
-          <div className="relative flex items-center justify-center min-h-[300px] rounded-lg bg-muted">
-            {mainImageLoading ? (
-              <Spinner className="h-8 w-8" />
-            ) : mainImageUrl != null ? (
-              <button
-                type="button"
-                className="w-full"
-                onClick={() => {
-                  setViewerOpen(true);
-                }}
-              >
-                <img
-                  src={mainImageUrl}
-                  alt={selectedImage?.fileName ?? ''}
-                  className="max-h-[300px] md:max-h-[400px] w-full object-contain rounded-lg cursor-pointer"
-                />
-              </button>
-            ) : (
-              <ImageIcon className="h-12 w-12 text-muted-foreground" />
-            )}
-
-            {/* Navigation arrows */}
-            {images.length > 1 && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute left-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background"
-                  disabled={selectedIndex === 0}
-                  onClick={() => {
-                    setSelectedIndex((i) => i - 1);
-                  }}
-                  aria-label={t('common.prev')}
-                >
-                  <ChevronLeft className="h-5 w-5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background"
-                  disabled={selectedIndex === images.length - 1}
-                  onClick={() => {
-                    setSelectedIndex((i) => i + 1);
-                  }}
-                  aria-label={t('common.next')}
-                >
-                  <ChevronRight className="h-5 w-5" />
-                </Button>
-              </>
-            )}
-          </div>
-
-          {/* Thumbnail strip */}
-          {images.length > 1 && (
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {images.map((image, index) => (
-                <button
-                  key={image.id}
-                  type="button"
-                  className={`shrink-0 h-16 w-16 rounded-md overflow-hidden border-2 transition-colors ${
-                    index === selectedIndex
-                      ? 'ring-2 ring-primary border-primary'
-                      : 'border-transparent hover:border-border'
-                  }`}
-                  onClick={() => {
-                    setSelectedIndex(index);
-                  }}
-                >
-                  {thumbnailUrls.has(image.id) ? (
-                    <img
-                      src={thumbnailUrls.get(image.id)}
-                      alt={image.fileName}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="h-full w-full flex items-center justify-center bg-muted">
-                      <Spinner className="h-3 w-3" />
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
+      }
+    >
+      {/* Carousel area */}
+      <div className="grid gap-4">
+        {/* Main image */}
+        <div className="relative flex items-center justify-center min-h-[300px] rounded-lg bg-muted">
+          {mainImageLoading ? (
+            <Spinner className="h-8 w-8" />
+          ) : mainImageUrl != null ? (
+            <button
+              type="button"
+              className="w-full"
+              onClick={() => {
+                setViewerOpen(true);
+              }}
+            >
+              <img
+                src={mainImageUrl}
+                alt={selectedImage?.fileName ?? ''}
+                className="max-h-[300px] md:max-h-[400px] w-full object-contain rounded-lg cursor-pointer"
+              />
+            </button>
+          ) : (
+            <ImageIcon className="h-12 w-12 text-muted-foreground" />
           )}
-        </div>
 
-        {/* Metadata panel */}
-        {selectedImage != null && (
-          <div className="grid gap-4">
-            {/* Caption */}
-            <div className="grid gap-2">
-              <Label htmlFor="img-caption">{t('stations.caption')}</Label>
-              <Input
-                id="img-caption"
-                value={captionValue}
-                onChange={(e) => {
-                  setCaptionValue(e.target.value);
-                }}
-                onBlur={handleCaptionBlur}
-                placeholder={t('stations.captionPlaceholder')}
-              />
-            </div>
-
-            {/* Tags */}
-            <div className="grid gap-2">
-              <Label htmlFor="img-tags">{t('stations.tags')}</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {selectedImage.tags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="gap-1">
-                    {tag}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleRemoveTag(tag);
-                      }}
-                      className="ml-0.5 hover:text-destructive"
-                      aria-label={t('stations.removeTag', { tag })}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-              <Input
-                id="img-tags"
-                value={newTag}
-                onChange={(e) => {
-                  setNewTag(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddTag();
-                  }
-                }}
-                placeholder={t('stations.tagPlaceholder')}
-              />
-            </div>
-
-            {/* Driver visible toggle */}
-            <div className="flex items-center gap-3">
-              <Toggle
-                checked={selectedImage.isDriverVisible}
-                onCheckedChange={handleToggleDriverVisible}
-              />
-              <Label>{t('stations.driverVisible')}</Label>
-            </div>
-
-            {/* Main image + Delete */}
-            <div className="flex items-center gap-2">
-              {selectedImage.isMainImage ? (
-                <Badge variant="default" className="gap-1">
-                  <Star className="h-3 w-3" />
-                  {t('stations.mainImage')}
-                </Badge>
-              ) : (
-                <Button variant="outline" onClick={handleSetMain}>
-                  <Star className="h-4 w-4" />
-                  {t('stations.setAsMain')}
-                </Button>
-              )}
+          {/* Navigation arrows */}
+          {images.length > 1 && (
+            <>
               <Button
                 variant="ghost"
                 size="icon"
-                className="ml-auto text-destructive hover:text-destructive"
+                className="absolute left-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background"
+                disabled={selectedIndex === 0}
                 onClick={() => {
-                  setDeleteTarget(selectedImage);
+                  setSelectedIndex((i) => i - 1);
                 }}
-                aria-label={t('stations.deleteImage')}
+                aria-label={t('common.prev')}
               >
-                <Trash2 className="h-4 w-4" />
+                <ChevronLeft className="h-5 w-5" />
               </Button>
-            </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-2 top-1/2 -translate-y-1/2 bg-background/80 hover:bg-background"
+                disabled={selectedIndex === images.length - 1}
+                onClick={() => {
+                  setSelectedIndex((i) => i + 1);
+                }}
+                aria-label={t('common.next')}
+              >
+                <ChevronRight className="h-5 w-5" />
+              </Button>
+            </>
+          )}
+        </div>
+
+        {/* Thumbnail strip */}
+        {images.length > 1 && (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {images.map((image, index) => (
+              <button
+                key={image.id}
+                type="button"
+                className={`shrink-0 h-16 w-16 rounded-md overflow-hidden border-2 transition-colors ${
+                  index === selectedIndex
+                    ? 'ring-2 ring-primary border-primary'
+                    : 'border-transparent hover:border-border'
+                }`}
+                onClick={() => {
+                  setSelectedIndex(index);
+                }}
+              >
+                {thumbnailUrls.has(image.id) ? (
+                  <img
+                    src={thumbnailUrls.get(image.id)}
+                    alt={image.fileName}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="h-full w-full flex items-center justify-center bg-muted">
+                    <Spinner className="h-3 w-3" />
+                  </div>
+                )}
+              </button>
+            ))}
           </div>
         )}
-      </CardContent>
+      </div>
+
+      {/* Metadata panel */}
+      {selectedImage != null && (
+        <div className="grid gap-4">
+          {/* Caption */}
+          <div className="grid gap-2">
+            <Label htmlFor="img-caption">{t('stations.caption')}</Label>
+            <Input
+              id="img-caption"
+              value={captionValue}
+              onChange={(e) => {
+                setCaptionValue(e.target.value);
+              }}
+              onBlur={handleCaptionBlur}
+              placeholder={t('stations.captionPlaceholder')}
+            />
+          </div>
+
+          {/* Tags */}
+          <div className="grid gap-2">
+            <Label htmlFor="img-tags">{t('stations.tags')}</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {selectedImage.tags.map((tag) => (
+                <Badge key={tag} variant="secondary" className="gap-1">
+                  {tag}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleRemoveTag(tag);
+                    }}
+                    className="ml-0.5 hover:text-destructive"
+                    aria-label={t('stations.removeTag', { tag })}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+            <Input
+              id="img-tags"
+              value={newTag}
+              onChange={(e) => {
+                setNewTag(e.target.value);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleAddTag();
+                }
+              }}
+              placeholder={t('stations.tagPlaceholder')}
+            />
+          </div>
+
+          {/* Driver visible toggle */}
+          <div className="flex items-center gap-3">
+            <Toggle
+              checked={selectedImage.isDriverVisible}
+              onCheckedChange={handleToggleDriverVisible}
+            />
+            <Label>{t('stations.driverVisible')}</Label>
+          </div>
+
+          {/* Main image + Delete */}
+          <div className="flex items-center gap-2">
+            {selectedImage.isMainImage ? (
+              <Badge variant="default" className="gap-1">
+                <Star className="h-3 w-3" />
+                {t('stations.mainImage')}
+              </Badge>
+            ) : (
+              <Button variant="outline" onClick={handleSetMain}>
+                <Star className="h-4 w-4" />
+                {t('stations.setAsMain')}
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="ml-auto text-destructive hover:text-destructive"
+              onClick={() => {
+                setDeleteTarget(selectedImage);
+              }}
+              aria-label={t('stations.deleteImage')}
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Hidden file input */}
       <input
@@ -586,6 +599,6 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
           getDownloadUrl={getDownloadUrl}
         />
       )}
-    </Card>
+    </TabPanel>
   );
 }

@@ -9,7 +9,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { EditButton } from '@/components/edit-button';
 import { RemoveButton } from '@/components/remove-button';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { PricingScheduleCard } from '@/components/pricing-schedule-card';
 import { api } from '@/lib/api';
@@ -35,24 +35,28 @@ const RESOURCE_PLURAL: Record<ResourceType, string> = {
 
 const I18N_KEYS = {
   station: {
+    tab: 'stations.pricing' as const,
     description: 'stations.pricingDescription' as const,
     change: 'stations.changePricingGroup' as const,
     empty: 'stations.noPricingGroups' as const,
     assign: 'stations.assignPricingGroup' as const,
   },
   site: {
+    tab: 'sites.pricing' as const,
     description: 'sites.pricingDescription' as const,
     change: 'sites.changePricingGroup' as const,
     empty: 'sites.noPricingGroups' as const,
     assign: 'sites.assignPricingGroup' as const,
   },
   driver: {
+    tab: 'drivers.pricing' as const,
     description: 'drivers.pricingDescription' as const,
     change: 'drivers.changePricingGroup' as const,
     empty: 'drivers.noPricingGroups' as const,
     assign: 'drivers.assignPricingGroup' as const,
   },
   fleet: {
+    tab: 'fleets.pricing' as const,
     description: 'fleets.pricingDescription' as const,
     change: 'fleets.changePricingGroup' as const,
     empty: 'fleets.noPricingGroups' as const,
@@ -78,7 +82,12 @@ export function PricingAssignmentTab({
   const companyWideWrite = useHasCompanyWidePermission(`${plural}:write`);
   const canEdit = resourceType === 'driver' || resourceType === 'fleet' ? companyWideWrite : true;
 
-  const { data: pricingGroup } = useQuery({
+  const {
+    data: pricingGroup,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: [plural, resourceId, 'pricing-group'],
     queryFn: () => api.get<PricingGroup | null>(`/v1/${plural}/${resourceId}/pricing-groups`),
   });
@@ -93,56 +102,50 @@ export function PricingAssignmentTab({
 
   return (
     <>
-      <Card>
-        <CardContent className="pt-6">
-          <p className="text-sm text-muted-foreground">{t(keys.description)}</p>
-        </CardContent>
-      </Card>
-      {pricingGroup != null ? (
-        <>
-          <Card>
-            <CardHeader>
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    {pricingGroup.name}
-                    {pricingGroup.isDefault && (
-                      <span
-                        className="h-1.5 w-1.5 rounded-full bg-primary"
-                        title={t('common.default')}
-                      />
-                    )}
-                  </CardTitle>
-                  {pricingGroup.description && (
-                    <CardDescription>{pricingGroup.description}</CardDescription>
-                  )}
-                </div>
-                {canEdit && (
-                  <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
-                    <EditButton
-                      label={t(keys.change)}
-                      onClick={() => {
-                        void navigate(assignUrl);
-                      }}
-                    />
-                    <RemoveButton
-                      label={t('common.remove')}
-                      onClick={() => {
-                        setRemovePricingOpen(true);
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            </CardHeader>
-          </Card>
-
-          <PricingScheduleCard groupId={pricingGroup.id} timezone={scheduleTimezone} />
-        </>
-      ) : (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 gap-4">
-            <p className="text-center text-sm text-muted-foreground">{t(keys.empty)}</p>
+      <TabPanel
+        title={t(keys.tab)}
+        description={t(keys.description)}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+        actions={
+          pricingGroup != null && canEdit ? (
+            <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
+              <EditButton
+                label={t(keys.change)}
+                onClick={() => {
+                  void navigate(assignUrl);
+                }}
+              />
+              <RemoveButton
+                label={t('common.remove')}
+                onClick={() => {
+                  setRemovePricingOpen(true);
+                }}
+              />
+            </div>
+          ) : undefined
+        }
+      >
+        {pricingGroup != null ? (
+          <div className="space-y-1">
+            <p className="flex items-center gap-2 text-lg font-semibold">
+              {pricingGroup.name}
+              {pricingGroup.isDefault && (
+                <span className="h-1.5 w-1.5 rounded-full bg-primary" title={t('common.default')} />
+              )}
+            </p>
+            {pricingGroup.description && (
+              <p className="text-sm text-muted-foreground">{pricingGroup.description}</p>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center gap-4 py-6">
+            <p data-testid="empty-state" className="text-center text-sm text-muted-foreground">
+              {t(keys.empty)}
+            </p>
             {canEdit && (
               <Button
                 onClick={() => {
@@ -153,8 +156,11 @@ export function PricingAssignmentTab({
                 {t(keys.assign)}
               </Button>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        )}
+      </TabPanel>
+      {pricingGroup != null && (
+        <PricingScheduleCard groupId={pricingGroup.id} timezone={scheduleTimezone} />
       )}
 
       {pricingGroup != null && (

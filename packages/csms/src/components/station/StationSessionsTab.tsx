@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
 import { SessionsTable, type Session } from '@/components/SessionsTable';
@@ -30,7 +30,12 @@ export function StationSessionsTab({
     limit: String(sessionsLimit),
   });
   if (sessionsStatus !== '') sessionsQueryParams.set('status', sessionsStatus);
-  const { data: sessionsResponse } = useQuery({
+  const {
+    data: sessionsResponse,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['stations', stationId, 'sessions', sessionsPage, sessionsStatus],
     queryFn: () =>
       api.get<{ data: Session[]; total: number }>(
@@ -41,25 +46,10 @@ export function StationSessionsTab({
   const sessionsTotalPages = Math.max(1, Math.ceil((sessionsResponse?.total ?? 0) / sessionsLimit));
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle>{t('sessions.title')}</CardTitle>
-        <Select
-          aria-label={t('common.filterByStatus')}
-          value={sessionsStatus}
-          onChange={(e) => {
-            setSessionsStatus(e.target.value);
-            setSessionsPage(1);
-          }}
-          className="hidden sm:w-44 md:block"
-        >
-          <option value="">{t('sessions.allStatuses')}</option>
-          <option value="active">{t('status.active')}</option>
-          <option value="idling">{t('status.idle')}</option>
-          <option value="completed">{t('status.completed')}</option>
-          <option value="faulted">{t('status.faulted')}</option>
-        </Select>
-        <FilterPopover className="md:hidden" activeCount={sessionsStatus ? 1 : 0}>
+    <TabPanel
+      title={t('sessions.title')}
+      actions={
+        <>
           <Select
             aria-label={t('common.filterByStatus')}
             value={sessionsStatus}
@@ -67,7 +57,7 @@ export function StationSessionsTab({
               setSessionsStatus(e.target.value);
               setSessionsPage(1);
             }}
-            className="sm:w-44"
+            className="hidden sm:w-44 md:block"
           >
             <option value="">{t('sessions.allStatuses')}</option>
             <option value="active">{t('status.active')}</option>
@@ -75,23 +65,44 @@ export function StationSessionsTab({
             <option value="completed">{t('status.completed')}</option>
             <option value="faulted">{t('status.faulted')}</option>
           </Select>
-        </FilterPopover>
-      </CardHeader>
-      <CardContent>
-        <SessionsTable
-          sessions={sessionsData}
-          page={sessionsPage}
-          totalPages={sessionsTotalPages}
-          onPageChange={setSessionsPage}
-          timezone={timezone}
-          hideStationName
-        />
-        <Pagination
-          page={sessionsPage}
-          totalPages={sessionsTotalPages}
-          onPageChange={setSessionsPage}
-        />
-      </CardContent>
-    </Card>
+          <FilterPopover className="md:hidden" activeCount={sessionsStatus ? 1 : 0}>
+            <Select
+              aria-label={t('common.filterByStatus')}
+              value={sessionsStatus}
+              onChange={(e) => {
+                setSessionsStatus(e.target.value);
+                setSessionsPage(1);
+              }}
+              className="sm:w-44"
+            >
+              <option value="">{t('sessions.allStatuses')}</option>
+              <option value="active">{t('status.active')}</option>
+              <option value="idling">{t('status.idle')}</option>
+              <option value="completed">{t('status.completed')}</option>
+              <option value="faulted">{t('status.faulted')}</option>
+            </Select>
+          </FilterPopover>
+        </>
+      }
+    >
+      <SessionsTable
+        sessions={sessionsData}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+        page={sessionsPage}
+        totalPages={sessionsTotalPages}
+        onPageChange={setSessionsPage}
+        timezone={timezone}
+        hideStationName
+      />
+      <Pagination
+        page={sessionsPage}
+        totalPages={sessionsTotalPages}
+        onPageChange={setSessionsPage}
+      />
+    </TabPanel>
   );
 }

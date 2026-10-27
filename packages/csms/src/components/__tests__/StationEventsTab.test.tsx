@@ -60,7 +60,7 @@ describe('StationEventsTab', () => {
     expect(await screen.findByTestId('notify-event-row-1')).not.toBeNull();
     expect(screen.queryByRole('tablist')).toBeNull();
     expect(screen.queryByText('stations.securityEvents')).toBeNull();
-    expect(screen.getByText('stations.notifyEvents')).not.toBeNull();
+    expect(screen.getByText('stations.events')).not.toBeNull();
     expect(screen.getByText('stations.seqNo')).not.toBeNull();
     expect(getMock).toHaveBeenCalledTimes(1);
     expect(getMock).toHaveBeenCalledWith('/v1/stations/sta_1/events?page=1&limit=25');

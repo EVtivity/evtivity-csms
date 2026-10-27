@@ -9,12 +9,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { PageHeader } from '@/components/PageHeader';
-import { LoadingLogo } from '@/components/loading-logo';
 import { api } from '@/lib/api';
 import { formatCents, formatDay } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { invoiceStatusVariant } from '@/lib/invoices';
 import type { PortalInvoice } from '@/lib/invoices';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 const PAGE_SIZE = 20;
 
@@ -25,7 +25,7 @@ export function Invoices(): React.JSX.Element {
   const timezone = useDriverTimezone();
   const [page, setPage] = useState(1);
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['portal-invoices', page],
     queryFn: () =>
       api.get<{ data: PortalInvoice[]; total: number }>(
@@ -41,14 +41,19 @@ export function Invoices(): React.JSX.Element {
     <div className="space-y-4">
       <PageHeader title={t('invoices.title')} backTo="/account" />
 
-      {isLoading && <LoadingLogo size="inline" />}
+      {isLoading && <LoadingState />}
 
       {isError && (
-        <p className="text-center text-sm text-destructive">{t('invoices.loadFailed')}</p>
+        <ErrorState
+          message={t('invoices.loadFailed')}
+          onRetry={() => {
+            void refetch();
+          }}
+        />
       )}
 
       {!isLoading && !isError && invoices.length === 0 && (
-        <p className="text-center text-sm text-muted-foreground">{t('invoices.empty')}</p>
+        <EmptyState>{t('invoices.empty')}</EmptyState>
       )}
 
       {invoices.map((invoice) => (

@@ -16,7 +16,7 @@ import { SaveButton } from '@/components/save-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Combobox } from '@/components/ui/combobox';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { Badge } from '@/components/ui/badge';
 import { Toggle } from '@/components/ui/toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -246,10 +246,10 @@ export function VehicleDetail(): React.JSX.Element {
           {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="details" className="mt-4 space-y-6">
-          <Card>
-            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle>{t('common.details')}</CardTitle>
+        <TabsContent value="details">
+          <TabPanel
+            title={t('common.details')}
+            actions={
               <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
                 {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
                 <RemoveButton
@@ -259,181 +259,175 @@ export function VehicleDetail(): React.JSX.Element {
                   }}
                 />
               </div>
-            </CardHeader>
-            <CardContent>
-              {editing ? (
-                <form onSubmit={handleSave} noValidate className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-make" className="leading-6">
-                        {t('vehicles.make')}
-                      </Label>
-                      <Combobox
-                        id="edit-make"
-                        value={make}
-                        onChange={setMake}
-                        options={lookup?.makes ?? []}
-                        className={
-                          hasSubmitted && validationErrors.make ? 'border-destructive' : ''
-                        }
-                      />
-                      {hasSubmitted && validationErrors.make && (
-                        <p className="text-sm text-destructive">{validationErrors.make}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-model" className="leading-6">
-                        {t('vehicles.model')}
-                      </Label>
-                      <Combobox
-                        id="edit-model"
-                        value={model}
-                        onChange={setModel}
-                        options={filteredModels}
-                        className={
-                          hasSubmitted && validationErrors.model ? 'border-destructive' : ''
-                        }
-                      />
-                      {hasSubmitted && validationErrors.model && (
-                        <p className="text-sm text-destructive">{validationErrors.model}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-year" className="leading-6">
-                        {t('vehicles.year')}
-                      </Label>
-                      <Combobox
-                        id="edit-year"
-                        value={year}
-                        onChange={setYear}
-                        options={YEAR_OPTIONS}
-                        inputMode="numeric"
-                        maxLength={4}
-                        className={
-                          hasSubmitted && validationErrors.year ? 'border-destructive' : ''
-                        }
-                      />
-                      {hasSubmitted && validationErrors.year && (
-                        <p className="text-sm text-destructive">{validationErrors.year}</p>
-                      )}
-                    </div>
+            }
+          >
+            {editing ? (
+              <form onSubmit={handleSave} noValidate className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-make" className="leading-6">
+                      {t('vehicles.make')}
+                    </Label>
+                    <Combobox
+                      id="edit-make"
+                      value={make}
+                      onChange={setMake}
+                      options={lookup?.makes ?? []}
+                      className={hasSubmitted && validationErrors.make ? 'border-destructive' : ''}
+                    />
+                    {hasSubmitted && validationErrors.make && (
+                      <p className="text-sm text-destructive">{validationErrors.make}</p>
+                    )}
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-vin" className="leading-6">
-                        {t('vehicles.vin')}
-                      </Label>
-                      <Input
-                        id="edit-vin"
-                        value={vin}
-                        onChange={(e) => {
-                          setVin(e.target.value);
-                        }}
-                        maxLength={17}
-                        className={hasSubmitted && validationErrors.vin ? 'border-destructive' : ''}
-                      />
-                      {hasSubmitted && validationErrors.vin && (
-                        <p className="text-sm text-destructive">{validationErrors.vin}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="edit-plate" className="leading-6">
-                        {t('vehicles.licensePlate')}
-                      </Label>
-                      <Input
-                        id="edit-plate"
-                        value={licensePlate}
-                        onChange={(e) => {
-                          setLicensePlate(e.target.value);
-                        }}
-                      />
-                    </div>
-                    <div className="space-y-2 md:col-span-2">
-                      <Label htmlFor="edit-evccid" className="leading-6">
-                        {t('vehicles.evccid')}
-                      </Label>
-                      <Input
-                        id="edit-evccid"
-                        value={evccid}
-                        onChange={(e) => {
-                          setEvccid(e.target.value);
-                        }}
-                        maxLength={255}
-                        className={
-                          hasSubmitted && validationErrors.evccid ? 'border-destructive' : ''
-                        }
-                      />
-                      <p className="text-xs text-muted-foreground">{t('vehicles.evccidHelp')}</p>
-                      {hasSubmitted && validationErrors.evccid && (
-                        <p className="text-sm text-destructive">{validationErrors.evccid}</p>
-                      )}
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-model" className="leading-6">
+                      {t('vehicles.model')}
+                    </Label>
+                    <Combobox
+                      id="edit-model"
+                      value={model}
+                      onChange={setModel}
+                      options={filteredModels}
+                      className={hasSubmitted && validationErrors.model ? 'border-destructive' : ''}
+                    />
+                    {hasSubmitted && validationErrors.model && (
+                      <p className="text-sm text-destructive">{validationErrors.model}</p>
+                    )}
                   </div>
-                  {updateMutation.isError && (
-                    <p className="text-sm text-destructive">
-                      {getErrorMessage(updateMutation.error, t)}
-                    </p>
-                  )}
-                  <div className="flex justify-end gap-2">
-                    <CancelButton
-                      onClick={() => {
-                        setEditing(false);
-                        setHasSubmitted(false);
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-year" className="leading-6">
+                      {t('vehicles.year')}
+                    </Label>
+                    <Combobox
+                      id="edit-year"
+                      value={year}
+                      onChange={setYear}
+                      options={YEAR_OPTIONS}
+                      inputMode="numeric"
+                      maxLength={4}
+                      className={hasSubmitted && validationErrors.year ? 'border-destructive' : ''}
+                    />
+                    {hasSubmitted && validationErrors.year && (
+                      <p className="text-sm text-destructive">{validationErrors.year}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-vin" className="leading-6">
+                      {t('vehicles.vin')}
+                    </Label>
+                    <Input
+                      id="edit-vin"
+                      value={vin}
+                      onChange={(e) => {
+                        setVin(e.target.value);
+                      }}
+                      maxLength={17}
+                      className={hasSubmitted && validationErrors.vin ? 'border-destructive' : ''}
+                    />
+                    {hasSubmitted && validationErrors.vin && (
+                      <p className="text-sm text-destructive">{validationErrors.vin}</p>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-plate" className="leading-6">
+                      {t('vehicles.licensePlate')}
+                    </Label>
+                    <Input
+                      id="edit-plate"
+                      value={licensePlate}
+                      onChange={(e) => {
+                        setLicensePlate(e.target.value);
                       }}
                     />
-                    <SaveButton isPending={updateMutation.isPending} />
                   </div>
-                </form>
-              ) : (
-                <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <dt className="text-muted-foreground">{t('vehicles.make')}</dt>
-                    <dd className="font-medium">{vehicle.make ?? 'n/a'}</dd>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="edit-evccid" className="leading-6">
+                      {t('vehicles.evccid')}
+                    </Label>
+                    <Input
+                      id="edit-evccid"
+                      value={evccid}
+                      onChange={(e) => {
+                        setEvccid(e.target.value);
+                      }}
+                      maxLength={255}
+                      className={
+                        hasSubmitted && validationErrors.evccid ? 'border-destructive' : ''
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">{t('vehicles.evccidHelp')}</p>
+                    {hasSubmitted && validationErrors.evccid && (
+                      <p className="text-sm text-destructive">{validationErrors.evccid}</p>
+                    )}
                   </div>
-                  <div>
-                    <dt className="text-muted-foreground">{t('vehicles.model')}</dt>
-                    <dd className="font-medium">{vehicle.model ?? 'n/a'}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">{t('vehicles.year')}</dt>
-                    <dd className="font-medium">{vehicle.year ?? 'n/a'}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">{t('vehicles.vin')}</dt>
-                    <dd className="font-medium">{vehicle.vin ?? 'n/a'}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">{t('vehicles.licensePlate')}</dt>
-                    <dd className="font-medium">{vehicle.licensePlate ?? 'n/a'}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">{t('vehicles.evccid')}</dt>
-                    <dd className="font-medium font-mono">
-                      {vehicle.evccid != null ? formatVehicleId(vehicle.evccid) : 'n/a'}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-muted-foreground">{t('vehicles.owner')}</dt>
-                    <dd className="font-medium">
-                      {driver != null ? (
-                        <Link to={`/drivers/${driver.id}`} className="text-link hover:underline">
-                          {driver.firstName} {driver.lastName}
-                        </Link>
-                      ) : (
-                        'n/a'
-                      )}
-                    </dd>
-                  </div>
-                </dl>
-              )}
-            </CardContent>
-          </Card>
+                </div>
+                {updateMutation.isError && (
+                  <p className="text-sm text-destructive">
+                    {getErrorMessage(updateMutation.error, t)}
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <CancelButton
+                    onClick={() => {
+                      setEditing(false);
+                      setHasSubmitted(false);
+                    }}
+                  />
+                  <SaveButton isPending={updateMutation.isPending} />
+                </div>
+              </form>
+            ) : (
+              <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.make')}</dt>
+                  <dd className="font-medium">{vehicle.make ?? 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.model')}</dt>
+                  <dd className="font-medium">{vehicle.model ?? 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.year')}</dt>
+                  <dd className="font-medium">{vehicle.year ?? 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.vin')}</dt>
+                  <dd className="font-medium">{vehicle.vin ?? 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.licensePlate')}</dt>
+                  <dd className="font-medium">{vehicle.licensePlate ?? 'n/a'}</dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.evccid')}</dt>
+                  <dd className="font-medium font-mono">
+                    {vehicle.evccid != null ? formatVehicleId(vehicle.evccid) : 'n/a'}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-muted-foreground">{t('vehicles.owner')}</dt>
+                  <dd className="font-medium">
+                    {driver != null ? (
+                      <Link to={`/drivers/${driver.id}`} className="text-link hover:underline">
+                        {driver.firstName} {driver.lastName}
+                      </Link>
+                    ) : (
+                      'n/a'
+                    )}
+                  </dd>
+                </div>
+              </dl>
+            )}
+          </TabPanel>
 
-          <Card>
-            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle>{t('vehicles.autocharge')}</CardTitle>
-              {canWrite &&
-                (blocked ? (
+          <TabPanel
+            title={t('vehicles.autocharge')}
+            bodyClassName="space-y-4"
+            actions={
+              canWrite ? (
+                blocked ? (
                   <UnblockButton
                     label={t('vehicles.unblock')}
                     onClick={() => {
@@ -447,48 +441,48 @@ export function VehicleDetail(): React.JSX.Element {
                       setBlockOpen(true);
                     }}
                   />
-                ))}
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-lg border p-4">
-                <div className="space-y-0.5">
-                  <Label className="leading-6">{t('vehicles.autocharge')}</Label>
-                  <p className="text-xs text-muted-foreground">
-                    {hasVehicleId ? t('vehicles.autochargeHelp') : t('vehicles.autochargeNeedsId')}
-                  </p>
-                </div>
-                <Toggle
-                  aria-label={t('vehicles.autocharge')}
-                  size="lg"
-                  checked={vehicle.autochargeEnabled}
-                  disabled={!canWrite || autochargeMutation.isPending || !hasVehicleId}
-                  onCheckedChange={(checked) => {
-                    autochargeMutation.mutate(checked);
-                  }}
-                />
+                )
+              ) : undefined
+            }
+          >
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <Label className="leading-6">{t('vehicles.autocharge')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {hasVehicleId ? t('vehicles.autochargeHelp') : t('vehicles.autochargeNeedsId')}
+                </p>
               </div>
-              {blocked && (
-                <p className="text-sm text-destructive">{t('vehicles.blockedDescription')}</p>
-              )}
-              <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <dt className="text-muted-foreground">{t('vehicles.lastSeen')}</dt>
-                  <dd className="font-medium">
-                    {vehicle.lastSeen != null
-                      ? t('vehicles.lastSeenValue', {
-                          station: vehicle.lastSeen.stationId,
-                          time: formatDateTime(vehicle.lastSeen.at, timezone),
-                        })
-                      : t('vehicles.neverSeen')}
-                  </dd>
-                </div>
-              </dl>
-            </CardContent>
-          </Card>
+              <Toggle
+                aria-label={t('vehicles.autocharge')}
+                size="lg"
+                checked={vehicle.autochargeEnabled}
+                disabled={!canWrite || autochargeMutation.isPending || !hasVehicleId}
+                onCheckedChange={(checked) => {
+                  autochargeMutation.mutate(checked);
+                }}
+              />
+            </div>
+            {blocked && (
+              <p className="text-sm text-destructive">{t('vehicles.blockedDescription')}</p>
+            )}
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div>
+                <dt className="text-muted-foreground">{t('vehicles.lastSeen')}</dt>
+                <dd className="font-medium">
+                  {vehicle.lastSeen != null
+                    ? t('vehicles.lastSeenValue', {
+                        station: vehicle.lastSeen.stationId,
+                        time: formatDateTime(vehicle.lastSeen.at, timezone),
+                      })
+                    : t('vehicles.neverSeen')}
+                </dd>
+              </div>
+            </dl>
+          </TabPanel>
         </TabsContent>
 
         {canReadAudit && (
-          <TabsContent value="history" className="mt-4">
+          <TabsContent value="history">
             <EntityHistoryTab entityType="vehicle" entityId={vehicle.id} />
           </TabsContent>
         )}

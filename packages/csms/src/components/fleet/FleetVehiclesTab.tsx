@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
 import { AddButton } from '@/components/add-button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { VehiclesTable, type Vehicle } from '@/components/VehiclesTable';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
@@ -30,7 +30,12 @@ export function FleetVehiclesTab({
   const [removeDriverId, setRemoveDriverId] = useState<string | null>(null);
   const limit = 10;
 
-  const { data: response } = useQuery({
+  const {
+    data: response,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['fleets', fleetId, 'vehicles', page],
     queryFn: () =>
       api.get<{ data: Vehicle[]; total: number }>(
@@ -50,41 +55,43 @@ export function FleetVehiclesTab({
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle>{t('fleets.vehicles')}</CardTitle>
-            <CardDescription>{t('fleets.addVehicleNote')}</CardDescription>
-          </div>
-          {canManageMembers && (
+      <TabPanel
+        title={t('fleets.vehicles')}
+        description={t('fleets.addVehicleNote')}
+        actions={
+          canManageMembers ? (
             <AddButton
               label={t('fleets.addVehicle')}
               onClick={() => {
                 void navigate(`/fleets/${fleetId}/vehicles/add`);
               }}
             />
-          )}
-        </CardHeader>
-        <CardContent>
-          <VehiclesTable
-            vehicles={response?.data}
-            page={page}
-            totalPages={totalPages}
-            onPageChange={setPage}
-            showDriver
-            onRowClick={(vehicle) => {
-              void navigate(`/drivers/${vehicle.driverId}/vehicles/${vehicle.id}`);
-            }}
-            {...(canManageMembers
-              ? {
-                  onDelete: (vehicle: { driverId: string }): void => {
-                    setRemoveDriverId(vehicle.driverId);
-                  },
-                }
-              : {})}
-          />
-        </CardContent>
-      </Card>
+          ) : undefined
+        }
+      >
+        <VehiclesTable
+          vehicles={response?.data}
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          showDriver
+          isLoading={isLoading}
+          isError={isError}
+          onRetry={() => {
+            void refetch();
+          }}
+          onRowClick={(vehicle) => {
+            void navigate(`/drivers/${vehicle.driverId}/vehicles/${vehicle.id}`);
+          }}
+          {...(canManageMembers
+            ? {
+                onDelete: (vehicle: { driverId: string }): void => {
+                  setRemoveDriverId(vehicle.driverId);
+                },
+              }
+            : {})}
+        />
+      </TabPanel>
 
       <ConfirmDialog
         open={removeDriverId != null}

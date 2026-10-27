@@ -26,7 +26,9 @@
     "toggleSuggestions": "显示或隐藏建议",
     "copyFailed": "复制失败",
     "notCharged": "未收费",
-    "copy": "复制"
+    "copy": "复制",
+    "loadError": "数据加载失败，请重试。",
+    "retry": "重试"
   },
   "nav": {
     "home": "首页",

@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { api } from '@/lib/api';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 interface Notification {
   id: number;
@@ -44,7 +45,7 @@ export function NotificationDrawer({
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
 
-  const { data } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['portal-notifications'],
     queryFn: () => api.get<NotificationsResponse>('/v1/portal/notifications?limit=50'),
     enabled: open,
@@ -76,10 +77,16 @@ export function NotificationDrawer({
           </button>
         </div>
         <div className="p-4">
-          {notifications.length === 0 && (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              {t('notifications.noNotifications')}
-            </p>
+          {isLoading && <LoadingState />}
+          {isError && (
+            <ErrorState
+              onRetry={() => {
+                void refetch();
+              }}
+            />
+          )}
+          {!isLoading && !isError && notifications.length === 0 && (
+            <EmptyState>{t('notifications.noNotifications')}</EmptyState>
           )}
           <div className="space-y-3">
             {notifications.map((n) => (

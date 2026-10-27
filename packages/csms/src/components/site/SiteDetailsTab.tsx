@@ -11,7 +11,7 @@ import { SaveButton } from '@/components/save-button';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { TabsContent } from '@/components/ui/tabs';
 import { Select } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -199,10 +199,10 @@ export function SiteDetailsTab({
   }
 
   return (
-    <TabsContent value="details" className="space-y-6">
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>{t('common.details')}</CardTitle>
+    <TabsContent value="details">
+      <TabPanel
+        title={t('common.details')}
+        actions={
           <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
             {canWrite && !editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
             {canWrite && (
@@ -216,441 +216,418 @@ export function SiteDetailsTab({
               />
             )}
           </div>
-        </CardHeader>
-        <CardContent>
-          {editing ? (
-            <form onSubmit={handleSave} noValidate className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-name" className="leading-6">
-                  {t('common.name')}
-                </Label>
-                <Input
-                  id="edit-name"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value);
-                  }}
-                  className={hasSubmitted && validationErrors.name ? 'border-destructive' : ''}
-                />
-                {hasSubmitted && validationErrors.name && (
-                  <p className="text-sm text-destructive">{validationErrors.name}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-address" className="leading-6">
-                  {t('sites.address')}
-                </Label>
-                <Input
-                  id="edit-address"
-                  value={address}
-                  onChange={(e) => {
-                    setAddress(e.target.value);
-                  }}
-                />
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-city" className="leading-6">
-                    {t('sites.city')}
-                  </Label>
-                  <Input
-                    id="edit-city"
-                    value={city}
-                    onChange={(e) => {
-                      setCity(e.target.value);
-                    }}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-state" className="leading-6">
-                    {t('sites.state')}
-                  </Label>
-                  <Input
-                    id="edit-state"
-                    value={state}
-                    onChange={(e) => {
-                      setState(e.target.value);
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-postal" className="leading-6">
-                    {t('sites.postalCode')}
-                  </Label>
-                  <Input
-                    id="edit-postal"
-                    value={postalCode}
-                    onChange={(e) => {
-                      setPostalCode(e.target.value);
-                    }}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-country" className="leading-6">
-                    {t('sites.country')}
-                  </Label>
-                  <Input
-                    id="edit-country"
-                    value={country}
-                    onChange={(e) => {
-                      setCountry(e.target.value);
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-latitude" className="leading-6">
-                    {t('sites.latitude')}
-                  </Label>
-                  <DecimalInput
-                    id="edit-latitude"
-                    placeholder="e.g. 40.7128"
-                    value={latitude}
-                    onChange={setLatitude}
-                    allowNegative
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-longitude" className="leading-6">
-                    {t('sites.longitude')}
-                  </Label>
-                  <DecimalInput
-                    id="edit-longitude"
-                    placeholder="e.g. -74.0060"
-                    value={longitude}
-                    onChange={setLongitude}
-                    allowNegative
-                  />
-                </div>
-              </div>
-              <GoogleMapPicker
-                latitude={latitude}
-                longitude={longitude}
-                onLocationChange={(lat, lng) => {
-                  setLatitude(lat);
-                  setLongitude(lng);
+        }
+      >
+        {editing ? (
+          <form onSubmit={handleSave} noValidate className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name" className="leading-6">
+                {t('common.name')}
+              </Label>
+              <Input
+                id="edit-name"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                }}
+                className={hasSubmitted && validationErrors.name ? 'border-destructive' : ''}
+              />
+              {hasSubmitted && validationErrors.name && (
+                <p className="text-sm text-destructive">{validationErrors.name}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-address" className="leading-6">
+                {t('sites.address')}
+              </Label>
+              <Input
+                id="edit-address"
+                value={address}
+                onChange={(e) => {
+                  setAddress(e.target.value);
                 }}
               />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-timezone" className="leading-6">
-                  {t('sites.timezone')}
+                <Label htmlFor="edit-city" className="leading-6">
+                  {t('sites.city')}
                 </Label>
-                <Select
-                  id="edit-timezone"
-                  value={editTimezone}
+                <Input
+                  id="edit-city"
+                  value={city}
                   onChange={(e) => {
-                    setEditTimezone(e.target.value);
-                  }}
-                >
-                  {TIMEZONE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label} ({opt.value})
-                    </option>
-                  ))}
-                </Select>
-              </div>
-              <HoursOfOperationField
-                id="edit-hours"
-                value={hoursOfOperation}
-                onChange={setHoursOfOperation}
-              />
-              <div className="border-t pt-4 space-y-4">
-                <div>
-                  <p className="text-sm font-medium">{t('sites.contact')}</p>
-                  <p className="text-xs text-muted-foreground">{t('sites.contactPublicNote')}</p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-contact-name" className="leading-6">
-                    {t('sites.contactName')}
-                  </Label>
-                  <Input
-                    id="edit-contact-name"
-                    value={contactName}
-                    onChange={(e) => {
-                      setContactName(e.target.value);
-                    }}
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-contact-email" className="leading-6">
-                      {t('sites.contactEmail')}
-                    </Label>
-                    <Input
-                      id="edit-contact-email"
-                      type="email"
-                      value={contactEmail}
-                      onChange={(e) => {
-                        setContactEmail(e.target.value);
-                      }}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="edit-contact-phone" className="leading-6">
-                      {t('sites.contactPhone')}
-                    </Label>
-                    <Input
-                      id="edit-contact-phone"
-                      type="tel"
-                      value={contactPhone}
-                      onChange={(e) => {
-                        setContactPhone(e.target.value);
-                      }}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="edit-contact-public"
-                    checked={contactIsPublic}
-                    onChange={(e) => {
-                      setContactIsPublic(e.target.checked);
-                    }}
-                  />
-                  <Label htmlFor="edit-contact-public" className="cursor-pointer">
-                    {t('sites.contactIsPublic')}
-                  </Label>
-                </div>
-              </div>
-              {updateMutation.isError && (
-                <p className="text-sm text-destructive">
-                  {getErrorMessage(updateMutation.error, t)}
-                </p>
-              )}
-              <div className="flex justify-end gap-2">
-                <CancelButton
-                  onClick={() => {
-                    setEditing(false);
-                    setHasSubmitted(false);
+                    setCity(e.target.value);
                   }}
                 />
-                <SaveButton isPending={updateMutation.isPending} />
               </div>
-            </form>
-          ) : (
-            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div className="space-y-2">
+                <Label htmlFor="edit-state" className="leading-6">
+                  {t('sites.state')}
+                </Label>
+                <Input
+                  id="edit-state"
+                  value={state}
+                  onChange={(e) => {
+                    setState(e.target.value);
+                  }}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-postal" className="leading-6">
+                  {t('sites.postalCode')}
+                </Label>
+                <Input
+                  id="edit-postal"
+                  value={postalCode}
+                  onChange={(e) => {
+                    setPostalCode(e.target.value);
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-country" className="leading-6">
+                  {t('sites.country')}
+                </Label>
+                <Input
+                  id="edit-country"
+                  value={country}
+                  onChange={(e) => {
+                    setCountry(e.target.value);
+                  }}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-latitude" className="leading-6">
+                  {t('sites.latitude')}
+                </Label>
+                <DecimalInput
+                  id="edit-latitude"
+                  placeholder="e.g. 40.7128"
+                  value={latitude}
+                  onChange={setLatitude}
+                  allowNegative
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-longitude" className="leading-6">
+                  {t('sites.longitude')}
+                </Label>
+                <DecimalInput
+                  id="edit-longitude"
+                  placeholder="e.g. -74.0060"
+                  value={longitude}
+                  onChange={setLongitude}
+                  allowNegative
+                />
+              </div>
+            </div>
+            <GoogleMapPicker
+              latitude={latitude}
+              longitude={longitude}
+              onLocationChange={(lat, lng) => {
+                setLatitude(lat);
+                setLongitude(lng);
+              }}
+            />
+            <div className="space-y-2">
+              <Label htmlFor="edit-timezone" className="leading-6">
+                {t('sites.timezone')}
+              </Label>
+              <Select
+                id="edit-timezone"
+                value={editTimezone}
+                onChange={(e) => {
+                  setEditTimezone(e.target.value);
+                }}
+              >
+                {TIMEZONE_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label} ({opt.value})
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <HoursOfOperationField
+              id="edit-hours"
+              value={hoursOfOperation}
+              onChange={setHoursOfOperation}
+            />
+            <div className="border-t pt-4 space-y-4">
               <div>
-                <dt className="text-muted-foreground">{t('sites.address')}</dt>
-                <dd className="font-medium">{site.address ?? '-'}</dd>
+                <p className="text-sm font-medium">{t('sites.contact')}</p>
+                <p className="text-xs text-muted-foreground">{t('sites.contactPublicNote')}</p>
               </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.city')}</dt>
-                <dd className="font-medium">{site.city ?? '-'}</dd>
+              <div className="space-y-2">
+                <Label htmlFor="edit-contact-name" className="leading-6">
+                  {t('sites.contactName')}
+                </Label>
+                <Input
+                  id="edit-contact-name"
+                  value={contactName}
+                  onChange={(e) => {
+                    setContactName(e.target.value);
+                  }}
+                />
               </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.state')}</dt>
-                <dd className="font-medium">{site.state ?? '-'}</dd>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-contact-email" className="leading-6">
+                    {t('sites.contactEmail')}
+                  </Label>
+                  <Input
+                    id="edit-contact-email"
+                    type="email"
+                    value={contactEmail}
+                    onChange={(e) => {
+                      setContactEmail(e.target.value);
+                    }}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="edit-contact-phone" className="leading-6">
+                    {t('sites.contactPhone')}
+                  </Label>
+                  <Input
+                    id="edit-contact-phone"
+                    type="tel"
+                    value={contactPhone}
+                    onChange={(e) => {
+                      setContactPhone(e.target.value);
+                    }}
+                  />
+                </div>
               </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.postalCode')}</dt>
-                <dd className="font-medium">{site.postalCode ?? '-'}</dd>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="edit-contact-public"
+                  checked={contactIsPublic}
+                  onChange={(e) => {
+                    setContactIsPublic(e.target.checked);
+                  }}
+                />
+                <Label htmlFor="edit-contact-public" className="cursor-pointer">
+                  {t('sites.contactIsPublic')}
+                </Label>
               </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.country')}</dt>
-                <dd className="font-medium">{site.country ?? '-'}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.latitude')}</dt>
-                <dd className="font-medium">{site.latitude ?? '-'}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.longitude')}</dt>
-                <dd className="font-medium">{site.longitude ?? '-'}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.timezone')}</dt>
-                <dd className="font-medium">{site.timezone}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.hoursOfOperation')}</dt>
-                <dd className="font-medium whitespace-pre-line">
-                  {site.hoursOfOperation ?? 'n/a'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('common.created')}</dt>
-                <dd className="font-medium">{formatDateTime(site.createdAt, site.timezone)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('common.lastUpdated')}</dt>
-                <dd className="font-medium">{formatDateTime(site.updatedAt, site.timezone)}</dd>
-              </div>
-              <SiteAiInsightsRow siteId={site.id} site={site} timezone={site.timezone} />
-            </dl>
-          )}
-        </CardContent>
-      </Card>
+            </div>
+            {updateMutation.isError && (
+              <p className="text-sm text-destructive">{getErrorMessage(updateMutation.error, t)}</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <CancelButton
+                onClick={() => {
+                  setEditing(false);
+                  setHasSubmitted(false);
+                }}
+              />
+              <SaveButton isPending={updateMutation.isPending} />
+            </div>
+          </form>
+        ) : (
+          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <dt className="text-muted-foreground">{t('sites.address')}</dt>
+              <dd className="font-medium">{site.address ?? '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.city')}</dt>
+              <dd className="font-medium">{site.city ?? '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.state')}</dt>
+              <dd className="font-medium">{site.state ?? '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.postalCode')}</dt>
+              <dd className="font-medium">{site.postalCode ?? '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.country')}</dt>
+              <dd className="font-medium">{site.country ?? '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.latitude')}</dt>
+              <dd className="font-medium">{site.latitude ?? '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.longitude')}</dt>
+              <dd className="font-medium">{site.longitude ?? '-'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.timezone')}</dt>
+              <dd className="font-medium">{site.timezone}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.hoursOfOperation')}</dt>
+              <dd className="font-medium whitespace-pre-line">{site.hoursOfOperation ?? 'n/a'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('common.created')}</dt>
+              <dd className="font-medium">{formatDateTime(site.createdAt, site.timezone)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('common.lastUpdated')}</dt>
+              <dd className="font-medium">{formatDateTime(site.updatedAt, site.timezone)}</dd>
+            </div>
+            <SiteAiInsightsRow siteId={site.id} site={site} timezone={site.timezone} />
+          </dl>
+        )}
+      </TabPanel>
       {!editing && <SiteDataPlanCard siteId={site.id} dataPlan={site.dataPlan ?? null} />}
       {!editing && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('sites.contact')}</CardTitle>
-            <CardDescription>{t('sites.contactPublicNote')}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <dt className="text-muted-foreground">{t('sites.contactName')}</dt>
-                <dd className="font-medium">{site.contactName ?? 'n/a'}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.contactEmail')}</dt>
-                <dd className="font-medium">{site.contactEmail ?? 'n/a'}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.contactPhone')}</dt>
-                <dd className="font-medium">{site.contactPhone ?? 'n/a'}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('sites.contactIsPublic')}</dt>
-                <dd className="font-medium">
-                  {site.contactIsPublic ? t('common.yes') : t('common.no')}
-                </dd>
-              </div>
-            </dl>
-          </CardContent>
-        </Card>
-      )}
-      {!editing && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('sites.carbonRegion')}</CardTitle>
-            <CardDescription>{t('sites.carbonRegionDescription')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-4">
-              <Select
-                aria-label={t('sites.carbonRegion')}
-                value={site.carbonRegionCode ?? ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  carbonRegionMutation.mutate(val === '' ? null : val);
-                }}
-                disabled={!canWrite || carbonRegionMutation.isPending}
-                className="max-w-sm"
-              >
-                <option value="">{t('sites.noCarbonRegion')}</option>
-                {(() => {
-                  const grouped: Record<string, CarbonFactor[]> = {};
-                  for (const f of carbonFactors ?? []) {
-                    const list = grouped[f.countryCode] ?? [];
-                    list.push(f);
-                    grouped[f.countryCode] = list;
-                  }
-                  return Object.entries(grouped).map(([groupCountry, factors]) => (
-                    <optgroup key={groupCountry} label={groupCountry}>
-                      {factors.map((f) => (
-                        <option key={f.regionCode} value={f.regionCode}>
-                          {f.regionName} ({Math.round(Number(f.carbonIntensityKgPerKwh) * 1000)} g
-                          CO₂/kWh)
-                        </option>
-                      ))}
-                    </optgroup>
-                  ));
-                })()}
-              </Select>
-              {site.carbonRegionCode != null &&
-                (() => {
-                  const factor = carbonFactors?.find((f) => f.regionCode === site.carbonRegionCode);
-                  return factor != null ? (
-                    <span className="text-sm text-muted-foreground">
-                      {t('sites.carbonIntensity')}:{' '}
-                      {Math.round(Number(factor.carbonIntensityKgPerKwh) * 1000)} g CO₂/kWh
-                    </span>
-                  ) : null;
-                })()}
+        <TabPanel title={t('sites.contact')} description={t('sites.contactPublicNote')}>
+          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <dt className="text-muted-foreground">{t('sites.contactName')}</dt>
+              <dd className="font-medium">{site.contactName ?? 'n/a'}</dd>
             </div>
-            {carbonRegionMutation.isError && (
-              <p className="text-sm text-destructive">
-                {getErrorMessage(carbonRegionMutation.error, t)}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.contactEmail')}</dt>
+              <dd className="font-medium">{site.contactEmail ?? 'n/a'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.contactPhone')}</dt>
+              <dd className="font-medium">{site.contactPhone ?? 'n/a'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('sites.contactIsPublic')}</dt>
+              <dd className="font-medium">
+                {site.contactIsPublic ? t('common.yes') : t('common.no')}
+              </dd>
+            </div>
+          </dl>
+        </TabPanel>
       )}
       {!editing && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('sites.stationMessageLanguage')}</CardTitle>
-            <CardDescription>{t('sites.stationMessageLanguageDescription')}</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <TabPanel
+          title={t('sites.carbonRegion')}
+          description={t('sites.carbonRegionDescription')}
+          bodyClassName="space-y-4"
+        >
+          <div className="flex items-center gap-4">
             <Select
-              aria-label={t('sites.stationMessageLanguage')}
-              value={site.stationMessageLanguage ?? ''}
+              aria-label={t('sites.carbonRegion')}
+              value={site.carbonRegionCode ?? ''}
               onChange={(e) => {
                 const val = e.target.value;
-                stationMessageLanguageMutation.mutate(val === '' ? null : val);
+                carbonRegionMutation.mutate(val === '' ? null : val);
               }}
-              disabled={!canWrite || stationMessageLanguageMutation.isPending}
+              disabled={!canWrite || carbonRegionMutation.isPending}
               className="max-w-sm"
             >
-              <option value="">{t('sites.stationMessageLanguageDefault')}</option>
-              {LANGUAGES.map((lang) => (
-                <option key={lang.code} value={lang.code}>
-                  {lang.label}
-                </option>
-              ))}
+              <option value="">{t('sites.noCarbonRegion')}</option>
+              {(() => {
+                const grouped: Record<string, CarbonFactor[]> = {};
+                for (const f of carbonFactors ?? []) {
+                  const list = grouped[f.countryCode] ?? [];
+                  list.push(f);
+                  grouped[f.countryCode] = list;
+                }
+                return Object.entries(grouped).map(([groupCountry, factors]) => (
+                  <optgroup key={groupCountry} label={groupCountry}>
+                    {factors.map((f) => (
+                      <option key={f.regionCode} value={f.regionCode}>
+                        {f.regionName} ({Math.round(Number(f.carbonIntensityKgPerKwh) * 1000)} g
+                        CO₂/kWh)
+                      </option>
+                    ))}
+                  </optgroup>
+                ));
+              })()}
             </Select>
-            {stationMessageLanguageMutation.isError && (
-              <p className="mt-2 text-sm text-destructive">
-                {getErrorMessage(stationMessageLanguageMutation.error, t)}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+            {site.carbonRegionCode != null &&
+              (() => {
+                const factor = carbonFactors?.find((f) => f.regionCode === site.carbonRegionCode);
+                return factor != null ? (
+                  <span className="text-sm text-muted-foreground">
+                    {t('sites.carbonIntensity')}:{' '}
+                    {Math.round(Number(factor.carbonIntensityKgPerKwh) * 1000)} g CO₂/kWh
+                  </span>
+                ) : null;
+              })()}
+          </div>
+          {carbonRegionMutation.isError && (
+            <p className="text-sm text-destructive">
+              {getErrorMessage(carbonRegionMutation.error, t)}
+            </p>
+          )}
+        </TabPanel>
       )}
       {!editing && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('sites.autocharge')}</CardTitle>
-            <CardDescription>{t('sites.autochargeDescription')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Select
-              aria-label={t('sites.autocharge')}
-              value={site.autochargeEnabled == null ? '' : site.autochargeEnabled ? 'on' : 'off'}
-              onChange={(e) => {
-                const val = e.target.value;
-                autochargeMutation.mutate(val === '' ? null : val === 'on');
-              }}
-              disabled={autochargeMutation.isPending}
-              className="max-w-sm"
-            >
-              <option value="">{t('sites.autochargeDefault')}</option>
-              <option value="on">{t('vehicles.autochargeOn')}</option>
-              <option value="off">{t('vehicles.autochargeOff')}</option>
-            </Select>
-            {autochargeMutation.isError && (
-              <p className="text-sm text-destructive">
-                {getErrorMessage(autochargeMutation.error, t)}
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        <TabPanel
+          title={t('sites.stationMessageLanguage')}
+          description={t('sites.stationMessageLanguageDescription')}
+        >
+          <Select
+            aria-label={t('sites.stationMessageLanguage')}
+            value={site.stationMessageLanguage ?? ''}
+            onChange={(e) => {
+              const val = e.target.value;
+              stationMessageLanguageMutation.mutate(val === '' ? null : val);
+            }}
+            disabled={!canWrite || stationMessageLanguageMutation.isPending}
+            className="max-w-sm"
+          >
+            <option value="">{t('sites.stationMessageLanguageDefault')}</option>
+            {LANGUAGES.map((lang) => (
+              <option key={lang.code} value={lang.code}>
+                {lang.label}
+              </option>
+            ))}
+          </Select>
+          {stationMessageLanguageMutation.isError && (
+            <p className="mt-2 text-sm text-destructive">
+              {getErrorMessage(stationMessageLanguageMutation.error, t)}
+            </p>
+          )}
+        </TabPanel>
+      )}
+      {!editing && (
+        <TabPanel
+          title={t('sites.autocharge')}
+          description={t('sites.autochargeDescription')}
+          bodyClassName="space-y-2"
+        >
+          <Select
+            aria-label={t('sites.autocharge')}
+            value={site.autochargeEnabled == null ? '' : site.autochargeEnabled ? 'on' : 'off'}
+            onChange={(e) => {
+              const val = e.target.value;
+              autochargeMutation.mutate(val === '' ? null : val === 'on');
+            }}
+            disabled={autochargeMutation.isPending}
+            className="max-w-sm"
+          >
+            <option value="">{t('sites.autochargeDefault')}</option>
+            <option value="on">{t('vehicles.autochargeOn')}</option>
+            <option value="off">{t('vehicles.autochargeOff')}</option>
+          </Select>
+          {autochargeMutation.isError && (
+            <p className="text-sm text-destructive">
+              {getErrorMessage(autochargeMutation.error, t)}
+            </p>
+          )}
+        </TabPanel>
       )}
       {googleMapsApiKey !== '' && site.latitude != null && site.longitude != null && (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('sites.map')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-hidden rounded-md">
-              <iframe
-                title={t('sites.map')}
-                width="100%"
-                height="400"
-                style={{ border: 0 }}
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-                src={`https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(googleMapsApiKey)}&q=${encodeURIComponent(site.latitude)},${encodeURIComponent(site.longitude)}&zoom=15`}
-              />
-            </div>
-          </CardContent>
-        </Card>
+        <TabPanel title={t('sites.map')}>
+          <div className="overflow-hidden rounded-md">
+            <iframe
+              title={t('sites.map')}
+              width="100%"
+              height="400"
+              style={{ border: 0 }}
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              src={`https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(googleMapsApiKey)}&q=${encodeURIComponent(site.latitude)},${encodeURIComponent(site.longitude)}&zoom=15`}
+            />
+          </div>
+        </TabPanel>
       )}
       <ConfirmDialog
         open={deleteOpen}

@@ -15,7 +15,7 @@ import {
 import { CopyableId } from '@/components/copyable-id';
 import { formatDate } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
-import { LoadingLogo } from '@/components/loading-logo';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 
 export const TOKENS_COLUMNS: ColumnMeta[] = [
   {
@@ -71,6 +71,8 @@ interface TokensTableProps {
   onPageChange: (page: number) => void;
   timezone: string;
   isLoading?: boolean;
+  isError?: boolean;
+  onRetry?: (() => void) | undefined;
   showDriver?: boolean;
   emptyMessage?: string;
   visibility?: ColumnVisibility;
@@ -80,6 +82,8 @@ export function TokensTable({
   tokens,
   timezone,
   isLoading,
+  isError = false,
+  onRetry,
   showDriver = true,
   emptyMessage,
   visibility,
@@ -108,11 +112,14 @@ export function TokensTable({
           </TableHeader>
           <TableBody>
             {isLoading === true && (
-              <TableRow>
-                <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                  <LoadingLogo size="inline" />
-                </TableCell>
-              </TableRow>
+              <TableStateRow colSpan={colSpan}>
+                <LoadingState />
+              </TableStateRow>
+            )}
+            {isError && isLoading !== true && (
+              <TableStateRow colSpan={colSpan}>
+                <ErrorState onRetry={onRetry} />
+              </TableStateRow>
             )}
             {tokens?.map((token) => (
               <TableRow
@@ -172,12 +179,10 @@ export function TokensTable({
                 )}
               </TableRow>
             ))}
-            {tokens?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                  {emptyMessage ?? t('tokens.noTokensFound')}
-                </TableCell>
-              </TableRow>
+            {!isLoading && !isError && tokens?.length === 0 && (
+              <TableStateRow colSpan={colSpan}>
+                <EmptyState>{emptyMessage ?? t('tokens.noTokensFound')}</EmptyState>
+              </TableStateRow>
             )}
           </TableBody>
         </Table>

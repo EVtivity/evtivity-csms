@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   Dialog,
   DialogContent,
@@ -32,7 +32,6 @@ import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatCents } from '@/lib/formatting';
 import { formatDateTime } from '@/lib/timezone';
-import { LoadingLogo } from '@/components/loading-logo';
 
 export interface DriverInvoice {
   id: string;
@@ -84,7 +83,7 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
   const [endDate, setEndDate] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['drivers', driverId, 'invoices', page],
     queryFn: () =>
       api.get<{ data: DriverInvoice[]; total: number }>(
@@ -150,89 +149,91 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
   const invoices = data?.data ?? [];
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('invoices.title')}</CardTitle>
-        {canWrite && <Button onClick={openGenerate}>{t('invoices.generateInvoice')}</Button>}
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <LoadingLogo size="inline" />
-        ) : invoices.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">{t('invoices.noInvoices')}</p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('invoices.invoiceNumber')}</TableHead>
-                    <TableHead>{t('invoices.kind')}</TableHead>
-                    <TableHead>{t('common.status')}</TableHead>
-                    <TableHead>{t('invoices.issuedAt')}</TableHead>
-                    <TableHead>{t('invoices.dueAt')}</TableHead>
-                    <TableHead className="text-right">{t('invoices.total')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {invoices.map((inv) => (
-                    <TableRow
-                      key={inv.id}
-                      className="cursor-pointer"
-                      data-testid={`invoice-row-${inv.id}`}
-                      onClick={() => {
-                        void navigate(`/invoices/${inv.id}`);
-                      }}
-                    >
-                      <TableCell className="font-medium text-link" data-testid="row-click-target">
-                        {inv.invoiceNumber}
-                        {inv.memberBilled === true && (
-                          <Badge
-                            variant="info"
-                            className="ml-2"
-                            data-testid={`invoice-fleet-${inv.id}`}
-                          >
-                            {t('invoices.viaFleetBadge', { fleet: inv.fleetName ?? '' })}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {inv.kind === 'credit_note' ? (
-                          <Badge variant="outline">{t('invoices.kinds.credit_note')}</Badge>
-                        ) : (
-                          t('invoices.kinds.invoice')
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={INVOICE_STATUS_VARIANT[inv.status]}>
-                          {t(
-                            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-                            `invoices.status.${inv.status}` as never,
-                          )}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {inv.issuedAt != null ? formatDateTime(inv.issuedAt, timezone) : '--'}
-                      </TableCell>
-                      <TableCell>
-                        {inv.dueAt != null ? formatDateTime(inv.dueAt, timezone) : '--'}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {formatCents(inv.totalCents, inv.currency)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            {totalPages > 1 && (
-              <div className="mt-4">
-                <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-              </div>
-            )}
-          </>
+    <>
+      <TabPanel
+        title={t('invoices.title')}
+        actions={
+          canWrite ? (
+            <Button onClick={openGenerate}>{t('invoices.generateInvoice')}</Button>
+          ) : undefined
+        }
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+        isEmpty={invoices.length === 0}
+        emptyMessage={t('invoices.noInvoices')}
+      >
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('invoices.invoiceNumber')}</TableHead>
+                <TableHead>{t('invoices.kind')}</TableHead>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead>{t('invoices.issuedAt')}</TableHead>
+                <TableHead>{t('invoices.dueAt')}</TableHead>
+                <TableHead className="text-right">{t('invoices.total')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {invoices.map((inv) => (
+                <TableRow
+                  key={inv.id}
+                  className="cursor-pointer"
+                  data-testid={`invoice-row-${inv.id}`}
+                  onClick={() => {
+                    void navigate(`/invoices/${inv.id}`);
+                  }}
+                >
+                  <TableCell className="font-medium text-link" data-testid="row-click-target">
+                    {inv.invoiceNumber}
+                    {inv.memberBilled === true && (
+                      <Badge
+                        variant="info"
+                        className="ml-2"
+                        data-testid={`invoice-fleet-${inv.id}`}
+                      >
+                        {t('invoices.viaFleetBadge', { fleet: inv.fleetName ?? '' })}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {inv.kind === 'credit_note' ? (
+                      <Badge variant="outline">{t('invoices.kinds.credit_note')}</Badge>
+                    ) : (
+                      t('invoices.kinds.invoice')
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={INVOICE_STATUS_VARIANT[inv.status]}>
+                      {t(
+                        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+                        `invoices.status.${inv.status}` as never,
+                      )}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {inv.issuedAt != null ? formatDateTime(inv.issuedAt, timezone) : '--'}
+                  </TableCell>
+                  <TableCell>
+                    {inv.dueAt != null ? formatDateTime(inv.dueAt, timezone) : '--'}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {formatCents(inv.totalCents, inv.currency)}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        {totalPages > 1 && (
+          <div className="mt-4">
+            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+          </div>
         )}
-      </CardContent>
+      </TabPanel>
       <Dialog
         open={generateOpen}
         onOpenChange={(open) => {
@@ -304,6 +305,6 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
           </form>
         </DialogContent>
       </Dialog>
-    </Card>
+    </>
   );
 }

@@ -95,7 +95,7 @@ export function FleetDetail(): React.JSX.Element {
           {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="details" className="space-y-6">
+        <TabsContent value="details">
           <FleetDetailsTab fleetId={fleetId} fleet={fleet} />
         </TabsContent>
 
@@ -103,7 +103,7 @@ export function FleetDetail(): React.JSX.Element {
           <FleetSessionsTab fleetId={fleetId} />
         </TabsContent>
 
-        <TabsContent value="stations" className="space-y-6">
+        <TabsContent value="stations">
           <FleetStationsTab fleetId={fleetId} />
         </TabsContent>
 
@@ -111,7 +111,7 @@ export function FleetDetail(): React.JSX.Element {
           <FleetVehiclesTab fleetId={fleetId} canManageMembers={canManageMembers} />
         </TabsContent>
 
-        <TabsContent value="drivers" className="space-y-6">
+        <TabsContent value="drivers">
           <FleetDriversTab
             fleetId={fleetId}
             accountBillingEnabled={fleet.accountBillingEnabled === true}
@@ -119,12 +119,12 @@ export function FleetDetail(): React.JSX.Element {
           />
         </TabsContent>
 
-        <TabsContent value="pricing" className="space-y-6">
+        <TabsContent value="pricing">
           <FleetPricingTab fleetId={fleetId} />
         </TabsContent>
 
         {hasAllSiteAccess && (
-          <TabsContent value="billing" className="space-y-6">
+          <TabsContent value="billing">
             <FleetBillingTab fleet={fleet} />
             <FleetBillingProfileCard fleet={fleet} />
             {canReadPayments && <FleetCreditLimitCard fleetId={fleetId} />}
@@ -133,7 +133,7 @@ export function FleetDetail(): React.JSX.Element {
         )}
 
         {canReadReservations && (
-          <TabsContent value="reservations" className="space-y-6">
+          <TabsContent value="reservations">
             <FleetReservationsTab fleetId={fleetId} />
           </TabsContent>
         )}

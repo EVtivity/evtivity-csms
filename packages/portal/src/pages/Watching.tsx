@@ -7,10 +7,10 @@ import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { MapPin, Trash2 } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
-import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 interface WatchStation {
   id: number;
@@ -31,7 +31,12 @@ export function Watching(): React.JSX.Element {
   const { toast } = useToast();
   const [pendingRemove, setPendingRemove] = useState<number | null>(null);
 
-  const { data: watches, isLoading } = useQuery({
+  const {
+    data: watches,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['portal-station-watches'],
     queryFn: () => api.get<WatchStation[]>('/v1/portal/station-watches'),
   });
@@ -49,16 +54,18 @@ export function Watching(): React.JSX.Element {
     <div className="space-y-4">
       <PageHeader title={t('watch.title')} />
 
-      {isLoading && (
-        <div className="space-y-3">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-20 w-full" />
-        </div>
+      {isLoading && <LoadingState />}
+
+      {isError && (
+        <ErrorState
+          onRetry={() => {
+            void refetch();
+          }}
+        />
       )}
 
-      {!isLoading && (watches == null || watches.length === 0) && (
-        <p className="text-center text-sm text-muted-foreground">{t('watch.empty')}</p>
+      {!isLoading && !isError && (watches == null || watches.length === 0) && (
+        <EmptyState>{t('watch.empty')}</EmptyState>
       )}
 
       <div className="space-y-3">

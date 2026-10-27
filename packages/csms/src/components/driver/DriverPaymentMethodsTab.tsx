@@ -8,7 +8,8 @@ import { Trash2 } from 'lucide-react';
 import { CreateButton } from '@/components/create-button';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { TabsContent } from '@/components/ui/tabs';
 import {
   Table,
@@ -51,7 +52,12 @@ export function DriverPaymentMethodsTab({
   const [addingPaymentMethod, setAddingPaymentMethod] = useState(false);
   const [deletePaymentMethodId, setDeletePaymentMethodId] = useState<string | null>(null);
 
-  const { data: paymentMethods } = useQuery({
+  const {
+    data: paymentMethods,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['drivers', driverId, 'payment-methods'],
     queryFn: () => api.get<DriverPaymentMethod[]>(`/v1/drivers/${driverId}/payment-methods`),
   });
@@ -74,122 +80,135 @@ export function DriverPaymentMethodsTab({
 
   return (
     <TabsContent value="payment-methods">
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>{t('payments.paymentMethods')}</CardTitle>
-          {!addingPaymentMethod && (
+      <TabPanel
+        title={t('payments.paymentMethods')}
+        actions={
+          !addingPaymentMethod ? (
             <CreateButton
               label={t('payments.createPaymentMethod')}
               onClick={() => {
                 setAddingPaymentMethod(true);
               }}
             />
-          )}
-        </CardHeader>
-        <CardContent>
-          {addingPaymentMethod ? (
-            <PaymentMethodForm
-              driverId={driverId}
-              onSuccess={() => {
-                setAddingPaymentMethod(false);
-                void queryClient.invalidateQueries({
-                  queryKey: ['drivers', driverId, 'payment-methods'],
-                });
-              }}
-              onCancel={() => {
-                setAddingPaymentMethod(false);
-              }}
-            />
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('payments.provider')}</TableHead>
-                    <TableHead>{t('payments.cardBrand')}</TableHead>
-                    <TableHead>{t('payments.cardLast4')}</TableHead>
-                    <TableHead>{t('payments.default')}</TableHead>
-                    <TableHead>{t('common.created')}</TableHead>
-                    <TableHead />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {paymentMethods?.map((pm) => (
-                    <TableRow key={pm.id}>
-                      <TableCell>
-                        {pm.provider != null ? (
-                          <Badge variant="secondary">{providerLabel(pm.provider, t)}</Badge>
-                        ) : (
-                          '-'
-                        )}
-                      </TableCell>
-                      <TableCell className="capitalize">{pm.cardBrand ?? '-'}</TableCell>
-                      <TableCell>{pm.cardLast4 != null ? `****${pm.cardLast4}` : '-'}</TableCell>
-                      <TableCell>
-                        {pm.isDefault ? (
-                          <Badge variant="default">{t('payments.default')}</Badge>
-                        ) : (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setDefaultMutation.mutate(pm.id);
-                            }}
-                            disabled={setDefaultMutation.isPending}
-                          >
-                            {t('payments.setAsDefault')}
-                          </Button>
-                        )}
-                      </TableCell>
-                      <TableCell>{formatDateTime(pm.createdAt, timezone)}</TableCell>
-                      <TableCell>
+          ) : undefined
+        }
+      >
+        {addingPaymentMethod ? (
+          <PaymentMethodForm
+            driverId={driverId}
+            onSuccess={() => {
+              setAddingPaymentMethod(false);
+              void queryClient.invalidateQueries({
+                queryKey: ['drivers', driverId, 'payment-methods'],
+              });
+            }}
+            onCancel={() => {
+              setAddingPaymentMethod(false);
+            }}
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('payments.provider')}</TableHead>
+                  <TableHead>{t('payments.cardBrand')}</TableHead>
+                  <TableHead>{t('payments.cardLast4')}</TableHead>
+                  <TableHead>{t('payments.default')}</TableHead>
+                  <TableHead>{t('common.created')}</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading && (
+                  <TableStateRow colSpan={6}>
+                    <LoadingState />
+                  </TableStateRow>
+                )}
+                {isError && (
+                  <TableStateRow colSpan={6}>
+                    <ErrorState
+                      onRetry={() => {
+                        void refetch();
+                      }}
+                    />
+                  </TableStateRow>
+                )}
+                {paymentMethods?.map((pm) => (
+                  <TableRow key={pm.id}>
+                    <TableCell>
+                      {pm.provider != null ? (
+                        <Badge variant="secondary">{providerLabel(pm.provider, t)}</Badge>
+                      ) : (
+                        '-'
+                      )}
+                    </TableCell>
+                    <TableCell className="capitalize">{pm.cardBrand ?? '-'}</TableCell>
+                    <TableCell>{pm.cardLast4 != null ? `****${pm.cardLast4}` : '-'}</TableCell>
+                    <TableCell>
+                      {pm.isDefault ? (
+                        <Badge variant="default">{t('payments.default')}</Badge>
+                      ) : (
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="sm"
                           onClick={() => {
-                            setDeletePaymentMethodId(pm.id);
+                            setDefaultMutation.mutate(pm.id);
                           }}
-                          disabled={deletePaymentMethodMutation.isPending}
+                          disabled={setDefaultMutation.isPending}
                         >
-                          <Trash2 className="h-4 w-4 text-destructive" />
+                          {t('payments.setAsDefault')}
                         </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {(paymentMethods == null || paymentMethods.length === 0) && (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-muted-foreground">
-                        {t('payments.noPaymentMethods')}
-                      </TableCell>
-                    </TableRow>
+                      )}
+                    </TableCell>
+                    <TableCell>{formatDateTime(pm.createdAt, timezone)}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setDeletePaymentMethodId(pm.id);
+                        }}
+                        disabled={deletePaymentMethodMutation.isPending}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!isLoading &&
+                  !isError &&
+                  (paymentMethods == null || paymentMethods.length === 0) && (
+                    <TableStateRow colSpan={6}>
+                      <EmptyState>{t('payments.noPaymentMethods')}</EmptyState>
+                    </TableStateRow>
                   )}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-          <ConfirmDialog
-            open={deletePaymentMethodId != null}
-            onOpenChange={(open) => {
-              if (!open) setDeletePaymentMethodId(null);
-            }}
-            title={t('common.delete')}
-            description={t('payments.confirmDeletePaymentMethod', {
-              brand:
-                paymentMethods?.find((pm) => pm.id === deletePaymentMethodId)?.cardBrand ?? 'Card',
-              last4:
-                paymentMethods?.find((pm) => pm.id === deletePaymentMethodId)?.cardLast4 ?? '****',
-            })}
-            confirmLabel={t('common.delete')}
-            onConfirm={() => {
-              if (deletePaymentMethodId != null) {
-                deletePaymentMethodMutation.mutate(deletePaymentMethodId);
-              }
-            }}
-            variant="destructive"
-            isPending={deletePaymentMethodMutation.isPending}
-          />
-        </CardContent>
-      </Card>
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <ConfirmDialog
+          open={deletePaymentMethodId != null}
+          onOpenChange={(open) => {
+            if (!open) setDeletePaymentMethodId(null);
+          }}
+          title={t('common.delete')}
+          description={t('payments.confirmDeletePaymentMethod', {
+            brand:
+              paymentMethods?.find((pm) => pm.id === deletePaymentMethodId)?.cardBrand ?? 'Card',
+            last4:
+              paymentMethods?.find((pm) => pm.id === deletePaymentMethodId)?.cardLast4 ?? '****',
+          })}
+          confirmLabel={t('common.delete')}
+          onConfirm={() => {
+            if (deletePaymentMethodId != null) {
+              deletePaymentMethodMutation.mutate(deletePaymentMethodId);
+            }
+          }}
+          variant="destructive"
+          isPending={deletePaymentMethodMutation.isPending}
+        />
+      </TabPanel>
     </TabsContent>
   );
 }

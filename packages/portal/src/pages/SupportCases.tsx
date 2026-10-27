@@ -12,7 +12,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
-import { LoadingLogo } from '@/components/loading-logo';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 interface SupportCase {
   id: string;
@@ -55,7 +55,7 @@ export function SupportCases(): React.JSX.Element {
   const navigate = useNavigate();
   const timezone = useDriverTimezone();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['portal-support-cases'],
     queryFn: () => api.get<PaginatedResponse>('/v1/portal/support-cases?limit=50'),
   });
@@ -76,10 +76,18 @@ export function SupportCases(): React.JSX.Element {
         </Button>
       </PageHeader>
 
-      {isLoading && <LoadingLogo size="inline" />}
+      {isLoading && <LoadingState />}
 
-      {cases.length === 0 && !isLoading && (
-        <p className="text-center text-sm text-muted-foreground">{t('supportCases.noCases')}</p>
+      {isError && (
+        <ErrorState
+          onRetry={() => {
+            void refetch();
+          }}
+        />
+      )}
+
+      {cases.length === 0 && !isLoading && !isError && (
+        <EmptyState>{t('supportCases.noCases')}</EmptyState>
       )}
 
       {cases.map((c) => (

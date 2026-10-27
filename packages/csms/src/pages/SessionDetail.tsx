@@ -429,8 +429,7 @@ export function SessionDetail(): React.JSX.Element {
           {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
 
-        <TabsContent value="details" className="space-y-6">
-          <SessionRebillCard session={session} />
+        <TabsContent value="details">
           <SessionDetailsTab
             session={session}
             sessionId={id ?? ''}
@@ -439,6 +438,7 @@ export function SessionDetail(): React.JSX.Element {
             formatCents={formatCents}
             formatDuration={formatDuration}
           />
+          <SessionRebillCard session={session} />
         </TabsContent>
 
         <TabsContent value="meter-values">

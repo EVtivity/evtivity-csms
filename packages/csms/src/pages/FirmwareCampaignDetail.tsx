@@ -90,13 +90,13 @@ export function FirmwareCampaignDetail(): React.JSX.Element {
           </TabsTrigger>
           <TabsTrigger value="audit-history">{t('audit.history')}</TabsTrigger>
         </TabsList>
-        <TabsContent value="details" className="space-y-6">
+        <TabsContent value="details">
           <FirmwareCampaignDetailsTab campaign={campaign} />
         </TabsContent>
-        <TabsContent value="history" className="space-y-6">
+        <TabsContent value="history">
           <FirmwareCampaignsTab campaignId={campaignId} />
         </TabsContent>
-        <TabsContent value="matching" className="space-y-6">
+        <TabsContent value="matching">
           <FirmwareCampaignMatchingStationsTab campaignId={campaignId} />
         </TabsContent>
         <TabsContent value="audit-history">

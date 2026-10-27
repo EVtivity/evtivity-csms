@@ -27,6 +27,7 @@ export function SimSessionsTab({
       lastFetchedAt={sim.lastFetchedAt}
       reportingDelayHours={sim.reportingDelayHours}
       disabledReason={sim.status === 'inactive' ? t('sims.detail.inactiveReason') : null}
+      title={t('sims.detail.tabs.sessions')}
     />
   );
 }

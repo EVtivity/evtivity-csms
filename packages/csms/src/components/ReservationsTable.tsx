@@ -14,13 +14,13 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { formatDateTime } from '@/lib/timezone';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { useState } from 'react';
 import { FilterPopover } from '@/components/FilterBar';
 import { reservationStatusVariant } from '@/lib/status-variants';
-import { LoadingLogo } from '@/components/loading-logo';
 
 interface Reservation {
   id: string;
@@ -83,16 +83,20 @@ export function ReservationsTable({
   const {
     data: reservations,
     isLoading,
+    isError,
+    refetch,
     page,
     totalPages,
     setPage,
   } = usePaginatedQuery<Reservation>('reservations', '/v1/reservations', extraParams);
 
+  const colSpan = hideStationName === true ? 7 : 8;
+
   return (
-    <>
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-2">
-          <CardTitle>{t('reservations.title')}</CardTitle>
+    <TabPanel
+      body="flush"
+      actions={
+        <>
           <Select
             aria-label={t('common.filterByStatus')}
             value={statusFilter}
@@ -129,122 +133,114 @@ export function ReservationsTable({
               <option value="expired">{t('reservations.expired')}</option>
             </Select>
           </FilterPopover>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('reservations.reservationId')}</TableHead>
-                  {hideStationName !== true && (
-                    <TableHead>{t('reservations.stationName')}</TableHead>
+        </>
+      }
+    >
+      <div className="overflow-x-auto">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{t('reservations.reservationId')}</TableHead>
+              {hideStationName !== true && <TableHead>{t('reservations.stationName')}</TableHead>}
+              <TableHead>{t('reservations.driverName')}</TableHead>
+              <TableHead>{t('common.status')}</TableHead>
+              <TableHead>{t('reservations.session')}</TableHead>
+              <TableHead>{t('reservations.startsAt')}</TableHead>
+              <TableHead>{t('reservations.expiresAt')}</TableHead>
+              <TableHead>{t('reservations.createdAt')}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading && (
+              <TableStateRow colSpan={colSpan}>
+                <LoadingState />
+              </TableStateRow>
+            )}
+            {isError && !isLoading && (
+              <TableStateRow colSpan={colSpan}>
+                <ErrorState onRetry={refetch} />
+              </TableStateRow>
+            )}
+            {reservations?.map((r) => (
+              <TableRow
+                key={r.id}
+                className="cursor-pointer"
+                data-testid={`reservation-row-${r.id}`}
+                onClick={() => {
+                  void navigate(`/reservations/${r.id}`);
+                }}
+              >
+                <TableCell className="text-muted-foreground">{r.id}</TableCell>
+                {hideStationName !== true && (
+                  <TableCell className="whitespace-nowrap">
+                    <Link
+                      to={`/stations/${r.stationId}`}
+                      className="text-link hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                    >
+                      {r.siteName != null ? `${r.siteName} / ${r.stationOcppId}` : r.stationOcppId}
+                    </Link>
+                  </TableCell>
+                )}
+                <TableCell className="whitespace-nowrap">
+                  {r.driverFirstName != null ? (
+                    <Link
+                      to={`/drivers/${r.driverId ?? ''}`}
+                      className="text-link hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
+                    >
+                      {r.driverFirstName} {r.driverLastName}
+                    </Link>
+                  ) : (
+                    'n/a'
                   )}
-                  <TableHead>{t('reservations.driverName')}</TableHead>
-                  <TableHead>{t('common.status')}</TableHead>
-                  <TableHead>{t('reservations.session')}</TableHead>
-                  <TableHead>{t('reservations.startsAt')}</TableHead>
-                  <TableHead>{t('reservations.expiresAt')}</TableHead>
-                  <TableHead>{t('reservations.createdAt')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading && (
-                  <TableRow>
-                    <TableCell
-                      colSpan={hideStationName === true ? 7 : 8}
-                      className="text-center text-muted-foreground"
+                </TableCell>
+                <TableCell data-testid="row-click-target">
+                  <Badge variant={reservationStatusVariant(r.status)}>
+                    {getStatusLabel(r.status, t as (key: string) => string)}
+                  </Badge>
+                </TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {r.sessionId != null ? (
+                    <Link
+                      to={`/sessions/${r.sessionId}`}
+                      className="text-link hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                      }}
                     >
-                      <LoadingLogo size="inline" />
-                    </TableCell>
-                  </TableRow>
-                )}
-                {reservations?.map((r) => (
-                  <TableRow
-                    key={r.id}
-                    className="cursor-pointer"
-                    data-testid={`reservation-row-${r.id}`}
-                    onClick={() => {
-                      void navigate(`/reservations/${r.id}`);
-                    }}
-                  >
-                    <TableCell className="text-muted-foreground">{r.id}</TableCell>
-                    {hideStationName !== true && (
-                      <TableCell className="whitespace-nowrap">
-                        <Link
-                          to={`/stations/${r.stationId}`}
-                          className="text-link hover:underline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                          }}
-                        >
-                          {r.siteName != null
-                            ? `${r.siteName} / ${r.stationOcppId}`
-                            : r.stationOcppId}
-                        </Link>
-                      </TableCell>
-                    )}
-                    <TableCell className="whitespace-nowrap">
-                      {r.driverFirstName != null ? (
-                        <Link
-                          to={`/drivers/${r.driverId ?? ''}`}
-                          className="text-link hover:underline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                          }}
-                        >
-                          {r.driverFirstName} {r.driverLastName}
-                        </Link>
-                      ) : (
-                        'n/a'
-                      )}
-                    </TableCell>
-                    <TableCell data-testid="row-click-target">
-                      <Badge variant={reservationStatusVariant(r.status)}>
-                        {getStatusLabel(r.status, t as (key: string) => string)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">
-                      {r.sessionId != null ? (
-                        <Link
-                          to={`/sessions/${r.sessionId}`}
-                          className="text-link hover:underline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                          }}
-                        >
-                          {r.sessionId}
-                        </Link>
-                      ) : (
-                        <span className="text-muted-foreground">n/a</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {r.startsAt != null ? (
-                        formatDateTime(r.startsAt, timezone)
-                      ) : (
-                        <span className="text-muted-foreground">n/a</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{formatDateTime(r.expiresAt, timezone)}</TableCell>
-                    <TableCell>{formatDateTime(r.createdAt, timezone)}</TableCell>
-                  </TableRow>
-                ))}
-                {reservations?.length === 0 && (
-                  <TableRow>
-                    <TableCell
-                      colSpan={hideStationName === true ? 7 : 8}
-                      className="text-center text-muted-foreground"
-                    >
-                      {t('reservations.noReservations')}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-    </>
+                      {r.sessionId}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">n/a</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {r.startsAt != null ? (
+                    formatDateTime(r.startsAt, timezone)
+                  ) : (
+                    <span className="text-muted-foreground">n/a</span>
+                  )}
+                </TableCell>
+                <TableCell>{formatDateTime(r.expiresAt, timezone)}</TableCell>
+                <TableCell>{formatDateTime(r.createdAt, timezone)}</TableCell>
+              </TableRow>
+            ))}
+            {!isLoading && !isError && reservations?.length === 0 && (
+              <TableStateRow colSpan={colSpan}>
+                <EmptyState>{t('reservations.noReservations')}</EmptyState>
+              </TableStateRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+      <div className="border-t p-3">
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      </div>
+    </TabPanel>
   );
 }

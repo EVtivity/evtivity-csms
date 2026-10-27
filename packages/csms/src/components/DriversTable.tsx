@@ -16,7 +16,7 @@ import {
 } from '@/components/ui/table';
 import { formatDate } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
-import { LoadingLogo } from '@/components/loading-logo';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { AccountAvatar, type AvatarData } from '@/components/AccountAvatar';
 
 export const DRIVERS_COLUMNS: ColumnMeta[] = [
@@ -67,6 +67,8 @@ interface DriversTableProps {
   onPageChange: (page: number) => void;
   timezone: string;
   isLoading?: boolean;
+  isError?: boolean;
+  onRetry?: (() => void) | undefined;
   emptyMessage?: string;
   onRemove?: (driverId: string) => void;
   removeDisabled?: boolean;
@@ -78,6 +80,8 @@ export function DriversTable({
   drivers,
   timezone,
   isLoading,
+  isError = false,
+  onRetry,
   emptyMessage,
   onRemove,
   removeDisabled,
@@ -109,11 +113,14 @@ export function DriversTable({
           </TableHeader>
           <TableBody>
             {isLoading === true && (
-              <TableRow>
-                <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                  <LoadingLogo size="inline" />
-                </TableCell>
-              </TableRow>
+              <TableStateRow colSpan={colSpan}>
+                <LoadingState />
+              </TableStateRow>
+            )}
+            {isError && isLoading !== true && (
+              <TableStateRow colSpan={colSpan}>
+                <ErrorState onRetry={onRetry} />
+              </TableStateRow>
             )}
             {drivers?.map((driver) => (
               <TableRow
@@ -181,12 +188,10 @@ export function DriversTable({
                 )}
               </TableRow>
             ))}
-            {drivers?.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={colSpan} className="text-center text-muted-foreground">
-                  {emptyMessage ?? t('drivers.noDriversFound')}
-                </TableCell>
-              </TableRow>
+            {!isLoading && !isError && drivers?.length === 0 && (
+              <TableStateRow colSpan={colSpan}>
+                <EmptyState>{emptyMessage ?? t('drivers.noDriversFound')}</EmptyState>
+              </TableStateRow>
             )}
           </TableBody>
         </Table>

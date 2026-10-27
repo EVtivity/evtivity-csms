@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { CancelButton } from '@/components/cancel-button';
 import { EditButton } from '@/components/edit-button';
 import { SaveButton } from '@/components/save-button';
@@ -109,68 +109,67 @@ export function DriverBillingAddressCard({
   const name = address?.billingName ?? `${driver.firstName} ${driver.lastName}`;
 
   return (
-    <Card data-testid="driver-billing-address">
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1.5">
-          <CardTitle>{t('drivers.billingAddress.title')}</CardTitle>
-          <CardDescription>{t('drivers.billingAddress.description')}</CardDescription>
-        </div>
-        {canWrite && !editing && address != null && (
+    <TabPanel
+      data-testid="driver-billing-address"
+      title={t('drivers.billingAddress.title')}
+      description={t('drivers.billingAddress.description')}
+      actions={
+        canWrite && !editing && address != null ? (
           <EditButton label={t('common.edit')} onClick={startEdit} />
-        )}
-      </CardHeader>
-      <CardContent className="text-sm">
-        {editing ? (
-          <form onSubmit={handleSave} noValidate className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {FIELDS.map(({ key, label, maxLength }) => (
-                <div key={key} className="space-y-2">
-                  <Label htmlFor={`driver-${key}`}>{t(label)}</Label>
-                  <Input
-                    id={`driver-${key}`}
-                    value={form[key]}
-                    maxLength={maxLength}
-                    {...(key === 'billingName'
-                      ? { placeholder: `${driver.firstName} ${driver.lastName}` }
-                      : {})}
-                    onChange={(e) => {
-                      setForm((prev) => ({ ...prev, [key]: e.target.value }));
-                    }}
-                  />
-                  {key === 'billingName' && (
-                    <p className="text-xs text-muted-foreground">
-                      {t('drivers.billingAddress.nameHelp')}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-            <div className="flex justify-end gap-2">
-              <CancelButton
-                onClick={() => {
-                  setEditing(false);
-                }}
-              />
-              <SaveButton isPending={mutation.isPending} />
-            </div>
-          </form>
-        ) : (
-          <dl>
-            <dt className="text-muted-foreground">{t('drivers.billingAddress.billTo')}</dt>
-            <dd className="font-medium">
-              <div>{name}</div>
-              {lines.map((line) => (
-                <div key={line}>{line}</div>
-              ))}
-              {address != null && lines.length === 0 && (
-                <div className="font-normal text-muted-foreground">
-                  {t('drivers.billingAddress.empty')}
-                </div>
-              )}
-            </dd>
-          </dl>
-        )}
-      </CardContent>
-    </Card>
+        ) : undefined
+      }
+      bodyClassName="text-sm"
+    >
+      {editing ? (
+        <form onSubmit={handleSave} noValidate className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {FIELDS.map(({ key, label, maxLength }) => (
+              <div key={key} className="space-y-2">
+                <Label htmlFor={`driver-${key}`}>{t(label)}</Label>
+                <Input
+                  id={`driver-${key}`}
+                  value={form[key]}
+                  maxLength={maxLength}
+                  {...(key === 'billingName'
+                    ? { placeholder: `${driver.firstName} ${driver.lastName}` }
+                    : {})}
+                  onChange={(e) => {
+                    setForm((prev) => ({ ...prev, [key]: e.target.value }));
+                  }}
+                />
+                {key === 'billingName' && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('drivers.billingAddress.nameHelp')}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2">
+            <CancelButton
+              onClick={() => {
+                setEditing(false);
+              }}
+            />
+            <SaveButton isPending={mutation.isPending} />
+          </div>
+        </form>
+      ) : (
+        <dl>
+          <dt className="text-muted-foreground">{t('drivers.billingAddress.billTo')}</dt>
+          <dd className="font-medium">
+            <div>{name}</div>
+            {lines.map((line) => (
+              <div key={line}>{line}</div>
+            ))}
+            {address != null && lines.length === 0 && (
+              <div className="font-normal text-muted-foreground">
+                {t('drivers.billingAddress.empty')}
+              </div>
+            )}
+          </dd>
+        </dl>
+      )}
+    </TabPanel>
   );
 }

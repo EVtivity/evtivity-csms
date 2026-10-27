@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
 import { AddButton } from '@/components/add-button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
 import { DriversTable } from '@/components/DriversTable';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -64,7 +64,12 @@ export function FleetDriversTab({
   const hasAllSiteAccess = useHasAllSiteAccess();
   const limit = 10;
 
-  const { data: response } = useQuery({
+  const {
+    data: response,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['fleets', fleetId, 'drivers', page],
     queryFn: () =>
       api.get<{ data: FleetDriver[]; total: number }>(
@@ -104,71 +109,71 @@ export function FleetDriversTab({
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <CardTitle>{t('fleets.drivers')}</CardTitle>
-            <CardDescription>{t('fleets.addDriverNote')}</CardDescription>
+      <TabPanel
+        title={t('fleets.drivers')}
+        description={
+          <>
+            <span className="block">{t('fleets.addDriverNote')}</span>
             {!accountBillingEnabled && (
-              <CardDescription>{t('fleets.billing.memberNoteOff')}</CardDescription>
+              <span className="block">{t('fleets.billing.memberNoteOff')}</span>
             )}
-            {!canManageMembers && (
-              <CardDescription>{t('fleets.membersAllSitesOnly')}</CardDescription>
-            )}
-          </div>
-          {canManageMembers && (
+            {!canManageMembers && <span className="block">{t('fleets.membersAllSitesOnly')}</span>}
+          </>
+        }
+        actions={
+          canManageMembers ? (
             <AddButton
               label={t('fleets.addDriver')}
               onClick={() => {
                 void navigate(`/fleets/${fleetId}/drivers/add`);
               }}
             />
-          )}
-        </CardHeader>
-        <CardContent>
-          <DriversTable
-            drivers={response?.data}
-            page={page}
-            totalPages={totalPages}
-            onPageChange={setPage}
-            timezone={timezone}
-            emptyMessage={t('fleets.noDrivers')}
-            extraColumn={{
-              header: t('fleets.billing.memberColumn'),
-              render: (driver) => {
-                const member = driver as FleetDriver;
-                const onAccount = member.accountBillingOptOut !== true;
-                return (
-                  <Toggle
-                    size="sm"
-                    checked={onAccount}
-                    disabled={
-                      !canWrite ||
-                      !canWritePayments ||
-                      !hasAllSiteAccess ||
-                      billingMutation.isPending
-                    }
-                    aria-label={t('fleets.billing.memberColumn')}
-                    data-testid={`member-billing-${driver.id}`}
-                    onCheckedChange={() => {
-                      setBillingChange({ driverId: driver.id, optOut: onAccount });
-                    }}
-                  />
-                );
-              },
-            }}
-            {...(canManageMembers
-              ? {
-                  onRemove: (driverId: string): void => {
-                    setRemoveDriverId(driverId);
-                  },
-                }
-              : {})}
-          />
-        </CardContent>
-      </Card>
-
-      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+          ) : undefined
+        }
+      >
+        <DriversTable
+          drivers={response?.data}
+          page={page}
+          totalPages={totalPages}
+          onPageChange={setPage}
+          timezone={timezone}
+          emptyMessage={t('fleets.noDrivers')}
+          isLoading={isLoading}
+          isError={isError}
+          onRetry={() => {
+            void refetch();
+          }}
+          extraColumn={{
+            header: t('fleets.billing.memberColumn'),
+            render: (driver) => {
+              const member = driver as FleetDriver;
+              const onAccount = member.accountBillingOptOut !== true;
+              return (
+                <Toggle
+                  size="sm"
+                  checked={onAccount}
+                  disabled={
+                    !canWrite || !canWritePayments || !hasAllSiteAccess || billingMutation.isPending
+                  }
+                  aria-label={t('fleets.billing.memberColumn')}
+                  data-testid={`member-billing-${driver.id}`}
+                  onCheckedChange={() => {
+                    setBillingChange({ driverId: driver.id, optOut: onAccount });
+                  }}
+                />
+              );
+            },
+          }}
+          {...(canManageMembers
+            ? {
+                onRemove: (driverId: string): void => {
+                  setRemoveDriverId(driverId);
+                },
+              }
+            : {})}
+        />
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      </TabPanel>
 
       <ConfirmDialog
         open={billingChange != null}

@@ -580,7 +580,6 @@
     "map": "Map",
     "noSitesFound": "No sites found",
     "siteNotFound": "Site not found",
-    "siteMetrics": "Metrics",
     "metrics": "Metrics",
     "payment": "Payment",
     "contact": "Contact",
@@ -592,7 +591,7 @@
     "removeStationsFirst": "Move every station to another site before deleting. A deleted station stays at its site.",
     "noStationsAtSite": "No stations at this site",
     "layout": "Layout",
-    "loadManagement": "Load Mgmt",
+    "loadManagement": "Load Management",
     "maxPower": "Max Power",
     "powerDraw": "Power Draw",
     "qrCodesDescription": "QR codes for all stations at this site. Print and place on each charger for guest checkout.",
@@ -683,7 +682,6 @@
     "tabs": {
       "ai": "AI Usage"
     },
-    "stationLayout": "Station Layout",
     "layoutDraw": "Draw",
     "levelDcFast": "DC Fast",
     "levelL2": "Level 2",
@@ -988,7 +986,6 @@
     "onboardingStatusFilter": "All Onboarding Status",
     "meterValuesDescription": "Standalone meter readings reported outside of charging sessions. These include clock-aligned interval readings and EVSE-level telemetry sent via the MeterValues message.",
     "events": "Events",
-    "notifyEvents": "NotifyEvent",
     "notifyEventsDescription": "Variable monitoring events reported by the station via OCPP NotifyEvent, such as threshold breaches, periodic readings, and delta changes.",
     "seqNo": "Seq No.",
     "noEvents": "No events recorded",
@@ -1121,7 +1118,6 @@
     },
     "sim": {
       "tab": "Connectivity",
-      "refreshTitle": "SIM and Signal Data",
       "period": "Period",
       "lastDays_one": "Last {{count}} Day",
       "lastDays_other": "Last {{count}} Days",
@@ -1407,7 +1403,6 @@
         "attachments": "Attachments",
         "history": "History"
       },
-      "detailsTitle": "SIM Details",
       "iccid": "ICCID",
       "imsi": "IMSI",
       "label": "Label",
@@ -1444,7 +1439,6 @@
       "notesHint": "At most {{max}} characters.",
       "saveFailed": "The SIM was not saved. Try again.",
       "attachments": {
-        "currentTitle": "Current Attachment",
         "historyTitle": "Attachment History",
         "notAttached": "This SIM is not attached to a station.",
         "noHistory": "This SIM has not been attached yet.",
@@ -1530,7 +1524,6 @@
     "allStatuses": "All Statuses",
     "energyKwh": "{{value}} kWh",
     "durationFormat": "{{hours}}h {{minutes}}m",
-    "overview": "Overview",
     "transactionEvents": "Transaction Events",
     "payment": "Payment",
     "stoppedReason": "Stop Reason",
@@ -2163,7 +2156,6 @@
     "cancelFleetReservation": "Cancel All",
     "billingTab": "Billing",
     "billing": {
-      "title": "Account Billing",
       "description": "Charge on account: members charge without a card and their sessions are billed to this fleet. Members who opted out pay by card.",
       "chargeOnAccount": "Charge on account",
       "on": "On",
@@ -2344,7 +2336,6 @@
     "toggleActive": "Activate",
     "toggleInactive": "Deactivate",
     "backToTokens": "Back to tokens",
-    "tokenDetails": "Token Details",
     "lastUpdated": "Last Updated",
     "actions": "Actions",
     "tokenNotFound": "Token not found",
@@ -2387,7 +2378,6 @@
     "deactivationReason": "Deactivation Reason"
   },
   "commands": {
-    "title": "Commands",
     "advancedCommand": "Advanced Command",
     "action": "Action",
     "payloadJson": "Payload (JSON)",
@@ -2472,7 +2462,6 @@
     "utilization": "Utilization",
     "activeSessions": "Active Sessions",
     "recentSessions": "Recent Sessions",
-    "connectors": "Connectors",
     "transaction": "Transaction",
     "station": "Station",
     "duration": "Duration",
@@ -3889,7 +3878,6 @@
     "maxHoursHint": "Maximum reservation duration is {{hours}} hours.",
     "paymentMethodRequired": "Selected driver has no default payment method. Add one before creating a reservation.",
     "commands": "OCPP Logs",
-    "commandLog": "OCPP Command Log",
     "direction": "Direction",
     "action": "Action",
     "responseTime": "Response Time",
@@ -4876,7 +4864,6 @@
   },
   "simulate": {
     "tab": "Simulate",
-    "title": "Simulator Actions",
     "evseId": "EVSE ID",
     "idToken": "ID Token",
     "plugIn": "Plug In",
@@ -4905,7 +4892,6 @@
     "invalidForState": "Not valid for current connector state ({{status}})."
   },
   "loadManagement": {
-    "configuration": "Load Management Configuration",
     "allocationStrategy": "Allocation Strategy",
     "equalShare": "Equal Share",
     "priorityBased": "Priority Based",
@@ -5560,7 +5546,6 @@
     "statusCompleted": "Completed",
     "statusCancelled": "Cancelled",
     "empty": "No maintenance windows",
-    "statusTitle": "Maintenance Status",
     "schedule": "Schedule Maintenance",
     "activeNow": "Site is currently under maintenance",
     "endNow": "End now",
@@ -6201,7 +6186,6 @@
     }
   },
   "aiUsage": {
-    "title": "AI Usage",
     "month": "Month",
     "period": "Period",
     "budget": "Budget",
@@ -6252,7 +6236,6 @@
     "openUsage": "View AI Usage"
   },
   "stationChargingNeeds": {
-    "needsTitle": "EV Charging Needs",
     "noNeeds": "No EV has reported ISO 15118 charging needs for an active session.",
     "evse": "EVSE",
     "energyTransfer": "Energy Transfer",

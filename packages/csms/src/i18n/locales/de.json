@@ -580,7 +580,6 @@
     "map": "Karte",
     "noSitesFound": "Keine Standorte gefunden",
     "siteNotFound": "Standort nicht gefunden",
-    "siteMetrics": "Kennzahlen",
     "metrics": "Kennzahlen",
     "payment": "Zahlung",
     "contact": "Kontakt",
@@ -683,7 +682,6 @@
     "tabs": {
       "ai": "KI-Nutzung"
     },
-    "stationLayout": "Stationslayout",
     "layoutDraw": "Aufnahme",
     "levelDcFast": "DC-Schnellladen",
     "levelL2": "Level 2",
@@ -988,7 +986,6 @@
     "onboardingStatusFilter": "Alle Onboarding-Status",
     "meterValuesDescription": "Eigenständige Zählerstandsmeldungen außerhalb von Ladevorgängen. Dazu gehören taktgebundene Intervallmessungen und EVSE-Telemetrie über die MeterValues-Nachricht.",
     "events": "Ereignisse",
-    "notifyEvents": "NotifyEvent",
     "notifyEventsDescription": "Variablen-Überwachungsereignisse, die von der Station über OCPP NotifyEvent gemeldet werden, z. B. Schwellenwertüberschreitungen, periodische Messungen und Delta-Änderungen.",
     "seqNo": "Seq.-Nr.",
     "noEvents": "Keine Ereignisse aufgezeichnet",
@@ -1121,7 +1118,6 @@
     },
     "sim": {
       "tab": "Konnektivität",
-      "refreshTitle": "SIM- und Signaldaten",
       "period": "Zeitraum",
       "lastDays_one": "Letzter {{count}} Tag",
       "lastDays_other": "Letzte {{count}} Tage",
@@ -1407,7 +1403,6 @@
         "attachments": "Zuordnungen",
         "history": "Verlauf"
       },
-      "detailsTitle": "SIM-Details",
       "iccid": "ICCID",
       "imsi": "IMSI",
       "label": "Bezeichnung",
@@ -1444,7 +1439,6 @@
       "notesHint": "Höchstens {{max}} Zeichen.",
       "saveFailed": "Die SIM wurde nicht gespeichert. Versuchen Sie es erneut.",
       "attachments": {
-        "currentTitle": "Aktuelle Zuordnung",
         "historyTitle": "Zuordnungsverlauf",
         "notAttached": "Diese SIM ist keiner Station zugeordnet.",
         "noHistory": "Diese SIM war noch nie zugeordnet.",
@@ -1530,7 +1524,6 @@
     "allStatuses": "Alle Status",
     "energyKwh": "{{value}} kWh",
     "durationFormat": "{{hours}} h {{minutes}} m",
-    "overview": "Übersicht",
     "transactionEvents": "Transaktionsereignisse",
     "payment": "Zahlung",
     "stoppedReason": "Stoppgrund",
@@ -2163,7 +2156,6 @@
     "cancelFleetReservation": "Alle stornieren",
     "billingTab": "Abrechnung",
     "billing": {
-      "title": "Abrechnung auf Flottenrechnung",
       "description": "Laden auf Flottenrechnung: Mitglieder laden ohne Karte, und ihre Ladevorgänge werden dieser Flotte in Rechnung gestellt. Mitglieder mit Opt-out zahlen per Karte.",
       "chargeOnAccount": "Laden auf Flottenrechnung",
       "on": "Ein",
@@ -2344,7 +2336,6 @@
     "toggleActive": "Aktivieren",
     "toggleInactive": "Deaktivieren",
     "backToTokens": "Zurück zu Token",
-    "tokenDetails": "Token-Details",
     "lastUpdated": "Zuletzt aktualisiert",
     "actions": "Aktionen",
     "tokenNotFound": "Token nicht gefunden",
@@ -2387,7 +2378,6 @@
     "deactivationReason": "Grund der Deaktivierung"
   },
   "commands": {
-    "title": "Befehle",
     "advancedCommand": "Erweiterter Befehl",
     "action": "Aktion",
     "payloadJson": "Nutzdaten (JSON)",
@@ -2472,7 +2462,6 @@
     "utilization": "Auslastung",
     "activeSessions": "Aktive Ladevorgänge",
     "recentSessions": "Letzte Ladevorgänge",
-    "connectors": "Anschlüsse",
     "transaction": "Transaktion",
     "station": "Station",
     "duration": "Dauer",
@@ -3889,7 +3878,6 @@
     "maxHoursHint": "Die maximale Reservierungsdauer beträgt {{hours}} Stunden.",
     "paymentMethodRequired": "Der ausgewählte Fahrer hat keine Standard-Zahlungsmethode. Fügen Sie eine hinzu, bevor Sie eine Reservierung erstellen.",
     "commands": "OCPP-Protokolle",
-    "commandLog": "OCPP-Befehlsprotokoll",
     "direction": "Richtung",
     "action": "Aktion",
     "responseTime": "Antwortzeit",
@@ -4876,7 +4864,6 @@
   },
   "simulate": {
     "tab": "Simulieren",
-    "title": "Simulator-Aktionen",
     "evseId": "EVSE-ID",
     "idToken": "ID-Token",
     "plugIn": "Anschließen",
@@ -4905,7 +4892,6 @@
     "invalidForState": "Im aktuellen Anschlussstatus ({{status}}) nicht verfügbar."
   },
   "loadManagement": {
-    "configuration": "Lastmanagement-Konfiguration",
     "allocationStrategy": "Zuteilungsstrategie",
     "equalShare": "Gleicher Anteil",
     "priorityBased": "Prioritätsbasiert",
@@ -5560,7 +5546,6 @@
     "statusCompleted": "Abgeschlossen",
     "statusCancelled": "Storniert",
     "empty": "Keine Wartungsfenster",
-    "statusTitle": "Wartungsstatus",
     "schedule": "Wartung planen",
     "activeNow": "Wartung läuft",
     "endNow": "Jetzt beenden",
@@ -6201,7 +6186,6 @@
     }
   },
   "aiUsage": {
-    "title": "KI-Nutzung",
     "month": "Monat",
     "period": "Zeitraum",
     "budget": "Budget",
@@ -6252,7 +6236,6 @@
     "openUsage": "KI-Nutzung anzeigen"
   },
   "stationChargingNeeds": {
-    "needsTitle": "EV-Ladebedarf",
     "noNeeds": "Kein Fahrzeug hat ISO-15118-Ladebedarf für eine aktive Sitzung gemeldet.",
     "evse": "EVSE",
     "energyTransfer": "Energieübertragung",

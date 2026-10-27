@@ -12,9 +12,9 @@ import { api } from '@/lib/api';
 import { costContainsTax } from '@evtivity/lib/price-display';
 import { formatCents, formatEnergy, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
-import { LoadingLogo } from '@/components/loading-logo';
 import type { SessionAccountBilling } from '@/lib/fleet-billing';
 import { isUnchargedSession, sessionDisplayCostCents } from '@evtivity/lib/session-cost';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 interface Session {
   id: string;
@@ -55,7 +55,7 @@ export function Sessions(): React.JSX.Element {
   const [page, setPage] = useState(1);
   const limit = 10;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['portal-sessions', page],
     queryFn: () =>
       api.get<SessionsResponse>(`/v1/portal/sessions?page=${String(page)}&limit=${String(limit)}`),
@@ -67,10 +67,18 @@ export function Sessions(): React.JSX.Element {
     <div className="space-y-4">
       <h1 className="text-xl font-bold">{t('sessions.title')}</h1>
 
-      {isLoading && <LoadingLogo size="inline" />}
+      {isLoading && <LoadingState />}
+
+      {isError && (
+        <ErrorState
+          onRetry={() => {
+            void refetch();
+          }}
+        />
+      )}
 
       {data != null && data.data.length === 0 && (
-        <p className="text-center text-sm text-muted-foreground">{t('sessions.noSessions')}</p>
+        <EmptyState>{t('sessions.noSessions')}</EmptyState>
       )}
 
       <div className="space-y-2">

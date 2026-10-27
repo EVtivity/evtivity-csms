@@ -6,7 +6,7 @@ import { Link } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Pencil, RefreshCw, RotateCcw, Upload } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Table,
@@ -33,7 +33,6 @@ import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
-import { LoadingLogo } from '@/components/loading-logo';
 import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 
 interface StationVariable {
@@ -187,7 +186,7 @@ export function StationConfigurationsTab({
     setPushResult(null);
   }
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['stations', stationId, 'configurations', page, search],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
@@ -201,99 +200,97 @@ export function StationConfigurationsTab({
   const totalPages = data != null ? Math.ceil(data.total / limit) : 1;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>{t('stations.configurations')}</CardTitle>
-        <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
-          <SearchInput
-            value={search}
-            onDebouncedChange={(v) => {
-              setSearch(v);
-              setPage(1);
-            }}
-            placeholder={t('common.search')}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!isOnline || isRefreshing}
-            onClick={() => {
-              refreshMutation.mutate();
-            }}
-          >
-            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            {isRefreshing ? t('stations.refreshing') : t('stations.refreshConfigurations')}
-          </Button>
-          {defaultTemplate != null && (
-            <Link to={`/station-configurations/${defaultTemplate.id}`}>
-              <Button variant="outline" size="sm">
-                <Pencil className="h-4 w-4" />
-                {t('stations.editStationConfiguration')}
-              </Button>
-            </Link>
-          )}
-          {canPush && (
-            <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenPush}>
-              <Upload className="h-4 w-4" />
-              {t('stations.pushConfiguration')}
+    <>
+      <TabPanel
+        title={t('stations.configurations')}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={() => {
+          void refetch();
+        }}
+        isEmpty={data == null || data.data.length === 0}
+        emptyMessage={t('stations.noConfigurations')}
+        actions={
+          <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
+            <SearchInput
+              value={search}
+              onDebouncedChange={(v) => {
+                setSearch(v);
+                setPage(1);
+              }}
+              placeholder={t('common.search')}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!isOnline || isRefreshing}
+              onClick={() => {
+                refreshMutation.mutate();
+              }}
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              {isRefreshing ? t('stations.refreshing') : t('stations.refreshConfigurations')}
             </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <LoadingLogo size="inline" />
-        ) : data == null || data.data.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">
-            {t('stations.noConfigurations')}
-          </p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('stations.component')}</TableHead>
-                    <TableHead>{t('stations.variable')}</TableHead>
-                    <TableHead>{t('common.value')}</TableHead>
-                    <TableHead>{t('common.type')}</TableHead>
-                    <TableHead>{t('common.source')}</TableHead>
+            {defaultTemplate != null && (
+              <Link to={`/station-configurations/${defaultTemplate.id}`}>
+                <Button variant="outline" size="sm">
+                  <Pencil className="h-4 w-4" />
+                  {t('stations.editStationConfiguration')}
+                </Button>
+              </Link>
+            )}
+            {canPush && (
+              <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenPush}>
+                <Upload className="h-4 w-4" />
+                {t('stations.pushConfiguration')}
+              </Button>
+            )}
+          </div>
+        }
+      >
+        <>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('stations.component')}</TableHead>
+                  <TableHead>{t('stations.variable')}</TableHead>
+                  <TableHead>{t('common.value')}</TableHead>
+                  <TableHead>{t('common.type')}</TableHead>
+                  <TableHead>{t('common.source')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(data?.data ?? []).map((v) => (
+                  <TableRow key={v.id}>
+                    <TableCell className="text-xs">
+                      {v.component}
+                      {v.instance != null ? ` (${v.instance})` : ''}
+                      {v.evseId != null ? ` EVSE ${String(v.evseId)}` : ''}
+                      {v.connectorId != null ? ` Con ${String(v.connectorId)}` : ''}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {v.variable}
+                      {v.variableInstance != null ? ` (${v.variableInstance})` : ''}
+                      {isBootOwnedStationSetting(ocppProtocol, v.component, v.variable) && (
+                        <Tooltip content={t('dataPlan.fromDataPlanHint')}>
+                          <Badge variant="outline" className="ml-2">
+                            {t('dataPlan.fromDataPlan')}
+                          </Badge>
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-xs truncate">{v.value ?? 'n/a'}</TableCell>
+                    <TableCell className="text-xs">{v.attributeType}</TableCell>
+                    <TableCell className="text-xs">{v.source}</TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.data.map((v) => (
-                    <TableRow key={v.id}>
-                      <TableCell className="text-xs">
-                        {v.component}
-                        {v.instance != null ? ` (${v.instance})` : ''}
-                        {v.evseId != null ? ` EVSE ${String(v.evseId)}` : ''}
-                        {v.connectorId != null ? ` Con ${String(v.connectorId)}` : ''}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {v.variable}
-                        {v.variableInstance != null ? ` (${v.variableInstance})` : ''}
-                        {isBootOwnedStationSetting(ocppProtocol, v.component, v.variable) && (
-                          <Tooltip content={t('dataPlan.fromDataPlanHint')}>
-                            <Badge variant="outline" className="ml-2">
-                              {t('dataPlan.fromDataPlan')}
-                            </Badge>
-                          </Tooltip>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-xs max-w-xs truncate">
-                        {v.value ?? 'n/a'}
-                      </TableCell>
-                      <TableCell className="text-xs">{v.attributeType}</TableCell>
-                      <TableCell className="text-xs">{v.source}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-          </>
-        )}
-      </CardContent>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        </>
+      </TabPanel>
 
       {/* Push Configuration dialog */}
       <Dialog open={pushDialogOpen} onOpenChange={setPushDialogOpen}>
@@ -404,6 +401,6 @@ export function StationConfigurationsTab({
           rebootMutation.mutate();
         }}
       />
-    </Card>
+    </>
   );
 }

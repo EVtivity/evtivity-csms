@@ -5,7 +5,6 @@ import { useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { PageHeader } from '@/components/PageHeader';
-import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import {
   formatCents,
@@ -19,6 +18,7 @@ import { useDriverTimezone } from '@/lib/timezone';
 import { useAuth } from '@/lib/auth';
 import { costContainsTax } from '@evtivity/lib/price-display';
 import type { SessionAccountBilling } from '@/lib/fleet-billing';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 interface StatementSession {
   id: string;
@@ -74,7 +74,7 @@ export function MonthlyStatement(): React.JSX.Element {
     searchParams.get('month') ??
     `${String(now.getFullYear())}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['portal-monthly-statement', month],
     queryFn: () =>
       api.get<StatementResponse>(`/v1/portal/sessions/monthly-statement?month=${month}`),
@@ -95,14 +95,14 @@ export function MonthlyStatement(): React.JSX.Element {
     <div className="space-y-4">
       <PageHeader title={t('statement.title')} />
 
-      {isLoading && (
-        <div className="space-y-3">
-          <Skeleton className="h-6 w-48" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-          <Skeleton className="h-10 w-full" />
-        </div>
+      {isLoading && <LoadingState />}
+
+      {isError && (
+        <ErrorState
+          onRetry={() => {
+            void refetch();
+          }}
+        />
       )}
 
       {data != null && (
@@ -115,9 +115,7 @@ export function MonthlyStatement(): React.JSX.Element {
           </div>
 
           {data.sessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              {t('statement.noSessions')}
-            </p>
+            <EmptyState>{t('statement.noSessions')}</EmptyState>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

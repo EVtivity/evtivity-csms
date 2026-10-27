@@ -7,7 +7,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { DATA_PLANS, isDataPlan } from '@evtivity/lib/station-data-plan';
 import type { ChargingKind, DataPlan, DataPlanSource } from '@evtivity/lib/station-data-plan';
 import { SaveButton } from '@/components/save-button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -48,12 +48,12 @@ export function StationDataPlanCard({ station }: Props): React.JSX.Element {
   });
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('dataPlan.title')}</CardTitle>
-        <CardDescription>{t('dataPlan.station.description')}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <>
+      <TabPanel
+        title={t('dataPlan.title')}
+        description={t('dataPlan.station.description')}
+        bodyClassName="space-y-4"
+      >
         <dl className="grid grid-cols-1 gap-4 text-sm md:grid-cols-3">
           <div>
             <dt className="text-muted-foreground">{t('dataPlan.planLabel')}</dt>
@@ -98,7 +98,7 @@ export function StationDataPlanCard({ station }: Props): React.JSX.Element {
             />
           </div>
         )}
-      </CardContent>
+      </TabPanel>
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
@@ -116,6 +116,6 @@ export function StationDataPlanCard({ station }: Props): React.JSX.Element {
           <p className="text-sm text-destructive">{getErrorMessage(saveMutation.error, t)}</p>
         )}
       </ConfirmDialog>
-    </Card>
+    </>
   );
 }

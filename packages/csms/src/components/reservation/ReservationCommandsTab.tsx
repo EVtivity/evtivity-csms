@@ -26,7 +26,7 @@ export function ReservationCommandsTab({
   const [page, setPage] = useState(1);
   const limit = 20;
 
-  const { data } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['reservations', reservationId, 'commands', page],
     queryFn: () =>
       api.get<OcppCommandsResponse>(
@@ -41,13 +41,18 @@ export function ReservationCommandsTab({
 
   return (
     <OcppLogTable
-      title={t('reservations.commandLog')}
+      title={t('reservations.commands')}
       entries={entries}
       page={page}
       totalPages={totalPages}
       onPageChange={setPage}
       timezone={timezone}
       emptyMessage={t('reservations.noCommands')}
+      isLoading={isLoading}
+      isError={isError}
+      onRetry={() => {
+        void refetch();
+      }}
       rowTestIdPrefix="reservation-command-row"
       showStationColumn
       showResponseTimeColumn

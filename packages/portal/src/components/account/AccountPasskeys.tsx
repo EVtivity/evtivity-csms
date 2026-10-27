@@ -13,7 +13,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { LoadingLogo } from '@/components/loading-logo';
 import {
   FactorProofField,
   proofRejection,
@@ -29,6 +28,7 @@ import { useDriverTimezone } from '@/lib/timezone';
 import { MFA_STATUS_KEY, PASSKEYS_KEY, type PortalMfaStatus } from '@/lib/mfa-status';
 import { passkeyDefaultNameKey, passkeyErrorText, webauthnUnavailableReason } from '@/lib/webauthn';
 import { RecoveryCodesDisplay } from './RecoveryCodesDisplay';
+import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 
 /** GET /v1/portal/driver/webauthn. */
 export interface PasskeyCredential {
@@ -372,21 +372,17 @@ export function AccountPasskeys({ status }: { status: PortalMfaStatus }): React.
         </Alert>
       )}
       {isLoading ? (
-        <LoadingLogo size="inline" />
+        <LoadingState />
       ) : isError ? (
-        <div className="flex flex-col items-center gap-3">
-          <p className="text-center text-sm text-destructive">{t('passkeys.loadError')}</p>
-          <Button
-            variant="outline"
-            onClick={() => {
-              void refetch();
-            }}
-          >
-            {t('passkeys.retry')}
-          </Button>
-        </div>
+        <ErrorState
+          message={t('passkeys.loadError')}
+          retryLabel={t('passkeys.retry')}
+          onRetry={() => {
+            void refetch();
+          }}
+        />
       ) : list.length === 0 ? (
-        <p className="text-center text-sm text-muted-foreground">{t('passkeys.empty')}</p>
+        <EmptyState>{t('passkeys.empty')}</EmptyState>
       ) : (
         <ul className="divide-y rounded-lg border">
           {list.map((c) => (

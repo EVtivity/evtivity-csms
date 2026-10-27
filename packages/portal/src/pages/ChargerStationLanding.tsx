@@ -19,6 +19,7 @@ import {
 } from '@/lib/connector-status';
 import { formatConnectorType } from '@/lib/charger-utils';
 import { useStationEvents } from '@/hooks/use-station-events';
+import { EmptyState } from '@/components/ui/content-state';
 
 interface ConnectorItem {
   connectorId: number;
@@ -261,9 +262,7 @@ export function ChargerStationLanding(): React.JSX.Element {
           )}
 
           {station.evses.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground">
-              {t('charger.stationNotAvailable')}
-            </p>
+            <EmptyState>{t('charger.stationNotAvailable')}</EmptyState>
           )}
         </CardContent>
       </Card>

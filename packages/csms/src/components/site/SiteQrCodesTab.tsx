@@ -4,7 +4,7 @@
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { QrCodeCard } from '@/components/QrCodeCard';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { TabsContent } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 
@@ -70,31 +70,37 @@ function StationQrSection({
 export interface SiteQrCodesTabProps {
   stations: Station[] | undefined;
   guestChargingEnabled: boolean;
+  isLoading?: boolean | undefined;
+  isError?: boolean | undefined;
+  onRetry?: (() => void) | undefined;
 }
 
 export function SiteQrCodesTab({
   stations,
   guestChargingEnabled,
+  isLoading,
+  isError,
+  onRetry,
 }: SiteQrCodesTabProps): React.JSX.Element {
   const { t } = useTranslation();
 
   return (
-    <TabsContent value="qr-codes" className="space-y-6">
-      <p className="text-sm text-muted-foreground">{t('sites.qrCodesDescription')}</p>
-      {stations != null && stations.length > 0 ? (
-        stations.map((s) => (
-          <Card key={s.id}>
-            <CardHeader>
-              <CardTitle>{s.stationId}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <StationQrSection station={s} guestChargingEnabled={guestChargingEnabled} />
-            </CardContent>
-          </Card>
-        ))
-      ) : (
-        <p className="text-center text-sm text-muted-foreground">{t('sites.noStationsAtSite')}</p>
-      )}
+    <TabsContent value="qr-codes">
+      <TabPanel
+        title={t('stations.qrCodes')}
+        description={t('sites.qrCodesDescription')}
+        isLoading={isLoading}
+        isError={isError}
+        onRetry={onRetry}
+        isEmpty={stations == null || stations.length === 0}
+        emptyMessage={t('sites.noStationsAtSite')}
+        bodyClassName="p-0"
+      />
+      {(stations ?? []).map((s) => (
+        <TabPanel key={s.id} title={s.stationId}>
+          <StationQrSection station={s} guestChargingEnabled={guestChargingEnabled} />
+        </TabPanel>
+      ))}
     </TabsContent>
   );
 }

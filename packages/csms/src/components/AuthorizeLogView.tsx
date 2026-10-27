@@ -4,7 +4,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { Card, CardContent } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
@@ -20,7 +21,6 @@ import {
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { useUserTimezone, formatDateTime } from '@/lib/timezone';
-import { LoadingLogo } from '@/components/loading-logo';
 import { useCanExplain } from '@/components/ai/ExplainButton';
 import { AuthorizeInsightCell } from '@/components/ai/insights/AuthorizeInsightCell';
 import { useAuthorizationInsights } from '@/components/ai/insights/insight-api';
@@ -78,6 +78,8 @@ export interface AuthorizeLogViewProps {
   hideMatchedTokenColumn?: boolean;
   hideSessionColumn?: boolean;
   queryKey?: string;
+  /** Title of the filter card: the tab label on a detail page tab. */
+  title?: string;
 }
 
 export function AuthorizeLogView({
@@ -87,6 +89,7 @@ export function AuthorizeLogView({
   hideMatchedTokenColumn,
   hideSessionColumn,
   queryKey,
+  title,
 }: AuthorizeLogViewProps): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
@@ -103,11 +106,12 @@ export function AuthorizeLogView({
   }
   if (fixedFilters?.stationId != null) filters['stationId'] = fixedFilters.stationId;
 
-  const { data, isLoading, page, totalPages, setPage } = usePaginatedQuery<AuthorizeAttempt>(
-    queryKey ?? 'authorize-attempts',
-    '/v1/authorize-attempts',
-    filters,
-  );
+  const { data, isLoading, isError, refetch, page, totalPages, setPage } =
+    usePaginatedQuery<AuthorizeAttempt>(
+      queryKey ?? 'authorize-attempts',
+      '/v1/authorize-attempts',
+      filters,
+    );
 
   // Refused attempts get an insight icon or an Explain icon (AI roadmap v0.1.44).
   const canExplain = useCanExplain();
@@ -125,47 +129,46 @@ export function AuthorizeLogView({
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardContent
-          className={hideIdTokenFilter ? 'p-4' : 'grid grid-cols-1 gap-4 p-4 md:grid-cols-2'}
-        >
-          {!hideIdTokenFilter && (
-            <div className="space-y-2">
-              <Label htmlFor="authorize-log-token" className="leading-6">
-                {t('tokens.idToken')}
-              </Label>
-              <SearchInput
-                id="authorize-log-token"
-                value={idToken}
-                onDebouncedChange={setIdToken}
-                placeholder={t('tokens.filterIdToken')}
-                className="max-w-none"
-              />
-            </div>
-          )}
+      <TabPanel
+        {...(title != null ? { title } : {})}
+        bodyClassName={hideIdTokenFilter ? undefined : 'grid grid-cols-1 gap-4 md:grid-cols-2'}
+      >
+        {!hideIdTokenFilter && (
           <div className="space-y-2">
-            <Label htmlFor="authorize-log-outcome" className="leading-6">
-              {t('tokens.outcome')}
+            <Label htmlFor="authorize-log-token" className="leading-6">
+              {t('tokens.idToken')}
             </Label>
-            <Select
-              id="authorize-log-outcome"
-              value={outcome}
-              onChange={(e) => {
-                setOutcome(e.target.value);
-              }}
-            >
-              {OUTCOMES.map((o) => (
-                <option key={o} value={o}>
-                  {o === '' ? t('tokens.filterOutcome') : o}
-                </option>
-              ))}
-            </Select>
+            <SearchInput
+              id="authorize-log-token"
+              value={idToken}
+              onDebouncedChange={setIdToken}
+              placeholder={t('tokens.filterIdToken')}
+              className="max-w-none"
+            />
           </div>
-        </CardContent>
-      </Card>
+        )}
+        <div className="space-y-2">
+          <Label htmlFor="authorize-log-outcome" className="leading-6">
+            {t('tokens.outcome')}
+          </Label>
+          <Select
+            id="authorize-log-outcome"
+            value={outcome}
+            onChange={(e) => {
+              setOutcome(e.target.value);
+            }}
+          >
+            {OUTCOMES.map((o) => (
+              <option key={o} value={o}>
+                {o === '' ? t('tokens.filterOutcome') : o}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </TabPanel>
 
-      <Card>
-        <CardContent className="overflow-x-auto p-0">
+      <TabPanel body="flush">
+        <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -187,23 +190,17 @@ export function AuthorizeLogView({
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={visibleColumns}
-                    className="text-center text-sm text-muted-foreground"
-                  >
-                    <LoadingLogo size="inline" />
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={visibleColumns}>
+                  <LoadingState />
+                </TableStateRow>
+              ) : isError ? (
+                <TableStateRow colSpan={visibleColumns}>
+                  <ErrorState onRetry={refetch} />
+                </TableStateRow>
               ) : data == null || data.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={visibleColumns}
-                    className="text-center text-sm text-muted-foreground"
-                  >
-                    {t('common.noResults')}
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={visibleColumns}>
+                  <EmptyState>{t('common.noResults')}</EmptyState>
+                </TableStateRow>
               ) : (
                 data.map((row) => (
                   <TableRow key={row.id}>
@@ -294,8 +291,8 @@ export function AuthorizeLogView({
               )}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+        </div>
+      </TabPanel>
 
       {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />}
     </div>

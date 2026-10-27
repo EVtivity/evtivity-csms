@@ -12,7 +12,7 @@ import { SaveButton } from '@/components/save-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { useHasCompanyWidePermission } from '@/lib/auth';
@@ -87,9 +87,9 @@ export function PricingGroupDetailsTab({
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>{t('common.details')}</CardTitle>
+      <TabPanel
+        title={t('common.details')}
+        actions={
           <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
             {canWrite && !editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
             {canWrite && (
@@ -101,76 +101,75 @@ export function PricingGroupDetailsTab({
               />
             )}
           </div>
-        </CardHeader>
-        <CardContent>
-          {editing ? (
-            <form onSubmit={handleSave} noValidate className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-name" className="leading-6">
-                  {t('common.name')}
-                </Label>
-                <Input
-                  id="edit-name"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value);
-                  }}
-                  className={hasSubmitted && validationErrors.name ? 'border-destructive' : ''}
-                />
-                {hasSubmitted && validationErrors.name && (
-                  <p className="text-sm text-destructive">{validationErrors.name}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-description" className="leading-6">
-                  {t('common.description')}
-                </Label>
-                <Input
-                  id="edit-description"
-                  value={description}
-                  onChange={(e) => {
-                    setDescription(e.target.value);
-                  }}
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <CancelButton
-                  onClick={() => {
-                    setEditing(false);
-                    setHasSubmitted(false);
-                  }}
-                />
-                <SaveButton isPending={updateMutation.isPending} />
-              </div>
-            </form>
-          ) : (
-            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <dt className="text-muted-foreground">{t('common.name')}</dt>
-                <dd className="font-medium">{group.name}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('common.description')}</dt>
-                <dd className="font-medium">{group.description ?? 'n/a'}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('common.default')}</dt>
-                <dd>
-                  {group.isDefault ? <Badge variant="default">{t('common.default')}</Badge> : 'n/a'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('common.created')}</dt>
-                <dd className="font-medium">{formatDateTime(group.createdAt, timezone)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('common.lastUpdated')}</dt>
-                <dd className="font-medium">{formatDateTime(group.updatedAt, timezone)}</dd>
-              </div>
-            </dl>
-          )}
-        </CardContent>
-      </Card>
+        }
+      >
+        {editing ? (
+          <form onSubmit={handleSave} noValidate className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-name" className="leading-6">
+                {t('common.name')}
+              </Label>
+              <Input
+                id="edit-name"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                }}
+                className={hasSubmitted && validationErrors.name ? 'border-destructive' : ''}
+              />
+              {hasSubmitted && validationErrors.name && (
+                <p className="text-sm text-destructive">{validationErrors.name}</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-description" className="leading-6">
+                {t('common.description')}
+              </Label>
+              <Input
+                id="edit-description"
+                value={description}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                }}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <CancelButton
+                onClick={() => {
+                  setEditing(false);
+                  setHasSubmitted(false);
+                }}
+              />
+              <SaveButton isPending={updateMutation.isPending} />
+            </div>
+          </form>
+        ) : (
+          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <dt className="text-muted-foreground">{t('common.name')}</dt>
+              <dd className="font-medium">{group.name}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('common.description')}</dt>
+              <dd className="font-medium">{group.description ?? 'n/a'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('common.default')}</dt>
+              <dd>
+                {group.isDefault ? <Badge variant="default">{t('common.default')}</Badge> : 'n/a'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('common.created')}</dt>
+              <dd className="font-medium">{formatDateTime(group.createdAt, timezone)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('common.lastUpdated')}</dt>
+              <dd className="font-medium">{formatDateTime(group.updatedAt, timezone)}</dd>
+            </div>
+          </dl>
+        )}
+      </TabPanel>
 
       <ConfirmDialog
         open={deleteOpen}

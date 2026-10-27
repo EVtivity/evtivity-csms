@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   Table,
   TableBody,
@@ -17,7 +17,6 @@ import {
 import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
-import { LoadingLogo } from '@/components/loading-logo';
 
 interface FirmwareUpdate {
   id: number;
@@ -55,7 +54,7 @@ export function StationFirmwareTab({ stationId, timezone }: Props): React.JSX.El
   const [page, setPage] = useState(1);
   const limit = 25;
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['stations', stationId, 'firmware-history', page],
     queryFn: () =>
       api.get<{ data: FirmwareUpdate[]; total: number }>(
@@ -66,67 +65,61 @@ export function StationFirmwareTab({ stationId, timezone }: Props): React.JSX.El
   const totalPages = data != null ? Math.ceil(data.total / limit) : 1;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('stations.firmwareUpdates')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <LoadingLogo size="inline" />
-        ) : data == null || data.data.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">
-            {t('stations.noFirmwareUpdates')}
-          </p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('common.status')}</TableHead>
-                    <TableHead>URL</TableHead>
-                    <TableHead>{t('firmwareCampaigns.version')}</TableHead>
-                    <TableHead>{t('common.initiated')}</TableHead>
-                    <TableHead>{t('common.lastUpdate')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.data.map((fw) => (
-                    <TableRow key={fw.id}>
-                      <TableCell>
-                        <div className="flex flex-col items-start gap-1">
-                          <Badge variant={STATUS_VARIANT[fw.status ?? ''] ?? 'outline'}>
-                            {fw.status ?? 'n/a'}
-                          </Badge>
-                          {fw.statusInfo?.reasonCode != null && (
-                            <span
-                              className="text-xs text-muted-foreground"
-                              title={fw.statusInfo.additionalInfo}
-                            >
-                              {fw.statusInfo.reasonCode}
-                            </span>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-xs max-w-xs truncate">{fw.firmwareUrl}</TableCell>
-                      <TableCell className="text-xs">{fw.version ?? 'n/a'}</TableCell>
-                      <TableCell className="text-xs">
-                        {formatDateTime(fw.initiatedAt, timezone)}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {fw.lastStatusAt != null
-                          ? formatDateTime(fw.lastStatusAt, timezone)
-                          : 'n/a'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-          </>
-        )}
-      </CardContent>
-    </Card>
+    <TabPanel
+      title={t('stations.firmwareUpdates')}
+      isLoading={isLoading}
+      isError={isError}
+      onRetry={() => {
+        void refetch();
+      }}
+      isEmpty={data == null || data.data.length === 0}
+      emptyMessage={t('stations.noFirmwareUpdates')}
+    >
+      <>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('common.status')}</TableHead>
+                <TableHead>URL</TableHead>
+                <TableHead>{t('firmwareCampaigns.version')}</TableHead>
+                <TableHead>{t('common.initiated')}</TableHead>
+                <TableHead>{t('common.lastUpdate')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(data?.data ?? []).map((fw) => (
+                <TableRow key={fw.id}>
+                  <TableCell>
+                    <div className="flex flex-col items-start gap-1">
+                      <Badge variant={STATUS_VARIANT[fw.status ?? ''] ?? 'outline'}>
+                        {fw.status ?? 'n/a'}
+                      </Badge>
+                      {fw.statusInfo?.reasonCode != null && (
+                        <span
+                          className="text-xs text-muted-foreground"
+                          title={fw.statusInfo.additionalInfo}
+                        >
+                          {fw.statusInfo.reasonCode}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-xs max-w-xs truncate">{fw.firmwareUrl}</TableCell>
+                  <TableCell className="text-xs">{fw.version ?? 'n/a'}</TableCell>
+                  <TableCell className="text-xs">
+                    {formatDateTime(fw.initiatedAt, timezone)}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {fw.lastStatusAt != null ? formatDateTime(fw.lastStatusAt, timezone) : 'n/a'}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      </>
+    </TabPanel>
   );
 }

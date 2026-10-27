@@ -12,7 +12,7 @@ import { CopyableId } from '@/components/copyable-id';
 import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
 import { Toggle } from '@/components/ui/toggle';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { SiteLayout } from '@/components/layout/SiteLayout';
@@ -139,7 +139,12 @@ export function SiteDetail(): React.JSX.Element {
   const underMaintenance = maintenanceStatus?.current != null;
 
   const stationsLimit = 10;
-  const { data: stationsResponse } = useQuery({
+  const {
+    data: stationsResponse,
+    isLoading: stationsLoading,
+    isError: stationsError,
+    refetch: refetchStations,
+  } = useQuery({
     queryKey: ['sites', id, 'stations', stationsPage],
     queryFn: () =>
       api.get<{ data: Station[]; total: number }>(
@@ -166,7 +171,12 @@ export function SiteDetail(): React.JSX.Element {
   });
   if (sessionsStatus !== '') sessionsQueryParams.set('status', sessionsStatus);
   if (sessionsStationId !== '') sessionsQueryParams.set('stationId', sessionsStationId);
-  const { data: sessionsResponse } = useQuery({
+  const {
+    data: sessionsResponse,
+    isLoading: sessionsLoading,
+    isError: sessionsError,
+    refetch: refetchSessions,
+  } = useQuery({
     queryKey: ['sites', id, 'sessions', sessionsPage, sessionsStatus, sessionsStationId],
     queryFn: () =>
       api.get<{ data: Session[]; total: number }>(
@@ -272,126 +282,139 @@ export function SiteDetail(): React.JSX.Element {
         />
 
         <TabsContent value="stations">
-          <Card>
-            <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle>{t('nav.stations')}</CardTitle>
-              {canWriteStations && (
+          <TabPanel
+            title={t('nav.stations')}
+            bodyClassName="space-y-4"
+            actions={
+              canWriteStations ? (
                 <CreateButton
                   label={t('stations.addStation')}
                   onClick={() => {
                     void navigate(`/stations/new?siteId=${id ?? ''}`);
                   }}
                 />
-              )}
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="overflow-x-auto">
-                <StationsTable
-                  stations={stations}
-                  timezone={site.timezone}
-                  emptyMessage={t('sites.noStationsAtSite')}
-                />
-              </div>
-              <Pagination
-                page={stationsPage}
-                totalPages={stationsTotalPages}
-                onPageChange={setStationsPage}
+              ) : undefined
+            }
+          >
+            <div className="overflow-x-auto">
+              <StationsTable
+                stations={stations}
+                timezone={site.timezone}
+                emptyMessage={t('sites.noStationsAtSite')}
+                isLoading={stationsLoading}
+                isError={stationsError}
+                onRetry={() => {
+                  void refetchStations();
+                }}
               />
-            </CardContent>
-          </Card>
+            </div>
+            <Pagination
+              page={stationsPage}
+              totalPages={stationsTotalPages}
+              onPageChange={setStationsPage}
+            />
+          </TabPanel>
         </TabsContent>
 
-        <SiteMetricsTab siteId={id ?? ''} />
+        <TabsContent value="metrics">
+          <SiteMetricsTab siteId={id ?? ''} />
+        </TabsContent>
 
         <TabsContent value="sessions">
-          <Card>
-            <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <CardTitle>{t('sessions.title')}</CardTitle>
-              <div className="hidden md:flex md:flex-wrap md:items-center md:gap-2">
-                <Select
-                  aria-label={t('common.filterByStation')}
-                  value={sessionsStationId}
-                  onChange={(e) => {
-                    setSessionsStationId(e.target.value);
-                    setSessionsPage(1);
-                  }}
-                  className="sm:w-44"
+          <TabPanel
+            title={t('sessions.title')}
+            actions={
+              <>
+                <div className="hidden md:flex md:flex-wrap md:items-center md:gap-2">
+                  <Select
+                    aria-label={t('common.filterByStation')}
+                    value={sessionsStationId}
+                    onChange={(e) => {
+                      setSessionsStationId(e.target.value);
+                      setSessionsPage(1);
+                    }}
+                    className="sm:w-44"
+                  >
+                    <option value="">{t('sessions.allStations')}</option>
+                    {siteStationsForFilter?.data.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.stationId}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    aria-label={t('common.filterByStatus')}
+                    value={sessionsStatus}
+                    onChange={(e) => {
+                      setSessionsStatus(e.target.value);
+                      setSessionsPage(1);
+                    }}
+                    className="sm:w-44"
+                  >
+                    <option value="">{t('sessions.allStatuses')}</option>
+                    <option value="active">{t('status.active')}</option>
+                    <option value="idling">{t('status.idle')}</option>
+                    <option value="completed">{t('status.completed')}</option>
+                    <option value="faulted">{t('status.faulted')}</option>
+                  </Select>
+                </div>
+                <FilterPopover
+                  className="md:hidden"
+                  activeCount={[sessionsStationId, sessionsStatus].filter(Boolean).length}
                 >
-                  <option value="">{t('sessions.allStations')}</option>
-                  {siteStationsForFilter?.data.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.stationId}
-                    </option>
-                  ))}
-                </Select>
-                <Select
-                  aria-label={t('common.filterByStatus')}
-                  value={sessionsStatus}
-                  onChange={(e) => {
-                    setSessionsStatus(e.target.value);
-                    setSessionsPage(1);
-                  }}
-                  className="sm:w-44"
-                >
-                  <option value="">{t('sessions.allStatuses')}</option>
-                  <option value="active">{t('status.active')}</option>
-                  <option value="idling">{t('status.idle')}</option>
-                  <option value="completed">{t('status.completed')}</option>
-                  <option value="faulted">{t('status.faulted')}</option>
-                </Select>
-              </div>
-              <FilterPopover
-                className="md:hidden"
-                activeCount={[sessionsStationId, sessionsStatus].filter(Boolean).length}
-              >
-                <Select
-                  aria-label={t('common.filterByStation')}
-                  value={sessionsStationId}
-                  onChange={(e) => {
-                    setSessionsStationId(e.target.value);
-                    setSessionsPage(1);
-                  }}
-                  className="sm:w-44"
-                >
-                  <option value="">{t('sessions.allStations')}</option>
-                  {siteStationsForFilter?.data.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.stationId}
-                    </option>
-                  ))}
-                </Select>
-                <Select
-                  aria-label={t('common.filterByStatus')}
-                  value={sessionsStatus}
-                  onChange={(e) => {
-                    setSessionsStatus(e.target.value);
-                    setSessionsPage(1);
-                  }}
-                  className="sm:w-44"
-                >
-                  <option value="">{t('sessions.allStatuses')}</option>
-                  <option value="active">{t('status.active')}</option>
-                  <option value="idling">{t('status.idle')}</option>
-                  <option value="completed">{t('status.completed')}</option>
-                  <option value="faulted">{t('status.faulted')}</option>
-                </Select>
-              </FilterPopover>
-            </CardHeader>
-            <CardContent>
-              <SessionsTable
-                sessions={sessionsData}
-                page={sessionsPage}
-                totalPages={sessionsTotalPages}
-                onPageChange={setSessionsPage}
-                timezone={site.timezone}
-              />
-              <Pagination
-                page={sessionsPage}
-                totalPages={sessionsTotalPages}
-                onPageChange={setSessionsPage}
-              />
-            </CardContent>
-          </Card>
+                  <Select
+                    aria-label={t('common.filterByStation')}
+                    value={sessionsStationId}
+                    onChange={(e) => {
+                      setSessionsStationId(e.target.value);
+                      setSessionsPage(1);
+                    }}
+                    className="sm:w-44"
+                  >
+                    <option value="">{t('sessions.allStations')}</option>
+                    {siteStationsForFilter?.data.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.stationId}
+                      </option>
+                    ))}
+                  </Select>
+                  <Select
+                    aria-label={t('common.filterByStatus')}
+                    value={sessionsStatus}
+                    onChange={(e) => {
+                      setSessionsStatus(e.target.value);
+                      setSessionsPage(1);
+                    }}
+                    className="sm:w-44"
+                  >
+                    <option value="">{t('sessions.allStatuses')}</option>
+                    <option value="active">{t('status.active')}</option>
+                    <option value="idling">{t('status.idle')}</option>
+                    <option value="completed">{t('status.completed')}</option>
+                    <option value="faulted">{t('status.faulted')}</option>
+                  </Select>
+                </FilterPopover>
+              </>
+            }
+          >
+            <SessionsTable
+              sessions={sessionsData}
+              page={sessionsPage}
+              totalPages={sessionsTotalPages}
+              onPageChange={setSessionsPage}
+              timezone={site.timezone}
+              isLoading={sessionsLoading}
+              isError={sessionsError}
+              onRetry={() => {
+                void refetchSessions();
+              }}
+            />
+            <Pagination
+              page={sessionsPage}
+              totalPages={sessionsTotalPages}
+              onPageChange={setSessionsPage}
+            />
+          </TabPanel>
         </TabsContent>
 
         <TabsContent value="layout">
@@ -402,38 +425,44 @@ export function SiteDetail(): React.JSX.Element {
           <LoadManagement siteId={id ?? ''} />
         </TabsContent>
 
-        <SiteQrCodesTab stations={stations} guestChargingEnabled={guestChargingEnabled} />
+        <SiteQrCodesTab
+          stations={stations}
+          guestChargingEnabled={guestChargingEnabled}
+          isLoading={stationsLoading}
+          isError={stationsError}
+          onRetry={() => {
+            void refetchStations();
+          }}
+        />
 
         <SitePricingTab siteId={id ?? ''} timezone={site.timezone} />
 
         {reservationEnabled && (
-          <TabsContent value="reservations" className="space-y-6">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div className="grid gap-1">
-                    <Label>{t('sites.reservationsEnabled')}</Label>
-                    <p className="text-xs text-muted-foreground">
-                      {t('sites.reservationsEnabledHelp')}
-                    </p>
-                  </div>
-                  <Toggle
-                    aria-label={t('sites.reservationsEnabled')}
-                    size="lg"
-                    checked={site.reservationsEnabled}
-                    onCheckedChange={() => {
-                      reservationToggleMutation.mutate(!site.reservationsEnabled);
-                    }}
-                    disabled={!canWriteSites || reservationToggleMutation.isPending}
-                  />
-                </div>
-                {reservationToggleMutation.isError && (
-                  <p className="mt-3 text-sm text-destructive">
-                    {getErrorMessage(reservationToggleMutation.error, t)}
+          <TabsContent value="reservations">
+            <TabPanel title={t('reservations.title')}>
+              <div className="flex items-center justify-between">
+                <div className="grid gap-1">
+                  <Label>{t('sites.reservationsEnabled')}</Label>
+                  <p className="text-xs text-muted-foreground">
+                    {t('sites.reservationsEnabledHelp')}
                   </p>
-                )}
-              </CardContent>
-            </Card>
+                </div>
+                <Toggle
+                  aria-label={t('sites.reservationsEnabled')}
+                  size="lg"
+                  checked={site.reservationsEnabled}
+                  onCheckedChange={() => {
+                    reservationToggleMutation.mutate(!site.reservationsEnabled);
+                  }}
+                  disabled={!canWriteSites || reservationToggleMutation.isPending}
+                />
+              </div>
+              {reservationToggleMutation.isError && (
+                <p className="mt-3 text-sm text-destructive">
+                  {getErrorMessage(reservationToggleMutation.error, t)}
+                </p>
+              )}
+            </TabPanel>
             <ReservationsTable siteId={id} timezone={site.timezone} />
           </TabsContent>
         )}

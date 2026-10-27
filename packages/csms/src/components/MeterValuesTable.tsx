@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import {
   Table,
   TableBody,
@@ -17,7 +17,6 @@ import {
 } from '@/components/ui/table';
 import { FilterPopover } from '@/components/FilterBar';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
-import { LoadingLogo } from '@/components/loading-logo';
 
 export interface MeterValueItem {
   id: number;
@@ -67,19 +66,26 @@ export function MeterValuesTable({
   const {
     data: meterData,
     isLoading,
+    isError,
+    refetch,
     page,
     totalPages,
     setPage,
   } = usePaginatedQuery<MeterValueItem>(queryKey, url, extraParams);
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex flex-row items-center justify-between gap-2">
-          <div className="space-y-1.5">
-            <CardTitle>{t('sessions.meterValuesTab')}</CardTitle>
-            <p className="text-sm text-muted-foreground">{description}</p>
-          </div>
+    <TabPanel
+      title={t('sessions.meterValuesTab')}
+      description={description}
+      isLoading={isLoading}
+      isError={isError}
+      onRetry={() => {
+        refetch();
+      }}
+      isEmpty={meterData == null || meterData.length === 0}
+      emptyMessage={t('sessions.noMeterValues')}
+      actions={
+        <>
           <Select
             aria-label={t('common.filterByMeasurand')}
             value={measurandFilter}
@@ -114,45 +120,38 @@ export function MeterValuesTable({
               ))}
             </Select>
           </FilterPopover>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('sessions.meterValueTimestamp')}</TableHead>
+                <TableHead>{t('sessions.meterValueMeasurand')}</TableHead>
+                <TableHead className="text-right">{t('sessions.meterValueValue')}</TableHead>
+                <TableHead>{t('sessions.meterValueUnit')}</TableHead>
+                <TableHead>{t('sessions.meterValuePhase')}</TableHead>
+                <TableHead>{t('sessions.meterValueContext')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(meterData ?? []).map((mv) => (
+                <TableRow key={mv.id}>
+                  <TableCell>{formatDateTime(mv.timestamp, timezone)}</TableCell>
+                  <TableCell>{mv.measurand ?? 'n/a'}</TableCell>
+                  <TableCell className="text-right">{mv.value}</TableCell>
+                  <TableCell>{mv.unit ?? 'n/a'}</TableCell>
+                  <TableCell>{mv.phase ?? 'n/a'}</TableCell>
+                  <TableCell>{mv.context ?? 'n/a'}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <LoadingLogo size="inline" />
-        ) : meterData == null || meterData.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground">{t('sessions.noMeterValues')}</p>
-        ) : (
-          <div className="space-y-4">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('sessions.meterValueTimestamp')}</TableHead>
-                    <TableHead>{t('sessions.meterValueMeasurand')}</TableHead>
-                    <TableHead className="text-right">{t('sessions.meterValueValue')}</TableHead>
-                    <TableHead>{t('sessions.meterValueUnit')}</TableHead>
-                    <TableHead>{t('sessions.meterValuePhase')}</TableHead>
-                    <TableHead>{t('sessions.meterValueContext')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {meterData.map((mv) => (
-                    <TableRow key={mv.id}>
-                      <TableCell>{formatDateTime(mv.timestamp, timezone)}</TableCell>
-                      <TableCell>{mv.measurand ?? 'n/a'}</TableCell>
-                      <TableCell className="text-right">{mv.value}</TableCell>
-                      <TableCell>{mv.unit ?? 'n/a'}</TableCell>
-                      <TableCell>{mv.phase ?? 'n/a'}</TableCell>
-                      <TableCell>{mv.context ?? 'n/a'}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
-          </div>
-        )}
-      </CardContent>
-    </Card>
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      </div>
+    </TabPanel>
   );
 }

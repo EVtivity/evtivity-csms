@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { CancelButton } from '@/components/cancel-button';
 import { EditButton } from '@/components/edit-button';
 import { SaveButton } from '@/components/save-button';
@@ -196,182 +196,173 @@ export function FleetBillingProfileCard({
   const savedContacts = fleet.billingContactEmails ?? [];
 
   return (
-    <Card data-testid="fleet-billing-profile">
-      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1.5">
-          <CardTitle>{t('fleets.billingProfile.title')}</CardTitle>
-          <CardDescription>{t('fleets.billingProfile.description')}</CardDescription>
-        </div>
-        {canWrite && !editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
-      </CardHeader>
-      <CardContent className="text-sm">
-        {editing ? (
-          <form onSubmit={handleSave} noValidate className="space-y-4">
+    <TabPanel
+      data-testid="fleet-billing-profile"
+      title={t('fleets.billingProfile.title')}
+      description={t('fleets.billingProfile.description')}
+      actions={
+        canWrite && !editing ? (
+          <EditButton label={t('common.edit')} onClick={startEdit} />
+        ) : undefined
+      }
+      bodyClassName="text-sm"
+    >
+      {editing ? (
+        <form onSubmit={handleSave} noValidate className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="billing-contacts">{t('fleets.billingProfile.contacts')}</Label>
+            <textarea
+              id="billing-contacts"
+              value={form.contacts}
+              onChange={(e) => {
+                set('contacts', e.target.value);
+              }}
+              className={`flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ${hasSubmitted && errors.contacts != null ? 'border-destructive' : ''}`}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('fleets.billingProfile.contactsHelp')}
+            </p>
+            {hasSubmitted && errors.contacts != null && (
+              <p className="text-sm text-destructive">{errors.contacts}</p>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {textField('legalName', t('fleets.billingProfile.legalName'), 255)}
+            {textField('taxId', t('fleets.billingProfile.taxId'), 50)}
+            {textField('street', t('fleets.billingProfile.street'), 255)}
+            {textField('city', t('fleets.billingProfile.city'), 100)}
+            {textField('state', t('fleets.billingProfile.state'), 100)}
+            {textField('zip', t('fleets.billingProfile.zip'), 20)}
+            {textField('country', t('fleets.billingProfile.country'), 100)}
             <div className="space-y-2">
-              <Label htmlFor="billing-contacts">{t('fleets.billingProfile.contacts')}</Label>
-              <textarea
-                id="billing-contacts"
-                value={form.contacts}
-                onChange={(e) => {
-                  set('contacts', e.target.value);
+              <Label htmlFor="billing-language">{t('fleets.billingProfile.invoiceLanguage')}</Label>
+              <LanguageSelect
+                id="billing-language"
+                value={form.language}
+                onChange={(v) => {
+                  set('language', v);
                 }}
-                className={`flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ${hasSubmitted && errors.contacts != null ? 'border-destructive' : ''}`}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="billing-terms">{t('fleets.billingProfile.paymentTerms')}</Label>
+              <Input
+                id="billing-terms"
+                inputMode="numeric"
+                value={form.paymentTerms}
+                placeholder={t('fleets.billingProfile.paymentTermsDefault')}
+                className={hasSubmitted && errors.paymentTerms != null ? 'border-destructive' : ''}
+                onChange={(e) => {
+                  set('paymentTerms', e.target.value);
+                }}
               />
               <p className="text-xs text-muted-foreground">
-                {t('fleets.billingProfile.contactsHelp')}
+                {t('fleets.billingProfile.paymentTermsHelp')}
               </p>
-              {hasSubmitted && errors.contacts != null && (
-                <p className="text-sm text-destructive">{errors.contacts}</p>
+              {hasSubmitted && errors.paymentTerms != null && (
+                <p className="text-sm text-destructive">{errors.paymentTerms}</p>
               )}
             </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {textField('legalName', t('fleets.billingProfile.legalName'), 255)}
-              {textField('taxId', t('fleets.billingProfile.taxId'), 50)}
-              {textField('street', t('fleets.billingProfile.street'), 255)}
-              {textField('city', t('fleets.billingProfile.city'), 100)}
-              {textField('state', t('fleets.billingProfile.state'), 100)}
-              {textField('zip', t('fleets.billingProfile.zip'), 20)}
-              {textField('country', t('fleets.billingProfile.country'), 100)}
-              <div className="space-y-2">
-                <Label htmlFor="billing-language">
-                  {t('fleets.billingProfile.invoiceLanguage')}
-                </Label>
-                <LanguageSelect
-                  id="billing-language"
-                  value={form.language}
-                  onChange={(v) => {
-                    set('language', v);
-                  }}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="billing-terms">{t('fleets.billingProfile.paymentTerms')}</Label>
-                <Input
-                  id="billing-terms"
-                  inputMode="numeric"
-                  value={form.paymentTerms}
-                  placeholder={t('fleets.billingProfile.paymentTermsDefault')}
-                  className={
-                    hasSubmitted && errors.paymentTerms != null ? 'border-destructive' : ''
-                  }
-                  onChange={(e) => {
-                    set('paymentTerms', e.target.value);
-                  }}
-                />
-                <p className="text-xs text-muted-foreground">
-                  {t('fleets.billingProfile.paymentTermsHelp')}
-                </p>
-                {hasSubmitted && errors.paymentTerms != null && (
-                  <p className="text-sm text-destructive">{errors.paymentTerms}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="billing-invoice-date">
-                  {t('fleets.billingProfile.invoiceDate')}
-                </Label>
-                <Select
-                  id="billing-invoice-date"
-                  value={form.invoiceDateMode}
-                  onChange={(e) => {
-                    set(
-                      'invoiceDateMode',
-                      e.target.value === 'period_end' ? 'period_end' : 'run_date',
-                    );
-                  }}
-                >
-                  <option value="run_date">{t('fleets.billingProfile.invoiceDateRunDate')}</option>
-                  <option value="period_end">
-                    {t('fleets.billingProfile.invoiceDatePeriodEnd')}
-                  </option>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  {t('fleets.billingProfile.invoiceDateHelp')}
-                </p>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <div className="flex items-center gap-3">
-                <Toggle
-                  id="billing-auto-invoice"
-                  checked={form.autoInvoice}
-                  aria-label={t('fleets.billingProfile.autoInvoice')}
-                  onCheckedChange={(checked) => {
-                    set('autoInvoice', checked);
-                  }}
-                />
-                <Label htmlFor="billing-auto-invoice">
-                  {t('fleets.billingProfile.autoInvoice')}
-                </Label>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="billing-invoice-date">{t('fleets.billingProfile.invoiceDate')}</Label>
+              <Select
+                id="billing-invoice-date"
+                value={form.invoiceDateMode}
+                onChange={(e) => {
+                  set(
+                    'invoiceDateMode',
+                    e.target.value === 'period_end' ? 'period_end' : 'run_date',
+                  );
+                }}
+              >
+                <option value="run_date">{t('fleets.billingProfile.invoiceDateRunDate')}</option>
+                <option value="period_end">
+                  {t('fleets.billingProfile.invoiceDatePeriodEnd')}
+                </option>
+              </Select>
               <p className="text-xs text-muted-foreground">
-                {t('fleets.billingProfile.autoInvoiceHelp')}
+                {t('fleets.billingProfile.invoiceDateHelp')}
               </p>
             </div>
-            <div className="flex justify-end gap-2">
-              <CancelButton
-                onClick={() => {
-                  setEditing(false);
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <Toggle
+                id="billing-auto-invoice"
+                checked={form.autoInvoice}
+                aria-label={t('fleets.billingProfile.autoInvoice')}
+                onCheckedChange={(checked) => {
+                  set('autoInvoice', checked);
                 }}
               />
-              <SaveButton isPending={mutation.isPending} />
+              <Label htmlFor="billing-auto-invoice">{t('fleets.billingProfile.autoInvoice')}</Label>
             </div>
-          </form>
-        ) : (
-          <dl className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <dt className="text-muted-foreground">{t('fleets.billingProfile.contacts')}</dt>
-              <dd className="font-medium break-all">
-                {savedContacts.length > 0
-                  ? savedContacts.join(', ')
-                  : t('fleets.billingProfile.noContacts')}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('fleets.billingProfile.billTo')}</dt>
-              <dd className="font-medium">
-                <div>{fleet.billingLegalName ?? fleet.name}</div>
-                {address.map((line) => (
-                  <div key={line}>{line}</div>
-                ))}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('fleets.billingProfile.taxId')}</dt>
-              <dd className="font-medium">{fleet.billingTaxId ?? '-'}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">
-                {t('fleets.billingProfile.invoiceLanguage')}
-              </dt>
-              <dd className="font-medium">{languageLabel}</dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('fleets.billingProfile.paymentTerms')}</dt>
-              <dd className="font-medium">
-                {fleet.paymentTermsDays == null
-                  ? t('fleets.billingProfile.paymentTermsDefault')
-                  : String(fleet.paymentTermsDays)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('fleets.billingProfile.invoiceDate')}</dt>
-              <dd className="font-medium">
-                {fleet.invoiceDateMode === 'period_end'
-                  ? t('fleets.billingProfile.invoiceDatePeriodEnd')
-                  : t('fleets.billingProfile.invoiceDateRunDate')}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-muted-foreground">{t('fleets.billingProfile.autoInvoice')}</dt>
-              <dd>
-                <Badge variant={fleet.autoInvoice === true ? 'success' : 'outline'}>
-                  {fleet.autoInvoice === true ? t('fleets.billing.on') : t('fleets.billing.off')}
-                </Badge>
-              </dd>
-            </div>
-          </dl>
-        )}
-      </CardContent>
-    </Card>
+            <p className="text-xs text-muted-foreground">
+              {t('fleets.billingProfile.autoInvoiceHelp')}
+            </p>
+          </div>
+          <div className="flex justify-end gap-2">
+            <CancelButton
+              onClick={() => {
+                setEditing(false);
+              }}
+            />
+            <SaveButton isPending={mutation.isPending} />
+          </div>
+        </form>
+      ) : (
+        <dl className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <dt className="text-muted-foreground">{t('fleets.billingProfile.contacts')}</dt>
+            <dd className="font-medium break-all">
+              {savedContacts.length > 0
+                ? savedContacts.join(', ')
+                : t('fleets.billingProfile.noContacts')}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">{t('fleets.billingProfile.billTo')}</dt>
+            <dd className="font-medium">
+              <div>{fleet.billingLegalName ?? fleet.name}</div>
+              {address.map((line) => (
+                <div key={line}>{line}</div>
+              ))}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">{t('fleets.billingProfile.taxId')}</dt>
+            <dd className="font-medium">{fleet.billingTaxId ?? '-'}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">{t('fleets.billingProfile.invoiceLanguage')}</dt>
+            <dd className="font-medium">{languageLabel}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">{t('fleets.billingProfile.paymentTerms')}</dt>
+            <dd className="font-medium">
+              {fleet.paymentTermsDays == null
+                ? t('fleets.billingProfile.paymentTermsDefault')
+                : String(fleet.paymentTermsDays)}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">{t('fleets.billingProfile.invoiceDate')}</dt>
+            <dd className="font-medium">
+              {fleet.invoiceDateMode === 'period_end'
+                ? t('fleets.billingProfile.invoiceDatePeriodEnd')
+                : t('fleets.billingProfile.invoiceDateRunDate')}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">{t('fleets.billingProfile.autoInvoice')}</dt>
+            <dd>
+              <Badge variant={fleet.autoInvoice === true ? 'success' : 'outline'}>
+                {fleet.autoInvoice === true ? t('fleets.billing.on') : t('fleets.billing.off')}
+              </Badge>
+            </dd>
+          </div>
+        </dl>
+      )}
+    </TabPanel>
   );
 }

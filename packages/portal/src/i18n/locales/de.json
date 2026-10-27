@@ -26,7 +26,9 @@
     "toggleSuggestions": "Vorschläge ein- oder ausblenden",
     "copyFailed": "Kopieren fehlgeschlagen",
     "notCharged": "Nicht Berechnet",
-    "copy": "Kopieren"
+    "copy": "Kopieren",
+    "loadError": "Daten konnten nicht geladen werden. Bitte versuchen Sie es erneut.",
+    "retry": "Wiederholen"
   },
   "nav": {
     "home": "Startseite",

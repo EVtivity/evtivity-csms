@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Dialog,
@@ -323,10 +323,10 @@ export function ReservationDetailsTab({
 
   return (
     <>
-      <Card>
-        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>{t('common.details')}</CardTitle>
-          {!editing && (reservation.status === 'active' || reservation.status === 'scheduled') && (
+      <TabPanel
+        title={t('reservations.detailsTab')}
+        actions={
+          !editing && (reservation.status === 'active' || reservation.status === 'scheduled') ? (
             <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
               <EditButton label={t('common.edit')} onClick={startEdit} />
               <Button
@@ -353,222 +353,216 @@ export function ReservationDetailsTab({
                 {t('reservations.cancelReservation')}
               </Button>
             </div>
-          )}
-        </CardHeader>
-        <CardContent>
-          {editing ? (
-            <form onSubmit={handleSave} noValidate className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-connector-select" className="leading-6">
-                  {t('reservations.connector')}
-                </Label>
-                {connectorOptions.length > 0 ? (
-                  <Select
-                    id="edit-connector-select"
-                    value={editConnectorKey}
-                    onChange={(e) => {
-                      setEditConnectorKey(e.target.value);
-                    }}
-                  >
-                    <option value="">{t('reservations.selectConnector')}</option>
-                    {connectorOptions.map((opt) => (
-                      <option key={opt.key} value={opt.key}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </Select>
-                ) : (
-                  <Select id="edit-connector-select" disabled>
-                    <option value="">{t('common.loading')}</option>
-                  </Select>
-                )}
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="editStartsAt" className="leading-6">
-                    {t('reservations.startsAt')}
-                  </Label>
-                  <Input
-                    id="editStartsAt"
-                    type="datetime-local"
-                    value={editStartsAt}
-                    onChange={(e) => {
-                      setEditStartsAt(e.target.value);
-                    }}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="editExpiresAt" className="leading-6">
-                    {t('reservations.expiresAtLabel')}
-                  </Label>
-                  <Input
-                    id="editExpiresAt"
-                    type="datetime-local"
-                    value={editExpiresAt}
-                    onChange={(e) => {
-                      setEditExpiresAt(e.target.value);
-                    }}
-                    className={
-                      editSubmitted && editExpiresAt.trim() === '' ? 'border-destructive' : ''
-                    }
-                  />
-                  {editSubmitted && editExpiresAt.trim() === '' && (
-                    <p className="text-sm text-destructive">{t('validation.required')}</p>
-                  )}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="leading-6">{t('reservations.driverLabel')}</Label>
-                <DriverCombobox value={editDriver} onSelect={setEditDriver} />
-              </div>
-              {editMutation.isError && (
-                <p className="text-sm text-destructive">{getErrorMessage(editMutation.error, t)}</p>
+          ) : undefined
+        }
+      >
+        {editing ? (
+          <form onSubmit={handleSave} noValidate className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-connector-select" className="leading-6">
+                {t('reservations.connector')}
+              </Label>
+              {connectorOptions.length > 0 ? (
+                <Select
+                  id="edit-connector-select"
+                  value={editConnectorKey}
+                  onChange={(e) => {
+                    setEditConnectorKey(e.target.value);
+                  }}
+                >
+                  <option value="">{t('reservations.selectConnector')}</option>
+                  {connectorOptions.map((opt) => (
+                    <option key={opt.key} value={opt.key}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <Select id="edit-connector-select" disabled>
+                  <option value="">{t('common.loading')}</option>
+                </Select>
               )}
-              <div className="flex justify-end gap-2">
-                <CancelButton
-                  onClick={() => {
-                    setEditing(false);
-                    setEditSubmitted(false);
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="editStartsAt" className="leading-6">
+                  {t('reservations.startsAt')}
+                </Label>
+                <Input
+                  id="editStartsAt"
+                  type="datetime-local"
+                  value={editStartsAt}
+                  onChange={(e) => {
+                    setEditStartsAt(e.target.value);
                   }}
                 />
-                <SaveButton isPending={editMutation.isPending} />
               </div>
-            </form>
-          ) : (
-            <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <dt className="text-muted-foreground">{t('stations.site')}</dt>
-                <dd className="font-medium">{reservation.siteName ?? 'n/a'}</dd>
+              <div className="space-y-2">
+                <Label htmlFor="editExpiresAt" className="leading-6">
+                  {t('reservations.expiresAtLabel')}
+                </Label>
+                <Input
+                  id="editExpiresAt"
+                  type="datetime-local"
+                  value={editExpiresAt}
+                  onChange={(e) => {
+                    setEditExpiresAt(e.target.value);
+                  }}
+                  className={
+                    editSubmitted && editExpiresAt.trim() === '' ? 'border-destructive' : ''
+                  }
+                />
+                {editSubmitted && editExpiresAt.trim() === '' && (
+                  <p className="text-sm text-destructive">{t('validation.required')}</p>
+                )}
               </div>
-              <div>
-                <dt className="text-muted-foreground">{t('reservations.stationLabel')}</dt>
-                <dd className="font-medium">
-                  <Link to={`/stations/${reservation.stationId}`} className="hover:underline">
-                    {reservation.stationOcppId}
+            </div>
+            <div className="space-y-2">
+              <Label className="leading-6">{t('reservations.driverLabel')}</Label>
+              <DriverCombobox value={editDriver} onSelect={setEditDriver} />
+            </div>
+            {editMutation.isError && (
+              <p className="text-sm text-destructive">{getErrorMessage(editMutation.error, t)}</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <CancelButton
+                onClick={() => {
+                  setEditing(false);
+                  setEditSubmitted(false);
+                }}
+              />
+              <SaveButton isPending={editMutation.isPending} />
+            </div>
+          </form>
+        ) : (
+          <dl className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+            <div>
+              <dt className="text-muted-foreground">{t('stations.site')}</dt>
+              <dd className="font-medium">{reservation.siteName ?? 'n/a'}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('reservations.stationLabel')}</dt>
+              <dd className="font-medium">
+                <Link to={`/stations/${reservation.stationId}`} className="hover:underline">
+                  {reservation.stationOcppId}
+                </Link>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('reservations.connector')}</dt>
+              <dd className="font-medium">
+                {reservation.evseOcppId != null
+                  ? `Port ${String(reservation.evseOcppId)}${reservation.connectorType ? `: ${reservation.connectorType}` : ''}${reservation.connectorMaxPowerKw ? ` (${reservation.connectorMaxPowerKw} kW)` : ''}`
+                  : 'n/a'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('reservations.statusLabel')}</dt>
+              <dd className="font-medium">
+                <Badge variant={reservationStatusVariant(reservation.status)}>
+                  {getStatusLabel(reservation.status, t as (key: string) => string)}
+                </Badge>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('reservations.startsAt')}</dt>
+              <dd className="font-medium">
+                {reservation.startsAt != null
+                  ? formatDateTime(reservation.startsAt, timezone)
+                  : formatDateTime(reservation.createdAt, timezone)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('reservations.expiresAtLabel')}</dt>
+              <dd className="font-medium">{formatDateTime(reservation.expiresAt, timezone)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('reservations.driverLabel')}</dt>
+              <dd className="font-medium">
+                {driverName != null ? (
+                  <Link to={`/drivers/${reservation.driverId ?? ''}`} className="hover:underline">
+                    {driverName}
                   </Link>
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('reservations.connector')}</dt>
-                <dd className="font-medium">
-                  {reservation.evseOcppId != null
-                    ? `Port ${String(reservation.evseOcppId)}${reservation.connectorType ? `: ${reservation.connectorType}` : ''}${reservation.connectorMaxPowerKw ? ` (${reservation.connectorMaxPowerKw} kW)` : ''}`
-                    : 'n/a'}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('reservations.statusLabel')}</dt>
-                <dd className="font-medium">
-                  <Badge variant={reservationStatusVariant(reservation.status)}>
-                    {getStatusLabel(reservation.status, t as (key: string) => string)}
-                  </Badge>
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('reservations.startsAt')}</dt>
-                <dd className="font-medium">
-                  {reservation.startsAt != null
-                    ? formatDateTime(reservation.startsAt, timezone)
-                    : formatDateTime(reservation.createdAt, timezone)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('reservations.expiresAtLabel')}</dt>
-                <dd className="font-medium">{formatDateTime(reservation.expiresAt, timezone)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('reservations.driverLabel')}</dt>
-                <dd className="font-medium">
-                  {driverName != null ? (
-                    <Link to={`/drivers/${reservation.driverId ?? ''}`} className="hover:underline">
-                      {driverName}
-                    </Link>
-                  ) : (
-                    <span className="text-muted-foreground">{t('reservations.noDriver')}</span>
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('reservations.token')}</dt>
-                <dd className="font-medium">
-                  {reservation.tokenId != null && reservation.tokenIdToken != null ? (
-                    <Link
-                      to={`/tokens/${reservation.tokenId}`}
-                      className="text-link hover:underline"
-                    >
-                      <span>{reservation.tokenIdToken}</span>
-                      {reservation.tokenType != null && (
-                        <span className="ml-1 text-xs text-muted-foreground">
-                          ({reservation.tokenType})
-                        </span>
-                      )}
-                    </Link>
-                  ) : (
-                    <span className="text-muted-foreground">n/a</span>
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('reservations.createdAtLabel')}</dt>
-                <dd className="font-medium">{formatDateTime(reservation.createdAt, timezone)}</dd>
-              </div>
-              {reservation.status === 'cancelled' && reservation.cancelledBy != null && (
-                <>
+                ) : (
+                  <span className="text-muted-foreground">{t('reservations.noDriver')}</span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('reservations.token')}</dt>
+              <dd className="font-medium">
+                {reservation.tokenId != null && reservation.tokenIdToken != null ? (
+                  <Link to={`/tokens/${reservation.tokenId}`} className="text-link hover:underline">
+                    <span>{reservation.tokenIdToken}</span>
+                    {reservation.tokenType != null && (
+                      <span className="ml-1 text-xs text-muted-foreground">
+                        ({reservation.tokenType})
+                      </span>
+                    )}
+                  </Link>
+                ) : (
+                  <span className="text-muted-foreground">n/a</span>
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('reservations.createdAtLabel')}</dt>
+              <dd className="font-medium">{formatDateTime(reservation.createdAt, timezone)}</dd>
+            </div>
+            {reservation.status === 'cancelled' && reservation.cancelledBy != null && (
+              <>
+                <div>
+                  <dt className="text-muted-foreground">{t('reservations.cancelledByLabel')}</dt>
+                  <dd className="font-medium">
+                    {/* Dynamic key per actor enum value. */}
+                    {t(
+                      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+                      `reservations.cancelledByActor.${reservation.cancelledBy}` as never,
+                    )}
+                  </dd>
+                </div>
+                {reservation.cancelReason != null && (
                   <div>
-                    <dt className="text-muted-foreground">{t('reservations.cancelledByLabel')}</dt>
+                    <dt className="text-muted-foreground">{t('reservations.cancelReasonLabel')}</dt>
                     <dd className="font-medium">
-                      {/* Dynamic key per actor enum value. */}
+                      {/* Dynamic key per cancel-reason enum value. */}
                       {t(
                         // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-                        `reservations.cancelledByActor.${reservation.cancelledBy}` as never,
+                        `reservations.cancelReason.${reservation.cancelReason}` as never,
                       )}
                     </dd>
                   </div>
-                  {reservation.cancelReason != null && (
-                    <div>
-                      <dt className="text-muted-foreground">
-                        {t('reservations.cancelReasonLabel')}
-                      </dt>
-                      <dd className="font-medium">
-                        {/* Dynamic key per cancel-reason enum value. */}
-                        {t(
-                          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-                          `reservations.cancelReason.${reservation.cancelReason}` as never,
-                        )}
-                      </dd>
-                    </div>
-                  )}
-                  {reservation.cancelNote != null && reservation.cancelNote.trim() !== '' && (
-                    <div className="md:col-span-2">
-                      <dt className="text-muted-foreground">{t('reservations.cancelNoteLabel')}</dt>
-                      <dd className="font-medium whitespace-pre-wrap">{reservation.cancelNote}</dd>
-                    </div>
-                  )}
-                  {reservation.cancellationFeeCents > 0 && feeCurrency != null && (
-                    <div>
-                      <dt className="text-muted-foreground">{t('reservations.cancellationFee')}</dt>
-                      <dd className="font-medium">
-                        {formatCents(reservation.cancellationFeeCents, feeCurrency)}
-                      </dd>
-                    </div>
-                  )}
-                </>
-              )}
-              {policyActive && feeCurrency != null && reservation.status !== 'cancelled' && (
-                <div className="md:col-span-2">
-                  <dt className="text-muted-foreground">{t('reservations.cancellationPolicy')}</dt>
-                  <dd className="font-medium">
-                    {t('reservations.cancellationPolicyText', {
-                      fee: policyFeeLabel,
-                      minutes: policyWindowMinutes,
-                    })}
-                  </dd>
-                </div>
-              )}
-            </dl>
-          )}
-        </CardContent>
-      </Card>
+                )}
+                {reservation.cancelNote != null && reservation.cancelNote.trim() !== '' && (
+                  <div className="md:col-span-2">
+                    <dt className="text-muted-foreground">{t('reservations.cancelNoteLabel')}</dt>
+                    <dd className="font-medium whitespace-pre-wrap">{reservation.cancelNote}</dd>
+                  </div>
+                )}
+                {reservation.cancellationFeeCents > 0 && feeCurrency != null && (
+                  <div>
+                    <dt className="text-muted-foreground">{t('reservations.cancellationFee')}</dt>
+                    <dd className="font-medium">
+                      {formatCents(reservation.cancellationFeeCents, feeCurrency)}
+                    </dd>
+                  </div>
+                )}
+              </>
+            )}
+            {policyActive && feeCurrency != null && reservation.status !== 'cancelled' && (
+              <div className="md:col-span-2">
+                <dt className="text-muted-foreground">{t('reservations.cancellationPolicy')}</dt>
+                <dd className="font-medium">
+                  {t('reservations.cancellationPolicyText', {
+                    fee: policyFeeLabel,
+                    minutes: policyWindowMinutes,
+                  })}
+                </dd>
+              </div>
+            )}
+          </dl>
+        )}
+      </TabPanel>
 
       <ConfirmDialog
         open={cancelOpen}
