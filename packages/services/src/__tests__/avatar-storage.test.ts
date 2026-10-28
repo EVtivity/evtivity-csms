@@ -27,8 +27,8 @@ import {
   purgeUserAvatarObjects,
   runAvatarCleanupJob,
 } from '../avatar-storage.js';
-import { deleteObjectsUnderPrefix } from '../s3-storage.js';
-import type { S3Config } from '../s3-storage.js';
+import { S3ObjectStorage } from '../storage/s3-object-storage.js';
+import type { S3Client } from '@aws-sdk/client-s3';
 
 /** An S3 client over an in-memory bucket map, listing pages of `pageSize` keys. */
 function fakeS3(objects: Record<string, string[]>, pageSize = 1000) {
@@ -63,7 +63,7 @@ function fakeS3(objects: Record<string, string[]>, pageSize = 1000) {
     }
     throw new Error('unexpected command');
   });
-  return { s3: { client: { send }, bucket: 'main' } as unknown as S3Config, sent, send };
+  return { storage: new S3ObjectStorage({ send } as unknown as S3Client, 'main'), sent, send };
 }
 
 const log = { warn: vi.fn(), info: vi.fn() };
@@ -77,23 +77,23 @@ beforeEach(() => {
 describe('deleteObjectsUnderPrefix', () => {
   it('lists and deletes page by page until the listing ends', async () => {
     const objects = { main: ['p/a', 'p/b', 'p/c', 'q/d'] };
-    const { s3, sent } = fakeS3(objects, 2);
-    await expect(deleteObjectsUnderPrefix(s3, 'main', 'p/')).resolves.toBe(3);
+    const { storage, sent } = fakeS3(objects, 2);
+    await expect(storage.deleteObjectsUnderPrefix('main', 'p/')).resolves.toBe(3);
     expect(objects.main).toEqual(['q/d']);
     expect(sent.filter((c) => c instanceof DeleteObjectsCommand)).toHaveLength(2);
   });
 
   it('throws when S3 reports a key it could not delete', async () => {
-    const { s3, send } = fakeS3({ main: ['p/a'] });
+    const { storage, send } = fakeS3({ main: ['p/a'] });
     send.mockImplementationOnce(async () => ({ Contents: [{ Key: 'p/a' }], IsTruncated: false }));
     send.mockImplementationOnce(async () => ({ Errors: [{ Key: 'p/a', Code: 'AccessDenied' }] }));
-    await expect(deleteObjectsUnderPrefix(s3, 'main', 'p/')).rejects.toThrow('AccessDenied');
+    await expect(storage.deleteObjectsUnderPrefix('main', 'p/')).rejects.toThrow('AccessDenied');
   });
 
   it('refuses a prefix that is not a folder', async () => {
-    const { s3 } = fakeS3({});
-    await expect(deleteObjectsUnderPrefix(s3, 'main', 'avatars/drv')).rejects.toThrow();
-    await expect(deleteObjectsUnderPrefix(s3, 'main', '')).rejects.toThrow();
+    const { storage } = fakeS3({});
+    await expect(storage.deleteObjectsUnderPrefix('main', 'avatars/drv')).rejects.toThrow();
+    await expect(storage.deleteObjectsUnderPrefix('main', '')).rejects.toThrow();
   });
 });
 
@@ -109,8 +109,8 @@ describe('purgeDriverAvatarObjects', () => {
       ],
       old: [`avatars/${DRIVER}/c.jpg`],
     };
-    const { s3 } = fakeS3(objects);
-    await expect(purgeDriverAvatarObjects(s3, DRIVER, ['old', 'main'])).resolves.toBe(4);
+    const { storage } = fakeS3(objects);
+    await expect(purgeDriverAvatarObjects(storage, DRIVER, ['old', 'main'])).resolves.toBe(4);
     expect(objects).toEqual({ main: ['avatars/drv_10/a.jpg', 'avatars/drv_2/a.jpg'], old: [] });
   });
 });
@@ -118,21 +118,21 @@ describe('purgeDriverAvatarObjects', () => {
 describe('runAvatarCleanupJob', () => {
   it('purges an erased or deleted driver', async () => {
     const objects = { main: [`avatars/${DRIVER}/a.jpg`] };
-    const { s3 } = fakeS3(objects);
+    const { storage } = fakeS3(objects);
     dbRows = [[{ erasedAt: new Date() }]];
-    await runAvatarCleanupJob('purge-driver', { driverId: DRIVER, buckets: [] }, s3, log);
+    await runAvatarCleanupJob('purge-driver', { driverId: DRIVER, buckets: [] }, storage, log);
     expect(objects.main).toEqual([]);
     objects.main = [`avatars/${DRIVER}/b.jpg`];
     dbRows = [[]];
-    await runAvatarCleanupJob('purge-driver', { driverId: DRIVER, buckets: [] }, s3, log);
+    await runAvatarCleanupJob('purge-driver', { driverId: DRIVER, buckets: [] }, storage, log);
     expect(objects.main).toEqual([]);
   });
 
   it('never purges a driver that is not erased', async () => {
     const objects = { main: [`avatars/${DRIVER}/a.jpg`] };
-    const { s3 } = fakeS3(objects);
+    const { storage } = fakeS3(objects);
     dbRows = [[{ erasedAt: null }]];
-    await runAvatarCleanupJob('purge-driver', { driverId: DRIVER, buckets: [] }, s3, log);
+    await runAvatarCleanupJob('purge-driver', { driverId: DRIVER, buckets: [] }, storage, log);
     expect(objects.main).toHaveLength(1);
     expect(log.warn).toHaveBeenCalled();
   });
@@ -140,12 +140,22 @@ describe('runAvatarCleanupJob', () => {
   it('deletes one object only while no driver row points at it', async () => {
     const key = `avatars/${DRIVER}/a.jpg`;
     const objects = { main: [key] };
-    const { s3 } = fakeS3(objects);
+    const { storage } = fakeS3(objects);
     dbRows = [[{ id: DRIVER }]];
-    await runAvatarCleanupJob('delete-object', { driverId: DRIVER, bucket: 'main', key }, s3, log);
+    await runAvatarCleanupJob(
+      'delete-object',
+      { driverId: DRIVER, bucket: 'main', key },
+      storage,
+      log,
+    );
     expect(objects.main).toEqual([key]);
     dbRows = [[]];
-    await runAvatarCleanupJob('delete-object', { driverId: DRIVER, bucket: 'main', key }, s3, log);
+    await runAvatarCleanupJob(
+      'delete-object',
+      { driverId: DRIVER, bucket: 'main', key },
+      storage,
+      log,
+    );
     expect(objects.main).toEqual([]);
   });
 
@@ -173,27 +183,27 @@ describe('runAvatarCleanupJob', () => {
         `avatars/${DRIVER}/a.jpg`,
       ],
     };
-    const { s3 } = fakeS3(objects);
+    const { storage } = fakeS3(objects);
     dbRows = [[{ isActive: true, avatarKind: null }]];
-    await runAvatarCleanupJob('purge-user', { userId: 'usr_1', buckets: [] }, s3, log);
+    await runAvatarCleanupJob('purge-user', { userId: 'usr_1', buckets: [] }, storage, log);
     expect(objects.main).toHaveLength(3);
     dbRows = [[{ isActive: false, avatarKind: 'generated' }]];
-    await runAvatarCleanupJob('purge-user', { userId: 'usr_1', buckets: [] }, s3, log);
+    await runAvatarCleanupJob('purge-user', { userId: 'usr_1', buckets: [] }, storage, log);
     expect(objects.main).toHaveLength(3);
     dbRows = [[{ isActive: false, avatarKind: null }]];
-    await runAvatarCleanupJob('purge-user', { userId: 'usr_1', buckets: [] }, s3, log);
+    await runAvatarCleanupJob('purge-user', { userId: 'usr_1', buckets: [] }, storage, log);
     expect(objects.main).toEqual([`avatars/${DRIVER}/a.jpg`]);
   });
 
   it('deletes one user object only while no user row points at it', async () => {
     const key = 'avatars/users/usr_1/a.jpg';
     const objects = { main: [key] };
-    const { s3 } = fakeS3(objects);
+    const { storage } = fakeS3(objects);
     dbRows = [[{ id: 'usr_1' }]];
     await runAvatarCleanupJob(
       'delete-user-object',
       { userId: 'usr_1', bucket: 'main', key },
-      s3,
+      storage,
       log,
     );
     expect(objects.main).toEqual([key]);
@@ -201,7 +211,7 @@ describe('runAvatarCleanupJob', () => {
     await runAvatarCleanupJob(
       'delete-user-object',
       { userId: 'usr_1', bucket: 'main', key },
-      s3,
+      storage,
       log,
     );
     expect(objects.main).toEqual([]);
@@ -213,8 +223,8 @@ describe('purgeUserAvatarObjects', () => {
     const objects = {
       main: ['avatars/users/usr_1/a.jpg', 'avatars/users/usr_10/a.jpg', 'avatars/drv_1/a.jpg'],
     };
-    const { s3 } = fakeS3(objects);
-    await expect(purgeUserAvatarObjects(s3, 'usr_1')).resolves.toBe(1);
+    const { storage } = fakeS3(objects);
+    await expect(purgeUserAvatarObjects(storage, 'usr_1')).resolves.toBe(1);
     expect(objects.main).toEqual(['avatars/users/usr_10/a.jpg', 'avatars/drv_1/a.jpg']);
   });
 });
