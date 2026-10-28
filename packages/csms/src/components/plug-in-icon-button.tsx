@@ -5,6 +5,8 @@ import { Plug } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface PlugInIconButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   onClick: () => void;
   title: string;
   disabled?: boolean;
@@ -16,11 +18,13 @@ export function PlugInIconButton({
   title,
   disabled,
   isPending,
+  type = 'button',
 }: PlugInIconButtonProps): React.JSX.Element {
   const iconClass = `h-4 w-4 ${isPending === true ? 'animate-pulse' : ''}`;
   return (
     <span className="group relative inline-flex">
       <Button
+        type={type}
         variant="secondary"
         size="icon"
         onClick={onClick}

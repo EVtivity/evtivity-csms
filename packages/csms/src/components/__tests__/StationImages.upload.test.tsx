@@ -2,31 +2,44 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const { getMock, postMock, toastMock } = vi.hoisted(() => ({
+const { getMock, postMock, toastMock, storage } = vi.hoisted(() => ({
   getMock: vi.fn(),
   postMock: vi.fn(),
   toastMock: vi.fn(),
+  storage: { enabled: true },
 }));
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({ t: (key: string) => key }),
 }));
-vi.mock('@/lib/api', () => ({
+vi.mock('@/lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/api')>()),
   api: { get: getMock, post: postMock, patch: vi.fn(), delete: vi.fn() },
+}));
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: () => false,
+  useHasAllSiteAccess: () => false,
+}));
+vi.mock('@/hooks/use-feature-flags', () => ({
+  useFeatureFlags: () => ({ flags: { fileStorageEnabled: storage.enabled } }),
 }));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 
+import { ApiError } from '@/lib/api';
 import { StationImages } from '../StationImages';
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   getMock.mockReset();
   postMock.mockReset();
+  toastMock.mockReset();
+  storage.enabled = true;
 });
 
 async function renderImages(): Promise<HTMLInputElement> {
@@ -88,5 +101,28 @@ describe('StationImages upload', () => {
       s3Key: 'ai-uploads/quarantine/stations/sta_1/u/photo.png',
       s3Bucket: 'bucket',
     });
+  });
+
+  it('opens the storage dialog instead of the file chooser while file storage is off', async () => {
+    storage.enabled = false;
+    getMock.mockResolvedValue([]);
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
+    await renderImages();
+    fireEvent.click(await screen.findByRole('button', { name: /stations.uploadImages/ }));
+    expect(screen.getByRole('dialog', { name: 'storageUnavailable.title' })).toBeDefined();
+    expect(clickSpy).not.toHaveBeenCalled();
+    expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('opens the storage dialog, not a toast, when the upload answers STORAGE_NOT_CONFIGURED', async () => {
+    getMock.mockResolvedValue([]);
+    postMock.mockRejectedValue(
+      new ApiError(400, { error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' }),
+    );
+    const input = await renderImages();
+    const file = new File([new Uint8Array([1])], 'photo.png', { type: 'image/png' });
+    fireEvent.change(input, { target: { files: [file] } });
+    expect(await screen.findByRole('dialog', { name: 'storageUnavailable.title' })).toBeDefined();
+    expect(toastMock).not.toHaveBeenCalled();
   });
 });

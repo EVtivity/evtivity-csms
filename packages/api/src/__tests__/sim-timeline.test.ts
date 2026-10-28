@@ -3,82 +3,133 @@
 
 import { describe, expect, it } from 'vitest';
 import {
-  mergeTimelinePage,
   parseTimelineCursor,
   SIM_TIMELINE_RANK,
+  splitTimelineRows,
+  timelineEntries,
+  timelineIdsOf,
   timelineItemsOut,
+  timelinePageOut,
+  timelinePaging,
+  timelineReadWindow,
+  TIMELINE_DEFAULT_LIMIT,
+  type TimelineCursor,
   type TimelineItem,
 } from '../lib/sim-timeline.js';
 
-// The shared keyset merge of the station and SIM page timelines.
+// The shared paging of the station and SIM page timelines. The SQL merge and
+// count run against a real database in 133-station-sim and 135-sim-inventory.
 
 const RANK = { a: 2, b: 1, c: 0 } as const;
 type Source = keyof typeof RANK;
 
 const at = (seconds: number): Date => new Date(Date.UTC(2026, 9, 22, 12, 0, seconds));
 const item = (kind: string): TimelineItem => ({ source: 'sim', kind, details: {} });
-const row = (id: number, seconds: number, kinds: string[] = [`k${String(id)}`]) => ({
-  id,
+const key = (from: Source, id: number, seconds: number): TimelineCursor<Source> => ({
   at: at(seconds),
-  items: kinds.map(item),
+  from,
+  id,
+});
+const cursor = (k: TimelineCursor<Source>): string =>
+  Buffer.from(`${k.at.toISOString()}|${k.from}|${String(k.id)}`).toString('base64url');
+
+describe('timelinePaging', () => {
+  it('reads page 1 by default and the default limit', () => {
+    expect(timelinePaging<Source>({}, RANK)).toEqual({
+      kind: 'page',
+      page: 1,
+      limit: TIMELINE_DEFAULT_LIMIT,
+    });
+    expect(timelinePaging<Source>({ page: 3, limit: 20 }, RANK)).toEqual({
+      kind: 'page',
+      page: 3,
+      limit: 20,
+    });
+  });
+
+  it('reads a cursor, and refuses a cursor with a page or one it did not hand out', () => {
+    const k = key('b', 7, 3);
+    expect(timelinePaging<Source>({ cursor: cursor(k), limit: 5 }, RANK)).toEqual({
+      kind: 'cursor',
+      cursor: k,
+      limit: 5,
+    });
+    expect(timelinePaging<Source>({ cursor: cursor(k), page: 2 }, RANK)).toEqual({
+      error: 'Send a page or a cursor, not both',
+    });
+    expect(timelinePaging<Source>({ cursor: 'junk' }, RANK)).toEqual({
+      error: 'The cursor is not valid',
+    });
+  });
 });
 
-describe('mergeTimelinePage', () => {
-  it('sorts newest first, then by source rank, then by row id', () => {
-    const { entries, nextCursor } = mergeTimelinePage<Source>(
-      RANK,
-      [
-        { from: 'c', rows: [row(1, 30)] },
-        { from: 'a', rows: [row(5, 30), row(4, 10)] },
-        { from: 'b', rows: [row(9, 30)] },
-      ],
-      10,
-    );
-    expect(entries.map((e) => `${e.from}${String(e.id)}`)).toEqual(['a5', 'b9', 'c1', 'a4']);
-    expect(nextCursor).toBeNull();
+describe('timelineReadWindow and splitTimelineRows', () => {
+  const rows = [key('a', 9, 50), key('b', 8, 40), key('c', 7, 30), key('a', 6, 20)];
+
+  it('reads the first page with one row more to tell whether a next page exists', () => {
+    const paging = { kind: 'page', page: 1, limit: 2 } as const;
+    expect(timelineReadWindow(paging)).toEqual({ offset: 0, count: 3, withPrevious: false });
+    const split = splitTimelineRows(paging, rows.slice(0, 3));
+    expect(split.keys).toEqual(rows.slice(0, 2));
+    expect(split.previousAt).toBeNull();
+    expect(split.nextCursor).toBe(cursor(rows[1]!));
   });
 
-  it('stops at the last row of a source that returned more than the limit', () => {
-    const { entries, nextCursor } = mergeTimelinePage<Source>(
-      RANK,
-      [
-        { from: 'a', rows: [row(3, 50), row(2, 40), row(1, 30)] },
-        { from: 'b', rows: [row(7, 20)] },
-      ],
-      2,
-    );
-    expect(entries.map((e) => e.id)).toEqual([3, 2]);
-    // Rows of source b older than a's horizon wait for the next page.
-    const cursor = parseTimelineCursor(nextCursor ?? '', RANK);
-    expect(cursor).toEqual({ at: at(40), from: 'a', id: 2 });
+  it('reads a later page with the last entry of the previous page first', () => {
+    const paging = { kind: 'page', page: 2, limit: 2 } as const;
+    expect(timelineReadWindow(paging)).toEqual({ offset: 1, count: 4, withPrevious: true });
+    const split = splitTimelineRows(paging, rows.slice(1, 4));
+    expect(split.keys).toEqual(rows.slice(2, 4));
+    expect(split.previousAt).toEqual(at(40));
+    expect(split.nextCursor).toBeNull();
   });
 
-  it("keeps every item of the page's last row on the page", () => {
-    const { entries, nextCursor } = mergeTimelinePage<Source>(
-      RANK,
-      [{ from: 'b', rows: [row(1, 30, ['x', 'y', 'z']), row(2, 20)] }],
-      2,
-    );
-    expect(entries.map((e) => e.kind)).toEqual(['x', 'y', 'z']);
-    expect(parseTimelineCursor(nextCursor ?? '', RANK)).toEqual({ at: at(30), from: 'b', id: 1 });
+  it('gives no entries and no previous time past the last page', () => {
+    const split = splitTimelineRows({ kind: 'page', page: 9, limit: 2 }, []);
+    expect(split).toEqual({ keys: [], nextCursor: null, previousAt: null });
   });
 
-  it('counts rows, not items: a row without an item still counts toward the limit', () => {
-    const { entries, nextCursor } = mergeTimelinePage<Source>(
-      RANK,
-      [{ from: 'b', rows: [row(3, 30), row(2, 20, []), row(1, 10)] }],
-      2,
-    );
-    // Three rows for a limit of two: the source may hold more after row 1.
-    expect(entries.map((e) => e.id)).toEqual([3, 1]);
-    expect(parseTimelineCursor(nextCursor ?? '', RANK)).toEqual({ at: at(10), from: 'b', id: 1 });
+  it('takes the time before a cursor page from the cursor', () => {
+    const paging = { kind: 'cursor', cursor: rows[1]!, limit: 1 } as const;
+    expect(timelineReadWindow(paging)).toEqual({ offset: 0, count: 2, withPrevious: false });
+    const split = splitTimelineRows(paging, rows.slice(2, 4));
+    expect(split.keys).toEqual([rows[2]]);
+    expect(split.previousAt).toEqual(at(40));
+    expect(split.nextCursor).toBe(cursor(rows[2]!));
+  });
+});
+
+describe('timelineEntries', () => {
+  it('keeps the key order, gives every item of a row, and skips a row read no more', () => {
+    const keys = [key('a', 1, 30), key('b', 2, 30), key('c', 3, 10)];
+    const items: Record<string, TimelineItem[]> = {
+      'a:1': [item('x')],
+      'b:2': [item('y1'), item('y2')],
+    };
+    const entries = timelineEntries(keys, (from, id) => items[`${from}:${String(id)}`]);
+    expect(entries.map((e) => `${e.from}:${e.kind}`)).toEqual(['a:x', 'b:y1', 'b:y2']);
+    expect(timelineIdsOf(keys, 'b')).toEqual([2]);
+    expect(timelineItemsOut(entries)[0]).toEqual({
+      at: at(30).toISOString(),
+      source: 'sim',
+      kind: 'x',
+      details: {},
+    });
   });
 
-  it('gives the items as the replies show them', () => {
-    const { entries } = mergeTimelinePage<Source>(RANK, [{ from: 'a', rows: [row(1, 5)] }], 5);
-    expect(timelineItemsOut(entries)).toEqual([
-      { at: at(5).toISOString(), source: 'sim', kind: 'k1', details: {} },
-    ]);
+  it('gives the paging fields of a reply', () => {
+    const keys = [key('a', 1, 30)];
+    const out = timelinePageOut(
+      { kind: 'page', page: 2, limit: 1 },
+      { keys, total: 5, nextCursor: 'n', previousAt: at(40) },
+      timelineEntries(keys, () => [item('x')]),
+    );
+    expect(out).toMatchObject({
+      total: 5,
+      page: 2,
+      nextCursor: 'n',
+      previousAt: at(40).toISOString(),
+    });
   });
 });
 

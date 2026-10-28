@@ -136,6 +136,7 @@ describe('SimProvidersSettings', () => {
     });
     expect(await screen.findByText('settings.secretStoredHint')).toBeTruthy();
     fireEvent.click(screen.getByRole('switch', { name: 'settings.sim.hologramEnabled' }));
+    fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.confirm' }));
     fireEvent.submit(screen.getByTestId('sim-hologram-form'));
     await waitFor(() => {
       expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/sim-providers', {

@@ -74,6 +74,7 @@ describe('useFeatureFlags', () => {
       aiInsightsEnabled: true,
       simEnabled: true,
       simStationSignalEnabled: true,
+      fileStorageEnabled: false,
     };
     getMock.mockResolvedValue(flags);
     const { result } = renderHook(() => useFeatureFlags(), { wrapper });
@@ -104,6 +105,7 @@ describe('useFeatureFlags', () => {
       aiInsightsEnabled: false,
       simEnabled: false,
       simStationSignalEnabled: false,
+      fileStorageEnabled: true,
     });
   });
 

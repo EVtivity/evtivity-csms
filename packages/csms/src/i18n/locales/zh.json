@@ -97,7 +97,14 @@
     "endDate": "结束日期",
     "dateRange": "日期范围",
     "copyFailed": "复制失败",
-    "clearDates": "清除日期"
+    "clearDates": "清除日期",
+    "toggleOff": {
+      "title": "关闭此设置？",
+      "description": "这将关闭“{{name}}”。",
+      "confirm": "关闭",
+      "cancel": "保持开启"
+    },
+    "ok": "确定"
   },
   "status": {
     "online": "在线",
@@ -1245,7 +1252,6 @@
       "timelineCapped": "范围已缩短到 CSMS 保留的数据。",
       "timelineEmpty": "此范围内没有发生任何事件。",
       "fetch": "获取",
-      "loadMore": "加载更多",
       "kind": {
         "connected": "已连接",
         "disconnected": "已断开",
@@ -1868,6 +1874,8 @@
     "overlapError": "此费率与该组中的现有费率重叠",
     "priority": "优先级",
     "isCurrent": "当前生效",
+    "currentGroup": "当前",
+    "currentGroupNotSelectable": "这是当前的定价组",
     "monday": "周一",
     "tuesday": "周二",
     "wednesday": "周三",
@@ -2098,7 +2106,7 @@
     "searchPlaceholder": "搜索车队...",
     "searchHint": "按车队 ID、名称或描述搜索",
     "fleetNotFound": "未找到车队",
-    "fleetDetail": "车队详情",
+    "metrics": "指标",
     "drivers": "驾驶员",
     "stations": "充电站",
     "vehicles": "车辆",
@@ -3295,7 +3303,8 @@
         "title": "自动洞察与后台任务",
         "description": "自动洞察和后台任务使用的模型。它们在没有用户的情况下运行，并使用公司的提供商密钥。",
         "enabled": "开启系统发起的 AI",
-        "offNote": "这些设置仅在系统发起的 AI 开启时生效。其值会保留。"
+        "offNote": "这些设置仅在系统发起的 AI 开启时生效。其值会保留。",
+        "offConfirm": "自动洞察和 AI 后台任务将停止：不再产生新的洞察或建议操作。现有洞察会保留，但在您重新开启之前会在 CSMS 中隐藏。"
       },
       "driver": {
         "title": "驾驶员支持",
@@ -3344,7 +3353,8 @@
         },
         "empty": "最近 {{days}} 天内没有评价。",
         "viewWrong": "查看标记为错误的洞察"
-      }
+      },
+      "kindOff": "保存后，不再产生此类型的新洞察。现有洞察会保留。"
     },
     "aiInsightsScope": {
       "title": "AI 洞察范围",
@@ -3368,7 +3378,9 @@
       "stationsWithoutSite_other": "仅分析所选站点时，{{count}} 个没有站点的充电站不会被分析。",
       "removeHint": "移出范围的站点和充电站不会产生新的洞察。其未关闭的洞察会被忽略，等待中的操作会过期。",
       "loadFailed": "无法加载 AI 洞察范围。",
-      "stationsFailed": "无法加载充电站。"
+      "stationsFailed": "无法加载充电站。",
+      "siteOff": "保存后，此站点不会产生新的洞察。其未关闭的洞察会被忽略，等待中的操作会过期。",
+      "stationOff": "保存后，此充电站不会产生新的洞察。其未关闭的洞察会被忽略，等待中的操作会过期。"
     },
     "aiMcp": {
       "title": "MCP 服务器",
@@ -3387,7 +3399,8 @@
       "toolsets": "工具类别",
       "toolsetsHint": "在 URL 后添加 ?toolsets=stations,sessions。默认：{{toolsets}}。",
       "writesHint": "写入无需确认即执行。它们像使用该密钥的任何 API 调用一样被审计和记录。",
-      "protocolNote": "支持 MCP 2026-07-28 及旧版客户端。"
+      "protocolNote": "支持 MCP 2026-07-28 及旧版客户端。",
+      "allowWritesOff": "保存后，MCP 客户端只读。"
     },
     "aiLimitZeroNoLimit": "0 表示不设上限。",
     "aiTabs": {
@@ -3580,7 +3593,9 @@
       },
       "proofHint": "请确认是您本人，以缩短审计历史、登录历史或安全事件历史的保留期。每位管理员都会收到通知。"
     },
-    "uploadReplacesHint": "上传新图片将替换当前图片。"
+    "uploadReplacesHint": "上传新图片将替换当前图片。",
+    "roamingOffDescription": "漫游部分将被隐藏，所有 OCPI 流量将被阻止。",
+    "pncOffDescription": "证书部分将被隐藏，证书操作将被阻止。"
   },
   "pnc": {
     "certificates": "证书",
@@ -6481,5 +6496,10 @@
     "editDescriptionDriver": "为此驾驶员创建头像或上传照片。头像显示在驾驶员列表、车队成员和驾驶员页面中。驾驶员可以更改它。",
     "savedWithNewAccount": "可选。账户创建时保存头像。",
     "applyFailed": "账户已创建，但头像未能保存。请在详情标签页中重新设置。"
+  },
+  "storageUnavailable": {
+    "title": "未设置文件存储",
+    "description": "尚未设置文件存储，无法上传文件。管理员可以在 {{path}} 中进行设置。",
+    "openSettings": "打开设置"
   }
 }

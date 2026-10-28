@@ -197,6 +197,7 @@ describe('SecurityMfaSettings', () => {
     });
     expect(switchState('settings.mfaPasskeyLogin')).toBe('true');
     fireEvent.click(screen.getByRole('switch', { name: 'settings.mfaWebauthn' }));
+    fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.confirm' }));
     const login = screen.getByRole('switch', { name: 'settings.mfaPasskeyLogin' });
     expect(login.getAttribute('aria-checked')).toBe('false');
     expect(login.hasAttribute('disabled')).toBe(true);
@@ -264,6 +265,7 @@ describe('SecurityMfaSettings', () => {
     expect((save as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByText('settings.unsavedChanges')).toBeNull();
     fireEvent.click(screen.getByRole('switch', { name: 'settings.mfaTotp' }));
+    fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.confirm' }));
     expect(screen.getByText('settings.unsavedChanges')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /common.save/ }));
     await waitFor(() => {

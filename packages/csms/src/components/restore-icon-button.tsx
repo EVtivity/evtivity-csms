@@ -5,6 +5,8 @@ import { ArchiveRestore } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface RestoreIconButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   onClick: () => void;
   title: string;
   disabled?: boolean;
@@ -14,11 +16,13 @@ export function RestoreIconButton({
   onClick,
   title,
   disabled,
+  type = 'button',
 }: RestoreIconButtonProps): React.JSX.Element {
   const iconClass = 'h-4 w-4';
   return (
     <span className="group relative inline-flex">
       <Button
+        type={type}
         variant="secondary"
         size="icon"
         onClick={onClick}

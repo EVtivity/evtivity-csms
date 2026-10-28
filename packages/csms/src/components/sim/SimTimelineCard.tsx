@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
 import { Label } from '@/components/ui/label';
+import { Pagination } from '@/components/ui/pagination';
 import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -27,6 +29,9 @@ import {
   type SimTimelinePage,
 } from './sim-connectivity';
 import { TIMELINE_PRESETS, type SimRefreshController, type TimelineRange } from './use-sim-refresh';
+
+/** Timeline entries per page. */
+const TIMELINE_PAGE_SIZE = 25;
 
 const PRESET_KEYS = {
   1: 'stations.sim.timelineLastHour',
@@ -84,7 +89,8 @@ function rangeParams(range: TimelineRange): { from: string; to?: string } {
 /**
  * The timeline of a SIM source: the window select, when the data was last
  * fetched, the coverage strip and the items, newest first, with a Fetch row
- * for each run of days not fetched yet. Reads the database only. With
+ * for each run of days not fetched yet, paged with the shared Pagination
+ * (TIMELINE_PAGE_SIZE entries a page). Reads the database only. With
  * `disabledReason` (an inactive SIM) the Fetch rows and day clicks are
  * disabled and show that reason, as Refresh does.
  */
@@ -110,26 +116,39 @@ export function SimTimelineCard({
   const onRangeChange = controller.setRange;
   const onFetchRange = controller.openDialog;
   const params = rangeParams(range);
-  const timeline = useInfiniteQuery({
-    queryKey: [...simSourceKey(source), 'timeline', params.from, params.to ?? null],
-    queryFn: ({ pageParam }) => {
-      const query = new URLSearchParams({ from: params.from });
+  const rangeKey = `${params.from}|${params.to ?? ''}`;
+  const [paged, setPaged] = useState({ rangeKey, page: 1 });
+  // A new range starts again on its first page.
+  const page = paged.rangeKey === rangeKey ? paged.page : 1;
+  const timeline = useQuery({
+    queryKey: [...simSourceKey(source), 'timeline', params.from, params.to ?? null, page],
+    queryFn: () => {
+      const query = new URLSearchParams({
+        from: params.from,
+        page: String(page),
+        limit: String(TIMELINE_PAGE_SIZE),
+      });
       if (params.to != null) query.set('to', params.to);
-      if (pageParam != null) query.set('cursor', pageParam);
       return api.get<SimTimelinePage>(`${simSourcePath(source)}/timeline?${query.toString()}`);
     },
-    initialPageParam: null as string | null,
-    getNextPageParam: (page) => page.nextCursor,
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
 
-  const first = timeline.data?.pages[0];
-  const items = timeline.data?.pages.flatMap((p) => p.items) ?? [];
-  const days = first?.days ?? [];
+  const data = timeline.data;
+  const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / TIMELINE_PAGE_SIZE));
+  // Fewer entries than before (a shorter retention): go back to the last page.
+  useEffect(() => {
+    if (data != null && page > totalPages) setPaged({ rangeKey, page: totalPages });
+  }, [data, page, totalPages, rangeKey]);
+  const items = data?.items ?? [];
+  const days = data?.days ?? [];
   const runs = notFetchedRuns(days);
-  const rows = timelineRows(items, runs, coverageZone, !timeline.hasNextPage);
+  const rows = timelineRows(items, runs, coverageZone, {
+    previousAt: data?.previousAt ?? null,
+    last: page >= totalPages,
+  });
 
   return (
     <TabPanel title={title ?? t('stations.sim.timelineTitle')} bodyClassName="space-y-4">
@@ -176,7 +195,7 @@ export function SimTimelineCard({
             })}
           </p>
         )}
-        {first?.capped === true && <p>{t('stations.sim.timelineCapped')}</p>}
+        {data?.capped === true && <p>{t('stations.sim.timelineCapped')}</p>}
       </div>
 
       {timeline.isLoading ? (
@@ -239,27 +258,13 @@ export function SimTimelineCard({
               )}
             </ul>
           )}
-          {timeline.hasNextPage && (
-            <div className="flex justify-center">
-              <Button
-                variant="outline"
-                className="relative"
-                disabled={timeline.isFetchingNextPage}
-                onClick={() => {
-                  void timeline.fetchNextPage();
-                }}
-              >
-                {timeline.isFetchingNextPage && (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  </div>
-                )}
-                <span className={timeline.isFetchingNextPage ? 'invisible' : ''}>
-                  {t('stations.sim.loadMore')}
-                </span>
-              </Button>
-            </div>
-          )}
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={(next) => {
+              setPaged({ rangeKey, page: next });
+            }}
+          />
         </>
       )}
     </TabPanel>

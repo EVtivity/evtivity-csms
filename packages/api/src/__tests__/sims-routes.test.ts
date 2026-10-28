@@ -38,7 +38,13 @@ const m = vi.hoisted(() => ({
   attachmentViewById: vi.fn<NullableRead>(async () => null),
   stationForAttach: vi.fn<NullableRead>(async () => null),
   simSiteWindows: vi.fn(async () => null),
-  simTimelinePage: vi.fn(async () => ({ items: [] as unknown[], nextCursor: null })),
+  simTimelinePage: vi.fn(async () => ({
+    items: [] as unknown[],
+    nextCursor: null,
+    total: 0,
+    page: 1,
+    previousAt: null,
+  })),
   getSimByIccid: vi.fn<NullableRead>(async () => null),
   openSimAttachment: vi.fn<NullableRead>(async () => null),
   ensureSim: vi.fn(),
@@ -813,6 +819,25 @@ describe('SIM inventory routes', () => {
       const res = await call('GET', `/sims/${SIM_ID}/timeline?cursor=bad`);
       expect(res.statusCode).toBe(400);
       expect(res.json<{ code: string }>().code).toBe('VALIDATION_ERROR');
+    });
+
+    it('refuses a page with a cursor, and reads the page asked for', async () => {
+      m.simDetailView.mockResolvedValueOnce(detailView());
+      const cursor = Buffer.from(`${new Date().toISOString()}|sim:alert|4`).toString('base64url');
+      const both = await call('GET', `/sims/${SIM_ID}/timeline?page=2&cursor=${cursor}`);
+      expect(both.statusCode).toBe(400);
+      expect(both.json<{ code: string }>().code).toBe('VALIDATION_ERROR');
+
+      m.simDetailView.mockResolvedValueOnce(detailView({ siteTimezone: 'UTC' }));
+      const res = await call('GET', `/sims/${SIM_ID}/timeline?page=3&limit=25`);
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ total: 0, previousAt: null });
+      expect(m.simTimelinePage).toHaveBeenLastCalledWith(
+        SIM_ID,
+        expect.anything(),
+        { kind: 'page', page: 3, limit: 25 },
+        null,
+      );
     });
 
     it('caps the range at 31 days and returns the covered days', async () => {

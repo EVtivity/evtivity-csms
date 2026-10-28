@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Send, ChevronDown } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
 import { Spinner } from '@/components/ui/spinner';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
@@ -456,8 +456,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                     {t('settings.ocppApprovalRequiredHelp')}
                   </p>
                 </div>
-                <Toggle
+                <ConfirmToggle
                   aria-label={t('settings.ocppApprovalRequired')}
+                  label={t('settings.ocppApprovalRequired')}
                   size="lg"
                   checked={ocppApprovalRequired}
                   onCheckedChange={() => {
@@ -500,8 +501,10 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               <div className="space-y-0.5">
                 <Label className="leading-6">{t('settings.roamingEnabled')}</Label>
               </div>
-              <Toggle
+              <ConfirmToggle
                 aria-label={t('settings.roamingEnabled')}
+                label={t('settings.roamingEnabled')}
+                offDescription={t('settings.roamingOffDescription')}
                 size="lg"
                 checked={roamingEnabled}
                 onCheckedChange={() => {
@@ -525,8 +528,10 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               <div className="space-y-0.5">
                 <Label className="leading-6">{t('settings.pncEnabled')}</Label>
               </div>
-              <Toggle
+              <ConfirmToggle
                 aria-label={t('settings.pncEnabled')}
+                label={t('settings.pncEnabled')}
+                offDescription={t('settings.pncOffDescription')}
                 size="lg"
                 checked={pncEnabled}
                 onCheckedChange={() => {
@@ -750,8 +755,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   {t('settings.reservationEnabledDesc')}
                 </p>
               </div>
-              <Toggle
+              <ConfirmToggle
                 aria-label={t('settings.reservationEnabled')}
+                label={t('settings.reservationEnabled')}
                 size="lg"
                 checked={reservationEnabled}
                 onCheckedChange={() => {
@@ -778,8 +784,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 <Label className="leading-6">{t('settings.supportEnabled')}</Label>
                 <p className="text-xs text-muted-foreground">{t('settings.supportEnabledDesc')}</p>
               </div>
-              <Toggle
+              <ConfirmToggle
                 aria-label={t('settings.supportEnabled')}
+                label={t('settings.supportEnabled')}
                 size="lg"
                 checked={supportEnabled}
                 onCheckedChange={() => {
@@ -803,8 +810,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 <Label className="leading-6">{t('settings.fleetEnabled')}</Label>
                 <p className="text-xs text-muted-foreground">{t('settings.fleetEnabledDesc')}</p>
               </div>
-              <Toggle
+              <ConfirmToggle
                 aria-label={t('settings.fleetEnabled')}
+                label={t('settings.fleetEnabled')}
                 size="lg"
                 checked={fleetEnabled}
                 onCheckedChange={() => {
@@ -836,8 +844,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   {t('settings.guestChargingEnabledDesc')}
                 </p>
               </div>
-              <Toggle
+              <ConfirmToggle
                 aria-label={t('settings.guestChargingEnabled')}
+                label={t('settings.guestChargingEnabled')}
                 size="lg"
                 checked={guestChargingEnabled}
                 onCheckedChange={() => {
@@ -1032,8 +1041,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 <Label className="leading-6">{t('settings.splitBilling')}</Label>
                 <p className="text-xs text-muted-foreground">{t('settings.splitBillingDesc')}</p>
               </div>
-              <Toggle
+              <ConfirmToggle
                 aria-label={t('settings.splitBilling')}
+                label={t('settings.splitBilling')}
                 size="lg"
                 checked={splitBillingEnabled}
                 onCheckedChange={() => {
@@ -1456,8 +1466,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               <div className="space-y-0.5">
                 <Label className="leading-6">{t('settings.sentryEnabled')}</Label>
               </div>
-              <Toggle
+              <ConfirmToggle
                 aria-label={t('settings.sentryEnabled')}
+                label={t('settings.sentryEnabled')}
                 size="lg"
                 checked={sentryEnabled}
                 onCheckedChange={() => {

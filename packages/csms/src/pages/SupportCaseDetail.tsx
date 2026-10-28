@@ -508,7 +508,7 @@ export function SupportCaseDetail(): React.JSX.Element {
             caseId={caseDetail.id}
             messages={caseDetail.messages}
             timezone={timezone}
-            s3Configured={s3Status?.configured === true}
+            s3Configured={s3Status?.configured}
             supportAiEnabled={supportAiEnabled}
             onMessageSent={() => {
               void queryClient.invalidateQueries({ queryKey: ['support-cases'] });

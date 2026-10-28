@@ -5,6 +5,8 @@ import { RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface RefundButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -16,9 +18,11 @@ export function RefundButton({
   onClick,
   disabled,
   size,
+  type = 'button',
 }: RefundButtonProps): React.JSX.Element {
   return (
     <Button
+      type={type}
       variant="destructive"
       size={size}
       className="gap-1.5"

@@ -69,11 +69,16 @@ describe('AI Insights Scope card', () => {
     fireEvent.click(
       screen.getByRole('switch', { name: 'settings.aiInsightsScope.siteToggle(Beta)' }),
     );
+    // Turning a site off asks first and names what stops.
+    expect(screen.getByText('settings.aiInsightsScope.siteOff')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.confirm' }));
     // Open Alpha and turn one station off.
     fireEvent.click(within(screen.getByTestId('ai-scope-site-sit_a')).getByRole('button'));
     const stations = await screen.findByTestId('ai-scope-stations-sit_a');
     expect(apiMock.get).toHaveBeenCalledWith('/v1/settings/ai/insights-scope/sites/sit_a/stations');
     fireEvent.click(within(stations).getByRole('switch', { name: 'CS-2' }));
+    expect(screen.getByText('settings.aiInsightsScope.stationOff')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.confirm' }));
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
     await waitFor(() => {
       expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/ai/insights-scope', {

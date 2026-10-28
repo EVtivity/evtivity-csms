@@ -11,7 +11,9 @@
     "keep": "Keep",
     "back": "Back",
     "previous": "Previous",
+    "prev": "Prev",
     "next": "Next",
+    "pageOf": "Page {{page}} of {{totalPages}}",
     "default": "Default",
     "dismiss": "Dismiss",
     "confirm": "Confirm",
@@ -1465,5 +1467,9 @@
       "setupOnly": "This browser does not support passkeys, and a passkey is the only method you can set up. Open this site in a browser that supports passkeys to set one up.",
       "proofOnly": "Confirm it's you with your passkey. This browser does not support passkeys. Open this site in a browser that does to use yours."
     }
+  },
+  "storageUnavailable": {
+    "title": "Uploads Unavailable",
+    "description": "Files cannot be uploaded right now. Please try again later, or contact support if this keeps happening."
   }
 }

@@ -97,7 +97,14 @@
     "endDate": "End date",
     "dateRange": "Date range",
     "copyFailed": "Copy failed",
-    "clearDates": "Clear Dates"
+    "clearDates": "Clear Dates",
+    "toggleOff": {
+      "title": "Turn Off Setting?",
+      "description": "This turns off “{{name}}”.",
+      "confirm": "Turn Off",
+      "cancel": "Keep On"
+    },
+    "ok": "OK"
   },
   "status": {
     "online": "Online",
@@ -568,7 +575,7 @@
     "searchPlaceholder": "Search sites...",
     "searchHint": "Search by site ID, name, city, or state",
     "allLocations": "All Locations",
-    "allLoadMgmt": "All Load Mgmt",
+    "allLoadMgmt": "All Load Management",
     "address": "Address",
     "city": "City",
     "state": "State",
@@ -1245,7 +1252,6 @@
       "timelineCapped": "The range was shortened to the data the CSMS keeps.",
       "timelineEmpty": "Nothing happened in this range.",
       "fetch": "Fetch",
-      "loadMore": "Load More",
       "kind": {
         "connected": "Connected",
         "disconnected": "Disconnected",
@@ -1868,6 +1874,8 @@
     "overlapError": "This tariff overlaps with an existing tariff in this group",
     "priority": "Priority",
     "isCurrent": "Currently active",
+    "currentGroup": "Current",
+    "currentGroupNotSelectable": "This is the current pricing group",
     "monday": "Mon",
     "tuesday": "Tue",
     "wednesday": "Wed",
@@ -2098,7 +2106,7 @@
     "searchPlaceholder": "Search fleets...",
     "searchHint": "Search by fleet ID, name, or description",
     "fleetNotFound": "Fleet not found",
-    "fleetDetail": "Fleet Detail",
+    "metrics": "Metrics",
     "drivers": "Drivers",
     "stations": "Stations",
     "vehicles": "Vehicles",
@@ -3295,7 +3303,8 @@
         "title": "Automatic Insights and Workers",
         "description": "The model for automatic insights and background workers. They run without a user and use the company provider key.",
         "enabled": "Turn on system-initiated AI",
-        "offNote": "These settings take effect only while system-initiated AI is on. Their values are kept."
+        "offNote": "These settings take effect only while system-initiated AI is on. Their values are kept.",
+        "offConfirm": "Automatic insights and background workers stop: no new insights or suggested actions are made. Existing insights are kept but hidden in the CSMS until you turn it on again."
       },
       "driver": {
         "title": "Driver Support",
@@ -3344,7 +3353,8 @@
         },
         "empty": "No votes in the last {{days}} days.",
         "viewWrong": "View Insights Marked Wrong"
-      }
+      },
+      "kindOff": "After you save, no new insights of this type are made. Existing ones are kept."
     },
     "aiInsightsScope": {
       "title": "AI Insights Scope",
@@ -3368,7 +3378,9 @@
       "stationsWithoutSite_other": "{{count}} stations without a site are not analyzed while only selected sites are.",
       "removeHint": "Sites and stations you take out of the scope get no new insights. Their open insights are dismissed and their waiting actions expire.",
       "loadFailed": "Failed to load the AI insights scope.",
-      "stationsFailed": "Failed to load the stations."
+      "stationsFailed": "Failed to load the stations.",
+      "siteOff": "After you save, this site gets no new insights. Its open insights are dismissed and its waiting actions expire.",
+      "stationOff": "After you save, this station gets no new insights. Its open insights are dismissed and its waiting actions expire."
     },
     "aiMcp": {
       "title": "MCP Server",
@@ -3387,7 +3399,8 @@
       "toolsets": "Tool categories",
       "toolsetsHint": "Add ?toolsets=stations,sessions to the URL. Default: {{toolsets}}.",
       "writesHint": "Writes run without a confirmation. They are audited and logged like any API call with the key.",
-      "protocolNote": "Serves MCP 2026-07-28 and older clients."
+      "protocolNote": "Serves MCP 2026-07-28 and older clients.",
+      "allowWritesOff": "After you save, MCP clients only read."
     },
     "aiLimitZeroNoLimit": "0 means no limit.",
     "aiTabs": {
@@ -3580,7 +3593,9 @@
       },
       "proofHint": "Confirm it is you to shorten how long the audit, sign-in or security event history is kept. Every administrator gets a notice."
     },
-    "uploadReplacesHint": "Uploading a new image replaces the current one."
+    "uploadReplacesHint": "Uploading a new image replaces the current one.",
+    "roamingOffDescription": "The Roaming section is hidden and all OCPI traffic is blocked.",
+    "pncOffDescription": "The Certificates section is hidden and certificate operations are blocked."
   },
   "pnc": {
     "certificates": "Certificates",
@@ -6481,5 +6496,10 @@
     "editDescriptionDriver": "Create an avatar or upload a photo for this driver. It shows in the driver list, the fleet members and on the driver page. The driver can change it.",
     "savedWithNewAccount": "Optional. The avatar is saved when the account is created.",
     "applyFailed": "The account was created, but the avatar could not be saved. Set it again on the Details tab."
+  },
+  "storageUnavailable": {
+    "title": "File Storage Not Set Up",
+    "description": "Files cannot be uploaded because file storage is not set up. An administrator can set it up under {{path}}.",
+    "openSettings": "Open Settings"
   }
 }

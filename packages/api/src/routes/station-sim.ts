@@ -3,7 +3,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { and, desc, eq, gte, inArray, lte, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, lte, sql, type SQL } from 'drizzle-orm';
 import {
   chargingStations,
   connectionLogs,
@@ -63,14 +63,18 @@ import { recordStationCommandAudit } from '../lib/station-command-audit.js';
 import { isSimFeatureOn, readSimSettings, simProviderRegistry } from '../lib/sim.js';
 import { simKeyStore } from '../lib/sim-keys.js';
 import {
-  mergeTimelinePage,
-  parseTimelineCursor,
   simAlertItem,
   simSessionItem,
-  timelineAfterCursor,
-  timelineItemsOut,
-  timelineMs,
+  timelineEntries,
+  timelineIdsOf,
+  timelinePageKeys,
+  timelinePageOut,
+  timelinePaging,
+  timelinePagingQueryFields,
+  timelinePagingResponseFields,
+  type TimelineItem,
   type TimelineRank,
+  type TimelineSourceSpec,
 } from '../lib/sim-timeline.js';
 import { visibleUserIds } from '../lib/user-management-scope.js';
 import { sendSimProviderError } from './sim-provider-settings.js';
@@ -79,7 +83,6 @@ import type { JwtPayload } from '../plugins/auth.js';
 const DAY_MS = 86_400_000;
 /** Refreshes per station a minute, across API pods. */
 export const SIM_REFRESH_LIMIT_PER_MINUTE = 6;
-const TIMELINE_DEFAULT_LIMIT = 200;
 /** SIM alerts the status shows; the timeline lists them all. */
 const RECENT_ALERTS = 5;
 const CONNECTION_LOG_RETENTION_KEY = 'logs.connection.retentionDays';
@@ -259,8 +262,7 @@ const simStatusResponse = z
 const timelineQuery = z.object({
   from: z.iso.datetime({ offset: true }).optional().describe('Start, default 24 hours ago'),
   to: z.iso.datetime({ offset: true }).optional().describe('End, default and at most now'),
-  limit: z.coerce.number().int().min(1).max(500).optional().describe('Items per page, default 200'),
-  cursor: z.string().max(200).optional().describe('nextCursor of the previous page'),
+  ...timelinePagingQueryFields,
 });
 
 const timelineItem = z
@@ -283,7 +285,7 @@ const timelineItem = z
 const timelineResponse = z
   .object({
     items: z.array(timelineItem),
-    nextCursor: z.string().nullable(),
+    ...timelinePagingResponseFields,
     from: z.string().describe('Start of the range read'),
     to: z.string().describe('End of the range read'),
     capped: z.boolean().describe('The range was shortened to 31 days or the retention'),
@@ -553,6 +555,28 @@ function signalEventItems(
   });
 }
 
+/**
+ * The SQL twin of `signalEventItems`: the NotifyEvent row holds at least one
+ * low signal item, so every timeline entry of a row gives an item and the
+ * page count matches what the pages show.
+ */
+function hasLowSignalItem(stationId: string): SQL {
+  return sql`CASE WHEN jsonb_typeof(${stationEvents.eventData}) = 'array' THEN EXISTS (
+    SELECT 1 FROM jsonb_array_elements(${stationEvents.eventData}) AS item
+    WHERE item->'component'->>'name' = 'DataLink'
+      AND item->'variable'->>'name' = 'SignalStrength'
+      AND item->>'trigger' = 'Alerting'
+      AND (
+        coalesce(jsonb_typeof(item->'variableMonitoringId'), '') <> 'number'
+        OR (item->>'variableMonitoringId')::numeric IN (
+          SELECT ${variableMonitoringRules.monitoringId} FROM ${variableMonitoringRules}
+          WHERE ${variableMonitoringRules.stationId} = ${stationId}
+            AND ${variableMonitoringRules.source} = 'low_signal'
+        )
+      )
+  ) ELSE false END`;
+}
+
 export function stationSimRoutes(app: FastifyInstance): void {
   app.get(
     '/stations/:id/sim',
@@ -702,7 +726,7 @@ export function stationSimRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: "Get a station's connectivity timeline",
         description:
-          'The stored SIM sessions and alerts and the OCPP connects and disconnects of the station in one list, newest first, plus what each day of the range has stored. Reads the database only. The range is at most 31 days and within the SIM and connection log retentions; a longer one is shortened (capped).',
+          'The stored SIM sessions and alerts and the OCPP connects and disconnects of the station in one list, newest first, plus what each day of the range has stored. Paged by page number (page, limit, total) or by cursor. Reads the database only. The range is at most 31 days and within the SIM and connection log retentions; a longer one is shortened (capped).',
         operationId: 'getStationSimTimeline',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -746,11 +770,9 @@ export function stationSimRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      const cursor = query.cursor == null ? null : parseTimelineCursor(query.cursor, SOURCE_RANK);
-      if (query.cursor != null && cursor == null) {
-        await reply
-          .status(400)
-          .send({ error: 'The cursor is not valid', code: 'VALIDATION_ERROR' });
+      const paging = timelinePaging(query, SOURCE_RANK);
+      if ('error' in paging) {
+        await reply.status(400).send({ error: paging.error, code: 'VALIDATION_ERROR' });
         return;
       }
       const keptDays = Math.min(simSettings.retentionDays, await connectionLogRetentionDays());
@@ -767,7 +789,6 @@ export function stationSimRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      const limit = query.limit ?? TIMELINE_DEFAULT_LIMIT;
       // Only the rows of the SIM of the confirmed attachment, and only after the
       // SIM's history floor: data of an earlier SIM of the station never
       // shows, nor of an unconfirmed one, nor the SIM's data from another station.
@@ -775,169 +796,143 @@ export function stationSimRoutes(app: FastifyInstance): void {
       const sim = view?.sim ?? null;
       const windows = view?.windows ?? [];
 
-      const [sessionRows, alertRows, connectionRows, signalRows, monitorRows] = await Promise.all([
-        // A session that began before the range but ended in it belongs to the range.
-        sim == null
-          ? []
-          : db
-              .select()
-              .from(simSessions)
-              .where(
-                and(
-                  eq(simSessions.simId, sim.id),
-                  gte(simSessions.endedAt, rangeFrom),
-                  lte(simSessions.startedAt, to),
-                  spanInWindows(simSessions.startedAt, simSessions.endedAt, windows),
-                  timelineAfterCursor(
-                    SOURCE_RANK,
-                    'sim:session',
-                    simSessions.startedAt,
-                    simSessions.id,
-                    cursor,
-                  ),
-                ),
-              )
-              .orderBy(desc(timelineMs(simSessions.startedAt)), desc(simSessions.id))
-              .limit(limit + 1),
-        sim == null
-          ? []
-          : db
-              .select()
-              .from(simAlerts)
-              .where(
-                and(
-                  eq(simAlerts.simId, sim.id),
-                  gte(simAlerts.receivedAt, rangeFrom),
-                  lte(simAlerts.receivedAt, to),
-                  atInWindows(simAlerts.receivedAt, windows),
-                  timelineAfterCursor(
-                    SOURCE_RANK,
-                    'sim:alert',
-                    simAlerts.receivedAt,
-                    simAlerts.id,
-                    cursor,
-                  ),
-                ),
-              )
-              .orderBy(desc(timelineMs(simAlerts.receivedAt)), desc(simAlerts.id))
-              .limit(limit + 1),
-        db
-          .select({
-            id: connectionLogs.id,
-            event: connectionLogs.event,
-            metadata: connectionLogs.metadata,
-            createdAt: connectionLogs.createdAt,
-          })
-          .from(connectionLogs)
-          .where(
-            and(
-              eq(connectionLogs.stationId, id),
-              inArray(connectionLogs.event, ['connected', 'disconnected']),
-              gte(connectionLogs.createdAt, rangeFrom),
-              lte(connectionLogs.createdAt, to),
-              timelineAfterCursor(
-                SOURCE_RANK,
-                'ocpp',
-                connectionLogs.createdAt,
-                connectionLogs.id,
-                cursor,
-              ),
-            ),
-          )
-          .orderBy(desc(timelineMs(connectionLogs.createdAt)), desc(connectionLogs.id))
-          .limit(limit + 1),
-        db
-          .select({
-            id: stationEvents.id,
-            generatedAt: stationEvents.generatedAt,
-            eventData: stationEvents.eventData,
-          })
-          .from(stationEvents)
-          .where(
-            and(
-              eq(stationEvents.stationId, id),
-              gte(stationEvents.generatedAt, rangeFrom),
-              lte(stationEvents.generatedAt, to),
-              sql`${stationEvents.eventData} @> ${SIGNAL_EVENT_MATCH}::jsonb`,
-              timelineAfterCursor(
-                SOURCE_RANK,
-                'ocpp:event',
-                stationEvents.generatedAt,
-                stationEvents.id,
-                cursor,
-              ),
-            ),
-          )
-          .orderBy(desc(timelineMs(stationEvents.generatedAt)), desc(stationEvents.id))
-          .limit(limit + 1),
-        db
-          .select({ monitoringId: variableMonitoringRules.monitoringId })
-          .from(variableMonitoringRules)
-          .where(
-            and(
-              eq(variableMonitoringRules.stationId, id),
-              eq(variableMonitoringRules.source, 'low_signal'),
-            ),
+      const sources: Array<TimelineSourceSpec<TimelineSource>> = [
+        {
+          from: 'ocpp',
+          table: connectionLogs,
+          id: connectionLogs.id,
+          at: connectionLogs.createdAt,
+          where: and(
+            eq(connectionLogs.stationId, id),
+            inArray(connectionLogs.event, ['connected', 'disconnected']),
+            gte(connectionLogs.createdAt, rangeFrom),
+            lte(connectionLogs.createdAt, to),
           ),
+        },
+        {
+          from: 'ocpp:event',
+          table: stationEvents,
+          id: stationEvents.id,
+          at: stationEvents.generatedAt,
+          where: and(
+            eq(stationEvents.stationId, id),
+            gte(stationEvents.generatedAt, rangeFrom),
+            lte(stationEvents.generatedAt, to),
+            sql`${stationEvents.eventData} @> ${SIGNAL_EVENT_MATCH}::jsonb`,
+            hasLowSignalItem(id),
+          ),
+        },
+      ];
+      if (sim != null) {
+        sources.push(
+          // A session that began before the range but ended in it belongs to the range.
+          {
+            from: 'sim:session',
+            table: simSessions,
+            id: simSessions.id,
+            at: simSessions.startedAt,
+            where: and(
+              eq(simSessions.simId, sim.id),
+              gte(simSessions.endedAt, rangeFrom),
+              lte(simSessions.startedAt, to),
+              spanInWindows(simSessions.startedAt, simSessions.endedAt, windows),
+            ),
+          },
+          {
+            from: 'sim:alert',
+            table: simAlerts,
+            id: simAlerts.id,
+            at: simAlerts.receivedAt,
+            where: and(
+              eq(simAlerts.simId, sim.id),
+              gte(simAlerts.receivedAt, rangeFrom),
+              lte(simAlerts.receivedAt, to),
+              atInWindows(simAlerts.receivedAt, windows),
+            ),
+          },
+        );
+      }
+      const pageKeys = await timelinePageKeys(SOURCE_RANK, sources, paging);
+      // The rows of the page's entries, by id; every one passed the conditions above.
+      const sessionIds = timelineIdsOf(pageKeys.keys, 'sim:session');
+      const alertIds = timelineIdsOf(pageKeys.keys, 'sim:alert');
+      const signalIds = timelineIdsOf(pageKeys.keys, 'ocpp:event');
+      const connectionIds = timelineIdsOf(pageKeys.keys, 'ocpp');
+      const [sessionRows, alertRows, connectionRows, signalRows, monitorRows] = await Promise.all([
+        sessionIds.length === 0
+          ? []
+          : db.select().from(simSessions).where(inArray(simSessions.id, sessionIds)),
+        alertIds.length === 0
+          ? []
+          : db.select().from(simAlerts).where(inArray(simAlerts.id, alertIds)),
+        connectionIds.length === 0
+          ? []
+          : db
+              .select({
+                id: connectionLogs.id,
+                event: connectionLogs.event,
+                metadata: connectionLogs.metadata,
+              })
+              .from(connectionLogs)
+              .where(inArray(connectionLogs.id, connectionIds)),
+        signalIds.length === 0
+          ? []
+          : db
+              .select({ id: stationEvents.id, eventData: stationEvents.eventData })
+              .from(stationEvents)
+              .where(inArray(stationEvents.id, signalIds)),
+        signalIds.length === 0
+          ? []
+          : db
+              .select({ monitoringId: variableMonitoringRules.monitoringId })
+              .from(variableMonitoringRules)
+              .where(
+                and(
+                  eq(variableMonitoringRules.stationId, id),
+                  eq(variableMonitoringRules.source, 'low_signal'),
+                ),
+              ),
       ]);
       const lowSignalMonitorIds = new Set(
         monitorRows.flatMap((row) => (row.monitoringId != null ? [row.monitoringId] : [])),
       );
-
-      // A NotifyEvent row can give no item or several; the merge counts rows.
-      const { entries: page, nextCursor } = mergeTimelinePage(
-        SOURCE_RANK,
-        [
-          {
-            from: 'sim:session',
-            rows: sessionRows.map((s) => ({
-              id: s.id,
-              at: s.startedAt,
-              items: [simSessionItem(s)],
-            })),
-          },
-          {
-            from: 'sim:alert',
-            rows: alertRows.map((a) => ({ id: a.id, at: a.receivedAt, items: [simAlertItem(a)] })),
-          },
-          {
-            from: 'ocpp:event',
-            rows: signalRows.map((e) => ({
-              id: e.id,
-              at: e.generatedAt,
-              items: signalEventItems(e.eventData, lowSignalMonitorIds).map((item) => {
-                const component = item.component as { instance?: unknown };
-                return {
-                  source: 'ocpp' as const,
-                  kind: item.cleared === true ? 'signal_restored' : 'signal_low',
-                  details: {
-                    instance: typeof component.instance === 'string' ? component.instance : null,
-                    actualValue: typeof item.actualValue === 'string' ? item.actualValue : null,
-                  },
-                };
-              }),
-            })),
-          },
-          {
-            from: 'ocpp',
-            rows: connectionRows.map((c) => {
-              const reason = (c.metadata as { reason?: unknown } | null)?.reason;
+      const itemsBySource: Record<TimelineSource, Map<number, TimelineItem[]>> = {
+        'sim:session': new Map(sessionRows.map((s) => [s.id, [simSessionItem(s)]])),
+        'sim:alert': new Map(alertRows.map((a) => [a.id, [simAlertItem(a)]])),
+        // A NotifyEvent row can hold several low signal items; they share its entry.
+        'ocpp:event': new Map(
+          signalRows.map((e) => [
+            e.id,
+            signalEventItems(e.eventData, lowSignalMonitorIds).map((item): TimelineItem => {
+              const component = item.component as { instance?: unknown };
               return {
-                id: c.id,
-                at: c.createdAt,
-                items: [
-                  {
-                    source: 'ocpp' as const,
-                    kind: c.event,
-                    details: typeof reason === 'string' ? { reason } : {},
-                  },
-                ],
+                source: 'ocpp',
+                kind: item.cleared === true ? 'signal_restored' : 'signal_low',
+                details: {
+                  instance: typeof component.instance === 'string' ? component.instance : null,
+                  actualValue: typeof item.actualValue === 'string' ? item.actualValue : null,
+                },
               };
             }),
-          },
-        ],
-        limit,
-      );
+          ]),
+        ),
+        ocpp: new Map(
+          connectionRows.map((c) => {
+            const reason = (c.metadata as { reason?: unknown } | null)?.reason;
+            return [
+              c.id,
+              [
+                {
+                  source: 'ocpp' as const,
+                  kind: c.event,
+                  details: typeof reason === 'string' ? { reason } : {},
+                },
+              ],
+            ];
+          }),
+        ),
+      };
+      const page = timelineEntries(pageKeys.keys, (from, rowId) => itemsBySource[from].get(rowId));
       const provider = await providerOf(sim?.provider ?? null);
       // The likely cause of each disconnect, from stored data only (no provider call).
       const disconnects = page.filter((entry) => entry.kind === 'disconnected');
@@ -966,8 +961,7 @@ export function stationSimRoutes(app: FastifyInstance): void {
         now,
       );
       return {
-        items: timelineItemsOut(page),
-        nextCursor,
+        ...timelinePageOut(paging, pageKeys, page),
         from: rangeFrom.toISOString(),
         to: to.toISOString(),
         capped,

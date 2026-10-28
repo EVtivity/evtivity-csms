@@ -286,10 +286,11 @@ describe('settings routes (cov2)', () => {
       reservationMaxHours: 4,
       currency: 'EUR',
       avatarUploadEnabled: false,
+      fileStorageEnabled: false,
     });
   });
 
-  it('GET /portal/features reports avatar upload only while file storage is configured', async () => {
+  it('GET /portal/features reports avatar upload and file storage only while file storage is configured', async () => {
     for (const flag of [
       mocks.isReservationEnabled,
       mocks.isSupportEnabled,
@@ -309,11 +310,11 @@ describe('settings routes (cov2)', () => {
     });
     mocks.getObjectStorage.mockResolvedValueOnce({ bucket: 'b' });
     let res = await app.inject({ method: 'GET', url: '/portal/features' });
-    expect(res.json()).toMatchObject({ avatarUploadEnabled: true });
+    expect(res.json()).toMatchObject({ avatarUploadEnabled: true, fileStorageEnabled: true });
     mocks.getObjectStorage.mockRejectedValueOnce(new Error('settings unreadable'));
     res = await app.inject({ method: 'GET', url: '/portal/features' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ avatarUploadEnabled: false });
+    expect(res.json()).toMatchObject({ avatarUploadEnabled: false, fileStorageEnabled: false });
   });
 
   it('GET /portal/features adds the SIM switches only while they are on', async () => {

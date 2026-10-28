@@ -60,7 +60,13 @@ import {
   type SimView,
   type SimViewer,
 } from '../lib/sim-views.js';
-import { parseSimTimelineCursor, simTimelinePage } from '../lib/sim-timeline.js';
+import {
+  SIM_TIMELINE_RANK,
+  simTimelinePage,
+  timelinePaging,
+  timelinePagingQueryFields,
+  timelinePagingResponseFields,
+} from '../lib/sim-timeline.js';
 import {
   exportSimsCsv,
   exportSimTemplateCsv,
@@ -83,7 +89,6 @@ const DAY_MS = 86_400_000;
 export const SIM_PAGE_REFRESH_LIMIT_PER_MINUTE = 6;
 /** SIM alerts the detail shows; the timeline lists them all. */
 const RECENT_ALERTS = 5;
-const TIMELINE_DEFAULT_LIMIT = 200;
 
 const SIM_PROVIDER_STATES = [
   'active',
@@ -192,8 +197,7 @@ const importResultResponse = z
 const timelineQuery = z.object({
   from: z.iso.datetime({ offset: true }).optional().describe('Start, default 24 hours ago'),
   to: z.iso.datetime({ offset: true }).optional().describe('End, default and at most now'),
-  limit: z.coerce.number().int().min(1).max(500).optional().describe('Items per page, default 200'),
-  cursor: z.string().max(200).optional().describe('nextCursor of the previous page'),
+  ...timelinePagingQueryFields,
 });
 
 const refreshBody = z.object({
@@ -409,7 +413,7 @@ const timelineResponse = z
         })
         .loose(),
     ),
-    nextCursor: z.string().nullable().describe('The cursor of the next page, null at the end'),
+    ...timelinePagingResponseFields,
     from: z.string().describe('Start of the range read'),
     to: z.string().describe('End of the range read'),
     capped: z.boolean().describe('The range was shortened to 31 days or the retention'),
@@ -1106,7 +1110,7 @@ export function simRoutes(app: FastifyInstance): void {
         tags: ['SIMs'],
         summary: "Get a SIM's timeline",
         description:
-          "The SIM's stored sessions and alerts, newest first, plus what each day of the range has stored. Reads the database only. No OCPP connection events: the SIM may have sat in several stations. The range is at most 31 days and within the SIM retention; a longer one is shortened (capped).",
+          "The SIM's stored sessions and alerts, newest first, plus what each day of the range has stored. Paged by page number (page, limit, total) or by cursor. Reads the database only. No OCPP connection events: the SIM may have sat in several stations. The range is at most 31 days and within the SIM retention; a longer one is shortened (capped).",
         operationId: 'getSimTimeline',
         security: [{ bearerAuth: [] }],
         params: zodSchema(simParams),
@@ -1142,11 +1146,9 @@ export function simRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      const cursor = query.cursor == null ? null : parseSimTimelineCursor(query.cursor);
-      if (query.cursor != null && cursor == null) {
-        await reply
-          .status(400)
-          .send({ error: 'The cursor is not valid', code: 'VALIDATION_ERROR' });
+      const paging = timelinePaging(query, SIM_TIMELINE_RANK);
+      if ('error' in paging) {
+        await reply.status(400).send({ error: paging.error, code: 'VALIDATION_ERROR' });
         return;
       }
       const simSettings = await readSimSettings();
@@ -1165,13 +1167,7 @@ export function simRoutes(app: FastifyInstance): void {
       }
       // A site-restricted user sees only the SIM's periods at stations of their sites.
       const windows = await simSiteWindows(id, viewer.siteIds);
-      const page = await simTimelinePage(
-        id,
-        { from: rangeFrom, to },
-        query.limit ?? TIMELINE_DEFAULT_LIMIT,
-        cursor,
-        windows,
-      );
+      const page = await simTimelinePage(id, { from: rangeFrom, to }, paging, windows);
       const provider = await providerOf(detail.provider);
       const days = await simCoveredDays(
         id,

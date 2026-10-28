@@ -6,9 +6,9 @@ import { Navigate, useParams, useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
-import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { PricingGroupPickList } from '@/components/pricing/PricingGroupPickList';
 import { api } from '@/lib/api';
 import { useHasCompanyWidePermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
@@ -27,6 +27,11 @@ export function FleetAssignPricing(): React.JSX.Element {
   const { data: pricingGroups } = useQuery({
     queryKey: ['pricing-groups'],
     queryFn: () => api.get<PricingGroup[]>('/v1/pricing-groups'),
+  });
+
+  const { data: currentGroup } = useQuery({
+    queryKey: ['fleets', id, 'pricing-group'],
+    queryFn: () => api.get<PricingGroup | null>(`/v1/fleets/${id ?? ''}/pricing-groups`),
   });
 
   const assignMutation = useMutation({
@@ -58,33 +63,14 @@ export function FleetAssignPricing(): React.JSX.Element {
             </p>
           )}
 
-          <div className="space-y-1">
-            {pricingGroups != null && pricingGroups.length > 0 ? (
-              pricingGroups.map((group) => (
-                <button
-                  key={group.id}
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  onClick={() => {
-                    setPendingGroup(group);
-                  }}
-                  disabled={assignMutation.isPending}
-                >
-                  {mutatingId === group.id && assignMutation.isPending && (
-                    <Spinner className="h-4 w-4 shrink-0" />
-                  )}
-                  <span className="font-medium">{group.name}</span>
-                  {group.description != null && (
-                    <span className="text-muted-foreground">{group.description}</span>
-                  )}
-                </button>
-              ))
-            ) : (
-              <p className="px-3 py-2 text-sm text-muted-foreground">
-                {t('fleets.noPricingGroupResults')}
-              </p>
-            )}
-          </div>
+          <PricingGroupPickList
+            groups={pricingGroups}
+            currentGroupId={currentGroup?.id}
+            pendingGroupId={mutatingId}
+            isPending={assignMutation.isPending}
+            emptyLabel={t('fleets.noPricingGroupResults')}
+            onSelect={setPendingGroup}
+          />
         </CardContent>
       </Card>
 

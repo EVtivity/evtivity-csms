@@ -509,6 +509,8 @@ describe('AiSettings cards save from their tab (TC-UI-LY-10)', () => {
     const client = renderSettings({}, 'assistant');
     const invalidate = vi.spyOn(client, 'invalidateQueries');
     fireEvent.click(document.getElementById('chatbotAi-enabled') as HTMLElement);
+    expect(putMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.confirm' }));
     await waitFor(() => {
       expect(putMock).toHaveBeenCalledWith('/v1/settings/chatbotAi.enabled', { value: false });
     });

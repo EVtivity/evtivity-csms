@@ -5,6 +5,8 @@ import { PlugZap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface UseVehicleButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -18,9 +20,10 @@ export function UseVehicleButton({
   label,
   onClick,
   disabled,
+  type = 'button',
 }: UseVehicleButtonProps): React.JSX.Element {
   return (
-    <Button size="wrap" onClick={onClick} disabled={disabled}>
+    <Button type={type} size="wrap" onClick={onClick} disabled={disabled}>
       <PlugZap className="h-4 w-4" aria-hidden="true" />
       {label}
     </Button>

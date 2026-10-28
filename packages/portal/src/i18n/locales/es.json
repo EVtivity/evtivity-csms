@@ -11,7 +11,9 @@
     "keep": "Mantener",
     "back": "Volver",
     "previous": "Anterior",
+    "prev": "Anterior",
     "next": "Siguiente",
+    "pageOf": "Página {{page}} de {{totalPages}}",
     "default": "Predeterminado",
     "dismiss": "Descartar",
     "confirm": "Confirmar",
@@ -1465,5 +1467,9 @@
       "setupOnly": "Este navegador no admite llaves de acceso y una llave de acceso es el único método que puede configurar. Abra este sitio en un navegador compatible con llaves de acceso para configurarla.",
       "proofOnly": "Confirme su identidad con su llave de acceso. Este navegador no admite llaves de acceso. Abra este sitio en un navegador compatible para usar la suya."
     }
+  },
+  "storageUnavailable": {
+    "title": "Subida no disponible",
+    "description": "No se pueden subir archivos en este momento. Intente de nuevo más tarde o comuníquese con soporte si el problema continúa."
   }
 }

@@ -145,6 +145,12 @@ describe('SessionDetail refund', () => {
 });
 
 describe('SessionDetail header', () => {
+  it('keeps the Sessions page heading, apart from the Details tab title', async () => {
+    renderPage();
+    const heading = await screen.findByRole('heading', { level: 1 });
+    expect(heading.textContent).toBe('sessions.title');
+  });
+
   it('puts Stop, Prev and Next in their own row, right-aligned from sm', async () => {
     perms.add('stations:write');
     perms.add('sessions:write');

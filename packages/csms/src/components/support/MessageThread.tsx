@@ -5,6 +5,7 @@ import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bot, Download, Sparkles, Square, X } from 'lucide-react';
 import { FileUploadButton } from '@/components/ui/file-upload-button';
+import { useStorageGuard } from '@/components/StorageUnavailableDialog';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -46,7 +47,8 @@ interface MessageThreadProps {
   caseId: string;
   messages: Message[];
   timezone: string;
-  s3Configured: boolean;
+  /** Whether attachment storage is set up; undefined until known. */
+  s3Configured?: boolean | undefined;
   supportAiEnabled: boolean;
   onMessageSent: () => void;
 }
@@ -68,6 +70,7 @@ export function MessageThread({
   const [messageBody, setMessageBody] = useState('');
   const [isInternal, setIsInternal] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const storage = useStorageGuard(s3Configured);
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{
@@ -131,7 +134,14 @@ export function MessageThread({
       setIsInternal(false);
       setPendingFiles([]);
     } catch (err) {
-      setSendError(getErrorMessage(err, t, 'supportCases.sendFailed'));
+      if (storage.handleUploadError(err)) {
+        // The message was sent without its files: the dialog explains why.
+        onMessageSent();
+        setMessageBody('');
+        setIsInternal(false);
+      } else {
+        setSendError(getErrorMessage(err, t, 'supportCases.sendFailed'));
+      }
     } finally {
       setIsSending(false);
       setUploadProgress(null);
@@ -294,7 +304,8 @@ export function MessageThread({
                 size="sm"
                 multiple
                 accept={ATTACHMENT_ACCEPT}
-                disabled={!s3Configured}
+                guard={storage.guard}
+                data-testid="support-attach"
                 onFiles={(files) => {
                   setPendingFiles((prev) => [...prev, ...files]);
                 }}
@@ -355,6 +366,7 @@ export function MessageThread({
             void handleAiAssist();
           }}
         />
+        {storage.dialog}
       </CardContent>
     </Card>
   );

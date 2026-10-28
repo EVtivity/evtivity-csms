@@ -5,6 +5,8 @@ import { Power } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface EnableButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -17,9 +19,10 @@ export function EnableButton({
   onClick,
   disabled,
   size,
+  type = 'button',
 }: EnableButtonProps): React.JSX.Element {
   return (
-    <Button variant="success" size={size} onClick={onClick} disabled={disabled}>
+    <Button type={type} variant="success" size={size} onClick={onClick} disabled={disabled}>
       <Power className="h-4 w-4" aria-hidden="true" />
       {label}
     </Button>

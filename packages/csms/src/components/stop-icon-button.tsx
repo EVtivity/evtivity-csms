@@ -5,6 +5,8 @@ import { CircleStop } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface StopIconButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   onClick: () => void;
   title: string;
   disabled?: boolean;
@@ -16,11 +18,13 @@ export function StopIconButton({
   title,
   disabled,
   isPending,
+  type = 'button',
 }: StopIconButtonProps): React.JSX.Element {
   const iconClass = `h-4 w-4 ${isPending === true ? 'animate-pulse' : ''}`;
   return (
     <span className="group relative inline-flex">
       <Button
+        type={type}
         variant="secondary"
         size="icon"
         className="text-destructive hover:bg-destructive/10"

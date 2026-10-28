@@ -130,12 +130,15 @@ function ImageThumbnail({ file }: { file: File }): React.JSX.Element {
 interface AttachmentPickerButtonProps {
   disabled: boolean;
   onFiles: (files: File[]) => void;
+  /** Called with the function that opens the file chooser; it may open a dialog instead. */
+  guard?: (openPicker: () => void) => void;
 }
 
 /** The paperclip button that opens the file chooser. */
 export function AttachmentPickerButton({
   disabled,
   onFiles,
+  guard,
 }: AttachmentPickerButtonProps): React.JSX.Element {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -165,7 +168,11 @@ export function AttachmentPickerButton({
           max: AI_ATTACHMENT_MAX_PER_MESSAGE,
         })}
         onClick={() => {
-          inputRef.current?.click();
+          const openPicker = (): void => {
+            inputRef.current?.click();
+          };
+          if (guard == null) openPicker();
+          else guard(openPicker);
         }}
       >
         <Paperclip className="h-4 w-4" />

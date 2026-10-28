@@ -21,7 +21,7 @@ import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { api } from '@/lib/api';
 import { useHasCompanyWidePermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
@@ -173,8 +173,9 @@ export function InvoicePaymentSettings({ settings }: Props): React.JSX.Element {
           </div>
 
           <div className="flex items-start gap-3">
-            <Toggle
+            <ConfirmToggle
               id="invoice-payment-epc-qr"
+              label={t('settings.invoicePaymentEpcQr')}
               checked={epcQrEnabled}
               disabled={!canWrite}
               onCheckedChange={setEpcQrEnabled}

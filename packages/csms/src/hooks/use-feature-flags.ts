@@ -30,6 +30,11 @@ export interface FeatureFlags extends NavFeatureFlags {
   chatbotAiEnabled: boolean;
   /** Station signal reads are on: a SIM Refresh also sends one OCPP request to the station. */
   simStationSignalEnabled: boolean;
+  /**
+   * File storage (S3) is set up, so files can be uploaded. Counts as on until
+   * the endpoint answers: an upload that finds it off opens the storage dialog.
+   */
+  fileStorageEnabled: boolean;
 }
 
 export interface FeatureFlagsResult {
@@ -59,18 +64,21 @@ export function resolveFeatureFlags(features: FeaturesResponse | undefined): Fea
     aiInsightsEnabled: features?.aiInsightsEnabled === true,
     simEnabled: features?.simEnabled === true,
     simStationSignalEnabled: features?.simStationSignalEnabled === true,
+    fileStorageEnabled: features?.fileStorageEnabled !== false,
   };
 }
 
 /**
  * The feature toggles from the public `GET /v1/portal/features`, so pages work
  * for users without settings permissions. The key sits under `['settings']`, so
- * a settings save refreshes it.
+ * a settings save refreshes it. `enabled: false` sends no request (the
+ * flags keep their defaults), for a caller that already knows the answer.
  */
-export function useFeatureFlags(): FeatureFlagsResult {
+export function useFeatureFlags(options: { enabled?: boolean } = {}): FeatureFlagsResult {
   const { data, isLoading } = useQuery({
     queryKey: ['settings', 'features'],
     queryFn: () => api.get<FeaturesResponse>('/v1/portal/features'),
+    enabled: options.enabled ?? true,
   });
   return { flags: resolveFeatureFlags(data), isLoading, isLoaded: data != null };
 }

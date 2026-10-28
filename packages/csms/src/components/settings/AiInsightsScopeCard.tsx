@@ -13,7 +13,7 @@ import { Collapsible } from '@/components/ui/collapsible';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { Spinner } from '@/components/ui/spinner';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 
@@ -99,8 +99,10 @@ function ScopeStations({
             <Label htmlFor={id} className="min-w-0 break-all font-normal">
               {s.stationId}
             </Label>
-            <Toggle
+            <ConfirmToggle
               id={id}
+              label={s.stationId}
+              offDescription={t('settings.aiInsightsScope.stationOff')}
               checked={siteSelected && on}
               disabled={disabled || !siteSelected}
               onCheckedChange={(checked) => {
@@ -313,9 +315,11 @@ export function AiInsightsScopeCard({
                                 </div>
                               </Collapsible>
                             </div>
-                            <Toggle
+                            <ConfirmToggle
                               id={toggleId}
                               className="mt-2"
+                              label={site.name}
+                              offDescription={t('settings.aiInsightsScope.siteOff')}
                               aria-label={t('settings.aiInsightsScope.siteToggle', {
                                 name: site.name,
                               })}

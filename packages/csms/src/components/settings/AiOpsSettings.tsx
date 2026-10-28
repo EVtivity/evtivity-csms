@@ -36,7 +36,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LanguageSelect } from '@/components/ui/language-select';
 import { Textarea } from '@/components/ui/textarea';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { api } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
@@ -57,7 +57,14 @@ type FieldValue = string | boolean;
 type FieldValues = Record<string, FieldValue>;
 
 type FieldSpec =
-  | { kind: 'flag'; key: AiFlagSettingKey; label: ParseKeys; help?: ParseKeys }
+  | {
+      kind: 'flag';
+      key: AiFlagSettingKey;
+      label: ParseKeys;
+      help?: ParseKeys;
+      /** What stops when the switch is turned off, shown in the confirmation. */
+      offDescription?: ParseKeys;
+    }
   | {
       kind: 'number';
       key: AiThresholdSettingKey;
@@ -205,8 +212,10 @@ function AiKeysCard({
                     </Label>
                     {f.help != null && <p className="text-xs text-muted-foreground">{t(f.help)}</p>}
                   </div>
-                  <Toggle
+                  <ConfirmToggle
                     id={id}
+                    label={t(f.label)}
+                    {...(f.offDescription != null ? { offDescription: t(f.offDescription) } : {})}
                     checked={values[f.key] === true}
                     disabled={fieldDisabled(f)}
                     onCheckedChange={(checked) => {
@@ -347,21 +356,25 @@ const INSIGHT_FIELDS: readonly FieldSpec[] = [
     kind: 'flag',
     key: AI_INSIGHT_SETTING_KEYS.stationEnabled,
     label: 'settings.aiInsightsSettings.station',
+    offDescription: 'settings.aiInsightsSettings.kindOff',
   },
   {
     kind: 'flag',
     key: AI_INSIGHT_SETTING_KEYS.sessionEnabled,
     label: 'settings.aiInsightsSettings.session',
+    offDescription: 'settings.aiInsightsSettings.kindOff',
   },
   {
     kind: 'flag',
     key: AI_INSIGHT_SETTING_KEYS.authorizationEnabled,
     label: 'settings.aiInsightsSettings.authorization',
+    offDescription: 'settings.aiInsightsSettings.kindOff',
   },
   {
     kind: 'flag',
     key: AI_INSIGHT_SETTING_KEYS.reservationEnabled,
     label: 'settings.aiInsightsSettings.reservation',
+    offDescription: 'settings.aiInsightsSettings.kindOff',
   },
   {
     kind: 'language',
@@ -445,6 +458,7 @@ const MCP_FIELDS: readonly FieldSpec[] = [
     key: AI_MCP_SETTING_KEYS.allowWrites,
     label: 'settings.aiMcp.allowWrites',
     help: 'settings.aiMcp.allowWritesHint',
+    offDescription: 'settings.aiMcp.allowWritesOff',
   },
   {
     kind: 'number',
@@ -560,8 +574,10 @@ function AiOpsSurfaceCard({
           <Label htmlFor="opsAi-enabled" className="leading-6">
             {t('settings.aiSurface.ops.enabled')}
           </Label>
-          <Toggle
+          <ConfirmToggle
             id="opsAi-enabled"
+            label={t('settings.aiSurface.ops.enabled')}
+            offDescription={t('settings.aiSurface.ops.offConfirm')}
             checked={enabled}
             disabled={!canWrite || toggle.isPending}
             onCheckedChange={(checked) => {

@@ -184,6 +184,11 @@ export interface SimTimelineItem {
 export interface SimTimelinePage {
   items: SimTimelineItem[];
   nextCursor: string | null;
+  /** Entries in the range, for the page count. */
+  total: number;
+  page: number | null;
+  /** Time of the last entry before this page; null on the first page. */
+  previousAt: string | null;
   from: string;
   to: string;
   capped: boolean;
@@ -532,17 +537,24 @@ export type TimelineRowData =
   | { type: 'gap'; from: string; to: string };
 
 /**
- * The timeline items, newest first, with one row per run of Not Fetched days
- * placed where its days fall, so an empty stretch never reads as a quiet SIM.
- * A run older than the last loaded item shows once every page is loaded.
+ * The items of one timeline page, newest first, with one row per run of Not
+ * Fetched days placed where its days fall, so an empty stretch never reads as
+ * a quiet SIM. A run belongs to the page whose first item is the first one on
+ * or before its last day: a run on or after the day of the entry before the
+ * page (`previousAt`) showed on an earlier page, and a run older than the
+ * page's last item shows on the last page.
  */
 export function timelineRows(
   items: SimTimelineItem[],
   runs: Array<{ from: string; to: string }>,
   timezone: string,
-  complete: boolean,
+  page: { previousAt: string | null; last: boolean },
 ): TimelineRowData[] {
-  const pending = [...runs].sort((a, b) => b.to.localeCompare(a.to));
+  const before = page.previousAt == null ? null : zonedDate(new Date(page.previousAt), timezone);
+  const complete = page.last;
+  const pending = runs
+    .filter((run) => before == null || run.to < before)
+    .sort((a, b) => b.to.localeCompare(a.to));
   const rows: TimelineRowData[] = [];
   items.forEach((item, index) => {
     const day = zonedDate(new Date(item.at), timezone);

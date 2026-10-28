@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { FileUploadButton } from '@/components/ui/file-upload-button';
+import { useStorageGuard } from '@/components/StorageUnavailableDialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { SaveButton } from '@/components/save-button';
 import { CancelButton } from '@/components/cancel-button';
@@ -74,6 +75,7 @@ export function AvatarEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
+  const storage = useStorageGuard();
 
   // Start from the saved generated avatar, else a random one.
   useEffect(() => {
@@ -87,7 +89,9 @@ export function AvatarEditor({
       await onSave(choice);
       onDone();
     } catch (err) {
-      setError(getErrorMessage(err, t, 'avatar.saveFailed'));
+      if (!storage.handleUploadError(err)) {
+        setError(getErrorMessage(err, t, 'avatar.saveFailed'));
+      }
     } finally {
       setBusy(false);
     }
@@ -221,6 +225,7 @@ export function AvatarEditor({
           <FileUploadButton
             accept={lib.AVATAR_MIME_TYPES.join(',')}
             disabled={busy}
+            guard={storage.guard}
             onFiles={(files) => {
               upload(files[0]);
             }}
@@ -284,6 +289,7 @@ export function AvatarEditor({
           void run({ kind: 'remove' });
         }}
       />
+      {storage.dialog}
     </div>
   );
 }

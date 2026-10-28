@@ -20,8 +20,10 @@ export function RemoveButton({
   title,
   size,
 }: RemoveButtonProps): React.JSX.Element {
+  // An action button, never a submit (the avatar editor dialog sits inside edit forms).
   return (
     <Button
+      type="button"
       variant="destructive"
       size={size}
       className="gap-1.5"

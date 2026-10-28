@@ -213,7 +213,7 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
       </TabPanel>
 
       {metrics != null && (
-        <TabPanel title={t('fleets.fleetDetail')}>
+        <TabPanel title={t('fleets.metrics')}>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">{t('fleets.totalSessions')}</p>

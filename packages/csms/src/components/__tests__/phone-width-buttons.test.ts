@@ -43,7 +43,7 @@ describe('Phone-width buttons', () => {
 
   it('lets the OCPP command tiles and Use This Vehicle wrap their labels', () => {
     expect(commands).toMatch(/key=\{action\}\s+variant="outline"\s+size="wrap"/);
-    expect(useVehicleButton).toContain('<Button size="wrap"');
+    expect(useVehicleButton).toMatch(/<Button type=\{type\} size="wrap"/);
   });
 
   it('keeps the insight pulse and count outside the floating button', () => {

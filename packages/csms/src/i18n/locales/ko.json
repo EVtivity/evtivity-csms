@@ -97,7 +97,14 @@
     "endDate": "종료일",
     "dateRange": "날짜 범위",
     "copyFailed": "복사 실패",
-    "clearDates": "날짜 지우기"
+    "clearDates": "날짜 지우기",
+    "toggleOff": {
+      "title": "설정을 끄시겠습니까?",
+      "description": "‘{{name}}’ 설정이 꺼집니다.",
+      "confirm": "끄기",
+      "cancel": "켜진 상태로 유지"
+    },
+    "ok": "확인"
   },
   "status": {
     "online": "온라인",
@@ -1245,7 +1252,6 @@
       "timelineCapped": "범위가 CSMS에 보관된 데이터에 맞게 줄었습니다.",
       "timelineEmpty": "이 범위에는 아무 일도 없었습니다.",
       "fetch": "가져오기",
-      "loadMore": "더 보기",
       "kind": {
         "connected": "연결됨",
         "disconnected": "연결 끊김",
@@ -1868,6 +1874,8 @@
     "overlapError": "이 요금은 이 그룹의 기존 요금과 겹칩니다",
     "priority": "우선순위",
     "isCurrent": "현재 활성",
+    "currentGroup": "현재",
+    "currentGroupNotSelectable": "현재 요금 그룹입니다",
     "monday": "월",
     "tuesday": "화",
     "wednesday": "수",
@@ -2098,7 +2106,7 @@
     "searchPlaceholder": "차량대 검색...",
     "searchHint": "차량대 ID, 이름 또는 설명으로 검색",
     "fleetNotFound": "차량대를 찾을 수 없습니다",
-    "fleetDetail": "차량대 상세",
+    "metrics": "지표",
     "drivers": "운전자",
     "stations": "충전소",
     "vehicles": "차량",
@@ -3295,7 +3303,8 @@
         "title": "자동 인사이트 및 작업자",
         "description": "자동 인사이트와 백그라운드 작업자가 쓰는 모델입니다. 사용자 없이 실행되며 회사의 공급자 키를 사용합니다.",
         "enabled": "시스템 시작 AI 켜기",
-        "offNote": "이 설정은 시스템 시작 AI가 켜져 있을 때만 적용됩니다. 값은 유지됩니다."
+        "offNote": "이 설정은 시스템 시작 AI가 켜져 있을 때만 적용됩니다. 값은 유지됩니다.",
+        "offConfirm": "자동 인사이트와 AI 백그라운드 작업자가 중지되어 새 인사이트나 제안 작업이 생성되지 않습니다. 기존 인사이트는 유지되지만 다시 켤 때까지 CSMS에서 숨겨집니다."
       },
       "driver": {
         "title": "운전자 지원",
@@ -3344,7 +3353,8 @@
         },
         "empty": "최근 {{days}}일 동안 평가가 없습니다.",
         "viewWrong": "틀림으로 표시된 인사이트 보기"
-      }
+      },
+      "kindOff": "저장하면 이 유형의 새 인사이트가 생성되지 않습니다. 기존 인사이트는 유지됩니다."
     },
     "aiInsightsScope": {
       "title": "AI 인사이트 범위",
@@ -3368,7 +3378,9 @@
       "stationsWithoutSite_other": "선택한 사이트만 분석하는 동안 사이트가 없는 충전소 {{count}}개는 분석되지 않습니다.",
       "removeHint": "범위에서 제외한 사이트와 충전소에는 새 인사이트가 생성되지 않습니다. 열린 인사이트는 해제되고 대기 중인 작업은 만료됩니다.",
       "loadFailed": "AI 인사이트 범위를 불러오지 못했습니다.",
-      "stationsFailed": "충전소를 불러오지 못했습니다."
+      "stationsFailed": "충전소를 불러오지 못했습니다.",
+      "siteOff": "저장하면 이 사이트에는 새 인사이트가 생성되지 않습니다. 열린 인사이트는 해제되고 대기 중인 작업은 만료됩니다.",
+      "stationOff": "저장하면 이 충전소에는 새 인사이트가 생성되지 않습니다. 열린 인사이트는 해제되고 대기 중인 작업은 만료됩니다."
     },
     "aiMcp": {
       "title": "MCP 서버",
@@ -3387,7 +3399,8 @@
       "toolsets": "도구 범주",
       "toolsetsHint": "URL에 ?toolsets=stations,sessions를 추가하세요. 기본값: {{toolsets}}.",
       "writesHint": "쓰기는 확인 없이 실행됩니다. 키를 사용한 다른 API 호출처럼 감사 및 기록됩니다.",
-      "protocolNote": "MCP 2026-07-28 및 이전 클라이언트를 지원합니다."
+      "protocolNote": "MCP 2026-07-28 및 이전 클라이언트를 지원합니다.",
+      "allowWritesOff": "저장하면 MCP 클라이언트는 읽기만 합니다."
     },
     "aiLimitZeroNoLimit": "0은 한도 없음을 뜻합니다.",
     "aiTabs": {
@@ -3580,7 +3593,9 @@
       },
       "proofHint": "감사 기록, 로그인 기록 또는 보안 이벤트 기록의 보존 기간을 줄이려면 본인임을 확인하십시오. 모든 관리자에게 알림이 전송됩니다."
     },
-    "uploadReplacesHint": "새 이미지를 업로드하면 현재 이미지를 대체합니다."
+    "uploadReplacesHint": "새 이미지를 업로드하면 현재 이미지를 대체합니다.",
+    "roamingOffDescription": "로밍 섹션이 숨겨지고 모든 OCPI 트래픽이 차단됩니다.",
+    "pncOffDescription": "인증서 섹션이 숨겨지고 인증서 작업이 차단됩니다."
   },
   "pnc": {
     "certificates": "인증서",
@@ -6481,5 +6496,10 @@
     "editDescriptionDriver": "이 운전자의 아바타를 만들거나 사진을 업로드합니다. 운전자 목록, 차량대 구성원, 운전자 페이지에 표시됩니다. 운전자가 변경할 수 있습니다.",
     "savedWithNewAccount": "선택 사항입니다. 계정이 생성될 때 아바타가 저장됩니다.",
     "applyFailed": "계정은 생성되었지만 아바타를 저장하지 못했습니다. 상세 탭에서 다시 설정하세요."
+  },
+  "storageUnavailable": {
+    "title": "파일 저장소가 설정되지 않음",
+    "description": "파일 저장소가 설정되지 않아 파일을 업로드할 수 없습니다. 관리자가 {{path}}에서 설정할 수 있습니다.",
+    "openSettings": "설정 열기"
   }
 }

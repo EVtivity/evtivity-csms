@@ -5,6 +5,8 @@ import { Calculator } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface RecalculateButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -17,9 +19,17 @@ export function RecalculateButton({
   onClick,
   disabled,
   size,
+  type = 'button',
 }: RecalculateButtonProps): React.JSX.Element {
   return (
-    <Button variant="outline" size={size} className="gap-1.5" onClick={onClick} disabled={disabled}>
+    <Button
+      type={type}
+      variant="outline"
+      size={size}
+      className="gap-1.5"
+      onClick={onClick}
+      disabled={disabled}
+    >
       <Calculator className={size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4'} aria-hidden="true" />
       {label}
     </Button>

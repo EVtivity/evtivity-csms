@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 export type BillingRecipient = 'fleet' | 'member';
 
 interface BillToButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   /** The recipient the click moves the sessions to. */
   recipient: BillingRecipient;
   onClick: () => void;
@@ -25,10 +27,11 @@ export function BillToButton({
   label,
   disabled,
   size,
+  type = 'button',
 }: BillToButtonProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
-    <Button variant="outline" size={size} onClick={onClick} disabled={disabled}>
+    <Button type={type} variant="outline" size={size} onClick={onClick} disabled={disabled}>
       <ArrowLeftRight className="h-4 w-4" aria-hidden="true" />
       {label ??
         (recipient === 'member'

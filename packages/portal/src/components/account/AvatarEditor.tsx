@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { Spinner } from '@/components/ui/spinner';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useStorageGuard } from '@/components/StorageUnavailableDialog';
 import { DriverAvatar } from '@/components/account/DriverAvatar';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -85,6 +86,7 @@ export function AvatarEditor({
   const [error, setError] = useState<string | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const storage = useStorageGuard();
 
   // Start from the saved generated avatar, else a random one (also for one off the allow-list).
   useEffect(() => {
@@ -105,7 +107,12 @@ export function AvatarEditor({
       onDone();
       return true;
     } catch (err) {
-      setError(getErrorMessage(err, t, 'account.avatarSaveFailed'));
+      if (storage.handleUploadError(err)) {
+        // Storage went away after the features read: hide the upload again.
+        void queryClient.invalidateQueries({ queryKey: ['portal-features'] });
+      } else {
+        setError(getErrorMessage(err, t, 'account.avatarSaveFailed'));
+      }
       return false;
     } finally {
       setBusy(false);
@@ -282,7 +289,9 @@ export function AvatarEditor({
             type="button"
             className="w-full"
             disabled={busy || lib == null}
-            onClick={() => fileInput.current?.click()}
+            onClick={() => {
+              storage.guard(uploadEnabled, () => fileInput.current?.click());
+            }}
           >
             {busy ? <Spinner className="mr-2 h-4 w-4" /> : <Upload className="mr-2 h-4 w-4" />}
             {t('account.avatarChooseImage')}
@@ -345,6 +354,7 @@ export function AvatarEditor({
         isPending={busy}
         onConfirm={remove}
       />
+      {storage.dialog}
     </div>
   );
 }

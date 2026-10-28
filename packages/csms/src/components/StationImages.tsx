@@ -14,6 +14,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { Label } from '@/components/ui/label';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
+import { useStorageGuard } from '@/components/StorageUnavailableDialog';
 import { FileViewerDialog, type ViewerFile } from '@/components/FileViewerDialog';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -47,6 +48,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const storage = useStorageGuard();
 
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [mainImageUrl, setMainImageUrl] = useState<string | null>(null);
@@ -200,10 +202,12 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
       }
       invalidate();
     } catch (err) {
-      toast({
-        title: getErrorMessage(err, t, 'stations.uploadFailed'),
-        variant: 'destructive',
-      });
+      if (!storage.handleUploadError(err)) {
+        toast({
+          title: getErrorMessage(err, t, 'stations.uploadFailed'),
+          variant: 'destructive',
+        });
+      }
     } finally {
       setUploading(false);
       setUploadProgress(null);
@@ -310,7 +314,9 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
           </div>
           <Button
             onClick={() => {
-              fileInputRef.current?.click();
+              storage.guard(() => {
+                fileInputRef.current?.click();
+              });
             }}
           >
             <Plus className="h-4 w-4" />
@@ -329,6 +335,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
             }
           }}
         />
+        {storage.dialog}
       </TabPanel>
     );
   }
@@ -351,7 +358,9 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
           <Button
             disabled={uploading}
             onClick={() => {
-              fileInputRef.current?.click();
+              storage.guard(() => {
+                fileInputRef.current?.click();
+              });
             }}
           >
             <Plus className="h-4 w-4" />
@@ -599,6 +608,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
           getDownloadUrl={getDownloadUrl}
         />
       )}
+      {storage.dialog}
     </TabPanel>
   );
 }

@@ -687,12 +687,12 @@ async function writeWebhookSigningSecret(request: FastifyRequest, secret: string
   await invalidateNotificationSettings();
 }
 
-/** Whether drivers may upload an avatar image: file storage is configured. False when it cannot be read. */
-async function isAvatarUploadEnabled(log: FastifyBaseLogger): Promise<boolean> {
+/** Whether file storage (S3) is configured, so uploads work. False when it cannot be read. */
+async function isFileStorageConfigured(log: FastifyBaseLogger): Promise<boolean> {
   try {
     return (await getObjectStorage()) != null;
   } catch (err) {
-    log.warn({ err }, 'S3 settings read failed; avatar upload reported off');
+    log.warn({ err }, 'S3 settings read failed; file storage reported off');
     return false;
   }
 }
@@ -909,6 +909,11 @@ export function settingsRoutes(app: FastifyInstance): void {
                   .describe(
                     'Whether drivers can upload an avatar image (file storage is configured). The avatar generator works either way',
                   ),
+                fileStorageEnabled: z
+                  .boolean()
+                  .describe(
+                    'Whether file storage is configured, so files can be uploaded (AI chat and support case attachments, station images, avatar images). False when it cannot be read',
+                  ),
                 simEnabled: z
                   .literal(true)
                   .optional()
@@ -941,7 +946,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const reservationConfig = await getReservationSettings();
       const currency = await getCompanyCurrency();
       const simSettings = await readSimSettings();
-      const avatarUploadEnabled = await isAvatarUploadEnabled(request.log);
+      const fileStorageEnabled = await isFileStorageConfigured(request.log);
       // Left out while off, so the reply stays as it was before SIM providers existed.
       const simFlags = {
         ...(isSimFeatureOn(simSettings) ? { simEnabled: true as const } : {}),
@@ -963,7 +968,8 @@ export function settingsRoutes(app: FastifyInstance): void {
         reservationCancellationWindowMinutes: reservationConfig.cancellationWindowMinutes,
         reservationMaxHours: reservationConfig.maxHours,
         currency,
-        avatarUploadEnabled,
+        avatarUploadEnabled: fileStorageEnabled,
+        fileStorageEnabled,
         ...simFlags,
       };
     },

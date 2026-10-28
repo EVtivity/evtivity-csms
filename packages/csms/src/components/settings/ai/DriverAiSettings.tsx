@@ -17,7 +17,7 @@ import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { AiEffortSelect, AiProviderSelect } from '@/components/ai/AiConfigFields';
 import { AiModelField } from '@/components/ai/AiModelField';
 import { AiSystemPromptField } from '@/components/ai/AiSystemPromptField';
@@ -148,8 +148,9 @@ export function DriverAiSettings({ settings }: DriverAiSettingsProps): React.JSX
             <Label htmlFor="driverAi-enabled" className="leading-6">
               {t('settings.aiSurface.driver.enabled')}
             </Label>
-            <Toggle
+            <ConfirmToggle
               id="driverAi-enabled"
+              label={t('settings.aiSurface.driver.enabled')}
               checked={enabled}
               disabled={!canWrite || toggle.isPending}
               onCheckedChange={(checked) => {

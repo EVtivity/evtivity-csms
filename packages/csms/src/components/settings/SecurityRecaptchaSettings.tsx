@@ -7,7 +7,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
@@ -96,8 +96,9 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
             <div className="space-y-0.5">
               <Label className="leading-6">{t('settings.recaptchaEnabled')}</Label>
             </div>
-            <Toggle
+            <ConfirmToggle
               aria-label={t('settings.recaptchaEnabled')}
+              label={t('settings.recaptchaEnabled')}
               size="lg"
               checked={enabled}
               onCheckedChange={() => {

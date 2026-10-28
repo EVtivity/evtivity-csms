@@ -21,9 +21,15 @@ vi.mock('@/lib/api', () => {
       super(`API error ${String(status)}`);
     }
   }
+  function getApiErrorCode(err: unknown): string | null {
+    if (!(err instanceof ApiError)) return null;
+    const body = err.body as { code?: unknown } | null;
+    return typeof body?.code === 'string' ? body.code : null;
+  }
   return {
     api: { get: getMock, put: putMock, post: postMock, delete: deleteMock },
     ApiError,
+    getApiErrorCode,
   };
 });
 
@@ -32,6 +38,7 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
 }));
 
+import { ApiError } from '@/lib/api';
 import { AvatarEditor, AvatarField } from '../AvatarEditor';
 import { AVATAR_QUERY_KEY, type DriverAvatar as Avatar } from '@/lib/avatar';
 
@@ -191,6 +198,25 @@ describe('AvatarEditor, live', () => {
     fireEvent.change(input, { target: { files: [svg] } });
     expect(await screen.findByText('account.avatarWrongType')).toBeTruthy();
     expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('opens the storage dialog, not an inline error, when the upload answers STORAGE_NOT_CONFIGURED', async () => {
+    mockFeatures(true);
+    postMock.mockRejectedValue(
+      new ApiError(400, { error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' }),
+    );
+    const { onDone } = renderEditor({ current: null });
+    fireEvent.click(await screen.findByRole('button', { name: 'account.avatarUpload' }));
+    const photo = new File([new Uint8Array(10)], 'a.jpg', { type: 'image/jpeg' });
+    fireEvent.change(screen.getByTestId('avatar-file'), { target: { files: [photo] } });
+    const dialog = await screen.findByRole('dialog', { name: 'storageUnavailable.title' });
+    expect(dialog.textContent).toContain('storageUnavailable.description');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(onDone).not.toHaveBeenCalled();
+    clickInDialog('common.ok');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
   });
 
   it('removes the avatar after the confirmation', async () => {

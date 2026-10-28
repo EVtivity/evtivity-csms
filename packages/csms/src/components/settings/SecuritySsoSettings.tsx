@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tryParseJson } from '@evtivity/lib/safe-json';
 import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -49,8 +49,9 @@ function ToggleRow({
         <Label className="leading-6">{label}</Label>
         {description != null && <p className="text-xs text-muted-foreground">{description}</p>}
       </div>
-      <Toggle
+      <ConfirmToggle
         aria-label={label}
+        label={label}
         size="lg"
         checked={checked}
         onCheckedChange={() => {

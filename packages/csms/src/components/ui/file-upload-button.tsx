@@ -10,12 +10,18 @@ interface FileUploadButtonProps extends Omit<ButtonProps, 'onChange'> {
   onFiles: (files: File[]) => void;
   multiple?: boolean;
   accept?: string;
+  /**
+   * Called with the function that opens the file chooser; it may open a
+   * dialog instead (`useStorageGuard().guard` while file storage is off).
+   */
+  guard?: (openPicker: () => void) => void;
 }
 
 export function FileUploadButton({
   onFiles,
   multiple = false,
   accept,
+  guard,
   children,
   ...buttonProps
 }: FileUploadButtonProps): React.JSX.Element {
@@ -44,7 +50,11 @@ export function FileUploadButton({
         {...buttonProps}
         className={cn('gap-2', buttonProps.className)}
         onClick={(e) => {
-          inputRef.current?.click();
+          const openPicker = (): void => {
+            inputRef.current?.click();
+          };
+          if (guard == null) openPicker();
+          else guard(openPicker);
           buttonProps.onClick?.(e);
         }}
       >

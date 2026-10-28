@@ -114,6 +114,23 @@ describe('Settings > AI roadmap panels', () => {
     });
   });
 
+  it('asks before turning system-initiated AI off and says what stops', async () => {
+    wrap(<AiOpsSettings settings={ON_SETTINGS} canWrite aiDefaults={undefined} />);
+    const ops = screen.getByTestId('ai-ops-settings');
+    const toggle = within(ops).getAllByRole('switch')[0] as HTMLElement;
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle);
+    expect(screen.getByText('settings.aiSurface.ops.offConfirm')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.cancel' }));
+    expect(apiMock.put).not.toHaveBeenCalled();
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.confirm' }));
+    await waitFor(() => {
+      expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/opsAi.enabled', { value: false });
+    });
+  });
+
   it('shows defaults for unset keys and saves only the changed insight values', async () => {
     wrap(<AiOpsSettings settings={SETTINGS} canWrite aiDefaults={undefined} />);
     const panel = screen.getByTestId('ai-insights-settings');
@@ -145,6 +162,9 @@ describe('Settings > AI roadmap panels', () => {
     const toggle = await within(panel).findByLabelText('settings.aiInsightsSettings.reservation');
     expect(toggle.getAttribute('aria-checked')).toBe('true');
     fireEvent.click(toggle);
+    // Turning it off asks first and says what stops.
+    expect(screen.getByText('settings.aiInsightsSettings.kindOff')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.confirm' }));
     fireEvent.click(within(panel).getByRole('button', { name: /save/i }));
     await waitFor(() => {
       expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/aiInsights.reservation.enabled', {
@@ -171,6 +191,7 @@ describe('Settings > AI roadmap panels', () => {
     expect(within(panel).getAllByRole('switch')).toHaveLength(3);
     // Saving the card never writes the hidden reservation switch.
     fireEvent.click(within(panel).getAllByRole('switch')[0] as HTMLElement);
+    fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.confirm' }));
     fireEvent.click(within(panel).getByRole('button', { name: /save/i }));
     await waitFor(() => {
       expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/aiInsights.station.enabled', {

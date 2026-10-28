@@ -226,6 +226,54 @@ export async function startFtpServer(opts: {
   return { port, files, commands, close: () => closeAll(servers, sockets) };
 }
 
+function sshString(value: Buffer | string): Buffer {
+  const body = typeof value === 'string' ? Buffer.from(value) : value;
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(body.length);
+  return Buffer.concat([length, body]);
+}
+
+/**
+ * An ed25519 SSH host key in the OpenSSH private key format, built from a node:crypto key pair.
+ * ssh2's generateKeyPairSync('ed25519') strips leading zero bytes of the key, so about one key
+ * in 256 does not parse; the raw 32-byte values used here keep every byte.
+ */
+export function ed25519HostKey(): { privateKey: string; publicSSH: Buffer } {
+  const { privateKey } = crypto.generateKeyPairSync('ed25519');
+  const jwk = privateKey.export({ format: 'jwk' });
+  if (jwk.d == null || jwk.x == null) throw new Error('ed25519 key export has no key bytes');
+  const seed = Buffer.from(jwk.d, 'base64url');
+  const pub = Buffer.from(jwk.x, 'base64url');
+  const publicSSH = Buffer.concat([sshString('ssh-ed25519'), sshString(pub)]);
+  const check = crypto.randomBytes(4);
+  const unpadded = Buffer.concat([
+    check,
+    check,
+    sshString('ssh-ed25519'),
+    sshString(pub),
+    sshString(Buffer.concat([seed, pub])),
+    sshString(''),
+  ]);
+  const padLength = (8 - (unpadded.length % 8)) % 8;
+  const padding = Buffer.from(Array.from({ length: padLength }, (_, i) => i + 1));
+  const count = Buffer.alloc(4);
+  count.writeUInt32BE(1);
+  const blob = Buffer.concat([
+    Buffer.from('openssh-key-v1\0'),
+    sshString('none'),
+    sshString('none'),
+    sshString(''),
+    count,
+    sshString(publicSSH),
+    sshString(Buffer.concat([unpadded, padding])),
+  ]);
+  const body = (blob.toString('base64').match(/.{1,70}/g) ?? []).join('\n');
+  return {
+    privateKey: `-----BEGIN OPENSSH PRIVATE KEY-----\n${body}\n-----END OPENSSH PRIVATE KEY-----\n`,
+    publicSSH,
+  };
+}
+
 /** An SFTP server: password authentication; a path under /denied answers PERMISSION_DENIED. */
 export async function startSftpServer(opts: {
   user: string;
@@ -235,13 +283,10 @@ export async function startSftpServer(opts: {
   const { STATUS_CODE } = utils.sftp;
   const files = new Map<string, Buffer>();
   const commands: string[] = [];
-  const keyPair = utils.generateKeyPairSync('ed25519');
-  const hostKey = keyPair.private;
-  const parsed = utils.parseKey(keyPair.public);
-  if (parsed instanceof Error) throw parsed;
+  const { privateKey: hostKey, publicSSH } = ed25519HostKey();
   const hostKeySha256 = crypto
     .createHash('sha256')
-    .update(parsed.getPublicSSH())
+    .update(publicSSH)
     .digest('base64')
     .replace(/=+$/, '');
 

@@ -4,11 +4,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 
-const { putMock, postMock, deleteMock, uploadMock } = vi.hoisted(() => ({
+const { putMock, postMock, deleteMock, uploadMock, storage } = vi.hoisted(() => ({
   putMock: vi.fn(),
   postMock: vi.fn(),
   deleteMock: vi.fn(),
   uploadMock: vi.fn(),
+  storage: { enabled: true },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -27,8 +28,21 @@ vi.mock('@/lib/api', () => {
       super(`API error ${String(status)}`);
     }
   }
-  return { api: { put: putMock, post: postMock, delete: deleteMock }, ApiError };
+  function getApiErrorCode(err: unknown): string | null {
+    if (!(err instanceof ApiError)) return null;
+    const body = err.body as { code?: unknown } | null;
+    return typeof body?.code === 'string' ? body.code : null;
+  }
+  return { api: { put: putMock, post: postMock, delete: deleteMock }, ApiError, getApiErrorCode };
 });
+
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: () => false,
+  useHasAllSiteAccess: () => false,
+}));
+vi.mock('@/hooks/use-feature-flags', () => ({
+  useFeatureFlags: () => ({ flags: { fileStorageEnabled: storage.enabled } }),
+}));
 
 vi.mock('@evtivity/lib/account-avatar', async (importOriginal) => ({
   ...(await importOriginal<object>()),
@@ -73,6 +87,8 @@ function fileInput(): HTMLInputElement {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
+  storage.enabled = true;
 });
 
 describe('AvatarField and AvatarEditor', () => {
@@ -137,6 +153,32 @@ describe('AvatarField and AvatarEditor', () => {
     });
   });
 
+  it('opens the storage dialog instead of the file chooser while file storage is off', async () => {
+    storage.enabled = false;
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
+    renderField(onSave);
+    await openEditor();
+    fireEvent.click(screen.getByRole('button', { name: /avatar\.upload/ }));
+    fireEvent.click(screen.getByTestId('avatar-file'));
+    expect(screen.getByRole('dialog', { name: 'storageUnavailable.title' })).toBeTruthy();
+    expect(clickSpy).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('opens the storage dialog when the upload answers STORAGE_NOT_CONFIGURED', async () => {
+    const onSave = vi
+      .fn()
+      .mockRejectedValue(new ApiError(400, { error: 'x', code: 'STORAGE_NOT_CONFIGURED' }));
+    renderField(onSave);
+    await openEditor();
+    fireEvent.click(screen.getByRole('button', { name: /avatar\.upload/ }));
+    const photo = new File([new Uint8Array(10)], 'a.jpg', { type: 'image/jpeg' });
+    fireEvent.change(fileInput(), { target: { files: [photo] } });
+    expect(await screen.findByRole('dialog', { name: 'storageUnavailable.title' })).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('removes behind a confirmation, and offers Remove only with an avatar', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     renderField(onSave);
@@ -187,5 +229,51 @@ describe('applyAvatarChoice', () => {
     deleteMock.mockResolvedValueOnce({ avatar: null });
     await expect(applyAvatarChoice(OWN_AVATAR_PATH, { kind: 'remove' })).resolves.toBeNull();
     expect(deleteMock).toHaveBeenCalledWith('/v1/users/me/avatar');
+  });
+});
+
+// The user and driver edit forms hold the avatar field, and the dialog renders
+// inside the form: a button there that defaulted to submit saved the form, which
+// closed the edit form and the editor right after it opened.
+describe('AvatarField inside an edit form', () => {
+  function formWith(label: string, onSubmit: () => void): React.JSX.Element {
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+      >
+        <span>{label}</span>
+        <AvatarField
+          avatar={SAVED}
+          firstName="Ana"
+          lastName="Lee"
+          onSave={() => Promise.resolve()}
+        />
+      </form>
+    );
+  }
+
+  it('opens the editor without submitting the form, and Remove submits nothing', async () => {
+    const onSubmit = vi.fn();
+    render(formWith('first', onSubmit));
+    await openEditor();
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /^avatar\.remove$/ }));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(screen.getAllByRole('dialog').length).toBeGreaterThan(0);
+  });
+
+  it('stays open when the form rerenders while the editor is open', async () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(formWith('first', onSubmit));
+    await openEditor();
+    rerender(formWith('second', onSubmit));
+    await waitFor(() => {
+      expect(screen.getByText('second')).toBeTruthy();
+    });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

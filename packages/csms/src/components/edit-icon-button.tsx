@@ -5,6 +5,8 @@ import { SquarePen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface EditIconButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   onClick: () => void;
   title: string;
   disabled?: boolean;
@@ -14,11 +16,13 @@ export function EditIconButton({
   onClick,
   title,
   disabled,
+  type = 'button',
 }: EditIconButtonProps): React.JSX.Element {
   const iconClass = 'h-4 w-4';
   return (
     <span className="group relative inline-flex">
       <Button
+        type={type}
         variant="secondary"
         size="icon"
         onClick={onClick}

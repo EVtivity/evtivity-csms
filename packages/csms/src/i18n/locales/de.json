@@ -97,7 +97,14 @@
     "endDate": "Enddatum",
     "dateRange": "Zeitraum",
     "copyFailed": "Kopieren fehlgeschlagen",
-    "clearDates": "Daten Löschen"
+    "clearDates": "Daten Löschen",
+    "toggleOff": {
+      "title": "Einstellung ausschalten?",
+      "description": "Damit wird „{{name}}“ ausgeschaltet.",
+      "confirm": "Ausschalten",
+      "cancel": "Eingeschaltet lassen"
+    },
+    "ok": "OK"
   },
   "status": {
     "online": "Online",
@@ -1245,7 +1252,6 @@
       "timelineCapped": "Der Zeitraum wurde auf die Daten gekürzt, die das CSMS aufbewahrt.",
       "timelineEmpty": "In diesem Zeitraum ist nichts passiert.",
       "fetch": "Abrufen",
-      "loadMore": "Mehr laden",
       "kind": {
         "connected": "Verbunden",
         "disconnected": "Getrennt",
@@ -1868,6 +1874,8 @@
     "overlapError": "Dieser Tarif überschneidet sich mit einem vorhandenen Tarif in dieser Gruppe",
     "priority": "Priorität",
     "isCurrent": "Derzeit aktiv",
+    "currentGroup": "Aktuell",
+    "currentGroupNotSelectable": "Dies ist die aktuelle Preisgruppe",
     "monday": "Mo",
     "tuesday": "Di",
     "wednesday": "Mi",
@@ -2098,7 +2106,7 @@
     "searchPlaceholder": "Flotten suchen...",
     "searchHint": "Suchen Sie nach Flotten-ID, Name oder Beschreibung",
     "fleetNotFound": "Flotte nicht gefunden",
-    "fleetDetail": "Flottendetails",
+    "metrics": "Kennzahlen",
     "drivers": "Fahrer",
     "stations": "Stationen",
     "vehicles": "Fahrzeuge",
@@ -3295,7 +3303,8 @@
         "title": "Automatische Analysen und Worker",
         "description": "Das Modell für automatische Analysen und Hintergrund-Worker. Sie laufen ohne Benutzer und verwenden den Anbieterschlüssel des Unternehmens.",
         "enabled": "Systemgesteuerte KI einschalten",
-        "offNote": "Diese Einstellungen wirken nur, solange die systemgesteuerte KI eingeschaltet ist. Ihre Werte bleiben erhalten."
+        "offNote": "Diese Einstellungen wirken nur, solange die systemgesteuerte KI eingeschaltet ist. Ihre Werte bleiben erhalten.",
+        "offConfirm": "Automatische Erkenntnisse und KI-Hintergrund-Worker stoppen: Es entstehen keine neuen Erkenntnisse oder vorgeschlagenen Aktionen. Vorhandene Erkenntnisse bleiben erhalten, sind im CSMS aber ausgeblendet, bis Sie es wieder einschalten."
       },
       "driver": {
         "title": "Fahrer-Support",
@@ -3344,7 +3353,8 @@
         },
         "empty": "Keine Bewertungen in den letzten {{days}} Tagen.",
         "viewWrong": "Als falsch markierte Analysen anzeigen"
-      }
+      },
+      "kindOff": "Nach dem Speichern entstehen keine neuen Erkenntnisse dieser Art. Vorhandene bleiben erhalten."
     },
     "aiInsightsScope": {
       "title": "Umfang der KI-Erkenntnisse",
@@ -3368,7 +3378,9 @@
       "stationsWithoutSite_other": "{{count}} Ladestationen ohne Standort werden nicht analysiert, solange nur ausgewählte Standorte analysiert werden.",
       "removeHint": "Standorte und Ladestationen, die Sie aus dem Umfang nehmen, erhalten keine neuen Erkenntnisse. Ihre offenen Erkenntnisse werden verworfen und ihre wartenden Aktionen laufen ab.",
       "loadFailed": "Der Umfang der KI-Erkenntnisse konnte nicht geladen werden.",
-      "stationsFailed": "Die Ladestationen konnten nicht geladen werden."
+      "stationsFailed": "Die Ladestationen konnten nicht geladen werden.",
+      "siteOff": "Nach dem Speichern erhält dieser Standort keine neuen Erkenntnisse. Seine offenen Erkenntnisse werden verworfen und seine wartenden Aktionen laufen ab.",
+      "stationOff": "Nach dem Speichern erhält diese Ladestation keine neuen Erkenntnisse. Ihre offenen Erkenntnisse werden verworfen und ihre wartenden Aktionen laufen ab."
     },
     "aiMcp": {
       "title": "MCP-Server",
@@ -3387,7 +3399,8 @@
       "toolsets": "Werkzeugkategorien",
       "toolsetsHint": "Hängen Sie ?toolsets=stations,sessions an die URL an. Standard: {{toolsets}}.",
       "writesHint": "Schreibvorgänge laufen ohne Bestätigung. Sie werden wie jeder API-Aufruf mit dem Schlüssel protokolliert und geprüft.",
-      "protocolNote": "Unterstützt MCP 2026-07-28 und ältere Clients."
+      "protocolNote": "Unterstützt MCP 2026-07-28 und ältere Clients.",
+      "allowWritesOff": "Nach dem Speichern lesen MCP-Clients nur."
     },
     "aiLimitZeroNoLimit": "0 bedeutet kein Limit.",
     "aiTabs": {
@@ -3580,7 +3593,9 @@
       },
       "proofHint": "Bestätigen Sie Ihre Identität, um die Aufbewahrung des Audit-Verlaufs, des Anmeldeverlaufs oder der Sicherheitsereignisse zu verkürzen. Jeder Administrator erhält eine Benachrichtigung."
     },
-    "uploadReplacesHint": "Ein neues Bild ersetzt das aktuelle."
+    "uploadReplacesHint": "Ein neues Bild ersetzt das aktuelle.",
+    "roamingOffDescription": "Der Roaming-Bereich wird ausgeblendet und der gesamte OCPI-Verkehr blockiert.",
+    "pncOffDescription": "Der Bereich Zertifikate wird ausgeblendet und Zertifikatsoperationen werden blockiert."
   },
   "pnc": {
     "certificates": "Zertifikate",
@@ -6481,5 +6496,10 @@
     "editDescriptionDriver": "Erstellen Sie einen Avatar oder laden Sie ein Foto für diesen Fahrer hoch. Er erscheint in der Fahrerliste, bei den Flottenmitgliedern und auf der Fahrerseite. Der Fahrer kann ihn ändern.",
     "savedWithNewAccount": "Optional. Der Avatar wird gespeichert, wenn das Konto erstellt wird.",
     "applyFailed": "Das Konto wurde erstellt, aber der Avatar konnte nicht gespeichert werden. Legen Sie ihn auf dem Tab Details erneut fest."
+  },
+  "storageUnavailable": {
+    "title": "Dateispeicher nicht eingerichtet",
+    "description": "Dateien können nicht hochgeladen werden, weil kein Dateispeicher eingerichtet ist. Ein Administrator kann ihn unter {{path}} einrichten.",
+    "openSettings": "Einstellungen öffnen"
   }
 }

@@ -97,7 +97,14 @@
     "endDate": "結束日期",
     "dateRange": "日期範圍",
     "copyFailed": "複製失敗",
-    "clearDates": "清除日期"
+    "clearDates": "清除日期",
+    "toggleOff": {
+      "title": "關閉此設定？",
+      "description": "這將關閉「{{name}}」。",
+      "confirm": "關閉",
+      "cancel": "保持開啟"
+    },
+    "ok": "確定"
   },
   "status": {
     "online": "線上",
@@ -1245,7 +1252,6 @@
       "timelineCapped": "範圍已縮短為 CSMS 保留的資料。",
       "timelineEmpty": "此範圍內沒有發生任何事件。",
       "fetch": "擷取",
-      "loadMore": "載入更多",
       "kind": {
         "connected": "已連線",
         "disconnected": "已中斷連線",
@@ -1868,6 +1874,8 @@
     "overlapError": "此費率與該組中的現有費率重疊",
     "priority": "優先順序",
     "isCurrent": "當前生效",
+    "currentGroup": "當前",
+    "currentGroupNotSelectable": "這是當前的計費群組",
     "monday": "週一",
     "tuesday": "週二",
     "wednesday": "週三",
@@ -2098,7 +2106,7 @@
     "searchPlaceholder": "搜尋車隊...",
     "searchHint": "按車隊 ID、名稱或描述搜尋",
     "fleetNotFound": "找不到車隊",
-    "fleetDetail": "車隊詳細資料",
+    "metrics": "指標",
     "drivers": "駕駛員",
     "stations": "充電站",
     "vehicles": "車輛",
@@ -3295,7 +3303,8 @@
         "title": "自動洞察與背景工作",
         "description": "自動洞察和背景工作使用的模型。它們在沒有使用者的情況下執行，並使用公司的供應商金鑰。",
         "enabled": "開啟系統發起的 AI",
-        "offNote": "這些設定僅在系統發起的 AI 開啟時生效。其值會保留。"
+        "offNote": "這些設定僅在系統發起的 AI 開啟時生效。其值會保留。",
+        "offConfirm": "自動洞察和 AI 背景工作將停止：不再產生新的洞察或建議操作。現有洞察會保留，但在您重新開啟之前會在 CSMS 中隱藏。"
       },
       "driver": {
         "title": "駕駛員支援",
@@ -3344,7 +3353,8 @@
         },
         "empty": "最近 {{days}} 天內沒有評價。",
         "viewWrong": "查看標記為錯誤的洞察"
-      }
+      },
+      "kindOff": "儲存後，不再產生此類型的新洞察。現有洞察會保留。"
     },
     "aiInsightsScope": {
       "title": "AI 洞察範圍",
@@ -3368,7 +3378,9 @@
       "stationsWithoutSite_other": "僅分析所選站點時，{{count}} 個沒有站點的充電站不會被分析。",
       "removeHint": "移出範圍的站點和充電站不會產生新的洞察。其未關閉的洞察會被忽略，等待中的操作會過期。",
       "loadFailed": "無法載入 AI 洞察範圍。",
-      "stationsFailed": "無法載入充電站。"
+      "stationsFailed": "無法載入充電站。",
+      "siteOff": "儲存後，此站點不會產生新的洞察。其未關閉的洞察會被忽略，等待中的操作會過期。",
+      "stationOff": "儲存後，此充電站不會產生新的洞察。其未關閉的洞察會被忽略，等待中的操作會過期。"
     },
     "aiMcp": {
       "title": "MCP 伺服器",
@@ -3387,7 +3399,8 @@
       "toolsets": "工具類別",
       "toolsetsHint": "在 URL 後加上 ?toolsets=stations,sessions。預設：{{toolsets}}。",
       "writesHint": "寫入無需確認即執行。它們像使用該金鑰的任何 API 呼叫一樣被稽核和記錄。",
-      "protocolNote": "支援 MCP 2026-07-28 及舊版用戶端。"
+      "protocolNote": "支援 MCP 2026-07-28 及舊版用戶端。",
+      "allowWritesOff": "儲存後，MCP 用戶端只讀。"
     },
     "aiLimitZeroNoLimit": "0 表示不設上限。",
     "aiTabs": {
@@ -3580,7 +3593,9 @@
       },
       "proofHint": "請確認是您本人，以縮短稽核記錄、登入記錄或安全事件記錄的保留期。每位管理員都會收到通知。"
     },
-    "uploadReplacesHint": "上傳新圖片會取代目前的圖片。"
+    "uploadReplacesHint": "上傳新圖片會取代目前的圖片。",
+    "roamingOffDescription": "漫遊部分將被隱藏，所有 OCPI 流量將被阻止。",
+    "pncOffDescription": "憑證部分將被隱藏，憑證操作將被阻止。"
   },
   "pnc": {
     "certificates": "憑證",
@@ -6481,5 +6496,10 @@
     "editDescriptionDriver": "為此駕駛員建立頭像或上傳照片。頭像顯示在駕駛員列表、車隊成員和駕駛員頁面中。駕駛員可以變更它。",
     "savedWithNewAccount": "選填。帳戶建立時儲存頭像。",
     "applyFailed": "帳戶已建立，但頭像未能儲存。請在詳細資料分頁中重新設定。"
+  },
+  "storageUnavailable": {
+    "title": "未設定檔案儲存",
+    "description": "尚未設定檔案儲存，無法上傳檔案。管理員可以在 {{path}} 中進行設定。",
+    "openSettings": "開啟設定"
   }
 }

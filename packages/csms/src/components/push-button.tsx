@@ -5,14 +5,21 @@ import { Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface PushButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   label: string;
   onClick: () => void;
   disabled?: boolean;
 }
 
-export function PushButton({ label, onClick, disabled }: PushButtonProps): React.JSX.Element {
+export function PushButton({
+  label,
+  onClick,
+  disabled,
+  type = 'button',
+}: PushButtonProps): React.JSX.Element {
   return (
-    <Button className="gap-1.5" disabled={disabled} onClick={onClick}>
+    <Button type={type} className="gap-1.5" disabled={disabled} onClick={onClick}>
       <Upload className="h-4 w-4" />
       {label}
     </Button>

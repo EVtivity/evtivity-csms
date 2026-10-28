@@ -5,6 +5,8 @@ import { PowerOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface DisableButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -17,9 +19,10 @@ export function DisableButton({
   onClick,
   disabled,
   size,
+  type = 'button',
 }: DisableButtonProps): React.JSX.Element {
   return (
-    <Button variant="destructive" size={size} onClick={onClick} disabled={disabled}>
+    <Button type={type} variant="destructive" size={size} onClick={onClick} disabled={disabled}>
       <PowerOff className="h-4 w-4" aria-hidden="true" />
       {label}
     </Button>

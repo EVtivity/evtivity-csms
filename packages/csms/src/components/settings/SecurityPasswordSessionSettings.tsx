@@ -21,7 +21,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { useLoadedValues, useSavedBaseline } from '@/hooks/use-loaded-values';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -177,9 +177,11 @@ function PasswordPolicyCard({ settings, canWrite }: CardProps): React.JSX.Elemen
                   </p>
                 )}
               </div>
-              <Toggle
+              <ConfirmToggle
                 id={`password-${rule}`}
                 aria-label={t(`settings.passwordSessions.${rule}`)}
+                label={t(`settings.passwordSessions.${rule}`)}
+                offDescription={t('settings.passwordSessions.passwordsNote')}
                 size="lg"
                 disabled={!canWrite}
                 checked={values[rule]}

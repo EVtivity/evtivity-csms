@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -109,9 +109,10 @@ function ToggleRow({
           </p>
         )}
       </div>
-      <Toggle
+      <ConfirmToggle
         id={id}
         aria-label={label}
+        label={label}
         size="lg"
         checked={checked}
         onCheckedChange={() => {

@@ -97,7 +97,14 @@
     "endDate": "Fecha de fin",
     "dateRange": "Rango de fechas",
     "copyFailed": "No se pudo copiar",
-    "clearDates": "Borrar Fechas"
+    "clearDates": "Borrar Fechas",
+    "toggleOff": {
+      "title": "¿Desactivar el ajuste?",
+      "description": "Esto desactiva «{{name}}».",
+      "confirm": "Desactivar",
+      "cancel": "Mantener activado"
+    },
+    "ok": "OK"
   },
   "status": {
     "online": "En línea",
@@ -567,7 +574,7 @@
     "searchPlaceholder": "Buscar sitios...",
     "searchHint": "Buscar por ID de sitio, nombre, ciudad o estado",
     "allLocations": "Todas las ubicaciones",
-    "allLoadMgmt": "Toda la gest. de carga",
+    "allLoadMgmt": "Toda la gestión de carga",
     "address": "Dirección",
     "city": "Ciudad",
     "state": "Estado/Provincia",
@@ -1245,7 +1252,6 @@
       "timelineCapped": "El rango se acortó a los datos que conserva el CSMS.",
       "timelineEmpty": "No ocurrió nada en este rango.",
       "fetch": "Obtener",
-      "loadMore": "Cargar más",
       "kind": {
         "connected": "Conectada",
         "disconnected": "Desconectada",
@@ -1868,6 +1874,8 @@
     "overlapError": "Esta tarifa se superpone con una tarifa existente en este grupo",
     "priority": "Prioridad",
     "isCurrent": "Actualmente activa",
+    "currentGroup": "Actual",
+    "currentGroupNotSelectable": "Este es el grupo de precios actual",
     "monday": "Lun",
     "tuesday": "Mar",
     "wednesday": "Mié",
@@ -2098,7 +2106,7 @@
     "searchPlaceholder": "Buscar flotas...",
     "searchHint": "Buscar por ID de flota, nombre o descripción",
     "fleetNotFound": "Flota no encontrada",
-    "fleetDetail": "Detalle de flota",
+    "metrics": "Métricas",
     "drivers": "Conductores",
     "stations": "Estaciones",
     "vehicles": "Vehículos",
@@ -3295,7 +3303,8 @@
         "title": "Análisis automáticos y procesos",
         "description": "El modelo de los análisis automáticos y los procesos en segundo plano. Se ejecutan sin usuario y usan la clave del proveedor de la empresa.",
         "enabled": "Activar la IA iniciada por el sistema",
-        "offNote": "Estos ajustes solo tienen efecto mientras la IA iniciada por el sistema está activada. Sus valores se conservan."
+        "offNote": "Estos ajustes solo tienen efecto mientras la IA iniciada por el sistema está activada. Sus valores se conservan.",
+        "offConfirm": "Los análisis automáticos y los procesos de IA en segundo plano se detienen: no se crean análisis ni acciones sugeridas nuevos. Los análisis existentes se conservan, pero quedan ocultos en el CSMS hasta que lo vuelva a activar."
       },
       "driver": {
         "title": "Soporte a conductores",
@@ -3344,7 +3353,8 @@
         },
         "empty": "No hay valoraciones en los últimos {{days}} días.",
         "viewWrong": "Ver análisis marcados como incorrectos"
-      }
+      },
+      "kindOff": "Después de guardar, no se crean análisis nuevos de este tipo. Los existentes se conservan."
     },
     "aiInsightsScope": {
       "title": "Alcance de los Análisis de IA",
@@ -3368,7 +3378,9 @@
       "stationsWithoutSite_other": "{{count}} estaciones sin sitio no se analizan mientras solo se analicen los sitios seleccionados.",
       "removeHint": "Los sitios y estaciones que saque del alcance no reciben análisis nuevos. Sus análisis abiertos se descartan y sus acciones pendientes caducan.",
       "loadFailed": "No se pudo cargar el alcance de los análisis de IA.",
-      "stationsFailed": "No se pudieron cargar las estaciones."
+      "stationsFailed": "No se pudieron cargar las estaciones.",
+      "siteOff": "Después de guardar, este sitio no recibe análisis nuevos. Sus análisis abiertos se descartan y sus acciones pendientes caducan.",
+      "stationOff": "Después de guardar, esta estación no recibe análisis nuevos. Sus análisis abiertos se descartan y sus acciones pendientes caducan."
     },
     "aiMcp": {
       "title": "Servidor MCP",
@@ -3387,7 +3399,8 @@
       "toolsets": "Categorías de herramientas",
       "toolsetsHint": "Añada ?toolsets=stations,sessions a la URL. Predeterminado: {{toolsets}}.",
       "writesHint": "Las escrituras se ejecutan sin confirmación. Se auditan y registran como cualquier llamada a la API con la clave.",
-      "protocolNote": "Sirve MCP 2026-07-28 y clientes anteriores."
+      "protocolNote": "Sirve MCP 2026-07-28 y clientes anteriores.",
+      "allowWritesOff": "Después de guardar, los clientes MCP solo leen."
     },
     "aiLimitZeroNoLimit": "0 significa sin límite.",
     "aiTabs": {
@@ -3580,7 +3593,9 @@
       },
       "proofHint": "Confirme que es usted para acortar el tiempo que se conserva el historial de auditoría, de inicios de sesión o de eventos de seguridad. Cada administrador recibe un aviso."
     },
-    "uploadReplacesHint": "Al subir una imagen nueva se reemplaza la actual."
+    "uploadReplacesHint": "Al subir una imagen nueva se reemplaza la actual.",
+    "roamingOffDescription": "Se oculta la sección de Roaming y se bloquea todo el tráfico OCPI.",
+    "pncOffDescription": "Se oculta la sección de Certificados y se bloquean las operaciones con certificados."
   },
   "pnc": {
     "certificates": "Certificados",
@@ -6481,5 +6496,10 @@
     "editDescriptionDriver": "Cree un avatar o suba una foto para este conductor. Se muestra en la lista de conductores, en los miembros de la flota y en la página del conductor. El conductor puede cambiarlo.",
     "savedWithNewAccount": "Opcional. El avatar se guarda al crear la cuenta.",
     "applyFailed": "La cuenta se creó, pero no se pudo guardar el avatar. Vuelva a configurarlo en la pestaña Detalles."
+  },
+  "storageUnavailable": {
+    "title": "Almacenamiento de archivos no configurado",
+    "description": "No se pueden subir archivos porque el almacenamiento de archivos no está configurado. Un administrador puede configurarlo en {{path}}.",
+    "openSettings": "Abrir configuración"
   }
 }

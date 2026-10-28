@@ -1,10 +1,10 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { useInfiniteQuery, useQuery, useQueries } from '@tanstack/react-query';
+import { useQuery, useQueries } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, FileText, Leaf } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api';
@@ -19,6 +19,7 @@ import {
 } from '@/lib/utils';
 import { useAuth } from '@/lib/auth';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
+import { Pagination } from '@/components/ui/pagination';
 interface Session {
   id: string;
   status: string;
@@ -110,46 +111,25 @@ export function Activity(): React.JSX.Element {
     })),
   });
 
+  // A new month starts again on its first page.
+  const [paged, setPaged] = useState({ month: monthParam, page: 1 });
+  const sessionsPage = paged.month === monthParam ? paged.page : 1;
   const {
-    data: sessionsPages,
-    fetchNextPage,
-    hasNextPage,
-    isFetchingNextPage,
+    data: sessionsData,
     isLoading: sessionsLoading,
     isError: sessionsError,
     refetch: refetchSessions,
-  } = useInfiniteQuery({
-    queryKey: ['portal-sessions-month', monthParam],
-    queryFn: ({ pageParam }) =>
+  } = useQuery({
+    queryKey: ['portal-sessions-month', monthParam, sessionsPage],
+    queryFn: () =>
       api.get<SessionsResponse>(
-        `/v1/portal/sessions?month=${monthParam}&limit=${String(ACTIVITY_PAGE_SIZE)}&page=${String(pageParam)}`,
+        `/v1/portal/sessions?month=${monthParam}&limit=${String(ACTIVITY_PAGE_SIZE)}&page=${String(sessionsPage)}`,
       ),
-    // The API pages by page number from 1 (it reads no offset).
-    initialPageParam: 1,
-    getNextPageParam: (lastPage, allPages) => {
-      const fetched = allPages.reduce((sum, p) => sum + p.data.length, 0);
-      return fetched < lastPage.total && lastPage.data.length > 0 ? allPages.length + 1 : undefined;
-    },
   });
-
-  const sentinelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (el == null) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting === true && hasNextPage && !isFetchingNextPage) {
-          void fetchNextPage();
-        }
-      },
-      { threshold: 0.1 },
-    );
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-    };
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  const sessionsTotalPages = Math.max(
+    1,
+    Math.ceil((sessionsData?.total ?? 0) / ACTIVITY_PAGE_SIZE),
+  );
 
   const { data: efficiencyData } = useQuery({
     queryKey: ['portal-vehicle-efficiency'],
@@ -195,7 +175,7 @@ export function Activity(): React.JSX.Element {
   const trendMax = Math.max(...trendValues, 1);
   const trendLoading = trendQueries.some((q) => q.isLoading);
 
-  const sessionList = sessionsPages?.pages.flatMap((p) => p.data) ?? [];
+  const sessionList = sessionsData?.data ?? [];
 
   return (
     <div className="space-y-4 pb-20">
@@ -377,9 +357,15 @@ export function Activity(): React.JSX.Element {
             </CardContent>
           </Card>
         ))}
-        <div ref={sentinelRef} />
-        {isFetchingNextPage && <LoadingState />}
       </div>
+
+      <Pagination
+        page={sessionsPage}
+        totalPages={sessionsTotalPages}
+        onPageChange={(page) => {
+          setPaged({ month: monthParam, page });
+        }}
+      />
     </div>
   );
 }

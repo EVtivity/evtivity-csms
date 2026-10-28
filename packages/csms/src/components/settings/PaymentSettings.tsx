@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
@@ -519,10 +519,11 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
                             e.stopPropagation();
                           }}
                         >
-                          <Toggle
+                          <ConfirmToggle
                             checked={enabled}
                             disabled={!canWrite}
                             aria-label={t('settings.sitePaymentsEnabled', { site: site.name })}
+                            label={t('settings.sitePaymentsEnabled', { site: site.name })}
                             onCheckedChange={(checked) => {
                               sitePaymentToggleMutation.mutate({
                                 siteId: site.id,

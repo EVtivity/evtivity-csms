@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -54,8 +54,9 @@ export function AutochargeSettings({ settings }: Props): React.JSX.Element {
             <Label className="leading-6">{t('settings.autochargeEnabled')}</Label>
             <p className="text-xs text-muted-foreground">{t('settings.autochargeEnabledDesc')}</p>
           </div>
-          <Toggle
+          <ConfirmToggle
             aria-label={t('settings.autochargeEnabled')}
+            label={t('settings.autochargeEnabled')}
             size="lg"
             checked={enabled}
             disabled={mutation.isPending}

@@ -104,6 +104,9 @@ const UNCONFIRMED_SIM: Partial<StationSimStatus> = {
 const EMPTY_TIMELINE = {
   items: [],
   nextCursor: null,
+  total: 0,
+  page: 1,
+  previousAt: null,
   from: '2026-10-21T00:00:00Z',
   to: '2026-10-22T00:00:00Z',
   capped: false,
@@ -953,7 +956,7 @@ describe('StationConnectivityTab', () => {
     ]);
   });
 
-  it('labels the timeline sources and loads more with the cursor', async () => {
+  it('labels the timeline sources and pages with Prev and Next', async () => {
     timeline = {
       ...EMPTY_TIMELINE,
       items: [
@@ -965,6 +968,7 @@ describe('StationConnectivityTab', () => {
         },
         { at: '2026-10-21T09:00:00Z', source: 'sim', kind: 'data_limit', details: {} },
       ],
+      total: 30,
       nextCursor: 'c1',
     };
     renderTab();
@@ -972,10 +976,15 @@ describe('StationConnectivityTab', () => {
     expect(within(list).getAllByText('stations.sim.sourceSim')).toHaveLength(2);
     expect(within(list).getByText('stations.sim.kind.session')).toBeTruthy();
     expect(within(list).getByText('stations.sim.kind.dataLimit')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'stations.sim.loadMore' }));
+    expect(screen.queryByRole('button', { name: /loadMore/ })).toBeNull();
+    expect(
+      getCalls().some((u) => u.includes('/sim/timeline?') && u.includes('page=1&limit=25')),
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /common\.next/ }));
     await waitFor(() => {
-      expect(getCalls().some((u) => u.includes('cursor=c1'))).toBe(true);
+      expect(getCalls().some((u) => u.includes('page=2&limit=25'))).toBe(true);
     });
+    expect(getCalls().some((u) => u.includes('cursor='))).toBe(false);
   });
 
   it('lists the newest stored SIM alerts and says they arrive with a Refresh', async () => {

@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { useToast } from '@/components/ui/toast';
 import { SaveButton } from '@/components/save-button';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -536,11 +536,12 @@ export function AdyenSettings(): React.JSX.Element {
 
               <div className="space-y-2 sm:col-span-2">
                 <div className="flex items-center gap-3">
-                  <Toggle
+                  <ConfirmToggle
                     id="adyen-authorisation-adjustment"
                     checked={current.authorisationAdjustment}
                     disabled={!canWrite}
                     aria-label={t('settings.adyenAuthorisationAdjustment')}
+                    label={t('settings.adyenAuthorisationAdjustment')}
                     onCheckedChange={(checked) => {
                       update({ authorisationAdjustment: checked });
                     }}

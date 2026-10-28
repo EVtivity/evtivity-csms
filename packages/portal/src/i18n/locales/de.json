@@ -11,7 +11,9 @@
     "keep": "Behalten",
     "back": "Zurück",
     "previous": "Vorherige",
+    "prev": "Zurück",
     "next": "Weiter",
+    "pageOf": "Seite {{page}} von {{totalPages}}",
     "default": "Standard",
     "dismiss": "Schließen",
     "confirm": "Bestätigen",
@@ -1465,5 +1467,9 @@
       "setupOnly": "Dieser Browser unterstützt keine Passkeys, und ein Passkey ist die einzige Methode, die du einrichten kannst. Öffne diese Website in einem Browser mit Passkey-Unterstützung, um einen einzurichten.",
       "proofOnly": "Bestätige deine Identität mit deinem Passkey. Dieser Browser unterstützt keine Passkeys. Öffne diese Website in einem Browser mit Passkey-Unterstützung, um deinen Passkey zu verwenden."
     }
+  },
+  "storageUnavailable": {
+    "title": "Hochladen nicht verfügbar",
+    "description": "Dateien können gerade nicht hochgeladen werden. Bitte versuche es später erneut oder wende dich an den Support, wenn das Problem weiter besteht."
   }
 }

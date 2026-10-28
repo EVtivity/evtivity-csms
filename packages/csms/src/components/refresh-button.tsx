@@ -5,6 +5,8 @@ import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface RefreshButtonProps {
+  /** Defaults to button, so the button never submits a form it sits in. */
+  type?: 'button' | 'submit';
   label: string;
   onClick: () => void;
   disabled?: boolean;
@@ -16,9 +18,11 @@ export function RefreshButton({
   onClick,
   disabled,
   isPending,
+  type = 'button',
 }: RefreshButtonProps): React.JSX.Element {
   return (
     <Button
+      type={type}
       variant="outline"
       className="gap-1.5"
       disabled={disabled === true || isPending === true}

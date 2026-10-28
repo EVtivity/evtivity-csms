@@ -8,10 +8,11 @@ import { MemoryRouter } from 'react-router';
 import { formatAiStreamEvent } from '@evtivity/lib/ai-stream';
 import type { AiStreamEvent } from '@evtivity/lib/ai-stream';
 
-const { apiMock, postStreamMock, permissions } = vi.hoisted(() => ({
+const { apiMock, postStreamMock, permissions, storage } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
   postStreamMock: vi.fn(),
   permissions: { write: true },
+  storage: { enabled: true },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -23,6 +24,10 @@ vi.mock('@/lib/config', () => ({
 }));
 vi.mock('@/lib/auth', () => ({
   useHasPermission: (perm: string) => (perm.endsWith(':write') ? permissions.write : true),
+  useHasAllSiteAccess: () => true,
+}));
+vi.mock('@/hooks/use-feature-flags', () => ({
+  useFeatureFlags: () => ({ flags: { fileStorageEnabled: storage.enabled } }),
 }));
 vi.mock('@/lib/timezone', () => ({
   formatDateTime: (v: string) => v,
@@ -92,6 +97,7 @@ function type(text: string): void {
 
 beforeEach(() => {
   permissions.write = true;
+  storage.enabled = true;
   Element.prototype.scrollIntoView = vi.fn();
   apiMock.post.mockImplementation((path: string) =>
     path === '/v1/assistant/conversations'
@@ -476,6 +482,35 @@ describe('AiPanel', () => {
     const file = new File(['x'], 'fake.png', { type: 'image/png' });
     fireEvent.paste(screen.getByLabelText('ai.inputLabel'), { clipboardData: { files: [file] } });
     expect(await screen.findByText('errors.AI_ATTACHMENT_REJECTED')).toBeTruthy();
+  });
+
+  it('opens the storage dialog instead of the file chooser while file storage is off', () => {
+    storage.enabled = false;
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click');
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'ai.attach' }));
+    expect(screen.getByRole('dialog', { name: 'storageUnavailable.title' })).toBeTruthy();
+    expect(clickSpy).not.toHaveBeenCalled();
+    clickSpy.mockRestore();
+    fireEvent.click(screen.getByRole('button', { name: 'common.ok' }));
+    expect(screen.queryByRole('dialog', { name: 'storageUnavailable.title' })).toBeNull();
+    // A dropped or pasted file opens it too, and nothing is uploaded.
+    const file = new File(['x'], 'screen.png', { type: 'image/png' });
+    fireEvent.drop(screen.getByTestId('ai-panel'), {
+      dataTransfer: { files: [file], types: ['Files'] },
+    });
+    expect(screen.getByRole('dialog', { name: 'storageUnavailable.title' })).toBeTruthy();
+    expect(apiMock.post).not.toHaveBeenCalled();
+    expect(screen.queryByText('screen.png')).toBeNull();
+  });
+
+  it('opens the storage dialog with a link to the settings when an upload answers STORAGE_NOT_CONFIGURED', async () => {
+    apiMock.post.mockRejectedValue(new ApiError(400, { code: 'STORAGE_NOT_CONFIGURED' }));
+    renderPanel();
+    const file = new File(['x'], 'fake.png', { type: 'image/png' });
+    fireEvent.paste(screen.getByLabelText('ai.inputLabel'), { clipboardData: { files: [file] } });
+    expect(await screen.findByRole('dialog', { name: 'storageUnavailable.title' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'storageUnavailable.openSettings' })).toBeTruthy();
   });
 
   it('TC-AI-UI-04: a pasted image is queued as an attachment', async () => {

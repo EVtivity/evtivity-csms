@@ -29,6 +29,7 @@ export function BackButton({ to, forceTo }: BackButtonProps): React.JSX.Element 
 
   return (
     <Button
+      type="button"
       variant="outline"
       size="icon-header"
       aria-label={t('nav.back')}

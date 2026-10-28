@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
@@ -428,8 +428,9 @@ export function StationMessageSettings({
                 </Label>
                 <p className="text-xs text-muted-foreground">{t('messages.enabledDesc')}</p>
               </div>
-              <Toggle
+              <ConfirmToggle
                 id="station-message-enabled"
+                label={t('messages.enabled')}
                 size="lg"
                 checked={enabled}
                 onCheckedChange={(v) => {

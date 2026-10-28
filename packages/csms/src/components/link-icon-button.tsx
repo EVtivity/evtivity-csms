@@ -15,6 +15,7 @@ export function LinkIconButton({ href, title, disabled }: LinkIconButtonProps): 
   return (
     <span className="group relative inline-flex">
       <Button
+        type="button"
         variant="secondary"
         size="icon"
         disabled={disabled}

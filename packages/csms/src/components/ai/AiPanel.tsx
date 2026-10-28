@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import { History, Plus, Send, Sparkles, Square, Upload, X } from 'lucide-react';
 import type { AiStreamEvent } from '@evtivity/lib/ai-stream';
+import { useStorageGuard } from '@/components/StorageUnavailableDialog';
 import { Button } from '@/components/ui/button';
 import { useEscapeLayer } from '@/components/ui/escape-layer';
 import { Spinner } from '@/components/ui/spinner';
@@ -67,6 +68,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('aiAssistant:write');
+  const storage = useStorageGuard();
   const { run, stop, streaming } = useAiStream();
 
   const [view, setView] = useState<'chat' | 'history'>('chat');
@@ -198,6 +200,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
       );
     } catch (err) {
       console.warn('Upload an AI attachment failed', err);
+      storage.handleUploadError(err);
       setAttachments((prev) =>
         prev.map((a) =>
           a.localId === att.localId
@@ -306,6 +309,10 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
 
   function addFiles(files: File[]): void {
     if (files.length === 0 || !canWrite) return;
+    if (!storage.storageEnabled) {
+      storage.showDialog();
+      return;
+    }
     const next = addPendingFiles(attachments, files);
     setAttachments(next);
     for (const att of next.slice(attachments.length)) {
@@ -507,7 +514,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
                 onRemove={removeAttachment}
               />
               <div className="flex items-end gap-1">
-                <AttachmentPickerButton disabled={busy} onFiles={addFiles} />
+                <AttachmentPickerButton disabled={busy} onFiles={addFiles} guard={storage.guard} />
                 <textarea
                   ref={textareaRef}
                   value={input}
@@ -573,6 +580,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
           )}
         </>
       )}
+      {storage.dialog}
     </div>
   );
 }

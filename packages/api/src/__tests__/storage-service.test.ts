@@ -42,6 +42,47 @@ describe('storage.service', () => {
     expect(Object.keys(mod)).not.toContain('generateUploadUrl');
   });
 
+  // Case 175 for the shared storage module: no export and no ObjectStorage method hands out an
+  // upload URL; the only upload path is createUpload, a size-bounded POST policy. Presigning
+  // in the S3 implementation is for GET (downloads) only.
+  it('@evtivity/services/storage exports no presigned PUT and presigns only GET', async () => {
+    const actual = await vi.importActual<Record<string, unknown>>('@evtivity/services/storage');
+    for (const name of Object.keys(actual)) {
+      expect(name).not.toMatch(/upload ?url|put ?url|presign/i);
+    }
+    const S3ObjectStorage = actual['S3ObjectStorage'] as { prototype: object };
+    expect(
+      Object.getOwnPropertyNames(S3ObjectStorage.prototype)
+        .filter((name) => name !== 'constructor')
+        .sort(),
+    ).toEqual([
+      'createUpload',
+      'deleteObject',
+      'deleteObjectsUnderPrefix',
+      'getDownloadUrl',
+      'putObject',
+      'readObject',
+      'testConnection',
+    ]);
+
+    const { readFileSync, readdirSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const dir = fileURLToPath(new URL('../../../services/src/storage/', import.meta.url));
+    let presigned = 0;
+    for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
+      const source = readFileSync(`${dir}${file}`, 'utf8');
+      for (const call of source.matchAll(/getSignedUrl\(\s*this\.client,\s*(\w+)/g)) {
+        presigned++;
+        const variable = call[1] ?? '';
+        expect(source, `${file}: ${variable}`).toMatch(
+          new RegExp(`const ${variable} = new GetObjectCommand\\(`),
+        );
+      }
+      expect(source, file).not.toMatch(/getSignedUrl\([^)]*PutObjectCommand/);
+    }
+    expect(presigned).toBeGreaterThan(0);
+  });
+
   describe('buildS3Key', () => {
     it('builds correct key path', () => {
       const key = buildS3Key('case-123', 'msg-456', 'file-789', 'document.pdf');

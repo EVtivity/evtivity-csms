@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { SaveButton } from '@/components/save-button';
 import { LoadingLogo } from '@/components/loading-logo';
 import { simErrorMessage } from '@/components/sim/sim-connectivity';
@@ -200,11 +200,12 @@ function HologramCard({
         >
           <p className="text-sm text-muted-foreground">{t('settings.sim.hologramDescription')}</p>
           <div className="flex items-center gap-3">
-            <Toggle
+            <ConfirmToggle
               id="sim-hologram-enabled"
               checked={form.enabled}
               disabled={!canWrite}
               aria-label={t('settings.sim.hologramEnabled')}
+              label={t('settings.sim.hologramEnabled')}
               onCheckedChange={(checked) => {
                 update({ enabled: checked });
               }}
@@ -515,11 +516,12 @@ function StationSignalCard({
         >
           <div className="space-y-2">
             <div className="flex items-center gap-3">
-              <Toggle
+              <ConfirmToggle
                 id="sim-station-signal-enabled"
                 checked={form.enabled}
                 disabled={!canWrite}
                 aria-label={t('settings.sim.stationSignalEnabled')}
+                label={t('settings.sim.stationSignalEnabled')}
                 onCheckedChange={(checked) => {
                   update({ enabled: checked });
                 }}

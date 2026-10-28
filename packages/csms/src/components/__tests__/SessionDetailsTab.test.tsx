@@ -114,6 +114,12 @@ describe('SessionDetailsTab cost and events', () => {
     expect(screen.queryByText('cost:300')).toBeNull();
   });
 
+  it('titles its first panel Details, not the page heading', () => {
+    renderSession({});
+    expect(screen.getByText('common.details')).toBeDefined();
+    expect(screen.queryByText('sessions.title')).toBeNull();
+  });
+
   it('shows a completed session at its final cost', () => {
     renderSession({ status: 'completed', currentCostCents: 300, finalCostCents: 450 });
     expect(screen.getByText('cost:450')).toBeDefined();

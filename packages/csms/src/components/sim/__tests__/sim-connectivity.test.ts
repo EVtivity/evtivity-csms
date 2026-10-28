@@ -99,15 +99,46 @@ describe('timelineRows', () => {
       [item('2026-10-10T10:00:00Z'), item('2026-10-04T10:00:00Z')],
       [{ from: '2026-10-06', to: '2026-10-08' }],
       'UTC',
-      true,
+      { previousAt: null, last: true },
     );
     expect(rows.map((r) => r.type)).toEqual(['item', 'gap', 'item']);
   });
 
-  it('holds a gap older than the loaded items until every page is loaded', () => {
+  it('shows a gap older than the page items on the last page only', () => {
     const runs = [{ from: '2026-10-01', to: '2026-10-02' }];
-    expect(timelineRows([item('2026-10-10T10:00:00Z')], runs, 'UTC', false)).toHaveLength(1);
-    expect(timelineRows([item('2026-10-10T10:00:00Z')], runs, 'UTC', true)).toHaveLength(2);
+    const items = [item('2026-10-10T10:00:00Z')];
+    expect(timelineRows(items, runs, 'UTC', { previousAt: null, last: false })).toHaveLength(1);
+    expect(timelineRows(items, runs, 'UTC', { previousAt: null, last: true })).toHaveLength(2);
+  });
+
+  it('leaves out a gap an earlier page showed', () => {
+    const runs = [
+      { from: '2026-10-12', to: '2026-10-13' },
+      { from: '2026-10-07', to: '2026-10-08' },
+    ];
+    // Page 2: the previous page ended on 2026-10-11, so the 12th to 13th showed there.
+    const rows = timelineRows([item('2026-10-05T10:00:00Z')], runs, 'UTC', {
+      previousAt: '2026-10-11T08:00:00Z',
+      last: true,
+    });
+    expect(rows).toEqual([
+      { type: 'gap', from: '2026-10-07', to: '2026-10-08' },
+      expect.objectContaining({ type: 'item' }),
+    ]);
+  });
+
+  it('shows a gap on the day of the entry before the page on the earlier page', () => {
+    const runs = [{ from: '2026-10-11', to: '2026-10-11' }];
+    const page1 = timelineRows([item('2026-10-11T08:00:00Z')], runs, 'UTC', {
+      previousAt: null,
+      last: false,
+    });
+    expect(page1.map((r) => r.type)).toEqual(['gap', 'item']);
+    const page2 = timelineRows([item('2026-10-05T10:00:00Z')], runs, 'UTC', {
+      previousAt: '2026-10-11T08:00:00Z',
+      last: true,
+    });
+    expect(page2.map((r) => r.type)).toEqual(['item']);
   });
 });
 

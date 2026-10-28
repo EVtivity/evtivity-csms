@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
-import { Toggle } from '@/components/ui/toggle';
+import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import {
   AiProviderSelect,
   AiEffortSelect,
@@ -397,8 +397,9 @@ function AiSurfaceCard({
           <Label htmlFor={`${prefix}-enabled`} className="leading-6">
             {t(`settings.aiSurface.${surface}.enabled`)}
           </Label>
-          <Toggle
+          <ConfirmToggle
             id={`${prefix}-enabled`}
+            label={t(`settings.aiSurface.${surface}.enabled`)}
             checked={enabled}
             disabled={!canWrite || toggle.isPending}
             onCheckedChange={(checked) => {
