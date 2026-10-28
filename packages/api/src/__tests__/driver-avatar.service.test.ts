@@ -47,18 +47,18 @@ vi.mock('@evtivity/database', () => {
 
 vi.mock('drizzle-orm', () => ({ eq: vi.fn() }));
 
-const { s3Mock, deleteObjectMock, downloadUrlMock, finalizeMock } = vi.hoisted(() => ({
-  s3Mock: vi.fn(),
-  deleteObjectMock: vi.fn(),
-  downloadUrlMock: vi.fn(),
-  finalizeMock: vi.fn(),
-}));
-vi.mock('../services/s3.service.js', () => ({
-  getS3Config: s3Mock,
-  deleteObject: deleteObjectMock,
-  generateDownloadUrl: downloadUrlMock,
+const { s3Mock, deleteObjectMock, downloadUrlMock, createUploadMock, finalizeMock } = vi.hoisted(
+  () => ({
+    s3Mock: vi.fn(),
+    deleteObjectMock: vi.fn(),
+    downloadUrlMock: vi.fn(),
+    createUploadMock: vi.fn(),
+    finalizeMock: vi.fn(),
+  }),
+);
+vi.mock('../services/storage.service.js', () => ({
+  getObjectStorage: s3Mock,
   QUARANTINE_PREFIX: 'ai-uploads/quarantine/',
-  generateUploadPost: vi.fn(),
 }));
 vi.mock('../services/ai/attachments/upload-flow.js', () => ({ finalizeUpload: finalizeMock }));
 const { enqueueDeleteMock, enqueuePurgeMock, purgeObjectsMock } = vi.hoisted(() => ({
@@ -87,7 +87,7 @@ import {
 import { AVATAR_CACHE_CONTROL, avatarView, withAvatars } from '../services/account-avatar.js';
 import { requestAvatarUpload } from '../services/account-avatar-upload.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
-import type { S3Config } from '../services/s3.service.js';
+import type { ObjectStorage } from '../services/storage.service.js';
 import type { FastifyBaseLogger } from 'fastify';
 
 const DRIVER_ID = 'drv_000000000001';
@@ -101,7 +101,12 @@ const actor: AuditActorInfo = {
   actorLabel: null,
 };
 const log = { warn: vi.fn(), info: vi.fn() } as unknown as FastifyBaseLogger;
-const s3 = { bucket: 'avatars-bucket' } as unknown as S3Config;
+const s3 = {
+  bucket: 'avatars-bucket',
+  deleteObject: deleteObjectMock,
+  getDownloadUrl: downloadUrlMock,
+  createUpload: createUploadMock,
+} as unknown as ObjectStorage;
 const NONE = {
   avatarKind: null,
   avatarOptions: null,
@@ -157,7 +162,7 @@ describe('setGeneratedAvatar', () => {
       avatarS3Bucket: null,
       avatarUpdatedAt: expect.any(Date),
     });
-    expect(deleteObjectMock).toHaveBeenCalledWith(s3, 'avatars-bucket', IMAGE.avatarS3Key);
+    expect(deleteObjectMock).toHaveBeenCalledWith('avatars-bucket', IMAGE.avatarS3Key);
     expect(writeAudit).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -351,8 +356,7 @@ describe('confirmUploadedAvatar', () => {
   });
 
   it("refuses a user avatar key, even one naming the driver's id", async () => {
-    const { generateUploadPost } = await import('../services/s3.service.js');
-    vi.mocked(generateUploadPost).mockResolvedValue({ url: 'https://s3.test', fields: {} });
+    createUploadMock.mockResolvedValue({ method: 'POST', url: 'https://s3.test', fields: {} });
     const ticket = await requestAvatarUpload(s3, { kind: 'user', userId: DRIVER_ID }, 'image/jpeg');
     expect(ticket.s3Key).toMatch(
       new RegExp(`^ai-uploads/quarantine/avatars/users/${DRIVER_ID}/[0-9a-f-]{36}/avatar$`),
@@ -369,8 +373,7 @@ describe('confirmUploadedAvatar', () => {
   });
 
   it("binds an operator key to the driver and the operator: the driver's and another operator's keys are refused", async () => {
-    const { generateUploadPost } = await import('../services/s3.service.js');
-    vi.mocked(generateUploadPost).mockResolvedValue({ url: 'https://s3.test', fields: {} });
+    createUploadMock.mockResolvedValue({ method: 'POST', url: 'https://s3.test', fields: {} });
     const operatorA = { kind: 'operator', principal: 'user:usr_a' } as const;
     const operatorB = { kind: 'operator', principal: 'api_key:1' } as const;
     const ticket = await requestAvatarUpload(
@@ -434,7 +437,6 @@ describe('confirmUploadedAvatar', () => {
       ),
     ).rejects.toThrow('db down');
     expect(deleteObjectMock).toHaveBeenCalledWith(
-      s3,
       'avatars-bucket',
       `avatars/${DRIVER_ID}/${FILE_ID}.jpg`,
     );
@@ -446,7 +448,7 @@ describe('removeAvatar', () => {
     dbResults = [[{ ...IMAGE, erasedAt: null }], [NONE]];
     await removeAvatar(DRIVER_ID, { actor, log });
     expect(setCall()).toMatchObject({ avatarKind: null, avatarUpdatedAt: null });
-    expect(deleteObjectMock).toHaveBeenCalledWith(s3, 'avatars-bucket', IMAGE.avatarS3Key);
+    expect(deleteObjectMock).toHaveBeenCalledWith('avatars-bucket', IMAGE.avatarS3Key);
     expect(writeAudit).toHaveBeenCalledTimes(1);
   });
 
@@ -532,7 +534,7 @@ describe('avatarView', () => {
     ).toMatchObject({ kind: 'generated', ...GENERATED });
     const image = await avatarView(IMAGE, s3);
     expect(image).toMatchObject({ kind: 'image', url: 'https://s3.example/avatar?sig=1' });
-    expect(downloadUrlMock).toHaveBeenCalledWith(s3, 'avatars-bucket', IMAGE.avatarS3Key, {
+    expect(downloadUrlMock).toHaveBeenCalledWith('avatars-bucket', IMAGE.avatarS3Key, {
       fileName: 'avatar.jpg',
       contentType: 'image/jpeg',
       disposition: 'inline',

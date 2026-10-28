@@ -52,12 +52,7 @@ const { s3Mock, deleteObjectMock, finalizeMock, uploadPostMock } = vi.hoisted(()
   finalizeMock: vi.fn(),
   uploadPostMock: vi.fn(),
 }));
-vi.mock('../services/s3.service.js', () => ({
-  getS3Config: s3Mock,
-  deleteObject: deleteObjectMock,
-  generateDownloadUrl: vi.fn(),
-  generateUploadPost: uploadPostMock,
-}));
+vi.mock('../services/storage.service.js', () => ({ getObjectStorage: s3Mock }));
 vi.mock('../services/ai/attachments/upload-flow.js', () => ({ finalizeUpload: finalizeMock }));
 const { enqueueDeleteMock, enqueuePurgeMock, purgeObjectsMock } = vi.hoisted(() => ({
   enqueueDeleteMock: vi.fn(),
@@ -82,7 +77,7 @@ import {
 } from '../services/user-avatar.service.js';
 import { requestAvatarUpload } from '../services/account-avatar-upload.js';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
-import type { S3Config } from '../services/s3.service.js';
+import type { ObjectStorage } from '../services/storage.service.js';
 import type { FastifyBaseLogger } from 'fastify';
 
 const USER_ID = 'usr_000000000001';
@@ -94,7 +89,12 @@ const actor: AuditActorInfo = {
   actorLabel: null,
 };
 const log = { warn: vi.fn(), info: vi.fn() } as unknown as FastifyBaseLogger;
-const s3 = { bucket: 'avatars-bucket' } as unknown as S3Config;
+const s3 = {
+  bucket: 'avatars-bucket',
+  deleteObject: deleteObjectMock,
+  getDownloadUrl: vi.fn(),
+  createUpload: uploadPostMock,
+} as unknown as ObjectStorage;
 const NONE = {
   avatarKind: null,
   avatarOptions: null,
@@ -120,7 +120,9 @@ beforeEach(() => {
   s3Mock.mockReset().mockResolvedValue(s3);
   deleteObjectMock.mockReset().mockResolvedValue(undefined);
   finalizeMock.mockReset();
-  uploadPostMock.mockReset().mockResolvedValue({ url: 'https://s3.test', fields: {} });
+  uploadPostMock
+    .mockReset()
+    .mockResolvedValue({ method: 'POST', url: 'https://s3.test', fields: {} });
   enqueueDeleteMock.mockReset().mockResolvedValue(undefined);
   enqueuePurgeMock.mockReset().mockResolvedValue(undefined);
   purgeObjectsMock.mockReset().mockResolvedValue(0);
@@ -138,7 +140,7 @@ describe('setUserGeneratedAvatar', () => {
     dbResults = [[IMAGE], [{ ...NONE, avatarKind: 'generated', avatarOptions: GENERATED }]];
     const result = await setUserGeneratedAvatar(USER_ID, GENERATED, ctx);
     expect(result.changed).toBe(true);
-    expect(deleteObjectMock).toHaveBeenCalledWith(s3, 'avatars-bucket', IMAGE.avatarS3Key);
+    expect(deleteObjectMock).toHaveBeenCalledWith('avatars-bucket', IMAGE.avatarS3Key);
     expect(writeAudit).toHaveBeenCalledWith(
       expect.objectContaining({ idColumn: 'user_id' }),
       expect.objectContaining({

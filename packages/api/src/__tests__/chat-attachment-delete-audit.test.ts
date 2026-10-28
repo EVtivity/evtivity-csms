@@ -27,13 +27,12 @@ vi.mock('@evtivity/database', () => ({
   writeAudit: writeAuditMock,
 }));
 
-vi.mock('../services/s3.service.js', () => ({
-  getS3Config: vi.fn(async () => ({ bucket: 'b' })),
-  deleteObject: vi.fn(async () => undefined),
-  generateDownloadUrl: vi.fn(),
-  generateUploadPost: vi.fn(),
+vi.mock('../services/storage.service.js', () => ({
+  getObjectStorage: vi.fn(async () => ({
+    bucket: 'b',
+    deleteObject: vi.fn(async () => undefined),
+  })),
   QUARANTINE_PREFIX: 'quarantine/',
-  readObject: vi.fn(),
   sanitizeFileName: vi.fn((name: string) => name),
   UPLOAD_URL_EXPIRES_SECONDS: 300,
 }));

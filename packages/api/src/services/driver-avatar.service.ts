@@ -12,12 +12,11 @@ import {
 } from '@evtivity/lib/avatar-cleanup';
 import { purgeDriverAvatarObjects } from '@evtivity/services/avatar-storage';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
-import { deleteObject } from './s3.service.js';
-import type { S3Config } from './s3.service.js';
+import type { ObjectStorage } from './storage.service.js';
 import {
   avatarChanged,
   avatarRowOf,
-  getS3ConfigOrNull,
+  getObjectStorageOrNull,
   storedAvatarObject,
 } from './account-avatar.js';
 import type { AvatarRow, AvatarValues, StoredAvatarObject } from './account-avatar.js';
@@ -80,10 +79,10 @@ export async function deleteAvatarObject(
   log: Logger,
 ): Promise<void> {
   if (object == null) return;
-  const s3 = await getS3ConfigOrNull();
-  if (s3 != null) {
+  const storage = await getObjectStorageOrNull();
+  if (storage != null) {
     try {
-      await deleteObject(s3, object.bucket, object.key);
+      await storage.deleteObject(object.bucket, object.key);
       return;
     } catch (err) {
       log.warn({ err, key: object.key }, 'driver avatar object delete failed, queued');
@@ -111,11 +110,11 @@ export async function purgeDriverAvatarStorage(
   log: Logger,
 ): Promise<number> {
   const buckets = rowBucket != null ? [rowBucket] : [];
-  const s3 = await getS3ConfigOrNull();
-  if (s3 == null && rowBucket == null) return 0;
-  if (s3 != null) {
+  const storage = await getObjectStorageOrNull();
+  if (storage == null && rowBucket == null) return 0;
+  if (storage != null) {
     try {
-      return await purgeDriverAvatarObjects(s3, driverId, buckets);
+      return await purgeDriverAvatarObjects(storage, driverId, buckets);
     } catch (err) {
       log.warn({ err, driverId }, 'driver avatar purge failed, queued');
     }
@@ -235,13 +234,13 @@ export async function writableAvatarRow(driverId: string): Promise<AvatarRow> {
  */
 export async function confirmUploadedAvatar(
   driverId: string,
-  s3: S3Config,
+  storage: ObjectStorage,
   upload: { s3Key: string; s3Bucket: string },
   ctx: AvatarContext & { log: FastifyBaseLogger; uploader?: AvatarUploader },
 ): Promise<AvatarRow> {
   const target = { kind: 'driver', driverId } as const;
   const fileId = parseAvatarQuarantineKey(target, upload.s3Key, ctx.uploader);
-  if (fileId == null || upload.s3Bucket !== s3.bucket) {
+  if (fileId == null || upload.s3Bucket !== storage.bucket) {
     throw new AppError(
       'The image key or bucket does not belong to this driver',
       400,
@@ -253,17 +252,17 @@ export async function confirmUploadedAvatar(
     return current;
   }
 
-  const stored = await finalizeAvatar(s3, target, upload.s3Key, fileId, ctx.log);
+  const stored = await finalizeAvatar(storage, target, upload.s3Key, fileId, ctx.log);
   let result;
   try {
     result = await writeAvatar(driverId, {
       avatarKind: 'image',
       avatarOptions: null,
       avatarS3Key: stored.s3Key,
-      avatarS3Bucket: s3.bucket,
+      avatarS3Bucket: storage.bucket,
     });
   } catch (err) {
-    await deleteAvatarObject(driverId, { key: stored.s3Key, bucket: s3.bucket }, ctx.log);
+    await deleteAvatarObject(driverId, { key: stored.s3Key, bucket: storage.bucket }, ctx.log);
     throw err;
   }
   await afterWrite(driverId, result, ctx);

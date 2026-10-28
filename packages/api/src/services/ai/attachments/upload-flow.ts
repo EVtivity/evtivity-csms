@@ -4,8 +4,7 @@
 import { AppError } from '@evtivity/lib';
 import { getAiSettings } from '@evtivity/database';
 import type { FastifyBaseLogger } from 'fastify';
-import { deleteObject, putObject, readObject } from '../../s3.service.js';
-import type { S3Config } from '../../s3.service.js';
+import type { ObjectStorage } from '../../storage.service.js';
 import {
   isAllowedAttachmentMime,
   maxPdfPagesAcrossModels,
@@ -69,7 +68,7 @@ export function checkUploadRequest(
 }
 
 export interface FinalizeInput {
-  s3: S3Config;
+  storage: ObjectStorage;
   quarantineKey: string;
   /** Where the clean file goes, or a function of its type (an image is re-encoded as JPEG or PNG). */
   cleanKey: string | ((contentType: AttachmentMime) => string);
@@ -100,11 +99,11 @@ export async function finalizeUpload(
   input: FinalizeInput,
   log: FastifyBaseLogger,
 ): Promise<ProcessedAttachment> {
-  const { s3, quarantineKey, cleanKey, maxBytes } = input;
+  const { storage, quarantineKey, cleanKey, maxBytes } = input;
 
   const removeQuarantine = async (): Promise<void> => {
     try {
-      await deleteObject(s3, s3.bucket, quarantineKey);
+      await storage.deleteObject(storage.bucket, quarantineKey);
     } catch (err) {
       log.warn(
         { err, quarantineKey },
@@ -113,7 +112,7 @@ export async function finalizeUpload(
     }
   };
 
-  const read = await readObject(s3, s3.bucket, quarantineKey, maxBytes);
+  const read = await storage.readObject(storage.bucket, quarantineKey, maxBytes);
   if (read.status === 'missing') throw attachmentRejected('no uploaded file was found');
   if (read.status === 'too_large') {
     await removeQuarantine();
@@ -145,7 +144,7 @@ export async function finalizeUpload(
   }
 
   const key = typeof cleanKey === 'string' ? cleanKey : cleanKey(result.contentType);
-  await putObject(s3, s3.bucket, key, result.bytes, result.contentType);
+  await storage.putObject(storage.bucket, key, result.bytes, result.contentType);
   await removeQuarantine();
   return result;
 }
