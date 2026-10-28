@@ -42,7 +42,7 @@ const { s3Mock, requestUploadMock, setGeneratedMock, confirmMock, removeMock, vi
     viewMock: vi.fn(),
   }));
 
-vi.mock('../services/s3.service.js', () => ({ getS3Config: s3Mock }));
+vi.mock('../services/storage.service.js', () => ({ getObjectStorage: s3Mock }));
 vi.mock('../services/account-avatar-upload.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/account-avatar-upload.js')>()),
   requestAvatarUpload: requestUploadMock,

@@ -129,10 +129,9 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
 }));
 
-// -- S3 mock --
+// -- Storage mock --
 
-const mockGetS3Config = vi.fn();
-const mockGenerateUploadUrl = vi.fn();
+const mockGetObjectStorage = vi.fn();
 const mockGenerateDownloadUrl = vi.fn();
 const mockDeleteObject = vi.fn();
 const mockGenerateUploadPost = vi.fn();
@@ -143,18 +142,24 @@ vi.mock('../services/ai/attachments/upload-flow.js', () => ({
   displayFileName: (fileName: string) => fileName,
 }));
 
-vi.mock('../services/s3.service.js', () => ({
-  getS3Config: (...args: unknown[]) => mockGetS3Config(...args),
-  generateUploadUrl: (...args: unknown[]) => mockGenerateUploadUrl(...args),
-  generateDownloadUrl: (...args: unknown[]) => mockGenerateDownloadUrl(...args),
-  deleteObject: (...args: unknown[]) => mockDeleteObject(...args),
+vi.mock('../services/storage.service.js', () => ({
+  getObjectStorage: (...args: unknown[]) => mockGetObjectStorage(...args),
   buildStationImageS3Key: (stationId: string, fileId: string, fileName: string) =>
     `stations/${stationId}/${fileId}-${fileName}`,
   buildStationImageQuarantineKey: (stationId: string, fileId: string, fileName: string) =>
     `ai-uploads/quarantine/stations/${stationId}/${fileId}/${fileName}`,
-  generateUploadPost: (...args: unknown[]) => mockGenerateUploadPost(...args),
   QUARANTINE_PREFIX: 'ai-uploads/quarantine/',
 }));
+
+/** A configured storage whose calls go to the mocks above. */
+function fakeStorage(bucket: string) {
+  return {
+    bucket,
+    createUpload: (...args: unknown[]) => mockGenerateUploadPost(...args),
+    getDownloadUrl: (...args: unknown[]) => mockGenerateDownloadUrl(...args),
+    deleteObject: (...args: unknown[]) => mockDeleteObject(...args),
+  };
+}
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
@@ -215,7 +220,7 @@ describe('Station image routes (site scope and edge cases)', () => {
   beforeEach(() => {
     setupDbResults();
     vi.mocked(checkStationSiteAccess).mockResolvedValue(true);
-    mockGetS3Config.mockResolvedValue(null);
+    mockGetObjectStorage.mockResolvedValue(null);
     mockDeleteObject.mockResolvedValue(undefined);
     mockFinalizeUpload.mockResolvedValue({
       ok: true,
@@ -269,17 +274,17 @@ describe('Station image routes (site scope and edge cases)', () => {
       expect(db.update).not.toHaveBeenCalled();
       expect(db.insert).not.toHaveBeenCalled();
       expect(db.delete).not.toHaveBeenCalled();
-      expect(mockGetS3Config).not.toHaveBeenCalled();
+      expect(mockGetObjectStorage).not.toHaveBeenCalled();
     });
   });
 
   describe('confirm upload object checks', () => {
     beforeEach(() => {
-      mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
+      mockGetObjectStorage.mockResolvedValue(fakeStorage('bucket-a'));
     });
 
     it('returns 400 STORAGE_NOT_CONFIGURED without a configured bucket', async () => {
-      mockGetS3Config.mockResolvedValue(null);
+      mockGetObjectStorage.mockResolvedValue(null);
       const res = await app.inject({
         method: 'POST',
         url: `/stations/${VALID_STATION_ID}/images`,
@@ -347,7 +352,7 @@ describe('Station image routes (site scope and edge cases)', () => {
   });
 
   it('confirm upload maps a foreign key violation to 404 STATION_NOT_FOUND', async () => {
-    mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
+    mockGetObjectStorage.mockResolvedValue(fakeStorage('bucket-a'));
     const fk = Object.assign(new Error('fk'), { code: '23503' });
     setupDbResults([], [{ maxOrder: 2 }], fk);
     const res = await app.inject({
@@ -361,14 +366,13 @@ describe('Station image routes (site scope and edge cases)', () => {
     expect(writeAudit).not.toHaveBeenCalled();
     // The re-encoded object of the row that was never stored is deleted.
     expect(mockDeleteObject).toHaveBeenCalledWith(
-      expect.anything(),
       'bucket-a',
       'stations/sta_000000000001/0b6f7c1e-8a52-4c34-9f1d-3d0e5a6b7c8d-photo.jpg',
     );
   });
 
   it('confirm upload returns the stored row for a retried key without a second upload', async () => {
-    mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
+    mockGetObjectStorage.mockResolvedValue(fakeStorage('bucket-a'));
     setupDbResults([IMAGE]);
     const res = await app.inject({
       method: 'POST',
@@ -383,7 +387,7 @@ describe('Station image routes (site scope and edge cases)', () => {
   });
 
   it('confirm upload rethrows other insert errors as 500', async () => {
-    mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
+    mockGetObjectStorage.mockResolvedValue(fakeStorage('bucket-a'));
     const other = Object.assign(new Error('deadlock'), { code: '40P01' });
     setupDbResults([], [{ maxOrder: 2 }], other);
     const res = await app.inject({
@@ -397,7 +401,7 @@ describe('Station image routes (site scope and edge cases)', () => {
   });
 
   it('confirm upload with isMainImage clears the previous main image first', async () => {
-    mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
+    mockGetObjectStorage.mockResolvedValue(fakeStorage('bucket-a'));
     // no stored row, update (clear main), select max sort, insert
     setupDbResults([], [], [{ maxOrder: 4 }], [{ ...IMAGE, isMainImage: true, sortOrder: 5 }]);
     const res = await app.inject({

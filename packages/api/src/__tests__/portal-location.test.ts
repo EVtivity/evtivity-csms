@@ -104,14 +104,11 @@ vi.mock('drizzle-orm', () => ({
 
 // -- S3 mock --
 
-const mockGetS3Config = vi.fn();
+const mockGetObjectStorage = vi.fn();
 const mockGenerateDownloadUrl = vi.fn();
 
-vi.mock('../services/s3.service.js', () => ({
-  getS3Config: (...args: unknown[]) => mockGetS3Config(...args),
-  generateDownloadUrl: (...args: unknown[]) => mockGenerateDownloadUrl(...args),
-  generateUploadUrl: vi.fn(),
-  deleteObject: vi.fn(),
+vi.mock('../services/storage.service.js', () => ({
+  getObjectStorage: (...args: unknown[]) => mockGetObjectStorage(...args),
   buildStationImageS3Key: vi.fn(),
 }));
 
@@ -195,7 +192,7 @@ describe('Portal location routes', () => {
     dbResults = [];
     dbCallIndex = 0;
     vi.clearAllMocks();
-    mockGetS3Config.mockResolvedValue(null);
+    mockGetObjectStorage.mockResolvedValue(null);
     mockGenerateDownloadUrl.mockResolvedValue('https://s3.example.com/download');
   });
 
@@ -425,8 +422,11 @@ describe('Portal location routes', () => {
         isDriverVisible: true,
       };
 
-      const s3Config = { client: {}, bucket: 'my-bucket' };
-      mockGetS3Config.mockResolvedValue(s3Config);
+      const s3Config = {
+        bucket: 'my-bucket',
+        getDownloadUrl: (...args: unknown[]) => mockGenerateDownloadUrl(...args),
+      };
+      mockGetObjectStorage.mockResolvedValue(s3Config);
 
       // 1. select image
       setupDbResults([image]);
@@ -440,7 +440,7 @@ describe('Portal location routes', () => {
       const body = JSON.parse(response.body);
       expect(body.downloadUrl).toBe('https://s3.example.com/download');
       // A raster image opens inline with its own type (station image downloads).
-      expect(mockGenerateDownloadUrl).toHaveBeenCalledWith(s3Config, 'my-bucket', image.s3Key, {
+      expect(mockGenerateDownloadUrl).toHaveBeenCalledWith('my-bucket', image.s3Key, {
         fileName: 'photo.jpg',
         contentType: 'image/jpeg',
         disposition: 'inline',
@@ -456,8 +456,11 @@ describe('Portal location routes', () => {
         contentType: 'image/svg+xml',
         isDriverVisible: true,
       };
-      const s3Config = { client: {}, bucket: 'my-bucket' };
-      mockGetS3Config.mockResolvedValue(s3Config);
+      const s3Config = {
+        bucket: 'my-bucket',
+        getDownloadUrl: (...args: unknown[]) => mockGenerateDownloadUrl(...args),
+      };
+      mockGetObjectStorage.mockResolvedValue(s3Config);
       setupDbResults([image]);
 
       const response = await app.inject({
@@ -466,7 +469,7 @@ describe('Portal location routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(mockGenerateDownloadUrl).toHaveBeenCalledWith(s3Config, 'my-bucket', image.s3Key, {
+      expect(mockGenerateDownloadUrl).toHaveBeenCalledWith('my-bucket', image.s3Key, {
         fileName: 'logo.svg',
         contentType: 'application/octet-stream',
       });
@@ -479,7 +482,7 @@ describe('Portal location routes', () => {
         s3Bucket: 'my-bucket',
         isDriverVisible: true,
       };
-      mockGetS3Config.mockResolvedValue(null);
+      mockGetObjectStorage.mockResolvedValue(null);
 
       // 1. select image
       setupDbResults([image]);

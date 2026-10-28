@@ -161,7 +161,7 @@ async function invalidateNotificationSettings(): Promise<void> {
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { clearS3ConfigCache, getS3Config } from '../services/s3.service.js';
+import { clearObjectStorageCache, getObjectStorage } from '../services/storage.service.js';
 import { DEFAULT_CONTENT } from './default-content.js';
 import { authorize } from '../middleware/rbac.js';
 import { isAllSiteUser, requireAllSiteAccess } from '../lib/site-access.js';
@@ -690,7 +690,7 @@ async function writeWebhookSigningSecret(request: FastifyRequest, secret: string
 /** Whether drivers may upload an avatar image: file storage is configured. False when it cannot be read. */
 async function isAvatarUploadEnabled(log: FastifyBaseLogger): Promise<boolean> {
   try {
-    return (await getS3Config()) != null;
+    return (await getObjectStorage()) != null;
   } catch (err) {
     log.warn({ err }, 'S3 settings read failed; avatar upload reported off');
     return false;
@@ -1376,7 +1376,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       for (const row of beforeRows) beforeMap.set(row.key, row.value);
 
       await Promise.all(written.map((w) => upsert(w.key, w.value)));
-      clearS3ConfigCache();
+      clearObjectStorageCache();
 
       const actor = getAuditActor(request);
       await Promise.allSettled(
@@ -1403,7 +1403,7 @@ export function settingsRoutes(app: FastifyInstance): void {
     },
   );
 
-  // Test S3 connection by listing objects (max 1)
+  // Test the storage connection (S3 lists at most one object)
   app.post(
     '/settings/s3/test',
     {
@@ -1425,9 +1425,8 @@ export function settingsRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
-      const { getS3Config: getConfig } = await import('../services/s3.service.js');
-      const s3 = await getConfig();
-      if (s3 == null) {
+      const storage = await getObjectStorage();
+      if (storage == null) {
         await reply
           .status(400)
           .send({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
@@ -1435,8 +1434,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       }
 
       try {
-        const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
-        await s3.client.send(new ListObjectsV2Command({ Bucket: s3.bucket, MaxKeys: 1 }));
+        await storage.testConnection();
         return { success: true };
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Unknown error';

@@ -225,14 +225,14 @@ vi.mock('../lib/config.js', () => ({
   config: mockConfig,
 }));
 
-const { mockClearS3ConfigCache, mockGetS3Config } = vi.hoisted(() => ({
-  mockClearS3ConfigCache: vi.fn(),
-  mockGetS3Config: vi.fn(),
+const { mockClearObjectStorageCache, mockGetObjectStorage } = vi.hoisted(() => ({
+  mockClearObjectStorageCache: vi.fn(),
+  mockGetObjectStorage: vi.fn(),
 }));
 
-vi.mock('../services/s3.service.js', () => ({
-  clearS3ConfigCache: mockClearS3ConfigCache,
-  getS3Config: mockGetS3Config,
+vi.mock('../services/storage.service.js', () => ({
+  clearObjectStorageCache: mockClearObjectStorageCache,
+  getObjectStorage: mockGetObjectStorage,
 }));
 
 vi.mock('../middleware/rbac.js', () => ({
@@ -930,7 +930,7 @@ describe('Settings routes - full coverage', () => {
       const { encryptString } = libModule;
       expect(encryptString).toHaveBeenCalledWith('AKIA123', 'test-encryption-key-32chars!!!!!');
       expect(encryptString).toHaveBeenCalledWith('secret123', 'test-encryption-key-32chars!!!!!');
-      expect(mockClearS3ConfigCache).toHaveBeenCalled();
+      expect(mockClearObjectStorageCache).toHaveBeenCalled();
 
       mockConfig.SETTINGS_ENCRYPTION_KEY = original;
     });
@@ -1010,7 +1010,7 @@ describe('Settings routes - full coverage', () => {
     });
 
     it('returns 400 when S3 is not configured', async () => {
-      mockGetS3Config.mockResolvedValueOnce(null);
+      mockGetObjectStorage.mockResolvedValueOnce(null);
 
       const res = await app.inject({
         method: 'POST',
@@ -1024,10 +1024,10 @@ describe('Settings routes - full coverage', () => {
     });
 
     it('returns success when S3 connection works', async () => {
-      const mockSend = vi.fn().mockResolvedValueOnce({});
-      mockGetS3Config.mockResolvedValueOnce({
-        client: { send: mockSend },
+      const mockTestConnection = vi.fn().mockResolvedValueOnce(undefined);
+      mockGetObjectStorage.mockResolvedValueOnce({
         bucket: 'test-bucket',
+        testConnection: mockTestConnection,
       });
 
       const res = await app.inject({
@@ -1040,10 +1040,10 @@ describe('Settings routes - full coverage', () => {
     });
 
     it('returns 400 with error message when S3 connection fails (Error instance)', async () => {
-      const mockSend = vi.fn().mockRejectedValueOnce(new Error('Access Denied'));
-      mockGetS3Config.mockResolvedValueOnce({
-        client: { send: mockSend },
+      const mockTestConnection = vi.fn().mockRejectedValueOnce(new Error('Access Denied'));
+      mockGetObjectStorage.mockResolvedValueOnce({
         bucket: 'test-bucket',
+        testConnection: mockTestConnection,
       });
 
       const res = await app.inject({
@@ -1058,10 +1058,10 @@ describe('Settings routes - full coverage', () => {
     });
 
     it('returns 400 with "Unknown error" when S3 throws non-Error', async () => {
-      const mockSend = vi.fn().mockRejectedValueOnce('string-error');
-      mockGetS3Config.mockResolvedValueOnce({
-        client: { send: mockSend },
+      const mockTestConnection = vi.fn().mockRejectedValueOnce('string-error');
+      mockGetObjectStorage.mockResolvedValueOnce({
         bucket: 'test-bucket',
+        testConnection: mockTestConnection,
       });
 
       const res = await app.inject({

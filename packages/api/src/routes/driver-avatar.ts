@@ -17,7 +17,7 @@ import {
   avatarUploadUrlResponse,
   generatedAvatarBody,
 } from '../lib/avatar-item.js';
-import { getS3Config } from '../services/s3.service.js';
+import { getObjectStorage } from '../services/storage.service.js';
 import { AVATAR_MAX_BYTES, requestAvatarUpload } from '../services/account-avatar-upload.js';
 import { avatarView } from '../services/account-avatar.js';
 import {
@@ -139,13 +139,13 @@ export function driverAvatarRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      const s3 = await getS3Config();
-      if (s3 == null) {
+      const storage = await getObjectStorage();
+      if (storage == null) {
         await reply.status(400).send(STORAGE_NOT_CONFIGURED);
         return;
       }
       return requestAvatarUpload(
-        s3,
+        storage,
         { kind: 'driver', driverId: id },
         body.contentType,
         operatorUploader(request),
@@ -184,16 +184,16 @@ export function driverAvatarRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof driverParams>;
       const body = request.body as z.infer<typeof avatarConfirmBody>;
       await writableAvatarRow(id);
-      const s3 = await getS3Config();
-      if (s3 == null) {
+      const storage = await getObjectStorage();
+      if (storage == null) {
         await reply.status(400).send(STORAGE_NOT_CONFIGURED);
         return;
       }
-      const row = await confirmUploadedAvatar(id, s3, body, {
+      const row = await confirmUploadedAvatar(id, storage, body, {
         ...context(request, 'Avatar changed by an operator'),
         uploader: operatorUploader(request),
       });
-      return { avatar: await avatarView(row, s3) };
+      return { avatar: await avatarView(row, storage) };
     },
   );
 

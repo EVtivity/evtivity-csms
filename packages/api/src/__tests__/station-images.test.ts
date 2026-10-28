@@ -126,10 +126,9 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
 }));
 
-// -- S3 mock --
+// -- Storage mock --
 
-const mockGetS3Config = vi.fn();
-const mockGenerateUploadUrl = vi.fn();
+const mockGetObjectStorage = vi.fn();
 const mockGenerateDownloadUrl = vi.fn();
 const mockDeleteObject = vi.fn();
 const mockGenerateUploadPost = vi.fn();
@@ -140,18 +139,24 @@ vi.mock('../services/ai/attachments/upload-flow.js', () => ({
   displayFileName: (fileName: string) => fileName,
 }));
 
-vi.mock('../services/s3.service.js', () => ({
-  getS3Config: (...args: unknown[]) => mockGetS3Config(...args),
-  generateUploadUrl: (...args: unknown[]) => mockGenerateUploadUrl(...args),
-  generateDownloadUrl: (...args: unknown[]) => mockGenerateDownloadUrl(...args),
-  deleteObject: (...args: unknown[]) => mockDeleteObject(...args),
+vi.mock('../services/storage.service.js', () => ({
+  getObjectStorage: (...args: unknown[]) => mockGetObjectStorage(...args),
   buildStationImageS3Key: (stationId: string, fileId: string, fileName: string) =>
     `stations/${stationId}/${fileId}-${fileName}`,
   buildStationImageQuarantineKey: (stationId: string, fileId: string, fileName: string) =>
     `ai-uploads/quarantine/stations/${stationId}/${fileId}/${fileName}`,
-  generateUploadPost: (...args: unknown[]) => mockGenerateUploadPost(...args),
   QUARANTINE_PREFIX: 'ai-uploads/quarantine/',
 }));
+
+/** A configured storage whose calls go to the mocks above. */
+function fakeStorage(bucket: string) {
+  return {
+    bucket,
+    createUpload: (...args: unknown[]) => mockGenerateUploadPost(...args),
+    getDownloadUrl: (...args: unknown[]) => mockGenerateDownloadUrl(...args),
+    deleteObject: (...args: unknown[]) => mockDeleteObject(...args),
+  };
+}
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
@@ -189,7 +194,7 @@ describe('Station image routes', () => {
     dbResults = [];
     dbCallIndex = 0;
     vi.clearAllMocks();
-    mockGetS3Config.mockResolvedValue(null);
+    mockGetObjectStorage.mockResolvedValue(null);
     mockGenerateUploadPost.mockResolvedValue({
       url: 'https://s3.example.com/upload',
       fields: { key: 'k', Policy: 'p' },
@@ -259,8 +264,8 @@ describe('Station image routes', () => {
 
   describe('POST /stations/:id/images/upload-url', () => {
     it('returns presigned URL when S3 configured', async () => {
-      const s3Config = { client: {}, bucket: 'my-bucket' };
-      mockGetS3Config.mockResolvedValue(s3Config);
+      const s3Config = fakeStorage('my-bucket');
+      mockGetObjectStorage.mockResolvedValue(s3Config);
 
       const response = await app.inject({
         method: 'POST',
@@ -277,17 +282,12 @@ describe('Station image routes', () => {
       expect(body.uploadUrl).toBe('https://s3.example.com/upload');
       expect(body.fields).toEqual({ key: 'k', Policy: 'p' });
       expect(body.s3Key).toMatch(/^ai-uploads\/quarantine\/stations\/sta_000000000001\//);
-      expect(mockGenerateUploadPost).toHaveBeenCalledWith(
-        expect.anything(),
-        body.s3Key,
-        'image/jpeg',
-        12345,
-      );
+      expect(mockGenerateUploadPost).toHaveBeenCalledWith(body.s3Key, 'image/jpeg', 12345);
       expect(body.s3Bucket).toBe('my-bucket');
     });
 
     it('returns 400 when S3 not configured', async () => {
-      mockGetS3Config.mockResolvedValue(null);
+      mockGetObjectStorage.mockResolvedValue(null);
 
       const response = await app.inject({
         method: 'POST',
@@ -320,7 +320,7 @@ describe('Station image routes', () => {
     };
 
     beforeEach(() => {
-      mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'my-bucket' });
+      mockGetObjectStorage.mockResolvedValue(fakeStorage('my-bucket'));
     });
 
     it('confirms upload and inserts row', async () => {
@@ -449,8 +449,8 @@ describe('Station image routes', () => {
         s3Key: 'stations/sta_000000000001/uuid-photo.jpg',
         s3Bucket: 'my-bucket',
       };
-      const s3Config = { client: {}, bucket: 'my-bucket' };
-      mockGetS3Config.mockResolvedValue(s3Config);
+      const s3Config = fakeStorage('my-bucket');
+      mockGetObjectStorage.mockResolvedValue(s3Config);
 
       // 1. select image, 2. delete from DB
       setupDbResults([image], []);
@@ -463,7 +463,7 @@ describe('Station image routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.success).toBe(true);
-      expect(mockDeleteObject).toHaveBeenCalledWith(s3Config, 'my-bucket', image.s3Key);
+      expect(mockDeleteObject).toHaveBeenCalledWith('my-bucket', image.s3Key);
     });
 
     it('returns 404 if image not found', async () => {
@@ -493,8 +493,8 @@ describe('Station image routes', () => {
         s3Key: 'stations/sta_000000000001/uuid-photo.jpg',
         s3Bucket: 'my-bucket',
       };
-      const s3Config = { client: {}, bucket: 'my-bucket' };
-      mockGetS3Config.mockResolvedValue(s3Config);
+      const s3Config = fakeStorage('my-bucket');
+      mockGetObjectStorage.mockResolvedValue(s3Config);
 
       // 1. select image
       setupDbResults([image]);
@@ -530,7 +530,7 @@ describe('Station image routes', () => {
         s3Key: 'stations/sta_000000000001/uuid-photo.jpg',
         s3Bucket: 'my-bucket',
       };
-      mockGetS3Config.mockResolvedValue(null);
+      mockGetObjectStorage.mockResolvedValue(null);
 
       // 1. select image
       setupDbResults([image]);

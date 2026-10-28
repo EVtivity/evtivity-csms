@@ -58,7 +58,7 @@ import {
 import { scheduleRemoteStartTimeout } from '../../lib/remote-start-timeout.js';
 import { itemResponse, arrayResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
-import { getS3Config, generateDownloadUrl } from '../../services/s3.service.js';
+import { getObjectStorage } from '../../services/storage.service.js';
 import { stationImageDownloadOptions } from '../../services/station-image-upload.js';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { sendStatusCheckError, triggerAndWaitForStatus } from '../../lib/station-status-check.js';
@@ -1396,16 +1396,15 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const s3 = await getS3Config();
-      if (s3 == null) {
+      const storage = await getObjectStorage();
+      if (storage == null) {
         await reply
           .status(404)
           .send({ error: 'Attachment storage not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 
-      const downloadUrl = await generateDownloadUrl(
-        s3,
+      const downloadUrl = await storage.getDownloadUrl(
         image.s3Bucket,
         image.s3Key,
         stationImageDownloadOptions(image),

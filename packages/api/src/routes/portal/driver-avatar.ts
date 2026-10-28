@@ -17,7 +17,7 @@ import {
   generatedAvatarBody,
 } from '../../lib/avatar-item.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
-import { getS3Config } from '../../services/s3.service.js';
+import { getObjectStorage } from '../../services/storage.service.js';
 import { AVATAR_MAX_BYTES, requestAvatarUpload } from '../../services/account-avatar-upload.js';
 import { avatarView } from '../../services/account-avatar.js';
 import type { AvatarView } from '../../services/account-avatar.js';
@@ -63,7 +63,7 @@ const STORAGE_NOT_CONFIGURED = {
 async function currentAvatar(driverId: string): Promise<AvatarView | null> {
   const [row] = await db.select(driverAvatarColumns).from(drivers).where(eq(drivers.id, driverId));
   if (row == null) return null;
-  return avatarView(row, row.avatarKind === 'image' ? await getS3Config() : null);
+  return avatarView(row, row.avatarKind === 'image' ? await getObjectStorage() : null);
 }
 
 export function portalDriverAvatarRoutes(app: FastifyInstance): void {
@@ -148,12 +148,12 @@ export function portalDriverAvatarRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      const s3 = await getS3Config();
-      if (s3 == null) {
+      const storage = await getObjectStorage();
+      if (storage == null) {
         await reply.status(400).send(STORAGE_NOT_CONFIGURED);
         return;
       }
-      return requestAvatarUpload(s3, { kind: 'driver', driverId }, body.contentType);
+      return requestAvatarUpload(storage, { kind: 'driver', driverId }, body.contentType);
     },
   );
 
@@ -184,16 +184,16 @@ export function portalDriverAvatarRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { driverId } = request.user as DriverJwtPayload;
       const body = request.body as z.infer<typeof confirmBody>;
-      const s3 = await getS3Config();
-      if (s3 == null) {
+      const storage = await getObjectStorage();
+      if (storage == null) {
         await reply.status(400).send(STORAGE_NOT_CONFIGURED);
         return;
       }
-      const row = await confirmUploadedAvatar(driverId, s3, body, {
+      const row = await confirmUploadedAvatar(driverId, storage, body, {
         actor: getAuditActor(request),
         log: request.log,
       });
-      return { avatar: await avatarView(row, s3) };
+      return { avatar: await avatarView(row, storage) };
     },
   );
 
