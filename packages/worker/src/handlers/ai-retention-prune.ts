@@ -12,7 +12,7 @@ import {
   getAiSettings,
 } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
-import { deleteObject, loadS3Config } from '@evtivity/services/s3-storage';
+import { loadObjectStorage } from '@evtivity/services/storage';
 import { pruneAiWorkerRuns } from '@evtivity/services/ai-workers/runs';
 import { config } from '../lib/config.js';
 
@@ -189,8 +189,8 @@ export async function aiRetentionPruneHandler(log: Logger): Promise<void> {
     return;
   }
 
-  const s3 = await loadS3Config(config.SETTINGS_ENCRYPTION_KEY);
-  if (s3 == null) {
+  const storage = await loadObjectStorage(config.SETTINGS_ENCRYPTION_KEY);
+  if (storage == null) {
     log.warn('ai-retention-prune: S3 is not configured; expired attachments are kept');
     return;
   }
@@ -215,8 +215,8 @@ export async function aiRetentionPruneHandler(log: Logger): Promise<void> {
 
     for (const row of todo.slice(0, BATCH_SIZE)) {
       try {
-        await deleteObject(s3, row.s3Bucket, row.quarantineKey);
-        if (row.s3Key != null) await deleteObject(s3, row.s3Bucket, row.s3Key);
+        await storage.deleteObject(row.s3Bucket, row.quarantineKey);
+        if (row.s3Key != null) await storage.deleteObject(row.s3Bucket, row.s3Key);
         await db.delete(aiAttachments).where(eq(aiAttachments.id, row.id));
         deleted++;
       } catch (err) {

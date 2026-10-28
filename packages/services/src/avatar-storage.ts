@@ -17,8 +17,7 @@ import type {
   UserAvatarDeleteJob,
   UserAvatarPurgeJob,
 } from '@evtivity/lib/avatar-cleanup';
-import { deleteObject, deleteObjectsUnderPrefix } from './s3-storage.js';
-import type { S3Config } from './s3-storage.js';
+import type { ObjectStorage } from './storage/index.js';
 
 /**
  * Avatar objects in storage, shared by the API (erasure, user delete, a failed
@@ -40,14 +39,14 @@ interface Logger {
  * when storage fails; returns how many objects it deleted.
  */
 export async function purgeDriverAvatarObjects(
-  s3: S3Config,
+  storage: ObjectStorage,
   driverId: string,
   buckets: readonly string[] = [],
 ): Promise<number> {
   let deleted = 0;
-  for (const bucket of new Set([s3.bucket, ...buckets])) {
+  for (const bucket of new Set([storage.bucket, ...buckets])) {
     for (const prefix of driverAvatarObjectPrefixes(driverId)) {
-      deleted += await deleteObjectsUnderPrefix(s3, bucket, prefix);
+      deleted += await storage.deleteObjectsUnderPrefix(bucket, prefix);
     }
   }
   return deleted;
@@ -55,14 +54,14 @@ export async function purgeDriverAvatarObjects(
 
 /** The same for one CSMS user. */
 export async function purgeUserAvatarObjects(
-  s3: S3Config,
+  storage: ObjectStorage,
   userId: string,
   buckets: readonly string[] = [],
 ): Promise<number> {
   let deleted = 0;
-  for (const bucket of new Set([s3.bucket, ...buckets])) {
+  for (const bucket of new Set([storage.bucket, ...buckets])) {
     for (const prefix of userAvatarObjectPrefixes(userId)) {
-      deleted += await deleteObjectsUnderPrefix(s3, bucket, prefix);
+      deleted += await storage.deleteObjectsUnderPrefix(bucket, prefix);
     }
   }
   return deleted;
@@ -71,7 +70,7 @@ export async function purgeUserAvatarObjects(
 async function runUserAvatarCleanupJob(
   name: string,
   data: unknown,
-  s3: S3Config | null,
+  storage: ObjectStorage | null,
   log: Logger,
 ): Promise<boolean> {
   if (name === USER_AVATAR_PURGE_JOB) {
@@ -85,8 +84,8 @@ async function runUserAvatarCleanupJob(
       log.warn({ userId: job.userId }, 'User avatar purge skipped: the user is active again');
       return true;
     }
-    if (s3 == null) throw new Error('File storage is not configured');
-    const deleted = await purgeUserAvatarObjects(s3, job.userId, job.buckets);
+    if (storage == null) throw new Error('File storage is not configured');
+    const deleted = await purgeUserAvatarObjects(storage, job.userId, job.buckets);
     log.info({ userId: job.userId, deleted }, 'User avatar objects purged');
     return true;
   }
@@ -100,8 +99,8 @@ async function runUserAvatarCleanupJob(
       log.warn({ key: job.key }, 'User avatar object delete skipped: a user row points at it');
       return true;
     }
-    if (s3 == null) throw new Error('File storage is not configured');
-    await deleteObject(s3, job.bucket, job.key);
+    if (storage == null) throw new Error('File storage is not configured');
+    await storage.deleteObject(job.bucket, job.key);
     log.info({ userId: job.userId, key: job.key }, 'User avatar object deleted');
     return true;
   }
@@ -117,7 +116,7 @@ async function runUserAvatarCleanupJob(
 export async function runAvatarCleanupJob(
   name: string,
   data: unknown,
-  s3: S3Config | null,
+  storage: ObjectStorage | null,
   log: Logger,
 ): Promise<void> {
   if (name === DRIVER_AVATAR_PURGE_JOB) {
@@ -130,8 +129,8 @@ export async function runAvatarCleanupJob(
       log.warn({ driverId: job.driverId }, 'Driver avatar purge skipped: the driver is not erased');
       return;
     }
-    if (s3 == null) throw new Error('File storage is not configured');
-    const deleted = await purgeDriverAvatarObjects(s3, job.driverId, job.buckets);
+    if (storage == null) throw new Error('File storage is not configured');
+    const deleted = await purgeDriverAvatarObjects(storage, job.driverId, job.buckets);
     log.info({ driverId: job.driverId, deleted }, 'Driver avatar objects purged');
     return;
   }
@@ -145,11 +144,11 @@ export async function runAvatarCleanupJob(
       log.warn({ key: job.key }, 'Driver avatar object delete skipped: a driver row points at it');
       return;
     }
-    if (s3 == null) throw new Error('File storage is not configured');
-    await deleteObject(s3, job.bucket, job.key);
+    if (storage == null) throw new Error('File storage is not configured');
+    await storage.deleteObject(job.bucket, job.key);
     log.info({ driverId: job.driverId, key: job.key }, 'Driver avatar object deleted');
     return;
   }
-  if (await runUserAvatarCleanupJob(name, data, s3, log)) return;
+  if (await runUserAvatarCleanupJob(name, data, storage, log)) return;
   log.warn({ name }, 'Unknown avatar cleanup job dropped');
 }

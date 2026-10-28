@@ -115,8 +115,8 @@
     "./reservation-cancel": {
       "import": "./src/reservation-cancel.ts"
     },
-    "./s3-storage": {
-      "import": "./src/s3-storage.ts"
+    "./storage": {
+      "import": "./src/storage/index.ts"
     },
     "./avatar-storage": {
       "import": "./src/avatar-storage.ts"
@@ -170,6 +170,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1149.0",
+    "@aws-sdk/s3-presigned-post": "^3.1149.0",
+    "@aws-sdk/s3-request-presigner": "^3.1149.0",
     "@evtivity/ai": "*",
     "@evtivity/database": "*",
     "@evtivity/lib": "*",

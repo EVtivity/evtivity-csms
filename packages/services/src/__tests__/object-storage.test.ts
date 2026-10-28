@@ -69,17 +69,6 @@ const {
   };
 });
 
-// -- Config mock --
-
-const mockConfig = vi.hoisted(() => ({
-  SETTINGS_ENCRYPTION_KEY: 'test-encryption-key',
-  COOKIE_DOMAIN: undefined as string | undefined,
-}));
-
-vi.mock('../lib/config.js', () => ({
-  config: mockConfig,
-}));
-
 // -- Mocks --
 
 vi.mock('@evtivity/database', () => ({
@@ -128,6 +117,12 @@ vi.mock('@aws-sdk/client-s3', () => {
       this.input = input;
     }
   }
+  class MockListObjectsV2Command {
+    input: Record<string, unknown>;
+    constructor(input: Record<string, unknown>) {
+      this.input = input;
+    }
+  }
   class MockNoSuchKey extends Error {}
   class MockNotFound extends Error {}
   return {
@@ -136,6 +131,7 @@ vi.mock('@aws-sdk/client-s3', () => {
     GetObjectCommand: MockGetObjectCommand,
     DeleteObjectCommand: MockDeleteObjectCommand,
     HeadObjectCommand: MockHeadObjectCommand,
+    ListObjectsV2Command: MockListObjectsV2Command,
     NoSuchKey: MockNoSuchKey,
     NotFound: MockNotFound,
   };
@@ -152,22 +148,21 @@ vi.mock('@aws-sdk/s3-presigned-post', () => ({
 // -- Import under test (after mocks) --
 
 import {
-  getS3Config,
-  clearS3ConfigCache,
-  generateDownloadUrl,
-  deleteObject,
-  buildS3Key,
-  buildStationImageS3Key,
-  buildSupportQuarantineKey,
+  clearObjectStorageCache,
   contentDispositionAttachment,
-  generateUploadPost,
-  readObject,
-  sanitizeFileName,
-} from '../services/s3.service.js';
+  loadObjectStorage,
+  S3ObjectStorage,
+} from '../storage/index.js';
 import { NoSuchKey, NotFound } from '@aws-sdk/client-s3';
-import type { S3Config } from '../services/s3.service.js';
+import type { S3Client } from '@aws-sdk/client-s3';
+
+const ENCRYPTION_KEY = 'test-encryption-key';
 
 // -- Helpers --
+
+function getStorage() {
+  return loadObjectStorage(ENCRYPTION_KEY);
+}
 
 function settingsRows() {
   return [
@@ -178,27 +173,23 @@ function settingsRows() {
   ];
 }
 
-function makeMockS3Config(): S3Config {
-  return {
-    client: { send: mockS3Send } as unknown as S3Config['client'],
-    bucket: 'test-bucket',
-  };
+function makeStorage(): S3ObjectStorage {
+  return new S3ObjectStorage({ send: mockS3Send } as unknown as S3Client, 'test-bucket');
 }
 
 // -- Tests --
 
-describe('s3.service', () => {
+describe('object storage', () => {
   beforeEach(() => {
-    mockConfig.SETTINGS_ENCRYPTION_KEY = 'test-encryption-key';
-    clearS3ConfigCache();
+    clearObjectStorageCache();
     setupDbResults();
     vi.clearAllMocks();
   });
 
-  describe('getS3Config', () => {
+  describe('loadObjectStorage', () => {
     it('returns null when required settings are missing', async () => {
       setupDbResults([]);
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).toBeNull();
     });
 
@@ -208,7 +199,7 @@ describe('s3.service', () => {
         { key: 's3.accessKeyIdEnc', value: 'enc-access-key' },
         { key: 's3.secretAccessKeyEnc', value: 'enc-secret-key' },
       ]);
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).toBeNull();
     });
 
@@ -218,7 +209,7 @@ describe('s3.service', () => {
         { key: 's3.accessKeyIdEnc', value: 'enc-access-key' },
         { key: 's3.secretAccessKeyEnc', value: 'enc-secret-key' },
       ]);
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).toBeNull();
     });
 
@@ -230,7 +221,7 @@ describe('s3.service', () => {
         { key: 's3.bucket', value: bucket },
         { key: 's3.region', value: region },
       ]);
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).toBeNull();
       expect(mockS3ClientCtor).not.toHaveBeenCalled();
     });
@@ -241,7 +232,7 @@ describe('s3.service', () => {
         { key: 's3.region', value: 'us-east-1' },
         { key: 's3.secretAccessKeyEnc', value: 'enc-secret-key' },
       ]);
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).toBeNull();
     });
 
@@ -251,7 +242,7 @@ describe('s3.service', () => {
         { key: 's3.region', value: 'us-east-1' },
         { key: 's3.accessKeyIdEnc', value: 'enc-access-key' },
       ]);
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).toBeNull();
     });
 
@@ -260,7 +251,7 @@ describe('s3.service', () => {
         { key: 's3.bucket', value: 'my-bucket' },
         { key: 's3.region', value: 'us-east-1' },
       ]);
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).not.toBeNull();
       expect(config!.bucket).toBe('my-bucket');
       expect(mockS3ClientCtor).toHaveBeenLastCalledWith({ region: 'us-east-1' });
@@ -269,8 +260,9 @@ describe('s3.service', () => {
 
     it('returns config when all settings present', async () => {
       setupDbResults(settingsRows());
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).not.toBeNull();
+      expect(config!.provider).toBe('s3');
       expect(config!.bucket).toBe('my-bucket');
       expect(mockDecryptString).toHaveBeenCalledWith('enc-access-key', 'test-encryption-key');
       expect(mockDecryptString).toHaveBeenCalledWith('enc-secret-key', 'test-encryption-key');
@@ -282,29 +274,29 @@ describe('s3.service', () => {
         { key: 'smtp.host', value: 'mail.example.com' },
         { key: 'stripe.secretKeyEnc', value: 'should-be-ignored' },
       ]);
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).not.toBeNull();
       expect(config!.bucket).toBe('my-bucket');
     });
 
     it('returns cached config on subsequent calls', async () => {
       setupDbResults(settingsRows());
-      const first = await getS3Config();
+      const first = await getStorage();
       expect(first).not.toBeNull();
 
       setupDbResults([]);
-      const second = await getS3Config();
+      const second = await getStorage();
       expect(second).toBe(first);
     });
 
     it('refetches after cache is cleared', async () => {
       setupDbResults(settingsRows());
-      const first = await getS3Config();
+      const first = await getStorage();
       expect(first).not.toBeNull();
 
-      clearS3ConfigCache();
+      clearObjectStorageCache();
       setupDbResults([]);
-      const second = await getS3Config();
+      const second = await getStorage();
       expect(second).toBeNull();
     });
 
@@ -315,7 +307,7 @@ describe('s3.service', () => {
         { key: 's3.accessKeyIdEnc', value: '' },
         { key: 's3.secretAccessKeyEnc', value: '' },
       ]);
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).not.toBeNull();
       expect(config!.bucket).toBe('my-bucket');
       expect(mockS3ClientCtor).toHaveBeenLastCalledWith({ region: 'us-east-1' });
@@ -329,7 +321,7 @@ describe('s3.service', () => {
         { key: 's3.accessKeyIdEnc', value: 'enc-access-key' },
         { key: 's3.secretAccessKeyEnc', value: '' },
       ]);
-      const config = await getS3Config();
+      const config = await getStorage();
       expect(config).toBeNull();
       expect(mockS3ClientCtor).not.toHaveBeenCalled();
     });
@@ -339,50 +331,43 @@ describe('s3.service', () => {
         throw new Error('Invalid initialization vector');
       });
       setupDbResults(settingsRows());
-      await expect(getS3Config()).rejects.toThrow('Invalid initialization vector');
+      await expect(getStorage()).rejects.toThrow('Invalid initialization vector');
     });
   });
 
-  describe('clearS3ConfigCache', () => {
+  describe('clearObjectStorageCache', () => {
     it('clears the cached config', async () => {
       setupDbResults(settingsRows());
-      const first = await getS3Config();
+      const first = await getStorage();
       expect(first).not.toBeNull();
 
-      clearS3ConfigCache();
+      clearObjectStorageCache();
       setupDbResults(settingsRows());
-      const second = await getS3Config();
+      const second = await getStorage();
       expect(second).not.toBe(first);
     });
   });
 
-  // No unbounded presigned PUT helper exists, so no caller can bring back an
-  // upload without a size limit.
-  it('exports no presigned PUT upload URL', async () => {
-    const mod = await import('../services/s3.service.js');
-    expect(Object.keys(mod)).not.toContain('generateUploadUrl');
-  });
-
-  describe('generateDownloadUrl', () => {
+  describe('S3ObjectStorage.getDownloadUrl', () => {
     it('calls getSignedUrl with GetObjectCommand and correct params', async () => {
-      const s3 = makeMockS3Config();
-      const url = await generateDownloadUrl(s3, 'download-bucket', 'files/doc.pdf');
+      const storage = makeStorage();
+      const url = await storage.getDownloadUrl('download-bucket', 'files/doc.pdf');
 
       expect(mockGetSignedUrl).toHaveBeenCalledTimes(1);
       const [client, , options] = mockGetSignedUrl.mock.calls[0] as unknown[];
-      expect(client).toBe(s3.client);
+      expect(client).toBe(storage.client);
       expect((options as Record<string, unknown>).expiresIn).toBe(3600);
       expect(url).toBe('https://s3.example.com/signed-url');
     });
 
     it('serves inline only when asked, and as an attachment by default', async () => {
-      const s3 = makeMockS3Config();
-      await generateDownloadUrl(s3, 'b', 'k', {
+      const storage = makeStorage();
+      await storage.getDownloadUrl('b', 'k', {
         fileName: 'front.jpg',
         contentType: 'image/jpeg',
         disposition: 'inline',
       });
-      await generateDownloadUrl(s3, 'b', 'k', {
+      await storage.getDownloadUrl('b', 'k', {
         fileName: 'logo.svg',
         contentType: 'application/octet-stream',
       });
@@ -400,98 +385,27 @@ describe('s3.service', () => {
     });
   });
 
-  describe('deleteObject', () => {
+  describe('S3ObjectStorage.deleteObject', () => {
     it('sends DeleteObjectCommand via s3 client', async () => {
-      const s3 = makeMockS3Config();
-      await deleteObject(s3, 'delete-bucket', 'files/old.pdf');
+      const storage = makeStorage();
+      await storage.deleteObject('delete-bucket', 'files/old.pdf');
 
       expect(mockS3Send).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('buildS3Key', () => {
-    it('builds correct key path', () => {
-      const key = buildS3Key('case-123', 'msg-456', 'file-789', 'document.pdf');
-      expect(key).toBe('support-cases/case-123/msg-456/file-789-document.pdf');
-    });
-
-    it('TC-AI-U-16 sanitizes the file name in the key', () => {
-      const key = buildS3Key('c1', 'm1', 'f1', 'my file (2).pdf');
-      expect(key).toBe('support-cases/c1/m1/f1-my_file__2_.pdf');
-    });
-
-    it('TC-AI-U-16 strips path traversal from the file name', () => {
-      const key = buildS3Key('c1', 'm1', 'f1', '../../other-case/x.png');
-      expect(key).toBe('support-cases/c1/m1/f1-_.._other-case_x.png');
-      expect(key.split('/')).toHaveLength(4);
-    });
-
-    it('accepts a numeric messageId', () => {
-      const key = buildS3Key('case-1', 42, 'file-9', 'doc.pdf');
-      expect(key).toBe('support-cases/case-1/42/file-9-doc.pdf');
-    });
-  });
-
-  describe('buildStationImageS3Key', () => {
-    it('builds the station image key with a sanitized fileName', () => {
-      const key = buildStationImageS3Key('sta_1', 'img_1', 'photo.png');
-      expect(key).toBe('stations/sta_1/img_1-photo.png');
-    });
-
-    it('replaces path separators and unsafe characters with underscores', () => {
-      // Dots, hyphens and underscores are preserved; slashes and spaces are not.
-      const key = buildStationImageS3Key('sta_2', 'img_2', '../../etc/pa ss?wd');
-      expect(key).toBe('stations/sta_2/img_2-_.._etc_pa_ss_wd');
-    });
-
-    it('truncates long file names to 100 characters', () => {
-      const longName = 'a'.repeat(150) + '.png';
-      const key = buildStationImageS3Key('sta_3', 'img_3', longName);
-      const fileNamePart = key.split('img_3-')[1] as string;
-      expect(fileNamePart).toHaveLength(100);
-    });
-
-    it('falls back to "image" when the sanitized fileName is empty', () => {
-      const key = buildStationImageS3Key('sta_4', 'img_4', '@@@');
-      // '@@@' sanitizes to '___' (non-empty), so use a name that empties out.
-      expect(key).toBe('stations/sta_4/img_4-___');
-    });
-
-    it('uses the "image" fallback for an empty fileName', () => {
-      const key = buildStationImageS3Key('sta_5', 'img_5', '');
-      expect(key).toBe('stations/sta_5/img_5-image');
-    });
-  });
-
-  describe('sanitizeFileName', () => {
-    it('TC-AI-U-16 keeps safe characters, drops leading dots, caps at 100', () => {
-      expect(sanitizeFileName('report.final-v2_ok.pdf')).toBe('report.final-v2_ok.pdf');
-      expect(sanitizeFileName('.htaccess')).toBe('htaccess');
-      expect(sanitizeFileName('a'.repeat(200))).toHaveLength(100);
-      expect(sanitizeFileName('')).toBe('file');
-      expect(sanitizeFileName('...', 'image')).toBe('image');
-    });
-  });
-
-  describe('buildSupportQuarantineKey', () => {
-    it('puts uploads under the quarantine prefix with a sanitized name', () => {
-      expect(buildSupportQuarantineKey('sc_1', 7, 'uuid-1', 'a b.png')).toBe(
-        'ai-uploads/quarantine/support-cases/sc_1/7/uuid-1/a_b.png',
-      );
-    });
-  });
-
-  describe('generateUploadPost', () => {
+  describe('S3ObjectStorage.createUpload', () => {
     it('TC-AI-U-06 pins the key, the Content-Type and a 1..maxBytes length range', async () => {
-      const s3 = makeMockS3Config();
-      const post = await generateUploadPost(s3, 'ai-uploads/quarantine/x/y.png', 'image/png', 1234);
+      const storage = makeStorage();
+      const post = await storage.createUpload('ai-uploads/quarantine/x/y.png', 'image/png', 1234);
 
+      expect(post.method).toBe('POST');
       expect(post.url).toBe('https://bucket.s3.example.com/');
       const [client, options] = mockCreatePresignedPost.mock.calls[0] as [
         unknown,
         Record<string, unknown>,
       ];
-      expect(client).toBe(s3.client);
+      expect(client).toBe(storage.client);
       expect(options).toEqual({
         Bucket: 'test-bucket',
         Key: 'ai-uploads/quarantine/x/y.png',
@@ -505,10 +419,10 @@ describe('s3.service', () => {
     });
   });
 
-  describe('generateDownloadUrl with options', () => {
+  describe('S3ObjectStorage.getDownloadUrl with options', () => {
     it('serves the file as an attachment with the given type', async () => {
-      const s3 = makeMockS3Config();
-      await generateDownloadUrl(s3, 'b', 'k', {
+      const storage = makeStorage();
+      await storage.getDownloadUrl('b', 'k', {
         fileName: 'scan.pdf',
         contentType: 'application/pdf',
       });
@@ -532,21 +446,35 @@ describe('s3.service', () => {
     });
   });
 
-  describe('readObject', () => {
+  describe('S3ObjectStorage.testConnection', () => {
+    it('lists at most one object of the configured bucket', async () => {
+      const storage = makeStorage();
+      await storage.testConnection();
+      const [command] = mockS3Send.mock.calls[0] as [{ input: Record<string, unknown> }];
+      expect(command.input).toEqual({ Bucket: 'test-bucket', MaxKeys: 1 });
+    });
+
+    it('rethrows the S3 error', async () => {
+      mockS3Send.mockRejectedValueOnce(new Error('Access Denied'));
+      await expect(makeStorage().testConnection()).rejects.toThrow('Access Denied');
+    });
+  });
+
+  describe('S3ObjectStorage.readObject', () => {
     it('returns the bytes and stored type', async () => {
-      const s3 = makeMockS3Config();
+      const storage = makeStorage();
       mockS3Send.mockResolvedValueOnce({ ContentLength: 3 }).mockResolvedValueOnce({
         ContentType: 'text/plain',
         Body: { transformToByteArray: () => Promise.resolve(new Uint8Array([97, 98, 99])) },
       });
-      const res = await readObject(s3, 'b', 'k', 10);
+      const res = await storage.readObject('b', 'k', 10);
       expect(res).toEqual({ status: 'ok', bytes: Buffer.from('abc'), contentType: 'text/plain' });
     });
 
     it('refuses an object over the limit without downloading it', async () => {
-      const s3 = makeMockS3Config();
+      const storage = makeStorage();
       mockS3Send.mockResolvedValueOnce({ ContentLength: 11 });
-      await expect(readObject(s3, 'b', 'k', 10)).resolves.toEqual({
+      await expect(storage.readObject('b', 'k', 10)).resolves.toEqual({
         status: 'too_large',
         size: 11,
       });
@@ -554,19 +482,19 @@ describe('s3.service', () => {
     });
 
     it('reports a missing object', async () => {
-      const s3 = makeMockS3Config();
+      const storage = makeStorage();
       mockS3Send.mockRejectedValueOnce(new NotFound({ message: 'nf', $metadata: {} }));
-      await expect(readObject(s3, 'b', 'k', 10)).resolves.toEqual({ status: 'missing' });
+      await expect(storage.readObject('b', 'k', 10)).resolves.toEqual({ status: 'missing' });
       mockS3Send
         .mockResolvedValueOnce({ ContentLength: 1 })
         .mockRejectedValueOnce(new NoSuchKey({ message: 'nsk', $metadata: {} }));
-      await expect(readObject(s3, 'b', 'k', 10)).resolves.toEqual({ status: 'missing' });
+      await expect(storage.readObject('b', 'k', 10)).resolves.toEqual({ status: 'missing' });
     });
 
     it('rethrows other S3 errors', async () => {
-      const s3 = makeMockS3Config();
+      const storage = makeStorage();
       mockS3Send.mockRejectedValueOnce(new Error('AccessDenied'));
-      await expect(readObject(s3, 'b', 'k', 10)).rejects.toThrow('AccessDenied');
+      await expect(storage.readObject('b', 'k', 10)).rejects.toThrow('AccessDenied');
     });
   });
 });

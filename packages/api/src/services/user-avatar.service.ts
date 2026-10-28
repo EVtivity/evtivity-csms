@@ -12,12 +12,11 @@ import {
 } from '@evtivity/lib/avatar-cleanup';
 import { purgeUserAvatarObjects } from '@evtivity/services/avatar-storage';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
-import { deleteObject } from './s3.service.js';
-import type { S3Config } from './s3.service.js';
+import type { ObjectStorage } from './storage.service.js';
 import {
   avatarChanged,
   avatarRowOf,
-  getS3ConfigOrNull,
+  getObjectStorageOrNull,
   storedAvatarObject,
 } from './account-avatar.js';
 import type { AvatarRow, AvatarValues, StoredAvatarObject } from './account-avatar.js';
@@ -80,10 +79,10 @@ async function deleteUserAvatarObject(
   log: Logger,
 ): Promise<void> {
   if (object == null) return;
-  const s3 = await getS3ConfigOrNull();
-  if (s3 != null) {
+  const storage = await getObjectStorageOrNull();
+  if (storage != null) {
     try {
-      await deleteObject(s3, object.bucket, object.key);
+      await storage.deleteObject(object.bucket, object.key);
       return;
     } catch (err) {
       log.warn({ err, key: object.key }, 'user avatar object delete failed, queued');
@@ -190,13 +189,13 @@ export async function setUserGeneratedAvatar(
  */
 export async function confirmUserUploadedAvatar(
   userId: string,
-  s3: S3Config,
+  storage: ObjectStorage,
   upload: { s3Key: string; s3Bucket: string },
   ctx: UserAvatarContext & { log: FastifyBaseLogger; uploader?: AvatarUploader },
 ): Promise<AvatarRow> {
   const target = { kind: 'user', userId } as const;
   const fileId = parseAvatarQuarantineKey(target, upload.s3Key, ctx.uploader);
-  if (fileId == null || upload.s3Bucket !== s3.bucket) {
+  if (fileId == null || upload.s3Bucket !== storage.bucket) {
     throw new AppError(
       'The image key or bucket does not belong to this user',
       400,
@@ -208,17 +207,17 @@ export async function confirmUserUploadedAvatar(
     return current;
   }
 
-  const stored = await finalizeAvatar(s3, target, upload.s3Key, fileId, ctx.log);
+  const stored = await finalizeAvatar(storage, target, upload.s3Key, fileId, ctx.log);
   let result;
   try {
     result = await writeAvatar(userId, {
       avatarKind: 'image',
       avatarOptions: null,
       avatarS3Key: stored.s3Key,
-      avatarS3Bucket: s3.bucket,
+      avatarS3Bucket: storage.bucket,
     });
   } catch (err) {
-    await deleteUserAvatarObject(userId, { key: stored.s3Key, bucket: s3.bucket }, ctx.log);
+    await deleteUserAvatarObject(userId, { key: stored.s3Key, bucket: storage.bucket }, ctx.log);
     throw err;
   }
   await afterWrite(userId, result, ctx);
@@ -258,11 +257,11 @@ export async function purgeUserAvatarOnDelete(
     ctx.log.warn({ err, userId }, 'user avatar not cleared with the user');
   }
   const buckets = rowBucket != null ? [rowBucket] : [];
-  const s3 = await getS3ConfigOrNull();
-  if (s3 == null && buckets.length === 0) return;
-  if (s3 != null) {
+  const storage = await getObjectStorageOrNull();
+  if (storage == null && buckets.length === 0) return;
+  if (storage != null) {
     try {
-      await purgeUserAvatarObjects(s3, userId, buckets);
+      await purgeUserAvatarObjects(storage, userId, buckets);
       return;
     } catch (err) {
       ctx.log.warn({ err, userId }, 'user avatar purge failed, queued');

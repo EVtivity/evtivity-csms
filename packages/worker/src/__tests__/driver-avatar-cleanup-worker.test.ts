@@ -20,12 +20,12 @@ vi.mock('bullmq', () => ({
 }));
 
 const mockRun = vi.fn();
-const mockLoadS3 = vi.fn();
+const mockLoadStorage = vi.fn();
 vi.mock('@evtivity/services/avatar-storage', () => ({
   runAvatarCleanupJob: (...args: unknown[]) => mockRun(...args),
 }));
-vi.mock('@evtivity/services/s3-storage', () => ({
-  loadS3Config: (...args: unknown[]) => mockLoadS3(...args),
+vi.mock('@evtivity/services/storage', () => ({
+  loadObjectStorage: (...args: unknown[]) => mockLoadStorage(...args),
 }));
 
 const { createDriverAvatarCleanupWorker } = await import('../driver-avatar-cleanup-worker.js');
@@ -35,7 +35,7 @@ beforeEach(() => {
   mockLog.child.mockReturnValue(mockLog);
   workerCtorCalls.length = 0;
   mockRun.mockResolvedValue(undefined);
-  mockLoadS3.mockResolvedValue({ bucket: 'b' });
+  mockLoadStorage.mockResolvedValue({ bucket: 'b' });
 });
 
 describe('createDriverAvatarCleanupWorker', () => {
@@ -44,7 +44,7 @@ describe('createDriverAvatarCleanupWorker', () => {
     expect(workerCtorCalls).toEqual(['driver-avatar-cleanup']);
     const data = { driverId: 'drv_1', buckets: [] };
     await capturedProcessor?.({ id: 'j1', name: 'purge-driver', data } as unknown as Job);
-    expect(mockLoadS3).toHaveBeenCalledWith('key');
+    expect(mockLoadStorage).toHaveBeenCalledWith('key');
     expect(mockRun).toHaveBeenCalledWith('purge-driver', data, { bucket: 'b' }, mockLog);
   });
 

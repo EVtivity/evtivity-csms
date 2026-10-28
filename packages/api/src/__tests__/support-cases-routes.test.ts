@@ -87,8 +87,7 @@ const mocks = vi.hoisted(() => {
     dispatchDriverNotification: vi.fn(),
     notifySupportCaseEvent: vi.fn(),
     getUserSiteIds: vi.fn(),
-    getS3Config: vi.fn(),
-    generateUploadUrl: vi.fn(),
+    getObjectStorage: vi.fn(),
     generateDownloadUrl: vi.fn(),
     deleteObject: vi.fn(),
     buildS3Key: vi.fn(),
@@ -223,11 +222,8 @@ vi.mock('@evtivity/services/support-case-notify', () => ({
   notifySupportCaseEvent: mocks.notifySupportCaseEvent,
 }));
 
-vi.mock('../services/s3.service.js', () => ({
-  getS3Config: mocks.getS3Config,
-  generateUploadUrl: mocks.generateUploadUrl,
-  generateDownloadUrl: mocks.generateDownloadUrl,
-  deleteObject: mocks.deleteObject,
+vi.mock('../services/storage.service.js', () => ({
+  getObjectStorage: mocks.getObjectStorage,
   buildS3Key: mocks.buildS3Key,
 }));
 
@@ -307,7 +303,11 @@ const SESSION_ID_2 = 'ses_000000000002';
 const ASSIGNEE_ID = 'usr_000000000002';
 const NOW = '2026-01-01T00:00:00.000Z';
 
-const S3 = { bucket: 'evtivity-bucket', region: 'us-east-1' };
+const S3 = {
+  bucket: 'evtivity-bucket',
+  getDownloadUrl: mocks.generateDownloadUrl,
+  deleteObject: mocks.deleteObject,
+};
 
 function baseCase(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -412,7 +412,7 @@ describe('support case routes', () => {
     state.calls = [];
     queue();
     mocks.getUserSiteIds.mockReset().mockResolvedValue(null);
-    mocks.getS3Config.mockReset().mockResolvedValue(S3);
+    mocks.getObjectStorage.mockReset().mockResolvedValue(S3);
     mocks.writeAudit.mockReset().mockResolvedValue(undefined);
     mocks.dispatchDriverNotification.mockReset().mockResolvedValue(undefined);
     mocks.notifySupportCaseEvent.mockReset().mockResolvedValue(undefined);
@@ -429,7 +429,6 @@ describe('support case routes', () => {
     mocks.requestHasPermission.mockReset().mockResolvedValue(true);
     mocks.supportInsightContext.mockReset().mockResolvedValue(null);
     mocks.createConversation.mockReset();
-    mocks.generateUploadUrl.mockReset().mockResolvedValue('https://s3/upload');
     mocks.generateDownloadUrl.mockReset().mockResolvedValue('https://s3/download');
     mocks.requestSupportAttachmentUpload.mockReset().mockResolvedValue({
       uploadUrl: 'https://s3/upload',
@@ -606,13 +605,13 @@ describe('support case routes', () => {
     });
 
     it('answers not configured without an S3 configuration', async () => {
-      mocks.getS3Config.mockResolvedValue(null);
+      mocks.getObjectStorage.mockResolvedValue(null);
       const res = await inject('GET', '/support-cases/attachment-storage');
       expect(res.json()).toEqual({ configured: false });
     });
 
     it('answers not configured when the configuration cannot be read', async () => {
-      mocks.getS3Config.mockRejectedValue(new Error('SETTINGS_ENCRYPTION_KEY is required'));
+      mocks.getObjectStorage.mockRejectedValue(new Error('SETTINGS_ENCRYPTION_KEY is required'));
       const res = await inject('GET', '/support-cases/attachment-storage');
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ configured: false });
@@ -1629,13 +1628,13 @@ describe('support case routes', () => {
       queue([{ stationId: null }], [{ s3Key: 'stored-key', s3Bucket: 'stored-bucket' }], []);
       const res = await inject('DELETE', url);
       expect(res.statusCode).toBe(204);
-      expect(mocks.deleteObject).toHaveBeenCalledWith(S3, 'stored-bucket', 'stored-key');
+      expect(mocks.deleteObject).toHaveBeenCalledWith('stored-bucket', 'stored-key');
       expect(callsOf('delete', 'supportCaseAttachments')).toHaveLength(1);
       expect(mocks.eq).toHaveBeenCalledWith('supportCaseAttachments.id', 9);
     });
 
     it('deletes the row even when S3 is not configured', async () => {
-      mocks.getS3Config.mockResolvedValue(null);
+      mocks.getObjectStorage.mockResolvedValue(null);
       queue([{ stationId: null }], [{ s3Key: 'k', s3Bucket: 'b' }], []);
       const res = await inject('DELETE', url);
       expect(res.statusCode).toBe(204);

@@ -6,10 +6,9 @@ import type { FastifyBaseLogger } from 'fastify';
 import {
   buildStationImageQuarantineKey,
   buildStationImageS3Key,
-  generateUploadPost,
   QUARANTINE_PREFIX,
-} from './s3.service.js';
-import type { DownloadOptions, S3Config } from './s3.service.js';
+} from './storage.service.js';
+import type { DownloadOptions, ObjectStorage } from './storage.service.js';
 import { displayFileName, finalizeUpload } from './ai/attachments/upload-flow.js';
 
 /**
@@ -44,13 +43,13 @@ export interface StationImageUploadTicket {
 
 /** Presigned POST into quarantine for one station image of at most `fileSize` bytes. */
 export async function requestStationImageUpload(
-  s3: S3Config,
+  storage: ObjectStorage,
   stationId: string,
   request: { fileName: string; contentType: StationImageMime; fileSize: number },
 ): Promise<StationImageUploadTicket> {
   const key = buildStationImageQuarantineKey(stationId, crypto.randomUUID(), request.fileName);
-  const post = await generateUploadPost(s3, key, request.contentType, request.fileSize);
-  return { uploadUrl: post.url, fields: post.fields, s3Key: key, s3Bucket: s3.bucket };
+  const post = await storage.createUpload(key, request.contentType, request.fileSize);
+  return { uploadUrl: post.url, fields: post.fields, s3Key: key, s3Bucket: storage.bucket };
 }
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
@@ -89,7 +88,7 @@ export interface FinalizedStationImage {
  * deletes the quarantine object either way.
  */
 export async function finalizeStationImage(
-  s3: S3Config,
+  storage: ObjectStorage,
   quarantine: { s3Key: string; fileId: string; fileName: string },
   stationId: string,
   declared: { fileName: string; contentType: StationImageMime; fileSize: number },
@@ -98,7 +97,7 @@ export async function finalizeStationImage(
   const cleanKey = stationImageCleanKey(stationId, quarantine.fileId, quarantine.fileName);
   const processed = await finalizeUpload(
     {
-      s3,
+      storage,
       quarantineKey: quarantine.s3Key,
       cleanKey,
       declaredType: declared.contentType,

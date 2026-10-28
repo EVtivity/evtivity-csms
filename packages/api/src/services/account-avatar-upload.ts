@@ -11,8 +11,7 @@ import {
 } from '@evtivity/lib/avatar-cleanup';
 import { AVATAR_MAX_BYTES, AVATAR_MIME_TYPES } from '@evtivity/lib/account-avatar';
 import type { AvatarMime } from '@evtivity/lib/account-avatar';
-import { generateUploadPost } from './s3.service.js';
-import type { S3Config } from './s3.service.js';
+import type { ObjectStorage } from './storage.service.js';
 import { finalizeUpload } from './ai/attachments/upload-flow.js';
 
 /**
@@ -91,14 +90,14 @@ export interface AvatarUploadTicket {
  * name is not part of the key.
  */
 export async function requestAvatarUpload(
-  s3: S3Config,
+  storage: ObjectStorage,
   target: AvatarUploadTarget,
   contentType: AvatarMime,
   uploader: AvatarUploader = SELF,
 ): Promise<AvatarUploadTicket> {
   const key = `${quarantinePrefix(target, uploader)}${crypto.randomUUID()}/avatar`;
-  const post = await generateUploadPost(s3, key, contentType, AVATAR_MAX_BYTES);
-  return { uploadUrl: post.url, fields: post.fields, s3Key: key, s3Bucket: s3.bucket };
+  const post = await storage.createUpload(key, contentType, AVATAR_MAX_BYTES);
+  return { uploadUrl: post.url, fields: post.fields, s3Key: key, s3Bucket: storage.bucket };
 }
 
 /**
@@ -134,7 +133,7 @@ export interface FinalizedAvatar {
  * and deletes the quarantine object either way.
  */
 export async function finalizeAvatar(
-  s3: S3Config,
+  storage: ObjectStorage,
   target: AvatarUploadTarget,
   quarantineKey: string,
   fileId: string,
@@ -147,7 +146,7 @@ export async function finalizeAvatar(
     `${prefix}${contentType === 'image/png' ? 'png' : 'jpg'}`;
   const processed = await finalizeUpload(
     {
-      s3,
+      storage,
       quarantineKey,
       cleanKey: keyFor,
       acceptTypes: AVATAR_MIME_TYPES,

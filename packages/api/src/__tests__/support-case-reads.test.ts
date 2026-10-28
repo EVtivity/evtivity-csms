@@ -134,10 +134,8 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   setPubSub: vi.fn(),
 }));
 
-vi.mock('../services/s3.service.js', () => ({
-  getS3Config: vi.fn(),
-  generateUploadUrl: vi.fn(),
-  generateDownloadUrl: vi.fn(),
+vi.mock('../services/storage.service.js', () => ({
+  getObjectStorage: vi.fn(),
   buildS3Key: vi.fn(),
 }));
 

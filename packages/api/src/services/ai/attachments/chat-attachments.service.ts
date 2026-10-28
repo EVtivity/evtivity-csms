@@ -9,16 +9,12 @@ import type { AuditActorInfo } from '../../../lib/audit-actor.js';
 import type { AiAttachmentKind } from '@evtivity/database';
 import { AppError } from '@evtivity/lib';
 import {
-  deleteObject,
-  generateDownloadUrl,
-  generateUploadPost,
-  getS3Config,
+  getObjectStorage,
   QUARANTINE_PREFIX,
-  readObject,
   sanitizeFileName,
   UPLOAD_URL_EXPIRES_SECONDS,
-} from '../../s3.service.js';
-import type { S3Config } from '../../s3.service.js';
+} from '../../storage.service.js';
+import type { ObjectStorage } from '../../storage.service.js';
 import { isAllowedAttachmentMime } from './allowlist.js';
 import type { AttachmentMime } from './allowlist.js';
 import {
@@ -58,10 +54,10 @@ function storageNotConfigured(): AppError {
   return new AppError('S3 not configured', 400, 'STORAGE_NOT_CONFIGURED');
 }
 
-async function requireS3(): Promise<S3Config> {
-  const s3 = await getS3Config();
-  if (s3 == null) throw storageNotConfigured();
-  return s3;
+async function requireStorage(): Promise<ObjectStorage> {
+  const storage = await getObjectStorage();
+  if (storage == null) throw storageNotConfigured();
+  return storage;
 }
 
 function toChatAttachment(row: AttachmentRow): ChatAttachment {
@@ -131,12 +127,12 @@ export async function requestChatAttachmentUpload(
     request.fileSize,
     maxBytes,
   );
-  const s3 = await requireS3();
+  const storage = await requireStorage();
   const id = crypto.randomUUID();
   const fileName = sanitizeFileName(request.fileName);
   const quarantineKey = `${QUARANTINE_PREFIX}chat/${userKeySegment(userId)}/${id}/${fileName}`;
 
-  const post = await generateUploadPost(s3, quarantineKey, declaredType, maxBytes);
+  const post = await storage.createUpload(quarantineKey, declaredType, maxBytes);
   await db.insert(aiAttachments).values({
     id,
     userId,
@@ -144,7 +140,7 @@ export async function requestChatAttachmentUpload(
     fileName,
     declaredType,
     declaredSize: request.fileSize,
-    s3Bucket: s3.bucket,
+    s3Bucket: storage.bucket,
     quarantineKey,
   });
   return {
@@ -170,15 +166,21 @@ export async function confirmChatAttachment(
   if (row.status === 'ready') return toChatAttachment(row);
   if (!isAllowedAttachmentMime(row.declaredType)) throw notFound();
 
-  const s3 = await requireS3();
-  if (s3.bucket !== row.s3Bucket) throw storageNotConfigured();
+  const storage = await requireStorage();
+  if (storage.bucket !== row.s3Bucket) throw storageNotConfigured();
   const { maxBytes } = await attachmentLimits();
   const cleanKey = `ai-uploads/chat/${userKeySegment(userId)}/${row.id}-${row.fileName}`;
 
   let processed;
   try {
     processed = await finalizeUpload(
-      { s3, quarantineKey: row.quarantineKey, cleanKey, declaredType: row.declaredType, maxBytes },
+      {
+        storage,
+        quarantineKey: row.quarantineKey,
+        cleanKey,
+        declaredType: row.declaredType,
+        maxBytes,
+      },
       log,
     );
   } catch (err) {
@@ -227,8 +229,8 @@ export async function getChatAttachmentDownloadUrl(
   const row = await loadOwned(userId, attachmentId);
   const attachment = toChatAttachment(row);
   if (row.s3Key == null) throw notFound();
-  const s3 = await requireS3();
-  return generateDownloadUrl(s3, row.s3Bucket, row.s3Key, {
+  const storage = await requireStorage();
+  return storage.getDownloadUrl(row.s3Bucket, row.s3Key, {
     fileName: attachment.fileName,
     contentType: attachment.contentType,
   });
@@ -271,9 +273,9 @@ export async function deleteChatAttachment(
     );
   }
   try {
-    const s3 = await requireS3();
-    await deleteObject(s3, row.s3Bucket, row.quarantineKey);
-    if (row.s3Key != null) await deleteObject(s3, row.s3Bucket, row.s3Key);
+    const storage = await requireStorage();
+    await storage.deleteObject(row.s3Bucket, row.quarantineKey);
+    if (row.s3Key != null) await storage.deleteObject(row.s3Bucket, row.s3Key);
     await db.delete(aiAttachments).where(eq(aiAttachments.id, row.id));
   } catch (err) {
     log.warn({ err, attachmentId }, 'chat attachment S3 delete failed; the retention cron retries');
@@ -348,10 +350,9 @@ export async function readChatAttachmentBytes(
   const row = await loadOwned(userId, attachmentId);
   const attachment = toChatAttachment(row);
   if (row.s3Key == null) throw notFound();
-  const s3 = await requireS3();
+  const storage = await requireStorage();
   const { maxBytes } = await attachmentLimits();
-  const read = await readObject(
-    s3,
+  const read = await storage.readObject(
     row.s3Bucket,
     row.s3Key,
     Math.max(maxBytes, attachment.sizeBytes),

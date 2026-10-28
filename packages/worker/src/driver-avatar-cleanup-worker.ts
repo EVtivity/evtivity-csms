@@ -4,7 +4,7 @@
 import { Worker, type ConnectionOptions } from 'bullmq';
 import { createLogger } from '@evtivity/lib';
 import { runAvatarCleanupJob } from '@evtivity/services/avatar-storage';
-import { loadS3Config } from '@evtivity/services/s3-storage';
+import { loadObjectStorage } from '@evtivity/services/storage';
 import { config } from './lib/config.js';
 import { QUEUE_NAMES } from './queues.js';
 
@@ -20,8 +20,8 @@ export function createDriverAvatarCleanupWorker(connection: ConnectionOptions): 
   const worker = new Worker(
     QUEUE_NAMES.DRIVER_AVATAR_CLEANUP,
     async (job) => {
-      const s3 = await loadS3Config(config.SETTINGS_ENCRYPTION_KEY);
-      await runAvatarCleanupJob(job.name, job.data, s3, log.child({ jobId: job.id }));
+      const storage = await loadObjectStorage(config.SETTINGS_ENCRYPTION_KEY);
+      await runAvatarCleanupJob(job.name, job.data, storage, log.child({ jobId: job.id }));
     },
     { connection, concurrency: 2 },
   );

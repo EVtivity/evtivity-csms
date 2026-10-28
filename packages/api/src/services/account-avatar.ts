@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { GeneratedAvatar } from '@evtivity/lib/account-avatar';
-import { generateDownloadUrl, getS3Config } from './s3.service.js';
-import type { S3Config } from './s3.service.js';
+import { getObjectStorage } from './storage.service.js';
+import type { ObjectStorage } from './storage.service.js';
 
 /**
  * The avatar reads and comparisons shared by the driver avatar service (the
@@ -51,18 +51,21 @@ function avatarContentType(key: string): 'image/png' | 'image/jpeg' {
 /**
  * The avatar of a row as clients receive it: null (no avatar, show initials),
  * the generated options, or a presigned image URL (1 hour, inline with the
- * raster type the pipeline stored). `url` is null when S3 is no longer
+ * raster type the pipeline stored). `url` is null when storage is no longer
  * configured, so clients fall back to initials.
  */
-export async function avatarView(row: AvatarRow, s3: S3Config | null): Promise<AvatarView | null> {
+export async function avatarView(
+  row: AvatarRow,
+  storage: ObjectStorage | null,
+): Promise<AvatarView | null> {
   const updatedAt = row.avatarUpdatedAt?.toISOString() ?? null;
   if (row.avatarKind === 'generated' && row.avatarOptions != null) {
     return { kind: 'generated', updatedAt, ...(row.avatarOptions as GeneratedAvatar) };
   }
   if (row.avatarKind === 'image' && row.avatarS3Key != null && row.avatarS3Bucket != null) {
-    if (s3 == null) return { kind: 'image', url: null, expiresAt: null, updatedAt };
+    if (storage == null) return { kind: 'image', url: null, expiresAt: null, updatedAt };
     const contentType = avatarContentType(row.avatarS3Key);
-    const url = await generateDownloadUrl(s3, row.avatarS3Bucket, row.avatarS3Key, {
+    const url = await storage.getDownloadUrl(row.avatarS3Bucket, row.avatarS3Key, {
       fileName: contentType === 'image/png' ? 'avatar.png' : 'avatar.jpg',
       contentType,
       disposition: 'inline',
@@ -79,29 +82,29 @@ export async function avatarView(row: AvatarRow, s3: S3Config | null): Promise<A
   return null;
 }
 
-/** The S3 config, or null when it is not configured or cannot be read. */
-export async function getS3ConfigOrNull(): Promise<S3Config | null> {
+/** The object storage, or null when it is not configured or cannot be read. */
+export async function getObjectStorageOrNull(): Promise<ObjectStorage | null> {
   try {
-    return await getS3Config();
+    return await getObjectStorage();
   } catch {
-    // fail-open: an unreadable S3 setting shows initials instead of failing the read
+    // fail-open: an unreadable storage setting shows initials instead of failing the read
     return null;
   }
 }
 
-/** `avatarView` for many rows with one S3 config read; each row gets `avatar`, its raw columns removed. */
+/** `avatarView` for many rows with one storage config read; each row gets `avatar`, its raw columns removed. */
 export async function withAvatars<T extends AvatarRow>(
   rows: T[],
 ): Promise<Array<Omit<T, keyof AvatarRow> & { avatar: AvatarView | null }>> {
-  const needsS3 = rows.some((r) => r.avatarKind === 'image');
-  const s3 = needsS3 ? await getS3ConfigOrNull() : null;
+  const needsStorage = rows.some((r) => r.avatarKind === 'image');
+  const storage = needsStorage ? await getObjectStorageOrNull() : null;
   return Promise.all(
     rows.map(async (row) => {
       const { avatarKind, avatarOptions, avatarS3Key, avatarS3Bucket, avatarUpdatedAt, ...rest } =
         row;
       const avatar = await avatarView(
         { avatarKind, avatarOptions, avatarS3Key, avatarS3Bucket, avatarUpdatedAt },
-        s3,
+        storage,
       );
       return { ...rest, avatar };
     }),

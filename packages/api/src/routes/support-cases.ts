@@ -246,7 +246,7 @@ const supportRefundItem = paymentRecordItem
       ),
   })
   .loose();
-import { getS3Config, deleteObject } from '../services/s3.service.js';
+import { getObjectStorage } from '../services/storage.service.js';
 import {
   confirmSupportAttachment,
   requestSupportAttachmentUpload,
@@ -726,7 +726,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       try {
-        return { configured: (await getS3Config()) != null };
+        return { configured: (await getObjectStorage()) != null };
       } catch (err) {
         request.log.warn({ err }, 'S3 configuration could not be read');
         return { configured: false };
@@ -1512,9 +1512,9 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const s3 = await getS3Config();
-      if (s3 != null) {
-        await deleteObject(s3, attachment.s3Bucket, attachment.s3Key);
+      const storage = await getObjectStorage();
+      if (storage != null) {
+        await storage.deleteObject(attachment.s3Bucket, attachment.s3Key);
       }
 
       await deleteSupportCaseAttachment({

@@ -10,13 +10,11 @@ import { insertSupportCaseAttachment } from '@evtivity/services/support-case.ser
 import {
   buildS3Key,
   buildSupportQuarantineKey,
-  generateDownloadUrl,
-  generateUploadPost,
-  getS3Config,
+  getObjectStorage,
   QUARANTINE_PREFIX,
   UPLOAD_URL_EXPIRES_SECONDS,
-} from '../../s3.service.js';
-import type { S3Config } from '../../s3.service.js';
+} from '../../storage.service.js';
+import type { ObjectStorage } from '../../storage.service.js';
 import { isAllowedAttachmentMime } from './allowlist.js';
 import {
   attachmentLimits,
@@ -35,10 +33,10 @@ function storageNotConfigured(): AppError {
   return new AppError('S3 not configured', 400, 'STORAGE_NOT_CONFIGURED');
 }
 
-async function requireS3(): Promise<S3Config> {
-  const s3 = await getS3Config();
-  if (s3 == null) throw storageNotConfigured();
-  return s3;
+async function requireStorage(): Promise<ObjectStorage> {
+  const storage = await getObjectStorage();
+  if (storage == null) throw storageNotConfigured();
+  return storage;
 }
 
 export interface SupportUploadTicket {
@@ -65,9 +63,9 @@ export async function requestSupportAttachmentUpload(
     request.fileSize,
     maxBytes,
   );
-  const s3 = await requireS3();
+  const storage = await requireStorage();
   const key = buildSupportQuarantineKey(caseId, messageId, crypto.randomUUID(), request.fileName);
-  const post = await generateUploadPost(s3, key, declaredType, maxBytes);
+  const post = await storage.createUpload(key, declaredType, maxBytes);
   return {
     uploadUrl: post.url,
     fields: post.fields,
@@ -130,9 +128,12 @@ export async function confirmSupportAttachment(
     );
   if (existing != null) return { attachment: existing, created: false };
 
-  const s3 = await requireS3();
+  const storage = await requireStorage();
   const { maxBytes } = await attachmentLimits();
-  const processed = await finalizeUpload({ s3, quarantineKey: s3Key, cleanKey, maxBytes }, log);
+  const processed = await finalizeUpload(
+    { storage, quarantineKey: s3Key, cleanKey, maxBytes },
+    log,
+  );
 
   const attachment = await insertSupportCaseAttachment({
     messageId,
@@ -140,7 +141,7 @@ export async function confirmSupportAttachment(
     fileSize: processed.bytes.length,
     contentType: processed.contentType,
     s3Key: cleanKey,
-    s3Bucket: s3.bucket,
+    s3Bucket: storage.bucket,
   });
   if (attachment == null) throw new Error('support attachment insert returned no row');
   return { attachment, created: true };
@@ -157,11 +158,11 @@ export async function supportAttachmentDownloadUrl(attachment: {
   fileName: string;
   contentType: string;
 }): Promise<string> {
-  const s3 = await requireS3();
+  const storage = await requireStorage();
   const contentType = isAllowedAttachmentMime(attachment.contentType)
     ? attachment.contentType
     : 'application/octet-stream';
-  return generateDownloadUrl(s3, attachment.s3Bucket, attachment.s3Key, {
+  return storage.getDownloadUrl(attachment.s3Bucket, attachment.s3Key, {
     fileName: attachment.fileName,
     contentType,
   });

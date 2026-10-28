@@ -29,8 +29,8 @@ const { state, rec, mocks } = vi.hoisted(() => ({
     clearPncSettingsCache: vi.fn(),
     clearAiSettingsCache: vi.fn(),
     getReservationSettings: vi.fn(),
-    clearS3ConfigCache: vi.fn(),
-    getS3Config: vi.fn(),
+    clearObjectStorageCache: vi.fn(),
+    getObjectStorage: vi.fn(),
     readSimSettings: vi.fn(),
   },
 }));
@@ -174,9 +174,9 @@ vi.mock('../lib/config.js', () => ({
   },
 }));
 
-vi.mock('../services/s3.service.js', () => ({
-  clearS3ConfigCache: mocks.clearS3ConfigCache,
-  getS3Config: mocks.getS3Config,
+vi.mock('../services/storage.service.js', () => ({
+  clearObjectStorageCache: mocks.clearObjectStorageCache,
+  getObjectStorage: mocks.getObjectStorage,
 }));
 
 vi.mock('../middleware/rbac.js', () => ({
@@ -307,10 +307,10 @@ describe('settings routes (cov2)', () => {
       cancellationWindowMinutes: 0,
       maxHours: 1,
     });
-    mocks.getS3Config.mockResolvedValueOnce({ bucket: 'b' });
+    mocks.getObjectStorage.mockResolvedValueOnce({ bucket: 'b' });
     let res = await app.inject({ method: 'GET', url: '/portal/features' });
     expect(res.json()).toMatchObject({ avatarUploadEnabled: true });
-    mocks.getS3Config.mockRejectedValueOnce(new Error('settings unreadable'));
+    mocks.getObjectStorage.mockRejectedValueOnce(new Error('settings unreadable'));
     res = await app.inject({ method: 'GET', url: '/portal/features' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ avatarUploadEnabled: false });
@@ -851,7 +851,7 @@ describe('settings routes (cov2)', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ success: true });
-    expect(mocks.clearS3ConfigCache).toHaveBeenCalled();
+    expect(mocks.clearObjectStorageCache).toHaveBeenCalled();
     const audited = mocks.writeAudit.mock.calls.map(
       (c) => (c[1] as { entityId: string; before: unknown }).entityId,
     );

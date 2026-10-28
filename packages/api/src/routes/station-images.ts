@@ -23,8 +23,8 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { checkStationSiteAccess } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
-import { getS3Config, generateDownloadUrl, deleteObject } from '../services/s3.service.js';
-import type { S3Config } from '../services/s3.service.js';
+import { getObjectStorage } from '../services/storage.service.js';
+import type { ObjectStorage } from '../services/storage.service.js';
 import {
   finalizeStationImage,
   parseStationImageQuarantineKey,
@@ -119,9 +119,13 @@ const imageItem = z
   .loose();
 
 /** Deletes a clean object whose row was never stored (fail-open: logged, the object stays). */
-async function removeStoredImage(s3: S3Config, key: string, log: FastifyBaseLogger): Promise<void> {
+async function removeStoredImage(
+  storage: ObjectStorage,
+  key: string,
+  log: FastifyBaseLogger,
+): Promise<void> {
   try {
-    await deleteObject(s3, s3.bucket, key);
+    await storage.deleteObject(storage.bucket, key);
   } catch (err) {
     log.warn({ err, key }, 'station image delete after a failed insert failed');
   }
@@ -191,15 +195,15 @@ export function stationImageRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const s3 = await getS3Config();
-      if (s3 == null) {
+      const storage = await getObjectStorage();
+      if (storage == null) {
         await reply
           .status(400)
           .send({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 
-      return requestStationImageUpload(s3, id, body);
+      return requestStationImageUpload(storage, id, body);
     },
   );
 
@@ -243,15 +247,15 @@ export function stationImageRoutes(app: FastifyInstance): void {
       // the configured bucket and this station's quarantine key. A body
       // naming another bucket, or another station's object, would let this
       // station's download and delete routes reach it.
-      const s3 = await getS3Config();
-      if (s3 == null) {
+      const storage = await getObjectStorage();
+      if (storage == null) {
         await reply
           .status(400)
           .send({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
       const quarantine = parseStationImageQuarantineKey(id, body.s3Key);
-      if (quarantine == null || body.s3Bucket !== s3.bucket) {
+      if (quarantine == null || body.s3Bucket !== storage.bucket) {
         await reply.status(400).send({
           error: 'The image key or bucket does not belong to this station',
           code: 'VALIDATION_ERROR',
@@ -271,7 +275,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
       }
 
       const stored = await finalizeStationImage(
-        s3,
+        storage,
         { s3Key: body.s3Key, ...quarantine },
         id,
         body,
@@ -306,7 +310,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
             fileSize: stored.fileSize,
             contentType: stored.contentType,
             s3Key: stored.s3Key,
-            s3Bucket: s3.bucket,
+            s3Bucket: storage.bucket,
             caption: body.caption ?? null,
             tags: body.tags ?? [],
             isDriverVisible: body.isDriverVisible ?? false,
@@ -321,7 +325,7 @@ export function stationImageRoutes(app: FastifyInstance): void {
         // the FK violation back to the same 404 the pre-check would have
         // produced.
         if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
-          await removeStoredImage(s3, stored.s3Key, request.log);
+          await removeStoredImage(storage, stored.s3Key, request.log);
           await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
           return;
         }
@@ -480,9 +484,9 @@ export function stationImageRoutes(app: FastifyInstance): void {
       }
 
       // Delete from S3
-      const s3 = await getS3Config();
-      if (s3 != null) {
-        await deleteObject(s3, image.s3Bucket, image.s3Key);
+      const storage = await getObjectStorage();
+      if (storage != null) {
+        await storage.deleteObject(image.s3Bucket, image.s3Key);
       }
 
       await db.delete(stationImages).where(eq(stationImages.id, imageId));
@@ -551,16 +555,15 @@ export function stationImageRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const s3 = await getS3Config();
-      if (s3 == null) {
+      const storage = await getObjectStorage();
+      if (storage == null) {
         await reply
           .status(400)
           .send({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
         return;
       }
 
-      const downloadUrl = await generateDownloadUrl(
-        s3,
+      const downloadUrl = await storage.getDownloadUrl(
         image.s3Bucket,
         image.s3Key,
         stationImageDownloadOptions(image),
