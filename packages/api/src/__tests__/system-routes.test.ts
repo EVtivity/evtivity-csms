@@ -406,6 +406,9 @@ describe('System routes', () => {
         { key: 'sim.hologram.enabled', value: true },
         { key: 'sim.hologram.orgId', value: '42' },
         { key: 'sim.hologram.apiKeyEnc', value: 'decrypts' },
+        { key: 'sim.1nce.enabled', value: true },
+        { key: 'sim.1nce.clientId', value: 'client-1' },
+        { key: 'sim.1nce.clientSecretEnc', value: 'decrypts' },
         { key: 'sim.sessions.fetchDays', value: 7 },
         { key: 'sim.stationSignal.enabled', value: false },
         { key: 'notifications.webhookSigningSecretEnc', value: 'decrypts' },
@@ -425,6 +428,7 @@ describe('System routes', () => {
     const body = response.json();
     expect(body.simProviders).toEqual({
       hologram: { enabled: true, configured: true },
+      '1nce': { enabled: true, configured: true },
       sessionsFetchDays: 7,
       stationSignalEnabled: false,
     });
@@ -435,13 +439,17 @@ describe('System routes', () => {
     expect(body.simulator.stationCount).toBe(4);
     expect(body.secrets.webhookSigningConfigured).toBe(true);
     expect(body.secrets.simHologramConfigured).toBe(true);
+    expect(body.secrets.simOneNceConfigured).toBe(true);
     expect(response.body).not.toContain('decrypts');
+    expect(response.body).not.toContain('client-1');
   });
 
   it('reports a Hologram key that does not decrypt as not configured', async () => {
     setupDbResults([
       { key: 'sim.hologram.orgId', value: '42' },
       { key: 'sim.hologram.apiKeyEnc', value: 'other-key-ciphertext' },
+      { key: 'sim.1nce.clientId', value: 'client-1' },
+      { key: 'sim.1nce.clientSecretEnc', value: 'other-key-ciphertext' },
       { key: 'notifications.webhookSigningSecretEnc', value: 'other-key-ciphertext' },
     ]);
     const body = (
@@ -453,6 +461,8 @@ describe('System routes', () => {
     ).json();
     expect(body.simProviders.hologram.configured).toBe(false);
     expect(body.secrets.simHologramConfigured).toBe(false);
+    expect(body.simProviders['1nce']).toEqual({ enabled: false, configured: false });
+    expect(body.secrets.simOneNceConfigured).toBe(false);
     expect(body.secrets.webhookSigningConfigured).toBe(false);
   });
 

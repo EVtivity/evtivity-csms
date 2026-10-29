@@ -989,7 +989,21 @@
     "SIM_TEST_UNAVAILABLE": "지금은 연결 테스트를 실행할 수 없습니다. 1분 후에 다시 시도하세요",
     "NOT_FOUND": "찾을 수 없습니다",
     "PAYLOAD_TOO_LARGE": "요청이 너무 큽니다",
-    "UNSUPPORTED_MEDIA_TYPE": "지원되지 않는 콘텐츠 유형입니다"
+    "UNSUPPORTED_MEDIA_TYPE": "지원되지 않는 콘텐츠 유형입니다",
+    "PAYMENT_TERMINAL_NOT_FOUND": "결제 단말기를 찾을 수 없습니다",
+    "PAYMENT_TERMINAL_INACTIVE": "결제 단말기가 비활성 상태입니다",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "결제 단말기가 충전소에 연결되어 있지 않습니다",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "다른 활성 결제 단말기가 이 커넥터에 연결되어 있습니다",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "이 장치는 이미 결제 단말기로 등록되어 있습니다",
+    "PAYMENT_TERMINAL_BUSY": "결제 단말기에서 이미 결제가 진행 중입니다",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "결제 내역이 있는 결제 단말기는 삭제할 수 없습니다. 대신 비활성화하세요",
+    "PAYMENT_TERMINAL_HAS_SIM": "결제 단말기에 이미 SIM이 있습니다",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "충전소가 이 하드웨어 모드 단말기를 제어하므로 CSMS에서 결제를 시작할 수 없습니다",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "결제 단말기 제공업체가 꺼져 있거나 자격 증명이 없습니다",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "ID TECH 연동은 아직 운영 환경 사용이 검증되지 않았습니다",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "결제 단말기 제공업체 요청이 실패했습니다",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "단말기 결제를 찾을 수 없습니다",
+    "TERMINAL_TRANSACTION_STATE": "현재 상태의 단말기 결제에서는 이 작업을 할 수 없습니다"
   },
   "validation": {
     "required": "필수 항목입니다",

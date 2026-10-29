@@ -28,6 +28,9 @@ const EXPECTED_STATES: StationMessageState[] = [
   'unauthorized',
   'prepaid_exhausted',
   'account_credit_limit',
+  'terminal_card',
+  'terminal_result',
+  'terminal_receipt',
 ];
 
 describe('STATION_MESSAGE_LANGUAGES', () => {

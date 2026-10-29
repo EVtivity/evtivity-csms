@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, count, sql, inArray, desc, isNull } from 'drizzle-orm';
-import { db, isOperatorStation } from '@evtivity/database';
+import { db, isOperatorStation, placeStationOnLayout } from '@evtivity/database';
 import {
   cssStations,
   cssEvses,
@@ -1408,6 +1408,10 @@ export function cssRoutes(app: FastifyInstance): void {
             })
             .returning({ id: chargingStations.id });
           chargingStationId = created?.id ?? null;
+          // A station with a site takes the first free slot of the site layout.
+          if (created != null && body.siteId != null) {
+            await placeStationOnLayout(tx, body.siteId, created.id);
+          }
         } else if (!existingCs.isSimulator) {
           await tx
             .update(chargingStations)

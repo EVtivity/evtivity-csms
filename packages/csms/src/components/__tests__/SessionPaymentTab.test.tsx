@@ -62,6 +62,11 @@ describe('SessionPaymentTab', () => {
     expect(screen.getByText('card_on_file')).toBeDefined();
   });
 
+  it('labels a payment taken at a payment terminal', () => {
+    renderTab({ ...base, paymentSource: 'terminal' });
+    expect(screen.getByText('payments.sources.terminal')).toBeDefined();
+  });
+
   it('shows a capture awaiting provider confirmation and why refunds wait', () => {
     renderTab({ ...base, pendingOperation: 'capture' }, false);
     expect(screen.getByText('sessions.pendingOperation.capture')).toBeDefined();

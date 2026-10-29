@@ -37,6 +37,10 @@ export interface SiteFixture {
   station: string;
   /** The station's SIM, with an open confirmed attachment to the station. */
   sim: string;
+  /** A simulated payment terminal paired station-wide to the site's station. */
+  paymentTerminal: string;
+  /** A captured payment of that terminal, stamped with the site. */
+  terminalTransaction: string;
   /** That attachment. */
   simAttachment: number;
   ocpp: string;
@@ -3214,6 +3218,183 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     },
   ),
 
+  // payment terminals (features/payment-terminals.md): scoped by the
+  // terminal's site, a terminal payment by the site it was stamped with.
+  l('/payment-terminals', 'paymentTerminals:read', undefined, { unsited: true }),
+  l('/payment-terminals/export', 'paymentTerminals:read', undefined, { unsited: true }),
+  l('/payment-terminals/feature', 'paymentTerminals:read', undefined, {
+    counts: [{ path: 'terminalCount', all: 3, a: 1 }],
+  }),
+  s(
+    'GET',
+    '/payment-terminals/:id',
+    'paymentTerminals:read',
+    (f) => `/payment-terminals/${f.paymentTerminal}`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    { unsited: true },
+  ),
+  s(
+    'GET',
+    '/payment-terminals/:id/neighbors',
+    'paymentTerminals:read',
+    (f) => `/payment-terminals/${f.paymentTerminal}/neighbors`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    { unsited: true },
+  ),
+  s(
+    'GET',
+    '/payment-terminals/:id/transactions',
+    'paymentTerminals:read, payments:read',
+    (f) => `/payment-terminals/${f.paymentTerminal}/transactions`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    { unsited: true },
+  ),
+  s(
+    'PATCH',
+    '/payment-terminals/:id',
+    'paymentTerminals:write',
+    (f) => `/payment-terminals/${f.paymentTerminal}`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    { unsited: true, body: () => ({ label: 'Matrix terminal' }) },
+  ),
+  s(
+    'POST',
+    '/payment-terminals',
+    'paymentTerminals:write',
+    () => '/payment-terminals',
+    'STATION_NOT_FOUND',
+    {
+      unsited: true,
+      body: (f) => ({
+        provider: 'simulated',
+        providerDeviceId: `sim_term_matrix_${f.station}`,
+        stationId: f.station,
+      }),
+    },
+  ),
+  s(
+    'POST',
+    '/payment-terminals/:id/pair',
+    'paymentTerminals:write, stations:write',
+    (f) => `/payment-terminals/${f.paymentTerminal}/pair`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    {
+      unsited: true,
+      body: (f) => ({ stationId: f.station, evseId: null }),
+      mixed: [
+        {
+          url: (a) => `/payment-terminals/${a.paymentTerminal}/pair`,
+          body: (_a, f) => ({ stationId: f.station, evseId: null }),
+          code: 'STATION_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+  s(
+    'POST',
+    '/payment-terminals/:id/status',
+    'paymentTerminals:write',
+    (f) => `/payment-terminals/${f.paymentTerminal}/status`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    { unsited: true, body: () => ({ status: 'active' }) },
+  ),
+  s(
+    'POST',
+    '/payment-terminals/:id/payments',
+    'paymentTerminals:write, payments:write',
+    (f) => `/payment-terminals/${f.paymentTerminal}/payments`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    {
+      unsited: true,
+      body: () => ({ amountCents: 100 }),
+      control: ctl(
+        502,
+        'PAYMENT_TERMINAL_PROVIDER_ERROR',
+        'the fixture device id is not one of the simulated devices',
+        { order: 5 },
+      ),
+    },
+  ),
+  s(
+    'POST',
+    '/payment-terminal-transactions/:id/void',
+    'paymentTerminals:write, payments:write',
+    (f) => `/payment-terminal-transactions/${f.terminalTransaction}/void`,
+    'TERMINAL_TRANSACTION_NOT_FOUND',
+    {
+      unsited: true,
+      control: ctl(409, 'TERMINAL_TRANSACTION_STATE', 'the fixture terminal payment is captured'),
+    },
+  ),
+  s(
+    'POST',
+    '/payment-terminals/:id/sim',
+    'paymentTerminals:write, sims:write',
+    (f) => `/payment-terminals/${f.paymentTerminal}/sim`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    { unsited: true, body: () => ({ iccid: '8900000000000099077' }), control: { order: 6 } },
+  ),
+  s(
+    'DELETE',
+    '/payment-terminals/:id/sim',
+    'paymentTerminals:write, sims:write',
+    (f) => `/payment-terminals/${f.paymentTerminal}/sim`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    { unsited: true, control: { order: 7 } },
+  ),
+  s(
+    'POST',
+    '/payment-terminals/:id/unpair',
+    'paymentTerminals:write, stations:write',
+    (f) => `/payment-terminals/${f.paymentTerminal}/unpair`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    { unsited: true, control: { order: 8 } },
+  ),
+  s(
+    'DELETE',
+    '/payment-terminals/:id',
+    'paymentTerminals:write',
+    (f) => `/payment-terminals/${f.paymentTerminal}`,
+    'PAYMENT_TERMINAL_NOT_FOUND',
+    {
+      unsited: true,
+      control: ctl(409, 'PAYMENT_TERMINAL_HAS_TRANSACTIONS', 'the fixture terminal has a payment', {
+        order: 9,
+      }),
+    },
+  ),
+  // The provider account and its devices serve every site.
+  c(
+    'GET',
+    '/payment-terminals/provider-devices',
+    'paymentTerminals:write',
+    () => '/payment-terminals/provider-devices?provider=simulated',
+    'PAYMENT_TERMINAL_NOT_FOUND',
+  ),
+  c(
+    'GET',
+    '/settings/payment-terminals',
+    'settings.payment:read',
+    () => '/settings/payment-terminals',
+    'SETTING_NOT_FOUND',
+  ),
+  c(
+    'PUT',
+    '/settings/payment-terminals',
+    'settings.payment:write',
+    () => '/settings/payment-terminals',
+    'SETTING_NOT_FOUND',
+    { body: () => ({}) },
+  ),
+  c(
+    'POST',
+    '/settings/payment-terminals/:provider/test',
+    'settings.payment:write',
+    () => '/settings/payment-terminals/simulated/test',
+    'SETTING_NOT_FOUND',
+    { body: () => ({}) },
+  ),
+
   // stations
   l('/stations', 'stations:read', undefined, { unsited: true }),
   s('GET', '/stations/:id', 'stations:read', st, 'STATION_NOT_FOUND', { unsited: true }),
@@ -4556,6 +4737,11 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
 
 /** Operator routes with no site data, each with the reason. */
 export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
+  {
+    method: 'POST',
+    path: '/webhooks/payment-terminals/idtech',
+    reason: 'provider-signed webhook, no user; the transaction is found by its provider reference',
+  },
   ...(
     [
       ['POST', '/access-logs'],

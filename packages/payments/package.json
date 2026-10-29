@@ -22,6 +22,7 @@
   "dependencies": {
     "@evtivity/database": "*",
     "@evtivity/lib": "*",
+    "@evtivity/payment-terminals": "*",
     "drizzle-orm": "^0.45.2",
     "stripe": "^23.0.0"
   },

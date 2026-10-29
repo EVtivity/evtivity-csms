@@ -1578,10 +1578,29 @@ export async function recordGuestHold(
   return row.id;
 }
 
+/** The OCPP 2.1 PaymentStatusEnumType of a NotifySettlement. */
+export type OcppSettlementStatus = 'Settled' | 'Canceled' | 'Rejected' | 'Failed';
+
+/**
+ * The payment record status of a NotifySettlement status (P5): only `Settled`
+ * is captured. `Rejected` and `Failed` (C22) are failed, `Canceled` (C19, C20)
+ * is cancelled. A missing status reads as `Settled`: the schema requires it.
+ */
+export function terminalSettlementOutcome(
+  status: OcppSettlementStatus | undefined,
+): 'captured' | 'failed' | 'cancelled' {
+  if (status === 'Rejected' || status === 'Failed') return 'failed';
+  if (status === 'Canceled') return 'cancelled';
+  return 'captured';
+}
+
 /**
  * A payment the station's terminal or the payment provider of an ad hoc
- * payment settled (OCPP 2.1 NotifySettlement): `ocpp_terminal`, captured, no
- * provider call. False when the session already has a record (a replay).
+ * payment settled (OCPP 2.1 NotifySettlement): `ocpp_terminal`, no provider
+ * call. `Settled` is captured at the settled amount; `Rejected` and `Failed`
+ * are failed with nothing captured, the attempted amount in the audit row and
+ * the statusInfo as the reason (C22); `Canceled` is cancelled with nothing
+ * captured. False when the session already has a record (a replay).
  */
 export async function recordTerminalSettlement(
   input: {
@@ -1589,9 +1608,17 @@ export async function recordTerminalSettlement(
     driverId: string | null;
     currency: string;
     capturedCents: number;
+    status?: OcppSettlementStatus | undefined;
+    statusInfo?: string | null | undefined;
   },
   audit: PaymentAuditContext,
 ): Promise<boolean> {
+  const outcome = terminalSettlementOutcome(input.status);
+  const capturedAmountCents = outcome === 'captured' ? input.capturedCents : 0;
+  const failureReason =
+    outcome === 'captured'
+      ? null
+      : (input.statusInfo ?? `NotifySettlement ${input.status ?? 'Settled'}`).slice(0, 500);
   const rows = await db
     .insert(paymentRecords)
     .values({
@@ -1599,24 +1626,99 @@ export async function recordTerminalSettlement(
       driverId: input.driverId,
       paymentSource: 'ocpp_terminal',
       currency: input.currency,
-      capturedAmountCents: input.capturedCents,
-      status: 'captured',
+      capturedAmountCents,
+      status: outcome,
+      ...(failureReason != null ? { failureReason } : {}),
     })
     .onConflictDoNothing({ target: paymentRecords.sessionId })
     .returning({ id: paymentRecords.id });
   const [row] = rows;
   if (row == null) return false;
-  await auditPayment(audit, row.id, 'captured', {
+  await auditPayment(audit, row.id, outcome, {
     before: null,
     after: {
-      status: 'captured',
+      status: outcome,
       sessionId: input.sessionId,
       paymentSource: 'ocpp_terminal',
-      capturedAmountCents: input.capturedCents,
+      capturedAmountCents,
+      ...(outcome === 'captured' ? {} : { attemptedAmountCents: input.capturedCents }),
       currency: input.currency,
+      ...(failureReason != null ? { failureReason } : {}),
     },
   });
   return true;
+}
+
+/**
+ * The record of a cloud terminal payment (`payment_source = 'terminal'`,
+ * features/payment-terminals.md): the capture of the terminal hold, or its
+ * refused capture (`failed`). The provider is the terminal provider and the
+ * payment id its transaction reference. Unique per session and per
+ * (provider, reference), so a replay writes nothing and returns the existing
+ * record's id. Written inside the caller's transaction (terminal-payments.ts
+ * marks the transaction captured in the same one).
+ */
+export async function recordTerminalCapture(
+  input: {
+    sessionId: string | null;
+    driverId: string | null;
+    provider: string;
+    providerTxnRef: string;
+    currency: string;
+    authorizedCents: number;
+    capturedCents: number;
+    status: 'captured' | 'failed';
+    failureReason?: string | null;
+  },
+  audit: PaymentAuditContext,
+  executor: Executor = db,
+): Promise<{ id: number; created: boolean }> {
+  const failureReason = input.failureReason?.slice(0, 500) ?? null;
+  const [row] = await executor
+    .insert(paymentRecords)
+    .values({
+      sessionId: input.sessionId,
+      driverId: input.driverId,
+      provider: input.provider,
+      providerPaymentId: input.providerTxnRef,
+      paymentSource: 'terminal',
+      currency: input.currency,
+      preAuthAmountCents: input.authorizedCents,
+      capturedAmountCents: input.status === 'captured' ? input.capturedCents : 0,
+      status: input.status,
+      ...(failureReason != null ? { failureReason } : {}),
+    })
+    .onConflictDoNothing()
+    .returning({ id: paymentRecords.id });
+  if (row == null) {
+    const [existing] = await executor
+      .select({ id: paymentRecords.id })
+      .from(paymentRecords)
+      .where(
+        and(
+          eq(paymentRecords.provider, input.provider),
+          eq(paymentRecords.providerPaymentId, input.providerTxnRef),
+        ),
+      );
+    if (existing == null) {
+      throw new Error('Terminal capture record conflicts with another record of the session');
+    }
+    return { id: existing.id, created: false };
+  }
+  await auditPayment(audit, row.id, input.status, {
+    before: null,
+    after: {
+      status: input.status,
+      sessionId: input.sessionId,
+      paymentSource: 'terminal',
+      provider: input.provider,
+      preAuthAmountCents: input.authorizedCents,
+      capturedAmountCents: input.status === 'captured' ? input.capturedCents : 0,
+      currency: input.currency,
+      ...(failureReason != null ? { failureReason } : {}),
+    },
+  });
+  return { id: row.id, created: true };
 }
 
 export interface PrepaidSettlementOptions {

@@ -113,6 +113,8 @@ const handlerMocks = {
   aiProposalDigestHandler: vi.fn().mockResolvedValue(undefined),
   aiInsightScanHandler: vi.fn().mockResolvedValue(undefined),
   driverAiSweepHandler: vi.fn().mockResolvedValue(undefined),
+  paymentTerminalReconcileHandler: vi.fn().mockResolvedValue(undefined),
+  paymentTerminalStatusHandler: vi.fn().mockResolvedValue(undefined),
 };
 
 vi.mock('../handlers/report-scheduler.js', () => ({
@@ -199,6 +201,14 @@ vi.mock('../handlers/station-offline-sweep.js', () => ({
 }));
 vi.mock('../handlers/fleet-invoice-run.js', () => ({
   fleetInvoiceRunHandler: (...a: unknown[]) => handlerMocks.fleetInvoiceRunHandler(...a),
+}));
+vi.mock('../handlers/payment-terminal-reconcile.js', () => ({
+  paymentTerminalReconcileHandler: (...a: unknown[]) =>
+    handlerMocks.paymentTerminalReconcileHandler(...a),
+}));
+vi.mock('../handlers/payment-terminal-status.js', () => ({
+  paymentTerminalStatusHandler: (...a: unknown[]) =>
+    handlerMocks.paymentTerminalStatusHandler(...a),
 }));
 vi.mock('../handlers/ai-insight-scan.js', () => ({
   aiInsightScanHandler: (...a: unknown[]) => handlerMocks.aiInsightScanHandler(...a),
@@ -379,6 +389,8 @@ describe('cron-worker processor dispatch', () => {
       ['ai-proposal-digest', 'aiProposalDigestHandler'],
       ['ai-insight-scan', 'aiInsightScanHandler'],
       ['driver-ai-sweep', 'driverAiSweepHandler'],
+      ['payment-terminal-reconcile', 'paymentTerminalReconcileHandler'],
+      ['payment-terminal-status', 'paymentTerminalStatusHandler'],
     ];
 
     for (const [jobName, handlerKey] of routes) {

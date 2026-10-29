@@ -10,6 +10,8 @@ import {
   setStationDisabled,
   isOperatorStation,
   siteInsightsSuppressedSql,
+  moveStationLayout,
+  placeStationOnLayout,
 } from '@evtivity/database';
 import { siteNameEq } from '../lib/site-lookup.js';
 import {
@@ -443,6 +445,10 @@ export async function importSitesCsv(
             // A new station gets its bound config template, like POST /v1/stations
             // (idempotent for one that already has it).
             if (previous == null) await createStationConfigTemplate(tx, station);
+            // A new station takes the first free slot of its site layout; a
+            // moved one leaves the old site's layout for a free slot here.
+            if (previous == null) await placeStationOnLayout(tx, siteId, station.id);
+            else if (previous.siteId !== siteId) await moveStationLayout(tx, station.id, siteId);
             if (previous != null && previous.siteId !== siteId) {
               siteMoves.push({
                 stationUuid: station.id,
@@ -469,6 +475,7 @@ export async function importSitesCsv(
               stationUuidByStationId.set(stationId, station.id);
               await auditImportedStation(tx, actor, null, station);
               await createStationConfigTemplate(tx, station);
+              await placeStationOnLayout(tx, siteId, station.id);
               if (requestedStatus != null) {
                 operatorDisableByUuid.set(station.id, requestedStatus === 'unavailable');
               }

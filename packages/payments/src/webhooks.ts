@@ -227,7 +227,7 @@ const lockSlots = (() => {
  * proves an apply is still running. Throws WebhookEventBusyError when another
  * apply holds it. At most `lockSlots` locks are held at once in a process.
  */
-async function withWebhookEventLock<T>(
+export async function withWebhookEventLock<T>(
   providerId: string,
   eventId: string,
   fn: () => Promise<T>,

@@ -4,16 +4,23 @@
 import { describe, it, expect, vi } from 'vitest';
 import { SIM_PROVIDER_ORDER, SimProviderRegistry } from '../registry.js';
 import type { SimProviderFactory } from '../registry.js';
+import { oneNceFactory } from '../1nce/adapter.js';
 import { SimProviderError } from '../types.js';
-import type { SimProvider, SimProviderSettings } from '../types.js';
+import type { SimProvider, SimProviderId, SimProviderSettings } from '../types.js';
 
-function settings(overrides: Partial<SimProviderSettings['hologram']> = {}): SimProviderSettings {
-  return { hologram: { enabled: false, apiKey: '', orgId: '', ...overrides } };
+function settings(
+  overrides: Partial<SimProviderSettings['hologram']> = {},
+  oneNce: Partial<SimProviderSettings['1nce']> = {},
+): SimProviderSettings {
+  return {
+    hologram: { enabled: false, apiKey: '', orgId: '', ...overrides },
+    '1nce': { enabled: false, clientId: '', clientSecret: '', ...oneNce },
+  };
 }
 
-function fakeProvider(label: string): SimProvider {
+function fakeProvider(label: string, id: SimProviderId = 'hologram'): SimProvider {
   return {
-    id: 'hologram',
+    id,
     label,
     capabilities: {
       networkName: true,
@@ -45,9 +52,78 @@ function fakeFactory(): SimProviderFactory & { create: ReturnType<typeof vi.fn> 
   return { id: 'hologram', create };
 }
 
+function fakeOneNceFactory(): SimProviderFactory & { create: ReturnType<typeof vi.fn> } {
+  let built = 0;
+  const create = vi.fn((s: SimProviderSettings) => {
+    if (!s['1nce'].enabled || s['1nce'].clientSecret === '') return null;
+    built += 1;
+    return fakeProvider(`1nce-${String(built)}`, '1nce');
+  });
+  return { id: '1nce', create };
+}
+
 describe('SimProviderRegistry', () => {
-  it('lists hologram as the only provider in the fixed order', () => {
-    expect(SIM_PROVIDER_ORDER).toEqual(['hologram']);
+  it('looks up Hologram first, then 1NCE', () => {
+    expect(SIM_PROVIDER_ORDER).toEqual(['hologram', '1nce']);
+  });
+
+  it('returns both enabled providers in the lookup order', async () => {
+    const registry = new SimProviderRegistry({
+      readSettings: () =>
+        Promise.resolve(
+          settings(
+            { enabled: true, apiKey: 'key', orgId: '42' },
+            { enabled: true, clientId: 'client', clientSecret: 'secret' },
+          ),
+        ),
+      factories: [fakeOneNceFactory(), fakeFactory()],
+    });
+    const providers = await registry.enabledProviders();
+    expect(providers.map((p) => p.id)).toEqual(['hologram', '1nce']);
+  });
+
+  it('rebuilds only the 1NCE adapter when only its settings change', async () => {
+    const hologram = fakeFactory();
+    const oneNce = fakeOneNceFactory();
+    let current = settings(
+      { enabled: true, apiKey: 'key', orgId: '42' },
+      { enabled: true, clientId: 'client', clientSecret: 'old' },
+    );
+    const registry = new SimProviderRegistry({
+      readSettings: () => Promise.resolve(current),
+      factories: [hologram, oneNce],
+    });
+    await registry.enabledProviders();
+    current = settings(
+      { enabled: true, apiKey: 'key', orgId: '42' },
+      { enabled: true, clientId: 'client', clientSecret: 'new' },
+    );
+    await registry.enabledProviders();
+    expect(hologram.create).toHaveBeenCalledTimes(1);
+    expect(oneNce.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('builds no 1NCE adapter while it is off, without a secret or with a bad client id', () => {
+    const options = { testBaseUrl: null };
+    expect(oneNceFactory.create(settings(), options)).toBeNull();
+    expect(
+      oneNceFactory.create(
+        settings({}, { enabled: false, clientId: 'client', clientSecret: 'secret' }),
+        options,
+      ),
+    ).toBeNull();
+    expect(
+      oneNceFactory.create(
+        settings({}, { enabled: true, clientId: 'client', clientSecret: ' ' }),
+        options,
+      ),
+    ).toBeNull();
+    expect(
+      oneNceFactory.create(
+        settings({}, { enabled: true, clientId: 'bad:id', clientSecret: 'secret' }),
+        options,
+      ),
+    ).toBeNull();
   });
 
   it('returns no provider when none is enabled', async () => {

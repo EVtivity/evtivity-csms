@@ -20,7 +20,8 @@ vi.mock('@evtivity/payments', async (importOriginal) => {
 vi.stubEnv('API_PORT', '3001');
 vi.stubEnv('SETTINGS_ENCRYPTION_KEY', 'k');
 
-const { activePaymentProvider, paymentRegistry } = await import('../lib/payments.js');
+const { activePaymentProvider, paymentRegistry, terminalRegistry } =
+  await import('../lib/payments.js');
 const { setJobQueueResolver } = await import('@evtivity/lib/job-queues');
 
 const delivery: SimulatedWebhookDelivery = {
@@ -64,6 +65,7 @@ describe('activePaymentProvider', () => {
     await expect(activePaymentProvider(logger)).resolves.toBe(provider);
     expect(mockResolveActiveProvider).toHaveBeenCalledWith({
       registry: paymentRegistry,
+      terminals: terminalRegistry,
       logger,
       actor: { actor: 'system', actorLabel: 'payments' },
     });

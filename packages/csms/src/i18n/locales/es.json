@@ -184,7 +184,8 @@
     "closeMenu": "Cerrar menú",
     "audit": "Auditoría",
     "maintenance": "Mantenimiento",
-    "aiInsights": "Análisis de IA"
+    "aiInsights": "Análisis de IA",
+    "paymentTerminals": "Terminales de pago"
   },
   "roaming": {
     "partners": {
@@ -719,6 +720,50 @@
       "suppressedToast": "Análisis de IA suprimidos",
       "resumedToast": "Análisis de IA reanudados",
       "failed": "No se pudieron cambiar los análisis de IA del sitio"
+    },
+    "layoutView": {
+      "viewLabel": "Vista del Diseño",
+      "view3d": "3D",
+      "view2d": "2D",
+      "fitToView": "Ajustar a la Vista",
+      "editLayout": "Editar Diseño",
+      "doneEditing": "Terminar Edición",
+      "hint": "Arrastre para girar, desplace o pellizque para hacer zoom, arrastre con el botón derecho o con dos dedos para mover. Haga clic en una estación para ver los detalles.",
+      "hintEdit": "Modo de edición: arrastre una estación a una plaza libre. Se ajusta a la plaza y nunca queda sobre otra estación.",
+      "webglUnavailable": "Este navegador no puede mostrar la vista 3D (WebGL no está disponible), así que se muestra la vista 2D.",
+      "loading3d": "Cargando Vista 3D",
+      "newTag": "Nueva",
+      "newTagHint": "Colocada en un lugar libre, aún sin guardar. Guarde para conservar esta posición.",
+      "newLegend": "Aún Sin Guardar",
+      "cellularBadge": "4G",
+      "cellularHint": "Conexión celular (4G)",
+      "cellularLegend": "Conexión Celular",
+      "acPedestal": "Poste de CA",
+      "dcCharger": "Cargador Rápido de CC",
+      "ac": "CA",
+      "dcFast": "CC Rápida",
+      "status": "Estado",
+      "reason": "Motivo",
+      "power": "Potencia",
+      "sessionEnergy": "Energía de la Sesión",
+      "noSession": "Sin Sesión",
+      "connection": "Conexión",
+      "connectionCellular": "Celular (4G)",
+      "connectionWired": "Wi-Fi o Cable",
+      "signalUnknown": "Señal Desconocida",
+      "evse": "EVSE {{id}}",
+      "openStation": "Abrir Estación",
+      "detailsLabel": "Detalles de {{id}}"
+    },
+    "layoutState": {
+      "faulted": "Con Falla",
+      "unavailable": "No Disponible",
+      "maintenance": "En Mantenimiento",
+      "offline": "Desconectada",
+      "reserved": "Reservada",
+      "charging": "Cargando",
+      "available": "Disponible",
+      "online": "En Línea"
     }
   },
   "stations": {
@@ -1155,7 +1200,7 @@
           "attachConflict": "Proveedor: omitido, otros cambios en las asignaciones de SIM se ejecutaron al mismo tiempo. No se asignó nada. Haga clic en Actualizar de nuevo."
         },
         "providerFailed": {
-          "auth": "Proveedor: falló, el proveedor rechazó la clave de API.",
+          "auth": "Proveedor: falló, el proveedor rechazó las credenciales.",
           "notFound": "Proveedor: falló, el proveedor no conoce esta SIM.",
           "unsupported": "Proveedor: falló, el proveedor rechazó la solicitud.",
           "unavailable": "Proveedor: falló, el proveedor no respondió.",
@@ -1240,6 +1285,7 @@
       "confirmSuccess": "SIM confirmada",
       "resetDescription": "El proveedor termina la sesión de datos de la estación y la estación se vuelve a conectar a la red celular. La estación puede estar sin conexión hasta que se reconecte.",
       "resetSuccess": "Restablecimiento de red enviado. Haga clic en Actualizar dentro de unos minutos para ver la nueva sesión.",
+      "resetSubmitted": "Restablecimiento de red en cola, se ejecuta en unos minutos.",
       "timelineTitle": "Cronología",
       "timelineRange": "Rango",
       "timelineLastHour": "Última hora",
@@ -1954,6 +2000,7 @@
       "dashboard": "Panel",
       "stations": "Estaciones",
       "sims": "SIM",
+      "paymentTerminals": "Terminales de pago",
       "sites": "Sitios",
       "sessions": "Sesiones",
       "drivers": "Conductores",
@@ -2568,7 +2615,8 @@
       "guest": "Pago como invitado",
       "prepaid": "Prepago",
       "ocpp_terminal": "Terminal de pago de la estación",
-      "operator": "Operador"
+      "operator": "Operador",
+      "terminal": "Pagado en el terminal de pago"
     },
     "manual": "Manual",
     "energyCost": "Costo de Energía",
@@ -2683,7 +2731,8 @@
     "sitesWifiOrWired": "Sitios con Wi-Fi o Cable",
     "sitesCellular": "Sitios con Red Móvil",
     "webhookSigning": "Secreto de Firma de Webhooks",
-    "simHologramKey": "Clave API de Hologram"
+    "simHologramKey": "Clave API de Hologram",
+    "simOneNceSecret": "Secreto de cliente de 1NCE"
   },
   "settings": {
     "title": "Configuración",
@@ -3477,6 +3526,17 @@
       "hologramOrgIdInvalid": "Introduzca de 1 a 15 dígitos.",
       "hologramApiKey": "Clave de API",
       "hologramApiKeyHint": "Créela en el Hologram Dashboard en Settings > My account > API. La clave necesita el rol Editor o superior.",
+      "oneNceTitle": "1NCE",
+      "oneNceDescription": "SIM celulares de 1NCE. Lee el estado de la SIM, la cuota de datos, las sesiones a partir de los eventos de red y las alertas de SIM mediante la 1NCE Management API. No se necesita 1NCE Insights.",
+      "oneNceEnabled": "Activar 1NCE",
+      "oneNceClientId": "ID de cliente",
+      "oneNceClientIdHint": "Cree un cliente de API en el 1NCE Portal en Account > Management API Access.",
+      "oneNceClientIdInvalid": "Introduzca de 1 a 128 caracteres sin espacios ni dos puntos.",
+      "oneNceClientSecret": "Secreto de cliente",
+      "oneNceClientSecretHint": "Se muestra una sola vez al crear el cliente de API en el 1NCE Portal.",
+      "oneNceTestEnableFirst": "Active 1NCE y guarde para probar la conexión.",
+      "oneNceTestSuccess_one": "Conectado. La cuenta tiene {{count}} SIM.",
+      "oneNceTestSuccess_other": "Conectado. La cuenta tiene {{count}} SIM.",
       "testConnection": "Probar conexión",
       "testSaveFirst": "Guarde sus cambios antes de probar la conexión.",
       "testEnableFirst": "Active Hologram y guarde para probar la conexión.",
@@ -3595,7 +3655,8 @@
     },
     "uploadReplacesHint": "Al subir una imagen nueva se reemplaza la actual.",
     "roamingOffDescription": "Se oculta la sección de Roaming y se bloquea todo el tráfico OCPI.",
-    "pncOffDescription": "Se oculta la sección de Certificados y se bloquean las operaciones con certificados."
+    "pncOffDescription": "Se oculta la sección de Certificados y se bloquean las operaciones con certificados.",
+    "paymentSubTabTerminals": "Terminales de pago"
   },
   "pnc": {
     "certificates": "Certificados",
@@ -3702,6 +3763,7 @@
     "sessionEvents": "Sesiones",
     "supportEvents": "Casos de Soporte",
     "sessionAlertEvents": "Alertas de sesión",
+    "paymentTerminalAlertEvents": "Alertas de terminales de pago",
     "siteHostEvents": "Anfitriones de sitios",
     "mfaEvents": "Autenticación Multifactor",
     "tokenEvents": "Tokens",
@@ -3736,6 +3798,7 @@
       "driver.PortalInvite": "Invitación al portal de conductores",
       "driver.RegistrationAttempt": "Intento de registro",
       "session.EndRequestFailed": "No se pudo finalizar la sesión",
+      "paymentTerminal.Offline": "Terminal de pago sin conexión",
       "site.PayoutOnboarding": "Configuración de pagos del sitio",
       "driver.PasswordChanged": "Contraseña Cambiada",
       "driver.MfaDisabled": "Autenticación de dos factores desactivada",
@@ -3784,7 +3847,8 @@
       "security.PermissionsGranted": "Permisos concedidos",
       "security.PasswordResetByAdmin": "Enlace de contraseña enviado por un administrador",
       "security.SsoUnlinked": "Vínculo de inicio de sesión único eliminado",
-      "security.RetentionLowered": "Retención de Datos Acortada"
+      "security.RetentionLowered": "Retención de Datos Acortada",
+      "security.PaymentTerminalSettingsChanged": "Configuración de terminales de pago modificada"
     },
     "templatePreviewInvalid": "La plantilla tiene un error:",
     "htmlPreview": "Vista previa HTML",
@@ -4285,7 +4349,21 @@
     "NOT_FOUND": "No encontrado",
     "PAYLOAD_TOO_LARGE": "La solicitud es demasiado grande",
     "UNSUPPORTED_MEDIA_TYPE": "Tipo de contenido no admitido",
-    "DATA_PLAN_SETTING_IN_TEMPLATE": "La configuración de heartbeat y de valores de medición viene de Configuración > Integraciones y Funciones > OCPP y del plan de datos de la estación, no de una plantilla de configuración."
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "La configuración de heartbeat y de valores de medición viene de Configuración > Integraciones y Funciones > OCPP y del plan de datos de la estación, no de una plantilla de configuración.",
+    "PAYMENT_TERMINAL_NOT_FOUND": "Terminal de pago no encontrado",
+    "PAYMENT_TERMINAL_INACTIVE": "El terminal de pago está inactivo",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "El terminal de pago no está vinculado a una estación de carga",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "Otro terminal de pago activo ya está vinculado a este conector",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "Este dispositivo ya está registrado como terminal de pago",
+    "PAYMENT_TERMINAL_BUSY": "El terminal de pago ya tiene un pago en curso",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "El terminal de pago tiene pagos y no se puede eliminar; desactívelo en su lugar",
+    "PAYMENT_TERMINAL_HAS_SIM": "El terminal de pago ya tiene una SIM",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "La estación de carga controla este terminal en modo hardware; el CSMS no puede iniciar pagos en él",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "El proveedor de terminales de pago está desactivado o no tiene credenciales",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "La integración de ID TECH aún no está verificada para uso en producción",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "La solicitud al proveedor de terminales de pago falló",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "Pago de terminal no encontrado",
+    "TERMINAL_TRANSACTION_STATE": "El pago de terminal no permite esta acción en su estado actual"
   },
   "logs": {
     "title": "Registros",
@@ -5294,7 +5372,14 @@
     "varDriverFirstName": "Nombre del conductor",
     "varReservationExpiresAt": "Hora de expiración de la reserva",
     "settingsSaved": "Configuración guardada.",
-    "settingsSaveFailed": "Error al guardar la configuración."
+    "settingsSaveFailed": "Error al guardar la configuración.",
+    "stateTerminalCard": "Terminal de pago: acerque la tarjeta",
+    "stateTerminalResult": "Terminal de pago: resultado",
+    "stateTerminalReceipt": "Terminal de pago: recibo",
+    "varTerminalAmount": "Importe preautorizado o pagado, en la moneda de la empresa",
+    "varPaymentApproved": "Se activa cuando la tarjeta fue aprobada",
+    "varPlugInAnyConnector": "Se activa cuando el conductor puede conectar en cualquier conector (terminal de toda la estación)",
+    "varReceiptUrl": "Enlace al recibo del pago"
   },
   "audit": {
     "title": "Registro de auditoría",
@@ -5483,7 +5568,14 @@
       "network_reset": "Red restablecida",
       "sso_link_allowed": "Inicio de sesión con SSO permitido",
       "sso_unlinked": "Vínculo SSO eliminado",
-      "data_plan_changed": "Plan de datos cambiado"
+      "data_plan_changed": "Plan de datos cambiado",
+      "paired": "Vinculado",
+      "unpaired": "Desvinculado",
+      "sim_attached": "SIM asociada",
+      "sim_detached": "SIM desasociada",
+      "status_synced": "Estado sincronizado",
+      "payment_started": "Pago iniciado",
+      "payment_voided": "Pago anulado"
     },
     "entities": {
       "site": "Sitio",
@@ -5520,7 +5612,8 @@
       "station_message_template": "Plantilla de mensaje de estación",
       "event_alert_rule": "Regla de alerta de eventos",
       "report_schedule": "Programación de informe",
-      "sim": "SIM"
+      "sim": "SIM",
+      "payment_terminal": "Terminal de pago"
     },
     "actors": {
       "operator": "Operador",
@@ -6501,5 +6594,225 @@
     "title": "Almacenamiento de archivos no configurado",
     "description": "No se pueden subir archivos porque el almacenamiento de archivos no está configurado. Un administrador puede configurarlo en {{path}}.",
     "openSettings": "Abrir configuración"
+  },
+  "paymentTerminals": {
+    "title": "Terminales de pago",
+    "subtitle": "Lectores de tarjetas que cobran una sesión de carga.",
+    "featureOff": "No hay ningún proveedor de terminales de pago configurado. Active uno en Configuración > Pago > Terminales de pago.",
+    "create": "Nuevo terminal de pago",
+    "exportCsv": "Exportar CSV",
+    "search": "Buscar",
+    "searchPlaceholder": "Buscar por etiqueta, número de serie o ID de dispositivo",
+    "noTerminals": "No se encontraron terminales de pago.",
+    "notPaired": "Sin vincular",
+    "wholeStation": "Toda la estación",
+    "connector": "Conector {{number}}",
+    "online": "En línea",
+    "offline": "Sin conexión",
+    "onlineUnknown": "Desconocido",
+    "lastSeen": "Visto por última vez {{time}}",
+    "simAttached": "Asociada",
+    "providers": {
+      "simulated": "Simulado"
+    },
+    "status": {
+      "active": "Activo",
+      "inactive": "Inactivo"
+    },
+    "columns": {
+      "label": "Etiqueta",
+      "model": "Modelo",
+      "site": "Sitio",
+      "station": "Estación",
+      "connector": "Conector",
+      "provider": "Proveedor",
+      "status": "Estado",
+      "online": "Estado del dispositivo",
+      "sim": "SIM"
+    },
+    "filters": {
+      "status": "Estado",
+      "allStatuses": "Todos los estados",
+      "online": "Estado del dispositivo",
+      "allOnline": "En línea y sin conexión",
+      "site": "Sitio",
+      "allSites": "Todos los sitios"
+    },
+    "fields": {
+      "label": "Etiqueta",
+      "vendor": "Fabricante",
+      "model": "Modelo",
+      "serialNumber": "Número de serie",
+      "firmwareVersion": "Versión de firmware",
+      "provider": "Proveedor",
+      "providerDeviceId": "ID de dispositivo del proveedor",
+      "site": "Sitio",
+      "status": "Estado",
+      "online": "Estado del dispositivo",
+      "created": "Creado"
+    },
+    "new": {
+      "title": "Nuevo terminal de pago",
+      "deviceTitle": "Dispositivo",
+      "pairingTitle": "Vinculación",
+      "provider": "Proveedor",
+      "noProvider": "No hay proveedores disponibles",
+      "noProviderHint": "Primero active un proveedor de terminales en Configuración > Pago > Terminales de pago.",
+      "device": "Dispositivo",
+      "selectDevice": "Seleccione un dispositivo",
+      "loadingDevices": "Cargando dispositivos...",
+      "deviceHintPicker": "Los dispositivos de la cuenta del proveedor que aún no están registrados.",
+      "deviceHintTyped": "El ID de dispositivo de la cuenta del proveedor, por ejemplo de la etiqueta del dispositivo.",
+      "deviceIdInvalid": "Use de 1 a 128 caracteres imprimibles sin espacios.",
+      "pairingNeedsPermission": "Vincular a una estación requiere el permiso de escritura de estaciones. Puede vincular el terminal más tarde.",
+      "noSite": "Sin sitio",
+      "selectSite": "Seleccione un sitio",
+      "siteHint": "Un terminal sin vincular pertenece a este sitio. Un terminal vinculado toma el sitio de su estación.",
+      "submit": "Crear terminal"
+    },
+    "detail": {
+      "notFound": "Terminal de pago no encontrado.",
+      "tabs": {
+        "payments": "Pagos",
+        "sim": "Tarjeta SIM"
+      },
+      "noDisplayNote": "Este modelo no tiene pantalla. Sus indicaciones (conector, importe, resultado y enlace del recibo) aparecen en la pantalla de la estación.",
+      "editTitle": "Editar terminal de pago",
+      "deactivate": "Desactivar terminal",
+      "reactivate": "Activar terminal",
+      "deactivateDescription": "El terminal no acepta pagos mientras está inactivo. Un pago en curso no se detiene.",
+      "reactivateDescription": "El terminal vuelve a aceptar pagos.",
+      "deactivateSuccess": "Terminal de pago desactivado.",
+      "reactivateSuccess": "Terminal de pago activado.",
+      "delete": "Eliminar terminal",
+      "deleteDescription": "Elimina el terminal de pago {{name}}. Un terminal que ya ha cobrado pagos no se puede eliminar; desactívelo en su lugar.",
+      "deleteSuccess": "Terminal de pago eliminado."
+    },
+    "pairing": {
+      "title": "Vinculación",
+      "description": "La estación para la que el terminal cobra.",
+      "notPaired": "Este terminal no está vinculado a ninguna estación.",
+      "station": "Estación",
+      "selectStation": "Seleccione una estación",
+      "connector": "Conector",
+      "wholeStationHint": "Toda la estación: el conductor elige el conector en la pantalla del terminal. Con un terminal sin pantalla, el conductor conecta en cualquier conector.",
+      "pair": "Vincular",
+      "change": "Cambiar vinculación",
+      "unpair": "Desvincular",
+      "unpairDescription": "Elimina la vinculación con {{station}}. El terminal conserva su sitio.",
+      "dialogTitle": "Vincular terminal de pago",
+      "dialogDescription": "Elija la estación y el conector para los que este terminal cobra.",
+      "pairSuccess": "Terminal de pago vinculado.",
+      "unpairSuccess": "Terminal de pago desvinculado."
+    },
+    "testPayment": {
+      "title": "Pago de prueba",
+      "description": "Solicita una tarjeta en el terminal. Cuando la tarjeta se aprueba, la carga comienza en el conector vinculado.",
+      "amount": "Importe de pre-autorización ({{currency}})",
+      "amountHint": "Vacío usa el importe de pre-autorización del sitio.",
+      "receiptEmail": "Correo electrónico del recibo",
+      "receiptEmailHint": "Opcional. El enlace del recibo se envía a esta dirección.",
+      "start": "Iniciar pago de prueba",
+      "inactive": "Active el terminal para iniciar un pago.",
+      "notPaired": "Vincule el terminal a una estación para iniciar un pago.",
+      "chargingStarted": "La tarjeta fue aprobada y la carga comenzó.",
+      "chargingNotStarted": "La carga no comenzó: {{reason}}. La pre-autorización se liberó.",
+      "waiting": "Esperando la tarjeta en el terminal."
+    },
+    "payments": {
+      "description": "Pagos con tarjeta cobrados en este terminal, los más recientes primero.",
+      "empty": "Aún no hay pagos.",
+      "columns": {
+        "started": "Iniciado",
+        "state": "Estado",
+        "hold": "Pre-autorización",
+        "captured": "Cobrado",
+        "card": "Tarjeta",
+        "session": "Sesión",
+        "payment": "Pago"
+      },
+      "cardEnding": "{{brand}} terminada en {{last4}}",
+      "refunded": "Reembolsado {{amount}}",
+      "openSession": "Abrir sesión",
+      "openPayment": "Abrir pago",
+      "openNotice": "Hay un pago de {{amount}} en curso ({{state}}).",
+      "void": "Anular pago",
+      "voidDescription": "Libera la pre-autorización de la tarjeta. Una carga que ya comenzó no se detiene.",
+      "voidSuccess": "Pago anulado."
+    },
+    "txnStates": {
+      "requested": "Solicitado",
+      "presenting": "Esperando tarjeta",
+      "authorized": "Autorizado",
+      "declined": "Rechazado",
+      "expired": "Caducado",
+      "failed": "Fallido",
+      "void_requested": "Anulando",
+      "voided": "Anulado",
+      "capture_requested": "Cobrando",
+      "captured": "Cobrado",
+      "refund_pending": "Reembolso pendiente",
+      "partially_refunded": "Reembolsado parcialmente",
+      "refunded": "Reembolsado"
+    },
+    "sim": {
+      "description": "Un terminal con su propia SIM (como una variante LTE del VP6825) obtiene las funciones de SIM.",
+      "attached": "Hay una SIM asociada a este terminal de pago.",
+      "openSims": "Abrir SIM",
+      "none": "No hay ninguna SIM asociada a este terminal de pago.",
+      "iccid": "ICCID",
+      "iccidHint": "El ICCID impreso en la tarjeta SIM, de 18 a 22 dígitos.",
+      "iccidInvalid": "Introduzca un ICCID válido.",
+      "attach": "Asociar SIM",
+      "attachSuccess": "SIM asociada.",
+      "detach": "Desasociar SIM",
+      "detachDescription": "Cierra la asociación de la SIM con este terminal de pago. La SIM permanece en el inventario.",
+      "detachSuccess": "SIM desasociada."
+    },
+    "stationCard": {
+      "title": "Terminales de pago",
+      "description": "Lectores de tarjetas vinculados a esta estación.",
+      "empty": "No hay ningún terminal de pago vinculado a esta estación.",
+      "pairTitle": "Vincular un terminal de pago",
+      "pairDescription": "Elija un terminal sin vincular y el conector para el que cobra.",
+      "terminal": "Terminal de pago",
+      "selectTerminal": "Seleccione un terminal",
+      "noUnpaired": "No hay ningún terminal activo sin vincular. Cree uno con Nuevo terminal de pago."
+    },
+    "settings": {
+      "description": "Proveedores de lectores de tarjetas. Cada operador usa su propia cuenta de comerciante; EVtivity nunca retiene fondos.",
+      "simulatedTitle": "Terminales simulados",
+      "simulatedOn": "El proveedor de terminales simulados está disponible en esta instalación (para pruebas; no se mueve dinero).",
+      "simulatedOff": "El proveedor de terminales simulados está desactivado en esta instalación.",
+      "idtechTitle": "ID TECH Payment Service Gateway",
+      "idtechDescription": "Terminales en la nube (VP6825, VP7200) a través de ID TECH Payment Service Gateway.",
+      "unverified": "La integración de ID TECH aún no está verificada para uso en producción. Solo se puede activar en instalaciones de desarrollo y prueba.",
+      "idtechEnabled": "ID TECH activado",
+      "idtechOffDescription": "Los terminales de ID TECH no aceptan pagos nuevos mientras está desactivado.",
+      "environment": "Entorno",
+      "environments": {
+        "sandbox": "Sandbox",
+        "production": "Producción"
+      },
+      "environmentHint": "Cambiar el entorno borra los secretos guardados que no vuelva a enviar.",
+      "merchantId": "ID de comerciante",
+      "merchantIdInvalid": "Use de 1 a 64 letras, dígitos, _ o -.",
+      "apiKey": "Clave de API",
+      "apiKeyHint": "Del portal de comerciantes de ID TECH. Se guarda cifrada.",
+      "apiSecret": "Secreto de API",
+      "apiSecretHint": "Del portal de comerciantes de ID TECH. Se guarda cifrado.",
+      "webhookSecret": "Secreto del webhook",
+      "webhookSecretHint": "Firma los eventos que ID TECH envía a la URL del webhook. Se guarda cifrado.",
+      "webhookUrl": "URL del webhook",
+      "webhookUrlHint": "Introduzca esta URL como destino de los eventos en el portal de comerciantes de ID TECH.",
+      "proofHint": "Cambiar el entorno, el comerciante o una credencial requiere una nueva confirmación.",
+      "saveFailed": "No se pudo guardar la configuración de los terminales de pago.",
+      "testConnection": "Probar conexión",
+      "testSaveFirst": "Guarde los cambios antes de probar la conexión.",
+      "testEnableFirst": "Active ID TECH antes de probar la conexión.",
+      "testSuccess": "ID TECH aceptó las credenciales.",
+      "testRefused": "ID TECH rechazó la conexión ({{reason}}).",
+      "testFailed": "La prueba de conexión falló."
+    }
   }
 }

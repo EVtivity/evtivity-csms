@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils';
 import { formatEnergy, formatNumber } from '@/lib/formatting';
 import { STATUS_COLORS, SVG_COLORS } from '@/lib/chart-theme';
 import { stationCardConnectorStatusVariant } from '@/lib/status-variants';
+import { stationDisplayState } from '@/lib/station-display-state';
+import { CellularBadge, NewPlacementTag, StationStateIcon } from './StationStateIcon';
 
 const GRID_SIZE = 20;
 
@@ -40,6 +42,11 @@ export interface LayoutStation {
   securityProfile: number;
   positionX: number;
   positionY: number;
+  /** False while the position is a free slot the server picked, not saved yet. */
+  placed: boolean;
+  chargingKind: 'ac' | 'dc';
+  cellular: boolean;
+  inMaintenance: boolean;
   displayMessage: string | null;
   evses: EvseData[];
 }
@@ -47,6 +54,8 @@ export interface LayoutStation {
 interface StationCardProps {
   station: LayoutStation;
   onDragEnd: (stationId: string, x: number, y: number) => void;
+  /** Where a drop at (x, y) lands: on the grid, inside the board, on no other card. */
+  resolveDrop?: ((stationId: string, x: number, y: number) => { x: number; y: number }) | undefined;
   currentDrawKw?: number | undefined;
   allocatedLimitKw?: number | null | undefined;
   collapseKey?: number;
@@ -90,7 +99,14 @@ const LEVEL_LABEL_KEYS = {
   level1: 'sites.levelL1',
 } as const;
 
-function stationLevel(station: LayoutStation): StationLevel {
+/**
+ * The level text of the card: DC Fast for a DC station (the shared connector
+ * rule of `@evtivity/lib/connector-power`, which the API applies to the
+ * in-service connectors), else Level 2 from 7 kW and Level 1 below by the
+ * highest connector power.
+ */
+function stationLevel(station: Pick<LayoutStation, 'chargingKind' | 'evses'>): StationLevel {
+  if (station.chargingKind === 'dc') return 'dcFast';
   let maxKw = 0;
   for (const evse of station.evses) {
     for (const conn of evse.connectors) {
@@ -99,7 +115,6 @@ function stationLevel(station: LayoutStation): StationLevel {
       }
     }
   }
-  if (maxKw >= 50) return 'dcFast';
   if (maxKw >= 7) return 'level2';
   if (maxKw > 0) return 'level1';
   return '';
@@ -310,6 +325,7 @@ export function StationCard({
   currentDrawKw,
   allocatedLimitKw,
   collapseKey,
+  resolveDrop,
 }: StationCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const charging = isCharging(station);
@@ -322,8 +338,16 @@ export function StationCard({
       ? t(`stations.statusReason.${station.statusReason}`, station.statusReason)
       : null;
   const stationIcon = (
-    <StationIcon status={station.status} charging={charging} dc={level === 'dcFast'} />
+    <StationIcon status={station.status} charging={charging} dc={station.chargingKind === 'dc'} />
   );
+  const state = stationDisplayState(station);
+  const badges =
+    station.cellular || !station.placed ? (
+      <div className="flex flex-wrap items-center gap-1">
+        {station.cellular && <CellularBadge />}
+        {!station.placed && <NewPlacementTag />}
+      </div>
+    ) : null;
   const iconWithReason =
     reasonLabel != null ? <Tooltip label={reasonLabel}>{stationIcon}</Tooltip> : stationIcon;
   const motionX = useMotionValue(station.positionX);
@@ -365,11 +389,16 @@ export function StationCard({
       }}
       onDragEnd={() => {
         setIsDragging(false);
-        const snappedX = snapToGrid(Math.max(0, motionX.get()));
-        const snappedY = snapToGrid(Math.max(0, motionY.get()));
-        motionX.set(snappedX);
-        motionY.set(snappedY);
-        onDragEnd(station.id, snappedX, snappedY);
+        const dropped =
+          resolveDrop != null
+            ? resolveDrop(station.id, motionX.get(), motionY.get())
+            : {
+                x: snapToGrid(Math.max(0, motionX.get())),
+                y: snapToGrid(Math.max(0, motionY.get())),
+              };
+        motionX.set(dropped.x);
+        motionY.set(dropped.y);
+        onDragEnd(station.id, dropped.x, dropped.y);
       }}
       className={cn(
         'rounded-lg border bg-card text-card-foreground shadow-xs select-none',
@@ -396,6 +425,7 @@ export function StationCard({
           <span className={cn('font-semibold truncate', expanded ? 'text-sm' : 'text-xs')}>
             {station.stationId}
           </span>
+          <StationStateIcon state={state} />
           <Tooltip label={`Security Profile ${String(station.securityProfile)}`}>
             <span
               className={cn('flex items-center gap-0.5 shrink-0', spColor(station.securityProfile))}
@@ -438,6 +468,7 @@ export function StationCard({
                   {t(LEVEL_LABEL_KEYS[level])}
                 </span>
               )}
+              {badges}
             </div>
 
             {charging && energy > 0 && (
@@ -542,6 +573,7 @@ export function StationCard({
                     <ConnectorIcon key={i} conn={conn} />
                   ))}
                 </div>
+                {badges}
                 {charging && energy > 0 && (
                   <motion.div
                     initial={{ opacity: 0 }}

@@ -184,7 +184,8 @@
     "closeMenu": "Close menu",
     "audit": "Audit",
     "maintenance": "Maintenance",
-    "aiInsights": "AI Insights"
+    "aiInsights": "AI Insights",
+    "paymentTerminals": "Payment Terminals"
   },
   "roaming": {
     "subtitle": "Configure OCPI roaming partners, location publishing, sessions, CDRs, and tariff mappings.",
@@ -719,6 +720,50 @@
       "suppressedToast": "AI insights suppressed",
       "resumedToast": "AI insights resumed",
       "failed": "Failed to change the AI insights of the site"
+    },
+    "layoutView": {
+      "viewLabel": "Layout View",
+      "view3d": "3D",
+      "view2d": "2D",
+      "fitToView": "Fit to View",
+      "editLayout": "Edit Layout",
+      "doneEditing": "Done Editing",
+      "hint": "Drag to rotate, scroll or pinch to zoom, right-drag or two-finger drag to pan. Click a station for details.",
+      "hintEdit": "Edit mode: drag a station to a free bay. It snaps to the bay and never lands on another station.",
+      "webglUnavailable": "This browser cannot show the 3D view (WebGL is not available), so the 2D view is shown.",
+      "loading3d": "Loading 3D View",
+      "newTag": "New",
+      "newTagHint": "Placed on a free spot, not saved yet. Save to keep this position.",
+      "newLegend": "Not Saved Yet",
+      "cellularBadge": "4G",
+      "cellularHint": "Cellular (4G) connection",
+      "cellularLegend": "Cellular Connection",
+      "acPedestal": "AC Pedestal",
+      "dcCharger": "DC Fast Charger",
+      "ac": "AC",
+      "dcFast": "DC Fast",
+      "status": "Status",
+      "reason": "Reason",
+      "power": "Power",
+      "sessionEnergy": "Session Energy",
+      "noSession": "No Session",
+      "connection": "Connection",
+      "connectionCellular": "Cellular (4G)",
+      "connectionWired": "Wi-Fi or Wired",
+      "signalUnknown": "Signal Unknown",
+      "evse": "EVSE {{id}}",
+      "openStation": "Open Station",
+      "detailsLabel": "{{id}} Details"
+    },
+    "layoutState": {
+      "faulted": "Faulted",
+      "unavailable": "Unavailable",
+      "maintenance": "In Maintenance",
+      "offline": "Offline",
+      "reserved": "Reserved",
+      "charging": "Charging",
+      "available": "Available",
+      "online": "Online"
     }
   },
   "stations": {
@@ -1155,7 +1200,7 @@
           "attachConflict": "Provider: skipped, other changes to SIM attachments ran at the same time. Nothing was attached. Click Refresh again."
         },
         "providerFailed": {
-          "auth": "Provider: failed, the provider refused the API key.",
+          "auth": "Provider: failed, the provider refused the credentials.",
           "notFound": "Provider: failed, the provider does not know this SIM.",
           "unsupported": "Provider: failed, the provider refused the request.",
           "unavailable": "Provider: failed, the provider did not answer.",
@@ -1240,6 +1285,7 @@
       "confirmSuccess": "SIM confirmed",
       "resetDescription": "The provider ends the data session of the station, and the station reconnects to the cellular network. The station can be offline until it reconnects.",
       "resetSuccess": "Network reset sent. Click Refresh after a few minutes to see the new session.",
+      "resetSubmitted": "Network reset queued, it runs within a few minutes.",
       "timelineTitle": "Timeline",
       "timelineRange": "Range",
       "timelineLastHour": "Last Hour",
@@ -1954,6 +2000,7 @@
       "dashboard": "Dashboard",
       "stations": "Stations",
       "sims": "SIMs",
+      "paymentTerminals": "Payment Terminals",
       "sites": "Sites",
       "sessions": "Sessions",
       "drivers": "Drivers",
@@ -2568,7 +2615,8 @@
       "guest": "Guest checkout",
       "prepaid": "Prepaid",
       "ocpp_terminal": "Station payment terminal",
-      "operator": "Operator"
+      "operator": "Operator",
+      "terminal": "Paid at payment terminal"
     },
     "manual": "Manual",
     "energyCost": "Energy Cost",
@@ -2683,7 +2731,8 @@
     "sitesWifiOrWired": "Sites Set to Wi-Fi or Wired",
     "sitesCellular": "Sites Set to Cellular",
     "webhookSigning": "Webhook Signing Secret",
-    "simHologramKey": "Hologram API Key"
+    "simHologramKey": "Hologram API Key",
+    "simOneNceSecret": "1NCE Client Secret"
   },
   "settings": {
     "title": "Settings",
@@ -3477,6 +3526,17 @@
       "hologramOrgIdInvalid": "Enter 1 to 15 digits.",
       "hologramApiKey": "API Key",
       "hologramApiKeyHint": "Create it in the Hologram Dashboard under Settings > My account > API. The key needs the Editor role or higher.",
+      "oneNceTitle": "1NCE",
+      "oneNceDescription": "Cellular SIMs from 1NCE. Reads the SIM status, the data quota, sessions from network events and SIM alerts through the 1NCE Management API. 1NCE Insights is not needed.",
+      "oneNceEnabled": "Enable 1NCE",
+      "oneNceClientId": "Client ID",
+      "oneNceClientIdHint": "Create an API client in the 1NCE Portal under Account > Management API Access.",
+      "oneNceClientIdInvalid": "Enter 1 to 128 characters without spaces or colons.",
+      "oneNceClientSecret": "Client Secret",
+      "oneNceClientSecretHint": "Shown once when you create the API client in the 1NCE Portal.",
+      "oneNceTestEnableFirst": "Turn 1NCE on and save to test the connection.",
+      "oneNceTestSuccess_one": "Connected. The account has {{count}} SIM.",
+      "oneNceTestSuccess_other": "Connected. The account has {{count}} SIMs.",
       "testConnection": "Test Connection",
       "testSaveFirst": "Save your changes before testing the connection.",
       "testEnableFirst": "Turn Hologram on and save to test the connection.",
@@ -3595,7 +3655,8 @@
     },
     "uploadReplacesHint": "Uploading a new image replaces the current one.",
     "roamingOffDescription": "The Roaming section is hidden and all OCPI traffic is blocked.",
-    "pncOffDescription": "The Certificates section is hidden and certificate operations are blocked."
+    "pncOffDescription": "The Certificates section is hidden and certificate operations are blocked.",
+    "paymentSubTabTerminals": "Payment Terminals"
   },
   "pnc": {
     "certificates": "Certificates",
@@ -3702,6 +3763,7 @@
     "sessionEvents": "Sessions",
     "supportEvents": "Support Cases",
     "sessionAlertEvents": "Session Alerts",
+    "paymentTerminalAlertEvents": "Payment Terminal Alerts",
     "siteHostEvents": "Site Hosts",
     "mfaEvents": "Multi-Factor Auth",
     "tokenEvents": "Tokens",
@@ -3736,6 +3798,7 @@
       "driver.PortalInvite": "Driver Portal Invite",
       "driver.RegistrationAttempt": "Registration Attempt",
       "session.EndRequestFailed": "Session End Failed",
+      "paymentTerminal.Offline": "Payment Terminal Offline",
       "site.PayoutOnboarding": "Site Payout Onboarding",
       "driver.PasswordChanged": "Password Changed",
       "driver.MfaDisabled": "Two-Factor Authentication Disabled",
@@ -3784,7 +3847,8 @@
       "security.PermissionsGranted": "Permissions Granted",
       "security.PasswordResetByAdmin": "Password Setup Link Sent by an Administrator",
       "security.SsoUnlinked": "Single Sign-On Link Removed",
-      "security.RetentionLowered": "Data Retention Shortened"
+      "security.RetentionLowered": "Data Retention Shortened",
+      "security.PaymentTerminalSettingsChanged": "Payment Terminal Settings Changed"
     },
     "templatePreviewInvalid": "The template has an error:",
     "htmlPreview": "HTML preview",
@@ -4285,7 +4349,21 @@
     "NOT_FOUND": "Not found",
     "PAYLOAD_TOO_LARGE": "The request is too large",
     "UNSUPPORTED_MEDIA_TYPE": "Unsupported content type",
-    "DATA_PLAN_SETTING_IN_TEMPLATE": "Heartbeat and meter value settings come from Settings > Integrations & Features > OCPP and the station data plan, not from a configuration template."
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "Heartbeat and meter value settings come from Settings > Integrations & Features > OCPP and the station data plan, not from a configuration template.",
+    "PAYMENT_TERMINAL_NOT_FOUND": "Payment terminal not found",
+    "PAYMENT_TERMINAL_INACTIVE": "The payment terminal is inactive",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "The payment terminal is not paired to a charging station",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "Another active payment terminal is paired to this connector",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "This device is already registered as a payment terminal",
+    "PAYMENT_TERMINAL_BUSY": "The payment terminal already has a payment in progress",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "The payment terminal has payments and cannot be deleted; deactivate it instead",
+    "PAYMENT_TERMINAL_HAS_SIM": "The payment terminal already has a SIM",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "The charging station drives this hardware mode terminal; the CSMS cannot start payments on it",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "The payment terminal provider is off or has no credentials",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "The ID TECH integration is not verified for production use yet",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "The payment terminal provider request failed",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "Terminal payment not found",
+    "TERMINAL_TRANSACTION_STATE": "The terminal payment cannot do this in its current state"
   },
   "logs": {
     "title": "Logs",
@@ -5294,7 +5372,14 @@
     "varDriverFirstName": "Driver first name",
     "varReservationExpiresAt": "Reservation expiry time",
     "settingsSaved": "Settings saved.",
-    "settingsSaveFailed": "Failed to save settings."
+    "settingsSaveFailed": "Failed to save settings.",
+    "stateTerminalCard": "Payment Terminal: Present Card",
+    "stateTerminalResult": "Payment Terminal: Result",
+    "stateTerminalReceipt": "Payment Terminal: Receipt",
+    "varTerminalAmount": "Hold or paid amount, formatted in the company currency",
+    "varPaymentApproved": "Set when the card was approved",
+    "varPlugInAnyConnector": "Set when the driver may plug in at any connector (station-wide terminal)",
+    "varReceiptUrl": "Link to the payment receipt"
   },
   "audit": {
     "title": "Audit Log",
@@ -5483,7 +5568,14 @@
       "network_reset": "Network reset",
       "sso_link_allowed": "SSO sign-in allowed",
       "sso_unlinked": "SSO link removed",
-      "data_plan_changed": "Data plan changed"
+      "data_plan_changed": "Data plan changed",
+      "paired": "Paired",
+      "unpaired": "Unpaired",
+      "sim_attached": "SIM attached",
+      "sim_detached": "SIM detached",
+      "status_synced": "Status synced",
+      "payment_started": "Payment started",
+      "payment_voided": "Payment voided"
     },
     "entities": {
       "site": "Site",
@@ -5520,7 +5612,8 @@
       "station_message_template": "Station message template",
       "event_alert_rule": "Event alert rule",
       "report_schedule": "Report schedule",
-      "sim": "SIM"
+      "sim": "SIM",
+      "payment_terminal": "Payment terminal"
     },
     "actors": {
       "operator": "Operator",
@@ -6501,5 +6594,225 @@
     "title": "File Storage Not Set Up",
     "description": "Files cannot be uploaded because file storage is not set up. An administrator can set it up under {{path}}.",
     "openSettings": "Open Settings"
+  },
+  "paymentTerminals": {
+    "title": "Payment Terminals",
+    "subtitle": "Card readers that take payment for a charging session.",
+    "featureOff": "No payment terminal provider is set up. Turn one on in Settings > Payment > Payment Terminals.",
+    "create": "New Payment Terminal",
+    "exportCsv": "Export CSV",
+    "search": "Search",
+    "searchPlaceholder": "Search by label, serial number or device ID",
+    "noTerminals": "No payment terminals found.",
+    "notPaired": "Not paired",
+    "wholeStation": "Whole Station",
+    "connector": "Connector {{number}}",
+    "online": "Online",
+    "offline": "Offline",
+    "onlineUnknown": "Not known",
+    "lastSeen": "Last seen {{time}}",
+    "simAttached": "Attached",
+    "providers": {
+      "simulated": "Simulated"
+    },
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "columns": {
+      "label": "Label",
+      "model": "Model",
+      "site": "Site",
+      "station": "Station",
+      "connector": "Connector",
+      "provider": "Provider",
+      "status": "Status",
+      "online": "Device Status",
+      "sim": "SIM"
+    },
+    "filters": {
+      "status": "Status",
+      "allStatuses": "All statuses",
+      "online": "Device Status",
+      "allOnline": "Online and offline",
+      "site": "Site",
+      "allSites": "All sites"
+    },
+    "fields": {
+      "label": "Label",
+      "vendor": "Vendor",
+      "model": "Model",
+      "serialNumber": "Serial Number",
+      "firmwareVersion": "Firmware Version",
+      "provider": "Provider",
+      "providerDeviceId": "Provider Device ID",
+      "site": "Site",
+      "status": "Status",
+      "online": "Device Status",
+      "created": "Created"
+    },
+    "new": {
+      "title": "New Payment Terminal",
+      "deviceTitle": "Device",
+      "pairingTitle": "Pairing",
+      "provider": "Provider",
+      "noProvider": "No provider available",
+      "noProviderHint": "Turn on a terminal provider in Settings > Payment > Payment Terminals first.",
+      "device": "Device",
+      "selectDevice": "Select a device",
+      "loadingDevices": "Loading devices...",
+      "deviceHintPicker": "The devices of the provider account that are not registered yet.",
+      "deviceHintTyped": "The device ID from the provider account, for example from the device label.",
+      "deviceIdInvalid": "Use 1 to 128 printable characters without spaces.",
+      "pairingNeedsPermission": "Pairing to a station needs the Stations write permission. You can pair the terminal later.",
+      "noSite": "No site",
+      "selectSite": "Select a site",
+      "siteHint": "An unpaired terminal belongs to this site. A paired terminal takes the site of its station.",
+      "submit": "Create Terminal"
+    },
+    "detail": {
+      "notFound": "Payment terminal not found.",
+      "tabs": {
+        "payments": "Payments",
+        "sim": "SIM Card"
+      },
+      "noDisplayNote": "This model has no screen. Its prompts (connector, amount, result and receipt link) show on the station display.",
+      "editTitle": "Edit Payment Terminal",
+      "deactivate": "Deactivate Terminal",
+      "reactivate": "Activate Terminal",
+      "deactivateDescription": "The terminal takes no payments while inactive. A payment in progress is not stopped.",
+      "reactivateDescription": "The terminal takes payments again.",
+      "deactivateSuccess": "Payment terminal deactivated.",
+      "reactivateSuccess": "Payment terminal activated.",
+      "delete": "Delete Terminal",
+      "deleteDescription": "Deletes payment terminal {{name}}. A terminal that has taken payments cannot be deleted; deactivate it instead.",
+      "deleteSuccess": "Payment terminal deleted."
+    },
+    "pairing": {
+      "title": "Pairing",
+      "description": "The station the terminal takes payments for.",
+      "notPaired": "This terminal is not paired to a station.",
+      "station": "Station",
+      "selectStation": "Select a station",
+      "connector": "Connector",
+      "wholeStationHint": "Whole Station: the driver picks the connector on the terminal screen. For a terminal without a screen, the driver plugs in at any connector.",
+      "pair": "Pair",
+      "change": "Change Pairing",
+      "unpair": "Unpair",
+      "unpairDescription": "Removes the pairing to {{station}}. The terminal keeps its site.",
+      "dialogTitle": "Pair Payment Terminal",
+      "dialogDescription": "Choose the station and the connector this terminal takes payments for.",
+      "pairSuccess": "Payment terminal paired.",
+      "unpairSuccess": "Payment terminal unpaired."
+    },
+    "testPayment": {
+      "title": "Test Payment",
+      "description": "Asks the terminal for a card. When the card is approved, charging starts on the paired connector.",
+      "amount": "Hold Amount ({{currency}})",
+      "amountHint": "Empty uses the hold amount of the site.",
+      "receiptEmail": "Receipt Email",
+      "receiptEmailHint": "Optional. The receipt link is sent here.",
+      "start": "Start Test Payment",
+      "inactive": "Activate the terminal to start a payment.",
+      "notPaired": "Pair the terminal to a station to start a payment.",
+      "chargingStarted": "The card was approved and charging started.",
+      "chargingNotStarted": "Charging did not start: {{reason}}. The hold was released.",
+      "waiting": "Waiting for the card on the terminal."
+    },
+    "payments": {
+      "description": "Card payments taken on this terminal, newest first.",
+      "empty": "No payments yet.",
+      "columns": {
+        "started": "Started",
+        "state": "State",
+        "hold": "Hold",
+        "captured": "Captured",
+        "card": "Card",
+        "session": "Session",
+        "payment": "Payment"
+      },
+      "cardEnding": "{{brand}} ending {{last4}}",
+      "refunded": "Refunded {{amount}}",
+      "openSession": "Open Session",
+      "openPayment": "Open Payment",
+      "openNotice": "A payment of {{amount}} is in progress ({{state}}).",
+      "void": "Void Payment",
+      "voidDescription": "Releases the hold on the card. Charging that already started is not stopped.",
+      "voidSuccess": "Payment voided."
+    },
+    "txnStates": {
+      "requested": "Requested",
+      "presenting": "Waiting for Card",
+      "authorized": "Authorized",
+      "declined": "Declined",
+      "expired": "Expired",
+      "failed": "Failed",
+      "void_requested": "Voiding",
+      "voided": "Voided",
+      "capture_requested": "Capturing",
+      "captured": "Captured",
+      "refund_pending": "Refund Pending",
+      "partially_refunded": "Partially Refunded",
+      "refunded": "Refunded"
+    },
+    "sim": {
+      "description": "A terminal with its own SIM (such as a VP6825 LTE variant) gets the SIM features.",
+      "attached": "A SIM is attached to this payment terminal.",
+      "openSims": "Open SIMs",
+      "none": "No SIM is attached to this payment terminal.",
+      "iccid": "ICCID",
+      "iccidHint": "The ICCID printed on the SIM card, 18 to 22 digits.",
+      "iccidInvalid": "Enter a valid ICCID.",
+      "attach": "Attach SIM",
+      "attachSuccess": "SIM attached.",
+      "detach": "Detach SIM",
+      "detachDescription": "Closes the attachment of the SIM to this payment terminal. The SIM stays in the inventory.",
+      "detachSuccess": "SIM detached."
+    },
+    "stationCard": {
+      "title": "Payment Terminals",
+      "description": "Card readers paired to this station.",
+      "empty": "No payment terminal is paired to this station.",
+      "pairTitle": "Pair a Payment Terminal",
+      "pairDescription": "Choose an unpaired terminal and the connector it takes payments for.",
+      "terminal": "Payment Terminal",
+      "selectTerminal": "Select a terminal",
+      "noUnpaired": "No active unpaired terminal is available. Create one with New Payment Terminal."
+    },
+    "settings": {
+      "description": "Card reader providers. Each operator uses its own merchant account; EVtivity never holds funds.",
+      "simulatedTitle": "Simulated Terminals",
+      "simulatedOn": "The simulated terminal provider is available in this installation (for testing; no money moves).",
+      "simulatedOff": "The simulated terminal provider is off in this installation.",
+      "idtechTitle": "ID TECH Payment Service Gateway",
+      "idtechDescription": "Cloud terminals (VP6825, VP7200) through the ID TECH Payment Service Gateway.",
+      "unverified": "The ID TECH integration is not verified for production use yet. It can be turned on only in development and test installations.",
+      "idtechEnabled": "ID TECH Enabled",
+      "idtechOffDescription": "ID TECH terminals take no new payments while it is off.",
+      "environment": "Environment",
+      "environments": {
+        "sandbox": "Sandbox",
+        "production": "Production"
+      },
+      "environmentHint": "Changing the environment clears the stored secrets you do not send again.",
+      "merchantId": "Merchant ID",
+      "merchantIdInvalid": "Use 1 to 64 letters, digits, _ or -.",
+      "apiKey": "API Key",
+      "apiKeyHint": "From the ID TECH merchant portal. Stored encrypted.",
+      "apiSecret": "API Secret",
+      "apiSecretHint": "From the ID TECH merchant portal. Stored encrypted.",
+      "webhookSecret": "Webhook Secret",
+      "webhookSecretHint": "Signs the events ID TECH sends to the webhook URL. Stored encrypted.",
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "Enter this URL as the event destination in the ID TECH merchant portal.",
+      "proofHint": "Changing the environment, the merchant or a credential needs a fresh confirmation.",
+      "saveFailed": "Failed to save the payment terminal settings.",
+      "testConnection": "Test Connection",
+      "testSaveFirst": "Save the changes before testing the connection.",
+      "testEnableFirst": "Turn on ID TECH before testing the connection.",
+      "testSuccess": "ID TECH accepted the credentials.",
+      "testRefused": "ID TECH refused the connection ({{reason}}).",
+      "testFailed": "The connection test failed."
+    }
   }
 }

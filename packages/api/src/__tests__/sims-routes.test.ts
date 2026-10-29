@@ -24,6 +24,7 @@ type NullableRead = (...args: unknown[]) => Promise<unknown>;
 const m = vi.hoisted(() => ({
   settings: {
     hologram: { enabled: true, apiKey: 'k', orgId: '1' },
+    '1nce': { enabled: false, clientId: '', clientSecret: '' },
     stationSignalEnabled: false,
     fetchDays: 7,
     retentionDays: 90,
@@ -267,6 +268,7 @@ describe('SIM inventory routes', () => {
     setSimKeyStoreForTests(keys);
     m.settings = {
       hologram: { enabled: true, apiKey: 'k', orgId: '1' },
+      '1nce': { enabled: false, clientId: '', clientSecret: '' },
       stationSignalEnabled: false,
       fetchDays: 7,
       retentionDays: 90,
@@ -309,6 +311,7 @@ describe('SIM inventory routes', () => {
       m.settings = {
         ...m.settings,
         hologram: { enabled: false, apiKey: '', orgId: '' },
+        '1nce': { enabled: false, clientId: '', clientSecret: '' },
         stationSignalEnabled: false,
       };
       for (const [method, url, payload] of ROUTES) {
@@ -338,6 +341,7 @@ describe('SIM inventory routes', () => {
       m.settings = {
         ...m.settings,
         hologram: { enabled: false, apiKey: '', orgId: '' },
+        '1nce': { enabled: false, clientId: '', clientSecret: '' },
         stationSignalEnabled: true,
       };
       const res = await call('GET', '/sims');

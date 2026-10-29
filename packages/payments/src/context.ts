@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { AuditActor } from '@evtivity/database';
+import type { PaymentTerminalRegistry } from '@evtivity/payment-terminals';
 import type { PaymentProviderRegistry } from './registry.js';
 import type { ModificationResult } from './types.js';
 
@@ -40,6 +41,12 @@ export const PAYMENT_SYSTEM_ACTOR: PaymentActor = { actor: 'system', actorLabel:
  */
 export interface PaymentContext {
   registry: PaymentProviderRegistry;
+  /**
+   * The payment terminal providers (features/payment-terminals.md), built
+   * with PAYMENT_TERMINALS_ALLOW_SIMULATED. A process that never calls a
+   * terminal (OCPP) leaves it out; a terminal operation without it fails loud.
+   */
+  terminals?: PaymentTerminalRegistry;
   logger: PaymentLogger;
   /** Defaults to PAYMENT_SYSTEM_ACTOR. Each process's `paymentContext` requires it. */
   actor?: PaymentActor;

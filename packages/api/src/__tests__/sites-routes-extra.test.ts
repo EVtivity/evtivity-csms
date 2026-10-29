@@ -104,6 +104,8 @@ vi.mock('@evtivity/database', async () => {
     ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
     ...rawTimestamp,
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+    readStationDataPlans: vi.fn(() => Promise.resolve(new Map())),
+    saveSiteLayout: vi.fn(() => Promise.resolve()),
     db: {
       select: vi.fn(() => makeChain()),
       selectDistinct: vi.fn(() => makeChain()),
@@ -756,7 +758,8 @@ describe('Site routes - extra coverage', () => {
             isOnline: true,
             securityProfile: 1,
             positionX: null,
-            positionY: '12.5',
+            positionY: null,
+            inMaintenance: false,
           },
         ],
         [{ id: 'evse-1', stationId: 'st-uuid-1', evseId: 1 }],
@@ -794,8 +797,8 @@ describe('Site routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(200);
       const [station] = res.json();
-      expect(station.positionX).toBe(0);
-      expect(station.positionY).toBe(12.5);
+      // No saved position: the first free slot, marked not placed.
+      expect(station).toMatchObject({ positionX: 20, positionY: 20, placed: false });
       expect(station.displayMessage).toBe('Newest message');
       expect(station.evses[0].connectors).toEqual([
         {

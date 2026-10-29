@@ -1639,6 +1639,13 @@
       "when": 1791000048000,
       "tag": "0479_release_0_1_48",
       "breakpoints": true
+    },
+    {
+      "idx": 234,
+      "version": "7",
+      "when": 1791000049000,
+      "tag": "0480_release_0_1_49",
+      "breakpoints": true
     }
   ]
 }

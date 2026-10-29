@@ -11,7 +11,10 @@ export const SIM_NOT_FOUND = { error: 'SIM not found', code: 'SIM_NOT_FOUND' } a
 
 /**
  * The SIMs a site-restricted user sees: only a SIM with an open
- * confirmed attachment to a station of one of their sites. Unattached SIMs,
+ * confirmed attachment to a station or a payment terminal of one of their
+ * sites (features/payment-terminals.md). A terminal attachment counts by the
+ * site stored on it at attach time (a site change of the terminal closes it,
+ * security case 276), never the terminal's current site. Unattached SIMs,
  * SIMs with an unconfirmed attachment (a station may report another site's
  * SIM) and SIMs at unsited stations are for all-site users only. A
  * correlated condition on `sims`, for the list, the detail routes and the
@@ -40,11 +43,11 @@ export function fetchedInSiteWindowsSql(at: SQL, siteIds: readonly string[]): SQ
 export function inSimSiteWindowsSql(simIdExpr: SQL, at: SQL, siteIds: readonly string[]): SQL {
   if (siteIds.length === 0) return sql`false`;
   return sql`(${at} IS NOT NULL AND EXISTS (SELECT 1 FROM sim_attachments win_a
-    JOIN charging_stations win_cs ON win_cs.id = win_a.station_id
+    LEFT JOIN charging_stations win_cs ON win_cs.id = win_a.station_id
     WHERE win_a.sim_id = ${simIdExpr} AND win_a.confirmed_at IS NOT NULL
       AND win_a.attached_at <= ${at}
       AND (win_a.detached_at IS NULL OR win_a.detached_at >= ${at})
-      AND win_cs.site_id IN (${sql.join(
+      AND COALESCE(win_cs.site_id, win_a.site_id) IN (${sql.join(
         siteIds.map((siteId) => sql`${siteId}`),
         sql`, `,
       )})))`;
@@ -58,10 +61,10 @@ export function inSimSiteWindowsSql(simIdExpr: SQL, at: SQL, siteIds: readonly s
 export function simVisibleSql(simIdExpr: SQL, siteIds: readonly string[]): SQL {
   if (siteIds.length === 0) return sql`false`;
   return sql`EXISTS (SELECT 1 FROM sim_attachments vis_a
-    JOIN charging_stations vis_cs ON vis_cs.id = vis_a.station_id
+    LEFT JOIN charging_stations vis_cs ON vis_cs.id = vis_a.station_id
     WHERE vis_a.sim_id = ${simIdExpr} AND vis_a.detached_at IS NULL
       AND vis_a.confirmed_at IS NOT NULL
-      AND vis_cs.site_id IN (${sql.join(
+      AND COALESCE(vis_cs.site_id, vis_a.site_id) IN (${sql.join(
         siteIds.map((siteId) => sql`${siteId}`),
         sql`, `,
       )}))`;

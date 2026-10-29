@@ -120,6 +120,9 @@ services:
       NOTIFICATIONS_TEST_SINK_URL: ${NOTIFICATIONS_TEST_SINK_URL:-}
       # Off by default: SIM provider calls go to the vendor hosts.
       SIM_PROVIDER_TEST_BASE_URL: ${SIM_PROVIDER_TEST_BASE_URL:-}
+      PAYMENT_TERMINALS_ALLOW_SIMULATED: ${PAYMENT_TERMINALS_ALLOW_SIMULATED:-true}
+      # Off by default: ID TECH terminal calls go to the PSG hosts.
+      PAYMENT_TERMINAL_TEST_BASE_URL: ${PAYMENT_TERMINAL_TEST_BASE_URL:-}
       CORS_ORIGIN: local
       # Proxy IPs or CIDRs whose X-Forwarded-For is trusted. Empty: the ports are
       # published directly, so the socket address is the client.
@@ -398,6 +401,9 @@ services:
       # driver SMS and push then go to the notify-sink dev tool, not Twilio and Expo.
       NOTIFICATIONS_ALLOW_TEST_SINK: ${NOTIFICATIONS_ALLOW_TEST_SINK:-false}
       NOTIFICATIONS_TEST_SINK_URL: ${NOTIFICATIONS_TEST_SINK_URL:-}
+      PAYMENT_TERMINALS_ALLOW_SIMULATED: ${PAYMENT_TERMINALS_ALLOW_SIMULATED:-true}
+      # Off by default: ID TECH terminal calls go to the PSG hosts.
+      PAYMENT_TERMINAL_TEST_BASE_URL: ${PAYMENT_TERMINAL_TEST_BASE_URL:-}
       API_PORT: ${API_PORT:-7102}
       OCPP_PORT: ${OCPP_PORT:-7103}
       OCPP_SERVER_URL: ws://ocpp:${OCPP_PORT:-7103}

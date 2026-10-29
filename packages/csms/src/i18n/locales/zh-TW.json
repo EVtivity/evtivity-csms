@@ -184,7 +184,8 @@
     "closeMenu": "關閉選單",
     "audit": "稽核",
     "maintenance": "維護",
-    "aiInsights": "AI 洞察"
+    "aiInsights": "AI 洞察",
+    "paymentTerminals": "支付終端機"
   },
   "roaming": {
     "partners": {
@@ -719,6 +720,50 @@
       "suppressedToast": "AI 洞察已暫停",
       "resumedToast": "AI 洞察已恢復",
       "failed": "無法變更此站點的 AI 洞察"
+    },
+    "layoutView": {
+      "viewLabel": "佈局檢視",
+      "view3d": "3D",
+      "view2d": "2D",
+      "fitToView": "符合檢視",
+      "editLayout": "編輯佈局",
+      "doneEditing": "完成編輯",
+      "hint": "拖曳以旋轉，捲動或雙指縮放以縮放，右鍵拖曳或雙指拖曳以平移。點選充電站查看詳細資料。",
+      "hintEdit": "編輯模式：將充電站拖曳到空閒車位。它會對齊車位，且不會落在其他充電站上。",
+      "webglUnavailable": "此瀏覽器無法顯示 3D 檢視（WebGL 無法使用），因此顯示 2D 檢視。",
+      "loading3d": "正在載入 3D 檢視",
+      "newTag": "新",
+      "newTagHint": "已放置在空閒位置，尚未儲存。儲存以保留此位置。",
+      "newLegend": "尚未儲存",
+      "cellularBadge": "4G",
+      "cellularHint": "行動網路（4G）連線",
+      "cellularLegend": "行動網路連線",
+      "acPedestal": "交流充電樁",
+      "dcCharger": "直流快充樁",
+      "ac": "交流",
+      "dcFast": "直流快充",
+      "status": "狀態",
+      "reason": "原因",
+      "power": "功率",
+      "sessionEnergy": "工作階段電量",
+      "noSession": "無工作階段",
+      "connection": "連線",
+      "connectionCellular": "行動網路（4G）",
+      "connectionWired": "Wi-Fi 或有線",
+      "signalUnknown": "訊號未知",
+      "evse": "EVSE {{id}}",
+      "openStation": "開啟充電站",
+      "detailsLabel": "{{id}} 詳細資料"
+    },
+    "layoutState": {
+      "faulted": "故障",
+      "unavailable": "無法使用",
+      "maintenance": "維護中",
+      "offline": "離線",
+      "reserved": "已預約",
+      "charging": "充電中",
+      "available": "可用",
+      "online": "線上"
     }
   },
   "stations": {
@@ -1155,7 +1200,7 @@
           "attachConflict": "供應商：已略過，同時有其他 SIM 關聯變更在執行。未關聯任何內容。請再次點選重新整理。"
         },
         "providerFailed": {
-          "auth": "供應商：失敗，供應商拒絕了 API 金鑰。",
+          "auth": "供應商：失敗，供應商拒絕了憑證。",
           "notFound": "供應商：失敗，供應商不認識此 SIM。",
           "unsupported": "供應商：失敗，供應商拒絕了請求。",
           "unavailable": "供應商：失敗，供應商沒有回應。",
@@ -1240,6 +1285,7 @@
       "confirmSuccess": "SIM 已確認",
       "resetDescription": "供應商會結束充電站的數據工作階段，充電站將重新連線行動網路。重新連線之前，充電站可能處於離線狀態。",
       "resetSuccess": "已傳送網路重設。幾分鐘後點選重新整理即可查看新的工作階段。",
+      "resetSubmitted": "網路重設已排入佇列，將在幾分鐘內執行。",
       "timelineTitle": "時間軸",
       "timelineRange": "範圍",
       "timelineLastHour": "最近 1 小時",
@@ -1456,7 +1502,7 @@
         "confirmed": "已確認",
         "notConfirmed": "未確認",
         "open": "目前",
-        "paymentTerminal": "付款終端機",
+        "paymentTerminal": "支付終端機",
         "unconfirmedNotice": "此關聯尚未確認。確認此 SIM 位於充電站 {{station}} 後，請確認 SIM。",
         "confirmDescription": "確認 SIM {{iccid}} 是充電站 {{station}} 中的 SIM。",
         "detach": "解除 SIM 關聯",
@@ -1954,6 +2000,7 @@
       "dashboard": "儀表板",
       "stations": "充電站",
       "sims": "SIM 卡",
+      "paymentTerminals": "支付終端機",
       "sites": "站點",
       "sessions": "充電工作階段",
       "drivers": "駕駛員",
@@ -2568,7 +2615,8 @@
       "guest": "訪客結帳",
       "prepaid": "預付",
       "ocpp_terminal": "充電站付款終端",
-      "operator": "營運商"
+      "operator": "營運商",
+      "terminal": "於支付終端機付款"
     },
     "manual": "手動",
     "energyCost": "電費",
@@ -2683,7 +2731,8 @@
     "sitesWifiOrWired": "設為 Wi-Fi 或有線的站點",
     "sitesCellular": "設為行動網路的站點",
     "webhookSigning": "Webhook 簽章密鑰",
-    "simHologramKey": "Hologram API 金鑰"
+    "simHologramKey": "Hologram API 金鑰",
+    "simOneNceSecret": "1NCE 用戶端密鑰"
   },
   "settings": {
     "title": "設定",
@@ -3477,6 +3526,17 @@
       "hologramOrgIdInvalid": "請輸入 1 到 15 位數字。",
       "hologramApiKey": "API 金鑰",
       "hologramApiKeyHint": "在 Hologram Dashboard 的 Settings > My account > API 中建立。此金鑰需要 Editor 或更高角色。",
+      "oneNceTitle": "1NCE",
+      "oneNceDescription": "來自 1NCE 的行動網路 SIM 卡。透過 1NCE Management API 讀取 SIM 狀態、數據配額、基於網路事件的工作階段以及 SIM 警示。不需要 1NCE Insights。",
+      "oneNceEnabled": "啟用 1NCE",
+      "oneNceClientId": "用戶端 ID",
+      "oneNceClientIdHint": "在 1NCE Portal 的 Account > Management API Access 中建立 API 用戶端。",
+      "oneNceClientIdInvalid": "請輸入 1 到 128 個字元，不含空格或冒號。",
+      "oneNceClientSecret": "用戶端密鑰",
+      "oneNceClientSecretHint": "在 1NCE Portal 中建立 API 用戶端時僅顯示一次。",
+      "oneNceTestEnableFirst": "請啟用 1NCE 並儲存後再測試連線。",
+      "oneNceTestSuccess_one": "已連線。此帳戶有 {{count}} 張 SIM 卡。",
+      "oneNceTestSuccess_other": "已連線。此帳戶有 {{count}} 張 SIM 卡。",
       "testConnection": "測試連線",
       "testSaveFirst": "測試連線前請先儲存變更。",
       "testEnableFirst": "請啟用 Hologram 並儲存後再測試連線。",
@@ -3595,7 +3655,8 @@
     },
     "uploadReplacesHint": "上傳新圖片會取代目前的圖片。",
     "roamingOffDescription": "漫遊部分將被隱藏，所有 OCPI 流量將被阻止。",
-    "pncOffDescription": "憑證部分將被隱藏，憑證操作將被阻止。"
+    "pncOffDescription": "憑證部分將被隱藏，憑證操作將被阻止。",
+    "paymentSubTabTerminals": "支付終端機"
   },
   "pnc": {
     "certificates": "憑證",
@@ -3663,6 +3724,7 @@
     "sessionEvents": "充電工作階段",
     "supportEvents": "客服案件",
     "sessionAlertEvents": "工作階段警示",
+    "paymentTerminalAlertEvents": "支付終端機警示",
     "siteHostEvents": "站點業主",
     "mfaEvents": "多重要素驗證",
     "tokenEvents": "權杖",
@@ -3736,6 +3798,7 @@
       "driver.PortalInvite": "駕駛員入口網站邀請",
       "driver.RegistrationAttempt": "註冊嘗試",
       "session.EndRequestFailed": "工作階段結束失敗",
+      "paymentTerminal.Offline": "支付終端機離線",
       "site.PayoutOnboarding": "站點收款設定",
       "driver.PasswordChanged": "密碼已更改",
       "driver.MfaDisabled": "已停用雙重驗證",
@@ -3784,7 +3847,8 @@
       "security.PermissionsGranted": "已授予權限",
       "security.PasswordResetByAdmin": "管理員已傳送密碼設定連結",
       "security.SsoUnlinked": "單一登入連結已移除",
-      "security.RetentionLowered": "資料保留期已縮短"
+      "security.RetentionLowered": "資料保留期已縮短",
+      "security.PaymentTerminalSettingsChanged": "支付終端機設定已變更"
     },
     "templatePreviewInvalid": "範本有錯誤：",
     "htmlPreview": "HTML 預覽",
@@ -4285,7 +4349,21 @@
     "NOT_FOUND": "找不到",
     "PAYLOAD_TOO_LARGE": "請求過大",
     "UNSUPPORTED_MEDIA_TYPE": "不支援的內容類型",
-    "DATA_PLAN_SETTING_IN_TEMPLATE": "心跳和計量值設定來自 設定 > 整合與功能 > OCPP 和充電站的數據方案，而不是設定範本。"
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "心跳和計量值設定來自 設定 > 整合與功能 > OCPP 和充電站的數據方案，而不是設定範本。",
+    "PAYMENT_TERMINAL_NOT_FOUND": "找不到支付終端機",
+    "PAYMENT_TERMINAL_INACTIVE": "支付終端機已停用",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "支付終端機未與充電站配對",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "另一台啟用中的支付終端機已與此充電槍配對",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "此裝置已註冊為支付終端機",
+    "PAYMENT_TERMINAL_BUSY": "支付終端機已有進行中的付款",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "支付終端機有付款紀錄，無法刪除，請改為停用",
+    "PAYMENT_TERMINAL_HAS_SIM": "支付終端機已有 SIM 卡",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "此硬體模式終端機由充電站控制，CSMS 無法在其上發起付款",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "支付終端機供應商已關閉或沒有憑證",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "ID TECH 整合尚未通過正式環境驗證",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "支付終端機供應商請求失敗",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "找不到終端機付款",
+    "TERMINAL_TRANSACTION_STATE": "終端機付款目前的狀態不允許此操作"
   },
   "logs": {
     "title": "日誌",
@@ -5294,7 +5372,14 @@
     "varDriverFirstName": "駕駛員名字",
     "varReservationExpiresAt": "預約到期時間",
     "settingsSaved": "設定已儲存。",
-    "settingsSaveFailed": "儲存設定失敗。"
+    "settingsSaveFailed": "儲存設定失敗。",
+    "stateTerminalCard": "支付終端機：出示卡片",
+    "stateTerminalResult": "支付終端機：結果",
+    "stateTerminalReceipt": "支付終端機：收據",
+    "varTerminalAmount": "預授權或已付金額，以公司貨幣顯示",
+    "varPaymentApproved": "卡片核准時設定",
+    "varPlugInAnyConnector": "駕駛員可在任一連接器插槍時設定（整座充電站的終端機）",
+    "varReceiptUrl": "付款收據連結"
   },
   "audit": {
     "title": "稽核日誌",
@@ -5483,7 +5568,14 @@
       "network_reset": "網路已重設",
       "sso_link_allowed": "已允許 SSO 登入",
       "sso_unlinked": "已移除 SSO 連結",
-      "data_plan_changed": "數據方案已變更"
+      "data_plan_changed": "數據方案已變更",
+      "paired": "已配對",
+      "unpaired": "已取消配對",
+      "sim_attached": "已連結 SIM",
+      "sim_detached": "已解除 SIM",
+      "status_synced": "狀態已同步",
+      "payment_started": "付款已發起",
+      "payment_voided": "付款已撤銷"
     },
     "entities": {
       "site": "站點",
@@ -5520,7 +5612,8 @@
       "station_message_template": "充電站訊息範本",
       "event_alert_rule": "事件警示規則",
       "report_schedule": "報告排程",
-      "sim": "SIM 卡"
+      "sim": "SIM 卡",
+      "payment_terminal": "支付終端機"
     },
     "actors": {
       "operator": "營運商",
@@ -6501,5 +6594,225 @@
     "title": "未設定檔案儲存",
     "description": "尚未設定檔案儲存，無法上傳檔案。管理員可以在 {{path}} 中進行設定。",
     "openSettings": "開啟設定"
+  },
+  "paymentTerminals": {
+    "title": "支付終端機",
+    "subtitle": "為充電工作階段收款的讀卡機。",
+    "featureOff": "尚未設定支付終端機供應商。請在 設定 > 支付 > 支付終端機 中開啟。",
+    "create": "新增支付終端機",
+    "exportCsv": "匯出 CSV",
+    "search": "搜尋",
+    "searchPlaceholder": "依標籤、序號或裝置 ID 搜尋",
+    "noTerminals": "找不到支付終端機。",
+    "notPaired": "未配對",
+    "wholeStation": "整座充電站",
+    "connector": "連接器 {{number}}",
+    "online": "上線",
+    "offline": "離線",
+    "onlineUnknown": "不明",
+    "lastSeen": "最後上線 {{time}}",
+    "simAttached": "已連結",
+    "providers": {
+      "simulated": "模擬"
+    },
+    "status": {
+      "active": "啟用",
+      "inactive": "停用"
+    },
+    "columns": {
+      "label": "標籤",
+      "model": "型號",
+      "site": "站點",
+      "station": "充電站",
+      "connector": "連接器",
+      "provider": "供應商",
+      "status": "狀態",
+      "online": "裝置狀態",
+      "sim": "SIM"
+    },
+    "filters": {
+      "status": "狀態",
+      "allStatuses": "所有狀態",
+      "online": "裝置狀態",
+      "allOnline": "上線與離線",
+      "site": "站點",
+      "allSites": "所有站點"
+    },
+    "fields": {
+      "label": "標籤",
+      "vendor": "廠商",
+      "model": "型號",
+      "serialNumber": "序號",
+      "firmwareVersion": "固件版本",
+      "provider": "供應商",
+      "providerDeviceId": "供應商裝置 ID",
+      "site": "站點",
+      "status": "狀態",
+      "online": "裝置狀態",
+      "created": "建立時間"
+    },
+    "new": {
+      "title": "新增支付終端機",
+      "deviceTitle": "裝置",
+      "pairingTitle": "配對",
+      "provider": "供應商",
+      "noProvider": "沒有可用的供應商",
+      "noProviderHint": "請先在 設定 > 支付 > 支付終端機 中開啟終端機供應商。",
+      "device": "裝置",
+      "selectDevice": "選擇裝置",
+      "loadingDevices": "正在載入裝置...",
+      "deviceHintPicker": "供應商帳戶中尚未註冊的裝置。",
+      "deviceHintTyped": "供應商帳戶中的裝置 ID，例如裝置標籤上的 ID。",
+      "deviceIdInvalid": "請使用 1 到 128 個不含空格的可列印字元。",
+      "pairingNeedsPermission": "與充電站配對需要充電站寫入權限。您可以稍後再配對終端機。",
+      "noSite": "無站點",
+      "selectSite": "選擇站點",
+      "siteHint": "未配對的終端機屬於此站點。已配對的終端機使用其充電站的站點。",
+      "submit": "建立終端機"
+    },
+    "detail": {
+      "notFound": "找不到支付終端機。",
+      "tabs": {
+        "payments": "付款",
+        "sim": "SIM 卡"
+      },
+      "noDisplayNote": "此型號沒有螢幕。其提示（連接器、金額、結果與收據連結）顯示在充電站顯示器上。",
+      "editTitle": "編輯支付終端機",
+      "deactivate": "停用終端機",
+      "reactivate": "啟用終端機",
+      "deactivateDescription": "停用的終端機不接受付款。進行中的付款不會停止。",
+      "reactivateDescription": "終端機將重新接受付款。",
+      "deactivateSuccess": "支付終端機已停用。",
+      "reactivateSuccess": "支付終端機已啟用。",
+      "delete": "刪除終端機",
+      "deleteDescription": "刪除支付終端機 {{name}}。已收過款的終端機無法刪除，請改為停用。",
+      "deleteSuccess": "支付終端機已刪除。"
+    },
+    "pairing": {
+      "title": "配對",
+      "description": "終端機為其收款的充電站。",
+      "notPaired": "此終端機未與充電站配對。",
+      "station": "充電站",
+      "selectStation": "選擇充電站",
+      "connector": "連接器",
+      "wholeStationHint": "整座充電站：駕駛員在終端機螢幕上選擇連接器。若終端機沒有螢幕，駕駛員可在任一連接器插槍。",
+      "pair": "配對",
+      "change": "變更配對",
+      "unpair": "取消配對",
+      "unpairDescription": "取消與 {{station}} 的配對。終端機保留其站點。",
+      "dialogTitle": "配對支付終端機",
+      "dialogDescription": "選擇此終端機為其收款的充電站與連接器。",
+      "pairSuccess": "支付終端機已配對。",
+      "unpairSuccess": "支付終端機已取消配對。"
+    },
+    "testPayment": {
+      "title": "測試付款",
+      "description": "在終端機上請求刷卡。卡片核准後，已配對的連接器開始充電。",
+      "amount": "預授權金額（{{currency}}）",
+      "amountHint": "留空則使用站點的預授權金額。",
+      "receiptEmail": "收據電子郵件",
+      "receiptEmailHint": "選填。收據連結將寄送至此地址。",
+      "start": "發起測試付款",
+      "inactive": "請先啟用終端機再發起付款。",
+      "notPaired": "請先將終端機與充電站配對再發起付款。",
+      "chargingStarted": "卡片已核准，充電已開始。",
+      "chargingNotStarted": "充電未開始：{{reason}}。預授權已釋放。",
+      "waiting": "正在等待終端機上的卡片。"
+    },
+    "payments": {
+      "description": "此終端機上的刷卡付款，最新的在前。",
+      "empty": "尚無付款。",
+      "columns": {
+        "started": "開始時間",
+        "state": "狀態",
+        "hold": "預授權",
+        "captured": "已扣款",
+        "card": "卡片",
+        "session": "工作階段",
+        "payment": "付款"
+      },
+      "cardEnding": "{{brand}} 末四碼 {{last4}}",
+      "refunded": "已退款 {{amount}}",
+      "openSession": "開啟工作階段",
+      "openPayment": "開啟付款",
+      "openNotice": "一筆 {{amount}} 的付款正在進行（{{state}}）。",
+      "void": "撤銷付款",
+      "voidDescription": "釋放卡片上的預授權。已開始的充電不會停止。",
+      "voidSuccess": "付款已撤銷。"
+    },
+    "txnStates": {
+      "requested": "已請求",
+      "presenting": "等待刷卡",
+      "authorized": "已授權",
+      "declined": "已拒絕",
+      "expired": "已過期",
+      "failed": "失敗",
+      "void_requested": "撤銷中",
+      "voided": "已撤銷",
+      "capture_requested": "扣款中",
+      "captured": "已扣款",
+      "refund_pending": "退款處理中",
+      "partially_refunded": "部分退款",
+      "refunded": "已退款"
+    },
+    "sim": {
+      "description": "具備自有 SIM 的終端機（例如 VP6825 LTE 版本）可使用 SIM 功能。",
+      "attached": "此支付終端機已連結 SIM。",
+      "openSims": "開啟 SIM",
+      "none": "此支付終端機未連結 SIM。",
+      "iccid": "ICCID",
+      "iccidHint": "印在 SIM 卡上的 ICCID，18 到 22 位數字。",
+      "iccidInvalid": "請輸入有效的 ICCID。",
+      "attach": "連結 SIM",
+      "attachSuccess": "SIM 已連結。",
+      "detach": "解除 SIM",
+      "detachDescription": "結束 SIM 與此支付終端機的連結。SIM 仍保留在庫存中。",
+      "detachSuccess": "SIM 已解除。"
+    },
+    "stationCard": {
+      "title": "支付終端機",
+      "description": "與此充電站配對的讀卡機。",
+      "empty": "此充電站未配對支付終端機。",
+      "pairTitle": "配對支付終端機",
+      "pairDescription": "選擇一台未配對的終端機及其收款的連接器。",
+      "terminal": "支付終端機",
+      "selectTerminal": "選擇終端機",
+      "noUnpaired": "沒有可用的未配對啟用終端機。請透過 新增支付終端機 建立。"
+    },
+    "settings": {
+      "description": "讀卡機供應商。每位營運商使用自己的商家帳戶；EVtivity 從不持有資金。",
+      "simulatedTitle": "模擬終端機",
+      "simulatedOn": "此安裝可使用模擬終端機供應商（用於測試，不產生資金流動）。",
+      "simulatedOff": "此安裝的模擬終端機供應商已關閉。",
+      "idtechTitle": "ID TECH Payment Service Gateway",
+      "idtechDescription": "透過 ID TECH Payment Service Gateway 連線的雲端終端機（VP6825、VP7200）。",
+      "unverified": "ID TECH 整合尚未通過正式環境驗證。只能在開發與測試安裝中開啟。",
+      "idtechEnabled": "啟用 ID TECH",
+      "idtechOffDescription": "關閉期間，ID TECH 終端機不接受新的付款。",
+      "environment": "環境",
+      "environments": {
+        "sandbox": "沙盒",
+        "production": "正式"
+      },
+      "environmentHint": "變更環境會清除您未重新送出的已儲存密鑰。",
+      "merchantId": "商家 ID",
+      "merchantIdInvalid": "請使用 1 到 64 個字母、數字、_ 或 -。",
+      "apiKey": "API 金鑰",
+      "apiKeyHint": "來自 ID TECH 商家入口網站。加密儲存。",
+      "apiSecret": "API 密鑰",
+      "apiSecretHint": "來自 ID TECH 商家入口網站。加密儲存。",
+      "webhookSecret": "Webhook 密鑰",
+      "webhookSecretHint": "為 ID TECH 傳送至 Webhook URL 的事件簽章。加密儲存。",
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "在 ID TECH 商家入口網站中將此 URL 設為事件目的地。",
+      "proofHint": "變更環境、商家或憑證需要重新確認身分。",
+      "saveFailed": "無法儲存支付終端機設定。",
+      "testConnection": "測試連線",
+      "testSaveFirst": "測試連線前請先儲存變更。",
+      "testEnableFirst": "測試連線前請先啟用 ID TECH。",
+      "testSuccess": "ID TECH 已接受憑證。",
+      "testRefused": "ID TECH 拒絕了連線（{{reason}}）。",
+      "testFailed": "連線測試失敗。"
+    }
   }
 }

@@ -23,6 +23,7 @@ import {
   type SimDetachReason,
   type SimStatus,
 } from '../schema/sim.js';
+import { paymentTerminals } from '../schema/payment-terminals.js';
 import type { WriteAuditArgs } from './audit.js';
 import { PG_UNIQUE_VIOLATION, pgConstraintName, pgErrorCode } from './pg-errors.js';
 
@@ -483,6 +484,118 @@ export async function raiseStationSimHistoryFloor(
       and(inArray(simAttachments.stationId, [...stationIds]), isNull(simAttachments.detachedAt)),
     );
   await raiseHistoryFloor(inArray(sims.id, held), new Date(), executor);
+}
+
+/**
+ * Before payment terminals are deleted: their attachment rows cascade away,
+ * so the floor of the SIMs they hold is raised first (the station rule above,
+ * security case 44, for the terminal target).
+ */
+export async function raiseTerminalSimHistoryFloor(
+  terminalIds: readonly string[],
+  executor: SimDb = db,
+): Promise<void> {
+  if (terminalIds.length === 0) return;
+  const held = executor
+    .select({ simId: simAttachments.simId })
+    .from(simAttachments)
+    .where(
+      and(
+        inArray(simAttachments.paymentTerminalId, [...terminalIds]),
+        isNull(simAttachments.detachedAt),
+      ),
+    );
+  await raiseHistoryFloor(inArray(sims.id, held), new Date(), executor);
+}
+
+export async function openTerminalAttachment(
+  paymentTerminalId: string,
+  executor: SimDb = db,
+): Promise<SimAttachment | null> {
+  const [row] = await executor
+    .select()
+    .from(simAttachments)
+    .where(
+      and(
+        eq(simAttachments.paymentTerminalId, paymentTerminalId),
+        isNull(simAttachments.detachedAt),
+      ),
+    );
+  return row ?? null;
+}
+
+export type AttachSimToTerminalResult =
+  | { kind: 'attached'; attachment: SimAttachment; created: boolean }
+  | { kind: 'sim_attached_elsewhere' }
+  | { kind: 'terminal_has_sim' }
+  | { kind: 'sim_inactive' }
+  | { kind: 'sim_not_found' };
+
+/**
+ * Opens an attachment of the SIM to a payment terminal: the station rules
+ * (attachSimToStation) for the terminal target. One open attachment per SIM
+ * and per terminal (the partial unique indexes decide); never closes one.
+ * `confirm` confirms it at once, only for a person with access to every site
+ * (plan E10; the service decides).
+ */
+export async function attachSimToPaymentTerminal(
+  input: {
+    simId: string;
+    paymentTerminalId: string;
+    source: SimAttachmentSource;
+    by: string | null;
+    withAllSites: boolean;
+    confirm: boolean;
+  },
+  executor: SimDb = db,
+): Promise<AttachSimToTerminalResult> {
+  return executor.transaction(async (tx) => {
+    const [sim] = await tx
+      .select({ status: sims.status })
+      .from(sims)
+      .where(eq(sims.id, input.simId))
+      .for('share');
+    if (sim == null) return { kind: 'sim_not_found' };
+    if (sim.status !== 'active') return { kind: 'sim_inactive' };
+    // The terminal row is read FOR SHARE: a site change (which closes the
+    // attachment) waits for this attach, so the stored site holds for the
+    // whole window (security case 276).
+    const [terminal] = await tx
+      .select({ siteId: paymentTerminals.siteId })
+      .from(paymentTerminals)
+      .where(eq(paymentTerminals.id, input.paymentTerminalId))
+      .for('share');
+    if (terminal == null) return { kind: 'sim_not_found' };
+    const now = new Date();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const [attachment] = await tx
+        .insert(simAttachments)
+        .values({
+          simId: input.simId,
+          paymentTerminalId: input.paymentTerminalId,
+          siteId: terminal.siteId,
+          source: input.source,
+          attachedAt: now,
+          attachedBy: input.by,
+          attachedWithAllSites: input.withAllSites,
+          confirmedAt: input.confirm ? now : null,
+          confirmedBy: input.confirm ? input.by : null,
+        })
+        .onConflictDoNothing()
+        .returning();
+      if (attachment != null) return { kind: 'attached', attachment, created: true };
+      const simOpen = await openSimAttachment(input.simId, tx);
+      if (simOpen != null) {
+        return simOpen.paymentTerminalId === input.paymentTerminalId
+          ? { kind: 'attached', attachment: simOpen, created: false }
+          : { kind: 'sim_attached_elsewhere' };
+      }
+      if ((await openTerminalAttachment(input.paymentTerminalId, tx)) != null) {
+        return { kind: 'terminal_has_sim' };
+      }
+    }
+    throw new Error('attachSimToPaymentTerminal: conflicting attachment not found');
+  });
 }
 
 export type ConfirmAttachmentResult =

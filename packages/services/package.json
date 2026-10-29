@@ -7,6 +7,15 @@
     "./account-invoice-jobs": {
       "import": "./src/account-invoice-jobs.ts"
     },
+    "./ad-hoc-payment.service": {
+      "import": "./src/ad-hoc-payment.service.ts"
+    },
+    "./payment-terminal.service": {
+      "import": "./src/payment-terminal.service.ts"
+    },
+    "./payment-terminal-flow": {
+      "import": "./src/payment-terminal-flow.ts"
+    },
     "./ai-alerts": {
       "import": "./src/ai-alerts.ts"
     },
@@ -175,6 +184,7 @@
     "@evtivity/ai": "*",
     "@evtivity/database": "*",
     "@evtivity/lib": "*",
+    "@evtivity/payment-terminals": "*",
     "@evtivity/payments": "*",
     "@evtivity/sim-providers": "*",
     "@resvg/resvg-js": "^2.6.2",

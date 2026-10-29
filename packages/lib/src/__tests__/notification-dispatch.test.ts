@@ -183,6 +183,12 @@ describe('notification-dispatch', () => {
       expect(result['idleStartedAt']).toMatch(/^Mar 5, 2026, 8:04\sAM$/);
     });
 
+    it('formats offlineSince (payment terminal offline alert) like the other date variables', () => {
+      const { formatDateVariables } = notificationDispatchModule;
+      const result = formatDateVariables({ offlineSince: '2026-03-05T08:04:09.000Z' }, 'UTC');
+      expect(result['offlineSince']).toMatch(/^Mar 5, 2026, 8:04\sAM$/);
+    });
+
     it('formats a Date value (a raw timestamptz row) like an ISO string', () => {
       const { formatDateVariables } = notificationDispatchModule;
       const result = formatDateVariables(

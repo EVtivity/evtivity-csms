@@ -420,6 +420,50 @@ describe('refreshStationSimProvider coverage', () => {
     });
     expect(inserted.get('sim_fetch_coverage')).toBeUndefined();
   });
+
+  it('stores a page of 2500 sessions in inserts of 1000 rows', async () => {
+    const keys = new MemoryKeyStore();
+    const page = Array.from({ length: 2500 }, (_, i) =>
+      session(10_000 - i, new Date(NOW.getTime() - DAY - i * 60_000)),
+    );
+    const { ctx } = context(keys, fakeProvider([page]));
+    db.insert.mockClear();
+    await refreshStationSimProvider(ctx, 'sta_1', PERIOD);
+    const sessionInserts = db.insert.mock.calls.filter(([table]) => table.name === 'sim_sessions');
+    expect(sessionInserts).toHaveLength(3);
+    expect(inserted.get('sim_sessions')).toHaveLength(2500);
+  });
+
+  it('records coverage from where the provider read back to when its page cap cut the period', async () => {
+    const keys = new MemoryKeyStore();
+    const provider = fakeProvider([[]]);
+    const readFrom = new Date(NOW.getTime() - 2 * DAY);
+    vi.mocked(provider.listSessions).mockResolvedValue({
+      items: [],
+      continues: false,
+      lastId: null,
+      coveredFrom: readFrom.toISOString(),
+    });
+    const { ctx } = context(keys, provider);
+    await refreshStationSimProvider(ctx, 'sta_1', PERIOD);
+    const [row] = (inserted.get('sim_fetch_coverage') ?? []) as Array<{
+      coveredFrom: Date;
+      coveredTo: Date;
+    }>;
+    expect(row?.coveredFrom).toEqual(readFrom);
+
+    // A coveredFrom before the period start keeps the period start.
+    inserted.clear();
+    vi.mocked(provider.listSessions).mockResolvedValue({
+      items: [],
+      continues: false,
+      lastId: null,
+      coveredFrom: new Date(NOW.getTime() - 30 * DAY).toISOString(),
+    });
+    await refreshStationSimProvider(ctx, 'sta_1', PERIOD);
+    const [second] = (inserted.get('sim_fetch_coverage') ?? []) as Array<{ coveredFrom: Date }>;
+    expect(second?.coveredFrom).toEqual(PERIOD.from);
+  });
 });
 
 describe('refreshStationSimProvider lookup rate limit', () => {

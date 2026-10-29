@@ -500,7 +500,25 @@ async function backoffSeconds(
  * session already stored (for this or, after a provider id clash, another
  * SIM) is left as it is. Returns the rows inserted.
  */
+/**
+ * Rows per insert: a statement holds at most 65535 parameters (10 a session),
+ * and one provider page can hold 10000 sessions (1NCE: 10 event pages of 1000).
+ */
+export const SIM_STORE_CHUNK_ROWS = 1000;
+
 async function storeSessions(
+  simId: string,
+  provider: SimProviderId,
+  sessions: readonly SimSession[],
+): Promise<number> {
+  let stored = 0;
+  for (let i = 0; i < sessions.length; i += SIM_STORE_CHUNK_ROWS) {
+    stored += await storeSessionChunk(simId, provider, sessions.slice(i, i + SIM_STORE_CHUNK_ROWS));
+  }
+  return stored;
+}
+
+async function storeSessionChunk(
   simId: string,
   provider: SimProviderId,
   sessions: readonly SimSession[],
@@ -529,6 +547,18 @@ async function storeSessions(
 
 /** Stores fetched alerts of a SIM; one already stored is left as it is. Returns the rows inserted. */
 async function storeAlerts(
+  simId: string,
+  provider: SimProviderId,
+  alerts: readonly SimAlert[],
+): Promise<number> {
+  let stored = 0;
+  for (let i = 0; i < alerts.length; i += SIM_STORE_CHUNK_ROWS) {
+    stored += await storeAlertChunk(simId, provider, alerts.slice(i, i + SIM_STORE_CHUNK_ROWS));
+  }
+  return stored;
+}
+
+async function storeAlertChunk(
   simId: string,
   provider: SimProviderId,
   alerts: readonly SimAlert[],
@@ -766,12 +796,19 @@ async function refreshSim(
     let sessionsStored = 0;
     let newest: string | null = null;
     let startAfter: string | undefined;
+    // A provider that could not read back to the period start (1NCE: its event
+    // page cap) says from when its pages hold the period.
+    let coveredFrom: Date | null = null;
     for (let page = 0; page < MAX_PAGES; page += 1) {
       if (!(await stillHeld())) return LOCK_LOST;
       const result = await provider.listSessions(ref, {
         ...(startAfter != null ? { startAfter } : {}),
         range: { from: period.from, to: period.to },
       });
+      const pageFrom = result.coveredFrom == null ? Number.NaN : Date.parse(result.coveredFrom);
+      if (!Number.isNaN(pageFrom) && (coveredFrom == null || pageFrom > coveredFrom.getTime())) {
+        coveredFrom = new Date(pageFrom);
+      }
       newest ??= result.items[0]?.providerSessionId ?? null;
       const atCursor = cursorUsable
         ? result.items.findIndex((s) => compareRecordIds(s.providerSessionId, cursor) <= 0)
@@ -807,10 +844,14 @@ async function refreshSim(
     const coveredTo = new Date(
       Math.min(period.to.getTime(), fetchedAt.getTime() - provider.reportingDelayHours * 3_600_000),
     );
+    const coverageFrom =
+      coveredFrom != null && coveredFrom.getTime() > period.from.getTime()
+        ? coveredFrom
+        : period.from;
     await recordSimFetchCoverage(
       sim.id,
       provider.id,
-      { from: period.from, to: coveredTo },
+      { from: coverageFrom, to: coveredTo },
       fetchedAt,
     );
     return {

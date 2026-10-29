@@ -184,7 +184,8 @@
     "closeMenu": "Menü schließen",
     "audit": "Audit",
     "maintenance": "Wartung",
-    "aiInsights": "KI-Erkenntnisse"
+    "aiInsights": "KI-Erkenntnisse",
+    "paymentTerminals": "Zahlungsterminals"
   },
   "roaming": {
     "partners": {
@@ -719,6 +720,50 @@
       "suppressedToast": "KI-Erkenntnisse unterdrückt",
       "resumedToast": "KI-Erkenntnisse fortgesetzt",
       "failed": "KI-Erkenntnisse des Standorts konnten nicht geändert werden"
+    },
+    "layoutView": {
+      "viewLabel": "Layout-Ansicht",
+      "view3d": "3D",
+      "view2d": "2D",
+      "fitToView": "An Ansicht Anpassen",
+      "editLayout": "Layout Bearbeiten",
+      "doneEditing": "Bearbeitung Beenden",
+      "hint": "Ziehen zum Drehen, Scrollen oder Zusammenziehen zum Zoomen, mit Rechtsklick oder zwei Fingern ziehen zum Verschieben. Klicken Sie auf eine Ladestation für Details.",
+      "hintEdit": "Bearbeitungsmodus: Ziehen Sie eine Ladestation auf einen freien Stellplatz. Sie rastet im Stellplatz ein und landet nie auf einer anderen Ladestation.",
+      "webglUnavailable": "Dieser Browser kann die 3D-Ansicht nicht anzeigen (WebGL ist nicht verfügbar), daher wird die 2D-Ansicht angezeigt.",
+      "loading3d": "3D-Ansicht Wird Geladen",
+      "newTag": "Neu",
+      "newTagHint": "Auf einem freien Platz abgelegt, noch nicht gespeichert. Speichern Sie, um diese Position zu behalten.",
+      "newLegend": "Noch Nicht Gespeichert",
+      "cellularBadge": "4G",
+      "cellularHint": "Mobilfunkverbindung (4G)",
+      "cellularLegend": "Mobilfunkverbindung",
+      "acPedestal": "AC-Ladesäule",
+      "dcCharger": "DC-Schnelllader",
+      "ac": "AC",
+      "dcFast": "DC-Schnellladen",
+      "status": "Status",
+      "reason": "Grund",
+      "power": "Leistung",
+      "sessionEnergy": "Sitzungsenergie",
+      "noSession": "Keine Sitzung",
+      "connection": "Verbindung",
+      "connectionCellular": "Mobilfunk (4G)",
+      "connectionWired": "WLAN oder Kabel",
+      "signalUnknown": "Signal Unbekannt",
+      "evse": "EVSE {{id}}",
+      "openStation": "Ladestation Öffnen",
+      "detailsLabel": "Details zu {{id}}"
+    },
+    "layoutState": {
+      "faulted": "Gestört",
+      "unavailable": "Nicht Verfügbar",
+      "maintenance": "In Wartung",
+      "offline": "Offline",
+      "reserved": "Reserviert",
+      "charging": "Lädt",
+      "available": "Verfügbar",
+      "online": "Online"
     }
   },
   "stations": {
@@ -1155,7 +1200,7 @@
           "attachConflict": "Anbieter: übersprungen, gleichzeitig liefen andere Änderungen an SIM-Zuordnungen. Es wurde nichts zugeordnet. Klicken Sie erneut auf Aktualisieren."
         },
         "providerFailed": {
-          "auth": "Anbieter: fehlgeschlagen, der Anbieter hat den API-Schlüssel abgelehnt.",
+          "auth": "Anbieter: fehlgeschlagen, der Anbieter hat die Zugangsdaten abgelehnt.",
           "notFound": "Anbieter: fehlgeschlagen, der Anbieter kennt diese SIM nicht.",
           "unsupported": "Anbieter: fehlgeschlagen, der Anbieter hat die Anfrage abgelehnt.",
           "unavailable": "Anbieter: fehlgeschlagen, der Anbieter hat nicht geantwortet.",
@@ -1240,6 +1285,7 @@
       "confirmSuccess": "SIM bestätigt",
       "resetDescription": "Der Anbieter beendet die Datensitzung der Station, und die Station verbindet sich neu mit dem Mobilfunknetz. Bis dahin kann die Station offline sein.",
       "resetSuccess": "Netzwerk-Zurücksetzung gesendet. Klicken Sie nach einigen Minuten auf Aktualisieren, um die neue Sitzung zu sehen.",
+      "resetSubmitted": "Netzwerk-Zurücksetzung in die Warteschlange gestellt, sie läuft innerhalb weniger Minuten.",
       "timelineTitle": "Zeitleiste",
       "timelineRange": "Zeitraum",
       "timelineLastHour": "Letzte Stunde",
@@ -1954,6 +2000,7 @@
       "dashboard": "Dashboard",
       "stations": "Stationen",
       "sims": "SIMs",
+      "paymentTerminals": "Zahlungsterminals",
       "sites": "Standorte",
       "sessions": "Ladevorgänge",
       "drivers": "Fahrer",
@@ -2568,7 +2615,8 @@
       "guest": "Gast-Checkout",
       "prepaid": "Prepaid",
       "ocpp_terminal": "Zahlungsterminal der Station",
-      "operator": "Betreiber"
+      "operator": "Betreiber",
+      "terminal": "Am Zahlungsterminal bezahlt"
     },
     "manual": "Manuell",
     "energyCost": "Energiekosten",
@@ -2683,7 +2731,8 @@
     "sitesWifiOrWired": "Standorte mit WLAN oder Kabel",
     "sitesCellular": "Standorte mit Mobilfunk",
     "webhookSigning": "Webhook-Signaturschlüssel",
-    "simHologramKey": "Hologram-API-Schlüssel"
+    "simHologramKey": "Hologram-API-Schlüssel",
+    "simOneNceSecret": "1NCE-Client-Secret"
   },
   "settings": {
     "title": "Einstellungen",
@@ -3477,6 +3526,17 @@
       "hologramOrgIdInvalid": "Geben Sie 1 bis 15 Ziffern ein.",
       "hologramApiKey": "API-Schlüssel",
       "hologramApiKeyHint": "Erstellen Sie ihn im Hologram Dashboard unter Settings > My account > API. Der Schlüssel benötigt mindestens die Rolle Editor.",
+      "oneNceTitle": "1NCE",
+      "oneNceDescription": "Mobilfunk-SIMs von 1NCE. Liest SIM-Status, Datenkontingent, Sitzungen aus Netzereignissen und SIM-Warnungen über die 1NCE Management API. 1NCE Insights wird nicht benötigt.",
+      "oneNceEnabled": "1NCE aktivieren",
+      "oneNceClientId": "Client-ID",
+      "oneNceClientIdHint": "Erstellen Sie einen API-Client im 1NCE Portal unter Account > Management API Access.",
+      "oneNceClientIdInvalid": "Geben Sie 1 bis 128 Zeichen ohne Leerzeichen oder Doppelpunkt ein.",
+      "oneNceClientSecret": "Client-Secret",
+      "oneNceClientSecretHint": "Wird einmal angezeigt, wenn Sie den API-Client im 1NCE Portal erstellen.",
+      "oneNceTestEnableFirst": "Aktivieren und speichern Sie 1NCE, um die Verbindung zu testen.",
+      "oneNceTestSuccess_one": "Verbunden. Das Konto hat {{count}} SIM.",
+      "oneNceTestSuccess_other": "Verbunden. Das Konto hat {{count}} SIMs.",
       "testConnection": "Verbindung testen",
       "testSaveFirst": "Speichern Sie Ihre Änderungen, bevor Sie die Verbindung testen.",
       "testEnableFirst": "Aktivieren und speichern Sie Hologram, um die Verbindung zu testen.",
@@ -3595,7 +3655,8 @@
     },
     "uploadReplacesHint": "Ein neues Bild ersetzt das aktuelle.",
     "roamingOffDescription": "Der Roaming-Bereich wird ausgeblendet und der gesamte OCPI-Verkehr blockiert.",
-    "pncOffDescription": "Der Bereich Zertifikate wird ausgeblendet und Zertifikatsoperationen werden blockiert."
+    "pncOffDescription": "Der Bereich Zertifikate wird ausgeblendet und Zertifikatsoperationen werden blockiert.",
+    "paymentSubTabTerminals": "Zahlungsterminals"
   },
   "pnc": {
     "certificates": "Zertifikate",
@@ -3702,6 +3763,7 @@
     "sessionEvents": "Ladevorgänge",
     "supportEvents": "Supportfälle",
     "sessionAlertEvents": "Ladevorgangswarnungen",
+    "paymentTerminalAlertEvents": "Zahlungsterminal-Warnungen",
     "siteHostEvents": "Standortbetreiber",
     "mfaEvents": "Mehrfaktor-Authentifizierung",
     "tokenEvents": "Token",
@@ -3736,6 +3798,7 @@
       "driver.PortalInvite": "Einladung zum Fahrerportal",
       "driver.RegistrationAttempt": "Registrierungsversuch",
       "session.EndRequestFailed": "Beenden des Ladevorgangs fehlgeschlagen",
+      "paymentTerminal.Offline": "Zahlungsterminal Offline",
       "site.PayoutOnboarding": "Einrichtung der Standortauszahlungen",
       "driver.PasswordChanged": "Passwort geändert",
       "driver.MfaDisabled": "Zwei-Faktor-Authentifizierung deaktiviert",
@@ -3784,7 +3847,8 @@
       "security.PermissionsGranted": "Berechtigungen erteilt",
       "security.PasswordResetByAdmin": "Link zum Festlegen des Passworts von einem Administrator gesendet",
       "security.SsoUnlinked": "Single-Sign-On-Verknüpfung entfernt",
-      "security.RetentionLowered": "Datenaufbewahrung Verkürzt"
+      "security.RetentionLowered": "Datenaufbewahrung Verkürzt",
+      "security.PaymentTerminalSettingsChanged": "Zahlungsterminal-Einstellungen Geändert"
     },
     "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:",
     "htmlPreview": "HTML-Vorschau",
@@ -4285,7 +4349,21 @@
     "NOT_FOUND": "Nicht gefunden",
     "PAYLOAD_TOO_LARGE": "Die Anfrage ist zu groß",
     "UNSUPPORTED_MEDIA_TYPE": "Nicht unterstützter Inhaltstyp",
-    "DATA_PLAN_SETTING_IN_TEMPLATE": "Heartbeat- und Zählerstandseinstellungen kommen aus Einstellungen > Integrationen und Funktionen > OCPP und dem Datentarif der Station, nicht aus einer Konfigurationsvorlage."
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "Heartbeat- und Zählerstandseinstellungen kommen aus Einstellungen > Integrationen und Funktionen > OCPP und dem Datentarif der Station, nicht aus einer Konfigurationsvorlage.",
+    "PAYMENT_TERMINAL_NOT_FOUND": "Zahlungsterminal nicht gefunden",
+    "PAYMENT_TERMINAL_INACTIVE": "Das Zahlungsterminal ist inaktiv",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "Das Zahlungsterminal ist keiner Ladestation zugeordnet",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "Ein anderes aktives Zahlungsterminal ist diesem Anschluss zugeordnet",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "Dieses Gerät ist bereits als Zahlungsterminal registriert",
+    "PAYMENT_TERMINAL_BUSY": "Am Zahlungsterminal läuft bereits eine Zahlung",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "Das Zahlungsterminal hat Zahlungen und kann nicht gelöscht werden; deaktivieren Sie es stattdessen",
+    "PAYMENT_TERMINAL_HAS_SIM": "Das Zahlungsterminal hat bereits eine SIM",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "Die Ladestation steuert dieses Terminal im Hardwaremodus; das CSMS kann darauf keine Zahlungen starten",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "Der Zahlungsterminal-Anbieter ist ausgeschaltet oder hat keine Zugangsdaten",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "Die ID TECH-Integration ist noch nicht für den Produktivbetrieb verifiziert",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "Die Anfrage an den Zahlungsterminal-Anbieter ist fehlgeschlagen",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "Terminalzahlung nicht gefunden",
+    "TERMINAL_TRANSACTION_STATE": "Die Terminalzahlung erlaubt diese Aktion in ihrem aktuellen Zustand nicht"
   },
   "logs": {
     "title": "Protokolle",
@@ -5294,7 +5372,14 @@
     "varDriverFirstName": "Vorname des Fahrers",
     "varReservationExpiresAt": "Ablaufzeit der Reservierung",
     "settingsSaved": "Einstellungen gespeichert.",
-    "settingsSaveFailed": "Speichern der Einstellungen fehlgeschlagen."
+    "settingsSaveFailed": "Speichern der Einstellungen fehlgeschlagen.",
+    "stateTerminalCard": "Zahlungsterminal: Karte vorhalten",
+    "stateTerminalResult": "Zahlungsterminal: Ergebnis",
+    "stateTerminalReceipt": "Zahlungsterminal: Beleg",
+    "varTerminalAmount": "Vorautorisierter oder bezahlter Betrag in der Unternehmenswährung",
+    "varPaymentApproved": "Gesetzt, wenn die Karte akzeptiert wurde",
+    "varPlugInAnyConnector": "Gesetzt, wenn der Fahrer an einem beliebigen Anschluss einstecken kann (Terminal für die ganze Station)",
+    "varReceiptUrl": "Link zum Zahlungsbeleg"
   },
   "audit": {
     "title": "Auditprotokoll",
@@ -5483,7 +5568,14 @@
       "network_reset": "Netzwerk zurückgesetzt",
       "sso_link_allowed": "SSO-Anmeldung erlaubt",
       "sso_unlinked": "SSO-Verknüpfung entfernt",
-      "data_plan_changed": "Datentarif geändert"
+      "data_plan_changed": "Datentarif geändert",
+      "paired": "Gekoppelt",
+      "unpaired": "Entkoppelt",
+      "sim_attached": "SIM zugeordnet",
+      "sim_detached": "SIM getrennt",
+      "status_synced": "Status abgeglichen",
+      "payment_started": "Zahlung gestartet",
+      "payment_voided": "Zahlung storniert"
     },
     "entities": {
       "site": "Standort",
@@ -5520,7 +5612,8 @@
       "station_message_template": "Stationsnachrichtenvorlage",
       "event_alert_rule": "Ereignis-Warnregel",
       "report_schedule": "Berichtsplan",
-      "sim": "SIM"
+      "sim": "SIM",
+      "payment_terminal": "Zahlungsterminal"
     },
     "actors": {
       "operator": "Betreiber",
@@ -6501,5 +6594,225 @@
     "title": "Dateispeicher nicht eingerichtet",
     "description": "Dateien können nicht hochgeladen werden, weil kein Dateispeicher eingerichtet ist. Ein Administrator kann ihn unter {{path}} einrichten.",
     "openSettings": "Einstellungen öffnen"
+  },
+  "paymentTerminals": {
+    "title": "Zahlungsterminals",
+    "subtitle": "Kartenleser, die die Zahlung für einen Ladevorgang annehmen.",
+    "featureOff": "Kein Anbieter für Zahlungsterminals ist eingerichtet. Aktivieren Sie einen unter Einstellungen > Zahlung > Zahlungsterminals.",
+    "create": "Neues Zahlungsterminal",
+    "exportCsv": "CSV exportieren",
+    "search": "Suche",
+    "searchPlaceholder": "Nach Bezeichnung, Seriennummer oder Geräte-ID suchen",
+    "noTerminals": "Keine Zahlungsterminals gefunden.",
+    "notPaired": "Nicht gekoppelt",
+    "wholeStation": "Ganze Station",
+    "connector": "Anschluss {{number}}",
+    "online": "Online",
+    "offline": "Offline",
+    "onlineUnknown": "Unbekannt",
+    "lastSeen": "Zuletzt gesehen {{time}}",
+    "simAttached": "Zugeordnet",
+    "providers": {
+      "simulated": "Simuliert"
+    },
+    "status": {
+      "active": "Aktiv",
+      "inactive": "Inaktiv"
+    },
+    "columns": {
+      "label": "Bezeichnung",
+      "model": "Modell",
+      "site": "Standort",
+      "station": "Station",
+      "connector": "Anschluss",
+      "provider": "Anbieter",
+      "status": "Status",
+      "online": "Gerätestatus",
+      "sim": "SIM"
+    },
+    "filters": {
+      "status": "Status",
+      "allStatuses": "Alle Status",
+      "online": "Gerätestatus",
+      "allOnline": "Online und offline",
+      "site": "Standort",
+      "allSites": "Alle Standorte"
+    },
+    "fields": {
+      "label": "Bezeichnung",
+      "vendor": "Hersteller",
+      "model": "Modell",
+      "serialNumber": "Seriennummer",
+      "firmwareVersion": "Firmware-Version",
+      "provider": "Anbieter",
+      "providerDeviceId": "Geräte-ID beim Anbieter",
+      "site": "Standort",
+      "status": "Status",
+      "online": "Gerätestatus",
+      "created": "Erstellt"
+    },
+    "new": {
+      "title": "Neues Zahlungsterminal",
+      "deviceTitle": "Gerät",
+      "pairingTitle": "Kopplung",
+      "provider": "Anbieter",
+      "noProvider": "Kein Anbieter verfügbar",
+      "noProviderHint": "Aktivieren Sie zuerst einen Terminal-Anbieter unter Einstellungen > Zahlung > Zahlungsterminals.",
+      "device": "Gerät",
+      "selectDevice": "Gerät auswählen",
+      "loadingDevices": "Geräte werden geladen...",
+      "deviceHintPicker": "Die Geräte des Anbieterkontos, die noch nicht registriert sind.",
+      "deviceHintTyped": "Die Geräte-ID aus dem Anbieterkonto, zum Beispiel vom Geräteetikett.",
+      "deviceIdInvalid": "Verwenden Sie 1 bis 128 druckbare Zeichen ohne Leerzeichen.",
+      "pairingNeedsPermission": "Für die Kopplung mit einer Station ist die Schreibberechtigung für Stationen nötig. Sie können das Terminal später koppeln.",
+      "noSite": "Kein Standort",
+      "selectSite": "Standort auswählen",
+      "siteHint": "Ein nicht gekoppeltes Terminal gehört zu diesem Standort. Ein gekoppeltes Terminal übernimmt den Standort seiner Station.",
+      "submit": "Terminal erstellen"
+    },
+    "detail": {
+      "notFound": "Zahlungsterminal nicht gefunden.",
+      "tabs": {
+        "payments": "Zahlungen",
+        "sim": "SIM-Karte"
+      },
+      "noDisplayNote": "Dieses Modell hat keinen Bildschirm. Seine Hinweise (Anschluss, Betrag, Ergebnis und Beleglink) erscheinen auf dem Display der Station.",
+      "editTitle": "Zahlungsterminal bearbeiten",
+      "deactivate": "Terminal deaktivieren",
+      "reactivate": "Terminal aktivieren",
+      "deactivateDescription": "Ein inaktives Terminal nimmt keine Zahlungen an. Eine laufende Zahlung wird nicht beendet.",
+      "reactivateDescription": "Das Terminal nimmt wieder Zahlungen an.",
+      "deactivateSuccess": "Zahlungsterminal deaktiviert.",
+      "reactivateSuccess": "Zahlungsterminal aktiviert.",
+      "delete": "Terminal löschen",
+      "deleteDescription": "Löscht das Zahlungsterminal {{name}}. Ein Terminal mit Zahlungen kann nicht gelöscht werden; deaktivieren Sie es stattdessen.",
+      "deleteSuccess": "Zahlungsterminal gelöscht."
+    },
+    "pairing": {
+      "title": "Kopplung",
+      "description": "Die Station, für die das Terminal Zahlungen annimmt.",
+      "notPaired": "Dieses Terminal ist mit keiner Station gekoppelt.",
+      "station": "Station",
+      "selectStation": "Station auswählen",
+      "connector": "Anschluss",
+      "wholeStationHint": "Ganze Station: Der Fahrer wählt den Anschluss auf dem Bildschirm des Terminals. Bei einem Terminal ohne Bildschirm steckt der Fahrer an einem beliebigen Anschluss ein.",
+      "pair": "Koppeln",
+      "change": "Kopplung ändern",
+      "unpair": "Entkoppeln",
+      "unpairDescription": "Entfernt die Kopplung mit {{station}}. Das Terminal behält seinen Standort.",
+      "dialogTitle": "Zahlungsterminal koppeln",
+      "dialogDescription": "Wählen Sie die Station und den Anschluss, für die dieses Terminal Zahlungen annimmt.",
+      "pairSuccess": "Zahlungsterminal gekoppelt.",
+      "unpairSuccess": "Zahlungsterminal entkoppelt."
+    },
+    "testPayment": {
+      "title": "Testzahlung",
+      "description": "Fordert am Terminal eine Karte an. Wird die Karte akzeptiert, startet das Laden am gekoppelten Anschluss.",
+      "amount": "Vorautorisierungsbetrag ({{currency}})",
+      "amountHint": "Leer verwendet den Vorautorisierungsbetrag des Standorts.",
+      "receiptEmail": "E-Mail für den Beleg",
+      "receiptEmailHint": "Optional. Der Beleglink wird an diese Adresse gesendet.",
+      "start": "Testzahlung starten",
+      "inactive": "Aktivieren Sie das Terminal, um eine Zahlung zu starten.",
+      "notPaired": "Koppeln Sie das Terminal mit einer Station, um eine Zahlung zu starten.",
+      "chargingStarted": "Die Karte wurde akzeptiert und das Laden hat begonnen.",
+      "chargingNotStarted": "Das Laden hat nicht begonnen: {{reason}}. Die Vorautorisierung wurde freigegeben.",
+      "waiting": "Warten auf die Karte am Terminal."
+    },
+    "payments": {
+      "description": "Kartenzahlungen an diesem Terminal, die neuesten zuerst.",
+      "empty": "Noch keine Zahlungen.",
+      "columns": {
+        "started": "Gestartet",
+        "state": "Zustand",
+        "hold": "Vorautorisierung",
+        "captured": "Eingezogen",
+        "card": "Karte",
+        "session": "Ladevorgang",
+        "payment": "Zahlung"
+      },
+      "cardEnding": "{{brand}} mit Endziffern {{last4}}",
+      "refunded": "Erstattet {{amount}}",
+      "openSession": "Ladevorgang öffnen",
+      "openPayment": "Zahlung öffnen",
+      "openNotice": "Eine Zahlung über {{amount}} läuft ({{state}}).",
+      "void": "Zahlung stornieren",
+      "voidDescription": "Gibt die Vorautorisierung auf der Karte frei. Ein bereits begonnener Ladevorgang wird nicht beendet.",
+      "voidSuccess": "Zahlung storniert."
+    },
+    "txnStates": {
+      "requested": "Angefordert",
+      "presenting": "Wartet auf Karte",
+      "authorized": "Autorisiert",
+      "declined": "Abgelehnt",
+      "expired": "Abgelaufen",
+      "failed": "Fehlgeschlagen",
+      "void_requested": "Wird storniert",
+      "voided": "Storniert",
+      "capture_requested": "Wird eingezogen",
+      "captured": "Eingezogen",
+      "refund_pending": "Erstattung ausstehend",
+      "partially_refunded": "Teilweise erstattet",
+      "refunded": "Erstattet"
+    },
+    "sim": {
+      "description": "Ein Terminal mit eigener SIM (zum Beispiel eine LTE-Variante des VP6825) erhält die SIM-Funktionen.",
+      "attached": "Diesem Zahlungsterminal ist eine SIM zugeordnet.",
+      "openSims": "SIMs öffnen",
+      "none": "Diesem Zahlungsterminal ist keine SIM zugeordnet.",
+      "iccid": "ICCID",
+      "iccidHint": "Die auf der SIM-Karte aufgedruckte ICCID, 18 bis 22 Ziffern.",
+      "iccidInvalid": "Geben Sie eine gültige ICCID ein.",
+      "attach": "SIM zuordnen",
+      "attachSuccess": "SIM zugeordnet.",
+      "detach": "SIM trennen",
+      "detachDescription": "Beendet die Zuordnung der SIM zu diesem Zahlungsterminal. Die SIM bleibt im Bestand.",
+      "detachSuccess": "SIM getrennt."
+    },
+    "stationCard": {
+      "title": "Zahlungsterminals",
+      "description": "Mit dieser Station gekoppelte Kartenleser.",
+      "empty": "Mit dieser Station ist kein Zahlungsterminal gekoppelt.",
+      "pairTitle": "Zahlungsterminal koppeln",
+      "pairDescription": "Wählen Sie ein nicht gekoppeltes Terminal und den Anschluss, für den es Zahlungen annimmt.",
+      "terminal": "Zahlungsterminal",
+      "selectTerminal": "Terminal auswählen",
+      "noUnpaired": "Kein aktives, nicht gekoppeltes Terminal verfügbar. Erstellen Sie eines mit Neues Zahlungsterminal."
+    },
+    "settings": {
+      "description": "Anbieter für Kartenleser. Jeder Betreiber nutzt sein eigenes Händlerkonto; EVtivity verwahrt nie Gelder.",
+      "simulatedTitle": "Simulierte Terminals",
+      "simulatedOn": "Der simulierte Terminal-Anbieter ist in dieser Installation verfügbar (zum Testen; es fließt kein Geld).",
+      "simulatedOff": "Der simulierte Terminal-Anbieter ist in dieser Installation ausgeschaltet.",
+      "idtechTitle": "ID TECH Payment Service Gateway",
+      "idtechDescription": "Cloud-Terminals (VP6825, VP7200) über das ID TECH Payment Service Gateway.",
+      "unverified": "Die ID TECH-Anbindung ist noch nicht für den Produktivbetrieb geprüft. Sie kann nur in Entwicklungs- und Testinstallationen aktiviert werden.",
+      "idtechEnabled": "ID TECH aktiviert",
+      "idtechOffDescription": "ID TECH-Terminals nehmen keine neuen Zahlungen an, solange es ausgeschaltet ist.",
+      "environment": "Umgebung",
+      "environments": {
+        "sandbox": "Sandbox",
+        "production": "Produktion"
+      },
+      "environmentHint": "Ein Wechsel der Umgebung löscht die gespeicherten Geheimnisse, die Sie nicht erneut senden.",
+      "merchantId": "Händler-ID",
+      "merchantIdInvalid": "Verwenden Sie 1 bis 64 Buchstaben, Ziffern, _ oder -.",
+      "apiKey": "API-Schlüssel",
+      "apiKeyHint": "Aus dem ID TECH-Händlerportal. Wird verschlüsselt gespeichert.",
+      "apiSecret": "API-Geheimnis",
+      "apiSecretHint": "Aus dem ID TECH-Händlerportal. Wird verschlüsselt gespeichert.",
+      "webhookSecret": "Webhook-Geheimnis",
+      "webhookSecretHint": "Signiert die Ereignisse, die ID TECH an die Webhook-URL sendet. Wird verschlüsselt gespeichert.",
+      "webhookUrl": "Webhook-URL",
+      "webhookUrlHint": "Tragen Sie diese URL im ID TECH-Händlerportal als Ziel der Ereignisse ein.",
+      "proofHint": "Eine Änderung der Umgebung, des Händlers oder eines Zugangsdatums erfordert eine erneute Bestätigung.",
+      "saveFailed": "Die Einstellungen der Zahlungsterminals konnten nicht gespeichert werden.",
+      "testConnection": "Verbindung testen",
+      "testSaveFirst": "Speichern Sie die Änderungen, bevor Sie die Verbindung testen.",
+      "testEnableFirst": "Aktivieren Sie ID TECH, bevor Sie die Verbindung testen.",
+      "testSuccess": "ID TECH hat die Zugangsdaten akzeptiert.",
+      "testRefused": "ID TECH hat die Verbindung abgelehnt ({{reason}}).",
+      "testFailed": "Der Verbindungstest ist fehlgeschlagen."
+    }
   }
 }

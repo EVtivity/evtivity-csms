@@ -63,6 +63,9 @@ const INTEGRATION_SETTING_KEYS = [
   'sim.hologram.enabled',
   'sim.hologram.orgId',
   'sim.hologram.apiKeyEnc',
+  'sim.1nce.enabled',
+  'sim.1nce.clientId',
+  'sim.1nce.clientSecretEnc',
   'sim.sessions.fetchDays',
   'sim.stationSignal.enabled',
   WEBHOOK_SIGNING_SECRET_KEY,
@@ -270,6 +273,14 @@ const systemInfoResponse = z
               .describe('Whether the Hologram organization id and API key are set'),
           })
           .loose(),
+        '1nce': z
+          .object({
+            enabled: z.boolean().describe('sim.1nce.enabled'),
+            configured: z
+              .boolean()
+              .describe('Whether the 1NCE client id and client secret are set'),
+          })
+          .loose(),
         sessionsFetchDays: z.number().nullable().describe('sim.sessions.fetchDays'),
         stationSignalEnabled: z.boolean().describe('sim.stationSignal.enabled'),
       })
@@ -322,6 +333,9 @@ const systemInfoResponse = z
         simHologramConfigured: z
           .boolean()
           .describe('Whether the Hologram API key is stored and decrypts'),
+        simOneNceConfigured: z
+          .boolean()
+          .describe('Whether the 1NCE client secret is stored and decrypts'),
       })
       .loose()
       .describe('Configured-status flags for secrets (no secret values are returned)'),
@@ -365,6 +379,12 @@ export function systemRoutes(app: FastifyInstance): void {
       const hologramConfigured =
         settingHasValue(integration, 'sim.hologram.orgId') &&
         storedSecretDecrypts('sim.hologram.apiKeyEnc', integration.get('sim.hologram.apiKeyEnc'));
+      const oneNceConfigured =
+        settingHasValue(integration, 'sim.1nce.clientId') &&
+        storedSecretDecrypts(
+          'sim.1nce.clientSecretEnc',
+          integration.get('sim.1nce.clientSecretEnc'),
+        );
       return {
         version: APP_VERSION,
         nodeEnv: config.NODE_ENV,
@@ -431,6 +451,10 @@ export function systemRoutes(app: FastifyInstance): void {
             enabled: settingBoolean(integration, 'sim.hologram.enabled'),
             configured: hologramConfigured,
           },
+          '1nce': {
+            enabled: settingBoolean(integration, 'sim.1nce.enabled'),
+            configured: oneNceConfigured,
+          },
           sessionsFetchDays: settingNumber(integration, 'sim.sessions.fetchDays'),
           stationSignalEnabled: settingBoolean(integration, 'sim.stationSignal.enabled'),
         },
@@ -456,6 +480,10 @@ export function systemRoutes(app: FastifyInstance): void {
           simHologramConfigured: storedSecretDecrypts(
             'sim.hologram.apiKeyEnc',
             integration.get('sim.hologram.apiKeyEnc'),
+          ),
+          simOneNceConfigured: storedSecretDecrypts(
+            'sim.1nce.clientSecretEnc',
+            integration.get('sim.1nce.clientSecretEnc'),
           ),
         },
       };

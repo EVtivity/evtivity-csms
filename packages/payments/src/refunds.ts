@@ -13,6 +13,7 @@ import {
   markRefunded,
 } from './payment-records.js';
 import type { PaymentRecord } from './payment-records.js';
+import { refundTerminalRecordLocked } from './terminal-payments.js';
 import {
   allocateRefund,
   paymentCharges,
@@ -167,6 +168,18 @@ export async function refundPaymentRecord(
         requestedCents: requested,
         currency: locked.currency,
       };
+    }
+
+    // A card payment at a payment terminal is refunded through its terminal
+    // provider (features/payment-terminals.md, owner decision 7).
+    if (locked.paymentSource === 'terminal') {
+      return refundTerminalRecordLocked(
+        tx,
+        locked,
+        { requestedCents: requested, alreadyRefundedCents: alreadyRefunded },
+        request,
+        ctx,
+      );
     }
 
     const unlistedCents = unlistedTopUpCents(locked);

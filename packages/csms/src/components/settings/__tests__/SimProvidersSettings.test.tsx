@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
@@ -39,6 +39,7 @@ import { SimProvidersSettings } from '../SimProvidersSettings';
 
 const SETTINGS = {
   hologram: { enabled: false, orgId: '', apiKey: null, apiKeyConfigured: false },
+  '1nce': { enabled: false, clientId: '', clientSecret: null, clientSecretConfigured: false },
   retentionDays: 90,
   fetchDays: 7,
   stationSignalEnabled: false,
@@ -49,6 +50,19 @@ const SETTINGS = {
 };
 
 let client: QueryClient;
+
+/** The Test Connection button of one provider card (each card has its own). */
+function testButton(form = 'sim-hologram-form'): HTMLButtonElement {
+  return within(screen.getByTestId(form)).getByRole<HTMLButtonElement>('button', {
+    name: 'settings.sim.testConnection',
+  });
+}
+
+async function findTestButton(form = 'sim-hologram-form'): Promise<HTMLButtonElement> {
+  return within(await screen.findByTestId(form)).findByRole<HTMLButtonElement>('button', {
+    name: 'settings.sim.testConnection',
+  });
+}
 
 function renderSettings(data: Record<string, unknown> = SETTINGS): void {
   apiMock.get.mockImplementation((url: string) => {
@@ -203,6 +217,7 @@ describe('SimProvidersSettings', () => {
       apiMock.get.mockImplementation(() =>
         Promise.resolve({
           ...SETTINGS,
+          '1nce': SETTINGS['1nce'],
           hologram: {
             enabled: stored.enabled,
             orgId: stored.orgId,
@@ -254,10 +269,7 @@ describe('SimProvidersSettings', () => {
           );
         });
         expect(screen.queryByText('settings.unsavedChanges')).toBeNull();
-        expect(
-          screen.getByRole<HTMLButtonElement>('button', { name: 'settings.sim.testConnection' })
-            .disabled,
-        ).toBe(false);
+        expect(testButton().disabled).toBe(false);
       });
 
       it(`empties the field and enables Test Connection without settings.system:read, ${when}`, async () => {
@@ -268,10 +280,7 @@ describe('SimProvidersSettings', () => {
           '',
         );
         expect(screen.queryByText('settings.unsavedChanges')).toBeNull();
-        expect(
-          screen.getByRole<HTMLButtonElement>('button', { name: 'settings.sim.testConnection' })
-            .disabled,
-        ).toBe(false);
+        expect(testButton().disabled).toBe(false);
       });
     }
   });
@@ -289,7 +298,7 @@ describe('SimProvidersSettings', () => {
         { id: '9', name: 'Empty Org', deviceCount: 0 },
       ],
     });
-    fireEvent.click(await screen.findByRole('button', { name: 'settings.sim.testConnection' }));
+    fireEvent.click(await findTestButton());
     await waitFor(() => {
       expect(apiMock.post).toHaveBeenCalledWith('/v1/settings/sim-providers/hologram/test', {});
     });
@@ -309,7 +318,7 @@ describe('SimProvidersSettings', () => {
       deviceCount: 3,
       otherOrganizations: [{ id: '8', name: 'Fleet Org', deviceCount: 4 }],
     });
-    fireEvent.click(await screen.findByRole('button', { name: 'settings.sim.testConnection' }));
+    fireEvent.click(await findTestButton());
     expect(await screen.findByText('settings.sim.testSuccess {"count":3}')).toBeTruthy();
     expect(screen.queryByText('settings.sim.testOtherOrganizations')).toBeNull();
   });
@@ -322,7 +331,7 @@ describe('SimProvidersSettings', () => {
     apiMock.post.mockRejectedValue(
       new ApiError(502, { error: 'x', code: 'SIM_PROVIDER_ERROR', kind: 'auth' }),
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'settings.sim.testConnection' }));
+    fireEvent.click(await findTestButton());
     expect(await screen.findByText('tr:errors.SIM_PROVIDER_ERROR')).toBeTruthy();
   });
 
@@ -334,7 +343,7 @@ describe('SimProvidersSettings', () => {
     apiMock.post.mockRejectedValue(
       new ApiError(429, { error: 'x', code: 'SIM_PROVIDER_RATE_LIMITED', retryAfter: 20 }),
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'settings.sim.testConnection' }));
+    fireEvent.click(await findTestButton());
     expect(await screen.findByText('stations.sim.rateLimitedRetry {"seconds":20}')).toBeTruthy();
   });
 
@@ -359,9 +368,98 @@ describe('SimProvidersSettings', () => {
     fireEvent.change(await screen.findByLabelText('settings.sim.hologramOrgId'), {
       target: { value: '8' },
     });
-    const test = screen.getByRole('button', { name: 'settings.sim.testConnection' });
-    expect((test as HTMLButtonElement).disabled).toBe(true);
+    expect(testButton().disabled).toBe(true);
     expect(screen.getByText('settings.sim.testSaveFirst')).toBeTruthy();
+  });
+
+  describe('1NCE card', () => {
+    it('saves only the 1NCE block with the trimmed client id and secret', async () => {
+      renderSettings();
+      expect(await screen.findByText('settings.sim.oneNceTitle')).toBeTruthy();
+      expect(screen.getByText('settings.sim.oneNceClientIdHint')).toBeTruthy();
+      fireEvent.click(screen.getByRole('switch', { name: 'settings.sim.oneNceEnabled' }));
+      fireEvent.change(screen.getByLabelText('settings.sim.oneNceClientId'), {
+        target: { value: ' client-1 ' },
+      });
+      fireEvent.change(screen.getByLabelText('settings.sim.oneNceClientSecret'), {
+        target: { value: ' secret-1 ' },
+      });
+      fireEvent.submit(screen.getByTestId('sim-1nce-form'));
+      await waitFor(() => {
+        expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/sim-providers', {
+          '1nce': { enabled: true, clientId: 'client-1', clientSecret: 'secret-1' },
+        });
+      });
+    });
+
+    it('refuses a client id with a colon or a space, and requires one while on', async () => {
+      renderSettings();
+      fireEvent.change(await screen.findByLabelText('settings.sim.oneNceClientId'), {
+        target: { value: 'user:pass' },
+      });
+      fireEvent.submit(screen.getByTestId('sim-1nce-form'));
+      expect(await screen.findByText('settings.sim.oneNceClientIdInvalid')).toBeTruthy();
+      fireEvent.change(screen.getByLabelText('settings.sim.oneNceClientId'), {
+        target: { value: '' },
+      });
+      fireEvent.click(screen.getByRole('switch', { name: 'settings.sim.oneNceEnabled' }));
+      fireEvent.submit(screen.getByTestId('sim-1nce-form'));
+      expect(await screen.findByText('validation.required')).toBeTruthy();
+      expect(apiMock.put).not.toHaveBeenCalled();
+    });
+
+    it('keeps a stored secret hidden from a user without settings.system:read', async () => {
+      renderSettings({
+        ...SETTINGS,
+        '1nce': {
+          enabled: true,
+          clientId: 'client-1',
+          clientSecret: null,
+          clientSecretConfigured: true,
+        },
+      });
+      const form = await screen.findByTestId('sim-1nce-form');
+      expect(within(form).getByText('settings.secretStoredHint')).toBeTruthy();
+      expect(
+        within(form).getByLabelText<HTMLInputElement>('settings.sim.oneNceClientSecret').value,
+      ).toBe('');
+      fireEvent.click(screen.getByRole('switch', { name: 'settings.sim.oneNceEnabled' }));
+      fireEvent.click(screen.getByRole('button', { name: 'common.toggleOff.confirm' }));
+      fireEvent.submit(form);
+      await waitFor(() => {
+        expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/sim-providers', {
+          '1nce': { enabled: false, clientId: 'client-1' },
+        });
+      });
+    });
+
+    it('tests the saved 1NCE account only while it is on and unchanged', async () => {
+      renderSettings({
+        ...SETTINGS,
+        '1nce': {
+          enabled: true,
+          clientId: 'client-1',
+          clientSecret: 's',
+          clientSecretConfigured: true,
+        },
+      });
+      apiMock.post.mockResolvedValue({ provider: '1nce', deviceCount: 2, otherOrganizations: [] });
+      fireEvent.click(await findTestButton('sim-1nce-form'));
+      await waitFor(() => {
+        expect(apiMock.post).toHaveBeenCalledWith('/v1/settings/sim-providers/1nce/test', {});
+      });
+      expect(await screen.findByText('settings.sim.oneNceTestSuccess {"count":2}')).toBeTruthy();
+      fireEvent.change(screen.getByLabelText('settings.sim.oneNceClientId'), {
+        target: { value: 'client-2' },
+      });
+      expect(testButton('sim-1nce-form').disabled).toBe(true);
+    });
+
+    it('disables Test Connection while 1NCE is off', async () => {
+      renderSettings();
+      expect((await findTestButton('sim-1nce-form')).disabled).toBe(true);
+      expect(screen.getByText('settings.sim.oneNceTestEnableFirst')).toBeTruthy();
+    });
   });
 
   it('saves the Refresh period within its range', async () => {

@@ -1,0 +1,12 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}{{firstName}}，您好：{{else}}您好：{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>支付終端機設定已變更</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>支付終端機設定（{{provider}}）已變更。{{#if accountChanged}}服務商帳戶已變更：環境、商家或憑證是新的，終端機付款現在進入該帳戶。{{/if}}{{#if enabled}}支付終端機已開啟。{{else}}支付終端機已關閉。{{/if}}</p>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>如果您未預期此變更，請檢查「設定 &gt; 付款 &gt; 支付終端機」和稽核記錄，並立即聯絡您的管理員。</p>

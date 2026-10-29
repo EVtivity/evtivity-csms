@@ -31,9 +31,14 @@ export async function readSimSettings(): Promise<SimSettings> {
   return getSimProviderSettings(simEncryptionKey());
 }
 
+/** A SIM provider is switched on (Hologram or 1NCE). */
+export function anySimProviderEnabled(simSettings: SimSettings): boolean {
+  return simSettings.hologram.enabled || simSettings['1nce'].enabled;
+}
+
 /** A SIM provider or station signal reads are on; with both off nothing SIM related runs. */
 export function isSimFeatureOn(simSettings: SimSettings): boolean {
-  return simSettings.hologram.enabled || simSettings.stationSignalEnabled;
+  return anySimProviderEnabled(simSettings) || simSettings.stationSignalEnabled;
 }
 
 /** After a SIM settings write: the next read and every adapter use the new values. */

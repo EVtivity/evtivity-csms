@@ -199,9 +199,11 @@ export {
   isStaleRebillCharge,
   REBILL_RESUME_MAX_HOURS,
   recordTerminalSettlement,
+  terminalSettlementOutcome,
   settlePrepaidSession,
 } from './payment-records.js';
 export type {
+  OcppSettlementStatus,
   PrepaidSettlement,
   PrepaidSettlementOptions,
   RebillChargeRequest,
@@ -210,6 +212,46 @@ export type {
 export { chargeSessionRebill, REBILL_PAYOUT_NOT_READY_CODE } from './session-rebill.js';
 export type { SessionRebillChargeInput, SessionRebillChargeOutcome } from './session-rebill.js';
 export { refundPaymentRecord } from './refunds.js';
+export {
+  applyTerminalTxnResult,
+  claimTerminalStart,
+  ingestTerminalWebhook,
+  isVoidable,
+  linkTerminalGuestSession,
+  linkTerminalSession,
+  openTerminalHolds,
+  reconcileTerminalTransactions,
+  settleTerminalSession,
+  startTerminalPayment,
+  terminalHoldOfGuestSession,
+  terminalRegistry,
+  terminalTransactionOfSession,
+  terminalWebhookProvider,
+  voidTerminalTransaction,
+  TERMINAL_CLAIM_STALE_MS,
+  TERMINAL_ENDED_SETTLE_DELAY_MS,
+  TERMINAL_UNSTARTED_HOLD_MS,
+} from './terminal-payments.js';
+export type {
+  AppliedTerminalEvent,
+  AppliedTerminalResult,
+  StartTerminalPaymentInput as StartTerminalPaymentRequest,
+  StartTerminalPaymentOutcome,
+  TerminalReconcileResult,
+  TerminalSettlementOutcome,
+  TerminalTransaction,
+  TerminalTransition,
+  TerminalWebhookResult,
+} from './terminal-payments.js';
+export {
+  terminalAuthKey,
+  terminalCaptureKey,
+  terminalRefundKey,
+  terminalVoidKey,
+} from './idempotency-keys.js';
+export { withWebhookEventLock } from './webhooks.js';
+export { queueTerminalEventSink } from './terminal-events.js';
+export type { TerminalEventJob } from './terminal-events.js';
 export type { ChargeRefund, RefundOutcome, RefundRequest, RefundTarget } from './refunds.js';
 export { applyPaymentEvent, ingestPaymentWebhook, paymentWebhookActor } from './webhooks.js';
 export type { PaymentWebhookNotice, WebhookResult } from './webhooks.js';

@@ -19,6 +19,9 @@
       "path": "../payments"
     },
     {
+      "path": "../payment-terminals"
+    },
+    {
       "path": "../services"
     }
   ]

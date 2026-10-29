@@ -36,6 +36,7 @@ import type { PaymentRecord } from './payment-records.js';
 import { PAYOUT_NOT_READY_REASON } from './payout-accounts.js';
 import { belowMinimumCaptureReason, belowMinimumCharge, holdTerms } from './session-payments.js';
 import type { HoldTerms } from './session-payments.js';
+import { settleTerminalSession, terminalTransactionOfSession } from './terminal-payments.js';
 import type {
   BrowserContext,
   ClientAction,
@@ -906,9 +907,29 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
       .where(eq(chargingSessions.id, sessionId));
     const shortfallCents = ended?.finalCostCents ?? 0;
     if (guest.paymentTerminal) {
-      // An ad hoc payment: the payment terminal or provider that authorized
-      // the card settles the session (OCPP 2.1 C24.FR.10, C25.FR.40), so a
-      // cost is not a shortfall.
+      // A CSMS payment terminal (features/payment-terminals.md): the CSMS
+      // captures the final cost at the terminal provider (C24.FR.10). An
+      // unknown capture outcome leaves the guest session charging; the
+      // reconciliation retries the capture with its key and finishes it.
+      if (deps.terminals != null && (await terminalTransactionOfSession(sessionId)) != null) {
+        const settled = await settleTerminalSession(sessionId, deps);
+        if (settled.kind === 'pending' || settled.kind === 'not_ended') return;
+        if (settled.kind === 'failed') {
+          await db
+            .update(guestSessions)
+            .set({ status: 'failed', updatedAt: new Date() })
+            .where(
+              and(
+                eq(guestSessions.id, guest.id),
+                sql`${guestSessions.status} NOT IN ('completed', 'failed', 'expired')`,
+              ),
+            );
+          return;
+        }
+      }
+      // A third-party ad hoc payment: the payment terminal or provider that
+      // authorized the card settles the session (OCPP 2.1 C24.FR.10,
+      // C25.FR.40), so a cost is not a shortfall.
       await completeGuestSession(guest.id);
       deps.logger.info({ guestSessionId: guest.id }, 'Payment terminal guest session completed');
       await sendGuestReceipt(guest, sessionId, deps);

@@ -92,8 +92,13 @@ vi.mock('../lib/ocpi-location-push.js', () => ({
   publishOcpiStationSiteMove: mockSiteMove,
 }));
 
+const mockPlaceStationOnLayout = vi.hoisted(() => vi.fn(() => Promise.resolve({ x: 20, y: 20 })));
+const mockMoveStationLayout = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
+  placeStationOnLayout: mockPlaceStationOnLayout,
+  moveStationLayout: mockMoveStationLayout,
   client: {},
   recomputeStationAvailability: mockRecompute,
   setStationDisabled: mockSetDisabled,
@@ -625,6 +630,7 @@ describe('importSitesCsv', () => {
     await importSitesCsv([{ siteName: 'Moved', stationId: 'CS-001' }], true);
 
     expect(mockSiteMove).toHaveBeenCalledWith('station-1', 'site-0', 'site-1', undefined);
+    expect(mockMoveStationLayout).toHaveBeenCalledWith(expect.anything(), 'station-1', 'site-1');
   });
 
   it('audits a moved station and re-renders its screens for the new site', async () => {
@@ -678,6 +684,7 @@ describe('importSitesCsv', () => {
       actorUserId: 'usr_1',
     });
 
+    expect(mockPlaceStationOnLayout).toHaveBeenCalled();
     expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
       expect.objectContaining({ idColumn: 'station_id' }),
       expect.objectContaining({

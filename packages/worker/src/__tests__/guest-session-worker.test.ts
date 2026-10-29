@@ -57,6 +57,12 @@ const mockPaymentContext = vi.fn(() => paymentCtx);
 vi.mock('../lib/payments.js', () => ({
   guestEventDeps: (...args: unknown[]) => mockGuestEventDeps(...(args as [])),
   paymentContext: (...args: unknown[]) => mockPaymentContext(...(args as [])),
+  terminalFlowDeps: () => ({ payments: paymentCtx, logger: mockLog, portalUrl: 'http://portal' }),
+}));
+
+const mockFinishTerminalSession = vi.fn().mockResolvedValue({ kind: 'none' });
+vi.mock('@evtivity/services/payment-terminal-flow', () => ({
+  finishTerminalSession: (...args: unknown[]) => mockFinishTerminalSession(...args),
 }));
 
 function makeJob(
@@ -319,6 +325,11 @@ describe('createGuestSessionWorker', () => {
     expect(mockHandleGuestSessionEvent).toHaveBeenCalledWith(
       { type: 'TransactionEnded', sessionId: 'ses_42' },
       guestDeps,
+    );
+    // A terminal-paid session shows its receipt link after the finalization.
+    expect(mockFinishTerminalSession).toHaveBeenCalledWith(
+      'ses_42',
+      expect.objectContaining({ portalUrl: 'http://portal' }),
     );
     expect(mockLogJobCompleted).toHaveBeenCalledTimes(1);
   });

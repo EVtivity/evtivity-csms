@@ -1,11 +1,21 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { clearPlatformFeeCache } from '@evtivity/database';
+import {
+  clearPaymentTerminalSettingsCache,
+  clearPlatformFeeCache,
+  getPaymentTerminalSettings,
+} from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
+import {
+  allowsUnverifiedTerminalAdapters,
+  resolvePaymentTerminalTestBaseUrl,
+} from '@evtivity/lib/payment-terminal-env';
+import { PaymentTerminalRegistry } from '@evtivity/payment-terminals';
 import {
   clearPaymentSettingsCache,
   createPaymentRegistry,
+  queueTerminalEventSink,
   PAYMENT_SYSTEM_ACTOR,
   queueSimulatedSink,
   resolveActiveProvider,
@@ -36,12 +46,32 @@ export const paymentRegistry = createPaymentRegistry({
 });
 
 /**
+ * The API process's payment terminal providers (features/payment-terminals.md),
+ * built with PAYMENT_TERMINALS_ALLOW_SIMULATED. The simulated async device's
+ * signed events go to the worker's `payment-terminal-events` queue.
+ */
+export const terminalRegistry = new PaymentTerminalRegistry({
+  readSettings: () => getPaymentTerminalSettings(config.SETTINGS_ENCRYPTION_KEY),
+  encryptionKey: config.SETTINGS_ENCRYPTION_KEY,
+  allowSimulated: config.PAYMENT_TERMINALS_ALLOW_SIMULATED,
+  allowUnverified: allowsUnverifiedTerminalAdapters(process.env),
+  testBaseUrl: resolvePaymentTerminalTestBaseUrl(process.env),
+  simulatedEventSink: queueTerminalEventSink(),
+});
+
+/**
  * The payment context of one call. `actor` is who the audit rows of the
  * payment writes name: `getAuditActor(request)` in a route, or `system` with
  * the reason for a call no request made.
  */
 export function paymentContext(logger: PaymentLogger, actor: PaymentActor): PaymentContext {
-  return { registry: paymentRegistry, logger, actor };
+  return { registry: paymentRegistry, terminals: terminalRegistry, logger, actor };
+}
+
+/** Drops the built terminal adapters after a terminal settings change. */
+export function clearTerminalCaches(): void {
+  clearPaymentTerminalSettingsCache();
+  terminalRegistry.clearCache();
 }
 
 /**

@@ -28,6 +28,8 @@ export const AUDIT_READ_PERMISSION: Readonly<Partial<Record<AuditEntityType, Per
   fleet: 'payments:read',
   vehicle: 'drivers:read',
   report_schedule: 'reports:read',
+  // Terminal rows name the stations and the operator payments on them.
+  payment_terminal: 'paymentTerminals:read',
 };
 
 /**

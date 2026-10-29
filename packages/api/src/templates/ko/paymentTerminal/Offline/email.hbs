@@ -1,0 +1,12 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}{{firstName}}님, 안녕하세요.{{else}}안녕하세요.{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>결제 단말기 오프라인</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if stationId}}충전소 {{stationId}}{{#if siteName}}({{siteName}}){{/if}}의 {{/if}}결제 단말기 {{terminalLabel}}{{#if terminalModel}}({{terminalModel}}){{/if}}이(가) {{offlineSince}}부터 오프라인 상태입니다. 운전자는 그곳에서 카드로 결제할 수 없습니다.</p>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>단말기의 전원과 네트워크 연결을 확인하십시오.</p>

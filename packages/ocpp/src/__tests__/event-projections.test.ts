@@ -4126,6 +4126,8 @@ describe('Event projections', () => {
           driverId: 'driver-1',
           currency: 'EUR',
           capturedCents: 1550,
+          status: undefined,
+          statusInfo: null,
         },
         expect.objectContaining({ actor: { actor: 'ocpp', actorLabel: 'NotifySettlement' } }),
       );

@@ -68,7 +68,11 @@ vi.mock('../lib/sim.js', async (importOriginal) => ({
 }));
 
 function simSettings(hologram: boolean, stationSignal: boolean): unknown {
-  return { hologram: { enabled: hologram }, stationSignalEnabled: stationSignal };
+  return {
+    hologram: { enabled: hologram },
+    '1nce': { enabled: false },
+    stationSignalEnabled: stationSignal,
+  };
 }
 
 vi.mock('../lib/site-access.js', async () =>

@@ -108,6 +108,8 @@ import { ocpiCdrRoutes } from './routes/ocpi-cdrs.js';
 import { ocpiTariffRoutes } from './routes/ocpi-tariffs.js';
 import { pncSettingsRoutes } from './routes/pnc-settings.js';
 import { simProviderSettingsRoutes } from './routes/sim-provider-settings.js';
+import { paymentTerminalRoutes } from './routes/payment-terminals.js';
+import { paymentTerminalSettingsRoutes } from './routes/payment-terminal-settings.js';
 import { dataRetentionSettingsRoutes } from './routes/data-retention-settings.js';
 import { aiInsightScopeRoutes } from './routes/ai-insight-scope.js';
 import { pncCertificateRoutes } from './routes/pnc-certificates.js';
@@ -283,6 +285,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       await v1.register(ocpiTariffRoutes);
       await v1.register(pncSettingsRoutes);
       await v1.register(simProviderSettingsRoutes);
+      await v1.register(paymentTerminalRoutes);
+      await v1.register(paymentTerminalSettingsRoutes);
       await v1.register(dataRetentionSettingsRoutes);
       await v1.register(aiInsightScopeRoutes);
       await v1.register(pncCertificateRoutes);

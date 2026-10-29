@@ -647,6 +647,8 @@ export {
   SIM_OCPP16_SIGNAL_KEYS_LIMITS,
   SIM_HOLOGRAM_ORG_ID_MAX_DIGITS,
   isHologramOrgId,
+  ONENCE_CLIENT_ID_MAX_LENGTH,
+  isOneNceClientId,
   isSimRetentionDays,
   isSimFetchDays,
   isSimSignalDbm,
@@ -654,6 +656,28 @@ export {
   normalizeSimGeneralSettings,
 } from './sim-settings.js';
 export type { SimGeneralSettings } from './sim-settings.js';
+export {
+  IDTECH_ENVIRONMENTS,
+  isIdtechEnvironment,
+  isIdtechMerchantId,
+  PAYMENT_TERMINAL_CARD_TIMEOUT_SECONDS,
+  PAYMENT_TERMINAL_DEFAULT_HOLD_CENTS,
+  PAYMENT_TERMINAL_MODELS,
+  PAYMENT_TERMINAL_OFFLINE_ALERT_MINUTES,
+  PAYMENT_TERMINAL_PROVIDERS,
+  PAYMENT_TERMINAL_SETTING_KEY_LIST,
+  PAYMENT_TERMINAL_SETTING_KEYS,
+  PAYMENT_TERMINAL_START_TTL_MINUTES,
+  terminalModelHasDisplay,
+} from './payment-terminal-settings.js';
+export type {
+  IdtechEnvironmentSetting,
+  PaymentTerminalProviderSetting,
+} from './payment-terminal-settings.js';
+export {
+  allowsUnverifiedTerminalAdapters,
+  resolvePaymentTerminalTestBaseUrl,
+} from './payment-terminal-env.js';
 export {
   DATA_RETENTION_GROUPS,
   DATA_RETENTION_KEYS,

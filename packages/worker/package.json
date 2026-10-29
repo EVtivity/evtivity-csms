@@ -20,6 +20,7 @@
     "@evtivity/ai": "*",
     "@evtivity/database": "*",
     "@evtivity/lib": "*",
+    "@evtivity/payment-terminals": "*",
     "@evtivity/octt": "*",
     "@evtivity/payments": "*",
     "@evtivity/services": "*",

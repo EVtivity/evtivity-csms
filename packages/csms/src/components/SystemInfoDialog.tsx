@@ -105,6 +105,7 @@ interface SystemInfo {
   };
   simProviders: {
     hologram: { enabled: boolean; configured: boolean };
+    '1nce': { enabled: boolean; configured: boolean };
     sessionsFetchDays: number | null;
     stationSignalEnabled: boolean;
   };
@@ -122,6 +123,7 @@ interface SystemInfo {
     googleMapsConfigured: boolean;
     webhookSigningConfigured: boolean;
     simHologramConfigured: boolean;
+    simOneNceConfigured: boolean;
   };
 }
 
@@ -332,6 +334,8 @@ function buildSections(data: SystemInfo, t: T, timezone: string): InfoSection[] 
           rows: [
             onOffRow('sim.hologram.enabled', data.simProviders.hologram.enabled, t),
             configuredRow('Hologram', data.simProviders.hologram.configured, t),
+            onOffRow('sim.1nce.enabled', data.simProviders['1nce'].enabled, t),
+            configuredRow('1NCE', data.simProviders['1nce'].configured, t),
             textRow('sim.sessions.fetchDays', data.simProviders.sessionsFetchDays, t),
             onOffRow('sim.stationSignal.enabled', data.simProviders.stationSignalEnabled, t),
           ],
@@ -370,6 +374,7 @@ function buildSections(data: SystemInfo, t: T, timezone: string): InfoSection[] 
             configuredRow('Google Maps', s.googleMapsConfigured, t),
             configuredRow(t('systemInfo.webhookSigning'), s.webhookSigningConfigured, t),
             configuredRow(t('systemInfo.simHologramKey'), s.simHologramConfigured, t),
+            configuredRow(t('systemInfo.simOneNceSecret'), s.simOneNceConfigured, t),
           ],
         },
       ],

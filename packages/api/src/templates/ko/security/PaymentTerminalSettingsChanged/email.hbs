@@ -1,0 +1,12 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}{{firstName}}님, 안녕하세요.{{else}}안녕하세요.{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>결제 단말기 설정 변경됨</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>결제 단말기 설정({{provider}})이 변경되었습니다. {{#if accountChanged}}공급자 계정이 변경되었습니다. 환경, 가맹점 또는 자격 증명이 새로 바뀌어 이제 단말기 결제가 해당 계정으로 처리됩니다. {{/if}}{{#if enabled}}결제 단말기가 켜져 있습니다.{{else}}결제 단말기가 꺼져 있습니다.{{/if}}</p>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>예상하지 못한 변경이라면 설정 &gt; 결제 &gt; 결제 단말기와 감사 로그를 확인하고 즉시 관리자에게 문의하십시오.</p>

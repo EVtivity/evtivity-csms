@@ -989,7 +989,21 @@
     "SIM_TEST_UNAVAILABLE": "The connection test cannot run right now. Try again in a minute",
     "NOT_FOUND": "Not found",
     "PAYLOAD_TOO_LARGE": "The request is too large",
-    "UNSUPPORTED_MEDIA_TYPE": "Unsupported content type"
+    "UNSUPPORTED_MEDIA_TYPE": "Unsupported content type",
+    "PAYMENT_TERMINAL_NOT_FOUND": "Payment terminal not found",
+    "PAYMENT_TERMINAL_INACTIVE": "The payment terminal is inactive",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "The payment terminal is not paired to a charging station",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "Another active payment terminal is paired to this connector",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "This device is already registered as a payment terminal",
+    "PAYMENT_TERMINAL_BUSY": "The payment terminal already has a payment in progress",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "The payment terminal has payments and cannot be deleted; deactivate it instead",
+    "PAYMENT_TERMINAL_HAS_SIM": "The payment terminal already has a SIM",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "The charging station drives this hardware mode terminal; the CSMS cannot start payments on it",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "The payment terminal provider is off or has no credentials",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "The ID TECH integration is not verified for production use yet",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "The payment terminal provider request failed",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "Terminal payment not found",
+    "TERMINAL_TRANSACTION_STATE": "The terminal payment cannot do this in its current state"
   },
   "validation": {
     "required": "This field is required",

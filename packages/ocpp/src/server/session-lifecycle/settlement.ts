@@ -14,13 +14,26 @@ import {
   isReleasedBelowMinimum,
   recordTerminalSettlement,
   settleSessionPayment,
+  terminalSettlementOutcome,
   withPaymentActor,
 } from '@evtivity/payments';
-import type { SettlementOutcome } from '@evtivity/payments';
+import type { OcppSettlementStatus, SettlementOutcome } from '@evtivity/payments';
 import { pgConnectionErrorKind } from '@evtivity/database';
 import { dispatchDriverNotification, ALL_TEMPLATES_DIRS } from '../notification-dispatcher.js';
 import type { ProjectionDeps } from '../projection-support/context.js';
 import type { ProjectionAttempt } from '../projection-retry.js';
+
+const SETTLEMENT_STATUSES: readonly OcppSettlementStatus[] = [
+  'Settled',
+  'Canceled',
+  'Rejected',
+  'Failed',
+];
+
+/** The PaymentStatusEnumType of a NotifySettlement payload, undefined when absent or unknown. */
+function settlementStatus(value: unknown): OcppSettlementStatus | undefined {
+  return SETTLEMENT_STATUSES.find((s) => s === value);
+}
 
 /** NotifySettlement: the station settled the payment itself (terminal payment). */
 export async function projectNotifySettlement(
@@ -52,12 +65,16 @@ export async function projectNotifySettlement(
   // Convert settlement amount to cents (OCPP sends in major currency units)
   const capturedAmountCents = centsFromMajorUnits(settlementAmount);
 
+  const status = settlementStatus(payload.status);
+  const statusInfo = typeof payload.statusInfo === 'string' ? payload.statusInfo : null;
   const recorded = await recordTerminalSettlement(
     {
       sessionId: session.id as string,
       driverId: (session.driver_id as string | null) ?? null,
       currency: session.currency as string,
       capturedCents: capturedAmountCents,
+      status,
+      statusInfo,
     },
     withPaymentActor(deps.payments, { actor: 'ocpp', actorLabel: 'NotifySettlement' }),
   );
@@ -76,6 +93,16 @@ export async function projectNotifySettlement(
     (session.site_id as string | null) ?? null,
     session.id as string,
   );
+
+  // A rejected, failed or canceled settlement (C22, C19, C20) confirms no
+  // payment, so the driver gets no payment received or complete notice.
+  if (terminalSettlementOutcome(status) !== 'captured') {
+    logger.warn(
+      { transactionId, sessionId: session.id, status, statusInfo },
+      'NotifySettlement reported no settled payment; stored without a capture',
+    );
+    return;
+  }
 
   // Driver notification: payment received
   if (session.driver_id != null) {

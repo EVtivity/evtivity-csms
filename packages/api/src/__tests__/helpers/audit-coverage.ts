@@ -65,6 +65,14 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'DELETE /ocpi/partners/:id': { audited: 'ocpi_partner' },
   'DELETE /ocpi/tariff-mappings/:id': { audited: ['tariff', 'pricing_group', 'ocpi_partner'] },
   'DELETE /ocpp-event-settings': { audited: 'notification_template' },
+  'DELETE /payment-terminals/:id': {
+    audited: 'payment_terminal',
+    service: 'services/src/payment-terminal.service.ts',
+  },
+  'DELETE /payment-terminals/:id/sim': {
+    audited: ['payment_terminal', 'sim'],
+    service: 'services/src/payment-terminal.service.ts',
+  },
   'DELETE /pnc/ca-certificates/:id': { audited: 'certificate' },
   'DELETE /pricing-groups/:id': { audited: ['tariff', 'pricing_group'] },
   'DELETE /pricing-groups/:id/tariffs/:tariffId': { audited: 'tariff' },
@@ -160,6 +168,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'PATCH /nevi/excluded-downtime/:id': { audited: 'station' },
   'PATCH /ocpi/partners/:id': { audited: 'ocpi_partner' },
   'PATCH /ocpi/tariff-mappings/:id': { audited: ['tariff', 'pricing_group', 'ocpi_partner'] },
+  'PATCH /payment-terminals/:id': {
+    audited: 'payment_terminal',
+    service: 'services/src/payment-terminal.service.ts',
+  },
   'PATCH /pricing-groups/:id': { audited: 'pricing_group' },
   'PATCH /pricing-groups/:id/tariffs/:tariffId': { audited: 'tariff' },
   'PATCH /report-schedules/:id': { audited: 'report_schedule' },
@@ -195,6 +207,39 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'PATCH /tokens/:id': { audited: 'token', service: 'api/src/services/token.service.ts' },
   'PATCH /users/:id': { audited: 'user' },
+  'POST /payment-terminal-transactions/:id/void': {
+    audited: 'payment_terminal',
+    service: 'services/src/payment-terminal.service.ts',
+  },
+  'POST /payment-terminals': {
+    audited: 'payment_terminal',
+    service: 'services/src/payment-terminal.service.ts',
+  },
+  'POST /payment-terminals/:id/pair': {
+    audited: 'payment_terminal',
+    service: 'services/src/payment-terminal.service.ts',
+  },
+  'POST /payment-terminals/:id/payments': {
+    audited: 'payment_terminal',
+    service: 'services/src/payment-terminal.service.ts',
+  },
+  'POST /payment-terminals/:id/sim': {
+    audited: ['payment_terminal', 'sim'],
+    service: 'services/src/payment-terminal.service.ts',
+  },
+  'POST /payment-terminals/:id/status': {
+    audited: 'payment_terminal',
+    service: 'services/src/payment-terminal.service.ts',
+  },
+  'POST /payment-terminals/:id/unpair': {
+    audited: 'payment_terminal',
+    service: 'services/src/payment-terminal.service.ts',
+  },
+  'POST /settings/payment-terminals/:provider/test': { allow: 'connection test, no stored state' },
+  'POST /webhooks/payment-terminals/idtech': {
+    allow: 'provider-signed webhook, no operator (see section 3)',
+  },
+  'PUT /settings/payment-terminals': { audited: 'setting' },
   'PUT /users/me/avatar': { audited: 'user', service: 'api/src/services/user-avatar.service.ts' },
   'DELETE /users/me/avatar': {
     audited: 'user',
@@ -236,7 +281,7 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /access-logs': { allow: 'is the access log itself' },
   'POST /ad-hoc-payments': {
     audited: 'station',
-    service: 'api/src/services/ad-hoc-payment.service.ts',
+    service: 'services/src/ad-hoc-payment.service.ts',
   },
   'POST /ai/insights/:id/action/confirm': {
     audited: 'ai_proposal',

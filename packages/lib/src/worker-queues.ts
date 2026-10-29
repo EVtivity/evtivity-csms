@@ -106,3 +106,20 @@ export const DRIVER_AVATAR_CLEANUP_JOB_OPTIONS = {
   attempts: 10,
   backoff: { type: 'exponential', delay: 60_000 },
 };
+
+/**
+ * Payment terminal events (features/payment-terminals.md): signed simulated
+ * terminal events the API and the worker raise, applied by the worker as the
+ * webhook route applies a provider's (signature check, dedupe on the event id).
+ * The producer adds the job itself (jobQueue), so an event survives a stopped
+ * worker (P8).
+ */
+export const PAYMENT_TERMINAL_EVENTS_QUEUE = 'payment-terminal-events';
+
+/** Retrying is safe: each event is deduped on its id under its lock (webhook_events, P7). */
+export const PAYMENT_TERMINAL_EVENTS_JOB_OPTIONS = {
+  removeOnComplete: 200,
+  removeOnFail: { count: 500 },
+  attempts: 5,
+  backoff: { type: 'exponential', delay: 2000 },
+};

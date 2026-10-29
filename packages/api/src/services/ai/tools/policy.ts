@@ -565,6 +565,29 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   runReconciliation: N,
   setDefaultDriverPaymentMethod: N,
   startAdHocPayment: N,
+  // Payment terminals (features/payment-terminals.md): money, pairing, SIM and
+  // provider writes are never tools; the list and the detail are reads without
+  // the provider device id.
+  attachPaymentTerminalSim: N,
+  createPaymentTerminal: N,
+  deletePaymentTerminal: N,
+  exportPaymentTerminals: N,
+  detachPaymentTerminalSim: N,
+  getPaymentTerminal: { ...R, redactedFields: ['providerDeviceId'] },
+  getPaymentTerminalFeature: N,
+  getPaymentTerminalSettings: N,
+  listPaymentTerminalProviderDevices: N,
+  listPaymentTerminalTransactions: N,
+  listPaymentTerminals: { ...R, redactedFields: ['providerDeviceId'] },
+  pairPaymentTerminal: N,
+  setPaymentTerminalStatus: N,
+  startPaymentTerminalPayment: N,
+  testPaymentTerminalProvider: N,
+  unpairPaymentTerminal: N,
+  updatePaymentTerminal: N,
+  updatePaymentTerminalSettings: N,
+  voidPaymentTerminalTransaction: N,
+  handlePaymentTerminalWebhook: N,
   submitDriverPaymentMethodSetup: N,
   testAdyenConnection: N,
   testStripeConnection: N,
@@ -915,6 +938,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   exportSimTemplate: N,
   getSim: N,
   getSimNeighbors: N,
+  getPaymentTerminalNeighbors: N,
   getSimTimeline: N,
   importSims: N,
   listSimAttachments: N,
@@ -1173,6 +1197,9 @@ export const EVERY_TURN_TOOLS: ReadonlySet<string> = new Set(['docsSearch']);
  * marked block below.
  */
 export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
+  // Payment Terminals: chat reads only, not offered to remote agents.
+  getPaymentTerminal: false,
+  listPaymentTerminals: false,
   // Access Logs
   listAccessLogs: false,
   listWorkerLogs: false,

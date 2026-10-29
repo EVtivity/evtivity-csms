@@ -55,6 +55,38 @@ describe('parseSimSettings', () => {
     );
     expect(broken.hologram).toEqual({ enabled: false, apiKey: '', orgId: '' });
   });
+
+  it('decrypts the 1NCE client secret and trims the client id', () => {
+    const settings = parseSimSettings(
+      [
+        { key: 'sim.1nce.enabled', value: true },
+        { key: 'sim.1nce.clientId', value: ' client-1 ' },
+        { key: 'sim.1nce.clientSecretEnc', value: encryptString(' client-secret ', KEY) },
+      ],
+      KEY,
+    );
+    expect(settings['1nce']).toEqual({
+      enabled: true,
+      clientId: 'client-1',
+      clientSecret: 'client-secret',
+    });
+  });
+
+  it('leaves 1NCE off and without a secret for empty or broken values', () => {
+    expect(parseSimSettings([], KEY)['1nce']).toEqual({
+      enabled: false,
+      clientId: '',
+      clientSecret: '',
+    });
+    const broken = parseSimSettings(
+      [
+        { key: 'sim.1nce.enabled', value: 'true' },
+        { key: 'sim.1nce.clientSecretEnc', value: 'not-ciphertext' },
+      ],
+      KEY,
+    );
+    expect(broken['1nce']).toEqual({ enabled: false, clientId: '', clientSecret: '' });
+  });
 });
 
 describe('getSimProviderSettings', () => {

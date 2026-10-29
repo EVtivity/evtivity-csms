@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // A later provider adds its id here and its entry to SIM_PROVIDER_ORDER.
-export type SimProviderId = 'hologram';
+export type SimProviderId = 'hologram' | '1nce';
 
 export type SimState =
   | 'active'
@@ -26,7 +26,7 @@ export interface SimCapabilities {
 
 /** What a match stores: the provider SIM id plus the provider's other ids. */
 export interface SimRef {
-  /** Hologram: the device id (the ICCID can change with a profile fallback). */
+  /** Hologram: the device id (the ICCID can change with a profile fallback). 1NCE: the 19-digit ICCID. */
   providerSimId: string;
   /** Hologram: links.cellular[].id, used for sessions and the network reset. */
   linkId?: string;
@@ -91,6 +91,12 @@ export interface SimPage<T> {
   continues: boolean;
   /** Pass as `startAfter` to fetch the next page. */
   lastId: string | null;
+  /**
+   * Set when the provider could not read back to the start of the asked range
+   * (1NCE: its event page cap): the page holds what it read from this time on,
+   * and the caller records coverage from here, not from the range start.
+   */
+  coveredFrom?: string;
 }
 
 export interface SimTimeRange {
@@ -99,8 +105,8 @@ export interface SimTimeRange {
 }
 
 export interface SimResetResult {
-  // Hologram's reset is synchronous; an asynchronous provider adds 'submitted'.
-  status: 'accepted';
+  /** `accepted`: done (Hologram). `submitted`: queued at the provider, runs later (1NCE). */
+  status: 'accepted' | 'submitted';
 }
 
 export interface SimProvider {
@@ -146,9 +152,16 @@ export interface HologramSettings {
   orgId: string;
 }
 
+export interface OneNceSettings {
+  enabled: boolean;
+  clientId: string;
+  clientSecret: string;
+}
+
 /** The decrypted provider settings a registry builds adapters from. */
 export interface SimProviderSettings {
   hologram: HologramSettings;
+  '1nce': OneNceSettings;
 }
 
 export type SimProviderErrorKind =

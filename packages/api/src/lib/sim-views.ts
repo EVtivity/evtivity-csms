@@ -77,15 +77,17 @@ export async function simSiteWindows(
 ): Promise<SimInterval[] | null> {
   if (siteIds == null) return null;
   if (siteIds.length === 0) return [];
+  // A station attachment counts by the station's site, a payment terminal
+  // attachment by the site stored on it at attach time (security case 276).
   const spans = await db
     .select({ from: simAttachments.attachedAt, to: simAttachments.detachedAt })
     .from(simAttachments)
-    .innerJoin(chargingStations, eq(chargingStations.id, simAttachments.stationId))
+    .leftJoin(chargingStations, eq(chargingStations.id, simAttachments.stationId))
     .where(
       and(
         eq(simAttachments.simId, simId),
         isNotNull(simAttachments.confirmedAt),
-        inArray(chargingStations.siteId, siteIds),
+        inArray(sql`COALESCE(${chargingStations.siteId}, ${simAttachments.siteId})`, siteIds),
       ),
     );
   return mergeIntervals(spans.map((s) => ({ from: s.from, to: s.to ?? OPEN_WINDOW_END })));

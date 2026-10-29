@@ -244,6 +244,8 @@ describe('Notification routes', () => {
     expect(body).toContain('session.Started');
     expect(body).toContain('driver.Welcome');
     expect(body).toContain('session.EndRequestFailed');
+    expect(body).toContain('paymentTerminal.Offline');
+    expect(body).toContain('security.PaymentTerminalSettingsChanged');
     for (const event of OCPP_NOTIFICATION_EVENT_TYPES) {
       expect(body, event).toContain(event);
     }
@@ -551,6 +553,7 @@ describe('Notification routes', () => {
 
   it.each([
     'session.EndRequestFailed',
+    'paymentTerminal.Offline',
     'operator.ForgotPassword',
     'station.Connected',
     'x.Unknown',

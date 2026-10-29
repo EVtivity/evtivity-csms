@@ -1026,6 +1026,7 @@ describe('Hologram factory and constants', () => {
 
   const settings = (overrides: Record<string, unknown>) => ({
     hologram: { enabled: true, apiKey: 'k', orgId: '1', ...overrides },
+    '1nce': { enabled: false, clientId: '', clientSecret: '' },
   });
 
   it('builds nothing while off or without credentials', () => {

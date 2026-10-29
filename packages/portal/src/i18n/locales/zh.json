@@ -989,7 +989,21 @@
     "SIM_TEST_UNAVAILABLE": "目前无法运行连接测试。请一分钟后重试",
     "NOT_FOUND": "未找到",
     "PAYLOAD_TOO_LARGE": "请求过大",
-    "UNSUPPORTED_MEDIA_TYPE": "不支持的内容类型"
+    "UNSUPPORTED_MEDIA_TYPE": "不支持的内容类型",
+    "PAYMENT_TERMINAL_NOT_FOUND": "未找到支付终端",
+    "PAYMENT_TERMINAL_INACTIVE": "支付终端已停用",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "支付终端未与充电站配对",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "另一个启用的支付终端已与此充电枪配对",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "此设备已注册为支付终端",
+    "PAYMENT_TERMINAL_BUSY": "支付终端已有正在进行的支付",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "支付终端有支付记录，无法删除，请改为停用",
+    "PAYMENT_TERMINAL_HAS_SIM": "支付终端已有 SIM 卡",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "此硬件模式终端由充电站控制，CSMS 无法在其上发起支付",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "支付终端提供商已关闭或没有凭据",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "ID TECH 集成尚未通过生产环境验证",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "支付终端提供商请求失败",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "未找到终端支付",
+    "TERMINAL_TRANSACTION_STATE": "终端支付当前状态不允许此操作"
   },
   "validation": {
     "required": "此字段为必填项",

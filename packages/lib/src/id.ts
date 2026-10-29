@@ -65,6 +65,7 @@ export const ID_PREFIXES = {
   aiInsight: 'ain',
   sim: 'sim',
   paymentTerminal: 'ptm',
+  paymentTerminalTransaction: 'ptx',
 } as const;
 
 export type EntityType = keyof typeof ID_PREFIXES;

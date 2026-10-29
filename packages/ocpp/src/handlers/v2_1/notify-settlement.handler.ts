@@ -10,6 +10,7 @@ export async function handleNotifySettlement(
     transactionId: string;
     pspRef?: string;
     status?: string;
+    statusInfo?: string;
     settlementAmount?: number;
     settlementTime?: string;
   };
@@ -34,6 +35,7 @@ export async function handleNotifySettlement(
       transactionId: request.transactionId,
       pspRef: request.pspRef,
       status: request.status,
+      statusInfo: request.statusInfo,
       settlementAmount: request.settlementAmount,
       settlementTime: request.settlementTime,
     },

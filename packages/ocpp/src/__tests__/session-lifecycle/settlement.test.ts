@@ -652,6 +652,8 @@ describe('projectNotifySettlement', () => {
         driverId: 'drv-1',
         currency: 'USD',
         capturedCents: 1234,
+        status: undefined,
+        statusInfo: null,
       },
       expect.objectContaining({ actor: { actor: 'ocpp', actorLabel: 'NotifySettlement' } }),
     );
@@ -666,5 +668,49 @@ describe('projectNotifySettlement', () => {
       siteName: 'Main Site',
       amountCents: 1234,
     });
+  });
+
+  it('passes a Rejected status on and sends no payment notice (C22)', async () => {
+    sqlResults = [
+      [
+        {
+          id: 'sess-1',
+          driver_id: 'drv-1',
+          station_id: 'station-uuid',
+          site_id: 'site-1',
+          currency: 'USD',
+        },
+      ],
+    ];
+    mockRecordTerminalSettlement.mockResolvedValue(true);
+
+    await projectNotifySettlement(
+      deps,
+      settlementEvent({
+        transactionId: 'tx-1',
+        settlementAmount: 12.34,
+        status: 'Rejected',
+        statusInfo: 'Declined',
+      }),
+    );
+
+    expect(mockRecordTerminalSettlement).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'Rejected', statusInfo: 'Declined' }),
+      expect.anything(),
+    );
+    expect(sentEvents()).toEqual([]);
+  });
+
+  it('ignores an unknown status value', async () => {
+    sqlResults = [[{ ...sessionRow, currency: 'USD' }]];
+    mockRecordTerminalSettlement.mockResolvedValue(true);
+    await projectNotifySettlement(
+      deps,
+      settlementEvent({ transactionId: 'tx-1', settlementAmount: 1, status: 'Bogus' }),
+    );
+    expect(mockRecordTerminalSettlement).toHaveBeenCalledWith(
+      expect.objectContaining({ status: undefined }),
+      expect.anything(),
+    );
   });
 });

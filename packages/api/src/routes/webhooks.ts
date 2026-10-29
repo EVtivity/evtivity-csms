@@ -3,9 +3,12 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { TerminalProviderError, TERMINAL_MAX_WEBHOOK_BYTES } from '@evtivity/payment-terminals';
+import { handleTerminalResults } from '@evtivity/services/payment-terminal-flow';
 import {
   dispatchPaymentWebhookNotices,
   ingestPaymentWebhook,
+  ingestTerminalWebhook,
   paymentWebhookActor,
   WebhookNotConfiguredError,
   WebhookSignatureError,
@@ -16,6 +19,7 @@ import { paymentContext } from '../lib/payments.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { zodSchema } from '../lib/zod-schema.js';
+import { config as apiConfig } from '../lib/config.js';
 
 const stripeAck = itemResponse(
   z
@@ -167,4 +171,86 @@ export function webhookRoutes(app: FastifyInstance): void {
 
   registerPaymentWebhookRoute(app, STRIPE_DOC);
   registerPaymentWebhookRoute(app, ADYEN_DOC);
+  registerTerminalWebhookRoute(app);
+}
+
+/**
+ * The payment terminal provider webhook (features/payment-terminals.md). Only
+ * ID TECH has one (the simulated provider's events go through the worker
+ * queue). The adapter checks the HMAC signature over the raw body with a
+ * five-minute tolerance; each event is applied once under its lock, and a
+ * money state change is confirmed by reading the transaction back from the
+ * provider. 600 a minute.
+ */
+function registerTerminalWebhookRoute(app: FastifyInstance): void {
+  app.post(
+    '/webhooks/payment-terminals/idtech',
+    {
+      bodyLimit: TERMINAL_MAX_WEBHOOK_BYTES,
+      config: { rateLimit: { max: 600, timeWindow: '1 minute' } },
+      schema: {
+        tags: ['Webhooks'],
+        summary: 'Handle ID TECH payment terminal events',
+        description:
+          'Receives ID TECH Payment Service Gateway events (transaction, device status and refund). Checks the x-psg-signature header (HMAC-SHA256 over the timestamp and the raw body with paymentTerminals.idtech.webhookSecretEnc, at most five minutes old), records each event id once (a replay is acknowledged and skipped), confirms the transaction state with the gateway and applies it. Answers {"received":true}.',
+        operationId: 'handlePaymentTerminalWebhook',
+        security: [],
+        response: {
+          200: stripeAck,
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          401: errorWith('Signature missing or wrong', [ERROR_CODES.WEBHOOK_SIGNATURE_INVALID]),
+          500: errorWith('Internal server error', [
+            ERROR_CODES.INTERNAL_ERROR,
+            ERROR_CODES.WEBHOOK_NOT_CONFIGURED,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const deps = {
+        payments: paymentContext(request.log, {
+          actor: 'system' as const,
+          actorLabel: 'terminal-webhook:idtech',
+        }),
+        logger: request.log,
+        portalUrl: apiConfig.PORTAL_URL,
+      };
+      let result;
+      try {
+        result = await ingestTerminalWebhook(
+          'idtech',
+          Buffer.from(request.body as string, 'utf8'),
+          headerMap(request.headers),
+          deps.payments,
+        );
+      } catch (err) {
+        if (err instanceof WebhookNotConfiguredError) {
+          request.log.error('Payment terminal webhook secret or credentials are not configured');
+          await reply
+            .status(500)
+            .send({ error: 'Webhook not configured', code: 'WEBHOOK_NOT_CONFIGURED' });
+          return;
+        }
+        if (
+          err instanceof TerminalProviderError &&
+          (err.kind === 'auth' || err.kind === 'validation')
+        ) {
+          request.log.warn({ kind: err.kind }, 'Payment terminal webhook refused');
+          if (err.kind === 'auth') {
+            await reply
+              .status(401)
+              .send({ error: 'Invalid signature', code: 'WEBHOOK_SIGNATURE_INVALID' });
+          } else {
+            await reply.status(400).send({ error: 'Invalid event', code: 'VALIDATION_ERROR' });
+          }
+          return;
+        }
+        throw err;
+      }
+      // The follow-up (an authorization starts charging) is fail-open: the
+      // event is recorded, and the reconciliation voids a hold that never started.
+      await handleTerminalResults(result.applied, 'idtech', deps);
+      return { received: true };
+    },
+  );
 }

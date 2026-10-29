@@ -263,6 +263,7 @@ describe('docker/redis/acl-rules.conf', () => {
         'fleet-billing-fanout',
         'maintenance-fanout',
         'member-invoices',
+        'payment-terminal-events',
         'payment-webhooks',
         'station-messages',
         'station-watch',
@@ -287,7 +288,12 @@ describe('docker/redis/acl-rules.conf', () => {
       expect(grantsKey(user('api'), `bull:${queue}:wait`, 'r'), queue).toBe(false);
       expect(grantsKey(user('ocpp'), `bull:${queue}:wait`, 'r'), queue).toBe(false);
     }
-    for (const queue of ['driver-avatar-cleanup', 'fleet-billing-fanout', 'member-invoices']) {
+    for (const queue of [
+      'driver-avatar-cleanup',
+      'fleet-billing-fanout',
+      'member-invoices',
+      'payment-terminal-events',
+    ]) {
       expect(grantsKey(user('ocpp'), `bull:${queue}:wait`, 'r'), queue).toBe(false);
     }
 

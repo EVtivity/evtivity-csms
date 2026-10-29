@@ -17,6 +17,7 @@ import {
   SIM_SETTING_KEYS,
   SIM_SIGNAL_DBM,
   isHologramOrgId,
+  isOneNceClientId,
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { scheduleLowSignalSync } from '@evtivity/services/station-signal-monitor.service';
@@ -68,6 +69,19 @@ const simProviderSettingsResponse = z
         apiKeyConfigured: z.boolean().describe('A Hologram API key is stored'),
       })
       .describe('Hologram account'),
+    '1nce': z
+      .object({
+        enabled: z.boolean().describe('1NCE is on'),
+        clientId: z.string().describe('1NCE Management API client id, empty when unset'),
+        clientSecret: z
+          .string()
+          .nullable()
+          .describe(
+            '1NCE client secret, decrypted. Returned only to callers that also hold settings.system:read; null otherwise and when unset (see clientSecretConfigured).',
+          ),
+        clientSecretConfigured: z.boolean().describe('A 1NCE client secret is stored'),
+      })
+      .describe('1NCE account (Management API client credentials)'),
     retentionDays: z
       .number()
       .describe(
@@ -88,7 +102,7 @@ const simProviderSettingsResponse = z
     signalFairDbm: z.number().describe('At or above this dBm the signal is fair, below it poor'),
   })
   .describe(
-    'SIM provider and station signal settings. The API key is returned decrypted only to callers that also hold settings.system:read.',
+    'SIM provider and station signal settings. The Hologram API key and the 1NCE client secret are returned decrypted only to callers that also hold settings.system:read.',
   );
 
 const updateSimProviderSettingsBody = z.object({
@@ -108,6 +122,24 @@ const updateSimProviderSettingsBody = z.object({
     })
     .optional()
     .describe('Hologram account; an omitted field keeps its value'),
+  '1nce': z
+    .object({
+      enabled: z.boolean().optional().describe('Turn 1NCE on or off'),
+      clientId: z
+        .string()
+        .max(256)
+        .optional()
+        .describe(
+          '1NCE Management API client id (1 to 128 printable characters, no space or colon). An empty string clears it.',
+        ),
+      clientSecret: z
+        .string()
+        .max(512)
+        .optional()
+        .describe('1NCE client secret (stored encrypted). An empty string clears it.'),
+    })
+    .optional()
+    .describe('1NCE account; an omitted field keeps its value'),
   fetchDays: z
     .number()
     .int()
@@ -132,23 +164,29 @@ const updateSimProviderSettingsBody = z.object({
   signalFairDbm: dbm.optional().describe('Fair signal threshold in dBm, below the good one'),
 });
 
-const HOLOGRAM_BODY_KEYS: ReadonlySet<string> = new Set(['enabled', 'orgId', 'apiKey']);
+const PROVIDER_BODY_KEYS: Readonly<Record<SimProviderId, ReadonlySet<string>>> = {
+  hologram: new Set(['enabled', 'orgId', 'apiKey']),
+  '1nce': new Set(['enabled', 'clientId', 'clientSecret']),
+};
 
-/** A misspelled Hologram field would be dropped silently and answer 200. */
-function rejectUnknownHologramKeys(request: FastifyRequest): Promise<void> {
-  const hologram = (request.body as { hologram?: unknown } | null)?.hologram;
-  if (hologram == null || typeof hologram !== 'object' || Array.isArray(hologram)) {
-    return Promise.resolve();
+/** A misspelled provider field would be dropped silently and answer 200. */
+function rejectUnknownProviderKeys(request: FastifyRequest): Promise<void> {
+  const body = request.body as Record<string, unknown> | null;
+  for (const provider of SIM_PROVIDER_ORDER) {
+    const block = body?.[provider];
+    if (block == null || typeof block !== 'object' || Array.isArray(block)) continue;
+    const allowed = PROVIDER_BODY_KEYS[provider];
+    const unknown = Object.keys(block).filter((key) => !allowed.has(key));
+    const first = unknown[0];
+    if (first == null) continue;
+    return Promise.reject(
+      new ValidationError(
+        `Unknown field ${provider}.${first}`,
+        unknown.map((key) => ({ path: [provider, key], message: 'Unknown field' })),
+      ),
+    );
   }
-  const unknown = Object.keys(hologram).filter((key) => !HOLOGRAM_BODY_KEYS.has(key));
-  const first = unknown[0];
-  if (first == null) return Promise.resolve();
-  return Promise.reject(
-    new ValidationError(
-      `Unknown field hologram.${first}`,
-      unknown.map((key) => ({ path: ['hologram', key], message: 'Unknown field' })),
-    ),
-  );
+  return Promise.resolve();
 }
 
 const providerParams = z.object({
@@ -184,7 +222,7 @@ async function readStoredSimSettings(): Promise<Map<string, unknown>> {
 }
 
 const PROVIDER_ERROR_MESSAGES: Readonly<Record<string, string>> = {
-  auth: 'The SIM provider refused the API key',
+  auth: 'The SIM provider refused the credentials',
   not_found: 'The SIM provider does not know the organization',
   unsupported: 'The SIM provider refused the request',
   unavailable: 'The SIM provider did not answer',
@@ -223,7 +261,7 @@ export function simProviderSettingsRoutes(app: FastifyInstance): void {
         tags: ['Settings'],
         summary: 'Get SIM provider settings',
         description:
-          'Returns the SIM provider account and the station signal settings. The API key is returned decrypted only when the caller also holds settings.system:read; otherwise it is null and apiKeyConfigured says whether one is stored.',
+          'Returns the SIM provider accounts and the station signal settings. The Hologram API key and the 1NCE client secret are returned decrypted only when the caller also holds settings.system:read; otherwise they are null and apiKeyConfigured or clientSecretConfigured says whether one is stored.',
         operationId: 'getSimProviderSettings',
         security: [{ bearerAuth: [] }],
         response: {
@@ -241,12 +279,20 @@ export function simProviderSettingsRoutes(app: FastifyInstance): void {
       );
       const includeSecrets = await requestHasPermission(request, SECRET_SETTINGS_READ_PERMISSION);
       const storedKey = stored.get(SIM_SETTING_KEYS.hologramApiKeyEnc);
+      const storedSecret = stored.get(SIM_SETTING_KEYS.oneNceClientSecretEnc);
+      const oneNce = parsed['1nce'];
       return {
         hologram: {
           enabled: parsed.hologram.enabled,
           orgId: parsed.hologram.orgId,
           apiKey: includeSecrets && parsed.hologram.apiKey !== '' ? parsed.hologram.apiKey : null,
           apiKeyConfigured: typeof storedKey === 'string' && storedKey !== '',
+        },
+        '1nce': {
+          enabled: oneNce.enabled,
+          clientId: oneNce.clientId,
+          clientSecret: includeSecrets && oneNce.clientSecret !== '' ? oneNce.clientSecret : null,
+          clientSecretConfigured: typeof storedSecret === 'string' && storedSecret !== '',
         },
         retentionDays: parsed.retentionDays,
         fetchDays: parsed.fetchDays,
@@ -267,13 +313,13 @@ export function simProviderSettingsRoutes(app: FastifyInstance): void {
         rejectUnknownBodyKeys(updateSimProviderSettingsBody, {
           retentionDays: 'set sim.sessions.retentionDays through PUT /v1/settings/data-retention',
         }),
-        rejectUnknownHologramKeys,
+        rejectUnknownProviderKeys,
       ],
       schema: {
         tags: ['Settings'],
         summary: 'Update SIM provider settings',
         description:
-          'Updates the given SIM provider and station signal settings; an omitted field keeps its value. The API key is stored encrypted and an empty string clears it. The organization id holds digits only. The good signal threshold must stay above the fair one.',
+          'Updates the given SIM provider and station signal settings; an omitted field keeps its value. The Hologram API key and the 1NCE client secret are stored encrypted and an empty string clears them. The Hologram organization id holds digits only; the 1NCE client id holds 1 to 128 printable characters without a space or colon. The good signal threshold must stay above the fair one.',
         operationId: 'updateSimProviderSettings',
         security: [{ bearerAuth: [] }],
         body: zodSchema(updateSimProviderSettingsBody),
@@ -292,6 +338,14 @@ export function simProviderSettingsRoutes(app: FastifyInstance): void {
       if (orgId !== undefined && orgId !== '' && !isHologramOrgId(orgId)) {
         await reply.status(400).send({
           error: 'The Hologram organization id holds 1 to 15 digits',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+      const clientId = body['1nce']?.clientId?.trim();
+      if (clientId !== undefined && clientId !== '' && !isOneNceClientId(clientId)) {
+        await reply.status(400).send({
+          error: 'The 1NCE client id holds 1 to 128 printable characters without a space or colon',
           code: 'VALIDATION_ERROR',
         });
         return;
@@ -334,6 +388,20 @@ export function simProviderSettingsRoutes(app: FastifyInstance): void {
         pairs.push({
           key: SIM_SETTING_KEYS.hologramApiKeyEnc,
           value: apiKey === '' ? '' : encryptString(apiKey, simEncryptionKey()),
+        });
+      }
+      if (body['1nce']?.enabled !== undefined) {
+        pairs.push({ key: SIM_SETTING_KEYS.oneNceEnabled, value: body['1nce'].enabled });
+      }
+      if (clientId !== undefined) {
+        pairs.push({ key: SIM_SETTING_KEYS.oneNceClientId, value: clientId });
+      }
+      const clientSecret = body['1nce']?.clientSecret?.trim();
+      // The stored secret sent again changes nothing: no write and no audit row.
+      if (clientSecret !== undefined && clientSecret !== parsed['1nce'].clientSecret) {
+        pairs.push({
+          key: SIM_SETTING_KEYS.oneNceClientSecretEnc,
+          value: clientSecret === '' ? '' : encryptString(clientSecret, simEncryptionKey()),
         });
       }
       if (body.fetchDays !== undefined) {
@@ -432,7 +500,7 @@ export function simProviderSettingsRoutes(app: FastifyInstance): void {
         tags: ['Settings'],
         summary: 'Test a SIM provider connection',
         description:
-          'Checks the stored credentials of the provider: the SIM count of the stored organization and of up to 10 other organizations the API key reaches. The provider must be on and have credentials.',
+          'Checks the stored credentials of the provider: the SIM count of the stored organization and, for Hologram, of up to 10 other organizations the API key reaches (1NCE has none). The provider must be on and have credentials.',
         operationId: 'testSimProviderConnection',
         security: [{ bearerAuth: [] }],
         params: zodSchema(providerParams),

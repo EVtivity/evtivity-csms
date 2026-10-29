@@ -15,7 +15,13 @@ vi.hoisted(() => {
   });
 });
 
-import { NAV_ENTRIES, visibleNavEntries, type NavEntry } from '../registry';
+import {
+  NAV_ENTRIES,
+  PAYMENT_TERMINALS_NAV_ENABLED,
+  paymentTerminalsNavVisible,
+  visibleNavEntries,
+  type NavEntry,
+} from '../registry';
 
 const ALL_ON = {
   roamingEnabled: true,
@@ -25,6 +31,7 @@ const ALL_ON = {
   fleetEnabled: true,
   aiInsightsEnabled: true,
   simEnabled: true,
+  paymentTerminalsEnabled: true,
 };
 
 describe('NAV_ENTRIES', () => {
@@ -122,5 +129,25 @@ describe('SIMs entry', () => {
     );
     const off = visibleNavEntries(['sims:read'], { ...ALL_ON, simEnabled: false }, true);
     expect(off.map((e) => e.to)).not.toContain('/sims');
+  });
+});
+
+describe('Payment Terminals entry', () => {
+  it('is hidden from the menu while the feature is under development', () => {
+    expect(PAYMENT_TERMINALS_NAV_ENABLED).toBe(false);
+    const on = visibleNavEntries(['paymentTerminals:read'], ALL_ON, true).map((e) => e.to);
+    expect(on).not.toContain('/payment-terminals');
+  });
+
+  it('sits after Pricing, needs paymentTerminals:read and shows only while the feature applies', () => {
+    const order = NAV_ENTRIES.map((e) => e.to);
+    expect(order.indexOf('/payment-terminals')).toBe(order.indexOf('/pricing') + 1);
+    const entry = NAV_ENTRIES.find((e) => e.to === '/payment-terminals');
+    expect(entry?.requiredPermission).toBe('paymentTerminals:read');
+    expect(paymentTerminalsNavVisible(ALL_ON, true)).toBe(true);
+    expect(paymentTerminalsNavVisible({ ...ALL_ON, paymentTerminalsEnabled: false }, true)).toBe(
+      false,
+    );
+    expect(paymentTerminalsNavVisible(ALL_ON, false)).toBe(false);
   });
 });

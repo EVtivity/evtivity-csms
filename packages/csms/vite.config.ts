@@ -40,6 +40,8 @@ export default defineConfig({
             },
             { name: 'query', test: /node_modules[\\/]@tanstack[\\/]/, priority: 20 },
             { name: 'ui', test: /node_modules[\\/]lucide-react[\\/]/, priority: 20 },
+            // three.js: only the lazy 3D site layout imports it.
+            { name: 'three', test: /node_modules[\\/]three[\\/]/, priority: 20 },
           ],
         },
       },

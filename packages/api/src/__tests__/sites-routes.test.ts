@@ -90,9 +90,15 @@ vi.mock('@evtivity/services/station-derived-status', () => ({
   buildStatusReasonSubquery: vi.fn(() => null),
 }));
 
+const mockReadStationDataPlans = vi.hoisted(() =>
+  vi.fn((): Promise<Map<string, unknown>> => Promise.resolve(new Map())),
+);
+
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
+  readStationDataPlans: mockReadStationDataPlans,
+  saveSiteLayout: vi.fn(() => Promise.resolve()),
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
@@ -1393,6 +1399,7 @@ describe('Site routes - handler logic', () => {
         securityProfile: 0,
         positionX: '100',
         positionY: '200',
+        inMaintenance: false,
       };
       const evseRow = {
         id: 'evs_000000000001',
@@ -1429,6 +1436,65 @@ describe('Site routes - handler logic', () => {
       expect(body).toHaveLength(1);
       expect(body[0].stationId).toBe('STATION-001');
       expect(body[0].positionX).toBe(100);
+      expect(body[0]).toMatchObject({ placed: true, chargingKind: 'ac', cellular: false });
+    });
+
+    it('adds free slots, the charging kind and the cellular flag', async () => {
+      const saved = {
+        id: 'sta_000000000003',
+        stationId: 'STATION-001',
+        model: null,
+        status: 'available',
+        statusReason: null,
+        isOnline: true,
+        securityProfile: 0,
+        positionX: '20',
+        positionY: '20',
+        inMaintenance: false,
+      };
+      const unplaced = {
+        ...saved,
+        id: 'sta_000000000004',
+        stationId: 'STATION-002',
+        positionX: null,
+        positionY: null,
+        inMaintenance: true,
+      };
+      mockReadStationDataPlans.mockResolvedValueOnce(
+        new Map([
+          [
+            'sta_000000000003',
+            { chargingKind: 'dc', plan: 'wifi_or_wired', hasConfirmedSim: true },
+          ],
+          ['sta_000000000004', { chargingKind: 'ac', plan: 'cellular', hasConfirmedSim: false }],
+        ]),
+      );
+      setupDbResults([{ id: VALID_SITE_ID }], [saved, unplaced], [], [], [], []);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const [first, second] = response.json();
+      expect(first).toMatchObject({
+        positionX: 20,
+        positionY: 20,
+        placed: true,
+        chargingKind: 'dc',
+        cellular: true,
+        inMaintenance: false,
+      });
+      expect(second).toMatchObject({
+        positionX: 220,
+        positionY: 20,
+        placed: false,
+        chargingKind: 'ac',
+        cellular: true,
+        inMaintenance: true,
+      });
     });
 
     it('returns 404 when site not found', async () => {
@@ -1454,7 +1520,6 @@ describe('Site routes - handler logic', () => {
         [{ id: VALID_SITE_ID }], // site exists
         [{ id: VALID_STATION_ID }], // the station belongs to the site
         [{ stationId: VALID_STATION_ID, positionX: '10', positionY: '20' }], // previous position
-        [], // upsert result (for each position)
       );
 
       const response = await app.inject({

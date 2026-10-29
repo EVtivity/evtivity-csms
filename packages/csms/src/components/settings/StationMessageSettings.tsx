@@ -34,7 +34,10 @@ type StationMessageState =
   | 'guest_unauthorized'
   | 'unauthorized'
   | 'prepaid_exhausted'
-  | 'account_credit_limit';
+  | 'account_credit_limit'
+  | 'terminal_card'
+  | 'terminal_result'
+  | 'terminal_receipt';
 
 type StationMessageLanguage = (typeof LANGUAGES)[number]['code'];
 
@@ -79,6 +82,9 @@ const ALL: ReadonlySet<StationMessageState> = new Set([
   'unauthorized',
   'prepaid_exhausted',
   'account_credit_limit',
+  'terminal_card',
+  'terminal_result',
+  'terminal_receipt',
 ]);
 
 const VARIABLES: VariableDef[] = [
@@ -144,6 +150,26 @@ const VARIABLES: VariableDef[] = [
     descriptionKey: 'messages.varReservationExpiresAt',
     states: new Set(['reserved']),
   },
+  {
+    name: 'terminalAmount',
+    descriptionKey: 'messages.varTerminalAmount',
+    states: new Set(['terminal_card', 'terminal_receipt']),
+  },
+  {
+    name: 'paymentApproved',
+    descriptionKey: 'messages.varPaymentApproved',
+    states: new Set(['terminal_result']),
+  },
+  {
+    name: 'plugInAnyConnector',
+    descriptionKey: 'messages.varPlugInAnyConnector',
+    states: new Set(['terminal_result']),
+  },
+  {
+    name: 'receiptUrl',
+    descriptionKey: 'messages.varReceiptUrl',
+    states: new Set(['terminal_receipt']),
+  },
 ];
 
 const STATES: StationMessageState[] = [
@@ -163,6 +189,11 @@ const STATES: StationMessageState[] = [
   'unauthorized',
   'prepaid_exhausted',
   'account_credit_limit',
+  // Payment terminal prompts, shown on the station display for a terminal
+  // without a screen (VP7200): present card, result, receipt link.
+  'terminal_card',
+  'terminal_result',
+  'terminal_receipt',
 ];
 
 const STATE_LABEL_KEY: Record<StationMessageState, string> = {
@@ -180,6 +211,9 @@ const STATE_LABEL_KEY: Record<StationMessageState, string> = {
   unauthorized: 'messages.stateUnauthorized',
   prepaid_exhausted: 'messages.statePrepaidExhausted',
   account_credit_limit: 'messages.stateAccountCreditLimit',
+  terminal_card: 'messages.stateTerminalCard',
+  terminal_result: 'messages.stateTerminalResult',
+  terminal_receipt: 'messages.stateTerminalReceipt',
 };
 
 /** Translated name of a station message state, or the raw code for an unknown one. */

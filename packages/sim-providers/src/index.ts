@@ -3,6 +3,7 @@
 
 export type {
   HologramSettings,
+  OneNceSettings,
   SimAlert,
   SimAlertKind,
   SimCapabilities,
@@ -38,3 +39,17 @@ export {
 } from './hologram/adapter.js';
 export { HOLOGRAM_BASE_URL } from './hologram/client.js';
 export { HOLOGRAM_NETWORK_STATES, mapHologramState } from './hologram/states.js';
+export type { OneNceProviderOptions } from './1nce/adapter.js';
+export {
+  ONENCE_EVENT_PAGE_CAP,
+  ONENCE_EVENT_PAGE_SIZE,
+  ONENCE_HISTORY_DAYS,
+  ONENCE_PDP_EVENT_TYPES,
+  ONENCE_REPORTING_DELAY_HOURS,
+  ONENCE_SESSION_DETAIL_FIELDS,
+  OneNceProvider,
+  oneNceConfigured,
+  oneNceFactory,
+} from './1nce/adapter.js';
+export { ONENCE_BASE_URL } from './1nce/client.js';
+export { mapOneNceState } from './1nce/states.js';

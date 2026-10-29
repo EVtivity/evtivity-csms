@@ -129,6 +129,9 @@ function makeChain() {
   return chain;
 }
 
+const mockPlaceStationOnLayout = vi.hoisted(() => vi.fn(() => Promise.resolve({ x: 20, y: 20 })));
+const mockMoveStationLayout = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+
 vi.mock('@evtivity/database', async () => {
   const rawTimestamp = await import('@evtivity/database/src/lib/raw-timestamp.js');
   const dbMock: Record<string, unknown> = {
@@ -164,6 +167,8 @@ vi.mock('@evtivity/database', async () => {
     effectiveDataPlanSql: 'effective_data_plan',
     dataPlanSourceSql: 'data_plan_source',
     readStationDataPlans: vi.fn(() => Promise.resolve(new Map())),
+    placeStationOnLayout: mockPlaceStationOnLayout,
+    moveStationLayout: mockMoveStationLayout,
     client: {},
     setStationDisabled: mockSetStationDisabled,
     SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
@@ -720,6 +725,12 @@ describe('Station routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       const repush = mockAddJob.mock.calls.find((c) => c[0] === 'station-message-repush');
       expect(repush?.[1]).toEqual({ stationId: VALID_STATION_ID });
+      // The move places the station on a free slot of the new site's layout.
+      expect(mockMoveStationLayout).toHaveBeenCalledWith(
+        expect.anything(),
+        VALID_STATION_ID,
+        'sit_000000000002',
+      );
 
       mockAddJob.mockClear();
       setupDbResults([{ id: 'sit_000000000002' }], [moved], [moved]);
@@ -1177,6 +1188,7 @@ describe('Station routes - handler logic', () => {
     it('returns grouped EVSE/connector data', async () => {
       const rows = [
         {
+          evseDbId: 'evs_000000000001',
           evseId: 1,
           evseAutoCreated: false,
           evseRetiredAt: null,
@@ -1190,6 +1202,7 @@ describe('Station routes - handler logic', () => {
           isIdling: false,
         },
         {
+          evseDbId: 'evs_000000000001',
           evseId: 1,
           evseAutoCreated: false,
           evseRetiredAt: null,
@@ -1215,6 +1228,8 @@ describe('Station routes - handler logic', () => {
       const body = response.json();
       expect(body).toHaveLength(1);
       expect(body[0].evseId).toBe(1);
+      // The record id a payment terminal pairs with (features/payment-terminals.md).
+      expect(body[0].id).toBe('evs_000000000001');
       expect(body[0].connectors).toHaveLength(2);
     });
 

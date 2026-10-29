@@ -192,6 +192,7 @@ import {
   reservationFeeRequest,
   recordsWithPayments,
   recordTerminalSettlement,
+  terminalSettlementOutcome,
   settlePrepaidSession,
 } from '../payment-records.js';
 
@@ -768,6 +769,49 @@ describe('recordTerminalSettlement', () => {
   it('returns false on a replay', async () => {
     h.results.push([]);
     expect(await recordTerminalSettlement({ ...input, driverId: null }, AUDIT)).toBe(false);
+  });
+
+  it('stores a Settled status as captured', async () => {
+    h.results.push([{ id: 2 }]);
+    await recordTerminalSettlement({ ...input, status: 'Settled' }, AUDIT);
+    expect(last().values).toMatchObject({ status: 'captured', capturedAmountCents: 1500 });
+  });
+
+  it.each(['Rejected', 'Failed'] as const)(
+    'stores a %s status as failed with nothing captured (C22)',
+    async (status) => {
+      h.results.push([{ id: 3 }]);
+      await recordTerminalSettlement({ ...input, status, statusInfo: 'Card declined' }, AUDIT);
+      expect(h.calls.find((c) => c.values?.paymentSource === 'ocpp_terminal')?.values).toEqual({
+        sessionId: 's1',
+        driverId: 'd1',
+        paymentSource: 'ocpp_terminal',
+        currency: 'EUR',
+        capturedAmountCents: 0,
+        status: 'failed',
+        failureReason: 'Card declined',
+      });
+    },
+  );
+
+  it('stores a Canceled status as cancelled and names the status without a statusInfo', async () => {
+    h.results.push([{ id: 4 }]);
+    await recordTerminalSettlement({ ...input, status: 'Canceled' }, AUDIT);
+    expect(h.calls.find((c) => c.values?.paymentSource === 'ocpp_terminal')?.values).toMatchObject({
+      status: 'cancelled',
+      capturedAmountCents: 0,
+      failureReason: 'NotifySettlement Canceled',
+    });
+  });
+});
+
+describe('terminalSettlementOutcome', () => {
+  it('captures only Settled or a missing status', () => {
+    expect(terminalSettlementOutcome('Settled')).toBe('captured');
+    expect(terminalSettlementOutcome(undefined)).toBe('captured');
+    expect(terminalSettlementOutcome('Rejected')).toBe('failed');
+    expect(terminalSettlementOutcome('Failed')).toBe('failed');
+    expect(terminalSettlementOutcome('Canceled')).toBe('cancelled');
   });
 });
 

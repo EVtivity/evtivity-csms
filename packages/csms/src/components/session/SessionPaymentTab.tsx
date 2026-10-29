@@ -76,6 +76,7 @@ const PAYMENT_SOURCE_I18N: Record<string, string> = {
   guest: 'payments.sources.guest',
   prepaid: 'payments.sources.prepaid',
   ocpp_terminal: 'payments.sources.ocpp_terminal',
+  terminal: 'payments.sources.terminal',
   operator: 'payments.sources.operator',
 };
 

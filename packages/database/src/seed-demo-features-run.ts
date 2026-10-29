@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// Adds the Plug and Charge, free vend and SIM demo (seed-demo-features.ts) to
+// Adds the Plug and Charge, free vend, SIM and payment terminal demo (seed-demo-features.ts) to
 // an existing demo database without the full seed: `npm run
 // seed:demo-features -w @evtivity/database`. Reads DATABASE_URL like seed.ts.
 // Every row has a fixed id or a natural key and is inserted ON CONFLICT DO
@@ -28,7 +28,7 @@ try {
     actorUserId: admin?.id ?? null,
   });
   console.log(
-    `${String(counts.pncSessions)} Plug and Charge sessions, ${String(counts.freeVendSessions)} free vend sessions and ${String(counts.sims)} SIMs created.`,
+    `${String(counts.pncSessions)} Plug and Charge sessions, ${String(counts.freeVendSessions)} free vend sessions, ${String(counts.sims)} SIMs and ${String(counts.terminalPayments)} terminal payments created.`,
   );
 } finally {
   await client.end();

@@ -99,3 +99,34 @@ export function reservationFeeKey(
   const prefix = type === 'reservation_cancellation' ? 'cancellation-fee' : 'no-show-fee';
   return `${prefix}-${reservationId}`;
 }
+
+/**
+ * A payment started on a terminal: the CSMS terminal transaction id (a
+ * nanoid made before the call, globally unique), so a retried start replays
+ * the provider's first answer and never opens a second hold.
+ */
+export function terminalAuthKey(terminalTransactionId: string): string {
+  return bounded('terminal_auth', `terminal_auth_${terminalTransactionId}`);
+}
+
+/** Capture of a terminal hold: one per provider transaction. */
+export function terminalCaptureKey(providerTxnRef: string): string {
+  return bounded('terminal_capture', `terminal_capture_${providerTxnRef}`);
+}
+
+/** Void of a terminal hold: one per provider transaction, whichever path voids it. */
+export function terminalVoidKey(providerTxnRef: string): string {
+  return bounded('terminal_void', `terminal_void_${providerTxnRef}`);
+}
+
+/** A refund of a terminal capture: the refunded total so far and the amount tell requests apart. */
+export function terminalRefundKey(
+  providerTxnRef: string,
+  refundedSoFarCents: number,
+  amountCents: number,
+): string {
+  return bounded(
+    'terminal_refund',
+    `terminal_refund_${providerTxnRef}_${String(refundedSoFarCents)}_${String(amountCents)}`,
+  );
+}

@@ -184,7 +184,8 @@
     "closeMenu": "关闭菜单",
     "audit": "审计",
     "maintenance": "维护",
-    "aiInsights": "AI 洞察"
+    "aiInsights": "AI 洞察",
+    "paymentTerminals": "支付终端"
   },
   "roaming": {
     "partners": {
@@ -719,6 +720,50 @@
       "suppressedToast": "AI 洞察已暂停",
       "resumedToast": "AI 洞察已恢复",
       "failed": "无法更改此站点的 AI 洞察"
+    },
+    "layoutView": {
+      "viewLabel": "布局视图",
+      "view3d": "3D",
+      "view2d": "2D",
+      "fitToView": "适应视图",
+      "editLayout": "编辑布局",
+      "doneEditing": "完成编辑",
+      "hint": "拖动以旋转，滚动或双指缩放以缩放，右键拖动或双指拖动以平移。点击充电站查看详情。",
+      "hintEdit": "编辑模式：将充电站拖到空闲车位。它会对齐到车位，且不会落在其他充电站上。",
+      "webglUnavailable": "此浏览器无法显示 3D 视图（WebGL 不可用），因此显示 2D 视图。",
+      "loading3d": "正在加载 3D 视图",
+      "newTag": "新",
+      "newTagHint": "已放置在空闲位置，尚未保存。保存以保留此位置。",
+      "newLegend": "尚未保存",
+      "cellularBadge": "4G",
+      "cellularHint": "蜂窝（4G）连接",
+      "cellularLegend": "蜂窝连接",
+      "acPedestal": "交流充电桩",
+      "dcCharger": "直流快充桩",
+      "ac": "交流",
+      "dcFast": "直流快充",
+      "status": "状态",
+      "reason": "原因",
+      "power": "功率",
+      "sessionEnergy": "会话电量",
+      "noSession": "无会话",
+      "connection": "连接",
+      "connectionCellular": "蜂窝（4G）",
+      "connectionWired": "Wi-Fi 或有线",
+      "signalUnknown": "信号未知",
+      "evse": "EVSE {{id}}",
+      "openStation": "打开充电站",
+      "detailsLabel": "{{id}} 详情"
+    },
+    "layoutState": {
+      "faulted": "故障",
+      "unavailable": "不可用",
+      "maintenance": "维护中",
+      "offline": "离线",
+      "reserved": "已预约",
+      "charging": "充电中",
+      "available": "可用",
+      "online": "在线"
     }
   },
   "stations": {
@@ -1155,7 +1200,7 @@
           "attachConflict": "提供商：已跳过，同时有其他 SIM 关联更改在运行。未关联任何内容。请再次点击刷新。"
         },
         "providerFailed": {
-          "auth": "提供商：失败，提供商拒绝了 API 密钥。",
+          "auth": "提供商：失败，提供商拒绝了凭据。",
           "notFound": "提供商：失败，提供商不认识此 SIM。",
           "unsupported": "提供商：失败，提供商拒绝了请求。",
           "unavailable": "提供商：失败，提供商没有响应。",
@@ -1240,6 +1285,7 @@
       "confirmSuccess": "SIM 已确认",
       "resetDescription": "提供商会结束充电站的数据会话，充电站将重新连接蜂窝网络。重新连接之前，充电站可能处于离线状态。",
       "resetSuccess": "已发送网络重置。几分钟后点击刷新即可查看新会话。",
+      "resetSubmitted": "网络重置已排队，将在几分钟内执行。",
       "timelineTitle": "时间线",
       "timelineRange": "范围",
       "timelineLastHour": "最近 1 小时",
@@ -1954,6 +2000,7 @@
       "dashboard": "仪表盘",
       "stations": "充电站",
       "sims": "SIM 卡",
+      "paymentTerminals": "支付终端",
       "sites": "站点",
       "sessions": "会话",
       "drivers": "驾驶员",
@@ -2568,7 +2615,8 @@
       "guest": "访客结账",
       "prepaid": "预付费",
       "ocpp_terminal": "充电站支付终端",
-      "operator": "运营商"
+      "operator": "运营商",
+      "terminal": "在支付终端支付"
     },
     "manual": "手动",
     "energyCost": "电费",
@@ -2683,7 +2731,8 @@
     "sitesWifiOrWired": "设为 Wi-Fi 或有线的站点",
     "sitesCellular": "设为蜂窝网络的站点",
     "webhookSigning": "Webhook 签名密钥",
-    "simHologramKey": "Hologram API 密钥"
+    "simHologramKey": "Hologram API 密钥",
+    "simOneNceSecret": "1NCE 客户端密钥"
   },
   "settings": {
     "title": "设置",
@@ -3477,6 +3526,17 @@
       "hologramOrgIdInvalid": "请输入 1 到 15 位数字。",
       "hologramApiKey": "API 密钥",
       "hologramApiKeyHint": "在 Hologram Dashboard 的 Settings > My account > API 中创建。该密钥需要 Editor 或更高角色。",
+      "oneNceTitle": "1NCE",
+      "oneNceDescription": "来自 1NCE 的蜂窝 SIM 卡。通过 1NCE Management API 读取 SIM 状态、数据配额、基于网络事件的会话以及 SIM 告警。不需要 1NCE Insights。",
+      "oneNceEnabled": "启用 1NCE",
+      "oneNceClientId": "客户端 ID",
+      "oneNceClientIdHint": "在 1NCE Portal 的 Account > Management API Access 中创建 API 客户端。",
+      "oneNceClientIdInvalid": "请输入 1 到 128 个字符，不含空格或冒号。",
+      "oneNceClientSecret": "客户端密钥",
+      "oneNceClientSecretHint": "在 1NCE Portal 中创建 API 客户端时仅显示一次。",
+      "oneNceTestEnableFirst": "请启用 1NCE 并保存后再测试连接。",
+      "oneNceTestSuccess_one": "已连接。该账户有 {{count}} 张 SIM 卡。",
+      "oneNceTestSuccess_other": "已连接。该账户有 {{count}} 张 SIM 卡。",
       "testConnection": "测试连接",
       "testSaveFirst": "测试连接前请先保存更改。",
       "testEnableFirst": "请启用 Hologram 并保存后再测试连接。",
@@ -3595,7 +3655,8 @@
     },
     "uploadReplacesHint": "上传新图片将替换当前图片。",
     "roamingOffDescription": "漫游部分将被隐藏，所有 OCPI 流量将被阻止。",
-    "pncOffDescription": "证书部分将被隐藏，证书操作将被阻止。"
+    "pncOffDescription": "证书部分将被隐藏，证书操作将被阻止。",
+    "paymentSubTabTerminals": "支付终端"
   },
   "pnc": {
     "certificates": "证书",
@@ -3702,6 +3763,7 @@
     "sessionEvents": "会话",
     "supportEvents": "工单",
     "sessionAlertEvents": "会话警报",
+    "paymentTerminalAlertEvents": "支付终端警报",
     "siteHostEvents": "站点业主",
     "mfaEvents": "多因素认证",
     "tokenEvents": "令牌",
@@ -3736,6 +3798,7 @@
       "driver.PortalInvite": "驾驶员门户邀请",
       "driver.RegistrationAttempt": "注册尝试",
       "session.EndRequestFailed": "会话结束失败",
+      "paymentTerminal.Offline": "支付终端离线",
       "site.PayoutOnboarding": "站点收款设置",
       "driver.PasswordChanged": "密码已更改",
       "driver.MfaDisabled": "已禁用双重验证",
@@ -3784,7 +3847,8 @@
       "security.PermissionsGranted": "已授予权限",
       "security.PasswordResetByAdmin": "管理员已发送密码设置链接",
       "security.SsoUnlinked": "单点登录关联已移除",
-      "security.RetentionLowered": "数据保留期已缩短"
+      "security.RetentionLowered": "数据保留期已缩短",
+      "security.PaymentTerminalSettingsChanged": "支付终端设置已更改"
     },
     "templatePreviewInvalid": "模板存在错误：",
     "htmlPreview": "HTML 预览",
@@ -4285,7 +4349,21 @@
     "NOT_FOUND": "未找到",
     "PAYLOAD_TOO_LARGE": "请求过大",
     "UNSUPPORTED_MEDIA_TYPE": "不支持的内容类型",
-    "DATA_PLAN_SETTING_IN_TEMPLATE": "心跳和计量值设置来自 设置 > 集成与功能 > OCPP 和充电站的数据套餐，而不是配置模板。"
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "心跳和计量值设置来自 设置 > 集成与功能 > OCPP 和充电站的数据套餐，而不是配置模板。",
+    "PAYMENT_TERMINAL_NOT_FOUND": "未找到支付终端",
+    "PAYMENT_TERMINAL_INACTIVE": "支付终端已停用",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "支付终端未与充电站配对",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "另一个启用的支付终端已与此充电枪配对",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "此设备已注册为支付终端",
+    "PAYMENT_TERMINAL_BUSY": "支付终端已有正在进行的支付",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "支付终端有支付记录，无法删除，请改为停用",
+    "PAYMENT_TERMINAL_HAS_SIM": "支付终端已有 SIM 卡",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "此硬件模式终端由充电站控制，CSMS 无法在其上发起支付",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "支付终端提供商已关闭或没有凭据",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "ID TECH 集成尚未通过生产环境验证",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "支付终端提供商请求失败",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "未找到终端支付",
+    "TERMINAL_TRANSACTION_STATE": "终端支付当前状态不允许此操作"
   },
   "logs": {
     "title": "日志",
@@ -5294,7 +5372,14 @@
     "varDriverFirstName": "驾驶员名字",
     "varReservationExpiresAt": "预约到期时间",
     "settingsSaved": "设置已保存。",
-    "settingsSaveFailed": "保存设置失败。"
+    "settingsSaveFailed": "保存设置失败。",
+    "stateTerminalCard": "支付终端：出示卡片",
+    "stateTerminalResult": "支付终端：结果",
+    "stateTerminalReceipt": "支付终端：收据",
+    "varTerminalAmount": "预授权或已付金额，以公司货币显示",
+    "varPaymentApproved": "卡片获批时设置",
+    "varPlugInAnyConnector": "驾驶员可以在任意连接器插枪时设置（整个充电站的终端）",
+    "varReceiptUrl": "支付收据链接"
   },
   "audit": {
     "title": "审计日志",
@@ -5483,7 +5568,14 @@
       "network_reset": "网络已重置",
       "sso_link_allowed": "已允许 SSO 登录",
       "sso_unlinked": "已移除 SSO 关联",
-      "data_plan_changed": "数据套餐已更改"
+      "data_plan_changed": "数据套餐已更改",
+      "paired": "已配对",
+      "unpaired": "已取消配对",
+      "sim_attached": "已关联 SIM",
+      "sim_detached": "已解除 SIM",
+      "status_synced": "状态已同步",
+      "payment_started": "支付已发起",
+      "payment_voided": "支付已撤销"
     },
     "entities": {
       "site": "站点",
@@ -5520,7 +5612,8 @@
       "station_message_template": "充电站消息模板",
       "event_alert_rule": "事件告警规则",
       "report_schedule": "报告计划",
-      "sim": "SIM 卡"
+      "sim": "SIM 卡",
+      "payment_terminal": "支付终端"
     },
     "actors": {
       "operator": "运营商",
@@ -6501,5 +6594,225 @@
     "title": "未设置文件存储",
     "description": "尚未设置文件存储，无法上传文件。管理员可以在 {{path}} 中进行设置。",
     "openSettings": "打开设置"
+  },
+  "paymentTerminals": {
+    "title": "支付终端",
+    "subtitle": "为充电会话收款的读卡器。",
+    "featureOff": "尚未设置支付终端提供商。请在 设置 > 支付 > 支付终端 中开启。",
+    "create": "新建支付终端",
+    "exportCsv": "导出 CSV",
+    "search": "搜索",
+    "searchPlaceholder": "按标签、序列号或设备 ID 搜索",
+    "noTerminals": "未找到支付终端。",
+    "notPaired": "未配对",
+    "wholeStation": "整个充电站",
+    "connector": "连接器 {{number}}",
+    "online": "在线",
+    "offline": "离线",
+    "onlineUnknown": "未知",
+    "lastSeen": "最后在线 {{time}}",
+    "simAttached": "已关联",
+    "providers": {
+      "simulated": "模拟"
+    },
+    "status": {
+      "active": "启用",
+      "inactive": "停用"
+    },
+    "columns": {
+      "label": "标签",
+      "model": "型号",
+      "site": "站点",
+      "station": "充电站",
+      "connector": "连接器",
+      "provider": "提供商",
+      "status": "状态",
+      "online": "设备状态",
+      "sim": "SIM"
+    },
+    "filters": {
+      "status": "状态",
+      "allStatuses": "所有状态",
+      "online": "设备状态",
+      "allOnline": "在线和离线",
+      "site": "站点",
+      "allSites": "所有站点"
+    },
+    "fields": {
+      "label": "标签",
+      "vendor": "厂商",
+      "model": "型号",
+      "serialNumber": "序列号",
+      "firmwareVersion": "固件版本",
+      "provider": "提供商",
+      "providerDeviceId": "提供商设备 ID",
+      "site": "站点",
+      "status": "状态",
+      "online": "设备状态",
+      "created": "创建时间"
+    },
+    "new": {
+      "title": "新建支付终端",
+      "deviceTitle": "设备",
+      "pairingTitle": "配对",
+      "provider": "提供商",
+      "noProvider": "没有可用的提供商",
+      "noProviderHint": "请先在 设置 > 支付 > 支付终端 中开启终端提供商。",
+      "device": "设备",
+      "selectDevice": "选择设备",
+      "loadingDevices": "正在加载设备...",
+      "deviceHintPicker": "提供商账户中尚未注册的设备。",
+      "deviceHintTyped": "提供商账户中的设备 ID，例如设备标签上的 ID。",
+      "deviceIdInvalid": "请使用 1 到 128 个不含空格的可打印字符。",
+      "pairingNeedsPermission": "与充电站配对需要充电站写入权限。您可以稍后再配对终端。",
+      "noSite": "无站点",
+      "selectSite": "选择站点",
+      "siteHint": "未配对的终端属于此站点。已配对的终端使用其充电站的站点。",
+      "submit": "创建终端"
+    },
+    "detail": {
+      "notFound": "未找到支付终端。",
+      "tabs": {
+        "payments": "支付",
+        "sim": "SIM 卡"
+      },
+      "noDisplayNote": "此型号没有屏幕。其提示（连接器、金额、结果和收据链接）显示在充电站显示屏上。",
+      "editTitle": "编辑支付终端",
+      "deactivate": "停用终端",
+      "reactivate": "启用终端",
+      "deactivateDescription": "停用的终端不接受支付。进行中的支付不会停止。",
+      "reactivateDescription": "终端将重新接受支付。",
+      "deactivateSuccess": "支付终端已停用。",
+      "reactivateSuccess": "支付终端已启用。",
+      "delete": "删除终端",
+      "deleteDescription": "删除支付终端 {{name}}。已收过款的终端无法删除，请改为停用。",
+      "deleteSuccess": "支付终端已删除。"
+    },
+    "pairing": {
+      "title": "配对",
+      "description": "终端为其收款的充电站。",
+      "notPaired": "此终端未与充电站配对。",
+      "station": "充电站",
+      "selectStation": "选择充电站",
+      "connector": "连接器",
+      "wholeStationHint": "整个充电站：驾驶员在终端屏幕上选择连接器。对于没有屏幕的终端，驾驶员可在任意连接器插枪。",
+      "pair": "配对",
+      "change": "更改配对",
+      "unpair": "取消配对",
+      "unpairDescription": "取消与 {{station}} 的配对。终端保留其站点。",
+      "dialogTitle": "配对支付终端",
+      "dialogDescription": "选择此终端为其收款的充电站和连接器。",
+      "pairSuccess": "支付终端已配对。",
+      "unpairSuccess": "支付终端已取消配对。"
+    },
+    "testPayment": {
+      "title": "测试支付",
+      "description": "在终端上请求刷卡。卡片获批后，已配对的连接器开始充电。",
+      "amount": "预授权金额（{{currency}}）",
+      "amountHint": "留空则使用站点的预授权金额。",
+      "receiptEmail": "收据电子邮件",
+      "receiptEmailHint": "可选。收据链接将发送到此地址。",
+      "start": "发起测试支付",
+      "inactive": "请先启用终端再发起支付。",
+      "notPaired": "请先将终端与充电站配对再发起支付。",
+      "chargingStarted": "卡片已获批，充电已开始。",
+      "chargingNotStarted": "充电未开始：{{reason}}。预授权已释放。",
+      "waiting": "正在等待终端上的卡片。"
+    },
+    "payments": {
+      "description": "此终端上的刷卡支付，最新的在前。",
+      "empty": "暂无支付。",
+      "columns": {
+        "started": "开始时间",
+        "state": "状态",
+        "hold": "预授权",
+        "captured": "已扣款",
+        "card": "卡片",
+        "session": "会话",
+        "payment": "支付"
+      },
+      "cardEnding": "{{brand}} 尾号 {{last4}}",
+      "refunded": "已退款 {{amount}}",
+      "openSession": "打开会话",
+      "openPayment": "打开支付",
+      "openNotice": "一笔 {{amount}} 的支付正在进行（{{state}}）。",
+      "void": "撤销支付",
+      "voidDescription": "释放卡片上的预授权。已开始的充电不会停止。",
+      "voidSuccess": "支付已撤销。"
+    },
+    "txnStates": {
+      "requested": "已请求",
+      "presenting": "等待刷卡",
+      "authorized": "已授权",
+      "declined": "已拒绝",
+      "expired": "已过期",
+      "failed": "失败",
+      "void_requested": "撤销中",
+      "voided": "已撤销",
+      "capture_requested": "扣款中",
+      "captured": "已扣款",
+      "refund_pending": "退款待处理",
+      "partially_refunded": "部分退款",
+      "refunded": "已退款"
+    },
+    "sim": {
+      "description": "带有自身 SIM 的终端（例如 VP6825 LTE 版本）可使用 SIM 功能。",
+      "attached": "此支付终端已关联 SIM。",
+      "openSims": "打开 SIM",
+      "none": "此支付终端未关联 SIM。",
+      "iccid": "ICCID",
+      "iccidHint": "印在 SIM 卡上的 ICCID，18 到 22 位数字。",
+      "iccidInvalid": "请输入有效的 ICCID。",
+      "attach": "关联 SIM",
+      "attachSuccess": "SIM 已关联。",
+      "detach": "解除 SIM",
+      "detachDescription": "结束 SIM 与此支付终端的关联。SIM 仍保留在库存中。",
+      "detachSuccess": "SIM 已解除。"
+    },
+    "stationCard": {
+      "title": "支付终端",
+      "description": "与此充电站配对的读卡器。",
+      "empty": "此充电站未配对支付终端。",
+      "pairTitle": "配对支付终端",
+      "pairDescription": "选择一个未配对的终端及其收款的连接器。",
+      "terminal": "支付终端",
+      "selectTerminal": "选择终端",
+      "noUnpaired": "没有可用的未配对启用终端。请通过 新建支付终端 创建。"
+    },
+    "settings": {
+      "description": "读卡器提供商。每个运营商使用自己的商户账户；EVtivity 从不持有资金。",
+      "simulatedTitle": "模拟终端",
+      "simulatedOn": "此安装中可使用模拟终端提供商（用于测试，不产生资金流动）。",
+      "simulatedOff": "此安装中模拟终端提供商已关闭。",
+      "idtechTitle": "ID TECH Payment Service Gateway",
+      "idtechDescription": "通过 ID TECH Payment Service Gateway 连接的云端终端（VP6825、VP7200）。",
+      "unverified": "ID TECH 集成尚未通过生产环境验证。只能在开发和测试安装中开启。",
+      "idtechEnabled": "启用 ID TECH",
+      "idtechOffDescription": "关闭期间，ID TECH 终端不接受新的支付。",
+      "environment": "环境",
+      "environments": {
+        "sandbox": "沙盒",
+        "production": "生产"
+      },
+      "environmentHint": "更改环境会清除您未重新发送的已存储密钥。",
+      "merchantId": "商户 ID",
+      "merchantIdInvalid": "请使用 1 到 64 个字母、数字、_ 或 -。",
+      "apiKey": "API 密钥",
+      "apiKeyHint": "来自 ID TECH 商户门户。加密存储。",
+      "apiSecret": "API 机密",
+      "apiSecretHint": "来自 ID TECH 商户门户。加密存储。",
+      "webhookSecret": "Webhook 密钥",
+      "webhookSecretHint": "为 ID TECH 发送到 Webhook URL 的事件签名。加密存储。",
+      "webhookUrl": "Webhook URL",
+      "webhookUrlHint": "在 ID TECH 商户门户中将此 URL 填写为事件目标地址。",
+      "proofHint": "更改环境、商户或凭据需要重新确认身份。",
+      "saveFailed": "无法保存支付终端设置。",
+      "testConnection": "测试连接",
+      "testSaveFirst": "测试连接前请先保存更改。",
+      "testEnableFirst": "测试连接前请先启用 ID TECH。",
+      "testSuccess": "ID TECH 已接受凭据。",
+      "testRefused": "ID TECH 拒绝了连接（{{reason}}）。",
+      "testFailed": "连接测试失败。"
+    }
   }
 }

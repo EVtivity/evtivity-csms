@@ -57,6 +57,9 @@ vi.mock('@/hooks/use-company-currency', () => ({
   useCompanyCurrency: () => ({ currency: 'USD', isError: false, refetch: vi.fn() }),
 }));
 vi.mock('../settings/AdyenSettings', () => ({ AdyenSettings: () => <div>adyen-tab</div> }));
+vi.mock('../settings/PaymentTerminalSettings', () => ({
+  PaymentTerminalSettings: () => <div>terminals-tab</div>,
+}));
 vi.mock('../settings/PaymentProviderSettings', () => ({
   PaymentProviderSettings: () => <div>general-tab</div>,
 }));
@@ -204,8 +207,15 @@ describe('PaymentSettings sub-tabs', () => {
       'paymentProviders.general.tab',
       'settings.paymentSubTabStripe',
       'settings.paymentSubTabAdyen',
+      'settings.paymentSubTabTerminals',
       'settings.paymentSubTabSiteConfigs',
     ]);
+  });
+
+  it('opens the Payment Terminals tab from its link', async () => {
+    mockGets();
+    renderSettings('/settings?sub=terminals');
+    expect(await screen.findByText('terminals-tab')).toBeTruthy();
   });
 
   it('hides the provider, Stripe and Adyen settings from a site-restricted user', async () => {
@@ -218,6 +228,7 @@ describe('PaymentSettings sub-tabs', () => {
     expect(tabs).toEqual(['paymentProviders.general.tab', 'settings.paymentSubTabSiteConfigs']);
     expect(screen.queryByText('general-tab')).toBeNull();
     expect(screen.queryByText('adyen-tab')).toBeNull();
+    expect(screen.queryByText('terminals-tab')).toBeNull();
     expect(getMock).not.toHaveBeenCalledWith('/v1/settings/stripe');
   });
 

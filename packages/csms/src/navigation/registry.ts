@@ -22,12 +22,33 @@ import {
   Shield,
   Lightbulb,
   Microchip,
+  Nfc,
   type LucideIcon,
 } from 'lucide-react';
 import type { ParseKeys } from 'i18next';
 import { permissionCatalog } from '@evtivity/lib/permissions';
 import { hasPermissionCheck } from '@/lib/auth';
 import type { NavFeatureFlags } from '@/hooks/use-feature-flags';
+
+/**
+ * The flags the nav entries read: the public feature toggles, plus whether the
+ * Payment Terminals page applies (`GET /v1/payment-terminals/feature`, read only
+ * with `paymentTerminals:read`).
+ */
+export interface NavFlags extends NavFeatureFlags {
+  paymentTerminalsEnabled: boolean;
+}
+
+/** The Payment Terminals menu entry is hidden while the feature is under development. */
+export const PAYMENT_TERMINALS_NAV_ENABLED = false;
+
+/** Whether the Payment Terminals entry shows: the switch above and the feature check. */
+export function paymentTerminalsNavVisible(
+  flags: NavFlags,
+  navEnabled: boolean = PAYMENT_TERMINALS_NAV_ENABLED,
+): boolean {
+  return navEnabled && flags.paymentTerminalsEnabled;
+}
 
 export interface NavEntry {
   to: string;
@@ -38,7 +59,7 @@ export interface NavEntry {
   /** The entry shows when the user holds this permission, or any of them for a list. */
   requiredPermission: string | readonly string[];
   /** Feature toggle check. Omitted: always visible to users with the permission. */
-  isVisible?: (flags: NavFeatureFlags) => boolean;
+  isVisible?: (flags: NavFlags) => boolean;
   /**
    * Company-wide page: shown only to users with access to every site (the API
    * answers 404 to site-restricted users).
@@ -136,6 +157,14 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
     requiredPermission: 'pricing:read',
   },
   {
+    to: '/payment-terminals',
+    labelKey: 'nav.paymentTerminals',
+    icon: Nfc,
+    order: 95,
+    requiredPermission: 'paymentTerminals:read',
+    isVisible: (flags) => paymentTerminalsNavVisible(flags),
+  },
+  {
     to: '/reports',
     labelKey: 'nav.reports',
     icon: FileBarChart,
@@ -223,7 +252,7 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
  */
 export function visibleNavEntries(
   permissions: string[],
-  flags: NavFeatureFlags,
+  flags: NavFlags,
   hasAllSiteAccess: boolean,
   entries: readonly NavEntry[] = NAV_ENTRIES,
 ): NavEntry[] {

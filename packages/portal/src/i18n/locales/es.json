@@ -989,7 +989,21 @@
     "SIM_TEST_UNAVAILABLE": "La prueba de conexión no se puede ejecutar ahora. Inténtelo de nuevo en un minuto",
     "NOT_FOUND": "No encontrado",
     "PAYLOAD_TOO_LARGE": "La solicitud es demasiado grande",
-    "UNSUPPORTED_MEDIA_TYPE": "Tipo de contenido no admitido"
+    "UNSUPPORTED_MEDIA_TYPE": "Tipo de contenido no admitido",
+    "PAYMENT_TERMINAL_NOT_FOUND": "Terminal de pago no encontrado",
+    "PAYMENT_TERMINAL_INACTIVE": "El terminal de pago está inactivo",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "El terminal de pago no está vinculado a una estación de carga",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "Otro terminal de pago activo ya está vinculado a este conector",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "Este dispositivo ya está registrado como terminal de pago",
+    "PAYMENT_TERMINAL_BUSY": "El terminal de pago ya tiene un pago en curso",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "El terminal de pago tiene pagos y no se puede eliminar; desactívelo en su lugar",
+    "PAYMENT_TERMINAL_HAS_SIM": "El terminal de pago ya tiene una SIM",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "La estación de carga controla este terminal en modo hardware; el CSMS no puede iniciar pagos en él",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "El proveedor de terminales de pago está desactivado o no tiene credenciales",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "La integración de ID TECH aún no está verificada para uso en producción",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "La solicitud al proveedor de terminales de pago falló",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "Pago de terminal no encontrado",
+    "TERMINAL_TRANSACTION_STATE": "El pago de terminal no permite esta acción en su estado actual"
   },
   "validation": {
     "required": "Este campo es obligatorio",

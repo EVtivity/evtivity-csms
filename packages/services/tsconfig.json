@@ -10,6 +10,7 @@
     { "path": "../ai" },
     { "path": "../database" },
     { "path": "../payments" },
-    { "path": "../sim-providers" }
+    { "path": "../sim-providers" },
+    { "path": "../payment-terminals" }
   ]
 }

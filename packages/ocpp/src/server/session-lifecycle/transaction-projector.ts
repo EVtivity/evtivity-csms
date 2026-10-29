@@ -29,7 +29,11 @@ import {
   OCPI_START_CONTEXT_MINUTES,
   sessionSiteIdSql,
 } from '@evtivity/database';
-import { linkGuestSessionToCharging, withPaymentActor } from '@evtivity/payments';
+import {
+  linkGuestSessionToCharging,
+  linkTerminalSession,
+  withPaymentActor,
+} from '@evtivity/payments';
 import { cardMayAuthorizeVehicleId, isVehicleIdType } from '@evtivity/lib/vehicle-id';
 import { findLinkableStationTokens } from '../../authorization/station-token-match.js';
 import type { ProjectionDeps } from '../projection-support/context.js';
@@ -943,10 +947,12 @@ export class TransactionProjector {
     language: string | null;
   } | null> {
     const guestRows = await this.deps.sql`
-      SELECT status, guest_email, language, pre_auth_amount_cents, provider_payment_id,
-             payment_terminal, max_cost_cents, charging_session_id
-      FROM guest_sessions
-      WHERE session_token = ${idToken} AND station_ocpp_id = ${stationId}
+      SELECT g.id, g.status, g.guest_email, g.language, g.pre_auth_amount_cents,
+             g.provider_payment_id, g.payment_terminal, g.max_cost_cents, g.charging_session_id,
+             ptx.state AS terminal_state, ptx.authorized_cents AS terminal_authorized_cents
+      FROM guest_sessions g
+      LEFT JOIN payment_terminal_transactions ptx ON ptx.guest_session_id = g.id
+      WHERE g.session_token = ${idToken} AND g.station_ocpp_id = ${stationId}
       LIMIT 1
     `;
     const guest = guestRows[0];
@@ -957,6 +963,13 @@ export class TransactionProjector {
     const status = linkedHere ? 'payment_authorized' : storedStatus;
     const holdCents = guest.pre_auth_amount_cents as number | null;
     const maxCostCents = guest.max_cost_cents as number | null;
+    // A CSMS payment terminal hold (features/payment-terminals.md): the
+    // authorized amount is the ceiling, and it holds money only while the
+    // terminal transaction is authorized. A third-party kiosk row
+    // (POST /v1/ad-hoc-payments) has no terminal transaction and settles itself.
+    const terminalState = (guest.terminal_state as string | null) ?? null;
+    const terminalAuthorizedCents = (guest.terminal_authorized_cents as number | null) ?? null;
+    const terminalHeld = terminalState === 'authorized' && terminalAuthorizedCents != null;
     if (
       holdCents != null &&
       guest.provider_payment_id != null &&
@@ -968,6 +981,25 @@ export class TransactionProjector {
         SET cost_ceiling_cents = ${ceilingCents}, updated_at = now()
         WHERE id = ${sessionId}
       `;
+    }
+    if (terminalHeld && (storedStatus === 'payment_authorized' || storedStatus === 'charging')) {
+      const ceilingCents =
+        maxCostCents != null
+          ? Math.min(terminalAuthorizedCents, maxCostCents)
+          : terminalAuthorizedCents;
+      await this.deps.sql`
+        UPDATE charging_sessions
+        SET cost_ceiling_cents = ${ceilingCents}, updated_at = now()
+        WHERE id = ${sessionId}
+      `;
+      try {
+        await linkTerminalSession(guest.id as number, sessionId);
+      } catch (err: unknown) {
+        this.deps.logger.warn(
+          { err, sessionId },
+          'Failed to link the terminal payment at the start; the settlement links it',
+        );
+      }
     }
     if (status === 'payment_authorized') {
       try {
@@ -985,8 +1017,11 @@ export class TransactionProjector {
     return {
       status,
       // A card hold, or the authorization of a payment terminal (ad hoc
-      // payment), which settles the session itself.
-      hasHold: guest.provider_payment_id != null || guest.payment_terminal === true,
+      // payment): a third-party kiosk settles the session itself; a CSMS
+      // terminal holds money only while its transaction is authorized.
+      hasHold:
+        guest.provider_payment_id != null ||
+        (guest.payment_terminal === true && (terminalState == null || terminalHeld)),
       email: (guest.guest_email as string | null) ?? null,
       language: (guest.language as string | null | undefined) ?? null,
     };

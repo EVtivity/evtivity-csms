@@ -172,4 +172,20 @@ describe('StationMessageSettings', () => {
       expect(screen.getByText(`{{${name}}}`)).toBeTruthy();
     }
   });
+
+  it('lists the payment terminal states with their variables', async () => {
+    renderSettings({});
+    fireEvent.click(await screen.findByRole('tab', { name: 'messages.stateTerminalReceipt' }));
+    await waitFor(() => {
+      expect(screen.getByText('{{receiptUrl}}')).toBeTruthy();
+    });
+    expect(screen.getByText('{{terminalAmount}}')).toBeTruthy();
+    expect(screen.queryByText('{{paymentApproved}}')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'messages.stateTerminalResult' }));
+    await waitFor(() => {
+      expect(screen.getByText('{{paymentApproved}}')).toBeTruthy();
+    });
+    expect(screen.getByText('{{plugInAnyConnector}}')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'messages.stateTerminalCard' })).toBeTruthy();
+  });
 });

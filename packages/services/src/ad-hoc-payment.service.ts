@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -13,14 +13,11 @@ import {
   PG_UNIQUE_VIOLATION,
   stationAuditLog,
   writeAudit,
+  type AuditActor,
 } from '@evtivity/database';
-import type { FastifyBaseLogger } from 'fastify';
-import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
-import { getUserSiteIds } from '../lib/site-access.js';
-import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
-import { siteInScope } from '../lib/site-scope.js';
-import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { isOcpp21 } from '@evtivity/lib/ocpp-version';
+import { sendOcppCommandAndWait } from './ocpp-command.js';
+import { getActiveMaintenanceForStation } from './maintenance.service.js';
 
 /** How long an authorized payment waits for the station to start the transaction. */
 const PAYMENT_TTL_MS = 15 * 60 * 1000;
@@ -28,6 +25,11 @@ const PAYMENT_TTL_MS = 15 * 60 * 1000;
 export interface AdHocPaymentStart {
   /** OCPP identity of the charging station. */
   stationId: string;
+  /**
+   * EVSE the payment is for. 0 is a station-wide start (a station-wide payment
+   * terminal without a connector pick): RequestStartTransaction goes without
+   * an evseId and the station starts on the connector the driver plugs in.
+   */
   evseId: number;
   /** PSP reference of the authorized payment. Sent as the DirectPayment idToken. */
   pspRef: string;
@@ -41,8 +43,33 @@ export interface AdHocPaymentStart {
   email?: string | undefined;
 }
 
+export interface AdHocPaymentAccess {
+  /** False for a station outside the caller's sites (answered as not found). */
+  siteAllowed: (siteId: string | null) => boolean;
+  actor: {
+    actor: AuditActor;
+    actorUserId: string | null;
+    actorDriverId: string | null;
+    actorApiKeyId: string | null;
+    actorLabel: string | null;
+  };
+  logger: {
+    warn: (obj: unknown, msg?: string) => void;
+  };
+  /**
+   * A CSMS payment terminal (features/payment-terminals.md): the guest
+   * session token is a CSMS token of 20 random hex characters (the 1.6 idTag
+   * length, and the portal receipt link), sent as a DirectPayment idToken to
+   * an OCPP 2.1 station and as a Central idToken to a 1.6 or 2.0.1 station,
+   * whose idToken types have no DirectPayment; the guest session fallback
+   * authorizes it there and the CSMS ceiling stops the transaction at the
+   * hold. Without it a station must use OCPP 2.1 and the token is the pspRef.
+   */
+  terminalToken?: boolean;
+}
+
 export type AdHocPaymentResult =
-  | { ok: true; replayed: boolean }
+  | { ok: true; replayed: boolean; guestSessionId: number; token: string }
   | { ok: false; status: 400 | 404 | 409 | 502 | 504; code: string; error: string };
 
 function isUniqueViolation(err: unknown): boolean {
@@ -60,12 +87,12 @@ function isUniqueViolation(err: unknown): boolean {
  *
  * A retried request with the same pspRef for the same EVSE is a no-op replay,
  * so a payment terminal can retry safely without starting a second transaction.
+ * Shared by the API route and the payment terminal flow (API and worker), so
+ * it lives here (P8).
  */
 export async function startAdHocPayment(
   input: AdHocPaymentStart,
-  userId: string,
-  actor: AuditActorInfo,
-  logger: FastifyBaseLogger,
+  access: AdHocPaymentAccess,
 ): Promise<AdHocPaymentResult> {
   const [station] = await db
     .select({
@@ -77,15 +104,15 @@ export async function startAdHocPayment(
     .from(chargingStations)
     .where(eq(chargingStations.stationId, input.stationId));
 
-  const siteIds = await getUserSiteIds(userId);
-  if (station == null || !siteInScope(siteIds, station.siteId)) {
+  if (station == null || !access.siteAllowed(station.siteId)) {
     return { ok: false, status: 404, code: 'STATION_NOT_FOUND', error: 'Station not found' };
   }
   if (!station.isOnline) {
     return { ok: false, status: 400, code: 'STATION_OFFLINE', error: 'Station is offline' };
   }
+  const directPayment = isOcpp21(station.ocppProtocol);
   // DirectPayment idTokens and transaction limits exist only in OCPP 2.1.
-  if (!isOcpp21(station.ocppProtocol)) {
+  if (!directPayment && access.terminalToken !== true) {
     return {
       ok: false,
       status: 400,
@@ -104,45 +131,60 @@ export async function startAdHocPayment(
     };
   }
 
-  const [evse] = await db
-    .select({ id: evses.id })
-    .from(evses)
-    .where(and(eq(evses.stationId, station.id), eq(evses.evseId, input.evseId)));
-  if (evse == null) {
-    return { ok: false, status: 404, code: 'EVSE_NOT_FOUND', error: 'EVSE not found' };
+  const stationWide = input.evseId === 0;
+  let evseRowId: string | null = null;
+  if (!stationWide) {
+    const [evse] = await db
+      .select({ id: evses.id })
+      .from(evses)
+      .where(and(eq(evses.stationId, station.id), eq(evses.evseId, input.evseId)));
+    if (evse == null) {
+      return { ok: false, status: 404, code: 'EVSE_NOT_FOUND', error: 'EVSE not found' };
+    }
+    evseRowId = evse.id;
   }
 
   const existing = await findPayment(input.pspRef);
   if (existing != null) return replayOrConflict(existing, input);
 
-  const [activeSession] = await db
-    .select({ id: chargingSessions.id })
-    .from(chargingSessions)
-    .where(and(eq(chargingSessions.evseId, evse.id), eq(chargingSessions.status, 'active')))
-    .limit(1);
-  if (activeSession != null) {
-    return {
-      ok: false,
-      status: 409,
-      code: 'EVSE_IN_USE',
-      error: 'Another session is already active on this connector',
-    };
+  if (evseRowId != null) {
+    const [activeSession] = await db
+      .select({ id: chargingSessions.id })
+      .from(chargingSessions)
+      .where(and(eq(chargingSessions.evseId, evseRowId), eq(chargingSessions.status, 'active')))
+      .limit(1);
+    if (activeSession != null) {
+      return {
+        ok: false,
+        status: 409,
+        code: 'EVSE_IN_USE',
+        error: 'Another session is already active on this connector',
+      };
+    }
   }
 
+  const token =
+    access.terminalToken === true ? crypto.randomBytes(10).toString('hex') : input.pspRef;
+  let guestSessionId: number;
   try {
-    await db.insert(guestSessions).values({
-      stationOcppId: input.stationId,
-      evseId: input.evseId,
-      guestEmail: input.email ?? '',
-      status: 'payment_authorized',
-      // The terminal holds the payment: the payment gate counts this as the hold.
-      paymentTerminal: true,
-      sessionToken: input.pspRef,
-      expiresAt: new Date(Date.now() + PAYMENT_TTL_MS),
-      maxCostCents: input.maxCostCents ?? null,
-      maxEnergyWh: input.maxEnergyWh ?? null,
-      maxTimeSeconds: input.maxTimeSeconds ?? null,
-    });
+    const [row] = await db
+      .insert(guestSessions)
+      .values({
+        stationOcppId: input.stationId,
+        evseId: input.evseId,
+        guestEmail: input.email ?? '',
+        status: 'payment_authorized',
+        // The terminal holds the payment: the payment gate counts this as the hold.
+        paymentTerminal: true,
+        sessionToken: token,
+        expiresAt: new Date(Date.now() + PAYMENT_TTL_MS),
+        maxCostCents: input.maxCostCents ?? null,
+        maxEnergyWh: input.maxEnergyWh ?? null,
+        maxTimeSeconds: input.maxTimeSeconds ?? null,
+      })
+      .returning({ id: guestSessions.id });
+    if (row == null) throw new Error('Guest session insert returned no row');
+    guestSessionId = row.id;
   } catch (err) {
     // A concurrent request with the same pspRef won the insert.
     if (!isUniqueViolation(err)) throw err;
@@ -158,13 +200,15 @@ export async function startAdHocPayment(
     ...(input.cardBin != null ? [{ additionalIdToken: input.cardBin, type: 'CardBin' }] : []),
   ];
   const cmdResult = await sendOcppCommandAndWait(input.stationId, 'RequestStartTransaction', {
-    evseId: input.evseId,
+    ...(stationWide ? {} : { evseId: input.evseId }),
     remoteStartId: crypto.randomInt(1, 2_147_483_647),
-    idToken: {
-      idToken: input.pspRef,
-      type: 'DirectPayment',
-      ...(additionalInfo.length > 0 ? { additionalInfo } : {}),
-    },
+    idToken: directPayment
+      ? {
+          idToken: token,
+          type: 'DirectPayment',
+          ...(additionalInfo.length > 0 ? { additionalInfo } : {}),
+        }
+      : { idToken: token, type: 'Central' },
   });
 
   const cmdStatus = cmdResult.response?.['status'] as string | undefined;
@@ -176,11 +220,11 @@ export async function startAdHocPayment(
       entityId: station.id,
       entityIdSnapshot: station.id,
       action: 'command_dispatched',
-      ...actor,
+      ...access.actor,
       notes: `RequestStartTransaction for ad hoc payment (${cmdResult.error != null ? 'Timeout' : (cmdStatus ?? 'Unknown')})`,
       after: {
         action: 'RequestStartTransaction',
-        evseId: input.evseId,
+        evseId: stationWide ? null : input.evseId,
         pspRef: input.pspRef,
         maxCostCents: input.maxCostCents ?? null,
         maxEnergyWh: input.maxEnergyWh ?? null,
@@ -189,13 +233,15 @@ export async function startAdHocPayment(
       },
     },
     db,
-    logger,
+    access.logger,
   );
   if (cmdResult.error != null || cmdStatus !== 'Accepted') {
     // The station did not start: drop the payment so the terminal can retry or
-    // void the authorization.
-    await db.delete(guestSessions).where(eq(guestSessions.sessionToken, input.pspRef));
-    logger.warn(
+    // void the authorization. Only a row no transaction linked meanwhile.
+    await db
+      .delete(guestSessions)
+      .where(and(eq(guestSessions.id, guestSessionId), isNull(guestSessions.chargingSessionId)));
+    access.logger.warn(
       { stationId: input.stationId, evseId: input.evseId, error: cmdResult.error, cmdStatus },
       'Ad hoc payment start failed',
     );
@@ -210,17 +256,29 @@ export async function startAdHocPayment(
     };
   }
 
-  return { ok: true, replayed: false };
+  return { ok: true, replayed: false, guestSessionId, token };
 }
 
 interface StoredPayment {
+  id: number;
   stationOcppId: string;
   evseId: number;
+  sessionToken: string;
 }
 
+/**
+ * The stored payment of a pspRef (token = pspRef). A terminal start has a
+ * CSMS token, so its replay is caught by the terminal transaction's start
+ * claim instead (claimTerminalStart).
+ */
 async function findPayment(pspRef: string): Promise<StoredPayment | null> {
   const [row] = await db
-    .select({ stationOcppId: guestSessions.stationOcppId, evseId: guestSessions.evseId })
+    .select({
+      id: guestSessions.id,
+      stationOcppId: guestSessions.stationOcppId,
+      evseId: guestSessions.evseId,
+      sessionToken: guestSessions.sessionToken,
+    })
     .from(guestSessions)
     .where(eq(guestSessions.sessionToken, pspRef));
   return row ?? null;
@@ -228,7 +286,7 @@ async function findPayment(pspRef: string): Promise<StoredPayment | null> {
 
 function replayOrConflict(existing: StoredPayment, input: AdHocPaymentStart): AdHocPaymentResult {
   if (existing.stationOcppId === input.stationId && existing.evseId === input.evseId) {
-    return { ok: true, replayed: true };
+    return { ok: true, replayed: true, guestSessionId: existing.id, token: existing.sessionToken };
   }
   return {
     ok: false,

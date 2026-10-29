@@ -184,7 +184,8 @@
     "closeMenu": "메뉴 닫기",
     "audit": "감사",
     "maintenance": "유지보수",
-    "aiInsights": "AI 인사이트"
+    "aiInsights": "AI 인사이트",
+    "paymentTerminals": "결제 단말기"
   },
   "roaming": {
     "partners": {
@@ -719,6 +720,50 @@
       "suppressedToast": "AI 인사이트가 중지되었습니다",
       "resumedToast": "AI 인사이트가 재개되었습니다",
       "failed": "사이트의 AI 인사이트를 변경하지 못했습니다"
+    },
+    "layoutView": {
+      "viewLabel": "레이아웃 보기",
+      "view3d": "3D",
+      "view2d": "2D",
+      "fitToView": "화면에 맞추기",
+      "editLayout": "레이아웃 편집",
+      "doneEditing": "편집 완료",
+      "hint": "드래그하여 회전하고, 스크롤하거나 손가락을 오므려 확대/축소하며, 오른쪽 버튼이나 두 손가락으로 드래그하여 이동합니다. 충전소를 클릭하면 세부 정보가 표시됩니다.",
+      "hintEdit": "편집 모드: 충전소를 빈 주차면으로 드래그하세요. 주차면에 맞춰지며 다른 충전소 위에 놓이지 않습니다.",
+      "webglUnavailable": "이 브라우저는 3D 보기를 표시할 수 없어(WebGL을 사용할 수 없음) 2D 보기를 표시합니다.",
+      "loading3d": "3D 보기 불러오는 중",
+      "newTag": "신규",
+      "newTagHint": "빈 자리에 배치되었으며 아직 저장되지 않았습니다. 이 위치를 유지하려면 저장하세요.",
+      "newLegend": "아직 저장되지 않음",
+      "cellularBadge": "4G",
+      "cellularHint": "셀룰러(4G) 연결",
+      "cellularLegend": "셀룰러 연결",
+      "acPedestal": "AC 충전기",
+      "dcCharger": "DC 급속 충전기",
+      "ac": "AC",
+      "dcFast": "DC 급속",
+      "status": "상태",
+      "reason": "사유",
+      "power": "전력",
+      "sessionEnergy": "세션 에너지",
+      "noSession": "세션 없음",
+      "connection": "연결",
+      "connectionCellular": "셀룰러(4G)",
+      "connectionWired": "Wi-Fi 또는 유선",
+      "signalUnknown": "신호 알 수 없음",
+      "evse": "EVSE {{id}}",
+      "openStation": "충전소 열기",
+      "detailsLabel": "{{id}} 세부 정보"
+    },
+    "layoutState": {
+      "faulted": "고장",
+      "unavailable": "사용 불가",
+      "maintenance": "유지보수 중",
+      "offline": "오프라인",
+      "reserved": "예약됨",
+      "charging": "충전 중",
+      "available": "사용 가능",
+      "online": "온라인"
     }
   },
   "stations": {
@@ -1155,7 +1200,7 @@
           "attachConflict": "공급자: 건너뜀, SIM 연결에 대한 다른 변경이 동시에 실행되었습니다. 아무것도 연결하지 않았습니다. 새로 고침을 다시 클릭하세요."
         },
         "providerFailed": {
-          "auth": "공급자: 실패, 공급자가 API 키를 거부했습니다.",
+          "auth": "공급자: 실패, 공급자가 자격 증명을 거부했습니다.",
           "notFound": "공급자: 실패, 공급자가 이 SIM을 알지 못합니다.",
           "unsupported": "공급자: 실패, 공급자가 요청을 거부했습니다.",
           "unavailable": "공급자: 실패, 공급자가 응답하지 않았습니다.",
@@ -1240,6 +1285,7 @@
       "confirmSuccess": "SIM이 확인되었습니다",
       "resetDescription": "공급자가 충전소의 데이터 세션을 종료하고 충전소는 셀룰러 네트워크에 다시 연결됩니다. 다시 연결될 때까지 충전소가 오프라인일 수 있습니다.",
       "resetSuccess": "네트워크 재설정을 보냈습니다. 몇 분 후 새로 고침을 클릭하면 새 세션을 볼 수 있습니다.",
+      "resetSubmitted": "네트워크 재설정이 대기열에 추가되었습니다. 몇 분 안에 실행됩니다.",
       "timelineTitle": "타임라인",
       "timelineRange": "범위",
       "timelineLastHour": "최근 1시간",
@@ -1954,6 +2000,7 @@
       "dashboard": "대시보드",
       "stations": "충전소",
       "sims": "SIM",
+      "paymentTerminals": "결제 단말기",
       "sites": "사이트",
       "sessions": "세션",
       "drivers": "운전자",
@@ -2568,7 +2615,8 @@
       "guest": "게스트 결제",
       "prepaid": "선불",
       "ocpp_terminal": "충전소 결제 단말기",
-      "operator": "운영자"
+      "operator": "운영자",
+      "terminal": "결제 단말기에서 결제"
     },
     "manual": "수동",
     "energyCost": "에너지 비용",
@@ -2683,7 +2731,8 @@
     "sitesWifiOrWired": "Wi-Fi 또는 유선으로 설정된 사이트",
     "sitesCellular": "셀룰러로 설정된 사이트",
     "webhookSigning": "웹훅 서명 비밀",
-    "simHologramKey": "Hologram API 키"
+    "simHologramKey": "Hologram API 키",
+    "simOneNceSecret": "1NCE 클라이언트 시크릿"
   },
   "settings": {
     "title": "설정",
@@ -3477,6 +3526,17 @@
       "hologramOrgIdInvalid": "1~15자리 숫자를 입력하세요.",
       "hologramApiKey": "API 키",
       "hologramApiKeyHint": "Hologram Dashboard의 Settings > My account > API에서 만드세요. 키에는 Editor 이상의 역할이 필요합니다.",
+      "oneNceTitle": "1NCE",
+      "oneNceDescription": "1NCE의 셀룰러 SIM입니다. 1NCE Management API로 SIM 상태, 데이터 할당량, 네트워크 이벤트 기반 세션 및 SIM 알림을 읽습니다. 1NCE Insights는 필요하지 않습니다.",
+      "oneNceEnabled": "1NCE 사용",
+      "oneNceClientId": "클라이언트 ID",
+      "oneNceClientIdHint": "1NCE Portal의 Account > Management API Access에서 API 클라이언트를 만드세요.",
+      "oneNceClientIdInvalid": "공백이나 콜론 없이 1~128자를 입력하세요.",
+      "oneNceClientSecret": "클라이언트 시크릿",
+      "oneNceClientSecretHint": "1NCE Portal에서 API 클라이언트를 만들 때 한 번만 표시됩니다.",
+      "oneNceTestEnableFirst": "연결을 테스트하려면 1NCE를 켜고 저장하세요.",
+      "oneNceTestSuccess_one": "연결되었습니다. 계정에 SIM이 {{count}}개 있습니다.",
+      "oneNceTestSuccess_other": "연결되었습니다. 계정에 SIM이 {{count}}개 있습니다.",
       "testConnection": "연결 테스트",
       "testSaveFirst": "연결을 테스트하기 전에 변경 사항을 저장하세요.",
       "testEnableFirst": "연결을 테스트하려면 Hologram을 켜고 저장하세요.",
@@ -3595,7 +3655,8 @@
     },
     "uploadReplacesHint": "새 이미지를 업로드하면 현재 이미지를 대체합니다.",
     "roamingOffDescription": "로밍 섹션이 숨겨지고 모든 OCPI 트래픽이 차단됩니다.",
-    "pncOffDescription": "인증서 섹션이 숨겨지고 인증서 작업이 차단됩니다."
+    "pncOffDescription": "인증서 섹션이 숨겨지고 인증서 작업이 차단됩니다.",
+    "paymentSubTabTerminals": "결제 단말기"
   },
   "pnc": {
     "certificates": "인증서",
@@ -3663,6 +3724,7 @@
     "sessionEvents": "세션",
     "supportEvents": "문의",
     "sessionAlertEvents": "세션 알림",
+    "paymentTerminalAlertEvents": "결제 단말기 알림",
     "siteHostEvents": "사이트 호스트",
     "mfaEvents": "다중 인증",
     "tokenEvents": "토큰",
@@ -3736,6 +3798,7 @@
       "driver.PortalInvite": "운전자 포털 초대",
       "driver.RegistrationAttempt": "가입 시도",
       "session.EndRequestFailed": "세션 종료 실패",
+      "paymentTerminal.Offline": "결제 단말기 오프라인",
       "site.PayoutOnboarding": "사이트 정산 설정",
       "driver.PasswordChanged": "비밀번호 변경됨",
       "driver.MfaDisabled": "2단계 인증 비활성화됨",
@@ -3784,7 +3847,8 @@
       "security.PermissionsGranted": "권한 부여됨",
       "security.PasswordResetByAdmin": "관리자가 비밀번호 설정 링크를 보냄",
       "security.SsoUnlinked": "싱글 사인온 연결 제거됨",
-      "security.RetentionLowered": "데이터 보존 기간 단축"
+      "security.RetentionLowered": "데이터 보존 기간 단축",
+      "security.PaymentTerminalSettingsChanged": "결제 단말기 설정 변경됨"
     },
     "templatePreviewInvalid": "템플릿에 오류가 있습니다:",
     "htmlPreview": "HTML 미리보기",
@@ -4285,7 +4349,21 @@
     "NOT_FOUND": "찾을 수 없습니다",
     "PAYLOAD_TOO_LARGE": "요청이 너무 큽니다",
     "UNSUPPORTED_MEDIA_TYPE": "지원되지 않는 콘텐츠 유형입니다",
-    "DATA_PLAN_SETTING_IN_TEMPLATE": "하트비트 및 계량값 설정은 구성 템플릿이 아니라 설정 > 통합 및 기능 > OCPP와 충전소의 데이터 요금제에서 옵니다."
+    "DATA_PLAN_SETTING_IN_TEMPLATE": "하트비트 및 계량값 설정은 구성 템플릿이 아니라 설정 > 통합 및 기능 > OCPP와 충전소의 데이터 요금제에서 옵니다.",
+    "PAYMENT_TERMINAL_NOT_FOUND": "결제 단말기를 찾을 수 없습니다",
+    "PAYMENT_TERMINAL_INACTIVE": "결제 단말기가 비활성 상태입니다",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "결제 단말기가 충전소에 연결되어 있지 않습니다",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "다른 활성 결제 단말기가 이 커넥터에 연결되어 있습니다",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "이 장치는 이미 결제 단말기로 등록되어 있습니다",
+    "PAYMENT_TERMINAL_BUSY": "결제 단말기에서 이미 결제가 진행 중입니다",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "결제 내역이 있는 결제 단말기는 삭제할 수 없습니다. 대신 비활성화하세요",
+    "PAYMENT_TERMINAL_HAS_SIM": "결제 단말기에 이미 SIM이 있습니다",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "충전소가 이 하드웨어 모드 단말기를 제어하므로 CSMS에서 결제를 시작할 수 없습니다",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "결제 단말기 제공업체가 꺼져 있거나 자격 증명이 없습니다",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "ID TECH 연동은 아직 운영 환경 사용이 검증되지 않았습니다",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "결제 단말기 제공업체 요청이 실패했습니다",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "단말기 결제를 찾을 수 없습니다",
+    "TERMINAL_TRANSACTION_STATE": "현재 상태의 단말기 결제에서는 이 작업을 할 수 없습니다"
   },
   "logs": {
     "title": "로그",
@@ -5294,7 +5372,14 @@
     "varDriverFirstName": "운전자 이름",
     "varReservationExpiresAt": "예약 만료 시간",
     "settingsSaved": "설정이 저장되었습니다.",
-    "settingsSaveFailed": "설정 저장에 실패했습니다."
+    "settingsSaveFailed": "설정 저장에 실패했습니다.",
+    "stateTerminalCard": "결제 단말기: 카드 대기",
+    "stateTerminalResult": "결제 단말기: 결과",
+    "stateTerminalReceipt": "결제 단말기: 영수증",
+    "varTerminalAmount": "사전 승인 또는 결제 금액 (회사 통화)",
+    "varPaymentApproved": "카드가 승인되었을 때 설정됩니다",
+    "varPlugInAnyConnector": "운전자가 어느 커넥터에나 연결할 수 있을 때 설정됩니다 (충전소 전체 단말기)",
+    "varReceiptUrl": "결제 영수증 링크"
   },
   "audit": {
     "title": "감사 로그",
@@ -5483,7 +5568,14 @@
       "network_reset": "네트워크 재설정됨",
       "sso_link_allowed": "SSO 로그인 허용됨",
       "sso_unlinked": "SSO 연결 제거됨",
-      "data_plan_changed": "데이터 요금제 변경됨"
+      "data_plan_changed": "데이터 요금제 변경됨",
+      "paired": "연결됨",
+      "unpaired": "연결 해제됨",
+      "sim_attached": "SIM 연결됨",
+      "sim_detached": "SIM 분리됨",
+      "status_synced": "상태 동기화됨",
+      "payment_started": "결제 시작됨",
+      "payment_voided": "결제 취소됨"
     },
     "entities": {
       "site": "사이트",
@@ -5520,7 +5612,8 @@
       "station_message_template": "충전소 메시지 템플릿",
       "event_alert_rule": "이벤트 알림 규칙",
       "report_schedule": "보고서 일정",
-      "sim": "SIM"
+      "sim": "SIM",
+      "payment_terminal": "결제 단말기"
     },
     "actors": {
       "operator": "운영자",
@@ -6501,5 +6594,225 @@
     "title": "파일 저장소가 설정되지 않음",
     "description": "파일 저장소가 설정되지 않아 파일을 업로드할 수 없습니다. 관리자가 {{path}}에서 설정할 수 있습니다.",
     "openSettings": "설정 열기"
+  },
+  "paymentTerminals": {
+    "title": "결제 단말기",
+    "subtitle": "충전 세션 요금을 받는 카드 리더기입니다.",
+    "featureOff": "설정된 결제 단말기 공급자가 없습니다. 설정 > 결제 > 결제 단말기에서 공급자를 켜세요.",
+    "create": "새 결제 단말기",
+    "exportCsv": "CSV 내보내기",
+    "search": "검색",
+    "searchPlaceholder": "라벨, 일련번호 또는 기기 ID로 검색",
+    "noTerminals": "결제 단말기가 없습니다.",
+    "notPaired": "연결 안 됨",
+    "wholeStation": "충전소 전체",
+    "connector": "커넥터 {{number}}",
+    "online": "온라인",
+    "offline": "오프라인",
+    "onlineUnknown": "알 수 없음",
+    "lastSeen": "마지막 확인 {{time}}",
+    "simAttached": "연결됨",
+    "providers": {
+      "simulated": "시뮬레이션"
+    },
+    "status": {
+      "active": "활성",
+      "inactive": "비활성"
+    },
+    "columns": {
+      "label": "라벨",
+      "model": "모델",
+      "site": "사이트",
+      "station": "충전소",
+      "connector": "커넥터",
+      "provider": "공급자",
+      "status": "상태",
+      "online": "기기 상태",
+      "sim": "SIM"
+    },
+    "filters": {
+      "status": "상태",
+      "allStatuses": "모든 상태",
+      "online": "기기 상태",
+      "allOnline": "온라인 및 오프라인",
+      "site": "사이트",
+      "allSites": "모든 사이트"
+    },
+    "fields": {
+      "label": "라벨",
+      "vendor": "제조사",
+      "model": "모델",
+      "serialNumber": "일련번호",
+      "firmwareVersion": "펌웨어 버전",
+      "provider": "공급자",
+      "providerDeviceId": "공급자 기기 ID",
+      "site": "사이트",
+      "status": "상태",
+      "online": "기기 상태",
+      "created": "생성일"
+    },
+    "new": {
+      "title": "새 결제 단말기",
+      "deviceTitle": "기기",
+      "pairingTitle": "연결",
+      "provider": "공급자",
+      "noProvider": "사용 가능한 공급자가 없습니다",
+      "noProviderHint": "먼저 설정 > 결제 > 결제 단말기에서 단말기 공급자를 켜세요.",
+      "device": "기기",
+      "selectDevice": "기기 선택",
+      "loadingDevices": "기기를 불러오는 중...",
+      "deviceHintPicker": "공급자 계정에서 아직 등록되지 않은 기기입니다.",
+      "deviceHintTyped": "공급자 계정의 기기 ID입니다. 예를 들어 기기 라벨에서 확인할 수 있습니다.",
+      "deviceIdInvalid": "공백 없이 인쇄 가능한 문자 1~128자를 사용하세요.",
+      "pairingNeedsPermission": "충전소에 연결하려면 충전소 쓰기 권한이 필요합니다. 단말기는 나중에 연결할 수 있습니다.",
+      "noSite": "사이트 없음",
+      "selectSite": "사이트 선택",
+      "siteHint": "연결되지 않은 단말기는 이 사이트에 속합니다. 연결된 단말기는 충전소의 사이트를 따릅니다.",
+      "submit": "단말기 생성"
+    },
+    "detail": {
+      "notFound": "결제 단말기를 찾을 수 없습니다.",
+      "tabs": {
+        "payments": "결제",
+        "sim": "SIM 카드"
+      },
+      "noDisplayNote": "이 모델에는 화면이 없습니다. 안내 메시지(커넥터, 금액, 결과, 영수증 링크)는 충전소 디스플레이에 표시됩니다.",
+      "editTitle": "결제 단말기 편집",
+      "deactivate": "단말기 비활성화",
+      "reactivate": "단말기 활성화",
+      "deactivateDescription": "비활성 단말기는 결제를 받지 않습니다. 진행 중인 결제는 중지되지 않습니다.",
+      "reactivateDescription": "단말기가 다시 결제를 받습니다.",
+      "deactivateSuccess": "결제 단말기가 비활성화되었습니다.",
+      "reactivateSuccess": "결제 단말기가 활성화되었습니다.",
+      "delete": "단말기 삭제",
+      "deleteDescription": "결제 단말기 {{name}}을(를) 삭제합니다. 결제를 받은 단말기는 삭제할 수 없으므로 대신 비활성화하세요.",
+      "deleteSuccess": "결제 단말기가 삭제되었습니다."
+    },
+    "pairing": {
+      "title": "연결",
+      "description": "단말기가 결제를 받는 충전소입니다.",
+      "notPaired": "이 단말기는 충전소에 연결되어 있지 않습니다.",
+      "station": "충전소",
+      "selectStation": "충전소 선택",
+      "connector": "커넥터",
+      "wholeStationHint": "충전소 전체: 운전자가 단말기 화면에서 커넥터를 선택합니다. 화면이 없는 단말기에서는 운전자가 아무 커넥터에나 연결합니다.",
+      "pair": "연결",
+      "change": "연결 변경",
+      "unpair": "연결 해제",
+      "unpairDescription": "{{station}}과(와)의 연결을 해제합니다. 단말기는 사이트를 유지합니다.",
+      "dialogTitle": "결제 단말기 연결",
+      "dialogDescription": "이 단말기가 결제를 받을 충전소와 커넥터를 선택하세요.",
+      "pairSuccess": "결제 단말기가 연결되었습니다.",
+      "unpairSuccess": "결제 단말기 연결이 해제되었습니다."
+    },
+    "testPayment": {
+      "title": "테스트 결제",
+      "description": "단말기에 카드를 요청합니다. 카드가 승인되면 연결된 커넥터에서 충전이 시작됩니다.",
+      "amount": "사전 승인 금액 ({{currency}})",
+      "amountHint": "비워 두면 사이트의 사전 승인 금액을 사용합니다.",
+      "receiptEmail": "영수증 이메일",
+      "receiptEmailHint": "선택 사항입니다. 영수증 링크가 이 주소로 전송됩니다.",
+      "start": "테스트 결제 시작",
+      "inactive": "결제를 시작하려면 단말기를 활성화하세요.",
+      "notPaired": "결제를 시작하려면 단말기를 충전소에 연결하세요.",
+      "chargingStarted": "카드가 승인되어 충전이 시작되었습니다.",
+      "chargingNotStarted": "충전이 시작되지 않았습니다: {{reason}}. 사전 승인이 해제되었습니다.",
+      "waiting": "단말기에서 카드를 기다리는 중입니다."
+    },
+    "payments": {
+      "description": "이 단말기에서 받은 카드 결제입니다. 최신 항목이 먼저 표시됩니다.",
+      "empty": "아직 결제가 없습니다.",
+      "columns": {
+        "started": "시작",
+        "state": "상태",
+        "hold": "사전 승인",
+        "captured": "청구 금액",
+        "card": "카드",
+        "session": "세션",
+        "payment": "결제"
+      },
+      "cardEnding": "{{brand}} 끝자리 {{last4}}",
+      "refunded": "환불 {{amount}}",
+      "openSession": "세션 열기",
+      "openPayment": "결제 열기",
+      "openNotice": "{{amount}} 결제가 진행 중입니다 ({{state}}).",
+      "void": "결제 취소",
+      "voidDescription": "카드의 사전 승인을 해제합니다. 이미 시작된 충전은 중지되지 않습니다.",
+      "voidSuccess": "결제가 취소되었습니다."
+    },
+    "txnStates": {
+      "requested": "요청됨",
+      "presenting": "카드 대기 중",
+      "authorized": "승인됨",
+      "declined": "거절됨",
+      "expired": "만료됨",
+      "failed": "실패",
+      "void_requested": "취소 중",
+      "voided": "취소됨",
+      "capture_requested": "청구 중",
+      "captured": "청구됨",
+      "refund_pending": "환불 대기",
+      "partially_refunded": "부분 환불됨",
+      "refunded": "환불됨"
+    },
+    "sim": {
+      "description": "자체 SIM이 있는 단말기(예: VP6825 LTE 모델)는 SIM 기능을 사용할 수 있습니다.",
+      "attached": "이 결제 단말기에 SIM이 연결되어 있습니다.",
+      "openSims": "SIM 열기",
+      "none": "이 결제 단말기에 연결된 SIM이 없습니다.",
+      "iccid": "ICCID",
+      "iccidHint": "SIM 카드에 인쇄된 ICCID, 18~22자리입니다.",
+      "iccidInvalid": "유효한 ICCID를 입력하세요.",
+      "attach": "SIM 연결",
+      "attachSuccess": "SIM이 연결되었습니다.",
+      "detach": "SIM 분리",
+      "detachDescription": "이 결제 단말기와 SIM의 연결을 종료합니다. SIM은 재고에 남습니다.",
+      "detachSuccess": "SIM이 분리되었습니다."
+    },
+    "stationCard": {
+      "title": "결제 단말기",
+      "description": "이 충전소에 연결된 카드 리더기입니다.",
+      "empty": "이 충전소에 연결된 결제 단말기가 없습니다.",
+      "pairTitle": "결제 단말기 연결",
+      "pairDescription": "연결되지 않은 단말기와 결제를 받을 커넥터를 선택하세요.",
+      "terminal": "결제 단말기",
+      "selectTerminal": "단말기 선택",
+      "noUnpaired": "연결되지 않은 활성 단말기가 없습니다. 새 결제 단말기로 하나를 만드세요."
+    },
+    "settings": {
+      "description": "카드 리더기 공급자입니다. 각 운영자는 자체 가맹점 계정을 사용하며, EVtivity는 자금을 보관하지 않습니다.",
+      "simulatedTitle": "시뮬레이션 단말기",
+      "simulatedOn": "이 설치에서 시뮬레이션 단말기 공급자를 사용할 수 있습니다 (테스트용, 실제 결제 없음).",
+      "simulatedOff": "이 설치에서 시뮬레이션 단말기 공급자가 꺼져 있습니다.",
+      "idtechTitle": "ID TECH Payment Service Gateway",
+      "idtechDescription": "ID TECH Payment Service Gateway를 통한 클라우드 단말기 (VP6825, VP7200).",
+      "unverified": "ID TECH 연동은 아직 운영 환경 사용에 대해 검증되지 않았습니다. 개발 및 테스트 설치에서만 켤 수 있습니다.",
+      "idtechEnabled": "ID TECH 사용",
+      "idtechOffDescription": "꺼져 있는 동안 ID TECH 단말기는 새 결제를 받지 않습니다.",
+      "environment": "환경",
+      "environments": {
+        "sandbox": "샌드박스",
+        "production": "운영"
+      },
+      "environmentHint": "환경을 변경하면 다시 보내지 않은 저장된 비밀 값이 삭제됩니다.",
+      "merchantId": "가맹점 ID",
+      "merchantIdInvalid": "문자, 숫자, _ 또는 - 1~64자를 사용하세요.",
+      "apiKey": "API 키",
+      "apiKeyHint": "ID TECH 가맹점 포털에서 발급됩니다. 암호화되어 저장됩니다.",
+      "apiSecret": "API 비밀 키",
+      "apiSecretHint": "ID TECH 가맹점 포털에서 발급됩니다. 암호화되어 저장됩니다.",
+      "webhookSecret": "웹훅 비밀 키",
+      "webhookSecretHint": "ID TECH가 웹훅 URL로 보내는 이벤트에 서명합니다. 암호화되어 저장됩니다.",
+      "webhookUrl": "웹훅 URL",
+      "webhookUrlHint": "ID TECH 가맹점 포털에서 이 URL을 이벤트 대상 주소로 입력하세요.",
+      "proofHint": "환경, 가맹점 또는 자격 증명을 변경하려면 다시 확인해야 합니다.",
+      "saveFailed": "결제 단말기 설정을 저장하지 못했습니다.",
+      "testConnection": "연결 테스트",
+      "testSaveFirst": "연결을 테스트하기 전에 변경 사항을 저장하세요.",
+      "testEnableFirst": "연결을 테스트하기 전에 ID TECH를 켜세요.",
+      "testSuccess": "ID TECH가 자격 증명을 승인했습니다.",
+      "testRefused": "ID TECH가 연결을 거부했습니다 ({{reason}}).",
+      "testFailed": "연결 테스트에 실패했습니다."
+    }
   }
 }

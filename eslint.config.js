@@ -169,9 +169,11 @@ export default tseslint.config(
                 '@evtivity/ai/*',
                 '@evtivity/sim-providers',
                 '@evtivity/sim-providers/*',
+                '@evtivity/payment-terminals',
+                '@evtivity/payment-terminals/*',
               ],
               message:
-                'Do not import another process package (P8), and not @evtivity/ai or @evtivity/sim-providers, which depend on lib. Move shared code to @evtivity/lib.',
+                'Do not import another process package (P8), and not @evtivity/ai, @evtivity/sim-providers or @evtivity/payment-terminals, which depend on lib. Move shared code to @evtivity/lib.',
             },
           ],
         },
@@ -210,6 +212,26 @@ export default tseslint.config(
               regex: '^@evtivity/(?!lib(/|$))',
               message:
                 '@evtivity/sim-providers imports no other workspace package but @evtivity/lib (P8).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  // @evtivity/payment-terminals (the payment terminal provider interface and
+  // adapters) is loaded by @evtivity/payments and @evtivity/services and depends
+  // on @evtivity/lib only (design principle P8). It never touches the database.
+  {
+    files: ['packages/payment-terminals/src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^@evtivity/(?!lib(/|$))',
+              message:
+                '@evtivity/payment-terminals imports no other workspace package but @evtivity/lib (P8).',
             },
           ],
         },

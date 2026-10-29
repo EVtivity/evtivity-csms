@@ -3265,6 +3265,8 @@ describe('Event projections - coverage round 2', () => {
           driverId: 'drv_1',
           currency: 'USD',
           capturedCents: 1250, // 12.50 -> cents
+          status: undefined,
+          statusInfo: null,
         },
         expect.objectContaining({ actor: { actor: 'ocpp', actorLabel: 'NotifySettlement' } }),
       );

@@ -24,6 +24,8 @@ import {
   siteInsightsSuppressedSql,
   siteInsightSuppressionSourcesSql,
   getPlatformFeePercent,
+  readStationDataPlans,
+  saveSiteLayout,
 } from '@evtivity/database';
 import type { SiteInsightSuppressionSource } from '@evtivity/database';
 import {
@@ -74,6 +76,7 @@ import {
   siteDataPlanImpact,
 } from '@evtivity/services/station-data-plan.service';
 import type { ElectricityRatePeriodRestrictions } from '@evtivity/lib';
+import { freeSlotsFor } from '@evtivity/lib/site-layout';
 import { parseZodRequest, rejectUnknownBodyKeys, zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -891,8 +894,34 @@ const layoutStation = z
       ),
     isOnline: z.boolean().describe('Whether the station is currently connected to the CSMS'),
     securityProfile: z.number().describe('OCPP security profile level (0-3)'),
-    positionX: z.number().describe('X coordinate on the site layout canvas'),
-    positionY: z.number().describe('Y coordinate on the site layout canvas'),
+    positionX: z
+      .number()
+      .describe(
+        'X coordinate on the site layout canvas in px. For a station with no saved position (placed false), the first free grid slot that overlaps no other station',
+      ),
+    positionY: z
+      .number()
+      .describe(
+        'Y coordinate on the site layout canvas in px. For a station with no saved position (placed false), the first free grid slot that overlaps no other station',
+      ),
+    placed: z
+      .boolean()
+      .describe(
+        'True when the position is saved for this site; false when it is a free slot the server picked, saved by the next layout save',
+      ),
+    chargingKind: z
+      .enum(['ac', 'dc'])
+      .describe(
+        'ac or dc from the connectors of in-service EVSEs: dc when any connector is CCS1, CCS2 or CHAdeMO, or GBT, Tesla or NACS above 22 kW',
+      ),
+    cellular: z
+      .boolean()
+      .describe(
+        "True when the station's effective data plan is cellular or it has a confirmed SIM attachment",
+      ),
+    inMaintenance: z
+      .boolean()
+      .describe('Whether an active maintenance event currently covers this station'),
     displayMessage: z
       .string()
       .nullable()
@@ -2480,14 +2509,40 @@ export function siteRoutes(app: FastifyInstance): void {
           securityProfile: chargingStations.securityProfile,
           positionX: stationLayoutPositions.positionX,
           positionY: stationLayoutPositions.positionY,
+          inMaintenance: buildUnderMaintenanceSubquery(
+            chargingStations.id,
+            chargingStations.siteId,
+          ),
         })
         .from(chargingStations)
-        .leftJoin(stationLayoutPositions, eq(stationLayoutPositions.stationId, chargingStations.id))
-        .where(and(eq(chargingStations.siteId, id), isOperatorStation()));
+        // A position row counts only for the station's current site.
+        .leftJoin(
+          stationLayoutPositions,
+          and(
+            eq(stationLayoutPositions.stationId, chargingStations.id),
+            eq(stationLayoutPositions.siteId, chargingStations.siteId),
+          ),
+        )
+        .where(and(eq(chargingStations.siteId, id), isOperatorStation()))
+        .orderBy(chargingStations.createdAt, chargingStations.id);
 
       if (stationRows.length === 0) return [];
 
       const stationUuids = stationRows.map((s) => s.id);
+
+      // Stations without a saved position get free grid slots, in order, so
+      // none shows on top of another until the layout is saved.
+      const placedPoints = stationRows
+        .filter((s) => s.positionX != null && s.positionY != null)
+        .map((s) => ({ x: Number(s.positionX), y: Number(s.positionY) }));
+      const unplaced = stationRows.filter((s) => s.positionX == null || s.positionY == null);
+      const freeSlots = freeSlotsFor(unplaced.length, placedPoints);
+      const slotByStation = new Map<string, { x: number; y: number }>();
+      unplaced.forEach((s, i) => {
+        const slot = freeSlots[i];
+        if (slot != null) slotByStation.set(s.id, slot);
+      });
+      const dataPlans = await readStationDataPlans(stationUuids);
 
       const [evseRows, connectorRows, sessionRows, displayMessageRows] = await Promise.all([
         db
@@ -2572,6 +2627,7 @@ export function siteRoutes(app: FastifyInstance): void {
 
       return stationRows.map((station) => {
         const stationEvses = evsesByStation.get(station.id) ?? [];
+        const dataPlan = dataPlans.get(station.id);
         return {
           id: station.id,
           stationId: station.stationId,
@@ -2580,8 +2636,12 @@ export function siteRoutes(app: FastifyInstance): void {
           statusReason: station.statusReason,
           isOnline: station.isOnline,
           securityProfile: station.securityProfile,
-          positionX: Number(station.positionX ?? '0'),
-          positionY: Number(station.positionY ?? '0'),
+          positionX: slotByStation.get(station.id)?.x ?? Number(station.positionX ?? '0'),
+          positionY: slotByStation.get(station.id)?.y ?? Number(station.positionY ?? '0'),
+          placed: !slotByStation.has(station.id),
+          chargingKind: dataPlan?.chargingKind ?? 'ac',
+          cellular: dataPlan != null && (dataPlan.plan === 'cellular' || dataPlan.hasConfirmedSim),
+          inMaintenance: station.inMaintenance,
           displayMessage: displayMessageByStation.get(station.id) ?? null,
           evses: stationEvses.map((evse) => {
             const evseConnectors = connectorsByEvse.get(evse.id) ?? [];
@@ -2690,25 +2750,7 @@ export function siteRoutes(app: FastifyInstance): void {
       // One position row per station: a station that moved here from another
       // site takes this site with its new position, and the layout saves whole.
       await db.transaction(async (tx) => {
-        for (const pos of positions) {
-          await tx
-            .insert(stationLayoutPositions)
-            .values({
-              siteId: id,
-              stationId: pos.stationId,
-              positionX: String(pos.positionX),
-              positionY: String(pos.positionY),
-            })
-            .onConflictDoUpdate({
-              target: stationLayoutPositions.stationId,
-              set: {
-                siteId: id,
-                positionX: String(pos.positionX),
-                positionY: String(pos.positionY),
-                updatedAt: new Date(),
-              },
-            });
-        }
+        await saveSiteLayout(tx, id, positions);
       });
 
       if (positions.length > 0) {

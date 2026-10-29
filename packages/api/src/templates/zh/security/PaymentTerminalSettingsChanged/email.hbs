@@ -1,0 +1,12 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}{{firstName}}，您好：{{else}}您好：{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>支付终端设置已更改</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>支付终端设置（{{provider}}）已更改。{{#if accountChanged}}服务商账户已更改：环境、商户或凭据是新的，终端付款现在进入该账户。{{/if}}{{#if enabled}}支付终端已开启。{{else}}支付终端已关闭。{{/if}}</p>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>如果您没有预料到此更改，请检查“设置 &gt; 支付 &gt; 支付终端”和审计日志，并立即联系您的管理员。</p>

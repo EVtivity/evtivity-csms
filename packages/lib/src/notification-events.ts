@@ -109,7 +109,8 @@ export function isRequiredDriverEventType(eventType: string): boolean {
  * may change them), an operator creates an admin-equivalent user or grants
  * permissions, an administrator resends a password setup link, or the retention of
  * the audit, sign-in or security event history is shortened (to every all-site user
- * who may change it). They hold no secret.
+ * who may change it), or the payment terminal settings change (to every all-site user
+ * who may change them). They hold no secret.
  */
 export const SECURITY_NOTICE_EVENT_TYPES = [
   'security.FactorAdded',
@@ -125,6 +126,7 @@ export const SECURITY_NOTICE_EVENT_TYPES = [
   'security.PasswordResetByAdmin',
   'security.SsoUnlinked',
   'security.RetentionLowered',
+  'security.PaymentTerminalSettingsChanged',
 ] as const;
 
 export type SecurityNoticeEventType = (typeof SECURITY_NOTICE_EVENT_TYPES)[number];

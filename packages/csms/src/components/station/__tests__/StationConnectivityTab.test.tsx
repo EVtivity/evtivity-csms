@@ -815,6 +815,20 @@ describe('StationConnectivityTab', () => {
     });
   });
 
+  it('says a reset the provider queued runs within a few minutes', async () => {
+    apiMock.post.mockResolvedValue({ status: 'submitted' });
+    renderTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'stations.sim.resetNetwork' }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'stations.sim.resetNetwork' }));
+    await waitFor(() => {
+      expect(toastMock).toHaveBeenCalledWith({
+        variant: 'success',
+        title: 'stations.sim.resetSubmitted',
+      });
+    });
+  });
+
   it('hides Reset Network when the provider does not support it', async () => {
     renderTab({
       capabilities: {

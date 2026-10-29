@@ -14,6 +14,7 @@ import {
   OCPP_EVENT_TYPES,
   OPERATOR_AI_EVENTS,
   OPERATOR_EVENT_TYPES,
+  OPERATOR_PAYMENT_TERMINAL_EVENTS,
   OPERATOR_SESSION_EVENTS,
   TEMPLATE_VARIABLES,
 } from '../template-variables';
@@ -51,6 +52,44 @@ describe('operator session alert events', () => {
       const eventNames = notifications['eventNames'] as Record<string, string>;
       expect(eventNames['session.EndRequestFailed'], lang).toBeTruthy();
       expect(notifications['sessionAlertEvents'], lang).toBeTruthy();
+    }
+  });
+});
+
+describe('payment terminal events', () => {
+  it('lists paymentTerminal.Offline as an operator event with its variables', () => {
+    expect(OPERATOR_PAYMENT_TERMINAL_EVENTS).toEqual(['paymentTerminal.Offline']);
+    expect(OPERATOR_EVENT_TYPES).toContain('paymentTerminal.Offline');
+    const names = (TEMPLATE_VARIABLES['paymentTerminal.Offline'] ?? []).map((v) => v.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'terminalLabel',
+        'terminalModel',
+        'stationId',
+        'siteName',
+        'offlineSince',
+        'minutes',
+      ]),
+    );
+  });
+
+  it('lists the payment terminal settings notice with its variables', () => {
+    expect(OPERATOR_EVENT_TYPES).toContain('security.PaymentTerminalSettingsChanged');
+    const names = (TEMPLATE_VARIABLES['security.PaymentTerminalSettingsChanged'] ?? []).map(
+      (v) => v.name,
+    );
+    expect(names).toEqual(
+      expect.arrayContaining(['isDriver', 'provider', 'accountChanged', 'enabled']),
+    );
+  });
+
+  it('names both events and the alert group in every locale', () => {
+    for (const [lang, locale] of Object.entries(LOCALES)) {
+      const notifications = locale.notifications as Record<string, unknown>;
+      const eventNames = notifications['eventNames'] as Record<string, string>;
+      expect(eventNames['paymentTerminal.Offline'], lang).toBeTruthy();
+      expect(eventNames['security.PaymentTerminalSettingsChanged'], lang).toBeTruthy();
+      expect(notifications['paymentTerminalAlertEvents'], lang).toBeTruthy();
     }
   });
 });

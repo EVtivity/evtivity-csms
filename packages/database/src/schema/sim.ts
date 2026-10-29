@@ -17,7 +17,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
-import { chargingStations } from './assets.js';
+import { chargingStations, sites } from './assets.js';
 import { users } from './identity.js';
 import { paymentTerminals } from './payment-terminals.js';
 
@@ -107,6 +107,11 @@ export const simAttachments = pgTable(
     paymentTerminalId: text('payment_terminal_id').references(() => paymentTerminals.id, {
       onDelete: 'cascade',
     }),
+    // A payment terminal attachment: the terminal's site when it was attached.
+    // A site change of the terminal closes the attachment, so this is the
+    // site of the whole window (the SIM site windows read it, security case
+    // 276). Null for a station attachment, which follows the station.
+    siteId: text('site_id').references(() => sites.id, { onDelete: 'set null' }),
     source: varchar('source', { length: 16 }).$type<SimAttachmentSource>().notNull(),
     attachedAt: timestamp('attached_at', { withTimezone: true }).notNull().defaultNow(),
     attachedBy: text('attached_by').references(() => users.id, { onDelete: 'set null' }),

@@ -7,7 +7,8 @@ import { createLogger, tryParseJson } from '@evtivity/lib';
 import { failExhaustedGuestCapture, handleGuestSessionEvent } from '@evtivity/payments';
 import { GUEST_SESSION_JOB_ATTEMPTS, GUEST_SESSION_JOB_BACKOFF, QUEUE_NAMES } from './queues.js';
 import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
-import { guestEventDeps, paymentContext } from './lib/payments.js';
+import { finishTerminalSession } from '@evtivity/services/payment-terminal-flow';
+import { guestEventDeps, paymentContext, terminalFlowDeps } from './lib/payments.js';
 
 const log = createLogger('guest-session-worker');
 
@@ -106,6 +107,10 @@ export function createGuestSessionWorker(connection: ConnectionOptions): Worker 
             { type: 'TransactionEnded', sessionId: data.sessionId as string },
             guestEventDeps(log),
           );
+          // A session paid at a CSMS payment terminal: the finalization above
+          // captured it; this shows the receipt link on the terminal or the
+          // station display (C24.FR.11). A repeat captures nothing again.
+          await finishTerminalSession(data.sessionId as string, terminalFlowDeps(log));
         }
         await logJobCompleted(logId, Date.now() - startTime);
       } catch (err) {

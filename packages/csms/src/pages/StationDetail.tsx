@@ -30,6 +30,7 @@ import { MeterValuesTable } from '@/components/MeterValuesTable';
 import { StationEventsTab } from '@/components/StationEventsTab';
 import { StationConfigurationsTab } from '@/components/StationConfigurationsTab';
 import { StationDataPlanCard } from '@/components/station/StationDataPlanCard';
+import { StationPaymentTerminalsCard } from '@/components/payment-terminals/StationPaymentTerminalsCard';
 import type { ChargingKind, DataPlan, DataPlanSource } from '@evtivity/lib/station-data-plan';
 import { StationFirmwareTab } from '@/components/StationFirmwareTab';
 import { StationChargingProfilesTab } from '@/components/StationChargingProfilesTab';
@@ -457,6 +458,7 @@ export function StationDetail(): React.JSX.Element {
             isOnline={station.isOnline}
             isSimulator={station.isSimulator}
           />
+          <StationPaymentTerminalsCard stationId={station.id} />
         </TabsContent>
 
         <TabsContent value="commands">

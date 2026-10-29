@@ -369,6 +369,16 @@ function entitySiteSql(entityType: AuditEntityType, idCol: string): SQL | null {
       return sql`(SELECT p.site_id FROM ai_proposals p WHERE p.id = ${id})`;
     case 'ai_insight':
       return sql`(SELECT i.site_id FROM ai_insights i WHERE i.id = ${id})`;
+    case 'payment_terminal': {
+      // A terminal row follows the site it was written at (`auditSiteId`,
+      // the site stamped on the payment for payment_started and
+      // payment_voided), never the terminal's current site: a terminal that
+      // moves leaves its history at the old site (security case 268, the
+      // session-own-site rule of case 88). A row without one (unsited) is for
+      // all-site users only.
+      const table = sql.identifier('payment_terminal_audit_log');
+      return sql`COALESCE(${table}.after->>'auditSiteId', ${table}.before->>'auditSiteId')`;
+    }
     case 'payment':
       // The site of the session, else of the reserved station, else of the
       // site payment config (ad hoc payments).
@@ -425,6 +435,27 @@ function simAuditStationCondition(siteIds: string[]): SQL {
   )} AND ${table}.after->>'stationUnknown' IS NULL AND ${inTheirTime}`;
 }
 
+/**
+ * A payment terminal audit row names sites besides the one it was written at:
+ * a pairing from site B back to site A holds B's site and station in `before`.
+ * The row shows to a site-restricted viewer only when every site it names is
+ * theirs: the `auditSiteIds` stamped on both views, and the `siteId` of each
+ * view (rows written before the stamp, fail closed). Security case 277, the
+ * SIM case 48 pattern.
+ */
+function terminalAuditNamedSitesCondition(siteList: SQL): SQL {
+  const table = sql.identifier('payment_terminal_audit_log');
+  const stamped = (view: SQL): SQL =>
+    sql`(CASE WHEN jsonb_typeof(${view}->'auditSiteIds') = 'array' THEN ${view}->'auditSiteIds' ELSE '[]'::jsonb END)`;
+  const before = sql`${table}.before`;
+  const after = sql`${table}.after`;
+  return sql`NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements_text(${stamped(before)} || ${stamped(after)}) AS named_site(id)
+    WHERE named_site.id NOT IN (${siteList})
+  ) AND (${before}->>'siteId' IS NULL OR ${before}->>'siteId' IN (${siteList}))
+    AND (${after}->>'siteId' IS NULL OR ${after}->>'siteId' IN (${siteList}))`;
+}
+
 // The audit row's live entity id, qualified with the audit table: the joined
 // tables have columns of the same name (charging_stations.station_id is the
 // OCPP identity).
@@ -461,10 +492,14 @@ function auditSiteCondition(
   }
   const siteExpr = entitySiteSql(entityType, idCol);
   if (siteExpr == null) return null;
-  return sql`${siteExpr} IN (${sql.join(
+  const siteList = sql.join(
     siteIds.map((siteId) => sql`${siteId}`),
     sql`, `,
-  )})`;
+  );
+  if (entityType === 'payment_terminal') {
+    return sql`${siteExpr} IN (${siteList}) AND ${terminalAuditNamedSitesCondition(siteList)}`;
+  }
+  return sql`${siteExpr} IN (${siteList})`;
 }
 
 /**

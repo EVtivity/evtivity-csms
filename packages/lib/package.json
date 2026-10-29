@@ -29,6 +29,9 @@
     "./connector-power": {
       "import": "./src/connector-power.ts"
     },
+    "./site-layout": {
+      "import": "./src/site-layout.ts"
+    },
     "./phone": {
       "import": "./src/phone.ts"
     },
@@ -160,6 +163,12 @@
     },
     "./sim-settings": {
       "import": "./src/sim-settings.ts"
+    },
+    "./payment-terminal-settings": {
+      "import": "./src/payment-terminal-settings.ts"
+    },
+    "./payment-terminal-env": {
+      "import": "./src/payment-terminal-env.ts"
     },
     "./data-retention": {
       "import": "./src/data-retention.ts"

@@ -445,13 +445,17 @@ const serverManagedSettingError = {
  * The SIM and data retention settings have their own routes too, which check
  * each value's range (`/v1/settings/sim-providers`, `/v1/settings/data-retention`),
  * and so does the AI insights scope, whose change closes the insights of
- * what leaves it (`/v1/settings/ai/insights-scope`).
+ * what leaves it (`/v1/settings/ai/insights-scope`). The payment terminal
+ * account (`paymentTerminals.*`) is read and written only through
+ * `/v1/settings/payment-terminals`, which takes the fresh proof, refuses an
+ * API key and keeps the unverified ID TECH adapter off.
  */
-function isDedicatedRouteSetting(key: string): boolean {
+export function isDedicatedRouteSetting(key: string): boolean {
   return (
     key.startsWith('sso.') ||
     key.startsWith('security.') ||
     key.startsWith('sim.') ||
+    key.startsWith('paymentTerminals.') ||
     isDataRetentionSettingKey(key) ||
     key === AI_INSIGHT_SCOPE_SETTING_KEY
   );
@@ -459,7 +463,7 @@ function isDedicatedRouteSetting(key: string): boolean {
 
 const dedicatedRouteSettingError = {
   error:
-    'This setting is written through /v1/sso/settings, /v1/security/*, /v1/settings/sim-providers, /v1/settings/data-retention or /v1/settings/ai/insights-scope',
+    'This setting is written through /v1/sso/settings, /v1/security/*, /v1/settings/sim-providers, /v1/settings/payment-terminals, /v1/settings/data-retention or /v1/settings/ai/insights-scope',
   code: 'VALIDATION_ERROR',
 };
 

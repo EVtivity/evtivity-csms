@@ -13,6 +13,8 @@ import {
   MAINTENANCE_FANOUT_QUEUE,
   PAYMENT_STOP_JOB_OPTIONS,
   PAYMENT_STOP_QUEUE,
+  PAYMENT_TERMINAL_EVENTS_JOB_OPTIONS,
+  PAYMENT_TERMINAL_EVENTS_QUEUE,
   PAYMENT_WEBHOOK_JOB_OPTIONS,
   PAYMENT_WEBHOOK_QUEUE,
   STATION_MESSAGE_JOB_OPTIONS,
@@ -45,6 +47,7 @@ export const QUEUE_NAMES = {
   AI_INSIGHTS: 'ai-insights',
   DRIVER_AI: DRIVER_AI_QUEUE,
   DRIVER_AVATAR_CLEANUP: DRIVER_AVATAR_CLEANUP_QUEUE,
+  PAYMENT_TERMINAL_EVENTS: PAYMENT_TERMINAL_EVENTS_QUEUE,
 } as const;
 
 /** Attempts of one automatic insight job (exponential from 30 s: 30 s, 60 s). */
@@ -85,6 +88,7 @@ export interface WorkerQueues {
   aiInsightQueue: Queue;
   driverAiQueue: Queue;
   driverAvatarCleanupQueue: Queue;
+  paymentTerminalEventsQueue: Queue;
 }
 
 /**
@@ -204,6 +208,12 @@ export function createQueues(redisUrl: string): WorkerQueues {
     driverAvatarCleanupQueue: new Queue(QUEUE_NAMES.DRIVER_AVATAR_CLEANUP, {
       connection: createBullMQConnection(redisUrl),
       defaultJobOptions: DRIVER_AVATAR_CLEANUP_JOB_OPTIONS,
+    }),
+    // Signed payment terminal events (the simulated provider's), added by the
+    // API and the worker (features/payment-terminals.md).
+    paymentTerminalEventsQueue: new Queue(QUEUE_NAMES.PAYMENT_TERMINAL_EVENTS, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: PAYMENT_TERMINAL_EVENTS_JOB_OPTIONS,
     }),
     // Station screen renders: station events, session events, and debounced
     // repushes after a config change (OCPP, API and worker cron).

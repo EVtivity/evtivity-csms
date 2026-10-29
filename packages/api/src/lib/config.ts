@@ -4,6 +4,7 @@
 import { z } from 'zod';
 import { resolveNotificationTestSinkUrl } from '@evtivity/lib/notification-test-sink';
 import { resolveSimProviderTestBaseUrl } from '@evtivity/lib/sim-test-base-url';
+import { resolvePaymentTerminalTestBaseUrl } from '@evtivity/lib/payment-terminal-env';
 import { parseTrustProxy } from '@evtivity/lib/trust-proxy';
 import { isWeakJwtSecret, MIN_DEPLOYMENT_SECRET_LENGTH } from '@evtivity/lib/deployment-secrets';
 import { webauthnRpIdProblem } from './webauthn-rp.js';
@@ -85,6 +86,20 @@ const schema = z.object({
   // NODE_ENV development or test accepts it (resolveSimProviderTestBaseUrl
   // below). Helm and CDK refuse it.
   SIM_PROVIDER_TEST_BASE_URL: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
+  // Allows the simulated payment terminal provider (features/payment-terminals.md),
+  // a money-free path an operator with settings access must not turn on. Default:
+  // on when NODE_ENV is development or test, off otherwise (unset included).
+  PAYMENT_TERMINALS_ALLOW_SIMULATED: z
+    .enum(['true', 'false'])
+    .default(['development', 'test'].includes(process.env['NODE_ENV'] ?? '') ? 'true' : 'false')
+    .transform((v) => v === 'true'),
+  // The payment terminal provider mock (development and test only): the ID TECH
+  // adapter calls it instead of the PSG hosts (resolvePaymentTerminalTestBaseUrl
+  // below). Helm and CDK refuse it.
+  PAYMENT_TERMINAL_TEST_BASE_URL: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.url().optional(),
+  ),
 });
 
 export type ApiConfig = z.infer<typeof schema>;
@@ -111,3 +126,7 @@ resolveNotificationTestSinkUrl(process.env);
 // Refuses the SIM provider mock URL unless NODE_ENV is development or test, so
 // provider credentials can never be sent to it in production.
 resolveSimProviderTestBaseUrl(process.env);
+
+// Refuses the payment terminal mock URL unless NODE_ENV is development or test,
+// so terminal credentials can never be sent to it in production.
+resolvePaymentTerminalTestBaseUrl(process.env);

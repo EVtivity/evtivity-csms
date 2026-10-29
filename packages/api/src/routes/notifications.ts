@@ -314,6 +314,7 @@ export const SYSTEM_EVENT_TYPES = [
   'supportCase.NewCaseFromDriver',
   'supportCase.DriverReply',
   'session.EndRequestFailed',
+  'paymentTerminal.Offline',
   'site.PayoutOnboarding',
   'fleet.CreditLimitWarning',
   'fleet.CreditLimitReached',
@@ -686,6 +687,17 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'startedAt',
     'endedAt',
   ],
+  'paymentTerminal.Offline': [
+    'firstName',
+    'lastName',
+    'email',
+    'terminalLabel',
+    'terminalModel',
+    'stationId',
+    'siteName',
+    'offlineSince',
+    'minutes',
+  ],
   'driver.PasswordChanged': ['firstName', 'lastName'],
   'driver.AccountVerification': ['firstName', 'lastName', 'email'],
   'payment.Complete': [
@@ -918,6 +930,12 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   'security.PasswordResetByAdmin': [...SECURITY_NOTICE_VARIABLES],
   'security.SsoUnlinked': [...SECURITY_NOTICE_VARIABLES],
   'security.RetentionLowered': [...SECURITY_NOTICE_VARIABLES, 'changes'],
+  'security.PaymentTerminalSettingsChanged': [
+    ...SECURITY_NOTICE_VARIABLES,
+    'provider',
+    'accountChanged',
+    'enabled',
+  ],
 };
 
 // The default email subject is the event's `subject.hbs` in the template
@@ -2002,6 +2020,13 @@ export function notificationRoutes(app: FastifyInstance): void {
         phoneRemoved: false,
         keyName: 'Billing export',
         expiresAt: new Date(Date.now() + 90 * 86_400_000).toISOString(),
+        terminalLabel: 'Bay 3 card reader',
+        terminalModel: 'VP3350',
+        offlineSince: new Date(Date.now() - 20 * 60_000).toISOString(),
+        minutes: 15,
+        provider: 'ID TECH',
+        accountChanged: true,
+        enabled: true,
       };
 
       // A disallowed or unparsable template is operator input, not a server error.

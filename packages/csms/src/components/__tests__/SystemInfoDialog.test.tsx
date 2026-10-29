@@ -82,6 +82,7 @@ function info(
     payments,
     simProviders: {
       hologram: { enabled: true, configured: false },
+      '1nce': { enabled: false, configured: true },
       sessionsFetchDays: 7,
       stationSignalEnabled: false,
     },
@@ -102,6 +103,7 @@ function info(
       googleMapsConfigured: false,
       webhookSigningConfigured: true,
       simHologramConfigured: false,
+      simOneNceConfigured: true,
     },
   };
 }
@@ -183,6 +185,8 @@ describe('SystemInfoDialog OCPP processes', () => {
     const sim = await screen.findByTestId('system-info-section-simProviders');
     expect(rowValue('sim.hologram.enabled', sim)).toBe('systemInfo.enabled');
     expect(rowValue('Hologram', sim)).toBe('systemInfo.notSet');
+    expect(rowValue('sim.1nce.enabled', sim)).toBe('systemInfo.disabled');
+    expect(rowValue('1NCE', sim)).toBe('systemInfo.configured');
     const plans = screen.getByTestId('system-info-section-dataPlans');
     expect(rowValue('systemInfo.stationsCellular', plans)).toBe('2');
     expect(rowValue('systemInfo.sitesCellular', plans)).toBe('1');

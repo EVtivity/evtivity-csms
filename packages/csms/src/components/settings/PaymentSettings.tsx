@@ -23,6 +23,7 @@ import {
   parseMajorInputToCents,
 } from '@evtivity/lib/currency';
 import { AdyenSettings } from './AdyenSettings';
+import { PaymentTerminalSettings } from './PaymentTerminalSettings';
 import { percentError, preAuthAmountError } from './payment-amount-validation';
 import { PRE_AUTH_AMOUNT_MAX_CENTS, PRE_AUTH_AMOUNT_MIN_CENTS } from '@evtivity/lib/currency';
 import { PrepaidSettings } from './PrepaidSettings';
@@ -326,6 +327,9 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
         {hasAllSiteAccess && (
           <TabsTrigger value="adyen">{t('settings.paymentSubTabAdyen')}</TabsTrigger>
         )}
+        {hasAllSiteAccess && (
+          <TabsTrigger value="terminals">{t('settings.paymentSubTabTerminals')}</TabsTrigger>
+        )}
         <TabsTrigger value="siteConfigs">{t('settings.paymentSubTabSiteConfigs')}</TabsTrigger>
       </TabsList>
       <TabsContent value="general" className="mt-4 space-y-6">
@@ -488,6 +492,11 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
       {hasAllSiteAccess && (
         <TabsContent value="adyen" className="mt-4">
           <AdyenSettings />
+        </TabsContent>
+      )}
+      {hasAllSiteAccess && (
+        <TabsContent value="terminals" className="mt-4">
+          <PaymentTerminalSettings />
         </TabsContent>
       )}
       <TabsContent value="siteConfigs" className="mt-4">

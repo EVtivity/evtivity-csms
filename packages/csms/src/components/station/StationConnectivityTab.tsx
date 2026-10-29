@@ -19,6 +19,7 @@ import { SimRefreshCard, SimRefreshRangeDialog } from '@/components/sim/SimRefre
 import { SimTimelineCard } from '@/components/sim/SimTimelineCard';
 import {
   providerName,
+  resetSuccessKey,
   simErrorMessage,
   stationSimKey,
   useStationSim,
@@ -202,9 +203,9 @@ function SimCard({
 
   const reset = useMutation({
     mutationFn: () => api.post(`/v1/stations/${stationId}/sim/network-reset`, {}),
-    onSuccess: () => {
+    onSuccess: (reply) => {
       setResetOpen(false);
-      toast({ variant: 'success', title: t('stations.sim.resetSuccess') });
+      toast({ variant: 'success', title: t(resetSuccessKey(reply)) });
       void queryClient.invalidateQueries({ queryKey: stationSimKey(stationId) });
     },
     onError: (err) => {

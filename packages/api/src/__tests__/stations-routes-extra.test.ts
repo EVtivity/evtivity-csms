@@ -120,6 +120,8 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   setPubSub: vi.fn(),
 }));
 
+const mockPlaceStationOnLayout = vi.hoisted(() => vi.fn(() => Promise.resolve({ x: 20, y: 20 })));
+
 vi.mock('@evtivity/database', async () => {
   const pgErrors = await import('../../../database/src/lib/pg-errors.js');
   const suppression = await import('../../../database/src/lib/ai-insight-suppression.js');
@@ -191,6 +193,8 @@ vi.mock('@evtivity/database', async () => {
     effectiveDataPlanSql: 'effective_data_plan',
     dataPlanSourceSql: 'data_plan_source',
     readStationDataPlans: vi.fn(() => Promise.resolve(new Map())),
+    placeStationOnLayout: mockPlaceStationOnLayout,
+    moveStationLayout: vi.fn(() => Promise.resolve()),
     client: {},
     ...tables,
     writeAudit: mocks.writeAudit,

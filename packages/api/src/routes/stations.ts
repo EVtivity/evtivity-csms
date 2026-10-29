@@ -42,6 +42,8 @@ import {
   dataPlanSourceSql,
   effectiveDataPlanSql,
   readStationDataPlans,
+  placeStationOnLayout,
+  moveStationLayout,
 } from '@evtivity/database';
 import type { StationInsightSuppressionSource } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -848,6 +850,7 @@ const connectorDetail = z
 
 const evseDetail = z
   .object({
+    id: z.string().describe('EVSE record id (the id a payment terminal is paired with)'),
     evseId: z.number().describe('OCPP EVSE id (1-based)'),
     autoCreated: z
       .boolean()
@@ -1761,6 +1764,9 @@ export function stationRoutes(app: FastifyInstance): void {
           // The empty config template bound to this station.
           if (created != null) await createStationConfigTemplate(tx, created);
 
+          // A station with a site takes the first free slot of the site layout.
+          if (created?.siteId != null) await placeStationOnLayout(tx, created.siteId, created.id);
+
           return created;
         });
       } catch (err) {
@@ -1993,6 +1999,12 @@ export function stationRoutes(app: FastifyInstance): void {
           });
 
         if (updated == null) return null;
+
+        // A site move drops the old site's layout position and places the
+        // station on a free slot of the new site.
+        if (beforeStation != null && beforeStation.siteId !== updated.siteId) {
+          await moveStationLayout(tx, updated.id, updated.siteId);
+        }
 
         if (body.isSimulator !== undefined) {
           if (body.isSimulator) {
@@ -2237,6 +2249,7 @@ export function stationRoutes(app: FastifyInstance): void {
 
       const rows = await db
         .select({
+          evseDbId: evses.id,
           evseId: evses.evseId,
           evseAutoCreated: evses.autoCreated,
           evseRetiredAt: evses.retiredAt,
@@ -2262,6 +2275,7 @@ export function stationRoutes(app: FastifyInstance): void {
       const grouped = new Map<
         number,
         {
+          id: string;
           evseId: number;
           autoCreated: boolean;
           retiredAt: Date | null;
@@ -2281,6 +2295,7 @@ export function stationRoutes(app: FastifyInstance): void {
       for (const row of rows) {
         if (!grouped.has(row.evseId)) {
           grouped.set(row.evseId, {
+            id: row.evseDbId,
             evseId: row.evseId,
             autoCreated: row.evseAutoCreated,
             retiredAt: row.evseRetiredAt,

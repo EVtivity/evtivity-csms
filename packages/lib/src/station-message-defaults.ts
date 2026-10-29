@@ -53,6 +53,11 @@ export const STATION_MESSAGE_DEFAULTS: Record<
       'Prepaid credit used up.\nCharging stopped.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
     account_credit_limit:
       'Fleet credit limit reached.\nCharging stopped.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
+    terminal_card:
+      'Pay by card\nPresent your card\non the payment reader\nHold: {{terminalAmount}}',
+    terminal_result:
+      '{{#if paymentApproved}}Payment approved.\n{{#if plugInAnyConnector}}Plug in at any connector.{{else}}Charging starts now.{{/if}}{{else}}Payment not approved.\nNo charge was made.{{/if}}',
+    terminal_receipt: 'Paid {{terminalAmount}}\nReceipt: {{receiptUrl}}',
   },
   de: {
     available:
@@ -77,6 +82,11 @@ export const STATION_MESSAGE_DEFAULTS: Record<
       'Prepaid-Guthaben aufgebraucht.\nLaden beendet.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
     account_credit_limit:
       'Kreditlimit der Flotte erreicht.\nLaden beendet.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
+    terminal_card:
+      'Mit Karte bezahlen\nKarte an das Lesegerät halten\nReservierung: {{terminalAmount}}',
+    terminal_result:
+      '{{#if paymentApproved}}Zahlung genehmigt.\n{{#if plugInAnyConnector}}An einem beliebigen Anschluss einstecken.{{else}}Das Laden startet jetzt.{{/if}}{{else}}Zahlung nicht genehmigt.\nEs wurde nichts belastet.{{/if}}',
+    terminal_receipt: 'Bezahlt: {{terminalAmount}}\nBeleg: {{receiptUrl}}',
   },
   es: {
     available:
@@ -102,6 +112,10 @@ export const STATION_MESSAGE_DEFAULTS: Record<
       'Saldo prepago agotado.\nCarga detenida.\n{{#if supportPhone}}Soporte: {{supportPhone}}{{/if}}',
     account_credit_limit:
       'Límite de crédito de la flota alcanzado.\nCarga detenida.\n{{#if supportPhone}}Soporte: {{supportPhone}}{{/if}}',
+    terminal_card: 'Pago con tarjeta\nAcerque la tarjeta al lector\nRetención: {{terminalAmount}}',
+    terminal_result:
+      '{{#if paymentApproved}}Pago aprobado.\n{{#if plugInAnyConnector}}Conecte en cualquier conector.{{else}}La carga comienza ahora.{{/if}}{{else}}Pago no aprobado.\nNo se realizó ningún cargo.{{/if}}',
+    terminal_receipt: 'Pagado: {{terminalAmount}}\nRecibo: {{receiptUrl}}',
   },
   ko: {
     available:
@@ -126,6 +140,10 @@ export const STATION_MESSAGE_DEFAULTS: Record<
       '선불 잔액이 소진되었습니다.\n충전이 중지되었습니다.\n{{#if supportPhone}}고객센터: {{supportPhone}}{{/if}}',
     account_credit_limit:
       '차량대 신용 한도에 도달했습니다.\n충전이 중지되었습니다.\n{{#if supportPhone}}고객센터: {{supportPhone}}{{/if}}',
+    terminal_card: '카드 결제\n결제 단말기에 카드를 대세요\n보류 금액: {{terminalAmount}}',
+    terminal_result:
+      '{{#if paymentApproved}}결제가 승인되었습니다.\n{{#if plugInAnyConnector}}아무 커넥터에나 연결하세요.{{else}}지금 충전을 시작합니다.{{/if}}{{else}}결제가 승인되지 않았습니다.\n청구된 금액이 없습니다.{{/if}}',
+    terminal_receipt: '결제 금액: {{terminalAmount}}\n영수증: {{receiptUrl}}',
   },
   zh: {
     available:
@@ -149,6 +167,10 @@ export const STATION_MESSAGE_DEFAULTS: Record<
       '预付余额已用完。\n充电已停止。\n{{#if supportPhone}}客服：{{supportPhone}}{{/if}}',
     account_credit_limit:
       '车队信用额度已用完。\n充电已停止。\n{{#if supportPhone}}客服：{{supportPhone}}{{/if}}',
+    terminal_card: '刷卡支付\n请在读卡器上出示银行卡\n预授权：{{terminalAmount}}',
+    terminal_result:
+      '{{#if paymentApproved}}支付已批准。\n{{#if plugInAnyConnector}}请插入任意充电枪。{{else}}现在开始充电。{{/if}}{{else}}支付未获批准。\n未产生任何费用。{{/if}}',
+    terminal_receipt: '已支付：{{terminalAmount}}\n收据：{{receiptUrl}}',
   },
   'zh-TW': {
     available:
@@ -172,6 +194,10 @@ export const STATION_MESSAGE_DEFAULTS: Record<
       '預付餘額已用完。\n充電已停止。\n{{#if supportPhone}}客服：{{supportPhone}}{{/if}}',
     account_credit_limit:
       '車隊信用額度已用完。\n充電已停止。\n{{#if supportPhone}}客服：{{supportPhone}}{{/if}}',
+    terminal_card: '刷卡付款\n請在讀卡機上出示銀行卡\n預授權：{{terminalAmount}}',
+    terminal_result:
+      '{{#if paymentApproved}}付款已核准。\n{{#if plugInAnyConnector}}請插入任一充電槍。{{else}}現在開始充電。{{/if}}{{else}}付款未獲核准。\n未產生任何費用。{{/if}}',
+    terminal_receipt: '已付款：{{terminalAmount}}\n收據：{{receiptUrl}}',
   },
 };
 

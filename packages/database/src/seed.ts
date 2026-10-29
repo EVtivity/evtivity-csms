@@ -676,10 +676,20 @@ async function seed(): Promise<void> {
     'security.session.operatorRefreshDays': 30,
     'security.session.driverAccessMinutes': 60,
     'security.session.driverRefreshDays': 30,
+    // Payment terminals: the ID TECH provider (off by default).
+    'paymentTerminals.idtech.enabled': false,
+    'paymentTerminals.idtech.environment': 'sandbox',
+    'paymentTerminals.idtech.merchantId': '',
+    'paymentTerminals.idtech.apiKeyEnc': '',
+    'paymentTerminals.idtech.apiSecretEnc': '',
+    'paymentTerminals.idtech.webhookSecretEnc': '',
     // SIM providers (off by default) and station signal reads.
     'sim.hologram.enabled': false,
     'sim.hologram.orgId': '',
     'sim.hologram.apiKeyEnc': '',
+    'sim.1nce.enabled': false,
+    'sim.1nce.clientId': '',
+    'sim.1nce.clientSecretEnc': '',
     'sim.sessions.retentionDays': 90,
     'sim.sessions.fetchDays': 7,
     'sim.stationSignal.enabled': false,
@@ -2857,7 +2867,7 @@ async function seed(): Promise<void> {
       actorUserId: featureActor?.id ?? null,
     });
     console.log(
-      `  Demo features created (${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs).`,
+      `  Demo features created (${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs, ${String(features.terminalPayments)} terminal payments).`,
     );
   }
 

@@ -10,6 +10,7 @@ COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
 COPY packages/payments/package.json packages/payments/
+COPY packages/payment-terminals/package.json packages/payment-terminals/
 COPY packages/services/package.json packages/services/
 COPY packages/ai/package.json packages/ai/
 COPY packages/sim-providers/package.json packages/sim-providers/
@@ -32,6 +33,7 @@ COPY scripts/build.mjs scripts/build.mjs
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
 COPY packages/payments/ packages/payments/
+COPY packages/payment-terminals/ packages/payment-terminals/
 COPY packages/services/ packages/services/
 COPY packages/sim-providers/ packages/sim-providers/
 COPY packages/ocpp/ packages/ocpp/
@@ -51,6 +53,7 @@ COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
 COPY packages/payments/package.json packages/payments/
+COPY packages/payment-terminals/package.json packages/payment-terminals/
 COPY packages/services/package.json packages/services/
 COPY packages/ai/package.json packages/ai/
 COPY packages/sim-providers/package.json packages/sim-providers/

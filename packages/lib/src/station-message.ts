@@ -47,7 +47,12 @@ export type StationMessageState =
   | 'guest_unauthorized'
   | 'unauthorized'
   | 'prepaid_exhausted'
-  | 'account_credit_limit';
+  | 'account_credit_limit'
+  // Payment terminal prompts (features/payment-terminals.md): a reader
+  // without its own screen (VP7200) shows them on the station display.
+  | 'terminal_card'
+  | 'terminal_result'
+  | 'terminal_receipt';
 
 export interface StationMessageContext {
   companyName: string;
@@ -72,6 +77,14 @@ export interface StationMessageContext {
   supportPhone?: string;
   driverFirstName?: string;
   reservationExpiresAt?: string;
+  /** Payment terminal prompts: the hold or the paid amount, formatted in the company currency. */
+  terminalAmount?: string;
+  /** Payment terminal result: the card was approved (else declined or released). */
+  paymentApproved?: boolean;
+  /** Payment terminal result of a station-wide start: the station starts on the connector plugged in. */
+  plugInAnyConnector?: boolean;
+  /** Payment terminal receipt link. */
+  receiptUrl?: string;
 }
 
 /** The price variables of a station message, in the display language. */

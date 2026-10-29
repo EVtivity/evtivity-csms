@@ -170,6 +170,38 @@ describe('SIM provider settings routes', () => {
       expect(hologram['apiKeyConfigured']).toBe(true);
     });
 
+    it('returns the 1NCE block and hides its secret without settings.system:read', async () => {
+      stored.rows.push(
+        { key: 'sim.1nce.enabled', value: true },
+        { key: 'sim.1nce.clientId', value: 'client-1' },
+        { key: 'sim.1nce.clientSecretEnc', value: encryptString('one-secret', KEY) },
+      );
+      const full = await app.inject({
+        method: 'GET',
+        url: '/settings/sim-providers',
+        headers: auth(),
+      });
+      expect(full.json<Record<string, unknown>>()['1nce']).toEqual({
+        enabled: true,
+        clientId: 'client-1',
+        clientSecret: 'one-secret',
+        clientSecretConfigured: true,
+      });
+      mockRequestHasPermission.mockResolvedValue(false);
+      const hidden = await app.inject({
+        method: 'GET',
+        url: '/settings/sim-providers',
+        headers: auth(),
+      });
+      expect(hidden.json<Record<string, unknown>>()['1nce']).toEqual({
+        enabled: true,
+        clientId: 'client-1',
+        clientSecret: null,
+        clientSecretConfigured: true,
+      });
+      expect(hidden.body).not.toContain('one-secret');
+    });
+
     it('answers a site-restricted user 404', async () => {
       setMockUserSiteIds(['sit_000000000001']);
       const res = await app.inject({
@@ -257,6 +289,39 @@ describe('SIM provider settings routes', () => {
       expect(audited).toEqual(['sim.hologram.orgId']);
     });
 
+    it('stores the 1NCE block: the trimmed client id and the secret encrypted, audited redacted', async () => {
+      mockWriteAudit.mockClear();
+      const res = await put({
+        '1nce': { enabled: true, clientId: ' client-1 ', clientSecret: ' one-secret ' },
+      });
+      expect(res.statusCode).toBe(200);
+      const byKey = new Map(written.map((row) => [row.key, row.value]));
+      expect(byKey.get('sim.1nce.enabled')).toBe(true);
+      expect(byKey.get('sim.1nce.clientId')).toBe('client-1');
+      expect(decryptString(byKey.get('sim.1nce.clientSecretEnc') as string, KEY)).toBe(
+        'one-secret',
+      );
+      expect([...byKey.keys()].some((key) => key.startsWith('sim.hologram'))).toBe(false);
+      const secretAudit = mockWriteAudit.mock.calls
+        .map((call) => (call as unknown[])[1] as { entityId: string; after: { value: unknown } })
+        .find((args) => args.entityId === 'sim.1nce.clientSecretEnc');
+      expect(secretAudit?.after.value).toBe('<redacted>');
+      expect(
+        JSON.stringify(mockWriteAudit.mock.calls.map((call) => (call as unknown[])[1])),
+      ).not.toContain('one-secret');
+    });
+
+    it('keeps the stored 1NCE secret when the field is absent or sent again', async () => {
+      stored.rows = [{ key: 'sim.1nce.clientSecretEnc', value: encryptString('same', KEY) }];
+      const absent = await put({ '1nce': { enabled: false } });
+      expect(absent.statusCode).toBe(200);
+      expect(written.map((row) => row.key)).toEqual(['sim.1nce.enabled']);
+      written.length = 0;
+      const again = await put({ '1nce': { clientSecret: ' same ' } });
+      expect(again.statusCode).toBe(200);
+      expect(written).toEqual([]);
+    });
+
     it('stores an empty alert for null and an empty key', async () => {
       stored.rows = [{ key: 'sim.hologram.apiKeyEnc', value: encryptString('old-key', KEY) }];
       const res = await put({ signalAlertBelowDbm: null, hologram: { apiKey: '' } });
@@ -278,6 +343,11 @@ describe('SIM provider settings routes', () => {
       [{ signalGoodDbm: -90 }],
       [{ hologram: { apiKeyEnc: 'x' } }],
       [{ retention: 90 }],
+      [{ '1nce': { clientId: 'user:secret' } }],
+      [{ '1nce': { clientId: 'two words' } }],
+      [{ '1nce': { clientId: 'x'.repeat(129) } }],
+      [{ '1nce': { clientSecretEnc: 'x' } }],
+      [{ '1nce': { apiKey: 'x' } }],
     ])('refuses %j with 400 VALIDATION_ERROR and writes nothing', async (payload) => {
       const res = await put(payload);
       expect(res.statusCode).toBe(400);
@@ -401,6 +471,28 @@ describe('SIM provider settings routes', () => {
       expect(limited.statusCode).toBe(429);
       expect(limited.headers['retry-after']).toBe('30');
       expect(limited.json<{ code: string }>().code).toBe('SIM_PROVIDER_RATE_LIMITED');
+    });
+
+    it('tests 1NCE and answers 400 SIM_PROVIDER_NOT_CONFIGURED while it is off', async () => {
+      mockGetProvider.mockResolvedValue(null);
+      const off = await app.inject({
+        method: 'POST',
+        url: '/settings/sim-providers/1nce/test',
+        headers: auth(),
+      });
+      expect(off.statusCode).toBe(400);
+      expect(off.json<{ code: string }>().code).toBe('SIM_PROVIDER_NOT_CONFIGURED');
+      expect(mockGetProvider).toHaveBeenLastCalledWith('1nce');
+      mockGetProvider.mockResolvedValue({
+        testConnection: vi.fn().mockResolvedValue({ deviceCount: 2, otherOrganizations: [] }),
+      });
+      const on = await app.inject({
+        method: 'POST',
+        url: '/settings/sim-providers/1nce/test',
+        headers: auth(),
+      });
+      expect(on.json()).toEqual({ provider: '1nce', deviceCount: 2, otherOrganizations: [] });
+      expect(counts.get('sim:test:1nce')).toBe(1);
     });
 
     it('refuses an unknown provider', async () => {

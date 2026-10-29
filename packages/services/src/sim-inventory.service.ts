@@ -5,6 +5,8 @@ import { eq } from 'drizzle-orm';
 import {
   attachmentOutcome,
   attachSimToStation,
+  attachSimToPaymentTerminal,
+  openTerminalAttachment,
   chargingStations,
   closeAttachment,
   confirmAttachment,
@@ -102,6 +104,9 @@ function attachmentAudit(attachment: SimAttachment): Record<string, unknown> {
     attachmentId: attachment.id,
     simId: attachment.simId,
     stationId: attachment.stationId,
+    ...(attachment.paymentTerminalId != null
+      ? { paymentTerminalId: attachment.paymentTerminalId }
+      : {}),
     source: attachment.source,
     confirmed: attachment.confirmedAt != null,
     detachReason: attachment.detachReason,
@@ -721,6 +726,86 @@ export async function detachStationSim(
       return closeAudited(open, 'detached', input.actor, input.log, executor);
     },
   );
+}
+
+// ---------------------------------------------------------------------------
+// Payment terminal: the terminal's own SIM (VP6825 LTE)
+// ---------------------------------------------------------------------------
+
+export type TerminalSimResult =
+  | { kind: 'attached'; attachment: SimAttachment }
+  | { kind: 'unchanged'; attachment: SimAttachment }
+  | { kind: 'sim_attached_elsewhere' }
+  | { kind: 'terminal_has_sim' }
+  | { kind: 'sim_inactive' }
+  | { kind: 'sim_not_found' };
+
+/**
+ * The ICCID of a payment terminal's own SIM, entered by a person (`entered`)
+ * or reported by the terminal provider (`reported`): the SIM is found or
+ * created and attached to the terminal, confirmed at once only for an ICCID
+ * an all-site person entered (plan E10, the station rule). Never closes an
+ * attachment: a SIM held elsewhere and a terminal holding another SIM are
+ * refused.
+ */
+export async function enterTerminalIccid(
+  paymentTerminalId: string,
+  iccid: string,
+  input: ActorInput & { source: 'entered' | 'reported'; withAllSites: boolean },
+  executor: SimDb = db,
+): Promise<TerminalSimResult> {
+  const { sim } = await ensureSim(
+    iccid,
+    {
+      actor: input.actor,
+      ...(input.log != null ? { log: input.log } : {}),
+      notes: 'payment_terminal',
+    },
+    executor,
+  );
+  const confirm = input.source === 'entered' && input.withAllSites;
+  const result = await attachSimToPaymentTerminal(
+    {
+      simId: sim.id,
+      paymentTerminalId,
+      source: input.source,
+      by: input.actor.userId,
+      withAllSites: input.withAllSites,
+      confirm,
+    },
+    executor,
+  );
+  if (result.kind !== 'attached') return { kind: result.kind };
+  if (!result.created) return { kind: 'unchanged', attachment: result.attachment };
+  await auditAttached(
+    result.attachment,
+    sim.provider,
+    input.actor.audit,
+    'payment_terminal',
+    input.log,
+    executor,
+  );
+  return { kind: 'attached', attachment: result.attachment };
+}
+
+/** Audits the SIM side of a terminal SIM attachment the terminal writer closed on a site change. */
+export async function auditTerminalSimClosed(
+  open: SimAttachment,
+  closed: SimAttachment,
+  input: ActorInput,
+): Promise<void> {
+  await auditDetached(closed, open, 'detached', input.actor.audit, input.log);
+}
+
+/** Closes a payment terminal's open SIM attachment (`detached`). Null without one. */
+export async function detachTerminalSim(
+  paymentTerminalId: string,
+  input: ActorInput,
+  executor: SimDb = db,
+): Promise<SimAttachment | null> {
+  const open = await openTerminalAttachment(paymentTerminalId, executor);
+  if (open == null) return null;
+  return closeAudited(open, 'detached', input.actor, input.log, executor);
 }
 
 // ---------------------------------------------------------------------------

@@ -60,7 +60,12 @@ import {
   requireAllSiteAccess,
 } from '../lib/site-access.js';
 import { recordStationCommandAudit } from '../lib/station-command-audit.js';
-import { isSimFeatureOn, readSimSettings, simProviderRegistry } from '../lib/sim.js';
+import {
+  anySimProviderEnabled,
+  isSimFeatureOn,
+  readSimSettings,
+  simProviderRegistry,
+} from '../lib/sim.js';
 import { simKeyStore } from '../lib/sim-keys.js';
 import {
   simAlertItem,
@@ -368,7 +373,13 @@ const refreshResponse = z
   .loose();
 
 const resetResponse = z
-  .object({ status: z.literal('accepted').describe('The provider accepted the network reset') })
+  .object({
+    status: z
+      .enum(['accepted', 'submitted'])
+      .describe(
+        'accepted: the provider reset the network (Hologram). submitted: the provider queued the reset, which runs within a few minutes (1NCE).',
+      ),
+  })
   .loose();
 
 const confirmResponse = z
@@ -1046,7 +1057,7 @@ export function stationSimRoutes(app: FastifyInstance): void {
       }
 
       // An inactive SIM is never refreshed: refused before either part starts.
-      if (simSettings.hologram.enabled) {
+      if (anySimProviderEnabled(simSettings)) {
         const { sim } = await stationSimOf(id, station.iccid);
         if (sim?.status === 'inactive') {
           await reply.status(409).send(SIM_INACTIVE);
@@ -1073,7 +1084,7 @@ export function stationSimRoutes(app: FastifyInstance): void {
       }
 
       const [provider, stationPart] = await Promise.all([
-        simSettings.hologram.enabled
+        anySimProviderEnabled(simSettings)
           ? refreshStationSimProvider(
               { registry, keys, actor: getAuditActor(request), log: request.log },
               id,

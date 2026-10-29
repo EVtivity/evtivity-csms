@@ -91,6 +91,10 @@ const STATE_BODIES: Record<StationMessageState, string> = {
     'Prepaid credit used up.\nCharging stopped.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
   account_credit_limit:
     'Fleet credit limit reached.\nCharging stopped.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
+  terminal_card: 'Pay by card\nPresent your card\non the payment reader\nHold: {{terminalAmount}}',
+  terminal_result:
+    '{{#if paymentApproved}}Payment approved.\n{{#if plugInAnyConnector}}Plug in at any connector.{{else}}Charging starts now.{{/if}}{{else}}Payment not approved.\nNo charge was made.{{/if}}',
+  terminal_receipt: 'Paid {{terminalAmount}}\nReceipt: {{receiptUrl}}',
 };
 
 describe('renderStationMessage', () => {

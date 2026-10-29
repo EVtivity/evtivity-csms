@@ -10,6 +10,7 @@ COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
 COPY packages/payments/package.json packages/payments/
+COPY packages/payment-terminals/package.json packages/payment-terminals/
 COPY packages/services/package.json packages/services/
 COPY packages/ai/package.json packages/ai/
 COPY packages/api/package.json packages/api/
@@ -46,6 +47,7 @@ COPY package.json package-lock.json ./
 COPY packages/lib/package.json packages/lib/
 COPY packages/database/package.json packages/database/
 COPY packages/payments/package.json packages/payments/
+COPY packages/payment-terminals/package.json packages/payment-terminals/
 COPY packages/services/package.json packages/services/
 COPY packages/ai/package.json packages/ai/
 COPY packages/api/package.json packages/api/

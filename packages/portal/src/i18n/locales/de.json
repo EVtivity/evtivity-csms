@@ -989,7 +989,21 @@
     "SIM_TEST_UNAVAILABLE": "Der Verbindungstest kann gerade nicht ausgeführt werden. Versuche es in einer Minute erneut",
     "NOT_FOUND": "Nicht gefunden",
     "PAYLOAD_TOO_LARGE": "Die Anfrage ist zu groß",
-    "UNSUPPORTED_MEDIA_TYPE": "Nicht unterstützter Inhaltstyp"
+    "UNSUPPORTED_MEDIA_TYPE": "Nicht unterstützter Inhaltstyp",
+    "PAYMENT_TERMINAL_NOT_FOUND": "Zahlungsterminal nicht gefunden",
+    "PAYMENT_TERMINAL_INACTIVE": "Das Zahlungsterminal ist inaktiv",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "Das Zahlungsterminal ist keiner Ladestation zugeordnet",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "Ein anderes aktives Zahlungsterminal ist diesem Anschluss zugeordnet",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "Dieses Gerät ist bereits als Zahlungsterminal registriert",
+    "PAYMENT_TERMINAL_BUSY": "Am Zahlungsterminal läuft bereits eine Zahlung",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "Das Zahlungsterminal hat Zahlungen und kann nicht gelöscht werden; deaktivieren Sie es stattdessen",
+    "PAYMENT_TERMINAL_HAS_SIM": "Das Zahlungsterminal hat bereits eine SIM",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "Die Ladestation steuert dieses Terminal im Hardwaremodus; das CSMS kann darauf keine Zahlungen starten",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "Der Zahlungsterminal-Anbieter ist ausgeschaltet oder hat keine Zugangsdaten",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "Die ID TECH-Integration ist noch nicht für den Produktivbetrieb verifiziert",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "Die Anfrage an den Zahlungsterminal-Anbieter ist fehlgeschlagen",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "Terminalzahlung nicht gefunden",
+    "TERMINAL_TRANSACTION_STATE": "Die Terminalzahlung erlaubt diese Aktion in ihrem aktuellen Zustand nicht"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",

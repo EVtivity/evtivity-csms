@@ -21,12 +21,20 @@ export interface SimHologramSettings {
   orgId: string;
 }
 
+/** Same shape as the 1NCE settings of `@evtivity/sim-providers`. */
+export interface SimOneNceSettings {
+  enabled: boolean;
+  clientId: string;
+  clientSecret: string;
+}
+
 /**
- * The SIM settings with the provider secrets decrypted. `hologram` matches the
- * provider settings a SIM provider registry builds its adapters from.
+ * The SIM settings with the provider secrets decrypted. `hologram` and `1nce`
+ * match the provider settings a SIM provider registry builds its adapters from.
  */
 export interface SimSettings extends SimGeneralSettings {
   hologram: SimHologramSettings;
+  '1nce': SimOneNceSettings;
 }
 
 const SIM_SETTINGS_CACHE_TTL_MS = 60_000;
@@ -39,14 +47,11 @@ function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function decryptedApiKey(value: unknown, encryptionKey: string): string {
+function decryptedSecret(value: unknown, encryptionKey: string, key: string): string {
   try {
     return (decryptSettingOrNull(value, encryptionKey) ?? '').trim();
   } catch (err: unknown) {
-    logger.warn(
-      { err, key: SIM_SETTING_KEYS.hologramApiKeyEnc },
-      'SIM provider API key decryption failed, Hologram has no API key',
-    );
+    logger.warn({ err, key }, 'SIM provider secret decryption failed, the provider has none');
     return '';
   }
 }
@@ -61,8 +66,21 @@ export function parseSimSettings(
     ...normalizeSimGeneralSettings(map),
     hologram: {
       enabled: map[SIM_SETTING_KEYS.hologramEnabled] === true,
-      apiKey: decryptedApiKey(map[SIM_SETTING_KEYS.hologramApiKeyEnc], encryptionKey),
+      apiKey: decryptedSecret(
+        map[SIM_SETTING_KEYS.hologramApiKeyEnc],
+        encryptionKey,
+        SIM_SETTING_KEYS.hologramApiKeyEnc,
+      ),
       orgId: stringValue(map[SIM_SETTING_KEYS.hologramOrgId]),
+    },
+    '1nce': {
+      enabled: map[SIM_SETTING_KEYS.oneNceEnabled] === true,
+      clientId: stringValue(map[SIM_SETTING_KEYS.oneNceClientId]),
+      clientSecret: decryptedSecret(
+        map[SIM_SETTING_KEYS.oneNceClientSecretEnc],
+        encryptionKey,
+        SIM_SETTING_KEYS.oneNceClientSecretEnc,
+      ),
     },
   };
 }
@@ -71,6 +89,7 @@ function defaultSimSettings(): SimSettings {
   return {
     ...normalizeSimGeneralSettings({}),
     hologram: { enabled: false, apiKey: '', orgId: '' },
+    '1nce': { enabled: false, clientId: '', clientSecret: '' },
   };
 }
 

@@ -989,7 +989,21 @@
     "SIM_TEST_UNAVAILABLE": "目前無法執行連線測試。請一分鐘後再試",
     "NOT_FOUND": "找不到",
     "PAYLOAD_TOO_LARGE": "請求過大",
-    "UNSUPPORTED_MEDIA_TYPE": "不支援的內容類型"
+    "UNSUPPORTED_MEDIA_TYPE": "不支援的內容類型",
+    "PAYMENT_TERMINAL_NOT_FOUND": "找不到支付終端機",
+    "PAYMENT_TERMINAL_INACTIVE": "支付終端機已停用",
+    "PAYMENT_TERMINAL_NOT_PAIRED": "支付終端機未與充電站配對",
+    "PAYMENT_TERMINAL_EVSE_TAKEN": "另一台啟用中的支付終端機已與此充電槍配對",
+    "PAYMENT_TERMINAL_DEVICE_TAKEN": "此裝置已註冊為支付終端機",
+    "PAYMENT_TERMINAL_BUSY": "支付終端機已有進行中的付款",
+    "PAYMENT_TERMINAL_HAS_TRANSACTIONS": "支付終端機有付款紀錄，無法刪除，請改為停用",
+    "PAYMENT_TERMINAL_HAS_SIM": "支付終端機已有 SIM 卡",
+    "PAYMENT_TERMINAL_HARDWARE_MODE": "此硬體模式終端機由充電站控制，CSMS 無法在其上發起付款",
+    "PAYMENT_TERMINAL_PROVIDER_NOT_CONFIGURED": "支付終端機供應商已關閉或沒有憑證",
+    "PAYMENT_TERMINAL_PROVIDER_UNVERIFIED": "ID TECH 整合尚未通過正式環境驗證",
+    "PAYMENT_TERMINAL_PROVIDER_ERROR": "支付終端機供應商請求失敗",
+    "TERMINAL_TRANSACTION_NOT_FOUND": "找不到終端機付款",
+    "TERMINAL_TRANSACTION_STATE": "終端機付款目前的狀態不允許此操作"
   },
   "validation": {
     "required": "此欄位為必填項",

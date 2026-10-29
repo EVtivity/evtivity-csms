@@ -47,6 +47,10 @@ export const SEED_ENCRYPTED_KEY_MAP: Readonly<Record<string, string>> = {
   'googleMaps.apiKey': 'googleMaps.apiKeyEnc',
   'mobile.attestation.android.serviceAccount': 'mobile.attestation.android.serviceAccountEnc',
   'sim.hologram.apiKey': 'sim.hologram.apiKeyEnc',
+  'sim.1nce.clientSecret': 'sim.1nce.clientSecretEnc',
+  'paymentTerminals.idtech.apiKey': 'paymentTerminals.idtech.apiKeyEnc',
+  'paymentTerminals.idtech.apiSecret': 'paymentTerminals.idtech.apiSecretEnc',
+  'paymentTerminals.idtech.webhookSecret': 'paymentTerminals.idtech.webhookSecretEnc',
   'notifications.webhookSigningSecret': 'notifications.webhookSigningSecretEnc',
 };
 

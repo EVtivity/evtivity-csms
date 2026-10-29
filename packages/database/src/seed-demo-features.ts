@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { createHash } from 'node:crypto';
 import type postgres from 'postgres';
 import argon2 from 'argon2';
 import {
@@ -16,17 +17,20 @@ import {
 import type { ConfigTemplateVariable, TaxBasis } from '@evtivity/lib';
 import { db } from './config.js';
 import { writeAudit } from './lib/audit.js';
-import { simAuditLog } from './schema/audit.js';
+import { paymentTerminalAuditLog, simAuditLog } from './schema/audit.js';
+import { createTerminal, recordTerminalDeviceStatus } from './lib/payment-terminals.js';
+import { attachSimToPaymentTerminal } from './lib/sim-inventory.js';
 import type { StoredSimStatus } from './lib/sim-inventory.js';
 import { ensureSiteElectricityRates } from './seed-electricity-rates.js';
 import { sessionSiteIdSql } from './lib/session-site.js';
 import { loadDemoStationPlace } from './seed-fleet-billing.js';
 
-// Demo data of three features that are off or empty in a fresh demo: Plug and
+// Demo data of four features that are off or empty in a fresh demo: Plug and
 // Charge (ISO 15118 contracts and the sessions their eMAID tokens started),
-// free vend (a site that charges without identification or payment) and SIM
+// free vend (a site that charges without identification or payment), SIM
 // providers (SIM inventory, confirmed attachments and the SIM history a
-// Refresh stores). The dashboard Plug & Charge and Free Vend charts, the
+// Refresh stores) and payment terminals (two simulated card readers with
+// their payments). The dashboard Plug & Charge and Free Vend charts, the
 // driver contracts card, the site Free Vend tab, the SIMs pages and the
 // station Connectivity timeline show data without a station, a model or a
 // provider call. Every row has a fixed id or a natural key and is inserted
@@ -124,9 +128,15 @@ function pad(n: number, width: number): string {
  * The transaction id a station sends: a UUID on OCPP 2.x, an integer on 1.6.
  * `group` keeps the demo groups apart (one hex digit, never a seeded value).
  */
-export function demoTransactionId(group: 'pnc' | 'freeVend', n: number, ocpp16: boolean): string {
-  if (ocpp16) return String((group === 'pnc' ? 800_000 : 900_000) + n);
-  return `${group === 'pnc' ? 'd' : 'f'}e300000-0000-4000-8000-${pad(n, 12)}`;
+export function demoTransactionId(
+  group: 'pnc' | 'freeVend' | 'terminal',
+  n: number,
+  ocpp16: boolean,
+): string {
+  const base = { pnc: 800_000, freeVend: 900_000, terminal: 700_000 }[group];
+  const digit = { pnc: 'd', freeVend: 'f', terminal: 'a' }[group];
+  if (ocpp16) return String(base + n);
+  return `${digit}e300000-0000-4000-8000-${pad(n, 12)}`;
 }
 
 // ---------- Plug and Charge ----------
@@ -797,7 +807,492 @@ export async function seedSimDemo(sql: postgres.Sql, ctx: DemoFeatureContext): P
   return inserted + spare.length + inactive.length;
 }
 
-// ---------- All three ----------
+// ---------- Payment terminals ----------
+
+/**
+ * The demo payment terminals: two simulated ID TECH readers in cloud mode, on
+ * simulated devices only the demo uses (`sim_term_4`, `sim_term_5`), so the
+ * status poll keeps them online and no test registers the same device. The
+ * VP6825 is paired to the first EVSE of its station and carries a confirmed
+ * Hologram SIM (its LTE modem); the VP7200 (no screen) is paired to a whole
+ * station at another site. Vendor, serial number and firmware are what the
+ * simulated devices report (fictional values, `SIMULATED_DEVICES` in
+ * `@evtivity/payment-terminals`; an API test keeps the two lists equal).
+ */
+export const TERMINAL_DEMO = {
+  /** The VP6825 takes the first station found, the VP7200 the next one at another site. */
+  stationIds: ['CS-0981', 'CS-0982', 'CS-0987', 'CS-0988', 'CS-0989'],
+  devices: {
+    vp6825: {
+      providerDeviceId: 'sim_term_4',
+      label: 'Lobby Card Reader',
+      vendor: 'ID TECH',
+      model: 'VP6825',
+      serialNumber: '6825SIM000004',
+      firmwareVersion: '1.01.106',
+    },
+    vp7200: {
+      providerDeviceId: 'sim_term_5',
+      label: 'Garage Entrance Card Reader',
+      vendor: 'ID TECH',
+      model: 'VP7200',
+      serialNumber: '7200SIM000005',
+      firmwareVersion: '1.00.042',
+    },
+  },
+  /** The SIM of the VP6825 LTE modem, attached and confirmed by the admin. */
+  sim: {
+    id: 'sim_demosim00093',
+    iccid: '89014103000000000993',
+    imsi: '310410000000993',
+    simNumber: 9,
+  },
+} as const;
+
+export type TerminalDemoDevice = keyof typeof TERMINAL_DEMO.devices;
+
+export interface TerminalTxnPlan {
+  n: number;
+  terminal: TerminalDemoDevice;
+  state: 'captured' | 'voided' | 'refunded';
+  /** The OCPP EVSE number of the session (the VP7200 is station-wide: the driver picked one). */
+  evseNumber: number;
+  daysAgo: number;
+  hour: number;
+  requestedCents: number;
+  energyWh: number;
+  costCents: number;
+  card: { last4: string; bin: string; brand: string };
+}
+
+/** Public test card numbers of the card networks (last 4 digits and BIN only). */
+const DEMO_CARDS = {
+  visa: { last4: '4242', bin: '424242', brand: 'visa' },
+  mastercard: { last4: '5454', bin: '545454', brand: 'mastercard' },
+  amex: { last4: '0005', bin: '378282', brand: 'amex' },
+} as const;
+
+/**
+ * The terminal payments, each paying one completed demo session: a captured
+ * payment took the session cost, a voided one released the hold of a session
+ * that delivered nothing (`no_cost`), the refunded one was captured and then
+ * refunded in full.
+ */
+export function terminalTxnPlan(): TerminalTxnPlan[] {
+  const plan = (
+    n: number,
+    terminal: TerminalDemoDevice,
+    state: TerminalTxnPlan['state'],
+    evseNumber: number,
+    daysAgo: number,
+    hour: number,
+    energyWh: number,
+    card: TerminalTxnPlan['card'],
+  ): TerminalTxnPlan => ({
+    n,
+    terminal,
+    state,
+    evseNumber,
+    daysAgo,
+    hour,
+    requestedCents: terminal === 'vp6825' ? 5000 : 7500,
+    energyWh,
+    costCents: Math.round((energyWh / 1000) * 40),
+    card,
+  });
+  return [
+    plan(1, 'vp6825', 'captured', 1, 3, 9, 14_200, DEMO_CARDS.visa),
+    plan(2, 'vp6825', 'voided', 1, 2, 14, 0, DEMO_CARDS.mastercard),
+    plan(3, 'vp6825', 'refunded', 1, 6, 17, 21_500, DEMO_CARDS.amex),
+    plan(4, 'vp7200', 'captured', 2, 5, 8, 38_400, DEMO_CARDS.mastercard),
+    plan(5, 'vp7200', 'captured', 1, 1, 12, 26_900, DEMO_CARDS.visa),
+    plan(6, 'vp7200', 'voided', 1, 4, 19, 0, DEMO_CARDS.visa),
+  ];
+}
+
+function demoHash(value: string, length: number): string {
+  return createHash('sha256').update(value).digest('hex').slice(0, length);
+}
+
+/** The simulated provider's reference format (`ptx_sim_<authorized cents>_<24 hex>`), so a later refund works. */
+export function demoTerminalTxnRef(n: number, authorizedCents: number): string {
+  return `ptx_sim_${String(authorizedCents)}_${demoHash(`demo-terminal-txn-${String(n)}`, 24)}`;
+}
+
+interface TerminalStation {
+  id: string;
+  stationId: string;
+  siteId: string | null;
+  ocppProtocol: string;
+  /** OCPP EVSE number to the EVSE record id. */
+  evses: Map<number, string>;
+}
+
+async function loadTerminalStations(sql: postgres.Sql): Promise<TerminalStation[]> {
+  const rows = await sql<
+    Array<{ id: string; station_id: string; site_id: string | null; ocpp_protocol: string }>
+  >`
+    SELECT id, station_id, site_id, ocpp_protocol FROM charging_stations
+    WHERE station_id IN ${sql([...TERMINAL_DEMO.stationIds])}
+  `;
+  const out: TerminalStation[] = [];
+  for (const stationId of TERMINAL_DEMO.stationIds) {
+    const row = rows.find((r) => r.station_id === stationId);
+    if (row == null) continue;
+    const evseRows = await sql<Array<{ id: string; evse_id: number }>>`
+      SELECT id, evse_id FROM evses WHERE station_id = ${row.id} ORDER BY evse_id
+    `;
+    out.push({
+      id: row.id,
+      stationId: row.station_id,
+      siteId: row.site_id,
+      ocppProtocol: row.ocpp_protocol,
+      evses: new Map(evseRows.map((e) => [e.evse_id, e.id])),
+    });
+  }
+  return out;
+}
+
+const auditActor = (ctx: DemoFeatureContext): 'operator' | 'system' =>
+  ctx.actorUserId != null ? 'operator' : 'system';
+
+/** The terminal of a demo device: created through the terminal writer, or the one already registered. */
+async function demoTerminal(
+  sql: postgres.Sql,
+  key: TerminalDemoDevice,
+  station: TerminalStation,
+  evseId: string | null,
+  ctx: DemoFeatureContext,
+): Promise<{ id: string; created: boolean } | null> {
+  const device = TERMINAL_DEMO.devices[key];
+  const result = await createTerminal({
+    provider: 'simulated',
+    integrationMode: 'cloud',
+    providerDeviceId: device.providerDeviceId,
+    label: device.label,
+    vendor: device.vendor,
+    model: device.model,
+    serialNumber: device.serialNumber,
+    firmwareVersion: device.firmwareVersion,
+    siteId: null,
+    pairing: { stationId: station.id, evseId },
+    createdBy: ctx.actorUserId,
+  });
+  if (result.kind === 'created') {
+    await recordTerminalDeviceStatus(
+      result.terminal.id,
+      { online: true, lastSeenAt: ctx.now, firmwareVersion: device.firmwareVersion },
+      ctx.now,
+    );
+    await writeAudit(
+      { table: paymentTerminalAuditLog, idColumn: 'payment_terminal_id' },
+      {
+        entityId: result.terminal.id,
+        entityIdSnapshot: result.terminal.id,
+        action: 'created',
+        actor: auditActor(ctx),
+        actorUserId: ctx.actorUserId,
+        after: {
+          label: device.label,
+          provider: 'simulated',
+          integrationMode: 'cloud',
+          model: device.model,
+          serialNumber: device.serialNumber,
+          siteId: station.siteId,
+          stationId: station.id,
+          evseId,
+          status: 'active',
+          auditSiteId: station.siteId,
+        },
+      },
+    );
+    return { id: result.terminal.id, created: true };
+  }
+  if (result.kind !== 'device_taken') {
+    console.log(`  Demo terminal ${device.providerDeviceId} skipped (${result.kind}).`);
+    return null;
+  }
+  const [existing] = await sql<Array<{ id: string }>>`
+    SELECT id FROM payment_terminals
+    WHERE provider = 'simulated' AND provider_device_id = ${device.providerDeviceId}
+  `;
+  return existing != null ? { id: existing.id, created: false } : null;
+}
+
+/** The VP6825's own SIM: imported with the history of a Refresh, then attached to the terminal and confirmed. */
+async function seedTerminalSim(
+  sql: postgres.Sql,
+  terminalId: string,
+  siteId: string | null,
+  ctx: DemoFeatureContext,
+): Promise<void> {
+  const { id: simId, iccid, imsi, simNumber } = TERMINAL_DEMO.sim;
+  const fetchedAt = new Date(ctx.now.getTime() - 2 * HOUR_MS);
+  const createdAt = new Date(ctx.now.getTime() - (SIM_DEMO.sessionDays + 10) * DAY_MS);
+  const sessions = simSessionPlan(ctx.now, simNumber);
+  const newest = sessions.at(-1) ?? null;
+  const status = simStatusOf(ctx.now, simNumber, newest?.endedAt ?? null);
+  const providerRef = `demo-${pad(93, 4)}`;
+  const label = 'VP6825 LTE modem';
+  const created = await sql`
+    INSERT INTO sims (id, iccid, imsi, provider, provider_ref, provider_meta, label, last_status,
+      status_fetched_at, open_session_began_at, last_record_id, sessions_synced_at,
+      alerts_synced_at, status, created_by, created_at, updated_at)
+    VALUES (${simId}, ${iccid}, ${imsi}, 'hologram', ${providerRef},
+      ${sql.json({ linkId: `${providerRef}-link`, simcardId: `${providerRef}-card` })},
+      ${label}, ${sql.json(status as unknown as postgres.JSONValue)}, ${fetchedAt},
+      ${status.openSessionBeganAt}, ${newest?.providerSessionId ?? null}, ${fetchedAt},
+      ${fetchedAt}, 'active', ${ctx.actorUserId}, ${createdAt}, ${fetchedAt})
+    ON CONFLICT DO NOTHING
+    RETURNING id
+  `;
+  if (created.length === 0) return;
+  for (const s of sessions) {
+    await sql`
+      INSERT INTO sim_sessions (sim_id, provider, provider_session_id, started_at, ended_at, bytes,
+        network_name, radio_access_technology, cell_id, apn, fetched_at)
+      VALUES (${simId}, 'hologram', ${s.providerSessionId}, ${s.startedAt}, ${s.endedAt},
+        ${s.bytes}, ${s.networkName}, ${s.radioAccessTechnology}, ${s.cellId}, 'hologram',
+        ${fetchedAt})
+      ON CONFLICT DO NOTHING
+    `;
+  }
+  await sql`
+    INSERT INTO sim_fetch_coverage (sim_id, provider, covered_from, covered_to, fetched_at)
+    SELECT ${simId}, 'hologram', ${new Date(ctx.now.getTime() - SIM_DEMO.sessionDays * DAY_MS)},
+      ${fetchedAt}, ${fetchedAt}
+    WHERE NOT EXISTS (SELECT 1 FROM sim_fetch_coverage WHERE sim_id = ${simId})
+  `;
+  await writeAudit(
+    { table: simAuditLog, idColumn: 'sim_id' },
+    {
+      entityId: simId,
+      entityIdSnapshot: simId,
+      action: 'created',
+      actor: auditActor(ctx),
+      actorUserId: ctx.actorUserId,
+      after: { label, notes: null, provider: 'hologram', status: 'active' },
+      notes: 'CSV import',
+    },
+  );
+  // The attachment rules of the terminal SIM Card tab: an all-site admin
+  // entered the ICCID, so it is confirmed at once.
+  const attached = await attachSimToPaymentTerminal({
+    simId,
+    paymentTerminalId: terminalId,
+    source: 'entered',
+    by: ctx.actorUserId,
+    withAllSites: true,
+    confirm: true,
+  });
+  if (attached.kind !== 'attached' || !attached.created) return;
+  const attachment = attached.attachment;
+  await writeAudit(
+    { table: simAuditLog, idColumn: 'sim_id' },
+    {
+      entityId: simId,
+      entityIdSnapshot: simId,
+      action: 'attached',
+      actor: auditActor(ctx),
+      actorUserId: ctx.actorUserId,
+      after: {
+        attachment: {
+          attachmentId: attachment.id,
+          simId,
+          stationId: null,
+          paymentTerminalId: terminalId,
+          source: 'entered',
+          confirmed: true,
+          detachReason: null,
+        },
+      },
+    },
+  );
+  await writeAudit(
+    { table: paymentTerminalAuditLog, idColumn: 'payment_terminal_id' },
+    {
+      entityId: terminalId,
+      entityIdSnapshot: terminalId,
+      action: 'sim_attached',
+      actor: auditActor(ctx),
+      actorUserId: ctx.actorUserId,
+      after: {
+        attachmentId: attachment.id,
+        source: 'entered',
+        confirmed: true,
+        auditSiteId: siteId,
+      },
+    },
+  );
+}
+
+/**
+ * One terminal payment and the session it paid: the guest session the
+ * terminal start stores (`payment_terminal`), the completed charging session,
+ * the payment record of a capture (`payment_source = 'terminal'`) and the
+ * terminal transaction. Returns whether the transaction was inserted.
+ */
+async function seedTerminalPayment(
+  sql: postgres.Sql,
+  plan: TerminalTxnPlan,
+  terminalId: string,
+  station: TerminalStation,
+  ctx: DemoFeatureContext,
+): Promise<boolean> {
+  const evseDbId = station.evses.get(plan.evseNumber) ?? null;
+  const day = new Date(ctx.now.getTime() - plan.daysAgo * DAY_MS);
+  day.setUTCHours(0, 0, 0, 0);
+  const requestedAt = new Date(day.getTime() + plan.hour * HOUR_MS + 7 * MINUTE_MS);
+  const authorizedAt = new Date(requestedAt.getTime() + 12_000);
+  const startedAt = new Date(authorizedAt.getTime() + 40_000);
+  const endedAt = new Date(
+    startedAt.getTime() + (plan.energyWh > 0 ? (plan.energyWh / 250) * MINUTE_MS : 4 * MINUTE_MS),
+  );
+  const settledAt = new Date(endedAt.getTime() + 30_000);
+  const authorized = plan.requestedCents;
+  const ref = demoTerminalTxnRef(plan.n, authorized);
+  const sessionId = `ses_demotrm${pad(plan.n, 5)}`;
+  const txnId = `ptx_demotrx${pad(plan.n, 5)}`;
+  const captured = plan.state === 'voided' ? null : plan.costCents;
+  const refunded = plan.state === 'refunded' ? plan.costCents : 0;
+
+  const [exists] = await sql`SELECT 1 FROM payment_terminal_transactions WHERE id = ${txnId}`;
+  if (exists != null) return false;
+
+  const token = demoHash(`demo-terminal-guest-${String(plan.n)}`, 20);
+  const breakdown = chargedCostBreakdown(plan.costCents, 0, ctx.taxBasis);
+  await sql`
+    INSERT INTO charging_sessions (id, station_id, site_id, evse_id, transaction_id, status,
+      started_at, ended_at, meter_start, meter_stop, energy_delivered_wh, final_cost_cents,
+      net_cents, tax_cents, cost_breakdown, currency, cost_ceiling_cents, stopped_reason,
+      created_at, updated_at)
+    VALUES (${sessionId}, ${station.id}, ${sessionSiteIdSql(sql, station.id)}, ${evseDbId},
+      ${demoTransactionId('terminal', plan.n, station.ocppProtocol === 'ocpp1.6')}, 'completed',
+      ${startedAt}, ${endedAt}, 0, ${plan.energyWh}, ${String(plan.energyWh)}, ${plan.costCents},
+      ${breakdown.netCents}, ${breakdown.taxCents},
+      ${sql.json(breakdown as unknown as postgres.JSONValue)}, ${ctx.currency}, ${authorized},
+      'EVDisconnected', ${startedAt}, ${endedAt})
+    ON CONFLICT DO NOTHING
+  `;
+  await sql`
+    INSERT INTO guest_sessions (station_ocpp_id, evse_id, charging_session_id, guest_email,
+      pre_auth_amount_cents, status, session_token, expires_at, max_cost_cents, payment_terminal,
+      start_requested_at, created_at, updated_at)
+    VALUES (${station.stationId}, ${plan.evseNumber}, ${sessionId}, '', ${authorized}, 'completed',
+      ${token}, ${new Date(requestedAt.getTime() + HOUR_MS)}, ${authorized}, true, ${authorizedAt},
+      ${requestedAt}, ${settledAt})
+    ON CONFLICT DO NOTHING
+  `;
+  const [guest] = await sql<Array<{ id: number }>>`
+    SELECT id FROM guest_sessions WHERE session_token = ${token}
+  `;
+
+  let paymentRecordId: number | null = null;
+  if (captured != null) {
+    const ledger =
+      plan.state === 'refunded'
+        ? [
+            {
+              refundId: `rf_sim_${demoHash(`demo-terminal-refund-${String(plan.n)}`, 24)}`,
+              paymentId: ref,
+              amountCents: refunded,
+              state: 'succeeded',
+              requestedAt: new Date(settledAt.getTime() + DAY_MS).toISOString(),
+              settledAt: new Date(settledAt.getTime() + DAY_MS).toISOString(),
+            },
+          ]
+        : [];
+    await sql`
+      INSERT INTO payment_records (session_id, provider, provider_payment_id, payment_source,
+        currency, pre_auth_amount_cents, captured_amount_cents, refunded_amount_cents, status,
+        provider_refunds, created_at, updated_at)
+      VALUES (${sessionId}, 'simulated', ${ref}, 'terminal', ${ctx.currency}, ${authorized},
+        ${captured}, ${refunded}, ${plan.state === 'refunded' ? 'refunded' : 'captured'},
+        ${sql.json(ledger)}, ${settledAt}, ${plan.state === 'refunded' ? new Date(settledAt.getTime() + DAY_MS) : settledAt})
+      ON CONFLICT DO NOTHING
+    `;
+    const [record] = await sql<Array<{ id: number }>>`
+      SELECT id FROM payment_records WHERE provider = 'simulated' AND provider_payment_id = ${ref}
+    `;
+    paymentRecordId = record?.id ?? null;
+  }
+
+  const inserted = await sql`
+    INSERT INTO payment_terminal_transactions (id, payment_terminal_id, provider, provider_txn_ref,
+      site_id, station_id, evse_number, guest_session_id, session_id, payment_record_id, state,
+      currency, requested_cents, authorized_cents, captured_cents, refunded_cents, card_last4,
+      card_bin, card_brand, failure_reason, requested_at, authorized_at, captured_at, voided_at,
+      expires_at, created_at, updated_at)
+    VALUES (${txnId}, ${terminalId}, 'simulated', ${ref}, ${station.siteId}, ${station.id},
+      ${plan.evseNumber}, ${guest?.id ?? null}, ${sessionId}, ${paymentRecordId}, ${plan.state},
+      ${ctx.currency}, ${plan.requestedCents}, ${authorized}, ${captured}, ${refunded},
+      ${plan.card.last4}, ${plan.card.bin}, ${plan.card.brand},
+      ${plan.state === 'voided' ? 'no_cost' : null}, ${requestedAt}, ${authorizedAt},
+      ${captured != null ? settledAt : null}, ${plan.state === 'voided' ? settledAt : null},
+      ${new Date(requestedAt.getTime() + 15 * MINUTE_MS)}, ${requestedAt}, ${settledAt})
+    ON CONFLICT DO NOTHING
+    RETURNING id
+  `;
+  if (inserted.length === 0) return false;
+  await writeAudit(
+    { table: paymentTerminalAuditLog, idColumn: 'payment_terminal_id' },
+    {
+      entityId: terminalId,
+      entityIdSnapshot: terminalId,
+      action: 'payment_started',
+      actor: 'system',
+      actorUserId: null,
+      actorLabel: 'payment-terminal',
+      after: {
+        transactionId: txnId,
+        requestedCents: plan.requestedCents,
+        auditSiteId: station.siteId,
+      },
+    },
+  );
+  return true;
+}
+
+/**
+ * Payment terminals: the two demo terminals, the VP6825's SIM and six
+ * terminal payments (four captured, one of them refunded, and two voided).
+ * Returns the terminal payments inserted; a rerun adds nothing.
+ */
+export async function seedPaymentTerminalDemo(
+  sql: postgres.Sql,
+  ctx: DemoFeatureContext,
+): Promise<number> {
+  const stations = (await loadTerminalStations(sql)).filter((s) => s.evses.size > 0);
+  const first = stations[0];
+  if (first == null) {
+    console.log('  Payment terminal demo skipped: no demo station for the terminals.');
+    return 0;
+  }
+  const second =
+    stations.find((s) => s.id !== first.id && s.siteId !== first.siteId) ??
+    stations.find((s) => s.id !== first.id) ??
+    null;
+  const placed: Array<{
+    key: TerminalDemoDevice;
+    station: TerminalStation;
+    evseId: string | null;
+  }> = [{ key: 'vp6825', station: first, evseId: first.evses.get(1) ?? null }];
+  if (second != null) placed.push({ key: 'vp7200', station: second, evseId: null });
+
+  let inserted = 0;
+  for (const { key, station, evseId } of placed) {
+    const terminal = await demoTerminal(sql, key, station, evseId, ctx);
+    if (terminal == null) continue;
+    if (key === 'vp6825') await seedTerminalSim(sql, terminal.id, station.siteId, ctx);
+    for (const plan of terminalTxnPlan().filter((p) => p.terminal === key)) {
+      if (!station.evses.has(plan.evseNumber)) continue;
+      if (await seedTerminalPayment(sql, plan, terminal.id, station, ctx)) inserted++;
+    }
+  }
+  return inserted;
+}
+
+// ---------- All four ----------
 
 /**
  * Turns the demo features on: Plug and Charge (`pnc.enabled`, provider kept,
@@ -818,10 +1313,11 @@ export interface DemoFeatureCounts {
   pncSessions: number;
   freeVendSessions: number;
   sims: number;
+  terminalPayments: number;
 }
 
 /**
- * Seeds the Plug and Charge, free vend and SIM demo and turns the two
+ * Seeds the Plug and Charge, free vend, SIM and payment terminal demo and turns the two
  * features on. Picks the demo drivers and the EVtivity vendor itself, so the
  * demo seed and the run script on an existing demo database do the same.
  */
@@ -846,6 +1342,7 @@ export async function seedDemoFeatures(
   );
   const freeVendSessions = await seedFreeVendDemo(sql, ctx, vendor?.id ?? null);
   const sims = await seedSimDemo(sql, ctx);
+  const terminalPayments = await seedPaymentTerminalDemo(sql, ctx);
   await enableDemoFeatureSettings(sql);
-  return { pncSessions, freeVendSessions, sims };
+  return { pncSessions, freeVendSessions, sims, terminalPayments };
 }

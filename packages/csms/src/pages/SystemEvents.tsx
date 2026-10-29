@@ -7,6 +7,7 @@ import {
   OPERATOR_ACCOUNT_EVENTS,
   OPERATOR_SUPPORT_EVENTS,
   OPERATOR_SESSION_EVENTS,
+  OPERATOR_PAYMENT_TERMINAL_EVENTS,
   SITE_HOST_EVENTS,
   FLEET_BILLING_SYSTEM_EVENTS,
   FLEET_INVOICE_EVENTS,
@@ -27,6 +28,10 @@ export function SystemEvents(): React.JSX.Element {
         { title: t('notifications.operatorEvents'), events: OPERATOR_ACCOUNT_EVENTS },
         { title: t('notifications.supportEvents'), events: OPERATOR_SUPPORT_EVENTS },
         { title: t('notifications.sessionAlertEvents'), events: OPERATOR_SESSION_EVENTS },
+        {
+          title: t('notifications.paymentTerminalAlertEvents'),
+          events: OPERATOR_PAYMENT_TERMINAL_EVENTS,
+        },
         { title: t('notifications.siteHostEvents'), events: SITE_HOST_EVENTS },
         { title: t('notifications.fleetBillingAlertEvents'), events: FLEET_BILLING_SYSTEM_EVENTS },
         { title: t('notifications.fleetInvoiceEvents'), events: FLEET_INVOICE_EVENTS },

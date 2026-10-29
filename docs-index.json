@@ -315,6 +315,11 @@
     "description": "Vehicle-specific quirks that surface in OCPP states. When a station reports SuspendedEV, prolonged EVConnected, or unusual stop reasons, the cause is usually on the vehicle side."
   },
   {
+    "path": "/docs/guides/how-drivers-start-and-pay",
+    "title": "How Drivers Start and Pay",
+    "description": "The five ways a driver starts a charging session and how each one is paid, from the portal and app to RFID cards, guest QR checkout and payment terminals."
+  },
+  {
     "path": "/docs/guides/notifications",
     "title": "Notifications",
     "description": "Event categories, delivery channels, templates, and configuration for EVtivity notifications."
@@ -403,6 +408,11 @@
     "path": "/docs/integrations/payment-providers",
     "title": "Payment Providers",
     "description": "Overview of the payment providers. Stripe, Adyen, and the test provider, how the active provider is chosen, provider pinning, the payment lifecycle, webhooks, statuses, and reconciliation."
+  },
+  {
+    "path": "/docs/integrations/payment-terminals",
+    "title": "Payment Terminals",
+    "description": "Card readers at a charger that the CSMS drives through the terminal provider cloud. Providers, settings, pairing, how a driver pays, receipts, refunds, offline alerts and permissions."
   },
   {
     "path": "/docs/integrations/sim-providers",

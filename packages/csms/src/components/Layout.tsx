@@ -18,6 +18,7 @@ import { useEventStream } from '@/hooks/use-event-stream';
 import { api } from '@/lib/api';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { visibleNavEntries, type NavEntry } from '@/navigation/registry';
+import { usePaymentTerminalFeature } from '@/components/payment-terminals/payment-terminal-types';
 
 function SidebarContent({
   onNavClick,
@@ -135,7 +136,12 @@ export function Layout(): React.JSX.Element {
 
   const permissions = useAuth((s) => s.permissions);
   const hasAllSiteAccess = useHasAllSiteAccess();
-  const visibleNavItems = visibleNavEntries(permissions, featureFlags, hasAllSiteAccess);
+  const { available: paymentTerminalsEnabled } = usePaymentTerminalFeature();
+  const visibleNavItems = visibleNavEntries(
+    permissions,
+    { ...featureFlags, paymentTerminalsEnabled },
+    hasAllSiteAccess,
+  );
 
   useEffect(() => {
     setMobileNavOpen(false);

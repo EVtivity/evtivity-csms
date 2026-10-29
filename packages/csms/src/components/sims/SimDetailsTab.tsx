@@ -16,7 +16,12 @@ import { useToast } from '@/components/ui/toast';
 import { DisabledWithReason } from '@/components/sim/DisabledWithReason';
 import { SimProviderStatusCard } from '@/components/sim/SimProviderStatusCard';
 import { SimRefreshCard } from '@/components/sim/SimRefreshCard';
-import { providerName, simErrorMessage, simKey } from '@/components/sim/sim-connectivity';
+import {
+  providerName,
+  resetSuccessKey,
+  simErrorMessage,
+  simKey,
+} from '@/components/sim/sim-connectivity';
 import type { SimRefreshController } from '@/components/sim/use-sim-refresh';
 import { api } from '@/lib/api';
 import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
@@ -243,9 +248,9 @@ function SimProviderCard({ sim, controller, timezone }: SimDetailsTabProps): Rea
 
   const reset = useMutation({
     mutationFn: () => api.post(`/v1/sims/${sim.id}/network-reset`, {}),
-    onSuccess: () => {
+    onSuccess: (reply) => {
       setResetOpen(false);
-      toast({ variant: 'success', title: t('stations.sim.resetSuccess') });
+      toast({ variant: 'success', title: t(resetSuccessKey(reply)) });
       void queryClient.invalidateQueries({ queryKey: simKey(sim.id) });
     },
     onError: (err) => {

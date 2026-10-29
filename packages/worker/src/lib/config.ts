@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 import { resolveNotificationTestSinkUrl } from '@evtivity/lib/notification-test-sink';
+import { resolvePaymentTerminalTestBaseUrl } from '@evtivity/lib/payment-terminal-env';
 
 const schema = z.object({
   // Decrypts *Enc settings (the Stripe secret key for the capture retry).
@@ -35,6 +36,19 @@ const schema = z.object({
     .default('false')
     .transform((v) => v === 'true'),
   NOTIFICATIONS_TEST_SINK_URL: z.preprocess((v) => (v === '' ? undefined : v), z.url().optional()),
+  // The portal address of the payment terminal receipt link (`<PORTAL_URL>/guest-session/<token>`).
+  PORTAL_URL: z.string().default('http://localhost:7101'),
+  // Allows the simulated payment terminal provider (features/payment-terminals.md).
+  // Default: on when NODE_ENV is development or test, off otherwise (unset included).
+  PAYMENT_TERMINALS_ALLOW_SIMULATED: z
+    .enum(['true', 'false'])
+    .default(['development', 'test'].includes(process.env['NODE_ENV'] ?? '') ? 'true' : 'false')
+    .transform((v) => v === 'true'),
+  // The payment terminal provider mock (development and test only). Helm and CDK refuse it.
+  PAYMENT_TERMINAL_TEST_BASE_URL: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.url().optional(),
+  ),
 });
 
 export type WorkerConfig = z.infer<typeof schema>;
@@ -53,3 +67,6 @@ export function allowsDevelopmentRelaxations(env: NodeJS.ProcessEnv = process.en
 // (unset included), or without the allow flag, so the process does not start
 // (the senders check again, P11).
 resolveNotificationTestSinkUrl(process.env);
+
+// Refuses the payment terminal mock URL unless NODE_ENV is development or test.
+resolvePaymentTerminalTestBaseUrl(process.env);

@@ -44,6 +44,8 @@ import { aiProposalSweepHandler } from './handlers/ai-proposal-sweep.js';
 import { driverAiSweepHandler } from './handlers/driver-ai-sweep.js';
 import { aiProposalDigestHandler } from './handlers/ai-proposal-digest.js';
 import { aiInsightScanHandler } from './handlers/ai-insight-scan.js';
+import { paymentTerminalReconcileHandler } from './handlers/payment-terminal-reconcile.js';
+import { paymentTerminalStatusHandler } from './handlers/payment-terminal-status.js';
 
 const log = createLogger('cron-worker');
 
@@ -88,6 +90,9 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['driver-ai-sweep', driverAiSweepHandler],
   ['ai-proposal-digest', (log) => aiProposalDigestHandler(log)],
   ['ai-insight-scan', aiInsightScanHandler],
+  // Payment terminals (features/payment-terminals.md).
+  ['payment-terminal-reconcile', paymentTerminalReconcileHandler],
+  ['payment-terminal-status', paymentTerminalStatusHandler],
 ]);
 
 /** Redis key of the lock a cron job holds while it runs (ACL prefix `wkl:`). */

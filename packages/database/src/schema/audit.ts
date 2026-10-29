@@ -1341,6 +1341,45 @@ export const simAuditLog = pgTable(
   ],
 );
 
+export const paymentTerminalAuditActionEnum = pgEnum('payment_terminal_audit_action', [
+  'created',
+  'updated',
+  'paired',
+  'unpaired',
+  'deactivated',
+  'reactivated',
+  'deleted',
+  'sim_attached',
+  'sim_detached',
+  'status_synced',
+  'payment_started',
+  'payment_voided',
+]);
+
+export const paymentTerminalAuditLog = pgTable(
+  'payment_terminal_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    paymentTerminalId: text('payment_terminal_id'),
+    paymentTerminalIdSnapshot: text('payment_terminal_id_snapshot').notNull(),
+    action: paymentTerminalAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_payment_terminal_audit_entity_id').on(table.paymentTerminalId),
+    index('idx_payment_terminal_audit_created_at').on(table.createdAt),
+  ],
+);
+
 // Map of every audit table keyed by the entityType used in API filters.
 // Used by the global GET /v1/audit endpoint (UNION over all tables) and by
 // the worker retention prune job (DELETE FROM each).
@@ -1380,6 +1419,7 @@ export const AUDIT_TABLES = {
   event_alert_rule: eventAlertRuleAuditLog,
   report_schedule: reportScheduleAuditLog,
   sim: simAuditLog,
+  payment_terminal: paymentTerminalAuditLog,
 } as const;
 
 export type AuditEntityType = keyof typeof AUDIT_TABLES;

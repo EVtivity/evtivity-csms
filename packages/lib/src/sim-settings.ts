@@ -10,6 +10,9 @@ export const SIM_SETTING_KEYS = Object.freeze({
   hologramEnabled: 'sim.hologram.enabled',
   hologramOrgId: 'sim.hologram.orgId',
   hologramApiKeyEnc: 'sim.hologram.apiKeyEnc',
+  oneNceEnabled: 'sim.1nce.enabled',
+  oneNceClientId: 'sim.1nce.clientId',
+  oneNceClientSecretEnc: 'sim.1nce.clientSecretEnc',
   retentionDays: 'sim.sessions.retentionDays',
   fetchDays: 'sim.sessions.fetchDays',
   stationSignalEnabled: 'sim.stationSignal.enabled',
@@ -31,6 +34,21 @@ const HOLOGRAM_ORG_ID = new RegExp(`^\\d{1,${String(SIM_HOLOGRAM_ORG_ID_MAX_DIGI
 /** A Hologram organization id: 1 to 15 digits after trimming (it is also sent in the query). */
 export function isHologramOrgId(value: string): boolean {
   return HOLOGRAM_ORG_ID.test(value.trim());
+}
+
+/** A 1NCE API client id is at most this many characters (the Helm chart and CDK check the same). */
+export const ONENCE_CLIENT_ID_MAX_LENGTH = 128;
+
+// `!` (0x21) to `~` (0x7e) without `:` (0x3a).
+const ONENCE_CLIENT_ID = new RegExp(`^[!-9;-~]{1,${String(ONENCE_CLIENT_ID_MAX_LENGTH)}}$`);
+
+/**
+ * A 1NCE API client id after trimming: 1 to 128 printable ASCII characters
+ * without a space or `:` (it is the HTTP Basic user of the token request,
+ * RFC 7617, where `:` ends the user).
+ */
+export function isOneNceClientId(value: string): boolean {
+  return ONENCE_CLIENT_ID.test(value.trim());
 }
 
 /** Days sessions and SIM alerts are kept. */

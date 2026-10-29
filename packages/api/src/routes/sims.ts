@@ -121,7 +121,7 @@ const notesField = z.string().max(2000).describe('Notes, at most 2000 characters
 
 const listQuery = paginationQuery.extend({
   search: z.string().max(100).optional().describe('Part of the ICCID, IMSI or label'),
-  provider: z.string().max(32).optional().describe('The SIM provider, such as hologram'),
+  provider: z.string().max(32).optional().describe('The SIM provider, such as hologram or 1nce'),
   attachment: z
     .enum(['attached', 'unattached', 'unconfirmed'])
     .optional()
@@ -457,7 +457,13 @@ const refreshResponse = z
   .loose();
 
 const resetResponse = z
-  .object({ status: z.literal('accepted').describe('The provider accepted the network reset') })
+  .object({
+    status: z
+      .enum(['accepted', 'submitted'])
+      .describe(
+        'accepted: the provider reset the network (Hologram). submitted: the provider queued the reset, which runs within a few minutes (1NCE).',
+      ),
+  })
   .loose();
 
 const featureOff = errorWith('SIM features off', [ERROR_CODES.SIM_FEATURE_DISABLED]);

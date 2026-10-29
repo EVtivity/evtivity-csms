@@ -435,7 +435,22 @@ export function usageNearLimit(usage: SimUsage | null): boolean {
   return usage.bytes > usage.limitBytes * 0.8;
 }
 
-export const PROVIDER_NAMES: Readonly<Record<string, string>> = { hologram: 'Hologram' };
+export const PROVIDER_NAMES: Readonly<Record<string, string>> = {
+  hologram: 'Hologram',
+  '1nce': '1NCE',
+};
+
+/**
+ * The toast after a network reset: Hologram resets at once (`accepted`), 1NCE
+ * queues the reset (`submitted`), which runs within a few minutes.
+ */
+export function resetSuccessKey(
+  reply: unknown,
+): 'stations.sim.resetSubmitted' | 'stations.sim.resetSuccess' {
+  const status =
+    reply != null && typeof reply === 'object' ? (reply as { status?: unknown }).status : null;
+  return status === 'submitted' ? 'stations.sim.resetSubmitted' : 'stations.sim.resetSuccess';
+}
 
 export function providerName(id: string | null): string {
   if (id == null) return '';

@@ -527,7 +527,7 @@ export {
   clearSimSettingsCache,
   parseSimSettings,
 } from './lib/sim-settings.js';
-export type { SimSettings, SimHologramSettings } from './lib/sim-settings.js';
+export type { SimSettings, SimHologramSettings, SimOneNceSettings } from './lib/sim-settings.js';
 export {
   attachmentOutcome,
   findOrCreateSimRecord,
@@ -541,6 +541,9 @@ export {
   attachSimToStation,
   closeAttachment,
   raiseStationSimHistoryFloor,
+  raiseTerminalSimHistoryFloor,
+  openTerminalAttachment,
+  attachSimToPaymentTerminal,
   confirmAttachment,
   recordSimLookup,
   recordSimStatus,
@@ -550,6 +553,7 @@ export {
 } from './lib/sim-inventory.js';
 export type {
   AttachSimResult,
+  AttachSimToTerminalResult,
   AttachmentDecision,
   AttachmentOutcomeInput,
   ConfirmAttachmentOutcome,
@@ -567,6 +571,43 @@ export type {
   SimProviderMeta,
   StoredSimStatus,
 } from './lib/sim-inventory.js';
+export {
+  getPaymentTerminalSettings,
+  clearPaymentTerminalSettingsCache,
+  parsePaymentTerminalSettings,
+} from './lib/payment-terminal-settings.js';
+export type { PaymentTerminalSettings } from './lib/payment-terminal-settings.js';
+export {
+  OPEN_TERMINAL_TXN_STATES,
+  createTerminal,
+  getTerminal,
+  updateTerminal,
+  pairTerminal,
+  unpairTerminal,
+  setTerminalStatus,
+  recordTerminalDeviceStatus,
+  deleteTerminal,
+  activeTerminalsOfStations,
+  terminalHasOpenTransaction,
+  claimTerminalOfflineAlerts,
+} from './lib/payment-terminals.js';
+export type {
+  ClosedTerminalSim,
+  CreateTerminalInput,
+  CreateTerminalResult,
+  DeleteTerminalResult,
+  DeviceStatusInput,
+  DeviceStatusResult,
+  PairTerminalResult,
+  PairingCheck,
+  PaymentTerminal,
+  PaymentTerminalDb,
+  SetTerminalStatusResult,
+  TerminalFieldChanges,
+  TerminalPairing,
+  UnpairTerminalResult,
+  UpdateTerminalResult,
+} from './lib/payment-terminals.js';
 export { getAttestationConfig, clearAttestationConfigCache } from './lib/attestation-settings.js';
 export type { AttestationConfig } from './lib/attestation-settings.js';
 export { getMobileAppConfig, clearMobileAppConfigCache } from './lib/mobile-app-settings.js';
@@ -625,6 +666,13 @@ export {
   setStationDataPlan,
 } from './lib/station-data-plan.js';
 export type { DataPlanChange, DataPlanDb, StationDataPlanState } from './lib/station-data-plan.js';
+export {
+  moveStationLayout,
+  placeStationOnLayout,
+  readSiteLayoutPositions,
+  saveSiteLayout,
+} from './lib/station-layout.js';
+export type { StationLayoutDb } from './lib/station-layout.js';
 export {
   deleteUserDashboardLayout,
   getUserDashboardLayout,

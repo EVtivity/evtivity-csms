@@ -26,6 +26,7 @@ import {
   octtRuns,
   aiInsights,
   sims,
+  paymentTerminals,
   isOperatorStation,
   inOperatorStation,
 } from '@evtivity/database';
@@ -135,6 +136,17 @@ const TARGETS: NeighborTarget[] = [
     scopeWhere: (siteIds) => simVisibleWhere(siteIds),
     // Every SIM route answers SIM_FEATURE_DISABLED first while it is off.
     featureGate: requireSimFeature,
+  },
+  {
+    path: '/payment-terminals/:id/neighbors',
+    tag: 'Payment Terminals',
+    operationId: 'getPaymentTerminalNeighbors',
+    permission: 'paymentTerminals:read',
+    notFoundCode: 'PAYMENT_TERMINAL_NOT_FOUND',
+    idColumn: paymentTerminals.id,
+    createdAtColumn: paymentTerminals.createdAt,
+    // The list scope: terminals without a site are for all-site users only.
+    scopeWhere: (siteIds) => inArray(paymentTerminals.siteId, siteIds),
   },
   {
     path: '/stations/:id/neighbors',

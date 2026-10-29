@@ -67,10 +67,12 @@ vi.mock('@evtivity/database', async () => ({
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
+  isNull: vi.fn(),
 }));
 
 const sendOcppCommandAndWait = vi.fn();
-vi.mock('@evtivity/services/ocpp-command', () => ({
+// The service lives in @evtivity/services and imports these relatively.
+vi.mock('../../../services/src/ocpp-command.js', () => ({
   sendOcppCommandAndWait: (...args: unknown[]) => sendOcppCommandAndWait(...args),
 }));
 
@@ -80,7 +82,7 @@ vi.mock('../lib/site-access.js', () => ({
 }));
 
 const getActiveMaintenanceForStation = vi.fn();
-vi.mock('@evtivity/services/maintenance.service', () => ({
+vi.mock('../../../services/src/maintenance.service.js', () => ({
   getActiveMaintenanceForStation: (...args: unknown[]) => getActiveMaintenanceForStation(...args),
 }));
 
@@ -142,7 +144,7 @@ describe('POST /v1/ad-hoc-payments', () => {
 
   it('stores the payment and sends RequestStartTransaction with a DirectPayment idToken', async () => {
     // station, evse, existing payment (none), active session (none), insert
-    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], []);
+    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [{ id: 7 }]);
 
     const response = await post();
 
@@ -186,7 +188,7 @@ describe('POST /v1/ad-hoc-payments', () => {
   });
 
   it('audits the start on the station as a dispatched command, without card data', async () => {
-    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], []);
+    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [{ id: 7 }]);
     await post({ ...BODY, cardBin: '123456' });
     expect(writeAudit).toHaveBeenCalledOnce();
     const [config, args] = writeAudit.mock.calls[0] as [
@@ -216,7 +218,7 @@ describe('POST /v1/ad-hoc-payments', () => {
       commandId: 'cmd-1',
       response: { status: 'Rejected' },
     });
-    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [], []);
+    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [{ id: 7 }], []);
     const response = await post();
     expect(response.statusCode).toBe(502);
     expect(writeAudit.mock.calls[0]?.[1]).toMatchObject({ after: { outcome: 'Rejected' } });
@@ -232,13 +234,13 @@ describe('POST /v1/ad-hoc-payments', () => {
   });
 
   it('sends card BIN as additionalInfo and omits additionalInfo without card details', async () => {
-    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], []);
+    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [{ id: 7 }]);
     await post({ stationId: 'CS-001', evseId: 1, pspRef: 'PSP-1', cardBin: '123456' });
     expect(sendOcppCommandAndWait.mock.calls[0]?.[2]).toMatchObject({
       idToken: { additionalInfo: [{ additionalIdToken: '123456', type: 'CardBin' }] },
     });
 
-    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], []);
+    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [{ id: 7 }]);
     await post({ stationId: 'CS-001', evseId: 1, pspRef: 'PSP-2' });
     expect(sendOcppCommandAndWait.mock.calls[1]?.[2]).toMatchObject({
       idToken: { idToken: 'PSP-2', type: 'DirectPayment' },
@@ -348,7 +350,7 @@ describe('POST /v1/ad-hoc-payments', () => {
   });
 
   it('removes the payment and returns 502 when the station rejects the start', async () => {
-    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [], []);
+    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [{ id: 7 }], []);
     sendOcppCommandAndWait.mockResolvedValue({ commandId: 'c', response: { status: 'Rejected' } });
 
     const response = await post();
@@ -359,7 +361,7 @@ describe('POST /v1/ad-hoc-payments', () => {
   });
 
   it('removes the payment and returns 504 when the station does not respond', async () => {
-    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [], []);
+    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [{ id: 7 }], []);
     sendOcppCommandAndWait.mockResolvedValue({ commandId: 'c', error: 'No response within 35s' });
 
     const response = await post();

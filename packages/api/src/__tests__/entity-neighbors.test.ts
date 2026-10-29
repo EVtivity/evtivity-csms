@@ -105,6 +105,7 @@ vi.mock('@evtivity/database', async () => ({
   firmwareCampaigns: fakeTable('firmware_campaigns'),
   octtRuns: fakeTable('octt_runs'),
   sims: fakeTable('sims'),
+  paymentTerminals: { ...fakeTable('payment_terminals'), siteId: { name: 'site_id' } },
   aiInsights: {
     ...fakeTable('ai_insights'),
     siteId: { name: 'site_id' },

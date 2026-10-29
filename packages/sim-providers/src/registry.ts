@@ -2,10 +2,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { hologramFactory } from './hologram/adapter.js';
+import { oneNceFactory } from './1nce/adapter.js';
 import type { SimProvider, SimProviderId, SimProviderSettings } from './types.js';
 
-/** The order in which a station's ICCID is looked up. A later provider is added here. */
-export const SIM_PROVIDER_ORDER: readonly SimProviderId[] = ['hologram'];
+/**
+ * The order in which a station's ICCID is looked up (owner decision 2026-10-29:
+ * Hologram first, then 1NCE; no ICCID prefix routing). A later provider is added here.
+ */
+export const SIM_PROVIDER_ORDER: readonly SimProviderId[] = ['hologram', '1nce'];
 
 export interface SimProviderBuildOptions {
   /** Development and test only: replaces the vendor host with a mock. */
@@ -26,7 +30,7 @@ export interface SimProviderRegistryOptions {
   testBaseUrl?: string | null;
 }
 
-const BUILT_IN_FACTORIES: readonly SimProviderFactory[] = [hologramFactory];
+const BUILT_IN_FACTORIES: readonly SimProviderFactory[] = [hologramFactory, oneNceFactory];
 
 interface BuiltProvider {
   fingerprint: string;

@@ -44,6 +44,16 @@ describe('redactAccessLogBody', () => {
     expect(
       redactAccessLogBody('/v1/users/me/ai', { provider: 'anthropic', apiKey: 'key' }),
     ).toEqual({ provider: 'anthropic', apiKey: REDACTED });
+    // The SIM provider settings: the Hologram API key and the 1NCE client secret.
+    expect(
+      redactAccessLogBody('/v1/settings/sim-providers', {
+        hologram: { enabled: true, orgId: '42', apiKey: 'holo-key' },
+        '1nce': { enabled: true, clientId: 'client-1', clientSecret: 'one-secret' },
+      }),
+    ).toEqual({
+      hologram: { enabled: true, orgId: '42', apiKey: REDACTED },
+      '1nce': { enabled: true, clientId: 'client-1', clientSecret: REDACTED },
+    });
     expect(redactAccessLogBody('/v1/x', { accessKeyId: 'AKIA', secretAccessKey: 'k' })).toEqual({
       accessKeyId: REDACTED,
       secretAccessKey: REDACTED,

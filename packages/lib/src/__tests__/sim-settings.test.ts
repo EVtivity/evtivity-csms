@@ -6,6 +6,8 @@ import {
   SIM_HOLOGRAM_ORG_ID_MAX_DIGITS,
   SIM_SETTING_KEYS,
   isHologramOrgId,
+  isOneNceClientId,
+  ONENCE_CLIENT_ID_MAX_LENGTH,
   isSimFetchDays,
   isSimRetentionDays,
   isSimSignalDbm,
@@ -23,6 +25,27 @@ describe('isHologramOrgId', () => {
     expect(isHologramOrgId('')).toBe(false);
     expect(isHologramOrgId('org-12')).toBe(false);
     expect(isHologramOrgId('-12')).toBe(false);
+  });
+});
+
+describe('isOneNceClientId', () => {
+  it('takes 1 to 128 printable ASCII characters without a space or colon, as Helm and CDK do', () => {
+    expect(ONENCE_CLIENT_ID_MAX_LENGTH).toBe(128);
+    expect(isOneNceClientId('a1b2-c3_D4.e5')).toBe(true);
+    expect(isOneNceClientId(' client ')).toBe(true);
+    expect(isOneNceClientId('x'.repeat(128))).toBe(true);
+    expect(isOneNceClientId('x'.repeat(129))).toBe(false);
+    expect(isOneNceClientId('')).toBe(false);
+    expect(isOneNceClientId('user:secret')).toBe(false);
+    expect(isOneNceClientId('two words')).toBe(false);
+    expect(isOneNceClientId('tab\there')).toBe(false);
+    expect(isOneNceClientId('caf\u00e9')).toBe(false);
+  });
+
+  it('names the 1NCE keys', () => {
+    expect(SIM_SETTING_KEYS.oneNceEnabled).toBe('sim.1nce.enabled');
+    expect(SIM_SETTING_KEYS.oneNceClientId).toBe('sim.1nce.clientId');
+    expect(SIM_SETTING_KEYS.oneNceClientSecretEnc).toBe('sim.1nce.clientSecretEnc');
   });
 });
 

@@ -10,8 +10,10 @@ import {
   formatDataBytes,
   notFetchedRuns,
   periodOptions,
+  providerName,
   rangeWindowDays,
   refreshResultLines,
+  resetSuccessKey,
   selectedPeriod,
   simSourceKey,
   simSourcePath,
@@ -333,5 +335,20 @@ describe('refreshResultLines of a SIM Refresh', () => {
     expect(
       refreshResultLines({ provider: { result: 'ok', sessionsStored: 2 } }, 'sim'),
     ).toHaveLength(1);
+  });
+});
+
+describe('provider names and the reset message', () => {
+  it('names Hologram and 1NCE, and passes another id through', () => {
+    expect(providerName('hologram')).toBe('Hologram');
+    expect(providerName('1nce')).toBe('1NCE');
+    expect(providerName('kore')).toBe('kore');
+    expect(providerName(null)).toBe('');
+  });
+
+  it('says a queued reset runs within a few minutes', () => {
+    expect(resetSuccessKey({ status: 'submitted' })).toBe('stations.sim.resetSubmitted');
+    expect(resetSuccessKey({ status: 'accepted' })).toBe('stations.sim.resetSuccess');
+    expect(resetSuccessKey(undefined)).toBe('stations.sim.resetSuccess');
   });
 });
