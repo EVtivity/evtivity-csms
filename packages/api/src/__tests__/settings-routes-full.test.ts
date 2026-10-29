@@ -179,6 +179,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     MOBILE_APP_URL_SCHEMES_KEY: actual.MOBILE_APP_URL_SCHEMES_KEY,
     MOBILE_APP_ANDROID_PACKAGES_KEY: actual.MOBILE_APP_ANDROID_PACKAGES_KEY,
     parseAllowedPrivateHosts: actual.parseAllowedPrivateHosts,
+    isPrivateUrl: actual.isPrivateUrl,
     MAX_ALLOWED_PRIVATE_HOSTS: actual.MAX_ALLOWED_PRIVATE_HOSTS,
     validateAiBaseUrl: actual.validateAiBaseUrl,
     isAiBaseUrlSettingKey: actual.isAiBaseUrlSettingKey,
@@ -268,6 +269,7 @@ vi.mock('../lib/provider-switch.js', async (importOriginal) => ({
 import { PaymentProviderUpgradePendingError } from '@evtivity/payments';
 import { registerAuth } from '../plugins/auth.js';
 import { settingsRoutes } from '../routes/settings.js';
+import { db } from '@evtivity/database';
 import { clearPaymentCaches } from '../lib/payments.js';
 
 const VALID_USER_ID = 'usr_000000000001';
@@ -804,6 +806,42 @@ describe('Settings routes - full coverage', () => {
       expect(res.json().configured).toBe(false);
     });
 
+    it('returns configured: false for an S3-compatible provider without an endpoint', async () => {
+      setupDbResults([
+        { key: 's3.provider', value: 's3-compatible' },
+        { key: 's3.endpoint', value: '' },
+        { key: 's3.bucket', value: 'my-bucket' },
+        { key: 's3.region', value: 'us-east-1' },
+        { key: 's3.accessKeyIdEnc', value: 'enc-key-id' },
+        { key: 's3.secretAccessKeyEnc', value: 'enc-secret' },
+      ]);
+      const res = await app.inject({
+        method: 'GET',
+        url: '/settings/s3/status',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().configured).toBe(false);
+    });
+
+    it('returns configured: true for an S3-compatible provider with an endpoint', async () => {
+      setupDbResults([
+        { key: 's3.provider', value: 's3-compatible' },
+        { key: 's3.endpoint', value: 'https://storage.example.com' },
+        { key: 's3.bucket', value: 'my-bucket' },
+        { key: 's3.region', value: 'us-east-1' },
+        { key: 's3.accessKeyIdEnc', value: 'enc-key-id' },
+        { key: 's3.secretAccessKeyEnc', value: 'enc-secret' },
+      ]);
+      const res = await app.inject({
+        method: 'GET',
+        url: '/settings/s3/status',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().configured).toBe(true);
+    });
+
     it('ignores non-s3 settings in the result set', async () => {
       setupDbResults([
         { key: 'smtp.host', value: 'mail.example.com' },
@@ -953,6 +991,131 @@ describe('Settings routes - full coverage', () => {
         payload: { ...s3Body, bucket: '' },
       });
       expect(res.statusCode).toBe(400);
+    });
+
+    /** The settings the route upserted, by key (the audit rows are left out). */
+    function upserted(): Record<string, unknown> {
+      const written: Record<string, unknown> = {};
+      for (const result of vi.mocked(db.insert).mock.results) {
+        const chain = result.value as { values: ReturnType<typeof vi.fn> };
+        for (const [row] of chain.values.mock.calls as Array<[Record<string, unknown>]>) {
+          if (typeof row['key'] === 'string' && 'value' in row) written[row['key']] = row['value'];
+        }
+      }
+      return written;
+    }
+
+    function putS3(payload: Record<string, unknown>) {
+      return app.inject({
+        method: 'PUT',
+        url: '/settings/s3',
+        headers: { authorization: `Bearer ${operatorToken}` },
+        payload: { ...s3Body, ...payload },
+      });
+    }
+
+    it('saves an S3-compatible endpoint with path-style addressing', async () => {
+      const res = await putS3({
+        provider: 's3-compatible',
+        endpoint: 'https://s3.wasabisys.com/',
+        forcePathStyle: true,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(upserted()).toMatchObject({
+        's3.provider': 's3-compatible',
+        's3.endpoint': 'https://s3.wasabisys.com',
+        's3.forcePathStyle': true,
+        's3.allowedPrivateHosts': [],
+        's3.bucket': 'my-bucket',
+      });
+      expect(mockClearObjectStorageCache).toHaveBeenCalled();
+    });
+
+    it('saves a private endpoint whose host is on the allowlist', async () => {
+      const res = await putS3({
+        provider: 's3-compatible',
+        endpoint: 'http://minio.internal:9000',
+        allowedPrivateHosts: [' MinIO.internal '],
+      });
+      expect(res.statusCode).toBe(200);
+      expect(upserted()).toMatchObject({
+        's3.endpoint': 'http://minio.internal:9000',
+        's3.forcePathStyle': false,
+        's3.allowedPrivateHosts': ['minio.internal'],
+      });
+    });
+
+    it.each([
+      ['a private host', 'https://10.0.0.5:9000'],
+      ['an internal name', 'https://minio.internal'],
+      ['localhost', 'http://localhost:9000'],
+      ['plain http on a public host', 'http://storage.example.com'],
+      ['a path', 'https://storage.example.com/bucket'],
+      ['credentials', 'https://user:pass@storage.example.com'],
+      ['no endpoint', undefined],
+    ])('refuses %s as the endpoint and writes nothing', async (_name, endpoint) => {
+      const res = await putS3({ provider: 's3-compatible', endpoint });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('PRIVATE_URL');
+      expect(db.insert).not.toHaveBeenCalled();
+      expect(mockClearObjectStorageCache).not.toHaveBeenCalled();
+    });
+
+    it('refuses an invalid allowlist', async () => {
+      const res = await putS3({
+        provider: 's3-compatible',
+        endpoint: 'http://minio.internal:9000',
+        allowedPrivateHosts: ['http://minio.internal:9000'],
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('refuses an unknown provider', async () => {
+      const res = await putS3({ provider: 'ftp' });
+      expect(res.statusCode).toBe(400);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('clears the endpoint settings for AWS S3', async () => {
+      const res = await putS3({
+        endpoint: 'https://storage.example.com',
+        forcePathStyle: true,
+        allowedPrivateHosts: ['minio.internal'],
+      });
+      expect(res.statusCode).toBe(200);
+      expect(upserted()).toMatchObject({
+        's3.provider': 's3',
+        's3.endpoint': '',
+        's3.forcePathStyle': false,
+        's3.allowedPrivateHosts': [],
+      });
+    });
+  });
+
+  describe('storage endpoint settings through the generic routes', () => {
+    it.each([
+      ['PATCH', 's3.endpoint', 'http://10.0.0.5:9000'],
+      ['PUT', 's3.endpoint', 'https://storage.example.com'],
+      ['PUT', 's3.allowedPrivateHosts', ['10.0.0.5']],
+      ['PUT', 's3.provider', 's3-compatible'],
+      ['PATCH', 's3.forcePathStyle', true],
+    ] as const)('%s %s is refused', async (method, key, value) => {
+      setupDbResults([{ key, value: '' }], [{ key, value }]);
+      const res = await app.inject({
+        method,
+        url: `/settings/${key}`,
+        headers: { authorization: `Bearer ${operatorToken}` },
+        payload: { value },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: 'The storage provider and endpoint are written through PUT /v1/settings/s3',
+        code: 'VALIDATION_ERROR',
+      });
+      expect(db.insert).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
     });
   });
 
