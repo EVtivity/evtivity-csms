@@ -11,6 +11,7 @@ import { SaveButton } from '@/components/save-button';
 import { Spinner } from '@/components/ui/spinner';
 import { ConfirmToggle } from '@/components/ui/confirm-toggle';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
@@ -19,7 +20,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select } from '@/components/ui/select';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { PORTAL_BASE_URL } from '@/lib/config';
 import { buildS3CorsExample } from '@/lib/s3-cors-example';
 import { ReservationSettings } from '@/components/settings/ReservationSettings';
@@ -48,6 +49,10 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   const [ftpPath, setFtpPath] = useState('');
 
   // S3 state
+  const [s3Provider, setS3Provider] = useState<'s3' | 's3-compatible'>('s3');
+  const [s3Endpoint, setS3Endpoint] = useState('');
+  const [s3ForcePathStyle, setS3ForcePathStyle] = useState(false);
+  const [s3AllowedHosts, setS3AllowedHosts] = useState('');
   const [s3Bucket, setS3Bucket] = useState('');
   const [s3Region, setS3Region] = useState('');
   const [s3AccessKeyId, setS3AccessKeyId] = useState('');
@@ -141,6 +146,13 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     setFtpUsername(s('ftp.username'));
     setFtpPassword(s('ftp.passwordEnc'));
     setFtpPath(s('ftp.path'));
+    setS3Provider(settings['s3.provider'] === 's3-compatible' ? 's3-compatible' : 's3');
+    setS3Endpoint(s('s3.endpoint'));
+    setS3ForcePathStyle(settings['s3.forcePathStyle'] === true);
+    const s3Hosts = settings['s3.allowedPrivateHosts'];
+    setS3AllowedHosts(
+      Array.isArray(s3Hosts) ? s3Hosts.filter((h) => typeof h === 'string').join('\n') : '',
+    );
     setS3Bucket(s('s3.bucket'));
     setS3Region(s('s3.region'));
     setS3AccessKeyId(s('s3.accessKeyIdEnc'));
@@ -211,10 +223,14 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
   const s3Mutation = useMutation({
     mutationFn: (vals: {
+      provider: 's3' | 's3-compatible';
       bucket: string;
       region: string;
       accessKeyId: string;
       secretAccessKey: string;
+      endpoint?: string;
+      forcePathStyle?: boolean;
+      allowedPrivateHosts?: string[];
     }) => api.put('/v1/settings/s3', vals),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
@@ -1179,6 +1195,39 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
+                <Label htmlFor="s3-provider" className="leading-6">
+                  {t('settings.s3Provider')}
+                </Label>
+                <Select
+                  id="s3-provider"
+                  value={s3Provider}
+                  onChange={(e) => {
+                    setS3Provider(e.target.value === 's3-compatible' ? 's3-compatible' : 's3');
+                  }}
+                >
+                  <option value="s3">{t('settings.s3ProviderAws')}</option>
+                  <option value="s3-compatible">{t('settings.s3ProviderCompatible')}</option>
+                </Select>
+              </div>
+
+              {s3Provider === 's3-compatible' && (
+                <div className="space-y-2">
+                  <Label htmlFor="s3-endpoint" className="leading-6">
+                    {t('settings.s3Endpoint')}
+                  </Label>
+                  <Input
+                    id="s3-endpoint"
+                    value={s3Endpoint}
+                    onChange={(e) => {
+                      setS3Endpoint(e.target.value);
+                    }}
+                    placeholder="https://s3.example.com"
+                  />
+                  <p className="text-xs text-muted-foreground">{t('settings.s3EndpointHint')}</p>
+                </div>
+              )}
+
+              <div className="space-y-2">
                 <Label htmlFor="s3-bucket" className="leading-6">
                   {t('settings.s3Bucket')}
                 </Label>
@@ -1240,6 +1289,43 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               </div>
             </div>
 
+            {s3Provider === 's3-compatible' && (
+              <>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="s3-force-path-style"
+                    checked={s3ForcePathStyle}
+                    onChange={(e) => {
+                      setS3ForcePathStyle(e.target.checked);
+                    }}
+                  />
+                  <Label htmlFor="s3-force-path-style" className="font-normal">
+                    {t('settings.s3ForcePathStyle')}
+                  </Label>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="s3-allowed-hosts" className="leading-6">
+                    {t('settings.s3AllowedPrivateHosts')}
+                  </Label>
+                  <Textarea
+                    id="s3-allowed-hosts"
+                    rows={3}
+                    value={s3AllowedHosts}
+                    onChange={(e) => {
+                      setS3AllowedHosts(e.target.value);
+                    }}
+                    placeholder="minio.internal.example"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {t('settings.s3AllowedPrivateHostsHint')}
+                  </p>
+                </div>
+
+                <p className="text-sm text-muted-foreground">{t('settings.s3ImageOriginHint')}</p>
+              </>
+            )}
+
             <div className="flex justify-end gap-2">
               <SaveButton
                 isPending={s3Mutation.isPending}
@@ -1248,14 +1334,26 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   s3Bucket === '' ||
                   s3Region === '' ||
                   s3AccessKeyId === '' ||
-                  s3SecretAccessKey === ''
+                  s3SecretAccessKey === '' ||
+                  (s3Provider === 's3-compatible' && s3Endpoint.trim() === '')
                 }
                 onClick={() => {
                   s3Mutation.mutate({
+                    provider: s3Provider,
                     bucket: s3Bucket,
                     region: s3Region,
                     accessKeyId: s3AccessKeyId,
                     secretAccessKey: s3SecretAccessKey,
+                    ...(s3Provider === 's3-compatible'
+                      ? {
+                          endpoint: s3Endpoint.trim(),
+                          forcePathStyle: s3ForcePathStyle,
+                          allowedPrivateHosts: s3AllowedHosts
+                            .split(/[\s,]+/)
+                            .map((h) => h.trim())
+                            .filter((h) => h !== ''),
+                        }
+                      : {}),
                   });
                 }}
               />
@@ -1274,7 +1372,12 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               <p className="text-sm text-success text-right">{t('settings.s3Saved')}</p>
             )}
             {s3Mutation.isError && (
-              <p className="text-sm text-destructive text-right">{t('settings.s3SaveFailed')}</p>
+              <p className="text-sm text-destructive text-right">
+                {s3Mutation.error instanceof ApiError &&
+                (s3Mutation.error.body as { code?: unknown } | null)?.code === 'PRIVATE_URL'
+                  ? t('settings.s3EndpointRefused')
+                  : t('settings.s3SaveFailed')}
+              </p>
             )}
             {s3TestMutation.isSuccess && (
               <p className="text-sm text-success text-right">{t('settings.s3TestSuccess')}</p>
