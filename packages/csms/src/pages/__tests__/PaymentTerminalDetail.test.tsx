@@ -171,6 +171,7 @@ function routeGet(url: string): Promise<unknown> {
   if (url.startsWith('/v1/stations?')) {
     return Promise.resolve({ data: [{ id: 'sta_1', stationId: 'CS-001' }], total: 1 });
   }
+  if (url === '/v1/stations/sta_1') return Promise.resolve({ id: 'sta_1', stationId: 'CS-001' });
   if (url === '/v1/stations/sta_1/connectors') {
     return Promise.resolve([{ id: 'evs_1', evseId: 1, retiredAt: null }]);
   }
@@ -297,11 +298,11 @@ describe('PaymentTerminalDetail Details tab', () => {
     terminal = terminalFixture({ stationId: null, stationOcppId: null });
     renderPage();
     fireEvent.click(await screen.findByText('paymentTerminals.pairing.pair'));
-    const select = within(dialog()).getByLabelText('paymentTerminals.pairing.station');
-    await waitFor(() => {
-      expect(within(select).getByText('CS-001')).toBeDefined();
+    fireEvent.change(within(dialog()).getByLabelText('paymentTerminals.pairing.station'), {
+      target: { value: 'CS-00' },
     });
-    fireEvent.change(select, { target: { value: 'sta_1' } });
+    fireEvent.click(await within(dialog()).findByText('CS-001', {}, { timeout: 2000 }));
+    expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('search=CS-00'));
     const connector = await within(dialog()).findByLabelText('paymentTerminals.pairing.connector');
     await waitFor(() => {
       expect(within(connector).getByText('paymentTerminals.connector:{"number":1}')).toBeDefined();

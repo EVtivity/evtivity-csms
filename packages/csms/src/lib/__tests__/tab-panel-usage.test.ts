@@ -233,7 +233,9 @@ describe('detail page tabs', () => {
     expect(FILES.has('components/ui/tab-panel.tsx')).toBe(true);
   });
 
-  it('show every tab in the shared TabPanel', () => {
+  // Parses every CSMS source file, so its time grows with the sources: it took
+  // 5.6 s under coverage in CI, past the 5 s default.
+  it('show every tab in the shared TabPanel', { timeout: 30_000 }, () => {
     const problems: string[] = [];
     for (const file of FILES.keys()) {
       if (NOT_DETAIL_TABS[file] != null) continue;
