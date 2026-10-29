@@ -4,14 +4,17 @@
 import { S3Client } from '@aws-sdk/client-s3';
 import { like } from 'drizzle-orm';
 import { db, settings } from '@evtivity/database';
-import { decryptSettingOrNull } from '@evtivity/lib';
+import { decryptSettingOrNull, parseAllowedPrivateHosts } from '@evtivity/lib';
 import type { ObjectStorage } from './object-storage.js';
 import { S3ObjectStorage } from './s3-object-storage.js';
+import { createStorageRequestHandler, validateStorageEndpoint } from './storage-endpoint.js';
 
 /**
  * The configured object storage, shared by the API and the worker (the
- * worker deletes expired AI attachments and avatars). Settings: `s3.bucket`,
- * `s3.region`, `s3.accessKeyIdEnc`, `s3.secretAccessKeyEnc`.
+ * worker deletes expired AI attachments and avatars). Settings: `s3.provider`
+ * (`s3` when unset), `s3.bucket`, `s3.region`, `s3.accessKeyIdEnc`,
+ * `s3.secretAccessKeyEnc`, and for `s3-compatible` also `s3.endpoint`,
+ * `s3.forcePathStyle` and `s3.allowedPrivateHosts`.
  */
 
 interface CachedStorage {
@@ -43,6 +46,7 @@ export async function loadObjectStorage(encryptionKey: string): Promise<ObjectSt
     map.set(row.key, row.value);
   }
 
+  const provider = map.get('s3.provider') ?? 's3';
   const bucket = map.get('s3.bucket') as string | undefined;
   const region = map.get('s3.region') as string | undefined;
   // A cleared field is stored as an empty string: not configured.
@@ -58,12 +62,35 @@ export async function loadObjectStorage(encryptionKey: string): Promise<ObjectSt
     return null;
   }
 
-  const client =
-    accessKeyId != null && secretAccessKey != null
-      ? new S3Client({ region, credentials: { accessKeyId, secretAccessKey } })
-      : new S3Client({ region });
+  let storage: ObjectStorage;
+  if (provider === 's3') {
+    const client =
+      accessKeyId != null && secretAccessKey != null
+        ? new S3Client({ region, credentials: { accessKeyId, secretAccessKey } })
+        : new S3Client({ region });
+    storage = new S3ObjectStorage(client, bucket);
+  } else if (provider === 's3-compatible') {
+    // The credential chain only reaches AWS, so a custom endpoint needs keys.
+    // The endpoint is checked again here: the settings route checks it on save,
+    // and this covers a value stored any other way.
+    const allowedPrivateHosts = parseAllowedPrivateHosts(map.get('s3.allowedPrivateHosts') ?? []);
+    if (accessKeyId == null || secretAccessKey == null || allowedPrivateHosts == null) {
+      return null;
+    }
+    const endpoint = validateStorageEndpoint(map.get('s3.endpoint'), allowedPrivateHosts);
+    if (endpoint == null) return null;
+    const client = new S3Client({
+      region,
+      endpoint,
+      forcePathStyle: map.get('s3.forcePathStyle') === true,
+      credentials: { accessKeyId, secretAccessKey },
+      requestHandler: createStorageRequestHandler(bucket, allowedPrivateHosts),
+    });
+    storage = new S3ObjectStorage(client, bucket, 's3-compatible');
+  } else {
+    return null;
+  }
 
-  const storage = new S3ObjectStorage(client, bucket);
   cachedStorage = { storage, expiresAt: Date.now() + CACHE_TTL_MS };
   return storage;
 }
