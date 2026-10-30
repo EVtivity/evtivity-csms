@@ -24,19 +24,19 @@ import type {
   DownloadOptions,
   ObjectStorage,
   ReadObjectResult,
+  StorageProvider,
   UploadTarget,
 } from './object-storage.js';
 
 /** Keys of one multi-object delete (the S3 limit). */
 const DELETE_BATCH = 1000;
 
-/** `ObjectStorage` over the S3 API. */
+/** `ObjectStorage` over the S3 API: AWS S3 or an S3-compatible endpoint. */
 export class S3ObjectStorage implements ObjectStorage {
-  readonly provider = 's3' as const;
-
   constructor(
     readonly client: S3Client,
     readonly bucket: string,
+    readonly provider: StorageProvider = 's3',
   ) {}
 
   /**

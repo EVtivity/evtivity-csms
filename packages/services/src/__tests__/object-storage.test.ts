@@ -78,7 +78,8 @@ vi.mock('@evtivity/database', () => ({
   settings: {},
 }));
 
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/lib')>()),
   // Same contract as the real helper: an unset stored value is null.
   decryptSettingOrNull: (stored: unknown, passphrase: string) =>
     typeof stored === 'string' && stored !== ''
@@ -155,6 +156,7 @@ import {
 } from '../storage/index.js';
 import { NoSuchKey, NotFound } from '@aws-sdk/client-s3';
 import type { S3Client } from '@aws-sdk/client-s3';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 
 const ENCRYPTION_KEY = 'test-encryption-key';
 
@@ -171,6 +173,19 @@ function settingsRows() {
     { key: 's3.accessKeyIdEnc', value: 'enc-access-key' },
     { key: 's3.secretAccessKeyEnc', value: 'enc-secret-key' },
   ];
+}
+
+function compatibleRows(overrides: Record<string, unknown> = {}) {
+  const values: Record<string, unknown> = {
+    's3.provider': 's3-compatible',
+    's3.bucket': 'my-bucket',
+    's3.region': 'us-east-1',
+    's3.accessKeyIdEnc': 'enc-access-key',
+    's3.secretAccessKeyEnc': 'enc-secret-key',
+    's3.endpoint': 'https://storage.example.com',
+    ...overrides,
+  };
+  return Object.entries(values).map(([key, value]) => ({ key, value }));
 }
 
 function makeStorage(): S3ObjectStorage {
@@ -332,6 +347,96 @@ describe('object storage', () => {
       });
       setupDbResults(settingsRows());
       await expect(getStorage()).rejects.toThrow('Invalid initialization vector');
+    });
+  });
+
+  describe('loadObjectStorage with an S3-compatible provider', () => {
+    it('connects to the endpoint through the guarded request handler', async () => {
+      setupDbResults(compatibleRows({ 's3.forcePathStyle': true }));
+      const storage = await getStorage();
+      expect(storage).not.toBeNull();
+      expect(storage!.provider).toBe('s3-compatible');
+      expect(storage!.bucket).toBe('my-bucket');
+      expect(mockS3ClientCtor).toHaveBeenLastCalledWith({
+        region: 'us-east-1',
+        endpoint: 'https://storage.example.com',
+        forcePathStyle: true,
+        credentials: {
+          accessKeyId: 'decrypted-access-key',
+          secretAccessKey: 'decrypted-access-key',
+        },
+        requestHandler: expect.any(NodeHttpHandler),
+      });
+    });
+
+    it('uses virtual-hosted requests unless path-style is on', async () => {
+      setupDbResults(compatibleRows());
+      await getStorage();
+      expect(mockS3ClientCtor).toHaveBeenLastCalledWith(
+        expect.objectContaining({ forcePathStyle: false }),
+      );
+    });
+
+    it('needs access keys: the default credential chain only reaches AWS', async () => {
+      setupDbResults(compatibleRows({ 's3.accessKeyIdEnc': '', 's3.secretAccessKeyEnc': '' }));
+      await expect(getStorage()).resolves.toBeNull();
+      expect(mockS3ClientCtor).not.toHaveBeenCalled();
+    });
+
+    it('stays off without an endpoint', async () => {
+      setupDbResults(compatibleRows({ 's3.endpoint': '' }));
+      await expect(getStorage()).resolves.toBeNull();
+      expect(mockS3ClientCtor).not.toHaveBeenCalled();
+    });
+
+    it('refuses a private endpoint that is not on the allowlist', async () => {
+      for (const endpoint of [
+        'http://minio.internal:9000',
+        'https://10.0.0.5:9000',
+        'https://[::1]:9000',
+        'https://localhost:9000',
+      ]) {
+        clearObjectStorageCache();
+        setupDbResults(compatibleRows({ 's3.endpoint': endpoint }));
+        await expect(getStorage(), endpoint).resolves.toBeNull();
+      }
+      expect(mockS3ClientCtor).not.toHaveBeenCalled();
+    });
+
+    it('accepts a private endpoint on the allowlist, also over plain http', async () => {
+      setupDbResults(
+        compatibleRows({
+          's3.endpoint': 'http://minio.internal:9000',
+          's3.allowedPrivateHosts': ['minio.internal'],
+        }),
+      );
+      await expect(getStorage()).resolves.not.toBeNull();
+      expect(mockS3ClientCtor).toHaveBeenLastCalledWith(
+        expect.objectContaining({ endpoint: 'http://minio.internal:9000' }),
+      );
+    });
+
+    it('stays off with an invalid allowlist', async () => {
+      setupDbResults(compatibleRows({ 's3.allowedPrivateHosts': 'minio.internal' }));
+      await expect(getStorage()).resolves.toBeNull();
+    });
+
+    it('stays off with an unknown provider', async () => {
+      setupDbResults(compatibleRows({ 's3.provider': 'ftp' }));
+      await expect(getStorage()).resolves.toBeNull();
+    });
+
+    it('ignores the endpoint settings for AWS S3', async () => {
+      setupDbResults(compatibleRows({ 's3.provider': 's3' }));
+      const storage = await getStorage();
+      expect(storage!.provider).toBe('s3');
+      expect(mockS3ClientCtor).toHaveBeenLastCalledWith({
+        region: 'us-east-1',
+        credentials: {
+          accessKeyId: 'decrypted-access-key',
+          secretAccessKey: 'decrypted-access-key',
+        },
+      });
     });
   });
 

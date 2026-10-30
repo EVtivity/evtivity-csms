@@ -3,12 +3,16 @@
 
 /**
  * The object storage contract the API and the worker use for attachments,
- * station images and avatars. A provider (S3 today) implements it; callers
- * never talk to a provider SDK.
+ * station images and avatars. A provider (AWS S3, or an S3-compatible
+ * service) implements it; callers never talk to a provider SDK.
  */
 
-/** Which storage integration backs an `ObjectStorage`. */
-export type StorageProvider = 's3';
+/**
+ * Which storage integration backs an `ObjectStorage` (setting `s3.provider`):
+ * AWS S3, or an S3-compatible service at a custom endpoint (`s3.endpoint`).
+ */
+export const STORAGE_PROVIDERS = ['s3', 's3-compatible'] as const;
+export type StorageProvider = (typeof STORAGE_PROVIDERS)[number];
 
 /** Presigned upload and download URLs expire after these many seconds. */
 export const UPLOAD_URL_EXPIRES_SECONDS = 300;

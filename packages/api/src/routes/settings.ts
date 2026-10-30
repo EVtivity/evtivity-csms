@@ -130,6 +130,7 @@ import {
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
+import { STORAGE_PROVIDERS, validateStorageEndpoint } from '@evtivity/services/storage';
 
 /** The SVG drawn in the center of station QR codes. */
 const QR_CODE_ICON_KEY = 'qr_code_icon';
@@ -210,6 +211,7 @@ function isCachedSystemSetting(key: string): boolean {
  */
 function normalizeSettingValue(key: string, value: unknown): { value: unknown } | null {
   if (isServerManagedSetting(key) || isDedicatedRouteSetting(key)) return null;
+  if (STORAGE_ENDPOINT_SETTING_KEYS.has(key)) return null;
   // Data plan values (Settings > Integrations & Features > OCPP): ranges and
   // known measurands, the checks the Helm chart applies too.
   if (isDataPlanSettingKey(key)) {
@@ -354,6 +356,27 @@ const invalidMobileAppSchemesError = {
 
 const invalidMobileAppPackagesError = {
   error: 'mobile.app.androidPackageNames must be an array of Android application ids',
+  code: 'VALIDATION_ERROR',
+};
+
+/**
+ * The storage provider and the endpoint it connects to, with the private hosts
+ * it may reach. They decide where the storage credentials go, so only
+ * PUT /v1/settings/s3 writes them, checking the endpoint against the allowlist
+ * sent with it. The generic routes still return them.
+ */
+const STORAGE_ENDPOINT_SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
+  's3.provider': 's3',
+  's3.endpoint': '',
+  's3.forcePathStyle': false,
+  's3.allowedPrivateHosts': [],
+};
+const STORAGE_ENDPOINT_SETTING_KEYS: ReadonlySet<string> = new Set(
+  Object.keys(STORAGE_ENDPOINT_SETTING_DEFAULTS),
+);
+
+const storageEndpointSettingError = {
+  error: 'The storage provider and endpoint are written through PUT /v1/settings/s3',
   code: 'VALIDATION_ERROR',
 };
 
@@ -549,6 +572,7 @@ function invalidSettingError(key: string, value?: unknown): { error: string; cod
     };
   }
   if (HUBJECT_URL_SETTING_KEYS.has(key)) return PRIVATE_HUBJECT_URL_ERROR;
+  if (STORAGE_ENDPOINT_SETTING_KEYS.has(key)) return storageEndpointSettingError;
   const aiError = invalidAiSettingError(key);
   if (aiError != null) return aiError;
   if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) return invalidWebhookAllowedHostsError;
@@ -637,7 +661,9 @@ const s3StatusResponse = z
   .object({
     configured: z
       .boolean()
-      .describe('Whether S3 storage is fully configured (bucket, region, and credentials present)'),
+      .describe(
+        'Whether storage is fully configured (bucket, region and credentials present, and for an S3-compatible provider the endpoint)',
+      ),
   })
   .loose();
 
@@ -1314,7 +1340,9 @@ export function settingsRoutes(app: FastifyInstance): void {
       const region = map.get('s3.region') as string | undefined;
       const accessKeyIdEnc = map.get('s3.accessKeyIdEnc') as string | undefined;
       const secretAccessKeyEnc = map.get('s3.secretAccessKeyEnc') as string | undefined;
+      const endpoint = map.get('s3.endpoint') as string | undefined;
       const configured =
+        (map.get('s3.provider') !== 's3-compatible' || (endpoint != null && endpoint !== '')) &&
         bucket != null &&
         bucket !== '' &&
         region != null &&
@@ -1328,11 +1356,43 @@ export function settingsRoutes(app: FastifyInstance): void {
   );
 
   const s3SettingsBody = z.object({
+    provider: z
+      .enum(STORAGE_PROVIDERS)
+      .optional()
+      .describe('Storage provider: s3 (AWS S3, the default) or s3-compatible (a custom endpoint)'),
     bucket: z.string().min(1),
     region: z.string().min(1),
     accessKeyId: z.string().min(1),
     secretAccessKey: z.string().min(1),
+    endpoint: z
+      .string()
+      .max(2048)
+      .optional()
+      .describe(
+        'S3-compatible endpoint URL without a path, required for s3-compatible. https on a public host, or a host in allowedPrivateHosts (which may use http)',
+      ),
+    forcePathStyle: z
+      .boolean()
+      .optional()
+      .describe('Address the bucket in the path instead of the host name (s3-compatible only)'),
+    allowedPrivateHosts: z
+      .array(z.string().max(253))
+      .optional()
+      .describe(
+        'Hosts on a private network the endpoint may name, without scheme or port (s3-compatible only)',
+      ),
   });
+
+  const invalidStorageEndpointError = {
+    error:
+      'The endpoint must be an https URL without credentials or path on a public host, or name a host in allowedPrivateHosts',
+    code: 'PRIVATE_URL',
+  };
+
+  const invalidStorageAllowedHostsError = {
+    error: `allowedPrivateHosts must be at most ${String(MAX_ALLOWED_PRIVATE_HOSTS)} hostnames or IP addresses without scheme or port`,
+    code: 'VALIDATION_ERROR',
+  };
 
   // Save S3 storage settings (encrypts credentials)
   app.put(
@@ -1347,6 +1407,10 @@ export function settingsRoutes(app: FastifyInstance): void {
         body: zodSchema(s3SettingsBody),
         response: {
           200: successResponse,
+          400: errorWith('Invalid storage endpoint', [
+            ERROR_CODES.PRIVATE_URL,
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           500: errorWith('Encryption key missing', [ERROR_CODES.ENCRYPTION_KEY_MISSING]),
         },
@@ -1364,6 +1428,25 @@ export function settingsRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // AWS S3 clears the endpoint settings, so a later switch starts empty.
+      const provider = body.provider ?? 's3';
+      let endpoint = '';
+      let allowedPrivateHosts: string[] = [];
+      if (provider === 's3-compatible') {
+        const hosts = parseAllowedPrivateHosts(body.allowedPrivateHosts ?? []);
+        if (hosts == null) {
+          await reply.status(400).send(invalidStorageAllowedHostsError);
+          return;
+        }
+        const validEndpoint = validateStorageEndpoint(body.endpoint, hosts);
+        if (validEndpoint == null) {
+          await reply.status(400).send(invalidStorageEndpointError);
+          return;
+        }
+        endpoint = validEndpoint;
+        allowedPrivateHosts = hosts;
+      }
+
       const upsert = (key: string, value: unknown) =>
         db
           .insert(settings)
@@ -1374,6 +1457,13 @@ export function settingsRoutes(app: FastifyInstance): void {
           });
 
       const written: Array<{ key: string; value: unknown }> = [
+        { key: 's3.provider', value: provider },
+        { key: 's3.endpoint', value: endpoint },
+        {
+          key: 's3.forcePathStyle',
+          value: provider === 's3-compatible' && body.forcePathStyle === true,
+        },
+        { key: 's3.allowedPrivateHosts', value: allowedPrivateHosts },
         { key: 's3.bucket', value: body.bucket },
         { key: 's3.region', value: body.region },
         { key: 's3.accessKeyIdEnc', value: encryptString(body.accessKeyId, encryptionKey) },
@@ -1388,10 +1478,16 @@ export function settingsRoutes(app: FastifyInstance): void {
       await Promise.all(written.map((w) => upsert(w.key, w.value)));
       clearObjectStorageCache();
 
+      // A storage endpoint setting without a row reads as its default, so
+      // writing the default (an AWS S3 install saving again) is no change.
       const actor = getAuditActor(request);
       await Promise.allSettled(
         written
-          .filter(({ key, value }) => beforeMap.get(key) !== value)
+          .filter(
+            ({ key, value }) =>
+              JSON.stringify(beforeMap.get(key) ?? STORAGE_ENDPOINT_SETTING_DEFAULTS[key]) !==
+              JSON.stringify(value),
+          )
           .map(({ key, value }) =>
             writeAudit(
               { table: settingAuditLog, idColumn: 'setting_key' },

@@ -867,4 +867,29 @@ describe('settings routes (cov2)', () => {
     expect(regionAudit.before).toEqual({ key: 's3.region', value: 'us-east-1' });
     expect(regionAudit.after).toEqual({ key: 's3.region', value: 'eu-west-1' });
   });
+
+  it('PUT /settings/s3 audits the provider and endpoint when switching to S3-compatible', async () => {
+    setupDbResults([
+      { key: 's3.bucket', value: 'b1' },
+      { key: 's3.region', value: 'us-east-1' },
+      { key: 's3.accessKeyIdEnc', value: 'encrypted-value' },
+      { key: 's3.secretAccessKeyEnc', value: 'encrypted-value' },
+    ]);
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/settings/s3',
+      headers: auth,
+      payload: {
+        provider: 's3-compatible',
+        endpoint: 'https://storage.example.com',
+        bucket: 'b1',
+        region: 'us-east-1',
+        accessKeyId: 'AK',
+        secretAccessKey: 'SK',
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const audited = mocks.writeAudit.mock.calls.map((c) => (c[1] as { entityId: string }).entityId);
+    expect(audited.sort()).toEqual(['s3.endpoint', 's3.provider']);
+  });
 });

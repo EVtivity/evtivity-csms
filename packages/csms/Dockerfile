@@ -26,7 +26,8 @@ FROM nginxinc/nginx-unprivileged:alpine@sha256:b5047b9b76845eac124358373c6852377
 
 COPY --from=build /app/packages/csms/dist /usr/share/nginx/html
 COPY packages/csms/nginx.conf /etc/nginx/conf.d/default.conf
-COPY packages/csms/nginx-security-headers.conf /etc/nginx/evtivity-security-headers.conf
+COPY packages/csms/nginx-security-headers.conf /etc/nginx/evtivity-security-headers.conf.template
+COPY --chmod=755 packages/csms/docker-security-headers.sh /docker-entrypoint.d/30-security-headers.sh
 COPY --chmod=755 packages/csms/docker-runtime-config.sh /docker-entrypoint.d/40-runtime-config.sh
 # Declare /tmp so ECS on Fargate copies it (mode 1777) into the scratch volume
 # the task mounts there. Without VOLUME, Fargate creates the volume as root

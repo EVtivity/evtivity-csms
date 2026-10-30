@@ -224,6 +224,9 @@ services:
       args:
         VITE_CSMS_AUTO_LOGIN: ${VITE_CSMS_AUTO_LOGIN:-}
     restart: unless-stopped
+    environment:
+      # Object storage origins added to the image CSP (S3-compatible providers).
+      STORAGE_IMG_SRC: ${STORAGE_IMG_SRC:-}
     ports:
       - '${BIND_IP:-0.0.0.0}:${CSMS_PORT:-7100}:8080'
     mem_limit: 1g
@@ -247,6 +250,9 @@ services:
       args:
         VITE_PORTAL_AUTO_LOGIN: ${VITE_PORTAL_AUTO_LOGIN:-}
     restart: unless-stopped
+    environment:
+      # Object storage origins added to the image CSP (S3-compatible providers).
+      STORAGE_IMG_SRC: ${STORAGE_IMG_SRC:-}
     ports:
       - '${BIND_IP:-0.0.0.0}:${PORTAL_PORT:-7101}:8080'
     mem_limit: 1g
