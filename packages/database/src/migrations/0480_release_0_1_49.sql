@@ -351,3 +351,15 @@ END $$;
 UPDATE "sim_attachments" a SET "site_id" = pt."site_id"
   FROM "payment_terminals" pt
   WHERE a."payment_terminal_id" = pt."id" AND a."site_id" IS NULL AND pt."site_id" IS NOT NULL;
+
+--> statement-breakpoint
+-- Object storage provider (S3-compatible endpoints, v0.1.49): AWS S3 by
+-- default, no endpoint. Written only through PUT /v1/settings/s3, which checks
+-- the endpoint against the private hosts and takes a fresh proof to change the
+-- provider or the endpoint.
+INSERT INTO "settings" ("key", "value") VALUES
+  ('s3.provider', '"s3"'::jsonb),
+  ('s3.endpoint', '""'::jsonb),
+  ('s3.forcePathStyle', 'false'::jsonb),
+  ('s3.allowedPrivateHosts', '[]'::jsonb)
+ON CONFLICT ("key") DO NOTHING;

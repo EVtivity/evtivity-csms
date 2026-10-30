@@ -11,6 +11,7 @@ import {
   securityTemplateRenderProblem,
   securityTemplateSaveProblems,
 } from '../security-template.js';
+import { expectLinearTime } from './helpers/linear-time.js';
 
 const TRUSTED = ['https://csms.example.com', 'https://portal.example.com'];
 
@@ -80,11 +81,16 @@ describe('hostReferences', () => {
   });
 
   it('scans crafted input in linear time', () => {
-    for (const crafted of ['a'.repeat(100_000), 'a1'.repeat(50_000), `${'a'.repeat(100_000)}:/`]) {
-      const started = performance.now();
-      hostReferences(crafted);
-      save(`<p>${crafted}</p><a href="{{resetUrl}}">x</a>`);
-      expect(performance.now() - started).toBeLessThan(50);
+    const crafted: [string, (scale: number) => string][] = [
+      ['letters', (scale) => 'a'.repeat(12_500 * scale)],
+      ['letters and digits', (scale) => 'a1'.repeat(6_250 * scale)],
+      ['letters then a scheme separator', (scale) => `${'a'.repeat(12_500 * scale)}:/`],
+    ];
+    for (const [label, build] of crafted) {
+      expectLinearTime(label, build, (text) => {
+        hostReferences(text);
+        save(`<p>${text}</p><a href="{{resetUrl}}">x</a>`);
+      });
     }
   });
 });

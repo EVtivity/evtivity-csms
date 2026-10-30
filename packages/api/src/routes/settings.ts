@@ -130,7 +130,18 @@ import {
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
-import { STORAGE_PROVIDERS, validateStorageEndpoint } from '@evtivity/services/storage';
+import {
+  STORAGE_PROVIDERS,
+  parseStorageAllowedPrivateHosts,
+  validateStorageEndpoint,
+} from '@evtivity/services/storage';
+import { factorProof } from '../lib/mfa-factor-proof.js';
+import {
+  isApiKeyRequest,
+  requireSessionProof,
+  SESSION_PROOF_ERROR_CODES,
+  sessionProofErrorFields,
+} from '../lib/session-proof.js';
 
 /** The SVG drawn in the center of station QR codes. */
 const QR_CODE_ICON_KEY = 'qr_code_icon';
@@ -1379,7 +1390,12 @@ export function settingsRoutes(app: FastifyInstance): void {
       .array(z.string().max(253))
       .optional()
       .describe(
-        'Hosts on a private network the endpoint may name, without scheme or port (s3-compatible only)',
+        'Hosts on a private network the endpoint may name, without scheme or port (s3-compatible only). Link-local, cloud metadata and other unroutable addresses are refused even when listed',
+      ),
+    proof: factorProof
+      .optional()
+      .describe(
+        'Fresh proof of the account, required from a signed-in session when the provider or the endpoint changes',
       ),
   });
 
@@ -1390,8 +1406,9 @@ export function settingsRoutes(app: FastifyInstance): void {
   };
 
   const invalidStorageAllowedHostsError = {
-    error: `allowedPrivateHosts must be at most ${String(MAX_ALLOWED_PRIVATE_HOSTS)} hostnames or IP addresses without scheme or port`,
+    error: `allowedPrivateHosts must be at most ${String(MAX_ALLOWED_PRIVATE_HOSTS)} hostnames or IP addresses without scheme or port, and no link-local, cloud metadata or other unroutable address`,
     code: 'VALIDATION_ERROR',
+    field: 'allowedPrivateHosts',
   };
 
   // Save S3 storage settings (encrypts credentials)
@@ -1403,13 +1420,25 @@ export function settingsRoutes(app: FastifyInstance): void {
         tags: ['Settings'],
         summary: 'Save S3 storage settings',
         operationId: 'updateS3Settings',
+        description:
+          'Saves the storage provider, bucket, region and credentials. A change of the provider or the endpoint decides where the credentials are sent, so it needs a fresh proof from a signed-in session (an API key gets 403 SESSION_REQUIRED).',
         security: [{ bearerAuth: [] }],
         body: zodSchema(s3SettingsBody),
         response: {
           200: successResponse,
-          400: errorWith('Invalid storage endpoint', [
-            ERROR_CODES.PRIVATE_URL,
-            ERROR_CODES.VALIDATION_ERROR,
+          400: errorWith(
+            'Invalid storage endpoint or private hosts, or a missing or wrong proof',
+            [ERROR_CODES.PRIVATE_URL, ...SESSION_PROOF_ERROR_CODES],
+            {
+              ...sessionProofErrorFields,
+              field: z
+                .literal('allowedPrivateHosts')
+                .optional()
+                .describe('The refused field, when the private hosts list was refused'),
+            },
+          ),
+          403: errorWith('API key changing the provider or endpoint', [
+            ERROR_CODES.SESSION_REQUIRED,
           ]),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           500: errorWith('Encryption key missing', [ERROR_CODES.ENCRYPTION_KEY_MISSING]),
@@ -1433,7 +1462,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       let endpoint = '';
       let allowedPrivateHosts: string[] = [];
       if (provider === 's3-compatible') {
-        const hosts = parseAllowedPrivateHosts(body.allowedPrivateHosts ?? []);
+        const hosts = parseStorageAllowedPrivateHosts(body.allowedPrivateHosts ?? []);
         if (hosts == null) {
           await reply.status(400).send(invalidStorageAllowedHostsError);
           return;
@@ -1474,6 +1503,23 @@ export function settingsRoutes(app: FastifyInstance): void {
       const beforeRows = await db.select().from(settings).where(inArray(settings.key, keysToWrite));
       const beforeMap = new Map<string, unknown>();
       for (const row of beforeRows) beforeMap.set(row.key, row.value);
+      const storedValue = (key: string): unknown =>
+        beforeMap.get(key) ?? STORAGE_ENDPOINT_SETTING_DEFAULTS[key];
+
+      // The provider and the endpoint decide where the stored credentials are
+      // sent, so changing them takes a fresh proof from a session (a stolen
+      // session alone must not point storage at another host), and an API key
+      // cannot change them (security review case 280).
+      const destinationChanged =
+        storedValue('s3.provider') !== provider || storedValue('s3.endpoint') !== endpoint;
+      if (destinationChanged && isApiKeyRequest(request)) {
+        await reply.status(403).send({
+          error: 'The storage provider and endpoint change only from a signed-in session',
+          code: 'SESSION_REQUIRED',
+        });
+        return;
+      }
+      if (destinationChanged && !(await requireSessionProof(request, reply, body.proof))) return;
 
       await Promise.all(written.map((w) => upsert(w.key, w.value)));
       clearObjectStorageCache();
@@ -1483,11 +1529,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const actor = getAuditActor(request);
       await Promise.allSettled(
         written
-          .filter(
-            ({ key, value }) =>
-              JSON.stringify(beforeMap.get(key) ?? STORAGE_ENDPOINT_SETTING_DEFAULTS[key]) !==
-              JSON.stringify(value),
-          )
+          .filter(({ key, value }) => JSON.stringify(storedValue(key)) !== JSON.stringify(value))
           .map(({ key, value }) =>
             writeAudit(
               { table: settingAuditLog, idColumn: 'setting_key' },
@@ -1543,8 +1585,12 @@ export function settingsRoutes(app: FastifyInstance): void {
         await storage.testConnection();
         return { success: true };
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        await reply.status(400).send({ error: message, code: 'STORAGE_CONNECTION_FAILED' });
+        // The provider's message can name internal hosts or addresses, so it
+        // stays in the server log (security review case 279).
+        request.log.warn({ err }, 'Storage connection test failed');
+        await reply
+          .status(400)
+          .send({ error: 'Storage connection failed', code: 'STORAGE_CONNECTION_FAILED' });
         return;
       }
     },

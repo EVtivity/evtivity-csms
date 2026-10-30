@@ -183,6 +183,30 @@ vi.mock('../services/storage.service.js', () => ({
   getObjectStorage: mocks.getObjectStorage,
 }));
 
+// The fresh proof itself has its own tests (session-proof, mfa-factor-proof).
+const proofState = vi.hoisted(() => ({ calls: 0, apiKey: false }));
+vi.mock('../lib/mfa-factor-proof.js', async () => {
+  const { z } = await import('zod');
+  return { factorProof: z.object({ kind: z.string() }).loose() };
+});
+vi.mock('../lib/session-proof.js', () => ({
+  sessionProofErrorFields: {},
+  SESSION_PROOF_ERROR_CODES: ['VALIDATION_ERROR', 'INVALID_PASSWORD'],
+  isApiKeyRequest: () => proofState.apiKey,
+  requireSessionProof: async (
+    _request: unknown,
+    reply: { status: (code: number) => { send: (body: unknown) => Promise<void> } },
+    proof: unknown,
+  ) => {
+    proofState.calls += 1;
+    if (proof != null) return true;
+    await reply
+      .status(400)
+      .send({ error: 'Proof required', code: 'VALIDATION_ERROR', proofKinds: ['password'] });
+    return false;
+  },
+}));
+
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
     () =>
@@ -880,6 +904,7 @@ describe('settings routes (cov2)', () => {
       url: '/settings/s3',
       headers: auth,
       payload: {
+        proof: { kind: 'password', password: 'current-password' },
         provider: 's3-compatible',
         endpoint: 'https://storage.example.com',
         bucket: 'b1',

@@ -28,6 +28,29 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return { ...actual, api: apiMock };
 });
 
+// The proof field has its own tests: here it hands back a password proof.
+vi.mock('@/components/FactorProofField', () => ({
+  FactorProofField: ({
+    onChange,
+    showMissing,
+  }: {
+    onChange: (proof: { kind: string; password: string }) => void;
+    showMissing: boolean;
+  }) => (
+    <button
+      type="button"
+      data-testid="s3-proof"
+      data-missing={String(showMissing)}
+      onClick={() => {
+        onChange({ kind: 'password', password: 'pw' });
+      }}
+    >
+      proof
+    </button>
+  ),
+  proofRejection: () => ({ code: null }),
+}));
+
 import { ApiError } from '@/lib/api';
 import { IntegrationsSettings } from '../IntegrationsSettings';
 
@@ -61,8 +84,15 @@ function save(): void {
   fireEvent.click(saveButton());
 }
 
+/** GET /v1/users/me/mfa answers these proof kinds; other GETs answer {}. */
+function proofKinds(kinds: string[]): void {
+  apiMock.get.mockImplementation((url: string) =>
+    Promise.resolve(url === '/v1/users/me/mfa' ? { factorProofKinds: kinds, mfaMethod: null } : {}),
+  );
+}
+
 beforeEach(() => {
-  apiMock.get.mockResolvedValue({});
+  proofKinds([]);
   apiMock.put.mockResolvedValue({ success: true });
 });
 
@@ -143,6 +173,96 @@ describe('IntegrationsSettings storage tab', () => {
     });
     save();
     await screen.findByText('settings.s3EndpointRefused');
+  });
+
+  it('says why refused private hosts were not saved', async () => {
+    apiMock.put.mockRejectedValue(
+      new ApiError(400, {
+        error: 'refused',
+        code: 'VALIDATION_ERROR',
+        field: 'allowedPrivateHosts',
+      }),
+    );
+    renderStorageTab({
+      ...AWS_SETTINGS,
+      's3.provider': 's3-compatible',
+      's3.endpoint': 'http://minio.internal:9000',
+    });
+    save();
+    await screen.findByText('settings.s3AllowedHostsRefused');
+  });
+
+  it('says the https rule and the metadata refusal in the private hosts hint', () => {
+    renderStorageTab({ ...AWS_SETTINGS, 's3.provider': 's3-compatible' });
+    screen.getByText('settings.s3AllowedPrivateHostsHint');
+  });
+
+  describe('fresh proof for the provider and endpoint', () => {
+    beforeEach(() => {
+      proofKinds(['password']);
+    });
+
+    it('asks for the proof when the provider changes and sends it', async () => {
+      renderStorageTab(AWS_SETTINGS);
+      fireEvent.change(screen.getByLabelText('settings.s3Provider'), {
+        target: { value: 's3-compatible' },
+      });
+      fireEvent.change(screen.getByLabelText('settings.s3Endpoint'), {
+        target: { value: 'https://s3.wasabisys.com' },
+      });
+      const proof = await screen.findByTestId('s3-proof');
+      save();
+      expect(apiMock.put).not.toHaveBeenCalled();
+      expect(proof.getAttribute('data-missing')).toBe('true');
+
+      fireEvent.click(proof);
+      save();
+      await waitFor(() => {
+        expect(apiMock.put).toHaveBeenCalledWith(
+          '/v1/settings/s3',
+          expect.objectContaining({
+            provider: 's3-compatible',
+            endpoint: 'https://s3.wasabisys.com',
+            proof: { kind: 'password', password: 'pw' },
+          }),
+        );
+      });
+    });
+
+    it('asks for the proof when only the endpoint changes', async () => {
+      renderStorageTab({
+        ...AWS_SETTINGS,
+        's3.provider': 's3-compatible',
+        's3.endpoint': 'https://s3.wasabisys.com',
+      });
+      expect(screen.queryByTestId('s3-proof')).toBeNull();
+      fireEvent.change(screen.getByLabelText('settings.s3Endpoint'), {
+        target: { value: 'https://s3.eu-central-1.wasabisys.com' },
+      });
+      await screen.findByTestId('s3-proof');
+    });
+
+    it('sends no proof when the provider and endpoint stay, a trailing slash included', async () => {
+      renderStorageTab({
+        ...AWS_SETTINGS,
+        's3.provider': 's3-compatible',
+        's3.endpoint': 'https://s3.wasabisys.com',
+      });
+      fireEvent.change(screen.getByLabelText('settings.s3Endpoint'), {
+        target: { value: 'https://s3.wasabisys.com/' },
+      });
+      fireEvent.change(screen.getByLabelText('settings.s3Bucket'), {
+        target: { value: 'other-bucket' },
+      });
+      expect(screen.queryByTestId('s3-proof')).toBeNull();
+      save();
+      await waitFor(() => {
+        expect(apiMock.put).toHaveBeenCalledTimes(1);
+      });
+      const [, body] = apiMock.put.mock.calls[0] as [string, Record<string, unknown>];
+      expect(body).not.toHaveProperty('proof');
+      expect(body['bucket']).toBe('other-bucket');
+    });
   });
 
   it('shows the generic message for other save errors', async () => {

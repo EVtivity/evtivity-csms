@@ -180,6 +180,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     MOBILE_APP_ANDROID_PACKAGES_KEY: actual.MOBILE_APP_ANDROID_PACKAGES_KEY,
     parseAllowedPrivateHosts: actual.parseAllowedPrivateHosts,
     isPrivateUrl: actual.isPrivateUrl,
+    isUnroutableAddress: actual.isUnroutableAddress,
     MAX_ALLOWED_PRIVATE_HOSTS: actual.MAX_ALLOWED_PRIVATE_HOSTS,
     validateAiBaseUrl: actual.validateAiBaseUrl,
     isAiBaseUrlSettingKey: actual.isAiBaseUrlSettingKey,
@@ -234,6 +235,30 @@ const { mockClearObjectStorageCache, mockGetObjectStorage } = vi.hoisted(() => (
 vi.mock('../services/storage.service.js', () => ({
   clearObjectStorageCache: mockClearObjectStorageCache,
   getObjectStorage: mockGetObjectStorage,
+}));
+
+// The fresh proof itself has its own tests (session-proof, mfa-factor-proof).
+const proofState = vi.hoisted(() => ({ calls: 0, apiKey: false }));
+vi.mock('../lib/mfa-factor-proof.js', async () => {
+  const { z } = await import('zod');
+  return { factorProof: z.object({ kind: z.string() }).loose() };
+});
+vi.mock('../lib/session-proof.js', () => ({
+  sessionProofErrorFields: {},
+  SESSION_PROOF_ERROR_CODES: ['VALIDATION_ERROR', 'INVALID_PASSWORD'],
+  isApiKeyRequest: () => proofState.apiKey,
+  requireSessionProof: async (
+    _request: unknown,
+    reply: { status: (code: number) => { send: (body: unknown) => Promise<void> } },
+    proof: unknown,
+  ) => {
+    proofState.calls += 1;
+    if (proof != null) return true;
+    await reply
+      .status(400)
+      .send({ error: 'Proof required', code: 'VALIDATION_ERROR', proofKinds: ['password'] });
+    return false;
+  },
 }));
 
 vi.mock('../middleware/rbac.js', () => ({
@@ -1014,8 +1039,11 @@ describe('Settings routes - full coverage', () => {
       });
     }
 
+    const PROOF = { kind: 'password', password: 'current-password' };
+
     it('saves an S3-compatible endpoint with path-style addressing', async () => {
       const res = await putS3({
+        proof: PROOF,
         provider: 's3-compatible',
         endpoint: 'https://s3.wasabisys.com/',
         forcePathStyle: true,
@@ -1033,6 +1061,7 @@ describe('Settings routes - full coverage', () => {
 
     it('saves a private endpoint whose host is on the allowlist', async () => {
       const res = await putS3({
+        proof: PROOF,
         provider: 's3-compatible',
         endpoint: 'http://minio.internal:9000',
         allowedPrivateHosts: [' MinIO.internal '],
@@ -1068,8 +1097,134 @@ describe('Settings routes - full coverage', () => {
         allowedPrivateHosts: ['http://minio.internal:9000'],
       });
       expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR', field: 'allowedPrivateHosts' });
       expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    describe('unroutable addresses (security review case 278)', () => {
+      it.each(['169.254.169.254', 'fd00:ec2::254', 'fe80::1', '0.0.0.0'])(
+        'refuses %s on the allowlist and writes nothing',
+        async (host) => {
+          const literal = host.includes(':') ? `[${host}]` : host;
+          const res = await putS3({
+            proof: PROOF,
+            provider: 's3-compatible',
+            endpoint: `http://${literal}`,
+            allowedPrivateHosts: [host],
+          });
+          expect(res.statusCode).toBe(400);
+          expect(res.json()).toMatchObject({
+            code: 'VALIDATION_ERROR',
+            field: 'allowedPrivateHosts',
+          });
+          expect(db.insert).not.toHaveBeenCalled();
+          expect(mockClearObjectStorageCache).not.toHaveBeenCalled();
+        },
+      );
+
+      it('refuses a cloud metadata endpoint that is not listed', async () => {
+        const res = await putS3({
+          proof: PROOF,
+          provider: 's3-compatible',
+          endpoint: 'http://169.254.169.254',
+          allowedPrivateHosts: ['minio.internal'],
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().code).toBe('PRIVATE_URL');
+        expect(db.insert).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('fresh proof for the provider and endpoint (security review case 280)', () => {
+      beforeEach(() => {
+        proofState.calls = 0;
+        proofState.apiKey = false;
+      });
+
+      afterAll(() => {
+        proofState.apiKey = false;
+      });
+
+      it('asks a session for the proof when it switches to S3-compatible, and writes nothing', async () => {
+        const res = await putS3({
+          provider: 's3-compatible',
+          endpoint: 'https://s3.wasabisys.com',
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR', proofKinds: ['password'] });
+        expect(proofState.calls).toBe(1);
+        expect(db.insert).not.toHaveBeenCalled();
+        expect(mockClearObjectStorageCache).not.toHaveBeenCalled();
+      });
+
+      it('asks for the proof when only the endpoint changes', async () => {
+        setupDbResults([
+          { key: 's3.provider', value: 's3-compatible' },
+          { key: 's3.endpoint', value: 'https://s3.wasabisys.com' },
+        ]);
+        const res = await putS3({
+          provider: 's3-compatible',
+          endpoint: 'https://s3.eu-central-1.wasabisys.com',
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().proofKinds).toEqual(['password']);
+        expect(db.insert).not.toHaveBeenCalled();
+      });
+
+      it('asks for the proof when switching back to AWS S3', async () => {
+        setupDbResults([
+          { key: 's3.provider', value: 's3-compatible' },
+          { key: 's3.endpoint', value: 'https://s3.wasabisys.com' },
+        ]);
+        const res = await putS3({});
+        expect(res.statusCode).toBe(400);
+        expect(res.json().proofKinds).toEqual(['password']);
+        expect(db.insert).not.toHaveBeenCalled();
+      });
+
+      it('saves without a proof when the provider and endpoint stay', async () => {
+        setupDbResults([
+          { key: 's3.provider', value: 's3-compatible' },
+          { key: 's3.endpoint', value: 'https://s3.wasabisys.com' },
+        ]);
+        const res = await putS3({
+          provider: 's3-compatible',
+          endpoint: 'https://s3.wasabisys.com/',
+          forcePathStyle: true,
+          bucket: 'other-bucket',
+        });
+        expect(res.statusCode).toBe(200);
+        expect(proofState.calls).toBe(0);
+        expect(upserted()['s3.bucket']).toBe('other-bucket');
+      });
+
+      it('saves AWS S3 again without a proof', async () => {
+        const res = await putS3({ region: 'eu-west-1' });
+        expect(res.statusCode).toBe(200);
+        expect(proofState.calls).toBe(0);
+      });
+
+      it('refuses an API key that changes the provider or endpoint, with no proof asked', async () => {
+        proofState.apiKey = true;
+        const res = await putS3({
+          proof: PROOF,
+          provider: 's3-compatible',
+          endpoint: 'https://s3.wasabisys.com',
+        });
+        expect(res.statusCode).toBe(403);
+        expect(res.json().code).toBe('SESSION_REQUIRED');
+        expect(proofState.calls).toBe(0);
+        expect(db.insert).not.toHaveBeenCalled();
+        expect(mockClearObjectStorageCache).not.toHaveBeenCalled();
+      });
+
+      it('lets an API key save the bucket and keys while the provider and endpoint stay', async () => {
+        proofState.apiKey = true;
+        const res = await putS3({ bucket: 'rotated-bucket', accessKeyId: 'AKIA999' });
+        expect(res.statusCode).toBe(200);
+        expect(proofState.calls).toBe(0);
+        expect(upserted()['s3.bucket']).toBe('rotated-bucket');
+      });
     });
 
     it('refuses an unknown provider', async () => {
@@ -1215,12 +1370,33 @@ describe('Settings routes - full coverage', () => {
         headers: { authorization: `Bearer ${operatorToken}` },
       });
       expect(res.statusCode).toBe(400);
-      const body = res.json();
-      expect(body.error).toBe('Access Denied');
-      expect(body.code).toBe('STORAGE_CONNECTION_FAILED');
+      // The provider message can name internal hosts: it stays in the log (case 279).
+      expect(res.json()).toEqual({
+        error: 'Storage connection failed',
+        code: 'STORAGE_CONNECTION_FAILED',
+      });
     });
 
-    it('returns 400 with "Unknown error" when S3 throws non-Error', async () => {
+    it('never returns the provider error, which can name internal addresses', async () => {
+      const mockTestConnection = vi
+        .fn()
+        .mockRejectedValueOnce(new Error('connect ECONNREFUSED 10.0.0.5:9000 minio.internal'));
+      mockGetObjectStorage.mockResolvedValueOnce({
+        bucket: 'test-bucket',
+        testConnection: mockTestConnection,
+      });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/settings/s3/test',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.body).not.toContain('10.0.0.5');
+      expect(res.body).not.toContain('minio.internal');
+    });
+
+    it('returns the constant message when S3 throws non-Error', async () => {
       const mockTestConnection = vi.fn().mockRejectedValueOnce('string-error');
       mockGetObjectStorage.mockResolvedValueOnce({
         bucket: 'test-bucket',
@@ -1233,9 +1409,10 @@ describe('Settings routes - full coverage', () => {
         headers: { authorization: `Bearer ${operatorToken}` },
       });
       expect(res.statusCode).toBe(400);
-      const body = res.json();
-      expect(body.error).toBe('Unknown error');
-      expect(body.code).toBe('STORAGE_CONNECTION_FAILED');
+      expect(res.json()).toEqual({
+        error: 'Storage connection failed',
+        code: 'STORAGE_CONNECTION_FAILED',
+      });
     });
   });
 });

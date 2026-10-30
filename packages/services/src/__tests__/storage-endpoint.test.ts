@@ -1,12 +1,28 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import dns from 'node:dns';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { NodeHttpHandler } from '@smithy/node-http-handler';
 import { BlockedDestinationError } from '@evtivity/lib';
-import { createStorageRequestHandler, validateStorageEndpoint } from '../storage/index.js';
+import {
+  createStorageRequestHandler,
+  parseStorageAllowedPrivateHosts,
+  validateStorageEndpoint,
+} from '../storage/index.js';
+
+// Link-local and cloud metadata, the EC2 IPv6 metadata address, unspecified,
+// multicast and an IPv4-mapped metadata address (security review case 278).
+const UNROUTABLE_HOSTS = [
+  '169.254.169.254',
+  'fd00:ec2::254',
+  'fe80::1',
+  '0.0.0.0',
+  '224.0.0.1',
+  '::ffff:169.254.169.254',
+];
 
 type HttpRequest = Parameters<NodeHttpHandler['handle']>[0];
 
@@ -69,6 +85,38 @@ describe('validateStorageEndpoint', () => {
   it('allows only the hosts on the allowlist', () => {
     expect(validateStorageEndpoint('http://other.internal:9000', ['minio.internal'])).toBeNull();
   });
+
+  it('refuses a link-local or cloud metadata address even when it is on the allowlist', () => {
+    for (const host of UNROUTABLE_HOSTS) {
+      const literal = host.includes(':') ? `[${host}]` : host;
+      for (const scheme of ['http', 'https']) {
+        expect(validateStorageEndpoint(`${scheme}://${literal}`, [host]), host).toBeNull();
+      }
+    }
+  });
+});
+
+describe('parseStorageAllowedPrivateHosts', () => {
+  it('keeps hostnames and private IP addresses, trimmed and lowercased', () => {
+    expect(parseStorageAllowedPrivateHosts([' MinIO.Internal ', '10.0.0.5', '::1'])).toEqual([
+      'minio.internal',
+      '10.0.0.5',
+      '::1',
+    ]);
+    expect(parseStorageAllowedPrivateHosts([])).toEqual([]);
+  });
+
+  it('refuses a list with a link-local or cloud metadata address', () => {
+    for (const host of UNROUTABLE_HOSTS) {
+      expect(parseStorageAllowedPrivateHosts(['minio.internal', host]), host).toBeNull();
+    }
+  });
+
+  it('refuses what parseAllowedPrivateHosts refuses', () => {
+    for (const value of ['minio.internal', [42], ['http://minio.internal'], ['minio:9000']]) {
+      expect(parseStorageAllowedPrivateHosts(value), JSON.stringify(value)).toBeNull();
+    }
+  });
 });
 
 describe('createStorageRequestHandler', () => {
@@ -124,5 +172,76 @@ describe('createStorageRequestHandler', () => {
     const { response } = await handler.handle(get('localhost'));
     expect(response.statusCode).toBe(200);
     handler.destroy();
+  });
+
+  it('connects to the virtual-hosted bucket name of an allowed host', async () => {
+    const handler = createStorageRequestHandler('my-bucket', ['localhost']);
+    const lookup = vi.spyOn(dns, 'lookup');
+    lookup.mockImplementation(((
+      _host: string,
+      _options: unknown,
+      callback: (err: null, records: dns.LookupAddress[]) => void,
+    ) => {
+      callback(null, [{ address: '127.0.0.1', family: 4 }]);
+    }) as unknown as typeof dns.lookup);
+    const { response } = await handler.handle(get('my-bucket.localhost'));
+    expect(response.statusCode).toBe(200);
+    handler.destroy();
+    lookup.mockRestore();
+  });
+
+  describe('unroutable addresses (security review case 278)', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('refuses a cloud metadata IP address even when it is on the allowlist', async () => {
+      for (const host of UNROUTABLE_HOSTS) {
+        const handler = createStorageRequestHandler('my-bucket', [host]);
+        const literal = host.includes(':') ? `[${host}]` : host;
+        await expect(handler.handle(get(literal)), host).rejects.toBeInstanceOf(
+          BlockedDestinationError,
+        );
+        handler.destroy();
+      }
+    });
+
+    it('refuses an allowed name that resolves to a cloud metadata address', async () => {
+      const lookup = vi.spyOn(dns, 'lookup');
+      lookup.mockImplementation(((
+        _host: string,
+        _options: unknown,
+        callback: (err: null, records: dns.LookupAddress[]) => void,
+      ) => {
+        callback(null, [
+          { address: '10.0.0.5', family: 4 },
+          { address: '169.254.169.254', family: 4 },
+        ]);
+      }) as unknown as typeof dns.lookup);
+      const handler = createStorageRequestHandler('my-bucket', ['minio.internal']);
+      await expect(handler.handle(get('minio.internal'))).rejects.toBeInstanceOf(
+        BlockedDestinationError,
+      );
+      await expect(handler.handle(get('my-bucket.minio.internal'))).rejects.toBeInstanceOf(
+        BlockedDestinationError,
+      );
+      handler.destroy();
+    });
+
+    it('refuses a name off the allowlist that resolves to a private address', async () => {
+      const lookup = vi.spyOn(dns, 'lookup');
+      lookup.mockImplementation(((
+        _host: string,
+        _options: unknown,
+        callback: (err: null, records: dns.LookupAddress[]) => void,
+      ) => {
+        callback(null, [{ address: '10.0.0.5', family: 4 }]);
+      }) as unknown as typeof dns.lookup);
+      const handler = createStorageRequestHandler('my-bucket', ['minio.internal']);
+      await expect(handler.handle(get('other.internal'))).rejects.toBeInstanceOf(
+        BlockedDestinationError,
+      );
+      handler.destroy();
+    });
   });
 });

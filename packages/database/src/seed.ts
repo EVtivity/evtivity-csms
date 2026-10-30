@@ -572,6 +572,12 @@ async function seed(): Promise<void> {
     's3.region': '',
     's3.accessKeyIdEnc': '',
     's3.secretAccessKeyEnc': '',
+    // Storage provider (v0.1.49, migration 0480): s3 (AWS S3) or s3-compatible
+    // with its endpoint; written only through PUT /v1/settings/s3.
+    's3.provider': 's3',
+    's3.endpoint': '',
+    's3.forcePathStyle': false,
+    's3.allowedPrivateHosts': [],
     // Provider for new payments; 'none' turns payments off (migration 0116).
     'payments.provider': 'none',
     // Default hold amount and platform fee, any provider (migration 0125).

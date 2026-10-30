@@ -552,6 +552,47 @@ services:
     profiles:
       - tools
 
+  # S3-compatible object storage for local testing of Settings > Integrations >
+  # S3 (dev tools only, never in Helm, CDK or the production images). Browsers
+  # upload with presigned POST and view with presigned GET straight to it, so
+  # the S3 API binds BIND_IP like the CSMS; the console binds INFRA_BIND_IP.
+  # Root user evtivity / evtivity-minio (dev only); minio-setup creates the
+  # bucket evtivity-files.
+  minio:
+    image: cgr.dev/chainguard/minio@sha256:3b6e40c30ecd5cea627e382ff0b82ca841f58c52294578787043ee80c8ef7c82
+    restart: unless-stopped
+    command: ['server', '/data', '--address', ':9000', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: evtivity
+      MINIO_ROOT_PASSWORD: evtivity-minio
+    ports:
+      - '${BIND_IP:-0.0.0.0}:${MINIO_PORT:-7114}:9000'
+      - '${INFRA_BIND_IP:-127.0.0.1}:${MINIO_CONSOLE_PORT:-7115}:9001'
+    # Named volume: stored files survive a recreate of the container.
+    volumes:
+      - miniodata:/data
+    mem_limit: 512m
+    cpus: 0.5
+    healthcheck:
+      test: ['CMD', 'minio', '--version']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - tools
+
+  minio-setup:
+    image: cgr.dev/chainguard/minio-client@sha256:5b759d9e248ad9f1ab8455f8168b86a47acb1e08207d38603b504bdc5a555d7a
+    depends_on:
+      - minio
+    environment:
+      MC_HOST_local: http://evtivity:evtivity-minio@minio:9000
+    command: ['mb', '--ignore-existing', 'local/evtivity-files']
+    # Retried until MinIO answers; then it exits.
+    restart: on-failure:30
+    profiles:
+      - tools
+
   prometheus:
     image: prom/prometheus:v3.15.1
     restart: unless-stopped
@@ -626,3 +667,4 @@ volumes:
   prometheusdata:
   grafanadata:
   lokidata:
+  miniodata:

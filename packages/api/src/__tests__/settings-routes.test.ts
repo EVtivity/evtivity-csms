@@ -155,6 +155,18 @@ vi.mock('drizzle-orm', () => ({
   between: vi.fn(),
 }));
 
+// The S3 route's fresh proof has its own tests (settings-routes-full, session-proof).
+vi.mock('../lib/mfa-factor-proof.js', async () => {
+  const { z } = await import('zod');
+  return { factorProof: z.object({ kind: z.string() }).loose() };
+});
+vi.mock('../lib/session-proof.js', () => ({
+  sessionProofErrorFields: {},
+  SESSION_PROOF_ERROR_CODES: ['VALIDATION_ERROR', 'INVALID_PASSWORD'],
+  isApiKeyRequest: () => false,
+  requireSessionProof: () => Promise.resolve(true),
+}));
+
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
     () =>

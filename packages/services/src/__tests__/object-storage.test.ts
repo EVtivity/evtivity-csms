@@ -55,9 +55,11 @@ const {
   mockGetSignedUrl,
   mockS3Send,
   mockS3ClientCtor,
+  mockS3Destroy,
   mockCreatePresignedPost,
 } = vi.hoisted(() => {
   return {
+    mockS3Destroy: vi.fn(),
     mockCreatePresignedPost: vi.fn().mockResolvedValue({
       url: 'https://bucket.s3.example.com/',
       fields: { key: 'k', 'Content-Type': 'image/png', Policy: 'p' },
@@ -90,6 +92,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => ({
 vi.mock('@aws-sdk/client-s3', () => {
   class MockS3Client {
     send = mockS3Send;
+    destroy = mockS3Destroy;
     constructor(options: unknown) {
       mockS3ClientCtor(options);
     }
@@ -152,6 +155,7 @@ import {
   clearObjectStorageCache,
   contentDispositionAttachment,
   loadObjectStorage,
+  RETIRED_CLIENT_GRACE_MS,
   S3ObjectStorage,
 } from '../storage/index.js';
 import { NoSuchKey, NotFound } from '@aws-sdk/client-s3';
@@ -421,6 +425,22 @@ describe('object storage', () => {
       await expect(getStorage()).resolves.toBeNull();
     });
 
+    it('stays off with a cloud metadata address, even on the allowlist (case 278)', async () => {
+      for (const host of ['169.254.169.254', 'fd00:ec2::254']) {
+        const literal = host.includes(':') ? `[${host}]` : host;
+        setupDbResults(
+          compatibleRows({
+            's3.endpoint': `http://${literal}`,
+            's3.allowedPrivateHosts': [host],
+          }),
+        );
+        await expect(getStorage(), host).resolves.toBeNull();
+        setupDbResults(compatibleRows({ 's3.allowedPrivateHosts': ['minio.internal', host] }));
+        await expect(getStorage(), host).resolves.toBeNull();
+      }
+      expect(mockS3ClientCtor).not.toHaveBeenCalled();
+    });
+
     it('stays off with an unknown provider', async () => {
       setupDbResults(compatibleRows({ 's3.provider': 'ftp' }));
       await expect(getStorage()).resolves.toBeNull();
@@ -450,6 +470,54 @@ describe('object storage', () => {
       setupDbResults(settingsRows());
       const second = await getStorage();
       expect(second).not.toBe(first);
+    });
+  });
+
+  describe('replaced clients', () => {
+    it('destroys a cleared client after the grace period, not before', async () => {
+      vi.useFakeTimers();
+      try {
+        setupDbResults(settingsRows());
+        await getStorage();
+        clearObjectStorageCache();
+        vi.advanceTimersByTime(RETIRED_CLIENT_GRACE_MS - 1);
+        expect(mockS3Destroy).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(1);
+        expect(mockS3Destroy).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('destroys the client the 5-minute cache replaces', async () => {
+      vi.useFakeTimers();
+      try {
+        setupDbResults(settingsRows());
+        const first = await getStorage();
+        vi.advanceTimersByTime(5 * 60 * 1000 + 1);
+        setupDbResults(settingsRows());
+        const second = await getStorage();
+        expect(second).not.toBe(first);
+        expect(mockS3ClientCtor).toHaveBeenCalledTimes(2);
+        expect(mockS3Destroy).not.toHaveBeenCalled();
+        vi.advanceTimersByTime(RETIRED_CLIENT_GRACE_MS);
+        expect(mockS3Destroy).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('destroys nothing while the cached client is still served', async () => {
+      vi.useFakeTimers();
+      try {
+        setupDbResults(settingsRows());
+        await getStorage();
+        await getStorage();
+        vi.advanceTimersByTime(RETIRED_CLIENT_GRACE_MS * 2);
+        expect(mockS3Destroy).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

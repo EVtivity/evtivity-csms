@@ -30,6 +30,25 @@ import { PncLocalCaSection } from '@/components/settings/PncLocalCaSection';
 import { FleetCreditReservationSettings } from '@/components/settings/FleetCreditReservationSettings';
 import { SimProvidersSettings } from '@/components/settings/SimProvidersSettings';
 import { OcppDataPlanSettings } from '@/components/settings/OcppDataPlanSettings';
+import {
+  FactorProofField,
+  proofRejection,
+  type FactorProof,
+  type ProofRejection,
+} from '@/components/FactorProofField';
+import { useMfaStatus } from '@/components/profile/mfa-status';
+
+/** The endpoint as the API stores it (the origin), to tell whether it changed. */
+function storedEndpointForm(value: string): string {
+  return URL.parse(value.trim())?.origin ?? value.trim();
+}
+
+/** Whether a failed S3 save refused the private hosts list. */
+function isS3AllowedHostsRefusal(err: unknown): boolean {
+  if (!(err instanceof ApiError)) return false;
+  const body = err.body as { code?: unknown; field?: unknown } | null;
+  return body?.code === 'VALIDATION_ERROR' && body.field === 'allowedPrivateHosts';
+}
 
 interface IntegrationsSettingsProps {
   settings: Record<string, unknown> | undefined;
@@ -58,6 +77,20 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   const [s3AccessKeyId, setS3AccessKeyId] = useState('');
   const [s3SecretAccessKey, setS3SecretAccessKey] = useState('');
   const [s3PolicyOpen, setS3PolicyOpen] = useState(false);
+  // Changing the provider or the endpoint takes a fresh proof (the server asks for it).
+  const { data: mfaStatus } = useMfaStatus();
+  const s3ProofKinds = mfaStatus?.factorProofKinds ?? [];
+  const [s3Proof, setS3Proof] = useState<FactorProof | null>(null);
+  const [s3ProofFailure, setS3ProofFailure] = useState<ProofRejection | null>(null);
+  const [s3ProofAsked, setS3ProofAsked] = useState(false);
+  const [s3ProofRound, setS3ProofRound] = useState(0);
+  const storedS3Provider = settings?.['s3.provider'] === 's3-compatible' ? 's3-compatible' : 's3';
+  const storedS3Endpoint =
+    typeof settings?.['s3.endpoint'] === 'string' ? settings['s3.endpoint'] : '';
+  const s3DestinationChanged =
+    s3Provider !== storedS3Provider ||
+    (s3Provider === 's3-compatible' && storedEndpointForm(s3Endpoint) !== storedS3Endpoint);
+  const s3NeedsProof = s3ProofKinds.length > 0 && s3DestinationChanged;
   const [s3CorsOpen, setS3CorsOpen] = useState(false);
 
   // Feature toggles
@@ -231,8 +264,16 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
       endpoint?: string;
       forcePathStyle?: boolean;
       allowedPrivateHosts?: string[];
+      proof?: FactorProof;
     }) => api.put('/v1/settings/s3', vals),
+    onError: (err: unknown) => {
+      setS3ProofFailure(proofRejection(err));
+    },
     onSuccess: () => {
+      setS3Proof(null);
+      setS3ProofAsked(false);
+      setS3ProofFailure(null);
+      setS3ProofRound((n) => n + 1);
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
       void queryClient.invalidateQueries({ queryKey: ['s3-status'] });
     },
@@ -1326,6 +1367,19 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               </>
             )}
 
+            {s3NeedsProof && (
+              <FactorProofField
+                key={`s3-${String(s3ProofRound)}`}
+                idPrefix="s3-proof"
+                kinds={s3ProofKinds}
+                codeMethod={mfaStatus?.mfaMethod ?? null}
+                description={t('settings.s3ProofHint')}
+                onChange={setS3Proof}
+                rejection={s3ProofFailure}
+                showMissing={s3ProofAsked}
+              />
+            )}
+
             <div className="flex justify-end gap-2">
               <SaveButton
                 isPending={s3Mutation.isPending}
@@ -1338,7 +1392,12 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   (s3Provider === 's3-compatible' && s3Endpoint.trim() === '')
                 }
                 onClick={() => {
+                  if (s3NeedsProof && s3Proof == null) {
+                    setS3ProofAsked(true);
+                    return;
+                  }
                   s3Mutation.mutate({
+                    ...(s3NeedsProof && s3Proof != null ? { proof: s3Proof } : {}),
                     provider: s3Provider,
                     bucket: s3Bucket,
                     region: s3Region,
@@ -1376,7 +1435,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 {s3Mutation.error instanceof ApiError &&
                 (s3Mutation.error.body as { code?: unknown } | null)?.code === 'PRIVATE_URL'
                   ? t('settings.s3EndpointRefused')
-                  : t('settings.s3SaveFailed')}
+                  : isS3AllowedHostsRefusal(s3Mutation.error)
+                    ? t('settings.s3AllowedHostsRefused')
+                    : t('settings.s3SaveFailed')}
               </p>
             )}
             {s3TestMutation.isSuccess && (

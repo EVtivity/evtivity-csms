@@ -10,6 +10,7 @@ import {
 } from '../notification-test-sink.js';
 import { sendSms } from '../notification-dispatch.js';
 import { sendExpoPush } from '../push-send.js';
+import { expectLinearTime } from './helpers/linear-time.js';
 
 const SINK = 'http://notify-sink:8080';
 const TOKEN = 'ExponentPushToken[aaaaaaaaaaaaaaaaaaaaaa]';
@@ -79,11 +80,16 @@ describe('resolveNotificationTestSinkUrl', () => {
       resolveNotificationTestSinkUrl({ ...env, NOTIFICATIONS_TEST_SINK_URL: `${SINK}///` }),
     ).toBe(SINK);
     const inner = `${SINK}/${'/'.repeat(100_000)}x`;
-    const started = performance.now();
     expect(resolveNotificationTestSinkUrl({ ...env, NOTIFICATIONS_TEST_SINK_URL: inner })).toBe(
       inner,
     );
-    expect(performance.now() - started).toBeLessThan(200);
+    expectLinearTime(
+      'inner slashes',
+      (scale) => `${SINK}/${'/'.repeat(12_500 * scale)}x`,
+      (url) => {
+        resolveNotificationTestSinkUrl({ ...env, NOTIFICATIONS_TEST_SINK_URL: url });
+      },
+    );
   });
 
   it('refuses the allow flag unless NODE_ENV is development or test, unset included', () => {

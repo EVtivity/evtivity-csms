@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { csvEscape, buildCsv, neutraliseSpreadsheetFormula } from '../csv-escape.js';
+import { expectLinearTime } from './helpers/linear-time.js';
 
 describe('csvEscape', () => {
   it('returns plain ASCII unchanged', () => {
@@ -108,10 +109,14 @@ describe('csvEscape', () => {
     });
 
     it('scans a long run of TABs or semicolons in linear time', () => {
-      for (const crafted of ['\t'.repeat(100_000), `x${';\t '.repeat(50_000)}y`]) {
-        const started = performance.now();
-        csvEscape(crafted);
-        expect(performance.now() - started).toBeLessThan(50);
+      const crafted: [string, (scale: number) => string][] = [
+        ['TABs', (scale) => '\t'.repeat(12_500 * scale)],
+        ['semicolons and TABs', (scale) => `x${';\t '.repeat(6_250 * scale)}y`],
+      ];
+      for (const [label, build] of crafted) {
+        expectLinearTime(label, build, (value) => {
+          csvEscape(value);
+        });
       }
       expect(csvEscape(`a${'\t'.repeat(1000)}=1`)).toBe(`"a${'\t'.repeat(1000)}'=1"`);
     });

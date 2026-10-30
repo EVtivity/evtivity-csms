@@ -16,6 +16,7 @@ import {
   maskUrlPasswords,
   urlPasswordUnmaskable,
 } from '../secret-config.js';
+import { expectLinearTime } from './helpers/linear-time.js';
 
 const PASSWORD = 'SeedStationPass1234';
 const HEX = '5365656453746174696F6E50617373';
@@ -323,21 +324,24 @@ describe('URL userinfo passwords (OCPP file transfer URLs)', () => {
   it('scans crafted input in linear time (no regex backtracking)', () => {
     // Worst cases of the earlier patterns: many `scheme://user:` starts with
     // no @ (each start ran to the end and backed off), and a / before no @.
-    const inputs = [
-      'a://u:'.repeat(10_000),
-      'a://u:/'.repeat(9_000),
-      `a://u:${'x'.repeat(60_000)}`,
-      `${'a'.repeat(30_000)}://u:${'/'.repeat(30_000)}`,
-      'a://x:'.repeat(5_000) + '@',
+    // The larger input of each stays within MAX_URL_SCAN_LENGTH, so it is scanned.
+    const inputs: [string, (scale: number) => string][] = [
+      ['many starts', (scale) => 'a://u:'.repeat(1_250 * scale)],
+      ['many starts with a slash', (scale) => 'a://u:/'.repeat(1_100 * scale)],
+      ['one long password', (scale) => `a://u:${'x'.repeat(7_500 * scale)}`],
+      [
+        'long scheme and slashes',
+        (scale) => `${'a'.repeat(3_750 * scale)}://u:${'/'.repeat(3_750 * scale)}`,
+      ],
+      ['many starts then one @', (scale) => `${'a://x:'.repeat(625 * scale)}@`],
     ];
-    for (const input of inputs) {
-      expect(input.length).toBeLessThanOrEqual(MAX_URL_SCAN_LENGTH);
-      const started = performance.now();
-      maskUrlPassword(input);
-      urlPasswordUnmaskable(input);
-      maskStationCredentials({ log: { remoteLocation: input } });
-      const elapsed = performance.now() - started;
-      expect(elapsed, `${input.slice(0, 12)}... ${String(input.length)}`).toBeLessThan(50);
+    for (const [label, build] of inputs) {
+      expect(build(8).length, label).toBeLessThanOrEqual(MAX_URL_SCAN_LENGTH);
+      expectLinearTime(label, build, (input) => {
+        maskUrlPassword(input);
+        urlPasswordUnmaskable(input);
+        maskStationCredentials({ log: { remoteLocation: input } });
+      });
     }
   });
 
