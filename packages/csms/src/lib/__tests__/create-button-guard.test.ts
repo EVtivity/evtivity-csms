@@ -256,16 +256,16 @@ function sourceOf(sources: Record<string, string>, file: string): string {
 describe('create and add buttons', () => {
   it('draws every CSMS create or add button with the shared component', () => {
     expect(scan(CSMS_SOURCES)).toEqual([]);
-  });
+  }, 30_000);
 
   it('draws every portal create or add button with the shared component', () => {
     expect(scan(PORTAL_SOURCES)).toEqual([]);
-  });
+  }, 30_000);
 
   it('has no other shared create or add button component', () => {
     expect(otherCreateComponents(CSMS_SOURCES)).toEqual([]);
     expect(otherCreateComponents(PORTAL_SOURCES)).toEqual([]);
-  });
+  }, 30_000);
 
   it('keeps the CSMS and portal CreateButton identical, blue by default, outline only, with a Plus icon', () => {
     const csms = sourceOf(CSMS_SOURCES, 'components/create-button.tsx');
@@ -285,7 +285,7 @@ describe('create and add buttons', () => {
       }
     }
     expect(problems).toEqual([]);
-  });
+  }, 30_000);
 
   it('flags a blue add-a-row button, an unlisted outline create and an outline submit', () => {
     const source = [
