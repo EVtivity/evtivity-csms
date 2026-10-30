@@ -10,6 +10,7 @@
 import { describe, it, expect } from 'vitest';
 import { SIMULATED_DEVICES } from '@evtivity/payment-terminals';
 import { TERMINAL_DEMO } from '@evtivity/database/src/seed-demo-features.js';
+import { LAYOUT_DEMO } from '@evtivity/database/src/seed-demo-layout-plan.js';
 
 describe('demo payment terminal devices', () => {
   it('match the simulated devices they use', () => {
@@ -31,6 +32,26 @@ describe('demo payment terminal devices', () => {
         online: true,
         // The demo SIM is entered on the terminal page, not reported.
         iccid: null,
+      });
+    }
+  });
+
+  it('match the simulated devices of the site layout demo, the VP7200 offline', () => {
+    for (const demo of LAYOUT_DEMO.terminals) {
+      const device = SIMULATED_DEVICES.find((d) => d.providerDeviceId === demo.providerDeviceId);
+      expect(device, demo.providerDeviceId).toBeDefined();
+      expect({
+        vendor: device?.vendor,
+        model: device?.model,
+        serialNumber: device?.serialNumber,
+        firmwareVersion: device?.firmwareVersion,
+        online: device?.online,
+      }).toEqual({
+        vendor: demo.vendor,
+        model: demo.model,
+        serialNumber: demo.serialNumber,
+        firmwareVersion: demo.firmwareVersion,
+        online: demo.online,
       });
     }
   });

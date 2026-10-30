@@ -50,6 +50,7 @@ export {
   OneNceProvider,
   oneNceConfigured,
   oneNceFactory,
+  pdpEventKind,
 } from './1nce/adapter.js';
 export { ONENCE_BASE_URL } from './1nce/client.js';
 export { mapOneNceState } from './1nce/states.js';

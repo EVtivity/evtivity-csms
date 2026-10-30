@@ -11,6 +11,7 @@ import { Select } from '@/components/ui/select';
 import { StationCombobox, type StationSelection } from '@/components/station-combobox';
 import { DriverCombobox } from '@/components/driver-combobox';
 import { api } from '@/lib/api';
+import { formatConnectorPowerKw } from '@/lib/connector-rating';
 
 interface Connector {
   id: string;
@@ -63,7 +64,8 @@ export function BulkReservationSlotRow({
     for (const evse of connectorsQuery.data) {
       for (const conn of evse.connectors) {
         const type = conn.connectorType ?? 'Unknown';
-        const power = conn.maxPowerKw != null ? `${conn.maxPowerKw} kW` : '';
+        const power =
+          conn.maxPowerKw != null ? `${formatConnectorPowerKw(Number(conn.maxPowerKw))} kW` : '';
         const label = `Port ${String(evse.evseId)}-${String(conn.connectorId)}: ${type}${power !== '' ? ` (${power})` : ''}`;
         options.push({
           key: `${String(evse.evseId)}-${String(conn.connectorId)}`,

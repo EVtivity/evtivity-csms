@@ -165,6 +165,7 @@ describe('1NCE field picking', () => {
     expect(event).toMatchObject({
       id: 12_345,
       typeId: 4,
+      typeName: 'Delete PDP Context',
       timestamp: '2023-03-01T12:07:09.000Z',
       pdpContextId: '92415',
       volumeTotal: 0.5,
@@ -179,6 +180,7 @@ describe('1NCE field picking', () => {
       [
         'id',
         'typeId',
+        'typeName',
         'timestamp',
         'deviceHash',
         'pdpContextId',

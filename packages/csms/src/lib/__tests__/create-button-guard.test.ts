@@ -62,6 +62,8 @@ const ALLOWED: Record<string, string> = {
  */
 const OUTLINE: Record<string, string> = {
   'components/SchemaForm.tsx|commands.addItem': 'adds an array item inside the command form',
+  'components/layout/LayoutSettingsPanel.tsx|sites.layoutSettings.addTransformer':
+    'adds a transformer row inside the Parking Lot settings, saved with the blue layout Save',
   'components/smart-charging/TimeSlotEditor.tsx|smartCharging.addTimeSlot':
     'adds a time slot row inside the charging profile form',
   'components/config-template/DetailsTab.tsx|configTemplates.addVariable':

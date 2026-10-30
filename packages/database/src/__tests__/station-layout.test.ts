@@ -5,7 +5,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('../config.js', () => ({ db: {} }));
 
+import type { SiteLayoutSettings } from '@evtivity/lib/site-layout';
+import { DEFAULT_LAYOUT_GRID } from '@evtivity/lib/site-layout';
+import { chargingStations, sites } from '../schema/assets.js';
 import {
+  LayoutGridTooSmallError,
   moveStationLayout,
   placeStationOnLayout,
   saveSiteLayout,
@@ -20,8 +24,18 @@ interface Row {
 }
 
 /** A fake transaction over an in-memory station_layout_positions table. */
-function fakeTx(initial: Row[]) {
+function fakeTx(
+  initial: Row[],
+  options: {
+    settings?: Record<string, SiteLayoutSettings | null>;
+    stations?: Record<string, string[]>;
+  } = {},
+) {
   const rows = [...initial];
+  const settings = new Map<string, SiteLayoutSettings | null>(
+    Object.entries(options.settings ?? {}),
+  );
+  const stationsBySite = new Map(Object.entries(options.stations ?? {}));
   const locks: string[] = [];
   let lastSiteFilter: string | null = null;
   // The module filters reads by site and deletes by station; the fake reads the
@@ -44,10 +58,51 @@ function fakeTx(initial: Row[]) {
       return Promise.resolve([]);
     },
     select: () => ({
-      from: () => ({
+      from: (table: unknown) => {
+        // The site row: its stored layout settings.
+        if (table === sites) {
+          return {
+            where: (cond: unknown) => {
+              const siteId = String(params(cond)[0]);
+              const stored = settings.get(siteId);
+              return Promise.resolve(stored === undefined ? [] : [{ layoutSettings: stored }]);
+            },
+          };
+        }
+        // The site's stations with their positions (saveSiteLayout).
+        if (table === chargingStations) {
+          return {
+            leftJoin: () => ({
+              where: (cond: unknown) => {
+                const siteId = String(params(cond)[0]);
+                return Promise.resolve(
+                  (stationsBySite.get(siteId) ?? []).map((id) => {
+                    const row = rows.find((r) => r.stationId === id && r.siteId === siteId);
+                    return {
+                      id,
+                      stationId: `CS-${id}`,
+                      positionX: row?.positionX ?? null,
+                      positionY: row?.positionY ?? null,
+                    };
+                  }),
+                );
+              },
+            }),
+          };
+        }
+        return {
+          where: (cond: unknown) => {
+            lastSiteFilter = String(params(cond)[0]);
+            return Promise.resolve(rows.filter((r) => r.siteId === lastSiteFilter));
+          },
+        };
+      },
+    }),
+    update: () => ({
+      set: (values: { layoutSettings: SiteLayoutSettings | null }) => ({
         where: (cond: unknown) => {
-          lastSiteFilter = String(params(cond)[0]);
-          return Promise.resolve(rows.filter((r) => r.siteId === lastSiteFilter));
+          settings.set(String(params(cond)[0]), values.layoutSettings);
+          return Promise.resolve();
         },
       }),
     }),
@@ -80,7 +135,7 @@ function fakeTx(initial: Row[]) {
       },
     }),
   };
-  return { tx: tx as unknown as StationLayoutDb, rows, locks };
+  return { tx: tx as unknown as StationLayoutDb, rows, locks, settings };
 }
 
 describe('station layout placement', () => {
@@ -142,5 +197,68 @@ describe('station layout placement', () => {
     ]);
     expect(rows.map((r) => r.stationId)).toEqual(['sta_a', 'sta_b']);
     expect(locks).toEqual(['station_layout:sit_1']);
+  });
+
+  const small = (spotsPerRow: number, rows: number): SiteLayoutSettings => ({
+    ...DEFAULT_LAYOUT_GRID,
+    spotsPerRow,
+    rows,
+    transformers: [{ id: 'tx-1', name: 'Main', ratedKva: 1500, x: 3, z: 2 }],
+  });
+
+  it('places a new station on the first free spot of a stored lot, below it when the lot is full', async () => {
+    const { tx } = fakeTx(
+      [
+        { siteId: 'sit_1', stationId: 'sta_a', positionX: '20', positionY: '20' },
+        { siteId: 'sit_1', stationId: 'sta_b', positionX: '220', positionY: '20' },
+      ],
+      { settings: { sit_1: small(2, 1) } },
+    );
+    expect(await placeStationOnLayout(tx, 'sit_1', 'sta_c')).toEqual({ x: 20, y: 160 });
+  });
+
+  it('stores new settings, moves stations outside the lot inside and the transformers onto the grass', async () => {
+    const { tx, rows, settings } = fakeTx(
+      [
+        { siteId: 'sit_1', stationId: 'sta_a', positionX: '20', positionY: '20' },
+        { siteId: 'sit_1', stationId: 'sta_b', positionX: '820', positionY: '20' },
+      ],
+      { stations: { sit_1: ['sta_a', 'sta_b'] } },
+    );
+    const saved = await saveSiteLayout(tx, 'sit_1', [], small(2, 1));
+    expect(saved.moved).toEqual([{ stationId: 'sta_b', positionX: 220, positionY: 20 }]);
+    expect(rows.find((r) => r.stationId === 'sta_b')).toMatchObject({ positionX: '220' });
+    expect(saved.settingsChanged).toBe(true);
+    // The transformer stood on the new lot: it moves to the grass beside it.
+    const stored = settings.get('sit_1');
+    expect(stored?.spotsPerRow).toBe(2);
+    expect(stored?.transformers[0]).toMatchObject({ id: 'tx-1', name: 'Main', x: 3, z: -2.5 });
+    // Before: the default lot (never saved).
+    expect(saved.settingsBefore.spotsPerRow).toBe(10);
+  });
+
+  it('refuses a lot without a free spot for every station and writes nothing', async () => {
+    const { tx, rows, settings } = fakeTx(
+      [
+        { siteId: 'sit_1', stationId: 'sta_a', positionX: '20', positionY: '20' },
+        { siteId: 'sit_1', stationId: 'sta_b', positionX: '220', positionY: '20' },
+      ],
+      { stations: { sit_1: ['sta_a', 'sta_b'] } },
+    );
+    await expect(saveSiteLayout(tx, 'sit_1', [], small(1, 1))).rejects.toThrow(
+      LayoutGridTooSmallError,
+    );
+    await expect(saveSiteLayout(tx, 'sit_1', [], small(1, 1))).rejects.toMatchObject({
+      stations: ['CS-sta_b'],
+    });
+    expect(rows.find((r) => r.stationId === 'sta_b')).toMatchObject({ positionX: '220' });
+    expect(settings.has('sit_1')).toBe(false);
+  });
+
+  it('resets the settings to the default with null', async () => {
+    const { tx, settings } = fakeTx([], { settings: { sit_1: small(4, 1) } });
+    const saved = await saveSiteLayout(tx, 'sit_1', [], null);
+    expect(saved.settingsChanged).toBe(true);
+    expect(settings.get('sit_1')).toBeNull();
   });
 });

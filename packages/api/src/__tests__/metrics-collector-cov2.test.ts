@@ -7,7 +7,28 @@ const mockExecute = vi.fn();
 const mockGetCompanyCurrency = vi.fn();
 const mockQueryRevenueTotal = vi.fn();
 const mockLoggerError = vi.fn();
+const mockLoggerWarn = vi.fn();
+const mockLoggerDebug = vi.fn();
 const mockGetOcppFleetHealth = vi.fn();
+// The queries run under a statement timeout go through db.transaction:
+// mockSetConfig gets the set_config statement, mockTxQuery the query itself.
+const mockSetConfig = vi.fn();
+const mockTxQuery = vi.fn();
+
+type MockSql = { strings: string[]; values: unknown[] };
+
+function sqlText(q: MockSql): string {
+  return q.strings
+    .map((s, i) => {
+      const v = q.values[i] as { raw?: string } | undefined;
+      return s + (v?.raw ?? '');
+    })
+    .join('');
+}
+
+function txExecute(q: MockSql): unknown {
+  return sqlText(q).includes('set_config') ? mockSetConfig(q) : mockTxQuery(q);
+}
 const EMPTY_FLEET = {
   instanceCount: 0,
   connectedStations: 0,
@@ -24,9 +45,15 @@ const EMPTY_FLEET = {
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   client: {},
-  db: { execute: mockExecute },
+  db: {
+    execute: mockExecute,
+    transaction: (fn: (tx: unknown) => Promise<unknown>) => fn({ execute: txExecute }),
+  },
   getCompanyCurrency: mockGetCompanyCurrency,
   getOcppFleetHealth: () => mockGetOcppFleetHealth(),
+  pgErrorCode: (err: unknown) =>
+    (err as { cause?: { code?: string } } | null)?.cause?.code ??
+    (err as { code?: string } | null)?.code,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -41,15 +68,24 @@ vi.mock('../lib/payment-site-scope.js', () => ({
 }));
 
 vi.mock('@evtivity/lib', () => ({
-  createLogger: () => ({ error: mockLoggerError, warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
+  createLogger: () => ({
+    error: mockLoggerError,
+    warn: mockLoggerWarn,
+    info: vi.fn(),
+    debug: mockLoggerDebug,
+  }),
 }));
 
 vi.mock('@evtivity/services/session-revenue', () => ({
   queryRevenueTotal: (input: unknown) => mockQueryRevenueTotal(input),
 }));
 
-const { collectBusinessMetrics, startMetricsCollector, stopMetricsCollector } =
-  await import('../services/metrics-collector.service.js');
+const {
+  collectBusinessMetrics,
+  startMetricsCollector,
+  stopMetricsCollector,
+  METRICS_QUERY_TIMEOUT_MS,
+} = await import('../services/metrics-collector.service.js');
 const m = await import('../plugins/metrics.js');
 
 type Gauge = {
@@ -66,6 +102,24 @@ async function series(g: Gauge, label: string): Promise<Array<[unknown, number]>
 async function single(g: Gauge): Promise<number | undefined> {
   const { values } = await g.get();
   return values[0]?.value;
+}
+
+/**
+ * The results of the two queries run under the statement timeout, by table:
+ * transaction events by trigger and the heartbeat count. A result that is an
+ * Error rejects the query with it.
+ */
+function queueTimedResults(txEvents: unknown, heartbeats: unknown): void {
+  mockTxQuery.mockImplementation((q: MockSql) => {
+    const result = sqlText(q).includes('ocpp_message_logs') ? heartbeats : txEvents;
+    return result instanceof Error ? Promise.reject(result) : Promise.resolve(result);
+  });
+}
+
+function canceledByTimeout(): Error {
+  return Object.assign(new Error('Failed query'), {
+    cause: { code: '57014', message: 'canceling statement due to statement timeout' },
+  });
 }
 
 /** The db.execute results, in the order collectBusinessMetrics issues the queries. */
@@ -102,11 +156,10 @@ function queueResults(): void {
     [{ avg_kwh: '12.5', avg_duration_seconds: 3600 }], // averages
     [{ count: 1 }], // idle
     [{ count: 0 }], // firmware
-    [{ trigger_reason: 'Authorized', count: 8 }], // tx events
     [{ status: 'captured', count: 11 }], // payments
-    [{ count: 1440 }], // heartbeats
   ];
   for (const r of results) mockExecute.mockResolvedValueOnce(r);
+  queueTimedResults([{ trigger_reason: 'Authorized', count: 8 }], [{ count: 1440 }]);
   const started = new Date('2026-10-09T00:00:00Z');
   const instance = (instanceId: string, connectedStations: number) => ({
     instanceId,
@@ -133,6 +186,11 @@ function queueResults(): void {
 describe('collectBusinessMetrics gauges', () => {
   beforeEach(() => {
     mockExecute.mockReset();
+    mockSetConfig.mockReset().mockResolvedValue([]);
+    mockTxQuery.mockReset().mockResolvedValue([]);
+    mockLoggerError.mockReset();
+    mockLoggerWarn.mockReset();
+    mockLoggerDebug.mockReset();
     mockGetOcppFleetHealth.mockReset().mockResolvedValue(EMPTY_FLEET);
     mockGetCompanyCurrency.mockReset().mockResolvedValue('USD');
     mockQueryRevenueTotal.mockReset().mockResolvedValue({ grossCents: 500 });
@@ -142,15 +200,10 @@ describe('collectBusinessMetrics gauges', () => {
     queueResults();
     await collectBusinessMetrics();
 
-    const texts = mockExecute.mock.calls.map((call) => {
-      const q = call[0] as { strings: string[]; values: unknown[] };
-      return q.strings
-        .map((s, i) => {
-          const v = q.values[i] as { raw?: string } | undefined;
-          return s + (v?.raw ?? '');
-        })
-        .join('');
-    });
+    const texts = mockExecute.mock.calls.map((call) => sqlText(call[0] as MockSql));
+    const timedTexts = mockTxQuery.mock.calls.map((call) => sqlText(call[0] as MockSql));
+    expect(timedTexts).toHaveLength(2);
+    for (const text of timedTexts) expect(text).toMatch(/OPERATOR_STATION_ID/);
     // Drivers, support cases, sites, fleets and tariffs are not station rows.
     const unfiltered = new Set([0, 9, 10, 11, 12]);
     texts.forEach((text, i) => {
@@ -169,7 +222,8 @@ describe('collectBusinessMetrics gauges', () => {
     queueResults();
     await collectBusinessMetrics();
 
-    expect(mockExecute).toHaveBeenCalledTimes(19);
+    expect(mockExecute).toHaveBeenCalledTimes(17);
+    expect(mockTxQuery).toHaveBeenCalledTimes(2);
     expect(mockGetOcppFleetHealth).toHaveBeenCalledTimes(1);
     expect(await single(m.driversTotal)).toBe(12);
     expect(await single(m.driversActive)).toBe(5);
@@ -244,6 +298,102 @@ describe('collectBusinessMetrics gauges', () => {
       'Failed to collect business metrics',
     );
     expect(await single(m.driversTotal)).toBe(12);
+  });
+
+  it('runs the large table window queries under the statement timeout', async () => {
+    queueResults();
+    await collectBusinessMetrics();
+
+    expect(mockSetConfig).toHaveBeenCalledTimes(2);
+    for (const call of mockSetConfig.mock.calls) {
+      const q = call[0] as MockSql;
+      expect(sqlText(q)).toContain("set_config('statement_timeout'");
+      expect(q.values).toContain(String(METRICS_QUERY_TIMEOUT_MS));
+    }
+    const timed = mockTxQuery.mock.calls.map((call) => sqlText(call[0] as MockSql));
+    expect(timed.some((t) => t.includes('FROM ocpp_message_logs'))).toBe(true);
+    expect(timed.some((t) => t.includes('FROM transaction_events'))).toBe(true);
+  });
+
+  it('keeps the previous value of a query the timeout cancelled and sets the rest', async () => {
+    queueResults();
+    await collectBusinessMetrics();
+    expect(await single(m.ocppHeartbeatsTotal)).toBe(1440);
+
+    queueResults();
+    queueTimedResults([{ trigger_reason: 'Deauthorized', count: 3 }], canceledByTimeout());
+    await collectBusinessMetrics();
+
+    expect(await single(m.ocppHeartbeatsTotal)).toBe(1440);
+    expect(await series(m.ocppTransactionsByTrigger, 'trigger_reason')).toEqual([
+      ['Deauthorized', 3],
+    ]);
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      { metric: 'ocpp_heartbeats_total', timeoutMs: METRICS_QUERY_TIMEOUT_MS },
+      'Metrics query timed out, keeping the previous value',
+    );
+    expect(mockLoggerError).not.toHaveBeenCalled();
+  });
+
+  it('keeps the trigger series when its query times out', async () => {
+    queueResults();
+    await collectBusinessMetrics();
+
+    queueResults();
+    queueTimedResults(canceledByTimeout(), [{ count: 7 }]);
+    await collectBusinessMetrics();
+
+    expect(await series(m.ocppTransactionsByTrigger, 'trigger_reason')).toEqual([
+      ['Authorized', 8],
+    ]);
+    expect(await single(m.ocppHeartbeatsTotal)).toBe(7);
+  });
+
+  it('fails the run on any other error of a timed query', async () => {
+    queueResults();
+    await collectBusinessMetrics();
+
+    queueResults();
+    queueTimedResults([], new Error('connection reset'));
+    await collectBusinessMetrics();
+
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'connection reset' }),
+      'Failed to collect business metrics',
+    );
+    expect(mockLoggerWarn).not.toHaveBeenCalled();
+    expect(await single(m.ocppHeartbeatsTotal)).toBe(1440);
+  });
+
+  it('never starts a run while the previous one is still running', async () => {
+    mockExecute.mockResolvedValue([]);
+    let finish: (value: unknown) => void = () => {};
+    mockQueryRevenueTotal.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+
+    const first = collectBusinessMetrics();
+    await collectBusinessMetrics();
+    await collectBusinessMetrics();
+
+    expect(mockQueryRevenueTotal).toHaveBeenCalledTimes(1);
+    expect(mockLoggerDebug).toHaveBeenCalledTimes(2);
+    expect(mockLoggerDebug).toHaveBeenCalledWith(
+      'Metrics collection skipped, the previous run is still running',
+    );
+
+    finish({ grossCents: 1 });
+    await first;
+
+    // The guard is released when the run ends, also after a failure.
+    await collectBusinessMetrics();
+    expect(mockQueryRevenueTotal).toHaveBeenCalledTimes(2);
+    mockQueryRevenueTotal.mockRejectedValueOnce(new Error('revenue down'));
+    await collectBusinessMetrics();
+    await collectBusinessMetrics();
+    expect(mockQueryRevenueTotal).toHaveBeenCalledTimes(4);
   });
 
   it('treats non-array results as no rows', async () => {

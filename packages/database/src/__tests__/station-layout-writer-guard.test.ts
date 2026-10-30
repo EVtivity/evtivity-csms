@@ -6,7 +6,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-// P3: station_layout_positions has one writer, packages/database/src/lib/station-layout.ts.
+// P3: station_layout_positions and sites.layout_settings have one writer, packages/database/src/lib/station-layout.ts.
 // Station create, the CSV import, a site move and the layout Save call it, so a
 // station is always placed on a free slot of its own site.
 
@@ -19,6 +19,9 @@ const ALLOWED = /^database\/src\/lib\/station-layout\.ts$/;
 const WRITE_PATTERNS: RegExp[] = [
   /\.(?:insert|update|delete)\(\s*stationLayoutPositions\s*\)/g,
   /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?station_layout_positions"?/gi,
+  // sites.layout_settings (the lot and the transformers).
+  /\.set\(\{[^}]*\blayoutSettings\b/g,
+  /"?layout_settings"?\s*=/g,
 ];
 
 function sourceFiles(dir: string): string[] {
@@ -62,7 +65,7 @@ function findWrites(): string[] {
 }
 
 describe('station layout writer guard', () => {
-  it('writes station_layout_positions only in lib/station-layout.ts', () => {
+  it('writes station_layout_positions and sites.layout_settings only in lib/station-layout.ts', () => {
     expect(findWrites()).toEqual([]);
   });
 

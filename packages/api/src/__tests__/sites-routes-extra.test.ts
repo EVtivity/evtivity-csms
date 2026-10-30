@@ -106,6 +106,9 @@ vi.mock('@evtivity/database', async () => {
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
     readStationDataPlans: vi.fn(() => Promise.resolve(new Map())),
     saveSiteLayout: vi.fn(() => Promise.resolve()),
+    readSiteLayoutSettings: vi.fn(async () =>
+      (await import('@evtivity/lib/site-layout')).effectiveLayoutSettings(null),
+    ),
     db: {
       select: vi.fn(() => makeChain()),
       selectDistinct: vi.fn(() => makeChain()),

@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DASHBOARD_LAYOUT_MAX_ITEMS,
+  DASHBOARD_SITE_ID_MAX_LENGTH,
   DASHBOARD_WIDGETS,
   dashboardLayoutProblem,
   defaultDashboardLayout,
@@ -100,6 +101,70 @@ describe('dashboard layout', () => {
     expect(resolved.charts).toHaveLength(DASHBOARD_WIDGETS.length);
     expect(resolveDashboardLayout(null)).toEqual(defaultDashboardLayout());
     expect(resolveDashboardLayout({ version: 7 })).toEqual(defaultDashboardLayout());
+  });
+
+  it('puts the 3D site layout above the map in the default layout and in a layout saved before it', () => {
+    const ids = defaultDashboardLayout().charts.map((c) => c.id);
+    expect(ids.indexOf('chart.siteLayout3d')).toBe(ids.indexOf('chart.stationMap') - 1);
+    expect(defaultDashboardLayout().charts.find((c) => c.id === 'chart.siteLayout3d')).toEqual({
+      id: 'chart.siteLayout3d',
+      hidden: false,
+    });
+
+    // A layout saved before the widget existed, with the map moved to the top.
+    const saved = defaultDashboardLayout()
+      .charts.filter((c) => c.id !== 'chart.siteLayout3d')
+      .reverse();
+    const resolved = resolveDashboardLayout({ version: 1, charts: saved }).charts.map((c) => c.id);
+    expect(resolved.indexOf('chart.siteLayout3d')).toBe(resolved.indexOf('chart.stationMap') - 1);
+    expect(resolved).toHaveLength(DASHBOARD_WIDGETS.length);
+
+    // Every other missing chart is appended; the widget goes above the map.
+    const partial = resolveDashboardLayout({
+      version: 1,
+      charts: [
+        { id: 'chart.stationMap', hidden: false },
+        { id: 'chart.energy', hidden: false },
+      ],
+    }).charts.map((c) => c.id);
+    expect(partial.slice(0, 3)).toEqual(['chart.siteLayout3d', 'chart.stationMap', 'chart.energy']);
+    expect(partial[3]).toBe('chart.aiInsights');
+  });
+
+  it('keeps the site of the 3D site layout and refuses a site on any other chart', () => {
+    const withSite = {
+      version: 1,
+      charts: [
+        { id: 'chart.siteLayout3d', hidden: false, siteId: 'sit_1' },
+        { id: 'chart.energy', hidden: false, siteId: null },
+      ],
+    };
+    expect(dashboardLayoutProblem(withSite)).toBeNull();
+    const resolved = resolveDashboardLayout(withSite).charts;
+    expect(resolved[0]).toEqual({ id: 'chart.siteLayout3d', hidden: false, siteId: 'sit_1' });
+    expect(resolved[1]).toEqual({ id: 'chart.energy', hidden: false });
+
+    expect(
+      dashboardLayoutProblem({
+        version: 1,
+        charts: [{ id: 'chart.energy', hidden: false, siteId: 'sit_1' }],
+      }),
+    ).toMatch(/takes no siteId/);
+    for (const siteId of ['', 5, 'x'.repeat(DASHBOARD_SITE_ID_MAX_LENGTH + 1)]) {
+      expect(
+        dashboardLayoutProblem({
+          version: 1,
+          charts: [{ id: 'chart.siteLayout3d', hidden: false, siteId }],
+        }),
+      ).toMatch(/siteId/);
+    }
+    // A stored site that is not a valid id is dropped on read.
+    expect(
+      resolveDashboardLayout({
+        version: 1,
+        charts: [{ id: 'chart.siteLayout3d', hidden: true, siteId: 42 }],
+      }).charts[0],
+    ).toEqual({ id: 'chart.siteLayout3d', hidden: true });
   });
 
   it('tells the default layout from a customized one', () => {

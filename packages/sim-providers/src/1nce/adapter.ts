@@ -24,26 +24,38 @@ import { pickEvents, pickQuota, pickSim, pickStatus, ratName } from './fields.js
 import type { OneNceEvent, OneNceSim } from './fields.js';
 import { mapOneNceState, oneNceProviderState } from './states.js';
 
-// Every assumption about a real 1NCE SIM that only the spec backs sits in the
-// constants below, so the live check of a real SIM (owner decision 2026-10-29,
-// required before 1NCE ships in a release) can confirm or change each one.
+// Every assumption about a real 1NCE SIM sits in the constants below, so the
+// live check of a real SIM (owner decision 2026-10-29, required before 1NCE
+// ships in a release) can confirm or change each one. Confirmed on a real SIM
+// (2026-10-30): the SIM, status, quota and events reply shapes, events newest
+// first by time, event ids not in time order, a page past the last one
+// answering the last page again, and the 20-digit ICCID answering 404.
 
 /**
  * How far back sessions and alerts are read. The API retention is not
- * documented; the 1NCE Portal deletes logging data after 7 days.
+ * documented; the 1NCE Portal deletes logging data after 7 days. Unconfirmed:
+ * the live SIM was younger than the window.
  */
 export const ONENCE_HISTORY_DAYS = 7;
-/** Events are written by the network core; the Delete PDP Context event carries the volume. */
+/**
+ * Events are written by the network core; the Delete PDP Context event carries
+ * the volume. Unconfirmed: the live SIM has not opened a data session yet.
+ */
 export const ONENCE_REPORTING_DELAY_HOURS = 1;
-/** The largest events page the v2 spec allows. */
+/** The largest events page the v2 API allows (live: 1001 answers 400). */
 export const ONENCE_EVENT_PAGE_SIZE = 1000;
 /** At most this many event pages per Refresh (10000 events, owner decision 2026-10-29). */
 export const ONENCE_EVENT_PAGE_CAP = 10;
 /**
- * Event type ids of the PDP context events. 4 is the v2 spec example ("Delete
- * PDP Context"); 3 (Create) is unconfirmed until the live check sees a real SIM.
+ * Event type ids of the PDP context events, from the 1NCE v2 event type table
+ * (Data Streamer event records: 3 Create, 4 Update, 5 Delete PDP Context). The
+ * REST events carry the ids of that table (live: 56 Data Quota Assigned, 58
+ * SMS Quota Assigned). The v2 REST spec example pairs 4 with "Delete PDP
+ * Context", so the event description decides when it names a PDP event
+ * (`pdpEventKind`); the ids decide only without one. No PDP event has been
+ * seen on a real SIM yet.
  */
-export const ONENCE_PDP_EVENT_TYPES = Object.freeze({ create: 3, delete: 4 });
+export const ONENCE_PDP_EVENT_TYPES = Object.freeze({ create: 3, delete: 5 });
 /**
  * The network name, radio type and cell id of a session come from event
  * fields no real SIM has shown yet (owner decision 2026-10-29: hidden until
@@ -53,8 +65,30 @@ export const ONENCE_SESSION_DETAIL_FIELDS = false;
 // One Refresh reads the SIM and its events once for the status, sessions and alerts.
 const READ_MEMO_MS = 30_000;
 const BYTES_PER_MB = 1024 * 1024;
-// Event ids are padded in the session id so ids of one SIM compare in event order.
+// The end time and event id are padded in the session id, so the ids of one SIM
+// compare as text in time order (1NCE event ids are not in time order).
 const EVENT_ID_DIGITS = 19;
+const TIME_MS_DIGITS = 13;
+
+const PDP_EVENT_NAME = /^(create|update|delete) pdp context$/i;
+
+/**
+ * Whether an event opens or closes a data session: the description when it
+ * names a PDP context event, else the type id of the 1NCE event type table.
+ */
+export function pdpEventKind(event: {
+  typeId: number | null;
+  typeName: string | null;
+}): 'create' | 'delete' | null {
+  const named = PDP_EVENT_NAME.exec(event.typeName?.trim() ?? '');
+  if (named != null) {
+    const verb = (named[1] ?? '').toLowerCase();
+    return verb === 'create' ? 'create' : verb === 'delete' ? 'delete' : null;
+  }
+  if (event.typeId === ONENCE_PDP_EVENT_TYPES.create) return 'create';
+  if (event.typeId === ONENCE_PDP_EVENT_TYPES.delete) return 'delete';
+  return null;
+}
 
 function capabilities(sessionDetailFields: boolean): SimCapabilities {
   return {
@@ -104,14 +138,9 @@ function refIccid(ref: SimRef): string {
   return ref.providerSimId;
 }
 
-function sessionId(iccid: string, eventId: number): string {
-  return `${iccid}:${String(eventId).padStart(EVENT_ID_DIGITS, '0')}`;
-}
-
-function eventIdOf(id: string | undefined): number | null {
-  if (id == null) return null;
-  const match = /:(\d{1,19})$/.exec(id);
-  return match == null ? null : Number(match[1]);
+function sessionId(iccid: string, event: OneNceEvent): string {
+  const at = String(Date.parse(event.timestamp)).padStart(TIME_MS_DIGITS, '0');
+  return `${iccid}:${at}:${String(event.id).padStart(EVENT_ID_DIGITS, '0')}`;
 }
 
 function inRange(at: string, range: SimTimeRange | undefined): boolean {
@@ -120,8 +149,17 @@ function inRange(at: string, range: SimTimeRange | undefined): boolean {
   return time >= range.from.getTime() && time <= range.to.getTime();
 }
 
+/** Newest first by time, then by event id (1NCE event ids are not in time order). */
 function newestFirst(events: readonly OneNceEvent[]): OneNceEvent[] {
-  return [...events].sort((a, b) => b.id - a.id);
+  // Picked timestamps are ISO 8601 UTC with milliseconds, so they compare as text.
+  return [...events].sort((a, b) =>
+    a.timestamp === b.timestamp ? b.id - a.id : a.timestamp < b.timestamp ? 1 : -1,
+  );
+}
+
+function headerInt(headers: Headers, name: string): number | null {
+  const value = headers.get(name)?.trim() ?? '';
+  return /^\d{1,9}$/.test(value) ? Number(value) : null;
 }
 
 interface EventRead {
@@ -171,10 +209,11 @@ export class OneNceProvider implements SimProvider {
   async findByIccid(iccid: string): Promise<SimRef | null> {
     const wanted = normalizeIccid(iccid);
     if (wanted == null) throw new SimProviderError('not_found', 'The ICCID is not valid');
-    // 1NCE keys SIMs by the 19-digit ICCID; a station often reports the 20-digit
-    // form with its Luhn check digit.
-    const tries = [wanted];
-    if (hasLuhnCheckDigit(wanted)) tries.push(wanted.slice(0, 19));
+    // 1NCE keys SIMs by the 19-digit ICCID and answers 404 for the 20-digit
+    // form with its Luhn check digit (live), which a station often reports;
+    // its replies hold no `iccid_with_luhn`. So that form asks for the 19
+    // digits first.
+    const tries = hasLuhnCheckDigit(wanted) ? [wanted.slice(0, 19), wanted] : [wanted];
     for (const candidate of tries) {
       let sim: OneNceSim;
       try {
@@ -183,7 +222,7 @@ export class OneNceProvider implements SimProvider {
         if (err instanceof SimProviderError && err.kind === 'not_found') continue;
         throw err;
       }
-      const matches = iccidsMatch(sim.iccid, wanted) || iccidsMatch(sim.iccidWithLuhn, wanted);
+      const matches = iccidsMatch(sim.iccid, candidate) || iccidsMatch(sim.iccidWithLuhn, wanted);
       if (matches && sim.iccid != null && /^\d{19,20}$/.test(sim.iccid)) {
         return { providerSimId: sim.iccid };
       }
@@ -254,24 +293,25 @@ export class OneNceProvider implements SimProvider {
   ): Promise<SimPage<SimSession>> {
     const iccid = refIccid(ref);
     const read = await this.readEvents(iccid, page.range, { fresh: true });
-    const startAfter = eventIdOf(page.startAfter);
     const events = newestFirst(read.events);
+    // Each Delete with the latest earlier Create of the same context, walked oldest first.
+    const deletes: { event: OneNceEvent; create: OneNceEvent | undefined }[] = [];
+    const lastCreate = new Map<string, OneNceEvent>();
+    for (const event of [...events].reverse()) {
+      if (event.pdpContextId == null) continue;
+      const kind = pdpEventKind(event);
+      if (kind === 'create') lastCreate.set(event.pdpContextId, event);
+      if (kind === 'delete') deletes.push({ event, create: lastCreate.get(event.pdpContextId) });
+    }
     const items: SimSession[] = [];
-    for (const [index, event] of events.entries()) {
-      if (event.typeId !== ONENCE_PDP_EVENT_TYPES.delete || event.pdpContextId == null) continue;
-      if (startAfter != null && event.id >= startAfter) continue;
+    for (const { event, create } of deletes.reverse()) {
+      const id = sessionId(iccid, event);
+      if (page.startAfter != null && id >= page.startAfter) continue;
       if (!inRange(event.timestamp, page.range)) continue;
-      // The latest Create of the same context before this Delete.
-      const create = events
-        .slice(index + 1)
-        .find(
-          (e) =>
-            e.typeId === ONENCE_PDP_EVENT_TYPES.create && e.pdpContextId === event.pdpContextId,
-        );
       const startedAt = create?.timestamp ?? event.tunnelCreatedAt ?? event.timestamp;
       const detail = this.sessionDetailFields;
       items.push({
-        providerSessionId: sessionId(iccid, event.id),
+        providerSessionId: id,
         startedAt: startedAt <= event.timestamp ? startedAt : event.timestamp,
         endedAt: event.timestamp,
         bytes: event.volumeTotal == null ? null : Math.round(event.volumeTotal * BYTES_PER_MB),
@@ -420,35 +460,46 @@ export class OneNceProvider implements SimProvider {
   }
 
   private async fetchEvents(iccid: string, range: SimTimeRange | undefined): Promise<EventRead> {
-    const events: OneNceEvent[] = [];
+    // By event id: a page boundary can move while the pages are read, and 1NCE
+    // may send an event again (a repeated id is a retransmission).
+    const byId = new Map<number, OneNceEvent>();
+    const events = (): OneNceEvent[] => [...byId.values()];
     let oldest: string | null = null;
-    // The v2 events route has no time filter and no sort: read pages until a
-    // short page, a page reaching before the range, or the page cap.
+    // The v2 events route has no time filter; it answers newest first by time
+    // (live). Read pages until the last page, a page reaching before the
+    // range, or the page cap.
     for (let page = 1; page <= ONENCE_EVENT_PAGE_CAP; page += 1) {
-      const { events: read, read: count } = pickEvents(
-        (
-          await this.request({
-            method: 'GET',
-            path: `/v2/sims/${iccid}/events`,
-            label: '/v2/sims/{iccid}/events',
-            query: { page, pageSize: ONENCE_EVENT_PAGE_SIZE },
-            badRequest: 'unavailable',
-          })
-        ).body,
-      );
-      events.push(...read);
+      const reply = await this.request({
+        method: 'GET',
+        path: `/v2/sims/${iccid}/events`,
+        label: '/v2/sims/{iccid}/events',
+        query: { page, pageSize: ONENCE_EVENT_PAGE_SIZE },
+        badRequest: 'unavailable',
+      });
+      // A page past the last one answers the last page again (live), with
+      // `X-Current-Page` naming the page it holds.
+      const current = headerInt(reply.headers, 'x-current-page');
+      if (current != null && current !== page) return { events: events(), coveredFrom: null };
+      const { events: read, read: count } = pickEvents(reply.body);
       for (const event of read) {
+        byId.set(event.id, event);
         if (oldest == null || event.timestamp < oldest) oldest = event.timestamp;
       }
-      if (count < ONENCE_EVENT_PAGE_SIZE) return { events, coveredFrom: null };
+      const pages = headerInt(reply.headers, 'x-total-pages');
+      if (count < ONENCE_EVENT_PAGE_SIZE || (pages != null && page >= pages)) {
+        return { events: events(), coveredFrom: null };
+      }
       if (range != null && oldest != null && Date.parse(oldest) < range.from.getTime()) {
-        return { events, coveredFrom: null };
+        return { events: events(), coveredFrom: null };
       }
     }
     // The cap ended the read: the period is covered only from the oldest event read.
     const reachedStart =
       range == null || (oldest != null && Date.parse(oldest) <= range.from.getTime());
-    return { events, coveredFrom: reachedStart ? null : (oldest ?? new Date().toISOString()) };
+    return {
+      events: events(),
+      coveredFrom: reachedStart ? null : (oldest ?? new Date().toISOString()),
+    };
   }
 
   private memo<T>(

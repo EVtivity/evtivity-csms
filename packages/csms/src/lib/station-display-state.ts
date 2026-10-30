@@ -79,6 +79,18 @@ export function stationStateColor(state: StationDisplayState): string {
   }
 }
 
+/** Percent of the state color in the state text color; the rest is the card foreground. */
+export const STATION_STATE_TEXT_MIX = 60;
+
+/**
+ * The state color as text on a card (the 3D layout labels): the state color
+ * mixed with the card foreground, so it keeps its hue and reads at least 4.5:1
+ * on the card in both themes (`station-state-text-contrast.test.ts`).
+ */
+export function stationStateTextColor(state: StationDisplayState): string {
+  return `color-mix(in srgb, ${stationStateColor(state)} ${String(STATION_STATE_TEXT_MIX)}%, hsl(var(--card-foreground)))`;
+}
+
 /** Connector status icon names of the design spec mapping. */
 export type ConnectorIconName =
   | 'check'

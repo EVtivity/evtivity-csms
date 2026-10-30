@@ -628,7 +628,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="scd-edit-start-schedule">
                     {t('smartCharging.startSchedule')}

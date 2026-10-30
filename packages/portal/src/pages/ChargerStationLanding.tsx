@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api } from '@/lib/api';
-import { cn, formatDate } from '@/lib/utils';
+import { cn, formatConnectorCurrentAmps, formatConnectorPowerKw, formatDate } from '@/lib/utils';
 import {
   connectorStatusVariant,
   connectorStatusClassName,
@@ -244,9 +244,11 @@ export function ChargerStationLanding(): React.JSX.Element {
                           </div>
                           {(maxPowerKw > 0 || maxCurrentAmps > 0) && (
                             <p className="text-xs text-muted-foreground">
-                              {maxPowerKw > 0 ? `${String(maxPowerKw)} kW` : ''}
+                              {maxPowerKw > 0 ? `${formatConnectorPowerKw(maxPowerKw)} kW` : ''}
                               {maxPowerKw > 0 && maxCurrentAmps > 0 ? ' / ' : ''}
-                              {maxCurrentAmps > 0 ? `${String(maxCurrentAmps)}A` : ''}
+                              {maxCurrentAmps > 0
+                                ? `${formatConnectorCurrentAmps(maxCurrentAmps)}A`
+                                : ''}
                             </p>
                           )}
                           <p className="text-xs text-muted-foreground">

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, within } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
@@ -15,11 +15,18 @@ const { getMock, putMock, permissions, webgl } = vi.hoisted(() => ({
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
-  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown> | string) =>
+      typeof opts === 'object' && 'id' in opts ? `${key}:${String(opts['id'])}` : key,
+    i18n: { language: 'en' },
+  }),
 }));
 
 vi.mock('@/lib/api', () => ({
   api: { get: getMock, put: putMock, post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+  ApiError: class ApiError extends Error {
+    body: unknown = null;
+  },
 }));
 
 vi.mock('@/lib/auth', () => ({
@@ -30,9 +37,21 @@ vi.mock('@/lib/webgl', () => ({ webglAvailable: () => webgl.available }));
 
 // The 3D view itself (three.js) is covered by SiteLayout3D.test.tsx.
 vi.mock('../SiteLayout3D', () => ({
-  default: (props: { editing: boolean; stations: unknown[] }) => (
+  default: (props: {
+    editing: boolean;
+    stations: unknown[];
+    onMove: (id: string, x: number, y: number) => void;
+  }) => (
     <div data-testid="site-layout-3d" data-editing={String(props.editing)}>
       {props.stations.length}
+      <button
+        type="button"
+        onClick={() => {
+          props.onMove('sta_ac', 420, 160);
+        }}
+      >
+        stub-move
+      </button>
     </div>
   ),
 }));
@@ -193,19 +212,105 @@ describe('SiteLayout 2D cards', () => {
     expect(dc.querySelector('svg[width="52"]')).not.toBeNull();
   });
 
-  it('shows the level from the connector rule: DC Fast for DC, Level 2 for a 60 kW AC connector', async () => {
+  it('keeps the power draw panel out of the board, above it on a phone and over its corner from sm', async () => {
+    getMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith('/layout')
+          ? STATIONS
+          : {
+              config: null,
+              hierarchy: [],
+              stations: [{ stationId: 'sta_ac', currentDrawKw: 7.4, allocatedLimitKw: null }],
+            },
+      ),
+    );
+    window.localStorage.setItem('site-layout-view', '2d');
+    wrap();
+    const panel = await screen.findByTestId('site-layout-power-draw');
+    const board = screen.getByTestId('site-layout-2d');
+    // Not inside the board, so it never covers a station card on a phone.
+    expect(board.contains(panel)).toBe(false);
+    expect(panel.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(panel.className).toContain('mb-3');
+    expect(panel.className).not.toMatch(/(^|\s)absolute(\s|$)/);
+    expect(panel.className).toContain('sm:absolute');
+  });
+
+  it('opens the same station popup as the 3D view: level from the connector rule, Escape closes it', async () => {
     window.localStorage.setItem('site-layout-view', '2d');
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
-    const ac = within(board).getByText('CS-AC').closest('.rounded-lg') as HTMLElement;
-    const dc = within(board).getByText('CS-DC').closest('.rounded-lg') as HTMLElement;
+    const acButton = within(board).getByRole('button', {
+      name: 'sites.layoutView.stateDetailsLabel:CS-AC',
+    });
+    // The card shows no inline details of its own.
+    expect(within(board).queryByText('sites.levelL2')).toBeNull();
 
-    // The level shows on the expanded card.
-    fireEvent.click(ac.querySelector('button.ml-auto') as HTMLElement);
-    fireEvent.click(dc.querySelector('button.ml-auto') as HTMLElement);
+    acButton.focus();
+    fireEvent.click(acButton);
+    let popup = screen.getByTestId('station-layout-popup');
+    expect(board.contains(popup)).toBe(true);
+    expect(popup.textContent).toContain('CS-AC');
+    // A 60 kW AC connector: Level 2 by the connector rule, never DC Fast.
+    expect(popup.textContent).toContain('sites.levelL2');
+    expect(popup.textContent).not.toContain('sites.layoutView.dcFast');
+    expect(popup.textContent).toContain('sites.layoutState.faulted');
+    expect(popup.textContent).toContain('stations.statusReason.station_faulted');
+    expect(screen.getByRole('link', { name: 'sites.layoutView.openStation' })).toBeDefined();
+    expect(popup.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByTestId('station-layout-popup')).toBeNull();
+    expect(document.activeElement).toBe(acButton);
 
-    expect(within(ac).getByText('sites.levelL2')).toBeDefined();
-    expect(within(ac).queryByText('sites.levelDcFast')).toBeNull();
-    expect(within(dc).getByText('sites.levelDcFast')).toBeDefined();
+    fireEvent.click(
+      within(board).getByRole('button', { name: 'sites.layoutView.stateDetailsLabel:CS-DC' }),
+    );
+    popup = screen.getByTestId('station-layout-popup');
+    expect(popup.textContent).toContain('Terra · sites.layoutView.dcFast');
+    expect(screen.getAllByTestId('station-layout-popup')).toHaveLength(1);
+  });
+});
+
+describe('SiteLayout save', () => {
+  it('leaves Edit Layout after a successful save', async () => {
+    permissions.add('sites:write');
+    putMock.mockResolvedValue({});
+    wrap();
+    fireEvent.click(await screen.findByRole('button', { name: /sites\.layoutView\.editLayout/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'stub-move' }));
+    expect(screen.getByTestId('site-layout-3d').getAttribute('data-editing')).toBe('true');
+
+    fireEvent.click(screen.getByRole('button', { name: /common\.save/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId('site-layout-3d').getAttribute('data-editing')).toBe('false');
+    });
+    expect(putMock).toHaveBeenCalledWith(
+      '/v1/sites/sit_1/layout',
+      expect.objectContaining({
+        positions: expect.arrayContaining([
+          { stationId: 'sta_ac', positionX: 420, positionY: 160 },
+        ]) as unknown,
+      }),
+    );
+    expect(screen.getByRole('button', { name: /sites\.layoutView\.editLayout/ })).toBeDefined();
+    expect(screen.queryByRole('button', { name: /sites\.layoutView\.doneEditing/ })).toBeNull();
+  });
+
+  it('stays in Edit Layout with the pending positions and shows the error when the save fails', async () => {
+    permissions.add('sites:write');
+    putMock.mockRejectedValue(new Error('save failed'));
+    wrap();
+    fireEvent.click(await screen.findByRole('button', { name: /sites\.layoutView\.editLayout/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'stub-move' }));
+    fireEvent.click(screen.getByRole('button', { name: /common\.save/ }));
+
+    await waitFor(() => {
+      expect(document.querySelector('p.text-destructive')).not.toBeNull();
+    });
+    expect(screen.getByTestId('site-layout-3d').getAttribute('data-editing')).toBe('true');
+    expect(screen.getByRole('button', { name: /sites\.layoutView\.doneEditing/ })).toBeDefined();
+    // The pending move is kept: Reset is still enabled.
+    const reset = screen.getByRole('button', { name: /common\.reset/ });
+    expect((reset as HTMLButtonElement).disabled).toBe(false);
   });
 });

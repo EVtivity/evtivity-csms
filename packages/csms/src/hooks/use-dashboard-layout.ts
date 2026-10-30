@@ -3,13 +3,32 @@
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { defaultDashboardLayout, type DashboardLayout } from '@evtivity/lib/dashboard-layout';
+import {
+  defaultDashboardLayout,
+  type DashboardLayout,
+  type DashboardLayoutItem,
+} from '@evtivity/lib/dashboard-layout';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 
 export const DASHBOARD_LAYOUT_QUERY_KEY = ['dashboard-layout'] as const;
 const LAYOUT_URL = '/v1/users/me/dashboard-layout';
 const SAVE_KEY = ['dashboard-layout', 'save'] as const;
+
+/**
+ * The body of a save: id, hidden and the site of each item. The reply may
+ * mark a site the user lost (`siteUnavailable`, siteId null); a save stores
+ * null for it, so the mark goes away.
+ */
+export function layoutBody(layout: DashboardLayout): DashboardLayout {
+  return {
+    version: 1,
+    charts: layout.charts.map(
+      ({ id, hidden, siteId }): DashboardLayoutItem =>
+        siteId === undefined ? { id, hidden } : { id, hidden, siteId },
+    ),
+  };
+}
 
 interface LayoutReply {
   layout: DashboardLayout;
@@ -51,7 +70,7 @@ export function useDashboardLayout(): DashboardLayoutState {
 
   const saveMutation = useMutation({
     mutationKey: SAVE_KEY,
-    mutationFn: (layout: DashboardLayout) => api.put<LayoutReply>(LAYOUT_URL, layout),
+    mutationFn: (layout: DashboardLayout) => api.put<LayoutReply>(LAYOUT_URL, layoutBody(layout)),
     onMutate: async (layout) => {
       await queryClient.cancelQueries({ queryKey: DASHBOARD_LAYOUT_QUERY_KEY });
       const previous = queryClient.getQueryData<LayoutReply>(DASHBOARD_LAYOUT_QUERY_KEY);

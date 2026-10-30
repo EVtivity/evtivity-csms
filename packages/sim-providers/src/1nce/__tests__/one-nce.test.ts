@@ -13,6 +13,7 @@ import {
   ONENCE_SESSION_DETAIL_FIELDS,
   OneNceProvider,
   oneNceFactory,
+  pdpEventKind,
 } from '../adapter.js';
 
 const ICCID = '8988303000000000010';
@@ -55,16 +56,21 @@ function makeProvider(route: Route, options: { sessionDetailFields?: boolean } =
   return { provider, calls };
 }
 
+// The shape of a real `GET /v2/sims/{iccid}` reply (live, 2026-10-30): no
+// `iccid_with_luhn`, `current_imsi` or `label`.
 function simBody(overrides: Record<string, unknown> = {}) {
   return {
+    activation_date: '2026-10-30T09:00:00.000Z',
+    current_quota: 500,
+    current_quota_SMS: 250,
     iccid: ICCID,
-    iccid_with_luhn: LUHN,
+    imei_lock: false,
     imsi: '901405100000018',
-    current_imsi: '901405100000019',
+    ip_address: '10.0.0.9',
     msisdn: '882285100000018',
-    imei: IMEI_A,
     status: 'Enabled',
-    quota_status: { id: 0 },
+    quota_status: { id: 0, description: 'Data quota is more than 20%' },
+    quota_status_SMS: { id: 0, description: 'SMS quota is more than 20%' },
     ...overrides,
   };
 }
@@ -73,19 +79,30 @@ function at(msAgo: number): string {
   return new Date(NOW - msAgo).toISOString();
 }
 
+// Event ids are not in time order on a real SIM (live), so the test ids are scrambled.
 let nextId = 1000;
+function scrambledId(): number {
+  nextId += 1;
+  return (nextId * 7919) % 100_003;
+}
+
+const PDP_DESCRIPTIONS = {
+  create: 'Create PDP Context',
+  update: 'Update PDP Context',
+  delete: 'Delete PDP Context',
+} as const;
+
 function pdpEvent(
-  type: 'create' | 'delete',
+  type: 'create' | 'delete' | 'update',
   context: number,
   msAgo: number,
   extra: Record<string, unknown> = {},
 ) {
-  nextId += 1;
   return {
-    id: nextId,
+    id: scrambledId(),
     event_type: {
-      id: ONENCE_PDP_EVENT_TYPES[type],
-      description: type === 'create' ? 'Create PDP Context' : 'Delete PDP Context',
+      id: type === 'update' ? 4 : ONENCE_PDP_EVENT_TYPES[type],
+      description: PDP_DESCRIPTIONS[type],
     },
     timestamp: at(msAgo),
     endpoint: { id: 1, name: 'Station', ip_address: '10.0.0.9', imei: IMEI_A },
@@ -103,13 +120,32 @@ function pdpEvent(
   };
 }
 
-function eventsRoute(events: unknown[]): Route {
+/**
+ * The events route as 1NCE answers it (live): the pagination headers, and a
+ * page past the last one answering the last page again.
+ */
+function eventsRoute(events: unknown[], options: { headers?: boolean } = {}): Route {
   return (url) => {
     if (!url.pathname.endsWith('/events')) return undefined;
-    const page = Number(url.searchParams.get('page'));
     const size = Number(url.searchParams.get('pageSize'));
-    return { body: events.slice((page - 1) * size, page * size) };
+    const pages = Math.max(1, Math.ceil(events.length / size));
+    const page = Math.min(Number(url.searchParams.get('page')), pages);
+    const reply: Reply = { body: events.slice((page - 1) * size, page * size) };
+    if (options.headers !== false) {
+      reply.headers = {
+        'x-total-count': String(events.length),
+        'x-total-pages': String(pages),
+        'x-current-page': String(page),
+        'x-count-per-page': String(size),
+      };
+    }
+    return reply;
   };
+}
+
+function sid(event: { id: number; timestamp: string }): string {
+  const ms = String(Date.parse(event.timestamp)).padStart(13, '0');
+  return `${ICCID}:${ms}:${String(event.id).padStart(19, '0')}`;
 }
 
 function range(days: number) {
@@ -144,14 +180,26 @@ describe('1NCE adapter: lookup', () => {
     expect(calls).toEqual([`/v2/sims/${ICCID}`]);
   });
 
-  it('asks again with 19 digits for a 20-digit ICCID with its Luhn digit', async () => {
+  it('asks with 19 digits first for a 20-digit ICCID with its Luhn digit', async () => {
     expect(hasLuhnCheckDigit(LUHN)).toBe(true);
     expect(hasLuhnCheckDigit('89883030000000000107')).toBe(false);
+    // Live: 1NCE answers 404 for the 20-digit form and its reply has no `iccid_with_luhn`.
     const { provider, calls } = makeProvider((url) =>
       url.pathname.endsWith(`/v2/sims/${ICCID}`) ? { body: simBody() } : undefined,
     );
     expect(await provider.findByIccid(LUHN)).toEqual({ providerSimId: ICCID });
-    expect(calls).toEqual([`/v2/sims/${LUHN}`, `/v2/sims/${ICCID}`]);
+    expect(calls).toEqual([`/v2/sims/${ICCID}`]);
+  });
+
+  it('asks with the 20 digits when the 19 are unknown', async () => {
+    const wide = makeProvider((url) =>
+      url.pathname.endsWith(`/v2/sims/${LUHN}`)
+        ? { body: simBody({ iccid: LUHN.slice(0, 19), iccid_with_luhn: LUHN }) }
+        : undefined,
+    );
+    // A reply naming the asked 20 digits matches.
+    expect(await wide.provider.findByIccid(LUHN)).toEqual({ providerSimId: ICCID });
+    expect(wide.calls).toEqual([`/v2/sims/${ICCID}`, `/v2/sims/${LUHN}`]);
   });
 
   it('answers null for an unknown ICCID and refuses a reply naming another SIM', async () => {
@@ -222,8 +270,8 @@ describe('1NCE adapter: status', () => {
     const status = await provider.getStatus({ providerSimId: ICCID });
     expect(status).toEqual({
       providerSimId: ICCID,
-      iccid: LUHN,
-      imsi: '901405100000019',
+      iccid: ICCID,
+      imsi: '901405100000018',
       state: 'active',
       providerState: 'Enabled (ONLINE)',
       inSession: true,
@@ -297,7 +345,7 @@ describe('1NCE adapter: sessions from PDP context events', () => {
     expect(page.coveredFrom).toBeUndefined();
     expect(page.items).toEqual([
       {
-        providerSessionId: `${ICCID}:${String(events[4]?.id).padStart(19, '0')}`,
+        providerSessionId: sid(events[4] as { id: number; timestamp: string }),
         startedAt: at(3 * 3_600_000),
         endedAt: at(2 * 3_600_000),
         bytes: 1024 * 1024,
@@ -307,7 +355,7 @@ describe('1NCE adapter: sessions from PDP context events', () => {
         apn: 'iot.1nce.net',
       },
       {
-        providerSessionId: `${ICCID}:${String(events[1]?.id).padStart(19, '0')}`,
+        providerSessionId: sid(events[1] as { id: number; timestamp: string }),
         startedAt: at(5 * 3_600_000),
         endedAt: at(4 * 3_600_000),
         bytes: 1024 * 1024,
@@ -399,6 +447,77 @@ describe('1NCE adapter: sessions from PDP context events', () => {
     expect(calls.filter((c) => c.includes('/events'))).toHaveLength(1);
     expect(page.coveredFrom).toBeUndefined();
     expect(page.items.every((s) => Date.parse(s.endedAt) >= NOW - DAY)).toBe(true);
+  });
+
+  it('orders sessions and their ids by time when the event ids are not', async () => {
+    const older = pdpEvent('delete', 1, 2 * 3_600_000);
+    const newer = pdpEvent('delete', 2, 3_600_000);
+    // Live: a later event can carry a lower id.
+    older.id = 900;
+    newer.id = 100;
+    const { provider } = makeProvider(eventsRoute([newer, older]));
+    const page = await provider.listSessions({ providerSimId: ICCID }, { range: range(7) });
+    expect(page.items.map((s) => s.endedAt)).toEqual([at(3_600_000), at(2 * 3_600_000)]);
+    const ids = page.items.map((s) => s.providerSessionId);
+    expect(ids).toEqual([sid(newer), sid(older)]);
+    // The caller compares stored ids as text to stop at a known session.
+    expect((ids[0] ?? '') > (ids[1] ?? '')).toBe(true);
+  });
+
+  it('reads the description first: an Update ends no session, a described Delete with id 4 does', async () => {
+    const create = pdpEvent('create', 1, 3 * 3_600_000);
+    const update = pdpEvent('update', 1, 2 * 3_600_000);
+    const del = pdpEvent('delete', 1, 3_600_000);
+    // The v2 REST spec example pairs id 4 with "Delete PDP Context".
+    const specDelete = {
+      ...pdpEvent('delete', 2, 1_800_000),
+      event_type: { id: 4, description: 'Delete PDP Context' },
+    };
+    // Without a description the ids of the event type table decide.
+    const bareDelete = {
+      ...pdpEvent('delete', 3, 900_000),
+      event_type: { id: ONENCE_PDP_EVENT_TYPES.delete },
+    };
+    const { provider } = makeProvider(eventsRoute([bareDelete, specDelete, del, update, create]));
+    const page = await provider.listSessions({ providerSimId: ICCID }, { range: range(7) });
+    expect(page.items.map((s) => s.endedAt)).toEqual([at(900_000), at(1_800_000), at(3_600_000)]);
+    expect(page.items[2]?.startedAt).toBe(at(3 * 3_600_000));
+    expect(pdpEventKind({ typeId: 4, typeName: 'Update PDP Context' })).toBeNull();
+    expect(pdpEventKind({ typeId: 4, typeName: null })).toBeNull();
+    expect(pdpEventKind({ typeId: 3, typeName: null })).toBe('create');
+    expect(pdpEventKind({ typeId: 56, typeName: 'Data quota assigned' })).toBeNull();
+  });
+
+  it('stops at the last page: a page past it answers the last page again', async () => {
+    const events: ReturnType<typeof pdpEvent>[] = [];
+    for (let i = 0; i < ONENCE_EVENT_PAGE_SIZE; i += 1) {
+      events.push(pdpEvent('delete', i, i * 60_000));
+    }
+    // With the headers: the total pages end the read.
+    const withHeaders = makeProvider(eventsRoute(events));
+    const first = await withHeaders.provider.listSessions(
+      { providerSimId: ICCID },
+      { range: range(7) },
+    );
+    expect(withHeaders.calls.filter((c) => c.includes('/events'))).toHaveLength(1);
+    expect(first.items).toHaveLength(ONENCE_EVENT_PAGE_SIZE);
+    // Only `X-Current-Page`: the repeated page is not read twice.
+    const currentOnly = makeProvider((url) => {
+      const reply = eventsRoute(events)(url);
+      if (reply?.headers != null) delete reply.headers['x-total-pages'];
+      return reply;
+    });
+    const second = await currentOnly.provider.listSessions(
+      { providerSimId: ICCID },
+      { range: range(7) },
+    );
+    expect(currentOnly.calls.filter((c) => c.includes('/events'))).toHaveLength(2);
+    expect(second.items).toHaveLength(ONENCE_EVENT_PAGE_SIZE);
+    // No headers at all: a repeated event id is kept once.
+    const bare = makeProvider(eventsRoute(events, { headers: false }));
+    const third = await bare.provider.listSessions({ providerSimId: ICCID }, { range: range(7) });
+    expect(new Set(third.items.map((s) => s.providerSessionId)).size).toBe(third.items.length);
+    expect(third.items).toHaveLength(ONENCE_EVENT_PAGE_SIZE);
   });
 
   it('fails the read on an events error', async () => {

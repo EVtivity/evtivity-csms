@@ -10,7 +10,11 @@ const mockQueryRevenueTotal = vi.fn();
 vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   client: {},
-  db: { execute: mockExecute },
+  db: {
+    execute: mockExecute,
+    transaction: (fn: (tx: unknown) => Promise<unknown>) => fn({ execute: mockExecute }),
+  },
+  pgErrorCode: () => undefined,
   getCompanyCurrency: mockGetCompanyCurrency,
   getOcppFleetHealth: () =>
     Promise.resolve({

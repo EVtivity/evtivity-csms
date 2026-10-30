@@ -8,7 +8,11 @@ import {
   formatFlatPrice as formatLocaleFlatPrice,
   formatUnitPrice as formatLocaleUnitPrice,
 } from '@evtivity/lib/currency';
-import { formatNumber as formatLocaleNumber } from '@evtivity/lib/number';
+import { formatNumber as formatLocaleNumber, resolveLocale } from '@evtivity/lib/number';
+import {
+  CONNECTOR_CURRENT_AMPS_DECIMALS,
+  CONNECTOR_POWER_KW_DECIMALS,
+} from '@evtivity/lib/connector-power';
 import { formatTaxRatePercent } from '@evtivity/lib/price-display';
 import { formatDateTime, formatDate as formatCalendarDate } from '@evtivity/lib/timezone';
 import i18next from 'i18next';
@@ -29,6 +33,26 @@ function uiLocale(): string {
 /** Format a number for display with fixed fraction digits in the UI language. */
 export function formatNumber(value: number, fractionDigits: number): string {
   return formatLocaleNumber(value, uiLocale(), fractionDigits);
+}
+
+/**
+ * Format a number in the UI language with at most `maxFractionDigits` decimals and
+ * no trailing zeros, e.g. 11.5 as "11.5" (en) or "11,5" (de), and 22 as "22".
+ */
+export function formatNumberUpTo(value: number, maxFractionDigits: number): string {
+  return new Intl.NumberFormat(resolveLocale(uiLocale()), {
+    maximumFractionDigits: maxFractionDigits,
+  }).format(value);
+}
+
+/** Connector maximum power in kW in the UI language, at most 2 decimals. */
+export function formatConnectorPowerKw(value: number): string {
+  return formatNumberUpTo(value, CONNECTOR_POWER_KW_DECIMALS);
+}
+
+/** Connector maximum current in A in the UI language, at most 1 decimal. */
+export function formatConnectorCurrentAmps(value: number): string {
+  return formatNumberUpTo(value, CONNECTOR_CURRENT_AMPS_DECIMALS);
 }
 
 export function formatCents(cents: number | null | undefined, currency: string): string {

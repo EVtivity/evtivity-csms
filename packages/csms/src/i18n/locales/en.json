@@ -439,6 +439,16 @@
     "last60d": "60d",
     "custom": "Custom",
     "siteMap": "Site Map",
+    "siteLayout": {
+      "title": "Site Layout",
+      "info": "A 3D view of one site's parking lot and stations, read only. Click a station for details. Change the layout on the site's Layout tab.",
+      "siteLabel": "Site",
+      "resetView": "Reset View",
+      "openLayout": "Open Site Layout",
+      "siteUnavailable": "The site you chose is no longer available. Showing {{name}}.",
+      "noSites": "No sites to show.",
+      "webglUnavailable": "This browser cannot show the 3D view (WebGL is not available). Open Site Layout to see the 2D view."
+    },
     "info": {
       "totalStations": "Accepted charging stations. Pending and blocked stations are counted apart.",
       "online": "Percentage of accepted stations currently connected and communicating via OCPP.",
@@ -732,7 +742,8 @@
       "editLayout": "Edit Layout",
       "doneEditing": "Done Editing",
       "hint": "Drag to rotate, scroll or pinch to zoom, right-drag or two-finger drag to pan. Click a station for details.",
-      "hintEdit": "Edit mode: drag a station to a free bay. It snaps to the bay and never lands on another station.",
+      "hintViewOnly": "Drag to look around, scroll or pinch to zoom. Click a station for details.",
+      "hintEdit": "Edit mode: drag a station to a free spot or a transformer on the grass. A station snaps to its spot and never lands on another station.",
       "webglUnavailable": "This browser cannot show the 3D view (WebGL is not available), so the 2D view is shown.",
       "loading3d": "Loading 3D View",
       "newTag": "New",
@@ -756,7 +767,13 @@
       "signalUnknown": "Signal Unknown",
       "evse": "EVSE {{id}}",
       "openStation": "Open Station",
-      "detailsLabel": "{{id}} Details"
+      "detailsLabel": "{{id}} Details",
+      "stateDetailsLabel": "{{id}} · {{state}}, Details",
+      "allocatedLimit": "Allocated Limit",
+      "displayMessage": "Display Message",
+      "transformer": "Transformer",
+      "paymentTerminals": "Payment Terminals",
+      "terminalStatusUnknown": "Status Unknown"
     },
     "layoutState": {
       "faulted": "Faulted",
@@ -767,6 +784,27 @@
       "charging": "Charging",
       "available": "Available",
       "online": "Online"
+    },
+    "layoutSettings": {
+      "title": "Parking Lot",
+      "hint": "Changes show at once and are saved with Save. A station outside the lot moves to the nearest free spot.",
+      "spotsPerRow": "Spots per Row",
+      "rows": "Rows",
+      "spotWidthM": "Spot Width",
+      "spotDepthM": "Spot Depth",
+      "laneWidthM": "Lane Width",
+      "range": "{{min}} to {{max}}{{unit}}",
+      "facingDeg": "Facing",
+      "facingOption": "{{deg}}°",
+      "facingHint": "Turns the rows and chargers.",
+      "tooSmall": "The lot has {{spots}} spots for {{stations}} stations. Add spots or rows.",
+      "transformers": "Transformers",
+      "transformersHint": "Drag a transformer in the 3D view to move it on the grass.",
+      "addTransformer": "Add Transformer",
+      "noTransformers": "No transformers.",
+      "transformerName": "Transformer {{n}} Name",
+      "ratedKva": "Rated kVA",
+      "removeTransformer": "Remove Transformer {{n}}"
     }
   },
   "stations": {

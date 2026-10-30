@@ -17,7 +17,15 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useToast } from '@/components/ui/toast';
 import { SecurityProfileBadge } from '@/components/SecurityProfileBadge';
 import { TabPanel } from '@/components/ui/tab-panel';
-import { EmptyState, ErrorState, LoadingState } from '@/components/ui/content-state';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Pagination } from '@/components/ui/pagination';
 import { JsonDetailBlock, JsonPreviewToggle } from '@/components/ExpandableJson';
@@ -361,7 +369,7 @@ export function StationSecurity({
   const canChangeProfile = useHasPermission(SECURITY_PROFILE_PERMISSION);
 
   return (
-    <div className="space-y-6">
+    <>
       {/* Security Profile & Credentials */}
       <TabPanel title={t('stations.security')} bodyClassName="space-y-4">
         <div className="flex items-center gap-3">
@@ -644,7 +652,9 @@ export function StationSecurity({
 
       {/* Security Event Log */}
       <TabPanel title={t('stations.securityLog')}>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6 mb-4">
+        {/* Four columns from lg; From and To take two each, so the date field and the time selects fit
+            on one line from xl and wrap onto two lines below it, never past their column. */}
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
             <Label htmlFor="security-logs-source" className="text-xs leading-6">
               {t('stations.securityLogSource')}
@@ -721,34 +731,6 @@ export function StationSecurity({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="security-logs-from" className="text-xs leading-6">
-              {t('common.from')}
-            </Label>
-            <DateTimeInput
-              id="security-logs-from"
-              aria-label={t('common.from')}
-              value={logsFrom}
-              onChange={(next) => {
-                setLogsFrom(next);
-                setLogsPage(1);
-              }}
-            />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="security-logs-to" className="text-xs leading-6">
-              {t('common.to')}
-            </Label>
-            <DateTimeInput
-              id="security-logs-to"
-              aria-label={t('common.to')}
-              value={logsTo}
-              onChange={(next) => {
-                setLogsTo(next);
-                setLogsPage(1);
-              }}
-            />
-          </div>
-          <div className="space-y-1">
             <Label htmlFor="security-logs-limit" className="text-xs leading-6">
               {t('common.pageSize')}
             </Label>
@@ -766,100 +748,132 @@ export function StationSecurity({
               <option value="200">200</option>
             </Select>
           </div>
+          <div className="min-w-0 space-y-1 lg:col-span-2">
+            <Label htmlFor="security-logs-from" className="text-xs leading-6">
+              {t('common.from')}
+            </Label>
+            <DateTimeInput
+              id="security-logs-from"
+              aria-label={t('common.from')}
+              value={logsFrom}
+              onChange={(next) => {
+                setLogsFrom(next);
+                setLogsPage(1);
+              }}
+            />
+          </div>
+          <div className="min-w-0 space-y-1 lg:col-span-2">
+            <Label htmlFor="security-logs-to" className="text-xs leading-6">
+              {t('common.to')}
+            </Label>
+            <DateTimeInput
+              id="security-logs-to"
+              aria-label={t('common.to')}
+              value={logsTo}
+              onChange={(next) => {
+                setLogsTo(next);
+                setLogsPage(1);
+              }}
+            />
+          </div>
         </div>
-        {logsLoading ? (
-          <LoadingState />
-        ) : logsError ? (
-          <ErrorState
-            onRetry={() => {
-              void refetchLogs();
-            }}
-          />
-        ) : logsResponse != null && logsResponse.data.length > 0 ? (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left">
-                    <th className="pb-2 pr-4">{t('common.timestamp')}</th>
-                    <th className="pb-2 pr-4">{t('common.source')}</th>
-                    <th className="pb-2 pr-4">{t('stations.eventType')}</th>
-                    <th className="pb-2 pr-4">{t('common.severity')}</th>
-                    <th className="pb-2 pr-4">{t('stations.remoteAddress')}</th>
-                    <th className="pb-2">{t('common.details')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logsResponse.data.map((log) => {
-                    const metadata = log.metadata;
-                    const isExpanded = metadata != null && expandedLogId === log.id;
-                    const toggle = (): void => {
-                      setExpandedLogId(isExpanded ? null : log.id);
-                    };
-                    const detailId = `security-log-${log.id.replace(':', '-')}-details`;
-                    return (
-                      <Fragment key={log.id}>
-                        <tr
-                          className={metadata != null ? 'border-b cursor-pointer' : 'border-b'}
-                          data-testid={`security-log-row-${log.id}`}
-                          onClick={metadata != null ? toggle : undefined}
-                        >
-                          <td className="py-2 pr-4 text-muted-foreground whitespace-nowrap">
-                            {formatDateTime(log.createdAt, timezone)}
-                          </td>
-                          <td className="py-2 pr-4">
-                            <Badge variant={log.source === 'security' ? 'info' : 'secondary'}>
-                              {t(
-                                `stations.securityLogSource${log.source === 'security' ? 'Security' : 'Connection'}`,
-                              )}
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t('common.timestamp')}</TableHead>
+                <TableHead>{t('common.source')}</TableHead>
+                <TableHead>{t('stations.eventType')}</TableHead>
+                <TableHead>{t('common.severity')}</TableHead>
+                <TableHead>{t('stations.remoteAddress')}</TableHead>
+                <TableHead>{t('common.details')}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {logsLoading ? (
+                <TableStateRow colSpan={6}>
+                  <LoadingState />
+                </TableStateRow>
+              ) : logsError ? (
+                <TableStateRow colSpan={6}>
+                  <ErrorState
+                    onRetry={() => {
+                      void refetchLogs();
+                    }}
+                  />
+                </TableStateRow>
+              ) : logsResponse == null || logsResponse.data.length === 0 ? (
+                <TableStateRow colSpan={6}>
+                  <EmptyState>{t('stations.noSecurityLogs')}</EmptyState>
+                </TableStateRow>
+              ) : (
+                logsResponse.data.map((log) => {
+                  const metadata = log.metadata;
+                  const isExpanded = metadata != null && expandedLogId === log.id;
+                  const toggle = (): void => {
+                    setExpandedLogId(isExpanded ? null : log.id);
+                  };
+                  const detailId = `security-log-${log.id.replace(':', '-')}-details`;
+                  return (
+                    <Fragment key={log.id}>
+                      <TableRow
+                        className={metadata != null ? 'cursor-pointer' : undefined}
+                        data-testid={`security-log-row-${log.id}`}
+                        onClick={metadata != null ? toggle : undefined}
+                      >
+                        <TableCell className="text-xs text-muted-foreground">
+                          {formatDateTime(log.createdAt, timezone)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={log.source === 'security' ? 'info' : 'secondary'}>
+                            {t(
+                              `stations.securityLogSource${log.source === 'security' ? 'Security' : 'Connection'}`,
+                            )}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{log.event}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {log.severity != null ? (
+                            <Badge variant={SEVERITY_VARIANT[log.severity] ?? 'outline'}>
+                              {t(`severity.${log.severity}`, { defaultValue: log.severity })}
                             </Badge>
-                          </td>
-                          <td className="py-2 pr-4">
-                            <Badge variant="outline">{log.event}</Badge>
-                          </td>
-                          <td className="py-2 pr-4">
-                            {log.severity != null ? (
-                              <Badge variant={SEVERITY_VARIANT[log.severity] ?? 'outline'}>
-                                {t(`severity.${log.severity}`, { defaultValue: log.severity })}
-                              </Badge>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">-</span>
-                            )}
-                          </td>
-                          <td className="py-2 pr-4 text-xs">{log.remoteAddress ?? '-'}</td>
-                          <td className="py-2 text-xs text-muted-foreground max-w-md">
-                            {metadata != null ? (
-                              <JsonPreviewToggle
-                                value={metadata}
-                                expanded={isExpanded}
-                                onToggle={toggle}
-                                controlsId={detailId}
-                              />
-                            ) : (
-                              '-'
-                            )}
-                          </td>
-                        </tr>
-                        {isExpanded && (
-                          <tr className="border-b bg-muted/30">
-                            <td colSpan={6} className="p-3">
-                              <JsonDetailBlock id={detailId} value={metadata} />
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-4">
-              <Pagination page={logsPage} totalPages={logsTotalPages} onPageChange={setLogsPage} />
-            </div>
-          </>
-        ) : (
-          <EmptyState>{t('stations.noSecurityLogs')}</EmptyState>
-        )}
+                          ) : (
+                            <span className="text-xs text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs">{log.remoteAddress ?? '-'}</TableCell>
+                        <TableCell className="max-w-md text-xs text-muted-foreground">
+                          {metadata != null ? (
+                            <JsonPreviewToggle
+                              value={metadata}
+                              expanded={isExpanded}
+                              onToggle={toggle}
+                              controlsId={detailId}
+                            />
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow className="bg-muted/30 hover:bg-muted/30">
+                          <TableCell colSpan={6} className="p-3">
+                            <JsonDetailBlock id={detailId} value={metadata} />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        <div className="mt-4">
+          <Pagination page={logsPage} totalPages={logsTotalPages} onPageChange={setLogsPage} />
+        </div>
       </TabPanel>
 
       {/* Profile Change Confirm Dialog (online) */}
@@ -885,6 +899,6 @@ export function StationSecurity({
           setPasswordMutation.mutate(password);
         }}
       />
-    </div>
+    </>
   );
 }

@@ -25,6 +25,26 @@ const AC_OR_DC_TYPES: ReadonlySet<string> = new Set(['GBT', 'Tesla', 'NACS']);
 /** AC tops at 22 kW on GB/T, Tesla and NACS plugs. */
 export const AC_MAX_POWER_KW = 22;
 
+/**
+ * Connector ratings an operator enters (stations API, site import, CSMS form):
+ * maximum power in kW with at most 2 decimals (3.68, 7.4, 11.5) and maximum
+ * current in A with at most 1 decimal (31.5), each at least 0.1.
+ */
+export const CONNECTOR_POWER_KW_DECIMALS = 2;
+export const CONNECTOR_CURRENT_AMPS_DECIMALS = 1;
+export const CONNECTOR_RATING_MIN = 0.1;
+
+/**
+ * True when `value` has at most `decimals` fraction digits. Compared on the
+ * scaled value with a tolerance, so binary floating point (7.4 * 100 is
+ * 740.0000000000001) does not refuse a value typed with that many digits.
+ */
+export function hasAtMostDecimals(value: number, decimals: number): boolean {
+  if (!Number.isFinite(value)) return false;
+  const scaled = value * 10 ** decimals;
+  return Math.abs(scaled - Math.round(scaled)) < 1e-6;
+}
+
 export interface ConnectorPowerInput {
   connectorType: string | null | undefined;
   maxPowerKw: number | string | null | undefined;

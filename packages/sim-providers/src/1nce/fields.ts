@@ -145,6 +145,8 @@ export function pickQuota(raw: unknown): OneNceQuota | null {
 export interface OneNceEvent {
   id: number;
   typeId: number | null;
+  /** `event_type.description`, such as `Delete PDP Context`. */
+  typeName: string | null;
   timestamp: string;
   /**
    * A one-way hash of the device IMEI, compared in memory to tell a device
@@ -183,6 +185,7 @@ export function pickEvent(raw: unknown): OneNceEvent | null {
   return {
     id,
     typeId: int(asObject(event['event_type'])?.['id']),
+    typeName: text(asObject(event['event_type'])?.['description']),
     timestamp,
     deviceHash: deviceHash(asObject(event['endpoint'])?.['imei']),
     pdpContextId: digits(context?.['pdp_context_id']),

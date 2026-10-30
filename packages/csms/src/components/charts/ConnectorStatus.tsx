@@ -13,6 +13,16 @@ import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { SaveButton } from '@/components/save-button';
 import { Input } from '@/components/ui/input';
+import { DecimalInput } from '@/components/ui/decimal-input';
+import {
+  formatConnectorCurrentAmps,
+  formatConnectorPowerKw,
+  ratingField,
+} from '@/lib/connector-rating';
+import {
+  CONNECTOR_CURRENT_AMPS_DECIMALS,
+  CONNECTOR_POWER_KW_DECIMALS,
+} from '@evtivity/lib/connector-power';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -491,8 +501,8 @@ export function ConnectorStatus({
       evse.connectors.map((c) => ({
         connectorId: String(c.connectorId),
         connectorType: c.connectorType ?? 'CCS2',
-        maxPowerKw: String(c.maxPowerKw ?? ''),
-        maxCurrentAmps: String(c.maxCurrentAmps ?? ''),
+        maxPowerKw: ratingField(c.maxPowerKw, CONNECTOR_POWER_KW_DECIMALS),
+        maxCurrentAmps: ratingField(c.maxCurrentAmps, CONNECTOR_CURRENT_AMPS_DECIMALS),
       })),
     );
     setEditEvseOpen(true);
@@ -715,7 +725,9 @@ export function ConnectorStatus({
                       <div className="flex flex-wrap items-center gap-2">
                         {conn.maxPowerKw != null ? (
                           <span className="text-muted-foreground">
-                            {t('charts.powerValue', { value: conn.maxPowerKw })}
+                            {t('charts.powerValue', {
+                              value: formatConnectorPowerKw(conn.maxPowerKw),
+                            })}
                           </span>
                         ) : (
                           <Tooltip content={t('stations.maxPowerUnknownHint')}>
@@ -726,7 +738,9 @@ export function ConnectorStatus({
                         )}
                         {conn.maxCurrentAmps != null && (
                           <span className="text-muted-foreground">
-                            {t('charts.currentValue', { value: conn.maxCurrentAmps })}
+                            {t('charts.currentValue', {
+                              value: formatConnectorCurrentAmps(conn.maxCurrentAmps),
+                            })}
                           </span>
                         )}
                         <Badge
@@ -855,14 +869,13 @@ export function ConnectorStatus({
               <Label htmlFor="new-evse-conn-power" className="leading-6">
                 {t('stations.maxPower')}
               </Label>
-              <Input
+              <DecimalInput
                 id="new-evse-conn-power"
-                type="number"
-                min="1"
+                decimalScale={CONNECTOR_POWER_KW_DECIMALS}
                 required
                 value={newEvseConnector.maxPowerKw}
-                onChange={(e) => {
-                  setNewEvseConnector((prev) => ({ ...prev, maxPowerKw: e.target.value }));
+                onChange={(value) => {
+                  setNewEvseConnector((prev) => ({ ...prev, maxPowerKw: value }));
                 }}
               />
             </div>
@@ -870,13 +883,12 @@ export function ConnectorStatus({
               <Label htmlFor="new-evse-conn-current" className="leading-6">
                 {t('stations.maxCurrent')}
               </Label>
-              <Input
+              <DecimalInput
                 id="new-evse-conn-current"
-                type="number"
-                min="1"
+                decimalScale={CONNECTOR_CURRENT_AMPS_DECIMALS}
                 value={newEvseConnector.maxCurrentAmps}
-                onChange={(e) => {
-                  setNewEvseConnector((prev) => ({ ...prev, maxCurrentAmps: e.target.value }));
+                onChange={(value) => {
+                  setNewEvseConnector((prev) => ({ ...prev, maxCurrentAmps: value }));
                 }}
               />
             </div>
@@ -937,14 +949,13 @@ export function ConnectorStatus({
               <Label htmlFor="add-conn-power" className="leading-6">
                 {t('stations.maxPower')}
               </Label>
-              <Input
+              <DecimalInput
                 id="add-conn-power"
-                type="number"
-                min="1"
+                decimalScale={CONNECTOR_POWER_KW_DECIMALS}
                 required
                 value={newConnector.maxPowerKw}
-                onChange={(e) => {
-                  setNewConnector((prev) => ({ ...prev, maxPowerKw: e.target.value }));
+                onChange={(value) => {
+                  setNewConnector((prev) => ({ ...prev, maxPowerKw: value }));
                 }}
               />
             </div>
@@ -952,13 +963,12 @@ export function ConnectorStatus({
               <Label htmlFor="add-conn-current" className="leading-6">
                 {t('stations.maxCurrent')}
               </Label>
-              <Input
+              <DecimalInput
                 id="add-conn-current"
-                type="number"
-                min="1"
+                decimalScale={CONNECTOR_CURRENT_AMPS_DECIMALS}
                 value={newConnector.maxCurrentAmps}
-                onChange={(e) => {
-                  setNewConnector((prev) => ({ ...prev, maxCurrentAmps: e.target.value }));
+                onChange={(value) => {
+                  setNewConnector((prev) => ({ ...prev, maxCurrentAmps: value }));
                 }}
               />
             </div>
@@ -1017,17 +1027,16 @@ export function ConnectorStatus({
                     <Label htmlFor={`edit-power-${String(i)}`} className="leading-6">
                       {t('stations.maxPower')}
                     </Label>
-                    <Input
+                    <DecimalInput
                       id={`edit-power-${String(i)}`}
-                      type="number"
-                      min="1"
+                      decimalScale={CONNECTOR_POWER_KW_DECIMALS}
                       required
                       value={c.maxPowerKw}
-                      onChange={(e) => {
+                      onChange={(value) => {
                         const idx = i;
                         setEditConnectors((prev) =>
                           prev.map((item, j) =>
-                            j === idx ? { ...item, maxPowerKw: e.target.value } : item,
+                            j === idx ? { ...item, maxPowerKw: value } : item,
                           ),
                         );
                       }}
@@ -1037,16 +1046,15 @@ export function ConnectorStatus({
                     <Label htmlFor={`edit-current-${String(i)}`} className="leading-6">
                       {t('stations.maxCurrent')}
                     </Label>
-                    <Input
+                    <DecimalInput
                       id={`edit-current-${String(i)}`}
-                      type="number"
-                      min="1"
+                      decimalScale={CONNECTOR_CURRENT_AMPS_DECIMALS}
                       value={c.maxCurrentAmps}
-                      onChange={(e) => {
+                      onChange={(value) => {
                         const idx = i;
                         setEditConnectors((prev) =>
                           prev.map((item, j) =>
-                            j === idx ? { ...item, maxCurrentAmps: e.target.value } : item,
+                            j === idx ? { ...item, maxCurrentAmps: value } : item,
                           ),
                         );
                       }}

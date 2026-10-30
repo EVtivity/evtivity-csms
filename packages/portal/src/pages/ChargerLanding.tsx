@@ -19,7 +19,7 @@ import type { PricingInfo } from '@/components/PricingDisplay';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
-import { cn, formatDate } from '@/lib/utils';
+import { cn, formatConnectorCurrentAmps, formatConnectorPowerKw, formatDate } from '@/lib/utils';
 import {
   connectorStatusVariant,
   connectorStatusClassName,
@@ -276,9 +276,9 @@ export function ChargerLanding(): React.JSX.Element {
                   <span>{connectorTypes.join(', ')}</span>
                   {(maxPower > 0 || maxCurrent > 0) && (
                     <span className="text-muted-foreground">
-                      {maxPower > 0 ? `${String(maxPower)} kW` : ''}
+                      {maxPower > 0 ? `${formatConnectorPowerKw(maxPower)} kW` : ''}
                       {maxPower > 0 && maxCurrent > 0 ? ' / ' : ''}
-                      {maxCurrent > 0 ? `${String(maxCurrent)}A` : ''}
+                      {maxCurrent > 0 ? `${formatConnectorCurrentAmps(maxCurrent)}A` : ''}
                     </span>
                   )}
                 </div>

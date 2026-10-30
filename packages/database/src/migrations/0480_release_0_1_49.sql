@@ -363,3 +363,31 @@ INSERT INTO "settings" ("key", "value") VALUES
   ('s3.forcePathStyle', 'false'::jsonb),
   ('s3.allowedPrivateHosts', '[]'::jsonb)
 ON CONFLICT ("key") DO NOTHING;
+
+--> statement-breakpoint
+-- Connector maximum current takes decimals (31.5 A), like the maximum power
+-- (numeric already). Converted only while the column is still an integer, so a
+-- rerun neither rewrites nor locks the table.
+DO $$ BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'connectors'
+      AND column_name = 'max_current_amps' AND data_type = 'integer'
+  ) THEN
+    ALTER TABLE "connectors" ALTER COLUMN "max_current_amps" TYPE numeric
+      USING "max_current_amps"::numeric;
+  END IF;
+END $$;
+
+--> statement-breakpoint
+-- Site layout settings (v0.1.49): the paved lot (spots per row, rows, spot
+-- size, lane width, facing) and the transformers on the grass, validated by
+-- @evtivity/lib/site-layout-schema. Null on every existing site: the default
+-- lot of 2 rows of 10 spots, grown to hold the stations the site already has,
+-- with one transformer. The CHECK is dropped and added again on a rerun.
+ALTER TABLE "sites" ADD COLUMN IF NOT EXISTS "layout_settings" jsonb;
+--> statement-breakpoint
+ALTER TABLE "sites" DROP CONSTRAINT IF EXISTS "sites_layout_settings_check";
+--> statement-breakpoint
+ALTER TABLE "sites" ADD CONSTRAINT "sites_layout_settings_check"
+  CHECK ("layout_settings" IS NULL OR jsonb_typeof("layout_settings") = 'object');

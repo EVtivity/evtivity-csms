@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import {
   client,
   db,
@@ -9,6 +9,7 @@ import {
   getOcppFleetHealth,
   operatorStationIdSql,
   operatorStationSql,
+  pgErrorCode,
 } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import {
@@ -47,7 +48,62 @@ const logger = createLogger('metrics-collector');
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
+/**
+ * Statement timeout of the queries that read a time window of a large log
+ * table (`ocpp_message_logs`, `transaction_events`). Below the 60 s interval,
+ * so a slow run ends before the next tick instead of piling up.
+ */
+export const METRICS_QUERY_TIMEOUT_MS = 20_000;
+
+/** SQLSTATE query_canceled, raised when statement_timeout ends a statement. */
+const PG_QUERY_CANCELED = '57014';
+
+/** The run in progress, so a tick never starts a second one beside it. */
+let collecting: Promise<void> | null = null;
+
+/**
+ * Runs one query under METRICS_QUERY_TIMEOUT_MS (`set_config(..., true)` is
+ * SET LOCAL: it ends with the transaction). Returns null when the timeout
+ * cancelled it, so the caller keeps the gauge's previous value (fail-open).
+ */
+async function queryWithTimeout(metric: string, query: SQL): Promise<unknown> {
+  try {
+    return await db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT set_config('statement_timeout', ${String(METRICS_QUERY_TIMEOUT_MS)}, true)`,
+      );
+      return tx.execute(query);
+    });
+  } catch (err) {
+    if (pgErrorCode(err) === PG_QUERY_CANCELED) {
+      logger.warn(
+        { metric, timeoutMs: METRICS_QUERY_TIMEOUT_MS },
+        'Metrics query timed out, keeping the previous value',
+      );
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Collects every business gauge once. A call while the previous run is still
+ * going returns at once (logged at debug), so slow queries never overlap.
+ */
 export async function collectBusinessMetrics(): Promise<void> {
+  if (collecting != null) {
+    logger.debug('Metrics collection skipped, the previous run is still running');
+    return;
+  }
+  collecting = runCollection();
+  try {
+    await collecting;
+  } finally {
+    collecting = null;
+  }
+}
+
+async function runCollection(): Promise<void> {
   try {
     const companyCurrency = await getCompanyCurrency();
     // Conformance (OCTT) stations and their rows are left out of every
@@ -204,15 +260,19 @@ export async function collectBusinessMetrics(): Promise<void> {
           AND ${sql.raw(operatorStationIdSql('fcs.station_id'))}
       `),
 
-      // Transaction events by trigger reason (last 24h)
-      db.execute(sql`
+      // Transaction events by trigger reason (last 24h).
+      // idx_transaction_events_created_at serves the window.
+      queryWithTimeout(
+        'ocpp_transactions_by_trigger',
+        sql`
         SELECT trigger_reason, count(*)::int AS count
         FROM transaction_events te
         WHERE te.created_at >= NOW() - INTERVAL '24 hours'
           AND te.trigger_reason IS NOT NULL
           AND ${sql.raw(operatorStationIdSql('(SELECT tcs.station_id FROM charging_sessions tcs WHERE tcs.id = te.session_id)'))}
         GROUP BY trigger_reason
-      `),
+      `,
+      ),
 
       // Payments by status
       db.execute(sql`
@@ -228,14 +288,18 @@ export async function collectBusinessMetrics(): Promise<void> {
       // Total heartbeats received (last 24h)
       // ocpp.Heartbeat events are no longer archived in domain_events
       // (persistence denylist); the message log carries the same frames.
-      db.execute(sql`
+      // idx_ocpp_message_logs_action_direction_created_at serves the window.
+      queryWithTimeout(
+        'ocpp_heartbeats_total',
+        sql`
         SELECT count(*)::int AS count
         FROM ocpp_message_logs
         WHERE action = 'Heartbeat'
           AND direction = 'inbound'
           AND created_at >= NOW() - INTERVAL '24 hours'
           AND ${sql.raw(operatorStationIdSql('ocpp_message_logs.station_id'))}
-      `),
+      `,
+      ),
     ]);
 
     // Set gauges
@@ -288,12 +352,14 @@ export async function collectBusinessMetrics(): Promise<void> {
     idleSessionsActive.set(asInt(idleRows, 'count'));
     firmwareUpdatesPending.set(asInt(firmwareRows, 'count'));
 
-    ocppTransactionsByTrigger.reset();
-    for (const row of asRows(txEventRows)) {
-      ocppTransactionsByTrigger.set(
-        { trigger_reason: String(row['trigger_reason']) },
-        asNum(row, 'count'),
-      );
+    if (txEventRows != null) {
+      ocppTransactionsByTrigger.reset();
+      for (const row of asRows(txEventRows)) {
+        ocppTransactionsByTrigger.set(
+          { trigger_reason: String(row['trigger_reason']) },
+          asNum(row, 'count'),
+        );
+      }
     }
 
     paymentsByStatus.reset();
@@ -316,7 +382,7 @@ export async function collectBusinessMetrics(): Promise<void> {
       );
     }
 
-    ocppHeartbeatsTotal.set(asInt(heartbeatRows, 'count'));
+    if (heartbeatRows != null) ocppHeartbeatsTotal.set(asInt(heartbeatRows, 'count'));
   } catch (err) {
     logger.error(err, 'Failed to collect business metrics');
   }

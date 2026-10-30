@@ -439,6 +439,16 @@
     "last60d": "60天",
     "custom": "自訂",
     "siteMap": "站點地圖",
+    "siteLayout": {
+      "title": "站點佈局",
+      "info": "一個站點停車場和充電站的唯讀 3D 檢視。點選充電站查看詳細資料。請在站點的佈局分頁中變更佈局。",
+      "siteLabel": "站點",
+      "resetView": "重設檢視",
+      "openLayout": "開啟站點佈局",
+      "siteUnavailable": "您選擇的站點已無法使用。正在顯示 {{name}}。",
+      "noSites": "沒有可顯示的站點。",
+      "webglUnavailable": "此瀏覽器無法顯示 3D 檢視（WebGL 無法使用）。開啟站點佈局可查看 2D 檢視。"
+    },
     "info": {
       "totalStations": "已接受的充電站。待審核和已封鎖的充電站另行計數。",
       "online": "當前透過 OCPP 連線並通訊的已接受充電站百分比。",
@@ -732,7 +742,8 @@
       "editLayout": "編輯佈局",
       "doneEditing": "完成編輯",
       "hint": "拖曳以旋轉，捲動或雙指縮放以縮放，右鍵拖曳或雙指拖曳以平移。點選充電站查看詳細資料。",
-      "hintEdit": "編輯模式：將充電站拖曳到空閒車位。它會對齊車位，且不會落在其他充電站上。",
+      "hintViewOnly": "拖曳以環視，捲動或雙指縮放以縮放。點選充電站查看詳細資料。",
+      "hintEdit": "編輯模式：將充電站拖曳到空閒車位，或將變壓器拖曳到草地上。充電站會對齊車位，且不會落在其他充電站上。",
       "webglUnavailable": "此瀏覽器無法顯示 3D 檢視（WebGL 無法使用），因此顯示 2D 檢視。",
       "loading3d": "正在載入 3D 檢視",
       "newTag": "新",
@@ -756,7 +767,13 @@
       "signalUnknown": "訊號未知",
       "evse": "EVSE {{id}}",
       "openStation": "開啟充電站",
-      "detailsLabel": "{{id}} 詳細資料"
+      "detailsLabel": "{{id}} 詳細資料",
+      "stateDetailsLabel": "{{id}} · {{state}}，詳細資料",
+      "allocatedLimit": "分配上限",
+      "displayMessage": "顯示訊息",
+      "transformer": "變壓器",
+      "paymentTerminals": "支付終端",
+      "terminalStatusUnknown": "狀態未知"
     },
     "layoutState": {
       "faulted": "故障",
@@ -767,6 +784,27 @@
       "charging": "充電中",
       "available": "可用",
       "online": "線上"
+    },
+    "layoutSettings": {
+      "title": "停車場",
+      "hint": "變更會立即顯示，按下儲存後儲存。停車場外的充電站會移到最近的空閒車位。",
+      "spotsPerRow": "每排車位",
+      "rows": "排數",
+      "spotWidthM": "車位寬度",
+      "spotDepthM": "車位深度",
+      "laneWidthM": "車道寬度",
+      "range": "{{min}} 至 {{max}}{{unit}}",
+      "facingDeg": "朝向",
+      "facingOption": "{{deg}}°",
+      "facingHint": "旋轉車位排與充電樁。",
+      "tooSmall": "停車場只有 {{spots}} 個車位，但有 {{stations}} 個充電站。請增加車位或排數。",
+      "transformers": "變壓器",
+      "transformersHint": "在 3D 檢視中拖曳變壓器，可在草地上移動它。",
+      "addTransformer": "新增變壓器",
+      "noTransformers": "沒有變壓器。",
+      "transformerName": "變壓器 {{n}} 名稱",
+      "ratedKva": "額定 kVA",
+      "removeTransformer": "移除變壓器 {{n}}"
     }
   },
   "stations": {

@@ -184,12 +184,17 @@ function transformConnector(
     format,
     power_type: powerType,
     max_voltage: voltage,
-    max_amperage: connector.maxCurrentAmps ?? amperage,
+    // OCPI max_amperage is an int: a decimal rating (31.5 A) rounds down, so a
+    // partner is never told more current than the connector delivers.
+    max_amperage:
+      connector.maxCurrentAmps != null ? Math.floor(connector.maxCurrentAmps) : amperage,
     last_updated: connector.updatedAt.toISOString(),
   };
 
   if (connector.maxPowerKw != null) {
-    result.max_electric_power = Number(connector.maxPowerKw) * 1000;
+    // OCPI max_electric_power is an int in W; 7.4 kW * 1000 is 7400.000000000001
+    // in binary floating point, so round to the watt.
+    result.max_electric_power = Math.round(Number(connector.maxPowerKw) * 1000);
   }
 
   if (tariffIds != null && tariffIds.length > 0) {

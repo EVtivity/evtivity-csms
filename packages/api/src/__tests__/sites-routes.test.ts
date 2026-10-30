@@ -90,6 +90,21 @@ vi.mock('@evtivity/services/station-derived-status', () => ({
   buildStatusReasonSubquery: vi.fn(() => null),
 }));
 
+const { mockSaveSiteLayout, MockLayoutGridTooSmallError } = vi.hoisted(() => {
+  class MockLayoutGridTooSmallError extends Error {
+    constructor(readonly stations: string[]) {
+      super('too small');
+    }
+  }
+  const unchanged = { settingsBefore: {}, settingsAfter: {}, settingsChanged: false, moved: [] };
+  return {
+    mockSaveSiteLayout: vi.fn(
+      (..._args: unknown[]): Promise<unknown> => Promise.resolve(unchanged),
+    ),
+    MockLayoutGridTooSmallError,
+  };
+});
+
 const mockReadStationDataPlans = vi.hoisted(() =>
   vi.fn((): Promise<Map<string, unknown>> => Promise.resolve(new Map())),
 );
@@ -98,7 +113,11 @@ vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
   readStationDataPlans: mockReadStationDataPlans,
-  saveSiteLayout: vi.fn(() => Promise.resolve()),
+  saveSiteLayout: mockSaveSiteLayout,
+  readSiteLayoutSettings: vi.fn(async () =>
+    (await import('@evtivity/lib/site-layout')).effectiveLayoutSettings(null),
+  ),
+  LayoutGridTooSmallError: MockLayoutGridTooSmallError,
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
@@ -293,6 +312,7 @@ const FULL_SITE_ROW = {
   stationMessageLanguage: null,
   aiInsightsEnabled: true,
   dataPlan: null,
+  layoutSettings: null,
   aiMonthlyTokenBudget: null,
   aiInsightsSuppressed: false,
   aiInsightsSuppressedSources: [],
@@ -358,6 +378,7 @@ describe('Site routes - handler logic', () => {
         autochargeEnabled: null,
         aiInsightsEnabled: true,
         dataPlan: null,
+        layoutSettings: null,
         aiMonthlyTokenBudget: null,
         aiInsightsSuppressed: false,
         aiInsightsSuppressedSources: [],
@@ -440,6 +461,7 @@ describe('Site routes - handler logic', () => {
         autochargeEnabled: null,
         aiInsightsEnabled: true,
         dataPlan: null,
+        layoutSettings: null,
         aiMonthlyTokenBudget: null,
         aiInsightsSuppressed: false,
         aiInsightsSuppressedSources: [],
@@ -503,6 +525,7 @@ describe('Site routes - handler logic', () => {
         autochargeEnabled: null,
         aiInsightsEnabled: true,
         dataPlan: null,
+        layoutSettings: null,
         aiMonthlyTokenBudget: null,
         aiInsightsSuppressed: false,
         aiInsightsSuppressedSources: [],
@@ -601,6 +624,7 @@ describe('Site routes - handler logic', () => {
         autochargeEnabled: null,
         aiInsightsEnabled: true,
         dataPlan: null,
+        layoutSettings: null,
         aiMonthlyTokenBudget: null,
         aiInsightsSuppressed: false,
         aiInsightsSuppressedSources: [],
@@ -754,6 +778,7 @@ describe('Site routes - handler logic', () => {
         timezone: null,
         aiInsightsEnabled: true,
         dataPlan: null,
+        layoutSettings: null,
         aiMonthlyTokenBudget: null,
         aiInsightsSuppressed: false,
         aiInsightsSuppressedSources: [],
@@ -806,6 +831,7 @@ describe('Site routes - handler logic', () => {
         autochargeEnabled: null,
         aiInsightsEnabled: true,
         dataPlan: null,
+        layoutSettings: null,
         aiMonthlyTokenBudget: null,
         aiInsightsSuppressed: false,
         aiInsightsSuppressedSources: [],
@@ -921,6 +947,7 @@ describe('Site routes - handler logic', () => {
         autochargeEnabled: null,
         aiInsightsEnabled: true,
         dataPlan: null,
+        layoutSettings: null,
         aiMonthlyTokenBudget: null,
         aiInsightsSuppressed: false,
         aiInsightsSuppressedSources: [],
@@ -977,6 +1004,7 @@ describe('Site routes - handler logic', () => {
             autochargeEnabled: null,
             aiInsightsEnabled: true,
             dataPlan: null,
+            layoutSettings: null,
             aiMonthlyTokenBudget: null,
             aiInsightsSuppressed: false,
             aiInsightsSuppressedSources: [],
@@ -1583,6 +1611,120 @@ describe('Site routes - handler logic', () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('SITE_NOT_FOUND');
+    });
+
+    const settings = {
+      spotsPerRow: 6,
+      rows: 2,
+      spotWidthM: 3.5,
+      spotDepthM: 5.8,
+      laneWidthM: 7,
+      facingDeg: 90,
+      transformers: [{ id: 'tx-1', name: 'Main Feed', ratedKva: 2500, x: 26, z: 3 }],
+    };
+
+    it('saves the layout settings and audits them with the stations they moved', async () => {
+      vi.mocked(databaseModule.writeAudit).mockClear();
+      const before = { ...settings, spotsPerRow: 10, facingDeg: 0 };
+      mockSaveSiteLayout.mockResolvedValueOnce({
+        settingsBefore: before,
+        settingsAfter: settings,
+        settingsChanged: true,
+        moved: [{ stationId: VALID_STATION_ID, positionX: 1020, positionY: 20 }],
+      });
+      setupDbResults(
+        [{ id: VALID_SITE_ID }], // site exists
+        [{ stationId: VALID_STATION_ID, positionX: '1820', positionY: '20' }], // previous positions
+      );
+
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { positions: [], settings },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().moved).toEqual([
+        { stationId: VALID_STATION_ID, positionX: 1020, positionY: 20 },
+      ]);
+      expect(mockSaveSiteLayout.mock.calls[0]?.[3]).toEqual(settings);
+      expect(vi.mocked(databaseModule.writeAudit).mock.calls[0]?.[1]).toMatchObject({
+        action: 'updated',
+        before: {
+          layoutSettings: before,
+          layoutPositions: [{ stationId: VALID_STATION_ID, positionX: 1820, positionY: 20 }],
+        },
+        after: {
+          layoutSettings: settings,
+          layoutPositions: [{ stationId: VALID_STATION_ID, positionX: 1020, positionY: 20 }],
+        },
+        notes: 'station layout and layout settings updated',
+      });
+    });
+
+    it('passes null to reset the settings and nothing to keep them', async () => {
+      setupDbResults([{ id: VALID_SITE_ID }], []);
+      await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { positions: [], settings: null },
+      });
+      expect(mockSaveSiteLayout.mock.calls[0]?.[3]).toBeNull();
+      setupDbResults([{ id: VALID_SITE_ID }], []);
+      await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { positions: [] },
+      });
+      expect(mockSaveSiteLayout.mock.calls[1]?.[3]).toBeUndefined();
+    });
+
+    it.each([
+      ['spots out of range', { spotsPerRow: 0 }],
+      ['a spot width in 5 cm', { spotWidthM: 3.25 }],
+      ['a facing that is no quarter turn', { facingDeg: 45 }],
+      [
+        'duplicate transformer ids',
+        {
+          transformers: [
+            { id: 'a', name: null, ratedKva: null, x: 40, z: 0 },
+            { id: 'a', name: null, ratedKva: null, x: 50, z: 0 },
+          ],
+        },
+      ],
+    ])('refuses %s with 400 VALIDATION_ERROR and saves nothing', async (_name, patch) => {
+      setupDbResults([{ id: VALID_SITE_ID }], []);
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { positions: [], settings: { ...settings, ...patch } },
+      });
+      expect(response.statusCode).toBe(400);
+      // Ajv (FST_ERR_VALIDATION here, VALIDATION_ERROR in the app) or the Zod check.
+      expect(['VALIDATION_ERROR', 'FST_ERR_VALIDATION']).toContain(response.json().code);
+      expect(mockSaveSiteLayout).not.toHaveBeenCalled();
+    });
+
+    it('names the stations a smaller lot cannot hold and audits nothing', async () => {
+      vi.mocked(databaseModule.writeAudit).mockClear();
+      mockSaveSiteLayout.mockRejectedValueOnce(new MockLayoutGridTooSmallError(['CS-0981']));
+      setupDbResults([{ id: VALID_SITE_ID }], []);
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { positions: [], settings },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { stations: ['CS-0981'] },
+      });
+      expect(vi.mocked(databaseModule.writeAudit)).not.toHaveBeenCalled();
     });
   });
 

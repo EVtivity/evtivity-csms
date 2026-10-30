@@ -28,10 +28,13 @@ const LOCALES = import.meta.glob<string>(
 
 /**
  * Files allowed to page without `Pagination`, each with the reason. Only for
- * what is not a list or table, such as an AI chat message history or a live
- * stream. Today none does.
+ * what is not a list or table, such as an AI chat message history, a live
+ * stream, or an observer that pages nothing.
  */
-const ALLOWED: Record<string, string> = {};
+const ALLOWED: Record<string, string> = {
+  '../../components/dashboard/SiteLayoutWidget.tsx':
+    'IntersectionObserver pauses the 3D scene of the dashboard Site Layout widget while it is off screen; it pages no list',
+};
 
 const FORBIDDEN: Array<{ name: string; pattern: RegExp }> = [
   { name: 'useInfiniteQuery', pattern: /\buse(Suspense)?InfiniteQuery\b/ },

@@ -439,6 +439,16 @@
     "last60d": "60d",
     "custom": "Personalizado",
     "siteMap": "Mapa de Sitios",
+    "siteLayout": {
+      "title": "Disposición del Sitio",
+      "info": "Una vista 3D del estacionamiento y las estaciones de un sitio, solo de lectura. Haga clic en una estación para ver los detalles. Cambie la disposición en la pestaña Disposición del sitio.",
+      "siteLabel": "Sitio",
+      "resetView": "Restablecer Vista",
+      "openLayout": "Abrir Disposición del Sitio",
+      "siteUnavailable": "El sitio que eligió ya no está disponible. Se muestra {{name}}.",
+      "noSites": "No hay sitios para mostrar.",
+      "webglUnavailable": "Este navegador no puede mostrar la vista 3D (WebGL no está disponible). Abra la disposición del sitio para ver la vista 2D."
+    },
     "info": {
       "totalStations": "Estaciones de carga aceptadas. Las estaciones pendientes y bloqueadas se cuentan aparte.",
       "online": "Porcentaje de estaciones aceptadas actualmente conectadas y comunicándose vía OCPP.",
@@ -732,7 +742,8 @@
       "editLayout": "Editar Diseño",
       "doneEditing": "Terminar Edición",
       "hint": "Arrastre para girar, desplace o pellizque para hacer zoom, arrastre con el botón derecho o con dos dedos para mover. Haga clic en una estación para ver los detalles.",
-      "hintEdit": "Modo de edición: arrastre una estación a una plaza libre. Se ajusta a la plaza y nunca queda sobre otra estación.",
+      "hintViewOnly": "Arrastre para mirar alrededor, desplace o pellizque para hacer zoom. Haga clic en una estación para ver los detalles.",
+      "hintEdit": "Modo de edición: arrastre una estación a una plaza libre o un transformador sobre el césped. La estación se ajusta a su plaza y nunca queda sobre otra estación.",
       "webglUnavailable": "Este navegador no puede mostrar la vista 3D (WebGL no está disponible), así que se muestra la vista 2D.",
       "loading3d": "Cargando Vista 3D",
       "newTag": "Nueva",
@@ -756,7 +767,13 @@
       "signalUnknown": "Señal Desconocida",
       "evse": "EVSE {{id}}",
       "openStation": "Abrir Estación",
-      "detailsLabel": "Detalles de {{id}}"
+      "detailsLabel": "Detalles de {{id}}",
+      "stateDetailsLabel": "{{id}} · {{state}}, detalles",
+      "allocatedLimit": "Límite asignado",
+      "displayMessage": "Mensaje en pantalla",
+      "transformer": "Transformador",
+      "paymentTerminals": "Terminales de Pago",
+      "terminalStatusUnknown": "Estado Desconocido"
     },
     "layoutState": {
       "faulted": "Con Falla",
@@ -767,6 +784,27 @@
       "charging": "Cargando",
       "available": "Disponible",
       "online": "En Línea"
+    },
+    "layoutSettings": {
+      "title": "Estacionamiento",
+      "hint": "Los cambios se ven al instante y se guardan con Guardar. Una estación fuera del estacionamiento pasa a la plaza libre más cercana.",
+      "spotsPerRow": "Plazas por Fila",
+      "rows": "Filas",
+      "spotWidthM": "Ancho de Plaza",
+      "spotDepthM": "Fondo de Plaza",
+      "laneWidthM": "Ancho de Carril",
+      "range": "{{min}} a {{max}}{{unit}}",
+      "facingDeg": "Orientación",
+      "facingOption": "{{deg}}°",
+      "facingHint": "Gira las filas y los cargadores.",
+      "tooSmall": "El estacionamiento tiene {{spots}} plazas para {{stations}} estaciones. Añada plazas o filas.",
+      "transformers": "Transformadores",
+      "transformersHint": "Arrastre un transformador en la vista 3D para moverlo sobre el césped.",
+      "addTransformer": "Añadir Transformador",
+      "noTransformers": "No hay transformadores.",
+      "transformerName": "Nombre del Transformador {{n}}",
+      "ratedKva": "kVA Nominales",
+      "removeTransformer": "Quitar Transformador {{n}}"
     }
   },
   "stations": {

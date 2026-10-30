@@ -1,16 +1,67 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// Model paint of the 3D site layout (the lot and the charger bodies, not
-// status colors). The legend reads the AC and DC accents without loading three.js.
+// Model paint of the 3D site layout (the ground, the lot and the models, not
+// status colors). `haze` is the grass as it reads in the distance: the fog and
+// the background, so the ground fills the stage to its edges. The legend reads
+// the AC and DC accents without loading three.js.
 export const SCENE_COLORS = {
-  light: { asphalt: '#4a515c', concrete: '#b9bec6', paint: '#f4f4f2', shell: '#e8ebef' },
-  dark: { asphalt: '#2b313b', concrete: '#6f7783', paint: '#d9dbd8', shell: '#c9ced6' },
+  light: {
+    asphalt: '#4a515c',
+    grass: '#5d8a3a',
+    grassDark: '#4f7a30',
+    grassLight: '#6f9c48',
+    haze: '#7d9a6a',
+    concrete: '#b9bec6',
+    curb: '#c9ccd1',
+    paint: '#f4f4f2',
+    shell: '#e8ebef',
+    car: '#c3cad4',
+    signPlate: '#f8fafc',
+    signText: '#1f2937',
+    transformer: '#5f7a63',
+    transformerFin: '#536b57',
+  },
+  dark: {
+    asphalt: '#2b313b',
+    grass: '#2f4a25',
+    grassDark: '#273f1f',
+    grassLight: '#3a5730',
+    haze: '#34432f',
+    concrete: '#6f7783',
+    curb: '#7d848f',
+    paint: '#d9dbd8',
+    shell: '#c9ced6',
+    car: '#8e97a5',
+    signPlate: '#d9dde3',
+    signText: '#111827',
+    transformer: '#4a6250',
+    transformerFin: '#3f5545',
+  },
   ac: '#2563eb',
   dc: '#ea7a1a',
   bollard: '#d4a017',
   dark1: '#20252d',
   rubber: '#15181d',
   glass: '#0b1220',
+  carGlass: '#22364a',
   screenGlow: '#1d3a6e',
+  rim: '#b8bec7',
+  headlight: '#f1f5f9',
+  taillight: '#b91c1c',
+  chargePort: '#16a34a',
+  /** Reserved sign border and traffic cone (the reserved and maintenance hues). */
+  signBorder: '#f97316',
+  cone: '#f26a1b',
+  coneBand: '#f4f4f2',
+  signPost: '#6b7280',
+  warning: '#facc15',
+  warningInk: '#111827',
+  /** Load management links: panel and circuit feeders, and the station drops. */
+  linkFeeder: '#22d3ee',
+  linkStation: '#38bdf8',
+  terminalBody: '#374151',
+  terminalScreen: '#3b82f6',
+  terminalOnline: '#22c55e',
+  terminalOffline: '#6b7280',
 } as const;

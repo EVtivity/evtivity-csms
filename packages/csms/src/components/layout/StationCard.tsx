@@ -4,13 +4,11 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useMotionValue } from 'motion/react';
-import { MessageSquare, Plug, Zap, Circle, Plus, Minus, Power, Shield } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import { Plug, Zap, Circle, Plus, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatEnergy, formatNumber } from '@/lib/formatting';
 import { STATUS_COLORS, SVG_COLORS } from '@/lib/chart-theme';
-import { stationCardConnectorStatusVariant } from '@/lib/status-variants';
-import { stationDisplayState } from '@/lib/station-display-state';
+import { stationDisplayState, stationStateLabelKey } from '@/lib/station-display-state';
 import { CellularBadge, NewPlacementTag, StationStateIcon } from './StationStateIcon';
 
 const GRID_SIZE = 20;
@@ -58,7 +56,8 @@ interface StationCardProps {
   resolveDrop?: ((stationId: string, x: number, y: number) => { x: number; y: number }) | undefined;
   currentDrawKw?: number | undefined;
   allocatedLimitKw?: number | null | undefined;
-  collapseKey?: number;
+  /** Opens the station popup (shared with the 3D view). */
+  onOpenDetails?: ((stationId: string) => void) | undefined;
 }
 
 function statusColor(status: string): string {
@@ -89,35 +88,6 @@ function allConnectors(station: LayoutStation): ConnectorData[] {
     }
   }
   return result;
-}
-
-type StationLevel = 'dcFast' | 'level2' | 'level1' | '';
-
-const LEVEL_LABEL_KEYS = {
-  dcFast: 'sites.levelDcFast',
-  level2: 'sites.levelL2',
-  level1: 'sites.levelL1',
-} as const;
-
-/**
- * The level text of the card: DC Fast for a DC station (the shared connector
- * rule of `@evtivity/lib/connector-power`, which the API applies to the
- * in-service connectors), else Level 2 from 7 kW and Level 1 below by the
- * highest connector power.
- */
-function stationLevel(station: Pick<LayoutStation, 'chargingKind' | 'evses'>): StationLevel {
-  if (station.chargingKind === 'dc') return 'dcFast';
-  let maxKw = 0;
-  for (const evse of station.evses) {
-    for (const conn of evse.connectors) {
-      if (conn.maxPowerKw != null && conn.maxPowerKw > maxKw) {
-        maxKw = conn.maxPowerKw;
-      }
-    }
-  }
-  if (maxKw >= 7) return 'level2';
-  if (maxKw > 0) return 'level1';
-  return '';
 }
 
 function StationIcon({
@@ -308,13 +278,6 @@ function spColor(sp: number): string {
   }
 }
 
-function utilizationBarColor(drawKw: number, limitKw: number): string {
-  const pct = limitKw > 0 ? drawKw / limitKw : 0;
-  if (pct >= 0.95) return 'bg-destructive';
-  if (pct >= 0.8) return 'bg-warning';
-  return 'bg-success';
-}
-
 function snapToGrid(value: number): number {
   return Math.round(value / GRID_SIZE) * GRID_SIZE;
 }
@@ -322,16 +285,15 @@ function snapToGrid(value: number): number {
 export function StationCard({
   station,
   onDragEnd,
+  onOpenDetails,
   currentDrawKw,
   allocatedLimitKw,
-  collapseKey,
   resolveDrop,
 }: StationCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const charging = isCharging(station);
   const energy = totalEnergy(station);
   const connectors = allConnectors(station);
-  const level = stationLevel(station);
   const reasonLabel =
     station.statusReason != null &&
     (station.status === 'unavailable' || station.status === 'faulted')
@@ -353,15 +315,7 @@ export function StationCard({
   const motionX = useMotionValue(station.positionX);
   const motionY = useMotionValue(station.positionY);
   const [zIndex, setZIndex] = useState(0);
-  const [expanded, setExpanded] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
-
-  // Collapse when parent signals reset
-  useEffect(() => {
-    if (collapseKey != null && collapseKey > 0) {
-      setExpanded(false);
-    }
-  }, [collapseKey]);
 
   useEffect(() => {
     motionX.set(station.positionX);
@@ -400,13 +354,13 @@ export function StationCard({
         motionY.set(dropped.y);
         onDragEnd(station.id, dropped.x, dropped.y);
       }}
+      data-testid={`site-layout-card-${station.id}`}
       className={cn(
-        'rounded-lg border bg-card text-card-foreground shadow-xs select-none',
-        expanded ? 'w-[280px]' : 'w-[160px]',
+        'w-[160px] rounded-lg border bg-card text-card-foreground shadow-xs select-none',
         isDragging && 'ring-2 ring-primary shadow-lg',
       )}
     >
-      <div className={cn(expanded ? 'p-4 space-y-3' : 'p-2.5 space-y-1.5')}>
+      <div className="p-2.5 space-y-1.5">
         <div className="flex items-center gap-1.5">
           <span
             className="relative inline-flex h-2 w-2 shrink-0"
@@ -422,9 +376,7 @@ export function StationCard({
               )}
             />
           </span>
-          <span className={cn('font-semibold truncate', expanded ? 'text-sm' : 'text-xs')}>
-            {station.stationId}
-          </span>
+          <span className="font-semibold truncate text-xs">{station.stationId}</span>
           <StationStateIcon state={state} />
           <Tooltip label={`Security Profile ${String(station.securityProfile)}`}>
             <span
@@ -434,173 +386,63 @@ export function StationCard({
               <span className="text-xs font-bold">{String(station.securityProfile)}</span>
             </span>
           </Tooltip>
+          {/* Opens the shared station popup, the same as the 3D view. */}
           <button
             type="button"
             className="ml-auto rounded p-0.5 hover:bg-muted"
+            aria-label={t('sites.layoutView.stateDetailsLabel', {
+              id: station.stationId,
+              state: t(stationStateLabelKey(state)),
+            })}
+            aria-haspopup="dialog"
             onPointerDown={(e) => {
               e.stopPropagation();
             }}
             onClick={(e) => {
               e.stopPropagation();
-              setExpanded((prev) => {
-                if (!prev) {
-                  globalDragCounter += 1;
-                  setZIndex(globalDragCounter);
-                }
-                return !prev;
-              });
+              globalDragCounter += 1;
+              setZIndex(globalDragCounter);
+              onOpenDetails?.(station.id);
             }}
           >
-            {expanded ? (
-              <Minus className="h-3.5 w-3.5 text-muted-foreground" />
-            ) : (
-              <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-            )}
+            <Plus className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
           </button>
         </div>
 
-        {expanded ? (
-          <>
-            <div className="flex items-center gap-2">
-              {iconWithReason}
-              {level !== '' && (
-                <span className="text-xs font-medium text-muted-foreground">
-                  {t(LEVEL_LABEL_KEYS[level])}
-                </span>
-              )}
-              {badges}
+        <div className="flex items-center gap-2">
+          {iconWithReason}
+          <div className="flex flex-col gap-1 min-w-0">
+            <div className="flex flex-wrap gap-1">
+              {connectors.map((conn, i) => (
+                <ConnectorIcon key={i} conn={conn} />
+              ))}
             </div>
-
+            {badges}
             {charging && energy > 0 && (
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="flex items-center justify-center gap-1 text-sm font-medium text-link"
+                className="flex items-center gap-0.5 text-xs font-medium text-link"
               >
-                <Zap className="h-4 w-4" />
+                <Zap className="h-3 w-3" />
                 <span>{formatEnergy(energy)}</span>
               </motion.div>
             )}
-
-            {station.displayMessage != null && (
-              <div className="flex items-start gap-1.5 rounded border border-primary/20 bg-primary/5 px-2 py-1.5">
-                <MessageSquare className="h-3 w-3 shrink-0 mt-0.5 text-link" />
-                <p className="text-xs leading-tight text-link/70 line-clamp-2">
-                  {station.displayMessage}
-                </p>
+            {currentDrawKw != null && currentDrawKw > 0 && (
+              <div
+                className={cn(
+                  'flex items-center gap-0.5 text-xs font-medium',
+                  allocatedLimitKw != null && allocatedLimitKw > 0
+                    ? utilizationColor(currentDrawKw, allocatedLimitKw)
+                    : 'text-success',
+                )}
+              >
+                <Zap className="h-2.5 w-2.5" />
+                <span>{formatNumber(currentDrawKw, 1)} kW</span>
               </div>
             )}
-
-            {currentDrawKw != null &&
-              currentDrawKw > 0 &&
-              allocatedLimitKw != null &&
-              allocatedLimitKw > 0 && (
-                <div className="space-y-1">
-                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                    <div
-                      className={cn(
-                        'h-full rounded-full transition-all',
-                        utilizationBarColor(currentDrawKw, allocatedLimitKw),
-                      )}
-                      style={{
-                        width: `${String(Math.min(100, (currentDrawKw / allocatedLimitKw) * 100))}%`,
-                      }}
-                    />
-                  </div>
-                  <p className="text-xs text-muted-foreground text-center">
-                    {formatNumber(currentDrawKw, 1)} / {formatNumber(allocatedLimitKw, 1)} kW
-                  </p>
-                </div>
-              )}
-
-            <div className="space-y-2">
-              {station.evses.map((evse) => (
-                <div key={evse.evseId} className="rounded border p-2 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                      <Power className="h-3 w-3" />
-                      EVSE {String(evse.evseId)}
-                    </span>
-                  </div>
-                  {evse.connectors.map((conn) => (
-                    <div
-                      key={conn.connectorId}
-                      className="flex items-center justify-between text-xs"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <ConnectorIcon conn={conn} />
-                        <span
-                          className={cn(conn.isPluggedIn ? 'text-link' : 'text-muted-foreground')}
-                        >
-                          {conn.connectorType ?? `#${String(conn.connectorId)}`}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {conn.maxPowerKw != null && (
-                          <span className="text-muted-foreground">
-                            {String(conn.maxPowerKw)} kW
-                          </span>
-                        )}
-                        {conn.isPluggedIn && conn.energyDeliveredWh != null && (
-                          <motion.span
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className="text-link"
-                          >
-                            {formatEnergy(conn.energyDeliveredWh)}
-                          </motion.span>
-                        )}
-                        <Badge
-                          variant={stationCardConnectorStatusVariant(conn.status)}
-                          className="text-xs px-1.5 py-0"
-                        >
-                          {conn.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex items-center gap-2">
-              {iconWithReason}
-              <div className="flex flex-col gap-1 min-w-0">
-                <div className="flex flex-wrap gap-1">
-                  {connectors.map((conn, i) => (
-                    <ConnectorIcon key={i} conn={conn} />
-                  ))}
-                </div>
-                {badges}
-                {charging && energy > 0 && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="flex items-center gap-0.5 text-xs font-medium text-link"
-                  >
-                    <Zap className="h-3 w-3" />
-                    <span>{formatEnergy(energy)}</span>
-                  </motion.div>
-                )}
-                {currentDrawKw != null && currentDrawKw > 0 && (
-                  <div
-                    className={cn(
-                      'flex items-center gap-0.5 text-xs font-medium',
-                      allocatedLimitKw != null && allocatedLimitKw > 0
-                        ? utilizationColor(currentDrawKw, allocatedLimitKw)
-                        : 'text-success',
-                    )}
-                  >
-                    <Zap className="h-2.5 w-2.5" />
-                    <span>{formatNumber(currentDrawKw, 1)} kW</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
-        )}
+          </div>
+        </div>
       </div>
     </motion.div>
   );

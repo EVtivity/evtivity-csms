@@ -36,7 +36,8 @@ export const SIMULATED_FIRMWARE_VERSIONS: Readonly<Record<'VP6825' | 'VP7200', s
  * (`sim_term_offline`), authorize later through a signed event
  * (`sim_term_async`) or report a SIM (`sim_term_lte`, the VP6825 LTE variant).
  * `sim_term_4` (VP6825) and `sim_term_5` (VP7200) are the terminals of the
- * demo seed, so no test or E2E run registers them. Each reports the vendor,
+ * demo seed, `sim_term_6` (VP6825) and `sim_term_7` (VP7200, offline) those of the
+ * site layout demo, so no test or E2E run registers them. Each reports the vendor,
  * a serial number and a firmware version like an ID TECH device (fictional
  * values: the model digits and a sequence number, no real serial).
  */
@@ -50,6 +51,8 @@ export const SIMULATED_DEVICES: readonly TerminalDevice[] = Object.freeze([
   device('sim_term_lte', 'VP6825', 14, '8901260000000000017'),
   device('sim_term_4', 'VP6825', 4, null),
   device('sim_term_5', 'VP7200', 5, null),
+  device('sim_term_6', 'VP6825', 6, null),
+  device('sim_term_7', 'VP7200', 7, null, false),
 ]);
 
 function device(

@@ -28,7 +28,7 @@ try {
     actorUserId: admin?.id ?? null,
   });
   console.log(
-    `${String(counts.pncSessions)} Plug and Charge sessions, ${String(counts.freeVendSessions)} free vend sessions, ${String(counts.sims)} SIMs and ${String(counts.terminalPayments)} terminal payments created.`,
+    `${String(counts.pncSessions)} Plug and Charge sessions, ${String(counts.freeVendSessions)} free vend sessions, ${String(counts.sims)} SIMs, ${String(counts.terminalPayments)} terminal payments and ${String(counts.layoutStations)} site layout demo stations created.`,
   );
 } finally {
   await client.end();

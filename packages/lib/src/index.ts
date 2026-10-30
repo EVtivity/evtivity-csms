@@ -843,7 +843,11 @@ export type {
 } from './station-data-plan.js';
 export {
   AC_MAX_POWER_KW,
+  CONNECTOR_CURRENT_AMPS_DECIMALS,
+  CONNECTOR_POWER_KW_DECIMALS,
+  CONNECTOR_RATING_MIN,
   CONNECTOR_TYPES,
+  hasAtMostDecimals,
   isDcConnector,
   stationChargingKind,
 } from './connector-power.js';

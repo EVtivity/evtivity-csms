@@ -42,9 +42,11 @@ export interface TabPanelProps
   actions?: React.ReactNode;
   /**
    * `stacked` (default): the actions go under the title on phones. `inline`: one
-   * compact control stays on the right of the title at every width.
+   * compact control stays on the right of the title at every width. `fill`: as
+   * `stacked`, and from `sm` the actions take the rest of the title row, right-aligned,
+   * so a flexible control in them (a search field with `flex-1`) grows and shrinks.
    */
-  actionsPosition?: 'stacked' | 'inline' | undefined;
+  actionsPosition?: 'stacked' | 'inline' | 'fill' | undefined;
   /** Extra classes for the body (such as `space-y-4`). */
   bodyClassName?: string | undefined;
   /** Shows the loading state instead of the body. */
@@ -114,7 +116,7 @@ const TabPanel = React.forwardRef<HTMLDivElement, TabPanelProps>(
                 : 'flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'
             }
           >
-            <div className="min-w-0 space-y-1.5">
+            <div className={cn('min-w-0 space-y-1.5', actionsPosition === 'fill' && 'sm:shrink-0')}>
               {title != null && <CardTitle>{title}</CardTitle>}
               {description != null && <CardDescription>{description}</CardDescription>}
             </div>
@@ -123,6 +125,7 @@ const TabPanel = React.forwardRef<HTMLDivElement, TabPanelProps>(
                 className={cn(
                   'flex flex-wrap items-center gap-2',
                   actionsPosition === 'inline' && 'shrink-0',
+                  actionsPosition === 'fill' && 'sm:min-w-0 sm:flex-1 sm:justify-end',
                 )}
               >
                 {actions}

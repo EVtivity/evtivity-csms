@@ -286,6 +286,9 @@ export const transactionEvents = pgTable(
   (table) => [
     index('idx_transaction_events_session_id').on(table.sessionId),
     index('idx_transaction_events_timestamp').on(table.timestamp),
+    // The metrics collector's 24-hour count by trigger reason (migration
+    // 0482, built CONCURRENTLY).
+    index('idx_transaction_events_created_at').on(table.createdAt),
     // One row per event identity, the TransactionEvent resend check's key.
     // Built CONCURRENTLY by 0476_release_0_1_46_indexes.sql; inserts use
     // ON CONFLICT DO NOTHING, so a resend projected on a second pod adds no row.

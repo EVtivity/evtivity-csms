@@ -439,6 +439,16 @@
     "last60d": "60 T",
     "custom": "Benutzerdefiniert",
     "siteMap": "Standortkarte",
+    "siteLayout": {
+      "title": "Standort-Layout",
+      "info": "Eine 3D-Ansicht des Parkplatzes und der Ladestationen eines Standorts, nur zum Ansehen. Klicken Sie auf eine Ladestation für Details. Das Layout ändern Sie im Tab Layout des Standorts.",
+      "siteLabel": "Standort",
+      "resetView": "Ansicht Zurücksetzen",
+      "openLayout": "Standort-Layout Öffnen",
+      "siteUnavailable": "Der gewählte Standort ist nicht mehr verfügbar. Angezeigt wird {{name}}.",
+      "noSites": "Keine Standorte zum Anzeigen.",
+      "webglUnavailable": "Dieser Browser kann die 3D-Ansicht nicht anzeigen (WebGL ist nicht verfügbar). Öffnen Sie das Standort-Layout für die 2D-Ansicht."
+    },
     "info": {
       "totalStations": "Akzeptierte Ladestationen. Ausstehende und gesperrte Stationen werden gesondert gezählt.",
       "online": "Prozentsatz der akzeptierten Stationen, die derzeit verbunden sind und über OCPP kommunizieren.",
@@ -732,7 +742,8 @@
       "editLayout": "Layout Bearbeiten",
       "doneEditing": "Bearbeitung Beenden",
       "hint": "Ziehen zum Drehen, Scrollen oder Zusammenziehen zum Zoomen, mit Rechtsklick oder zwei Fingern ziehen zum Verschieben. Klicken Sie auf eine Ladestation für Details.",
-      "hintEdit": "Bearbeitungsmodus: Ziehen Sie eine Ladestation auf einen freien Stellplatz. Sie rastet im Stellplatz ein und landet nie auf einer anderen Ladestation.",
+      "hintViewOnly": "Ziehen zum Umsehen, Scrollen oder Zusammenziehen zum Zoomen. Klicken Sie auf eine Ladestation für Details.",
+      "hintEdit": "Bearbeitungsmodus: Ziehen Sie eine Ladestation auf einen freien Stellplatz oder einen Transformator auf die Wiese. Eine Ladestation rastet im Stellplatz ein und landet nie auf einer anderen Ladestation.",
       "webglUnavailable": "Dieser Browser kann die 3D-Ansicht nicht anzeigen (WebGL ist nicht verfügbar), daher wird die 2D-Ansicht angezeigt.",
       "loading3d": "3D-Ansicht Wird Geladen",
       "newTag": "Neu",
@@ -756,7 +767,13 @@
       "signalUnknown": "Signal Unbekannt",
       "evse": "EVSE {{id}}",
       "openStation": "Ladestation Öffnen",
-      "detailsLabel": "Details zu {{id}}"
+      "detailsLabel": "Details zu {{id}}",
+      "stateDetailsLabel": "{{id}} · {{state}}, Details",
+      "allocatedLimit": "Zugewiesenes Limit",
+      "displayMessage": "Anzeigenachricht",
+      "transformer": "Transformator",
+      "paymentTerminals": "Zahlungsterminals",
+      "terminalStatusUnknown": "Status Unbekannt"
     },
     "layoutState": {
       "faulted": "Gestört",
@@ -767,6 +784,27 @@
       "charging": "Lädt",
       "available": "Verfügbar",
       "online": "Online"
+    },
+    "layoutSettings": {
+      "title": "Parkplatz",
+      "hint": "Änderungen sind sofort sichtbar und werden mit Speichern gesichert. Eine Ladestation außerhalb des Parkplatzes rückt auf den nächsten freien Stellplatz.",
+      "spotsPerRow": "Stellplätze pro Reihe",
+      "rows": "Reihen",
+      "spotWidthM": "Stellplatzbreite",
+      "spotDepthM": "Stellplatztiefe",
+      "laneWidthM": "Fahrgassenbreite",
+      "range": "{{min}} bis {{max}}{{unit}}",
+      "facingDeg": "Ausrichtung",
+      "facingOption": "{{deg}}°",
+      "facingHint": "Dreht die Reihen und Ladestationen.",
+      "tooSmall": "Der Parkplatz hat {{spots}} Stellplätze für {{stations}} Ladestationen. Fügen Sie Stellplätze oder Reihen hinzu.",
+      "transformers": "Transformatoren",
+      "transformersHint": "Ziehen Sie einen Transformator in der 3D-Ansicht, um ihn auf der Wiese zu verschieben.",
+      "addTransformer": "Transformator Hinzufügen",
+      "noTransformers": "Keine Transformatoren.",
+      "transformerName": "Name von Transformator {{n}}",
+      "ratedKva": "Nennleistung kVA",
+      "removeTransformer": "Transformator {{n}} Entfernen"
     }
   },
   "stations": {

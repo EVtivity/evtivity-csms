@@ -23,7 +23,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip } from '@/components/ui/tooltip';
 import { isBootOwnedStationSetting } from '@evtivity/lib/station-data-plan';
@@ -66,6 +67,9 @@ interface Props {
   isOnline: boolean;
   ocppProtocol: string | null;
 }
+
+/** A toolbar button label shown on phones and from 85rem, icon only (screen reader text) between. */
+const COMPACT_LABEL = 'sm:max-[85rem]:sr-only';
 
 export function StationConfigurationsTab({
   stationId,
@@ -198,6 +202,9 @@ export function StationConfigurationsTab({
   });
 
   const totalPages = data != null ? Math.ceil(data.total / limit) : 1;
+  const refreshLabel = isRefreshing
+    ? t('stations.refreshing')
+    : t('stations.refreshConfigurations');
 
   return (
     <>
@@ -210,8 +217,16 @@ export function StationConfigurationsTab({
         }}
         isEmpty={data == null || data.data.length === 0}
         emptyMessage={t('stations.noConfigurations')}
+        actionsPosition="fill"
         actions={
-          <div className="flex flex-wrap gap-2 *:grow sm:*:grow-0">
+          // One row from sm: the search field takes the room the buttons leave (at least
+          // 10rem). Below 85rem the three labels do not fit next to it with the sidebar
+          // open, so the buttons show their icon only there (label kept for screen
+          // readers and as the tooltip). On phones each control takes its own row.
+          <div
+            className="flex w-full flex-wrap items-center gap-2 sm:justify-end"
+            data-testid="station-configurations-toolbar"
+          >
             <SearchInput
               value={search}
               onDebouncedChange={(v) => {
@@ -219,30 +234,42 @@ export function StationConfigurationsTab({
                 setPage(1);
               }}
               placeholder={t('common.search')}
+              className="w-full sm:w-auto sm:min-w-40 sm:flex-1"
             />
             <Button
               variant="outline"
               size="sm"
+              className="grow sm:grow-0"
+              title={refreshLabel}
               disabled={!isOnline || isRefreshing}
               onClick={() => {
                 refreshMutation.mutate();
               }}
             >
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-              {isRefreshing ? t('stations.refreshing') : t('stations.refreshConfigurations')}
+              <span className={COMPACT_LABEL}>{refreshLabel}</span>
             </Button>
             {defaultTemplate != null && (
-              <Link to={`/station-configurations/${defaultTemplate.id}`}>
-                <Button variant="outline" size="sm">
-                  <Pencil className="h-4 w-4" />
-                  {t('stations.editStationConfiguration')}
-                </Button>
+              <Link
+                to={`/station-configurations/${defaultTemplate.id}`}
+                className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'grow sm:grow-0')}
+                title={t('stations.editStationConfiguration')}
+              >
+                <Pencil className="h-4 w-4" />
+                <span className={COMPACT_LABEL}>{t('stations.editStationConfiguration')}</span>
               </Link>
             )}
             {canPush && (
-              <Button variant="outline" size="sm" disabled={!isOnline} onClick={handleOpenPush}>
+              <Button
+                variant="outline"
+                size="sm"
+                className="grow sm:grow-0"
+                title={t('stations.pushConfiguration')}
+                disabled={!isOnline}
+                onClick={handleOpenPush}
+              >
                 <Upload className="h-4 w-4" />
-                {t('stations.pushConfiguration')}
+                <span className={COMPACT_LABEL}>{t('stations.pushConfiguration')}</span>
               </Button>
             )}
           </div>

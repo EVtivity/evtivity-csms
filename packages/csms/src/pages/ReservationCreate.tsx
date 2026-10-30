@@ -17,6 +17,7 @@ import { DriverCombobox } from '@/components/driver-combobox';
 import { StationCombobox, type StationSelection } from '@/components/station-combobox';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { formatConnectorPowerKw } from '@/lib/connector-rating';
 import {
   getDefaultStartsAt,
   getDefaultExpiresAt,
@@ -89,7 +90,8 @@ export function ReservationCreate(): React.JSX.Element {
     for (const evse of connectorsQuery.data) {
       for (const conn of evse.connectors) {
         const type = conn.connectorType ?? 'Unknown';
-        const power = conn.maxPowerKw != null ? `${String(conn.maxPowerKw)} kW` : '';
+        const power =
+          conn.maxPowerKw != null ? `${formatConnectorPowerKw(conn.maxPowerKw)} kW` : '';
         const label = `Port ${String(evse.evseId)}-${String(conn.connectorId)}: ${type}${power ? ` (${power})` : ''}`;
         options.push({
           key: `${String(evse.evseId)}-${String(conn.connectorId)}`,

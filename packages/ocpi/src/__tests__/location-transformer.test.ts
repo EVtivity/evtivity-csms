@@ -351,7 +351,21 @@ describe('connector mapping', () => {
       format: 'SOCKET',
       power_type: 'AC_3_PHASE',
       max_amperage: 19,
+      max_electric_power: 7400,
     });
+  });
+
+  it('publishes a decimal current rounded down and a decimal power in whole watts', () => {
+    const row = withConnectors(['available'], 'Type2');
+    const c = row.connectors[0];
+    if (c != null) {
+      c.maxPowerKw = '11.5';
+      c.maxCurrentAmps = 31.5;
+    }
+    const published = transformEvseStandalone(row, '2.2.1').connectors[0];
+    expect(published?.max_amperage).toBe(31);
+    expect(published?.max_electric_power).toBe(11500);
+    expect(Number.isInteger(published?.max_amperage)).toBe(true);
   });
 });
 

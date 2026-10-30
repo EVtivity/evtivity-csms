@@ -1,11 +1,21 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { lazy, Suspense, useCallback, useState, useMemo, useRef } from 'react';
+import { lazy, Suspense, useCallback, useLayoutEffect, useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Plug, Circle, Zap, Shield, Maximize2, Pencil, Check } from 'lucide-react';
-import { LAYOUT_CARD_HEIGHT, LAYOUT_CARD_WIDTH, resolveCardDrop } from '@evtivity/lib/site-layout';
+import {
+  LAYOUT_CARD_HEIGHT,
+  LAYOUT_CARD_WIDTH,
+  effectiveLayoutSettings,
+  fitPositionsToGrid,
+  gridBoardExtent,
+  positionToBay,
+  resolveCardDrop,
+  snapTransformerToGrass,
+  type SiteLayoutSettings,
+} from '@evtivity/lib/site-layout';
 import { SaveButton } from '@/components/save-button';
 import { ResetButton } from '@/components/reset-button';
 import { Button } from '@/components/ui/button';
@@ -17,8 +27,15 @@ import { getErrorMessage } from '@/lib/error-message';
 import { STATION_DISPLAY_STATES } from '@/lib/station-display-state';
 import { webglAvailable } from '@/lib/webgl';
 import { StationCard, type LayoutStation } from './StationCard';
+import { StationLayoutPopup } from './StationLayoutPopup';
+import { placeLayoutPopup } from './layout-popup-position';
+import { STAGE_HEIGHT_CLASS } from './site-layout-stage';
+import { cn } from '@/lib/utils';
 import { CellularBadge, NewPlacementTag, StationStateIcon } from './StationStateIcon';
 import { SCENE_COLORS } from './site-layout-colors';
+import { LayoutSettingsPanel } from './LayoutSettingsPanel';
+import { useSiteTerminals } from './layout-terminals';
+import { autoLayout, useBrandingLogo, type LoadManagementResponse } from './site-layout-data';
 import { STATUS_COLORS } from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
 
@@ -45,45 +62,8 @@ function storeView(view: LayoutView): void {
   }
 }
 
-interface LoadManagementStation {
-  id: string;
-  stationId: string;
-  currentDrawKw: number;
-  allocatedLimitKw: number | null;
-  loadPriority: number;
-  isOnline: boolean;
-  hasActiveSession: boolean;
-}
-
-interface LoadManagementResponse {
-  config: {
-    strategy: string;
-    isEnabled: boolean;
-  } | null;
-  hierarchy: unknown[];
-  stations: LoadManagementStation[];
-}
-
 interface SiteLayoutProps {
   siteId: string;
-}
-
-const COLUMN_COUNT = 5;
-const SPACING_X = 200;
-const SPACING_Y = 140;
-const PADDING = 20;
-
-function autoLayout(stations: LayoutStation[]): Map<string, { x: number; y: number }> {
-  const positions = new Map<string, { x: number; y: number }>();
-  stations.forEach((station, i) => {
-    const col = i % COLUMN_COUNT;
-    const row = Math.floor(i / COLUMN_COUNT);
-    positions.set(station.id, {
-      x: PADDING + col * SPACING_X,
-      y: PADDING + row * SPACING_Y,
-    });
-  });
-  return positions;
 }
 
 export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
@@ -93,11 +73,25 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   const [pendingPositions, setPendingPositions] = useState<Map<string, { x: number; y: number }>>(
     new Map(),
   );
-  const [collapseKey, setCollapseKey] = useState(0);
+  // The station whose popup shows in the 2D view (the 3D view keeps its own).
+  const [selected2d, setSelected2d] = useState<string | null>(null);
+  const popup2dRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<LayoutView>(readStoredView);
   const [webgl, setWebgl] = useState(webglAvailable);
   const [editing, setEditing] = useState(false);
   const [fitKey, setFitKey] = useState(0);
+  // Lot and transformer edits of Edit Layout, saved with the layout Save.
+  const [pendingSettings, setPendingSettings] = useState<SiteLayoutSettings | null>(null);
+  const [settingsInvalid, setSettingsInvalid] = useState(false);
+  const [settingsPanelKey, setSettingsPanelKey] = useState(0);
+  const terminals = useSiteTerminals(siteId);
+
+  const { data: site } = useQuery({
+    queryKey: ['sites', siteId],
+    queryFn: () => api.get<{ layoutSettings: SiteLayoutSettings | null }>(`/v1/sites/${siteId}`),
+  });
+  // Public branding: the company logo on the back of the 3D chargers.
+  const logoUrl = useBrandingLogo();
   const boardRef = useRef<HTMLDivElement>(null);
   const show3d = view === '3d' && webgl;
 
@@ -128,18 +122,24 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   }, [loadManagement]);
 
   const saveMutation = useMutation({
-    mutationFn: (positions: Array<{ stationId: string; positionX: number; positionY: number }>) =>
-      api.put(`/v1/sites/${siteId}/layout`, { positions }),
+    mutationFn: (body: {
+      positions: Array<{ stationId: string; positionX: number; positionY: number }>;
+      settings?: SiteLayoutSettings;
+    }) => api.put(`/v1/sites/${siteId}/layout`, body),
+    // A saved layout leaves Edit Layout; a failed save keeps the mode and the
+    // pending positions and settings, and shows the error.
     onSuccess: () => {
+      setEditing(false);
       setPendingPositions(new Map());
-      void queryClient.invalidateQueries({ queryKey: ['sites', siteId, 'layout'] });
+      setPendingSettings(null);
+      void queryClient.invalidateQueries({ queryKey: ['sites', siteId] });
     },
   });
 
   const allZero = stations != null && stations.every((s) => s.positionX === 0 && s.positionY === 0);
   const autoPositions = useMemo(() => (allZero ? autoLayout(stations) : null), [allZero, stations]);
 
-  const resolvedStations = useMemo(() => {
+  const placedStations = useMemo(() => {
     if (stations == null) return [];
     return stations.map((station) => {
       const pending = pendingPositions.get(station.id);
@@ -152,6 +152,62 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     });
   }, [stations, pendingPositions, autoPositions]);
 
+  // The lot and transformers in use: the pending edits, else the stored
+  // settings, else the default lot grown to hold the stations.
+  const layoutSettings = useMemo(
+    () =>
+      pendingSettings ??
+      effectiveLayoutSettings(
+        site?.layoutSettings,
+        placedStations.map((s) => positionToBay({ x: s.positionX, y: s.positionY })),
+      ),
+    [pendingSettings, site, placedStations],
+  );
+
+  // A pending lot moves the stations outside it to the nearest free spots, as
+  // the save will (the same rule as the API).
+  const resolvedStations = useMemo(() => {
+    if (pendingSettings == null) return placedStations;
+    const fit = fitPositionsToGrid(
+      placedStations.map((s) => ({ key: s.id, position: { x: s.positionX, y: s.positionY } })),
+      pendingSettings,
+    );
+    if (fit.moved.size === 0) return placedStations;
+    return placedStations.map((s) => {
+      const moved = fit.moved.get(s.id);
+      return moved == null ? s : { ...s, positionX: moved.x, positionY: moved.y };
+    });
+  }, [placedStations, pendingSettings]);
+
+  const lotTooSmall =
+    pendingSettings != null &&
+    pendingSettings.spotsPerRow * pendingSettings.rows < resolvedStations.length;
+  const hasPending = pendingPositions.size > 0 || pendingSettings != null;
+
+  const selected2dStation = show3d
+    ? null
+    : (resolvedStations.find((s) => s.id === selected2d) ?? null);
+
+  // The 2D popup stands beside its card, inside the visible part of the board.
+  useLayoutEffect(() => {
+    const popup = popup2dRef.current;
+    const board = boardRef.current;
+    if (popup == null || board == null || selected2dStation == null) return;
+    const x = selected2dStation.positionX;
+    const y = selected2dStation.positionY;
+    placeLayoutPopup(
+      popup,
+      { left: x, top: y, right: x + LAYOUT_CARD_WIDTH, bottom: y + LAYOUT_CARD_HEIGHT },
+      {
+        left: board.scrollLeft,
+        top: board.scrollTop,
+        width: board.clientWidth,
+        height: board.clientHeight,
+      },
+      8,
+    );
+  }, [selected2dStation]);
+
   // A 2D drop lands on the 20 px grid, inside the board and on no other card.
   const resolveDrop = useCallback(
     (stationId: string, x: number, y: number) => {
@@ -159,29 +215,22 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
         .filter((s) => s.id !== stationId)
         .map((s) => ({ x: s.positionX, y: s.positionY }));
       const own = resolvedStations.find((s) => s.id === stationId);
-      const board = boardRef.current;
-      const width = Math.max(
-        board?.clientWidth ?? 0,
-        ...resolvedStations.map((s) => s.positionX + LAYOUT_CARD_WIDTH),
-      );
-      const height = Math.max(
-        board?.clientHeight ?? 0,
-        ...resolvedStations.map((s) => s.positionY + LAYOUT_CARD_HEIGHT),
-      );
+      // Cards land inside the lot, as stations do in 3D.
       return resolveCardDrop(
         { x, y },
         others,
-        { width, height },
+        gridBoardExtent(layoutSettings),
         own != null ? { x: own.positionX, y: own.positionY } : { x: 0, y: 0 },
       );
     },
-    [resolvedStations],
+    [resolvedStations, layoutSettings],
   );
 
   function chooseView(next: LayoutView): void {
     setView(next);
     storeView(next);
     if (next === '2d') setEditing(false);
+    setSelected2d(null);
   }
 
   function handleDragEnd(stationId: string, x: number, y: number): void {
@@ -192,19 +241,36 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     });
   }
 
+  // A transformer dropped in 3D (already on the grass).
+  function handleTransformerMove(transformerId: string, x: number, z: number): void {
+    const base = layoutSettings;
+    const spot = snapTransformerToGrass(x, z, base);
+    setPendingSettings({
+      ...base,
+      transformers: base.transformers.map((tr) =>
+        tr.id === transformerId ? { ...tr, ...spot } : tr,
+      ),
+    });
+  }
+
   function handleSave(): void {
     const positions = resolvedStations.map((s) => ({
       stationId: s.id,
       positionX: s.positionX,
       positionY: s.positionY,
     }));
-    saveMutation.mutate(positions);
-    setCollapseKey((k) => k + 1);
+    saveMutation.mutate(
+      pendingSettings != null ? { positions, settings: pendingSettings } : { positions },
+    );
+    setSelected2d(null);
   }
 
   function handleReset(): void {
     setPendingPositions(new Map());
-    setCollapseKey((k) => k + 1);
+    setPendingSettings(null);
+    setSettingsInvalid(false);
+    setSettingsPanelKey((k) => k + 1);
+    setSelected2d(null);
   }
 
   return (
@@ -273,8 +339,11 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
               noValidate
               className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex"
             >
-              <ResetButton onClick={handleReset} disabled={pendingPositions.size === 0} />
-              <SaveButton isPending={saveMutation.isPending} />
+              <ResetButton onClick={handleReset} disabled={!hasPending} />
+              <SaveButton
+                isPending={saveMutation.isPending}
+                disabled={saveMutation.isPending || settingsInvalid || lotTooSmall}
+              />
             </form>
           )}
         </div>
@@ -282,6 +351,15 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     >
       {saveMutation.isError && (
         <p className="mb-3 text-sm text-destructive">{getErrorMessage(saveMutation.error, t)}</p>
+      )}
+      {show3d && editing && canWrite && resolvedStations.length > 0 && (
+        <LayoutSettingsPanel
+          key={settingsPanelKey}
+          settings={layoutSettings}
+          stationCount={resolvedStations.length}
+          onChange={setPendingSettings}
+          onInvalidChange={setSettingsInvalid}
+        />
       )}
       {view === '3d' && !webgl && resolvedStations.length > 0 && (
         <p className="mb-3 text-sm text-muted-foreground" data-testid="site-layout-webgl-note">
@@ -293,16 +371,27 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
       ) : show3d ? (
         <Suspense
           fallback={
-            <div className="flex h-[420px] w-full items-center justify-center rounded-lg border-2 border-dashed text-sm text-muted-foreground sm:h-[580px]">
+            <div
+              className={cn(
+                'flex w-full items-center justify-center rounded-lg border-2 border-dashed text-sm text-muted-foreground',
+                STAGE_HEIGHT_CLASS,
+              )}
+            >
               {t('sites.layoutView.loading3d')}
             </div>
           }
         >
           <SiteLayout3D
             stations={resolvedStations}
+            settings={layoutSettings}
+            terminals={terminals}
+            hierarchy={loadManagement?.config?.isEnabled === true ? loadManagement.hierarchy : null}
+            logoUrl={logoUrl}
+            onTransformerMove={handleTransformerMove}
             editing={editing && canWrite}
             fitKey={fitKey}
             currentDrawKw={(id) => stationPowerMap.get(id)?.currentDrawKw}
+            allocatedLimitKw={(id) => stationPowerMap.get(id)?.allocatedLimitKw}
             onMove={handleDragEnd}
             onUnavailable={() => {
               setWebgl(false);
@@ -311,27 +400,14 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
           />
         </Suspense>
       ) : (
-        <div
-          ref={boardRef}
-          data-testid="site-layout-2d"
-          className="relative w-full h-[700px] border-2 border-dashed rounded-lg overflow-auto"
-        >
-          {resolvedStations.map((station) => {
-            const power = stationPowerMap.get(station.id);
-            return (
-              <StationCard
-                key={station.id}
-                station={station}
-                onDragEnd={handleDragEnd}
-                resolveDrop={resolveDrop}
-                currentDrawKw={power?.currentDrawKw}
-                allocatedLimitKw={power?.allocatedLimitKw}
-                collapseKey={collapseKey}
-              />
-            );
-          })}
+        // On a phone the power draw panel sits above the board, so it never covers a
+        // station card; from the sm breakpoint it overlays the board's top right corner.
+        <div className="relative">
           {loadManagement != null && loadManagement.stations.length > 0 && (
-            <div className="absolute top-3 right-3 z-50 rounded-lg border bg-card/80 backdrop-blur-xs p-3 space-y-1.5 text-xs shadow-xs max-w-[180px]">
+            <div
+              data-testid="site-layout-power-draw"
+              className="mb-3 rounded-lg border bg-card/80 backdrop-blur-xs p-3 space-y-1.5 text-xs shadow-xs sm:absolute sm:top-3 sm:right-3 sm:z-50 sm:mb-0 sm:max-w-[180px]"
+            >
               <div className="flex items-center gap-1.5 font-semibold text-sm">
                 <Zap className="h-3.5 w-3.5" />
                 {t('sites.powerDraw')}
@@ -360,6 +436,50 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
               )}
             </div>
           )}
+          <div
+            ref={boardRef}
+            data-testid="site-layout-2d"
+            className="relative w-full h-[700px] border-2 border-dashed rounded-lg overflow-auto"
+          >
+            {/* The paved lot: cards land inside it. */}
+            <div
+              aria-hidden="true"
+              data-testid="site-layout-2d-lot"
+              className="pointer-events-none absolute rounded-md border border-dashed border-primary/40 bg-muted/40"
+              style={{
+                left: 8,
+                top: 8,
+                width: gridBoardExtent(layoutSettings).width + 12,
+                height: gridBoardExtent(layoutSettings).height + 12,
+              }}
+            />
+            {resolvedStations.map((station) => {
+              const power = stationPowerMap.get(station.id);
+              return (
+                <StationCard
+                  key={station.id}
+                  station={station}
+                  onDragEnd={handleDragEnd}
+                  resolveDrop={resolveDrop}
+                  currentDrawKw={power?.currentDrawKw}
+                  allocatedLimitKw={power?.allocatedLimitKw}
+                  onOpenDetails={setSelected2d}
+                />
+              );
+            })}
+            {selected2dStation != null && (
+              <StationLayoutPopup
+                ref={popup2dRef}
+                station={selected2dStation}
+                currentDrawKw={stationPowerMap.get(selected2dStation.id)?.currentDrawKw}
+                allocatedLimitKw={stationPowerMap.get(selected2dStation.id)?.allocatedLimitKw}
+                terminals={terminals.get(selected2dStation.id)}
+                onClose={() => {
+                  setSelected2d(null);
+                }}
+              />
+            )}
+          </div>
         </div>
       )}
       <div

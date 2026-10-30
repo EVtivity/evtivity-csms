@@ -34,6 +34,7 @@ import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { useDashboardLayout } from '@/hooks/use-dashboard-layout';
 import { SortableZone } from '@/components/dashboard/SortableZone';
 import { SortableWidget } from '@/components/dashboard/SortableWidget';
+import { SiteLayoutWidget } from '@/components/dashboard/SiteLayoutWidget';
 import {
   DashboardCustomizeBar,
   DashboardCustomizeButton,
@@ -557,6 +558,8 @@ function DashboardBody({
   const canSeeMoney = useHasPermission('payments:read');
   const canSeeSessions = useHasPermission('sessions:read');
   const canReadInsights = useHasPermission('aiInsights:read');
+  // The site Layout tab reads with sites:read.
+  const canReadSites = useHasPermission('sites:read');
   const featureFlags = useFeatureFlags();
   const timezone = useUserTimezone();
   const dashboardLayout = useDashboardLayout();
@@ -1039,6 +1042,22 @@ function DashboardBody({
     dashboardLayout.save({ ...dashboardLayout.layout, charts: arrayMove(items, from, to) });
   }
 
+  /** The user's Site Layout item (its site), in every mode. */
+  const siteLayoutItem = dashboardLayout.layout?.charts.find(
+    (c) => c.id === 'chart.siteLayout3d',
+  ) as (DashboardLayoutItem & { siteUnavailable?: boolean }) | undefined;
+
+  function setLayoutSite(siteId: string): void {
+    const current = dashboardLayout.layout;
+    if (current == null) return;
+    dashboardLayout.save({
+      ...current,
+      charts: current.charts.map((i) =>
+        i.id === 'chart.siteLayout3d' ? { id: i.id, hidden: i.hidden, siteId } : i,
+      ),
+    });
+  }
+
   function setChartHidden(id: string, hidden: boolean): void {
     const current = dashboardLayout.layout;
     if (current == null) return;
@@ -1428,6 +1447,17 @@ function DashboardBody({
             )}
           </CardContent>
         </Card>
+      ),
+    },
+    'chart.siteLayout3d': {
+      name: t('dashboard.siteLayout.title'),
+      visible: canReadSites,
+      render: () => (
+        <SiteLayoutWidget
+          siteId={siteLayoutItem?.siteId ?? null}
+          siteUnavailable={siteLayoutItem?.siteUnavailable === true}
+          onSiteChange={setLayoutSite}
+        />
       ),
     },
     'chart.stationMap': {

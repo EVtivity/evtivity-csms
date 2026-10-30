@@ -18,6 +18,7 @@ import {
   ONENCE_HISTORY_DAYS,
   ONENCE_PDP_EVENT_TYPES,
   OneNceProvider,
+  pdpEventKind,
 } from '../1nce/adapter.js';
 import { ONENCE_BASE_URL } from '../1nce/client.js';
 import { SimProviderError } from '../types.js';
@@ -32,6 +33,20 @@ const DAY_MS = 86_400_000;
 const UNKNOWN_ICCID = '8988303000000000099';
 
 type Json = Record<string, unknown>;
+
+/** The Luhn check digit of a digit string. */
+function luhnDigit(body: string): string {
+  let sum = 0;
+  for (let i = 0; i < body.length; i += 1) {
+    let digit = Number(body[body.length - 1 - i]);
+    if (i % 2 === 0) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+  }
+  return String((10 - (sum % 10)) % 10);
+}
 
 function report(message: string): void {
   // Counts, states and field names only.
@@ -82,7 +97,7 @@ async function raw(
 describe.skipIf(!live)('1NCE live API (opt-in, read-only)', { timeout: 120_000 }, () => {
   const provider = new OneNceProvider({ clientId, clientSecret });
 
-  async function firstSim(): Promise<{ iccid: string; iccidWithLuhn: string | null } | null> {
+  async function firstSim(): Promise<{ iccid: string; iccidWithLuhn: string } | null> {
     const t = await token();
     const list = await raw('/v2/sims', String(t.body['access_token']), {
       page: '1',
@@ -91,9 +106,11 @@ describe.skipIf(!live)('1NCE live API (opt-in, read-only)', { timeout: 120_000 }
     expect(list.status).toBe(200);
     const first = Array.isArray(list.body) ? (list.body[0] as Json | undefined) : undefined;
     if (first == null || typeof first['iccid'] !== 'string') return null;
+    // Live (2026-10-30): the reply has no `iccid_with_luhn`; a station reports
+    // the 19 digits plus their Luhn check digit.
     return {
       iccid: first['iccid'],
-      iccidWithLuhn: typeof first['iccid_with_luhn'] === 'string' ? first['iccid_with_luhn'] : null,
+      iccidWithLuhn: `${first['iccid']}${luhnDigit(first['iccid'])}`,
     };
   }
 
@@ -158,10 +175,13 @@ describe.skipIf(!live)('1NCE live API (opt-in, read-only)', { timeout: 120_000 }
     }
     const ref = (await provider.findByIccid(sim.iccid)) as SimRef;
     expect(ref).not.toBeNull();
-    if (sim.iccidWithLuhn != null) {
-      expect(await provider.findByIccid(sim.iccidWithLuhn)).toEqual(ref);
-    }
+    // The 20-digit form answers 404 at 1NCE; the adapter asks with the 19 digits.
+    expect(await provider.findByIccid(sim.iccidWithLuhn)).toEqual(ref);
     const status = await provider.getStatus(ref);
+    expect(status.state).not.toBe('unknown');
+    expect(status.providerState).toMatch(
+      /^(Enabled|Disabled)( \((ONLINE|ATTACHED|OFFLINE|BLOCKED)\))?$/,
+    );
     report(
       `status: state ${status.state}, provider state ${status.providerState}, in session ${String(status.inSession)}, usage ${status.usage == null ? 'none' : 'present'}`,
     );
@@ -187,19 +207,32 @@ describe.skipIf(!live)('1NCE live API (opt-in, read-only)', { timeout: 120_000 }
     });
     expect(page.status).toBe(200);
     const events = Array.isArray(page.body) ? (page.body as Json[]) : [];
+    expect(page.headers.get('x-current-page')).toBe('1');
+    expect(page.headers.get('x-total-count')).toMatch(/^\d+$/);
     const types = new Map<string, number>();
     let oldest: number | null = null;
     const detailFields = new Set<string>();
     let ordered = true;
+    let idsDescending = true;
     let previous: number | null = null;
+    let previousId: number | null = null;
+    let pdpEvents = 0;
     for (const event of events) {
       const type = event['event_type'] as Json | undefined;
       const key = `${String(type?.['id'])} ${String(type?.['description'])}`;
       types.set(key, (types.get(key) ?? 0) + 1);
+      const kind = pdpEventKind({
+        typeId: typeof type?.['id'] === 'number' ? type['id'] : null,
+        typeName: typeof type?.['description'] === 'string' ? type['description'] : null,
+      });
+      if (kind != null) pdpEvents += 1;
       const at = Date.parse(String(event['timestamp']));
       if (!Number.isNaN(at) && (oldest == null || at < oldest)) oldest = at;
       if (previous != null && !Number.isNaN(at) && at > previous) ordered = false;
       if (!Number.isNaN(at)) previous = at;
+      const id = typeof event['id'] === 'number' ? event['id'] : null;
+      if (previousId != null && id != null && id > previousId) idsDescending = false;
+      if (id != null) previousId = id;
       const detail = event['detail'] as Json | undefined;
       const context = detail?.['pdp_context'] as Json | undefined;
       if (detail?.['name'] != null) detailFields.add('detail.name');
@@ -219,10 +252,40 @@ describe.skipIf(!live)('1NCE live API (opt-in, read-only)', { timeout: 120_000 }
       `assumed PDP types: create ${String(ONENCE_PDP_EVENT_TYPES.create)}, delete ${String(ONENCE_PDP_EVENT_TYPES.delete)}`,
     );
     report(
-      `oldest event ${oldest == null ? 'none' : `${String(Math.round((Date.now() - oldest) / DAY_MS))} days old`}, newest first ${String(ordered)}`,
+      `oldest event ${oldest == null ? 'none' : `${(Math.round(((Date.now() - oldest) / DAY_MS) * 10) / 10).toFixed(1)} days old`}, newest first ${String(ordered)}, ids descending ${String(idsDescending)}`,
     );
+    report(`PDP context events: ${String(pdpEvents)}`);
     report(`session detail fields present: ${[...detailFields].join(', ') || 'none'}`);
     report(`first events page: ${String(events.length)} events, ${String(page.bytes)} bytes`);
+    // The adapter's paging relies on newest first by time (live, 2026-10-30).
+    expect(ordered).toBe(true);
+  });
+
+  it('answers a page past the last one with the last page, and refuses an events page over 1000', async (ctx) => {
+    const sim = await firstSim();
+    if (sim == null) {
+      report('skipped the events paging check: the account holds no SIM yet');
+      ctx.skip();
+      return;
+    }
+    const t = await token();
+    const bearer = String(t.body['access_token']);
+    const first = await raw(`/v2/sims/${sim.iccid}/events`, bearer, { page: '1', pageSize: '1' });
+    const pages = Number(first.headers.get('x-total-pages'));
+    expect(Number.isSafeInteger(pages)).toBe(true);
+    const past = await raw(`/v2/sims/${sim.iccid}/events`, bearer, {
+      page: String(pages + 1),
+      pageSize: '1',
+    });
+    expect(past.status).toBe(200);
+    // The adapter stops on `X-Current-Page` other than the page it asked for.
+    expect(past.headers.get('x-current-page')).toBe(String(Math.max(1, pages)));
+    const over = await raw(`/v2/sims/${sim.iccid}/events`, bearer, {
+      page: '1',
+      pageSize: String(ONENCE_EVENT_PAGE_SIZE + 1),
+    });
+    expect(over.status).toBe(400);
+    report(`events paging: ${String(pages)} pages of 1, a page past the last answers the last`);
   });
 
   it.skipIf(!allowReset)('resets the network of a SIM (SIM_LIVE_ALLOW_RESET=1)', async (ctx) => {

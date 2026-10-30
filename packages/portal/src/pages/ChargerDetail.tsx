@@ -38,7 +38,7 @@ import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useAuth } from '@/lib/auth';
 import { accountBillingAt, useDriverBilling } from '@/lib/fleet-billing';
-import { cn, formatDate } from '@/lib/utils';
+import { cn, formatConnectorCurrentAmps, formatConnectorPowerKw, formatDate } from '@/lib/utils';
 import {
   connectorStatusVariant,
   connectorStatusClassName,
@@ -685,9 +685,9 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
                     </div>
                     {(maxPowerKw > 0 || maxCurrentAmps > 0) && (
                       <p className="text-xs text-muted-foreground">
-                        {maxPowerKw > 0 ? `${String(maxPowerKw)} kW` : ''}
+                        {maxPowerKw > 0 ? `${formatConnectorPowerKw(maxPowerKw)} kW` : ''}
                         {maxPowerKw > 0 && maxCurrentAmps > 0 ? ' / ' : ''}
-                        {maxCurrentAmps > 0 ? `${String(maxCurrentAmps)}A` : ''}
+                        {maxCurrentAmps > 0 ? `${formatConnectorCurrentAmps(maxCurrentAmps)}A` : ''}
                       </p>
                     )}
                     <p className="text-xs text-muted-foreground">

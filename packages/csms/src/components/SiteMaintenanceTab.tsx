@@ -590,7 +590,7 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
               </div>
 
               {mode === 'one_off' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label htmlFor="m-starts" className="leading-6">
                       {t('maintenance.start')}
@@ -1096,7 +1096,7 @@ function EditEventForm({
               />
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="edit-start" className="leading-6">
                   {t('maintenance.start')}

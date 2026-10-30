@@ -7,6 +7,21 @@ import type { FastifyInstance } from 'fastify';
 import { defaultDashboardLayout } from '@evtivity/lib/dashboard-layout';
 
 const store = vi.hoisted(() => new Map<string, unknown>());
+// Sites that exist, and the site scope per user (null: every site).
+const existingSites = vi.hoisted(() => new Set(['sit_a', 'sit_b']));
+const siteScopes = vi.hoisted(
+  () =>
+    new Map<string, string[] | null>([
+      ['usr_000000000001', null],
+      ['usr_000000000002', ['sit_a']],
+    ]),
+);
+
+vi.mock('../lib/site-access.js', () => ({
+  getUserSiteIds: vi.fn((userId: string) =>
+    Promise.resolve(siteScopes.has(userId) ? (siteScopes.get(userId) ?? null) : []),
+  ),
+}));
 
 vi.mock('@evtivity/database', () => ({
   getUserDashboardLayout: vi.fn((userId: string) => Promise.resolve(store.get(userId) ?? null)),
@@ -18,6 +33,9 @@ vi.mock('@evtivity/database', () => ({
     store.delete(userId);
     return Promise.resolve();
   }),
+  existingDashboardSiteIds: vi.fn((ids: readonly string[]) =>
+    Promise.resolve(new Set(ids.filter((id) => existingSites.has(id)))),
+  ),
 }));
 
 // The real guard (middleware/rbac.ts) authenticates with the database; this
@@ -152,6 +170,65 @@ describe('dashboard layout routes', () => {
     // The body schema refuses another version (the app error handler codes it VALIDATION_ERROR).
     expect((await send('PUT', token, { version: 2, charts: [] })).statusCode).toBe(400);
     expect(vi.mocked(saveUserDashboardLayout)).not.toHaveBeenCalled();
+  });
+
+  it('stores the site of the 3D site layout only when the user may access it', async () => {
+    const choose = (bearer: string, siteId: string | null) =>
+      send('PUT', bearer, {
+        version: 1,
+        charts: [{ id: 'chart.siteLayout3d', hidden: false, siteId }],
+      });
+
+    const put = await choose(otherToken, 'sit_a');
+    expect(put.statusCode).toBe(200);
+    expect(put.json().layout.charts[0]).toEqual({
+      id: 'chart.siteLayout3d',
+      hidden: false,
+      siteId: 'sit_a',
+    });
+    expect((await send('GET', otherToken)).json().layout.charts[0].siteId).toBe('sit_a');
+
+    // Another site, a deleted one, and a site on a chart that takes none are refused.
+    vi.mocked(saveUserDashboardLayout).mockClear();
+    for (const res of [
+      await choose(otherToken, 'sit_b'),
+      await choose(token, 'sit_gone'),
+      await send('PUT', token, {
+        version: 1,
+        charts: [{ id: 'chart.energy', hidden: false, siteId: 'sit_a' }],
+      }),
+    ]) {
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+    }
+    expect(vi.mocked(saveUserDashboardLayout)).not.toHaveBeenCalled();
+
+    // An all-site user picks any site; null returns to the default site.
+    expect((await choose(token, 'sit_b')).statusCode).toBe(200);
+    const reset = await choose(token, null);
+    expect(reset.statusCode).toBe(200);
+    expect(reset.json().layout.charts[0]).toEqual({ id: 'chart.siteLayout3d', hidden: false });
+  });
+
+  it('drops a chosen site the user lost access to or that was deleted, and says so', async () => {
+    store.set('usr_000000000002', {
+      version: 1,
+      charts: [{ id: 'chart.siteLayout3d', hidden: false, siteId: 'sit_b' }],
+    });
+    store.set('usr_000000000001', {
+      version: 1,
+      charts: [{ id: 'chart.siteLayout3d', hidden: false, siteId: 'sit_deleted' }],
+    });
+    for (const bearer of [otherToken, token]) {
+      const res = await send('GET', bearer);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().layout.charts[0]).toEqual({
+        id: 'chart.siteLayout3d',
+        hidden: false,
+        siteId: null,
+        siteUnavailable: true,
+      });
+    }
   });
 
   it('resets to the default layout, also when nothing was stored', async () => {

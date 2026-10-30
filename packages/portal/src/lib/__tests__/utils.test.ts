@@ -7,6 +7,8 @@ import {
   cn,
   formatCents,
   formatClockTime,
+  formatConnectorCurrentAmps,
+  formatConnectorPowerKw,
   formatDate,
   formatDistance,
   formatDuration,
@@ -171,6 +173,16 @@ describe('formatting in the UI language', () => {
     expect(formatNumber(1234.5, 1)).toBe('1.234,5');
     expect(formatEnergy(12_345)).toBe('12,35 kWh');
     expect(formatDistance(1_234_000, 1, 'miles')).toBe('1.234 Miles');
+  });
+
+  it('formats decimal connector ratings without trailing zeros', async () => {
+    expect(formatConnectorPowerKw(7.4)).toBe('7.4');
+    expect(formatConnectorPowerKw(3.68)).toBe('3.68');
+    expect(formatConnectorPowerKw(22)).toBe('22');
+    expect(formatConnectorCurrentAmps(31.5)).toBe('31.5');
+    await i18next.changeLanguage('de');
+    expect(formatConnectorPowerKw(11.5)).toBe('11,5');
+    expect(formatConnectorCurrentAmps(31.5)).toBe('31,5');
   });
 
   it('formats dates in the selected language without seconds', async () => {

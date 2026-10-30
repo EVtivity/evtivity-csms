@@ -20,6 +20,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { LOAD_ALLOCATION_STRATEGIES } from '@evtivity/lib/load-allocation';
+import type { SiteLayoutSettings } from '@evtivity/lib/site-layout';
 import { createId } from '../lib/id.js';
 
 export const chargingStationStatusEnum = pgEnum('charging_station_status', [
@@ -112,11 +113,20 @@ export const sites = pgTable(
     // a confirmed SIM run it. Null: not set (Wi-Fi or wired). Written only by
     // setSiteDataPlan (lib/station-data-plan.ts).
     dataPlan: stationDataPlanEnum('data_plan'),
+    // The layout settings: the paved lot and the transformers on the grass
+    // (@evtivity/lib/site-layout-schema). Null: never set, the default 10 by 2
+    // lot grown to hold the stations, with one transformer. Written only by
+    // saveSiteLayout (lib/station-layout.ts).
+    layoutSettings: jsonb('layout_settings').$type<SiteLayoutSettings>(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique('sites_name_unique').on(table.name),
+    check(
+      'sites_layout_settings_check',
+      sql`${table.layoutSettings} IS NULL OR jsonb_typeof(${table.layoutSettings}) = 'object'`,
+    ),
     check(
       'sites_station_message_language_check',
       sql`${table.stationMessageLanguage} IN ('en', 'de', 'es', 'ko', 'zh', 'zh-TW')`,
@@ -276,7 +286,8 @@ export const connectors = pgTable(
     statusReportedAt: timestamp('status_reported_at', { withTimezone: true }),
     connectorType: varchar('connector_type', { length: 50 }),
     maxPowerKw: numeric('max_power_kw'),
-    maxCurrentAmps: integer('max_current_amps'),
+    // Decimal amps (31.5 A); read as a JS number.
+    maxCurrentAmps: numeric('max_current_amps', { mode: 'number' }),
     autoCreated: boolean('auto_created').default(false).notNull(),
     // Retired by an operator, like evses.retired_at; a connector of a retired
     // EVSE is out of service too. Null while in service.

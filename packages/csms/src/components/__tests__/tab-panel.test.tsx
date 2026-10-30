@@ -49,6 +49,23 @@ describe('TabPanel', () => {
     expect(screen.getByRole('combobox').parentElement?.className).toContain('shrink-0');
   });
 
+  it('lets fill actions take the rest of the title row from sm', () => {
+    render(
+      <TabPanel title="Configurations" actionsPosition="fill" actions={<input aria-label="q" />}>
+        x
+      </TabPanel>,
+    );
+    const titleBlock = screen.getByRole('heading', { name: 'Configurations' }).closest('div');
+    expect(titleBlock?.className).toContain('sm:shrink-0');
+    const header = titleBlock?.parentElement;
+    expect(header?.className).toContain('flex-col');
+    expect(header?.className).toContain('sm:flex-row');
+    const actions = screen.getByRole('textbox', { name: 'q' }).parentElement;
+    expect(actions?.className).toContain('sm:flex-1');
+    expect(actions?.className).toContain('sm:min-w-0');
+    expect(actions?.className).toContain('sm:justify-end');
+  });
+
   it('runs a flush body edge to edge', () => {
     render(
       <TabPanel title="History" body="flush">

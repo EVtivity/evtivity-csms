@@ -580,6 +580,59 @@ describe('Station routes - cov2', () => {
       });
       expect(res.statusCode).toBe(500);
     });
+
+    it('update EVSE stores a decimal power and current', async () => {
+      queue(
+        [{ id: 7, evseId: 1 }],
+        [{ connectorId: 1 }],
+        [],
+        [
+          {
+            connectorId: 1,
+            connectorType: 'Type2',
+            maxPowerKw: '7.4',
+            maxCurrentAmps: 31.5,
+            status: 'available',
+          },
+        ],
+      );
+      const res = await inject('PATCH', `/stations/${STATION}/evses/1`, {
+        connectors: [{ connectorId: 1, maxPowerKw: 7.4, maxCurrentAmps: 31.5 }],
+      });
+      expect(res.statusCode).toBe(200);
+      expect(argsOf(chainsOf('update')[0], 'set')?.[0]).toMatchObject({
+        maxPowerKw: '7.4',
+        maxCurrentAmps: 31.5,
+      });
+      expect(res.json()).toMatchObject({
+        connectors: [{ connectorId: 1, maxPowerKw: 7.4, maxCurrentAmps: 31.5 }],
+      });
+    });
+
+    // The decimal check is the Zod refinement (VALIDATION_ERROR from the
+    // route); the minimum is the JSON Schema, refused by Ajv before the route.
+    it.each([
+      ['power with 3 decimals', { maxPowerKw: 7.456 }, 'VALIDATION_ERROR'],
+      ['current with 2 decimals', { maxCurrentAmps: 31.55 }, 'VALIDATION_ERROR'],
+      ['power below 0.1', { maxPowerKw: 0.05 }, undefined],
+      ['current below 0.1', { maxCurrentAmps: 0 }, undefined],
+    ])('refuses a connector %s with 400 on every write route', async (_, rating, code) => {
+      const connector = { connectorId: 1, connectorType: 'Type2', maxPowerKw: 11, ...rating };
+      const create = await inject('POST', `/stations/${STATION}/evses`, {
+        evseId: 2,
+        connectors: [connector],
+      });
+      const update = await inject('PATCH', `/stations/${STATION}/evses/1`, {
+        connectors: [connector],
+      });
+      const add = await inject('POST', `/stations/${STATION}/evses/1/connectors`, connector);
+      for (const res of [create, update, add]) {
+        expect(res.statusCode).toBe(400);
+        if (code != null) expect(res.json()).toMatchObject({ code });
+      }
+      expect(chainsOf('insert')).toHaveLength(0);
+      expect(chainsOf('update')).toHaveLength(0);
+    });
   });
 
   describe('station audit rows', () => {

@@ -204,6 +204,10 @@ import {
 } from '@evtivity/lib';
 import { ocppVersionMismatchReason } from '../lib/ocpp-version-mismatch.js';
 import {
+  connectorCurrentAmpsSchema,
+  connectorPowerKwSchema,
+} from '../lib/connector-rating-schema.js';
+import {
   canReadMoney,
   maskMoneyFields,
   METRICS_MONEY_FIELDS,
@@ -2367,13 +2371,12 @@ export function stationRoutes(app: FastifyInstance): void {
         z.object({
           connectorId: z.number().int().min(1).describe('OCPP connector ID (integer)'),
           connectorType: z.enum(connectorTypes).describe('Connector plug type'),
-          maxPowerKw: z.number().int().min(1).describe('Maximum power output in kW'),
-          maxCurrentAmps: z
-            .number()
-            .int()
-            .min(1)
+          maxPowerKw: connectorPowerKwSchema().describe(
+            'Maximum power output in kW, at least 0.1, at most 2 decimals (7.4)',
+          ),
+          maxCurrentAmps: connectorCurrentAmpsSchema()
             .optional()
-            .describe('Maximum current output in amps'),
+            .describe('Maximum current output in amps, at least 0.1, at most 1 decimal (31.5)'),
         }),
       )
       .min(1)
@@ -2400,7 +2403,10 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(createEvseBody),
         response: {
           201: itemResponse(evseResponse),
-          400: errorWith('Invalid connector numbering', [ERROR_CODES.CONNECTOR_ID_MISMATCH]),
+          400: errorWith('Invalid connector numbering or rating', [
+            ERROR_CODES.CONNECTOR_ID_MISMATCH,
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           409: errorWith('Duplicate evse id', [ERROR_CODES.DUPLICATE_EVSE_ID]),
           500: errorWith('Internal error', [ERROR_CODES.INTERNAL_ERROR]),
@@ -2537,13 +2543,12 @@ export function stationRoutes(app: FastifyInstance): void {
       z.object({
         connectorId: z.number().int().min(1).describe('OCPP connector ID (integer)'),
         connectorType: z.enum(connectorTypes).optional().describe('Connector plug type'),
-        maxPowerKw: z.number().int().min(1).optional().describe('Maximum power output in kW'),
-        maxCurrentAmps: z
-          .number()
-          .int()
-          .min(1)
+        maxPowerKw: connectorPowerKwSchema()
           .optional()
-          .describe('Maximum current output in amps'),
+          .describe('Maximum power output in kW, at least 0.1, at most 2 decimals (7.4)'),
+        maxCurrentAmps: connectorCurrentAmpsSchema()
+          .optional()
+          .describe('Maximum current output in amps, at least 0.1, at most 1 decimal (31.5)'),
       }),
     ),
   });
@@ -2564,6 +2569,7 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(updateEvseBody),
         response: {
           200: itemResponse(evseResponse),
+          400: errorWith('Invalid connector rating', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Resource not found', [
             ERROR_CODES.CONNECTOR_NOT_FOUND,
             ERROR_CODES.EVSE_NOT_FOUND,
@@ -2579,7 +2585,7 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-      const body = request.body as z.infer<typeof updateEvseBody>;
+      const body = parseZodRequest(updateEvseBody, request.body);
 
       // Look up EVSE by station UUID + OCPP evseId
       const [evse] = await db
@@ -2970,8 +2976,12 @@ export function stationRoutes(app: FastifyInstance): void {
   const addConnectorBody = z.object({
     connectorId: z.number().int().min(1).describe('OCPP connector ID (integer)'),
     connectorType: z.enum(connectorTypes).describe('Connector plug type'),
-    maxPowerKw: z.number().int().min(1).describe('Maximum power output in kW'),
-    maxCurrentAmps: z.number().int().min(1).optional().describe('Maximum current output in amps'),
+    maxPowerKw: connectorPowerKwSchema().describe(
+      'Maximum power output in kW, at least 0.1, at most 2 decimals (7.4)',
+    ),
+    maxCurrentAmps: connectorCurrentAmpsSchema()
+      .optional()
+      .describe('Maximum current output in amps, at least 0.1, at most 1 decimal (31.5)'),
   });
 
   // POST /stations/:id/evses/:evseId/connectors - Add a connector to an EVSE
@@ -2990,7 +3000,10 @@ export function stationRoutes(app: FastifyInstance): void {
         body: zodSchema(addConnectorBody),
         response: {
           201: itemResponse(connectorResponse),
-          400: errorWith('Invalid connector numbering', [ERROR_CODES.CONNECTOR_ID_MISMATCH]),
+          400: errorWith('Invalid connector numbering or rating', [
+            ERROR_CODES.CONNECTOR_ID_MISMATCH,
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('Resource not found', [
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
@@ -3007,7 +3020,7 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-      const body = request.body as z.infer<typeof addConnectorBody>;
+      const body = parseZodRequest(addConnectorBody, request.body);
 
       // Look up EVSE
       const [evse] = await db

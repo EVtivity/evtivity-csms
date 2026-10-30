@@ -32,6 +32,7 @@ import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 import { formatCents } from '@/lib/formatting';
+import { formatConnectorPowerKw } from '@/lib/connector-rating';
 import { reservationFeeLabel } from '@/lib/reservation-fee';
 import type { ReservationCancellationFee } from '@/lib/reservation-fee';
 import { reservationStatusVariant } from '@/lib/status-variants';
@@ -147,7 +148,8 @@ export function ReservationDetailsTab({
     for (const evse of connectorsQuery.data) {
       for (const conn of evse.connectors) {
         const type = conn.connectorType ?? 'Unknown';
-        const power = conn.maxPowerKw != null ? `${String(conn.maxPowerKw)} kW` : '';
+        const power =
+          conn.maxPowerKw != null ? `${formatConnectorPowerKw(conn.maxPowerKw)} kW` : '';
         options.push({
           key: `${String(evse.evseId)}-${String(conn.connectorId)}`,
           evseId: evse.evseId,
@@ -237,7 +239,8 @@ export function ReservationDetailsTab({
     for (const evse of reassignConnectorsQuery.data) {
       for (const conn of evse.connectors) {
         const type = conn.connectorType ?? 'Unknown';
-        const power = conn.maxPowerKw != null ? `${String(conn.maxPowerKw)} kW` : '';
+        const power =
+          conn.maxPowerKw != null ? `${formatConnectorPowerKw(conn.maxPowerKw)} kW` : '';
         options.push({
           key: `${String(evse.evseId)}-${String(conn.connectorId)}`,
           evseId: evse.evseId,

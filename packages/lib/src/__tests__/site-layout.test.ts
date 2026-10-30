@@ -3,15 +3,28 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  DEFAULT_LAYOUT_GRID,
+  TRANSFORMER_CLEARANCE_M,
   assignBays,
+  bayInGrid,
   bayToPosition,
   cardsOverlap,
+  effectiveLayoutSettings,
   firstFreeSlot,
+  fitPositionsToGrid,
   freeSlotsFor,
+  gridBoardExtent,
+  layoutGridCapacity,
+  layoutGridOf,
+  lotExtentM,
   nearestFreeBay,
   positionToBay,
   resolveCardDrop,
+  sameLayoutGrid,
+  sameLayoutSettings,
+  snapTransformerToGrass,
 } from '../site-layout.js';
+import { siteLayoutSettingsSchema } from '../site-layout-schema.js';
 
 describe('site layout grid', () => {
   it('maps a slot to px and back', () => {
@@ -33,8 +46,70 @@ describe('site layout grid', () => {
     expect(firstFreeSlot([{ x: 20, y: 20 }])).toEqual({ x: 220, y: 20 });
     // A card placed off the grid blocks every slot it overlaps.
     expect(firstFreeSlot([{ x: 120, y: 20 }])).toEqual({ x: 420, y: 20 });
-    const fullRow = [0, 1, 2, 3, 4].map((col) => bayToPosition({ col, row: 0 }));
-    expect(firstFreeSlot(fullRow)).toEqual({ x: 20, y: 160 });
+    // The default lot has 10 spots in a row.
+    const firstFive = [0, 1, 2, 3, 4].map((col) => bayToPosition({ col, row: 0 }));
+    expect(firstFreeSlot(firstFive)).toEqual({ x: 1020, y: 20 });
+    // A lot of 5 spots per row continues on the next row, and below a full lot.
+    const five = { ...DEFAULT_LAYOUT_GRID, spotsPerRow: 5, rows: 1 };
+    expect(firstFreeSlot(firstFive, five)).toEqual({ x: 20, y: 160 });
+  });
+
+  it('uses the default lot of 2 rows of 10 spots, grown to hold the stations, with one transformer', () => {
+    const fresh = effectiveLayoutSettings(null);
+    expect(fresh).toMatchObject({ spotsPerRow: 10, rows: 2, spotWidthM: 3.2, laneWidthM: 6 });
+    expect(fresh.transformers).toHaveLength(1);
+    const t = fresh.transformers[0]!;
+    // On the grass right of the lot.
+    expect(t.x).toBeGreaterThanOrEqual(lotExtentM(fresh).width + TRANSFORMER_CLEARANCE_M);
+    const grown = effectiveLayoutSettings(null, [{ col: 12, row: 3 }]);
+    expect(grown).toMatchObject({ spotsPerRow: 13, rows: 4 });
+    // Stored settings stay as stored, with transformers kept on the grass.
+    const stored = {
+      ...DEFAULT_LAYOUT_GRID,
+      spotsPerRow: 4,
+      rows: 1,
+      transformers: [{ id: 'a', name: null, ratedKva: null, x: 2, z: 2 }],
+    };
+    const kept = effectiveLayoutSettings(stored, [{ col: 30, row: 9 }]);
+    expect(kept.spotsPerRow).toBe(4);
+    expect(kept.transformers[0]).toMatchObject({ x: -2.5, z: 2 });
+    expect(layoutGridCapacity(kept)).toBe(4);
+  });
+
+  it('moves a transformer off the lot to the nearest side and keeps it within reach', () => {
+    const grid = { ...DEFAULT_LAYOUT_GRID, spotsPerRow: 2, rows: 1, laneWidthM: 0 };
+    // Lot 6.4 by 5.6 m.
+    expect(snapTransformerToGrass(6, 3, grid)).toEqual({ x: 8.9, z: 3 });
+    expect(snapTransformerToGrass(0.5, 3, grid)).toEqual({ x: -2.5, z: 3 });
+    expect(snapTransformerToGrass(3, 5, grid)).toEqual({ x: 3, z: 8.1 });
+    expect(snapTransformerToGrass(20, -9, grid)).toEqual({ x: 20, z: -9 });
+    expect(snapTransformerToGrass(1e6, 0, grid).x).toBe(206.4);
+  });
+
+  it('fits stations into a smaller lot, refusing those with no free spot', () => {
+    const grid = { ...DEFAULT_LAYOUT_GRID, spotsPerRow: 2, rows: 1 };
+    const fit = fitPositionsToGrid(
+      [
+        { key: 'a', position: bayToPosition({ col: 0, row: 0 }) },
+        { key: 'b', position: bayToPosition({ col: 4, row: 0 }) },
+        { key: 'c', position: bayToPosition({ col: 3, row: 2 }) },
+      ],
+      grid,
+    );
+    expect(fit.moved.get('b')).toEqual(bayToPosition({ col: 1, row: 0 }));
+    expect(fit.moved.has('a')).toBe(false);
+    expect(fit.unfit).toEqual(['c']);
+    expect(bayInGrid({ col: 1, row: 0 }, grid)).toBe(true);
+    expect(bayInGrid({ col: 2, row: 0 }, grid)).toBe(false);
+    expect(gridBoardExtent(grid)).toEqual({ width: 380, height: 140 });
+  });
+
+  it('compares settings field by field, transformers included', () => {
+    const a = effectiveLayoutSettings(null);
+    expect(sameLayoutSettings(a, { ...a, transformers: [...a.transformers] })).toBe(true);
+    expect(sameLayoutSettings(a, { ...a, facingDeg: 90 })).toBe(false);
+    expect(sameLayoutSettings(a, { ...a, transformers: [] })).toBe(false);
+    expect(sameLayoutGrid(layoutGridOf(a), DEFAULT_LAYOUT_GRID)).toBe(true);
   });
 
   it('hands out distinct slots for several unplaced stations', () => {
@@ -107,5 +182,46 @@ describe('site layout grid', () => {
         1,
       ),
     ).toBeNull();
+  });
+});
+
+describe('site layout settings schema', () => {
+  const valid = effectiveLayoutSettings(null);
+
+  it('accepts the default settings and a named transformer', () => {
+    expect(siteLayoutSettingsSchema.safeParse(valid).success).toBe(true);
+    const named = {
+      ...valid,
+      transformers: [{ id: 'tx-2', name: 'Main Feed', ratedKva: 2500, x: 40, z: 3 }],
+    };
+    expect(siteLayoutSettingsSchema.safeParse(named).success).toBe(true);
+  });
+
+  it.each([
+    ['spots out of range', { spotsPerRow: 0 }],
+    ['rows out of range', { rows: 101 }],
+    ['spot width below the minimum', { spotWidthM: 1.9 }],
+    ['spot depth with 5 cm', { spotDepthM: 5.65 }],
+    ['negative lane', { laneWidthM: -1 }],
+    ['facing not a quarter turn', { facingDeg: 45 }],
+    ['unlimited rows', { rows: null }],
+    ['an unknown key', { color: 'red' }],
+  ])('refuses %s', (_name, patch) => {
+    expect(siteLayoutSettingsSchema.safeParse({ ...valid, ...patch }).success).toBe(false);
+  });
+
+  it('refuses duplicate transformer ids, a bad kVA and more than 10 transformers', () => {
+    const t = { id: 'a', name: null, ratedKva: null, x: 40, z: 0 };
+    expect(siteLayoutSettingsSchema.safeParse({ ...valid, transformers: [t, t] }).success).toBe(
+      false,
+    );
+    expect(
+      siteLayoutSettingsSchema.safeParse({ ...valid, transformers: [{ ...t, ratedKva: 0 }] })
+        .success,
+    ).toBe(false);
+    const many = Array.from({ length: 11 }, (_, i) => ({ ...t, id: `t${String(i)}` }));
+    expect(siteLayoutSettingsSchema.safeParse({ ...valid, transformers: many }).success).toBe(
+      false,
+    );
   });
 });

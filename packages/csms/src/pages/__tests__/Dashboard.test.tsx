@@ -93,7 +93,27 @@ vi.mock('@/components/charts/EnergyChart', () => ({
 vi.mock('@/components/charts/SessionsChart', () => ({ SessionsChart: () => null }));
 vi.mock('@/components/charts/UtilizationChart', () => ({ UtilizationChart: () => null }));
 vi.mock('@/components/charts/PeakUsageChart', () => ({ PeakUsageChart: () => null }));
-vi.mock('@/components/charts/StationMapChart', () => ({ StationMapChart: () => null }));
+vi.mock('@/components/charts/StationMapChart', () => ({
+  StationMapChart: () => <div data-testid="station-map" />,
+}));
+// The 3D widget has its own tests (SiteLayoutWidget.test.tsx): a stub with its props.
+vi.mock('@/components/dashboard/SiteLayoutWidget', () => ({
+  SiteLayoutWidget: (props: {
+    siteId: string | null;
+    siteUnavailable: boolean;
+    onSiteChange: (siteId: string) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="site-layout-widget"
+      data-site={String(props.siteId)}
+      data-unavailable={String(props.siteUnavailable)}
+      onClick={() => {
+        props.onSiteChange('sit_picked');
+      }}
+    />
+  ),
+}));
 vi.mock('@/components/charts/RevenueChart', () => ({ RevenueChart: () => null }));
 vi.mock('@/components/charts/PaymentBreakdownChart', () => ({
   PaymentBreakdownChart: () => null,
@@ -483,6 +503,68 @@ describe('Dashboard layout customizing', () => {
       expect(writes.some((w) => w.method === 'DELETE' && w.path === LAYOUT_PATH)).toBe(true);
     });
     expect(defaultDashboardLayout().charts[0]?.id).toBe('chart.aiInsights');
+  });
+
+  it('shows the 3D site layout above the map with sites:read, and never without it', async () => {
+    await renderDashboard('admin', ['dashboard:read', 'sites:read']);
+    const widget = screen.getByTestId('site-layout-widget');
+    expect(before(widget, screen.getByTestId('station-map'))).toBe(true);
+    expect(widget.getAttribute('data-site')).toBe('null');
+    cleanup();
+
+    await renderDashboard('viewer', ['dashboard:read']);
+    expect(screen.queryByTestId('site-layout-widget')).toBeNull();
+    expect(screen.getByTestId('station-map')).toBeTruthy();
+  });
+
+  it('enters a layout saved before it above the map, and saves the picked site', async () => {
+    // Saved before the widget existed, with the map moved first.
+    savedLayout({
+      version: 1,
+      charts: [
+        { id: 'chart.stationMap', hidden: false },
+        { id: 'chart.energy', hidden: false },
+      ],
+    });
+    await renderDashboard('admin', ['dashboard:read', 'sites:read']);
+    const widget = screen.getByTestId('site-layout-widget');
+    expect(before(widget, screen.getByTestId('station-map'))).toBe(true);
+    expect(
+      before(screen.getByTestId('station-map'), screen.getAllByTestId('chart')[0] as HTMLElement),
+    ).toBe(true);
+
+    fireEvent.click(widget);
+    await waitFor(() => {
+      expect(writes.some((w) => w.method === 'PUT')).toBe(true);
+    });
+    const body = writes.find((w) => w.method === 'PUT')?.body as DashboardLayout;
+    expect(body.charts.find((c) => c.id === 'chart.siteLayout3d')).toEqual({
+      id: 'chart.siteLayout3d',
+      hidden: false,
+      siteId: 'sit_picked',
+    });
+    expect(await screen.findByTestId('site-layout-widget')).toHaveProperty(
+      'dataset.site',
+      'sit_picked',
+    );
+  });
+
+  it('passes a site the user lost to the widget as unavailable', async () => {
+    answers.set(LAYOUT_PATH, () =>
+      Promise.resolve({
+        layout: {
+          version: 1,
+          charts: [
+            { id: 'chart.siteLayout3d', hidden: false, siteId: null, siteUnavailable: true },
+          ],
+        },
+        customized: true,
+      }),
+    );
+    await renderDashboard('admin', ['dashboard:read', 'sites:read']);
+    const widget = screen.getByTestId('site-layout-widget');
+    expect(widget.getAttribute('data-site')).toBe('null');
+    expect(widget.getAttribute('data-unavailable')).toBe('true');
   });
 
   it('offers Customize in the Live view only', async () => {

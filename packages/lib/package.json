@@ -32,6 +32,9 @@
     "./site-layout": {
       "import": "./src/site-layout.ts"
     },
+    "./site-layout-schema": {
+      "import": "./src/site-layout-schema.ts"
+    },
     "./phone": {
       "import": "./src/phone.ts"
     },

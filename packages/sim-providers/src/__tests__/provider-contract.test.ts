@@ -402,8 +402,8 @@ function oneNceRoute(method: 'GET' | 'POST', path: string, reply: StubRoute['rep
 }
 
 const oneNceSim = (): Record<string, unknown> => ({
+  // A real reply has no `iccid_with_luhn` (live, 2026-10-30).
   iccid: ONENCE_ICCID,
-  iccid_with_luhn: `${ONENCE_ICCID}6`,
   imsi: '901405100000018',
   imei: '869951030000001',
   status: 'Enabled',
@@ -454,7 +454,8 @@ const oneNce: ContractSubject = {
   iccid: `${ONENCE_ICCID}6`,
   ref: { providerSimId: ONENCE_ICCID },
   sessionPages: 1,
-  sessionOrder: (id) => Number(id.split(':').at(-1)),
+  // `<iccid>:<end time ms>:<event id>`: 1NCE event ids are not in time order.
+  sessionOrder: (id) => Number(id.split(':')[1]),
   reportsLastSession: false,
   alertPages: 1,
   alertKinds: ['data_limit', 'data_warning', 'device_changed'],

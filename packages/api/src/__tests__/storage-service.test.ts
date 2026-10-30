@@ -81,7 +81,9 @@ describe('storage.service', () => {
       expect(source, file).not.toMatch(/getSignedUrl\([^)]*PutObjectCommand/);
     }
     expect(presigned).toBeGreaterThan(0);
-  });
+    // importActual loads the real AWS SDK clients, which takes close to the
+    // 5 s default on a cold run.
+  }, 30_000);
 
   describe('buildS3Key', () => {
     it('builds correct key path', () => {

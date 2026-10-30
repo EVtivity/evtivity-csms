@@ -26,6 +26,8 @@ import {
   getPlatformFeePercent,
   readStationDataPlans,
   saveSiteLayout,
+  readSiteLayoutSettings,
+  LayoutGridTooSmallError,
 } from '@evtivity/database';
 import type { SiteInsightSuppressionSource } from '@evtivity/database';
 import {
@@ -77,7 +79,9 @@ import {
 } from '@evtivity/services/station-data-plan.service';
 import type { ElectricityRatePeriodRestrictions } from '@evtivity/lib';
 import { freeSlotsFor } from '@evtivity/lib/site-layout';
+import { siteLayoutSettingsSchema } from '@evtivity/lib/site-layout-schema';
 import { parseZodRequest, rejectUnknownBodyKeys, zodSchema } from '../lib/zod-schema.js';
+import { connectorCurrentAmpsSchema } from '../lib/connector-rating-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -142,7 +146,8 @@ const importSiteRow = z.object({
   connectorId: z.number().int().min(1).optional(),
   connectorType: z.string().max(50).optional(),
   maxPowerKw: z.number().min(0).max(10000).optional(),
-  maxCurrentAmps: z.number().int().min(0).max(1000).optional(),
+  // Decimal amps with at most 1 decimal (31.5), as on the station EVSE routes.
+  maxCurrentAmps: connectorCurrentAmpsSchema(0).max(1000).optional(),
   stationVendor: z.string().max(100).optional(),
 });
 
@@ -417,6 +422,7 @@ const siteSelect = {
   loadManagementEnabled: sql<boolean>`coalesce(${siteLoadManagement.isEnabled}, false)`,
   reservationsEnabled: sites.reservationsEnabled,
   dataPlan: sites.dataPlan,
+  layoutSettings: sites.layoutSettings,
   autochargeEnabled: sites.autochargeEnabled,
   freeVendEnabled: sites.freeVendEnabled,
   freeVendTemplateId21: sites.freeVendTemplateId21,
@@ -516,6 +522,11 @@ const siteItem = z
       .nullable()
       .describe(
         "The site's data plan (wifi_or_wired or cellular), null for not set. Stations without their own plan and without a confirmed SIM run it",
+      ),
+    layoutSettings: siteLayoutSettingsSchema
+      .nullable()
+      .describe(
+        'Layout settings of the site (the paved lot and the transformers on the grass), null when never saved: the layout then shows 2 rows of 10 spots of 3.2 by 5.6 m with a 6 m lane, facing 0, grown to hold the stations, and one transformer. Changed through PUT /v1/sites/{id}/layout',
       ),
     aiMonthlyTokenBudget: z
       .number()
@@ -1157,7 +1168,7 @@ export function siteRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { rows, updateExisting } = request.body as z.infer<typeof importSiteBody>;
+      const { rows, updateExisting } = parseZodRequest(importSiteBody, request.body);
       // Station rows create, move and disable stations: the station permission
       // applies as it does on the station routes.
       if (
@@ -2536,7 +2547,11 @@ export function siteRoutes(app: FastifyInstance): void {
         .filter((s) => s.positionX != null && s.positionY != null)
         .map((s) => ({ x: Number(s.positionX), y: Number(s.positionY) }));
       const unplaced = stationRows.filter((s) => s.positionX == null || s.positionY == null);
-      const freeSlots = freeSlotsFor(unplaced.length, placedPoints);
+      const freeSlots = freeSlotsFor(
+        unplaced.length,
+        placedPoints,
+        await readSiteLayoutSettings(id),
+      );
       const slotByStation = new Map<string, { x: number; y: number }>();
       unplaced.forEach((s, i) => {
         const slot = freeSlots[i];
@@ -2667,13 +2682,21 @@ export function siteRoutes(app: FastifyInstance): void {
   );
 
   const layoutBody = z.object({
-    positions: z.array(
-      z.object({
-        stationId: ID_PARAMS.stationId.describe('Station ID'),
-        positionX: z.number(),
-        positionY: z.number(),
-      }),
-    ),
+    positions: z
+      .array(
+        z.object({
+          stationId: ID_PARAMS.stationId.describe('Station ID'),
+          positionX: z.number().describe('X coordinate on the layout board in px'),
+          positionY: z.number().describe('Y coordinate on the layout board in px'),
+        }),
+      )
+      .describe('Station positions to save'),
+    settings: siteLayoutSettingsSchema
+      .nullable()
+      .optional()
+      .describe(
+        'New layout settings of the site (lot and transformers); null resets them to the default, omitted keeps them. A station outside the lot moves to the nearest free spot inside, a transformer on the lot moves to the grass beside it; when the lot has no free spot left for a station, the save answers 400 VALIDATION_ERROR naming those stations (details.stations) and changes nothing',
+      ),
   });
 
   app.put(
@@ -2692,9 +2715,21 @@ export function siteRoutes(app: FastifyInstance): void {
             z
               .object({
                 ok: z.boolean().describe('True when the layout positions were saved successfully'),
+                moved: z
+                  .array(
+                    z.object({
+                      stationId: z.string().describe('Station ID'),
+                      positionX: z.number().describe('New X coordinate in px'),
+                      positionY: z.number().describe('New Y coordinate in px'),
+                    }),
+                  )
+                  .describe('Stations the lot moved to a free spot inside it'),
               })
               .loose(),
           ),
+          400: errorWith('Invalid settings, or the lot has no free spot for every station', [
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('Site or station not found', [
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
@@ -2711,6 +2746,13 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
       const { positions } = request.body as z.infer<typeof layoutBody>;
+      // Ajv checks the ranges; the Zod schema also checks the 10 cm steps and
+      // the unique transformer ids.
+      const rawSettings = (request.body as { settings?: unknown }).settings;
+      const settings =
+        rawSettings === undefined
+          ? undefined
+          : parseZodRequest(siteLayoutSettingsSchema.nullable(), rawSettings);
 
       const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.id, id));
       if (site == null) {
@@ -2722,7 +2764,6 @@ export function siteRoutes(app: FastifyInstance): void {
       // the station, so a foreign station would otherwise get a layout row
       // pointing at this site.
       const requested = [...new Set(positions.map((p) => p.stationId))];
-      let previousPositions: { stationId: string; positionX: number; positionY: number }[] = [];
       if (requested.length > 0) {
         const own = await db
           .select({ id: chargingStations.id })
@@ -2732,28 +2773,52 @@ export function siteRoutes(app: FastifyInstance): void {
           await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
           return;
         }
-        const previousRows = await db
-          .select({
-            stationId: stationLayoutPositions.stationId,
-            positionX: stationLayoutPositions.positionX,
-            positionY: stationLayoutPositions.positionY,
-          })
-          .from(stationLayoutPositions)
-          .where(inArray(stationLayoutPositions.stationId, requested));
-        previousPositions = previousRows.map((row) => ({
-          stationId: row.stationId,
-          positionX: Number(row.positionX),
-          positionY: Number(row.positionY),
-        }));
       }
+      const previousRows = await db
+        .select({
+          stationId: stationLayoutPositions.stationId,
+          positionX: stationLayoutPositions.positionX,
+          positionY: stationLayoutPositions.positionY,
+        })
+        .from(stationLayoutPositions)
+        .where(
+          requested.length > 0
+            ? or(
+                eq(stationLayoutPositions.siteId, id),
+                inArray(stationLayoutPositions.stationId, requested),
+              )
+            : eq(stationLayoutPositions.siteId, id),
+        );
 
       // One position row per station: a station that moved here from another
       // site takes this site with its new position, and the layout saves whole.
-      await db.transaction(async (tx) => {
-        await saveSiteLayout(tx, id, positions);
-      });
+      // The lot moves stations outside it to free spots inside.
+      let saved: Awaited<ReturnType<typeof saveSiteLayout>>;
+      try {
+        saved = await db.transaction(async (tx) => saveSiteLayout(tx, id, positions, settings));
+      } catch (err) {
+        if (err instanceof LayoutGridTooSmallError) {
+          await reply.status(400).send({
+            error: `The parking lot has no free spot for these stations: ${err.stations.join(', ')}`,
+            code: 'VALIDATION_ERROR',
+            details: { stations: err.stations },
+          });
+          return;
+        }
+        throw err;
+      }
 
-      if (positions.length > 0) {
+      const after = new Map(positions.map((p) => [p.stationId, p]));
+      for (const m of saved.moved) after.set(m.stationId, m);
+      const settingsChanged = saved.settingsChanged;
+      if (after.size > 0 || settingsChanged) {
+        const previousPositions = previousRows
+          .filter((row) => after.has(row.stationId))
+          .map((row) => ({
+            stationId: row.stationId,
+            positionX: Number(row.positionX),
+            positionY: Number(row.positionY),
+          }));
         await writeAudit(
           { table: siteAuditLog, idColumn: 'site_id' },
           {
@@ -2761,16 +2826,31 @@ export function siteRoutes(app: FastifyInstance): void {
             entityIdSnapshot: id,
             action: 'updated',
             ...getAuditActor(request),
-            before: { layoutPositions: previousPositions },
-            after: { layoutPositions: positions },
-            notes: 'station layout updated',
+            before: {
+              layoutPositions: previousPositions,
+              ...(settingsChanged ? { layoutSettings: saved.settingsBefore } : {}),
+            },
+            after: {
+              layoutPositions: [...after.values()],
+              ...(settingsChanged ? { layoutSettings: saved.settingsAfter } : {}),
+            },
+            notes: settingsChanged
+              ? 'station layout and layout settings updated'
+              : 'station layout updated',
           },
           db,
           request.log,
         );
       }
 
-      return { ok: true };
+      return {
+        ok: true,
+        moved: saved.moved.map((m) => ({
+          stationId: m.stationId,
+          positionX: m.positionX,
+          positionY: m.positionY,
+        })),
+      };
     },
   );
 

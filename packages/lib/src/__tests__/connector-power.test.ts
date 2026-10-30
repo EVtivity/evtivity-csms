@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { CONNECTOR_TYPES, isDcConnector, stationChargingKind } from '../connector-power.js';
+import {
+  CONNECTOR_TYPES,
+  hasAtMostDecimals,
+  isDcConnector,
+  stationChargingKind,
+} from '../connector-power.js';
 
 describe('isDcConnector', () => {
   it('classifies every connector type at low and high power', () => {
@@ -45,5 +50,19 @@ describe('stationChargingKind', () => {
     ).toBe('dc');
     expect(stationChargingKind([{ connectorType: 'Type2', maxPowerKw: 22 }])).toBe('ac');
     expect(stationChargingKind([])).toBe('ac');
+  });
+});
+
+describe('hasAtMostDecimals', () => {
+  it('accepts values typed with up to the given decimals', () => {
+    for (const v of [7, 7.4, 11.5, 3.68, 0.1, 350.25]) expect(hasAtMostDecimals(v, 2)).toBe(true);
+    for (const v of [31.5, 16, 0.1, 6.3]) expect(hasAtMostDecimals(v, 1)).toBe(true);
+  });
+
+  it('refuses more decimals and non-finite values', () => {
+    expect(hasAtMostDecimals(7.456, 2)).toBe(false);
+    expect(hasAtMostDecimals(31.55, 1)).toBe(false);
+    expect(hasAtMostDecimals(Number.NaN, 2)).toBe(false);
+    expect(hasAtMostDecimals(Number.POSITIVE_INFINITY, 1)).toBe(false);
   });
 });

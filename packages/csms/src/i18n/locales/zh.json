@@ -439,6 +439,16 @@
     "last60d": "60天",
     "custom": "自定义",
     "siteMap": "站点地图",
+    "siteLayout": {
+      "title": "站点布局",
+      "info": "一个站点停车场和充电站的只读 3D 视图。点击充电站查看详情。请在站点的布局选项卡中更改布局。",
+      "siteLabel": "站点",
+      "resetView": "重置视图",
+      "openLayout": "打开站点布局",
+      "siteUnavailable": "您选择的站点已不可用。正在显示 {{name}}。",
+      "noSites": "没有可显示的站点。",
+      "webglUnavailable": "此浏览器无法显示 3D 视图（WebGL 不可用）。打开站点布局可查看 2D 视图。"
+    },
     "info": {
       "totalStations": "已接受的充电站。待审核和已阻止的充电站单独计数。",
       "online": "当前通过 OCPP 连接并通信的已接受充电站百分比。",
@@ -732,7 +742,8 @@
       "editLayout": "编辑布局",
       "doneEditing": "完成编辑",
       "hint": "拖动以旋转，滚动或双指缩放以缩放，右键拖动或双指拖动以平移。点击充电站查看详情。",
-      "hintEdit": "编辑模式：将充电站拖到空闲车位。它会对齐到车位，且不会落在其他充电站上。",
+      "hintViewOnly": "拖动以环视，滚动或双指缩放以缩放。点击充电站查看详情。",
+      "hintEdit": "编辑模式：将充电站拖到空闲车位，或将变压器拖到草地上。充电站会对齐到车位，且不会落在其他充电站上。",
       "webglUnavailable": "此浏览器无法显示 3D 视图（WebGL 不可用），因此显示 2D 视图。",
       "loading3d": "正在加载 3D 视图",
       "newTag": "新",
@@ -756,7 +767,13 @@
       "signalUnknown": "信号未知",
       "evse": "EVSE {{id}}",
       "openStation": "打开充电站",
-      "detailsLabel": "{{id}} 详情"
+      "detailsLabel": "{{id}} 详情",
+      "stateDetailsLabel": "{{id}} · {{state}}，详情",
+      "allocatedLimit": "分配上限",
+      "displayMessage": "显示消息",
+      "transformer": "变压器",
+      "paymentTerminals": "支付终端",
+      "terminalStatusUnknown": "状态未知"
     },
     "layoutState": {
       "faulted": "故障",
@@ -767,6 +784,27 @@
       "charging": "充电中",
       "available": "可用",
       "online": "在线"
+    },
+    "layoutSettings": {
+      "title": "停车场",
+      "hint": "更改会立即显示，点击保存后保存。停车场外的充电站会移到最近的空闲车位。",
+      "spotsPerRow": "每排车位",
+      "rows": "排数",
+      "spotWidthM": "车位宽度",
+      "spotDepthM": "车位深度",
+      "laneWidthM": "车道宽度",
+      "range": "{{min}} 至 {{max}}{{unit}}",
+      "facingDeg": "朝向",
+      "facingOption": "{{deg}}°",
+      "facingHint": "旋转车位排和充电桩。",
+      "tooSmall": "停车场只有 {{spots}} 个车位，但有 {{stations}} 个充电站。请增加车位或排数。",
+      "transformers": "变压器",
+      "transformersHint": "在 3D 视图中拖动变压器，可在草地上移动它。",
+      "addTransformer": "添加变压器",
+      "noTransformers": "没有变压器。",
+      "transformerName": "变压器 {{n}} 名称",
+      "ratedKva": "额定 kVA",
+      "removeTransformer": "移除变压器 {{n}}"
     }
   },
   "stations": {

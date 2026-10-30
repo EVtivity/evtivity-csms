@@ -667,14 +667,18 @@ export {
 } from './lib/station-data-plan.js';
 export type { DataPlanChange, DataPlanDb, StationDataPlanState } from './lib/station-data-plan.js';
 export {
+  LayoutGridTooSmallError,
   moveStationLayout,
   placeStationOnLayout,
   readSiteLayoutPositions,
+  readSiteLayoutSettings,
+  readStoredLayoutSettings,
   saveSiteLayout,
 } from './lib/station-layout.js';
-export type { StationLayoutDb } from './lib/station-layout.js';
+export type { LayoutPosition, SavedSiteLayout, StationLayoutDb } from './lib/station-layout.js';
 export {
   deleteUserDashboardLayout,
+  existingDashboardSiteIds,
   getUserDashboardLayout,
   saveUserDashboardLayout,
 } from './lib/dashboard-layout.js';

@@ -31,11 +31,24 @@ describe('Phone-width layouts', () => {
   });
 
   it('wraps the station tab header actions so a long label keeps its own width', () => {
-    for (const source of [certificates, chargingProfiles, configurations, displayMessages]) {
+    for (const source of [certificates, chargingProfiles, displayMessages]) {
       expect(source).toContain('className="flex flex-wrap gap-2 *:grow sm:*:grow-0"');
+    }
+    for (const source of [certificates, chargingProfiles, configurations, displayMessages]) {
       // Two fixed columns cut "Refresh from Station" and "View Composite Schedule" off.
       expect(source).not.toContain('grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]');
     }
+  });
+
+  it('keeps the Configurations search and its three buttons on one row from sm', () => {
+    expect(configurations).toContain('actionsPosition="fill"');
+    // The search grows and shrinks (at least 10rem) instead of a fixed max width.
+    expect(configurations).toContain('className="w-full sm:w-auto sm:min-w-40 sm:flex-1"');
+    // Icon only between sm and 85rem, the label kept for screen readers; phones keep it.
+    expect(configurations).toContain("const COMPACT_LABEL = 'sm:max-[85rem]:sr-only';");
+    expect(configurations.match(/<span className=\{COMPACT_LABEL\}>/g)).toHaveLength(3);
+    // Each control takes the row on phones (the Edit link too, drawn as a button).
+    expect(configurations.match(/'grow sm:grow-0'|"grow sm:grow-0"/g)).toHaveLength(3);
   });
 
   it('lets a simulator action label take two lines inside its button', () => {
