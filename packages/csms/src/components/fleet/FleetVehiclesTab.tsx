@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
-import { AddButton } from '@/components/add-button';
+import { CreateButton } from '@/components/create-button';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { VehiclesTable, type Vehicle } from '@/components/VehiclesTable';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -60,7 +60,7 @@ export function FleetVehiclesTab({
         description={t('fleets.addVehicleNote')}
         actions={
           canManageMembers ? (
-            <AddButton
+            <CreateButton
               label={t('fleets.addVehicle')}
               onClick={() => {
                 void navigate(`/fleets/${fleetId}/vehicles/add`);

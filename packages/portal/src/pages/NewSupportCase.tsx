@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { PageHeader } from '@/components/PageHeader';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { ApiError } from '@/lib/api';
@@ -185,16 +187,15 @@ export function NewSupportCase(): React.JSX.Element {
           <label htmlFor="portal-case-description" className="text-sm font-medium">
             {t('supportCases.description')}
           </label>
-          <textarea
+          <Textarea
             id="portal-case-description"
             value={description}
             onChange={(e) => {
               setDescription(e.target.value);
             }}
             rows={5}
-            className={`mt-1 flex w-full rounded-md border bg-background px-3 py-2 text-sm ${
-              hasSubmitted && errors.description ? 'border-destructive' : 'border-input'
-            }`}
+            aria-invalid={hasSubmitted && errors.description ? true : undefined}
+            className={cn('mt-1', hasSubmitted && errors.description && 'border-destructive')}
           />
           {hasSubmitted && errors.description && (
             <p className="text-sm text-destructive mt-1">{errors.description}</p>

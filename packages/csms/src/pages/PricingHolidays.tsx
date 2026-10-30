@@ -1,12 +1,14 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, ChevronLeft } from 'lucide-react';
+import { Trash2, ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -152,22 +154,19 @@ export function PricingHolidays(): React.JSX.Element {
         </div>
         {canWrite && (
           <div className="flex items-center gap-2">
-            <Button
+            <CreateButton
+              label={t('pricing.bulkAdd')}
               variant="outline"
               onClick={() => {
                 setBulkOpen(true);
               }}
-            >
-              {t('pricing.bulkAdd')}
-            </Button>
-            <Button
+            />
+            <CreateButton
+              label={t('pricing.addHoliday')}
               onClick={() => {
                 setCreateOpen(true);
               }}
-            >
-              <Plus className="h-4 w-4" />
-              {t('pricing.addHoliday')}
-            </Button>
+            />
           </div>
         )}
       </div>
@@ -266,12 +265,11 @@ export function PricingHolidays(): React.JSX.Element {
               >
                 {t('common.cancel')}
               </Button>
-              <Button
+              <CreateButton
                 type="submit"
                 disabled={createMutation.isPending || name.trim() === '' || date.trim() === ''}
-              >
-                {t('common.create')}
-              </Button>
+                label={t('common.create')}
+              />
             </DialogFooter>
           </form>
         </DialogContent>
@@ -294,9 +292,9 @@ export function PricingHolidays(): React.JSX.Element {
           >
             <div className="grid gap-2">
               <Label htmlFor="holiday-bulk">{t('pricing.holidays')}</Label>
-              <textarea
+              <Textarea
                 id="holiday-bulk"
-                className="flex min-h-40 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="min-h-40"
                 value={bulkText}
                 onChange={(e) => {
                   setBulkText(e.target.value);
@@ -314,9 +312,11 @@ export function PricingHolidays(): React.JSX.Element {
               >
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" disabled={bulkMutation.isPending || bulkText.trim() === ''}>
-                {t('pricing.bulkAdd')}
-              </Button>
+              <CreateButton
+                type="submit"
+                disabled={bulkMutation.isPending || bulkText.trim() === ''}
+                label={t('pricing.bulkAdd')}
+              />
             </DialogFooter>
           </form>
         </DialogContent>

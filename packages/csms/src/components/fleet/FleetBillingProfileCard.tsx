@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -211,13 +212,13 @@ export function FleetBillingProfileCard({
         <form onSubmit={handleSave} noValidate className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="billing-contacts">{t('fleets.billingProfile.contacts')}</Label>
-            <textarea
+            <Textarea
               id="billing-contacts"
               value={form.contacts}
               onChange={(e) => {
                 set('contacts', e.target.value);
               }}
-              className={`flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ${hasSubmitted && errors.contacts != null ? 'border-destructive' : ''}`}
+              className={hasSubmitted && errors.contacts != null ? 'border-destructive' : undefined}
             />
             <p className="text-xs text-muted-foreground">
               {t('fleets.billingProfile.contactsHelp')}

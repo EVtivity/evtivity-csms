@@ -8,9 +8,12 @@ import {
   CheckCircle,
   Circle,
   Clock,
+  Hourglass,
   Pause,
   Plug,
+  TriangleAlert,
   Wrench,
+  X,
   XCircle,
   Zap,
   type LucideIcon,
@@ -69,6 +72,46 @@ export function StationStateIcon({
       <Icon
         aria-hidden="true"
         className={cn('h-3.5 w-3.5', className)}
+        style={{ color: stationStateColor(state) }}
+      />
+    </span>
+  );
+}
+
+// Plain glyphs for the round badge: an icon that draws its own circle
+// (XCircle, CheckCircle, AlertCircle, Clock) would show a circle in a circle.
+const STATION_BADGE_GLYPHS: Record<StationDisplayState, LucideIcon> = {
+  faulted: TriangleAlert,
+  unavailable: X,
+  maintenance: Wrench,
+  offline: X,
+  reserved: Hourglass,
+  charging: Zap,
+  available: Check,
+  online: Check,
+};
+
+/**
+ * The station state as a round badge (the 3D layout labels): a 24 px circle,
+ * as tall as a `chip` button, with the plain glyph centered in the state color.
+ */
+export function StationStateBadge({ state }: { state: StationDisplayState }): React.JSX.Element {
+  const { t } = useTranslation();
+  const Icon = STATION_BADGE_GLYPHS[state];
+  const label = t(stationStateLabelKey(state));
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      data-state={state}
+      data-testid="station-state-badge"
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border bg-card shadow-xs"
+    >
+      <Icon
+        aria-hidden="true"
+        className="h-3.5 w-3.5"
+        strokeWidth={2.5}
         style={{ color: stationStateColor(state) }}
       />
     </span>

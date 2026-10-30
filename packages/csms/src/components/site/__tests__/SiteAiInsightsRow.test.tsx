@@ -106,8 +106,13 @@ describe('SiteAiInsightsRow', () => {
     fireEvent.change(within(dialog).getByLabelText('stations.aiInsights.reason'), {
       target: { value: 'Rebuild' },
     });
+    // The end is the shared date and time picker: the date field, then the hour and minute.
     fireEvent.change(within(dialog).getByLabelText('stations.aiInsights.endDate'), {
-      target: { value: '2030-01-02T03:04' },
+      target: { value: '2030-01-02' },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/common\.hour$/), { target: { value: '03' } });
+    fireEvent.change(within(dialog).getByLabelText(/common\.minute$/), {
+      target: { value: '04' },
     });
     fireEvent.click(confirm);
     await waitFor(() => {

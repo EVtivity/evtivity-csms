@@ -4,12 +4,14 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -291,15 +293,13 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
         title={t('fleets.bulkReservations')}
         actions={
           canWrite ? (
-            <Button
+            <CreateButton
+              label={t('fleets.newBulkReservation')}
               onClick={() => {
                 resetForm();
                 setDialogOpen(true);
               }}
-            >
-              <Plus className="h-4 w-4" />
-              {t('fleets.newBulkReservation')}
-            </Button>
+            />
           ) : undefined
         }
       >
@@ -413,16 +413,13 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="grid gap-2">
                 <Label htmlFor="fleet-reservation-starts">{t('reservations.startsAt')}</Label>
-                <Input
+                <DateTimeInput
                   id="fleet-reservation-starts"
-                  type="datetime-local"
                   value={startsAt}
-                  onChange={(e) => {
-                    setStartsAt(e.target.value);
+                  onChange={(value) => {
+                    setStartsAt(value);
                   }}
-                  className={
-                    hasSubmitted && dateValidation.startsAtError != null ? 'border-destructive' : ''
-                  }
+                  invalid={hasSubmitted && dateValidation.startsAtError != null}
                 />
                 {hasSubmitted && dateValidation.startsAtError != null && (
                   <p className="text-sm text-destructive">
@@ -432,18 +429,13 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="fleet-reservation-expires">{t('reservations.expiresAt')} *</Label>
-                <Input
+                <DateTimeInput
                   id="fleet-reservation-expires"
-                  type="datetime-local"
                   value={expiresAt}
-                  onChange={(e) => {
-                    setExpiresAt(e.target.value);
+                  onChange={(value) => {
+                    setExpiresAt(value);
                   }}
-                  className={
-                    hasSubmitted && dateValidation.expiresAtError != null
-                      ? 'border-destructive'
-                      : ''
-                  }
+                  invalid={hasSubmitted && dateValidation.expiresAtError != null}
                 />
                 {hasSubmitted && dateValidation.expiresAtError != null && (
                   <p className="text-sm text-destructive">
@@ -495,17 +487,15 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
                   );
                 })}
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={addSlot}
-                className="w-fit"
-                disabled={slots.length >= MAX_BULK_RESERVATION_SLOTS}
-              >
-                <Plus className="h-4 w-4" />
-                {t('fleets.addStation')}
-              </Button>
+              <div>
+                <CreateButton
+                  label={t('fleets.addStation')}
+                  variant="outline"
+                  size="sm"
+                  onClick={addSlot}
+                  disabled={slots.length >= MAX_BULK_RESERVATION_SLOTS}
+                />
+              </div>
               {slots.length >= MAX_BULK_RESERVATION_SLOTS && (
                 <p className="text-sm text-muted-foreground">
                   {t('fleets.maxSlotsReached', { max: MAX_BULK_RESERVATION_SLOTS })}
@@ -523,9 +513,11 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
               >
                 {t('common.cancel')}
               </Button>
-              <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? t('common.loading') : t('common.create')}
-              </Button>
+              <CreateButton
+                type="submit"
+                disabled={createMutation.isPending}
+                label={createMutation.isPending ? t('common.loading') : t('common.create')}
+              />
             </DialogFooter>
           </form>
         </DialogContent>

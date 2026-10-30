@@ -109,7 +109,7 @@ describe('TokenDetailsTab prepaid balance', () => {
 
     fireEvent.click(screen.getByText('common.edit'));
     fireEvent.change(screen.getByLabelText('tokens.expiresAt'), {
-      target: { value: '2031-01-01T00:00' },
+      target: { value: '2031-01-01' },
     });
     submitForm('tokens.expiresAt');
 
@@ -189,6 +189,29 @@ describe('TokenDetailsTab expiry and deactivation', () => {
     expect(screen.getByText('tokens.revokedBadge')).toBeTruthy();
     expect(screen.getByText('tokens.deactivatedByValue.driver')).toBeTruthy();
     expect(screen.getByText('Lost card')).toBeTruthy();
+  });
+
+  // The owner report: Expires is the shared date field and hour and minute
+  // selects, never the browser's datetime-local picker.
+  it('edits the expiry with the shared date and time controls', async () => {
+    patchMock.mockResolvedValue({});
+    renderTab(null, { expiresAt: null });
+
+    fireEvent.click(screen.getByText('common.edit'));
+    const date = screen.getByLabelText('tokens.expiresAt');
+    expect(date.getAttribute('type')).toBe('date');
+    expect(document.querySelector('input[type="datetime-local"]')).toBeNull();
+    fireEvent.change(date, { target: { value: '2031-03-04' } });
+    fireEvent.change(screen.getByLabelText('common.hour'), { target: { value: '17' } });
+    fireEvent.change(screen.getByLabelText('common.minute'), { target: { value: '45' } });
+    submitForm('tokens.expiresAt');
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith(
+        '/v1/tokens/dtk_1',
+        expect.objectContaining({ expiresAt: new Date('2031-03-04T17:45').toISOString() }),
+      );
+    });
   });
 
   it('saves a cleared expiry as null', async () => {

@@ -228,8 +228,10 @@ describe('InvoiceDetail', () => {
 
     fireEvent.click(await screen.findByText('invoices.markPaid'));
     fireEvent.change(await screen.findByLabelText('invoices.paymentDate'), {
-      target: { value: '2026-06-05T09:30' },
+      target: { value: '2026-06-05' },
     });
+    fireEvent.change(screen.getByLabelText('common.hour'), { target: { value: '09' } });
+    fireEvent.change(screen.getByLabelText('common.minute'), { target: { value: '30' } });
     fireEvent.change(screen.getByLabelText('invoices.paymentReference'), {
       target: { value: 'TX-1' },
     });

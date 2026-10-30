@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
-import { AddButton } from '@/components/add-button';
+import { CreateButton } from '@/components/create-button';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { StationsTable } from '@/components/StationsTable';
 import type { Station } from '@/components/StationsTable';
@@ -48,7 +48,7 @@ export function FleetStationsTab({ fleetId }: FleetStationsTabProps): React.JSX.
       <TabPanel
         title={t('fleets.stations')}
         actions={
-          <AddButton
+          <CreateButton
             label={t('fleets.addStation')}
             onClick={() => {
               void navigate(`/fleets/${fleetId}/stations/add`);

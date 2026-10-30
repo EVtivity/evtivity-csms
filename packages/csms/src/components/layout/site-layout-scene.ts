@@ -8,17 +8,32 @@
 // every other chunk.
 //
 // Bay (col, row) is grid slot (col, row) of the 2D board (@evtivity/lib/site-layout):
-// x = 20 + 200 col, y = 20 + 140 row px. The lot shows at least 5 columns and
-// 2 rows, plus one free row below the last station.
+// x = 20 + 200 col, y = 20 + 140 row px. The bay mapping, the ground size, the
+// camera framing and the fog live in site-layout-grid.ts. The painted lot is one
+// textured plane that reaches past the fog in every direction, so it reads as
+// endless at any zoom; the edit grid outlines the bays a station may be dropped on.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { LayoutBay } from '@evtivity/lib/site-layout';
 import { SCENE_COLORS } from './site-layout-colors';
+import {
+  BAY_D,
+  BAY_LINE_GAP,
+  BAY_W,
+  MIN_DISTANCE,
+  bayToWorld as bayToWorldXZ,
+  clampToArea,
+  fitFrame,
+  fogRange,
+  groundBays,
+  maxZoomDistance,
+  worldToBay as worldToBayInArea,
+  type GridSize,
+} from './site-layout-grid';
 
-/** Bay width and depth in meters. */
-const BAY_W = 3.2;
-const BAY_D = 5.6;
+/** Pixels per meter of the bay texture. */
+const TEXTURE_PX_PER_M = 80;
 
 export interface SceneStation {
   id: string;
@@ -62,7 +77,11 @@ export interface SceneCallbacks {
 }
 
 export interface SiteScene {
-  setStations: (stations: readonly SceneStation[], cols: number, rows: number) => void;
+  /**
+   * `frame`: the bays Fit to View frames, from bay (0, 0). `area`: the bays a
+   * station may be dropped on (outlined in edit mode).
+   */
+  setStations: (stations: readonly SceneStation[], frame: GridSize, area: GridSize) => void;
   setTheme: (theme: SceneTheme) => void;
   setEditing: (editing: boolean) => void;
   setSelected: (stationId: string | null) => void;
@@ -98,12 +117,14 @@ export function createSiteScene(
   container.prepend(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(35, 1, 0.1, 400);
+  const camera = new THREE.PerspectiveCamera(35, 1, 0.5, 2000);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = !options.reducedMotion;
   controls.maxPolarAngle = Math.PI * 0.45;
-  controls.minDistance = 6;
-  controls.maxDistance = 120;
+  controls.minDistance = MIN_DISTANCE;
+  controls.maxDistance = 400;
+  const fog = new THREE.Fog(0xffffff, 100, 400);
+  scene.fog = fog;
 
   scene.add(new THREE.HemisphereLight(0xffffff, 0x6b7280, 2.2));
   const sun = new THREE.DirectionalLight(0xffffff, 2.6);
@@ -181,8 +202,8 @@ export function createSiteScene(
     destructive: '#ef4444',
   };
   let stations: readonly SceneStation[] = [];
-  let cols = 5;
-  let rows = 2;
+  let frame: GridSize = { cols: 5, rows: 2 };
+  let area: GridSize = { cols: 5, rows: 2 };
   let editing = false;
   let selected: string | null = null;
   const objects = new Map<string, StationObject>();
@@ -190,18 +211,35 @@ export function createSiteScene(
   const editGrid = new THREE.Group();
   scene.add(ground, editGrid);
 
-  const lotW = () => cols * BAY_W;
-  const lotD = () => rows * BAY_D;
-  const bayToWorld = (bay: LayoutBay) =>
-    new THREE.Vector3(
-      -lotW() / 2 + BAY_W * (bay.col + 0.5),
-      0,
-      -lotD() / 2 + BAY_D * bay.row + 0.9,
-    );
-  const worldToBay = (v: THREE.Vector3): LayoutBay => ({
-    col: Math.min(cols - 1, Math.max(0, Math.floor((v.x + lotW() / 2) / BAY_W))),
-    row: Math.min(rows - 1, Math.max(0, Math.floor((v.z - 0.9 + BAY_D / 2 + lotD() / 2) / BAY_D))),
-  });
+  const bayToWorld = (bay: LayoutBay) => {
+    const p = bayToWorldXZ(bay);
+    return new THREE.Vector3(p.x, 0, p.z);
+  };
+  const worldToBay = (v: THREE.Vector3): LayoutBay => worldToBayInArea(v.x, v.z, area);
+
+  // One bay of asphalt with its painted line on the left edge (half on each
+  // side of the tile, so repeated tiles share one line), from front gap to back gap.
+  function bayTexture(asphalt: string, paint: string): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(BAY_W * TEXTURE_PX_PER_M);
+    canvas.height = Math.round(BAY_D * TEXTURE_PX_PER_M);
+    const ctx = canvas.getContext('2d');
+    if (ctx != null) {
+      ctx.fillStyle = asphalt;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = paint;
+      const half = Math.round(0.05 * TEXTURE_PX_PER_M);
+      const gap = Math.round(BAY_LINE_GAP * TEXTURE_PX_PER_M);
+      ctx.fillRect(0, gap, half, canvas.height - 2 * gap);
+      ctx.fillRect(canvas.width - half, gap, half, canvas.height - 2 * gap);
+    }
+    const texture = track(new THREE.CanvasTexture(canvas));
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return texture;
+  }
 
   function buildModel(
     s: SceneStation,
@@ -353,50 +391,46 @@ export function createSiteScene(
     editGrid.clear();
     const palette = theme.dark ? SCENE_COLORS.dark : SCENE_COLORS.light;
     scene.background = new THREE.Color(theme.background);
-    const w = lotW();
-    const d = lotD();
-    const asphalt = new THREE.Mesh(
-      track(new THREE.BoxGeometry(w + 3, 0.1, d + 3)),
-      M(palette.asphalt, { roughness: 0.95 }),
+    fog.color.set(theme.background);
+    // The painted lot: one plane, its bay tile repeated, far past the fog.
+    const g = groundBays(frame);
+    const spanCols = g.maxCol - g.minCol;
+    const spanRows = g.maxRow - g.minRow;
+    const texture = bayTexture(palette.asphalt, palette.paint);
+    texture.repeat.set(spanCols, spanRows);
+    const lotGeometry = track(new THREE.PlaneGeometry(spanCols * BAY_W, spanRows * BAY_D));
+    lotGeometry.rotateX(-Math.PI / 2);
+    const lot = new THREE.Mesh(
+      lotGeometry,
+      M('#ffffff', { map: texture, roughness: 0.95, metalness: 0 }),
     );
-    asphalt.position.y = -0.05;
-    asphalt.receiveShadow = true;
-    ground.add(asphalt);
-    // Painted bay lines between every bay.
-    const paint = M(palette.paint, { roughness: 0.8 });
-    const lineGeometry = track(new THREE.BoxGeometry(0.1, 0.01, BAY_D - 1.4));
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c <= cols; c++) {
-        const line = new THREE.Mesh(lineGeometry, paint);
-        line.position.set(-w / 2 + c * BAY_W, 0.006, -d / 2 + r * BAY_D + 0.7 + (BAY_D - 1.4) / 2);
-        line.receiveShadow = true;
-        ground.add(line);
+    lot.position.set(((g.minCol + g.maxCol) / 2) * BAY_W, 0, ((g.minRow + g.maxRow) / 2) * BAY_D);
+    lot.receiveShadow = true;
+    ground.add(lot);
+    // The edit grid: one outline per bay of the edit area, in one geometry.
+    const outline: number[] = [];
+    for (let r = 0; r < area.rows; r++) {
+      for (let c = 0; c < area.cols; c++) {
+        const x0 = c * BAY_W + 0.08;
+        const z0 = r * BAY_D + 0.08;
+        const x1 = x0 + BAY_W - 0.16;
+        const z1 = z0 + BAY_D - 0.16;
+        outline.push(x0, 0.02, z0, x1, 0.02, z0, x1, 0.02, z0, x1, 0.02, z1);
+        outline.push(x1, 0.02, z1, x0, 0.02, z1, x0, 0.02, z1, x0, 0.02, z0);
       }
     }
+    const outlineGeometry = track(new THREE.BufferGeometry());
+    outlineGeometry.setAttribute('position', new THREE.Float32BufferAttribute(outline, 3));
     const gridMaterial = track(
       new THREE.LineBasicMaterial({ color: theme.primary, transparent: true, opacity: 0.55 }),
     );
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const x0 = -w / 2 + c * BAY_W + 0.08;
-        const z0 = -d / 2 + r * BAY_D + 0.08;
-        const x1 = x0 + BAY_W - 0.16;
-        const z1 = z0 + BAY_D - 0.16;
-        const geometry = track(
-          new THREE.BufferGeometry().setFromPoints(
-            [
-              [x0, z0],
-              [x1, z0],
-              [x1, z1],
-              [x0, z1],
-              [x0, z0],
-            ].map(([x, z]) => new THREE.Vector3(x, 0.02, z)),
-          ),
-        );
-        editGrid.add(new THREE.Line(geometry, gridMaterial));
-      }
-    }
+    editGrid.add(new THREE.LineSegments(outlineGeometry, gridMaterial));
     editGrid.visible = editing;
+    // Shadows cover the stations' frame.
+    const w = frame.cols * BAY_W;
+    const d = frame.rows * BAY_D;
+    sun.target.position.set(w / 2, 0, d / 2);
+    sun.position.set(w / 2 - 12, 22, d / 2 + 16);
     const extent = Math.max(w, d) / 2 + 4;
     Object.assign(sun.shadow.camera, {
       left: -extent,
@@ -428,13 +462,30 @@ export function createSiteScene(
     const aspect = width / height;
     // The approved preview's framing; the zoom limit and far plane follow it, so a
     // long lot of a dense site fits too.
-    const dist = Math.max((lotW() + 3) / aspect, lotD() + 3) * 1.25 + 5;
-    controls.maxDistance = Math.max(70, dist * 2);
-    camera.far = dist * 4 + 100;
-    camera.updateProjectionMatrix();
-    controls.target.set(0, 0.5, 0.6);
-    camera.position.set(dist * 0.22, dist * 0.62, dist * 0.86);
+    const { target, distance } = fitFrame(frame, aspect);
+    applyZoomLimit();
+    controls.target.set(target.x, target.y, target.z);
+    camera.position.set(
+      target.x + distance * 0.22,
+      distance * 0.62,
+      target.z - 0.6 + distance * 0.86,
+    );
     controls.update();
+    updateFog();
+  }
+
+  // The zoom-out limit and the far plane follow the frame, so a large site can
+  // be seen whole and the fogged ground never ends inside the view.
+  function applyZoomLimit(): void {
+    controls.maxDistance = maxZoomDistance(frame);
+    camera.far = fogRange(controls.maxDistance).far + 100;
+    camera.updateProjectionMatrix();
+  }
+
+  function updateFog(): void {
+    const range = fogRange(camera.position.distanceTo(controls.target));
+    fog.near = range.near;
+    fog.far = range.far;
   }
 
   function resize(): void {
@@ -504,8 +555,9 @@ export function createSiteScene(
     if (ray.ray.intersectPlane(floor, p) == null) return;
     const obj = objects.get(drag.id);
     if (obj == null) return;
-    obj.group.position.x = Math.max(-lotW() / 2 + BAY_W / 2, Math.min(lotW() / 2 - BAY_W / 2, p.x));
-    obj.group.position.z = Math.max(-lotD() / 2 + 0.9, Math.min(lotD() / 2 - BAY_D + 0.9, p.z));
+    const clamped = clampToArea(p.x, p.z, area);
+    obj.group.position.x = clamped.x;
+    obj.group.position.z = clamped.z;
     const blocked = callbacks.isBayTaken(worldToBay(obj.group.position), drag.id);
     obj.ring.material.color.set(blocked ? theme.destructive : theme.primary);
     obj.ring.material.opacity = 0.9;
@@ -540,11 +592,12 @@ export function createSiteScene(
   resize();
 
   const t0 = performance.now();
-  let frame = 0;
+  let animationFrame = 0;
   let disposed = false;
   function loop(now: number): void {
     if (disposed) return;
     controls.update();
+    updateFog();
     if (!options.reducedMotion) {
       const t = (now - t0) / 1000;
       for (const obj of objects.values()) {
@@ -553,18 +606,21 @@ export function createSiteScene(
     }
     renderer.render(scene, camera);
     callbacks.onFrame();
-    frame = requestAnimationFrame(loop);
+    animationFrame = requestAnimationFrame(loop);
   }
-  frame = requestAnimationFrame(loop);
+  animationFrame = requestAnimationFrame(loop);
 
   return {
-    setStations(next, nextCols, nextRows) {
-      const sizeChanged = nextCols !== cols || nextRows !== rows;
+    setStations(next, nextFrame, nextArea) {
+      // World coordinates are anchored at bay (0, 0), so a move never shifts the
+      // view; only the first stations to arrive refit it.
+      const first = stations.length === 0 && next.length > 0;
       stations = next;
-      cols = nextCols;
-      rows = nextRows;
+      frame = nextFrame;
+      area = nextArea;
       rebuild();
-      if (sizeChanged) fit();
+      applyZoomLimit();
+      if (first) fit();
     },
     setTheme(next) {
       theme = next;
@@ -586,7 +642,7 @@ export function createSiteScene(
     labelPoint,
     dispose() {
       disposed = true;
-      cancelAnimationFrame(frame);
+      cancelAnimationFrame(animationFrame);
       observer.disconnect();
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);

@@ -36,6 +36,7 @@ import {
   type Ocpp201NetworkInterface,
 } from '@evtivity/lib/ocpp-version';
 import { SECURITY_PROFILE_PERMISSION } from '@evtivity/lib/ocpp-command-permissions';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 
 interface ProfileChangeBody {
   securityProfile: number;
@@ -723,13 +724,12 @@ export function StationSecurity({
             <Label htmlFor="security-logs-from" className="text-xs leading-6">
               {t('common.from')}
             </Label>
-            <Input
+            <DateTimeInput
               id="security-logs-from"
-              type="datetime-local"
               aria-label={t('common.from')}
               value={logsFrom}
-              onChange={(e) => {
-                setLogsFrom(e.target.value);
+              onChange={(next) => {
+                setLogsFrom(next);
                 setLogsPage(1);
               }}
             />
@@ -738,13 +738,12 @@ export function StationSecurity({
             <Label htmlFor="security-logs-to" className="text-xs leading-6">
               {t('common.to')}
             </Label>
-            <Input
+            <DateTimeInput
               id="security-logs-to"
-              type="datetime-local"
               aria-label={t('common.to')}
               value={logsTo}
-              onChange={(e) => {
-                setLogsTo(e.target.value);
+              onChange={(next) => {
+                setLogsTo(next);
                 setLogsPage(1);
               }}
             />

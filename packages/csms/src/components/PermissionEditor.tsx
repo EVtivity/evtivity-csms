@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import type { PermissionKind } from '@evtivity/lib/permissions';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { Checkbox } from '@/components/ui/checkbox';
 
 /** A group of `GET /v1/permissions`. */
 export interface PermissionGroup {
@@ -130,15 +131,13 @@ function PermissionGroupRow({
       <div className="flex items-center gap-4 ml-auto">
         {readPerm != null && (
           <div className="flex items-center gap-1.5">
-            <input
-              type="checkbox"
+            <Checkbox
               id={`perm-${readPerm}`}
               checked={valueSet.has(readPerm)}
               onChange={(e) => {
                 onToggle(readPerm, e.target.checked);
               }}
               disabled={disabled || (writePerm != null && valueSet.has(writePerm))}
-              className="h-4 w-4 rounded border-input"
             />
             <Label htmlFor={`perm-${readPerm}`} className="text-xs">
               {t('users.permissionRead')}
@@ -147,15 +146,13 @@ function PermissionGroupRow({
         )}
         {writePerm != null && (
           <div className="flex items-center gap-1.5">
-            <input
-              type="checkbox"
+            <Checkbox
               id={`perm-${writePerm}`}
               checked={valueSet.has(writePerm)}
               onChange={(e) => {
                 onToggle(writePerm, e.target.checked);
               }}
               disabled={disabled}
-              className="h-4 w-4 rounded border-input"
             />
             <Label htmlFor={`perm-${writePerm}`} className="text-xs">
               {t('users.permissionWrite')}

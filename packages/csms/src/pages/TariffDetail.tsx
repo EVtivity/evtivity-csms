@@ -20,6 +20,7 @@ import { TaxPriceHint } from '@/components/pricing/TaxPriceHint';
 import { DEFAULT_TAX_BASIS } from '@evtivity/lib/price-display';
 import { useCompanyTaxBasis } from '@/hooks/use-company-tax-basis';
 import { Input } from '@/components/ui/input';
+import { TimeInput } from '@/components/ui/time-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -483,12 +484,11 @@ export function TariffDetail(): React.JSX.Element {
                       <Label htmlFor="edit-start-time" className="leading-6">
                         {t('pricing.startTime')}
                       </Label>
-                      <Input
+                      <TimeInput
                         id="edit-start-time"
-                        type="time"
                         value={startTime}
-                        onChange={(e) => {
-                          setStartTime(e.target.value);
+                        onChange={(value) => {
+                          setStartTime(value);
                         }}
                       />
                     </div>
@@ -496,12 +496,11 @@ export function TariffDetail(): React.JSX.Element {
                       <Label htmlFor="edit-end-time" className="leading-6">
                         {t('pricing.endTime')}
                       </Label>
-                      <Input
+                      <TimeInput
                         id="edit-end-time"
-                        type="time"
                         value={endTime}
-                        onChange={(e) => {
-                          setEndTime(e.target.value);
+                        onChange={(value) => {
+                          setEndTime(value);
                         }}
                       />
                     </div>

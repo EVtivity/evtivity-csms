@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -168,13 +169,12 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
               <Label htmlFor="edit-desc" className="leading-6">
                 {t('common.description')}
               </Label>
-              <textarea
+              <Textarea
                 id="edit-desc"
                 value={description}
                 onChange={(e) => {
                   setDescription(e.target.value);
                 }}
-                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               />
             </div>
             <div className="flex justify-end gap-2">

@@ -31,6 +31,9 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 import { useHasPermission } from '@/lib/auth';
 import { stationStatusVariant, stationStatusClassName } from '@/lib/status-variants';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Radio } from '@/components/ui/radio';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 
 interface MaintenanceEvent {
   id: string;
@@ -564,8 +567,7 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                 <Label className="leading-6">{t('maintenance.mode')}</Label>
                 <div className="flex items-center gap-4 text-sm">
                   <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
+                    <Radio
                       name="m-mode"
                       checked={mode === 'immediate'}
                       onChange={() => {
@@ -575,8 +577,7 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                     {t('maintenance.modeNow')}
                   </label>
                   <label className="flex items-center gap-2">
-                    <input
-                      type="radio"
+                    <Radio
                       name="m-mode"
                       checked={mode === 'one_off'}
                       onChange={() => {
@@ -594,12 +595,11 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                     <Label htmlFor="m-starts" className="leading-6">
                       {t('maintenance.start')}
                     </Label>
-                    <Input
+                    <DateTimeInput
                       id="m-starts"
-                      type="datetime-local"
                       value={startsAt}
-                      onChange={(e) => {
-                        setStartsAt(e.target.value);
+                      onChange={(next) => {
+                        setStartsAt(next);
                       }}
                     />
                   </div>
@@ -607,12 +607,11 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                     <Label htmlFor="m-ends" className="leading-6">
                       {t('maintenance.end')}
                     </Label>
-                    <Input
+                    <DateTimeInput
                       id="m-ends"
-                      type="datetime-local"
                       value={endsAt}
-                      onChange={(e) => {
-                        setEndsAt(e.target.value);
+                      onChange={(next) => {
+                        setEndsAt(next);
                       }}
                     />
                   </div>
@@ -622,12 +621,11 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
                   <Label htmlFor="m-ends" className="leading-6">
                     {t('maintenance.end')}
                   </Label>
-                  <Input
+                  <DateTimeInput
                     id="m-ends"
-                    type="datetime-local"
                     value={endsAt}
-                    onChange={(e) => {
-                      setEndsAt(e.target.value);
+                    onChange={(next) => {
+                      setEndsAt(next);
                     }}
                   />
                 </div>
@@ -1089,12 +1087,11 @@ function EditEventForm({
               <Label htmlFor="edit-end" className="leading-6">
                 {t('maintenance.endsAtLabel')}
               </Label>
-              <Input
+              <DateTimeInput
                 id="edit-end"
-                type="datetime-local"
                 value={endsAt}
-                onChange={(e) => {
-                  setEndsAt(e.target.value);
+                onChange={(next) => {
+                  setEndsAt(next);
                 }}
               />
             </div>
@@ -1104,12 +1101,11 @@ function EditEventForm({
                 <Label htmlFor="edit-start" className="leading-6">
                   {t('maintenance.start')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="edit-start"
-                  type="datetime-local"
                   value={startsAt}
-                  onChange={(e) => {
-                    setStartsAt(e.target.value);
+                  onChange={(next) => {
+                    setStartsAt(next);
                   }}
                 />
               </div>
@@ -1117,12 +1113,11 @@ function EditEventForm({
                 <Label htmlFor="edit-end" className="leading-6">
                   {t('maintenance.endsAtLabel')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="edit-end"
-                  type="datetime-local"
                   value={endsAt}
-                  onChange={(e) => {
-                    setEndsAt(e.target.value);
+                  onChange={(next) => {
+                    setEndsAt(next);
                   }}
                 />
               </div>
@@ -1332,8 +1327,7 @@ function MaintenanceStationRow({
   return (
     <div className="flex items-center justify-between gap-2 px-3 py-2">
       <label htmlFor={inputId} className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
-        <input
-          type="checkbox"
+        <Checkbox
           id={inputId}
           checked={checked}
           disabled={disabled}
@@ -1457,8 +1451,7 @@ function MaintenanceStationSelector({
       </div>
 
       <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+        <Checkbox
           checked={selectAllStations}
           onChange={(e) => {
             onSelectAllChange(e.target.checked);
@@ -1478,8 +1471,7 @@ function MaintenanceStationSelector({
 
       <div className="rounded-md border">
         <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-2 text-xs">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={allVisibleSelected}
             disabled={selectAllStations || visibleIds.length === 0}
             onChange={(e) => {
@@ -1537,8 +1529,7 @@ function MaintenanceStationSelector({
             })}
           </p>
           <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={impactPreview.acknowledged}
               onChange={(e) => {
                 impactPreview.onAcknowledgeChange(e.target.checked);

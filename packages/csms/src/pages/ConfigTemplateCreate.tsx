@@ -5,7 +5,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plus } from 'lucide-react';
 import { BackButton } from '@/components/back-button';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
@@ -182,16 +181,12 @@ export function ConfigTemplateCreate(): React.JSX.Element {
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <Label className="whitespace-nowrap">{t('configTemplates.variables')}</Label>
-                <Button
-                  type="button"
+                <CreateButton
+                  label={t('configTemplates.addVariable')}
                   variant="outline"
                   size="sm"
-                  className="gap-1.5"
                   onClick={addVariable}
-                >
-                  <Plus className="h-4 w-4" />
-                  {t('configTemplates.addVariable')}
-                </Button>
+                />
               </div>
               <TemplateVariableRows
                 idPrefix="create"

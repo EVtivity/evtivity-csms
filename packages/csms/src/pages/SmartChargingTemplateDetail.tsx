@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
@@ -632,16 +633,13 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                   <Label htmlFor="scd-edit-start-schedule">
                     {t('smartCharging.startSchedule')}
                   </Label>
-                  <Input
+                  <DateTimeInput
                     id="scd-edit-start-schedule"
-                    type="datetime-local"
                     value={editStartSchedule}
-                    onChange={(e) => {
-                      setEditStartSchedule(e.target.value);
+                    onChange={(value) => {
+                      setEditStartSchedule(value);
                     }}
-                    className={
-                      hasSubmitted && validationErrors.editStartSchedule ? 'border-destructive' : ''
-                    }
+                    invalid={hasSubmitted && validationErrors.editStartSchedule != null}
                   />
                   {hasSubmitted && validationErrors.editStartSchedule && (
                     <p className="text-sm text-destructive">{validationErrors.editStartSchedule}</p>
@@ -649,23 +647,21 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="scd-edit-valid-from">{t('smartCharging.validFrom')}</Label>
-                  <Input
+                  <DateTimeInput
                     id="scd-edit-valid-from"
-                    type="datetime-local"
                     value={editValidFrom}
-                    onChange={(e) => {
-                      setEditValidFrom(e.target.value);
+                    onChange={(value) => {
+                      setEditValidFrom(value);
                     }}
                   />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="scd-edit-valid-to">{t('smartCharging.validTo')}</Label>
-                  <Input
+                  <DateTimeInput
                     id="scd-edit-valid-to"
-                    type="datetime-local"
                     value={editValidTo}
-                    onChange={(e) => {
-                      setEditValidTo(e.target.value);
+                    onChange={(value) => {
+                      setEditValidTo(value);
                     }}
                   />
                 </div>

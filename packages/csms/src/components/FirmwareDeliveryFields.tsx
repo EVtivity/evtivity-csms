@@ -8,6 +8,7 @@ import {
   FIRMWARE_RETRY_INTERVAL_MAX_SECONDS,
 } from '@evtivity/lib/firmware-campaign';
 import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 import { Label } from '@/components/ui/label';
 import { formatDateTimeLocal } from '@/lib/reservation-datetime';
 
@@ -175,14 +176,13 @@ export function FirmwareDeliveryFields({
         <Label htmlFor={`${idPrefix}-install-date-time`} className="leading-6">
           {t('firmwareCampaigns.installDateTime')}
         </Label>
-        <Input
+        <DateTimeInput
           id={`${idPrefix}-install-date-time`}
-          type="datetime-local"
           value={value.installDateTime}
-          onChange={(e) => {
-            onChange({ ...value, installDateTime: e.target.value });
+          onChange={(next) => {
+            onChange({ ...value, installDateTime: next });
           }}
-          className={errors.installDateTime != null ? 'border-destructive' : ''}
+          invalid={errors.installDateTime != null}
         />
         <p className="text-xs text-muted-foreground">
           {t('firmwareCampaigns.installDateTimeHelp')}

@@ -41,6 +41,8 @@ import {
   OCPP21_ONLY_MESSAGE_STATES,
 } from '@evtivity/lib/ocpp-version';
 import { Ocpp201Option } from '@/components/ocpp201-option';
+import { DateTimeInput } from '@/components/ui/date-time-input';
+import { Textarea } from '@/components/ui/textarea';
 
 interface DisplayMessage {
   id: number;
@@ -361,7 +363,7 @@ export function StationDisplayMessages({
               <Label htmlFor="msg-content" className="leading-6">
                 {t('stations.messageContent')}
               </Label>
-              <textarea
+              <Textarea
                 id="msg-content"
                 value={content}
                 onChange={(e) => {
@@ -369,7 +371,7 @@ export function StationDisplayMessages({
                 }}
                 maxLength={1024}
                 rows={3}
-                className={`flex w-full rounded-md border bg-background px-3 py-2 text-sm ${hasSubmitted && errors.content ? 'border-destructive' : 'border-input'}`}
+                className={hasSubmitted && errors.content ? 'border-destructive' : undefined}
               />
               {hasSubmitted && errors.content && (
                 <p className="text-sm text-destructive">{errors.content}</p>
@@ -417,12 +419,11 @@ export function StationDisplayMessages({
                 <Label htmlFor="msg-start-time" className="leading-6">
                   {t('stations.messageStartTime')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="msg-start-time"
-                  type="datetime-local"
                   value={startDateTime}
-                  onChange={(e) => {
-                    setStartDateTime(e.target.value);
+                  onChange={(next) => {
+                    setStartDateTime(next);
                   }}
                 />
               </div>
@@ -430,12 +431,11 @@ export function StationDisplayMessages({
                 <Label htmlFor="msg-end-time" className="leading-6">
                   {t('stations.messageEndTime')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="msg-end-time"
-                  type="datetime-local"
                   value={endDateTime}
-                  onChange={(e) => {
-                    setEndDateTime(e.target.value);
+                  onChange={(next) => {
+                    setEndDateTime(next);
                   }}
                 />
               </div>

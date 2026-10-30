@@ -524,9 +524,9 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                 <Label htmlFor="email-wrapper-template" className="leading-6">
                   HTML Template
                 </Label>
-                <textarea
+                <Textarea
                   id="email-wrapper-template"
-                  className="h-[500px] w-full rounded-md border bg-background px-3 py-2 font-mono text-sm"
+                  className="h-[500px] font-mono"
                   value={emailWrapperTemplate}
                   onChange={(e) => {
                     setEmailWrapperTemplate(e.target.value);

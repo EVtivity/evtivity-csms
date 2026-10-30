@@ -10,6 +10,7 @@
 import { noRawClipboard } from './no-raw-clipboard.js';
 import { noControlHeightClass } from './no-control-height-class.js';
 import { noRawSwitch } from './no-raw-switch.js';
+import { noRawFormControl } from './no-raw-form-control.js';
 
 const MARKER = /^\s*fail-open:(.*)$/;
 const MIN_REASON_WORDS = 2;
@@ -79,5 +80,6 @@ export const evtivityPlugin = {
     'no-control-height-class': noControlHeightClass,
     'no-raw-clipboard': noRawClipboard,
     'no-raw-switch': noRawSwitch,
+    'no-raw-form-control': noRawFormControl,
   },
 };

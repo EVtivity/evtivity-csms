@@ -4,9 +4,10 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Key, Trash2, AlertTriangle, Pencil } from 'lucide-react';
+import { Key, Trash2, AlertTriangle, Pencil } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { CopyButton } from '@/components/ui/copy-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -306,10 +307,7 @@ print(data)`;
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>{t('settings.apiKeys')}</CardTitle>
-            <Button size="sm" onClick={handleOpenCreate}>
-              <Plus className="h-4 w-4" />
-              {t('settings.createApiKey')}
-            </Button>
+            <CreateButton label={t('settings.createApiKey')} onClick={handleOpenCreate} />
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -509,9 +507,11 @@ print(data)`;
                 >
                   {t('common.cancel')}
                 </Button>
-                <Button type="submit" disabled={createMutation.isPending}>
-                  {t('settings.createApiKey')}
-                </Button>
+                <CreateButton
+                  type="submit"
+                  disabled={createMutation.isPending}
+                  label={t('settings.createApiKey')}
+                />
               </DialogFooter>
             </form>
           </DialogContent>

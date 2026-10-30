@@ -3,13 +3,16 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import type { ResolvedField } from '@/lib/ocpp-schema';
+import { Checkbox } from '@/components/ui/checkbox';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 
 interface SchemaFormProps {
   fields: ResolvedField[];
@@ -107,13 +110,12 @@ function FieldRenderer({
     case 'datetime':
       return (
         <FieldWrapper field={field} error={error}>
-          <Input
-            type="datetime-local"
-            step="1"
+          <DateTimeInput
+            seconds
             value={asString(value)}
-            className={errorClass}
-            onChange={(e) => {
-              onChange(e.target.value);
+            invalid={error != null}
+            onChange={(next) => {
+              onChange(next);
             }}
           />
         </FieldWrapper>
@@ -150,13 +152,11 @@ function FieldRenderer({
       return (
         <FieldWrapper field={field} error={error}>
           <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={Boolean(value)}
               onChange={(e) => {
                 onChange(e.target.checked);
               }}
-              className="h-4 w-4 rounded border-input"
             />
             <span className="text-sm">{field.name}</span>
           </label>
@@ -389,10 +389,7 @@ function ArrayFieldRenderer({
           )}
         </div>
       ))}
-      <Button type="button" variant="outline" size="sm" onClick={addItem}>
-        <Plus className="h-3 w-3" />
-        {t('commands.addItem')}
-      </Button>
+      <CreateButton label={t('commands.addItem')} variant="outline" size="sm" onClick={addItem} />
     </fieldset>
   );
 }

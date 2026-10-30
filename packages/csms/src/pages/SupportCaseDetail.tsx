@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueries, useMutation, useQueryClient } from '@tanstack/react-query';
-import { RotateCcw, Search, X } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { BackButton } from '@/components/back-button';
 import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { AddIconButton } from '@/components/add-icon-button';
@@ -14,7 +14,7 @@ import { RefundButton } from '@/components/refund-button';
 import { useHasPermission } from '@/lib/auth';
 import { RemoveIconButton } from '@/components/remove-icon-button';
 import { DecimalInput } from '@/components/ui/decimal-input';
-import { Input } from '@/components/ui/input';
+import { SearchCombobox } from '@/components/ui/search-combobox';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -336,60 +336,46 @@ export function SupportCaseDetail(): React.JSX.Element {
                   />
                 </div>
                 {showSessionSearch && (
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      value={sessionSearch}
-                      onChange={(e) => {
-                        setSessionSearch(e.target.value);
-                      }}
-                      placeholder={t('supportCases.searchSessionPlaceholder')}
-                      className="pl-9 pr-9"
-                      autoFocus
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowSessionSearch(false);
-                        setSessionSearch('');
-                      }}
-                      className="absolute inset-y-0 right-3 flex items-center text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                    {sessionSearch.length >= 2 &&
-                      sessionSearchResults?.data != null &&
-                      sessionSearchResults.data.length > 0 && (
-                        <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover shadow-md">
-                          {sessionSearchResults.data
-                            .filter((s) => !caseDetail.sessions.some((cs) => cs.id === s.id))
-                            .map((s) => (
-                              <button
-                                key={s.id}
-                                type="button"
-                                onClick={() => {
-                                  addSessionMutation.mutate(s.id);
-                                }}
-                                className="flex w-full flex-col gap-0.5 px-3 py-2 text-left hover:bg-accent"
-                              >
-                                <span className="text-sm font-medium">{s.id}</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {[
-                                    s.stationName,
-                                    s.driverName,
-                                    s.status,
-                                    s.finalCostCents != null
-                                      ? formatCents(s.finalCostCents, s.currency)
-                                      : null,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(' \u00B7 ')}
-                                </span>
-                              </button>
-                            ))}
-                        </div>
-                      )}
-                  </div>
+                  <SearchCombobox
+                    query={sessionSearch}
+                    onQueryChange={setSessionSearch}
+                    autoFocus
+                    aria-label={t('supportCases.searchSessionPlaceholder')}
+                    placeholder={t('supportCases.searchSessionPlaceholder')}
+                    onClose={() => {
+                      setShowSessionSearch(false);
+                      setSessionSearch('');
+                    }}
+                    closeLabel={t('common.close')}
+                    items={
+                      sessionSearch.length >= 2
+                        ? (sessionSearchResults?.data ?? []).filter(
+                            (s) => !caseDetail.sessions.some((cs) => cs.id === s.id),
+                          )
+                        : []
+                    }
+                    getKey={(s) => s.id}
+                    onSelect={(s) => {
+                      addSessionMutation.mutate(s.id);
+                    }}
+                    renderItem={(s) => (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-sm font-medium">{s.id}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {[
+                            s.stationName,
+                            s.driverName,
+                            s.status,
+                            s.finalCostCents != null
+                              ? formatCents(s.finalCostCents, s.currency)
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' \u00B7 ')}
+                        </span>
+                      </div>
+                    )}
+                  />
                 )}
                 {caseDetail.sessions.length > 0 && (
                   <div className="rounded-md border overflow-hidden">

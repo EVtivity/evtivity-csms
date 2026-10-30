@@ -26,8 +26,9 @@ import {
   type SiteScene,
 } from './site-layout-scene';
 import type { LayoutStation } from './StationCard';
+import { editArea, type GridSize } from './site-layout-grid';
 import { StationLayoutPopup } from './StationLayoutPopup';
-import { CellularBadge, NewPlacementTag, StationStateIcon } from './StationStateIcon';
+import { CellularBadge, StationStateBadge } from './StationStateIcon';
 
 export interface SiteLayout3DProps {
   stations: readonly LayoutStation[];
@@ -41,7 +42,7 @@ export interface SiteLayout3DProps {
   onUnavailable: () => void;
 }
 
-/** The lot size for these bays: at least 5 by 2, plus one free row below the last station. */
+/** The bays Fit to View frames: at least 5 by 2, plus one free row below the last station. */
 export function lotSize(bays: readonly LayoutBay[]): { cols: number; rows: number } {
   const cols = Math.max(5, ...bays.map((b) => b.col + 1));
   const rows = Math.max(2, ...bays.map((b) => b.row + 2));
@@ -51,8 +52,11 @@ export function lotSize(bays: readonly LayoutBay[]): { cols: number; rows: numbe
 /** The bay of every station: its 2D slot, or the nearest free bay when another holds it. */
 export function stationBays(stations: readonly LayoutStation[]): {
   bays: Map<string, LayoutBay>;
+  /** Columns and rows Fit to View frames. */
   cols: number;
   rows: number;
+  /** The bays a station may be dropped on (the outlined edit grid). */
+  area: GridSize;
 } {
   const cols = Math.max(
     5,
@@ -67,7 +71,7 @@ export function stationBays(stations: readonly LayoutStation[]): {
     const bay = assigned[i];
     if (bay != null) bays.set(s.id, bay);
   });
-  return { bays, ...lotSize(assigned) };
+  return { bays, ...lotSize(assigned), area: editArea(assigned) };
 }
 
 function readTheme() {
@@ -144,9 +148,9 @@ export default function SiteLayout3D({
             return false;
           },
           onDrop: (id, bay) => {
-            const { bays, cols, rows } = layoutRef.current;
+            const { bays, area } = layoutRef.current;
             const others = [...bays].filter(([other]) => other !== id).map(([, b]) => b);
-            const target = nearestFreeBay(bay, others, cols, rows);
+            const target = nearestFreeBay(bay, others, area.cols, area.rows);
             if (target == null) return;
             const own = bays.get(id);
             if (own != null && own.col === target.col && own.row === target.row) return;
@@ -218,7 +222,12 @@ export default function SiteLayout3D({
     }
     sceneRef.current = scene;
     scene.setTheme(readTheme());
-    scene.setStations(sceneStationsRef.current, layoutRef.current.cols, layoutRef.current.rows);
+    const initial = layoutRef.current;
+    scene.setStations(
+      sceneStationsRef.current,
+      { cols: initial.cols, rows: initial.rows },
+      initial.area,
+    );
     scene.fit();
     // Rebuild the colors when the theme changes.
     const observer = new MutationObserver(() => {
@@ -235,7 +244,11 @@ export default function SiteLayout3D({
   useEffect(() => {
     layoutRef.current = layout;
     sceneStationsRef.current = sceneStations;
-    sceneRef.current?.setStations(sceneStations, layout.cols, layout.rows);
+    sceneRef.current?.setStations(
+      sceneStations,
+      { cols: layout.cols, rows: layout.rows },
+      layout.area,
+    );
   }, [sceneStations, layout]);
 
   useEffect(() => {
@@ -301,11 +314,8 @@ export default function SiteLayout3D({
             >
               {s.stationId}
             </Button>
-            <span className="rounded-full border bg-card p-0.5 shadow-xs">
-              <StationStateIcon state={stationDisplayState(s)} />
-            </span>
+            <StationStateBadge state={stationDisplayState(s)} />
             {s.cellular && <CellularBadge />}
-            {!s.placed && <NewPlacementTag />}
           </div>
         ))}
       </div>

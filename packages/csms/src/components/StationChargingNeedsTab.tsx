@@ -4,9 +4,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { CancelButton } from '@/components/cancel-button';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -383,19 +384,15 @@ export function StationChargingNeedsTab({
         emptyMessage={t('stationChargingNeeds.noMonitors')}
         actions={
           canWrite ? (
-            <Button
-              variant="outline"
-              size="sm"
+            <CreateButton
+              label={t('stationChargingNeeds.addMonitor')}
               disabled={!isOnline}
               title={isOnline ? undefined : t('stationChargingNeeds.stationOffline')}
               onClick={() => {
                 setHasSubmitted(false);
                 setCreateOpen(true);
               }}
-            >
-              <Plus className="h-4 w-4" />
-              {t('stationChargingNeeds.addMonitor')}
-            </Button>
+            />
           ) : undefined
         }
       >
@@ -570,9 +567,11 @@ export function StationChargingNeedsTab({
                   setCreateOpen(false);
                 }}
               />
-              <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? t('common.creating') : t('common.create')}
-              </Button>
+              <CreateButton
+                type="submit"
+                disabled={createMutation.isPending}
+                label={createMutation.isPending ? t('common.creating') : t('common.create')}
+              />
             </DialogFooter>
           </form>
         </DialogContent>

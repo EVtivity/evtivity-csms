@@ -173,13 +173,13 @@ export function LocationDetail(): React.JSX.Element {
                     );
                     const inner = (
                       <>
-                        <span className="flex items-center gap-2">
+                        <span className="flex min-w-0 items-center gap-2">
                           <Plug
                             className={`h-4 w-4 shrink-0 ${isStartable ? 'text-success' : 'text-muted-foreground'}`}
                           />
-                          <span className="font-medium">{c.stationId}</span>
+                          <span className="truncate font-medium">{c.stationId}</span>
                         </span>
-                        <span className="flex items-center gap-2">
+                        <span className="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
                           {meta}
                           <Badge
                             variant={connectorStatusVariant()}

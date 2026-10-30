@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 
@@ -53,28 +54,24 @@ export function AccountNotificationPrefs(): React.JSX.Element {
         </p>
       )}
       <div className="flex items-center space-x-2">
-        <input
+        <Checkbox
           id="notifEmail"
-          type="checkbox"
           checked={emailEnabled}
           onChange={(e) => {
             setEmailEnabled(e.target.checked);
           }}
-          className="h-4 w-4 rounded border-input"
         />
         <label htmlFor="notifEmail" className="text-sm font-medium">
           {t('profile.emailNotifications')}
         </label>
       </div>
       <div className="flex items-center space-x-2">
-        <input
+        <Checkbox
           id="notifSms"
-          type="checkbox"
           checked={smsEnabled}
           onChange={(e) => {
             setSmsEnabled(e.target.checked);
           }}
-          className="h-4 w-4 rounded border-input"
         />
         <label htmlFor="notifSms" className="text-sm font-medium">
           {t('profile.smsNotifications')}

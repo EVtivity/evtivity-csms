@@ -4,8 +4,9 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,6 +37,7 @@ import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
 import { RecalculateElectricityCostAction } from '@/components/ElectricityCostNotices';
+import { TimeInput } from '@/components/ui/time-input';
 
 interface RateRestrictions {
   timeRange?: { startTime: string; endTime: string };
@@ -259,10 +261,7 @@ export function SiteElectricityRatesTab({
               />
             )}
             {canWrite && (
-              <Button onClick={openCreate}>
-                <Plus className="h-4 w-4" />
-                {t('sites.addElectricityRate')}
-              </Button>
+              <CreateButton label={t('sites.addElectricityRate')} onClick={openCreate} />
             )}
           </div>
         }
@@ -364,23 +363,21 @@ export function SiteElectricityRatesTab({
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
                   <Label htmlFor="rate-start-time">{t('pricing.startTime')}</Label>
-                  <Input
+                  <TimeInput
                     id="rate-start-time"
-                    type="time"
                     value={form.startTime}
-                    onChange={(e) => {
-                      setForm((f) => ({ ...f, startTime: e.target.value }));
+                    onChange={(next) => {
+                      setForm((f) => ({ ...f, startTime: next }));
                     }}
                   />
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="rate-end-time">{t('pricing.endTime')}</Label>
-                  <Input
+                  <TimeInput
                     id="rate-end-time"
-                    type="time"
                     value={form.endTime}
-                    onChange={(e) => {
-                      setForm((f) => ({ ...f, endTime: e.target.value }));
+                    onChange={(next) => {
+                      setForm((f) => ({ ...f, endTime: next }));
                     }}
                   />
                 </div>

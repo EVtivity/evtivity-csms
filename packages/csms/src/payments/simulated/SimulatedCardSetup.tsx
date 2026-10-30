@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { FlaskConical } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { CancelButton } from '@/components/cancel-button';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -116,9 +116,11 @@ export function SimulatedCardSetup({
       {error != null && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex justify-end gap-2">
         {challenge == null && (
-          <Button type="submit" disabled={loading}>
-            {loading ? t('common.saving') : t('payments.addCard')}
-          </Button>
+          <CreateButton
+            type="submit"
+            disabled={loading}
+            label={loading ? t('common.saving') : t('payments.addCard')}
+          />
         )}
         <CancelButton onClick={onCancel} />
       </div>

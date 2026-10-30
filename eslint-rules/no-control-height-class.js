@@ -21,6 +21,9 @@ const CONTROLS = new Set([
   'SearchInput',
   'Combobox',
   'MonthPicker',
+  'DateTimeInput',
+  'TimeInput',
+  'SearchCombobox',
   'LanguageSelect',
 ]);
 

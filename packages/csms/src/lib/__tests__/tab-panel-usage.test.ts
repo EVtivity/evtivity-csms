@@ -9,6 +9,9 @@ import ts from 'typescript';
  * decision 2026-10-27): each direct child of a `TabsContent` is a `TabPanel`,
  * or a component whose file renders one (directly, or through one more
  * component that does). Spacing between the panels comes from `TabsContent`.
+ * Tabs shown as child routes of a layout (the Roaming page: `TabsList` plus
+ * `Outlet`, no `TabsContent`) follow the same rule: each child of the route
+ * page's root is a panel, a `Pagination` or a portal dialog.
  */
 
 // Every CSMS source file except tests; keys are paths relative to this file.
@@ -227,6 +230,105 @@ function panelProblems(file: string): string[] {
   return problems;
 }
 
+/**
+ * Routed tabs: a layout route whose element renders a `TabsList` and an
+ * `Outlet` (the Roaming page) shows each tab as a child route. Returns
+ * `[route file, page component]` for every child route of such a layout in
+ * `App.tsx`, unwrapping the route guards (`AllSiteRoute`, `AdminRoute`).
+ */
+function routedTabPages(): [string, string][] {
+  const app = 'App.tsx';
+  const source = parse(app);
+  if (source == null) return [];
+  const pages: [string, string][] = [];
+  const elementTags = (route: ts.JsxElement): string[] => {
+    const attr = route.openingElement.attributes.properties.find(
+      (a): a is ts.JsxAttribute =>
+        ts.isJsxAttribute(a) && a.name.getText() === 'element' && a.initializer != null,
+    );
+    if (attr?.initializer == null) return [];
+    return [...tagsIn(attr.initializer)].filter((tag) => !tag.endsWith('Route'));
+  };
+  const walk = (node: ts.Node): void => {
+    if (ts.isJsxElement(node) && tagOf(node) === 'Route') {
+      const layout = elementTags(node)[0];
+      const def = layout != null ? definitionOf(app, layout) : undefined;
+      const text = def != null ? (FILES.get(def.file) ?? '') : '';
+      if (text.includes('<TabsList') && text.includes('<Outlet')) {
+        for (const child of node.children) {
+          if (ts.isJsxElement(child) || ts.isJsxSelfClosingElement(child)) {
+            if (tagOf(child) !== 'Route') continue;
+            const opening = ts.isJsxElement(child) ? child.openingElement : child;
+            const attr = opening.attributes.properties.find(
+              (a): a is ts.JsxAttribute =>
+                ts.isJsxAttribute(a) && a.name.getText() === 'element' && a.initializer != null,
+            );
+            if (attr?.initializer == null) continue;
+            for (const tag of tagsIn(attr.initializer)) {
+              if (!tag.endsWith('Route')) pages.push([app, tag]);
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, walk);
+  };
+  walk(source);
+  return pages;
+}
+
+/** Siblings a routed tab page may show next to its panels. */
+const ROUTED_TAB_EXTRAS = new Set([...OUT_OF_FLOW, 'Pagination']);
+
+/** Problems of a routed tab page: its root, or each child of its root element, must be a panel. */
+function routedTabProblems(file: string, name: string): string[] {
+  const def = definitionOf(file, name);
+  if (def == null) return [`${file} <${name}>: definition not found`];
+  const scope = def.node ?? parse(def.file);
+  if (scope == null) return [`${def.file} <${name}>: not parsed`];
+  const source = scope.getSourceFile();
+  // The page component: the local function, or the exported function of its file.
+  let fn: ts.FunctionLikeDeclaration | undefined;
+  const findFn = (n: ts.Node): void => {
+    if (fn != null) return;
+    if (ts.isFunctionDeclaration(n) && n.name?.text === name) fn = n;
+    else ts.forEachChild(n, findFn);
+  };
+  findFn(scope);
+  if (fn?.body == null) return [`${def.file} <${name}>: component function not found`];
+  const roots: JsxNode[] = [];
+  const raw: string[] = [];
+  const walkReturns = (n: ts.Node): void => {
+    if (ts.isReturnStatement(n) && n.expression != null) {
+      let e: ts.Expression = n.expression;
+      while (ts.isParenthesizedExpression(e)) e = e.expression;
+      roots.push(...renderedElements(e, raw));
+    } else if (!ts.isFunctionLike(n)) ts.forEachChild(n, walkReturns);
+  };
+  walkReturns(fn.body);
+  const problems = raw.map((text) => `${def.file} <${name}>: ${text.slice(0, 40)}`);
+  for (const root of roots) {
+    const tag = tagOf(root);
+    if (/^[A-Z]/.test(tag)) {
+      if (!rendersPanel(def.file, tag, 2)) problems.push(`${def.file} <${tag}>`);
+      continue;
+    }
+    if (!ts.isJsxElement(root)) continue;
+    for (const child of root.children) {
+      const childRaw: string[] = [];
+      for (const el of renderedElements(child, childRaw)) {
+        const childTag = tagOf(el);
+        if (!ROUTED_TAB_EXTRAS.has(childTag) && !rendersPanel(def.file, childTag, 2)) {
+          const line = source.getLineAndCharacterOfPosition(el.getStart()).line + 1;
+          problems.push(`${def.file}:${String(line)} <${childTag}>`);
+        }
+      }
+      for (const text of childRaw) problems.push(`${def.file} <${name}>: ${text.slice(0, 40)}`);
+    }
+  }
+  return problems;
+}
+
 describe('detail page tabs', () => {
   it('scan the CSMS sources', () => {
     expect(FILES.size).toBeGreaterThan(100);
@@ -248,6 +350,17 @@ describe('detail page tabs', () => {
     for (const file of Object.keys(NOT_DETAIL_TABS)) {
       expect(FILES.get(file) ?? '', file).toContain('TabsContent');
     }
+  });
+
+  // Tabs shown as child routes of a layout (Roaming) have no TabsContent: each
+  // child route page shows its content in panels the same way.
+  it('show every routed tab in the shared TabPanel', { timeout: 30_000 }, () => {
+    const pages = routedTabPages();
+    expect(pages.map(([, name]) => name)).toEqual(
+      expect.arrayContaining(['RoamingPartners', 'RoamingLocations', 'RoamingHistory']),
+    );
+    const problems = pages.flatMap(([file, name]) => routedTabProblems(file, name));
+    expect(problems).toEqual([]);
   });
 
   it('set no spacing on a detail page TabsContent', () => {

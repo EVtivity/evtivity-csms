@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronRight, Pencil, Plus, Trash2, Zap, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
@@ -346,28 +347,22 @@ function PanelNode({
             ))}
 
             <div className="flex flex-wrap gap-2 pl-4">
-              <Button
+              <CreateButton
+                label={t('loadManagement.addSubPanel')}
                 variant="outline"
                 size="sm"
                 onClick={() => {
                   setAddSubPanelOpen(true);
                 }}
-                className="text-xs"
-              >
-                <Plus className="h-3 w-3" />
-                {t('loadManagement.addSubPanel')}
-              </Button>
-              <Button
+              />
+              <CreateButton
+                label={t('loadManagement.addUnmanagedLoad')}
                 variant="outline"
                 size="sm"
                 onClick={() => {
                   setAddLoadOpen(true);
                 }}
-                className="text-xs"
-              >
-                <Plus className="h-3 w-3" />
-                {t('loadManagement.addUnmanagedLoad')}
-              </Button>
+              />
             </div>
           </div>
         )}
@@ -579,16 +574,14 @@ function CircuitNode({
       )}
 
       <div className="mt-2 pl-2">
-        <Button
+        <CreateButton
+          label={t('loadManagement.addUnmanagedLoad')}
           variant="outline"
-          size="xs"
+          size="sm"
           onClick={() => {
             setAddLoadOpen(true);
           }}
-        >
-          <Plus className="h-3 w-3" />
-          {t('loadManagement.addUnmanagedLoad')}
-        </Button>
+        />
       </div>
 
       <CircuitForm

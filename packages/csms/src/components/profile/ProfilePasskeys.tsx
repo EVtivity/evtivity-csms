@@ -11,6 +11,7 @@ import {
 } from '@simplewebauthn/browser';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -485,14 +486,12 @@ export function ProfilePasskeys(): React.JSX.Element {
         ) : (
           supported &&
           enabled && (
-            <Button
-              variant="outline"
+            <CreateButton
+              label={t('passkeys.add')}
               onClick={() => {
                 setAdding(true);
               }}
-            >
-              {t('passkeys.add')}
-            </Button>
+            />
           )
         )}
       </CardContent>

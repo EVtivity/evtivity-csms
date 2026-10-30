@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorCard } from '@/components/ui/error-card';
+import { Radio } from '@/components/ui/radio';
 import { useToast } from '@/components/ui/toast';
 import { SessionCharts } from '@/components/SessionCharts';
 import { SessionVehicleCard, type SessionVehicleCapture } from '@/components/SessionVehicleCard';
@@ -687,15 +688,13 @@ export function SessionDetail(): React.JSX.Element {
                     checked ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
                   }`}
                 >
-                  <input
-                    type="radio"
+                  <Radio
                     name="session-vehicle"
                     value={v.id}
                     checked={checked}
                     onChange={() => {
                       setPendingVehicleId(v.id);
                     }}
-                    className="h-4 w-4 text-link"
                   />
                   <span className="text-sm font-medium">{label}</span>
                 </label>

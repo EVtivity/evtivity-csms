@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { Checkbox } from '@/components/ui/checkbox';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -340,14 +341,12 @@ export function UserDetailsTab({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <input
+                <Checkbox
                   id="edit-active"
-                  type="checkbox"
                   checked={isActive}
                   onChange={(e) => {
                     setIsActive(e.target.checked);
                   }}
-                  className="h-4 w-4 rounded border-input"
                 />
                 <Label htmlFor="edit-active">{t('common.active')}</Label>
               </div>
@@ -357,15 +356,13 @@ export function UserDetailsTab({
                 {canGrantAllSites && (
                   <>
                     <div className="flex items-center gap-2">
-                      <input
+                      <Checkbox
                         id="edit-all-sites"
-                        type="checkbox"
                         checked={hasAllSiteAccess}
                         onChange={(e) => {
                           setHasAllSiteAccess(e.target.checked);
                           if (e.target.checked) setSelectedSiteIds([]);
                         }}
-                        className="h-4 w-4 rounded border-input"
                       />
                       <Label htmlFor="edit-all-sites">{t('users.allSites')}</Label>
                     </div>
@@ -385,9 +382,8 @@ export function UserDetailsTab({
                     {sitesList.length === 0 && <p className="text-xs text-muted-foreground">n/a</p>}
                     {sitesList.map((site) => (
                       <div key={site.id} className="flex items-center gap-2">
-                        <input
+                        <Checkbox
                           id={`edit-site-${site.id}`}
-                          type="checkbox"
                           checked={selectedSiteIds.includes(site.id)}
                           onChange={(e) => {
                             if (e.target.checked) {
@@ -396,7 +392,6 @@ export function UserDetailsTab({
                               setSelectedSiteIds((prev) => prev.filter((sid) => sid !== site.id));
                             }
                           }}
-                          className="h-4 w-4 rounded border-input"
                         />
                         <Label htmlFor={`edit-site-${site.id}`}>{site.name}</Label>
                       </div>

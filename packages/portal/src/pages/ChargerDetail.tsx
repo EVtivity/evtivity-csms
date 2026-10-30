@@ -20,9 +20,10 @@ import {
   Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { InfoNote } from '@/components/ui/info-note';
@@ -711,12 +712,10 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
               <label className="text-sm font-medium" htmlFor="reserveStartsAt">
                 {t('reservations.startsAt')}
               </label>
-              <Input
+              <DateTimeInput
                 id="reserveStartsAt"
-                type="datetime-local"
                 value={reserveStartsAt}
-                onChange={(e) => {
-                  const next = e.target.value;
+                onChange={(next) => {
                   setReserveStartsAt(next);
                   // Auto-suggest expires = starts + 1h, but ONLY when the
                   // expires field is still empty. We don't try to detect and
@@ -739,13 +738,10 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
               <label className="text-sm font-medium" htmlFor="reserveExpiresAt">
                 {t('reservations.expiresAt')}
               </label>
-              <Input
+              <DateTimeInput
                 id="reserveExpiresAt"
-                type="datetime-local"
                 value={reserveExpiresAt}
-                onChange={(e) => {
-                  setReserveExpiresAt(e.target.value);
-                }}
+                onChange={setReserveExpiresAt}
               />
             </div>
             <InfoNote>
@@ -795,14 +791,13 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
                 <p className="text-sm text-muted-foreground mb-2">
                   {t('stationDetail.addPaymentPrompt')}
                 </p>
-                <Button
+                <CreateButton
+                  label={t('stationDetail.addPaymentMethod')}
                   variant="outline"
                   onClick={() => {
                     void navigate('/payment-methods');
                   }}
-                >
-                  {t('stationDetail.addPaymentMethod')}
-                </Button>
+                />
               </div>
             ) : (
               paymentMethods.map((pm) => (

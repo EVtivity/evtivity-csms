@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import { useHasPermission } from '@/lib/auth';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/components/ui/toast';
 import {
@@ -17,7 +16,8 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
-import { LoadingLogo } from '@/components/loading-logo';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 
 interface LocationPublishInfo {
   id: string;
@@ -36,7 +36,12 @@ export function RoamingLocations(): React.JSX.Element {
   const { toast } = useToast();
   const canWrite = useHasPermission('roaming:write');
 
-  const { data: locations, isLoading } = useQuery({
+  const {
+    data: locations,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ['ocpi-locations'],
     queryFn: () => api.get<LocationPublishInfo[]>('/v1/ocpi/locations'),
   });
@@ -58,8 +63,8 @@ export function RoamingLocations(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardContent className="overflow-x-auto p-0">
+      <TabPanel title={t('nav.roamingLocations')} body="flush">
+        <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -71,17 +76,21 @@ export function RoamingLocations(): React.JSX.Element {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center">
-                    <LoadingLogo size="inline" />
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={4}>
+                  <LoadingState />
+                </TableStateRow>
+              ) : isError ? (
+                <TableStateRow colSpan={4}>
+                  <ErrorState
+                    onRetry={() => {
+                      void refetch();
+                    }}
+                  />
+                </TableStateRow>
               ) : locations == null || locations.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground">
-                    {t('roaming.locations.noLocations')}
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={4}>
+                  <EmptyState>{t('roaming.locations.noLocations')}</EmptyState>
+                </TableStateRow>
               ) : (
                 locations.map((loc) => (
                   <TableRow key={loc.id}>
@@ -115,8 +124,8 @@ export function RoamingLocations(): React.JSX.Element {
               )}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+        </div>
+      </TabPanel>
     </div>
   );
 }

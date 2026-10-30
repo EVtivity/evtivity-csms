@@ -1,13 +1,14 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { Checkbox } from '@/components/ui/checkbox';
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
 import type { LoadAllocationStrategy } from '@evtivity/lib/load-allocation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { DecimalInput } from '@/components/ui/decimal-input';
@@ -231,14 +232,12 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
             </Select>
           </div>
           <div className="flex justify-end items-center gap-2">
-            <input
+            <Checkbox
               id="lm-enabled"
-              type="checkbox"
               checked={isEnabled}
               onChange={(e) => {
                 setIsEnabled(e.target.checked);
               }}
-              className="h-4 w-4"
             />
             <Label htmlFor="lm-enabled">{t('loadManagement.enableLoadManagement')}</Label>
           </div>
@@ -250,15 +249,12 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
       <TabPanel
         title={t('loadManagement.electricalInfrastructure')}
         actions={
-          <Button
-            size="sm"
+          <CreateButton
+            label={t('loadManagement.addPanel')}
             onClick={() => {
               setAddPanelOpen(true);
             }}
-          >
-            <Plus className="h-4 w-4" />
-            {t('loadManagement.addPanel')}
-          </Button>
+          />
         }
       >
         <PanelTree

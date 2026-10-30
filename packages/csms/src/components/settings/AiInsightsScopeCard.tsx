@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { Radio } from '@/components/ui/radio';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -235,17 +236,17 @@ export function AiInsightsScopeCard({
               <legend className="sr-only">{t('settings.aiInsightsScope.title')}</legend>
               {(['all', 'selected'] as const).map((m) => (
                 <label key={m} className="flex items-start gap-2 text-sm">
-                  <input
-                    type="radio"
-                    name="ai-insights-scope-mode"
-                    className="mt-1"
-                    value={m}
-                    checked={mode === m}
-                    onChange={() => {
-                      setMode(m);
-                      save.reset();
-                    }}
-                  />
+                  <span className="mt-0.5 inline-flex">
+                    <Radio
+                      name="ai-insights-scope-mode"
+                      value={m}
+                      checked={mode === m}
+                      onChange={() => {
+                        setMode(m);
+                        save.reset();
+                      }}
+                    />
+                  </span>
                   <span className="space-y-0.5">
                     <span className="block font-medium">
                       {t(`settings.aiInsightsScope.mode.${m}`)}

@@ -4,9 +4,8 @@
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { PageHeader } from '@/components/PageHeader';
 import { Card, CardContent } from '@/components/ui/card';
 import { api } from '@/lib/api';
@@ -65,15 +64,13 @@ export function SupportCases(): React.JSX.Element {
   return (
     <div className="space-y-4">
       <PageHeader title={t('supportCases.title')}>
-        <Button
+        <CreateButton
+          label={t('supportCases.newCase')}
           size="sm"
           onClick={() => {
             void navigate('/support/new');
           }}
-        >
-          <Plus className="mr-1 h-4 w-4" />
-          {t('supportCases.newCase')}
-        </Button>
+        />
       </PageHeader>
 
       {isLoading && <LoadingState />}

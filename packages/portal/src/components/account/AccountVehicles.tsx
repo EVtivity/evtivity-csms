@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Car, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -333,13 +334,12 @@ export function AccountVehicles(): React.JSX.Element {
         )}
         {submitError != null && <p className="text-sm text-destructive">{submitError}</p>}
 
-        <Button
+        <CreateButton
           type="submit"
-          className="w-full"
+          label={t('vehicles.addVehicle')}
+          fullWidth
           disabled={addMutation.isPending || make.trim() === '' || model.trim() === ''}
-        >
-          {t('vehicles.addVehicle')}
-        </Button>
+        />
       </form>
     </div>
   );

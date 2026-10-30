@@ -11,8 +11,8 @@ const { getMock, permissions, scene, createScene } = vi.hoisted(() => {
   const sceneState = {
     callbacks: null as SceneCallbacks | null,
     stations: [] as Array<{ id: string; bay: { col: number; row: number }; lightColor: string }>,
-    cols: 0,
-    rows: 0,
+    frame: { cols: 0, rows: 0 },
+    area: { cols: 0, rows: 0 },
     editing: false,
     fits: 0,
     throwOnCreate: false,
@@ -128,10 +128,14 @@ beforeEach(() => {
     if (scene.throwOnCreate) throw new Error('Error creating WebGL context');
     scene.callbacks = cb;
     return {
-      setStations: (s: typeof scene.stations, cols: number, rows: number) => {
+      setStations: (
+        s: typeof scene.stations,
+        frame: { cols: number; rows: number },
+        area: { cols: number; rows: number },
+      ) => {
         scene.stations = s;
-        scene.cols = cols;
-        scene.rows = rows;
+        scene.frame = frame;
+        scene.area = area;
       },
       setTheme: vi.fn(),
       setEditing: (e: boolean) => {
@@ -156,7 +160,7 @@ afterEach(() => {
 
 describe('SiteLayout3D', () => {
   it('maps stored px positions to bays of the 2D grid, never two stations in one bay', () => {
-    const { bays, cols, rows } = stationBays([
+    const { bays, cols, rows, area } = stationBays([
       station({ id: 'a', positionX: 20, positionY: 20 }),
       station({ id: 'b', positionX: 420, positionY: 160 }),
       station({ id: 'c', positionX: 30, positionY: 25 }),
@@ -166,6 +170,8 @@ describe('SiteLayout3D', () => {
     expect(bays.get('c')).not.toEqual({ col: 0, row: 0 });
     expect(cols).toBe(5);
     expect(rows).toBe(3);
+    // Stations may be dropped far past the framed lot.
+    expect(area).toEqual({ cols: 64, rows: 48 });
   });
 
   it('builds the scene with each station, its bay and its state light, and fits the view', () => {
@@ -179,15 +185,24 @@ describe('SiteLayout3D', () => {
     expect(scene.stations[0]?.lightColor).toBe('#f97316');
     expect(scene.stations[1]?.lightColor).toBe('#ef4444');
     expect(scene.fits).toBe(1);
+    expect(scene.frame).toEqual({ cols: 5, rows: 2 });
+    expect(scene.area).toEqual({ cols: 64, rows: 48 });
   });
 
-  it('labels every station with its ID, state icon, 4G badge and New tag', () => {
+  it('labels every station with its ID, a round state badge and the 4G badge, never a New tag', () => {
     renderView([station({ cellular: true, placed: false })]);
     const label = screen.getByTestId('site-layout-3d-label-sta_1');
     expect(label.textContent).toContain('CS-1');
-    expect(label.querySelector('[data-state="reserved"]')).not.toBeNull();
+    // A circle as tall as the chip button, with the plain glyph and the state label.
+    const badge = screen.getByTestId('station-state-badge');
+    expect(badge.getAttribute('data-state')).toBe('reserved');
+    expect(badge.getAttribute('aria-label')).toBe('sites.layoutState.reserved');
+    expect(badge.className).toContain('h-6');
+    expect(badge.className).toContain('w-6');
+    expect(badge.className).toContain('rounded-full');
+    expect(label.querySelectorAll('[role="img"]')).toHaveLength(1);
     expect(label.querySelector('[data-testid="cellular-badge"]')).not.toBeNull();
-    expect(label.querySelector('[data-testid="new-placement-tag"]')).not.toBeNull();
+    expect(label.querySelector('[data-testid="new-placement-tag"]')).toBeNull();
     // The ID button opens the details, also from the keyboard.
     // Labels stay hidden until the first frame places them; the stub scene renders none.
     act(() => {
@@ -263,6 +278,11 @@ describe('SiteLayout3D', () => {
       scene.callbacks?.onDrop('sta_1', { col: 3, row: 1 });
     });
     expect(onMove).toHaveBeenLastCalledWith('sta_1', 620, 160);
+    // Any bay of the larger edit grid, far past the framed lot.
+    act(() => {
+      scene.callbacks?.onDrop('sta_1', { col: 40, row: 30 });
+    });
+    expect(onMove).toHaveBeenLastCalledWith('sta_1', 8020, 4220);
     // Clicks open no popup in edit mode.
     act(() => {
       scene.callbacks?.onPick('sta_1');

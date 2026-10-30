@@ -6,7 +6,6 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useHasPermission } from '@/lib/auth';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
 import { SearchInput } from '@/components/search-input';
 import {
   Table,
@@ -22,7 +21,8 @@ import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { roamingPartnerStatusVariant } from '@/lib/status-variants';
 import { useRoamingTabAction } from './RoamingLayout';
-import { LoadingLogo } from '@/components/loading-logo';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 
 interface Partner {
   id: string;
@@ -44,6 +44,8 @@ export function RoamingPartners(): React.JSX.Element {
   const {
     data: partners,
     isLoading,
+    isError,
+    refetch,
     page,
     totalPages,
     setPage,
@@ -68,19 +70,17 @@ export function RoamingPartners(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardContent className="p-4">
-          <SearchInput
-            value={search}
-            onDebouncedChange={setSearch}
-            placeholder={t('common.search')}
-            className="w-full sm:max-w-half-vw"
-          />
-        </CardContent>
-      </Card>
+      <TabPanel title={t('nav.roamingPartners')}>
+        <SearchInput
+          value={search}
+          onDebouncedChange={setSearch}
+          placeholder={t('common.search')}
+          className="w-full sm:max-w-half-vw"
+        />
+      </TabPanel>
 
-      <Card>
-        <CardContent className="overflow-x-auto p-0">
+      <TabPanel body="flush">
+        <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -94,17 +94,17 @@ export function RoamingPartners(): React.JSX.Element {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center">
-                    <LoadingLogo size="inline" />
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={6}>
+                  <LoadingState />
+                </TableStateRow>
+              ) : isError ? (
+                <TableStateRow colSpan={6}>
+                  <ErrorState onRetry={refetch} />
+                </TableStateRow>
               ) : partners == null || partners.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    {t('roaming.partners.noPartners')}
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={6}>
+                  <EmptyState>{t('roaming.partners.noPartners')}</EmptyState>
+                </TableStateRow>
               ) : (
                 partners.map((partner) => (
                   <TableRow
@@ -134,8 +134,8 @@ export function RoamingPartners(): React.JSX.Element {
               )}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+        </div>
+      </TabPanel>
 
       {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />}
     </div>

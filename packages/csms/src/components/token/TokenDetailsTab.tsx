@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { Checkbox } from '@/components/ui/checkbox';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -11,6 +12,7 @@ import { RemoveButton } from '@/components/remove-button';
 import { CancelButton } from '@/components/cancel-button';
 import { SaveButton } from '@/components/save-button';
 import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
@@ -220,14 +222,12 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
               <DriverCombobox value={selectedDriver} onSelect={setSelectedDriver} />
             </div>
             <div className="flex items-center gap-2">
-              <input
+              <Checkbox
                 id="edit-active"
-                type="checkbox"
                 checked={isActive}
                 onChange={(e) => {
                   setIsActive(e.target.checked);
                 }}
-                className="h-4 w-4 rounded border-input"
               />
               <Label htmlFor="edit-active">{t('common.active')}</Label>
             </div>
@@ -235,14 +235,13 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
               <Label htmlFor="edit-expiresAt" className="leading-6">
                 {t('tokens.expiresAt')}
               </Label>
-              <Input
+              <DateTimeInput
                 id="edit-expiresAt"
-                type="datetime-local"
                 value={expiresAt}
-                onChange={(e) => {
-                  setExpiresAt(e.target.value);
+                onChange={(value) => {
+                  setExpiresAt(value);
                 }}
-                className={hasSubmitted && validationErrors.expiresAt ? 'border-destructive' : ''}
+                invalid={hasSubmitted && validationErrors.expiresAt != null}
               />
               <p className="text-sm text-muted-foreground">{t('tokens.expiresAtHint')}</p>
               {hasSubmitted && validationErrors.expiresAt && (
@@ -251,14 +250,12 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
             </div>
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <input
+                <Checkbox
                   id="edit-prepaid"
-                  type="checkbox"
                   checked={isPrepaid}
                   onChange={(e) => {
                     setIsPrepaid(e.target.checked);
                   }}
-                  className="h-4 w-4 rounded border-input"
                 />
                 <Label htmlFor="edit-prepaid">{t('tokens.prepaid')}</Label>
               </div>

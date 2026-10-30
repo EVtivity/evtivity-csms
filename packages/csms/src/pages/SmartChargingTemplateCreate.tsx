@@ -10,6 +10,7 @@ import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
@@ -348,14 +349,13 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 <Label htmlFor="sc-start-schedule" className="leading-6">
                   {t('smartCharging.startSchedule')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="sc-start-schedule"
-                  type="datetime-local"
                   value={startSchedule}
-                  onChange={(e) => {
-                    setStartSchedule(e.target.value);
+                  onChange={(value) => {
+                    setStartSchedule(value);
                   }}
-                  className={hasSubmitted && errors.startSchedule ? 'border-destructive' : ''}
+                  invalid={hasSubmitted && errors.startSchedule != null}
                 />
                 {hasSubmitted && errors.startSchedule && (
                   <p className="text-sm text-destructive">{errors.startSchedule}</p>
@@ -365,12 +365,11 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 <Label htmlFor="sc-valid-from" className="leading-6">
                   {t('smartCharging.validFrom')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="sc-valid-from"
-                  type="datetime-local"
                   value={validFrom}
-                  onChange={(e) => {
-                    setValidFrom(e.target.value);
+                  onChange={(value) => {
+                    setValidFrom(value);
                   }}
                 />
               </div>
@@ -378,12 +377,11 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 <Label htmlFor="sc-valid-to" className="leading-6">
                   {t('smartCharging.validTo')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="sc-valid-to"
-                  type="datetime-local"
                   value={validTo}
-                  onChange={(e) => {
-                    setValidTo(e.target.value);
+                  onChange={(value) => {
+                    setValidTo(value);
                   }}
                 />
               </div>

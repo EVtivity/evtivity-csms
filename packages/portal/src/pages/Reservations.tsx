@@ -5,9 +5,9 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plus } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
@@ -123,15 +123,13 @@ export function Reservations(): React.JSX.Element {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">{t('reservations.title')}</h1>
-        <Button
+        <CreateButton
+          label={t('reservations.newReservation')}
           size="sm"
           onClick={() => {
             void navigate('/reservations/new');
           }}
-        >
-          <Plus className="mr-1.5 h-4 w-4" />
-          {t('reservations.newReservation')}
-        </Button>
+        />
       </div>
 
       {/* Upcoming / Past toggle */}

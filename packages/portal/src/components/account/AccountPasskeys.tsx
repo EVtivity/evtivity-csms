@@ -10,6 +10,7 @@ import {
   type PublicKeyCredentialCreationOptionsJSON,
 } from '@simplewebauthn/browser';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -465,15 +466,13 @@ export function AccountPasskeys({ status }: { status: PortalMfaStatus }): React.
       ) : (
         supported &&
         enabled && (
-          <Button
-            variant="outline"
-            className="w-full"
+          <CreateButton
+            label={t('passkeys.add')}
+            fullWidth
             onClick={() => {
               setAdding(true);
             }}
-          >
-            {t('passkeys.add')}
-          </Button>
+          />
         )
       )}
       <ConfirmDialog

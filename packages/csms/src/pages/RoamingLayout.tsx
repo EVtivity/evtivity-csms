@@ -118,7 +118,7 @@ export function RoamingLayout(): React.JSX.Element {
           )}
         </div>
       </Tabs>
-      <div className="mt-2">
+      <div className="mt-4">
         <Outlet context={{ setTabAction } satisfies RoamingOutletContext} />
       </div>
     </div>

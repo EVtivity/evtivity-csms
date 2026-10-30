@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Trash2 } from 'lucide-react';
-import { AddButton } from '@/components/add-button';
+import { CreateButton } from '@/components/create-button';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { Pagination } from '@/components/ui/pagination';
 import { DriversTable } from '@/components/DriversTable';
@@ -122,7 +122,7 @@ export function FleetDriversTab({
         }
         actions={
           canManageMembers ? (
-            <AddButton
+            <CreateButton
               label={t('fleets.addDriver')}
               onClick={() => {
                 void navigate(`/fleets/${fleetId}/drivers/add`);

@@ -5,7 +5,6 @@ import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useHasPermission } from '@/lib/auth';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -19,7 +18,8 @@ import { CreateButton } from '@/components/create-button';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { useRoamingTabAction } from './RoamingLayout';
-import { LoadingLogo } from '@/components/loading-logo';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 
 interface TariffMapping {
   id: number;
@@ -43,6 +43,8 @@ export function RoamingTariffs(): React.JSX.Element {
   const {
     data: mappings,
     isLoading,
+    isError,
+    refetch,
     page,
     totalPages,
     setPage,
@@ -65,8 +67,8 @@ export function RoamingTariffs(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardContent className="overflow-x-auto p-0">
+      <TabPanel title={t('nav.roamingTariffs')} body="flush">
+        <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -78,17 +80,17 @@ export function RoamingTariffs(): React.JSX.Element {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center">
-                    <LoadingLogo size="inline" />
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={4}>
+                  <LoadingState />
+                </TableStateRow>
+              ) : isError ? (
+                <TableStateRow colSpan={4}>
+                  <ErrorState onRetry={refetch} />
+                </TableStateRow>
               ) : mappings == null || mappings.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground">
-                    {t('roaming.tariffs.noMappings')}
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={4}>
+                  <EmptyState>{t('roaming.tariffs.noMappings')}</EmptyState>
+                </TableStateRow>
               ) : (
                 mappings.map((mapping) => (
                   <TableRow
@@ -117,8 +119,8 @@ export function RoamingTariffs(): React.JSX.Element {
               )}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+        </div>
+      </TabPanel>
 
       {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />}
     </div>

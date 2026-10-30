@@ -37,6 +37,7 @@ import { ExplainContextCard } from './ExplainContextCard';
 import { AiUsageFooter } from './usage/AiUsageFooter';
 import { AiUsageNotices } from './usage/AiUsageNotices';
 import { AI_MY_USAGE_KEY } from './usage/usage-api';
+import { Textarea } from '@/components/ui/textarea';
 
 const conversationPath = (id: string): string =>
   `/v1/assistant/conversations/${encodeURIComponent(id)}`;
@@ -515,7 +516,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
               />
               <div className="flex items-end gap-1">
                 <AttachmentPickerButton disabled={busy} onFiles={addFiles} guard={storage.guard} />
-                <textarea
+                <Textarea
                   ref={textareaRef}
                   value={input}
                   rows={1}
@@ -531,7 +532,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
                       addFiles(files);
                     }
                   }}
-                  className="max-h-40 min-h-10 flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                  className="max-h-40 min-h-10 flex-1 resize-none"
                 />
                 {streaming ? (
                   <Button

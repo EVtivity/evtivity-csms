@@ -4,10 +4,11 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Check, MessageSquare, Pencil, Trash2, X } from 'lucide-react';
 import type { AiContextKind } from '@evtivity/lib/ai-insights';
 import { SearchInput } from '@/components/search-input';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
@@ -101,12 +102,7 @@ export function ConversationList({
           placeholder={t('ai.searchConversations')}
           className="max-w-none flex-1"
         />
-        {canWrite && (
-          <Button type="button" size="sm" onClick={onNew}>
-            <Plus className="h-4 w-4" />
-            <span className="ml-1">{t('ai.newChat')}</span>
-          </Button>
-        )}
+        {canWrite && <CreateButton label={t('ai.newChat')} onClick={onNew} />}
       </div>
       {rename.isError && (
         <p className="text-xs text-destructive">

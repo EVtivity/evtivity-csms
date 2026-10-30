@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { WysiwygEditor, type WysiwygEditorHandle } from '@/components/wysiwyg-editor';
 import type { TemplateVariable } from '@/lib/template-variables';
+import { Textarea } from '@/components/ui/textarea';
 
 interface TemplateEditorProps {
   channel: 'email' | 'sms' | 'webhook';
@@ -125,7 +126,7 @@ export function TemplateEditor({
           <WysiwygEditor ref={wysiwygRef} value={bodyHtml} onChange={onBodyHtmlChange} />
         ) : (
           <div>
-            <textarea
+            <Textarea
               id="tpl-body"
               ref={textareaRef}
               value={bodyText}
@@ -134,7 +135,7 @@ export function TemplateEditor({
               }}
               onDragOver={handleDragOver}
               onDrop={handleTextareaDrop}
-              className="flex min-h-[200px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs font-mono"
+              className="min-h-[200px] font-mono"
             />
             {isSms && (
               <p className="mt-2 text-xs text-muted-foreground">

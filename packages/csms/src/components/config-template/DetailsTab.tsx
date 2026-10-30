@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Copy, Plus, Upload } from 'lucide-react';
+import { Copy, Upload } from 'lucide-react';
 import { CancelButton } from '@/components/cancel-button';
 import { EditButton } from '@/components/edit-button';
 import { PushButton } from '@/components/push-button';
@@ -13,6 +13,7 @@ import { RemoveButton } from '@/components/remove-button';
 import { SaveButton } from '@/components/save-button';
 import { TargetFilterFields, type TargetFilterValue } from '@/components/TargetFilterFields';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
@@ -352,16 +353,12 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
             <div className="grid gap-2">
               <div className="flex items-center justify-between gap-2">
                 <Label className="whitespace-nowrap">{t('configTemplates.variables')}</Label>
-                <Button
-                  type="button"
+                <CreateButton
+                  label={t('configTemplates.addVariable')}
                   variant="outline"
                   size="sm"
-                  className="gap-1.5"
                   onClick={addVariable}
-                >
-                  <Plus className="h-4 w-4" />
-                  {t('configTemplates.addVariable')}
-                </Button>
+                />
               </div>
               <TemplateVariableRows
                 idPrefix="detail"

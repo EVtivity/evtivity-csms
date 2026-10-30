@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Nfc } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
@@ -100,15 +100,14 @@ export function AccountRfidCards(): React.JSX.Element {
 
   return (
     <div className="space-y-4">
-      <Button
-        className="w-full"
+      <CreateButton
+        label={t('rfid.addCard')}
+        fullWidth
         onClick={() => {
           setAddError('');
           setAddOpen(true);
         }}
-      >
-        {t('rfid.addCard')}
-      </Button>
+      />
 
       {isLoading && <LoadingState />}
 

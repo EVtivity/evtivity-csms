@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { CreditCard, Trash2, Star } from 'lucide-react';
 import { PageHeader } from '@/components/PageHeader';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -126,9 +127,12 @@ export function PaymentMethods(): React.JSX.Element {
           </CardContent>
         </Card>
       ) : (
-        <Button className="w-full" disabled={starting} onClick={() => void handleShowAdd()}>
-          {t('payments.addCard')}
-        </Button>
+        <CreateButton
+          label={t('payments.addCard')}
+          fullWidth
+          disabled={starting}
+          onClick={() => void handleShowAdd()}
+        />
       )}
 
       {isLoading && <LoadingState />}

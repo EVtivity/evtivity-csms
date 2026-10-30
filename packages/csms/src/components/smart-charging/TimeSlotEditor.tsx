@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
+import { TimeInput } from '@/components/ui/time-input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   Table,
@@ -91,10 +93,12 @@ export function TimeSlotEditor({
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle className="text-base">{t('smartCharging.schedulePeriods')}</CardTitle>
-        <Button type="button" variant="outline" size="sm" className="gap-1.5" onClick={addPeriod}>
-          <Plus className="h-4 w-4" />
-          {t('smartCharging.addTimeSlot')}
-        </Button>
+        <CreateButton
+          label={t('smartCharging.addTimeSlot')}
+          variant="outline"
+          size="sm"
+          onClick={addPeriod}
+        />
       </CardHeader>
       <CardContent>
         {sorted.length === 0 ? (
@@ -118,13 +122,13 @@ export function TimeSlotEditor({
                 {sorted.map((period, i) => (
                   <TableRow key={i}>
                     <TableCell>
-                      <Input
-                        type="time"
+                      <TimeInput
                         value={offsetToWallClockHHMM(anchor, period.startPeriod, tz)}
-                        onChange={(e) => {
-                          updatePeriod(i, 'startPeriod', e.target.value);
+                        onChange={(value) => {
+                          updatePeriod(i, 'startPeriod', value);
                         }}
-                        className="w-32"
+                        aria-label={t('smartCharging.startTime')}
+                        allowEmpty={false}
                       />
                     </TableCell>
                     <TableCell>

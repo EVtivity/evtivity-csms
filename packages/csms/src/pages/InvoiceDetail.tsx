@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -102,7 +103,7 @@ interface InvoiceDetailData {
   creditNote: InvoiceReference | null;
 }
 
-/** A Date as the value of an <input type="datetime-local"> in the browser time zone. */
+/** A Date as a `DateTimeInput` value (`YYYY-MM-DDTHH:mm`) in the browser time zone. */
 function toDatetimeLocal(date: Date): string {
   const pad = (n: number): string => String(n).padStart(2, '0');
   return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
@@ -474,12 +475,11 @@ export function InvoiceDetail(): React.JSX.Element {
         >
           <div className="space-y-2">
             <Label htmlFor="invoice-paid-at">{t('invoices.paymentDate')}</Label>
-            <Input
+            <DateTimeInput
               id="invoice-paid-at"
-              type="datetime-local"
               value={paidAt}
-              onChange={(e) => {
-                setPaidAt(e.target.value);
+              onChange={(value) => {
+                setPaidAt(value);
               }}
             />
             {paidSubmitted && paidAtInvalid && (

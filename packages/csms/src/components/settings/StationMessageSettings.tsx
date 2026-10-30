@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { Textarea } from '@/components/ui/textarea';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -607,7 +608,7 @@ export function StationMessageSettings({
                 <Label htmlFor="station-message-body" className="leading-6">
                   {t('messages.bodyLabel')}
                 </Label>
-                <textarea
+                <Textarea
                   id="station-message-body"
                   ref={textareaRef}
                   value={bodyDraft}
@@ -615,7 +616,7 @@ export function StationMessageSettings({
                     setBodyDraft(e.target.value);
                   }}
                   placeholder={t('messages.bodyPlaceholder')}
-                  className="flex min-h-[160px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className="min-h-[160px] font-mono"
                 />
               </div>
 

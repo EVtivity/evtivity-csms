@@ -3,7 +3,6 @@
 
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -16,7 +15,8 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { roamingSessionStatusVariant } from '@/lib/status-variants';
-import { LoadingLogo } from '@/components/loading-logo';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { formatMajorAmount, formatNumber } from '@/lib/formatting';
 
 interface RoamingSession {
@@ -40,6 +40,8 @@ export function RoamingSessions(): React.JSX.Element {
   const {
     data: sessions,
     isLoading,
+    isError,
+    refetch,
     page,
     totalPages,
     setPage,
@@ -47,8 +49,8 @@ export function RoamingSessions(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardContent className="overflow-x-auto p-0">
+      <TabPanel title={t('nav.roamingSessions')} body="flush">
+        <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -62,17 +64,17 @@ export function RoamingSessions(): React.JSX.Element {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center">
-                    <LoadingLogo size="inline" />
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={6}>
+                  <LoadingState />
+                </TableStateRow>
+              ) : isError ? (
+                <TableStateRow colSpan={6}>
+                  <ErrorState onRetry={refetch} />
+                </TableStateRow>
               ) : sessions == null || sessions.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
-                    {t('roaming.sessions.noSessions')}
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={6}>
+                  <EmptyState>{t('roaming.sessions.noSessions')}</EmptyState>
+                </TableStateRow>
               ) : (
                 sessions.map((session) => (
                   <TableRow key={session.id}>
@@ -91,8 +93,8 @@ export function RoamingSessions(): React.JSX.Element {
               )}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+        </div>
+      </TabPanel>
 
       {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />}
     </div>

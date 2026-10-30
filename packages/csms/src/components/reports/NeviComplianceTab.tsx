@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { Textarea } from '@/components/ui/textarea';
 import { useState, useMemo } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Spinner } from '@/components/ui/spinner';
@@ -22,6 +23,7 @@ import { RemoveButton } from '@/components/remove-button';
 import { GenerateButton } from '@/components/generate-button';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import {
@@ -952,14 +954,13 @@ function ExcludedDowntimeSection(): React.JSX.Element {
                 <Label htmlFor="nevi-downtime-started-at" className="leading-6">
                   {t('nevi.startedAt')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="nevi-downtime-started-at"
-                  type="datetime-local"
                   value={form.startedAt}
-                  onChange={(e) => {
-                    updateForm('startedAt', e.target.value);
+                  onChange={(value) => {
+                    updateForm('startedAt', value);
                   }}
-                  className={hasSubmitted && downtimeErrors.startedAt ? 'border-destructive' : ''}
+                  invalid={hasSubmitted && downtimeErrors.startedAt != null}
                 />
                 {hasSubmitted && downtimeErrors.startedAt && (
                   <p className="text-sm text-destructive">{downtimeErrors.startedAt}</p>
@@ -969,19 +970,17 @@ function ExcludedDowntimeSection(): React.JSX.Element {
                 <Label htmlFor="nevi-downtime-ended-at" className="leading-6">
                   {t('nevi.endedAt')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="nevi-downtime-ended-at"
-                  type="datetime-local"
                   value={form.endedAt}
-                  onChange={(e) => {
-                    updateForm('endedAt', e.target.value);
+                  onChange={(value) => {
+                    updateForm('endedAt', value);
                   }}
                 />
               </div>
               <div className="space-y-1">
                 <Label className="leading-6">{t('nevi.notes')}</Label>
-                <textarea
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+                <Textarea
                   value={form.notes}
                   onChange={(e) => {
                     updateForm('notes', e.target.value);

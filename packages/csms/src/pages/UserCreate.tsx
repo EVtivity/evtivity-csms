@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { Checkbox } from '@/components/ui/checkbox';
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -288,15 +289,13 @@ export function UserCreate(): React.JSX.Element {
               {canGrantAllSites && (
                 <>
                   <div className="flex items-center gap-2">
-                    <input
+                    <Checkbox
                       id="create-all-sites"
-                      type="checkbox"
                       checked={hasAllSiteAccess}
                       onChange={(e) => {
                         setHasAllSiteAccess(e.target.checked);
                         if (e.target.checked) setSelectedSiteIds([]);
                       }}
-                      className="h-4 w-4 rounded border-input"
                     />
                     <Label htmlFor="create-all-sites">{t('users.allSites')}</Label>
                   </div>
@@ -312,9 +311,8 @@ export function UserCreate(): React.JSX.Element {
                   {sitesList.length === 0 && <p className="text-xs text-muted-foreground">n/a</p>}
                   {sitesList.map((site) => (
                     <div key={site.id} className="flex items-center gap-2">
-                      <input
+                      <Checkbox
                         id={`site-${site.id}`}
-                        type="checkbox"
                         checked={selectedSiteIds.includes(site.id)}
                         onChange={(e) => {
                           if (e.target.checked) {
@@ -323,7 +321,6 @@ export function UserCreate(): React.JSX.Element {
                             setSelectedSiteIds((prev) => prev.filter((id) => id !== site.id));
                           }
                         }}
-                        className="h-4 w-4 rounded border-input"
                       />
                       <Label htmlFor={`site-${site.id}`}>{site.name}</Label>
                     </div>

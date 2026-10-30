@@ -63,7 +63,7 @@ const PORTAL_SCALE: Scale = {
 
 /** Shared text buttons: the default size unless a `size` prop says otherwise. */
 const SHARED_TEXT_BUTTON =
-  /^(Edit|Remove|Cancel|Save|Abort|Add|Create|Export|Import|Generate|Push|Reset|Start|Template|Refund|Recalculate|Enable|Disable|Confirm|Reject)Button$/;
+  /^(Edit|Remove|Cancel|Save|Abort|Create|Export|Import|Generate|Push|Reset|Start|Template|Refund|Recalculate|Enable|Disable|Confirm|Reject)Button$/;
 /** Shared icon buttons: always the Button `icon` size (h-10). */
 const SHARED_ICON_BUTTON = /IconButton$/;
 /** Inputs, selects, search fields and the filter and column toggles: one height, no size. */

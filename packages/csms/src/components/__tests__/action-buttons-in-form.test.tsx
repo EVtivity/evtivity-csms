@@ -3,7 +3,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
-import { AddButton } from '../add-button';
+import { CreateButton } from '../create-button';
 import { RefreshButton } from '../refresh-button';
 import { ResetButton } from '../reset-button';
 import { RemoveIconButton } from '../remove-icon-button';
@@ -29,7 +29,7 @@ function renderInForm(button: React.ReactNode): ReturnType<typeof vi.fn> {
 describe('shared action buttons inside a form', () => {
   it('runs the Add action without submitting the form', () => {
     const onClick = vi.fn();
-    const onSubmit = renderInForm(<AddButton label="Add" onClick={onClick} />);
+    const onSubmit = renderInForm(<CreateButton label="Add" onClick={onClick} />);
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(onClick).toHaveBeenCalledTimes(1);
     expect(onSubmit).not.toHaveBeenCalled();
@@ -67,8 +67,18 @@ describe('shared action buttons inside a form', () => {
   });
 
   it('submits the form when the caller asks for a submit button', () => {
-    const onSubmit = renderInForm(<AddButton label="Add" onClick={vi.fn()} type="submit" />);
+    const onSubmit = renderInForm(<CreateButton label="Add" onClick={vi.fn()} type="submit" />);
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws a create or add action in the brand primary with a Plus icon, never green', () => {
+    render(<CreateButton label="Add Driver" onClick={vi.fn()} title="hint" fullWidth />);
+    const button = screen.getByRole('button', { name: 'Add Driver' });
+    expect(button.className).toContain('bg-primary');
+    expect(button.className).not.toContain('bg-success');
+    expect(button.className).toContain('w-full');
+    expect(button.getAttribute('title')).toBe('hint');
+    expect(button.querySelector('svg.lucide-plus')).not.toBeNull();
   });
 });

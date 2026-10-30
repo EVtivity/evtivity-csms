@@ -5,13 +5,13 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { AI_INSIGHTS_KEY } from './insight-api';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 
 export type AiInsightsSuppressTarget = 'station' | 'site';
 
@@ -116,12 +116,11 @@ export function AiInsightsSuppressDialog({
       </div>
       <div className="space-y-2">
         <Label htmlFor={`ai-suppress-until-${target}`}>{t('stations.aiInsights.endDate')}</Label>
-        <Input
+        <DateTimeInput
           id={`ai-suppress-until-${target}`}
-          type="datetime-local"
           value={until}
-          onChange={(e) => {
-            setUntil(e.target.value);
+          onChange={(next) => {
+            setUntil(next);
           }}
         />
       </div>

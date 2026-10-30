@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 const { getMock, deleteMock, postMock, toastMock } = vi.hoisted(() => ({
@@ -118,6 +118,35 @@ describe('StationDisplayMessages for an OCPP 2.0.1 station', () => {
 
     expect(await screen.findByText('validation.maxLength')).toBeTruthy();
     expect(postMock).not.toHaveBeenCalled();
+  });
+
+  it('sends the start picked with the shared date and time picker', async () => {
+    postMock.mockResolvedValue({ status: 'Accepted' });
+    await openForm('ocpp2.1');
+    fireEvent.change(document.getElementById('msg-content') as HTMLElement, {
+      target: { value: 'Hello' },
+    });
+    const date = document.getElementById('msg-start-time') as HTMLInputElement;
+    expect(date.type).toBe('date');
+    fireEvent.change(date, { target: { value: '2030-05-06' } });
+    const group = within(date.parentElement as HTMLElement);
+    fireEvent.change(group.getByRole('combobox', { name: 'common.hour' }), {
+      target: { value: '14' },
+    });
+    fireEvent.change(group.getByRole('combobox', { name: 'common.minute' }), {
+      target: { value: '30' },
+    });
+    const dialog = screen.getByRole('dialog', { name: 'stations.sendMessage' });
+    const send = Array.from(dialog.querySelectorAll('button[type="submit"]'))[0];
+    if (send == null) throw new Error('send button not found');
+    fireEvent.click(send);
+
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ startDateTime: new Date('2030-05-06T14:30').toISOString() }),
+      );
+    });
   });
 
   it('keeps every option for an OCPP 2.1 station', async () => {

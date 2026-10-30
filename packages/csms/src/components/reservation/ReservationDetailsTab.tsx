@@ -10,7 +10,7 @@ import { EditButton } from '@/components/edit-button';
 import { CancelButton } from '@/components/cancel-button';
 import { SaveButton } from '@/components/save-button';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { DateTimeInput } from '@/components/ui/date-time-input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Textarea } from '@/components/ui/textarea';
@@ -388,12 +388,11 @@ export function ReservationDetailsTab({
                 <Label htmlFor="editStartsAt" className="leading-6">
                   {t('reservations.startsAt')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="editStartsAt"
-                  type="datetime-local"
                   value={editStartsAt}
-                  onChange={(e) => {
-                    setEditStartsAt(e.target.value);
+                  onChange={(value) => {
+                    setEditStartsAt(value);
                   }}
                 />
               </div>
@@ -401,16 +400,13 @@ export function ReservationDetailsTab({
                 <Label htmlFor="editExpiresAt" className="leading-6">
                   {t('reservations.expiresAtLabel')}
                 </Label>
-                <Input
+                <DateTimeInput
                   id="editExpiresAt"
-                  type="datetime-local"
                   value={editExpiresAt}
-                  onChange={(e) => {
-                    setEditExpiresAt(e.target.value);
+                  onChange={(value) => {
+                    setEditExpiresAt(value);
                   }}
-                  className={
-                    editSubmitted && editExpiresAt.trim() === '' ? 'border-destructive' : ''
-                  }
+                  invalid={editSubmitted && editExpiresAt.trim() === ''}
                 />
                 {editSubmitted && editExpiresAt.trim() === '' && (
                   <p className="text-sm text-destructive">{t('validation.required')}</p>

@@ -31,6 +31,7 @@ import {
   Undo,
   Redo,
 } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
 
 const BLOCK_TAGS = new Set([
   'table',
@@ -458,9 +459,9 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
         </div>
 
         {showSource ? (
-          <textarea
+          <Textarea
             ref={sourceRef}
-            className="w-full min-h-[200px] p-3 font-mono text-sm bg-background resize-y focus:outline-hidden"
+            className="min-h-[200px] rounded-none border-0 p-3 font-mono focus-visible:ring-0 focus-visible:ring-offset-0"
             value={sourceValue}
             onChange={(e) => {
               const text = e.target.value;

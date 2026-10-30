@@ -31,6 +31,7 @@ import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { FilterPopover } from '@/components/FilterBar';
 import { certificateStatusVariant } from '@/lib/status-variants';
+import { Textarea } from '@/components/ui/textarea';
 
 interface CsrRequest {
   id: number;
@@ -207,9 +208,9 @@ export function CsrRequestsTab(): React.JSX.Element {
               <Label htmlFor="signed-chain" className="leading-6">
                 {t('pnc.signedCertificateChain')}
               </Label>
-              <textarea
+              <Textarea
                 id="signed-chain"
-                className="h-48 w-full rounded-md border bg-background px-3 py-2 font-mono text-sm"
+                className="h-48 font-mono"
                 value={signedChain}
                 onChange={(e) => {
                   setSignedChain(e.target.value);

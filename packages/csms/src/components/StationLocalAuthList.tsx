@@ -4,9 +4,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plus, Trash2, Search, AlertTriangle } from 'lucide-react';
+import { Trash2, Search, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { PushButton } from '@/components/push-button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +34,7 @@ import { CancelButton } from '@/components/cancel-button';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { formatDateTime } from '@/lib/timezone';
+import { Checkbox } from '@/components/ui/checkbox';
 
 interface LocalAuthEntry {
   id: number;
@@ -193,16 +195,15 @@ export function StationLocalAuthList({
                 setPushConfirmOpen(true);
               }}
             />
-            <Button
+            <CreateButton
+              label={t('stations.addTokens')}
+              variant="outline"
               onClick={() => {
                 setSelectedTokenIds(new Set());
                 setTokenSearch('');
                 setAddOpen(true);
               }}
-            >
-              <Plus className="h-4 w-4" />
-              {t('stations.addTokens')}
-            </Button>
+            />
           </div>
         }
       >
@@ -368,13 +369,11 @@ export function StationLocalAuthList({
                     key={token.id}
                     className="flex items-center gap-3 px-4 py-2 hover:bg-accent cursor-pointer border-b last:border-b-0"
                   >
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={selectedTokenIds.has(token.id)}
                       onChange={() => {
                         toggleToken(token.id);
                       }}
-                      className="h-4 w-4 rounded border-input"
                     />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm truncate">{token.idToken}</div>
@@ -399,14 +398,13 @@ export function StationLocalAuthList({
                 setAddOpen(false);
               }}
             />
-            <Button
+            <CreateButton
+              label={addMutation.isPending ? t('stations.adding') : t('stations.addTokens')}
               disabled={selectedTokenIds.size === 0 || addMutation.isPending}
               onClick={() => {
                 addMutation.mutate(Array.from(selectedTokenIds));
               }}
-            >
-              {addMutation.isPending ? t('stations.adding') : t('stations.addTokens')}
-            </Button>
+            />
           </DialogFooter>
         </DialogContent>
       </Dialog>

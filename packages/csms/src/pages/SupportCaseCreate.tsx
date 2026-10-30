@@ -6,10 +6,12 @@ import { useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
-import { Search, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { CancelButton } from '@/components/cancel-button';
 import { CreateButton } from '@/components/create-button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { SearchCombobox } from '@/components/ui/search-combobox';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
@@ -141,13 +143,14 @@ export function SupportCaseCreate(): React.JSX.Element {
               <Label htmlFor="description" className="leading-6">
                 {t('supportCases.description')}
               </Label>
-              <textarea
+              <Textarea
                 id="description"
                 value={description}
                 onChange={(e) => {
                   setDescription(e.target.value);
                 }}
-                className={`flex w-full rounded-md border bg-background px-3 py-2 text-sm ${hasSubmitted && errors.description ? 'border-destructive' : 'border-input'}`}
+                aria-invalid={hasSubmitted && errors.description ? true : undefined}
+                className={hasSubmitted && errors.description ? 'border-destructive' : undefined}
                 rows={3}
               />
               {hasSubmitted && errors.description && (
@@ -197,7 +200,9 @@ export function SupportCaseCreate(): React.JSX.Element {
               <DriverCombobox value={selectedDriver} onSelect={setSelectedDriver} />
             </div>
             <div className="space-y-2">
-              <Label className="leading-6">{t('supportCases.linkedSessions')}</Label>
+              <Label htmlFor="case-session-search" className="leading-6">
+                {t('supportCases.linkedSessions')}
+              </Label>
               {selectedSessions.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-2">
                   {selectedSessions.map((s) => {
@@ -217,6 +222,7 @@ export function SupportCaseCreate(): React.JSX.Element {
                         )}
                         <button
                           type="button"
+                          aria-label={t('supportCases.removeSession')}
                           onClick={() => {
                             setSelectedSessions((prev) => prev.filter((p) => p.id !== s.id));
                           }}
@@ -229,56 +235,46 @@ export function SupportCaseCreate(): React.JSX.Element {
                   })}
                 </div>
               )}
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  value={sessionSearchText}
-                  onChange={(e) => {
-                    setSessionSearchText(e.target.value);
-                  }}
-                  placeholder={t('supportCases.searchSessionPlaceholder')}
-                  className="pl-9"
-                />
-                {sessionSearchText.length >= 2 &&
-                  sessionResults?.data != null &&
-                  sessionResults.data.length > 0 && (
-                    <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover shadow-md">
-                      {sessionResults.data
-                        .filter((s) => !selectedSessions.some((sel) => sel.id === s.id))
-                        .map((s) => {
-                          // Operators searching by session id (ses_*) need to
-                          // see which session each result refers to. Showing
-                          // only the integer transactionId is not enough to
-                          // disambiguate two results that share a station or
-                          // a similar timestamp.
-                          const primary =
-                            s.transactionId != null && s.transactionId !== ''
-                              ? `#${s.transactionId}`
-                              : s.id;
-                          const station = s.stationName ?? '';
-                          const startedLabel =
-                            s.startedAt != null ? formatDateTime(s.startedAt, timezone) : '';
-                          return (
-                            <button
-                              key={s.id}
-                              type="button"
-                              onClick={() => {
-                                setSelectedSessions((prev) => [...prev, s]);
-                                setSessionSearchText('');
-                              }}
-                              className="block w-full text-left px-3 py-2 text-xs hover:bg-accent"
-                            >
-                              <div className="font-medium">{primary}</div>
-                              <div className="text-muted-foreground">
-                                {[station, startedLabel].filter((x) => x !== '').join(' · ')}
-                              </div>
-                              <div className="text-muted-foreground/70">{s.id}</div>
-                            </button>
-                          );
-                        })}
+              <SearchCombobox
+                id="case-session-search"
+                query={sessionSearchText}
+                onQueryChange={setSessionSearchText}
+                items={
+                  sessionSearchText.length >= 2
+                    ? (sessionResults?.data ?? []).filter(
+                        (s) => !selectedSessions.some((sel) => sel.id === s.id),
+                      )
+                    : []
+                }
+                getKey={(s) => s.id}
+                placeholder={t('supportCases.searchSessionPlaceholder')}
+                onSelect={(s) => {
+                  setSelectedSessions((prev) => [...prev, s]);
+                  setSessionSearchText('');
+                }}
+                renderItem={(s) => {
+                  // Operators searching by session id (ses_*) need to see which
+                  // session each result refers to. Showing only the integer
+                  // transactionId is not enough to disambiguate two results
+                  // that share a station or a similar timestamp.
+                  const primary =
+                    s.transactionId != null && s.transactionId !== ''
+                      ? `#${s.transactionId}`
+                      : s.id;
+                  const station = s.stationName ?? '';
+                  const startedLabel =
+                    s.startedAt != null ? formatDateTime(s.startedAt, timezone) : '';
+                  return (
+                    <div className="text-xs">
+                      <div className="font-medium">{primary}</div>
+                      <div className="text-muted-foreground">
+                        {[station, startedLabel].filter((x) => x !== '').join(' · ')}
+                      </div>
+                      <div className="text-muted-foreground/70">{s.id}</div>
                     </div>
-                  )}
-              </div>
+                  );
+                }}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="case-assigned-to-select" className="leading-6">

@@ -46,6 +46,8 @@ import {
   getFirmwareSignatureErrors,
   type FirmwareSignatureValue,
 } from '@/components/FirmwareSignatureFields';
+import { DateTimeInput } from '@/components/ui/date-time-input';
+import { Textarea } from '@/components/ui/textarea';
 
 const RESET_TYPES = ['Immediate', 'OnIdle'] as const;
 
@@ -754,12 +756,11 @@ function QuickActionForm({
             <Label htmlFor="cmd-fw-retrieve-dt" className="leading-6">
               {t('commands.retrieveDateTime')}
             </Label>
-            <Input
+            <DateTimeInput
               id="cmd-fw-retrieve-dt"
-              type="datetime-local"
               value={form.retrieveDateTime}
-              onChange={(e) => {
-                onChange({ retrieveDateTime: e.target.value });
+              onChange={(next) => {
+                onChange({ retrieveDateTime: next });
               }}
             />
           </div>
@@ -1058,12 +1059,11 @@ function QuickActionForm16({
             <Label htmlFor="cmd16-fw-retrieve-dt" className="leading-6">
               {t('commands.retrieveDateTime')}
             </Label>
-            <Input
+            <DateTimeInput
               id="cmd16-fw-retrieve-dt"
-              type="datetime-local"
               value={form.retrieveDateTime}
-              onChange={(e) => {
-                onChange({ retrieveDateTime: e.target.value });
+              onChange={(next) => {
+                onChange({ retrieveDateTime: next });
               }}
             />
           </div>
@@ -1400,12 +1400,12 @@ export function StationCommands({
               {schemaLoading ? (
                 <LoadingLogo size="inline" />
               ) : rawMode || schemaError ? (
-                <textarea
+                <Textarea
                   value={advancedPayload}
                   onChange={(e) => {
                     setAdvancedPayload(e.target.value);
                   }}
-                  className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono"
+                  className="font-mono"
                   rows={4}
                 />
               ) : (

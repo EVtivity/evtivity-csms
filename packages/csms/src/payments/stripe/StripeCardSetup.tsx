@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { CancelButton } from '@/components/cancel-button';
 import { getErrorMessage } from '@/lib/error-message';
 import type { CardSetupProps } from '../types';
@@ -67,9 +67,11 @@ function CardSetupForm({
       </div>
       {error != null && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex justify-end gap-2">
-        <Button type="submit" disabled={stripe == null || loading}>
-          {loading ? t('common.saving') : t('payments.addCard')}
-        </Button>
+        <CreateButton
+          type="submit"
+          disabled={stripe == null || loading}
+          label={loading ? t('common.saving') : t('payments.addCard')}
+        />
         <CancelButton onClick={onCancel} />
       </div>
     </form>

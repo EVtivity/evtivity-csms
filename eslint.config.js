@@ -86,6 +86,16 @@ export default tseslint.config(
       'evtivity/no-raw-switch': 'error',
     },
   },
+  // Form controls are the shared components (frontend/ui.md, shared
+  // controls): no raw <input>, <select> or <textarea>, no native date-time,
+  // time, month or week picker, no hand-built listbox outside components/ui.
+  {
+    files: ['packages/csms/src/**/*.tsx', 'packages/portal/src/**/*.tsx'],
+    ignores: ['**/components/ui/**', '**/__tests__/**', '**/*.test.tsx'],
+    rules: {
+      'evtivity/no-raw-form-control': 'error',
+    },
+  },
   // Inputs, selects and buttons take their height from the shared component
   // (frontend/ui.md, control heights): no height or vertical padding class
   // on them outside components/ui.

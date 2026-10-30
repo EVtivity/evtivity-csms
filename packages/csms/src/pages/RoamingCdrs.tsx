@@ -7,7 +7,6 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, RotateCcw, Undo2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -27,7 +26,8 @@ import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { cdrPushStatusVariant } from '@/lib/status-variants';
-import { LoadingLogo } from '@/components/loading-logo';
+import { TabPanel } from '@/components/ui/tab-panel';
+import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
 import { formatMajorAmount, formatNumber } from '@/lib/formatting';
 
 interface CdrEntry {
@@ -72,6 +72,8 @@ export function RoamingCdrs(): React.JSX.Element {
   const {
     data: cdrs,
     isLoading,
+    isError,
+    refetch,
     page,
     totalPages,
     setPage,
@@ -110,8 +112,8 @@ export function RoamingCdrs(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardContent className="overflow-x-auto p-0">
+      <TabPanel title={t('nav.roamingCdrs')} body="flush">
+        <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
@@ -127,17 +129,17 @@ export function RoamingCdrs(): React.JSX.Element {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={columns} className="text-center">
-                    <LoadingLogo size="inline" />
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={columns}>
+                  <LoadingState />
+                </TableStateRow>
+              ) : isError ? (
+                <TableStateRow colSpan={columns}>
+                  <ErrorState onRetry={refetch} />
+                </TableStateRow>
               ) : cdrs == null || cdrs.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={columns} className="text-center text-muted-foreground">
-                    {t('roaming.cdrs.noCdrs')}
-                  </TableCell>
-                </TableRow>
+                <TableStateRow colSpan={columns}>
+                  <EmptyState>{t('roaming.cdrs.noCdrs')}</EmptyState>
+                </TableStateRow>
               ) : (
                 cdrs.map((cdr) => (
                   <TableRow key={cdr.id}>
@@ -187,8 +189,8 @@ export function RoamingCdrs(): React.JSX.Element {
               )}
             </TableBody>
           </Table>
-        </CardContent>
-      </Card>
+        </div>
+      </TabPanel>
 
       {totalPages > 1 && <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />}
 
