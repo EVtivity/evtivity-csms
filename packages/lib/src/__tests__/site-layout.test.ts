@@ -22,6 +22,17 @@ import {
   resolveCardDrop,
   sameLayoutGrid,
   sameLayoutSettings,
+  showsSolar,
+  showsTransformers,
+  siteTypeOf,
+  ENERGY_ASSET_TYPES,
+  LAYOUT_GRID_LIMITS,
+  energyAssetsOf,
+  placeEnergyAsset,
+  type LayoutBattery,
+  type LayoutEnergyAsset,
+  SITE_TYPES,
+  type SiteLayoutSettings,
   snapTransformerToGrass,
 } from '../site-layout.js';
 import { siteLayoutSettingsSchema } from '../site-layout-schema.js';
@@ -109,7 +120,24 @@ describe('site layout grid', () => {
     expect(sameLayoutSettings(a, { ...a, transformers: [...a.transformers] })).toBe(true);
     expect(sameLayoutSettings(a, { ...a, facingDeg: 90 })).toBe(false);
     expect(sameLayoutSettings(a, { ...a, transformers: [] })).toBe(false);
+    expect(sameLayoutSettings(a, { ...a, siteType: 'office_retail' })).toBe(false);
     expect(sameLayoutGrid(layoutGridOf(a), DEFAULT_LAYOUT_GRID)).toBe(true);
+  });
+
+  it('reads settings without a site type as a parking lot, and keeps a stored one', () => {
+    expect(effectiveLayoutSettings(null).siteType).toBe('parking_lot');
+    const legacy: SiteLayoutSettings = { ...effectiveLayoutSettings(null) };
+    delete legacy.siteType;
+    expect(siteTypeOf(legacy)).toBe('parking_lot');
+    expect(effectiveLayoutSettings(legacy).siteType).toBe('parking_lot');
+    // Stored before the site type existed and the same settings with the default compare equal.
+    expect(sameLayoutSettings(legacy, { ...legacy, siteType: 'parking_lot' })).toBe(true);
+    const office = effectiveLayoutSettings({ ...legacy, siteType: 'office_retail' });
+    expect(office.siteType).toBe('office_retail');
+    // The transformers stay in the settings, hidden on an office or retail site.
+    expect(office.transformers).toHaveLength(1);
+    expect(showsTransformers(office)).toBe(false);
+    expect(showsTransformers(legacy)).toBe(true);
   });
 
   it('hands out distinct slots for several unplaced stations', () => {
@@ -197,6 +225,15 @@ describe('site layout settings schema', () => {
     expect(siteLayoutSettingsSchema.safeParse(named).success).toBe(true);
   });
 
+  it('takes either site type, or none (stored before the site type existed)', () => {
+    for (const siteType of SITE_TYPES) {
+      expect(siteLayoutSettingsSchema.safeParse({ ...valid, siteType }).success).toBe(true);
+    }
+    const legacy: SiteLayoutSettings = { ...valid };
+    delete legacy.siteType;
+    expect(siteLayoutSettingsSchema.safeParse(legacy).success).toBe(true);
+  });
+
   it.each([
     ['spots out of range', { spotsPerRow: 0 }],
     ['rows out of range', { rows: 101 }],
@@ -206,6 +243,8 @@ describe('site layout settings schema', () => {
     ['facing not a quarter turn', { facingDeg: 45 }],
     ['unlimited rows', { rows: null }],
     ['an unknown key', { color: 'red' }],
+    ['an unknown site type', { siteType: 'garage' }],
+    ['a null site type', { siteType: null }],
   ])('refuses %s', (_name, patch) => {
     expect(siteLayoutSettingsSchema.safeParse({ ...valid, ...patch }).success).toBe(false);
   });
@@ -221,6 +260,84 @@ describe('site layout settings schema', () => {
     ).toBe(false);
     const many = Array.from({ length: 11 }, (_, i) => ({ ...t, id: `t${String(i)}` }));
     expect(siteLayoutSettingsSchema.safeParse({ ...valid, transformers: many }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe('site layout energy assets', () => {
+  const base = effectiveLayoutSettings(null);
+  const battery: LayoutBattery = {
+    id: 'bat-1',
+    type: 'battery',
+    name: 'Storage',
+    capacityKwh: 500,
+    x: 5,
+    z: 2,
+  };
+  const solar: LayoutEnergyAsset = {
+    id: 'pv-1',
+    type: 'solar',
+    name: null,
+    capacityKwp: 120,
+    row: 7,
+  };
+
+  it('reads absent energy assets as none, and a site without settings gets none', () => {
+    expect(ENERGY_ASSET_TYPES).toEqual(['battery', 'solar']);
+    expect(LAYOUT_GRID_LIMITS.energyAssets.max).toBe(10);
+    expect(base.energyAssets).toEqual([]);
+    const legacy: SiteLayoutSettings = { ...base };
+    delete legacy.energyAssets;
+    expect(energyAssetsOf(legacy)).toEqual([]);
+    expect(effectiveLayoutSettings(legacy).energyAssets).toEqual([]);
+    expect(sameLayoutSettings(legacy, base)).toBe(true);
+  });
+
+  it('moves a battery on the lot to the grass and clamps a solar row into the lot', () => {
+    const placed = effectiveLayoutSettings({ ...base, energyAssets: [battery, solar] });
+    const [b, s] = placed.energyAssets ?? [];
+    expect(b).toEqual({
+      ...battery,
+      ...snapTransformerToGrass(battery.x, battery.z, base),
+    });
+    expect(b?.type === 'battery' && b.z).toBe(-TRANSFORMER_CLEARANCE_M);
+    expect(s).toEqual({ ...solar, row: base.rows - 1 });
+    expect(placeEnergyAsset({ ...solar, row: 0 }, base)).toEqual({ ...solar, row: 0 });
+    // A smaller lot clamps the row again.
+    const oneRow = effectiveLayoutSettings({ ...base, rows: 1, energyAssets: [solar] });
+    expect(oneRow.energyAssets?.[0]).toEqual({ ...solar, row: 0 });
+  });
+
+  it('shows solar only on a parking lot and compares energy assets field by field', () => {
+    expect(showsSolar(base)).toBe(true);
+    expect(showsSolar({ ...base, siteType: 'office_retail' })).toBe(false);
+    const a = { ...base, energyAssets: [battery, solar] };
+    expect(sameLayoutSettings(a, { ...base, energyAssets: [battery, solar] })).toBe(true);
+    expect(sameLayoutSettings(a, { ...base, energyAssets: [solar, battery] })).toBe(false);
+    expect(sameLayoutSettings(a, { ...base, energyAssets: [battery, { ...solar, row: 0 }] })).toBe(
+      false,
+    );
+    expect(
+      sameLayoutSettings(a, { ...base, energyAssets: [{ ...battery, capacityKwh: 1 }, solar] }),
+    ).toBe(false);
+    expect(sameLayoutSettings(a, base)).toBe(false);
+  });
+
+  it('accepts both kinds in the schema and refuses bad ones', () => {
+    const parse = (energyAssets: unknown) =>
+      siteLayoutSettingsSchema.safeParse({ ...base, energyAssets }).success;
+    expect(parse([battery, solar])).toBe(true);
+    expect(parse(undefined)).toBe(true);
+    expect(parse([battery, { ...solar, id: 'bat-1' }])).toBe(false);
+    expect(parse([{ ...battery, capacityKwh: 0 }])).toBe(false);
+    expect(parse([{ ...battery, capacityKwh: 1.5 }])).toBe(false);
+    expect(parse([{ ...solar, row: -1 }])).toBe(false);
+    expect(parse([{ ...solar, row: 100 }])).toBe(false);
+    expect(parse([{ ...solar, x: 1 }])).toBe(false);
+    expect(parse([{ ...battery, type: 'wind' }])).toBe(false);
+    expect(parse([{ ...battery, name: 'x'.repeat(61) }])).toBe(false);
+    expect(parse(Array.from({ length: 11 }, (_, i) => ({ ...battery, id: `b${String(i)}` })))).toBe(
       false,
     );
   });

@@ -70,6 +70,12 @@ vi.mock('../services/ai-insight-scope.service.js', () => ({
   siteAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
   stationAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
 }));
+const { mockReadLayoutStationSessions } = vi.hoisted(() => ({
+  mockReadLayoutStationSessions: vi.fn(async () => new Map()),
+}));
+vi.mock('../lib/site-layout-sessions.js', () => ({
+  readLayoutStationSessions: mockReadLayoutStationSessions,
+}));
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
     () =>
@@ -84,6 +90,7 @@ vi.mock('../middleware/rbac.js', () => ({
       }
     },
   invalidatePermissionCache: vi.fn(),
+  requestHasPermission: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('@evtivity/services/station-derived-status', () => ({

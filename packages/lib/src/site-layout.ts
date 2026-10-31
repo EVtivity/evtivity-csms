@@ -97,9 +97,91 @@ export interface LayoutTransformer {
   z: number;
 }
 
-/** The layout settings of a site (sites.layout_settings): the lot and the transformers. */
+/**
+ * What kind of site the layout shows: `parking_lot`, an outdoor hub (a paved
+ * lot on grass, DC fast chargers, transformers on the grass), or
+ * `office_retail`, the car park in front of a building (AC wall boxes on the
+ * facade, pedestals at the curb, wall-mounted panels, no transformers).
+ */
+export const SITE_TYPES = ['parking_lot', 'office_retail'] as const;
+export type SiteType = (typeof SITE_TYPES)[number];
+/** The site type of settings that name none (every site before it existed). */
+export const DEFAULT_SITE_TYPE: SiteType = 'parking_lot';
+
+/**
+ * The layout settings of a site (sites.layout_settings): the site type, the
+ * lot and the transformers. `siteType` is absent in settings stored before it
+ * existed, which read as `parking_lot` (`siteTypeOf`).
+ */
 export interface SiteLayoutSettings extends SiteLayoutGrid {
+  siteType?: SiteType | undefined;
   transformers: LayoutTransformer[];
+  /**
+   * Batteries and solar canopies, informational only (nothing else models site
+   * storage or solar). Absent in settings stored before it existed, which read
+   * as none (`energyAssetsOf`).
+   */
+  energyAssets?: LayoutEnergyAsset[] | undefined;
+}
+
+/** The kinds of energy asset a layout shows. */
+export const ENERGY_ASSET_TYPES = ['battery', 'solar'] as const;
+export type EnergyAssetType = (typeof ENERGY_ASSET_TYPES)[number];
+
+/**
+ * A battery storage cabinet on the grass next to the lot, placed like a
+ * transformer (`x`, `z` in lot meters, moved onto the grass by
+ * `snapTransformerToGrass`). Shown on every site type.
+ */
+export interface LayoutBattery {
+  /** Stable id within the site (letters, digits, `-` and `_`). */
+  id: string;
+  type: 'battery';
+  name: string | null;
+  /** Usable capacity in kWh. */
+  capacityKwh: number | null;
+  x: number;
+  z: number;
+}
+
+/**
+ * A solar carport canopy over one row of the lot (`row`, 0-based). Shown on a
+ * parking lot only (`showsSolar`); an office or retail site keeps it hidden.
+ */
+export interface LayoutSolarCanopy {
+  /** Stable id within the site (letters, digits, `-` and `_`). */
+  id: string;
+  type: 'solar';
+  name: string | null;
+  /** Peak power in kWp. */
+  capacityKwp: number | null;
+  row: number;
+}
+
+export type LayoutEnergyAsset = LayoutBattery | LayoutSolarCanopy;
+
+/** The energy assets of settings: as stored, else none. */
+export function energyAssetsOf(settings: SiteLayoutSettings): LayoutEnergyAsset[] {
+  return settings.energyAssets ?? [];
+}
+
+/** Whether the layout shows the solar canopies: only on a parking lot (they stay stored on an office or retail site). */
+export function showsSolar(settings: SiteLayoutSettings): boolean {
+  return siteTypeOf(settings) === 'parking_lot';
+}
+
+/** The site type of settings: as stored, else the default (`parking_lot`). */
+export function siteTypeOf(settings: SiteLayoutSettings): SiteType {
+  return settings.siteType ?? DEFAULT_SITE_TYPE;
+}
+
+/**
+ * Whether the layout shows the transformers: only on a parking lot. An
+ * office or retail site keeps them in its settings, hidden, so switching back
+ * shows them again.
+ */
+export function showsTransformers(settings: SiteLayoutSettings): boolean {
+  return siteTypeOf(settings) === 'parking_lot';
 }
 
 /** The lot of a site that never set one: 20 spots, 10 in each of 2 rows. */
@@ -122,6 +204,10 @@ export const LAYOUT_GRID_LIMITS = {
   transformers: { max: 10 },
   transformerNameLength: 60,
   ratedKva: { min: 1, max: 100000 },
+  energyAssets: { max: 10 },
+  energyAssetNameLength: 60,
+  /** Battery kWh and solar kWp (integers). */
+  capacity: { min: 1, max: 100000 },
   /** How far from the lot a transformer may stand, in meters. */
   transformerReachM: 200,
 } as const;
@@ -159,9 +245,25 @@ export function sameLayoutGrid(a: SiteLayoutGrid, b: SiteLayoutGrid): boolean {
   );
 }
 
-/** Whether two layout settings are the same (lot and transformers, in order). */
+function sameEnergyAsset(a: LayoutEnergyAsset, b: LayoutEnergyAsset | undefined): boolean {
+  if (b == null || a.id !== b.id || a.name !== b.name) return false;
+  if (a.type === 'battery') {
+    return b.type === 'battery' && a.capacityKwh === b.capacityKwh && a.x === b.x && a.z === b.z;
+  }
+  return b.type === 'solar' && a.capacityKwp === b.capacityKwp && a.row === b.row;
+}
+
+/**
+ * Whether two layout settings are the same (site type, lot, transformers and
+ * energy assets, in order; absent energy assets equal none).
+ */
 export function sameLayoutSettings(a: SiteLayoutSettings, b: SiteLayoutSettings): boolean {
+  const assetsA = energyAssetsOf(a);
+  const assetsB = energyAssetsOf(b);
   return (
+    siteTypeOf(a) === siteTypeOf(b) &&
+    assetsA.length === assetsB.length &&
+    assetsA.every((asset, i) => sameEnergyAsset(asset, assetsB[i])) &&
     sameLayoutGrid(a, b) &&
     a.transformers.length === b.transformers.length &&
     a.transformers.every((t, i) => {
@@ -219,10 +321,25 @@ export function defaultTransformer(grid: SiteLayoutGrid): LayoutTransformer {
 }
 
 /**
+ * An energy asset where the lot lets it stand: a battery on the grass (the
+ * transformer rule), a solar canopy over a row of the lot (clamped into it).
+ */
+export function placeEnergyAsset(
+  asset: LayoutEnergyAsset,
+  grid: SiteLayoutGrid,
+): LayoutEnergyAsset {
+  if (asset.type === 'battery')
+    return { ...asset, ...snapTransformerToGrass(asset.x, asset.z, grid) };
+  return { ...asset, row: Math.min(grid.rows - 1, Math.max(0, Math.round(asset.row))) };
+}
+
+/**
  * The layout settings the views and the placement use. Stored settings as
- * stored (transformers moved onto the grass); a site that never saved any gets
- * the default 10 by 2 lot, grown to hold the stations it already has (`bays`),
- * and one transformer next to it.
+ * stored (the site type filled in, transformers and batteries moved onto the
+ * grass, solar canopies clamped into the lot's rows, energy assets filled in
+ * as none when absent); a site that never saved any gets a parking lot: the
+ * default 10 by 2 lot, grown to hold the stations it already has (`bays`),
+ * one transformer next to it and no energy assets.
  */
 export function effectiveLayoutSettings(
   stored: SiteLayoutSettings | null | undefined,
@@ -231,10 +348,12 @@ export function effectiveLayoutSettings(
   if (stored != null) {
     return {
       ...stored,
+      siteType: siteTypeOf(stored),
       transformers: stored.transformers.map((t) => ({
         ...t,
         ...snapTransformerToGrass(t.x, t.z, stored),
       })),
+      energyAssets: energyAssetsOf(stored).map((a) => placeEnergyAsset(a, stored)),
     };
   }
   let spotsPerRow = DEFAULT_LAYOUT_GRID.spotsPerRow;
@@ -244,7 +363,12 @@ export function effectiveLayoutSettings(
     rows = Math.min(LAYOUT_GRID_LIMITS.rows.max, Math.max(rows, b.row + 1));
   }
   const grid = { ...DEFAULT_LAYOUT_GRID, spotsPerRow, rows };
-  return { ...grid, transformers: [defaultTransformer(grid)] };
+  return {
+    siteType: DEFAULT_SITE_TYPE,
+    ...grid,
+    transformers: [defaultTransformer(grid)],
+    energyAssets: [],
+  };
 }
 
 /** The lot fields of the settings. */

@@ -163,6 +163,8 @@ describe('getQueryKeysForEvent', () => {
     expect(hasKey(keys, ['sessions'])).toBe(true);
     expect(hasKey(keys, ['stations', 'CS-1', 'metrics'])).toBe(true);
     expect(hasKey(keys, ['sites', 'S-1', 'sessions'])).toBe(true);
+    // The site layout (Layout tab and dashboard card) shows the session's energy and cost.
+    expect(hasKey(keys, ['sites', 'S-1', 'layout'])).toBe(true);
     expect(keys.some((k) => k[0] === 'dashboard')).toBe(false);
     expect(getQueryKeysForEvent(makeEvent('session.updated'))).toEqual([
       ['sessions'],
@@ -176,6 +178,7 @@ describe('getQueryKeysForEvent', () => {
     );
     expect(hasKey(keys, ['stations', 'CS-1', 'meter-values'])).toBe(true);
     expect(hasKey(keys, ['sites', 'S-1', 'load-management'])).toBe(true);
+    expect(hasKey(keys, ['sites', 'S-1', 'layout'])).toBe(true);
     expect(hasKey(keys, ['sites', 'S-1', 'energy-history'])).toBe(true);
     expect(getQueryKeysForEvent(makeEvent('meter.values'))).toEqual([
       ['dashboard', 'financial-stats'],

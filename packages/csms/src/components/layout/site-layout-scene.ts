@@ -4,8 +4,11 @@
 // The three.js scene of the 3D site layout: a paved lot with painted parking
 // spots and a curb on an endless grass ground, a concrete pad per station
 // with a DC fast charger or AC pedestal model built in code, pad-mounted
-// transformers on the grass, the load management links from a transformer to
-// the managed stations, and the company logo on the back of every charger.
+// transformers on the grass (parking lot), the building with AC wall boxes on
+// its facade (office or retail), one panel model per load management panel
+// (a switchboard cabinet on a pad, or a panel on the facade) with the links to
+// its circuits and stations, a glow on the front of every charging station,
+// and the company logo on the back of every charger.
 // Only SiteLayout3D imports this module, and SiteLayout loads SiteLayout3D
 // with React.lazy, so three.js stays out of every other chunk.
 //
@@ -20,15 +23,25 @@ import type { LayoutBay } from '@evtivity/lib/site-layout';
 import { SCENE_COLORS } from './site-layout-colors';
 import {
   BAY_LINE_GAP,
+  BUILDING_HEIGHT_M,
   CAMERA_FOV,
+  CURB_M,
+  FACADE_Z,
   MAX_POLAR_ANGLE,
   MIN_DISTANCE,
+  OVERVIEW_CAMERA_OFFSET,
   bayToWorld as bayToLot,
   bayTurn,
+  buildingBox,
+  buildingFramePoints,
+  beaconLevel,
+  chargingGlowLevel,
   clampTarget,
   clampToLot,
   fitFrame,
   fogRange,
+  FRONT_CAMERA_OFFSET,
+  FRONT_MAX_POLAR_ANGLE,
   frontCamera,
   groundBox,
   logoFit,
@@ -36,13 +49,14 @@ import {
   panBox,
   rotateBox,
   sceneBox,
+  wallBoxOffset,
   worldToBay as lotToBay,
   type Box,
   type Lot,
   type Point,
   type StationProp,
 } from './site-layout-grid';
-import type { LinkKind, LoadLinks } from './site-layout-links';
+import type { LinkKind, LoadLinks, PanelMount } from './site-layout-links';
 
 /** Pixels per meter of the spot texture. */
 const TEXTURE_PX_PER_M = 80;
@@ -66,10 +80,19 @@ export interface SceneStation {
   lit: boolean;
   /** True while charging: the light pulses unless reduced motion is on. */
   pulsing: boolean;
+  /**
+   * True while charging: a glowing strip around the screen or the connector,
+   * in `lightColor`, pulsing gently (steady with reduced motion).
+   */
+  glow: boolean;
+  /** An AC wall box on the building facade (office or retail, first row), not a pedestal. */
+  wall: boolean;
   /** What stands in the spot (`stationProp`): a car on a cable, a Reserved sign or a cone. */
   prop: StationProp;
   /** Payment terminals paired to the station. */
   terminals: readonly SceneTerminal[];
+  /** A faulted station: a red beacon above it, pulsing unless reduced motion is on. */
+  beacon: boolean;
 }
 
 export interface SceneTransformer {
@@ -78,10 +101,37 @@ export interface SceneTransformer {
   z: number;
 }
 
+/** A load management panel model (site-layout-links.ts, placePanels). */
+export interface ScenePanel {
+  id: string;
+  x: number;
+  z: number;
+  mount: PanelMount;
+}
+
+/** A battery storage cabinet on the grass (information only). */
+export interface SceneBattery {
+  id: string;
+  x: number;
+  z: number;
+}
+
+/** A solar carport canopy over one row of the lot (information only, parking lot only). */
+export interface SceneSolar {
+  id: string;
+  row: number;
+}
+
 export interface SceneLayout {
   lot: Lot;
   stations: readonly SceneStation[];
+  /** Shown on a parking lot only (the caller passes none for an office or retail site). */
   transformers: readonly SceneTransformer[];
+  /** Battery storage on the grass (both site types). */
+  batteries: readonly SceneBattery[];
+  /** Solar canopies (the caller passes none for an office or retail site). */
+  solar: readonly SceneSolar[];
+  panels: readonly ScenePanel[];
   links: LoadLinks;
 }
 
@@ -100,6 +150,8 @@ export interface ScreenPoint {
   y: number;
   /** Normalized depth: smaller is nearer the camera. */
   depth: number;
+  /** Distance from the camera in meters. */
+  distance: number;
   visible: boolean;
 }
 
@@ -114,6 +166,8 @@ export interface SceneCallbacks {
   snapTransformer: (p: Point) => Point;
   /** A transformer drag in edit mode ended at this lot point (already snapped). */
   onTransformerDrop: (transformerId: string, p: Point) => void;
+  /** A battery drag in edit mode ended at this lot point (on the grass, like a transformer). */
+  onBatteryDrop: (batteryId: string, p: Point) => void;
   /** Runs after every rendered frame (labels and popup follow the models). */
   onFrame: () => void;
 }
@@ -125,6 +179,21 @@ export interface SiteScene {
   setSelected: (stationId: string | null) => void;
   /** The company logo (a data or http(s) URL) for the back panels; null for plain panels. */
   setLogo: (url: string | null) => void;
+  /**
+   * The live power on the load management links, 0 to 1 by segment id
+   * (`loadFlows`): brighter and thicker with more power. No rebuild.
+   */
+  setLinkFlow: (flow: ReadonlyMap<string, number>) => void;
+  /** Where the label of a battery or solar canopy goes. */
+  energyLabelPoint: (id: string) => ScreenPoint | null;
+  /** Draw calls and triangles of the last frame (the large site benchmark). */
+  stats: () => { calls: number; triangles: number };
+  /** How far the camera stands from the point it looks at, in meters. */
+  viewDistance: () => number;
+  /** Turns the view to a station (keeps the camera's angle and distance). */
+  focus: (stationId: string) => void;
+  /** Where a driver avatar floats: above the car of a charging station, else above the charger. */
+  avatarPoint: (stationId: string) => ScreenPoint | null;
   fit: () => void;
   /**
    * Renders while true. False stops the frame loop (the view is off screen or
@@ -146,8 +215,81 @@ interface StationObject {
   group: THREE.Group;
   ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   light: THREE.MeshStandardMaterial;
+  /** The charging glow: the strip and its halo (null when not charging). */
+  glow: { strip: THREE.MeshStandardMaterial; halo: THREE.MeshBasicMaterial } | null;
   top: number;
+  /** Where the label goes along the station's own z (a wall box hangs behind its spot). */
+  labelZ: number;
+  /** Above the middle of the car roof (station frame), or null without a car. */
+  avatarAnchor: THREE.Vector3 | null;
   station: SceneStation;
+}
+
+/** The meshes of one load management link, restyled by its live flow. */
+interface LinkMeshes {
+  core: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial>;
+  halo: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial>;
+  curve: THREE.QuadraticBezierCurve3;
+  kind: LinkKind;
+  /** The flow step it is drawn at (0 to 10), -1 before the first style. */
+  step: number;
+}
+
+/** How far above the car roof a driver avatar floats, in meters. */
+const AVATAR_ABOVE_ROOF_M = 0.5;
+
+/** Height of a panel link end and of a panel label, by mount, in meters. */
+const PANEL_LINK_Y: Record<PanelMount, number> = { pad: 1.7, wall: 1.5 };
+const PANEL_LABEL_Y: Record<PanelMount, number> = { pad: 2.75, wall: 2.4 };
+
+/** From this many stations, the fixed parts of the station models are merged (outside Edit Layout). */
+export const MERGE_STATIONS_FROM = 60;
+
+export function mergesStations(stationCount: number): boolean {
+  return stationCount >= MERGE_STATIONS_FROM;
+}
+
+/**
+ * A copy of a geometry as plain triangles with a position, a normal and a uv
+ * each (uv 0 where it had none), ready to concatenate; null for a geometry
+ * that is not triangles with positions.
+ */
+function flatGeometry(source: THREE.BufferGeometry): THREE.BufferGeometry | null {
+  if (!source.hasAttribute('position')) return null;
+  const g = source.index != null ? source.toNonIndexed() : source.clone();
+  for (const name of Object.keys(g.attributes)) {
+    if (name !== 'position' && name !== 'normal' && name !== 'uv') g.deleteAttribute(name);
+  }
+  if (!g.hasAttribute('normal')) g.computeVertexNormals();
+  if (!g.hasAttribute('uv')) {
+    const count = g.getAttribute('position').count;
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(count * 2), 2));
+  }
+  g.clearGroups();
+  return g;
+}
+
+/** One geometry from plain triangle geometries (flatGeometry). */
+function concatGeometries(parts: readonly THREE.BufferGeometry[]): THREE.BufferGeometry {
+  const names = ['position', 'normal', 'uv'] as const;
+  const out = new THREE.BufferGeometry();
+  for (const name of names) {
+    const size = name === 'uv' ? 2 : 3;
+    const total = parts.reduce((n, p) => n + p.getAttribute(name).count * size, 0);
+    const data = new Float32Array(total);
+    let offset = 0;
+    for (const p of parts) {
+      const attr = p.getAttribute(name);
+      for (let i = 0; i < attr.count; i++) {
+        data[offset++] = attr.getX(i);
+        data[offset++] = attr.getY(i);
+        if (size === 3) data[offset++] = attr.getZ(i);
+      }
+    }
+    out.setAttribute(name, new THREE.Float32BufferAttribute(data, size));
+  }
+  out.computeBoundingSphere();
+  return out;
 }
 
 /** Back panel of each model: size and where its center sits on the body. */
@@ -220,7 +362,7 @@ export function createSiteScene(
   const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.5, 2000);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = !options.reducedMotion;
-  controls.maxPolarAngle = MAX_POLAR_ANGLE;
+  controls.maxPolarAngle = options.view === 'front' ? FRONT_MAX_POLAR_ANGLE : MAX_POLAR_ANGLE;
   controls.minDistance = MIN_DISTANCE;
   // Panning moves along the ground, like a map, so the view never lifts off the site.
   controls.screenSpacePanning = false;
@@ -337,14 +479,21 @@ export function createSiteScene(
       width: 32,
       depth: 23.2,
       facing: 0,
+      siteType: 'parking_lot',
     },
     stations: [],
     transformers: [],
+    batteries: [],
+    solar: [],
+    panels: [],
     links: { segments: [], labels: [] },
   };
   let frameBox: Box = { minX: 0, maxX: 32, minZ: 0, maxZ: 23.2 };
   // The same box before the facing turns it (the front camera frames it).
   let siteBox: Box = frameBox;
+  // The lot and its stations only (lot coordinates): the front camera frames
+  // the chargers, not the transformers and panels on the grass beside them.
+  let lotBox: Box = frameBox;
   let pan: Box = panBox(frameBox);
   let editing = false;
   let selected: string | null = null;
@@ -352,8 +501,16 @@ export function createSiteScene(
   let logoUrl: string | null = null;
   const objects = new Map<string, StationObject>();
   const transformerObjects = new Map<string, THREE.Group>();
+  const batteryObjects = new Map<string, THREE.Group>();
+  // Label points of the batteries and solar canopies (lot coordinates).
+  const energyLabels = new Map<string, THREE.Vector3>();
   const linkLabels = new Map<string, THREE.Vector3>();
   const flowTextures: THREE.Texture[] = [];
+  // The link meshes by segment id, so the live flow restyles them without a rebuild.
+  const linkMeshes = new Map<string, LinkMeshes>();
+  let linkFlow: ReadonlyMap<string, number> = new Map();
+  // Faulted station beacons (pulsing unless reduced motion).
+  const beacons: Array<{ core: THREE.MeshStandardMaterial; halo: THREE.MeshBasicMaterial }> = [];
   const site = new THREE.Group();
   const ground = new THREE.Group();
   const editGrid = new THREE.Group();
@@ -446,16 +603,39 @@ export function createSiteScene(
     return texture;
   }
 
+  // A soft round glow, white in the middle and clear at the edge, tinted by its material.
+  let haloTexture: THREE.CanvasTexture | null = null;
+  function glowTexture(): THREE.CanvasTexture {
+    if (haloTexture != null) return haloTexture;
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    if (ctx != null) {
+      const g = ctx.createRadialGradient(64, 64, 4, 64, 64, 64);
+      g.addColorStop(0, 'rgba(255,255,255,1)');
+      g.addColorStop(0.35, 'rgba(255,255,255,0.55)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 128, 128);
+    }
+    haloTexture = track(new THREE.CanvasTexture(canvas));
+    return haloTexture;
+  }
+
   type Palette = (typeof SCENE_COLORS)['light'] | (typeof SCENE_COLORS)['dark'];
 
   // The props and the transformer, built once per rebuild on first use and
   // cloned per station: the clones share their geometries and materials.
   interface Templates {
     car: () => THREE.Group;
-    cable: (kind: 'ac' | 'dc') => THREE.Mesh;
+    cable: (kind: 'ac' | 'dc' | 'wall') => THREE.Mesh;
     sign: () => THREE.Group;
     cone: () => THREE.Group;
     transformer: () => THREE.Group;
+    battery: () => THREE.Group;
+    switchboard: () => THREE.Group;
+    wallPanel: () => THREE.Group;
     terminal: (hasDisplay: boolean, online: boolean | null) => THREE.Group;
   }
 
@@ -576,6 +756,21 @@ export function createSiteScene(
       cable: (kind) =>
         once(`cable-${kind}`, () => {
           const rubber = M(SCENE_COLORS.rubber, { roughness: 0.9 });
+          if (kind === 'wall') {
+            // From the wall box holster on the facade, down across the sidewalk, to the car.
+            const w = wallBoxOffset();
+            return cable(
+              [
+                [0.24, 1.02, w + 0.2],
+                [0.22, 0.3, w + 0.7],
+                [-0.2, 0.1, -1.8],
+                [-0.8, 0.12, 0.2],
+                [-0.9, 0.4, CAR_FRONT + 0.3],
+                PORT,
+              ],
+              rubber,
+            );
+          }
           return kind === 'dc'
             ? cable(
                 [
@@ -651,6 +846,46 @@ export function createSiteScene(
         }),
       // A pad-mounted transformer: cabinet on a concrete pad, cooling fins on
       // both sides, door seams and a warning sign on the front.
+      // A containerized battery: a long cabinet on a pad with door seams, a
+      // vent grille, an air conditioner on its end and a green status strip.
+      battery: () =>
+        once('battery', () => {
+          const g = new THREE.Group();
+          const concrete = M(palette.concrete, { roughness: 0.95 });
+          const body = M(palette.battery, { roughness: 0.5, metalness: 0.25 });
+          const seam = M(SCENE_COLORS.dark1, { roughness: 0.7 });
+          const grille = M(palette.batteryVent, { roughness: 0.6, metalness: 0.4 });
+          const strip = M(SCENE_COLORS.chargePort, {
+            emissive: SCENE_COLORS.chargePort,
+            emissiveIntensity: 0.6,
+          });
+          const pad = box(4.0, 0.16, 2.0, concrete);
+          pad.position.y = 0.08;
+          const cabinet = roundedPrism(3.4, 1.4, 2.2, 0.05, body);
+          cabinet.position.y = 0.16;
+          const roof = box(3.5, 0.08, 1.5, body);
+          roof.position.y = 2.4;
+          g.add(pad, cabinet, roof);
+          for (const x of [-1.13, 0, 1.13]) {
+            const door = box(0.02, 1.9, 0.01, seam);
+            door.position.set(x + 0.56, 1.2, 0.71);
+            const handle = box(0.03, 0.22, 0.03, seam);
+            handle.position.set(x + 0.42, 1.2, 0.73);
+            g.add(door, handle);
+          }
+          const vent = box(0.9, 0.32, 0.02, grille);
+          vent.position.set(-1.1, 2.0, 0.71);
+          const status = box(0.5, 0.05, 0.02, strip);
+          status.position.set(1.1, 2.05, 0.72);
+          // The air conditioner on the right end, with a round fan grille.
+          const hvac = box(0.4, 1.0, 1.0, grille);
+          hvac.position.set(1.9, 1.0, 0);
+          const fan = cylinder(0.3, 0.04, 24, seam);
+          fan.rotation.z = Math.PI / 2;
+          fan.position.set(2.11, 1.0, 0);
+          g.add(vent, status, hvac, fan);
+          return g;
+        }),
       transformer: () =>
         once('transformer', () => {
           const g = new THREE.Group();
@@ -686,6 +921,90 @@ export function createSiteScene(
           ]);
           sign.position.set(-0.5, 1.2, 0.82);
           g.add(middle, handleBar, sign);
+          return g;
+        }),
+      // A free-standing switchboard on a concrete pad: three doors with
+      // handles, vents at the top and bottom of each door, a nameplate and a
+      // warning label. The front faces +z.
+      switchboard: () =>
+        once('switchboard', () => {
+          const g = new THREE.Group();
+          const concrete = M(palette.concrete, { roughness: 0.95 });
+          const body = M(palette.switchboard, { roughness: 0.45, metalness: 0.35 });
+          const door = M(palette.switchboardDoor, { roughness: 0.4, metalness: 0.35 });
+          const dark = M(SCENE_COLORS.dark1, { roughness: 0.6 });
+          const pad = box(2.3, 0.15, 1.5, concrete);
+          pad.position.y = 0.075;
+          const plinth = box(1.94, 0.12, 0.86, dark);
+          plinth.position.y = 0.21;
+          const cabinet = box(1.9, 2.0, 0.8, body);
+          cabinet.position.y = 1.27;
+          const cap = box(2.0, 0.06, 0.92, body);
+          cap.position.y = 2.3;
+          g.add(pad, plinth, cabinet, cap);
+          for (const x of [-0.62, 0, 0.62]) {
+            const leaf = box(0.58, 1.86, 0.02, door);
+            leaf.position.set(x, 1.27, 0.41);
+            const grip = box(0.03, 0.22, 0.04, dark);
+            grip.position.set(x + 0.22, 1.25, 0.43);
+            g.add(leaf, grip);
+            for (const y0 of [0.45, 1.86]) {
+              for (let i = 0; i < 4; i++) {
+                const louver = box(0.4, 0.022, 0.02, dark);
+                louver.position.set(x, y0 + i * 0.055, 0.425);
+                g.add(louver);
+              }
+            }
+          }
+          const nameplate = box(0.34, 0.12, 0.01, M(palette.signPlate, { roughness: 0.4 }));
+          nameplate.position.set(0, 1.72, 0.425);
+          const warning = box(0.2, 0.18, 0.01, [
+            dark,
+            dark,
+            dark,
+            dark,
+            M('#ffffff', { map: warningTexture(), roughness: 0.5 }),
+            dark,
+          ]);
+          warning.position.set(0.62, 1.55, 0.425);
+          g.add(nameplate, warning);
+          return g;
+        }),
+      // A panel mounted on the facade: a cabinet with its door, a handle, a
+      // vent, a nameplate, a warning label and a conduit down to the ground.
+      // Its back is on the wall (local z 0); the front faces +z.
+      wallPanel: () =>
+        once('wallPanel', () => {
+          const g = new THREE.Group();
+          const body = M(palette.switchboard, { roughness: 0.45, metalness: 0.35 });
+          const door = M(palette.switchboardDoor, { roughness: 0.4, metalness: 0.35 });
+          const dark = M(SCENE_COLORS.dark1, { roughness: 0.6 });
+          const cabinet = box(0.76, 1.16, 0.2, body);
+          cabinet.position.set(0, 1.45, 0.1);
+          const leaf = box(0.7, 1.1, 0.012, door);
+          leaf.position.set(0, 1.45, 0.206);
+          const grip = box(0.025, 0.16, 0.03, dark);
+          grip.position.set(0.28, 1.45, 0.22);
+          g.add(cabinet, leaf, grip);
+          for (let i = 0; i < 4; i++) {
+            const louver = box(0.34, 0.018, 0.012, dark);
+            louver.position.set(0, 1.84 + i * 0.04, 0.214);
+            g.add(louver);
+          }
+          const nameplate = box(0.26, 0.08, 0.008, M(palette.signPlate, { roughness: 0.4 }));
+          nameplate.position.set(0, 1.66, 0.214);
+          const warning = box(0.14, 0.12, 0.008, [
+            dark,
+            dark,
+            dark,
+            dark,
+            M('#ffffff', { map: warningTexture(), roughness: 0.5 }),
+            dark,
+          ]);
+          warning.position.set(0, 1.12, 0.214);
+          const conduit = cylinder(0.035, 0.87, 12, M(SCENE_COLORS.signPost, { metalness: 0.5 }));
+          conduit.position.set(-0.22, 0.435, 0.06);
+          g.add(nameplate, warning, conduit);
           return g;
         }),
       // A compact card reader on a short bracket; a screen only for a model with a display.
@@ -827,6 +1146,50 @@ export function createSiteScene(
     return g;
   }
 
+  // The charging glow of a station front: an emissive strip (the frame or
+  // ring meshes given) and a soft halo in front of it, both in the state color.
+  function addGlow(
+    g: THREE.Group,
+    s: SceneStation,
+    strips: Array<{ geometry: THREE.BufferGeometry; position: [number, number, number] }>,
+    halo: { size: number; position: [number, number, number] },
+  ): StationObject['glow'] {
+    if (!s.glow) return null;
+    const level = chargingGlowLevel(null);
+    const strip = M(s.lightColor, {
+      emissive: s.lightColor,
+      emissiveIntensity: level.intensity,
+      roughness: 0.3,
+    });
+    for (const part of strips) {
+      const mesh = new THREE.Mesh(track(part.geometry), strip);
+      mesh.position.set(...part.position);
+      g.add(mesh);
+    }
+    const haloMaterial = track(
+      new THREE.MeshBasicMaterial({
+        color: s.lightColor,
+        map: glowTexture(),
+        transparent: true,
+        opacity: level.halo,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    const glowPlane = new THREE.Mesh(
+      track(new THREE.PlaneGeometry(halo.size, halo.size)),
+      haloMaterial,
+    );
+    glowPlane.position.set(...halo.position);
+    glowPlane.raycast = () => undefined;
+    glowPlane.renderOrder = 3;
+    g.add(glowPlane);
+    return { strip, halo: haloMaterial };
+  }
+
+  // A ring around a round socket, facing +z.
+  const socketRing = (radius: number) => new THREE.TorusGeometry(radius, 0.012, 8, 32);
+
   function buildModel(s: SceneStation, palette: Palette, t: Templates): StationObject {
     const g = new THREE.Group();
     const shell = M(palette.shell, { roughness: 0.35, metalness: 0.25 });
@@ -844,11 +1207,57 @@ export function createSiteScene(
     });
     const accent = M(s.kind === 'dc' ? SCENE_COLORS.dc : SCENE_COLORS.ac, { roughness: 0.4 });
     const dc = s.kind === 'dc';
-    const pad = box(dc ? 1.6 : 1.0, 0.08, dc ? 1.2 : 0.9, M(palette.concrete, { roughness: 0.95 }));
-    pad.position.y = 0.04;
-    g.add(pad);
+    const wall = s.wall && !dc;
+    if (!wall) {
+      const pad = box(
+        dc ? 1.6 : 1.0,
+        0.08,
+        dc ? 1.2 : 0.9,
+        M(palette.concrete, { roughness: 0.95 }),
+      );
+      pad.position.y = 0.04;
+      g.add(pad);
+    }
     let top: number;
-    if (dc) {
+    let labelZ = 0;
+    let glow: StationObject['glow'] = null;
+    // The wall box hangs on the facade behind its spot.
+    const w = wallBoxOffset();
+    if (wall) {
+      const back = box(0.4, 0.54, 0.02, dark);
+      back.position.set(0, 1.18, w + 0.01);
+      const body = roundedPrism(0.34, 0.15, 0.48, 0.04, shell);
+      body.position.set(0, 0.94, w + 0.095);
+      const face = box(0.29, 0.42, 0.01, accent);
+      face.position.set(0, 1.18, w + 0.176);
+      const screen = box(0.13, 0.07, 0.01, glass);
+      screen.position.set(0, 1.31, w + 0.183);
+      const socket = cylinder(0.042, 0.03, 18, dark);
+      socket.rotation.x = Math.PI / 2;
+      socket.position.set(0, 1.1, w + 0.19);
+      const bar = box(0.2, 0.022, 0.01, light);
+      bar.position.set(0, 1.4, w + 0.183);
+      const holster = box(0.05, 0.16, 0.08, dark);
+      holster.position.set(0.24, 1.08, w + 0.08);
+      const h = handle(rubber);
+      h.position.set(0.24, 1.05, w + 0.13);
+      const conduit = cylinder(0.025, 0.94, 10, M(SCENE_COLORS.signPost, { metalness: 0.5 }));
+      conduit.position.set(-0.12, 0.47, w + 0.04);
+      g.add(back, body, face, screen, socket, bar, holster, h, conduit);
+      for (let i = 0; i < 3; i++) {
+        const coil = shadowed(
+          new THREE.Mesh(track(new THREE.TorusGeometry(0.11, 0.016, 8, 28)), rubber),
+        );
+        coil.position.set(0.0, 0.66, w + 0.07 + i * 0.02);
+        g.add(coil);
+      }
+      glow = addGlow(g, s, [{ geometry: socketRing(0.062), position: [0, 1.1, w + 0.2] }], {
+        size: 0.55,
+        position: [0, 1.18, w + 0.21],
+      });
+      top = 1.55;
+      labelZ = w + 0.2;
+    } else if (dc) {
       const body = roundedPrism(0.78, 0.55, 1.78, 0.08, shell);
       body.position.y = 0.08;
       g.add(body);
@@ -871,6 +1280,18 @@ export function createSiteScene(
       const cap = box(0.86, 0.06, 0.62, dark);
       cap.position.y = 1.9;
       g.add(bezel, screen, reader, bar, cap);
+      // The charging glow: a frame around the screen bezel.
+      glow = addGlow(
+        g,
+        s,
+        [
+          { geometry: new THREE.BoxGeometry(0.58, 0.026, 0.012), position: [0, 1.645, 0.302] },
+          { geometry: new THREE.BoxGeometry(0.58, 0.026, 0.012), position: [0, 1.195, 0.302] },
+          { geometry: new THREE.BoxGeometry(0.026, 0.476, 0.012), position: [-0.277, 1.42, 0.302] },
+          { geometry: new THREE.BoxGeometry(0.026, 0.476, 0.012), position: [0.277, 1.42, 0.302] },
+        ],
+        { size: 1.0, position: [0, 1.42, 0.315] },
+      );
       for (const side of [-1, 1]) {
         const x = side * 0.39;
         const holster = box(0.06, 0.24, 0.14, dark);
@@ -919,6 +1340,11 @@ export function createSiteScene(
       hook.rotation.z = Math.PI / 2;
       hook.position.set(0.16, 0.85, 0);
       g.add(post, head, face, screen, socket, bar, hook);
+      // The charging glow: a ring around the socket.
+      glow = addGlow(g, s, [{ geometry: socketRing(0.066), position: [0, 1.16, 0.122] }], {
+        size: 0.55,
+        position: [0, 1.22, 0.13],
+      });
       for (let i = 0; i < 3; i++) {
         const coil = shadowed(
           new THREE.Mesh(track(new THREE.TorusGeometry(0.13, 0.018, 8, 28)), rubber),
@@ -945,16 +1371,17 @@ export function createSiteScene(
       );
       top = 1.7;
     }
-    g.add(backPanel(s.kind, palette));
+    // A wall box has its back on the wall: no back panel.
+    if (!wall) g.add(backPanel(s.kind, palette));
     // Payment terminals on the front: on the side of their connector, or centered for the station.
     s.terminals.forEach((terminal, i) => {
       const reader = t.terminal(terminal.hasDisplay, terminal.online);
       // On the front face: a connector reader under its side of the screen, a
-      // station-wide one in the middle below them.
-      const sideX = dc ? 0.22 : 0.13;
-      const x = terminal.side === 0 ? -i * 0.16 : terminal.side * sideX;
-      const y = dc ? (terminal.side === 0 ? 0.72 : 0.92) : 0.78;
-      reader.position.set(x, y, dc ? 0.34 : 0.19);
+      // station-wide one in the middle below them; beside a wall box.
+      const sideX = dc ? 0.22 : wall ? 0.34 : 0.13;
+      const x = terminal.side === 0 ? (wall ? -0.34 - i * 0.16 : -i * 0.16) : terminal.side * sideX;
+      const y = dc ? (terminal.side === 0 ? 0.72 : 0.92) : wall ? 1.12 : 0.78;
+      reader.position.set(x, y, dc ? 0.34 : wall ? w + 0.06 : 0.19);
       // A little larger than life, so the reader reads at site scale.
       reader.scale.setScalar(1.5);
       reader.userData['terminalId'] = terminal.id;
@@ -970,11 +1397,25 @@ export function createSiteScene(
     );
     const ring = new THREE.Mesh(track(new THREE.RingGeometry(1.0, 1.12, 48)), ringMaterial);
     ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.09;
+    // Under a wall box, on the sidewalk in front of it.
+    ring.position.set(0, wall ? 0.14 : 0.09, wall ? w + 0.7 : 0);
     ring.userData['ring'] = true;
     g.add(ring);
-    if (s.prop === 'car') g.add(t.car(), t.cable(s.kind));
-    else if (s.prop === 'reservedSign') g.add(t.sign());
+    if (s.beacon) g.add(buildBeacon(top, labelZ));
+    // Where a driver avatar floats: above the middle of the car roof, measured
+    // on the model in the station's own frame (before the group moves or merges).
+    let avatarAnchor: THREE.Vector3 | null = null;
+    if (s.prop === 'car') {
+      const car = t.car();
+      g.add(car, t.cable(wall ? 'wall' : s.kind));
+      car.updateMatrixWorld(true);
+      const roof = new THREE.Box3().setFromObject(car);
+      if (!roof.isEmpty()) {
+        const c = roof.getCenter(new THREE.Vector3());
+        avatarAnchor = new THREE.Vector3(c.x, roof.max.y + AVATAR_ABOVE_ROOF_M, c.z);
+      }
+    }
+    if (s.prop === 'reservedSign') g.add(t.sign());
     else if (s.prop === 'cone') g.add(t.cone());
     g.traverse((o) => {
       o.userData['stationId'] = s.id;
@@ -983,12 +1424,193 @@ export function createSiteScene(
     // A turned row faces the lane before it: the charger, its props, card
     // readers and back panel all turn with the group.
     g.rotation.y = bayTurn(s.bay, layout.lot);
-    return { group: g, ring, light, top, station: s };
+    return { group: g, ring, light, glow, top, labelZ, avatarAnchor, station: s };
+  }
+
+  // The middle of a row of spots across the rows (lot z).
+  function rowCenterZ(row: number): number {
+    return row * layout.lot.pitch + layout.lot.spotD / 2;
+  }
+
+  // A solar carport canopy over a row of spots: steel posts at the charger
+  // side between every other pair of spots, beams, and a slightly tilted roof
+  // of dark blue panels (a cell grid texture), high enough to park under.
+  function buildSolarCanopy(row: number, palette: Palette): THREE.Group {
+    const g = new THREE.Group();
+    const lot = layout.lot;
+    const steel = M(SCENE_COLORS.signPost, { roughness: 0.45, metalness: 0.6 });
+    const z0 = row * lot.pitch;
+    const atBack = bayTurn({ col: 0, row }, lot) !== 0;
+    const postZ = atBack ? z0 + lot.spotD - 0.35 : z0 + 0.35;
+    const H = 3.1;
+    for (let c = 0; c <= lot.cols; c += 2) {
+      const post = cylinder(0.09, H, 12, steel);
+      post.position.set(Math.min(c, lot.cols) * lot.spotW, H / 2, postZ);
+      const arm = box(0.12, 0.14, lot.spotD * 0.9, steel);
+      arm.position.set(Math.min(c, lot.cols) * lot.spotW, H, z0 + lot.spotD / 2);
+      g.add(post, arm);
+    }
+    const panelTexture = solarTexture(palette);
+    panelTexture.repeat.set(
+      Math.max(1, Math.round(lot.width / 1.7)),
+      Math.max(1, Math.round(lot.spotD / 1.1)),
+    );
+    const roof = new THREE.Mesh(
+      track(new THREE.BoxGeometry(lot.width + 0.4, 0.08, lot.spotD + 0.3)),
+      M('#ffffff', { map: panelTexture, roughness: 0.25, metalness: 0.55 }),
+    );
+    roof.castShadow = true;
+    roof.receiveShadow = true;
+    // Tilted toward the lane, 5 degrees.
+    roof.rotation.x = atBack ? 0.087 : -0.087;
+    roof.position.set(lot.width / 2, H + 0.12, z0 + lot.spotD / 2);
+    g.add(roof);
+    return g;
+  }
+
+  let solarTextureCache: THREE.CanvasTexture | null = null;
+  function solarTexture(palette: Palette): THREE.CanvasTexture {
+    if (solarTextureCache != null) return solarTextureCache;
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    if (ctx != null) {
+      ctx.fillStyle = palette.solarFrame;
+      ctx.fillRect(0, 0, 64, 64);
+      ctx.fillStyle = palette.solarCell;
+      for (let y = 0; y < 4; y++) {
+        for (let x = 0; x < 4; x++) ctx.fillRect(2 + x * 15.5, 2 + y * 15.5, 13.5, 13.5);
+      }
+    }
+    const texture = track(new THREE.CanvasTexture(canvas));
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    solarTextureCache = texture;
+    return texture;
+  }
+
+  // A faulted station's beacon: a red lamp on a short mast above the charger,
+  // with a soft additive halo. Never picked apart from its station.
+  function buildBeacon(top: number, z: number): THREE.Group {
+    const g = new THREE.Group();
+    const mast = cylinder(0.02, 0.28, 8, M(SCENE_COLORS.dark1, { roughness: 0.6 }));
+    mast.position.set(0, top + 0.14, z * 0.2);
+    const core = M(SCENE_COLORS.beacon, {
+      emissive: SCENE_COLORS.beacon,
+      emissiveIntensity: 0.9,
+      roughness: 0.3,
+    });
+    const lamp = new THREE.Mesh(track(new THREE.SphereGeometry(0.11, 16, 12)), core);
+    lamp.position.set(0, top + 0.36, z * 0.2);
+    const haloMaterial = track(
+      new THREE.MeshBasicMaterial({
+        color: SCENE_COLORS.beacon,
+        transparent: true,
+        opacity: 0.35,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
+    );
+    const halo = new THREE.Mesh(track(new THREE.SphereGeometry(0.32, 16, 12)), haloMaterial);
+    halo.position.copy(lamp.position);
+    halo.raycast = () => undefined;
+    halo.renderOrder = 2;
+    g.add(mast, lamp, halo);
+    g.userData['beacon'] = true;
+    beacons.push({ core, halo: haloMaterial });
+    return g;
+  }
+
+  // The building of an office or retail site along the front of the lot: a
+  // solid ground floor with a high window strip above the wall boxes, a
+  // window band with mullions on the upper floor, a cornice, the entrance with
+  // glass doors and a canopy on the part right of the lot, and the sidewalk
+  // with its curb in front of it.
+  function buildBuilding(palette: Palette): void {
+    const b = buildingBox(layout.lot, layout.panels.length);
+    const width = b.maxX - b.minX;
+    const depth = b.maxZ - b.minZ;
+    const cx = (b.minX + b.maxX) / 2;
+    const H = BUILDING_HEIGHT_M;
+    const wallMaterial = M(palette.building, { roughness: 0.85 });
+    const baseMaterial = M(palette.buildingBase, { roughness: 0.8 });
+    const trim = M(palette.buildingTrim, { roughness: 0.6, metalness: 0.2 });
+    const glassMaterial = M(palette.window, {
+      roughness: 0.1,
+      metalness: 0.5,
+      emissive: theme.dark ? SCENE_COLORS.windowLight : '#000000',
+      emissiveIntensity: theme.dark ? 0.35 : 0,
+    });
+    const concrete = M(palette.sidewalk, { roughness: 0.95 });
+    const mass = box(width, H, depth, wallMaterial);
+    mass.position.set(cx, H / 2, b.minZ + depth / 2);
+    site.add(mass);
+    const base = box(width, 3.2, 0.06, baseMaterial);
+    base.position.set(cx, 1.6, FACADE_Z + 0.03);
+    site.add(base);
+    const strip = box(width - 1, 0.6, 0.04, glassMaterial);
+    strip.position.set(cx, 2.6, FACADE_Z + 0.08);
+    site.add(strip);
+    const slab = box(width, 0.26, 0.3, trim);
+    slab.position.set(cx, 3.4, FACADE_Z + 0.15);
+    site.add(slab);
+    const band = box(width - 1, 2.1, 0.04, glassMaterial);
+    band.position.set(cx, 5.05, FACADE_Z + 0.03);
+    site.add(band);
+    const mullions = Math.floor((width - 1) / 1.6);
+    for (let i = 0; i <= mullions; i++) {
+      const m = box(0.08, 2.1, 0.08, trim);
+      m.position.set(b.minX + 0.5 + i * 1.6, 5.05, FACADE_Z + 0.06);
+      site.add(m);
+    }
+    const cornice = box(width + 0.4, 0.45, 0.6, trim);
+    cornice.position.set(cx, H + 0.1, FACADE_Z - 0.2);
+    site.add(cornice);
+    // The entrance, on the building part right of the lot.
+    const ex = layout.lot.width + (b.maxX - layout.lot.width) / 2;
+    const doors = box(3.0, 2.5, 0.06, glassMaterial);
+    doors.position.set(ex, 1.25, FACADE_Z + 0.09);
+    const frameTop = box(3.2, 0.12, 0.1, trim);
+    frameTop.position.set(ex, 2.56, FACADE_Z + 0.1);
+    site.add(doors, frameTop);
+    for (const dx of [-1.55, 0, 1.55]) {
+      const post = box(0.1, 2.5, 0.1, trim);
+      post.position.set(ex + dx, 1.25, FACADE_Z + 0.1);
+      site.add(post);
+    }
+    const canopy = box(4.6, 0.18, 2.4, trim);
+    canopy.position.set(ex, 3.05, FACADE_Z + 1.2);
+    const fascia = box(4.6, 0.36, 0.06, M(SCENE_COLORS.ac, { roughness: 0.4 }));
+    fascia.position.set(ex, 3.05, FACADE_Z + 2.42);
+    site.add(canopy, fascia);
+    for (const dx of [-2.1, 2.1]) {
+      const rod = cylinder(0.045, 2.96, 10, trim);
+      rod.position.set(ex + dx, 1.48, FACADE_Z + 2.2);
+      site.add(rod);
+    }
+    // The sidewalk from the facade to the front curb of the lot.
+    const walk = box(width, 0.12, -CURB_M - FACADE_Z, concrete);
+    walk.position.set(cx, 0.06, (FACADE_Z - CURB_M) / 2);
+    site.add(walk);
+    // Wheel stops in the spots along the building.
+    const stop = M(palette.concrete, { roughness: 0.95 });
+    for (let col = 0; col < layout.lot.cols; col++) {
+      const bar = box(Math.min(1.8, layout.lot.spotW - 0.6), 0.12, 0.16, stop);
+      bar.position.set(layout.lot.spotW * (col + 0.5), 0.06, 2.3);
+      site.add(bar);
+    }
   }
 
   // A soft glowing arc between two lot points: a thin bright core with a
   // moving pulse and a wide faint halo. Links never take clicks or drags.
-  function buildLink(from: THREE.Vector3, to: THREE.Vector3, kind: LinkKind): THREE.Group {
+  function buildLink(
+    from: THREE.Vector3,
+    to: THREE.Vector3,
+    kind: LinkKind,
+    id: string,
+  ): THREE.Group {
     const g = new THREE.Group();
     const mid = from.clone().lerp(to, 0.5);
     mid.y = Math.max(from.y, to.y) + 0.3 + from.distanceTo(to) * 0.05;
@@ -1028,15 +1650,46 @@ export function createSiteScene(
       m.renderOrder = 2;
     }
     g.add(halo, core);
+    const entry: LinkMeshes = { core, halo, curve, kind, step: -1 };
+    linkMeshes.set(id, entry);
+    styleLink(entry, linkFlow.get(id) ?? null);
     return g;
+  }
+
+  // The live flow of a link: brightness and thickness grow with the power.
+  // Without load data (null) the link keeps its plain look. Thickness changes
+  // in steps of a tenth, so a small change rebuilds no geometry.
+  function styleLink(entry: LinkMeshes, flow: number | null): void {
+    const step = flow == null ? -1 : Math.round(Math.min(1, Math.max(0, flow)) * 10);
+    if (step === entry.step) return;
+    entry.step = step;
+    const level = step < 0 ? 0.5 : step / 10;
+    const base = entry.kind === 'station' ? 0.035 : 0.05;
+    const haloBase = entry.kind === 'station' ? 0.1 : 0.14;
+    const scale = 0.6 + level * 1.1;
+    entry.core.material.opacity = step < 0 ? 0.85 : 0.3 + 0.65 * level;
+    entry.halo.material.opacity = step < 0 ? 0.16 : 0.05 + 0.3 * level;
+    if (step < 0 && entry.core.geometry.parameters.radius === base) return;
+    const core = new THREE.TubeGeometry(entry.curve, 48, base * scale, 8, false);
+    const halo = new THREE.TubeGeometry(entry.curve, 48, haloBase * scale, 8, false);
+    entry.core.geometry.dispose();
+    entry.halo.geometry.dispose();
+    entry.core.geometry = track(core);
+    entry.halo.geometry = track(halo);
   }
 
   function rebuild(): void {
     for (const item of built) item.dispose();
     built = [];
+    haloTexture = null;
+    solarTextureCache = null;
     flowTextures.length = 0;
+    linkMeshes.clear();
+    beacons.length = 0;
     objects.clear();
     transformerObjects.clear();
+    batteryObjects.clear();
+    energyLabels.clear();
     linkLabels.clear();
     ground.clear();
     site.clear();
@@ -1050,11 +1703,19 @@ export function createSiteScene(
     scene.background = new THREE.Color(palette.haze);
     fog.color.set(palette.haze);
 
+    const office = lot.siteType === 'office_retail';
     const outside: Point[] = [
       ...layout.transformers.map((tr) => ({ x: tr.x, z: tr.z })),
+      ...layout.batteries.map((b) => ({ x: b.x, z: b.z })),
       ...layout.stations.map((s) => bayToLot(s.bay, lot)),
+      ...layout.panels.map((p) => ({ x: p.x, z: p.z })),
+      ...(office ? buildingFramePoints(lot, layout.panels.length) : []),
     ];
     siteBox = sceneBox(lot, outside);
+    lotBox = sceneBox(
+      lot,
+      layout.stations.map((s) => bayToLot(s.bay, lot)),
+    );
     frameBox = rotateBox(siteBox, lot.facing);
     pan = panBox(frameBox);
 
@@ -1148,11 +1809,15 @@ export function createSiteScene(
     sun.shadow.camera.updateProjectionMatrix();
 
     const t = templates(palette);
+    if (office) buildBuilding(palette);
     for (const s of layout.stations) {
       const obj = buildModel(s, palette, t);
       site.add(obj.group);
       objects.set(s.id, obj);
     }
+    // A large site draws its stations' fixed parts as a few merged meshes
+    // (one per look), outside Edit Layout, where stations move one by one.
+    if (!editing && mergesStations(layout.stations.length)) mergeStations();
     for (const tr of layout.transformers) {
       const g = t.transformer();
       g.position.set(tr.x, 0, tr.z);
@@ -1162,13 +1827,45 @@ export function createSiteScene(
       site.add(g);
       transformerObjects.set(tr.id, g);
     }
-    // Links: from a transformer or node (1.2 m up) to the station's back
-    // (a station segment ends at stationBackPoint, which follows the row's turn).
-    const nodeY = 1.0;
+    for (const b of layout.batteries) {
+      const g = t.battery();
+      g.position.set(b.x, 0, b.z);
+      g.traverse((o) => {
+        o.userData['batteryId'] = b.id;
+      });
+      site.add(g);
+      batteryObjects.set(b.id, g);
+      energyLabels.set(b.id, lotPoint({ x: b.x, z: b.z }, 3.1));
+    }
+    for (const pv of layout.solar) {
+      const g = buildSolarCanopy(pv.row, palette);
+      site.add(g);
+      const middle = lotPoint({ x: lot.width / 2, z: rowCenterZ(pv.row) }, 4.4);
+      energyLabels.set(pv.id, middle);
+    }
+    // Panels: a switchboard with its doors toward the lanes, or a panel on the facade.
+    const panelY = new Map<string, number>();
+    for (const p of layout.panels) {
+      const g = p.mount === 'pad' ? t.switchboard() : t.wallPanel();
+      g.position.set(p.x, 0, p.z);
+      site.add(g);
+      panelY.set(`${String(p.x)}:${String(p.z)}`, PANEL_LINK_Y[p.mount]);
+    }
+    // Links: from a panel to a circuit node and on to the station's
+    // back (stationBackPoint, which follows the row's turn) or its wall box.
+    // On an office or retail site the circuit nodes hang above the wall boxes.
+    const nodeY = office ? 2.6 : 1.0;
+    const yAt = (p: Point): number => panelY.get(`${String(p.x)}:${String(p.z)}`) ?? nodeY;
     for (const seg of layout.links.segments) {
-      const from = lotPoint(seg.from, nodeY);
-      const to = seg.kind === 'station' ? lotPoint(seg.to, 0.9) : lotPoint(seg.to, nodeY);
-      site.add(buildLink(from, to, seg.kind));
+      const from = lotPoint(seg.from, yAt(seg.from));
+      let to: THREE.Vector3;
+      if (seg.kind === 'station') {
+        const onWall = objects.get(seg.id.slice('station:'.length))?.station.wall === true;
+        to = lotPoint(seg.to, onWall ? 1.2 : 0.9);
+      } else {
+        to = lotPoint(seg.to, yAt(seg.to));
+      }
+      site.add(buildLink(from, to, seg.kind, seg.id));
     }
     const nodeMaterial = track(
       new THREE.MeshBasicMaterial({
@@ -1180,14 +1877,22 @@ export function createSiteScene(
       }),
     );
     const nodeGeometry = track(new THREE.SphereGeometry(0.16, 16, 12));
+    const mountOf = new Map(layout.panels.map((p) => [`panel:${p.id}`, p.mount]));
     for (const label of layout.links.labels) {
-      if (label.kind !== 'station') {
+      if (label.kind === 'circuit') {
         const node = new THREE.Mesh(nodeGeometry, nodeMaterial);
         node.position.copy(lotPoint(label.point, nodeY));
         node.raycast = () => undefined;
         site.add(node);
       }
-      linkLabels.set(label.id, lotPoint(label.point, label.kind === 'station' ? 1.6 : nodeY + 0.5));
+      const mount = mountOf.get(label.id);
+      const y =
+        label.kind === 'station'
+          ? 1.6
+          : label.kind === 'panel' && mount != null
+            ? PANEL_LABEL_Y[mount]
+            : nodeY + 0.5;
+      linkLabels.set(label.id, lotPoint(label.point, y));
     }
     applySelection();
   }
@@ -1196,6 +1901,102 @@ export function createSiteScene(
     for (const [id, obj] of objects) {
       obj.ring.material.color.set(theme.primary);
       obj.ring.material.opacity = id === selected ? 0.9 : 0;
+      // An unselected ring costs a draw call for nothing.
+      obj.ring.visible = id === selected || editing;
+    }
+  }
+
+  // What makes two materials draw the same: merged meshes share the first one.
+  function materialKey(m: THREE.Material): string {
+    // Only standard materials carry these; a basic material leaves them out.
+    const std = m as Partial<
+      Pick<
+        THREE.MeshStandardMaterial,
+        'color' | 'emissive' | 'emissiveIntensity' | 'roughness' | 'metalness' | 'map'
+      >
+    >;
+    return [
+      m.type,
+      std.color?.getHexString() ?? '',
+      std.emissive?.getHexString() ?? '',
+      String(std.emissiveIntensity ?? ''),
+      String(std.roughness ?? ''),
+      String(std.metalness ?? ''),
+      std.map?.uuid ?? '',
+      String(m.transparent),
+      String(m.opacity),
+      String(m.side),
+      String(m.depthWrite),
+      String(m.blending),
+      String(m.polygonOffset),
+    ].join('|');
+  }
+
+  // Merges the fixed parts of every station model into one mesh per look,
+  // so a site of 200 stations takes a few dozen draw calls instead of
+  // thousands. A pulsing status light, the charging glow, the beacon lamp,
+  // the selection ring and every additive halo stay separate (they animate or
+  // change). Each station keeps an invisible box to pick it by; its group
+  // stays where it was, so labels and the popup still follow it.
+  function mergeStations(): void {
+    site.updateMatrixWorld(true);
+    const siteInverse = new THREE.Matrix4().copy(site.matrixWorld).invert();
+    const animated = new Set<THREE.Material>(beacons.map((b) => b.core));
+    const buckets = new Map<
+      string,
+      { material: THREE.Material; parts: THREE.BufferGeometry[]; cast: boolean }
+    >();
+    const hitMaterial = track(new THREE.MeshBasicMaterial({ visible: false }));
+    for (const [id, obj] of objects) {
+      // A steady status light merges too; a pulsing one (charging) animates.
+      const keep = new Set<THREE.Material>([obj.ring.material, ...animated]);
+      if (obj.station.pulsing) keep.add(obj.light);
+      if (obj.glow != null) keep.add(obj.glow.strip).add(obj.glow.halo);
+      const groupInverse = new THREE.Matrix4().copy(obj.group.matrixWorld).invert();
+      const bounds = new THREE.Box3();
+      const merged: THREE.Object3D[] = [];
+      obj.group.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        const material = o.material as THREE.Material | THREE.Material[];
+        if (Array.isArray(material) || keep.has(material)) return;
+        if (material.blending === THREE.AdditiveBlending || o.userData['ring'] === true) return;
+        const part = flatGeometry(o.geometry as THREE.BufferGeometry);
+        if (part == null) return;
+        part.computeBoundingBox();
+        if (part.boundingBox != null) {
+          bounds.union(
+            part.boundingBox.clone().applyMatrix4(groupInverse.clone().multiply(o.matrixWorld)),
+          );
+        }
+        part.applyMatrix4(siteInverse.clone().multiply(o.matrixWorld));
+        const key = materialKey(material);
+        const bucket = buckets.get(key) ?? { material, parts: [], cast: false };
+        bucket.parts.push(part);
+        bucket.cast ||= o.castShadow;
+        buckets.set(key, bucket);
+        merged.push(o);
+      });
+      for (const o of merged) o.removeFromParent();
+      if (!bounds.isEmpty()) {
+        const size = bounds.getSize(new THREE.Vector3());
+        const center = bounds.getCenter(new THREE.Vector3());
+        const hit = new THREE.Mesh(
+          track(new THREE.BoxGeometry(size.x, size.y, size.z)),
+          hitMaterial,
+        );
+        hit.position.copy(center);
+        hit.userData['stationId'] = id;
+        obj.group.add(hit);
+      }
+    }
+    for (const bucket of buckets.values()) {
+      const geometry = track(concatGeometries(bucket.parts));
+      for (const part of bucket.parts) part.dispose();
+      const mesh = new THREE.Mesh(geometry, bucket.material);
+      mesh.castShadow = bucket.cast;
+      mesh.receiveShadow = true;
+      mesh.raycast = () => undefined;
+      site.add(mesh);
     }
   }
 
@@ -1203,8 +2004,15 @@ export function createSiteScene(
     const width = container.clientWidth || 1;
     const height = container.clientHeight || 1;
     applyZoomLimit();
-    if (options.view === 'front') {
-      const front = frontCamera(siteBox, layout.lot.facing, width / height);
+    // The front camera, and the overview of an office or retail site (the
+    // building stays behind the lot), turn with the facing.
+    if (options.view === 'front' || layout.lot.siteType === 'office_retail') {
+      const front = frontCamera(
+        options.view === 'front' ? lotBox : siteBox,
+        layout.lot.facing,
+        width / height,
+        options.view === 'front' ? FRONT_CAMERA_OFFSET : OVERVIEW_CAMERA_OFFSET,
+      );
       controls.target.set(front.target.x, front.target.y, front.target.z);
       camera.position.set(front.position.x, front.position.y, front.position.z);
     } else {
@@ -1243,11 +2051,13 @@ export function createSiteScene(
   }
 
   function project(v: THREE.Vector3): ScreenPoint {
+    const distance = v.distanceTo(camera.position);
     v.project(camera);
     return {
       x: (v.x * 0.5 + 0.5) * container.clientWidth,
       y: (-v.y * 0.5 + 0.5) * container.clientHeight,
       depth: v.z,
+      distance,
       visible: v.z < 1,
     };
   }
@@ -1255,9 +2065,34 @@ export function createSiteScene(
   function labelPoint(stationId: string): ScreenPoint | null {
     const obj = objects.get(stationId);
     if (obj == null) return null;
-    const v = obj.group.position.clone();
-    v.y = obj.top + 0.45;
-    return project(site.localToWorld(v));
+    // The label point in the station's own frame (a wall box hangs behind its spot).
+    const v = new THREE.Vector3(0, obj.top + 0.45, obj.labelZ);
+    obj.group.localToWorld(v);
+    return project(v);
+  }
+
+  function avatarPoint(stationId: string): ScreenPoint | null {
+    const obj = objects.get(stationId);
+    if (obj == null) return null;
+    // Above the car roof while charging (the car parks nose to the charger), else above the charger.
+    const v =
+      obj.avatarAnchor != null
+        ? obj.avatarAnchor.clone()
+        : new THREE.Vector3(0, obj.top + 1.1, obj.labelZ);
+    obj.group.localToWorld(v);
+    return project(v);
+  }
+
+  function focusStation(stationId: string): void {
+    const obj = objects.get(stationId);
+    if (obj == null) return;
+    const p = new THREE.Vector3(0, 0.8, 0);
+    obj.group.localToWorld(p);
+    const shift = p.sub(controls.target);
+    controls.target.add(shift);
+    camera.position.add(shift);
+    controls.update();
+    updateFog();
   }
 
   function transformerLabelPoint(id: string): ScreenPoint | null {
@@ -1266,6 +2101,11 @@ export function createSiteScene(
     const v = g.position.clone();
     v.y = 2.3;
     return project(site.localToWorld(v));
+  }
+
+  function energyLabelPoint(id: string): ScreenPoint | null {
+    const p = energyLabels.get(id);
+    return p == null ? null : project(site.localToWorld(p.clone()));
   }
 
   function linkLabelPoint(id: string): ScreenPoint | null {
@@ -1277,7 +2117,8 @@ export function createSiteScene(
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
   const floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  let drag: { kind: 'station' | 'transformer'; id: string; pointerId: number } | null = null;
+  let drag: { kind: 'station' | 'transformer' | 'battery'; id: string; pointerId: number } | null =
+    null;
   let downAt: { x: number; y: number } | null = null;
   const canvas = renderer.domElement;
   function setRay(e: PointerEvent): void {
@@ -1288,10 +2129,12 @@ export function createSiteScene(
     );
     ray.setFromCamera(ndc, camera);
   }
-  function pick(e: PointerEvent): { kind: 'station' | 'transformer'; id: string } | null {
+  function pick(
+    e: PointerEvent,
+  ): { kind: 'station' | 'transformer' | 'battery'; id: string } | null {
     setRay(e);
     const groups = [...objects.values()].map((o) => o.group);
-    groups.push(...transformerObjects.values());
+    groups.push(...transformerObjects.values(), ...batteryObjects.values());
     const hit = ray
       .intersectObjects(groups, true)
       .find((h) => h.object.type === 'Mesh' && h.object.userData['ring'] !== true);
@@ -1300,6 +2143,8 @@ export function createSiteScene(
     if (typeof stationId === 'string') return { kind: 'station', id: stationId };
     const transformerId: unknown = hit.object.userData['transformerId'];
     if (typeof transformerId === 'string') return { kind: 'transformer', id: transformerId };
+    const batteryId: unknown = hit.object.userData['batteryId'];
+    if (typeof batteryId === 'string') return { kind: 'battery', id: batteryId };
     return null;
   }
   // The pointer on the ground, in lot coordinates.
@@ -1327,8 +2172,8 @@ export function createSiteScene(
     }
     const p = groundPoint(e);
     if (p == null) return;
-    if (drag.kind === 'transformer') {
-      const g = transformerObjects.get(drag.id);
+    if (drag.kind === 'transformer' || drag.kind === 'battery') {
+      const g = (drag.kind === 'battery' ? batteryObjects : transformerObjects).get(drag.id);
       if (g == null) return;
       const snapped = callbacks.snapTransformer({ x: p.x, z: p.z });
       g.position.set(snapped.x, 0, snapped.z);
@@ -1355,6 +2200,11 @@ export function createSiteScene(
       if (kind === 'transformer') {
         const g = transformerObjects.get(id);
         if (g != null) callbacks.onTransformerDrop(id, { x: g.position.x, z: g.position.z });
+        return;
+      }
+      if (kind === 'battery') {
+        const g = batteryObjects.get(id);
+        if (g != null) callbacks.onBatteryDrop(id, { x: g.position.x, z: g.position.z });
         return;
       }
       const obj = objects.get(id);
@@ -1404,11 +2254,21 @@ export function createSiteScene(
     updateFog();
     if (!options.reducedMotion) {
       const time = (now - t0) / 1000;
+      const level = chargingGlowLevel(time);
       for (const obj of objects.values()) {
         if (obj.station.pulsing) obj.light.emissiveIntensity = 0.55 + 0.4 * Math.sin(time * 3);
+        if (obj.glow != null) {
+          obj.glow.strip.emissiveIntensity = level.intensity;
+          obj.glow.halo.opacity = level.halo;
+        }
       }
       // A gentle flow from the transformer toward the stations.
       for (const tex of flowTextures) tex.offset.x = -time * 0.35;
+      const beat = beaconLevel(time);
+      for (const b of beacons) {
+        b.core.emissiveIntensity = beat.intensity;
+        b.halo.opacity = beat.halo;
+      }
     }
     renderer.render(scene, camera);
     callbacks.onFrame();
@@ -1420,11 +2280,12 @@ export function createSiteScene(
   return {
     setLayout(next) {
       // Lot coordinates are anchored at spot (0, 0), so a move never shifts the
-      // view; only the first stations to arrive, or a new lot, refit it.
+      // view; only the first stations to arrive, a new lot or a new site type refit it.
       const lotChanged =
         next.lot.width !== layout.lot.width ||
         next.lot.depth !== layout.lot.depth ||
-        next.lot.facing !== layout.lot.facing;
+        next.lot.facing !== layout.lot.facing ||
+        next.lot.siteType !== layout.lot.siteType;
       const first = !hasFitted && next.stations.length > 0;
       layout = next;
       rebuild();
@@ -1439,7 +2300,10 @@ export function createSiteScene(
       rebuild();
     },
     setEditing(next) {
+      const remerge = next !== editing && mergesStations(layout.stations.length);
       editing = next;
+      // A merged site splits its stations again to drag them (and merges them after).
+      if (remerge) rebuild();
       editGrid.visible = next;
       if (!next && drag != null) {
         drag = null;
@@ -1483,7 +2347,16 @@ export function createSiteScene(
       cancelAnimationFrame(animationFrame);
       if (next) animationFrame = requestAnimationFrame(loop);
     },
+    setLinkFlow(next) {
+      linkFlow = next;
+      for (const [id, entry] of linkMeshes) styleLink(entry, next.get(id) ?? null);
+    },
+    focus: focusStation,
+    viewDistance: () => camera.position.distanceTo(controls.target),
+    stats: () => ({ calls: renderer.info.render.calls, triangles: renderer.info.render.triangles }),
+    avatarPoint,
     labelPoint,
+    energyLabelPoint,
     transformerLabelPoint,
     linkLabelPoint,
     dispose() {

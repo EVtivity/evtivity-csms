@@ -2640,6 +2640,15 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   ),
   s('GET', '/sites/:id/sessions', 'sites:read', (f) => `${sit(f)}/sessions`, 'SITE_NOT_FOUND'),
   s('GET', '/sites/:id/layout', 'sites:read', (f) => `${sit(f)}/layout`, 'SITE_NOT_FOUND'),
+  s(
+    'GET',
+    '/sites/:id/layout/replay',
+    'sites:read',
+    // Yesterday in UTC is never a future day in the fixture site's timezone.
+    (f) =>
+      `${sit(f)}/layout/replay?date=${new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)}`,
+    'SITE_NOT_FOUND',
+  ),
   s('PUT', '/sites/:id/layout', 'sites:write', (f) => `${sit(f)}/layout`, 'SITE_NOT_FOUND', {
     body: (f) => ({ positions: [{ stationId: f.station, positionX: 1, positionY: 1 }] }),
     mixed: [

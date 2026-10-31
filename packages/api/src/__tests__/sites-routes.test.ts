@@ -68,6 +68,12 @@ vi.mock('../services/ai-insight-scope.service.js', () => ({
   siteAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
   stationAiInsightsScopeStatus: vi.fn().mockResolvedValue({ enabled: true, reason: 'all_sites' }),
 }));
+const { mockReadLayoutStationSessions } = vi.hoisted(() => ({
+  mockReadLayoutStationSessions: vi.fn(async () => new Map()),
+}));
+vi.mock('../lib/site-layout-sessions.js', () => ({
+  readLayoutStationSessions: mockReadLayoutStationSessions,
+}));
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
     () =>
@@ -1525,6 +1531,62 @@ describe('Site routes - handler logic', () => {
       });
     });
 
+    it('shows the active session only with sessions:read, and its driver only with drivers:read too', async () => {
+      const station = {
+        id: 'sta_000000000003',
+        stationId: 'STATION-001',
+        model: null,
+        status: 'charging',
+        statusReason: null,
+        isOnline: true,
+        securityProfile: 0,
+        positionX: '20',
+        positionY: '20',
+        inMaintenance: false,
+      };
+      const session = {
+        id: 'ses_1',
+        startedAt: '2026-10-31T10:00:00.000Z',
+        energyDeliveredWh: 1200,
+        currentCostCents: 150,
+        currency: 'USD',
+        driver: null,
+      };
+      const get = () =>
+        app.inject({
+          method: 'GET',
+          url: `/sites/${VALID_SITE_ID}/layout`,
+          headers: { authorization: 'Bearer ' + token },
+        });
+
+      // No sessions:read: no session, and nothing read.
+      vi.mocked(requestHasPermission).mockImplementation(
+        async (_r, permission) => permission !== 'sessions:read',
+      );
+      mockReadLayoutStationSessions.mockClear();
+      setupDbResults([{ id: VALID_SITE_ID }], [station], [], [], [], []);
+      const hidden = await get();
+      expect(hidden.statusCode).toBe(200);
+      expect(hidden.json()[0].session).toBeNull();
+      expect(mockReadLayoutStationSessions).not.toHaveBeenCalled();
+
+      // sessions:read without drivers:read: the reader is told to leave the driver out.
+      vi.mocked(requestHasPermission).mockImplementation(
+        async (_r, permission) => permission !== 'drivers:read',
+      );
+      mockReadLayoutStationSessions.mockResolvedValueOnce(new Map([[station.id, session]]));
+      setupDbResults([{ id: VALID_SITE_ID }], [station], [], [], [], []);
+      const shown = await get();
+      expect(shown.json()[0].session).toEqual(session);
+      expect(mockReadLayoutStationSessions).toHaveBeenLastCalledWith([station.id], false);
+
+      // Both: the driver is read.
+      vi.mocked(requestHasPermission).mockResolvedValue(true);
+      setupDbResults([{ id: VALID_SITE_ID }], [station], [], [], [], []);
+      await get();
+      expect(mockReadLayoutStationSessions).toHaveBeenLastCalledWith([station.id], true);
+    });
+
     it('returns 404 when site not found', async () => {
       setupDbResults([]);
 
@@ -1663,6 +1725,32 @@ describe('Site routes - handler logic', () => {
       });
     });
 
+    it('saves a site type change and audits the settings before and after', async () => {
+      vi.mocked(databaseModule.writeAudit).mockClear();
+      const office = { ...settings, siteType: 'office_retail' as const };
+      const before = { ...settings, siteType: 'parking_lot' as const };
+      mockSaveSiteLayout.mockResolvedValueOnce({
+        settingsBefore: before,
+        settingsAfter: office,
+        settingsChanged: true,
+        moved: [],
+      });
+      setupDbResults([{ id: VALID_SITE_ID }], []);
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${VALID_SITE_ID}/layout`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { positions: [], settings: office },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockSaveSiteLayout.mock.calls[0]?.[3]).toEqual(office);
+      expect(vi.mocked(databaseModule.writeAudit).mock.calls[0]?.[1]).toMatchObject({
+        before: { layoutSettings: { siteType: 'parking_lot' } },
+        after: { layoutSettings: { siteType: 'office_retail' } },
+        notes: 'station layout and layout settings updated',
+      });
+    });
+
     it('passes null to reset the settings and nothing to keep them', async () => {
       setupDbResults([{ id: VALID_SITE_ID }], []);
       await app.inject({
@@ -1686,6 +1774,7 @@ describe('Site routes - handler logic', () => {
       ['spots out of range', { spotsPerRow: 0 }],
       ['a spot width in 5 cm', { spotWidthM: 3.25 }],
       ['a facing that is no quarter turn', { facingDeg: 45 }],
+      ['an unknown site type', { siteType: 'garage' }],
       [
         'duplicate transformer ids',
         {

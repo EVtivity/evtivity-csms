@@ -576,8 +576,11 @@ async function seedConnectionDrops(ctx: Context, st: DemoStation): Promise<void>
 }
 
 /** A connector that reported Faulted 7 hours ago and still is (the faulted state is real). */
-async function seedStationFaulted(ctx: Context, st: DemoStation): Promise<Date | null> {
-  const id = AI_INSIGHT_DEMO_IDS.stationFaulted;
+async function seedStationFaulted(
+  ctx: Context,
+  st: DemoStation,
+  id: string = AI_INSIGHT_DEMO_IDS.stationFaulted,
+): Promise<Date | null> {
   if (st.evseNumber == null || st.connectorNumber == null) return null;
   const faultedSince = ctx.ago(7 * 60);
   if (await insightExists(ctx.sql, id)) return faultedSince;
@@ -1367,13 +1370,10 @@ async function seedTariffAnomaly(ctx: Context, st: DemoStation): Promise<void> {
  * Seeds the demo insights, their trigger rows, sessions and actions.
  * Returns the number of insights it created (0 on a rerun).
  */
-export async function seedAiInsightsDemo(
-  sql: postgres.Sql,
-  input: AiInsightDemoInput,
-): Promise<number> {
+async function insightContext(sql: postgres.Sql, input: AiInsightDemoInput): Promise<Context> {
   const storedLanguage = await settingValue(sql, AI_INSIGHT_SETTING_KEYS.primaryLanguage);
   const storedCooldown = await settingValue(sql, AI_INSIGHT_SETTING_KEYS.cooldownMinutes);
-  const ctx: Context = {
+  return {
     sql,
     input,
     language: isUiLanguage(storedLanguage) ? storedLanguage : 'en',
@@ -1381,6 +1381,74 @@ export async function seedAiInsightsDemo(
     ago: (minutes) => new Date(input.now.getTime() - minutes * MINUTE_MS),
     created: 0,
   };
+}
+
+/**
+ * An open station_faulted insight on one station, as the demo's faulted
+ * insight: its first connector reported Faulted 7 hours ago (written through
+ * the connector status writer, so the station shows faulted) and the insight
+ * names it. The site layout demo uses it for its faulted station, which has no
+ * simulator, so the fault and the insight stay. Idempotent: an existing
+ * insight is left as it is. Returns whether it created the insight.
+ */
+export async function seedStationFaultInsight(
+  sql: postgres.Sql,
+  input: { now: Date; stationId: string; insightId: string },
+): Promise<boolean> {
+  const [row] = await sql<
+    {
+      id: string;
+      station_id: string;
+      ocpp_protocol: string;
+      site_id: string | null;
+      site_name: string | null;
+      evse_uuid: string | null;
+      evse_number: number | null;
+      connector_number: number | null;
+    }[]
+  >`
+    SELECT cs.id, cs.station_id, cs.ocpp_protocol, cs.site_id, s.name AS site_name,
+      e.id AS evse_uuid, e.evse_id AS evse_number, c.connector_id AS connector_number
+    FROM charging_stations cs
+    LEFT JOIN sites s ON s.id = cs.site_id
+    LEFT JOIN LATERAL (
+      SELECT id, evse_id FROM evses WHERE station_id = cs.id ORDER BY evse_id LIMIT 1
+    ) e ON true
+    LEFT JOIN LATERAL (
+      SELECT connector_id FROM connectors WHERE evse_id = e.id ORDER BY connector_id LIMIT 1
+    ) c ON true
+    WHERE cs.id = ${input.stationId}
+  `;
+  if (row == null) return false;
+  const ctx = await insightContext(sql, {
+    now: input.now,
+    currency: '',
+    driverId: '',
+    actorUserId: null,
+    subjectSecret: '',
+  });
+  await seedStationFaulted(
+    ctx,
+    {
+      id: row.id,
+      ocppId: row.station_id,
+      protocol: row.ocpp_protocol,
+      siteId: row.site_id,
+      siteName: row.site_name,
+      evseUuid: row.evse_uuid,
+      evseNumber: row.evse_number,
+      connectorNumber: row.connector_number,
+    },
+    input.insightId,
+  );
+  return ctx.created > 0;
+}
+
+export async function seedAiInsightsDemo(
+  sql: postgres.Sql,
+  input: AiInsightDemoInput,
+): Promise<number> {
+  const ctx = await insightContext(sql, input);
 
   const all = await demoStations(sql);
   if (all.length === 0) {

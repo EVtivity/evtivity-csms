@@ -872,7 +872,9 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   getSiteDataPlanImpact: R,
   getSiteEnergyHistory: R,
   getSiteFilterOptions: R,
-  getSiteLayout: R,
+  // seed: the DiceBear seed of the session driver's avatar; the redactor drops the whole avatar.
+  getSiteLayout: { ...R, redactedFields: ['seed'] },
+  getSiteLayoutReplay: R,
   getSiteMeterValues: R,
   getSiteMetrics: R,
   getSiteNeighbors: N,
@@ -1479,6 +1481,7 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   getSiteEnergyHistory: true,
   getSiteFilterOptions: true,
   getSiteLayout: true,
+  getSiteLayoutReplay: true,
   getSiteMeterValues: true,
   getSiteMetrics: true,
   getSitePopularTimes: true,

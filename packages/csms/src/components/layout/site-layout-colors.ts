@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// Model paint of the 3D site layout (the ground, the lot and the models, not
+// Model paint of the 3D site layout (the ground, the lot, the building and the models, not
 // status colors). `haze` is the grass as it reads in the distance: the fog and
 // the background, so the ground fills the stage to its edges. The legend reads
 // the AC and DC accents without loading three.js.
@@ -21,6 +21,17 @@ export const SCENE_COLORS = {
     signText: '#1f2937',
     transformer: '#5f7a63',
     transformerFin: '#536b57',
+    switchboard: '#9aa3ad',
+    switchboardDoor: '#a9b1ba',
+    building: '#d9d3c7',
+    buildingBase: '#8f8a82',
+    buildingTrim: '#5b6470',
+    window: '#3a5873',
+    sidewalk: '#c4c7cc',
+    battery: '#e5e7eb',
+    batteryVent: '#9ca3af',
+    solarCell: '#1e3a5f',
+    solarFrame: '#cbd5e1',
   },
   dark: {
     asphalt: '#2b313b',
@@ -37,6 +48,17 @@ export const SCENE_COLORS = {
     signText: '#111827',
     transformer: '#4a6250',
     transformerFin: '#3f5545',
+    switchboard: '#6b737d',
+    switchboardDoor: '#78808a',
+    building: '#6e6a63',
+    buildingBase: '#55524d',
+    buildingTrim: '#3b424b',
+    window: '#1d2c3a',
+    sidewalk: '#737a84',
+    battery: '#b8bec7',
+    batteryVent: '#6b7280',
+    solarCell: '#16304f',
+    solarFrame: '#94a3b8',
   },
   ac: '#2563eb',
   dc: '#ea7a1a',
@@ -56,9 +78,13 @@ export const SCENE_COLORS = {
   coneBand: '#f4f4f2',
   signPost: '#6b7280',
   warning: '#facc15',
+  /** Lit interiors behind the building windows in the dark theme. */
+  windowLight: '#f3d9a4',
   warningInk: '#111827',
   /** Load management links: panel and circuit feeders, and the station drops. */
   linkFeeder: '#22d3ee',
+  /** The beacon of a faulted station. */
+  beacon: '#ef4444',
   linkStation: '#38bdf8',
   terminalBody: '#374151',
   terminalScreen: '#3b82f6',

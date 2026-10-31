@@ -15,16 +15,25 @@ const { getMock, permissions, scene, createScene, setThemeMock } = vi.hoisted(()
       bay: { col: number; row: number };
       lightColor: string;
       prop: string | null;
+      glow: boolean;
+      beacon: boolean;
+      wall: boolean;
       terminals: Array<{ id: string; side: number; hasDisplay: boolean; online: boolean | null }>;
     }>,
     lot: { cols: 0, rows: 0 },
     transformers: [] as Array<{ id: string; x: number; z: number }>,
+    batteries: [] as Array<{ id: string; x: number; z: number }>,
+    solar: [] as Array<{ id: string; row: number }>,
+    panels: [] as Array<{ id: string; x: number; z: number; mount: string }>,
     links: { segments: [] as unknown[], labels: [] as Array<{ id: string }> },
     logo: undefined as string | null | undefined,
     editing: false,
     fits: 0,
     active: true,
     throwOnCreate: false,
+    flow: new Map<string, number>() as ReadonlyMap<string, number>,
+    focused: [] as string[],
+    pointDistance: 20,
   };
   return {
     getMock: vi.fn(),
@@ -68,6 +77,7 @@ import { stationStateTextColor } from '@/lib/station-display-state';
 import type { LayoutStation } from '../StationCard';
 import type { LayoutTerminal } from '../layout-terminals';
 import type { LinkPanel } from '../site-layout-links';
+import type { LayoutInsight } from '../site-layout-data';
 
 const connector = (overrides: Record<string, unknown> = {}) => ({
   connectorId: 1,
@@ -127,6 +137,9 @@ function renderView(
     terminals: Map<string, LayoutTerminal[]>;
     hierarchy: LinkPanel[] | null;
     logoUrl: string | null;
+    insights: Map<string, LayoutInsight[]>;
+    replaying: boolean;
+    drawKw: (id: string) => number | undefined;
   }> = {},
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -144,8 +157,10 @@ function renderView(
           logoUrl={props.logoUrl ?? null}
           editing={props.editing ?? false}
           fitKey={0}
-          currentDrawKw={() => 96.5}
+          currentDrawKw={props.drawKw ?? (() => 96.5)}
           allocatedLimitKw={() => 120}
+          insights={props.insights}
+          replaying={props.replaying ?? false}
           onMove={onMove}
           onTransformerMove={onTransformerMove}
           onUnavailable={onUnavailable}
@@ -161,6 +176,9 @@ beforeEach(() => {
   scene.stations = [];
   scene.editing = false;
   scene.fits = 0;
+  scene.flow = new Map();
+  scene.focused = [];
+  scene.pointDistance = 20;
   createScene.mockImplementation((_container: HTMLElement, _opts: unknown, cb: SceneCallbacks) => {
     if (scene.throwOnCreate) throw new Error('Error creating WebGL context');
     scene.callbacks = cb;
@@ -169,18 +187,39 @@ beforeEach(() => {
         stations: typeof scene.stations;
         lot: { cols: number; rows: number };
         transformers: typeof scene.transformers;
+        batteries: typeof scene.batteries;
+        solar: typeof scene.solar;
+        panels: typeof scene.panels;
         links: typeof scene.links;
       }) => {
         scene.stations = layout.stations;
         scene.lot = layout.lot;
         scene.transformers = layout.transformers;
+        scene.batteries = layout.batteries;
+        scene.solar = layout.solar;
+        scene.panels = layout.panels;
         scene.links = layout.links;
       },
       setLogo: (url: string | null) => {
         scene.logo = url;
       },
-      transformerLabelPoint: () => ({ x: 300, y: 60, depth: 0.6, visible: true }),
-      linkLabelPoint: () => ({ x: 500, y: 200, depth: 0.7, visible: true }),
+      transformerLabelPoint: () => ({ x: 300, y: 60, depth: 0.6, distance: 20, visible: true }),
+      linkLabelPoint: () => ({ x: 500, y: 200, depth: 0.7, distance: 20, visible: true }),
+      setLinkFlow: (flow: ReadonlyMap<string, number>) => {
+        scene.flow = flow;
+      },
+      focus: (id: string) => {
+        scene.focused.push(id);
+      },
+      viewDistance: () => 10,
+      energyLabelPoint: () => ({ x: 400, y: 80, depth: 0.6, distance: 20, visible: true }),
+      avatarPoint: () => ({
+        x: 120,
+        y: 160,
+        depth: 0.4,
+        distance: scene.pointDistance,
+        visible: true,
+      }),
       setTheme: setThemeMock,
       setEditing: (e: boolean) => {
         scene.editing = e;
@@ -189,7 +228,13 @@ beforeEach(() => {
       fit: () => {
         scene.fits += 1;
       },
-      labelPoint: () => ({ x: 100, y: 100, depth: 0.5, visible: true }),
+      labelPoint: () => ({
+        x: 100,
+        y: 100,
+        depth: 0.5,
+        distance: scene.pointDistance,
+        visible: true,
+      }),
       setActive: (a: boolean) => {
         scene.active = a;
       },
@@ -415,7 +460,9 @@ describe('SiteLayout3D', () => {
       },
     ];
     renderView([station()], { hierarchy });
-    expect(scene.links.segments).toHaveLength(3);
+    // Panel to circuit, circuit to station: no link starts at a transformer.
+    expect(scene.links.segments).toHaveLength(2);
+    expect(scene.panels).toEqual([expect.objectContaining({ id: 'p1', mount: 'pad' })]);
     expect(screen.getByTestId('site-layout-3d-link-panel:p1').textContent).toBe(
       'Main Panel · 400 A · 230.4 kW',
     );
@@ -430,6 +477,95 @@ describe('SiteLayout3D', () => {
         kw: null,
       }),
     ).toBe('C · 32 A');
+  });
+
+  it('shows no panel and no link without load management', () => {
+    renderView([station()], { hierarchy: null });
+    expect(scene.panels).toEqual([]);
+    expect(scene.links.segments).toEqual([]);
+  });
+
+  it('shows an office or retail site with wall boxes and wall panels, and no transformers', () => {
+    const hierarchy: LinkPanel[] = [
+      {
+        id: 'p1',
+        name: 'Retail Panel',
+        breakerRatingAmps: 200,
+        maxContinuousKw: 57.6,
+        childPanels: [],
+        circuits: [
+          {
+            id: 'c1',
+            name: 'Level 2',
+            breakerRatingAmps: 100,
+            maxContinuousKw: 28.8,
+            stations: [{ id: 'sta_ac', allocatedLimitKw: 11 }],
+          },
+        ],
+      },
+    ];
+    renderView(
+      [
+        station({ id: 'sta_ac', stationId: 'CS-AC', chargingKind: 'ac' }),
+        station({ id: 'sta_dc', stationId: 'CS-DC', positionX: 220 }),
+        station({ id: 'sta_back', stationId: 'CS-B', chargingKind: 'ac', positionY: 160 }),
+      ],
+      {
+        hierarchy,
+        settings: {
+          ...SETTINGS,
+          siteType: 'office_retail',
+          transformers: [{ id: 'tx-9', name: 'Kept', ratedKva: 500, x: 40, z: 3 }],
+        },
+      },
+    );
+    expect(scene.lot).toMatchObject({ siteType: 'office_retail' });
+    // The stored transformer stays in the settings but is not shown.
+    expect(scene.transformers).toEqual([]);
+    expect(screen.queryByTestId('site-layout-3d-transformer-tx-9')).toBeNull();
+    // An AC charger of the first row hangs on the facade; DC and the second row stand at the curb.
+    expect(scene.stations.map((s) => [s.id, s.wall])).toEqual([
+      ['sta_ac', true],
+      ['sta_dc', false],
+      ['sta_back', false],
+    ]);
+    expect(scene.panels).toEqual([expect.objectContaining({ id: 'p1', mount: 'wall' })]);
+    expect(screen.getByTestId('site-layout-3d-link-panel:p1').textContent).toBe(
+      'Retail Panel · 200 A · 57.6 kW',
+    );
+  });
+
+  it('shows transformers on a parking lot', () => {
+    renderView([station()], { settings: { ...SETTINGS, siteType: 'parking_lot' } });
+    expect(scene.transformers).toHaveLength(1);
+    expect(scene.stations[0]?.wall).toBe(false);
+  });
+
+  it('lights the charging glow only on a charging station', () => {
+    renderView([
+      station({
+        evses: [{ evseId: 1, status: 'charging', connectors: [connector({ status: 'charging' })] }],
+      }),
+      station({ id: 'sta_2', stationId: 'CS-2', status: 'available', positionX: 220, evses: [] }),
+      station({ id: 'sta_3', stationId: 'CS-3', isOnline: false, positionX: 420, evses: [] }),
+    ]);
+    expect(scene.stations.map((s) => s.glow)).toEqual([true, false, false]);
+  });
+
+  it('pauses the scene while the browser tab is hidden', () => {
+    renderView([station()]);
+    expect(scene.active).toBe(true);
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(scene.active).toBe(false);
+    visibility.mockReturnValue('visible');
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(scene.active).toBe(true);
+    visibility.mockRestore();
   });
 
   it('puts a paired payment terminal on its connector side and lists it in the popup', () => {
@@ -482,5 +618,215 @@ describe('SiteLayout3D', () => {
     scene.throwOnCreate = true;
     const { onUnavailable } = renderView([station()]);
     expect(onUnavailable).toHaveBeenCalledTimes(1);
+  });
+
+  it('puts a beacon on a faulted station only', () => {
+    renderView([
+      station(),
+      station({ id: 'sta_2', stationId: 'CS-2', status: 'faulted', positionX: 220 }),
+    ]);
+    expect(scene.stations.map((s) => s.beacon)).toEqual([false, true]);
+  });
+
+  it('feeds the live power to the links and shows each panel draw against its limit', () => {
+    const hierarchy: LinkPanel[] = [
+      {
+        id: 'p1',
+        name: 'Main Panel',
+        breakerRatingAmps: 400,
+        maxContinuousKw: 100,
+        childPanels: [],
+        circuits: [
+          {
+            id: 'c1',
+            name: 'Circuit 1',
+            breakerRatingAmps: 200,
+            maxContinuousKw: 100,
+            stations: [{ id: 'sta_1', allocatedLimitKw: 100 }],
+          },
+        ],
+      },
+    ];
+    const { unmount } = renderView([station()], { hierarchy, drawKw: () => 85 });
+    expect(scene.flow.get('station:sta_1')).toBeCloseTo(0.85);
+    expect(scene.flow.get('circuit:c1')).toBeCloseTo(0.85);
+    const bar = screen.getByTestId('panel-load-bar');
+    expect(bar.getAttribute('data-level')).toBe('near');
+    expect(bar.getAttribute('aria-valuenow')).toBe('85');
+    unmount();
+    renderView([station()], { hierarchy, drawKw: () => 120 });
+    expect(screen.getByTestId('panel-load-bar').getAttribute('data-level')).toBe('at');
+  });
+
+  it('marks a station with an open AI insight with a link to it, never while replaying', () => {
+    const insights = new Map([
+      ['sta_1', [{ id: 'ins_1', headline: 'CS-1 keeps faulting', path: '/ai/insights/ins_1' }]],
+    ]);
+    const { unmount } = renderView([station()], { insights });
+    const marker = screen.getByTestId('site-layout-3d-insight-sta_1');
+    expect(marker.getAttribute('href')).toBe('/ai/insights/ins_1');
+    unmount();
+    renderView([station()], { insights, replaying: true });
+    expect(screen.queryByTestId('site-layout-3d-insight-sta_1')).toBeNull();
+  });
+
+  it('counts faulted, offline and charging stations and turns to the next one of a state', () => {
+    renderView([
+      station(),
+      station({ id: 'sta_2', stationId: 'CS-2', status: 'faulted', positionX: 220 }),
+      station({ id: 'sta_3', stationId: 'CS-3', status: 'faulted', positionX: 420, evses: [] }),
+      station({
+        id: 'sta_4',
+        stationId: 'CS-4',
+        isOnline: false,
+        status: 'available',
+        positionX: 620,
+        evses: [],
+      }),
+    ]);
+    const summary = screen.getByTestId('site-layout-summary');
+    expect(summary.textContent).toContain('2 sites.layoutState.faulted');
+    expect(summary.textContent).toContain('1 sites.layoutState.offline');
+    fireEvent.click(screen.getByTestId('site-layout-summary-faulted'));
+    expect(scene.focused).toEqual(['sta_2']);
+    expect(screen.getByTestId('station-layout-popup')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('site-layout-summary-faulted'));
+    expect(scene.focused).toEqual(['sta_2', 'sta_3']);
+  });
+
+  it('lists every station for the keyboard and focuses the one chosen', () => {
+    renderView([station(), station({ id: 'sta_2', stationId: 'CS-2', positionX: 220 })]);
+    expect(screen.queryByTestId('site-layout-station-list')).toBeNull();
+    fireEvent.click(screen.getByTestId('site-layout-list-toggle'));
+    expect(screen.getByTestId('site-layout-station-list').querySelectorAll('button')).toHaveLength(
+      2,
+    );
+    fireEvent.click(screen.getByTestId('site-layout-list-sta_2'));
+    expect(scene.focused).toEqual(['sta_2']);
+    expect(screen.getByTestId('station-layout-popup')).toBeTruthy();
+    expect(screen.getByTestId('site-layout-list-sta_2').getAttribute('aria-current')).toBe('true');
+  });
+
+  const chargingStation = (session: LayoutStation['session']) =>
+    station({
+      evses: [
+        {
+          evseId: 1,
+          status: 'charging',
+          connectors: [
+            connector({ status: 'charging', isPluggedIn: true, energyDeliveredWh: 18400 }),
+          ],
+        },
+      ],
+      session,
+    });
+
+  it('floats the driver avatar over a charging car and opens the session popup', () => {
+    renderView([
+      chargingStation({
+        id: 'ses_1',
+        startedAt: new Date(Date.now() - 65 * 60_000).toISOString(),
+        energyDeliveredWh: 18400,
+        currentCostCents: 1234,
+        currency: 'USD',
+        driver: {
+          id: 'drv_1',
+          name: 'Jane Doe',
+          avatar: { kind: 'generated', style: 'avataaars', seed: 'jane', options: {} },
+        },
+      }),
+    ]);
+    act(() => {
+      scene.callbacks?.onFrame();
+    });
+    const button = screen.getByTestId('site-layout-3d-avatar-sta_1').querySelector('button');
+    expect(button).not.toBeNull();
+    if (button != null) fireEvent.click(button);
+    const popup = screen.getByTestId('session-layout-popup');
+    expect(popup.textContent).toContain('Jane Doe');
+    expect(screen.getByTestId('session-popup-energy').textContent).toContain('18.4');
+    expect(screen.getByTestId('session-popup-cost').textContent).toContain('12.34');
+    const links = [...popup.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual(['/stations/sta_1', '/sessions/ses_1', '/drivers/drv_1']);
+  });
+
+  it('shows a session without the driver when drivers may not be read', () => {
+    renderView([
+      chargingStation({
+        id: 'ses_1',
+        startedAt: new Date().toISOString(),
+        energyDeliveredWh: 100,
+        currentCostCents: null,
+        currency: 'USD',
+        driver: null,
+      }),
+    ]);
+    const button = screen.getByTestId('site-layout-3d-avatar-sta_1').querySelector('button');
+    if (button != null) fireEvent.click(button);
+    const popup = screen.getByTestId('session-layout-popup');
+    expect(popup.querySelector('img')).toBeNull();
+    expect([...popup.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual([
+      '/stations/sta_1',
+      '/sessions/ses_1',
+    ]);
+  });
+
+  it('shows only a plain marker without session data, and none while replaying', () => {
+    const { unmount } = renderView([chargingStation(null)]);
+    const marker = screen.getByTestId('site-layout-3d-avatar-sta_1');
+    expect(marker.querySelector('button')).toBeNull();
+    expect(marker.querySelector('img')).toBeNull();
+    unmount();
+    renderView([chargingStation(null)], { replaying: true });
+    expect(screen.queryByTestId('site-layout-3d-avatar-sta_1')).toBeNull();
+    expect(screen.getByText('sites.layoutView.hintReplay')).toBeTruthy();
+  });
+
+  it('hides far station labels on a large site', () => {
+    const many = Array.from({ length: 45 }, (_, i) =>
+      station({
+        id: `s${String(i)}`,
+        stationId: `CS-${String(i)}`,
+        positionX: 20 + (i % 12) * 200,
+        positionY: 20 + Math.floor(i / 12) * 140,
+      }),
+    );
+    scene.pointDistance = 200;
+    renderView(many);
+    act(() => {
+      scene.callbacks?.onFrame();
+    });
+    expect(screen.getByTestId('site-layout-3d-label-s0').style.visibility).toBe('hidden');
+  });
+
+  it('shows batteries on both site types and solar canopies on a parking lot only, with labels', () => {
+    const energy = {
+      ...SETTINGS,
+      energyAssets: [
+        {
+          id: 'bat-1',
+          type: 'battery' as const,
+          name: 'Main Battery',
+          capacityKwh: 1000,
+          x: 4,
+          z: -6,
+        },
+        { id: 'pv-1', type: 'solar' as const, name: null, capacityKwp: 180, row: 1 },
+      ],
+    };
+    const { unmount } = renderView([station()], { settings: energy });
+    expect(scene.batteries).toEqual([{ id: 'bat-1', x: 4, z: -6 }]);
+    expect(scene.solar).toEqual([{ id: 'pv-1', row: 1 }]);
+    expect(screen.getByTestId('site-layout-3d-energy-bat-1').textContent).toBe(
+      'Main Battery· 1,000 kWh',
+    );
+    expect(screen.getByTestId('site-layout-3d-energy-pv-1').textContent).toBe(
+      'sites.layoutView.solarCanopy· 180 kWp',
+    );
+    unmount();
+    renderView([station()], { settings: { ...energy, siteType: 'office_retail' } });
+    expect(scene.batteries).toHaveLength(1);
+    expect(scene.solar).toEqual([]);
+    expect(screen.queryByTestId('site-layout-3d-energy-pv-1')).toBeNull();
   });
 });

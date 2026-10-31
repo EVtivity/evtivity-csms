@@ -71,12 +71,17 @@ describe('reservation cancellation fee labels', () => {
   it('TC-T3-26 renders excl. tax on the net basis and incl. tax on the gross basis', async () => {
     const i18n = i18next.createInstance();
     await i18n.init({ lng: 'en', resources: { en: { translation: en } } });
+    // Untyped lookup: the typed key union of the whole catalog is too deep to check here.
+    const tr = i18n.t.bind(i18n) as unknown as (
+      key: string,
+      options?: Record<string, unknown>,
+    ) => string;
 
-    expect(i18n.t('settings.reservationCancellationFee', { currency: 'EUR', context: 'net' })).toBe(
+    expect(tr('settings.reservationCancellationFee', { currency: 'EUR', context: 'net' })).toBe(
       'Cancellation Fee (EUR, excl. tax)',
     );
-    expect(
-      i18n.t('settings.reservationCancellationFee', { currency: 'EUR', context: 'gross' }),
-    ).toBe('Cancellation Fee (EUR, incl. tax)');
+    expect(tr('settings.reservationCancellationFee', { currency: 'EUR', context: 'gross' })).toBe(
+      'Cancellation Fee (EUR, incl. tax)',
+    );
   });
 });

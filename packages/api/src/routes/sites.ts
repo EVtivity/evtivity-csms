@@ -79,6 +79,16 @@ import {
 } from '@evtivity/services/station-data-plan.service';
 import type { ElectricityRatePeriodRestrictions } from '@evtivity/lib';
 import { freeSlotsFor } from '@evtivity/lib/site-layout';
+import { avatarItem } from '../lib/avatar-item.js';
+import { readLayoutStationSessions } from '../lib/site-layout-sessions.js';
+import type { LayoutStationSession } from '../lib/site-layout-sessions.js';
+import {
+  REPLAY_MAX_CHANGES,
+  REPLAY_MAX_DAYS_BACK,
+  REPLAY_MAX_STATIONS,
+  readSiteLayoutReplay,
+  replayDayBounds,
+} from '../lib/site-layout-replay.js';
 import { siteLayoutSettingsSchema } from '@evtivity/lib/site-layout-schema';
 import { parseZodRequest, rejectUnknownBodyKeys, zodSchema } from '../lib/zod-schema.js';
 import { connectorCurrentAmpsSchema } from '../lib/connector-rating-schema.js';
@@ -526,7 +536,7 @@ const siteItem = z
     layoutSettings: siteLayoutSettingsSchema
       .nullable()
       .describe(
-        'Layout settings of the site (the paved lot and the transformers on the grass), null when never saved: the layout then shows 2 rows of 10 spots of 3.2 by 5.6 m with a 6 m lane, facing 0, grown to hold the stations, and one transformer. Changed through PUT /v1/sites/{id}/layout',
+        'Layout settings of the site (the site type, the paved lot and the transformers on the grass), null when never saved: the layout then shows a parking lot of 2 rows of 10 spots of 3.2 by 5.6 m with a 6 m lane, facing 0, grown to hold the stations, and one transformer. A missing siteType reads as parking_lot. Changed through PUT /v1/sites/{id}/layout',
       ),
     aiMonthlyTokenBudget: z
       .number()
@@ -886,6 +896,39 @@ const layoutEvse = z
   })
   .loose();
 
+const layoutSessionDriver = z
+  .object({
+    id: z.string().describe('Driver id'),
+    name: z
+      .string()
+      .nullable()
+      .describe('First and last name of the driver, null when both are blank'),
+    avatar: avatarItem,
+  })
+  .loose();
+
+const layoutSession = z
+  .object({
+    id: z.string().describe('Charging session id'),
+    startedAt: z
+      .string()
+      .describe(
+        'When the session started (ISO 8601; the creation time when the station sent none)',
+      ),
+    energyDeliveredWh: z.number().describe('Energy delivered so far in watt-hours'),
+    currentCostCents: z
+      .number()
+      .nullable()
+      .describe('Running cost in cents of the session currency, null when not priced yet'),
+    currency: z.string().describe('ISO 4217 currency of the session cost'),
+    driver: layoutSessionDriver
+      .nullable()
+      .describe(
+        'The driver of the session, null without drivers:read, for a session without a driver, or for an erased driver',
+      ),
+  })
+  .loose();
+
 const layoutStation = z
   .object({
     id: z.string().describe('Internal station identifier (UUID)'),
@@ -938,6 +981,121 @@ const layoutStation = z
       .nullable()
       .describe('Most recent accepted display message text shown on the station, if any'),
     evses: z.array(layoutEvse).describe('EVSEs installed on this station'),
+    session: layoutSession
+      .nullable()
+      .describe(
+        'The newest active charging session of the station, null when none is active or the request lacks sessions:read',
+      ),
+  })
+  .loose();
+
+const replayQuery = z.object({
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .describe(
+      `Calendar day (YYYY-MM-DD) in the site timezone: today or up to ${String(REPLAY_MAX_DAYS_BACK)} days back`,
+    ),
+});
+
+const replayConnector = z
+  .object({
+    evseId: z.number().describe('OCPP EVSE ID within the station'),
+    connectorId: z
+      .number()
+      .nullable()
+      .describe(
+        'OCPP connector ID within the EVSE, null for a status the station sent for the whole EVSE',
+      ),
+    initialStatus: z
+      .string()
+      .nullable()
+      .describe(
+        'Connector status at the start of the day (the last status before it), null when none was ever recorded',
+      ),
+    changes: z
+      .array(
+        z
+          .object({
+            at: z.string().describe('When the status changed (ISO 8601)'),
+            status: z.string().describe('New connector status'),
+          })
+          .loose(),
+      )
+      .describe(
+        `Status changes during the day, in time order (at most ${String(REPLAY_MAX_CHANGES)})`,
+      ),
+  })
+  .loose();
+
+const replayStation = z
+  .object({
+    id: z.string().describe('Internal station identifier, the id of GET /v1/sites/{id}/layout'),
+    initialOnline: z
+      .boolean()
+      .describe(
+        'Whether the station was connected at the start of the day: the last connected or disconnected event before it; none: the opposite of the first change of the day, else the current state',
+      ),
+    onlineChanges: z
+      .array(
+        z
+          .object({
+            at: z.string().describe('When the station connected or disconnected (ISO 8601)'),
+            online: z.boolean().describe('True for a connect, false for a disconnect'),
+          })
+          .loose(),
+      )
+      .describe(
+        `Connection changes during the day from the connection log (events connected and disconnected; repeats dropped; at most ${String(REPLAY_MAX_CHANGES)})`,
+      ),
+    connectors: z
+      .array(replayConnector)
+      .describe('Connector status timeline per EVSE and connector'),
+    sessions: z
+      .array(
+        z
+          .object({
+            startedAt: z.string().describe('When the session started (ISO 8601)'),
+            endedAt: z.string().nullable().describe('When the session ended, null while active'),
+            energyWh: z.number().describe('Energy delivered by the session in watt-hours'),
+          })
+          .loose(),
+      )
+      .describe(
+        `Charging sessions of the station at this site that overlap the day, by start (no driver data; at most ${String(REPLAY_MAX_CHANGES)})`,
+      ),
+    power: z
+      .array(
+        z
+          .object({
+            at: z.string().describe('Start of the 5-minute bucket (ISO 8601)'),
+            kw: z
+              .number()
+              .describe(
+                'Average Power.Active.Import in kW over the bucket, summed over the EVSEs (a station-level reading counts when no EVSE reported)',
+              ),
+          })
+          .loose(),
+      )
+      .describe('Power draw in 5-minute buckets that have readings, in time order'),
+  })
+  .loose();
+
+const replayResponse = z
+  .object({
+    date: z.string().describe('The day replayed (YYYY-MM-DD)'),
+    timezone: z
+      .string()
+      .describe(
+        'IANA timezone the day is read in: the site timezone (UTC when the stored one is not a valid IANA name)',
+      ),
+    from: z.string().describe('Start of the day (ISO 8601)'),
+    to: z.string().describe('End of the day: the start of the next day, exclusive (ISO 8601)'),
+    stations: z
+      .array(replayStation)
+      .describe(
+        `Operator stations of the site, oldest first (at most ${String(REPLAY_MAX_STATIONS)})`,
+      ),
   })
   .loose();
 
@@ -2558,6 +2716,14 @@ export function siteRoutes(app: FastifyInstance): void {
         if (slot != null) slotByStation.set(s.id, slot);
       });
       const dataPlans = await readStationDataPlans(stationUuids);
+      // The session needs sessions:read and its driver drivers:read too (API
+      // key scopes count); the response cache keys by user and scope.
+      const canReadSessions = await requestHasPermission(request, 'sessions:read');
+      const canReadDrivers =
+        canReadSessions && (await requestHasPermission(request, 'drivers:read'));
+      const layoutSessions = canReadSessions
+        ? await readLayoutStationSessions(stationUuids, canReadDrivers)
+        : new Map<string, LayoutStationSession>();
 
       const [evseRows, connectorRows, sessionRows, displayMessageRows] = await Promise.all([
         db
@@ -2658,6 +2824,7 @@ export function siteRoutes(app: FastifyInstance): void {
           cellular: dataPlan != null && (dataPlan.plan === 'cellular' || dataPlan.hasConfirmedSim),
           inMaintenance: station.inMaintenance,
           displayMessage: displayMessageByStation.get(station.id) ?? null,
+          session: layoutSessions.get(station.id) ?? null,
           evses: stationEvses.map((evse) => {
             const evseConnectors = connectorsByEvse.get(evse.id) ?? [];
             return {
@@ -2681,6 +2848,64 @@ export function siteRoutes(app: FastifyInstance): void {
     },
   );
 
+  app.get(
+    '/sites/:id/layout/replay',
+    {
+      onRequest: [authorize('sites:read')],
+      schema: {
+        tags: ['Sites'],
+        summary: 'Replay one day of the site layout',
+        description: `What each operator station of the site did during one calendar day in the site timezone: connection changes, connector statuses, sessions and the power draw in 5-minute buckets. 400 VALIDATION_ERROR for a day in the future or more than ${String(REPLAY_MAX_DAYS_BACK)} days back.`,
+        operationId: 'getSiteLayoutReplay',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(siteParams),
+        querystring: zodSchema(replayQuery),
+        response: {
+          200: itemResponse(replayResponse),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof siteParams>;
+      const { date } = request.query as z.infer<typeof replayQuery>;
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      if (!siteInScope(siteIds, id)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      const [site] = await db
+        .select({ id: sites.id, timezone: sites.timezone })
+        .from(sites)
+        .where(eq(sites.id, id));
+      if (site == null) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      const timezone = isValidTimezone(site.timezone) ? site.timezone : 'UTC';
+      const day = replayDayBounds(date, timezone);
+      if (typeof day === 'string') {
+        const message =
+          day === 'future'
+            ? 'The day is in the future'
+            : day === 'too_old'
+              ? `The day is more than ${String(REPLAY_MAX_DAYS_BACK)} days back`
+              : 'Invalid date';
+        await reply.status(400).send({ error: message, code: 'VALIDATION_ERROR' });
+        return;
+      }
+      return {
+        date,
+        timezone,
+        from: day.from.toISOString(),
+        to: day.to.toISOString(),
+        stations: await readSiteLayoutReplay(id, day),
+      };
+    },
+  );
+
   const layoutBody = z.object({
     positions: z
       .array(
@@ -2695,7 +2920,7 @@ export function siteRoutes(app: FastifyInstance): void {
       .nullable()
       .optional()
       .describe(
-        'New layout settings of the site (lot and transformers); null resets them to the default, omitted keeps them. A station outside the lot moves to the nearest free spot inside, a transformer on the lot moves to the grass beside it; when the lot has no free spot left for a station, the save answers 400 VALIDATION_ERROR naming those stations (details.stations) and changes nothing',
+        'New layout settings of the site (site type, lot and transformers); null resets them to the default, omitted keeps them. A station outside the lot moves to the nearest free spot inside, a transformer on the lot moves to the grass beside it; when the lot has no free spot left for a station, the save answers 400 VALIDATION_ERROR naming those stations (details.stations) and changes nothing',
       ),
   });
 

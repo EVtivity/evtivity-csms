@@ -39,6 +39,23 @@ describe('AI tool result redactor', () => {
     }
   });
 
+  it('drops the session driver avatar of a site layout station (getSiteLayout)', () => {
+    const station = {
+      id: 'sta_1',
+      session: {
+        id: 'ses_1',
+        driver: {
+          id: 'drv_1',
+          name: 'Ana Lee',
+          avatar: { kind: 'generated', style: 'avataaars', seed: 'ana', options: {} },
+        },
+      },
+    };
+    const { value } = redactToolValue([station], 'chatbot');
+    expect(JSON.stringify(value)).not.toContain('avatar');
+    expect(JSON.stringify(value)).toContain('ses_1');
+  });
+
   it('masks the password of a file transfer URL before the email rule reads it', () => {
     for (const surface of ['chatbot', 'support'] as const) {
       const { value, counts } = redactToolValue(

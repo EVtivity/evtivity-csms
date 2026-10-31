@@ -120,17 +120,3 @@ export function CellularBadge(): React.JSX.Element {
     </span>
   );
 }
-
-/** The New tag of a station placed on a free spot but not saved yet. */
-export function NewPlacementTag(): React.JSX.Element {
-  const { t } = useTranslation();
-  return (
-    <span
-      title={t('sites.layoutView.newTagHint')}
-      data-testid="new-placement-tag"
-      className="inline-flex shrink-0 items-center rounded-full bg-warning px-1.5 text-xs font-semibold leading-4 text-warning-foreground"
-    >
-      {t('sites.layoutView.newTag')}
-    </span>
-  );
-}

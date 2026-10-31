@@ -8,6 +8,7 @@
 
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   effectiveLayoutSettings,
   positionToBay,
@@ -18,6 +19,12 @@ import { useHasPermission } from '@/lib/auth';
 import type { LayoutStation } from './StationCard';
 import type { LinkPanel } from './site-layout-links';
 import { useSiteTerminals, type LayoutTerminal } from './layout-terminals';
+import {
+  LIVE_INSIGHT_STATUS_FILTER,
+  useInsights,
+  type AiInsightView,
+} from '@/components/ai/insights/insight-api';
+import { insightHeadline, insightPath } from '@/components/ai/insights/insight-display';
 
 export interface LoadManagementStation {
   id: string;
@@ -157,4 +164,43 @@ export function useSiteLayoutView(siteId: string, live: boolean): SiteLayoutView
       void site.refetch();
     },
   };
+}
+
+/** An open AI insight marker on a station of the 3D layout. */
+export interface LayoutInsight {
+  id: string;
+  headline: string;
+  path: string;
+}
+
+/** The open insights by station (newest first), from an insight list. */
+export function insightsByStation(
+  insights: readonly AiInsightView[],
+  headline: (insight: AiInsightView) => string,
+): Map<string, LayoutInsight[]> {
+  const map = new Map<string, LayoutInsight[]>();
+  for (const insight of insights) {
+    if (insight.stationId == null) continue;
+    const list = map.get(insight.stationId) ?? [];
+    list.push({ id: insight.id, headline: headline(insight), path: insightPath(insight) });
+    map.set(insight.stationId, list);
+  }
+  return map;
+}
+
+/**
+ * The open AI insights of a site's stations (open or with an action waiting),
+ * for the insight markers of the 3D layout. Not requested without
+ * aiInsights:read. The ai.insight.updated event refreshes it (['ai', 'insights']).
+ */
+export function useLayoutInsights(siteId: string, enabled: boolean): Map<string, LayoutInsight[]> {
+  const { t } = useTranslation();
+  const { insights } = useInsights(
+    { siteId, status: LIVE_INSIGHT_STATUS_FILTER, limit: 100 },
+    enabled && siteId !== '',
+  );
+  return useMemo(
+    () => insightsByStation(insights, (insight) => insightHeadline(t, insight)),
+    [insights, t],
+  );
 }

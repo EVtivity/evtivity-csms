@@ -22,7 +22,7 @@ import { LoadErrorRetry } from '@/components/charts/ChartBody';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { webglAvailable } from '@/lib/webgl';
-import { useSiteLayoutView } from '@/components/layout/site-layout-data';
+import { useLayoutInsights, useSiteLayoutView } from '@/components/layout/site-layout-data';
 
 // three.js loads only when the widget renders.
 const SiteLayout3D = lazy(() => import('@/components/layout/SiteLayout3D'));
@@ -108,6 +108,7 @@ export function SiteLayoutWidget({
   const fallback = defaultLayoutSite(options);
   const siteId = chosenId ?? fallback?.id ?? '';
   const view = useSiteLayoutView(siteId, onScreen);
+  const insights = useLayoutInsights(siteId, onScreen);
   const siteName = options.find((s) => s.id === siteId)?.name ?? view.siteName ?? siteId;
   // A chosen site past the first 100 is still listed, under its own name.
   const listed =
@@ -209,6 +210,7 @@ export function SiteLayoutWidget({
           terminals={view.terminals}
           hierarchy={view.hierarchy}
           logoUrl={view.logoUrl}
+          insights={insights}
           editing={false}
           viewOnly
           cameraView="front"

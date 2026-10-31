@@ -9,7 +9,8 @@ import { cn } from '@/lib/utils';
 import { formatEnergy, formatNumber } from '@/lib/formatting';
 import { STATUS_COLORS, SVG_COLORS } from '@/lib/chart-theme';
 import { stationDisplayState, stationStateLabelKey } from '@/lib/station-display-state';
-import { CellularBadge, NewPlacementTag, StationStateIcon } from './StationStateIcon';
+import { CellularBadge, StationStateIcon } from './StationStateIcon';
+import type { AvatarData } from '@/components/AccountAvatar';
 
 const GRID_SIZE = 20;
 
@@ -30,6 +31,23 @@ interface EvseData {
   connectors: ConnectorData[];
 }
 
+/** The driver of an active session (only with drivers:read). */
+export interface LayoutSessionDriver {
+  id: string;
+  name: string | null;
+  avatar: AvatarData | null;
+}
+
+/** The newest active session of a station (only with sessions:read). */
+export interface LayoutSession {
+  id: string;
+  startedAt: string;
+  energyDeliveredWh: number;
+  currentCostCents: number | null;
+  currency: string;
+  driver: LayoutSessionDriver | null;
+}
+
 export interface LayoutStation {
   id: string;
   stationId: string;
@@ -47,6 +65,8 @@ export interface LayoutStation {
   inMaintenance: boolean;
   displayMessage: string | null;
   evses: EvseData[];
+  /** The active session: null without one or without sessions:read (absent in older replies). */
+  session?: LayoutSession | null | undefined;
 }
 
 interface StationCardProps {
@@ -303,13 +323,11 @@ export function StationCard({
     <StationIcon status={station.status} charging={charging} dc={station.chargingKind === 'dc'} />
   );
   const state = stationDisplayState(station);
-  const badges =
-    station.cellular || !station.placed ? (
-      <div className="flex flex-wrap items-center gap-1">
-        {station.cellular && <CellularBadge />}
-        {!station.placed && <NewPlacementTag />}
-      </div>
-    ) : null;
+  const badges = station.cellular ? (
+    <div className="flex flex-wrap items-center gap-1">
+      <CellularBadge />
+    </div>
+  ) : null;
   const iconWithReason =
     reasonLabel != null ? <Tooltip label={reasonLabel}>{stationIcon}</Tooltip> : stationIcon;
   const motionX = useMotionValue(station.positionX);

@@ -270,6 +270,9 @@ export async function saveSiteLayout(
       .onConflictDoUpdate({
         target: stationLayoutPositions.stationId,
         set: {
+          // A row that moves to this site counts as placed here now: the day
+          // replay reads created_at as the start of the station's time here.
+          createdAt: sql`CASE WHEN ${stationLayoutPositions.siteId} = ${siteId} THEN ${stationLayoutPositions.createdAt} ELSE now() END`,
           siteId,
           positionX: String(pos.positionX),
           positionY: String(pos.positionY),

@@ -20,6 +20,9 @@ const SKIP_DIRS = new Set(['__tests__', '__integration__', 'dist', 'generated', 
 const ALLOWED: RegExp[] = [
   /^api\/src\/services\/driver-avatar\.service\.ts$/,
   /^api\/src\/services\/user-avatar\.service\.ts$/,
+  // Demo data only: generated avatars for the demo drivers on the example
+  // domains, written only while a driver has none (features/avatars.md).
+  /^database\/src\/seed-demo-avatars\.ts$/,
   // The schemas declare the columns.
   /^database\/src\/schema\/drivers\.ts$/,
   /^database\/src\/schema\/identity\.ts$/,

@@ -4,11 +4,14 @@
 import { lazy, Suspense, useCallback, useLayoutEffect, useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plug, Circle, Zap, Shield, Maximize2, Pencil, Check } from 'lucide-react';
+import { Plug, Circle, Zap, Shield, Maximize2, Pencil, Check, History } from 'lucide-react';
 import {
   LAYOUT_CARD_HEIGHT,
   LAYOUT_CARD_WIDTH,
   effectiveLayoutSettings,
+  energyAssetsOf,
+  showsSolar,
+  siteTypeOf,
   fitPositionsToGrid,
   gridBoardExtent,
   positionToBay,
@@ -31,12 +34,26 @@ import { StationLayoutPopup } from './StationLayoutPopup';
 import { placeLayoutPopup } from './layout-popup-position';
 import { STAGE_HEIGHT_CLASS } from './site-layout-stage';
 import { cn } from '@/lib/utils';
-import { CellularBadge, NewPlacementTag, StationStateIcon } from './StationStateIcon';
+import { CellularBadge, StationStateIcon } from './StationStateIcon';
 import { SCENE_COLORS } from './site-layout-colors';
 import { LayoutSettingsPanel } from './LayoutSettingsPanel';
 import { useSiteTerminals } from './layout-terminals';
-import { autoLayout, useBrandingLogo, type LoadManagementResponse } from './site-layout-data';
+import {
+  autoLayout,
+  useBrandingLogo,
+  useLayoutInsights,
+  type LoadManagementResponse,
+} from './site-layout-data';
 import { STATUS_COLORS } from '@/lib/chart-theme';
+import { LayoutReplayBar } from './LayoutReplayBar';
+import {
+  localDate,
+  replayFrame,
+  replayLastMinute,
+  replayMoment,
+  type ReplayDay,
+  type ReplaySpeed,
+} from './site-layout-replay';
 import { formatNumber } from '@/lib/formatting';
 
 // three.js loads only when the 3D view shows.
@@ -85,6 +102,23 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   const [settingsInvalid, setSettingsInvalid] = useState(false);
   const [settingsPanelKey, setSettingsPanelKey] = useState(0);
   const terminals = useSiteTerminals(siteId);
+  const insights = useLayoutInsights(siteId, true);
+  // Day replay (Layout tab only): the chosen day, the minute into it, play and speed.
+  const [replayDate, setReplayDate] = useState<string | null>(null);
+  const [replayMinute, setReplayMinute] = useState(0);
+  const [replayPlaying, setReplayPlaying] = useState(false);
+  const [replaySpeed, setReplaySpeed] = useState<ReplaySpeed>(15);
+  const replaying = replayDate != null;
+  const replay = useQuery({
+    queryKey: ['sites', siteId, 'layout-replay', replayDate],
+    queryFn: () =>
+      api.get<ReplayDay>(
+        `/v1/sites/${siteId}/layout/replay?date=${encodeURIComponent(replayDate ?? '')}`,
+      ),
+    enabled: replaying,
+    // Today's replay grows while it is open; a past day does not change.
+    staleTime: 60_000,
+  });
 
   const { data: site } = useQuery({
     queryKey: ['sites', siteId],
@@ -164,6 +198,8 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     [pendingSettings, site, placedStations],
   );
 
+  const officeRetail = siteTypeOf(layoutSettings) === 'office_retail';
+
   // A pending lot moves the stations outside it to the nearest free spots, as
   // the save will (the same rule as the API).
   const resolvedStations = useMemo(() => {
@@ -184,9 +220,33 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     pendingSettings.spotsPerRow * pendingSettings.rows < resolvedStations.length;
   const hasPending = pendingPositions.size > 0 || pendingSettings != null;
 
+  // A replayed moment draws through the same views as live data.
+  const replayLast = replay.data != null ? replayLastMinute(replay.data) : 0;
+  const frame = useMemo(
+    () =>
+      replay.data == null
+        ? null
+        : replayFrame(replay.data, resolvedStations, replayMoment(replay.data, replayMinute)),
+    [replay.data, resolvedStations, replayMinute],
+  );
+  const shownStations = replaying && frame != null ? frame.stations : resolvedStations;
+  const shownPower = replaying && frame != null ? frame.power : stationPowerMap;
+
+  function startReplay(): void {
+    setEditing(false);
+    setReplayDate(localDate(Date.now()));
+    setReplayMinute(0);
+    setReplayPlaying(false);
+  }
+
+  function stopReplay(): void {
+    setReplayDate(null);
+    setReplayPlaying(false);
+  }
+
   const selected2dStation = show3d
     ? null
-    : (resolvedStations.find((s) => s.id === selected2d) ?? null);
+    : (shownStations.find((s) => s.id === selected2d) ?? null);
 
   // The 2D popup stands beside its card, inside the visible part of the board.
   useLayoutEffect(() => {
@@ -253,6 +313,18 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     });
   }
 
+  // A battery dropped in 3D (already on the grass).
+  function handleEnergyAssetMove(assetId: string, x: number, z: number): void {
+    const base = layoutSettings;
+    const spot = snapTransformerToGrass(x, z, base);
+    setPendingSettings({
+      ...base,
+      energyAssets: energyAssetsOf(base).map((a) =>
+        a.id === assetId && a.type === 'battery' ? { ...a, ...spot } : a,
+      ),
+    });
+  }
+
   function handleSave(): void {
     const positions = resolvedStations.map((s) => ({
       stationId: s.id,
@@ -305,6 +377,17 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
               {t('sites.layoutView.view2d')}
             </Button>
           </div>
+          {resolvedStations.length > 0 && !editing && !replaying && (
+            <Button
+              type="button"
+              variant="outline"
+              data-testid="site-layout-replay-toggle"
+              onClick={startReplay}
+            >
+              <History className="h-4 w-4" />
+              {t('sites.layoutView.replayDayButton')}
+            </Button>
+          )}
           {show3d && resolvedStations.length > 0 && (
             <Button
               type="button"
@@ -317,7 +400,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
               {t('sites.layoutView.fitToView')}
             </Button>
           )}
-          {show3d && canWrite && resolvedStations.length > 0 && (
+          {show3d && canWrite && resolvedStations.length > 0 && !replaying && (
             <Button
               type="button"
               variant="outline"
@@ -352,6 +435,29 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
       {saveMutation.isError && (
         <p className="mb-3 text-sm text-destructive">{getErrorMessage(saveMutation.error, t)}</p>
       )}
+      {replayDate != null && (
+        <LayoutReplayBar
+          date={replayDate}
+          onDateChange={(date) => {
+            setReplayDate(date);
+            setReplayMinute(0);
+            setReplayPlaying(false);
+          }}
+          minute={replayMinute}
+          onMinuteChange={setReplayMinute}
+          lastMinute={replayLast}
+          playing={replayPlaying}
+          onPlayingChange={setReplayPlaying}
+          speed={replaySpeed}
+          onSpeedChange={setReplaySpeed}
+          isLoading={replay.isLoading}
+          isError={replay.isError}
+          onRetry={() => {
+            void replay.refetch();
+          }}
+          onExit={stopReplay}
+        />
+      )}
       {show3d && editing && canWrite && resolvedStations.length > 0 && (
         <LayoutSettingsPanel
           key={settingsPanelKey}
@@ -382,16 +488,19 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
           }
         >
           <SiteLayout3D
-            stations={resolvedStations}
+            stations={shownStations}
             settings={layoutSettings}
             terminals={terminals}
             hierarchy={loadManagement?.config?.isEnabled === true ? loadManagement.hierarchy : null}
             logoUrl={logoUrl}
+            insights={insights}
             onTransformerMove={handleTransformerMove}
+            onEnergyAssetMove={handleEnergyAssetMove}
             editing={editing && canWrite}
             fitKey={fitKey}
-            currentDrawKw={(id) => stationPowerMap.get(id)?.currentDrawKw}
-            allocatedLimitKw={(id) => stationPowerMap.get(id)?.allocatedLimitKw}
+            currentDrawKw={(id) => shownPower.get(id)?.currentDrawKw}
+            allocatedLimitKw={(id) => shownPower.get(id)?.allocatedLimitKw}
+            replaying={replaying}
             onMove={handleDragEnd}
             onUnavailable={() => {
               setWebgl(false);
@@ -441,6 +550,20 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
             data-testid="site-layout-2d"
             className="relative w-full h-[700px] border-2 border-dashed rounded-lg overflow-auto"
           >
+            {/* An office or retail site: the building edge along the first row. */}
+            {officeRetail && (
+              <div
+                aria-hidden="true"
+                data-testid="site-layout-2d-building"
+                className="pointer-events-none absolute rounded-sm bg-muted-foreground/50"
+                style={{
+                  left: 8,
+                  top: 0,
+                  width: gridBoardExtent(layoutSettings).width + 12,
+                  height: 6,
+                }}
+              />
+            )}
             {/* The paved lot: cards land inside it. */}
             <div
               aria-hidden="true"
@@ -453,8 +576,8 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
                 height: gridBoardExtent(layoutSettings).height + 12,
               }}
             />
-            {resolvedStations.map((station) => {
-              const power = stationPowerMap.get(station.id);
+            {shownStations.map((station) => {
+              const power = shownPower.get(station.id);
               return (
                 <StationCard
                   key={station.id}
@@ -471,8 +594,8 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
               <StationLayoutPopup
                 ref={popup2dRef}
                 station={selected2dStation}
-                currentDrawKw={stationPowerMap.get(selected2dStation.id)?.currentDrawKw}
-                allocatedLimitKw={stationPowerMap.get(selected2dStation.id)?.allocatedLimitKw}
+                currentDrawKw={shownPower.get(selected2dStation.id)?.currentDrawKw}
+                allocatedLimitKw={shownPower.get(selected2dStation.id)?.allocatedLimitKw}
                 terminals={terminals.get(selected2dStation.id)}
                 onClose={() => {
                   setSelected2d(null);
@@ -493,7 +616,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
                 className="inline-block h-3 w-3 rounded-sm"
                 style={{ backgroundColor: SCENE_COLORS.ac }}
               />
-              {t('sites.layoutView.acPedestal')}
+              {officeRetail ? t('sites.layoutView.acWallBox') : t('sites.layoutView.acPedestal')}
             </span>
             <span className="flex items-center gap-1">
               <span
@@ -504,6 +627,32 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
             </span>
           </>
         )}
+        {show3d && energyAssetsOf(layoutSettings).some((a) => a.type === 'battery') && (
+          <span className="flex items-center gap-1" data-testid="site-layout-battery-legend">
+            <span
+              className="inline-block h-3 w-3 rounded-sm border"
+              style={{ backgroundColor: SCENE_COLORS.light.battery }}
+            />
+            {t('sites.layoutView.battery')}
+          </span>
+        )}
+        {show3d &&
+          showsSolar(layoutSettings) &&
+          energyAssetsOf(layoutSettings).some((a) => a.type === 'solar') && (
+            <span className="flex items-center gap-1" data-testid="site-layout-solar-legend">
+              <span
+                className="inline-block h-3 w-3 rounded-sm"
+                style={{ backgroundColor: SCENE_COLORS.light.solarCell }}
+              />
+              {t('sites.layoutView.solarCanopy')}
+            </span>
+          )}
+        {officeRetail && (
+          <span className="flex items-center gap-1" data-testid="site-layout-building-legend">
+            <span className="inline-block h-1.5 w-4 rounded-sm bg-muted-foreground/50" />
+            {t('sites.layoutView.building')}
+          </span>
+        )}
         {STATION_DISPLAY_STATES.map((state) => (
           <span key={state} className="flex items-center gap-1">
             <StationStateIcon state={state} /> {t(`sites.layoutState.${state}`)}
@@ -511,9 +660,6 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
         ))}
         <span className="flex items-center gap-1">
           <CellularBadge /> {t('sites.layoutView.cellularLegend')}
-        </span>
-        <span className="flex items-center gap-1">
-          <NewPlacementTag /> {t('sites.layoutView.newLegend')}
         </span>
       </div>
       <div

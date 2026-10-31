@@ -25,6 +25,7 @@ import { ensureSiteElectricityRates } from './seed-electricity-rates.js';
 import { sessionSiteIdSql } from './lib/session-site.js';
 import { loadDemoStationPlace } from './seed-fleet-billing.js';
 import { seedLayoutDemo } from './seed-demo-layout.js';
+import { seedDemoDriverAvatars } from './seed-demo-avatars.js';
 
 // Demo data of four features that are off or empty in a fresh demo: Plug and
 // Charge (ISO 15118 contracts and the sessions their eMAID tokens started),
@@ -1317,6 +1318,8 @@ export interface DemoFeatureCounts {
   terminalPayments: number;
   /** Stations of the site layout demo (seed-demo-layout.ts). */
   layoutStations: number;
+  /** Demo drivers given a generated avatar (seed-demo-avatars.ts). */
+  driverAvatars: number;
 }
 
 /**
@@ -1347,6 +1350,7 @@ export async function seedDemoFeatures(
   const sims = await seedSimDemo(sql, ctx);
   const terminalPayments = await seedPaymentTerminalDemo(sql, ctx);
   const layout = await seedLayoutDemo(sql, ctx, vendor?.id ?? null);
+  const driverAvatars = await seedDemoDriverAvatars(sql, ctx.actorUserId);
   await enableDemoFeatureSettings(sql);
   return {
     pncSessions,
@@ -1354,5 +1358,6 @@ export async function seedDemoFeatures(
     sims,
     terminalPayments,
     layoutStations: layout.stations,
+    driverAvatars,
   };
 }

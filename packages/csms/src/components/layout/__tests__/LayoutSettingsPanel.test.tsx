@@ -23,12 +23,12 @@ import {
 
 const SETTINGS = effectiveLayoutSettings(null);
 
-function renderPanel(stationCount = 4) {
+function renderPanel(stationCount = 4, settings = SETTINGS) {
   const onChange = vi.fn();
   const onInvalidChange = vi.fn();
   render(
     <LayoutSettingsPanel
-      settings={SETTINGS}
+      settings={settings}
       stationCount={stationCount}
       onChange={onChange}
       onInvalidChange={onInvalidChange}
@@ -66,6 +66,27 @@ describe('LayoutSettingsPanel', () => {
     });
     expect(onInvalidChange).toHaveBeenLastCalledWith(true);
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('picks the site type, a parking lot by default', () => {
+    const { onChange } = renderPanel();
+    expect(screen.getByText('sites.layoutSettings.title')).toBeTruthy();
+    expect(screen.getByLabelText('sites.layoutSettings.siteType')).toBeTruthy();
+    const select = document.getElementById('layout-settings-siteType');
+    if (!(select instanceof HTMLSelectElement)) throw new Error('no site type select');
+    expect(select.value).toBe('parking_lot');
+    expect([...select.options].map((o) => o.value)).toEqual(['parking_lot', 'office_retail']);
+    fireEvent.change(select, { target: { value: 'office_retail' } });
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ siteType: 'office_retail', transformers: SETTINGS.transformers }),
+    );
+  });
+
+  it('hides the transformers of an office or retail site and keeps them in the settings', () => {
+    renderPanel(4, { ...SETTINGS, siteType: 'office_retail' });
+    expect(screen.getByTestId('layout-transformers-hidden')).toBeTruthy();
+    expect(screen.queryByText('sites.layoutSettings.addTransformer')).toBeNull();
+    expect(screen.queryByTestId('layout-transformer-tx-1')).toBeNull();
   });
 
   it('turns the lot with the facing', () => {

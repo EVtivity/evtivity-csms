@@ -39,10 +39,18 @@ vi.mock('@/lib/webgl', () => ({ webglAvailable: () => webgl.available }));
 vi.mock('../SiteLayout3D', () => ({
   default: (props: {
     editing: boolean;
-    stations: unknown[];
+    replaying?: boolean;
+    stations: Array<{ status: string; isOnline: boolean }>;
+    currentDrawKw: (id: string) => number | undefined;
     onMove: (id: string, x: number, y: number) => void;
   }) => (
-    <div data-testid="site-layout-3d" data-editing={String(props.editing)}>
+    <div
+      data-testid="site-layout-3d"
+      data-editing={String(props.editing)}
+      data-replaying={String(props.replaying === true)}
+      data-statuses={props.stations.map((s) => `${s.status}:${String(s.isOnline)}`).join(',')}
+      data-draw={String(props.currentDrawKw('sta_ac') ?? '')}
+    >
       {props.stations.length}
       <button
         type="button"
@@ -56,6 +64,7 @@ vi.mock('../SiteLayout3D', () => ({
   ),
 }));
 
+import { effectiveLayoutSettings } from '@evtivity/lib/site-layout';
 import { SiteLayout } from '../SiteLayout';
 
 const connector = (overrides: Record<string, unknown> = {}) => ({
@@ -117,10 +126,40 @@ function wrap(): void {
   );
 }
 
+const DAY_FROM = '2026-01-10T05:00:00.000Z';
+const minute = (m: number): string => new Date(Date.parse(DAY_FROM) + m * 60_000).toISOString();
+const REPLAY = {
+  date: '2026-01-10',
+  timezone: 'America/New_York',
+  from: DAY_FROM,
+  to: '2026-01-11T04:59:59.999Z',
+  stations: [
+    {
+      id: 'sta_ac',
+      initialOnline: true,
+      onlineChanges: [],
+      connectors: [
+        {
+          evseId: 1,
+          connectorId: 1,
+          initialStatus: 'Available',
+          changes: [{ at: minute(600), status: 'Charging' }],
+        },
+      ],
+      sessions: [{ startedAt: minute(600), endedAt: minute(700), energyWh: 10_000 }],
+      power: [{ at: minute(600), kw: 11 }],
+    },
+  ],
+};
+
 beforeEach(() => {
   getMock.mockImplementation((url: string) =>
     Promise.resolve(
-      url.endsWith('/layout') ? STATIONS : { config: null, hierarchy: [], stations: [] },
+      url.endsWith('/layout')
+        ? STATIONS
+        : url.includes('/layout/replay?date=')
+          ? REPLAY
+          : { config: null, hierarchy: [], stations: [] },
     ),
   );
   window.localStorage.clear();
@@ -193,7 +232,7 @@ describe('SiteLayout view toggle', () => {
 });
 
 describe('SiteLayout 2D cards', () => {
-  it('shows the state icon, the 4G badge, the New tag and the connector-based AC or DC icon', async () => {
+  it('shows the state icon, the 4G badge and the connector-based AC or DC icon, and no New tag for an unsaved position', async () => {
     window.localStorage.setItem('site-layout-view', '2d');
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
@@ -207,9 +246,37 @@ describe('SiteLayout 2D cards', () => {
     expect(ac.querySelector('svg[width="48"]')).not.toBeNull();
 
     expect(within(dc).getByRole('img', { name: 'sites.layoutState.maintenance' })).toBeDefined();
-    expect(within(dc).getByTestId('new-placement-tag')).toBeDefined();
+    expect(within(dc).queryByTestId('new-placement-tag')).toBeNull();
     expect(within(dc).queryByTestId('cellular-badge')).toBeNull();
     expect(dc.querySelector('svg[width="52"]')).not.toBeNull();
+  });
+
+  it('draws the building edge along the first row of an office or retail site, and none on a parking lot', async () => {
+    const office = { ...effectiveLayoutSettings(null), siteType: 'office_retail' };
+    getMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith('/layout')
+          ? STATIONS
+          : url === '/v1/sites/sit_1'
+            ? { id: 'sit_1', name: 'Lakeside', layoutSettings: office }
+            : { config: null, hierarchy: [], stations: [] },
+      ),
+    );
+    window.localStorage.setItem('site-layout-view', '2d');
+    wrap();
+    const board = await screen.findByTestId('site-layout-2d');
+    expect(await within(board).findByTestId('site-layout-2d-building')).toBeDefined();
+    expect(screen.getByTestId('site-layout-building-legend').textContent).toContain(
+      'sites.layoutView.building',
+    );
+  });
+
+  it('draws no building edge on a parking lot', async () => {
+    window.localStorage.setItem('site-layout-view', '2d');
+    wrap();
+    const board = await screen.findByTestId('site-layout-2d');
+    expect(within(board).queryByTestId('site-layout-2d-building')).toBeNull();
+    expect(screen.queryByTestId('site-layout-building-legend')).toBeNull();
   });
 
   it('keeps the power draw panel out of the board, above it on a phone and over its corner from sm', async () => {
@@ -312,5 +379,37 @@ describe('SiteLayout save', () => {
     // The pending move is kept: Reset is still enabled.
     const reset = screen.getByRole('button', { name: /common\.reset/ });
     expect((reset as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('replays a day: the chosen moment draws through the same view, then back to live', async () => {
+    wrap();
+    await screen.findByTestId('site-layout-3d');
+    fireEvent.click(screen.getByTestId('site-layout-replay-toggle'));
+    expect(await screen.findByTestId('site-layout-replay')).toBeDefined();
+    await waitFor(() => {
+      expect(getMock).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/v1\/sites\/sit_1\/layout\/replay\?date=\d{4}-\d{2}-\d{2}$/),
+      );
+    });
+    const view = screen.getByTestId('site-layout-3d');
+    await waitFor(() => {
+      expect(view.getAttribute('data-replaying')).toBe('true');
+    });
+    // Move to 10:03: the replayed station charges at 11 kW (the live one was faulted).
+    fireEvent.change(screen.getByTestId('site-layout-replay-slider'), { target: { value: '603' } });
+    await waitFor(() => {
+      expect(screen.getByTestId('site-layout-3d').getAttribute('data-statuses')).toContain(
+        'charging:true',
+      );
+    });
+    expect(screen.getByTestId('site-layout-3d').getAttribute('data-draw')).toBe('11');
+    // No Edit Layout while replaying.
+    expect(screen.queryByRole('button', { name: /sites\.layoutView\.editLayout/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /sites\.layoutView\.replayBackToLive/ }));
+    expect(screen.queryByTestId('site-layout-replay')).toBeNull();
+    expect(screen.getByTestId('site-layout-3d').getAttribute('data-replaying')).toBe('false');
+    expect(screen.getByTestId('site-layout-3d').getAttribute('data-statuses')).toContain(
+      'faulted:true',
+    );
   });
 });

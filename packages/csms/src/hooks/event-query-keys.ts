@@ -96,6 +96,8 @@ export function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       if (siteId != null) {
         keys.push(['sites', siteId, 'sessions']);
         keys.push(['sites', siteId, 'metrics']);
+        // The site layout session popup: energy and cost so far.
+        keys.push(['sites', siteId, 'layout']);
       }
       break;
 

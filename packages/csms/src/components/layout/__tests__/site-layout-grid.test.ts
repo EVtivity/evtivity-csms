@@ -6,8 +6,22 @@ import { DEFAULT_LAYOUT_GRID, bayToPosition, positionToBay } from '@evtivity/lib
 import {
   BAY_STATION_Z,
   CAMERA_FOV,
+  CURB_M,
+  FACADE_Z,
+  SIDEWALK_M,
+  buildingBox,
+  buildingFramePoints,
+  beaconLevel,
+  LABEL_CULL_FROM,
+  stationLabelInRange,
+  chargingGlowLevel,
+  wallBoxOffset,
+  wallMounted,
   MAX_DISTANCE_MIN,
   MAX_POLAR_ANGLE,
+  FRONT_MAX_POLAR_ANGLE,
+  FRONT_TARGET_Y,
+  OVERVIEW_CAMERA_OFFSET,
   MIN_DISTANCE,
   STATION_BACK_OFFSET,
   bayToWorld,
@@ -118,6 +132,55 @@ describe('site layout 3D lot', () => {
     expect(back.x).toBeCloseTo(bayToWorld({ col: 2, row: 1 }, lot).x);
   });
 
+  it('takes the site type into the lot, a parking lot by default', () => {
+    expect(lot.siteType).toBe('parking_lot');
+    expect(lotOf({ ...DEFAULT_LAYOUT_GRID, siteType: 'office_retail' }).siteType).toBe(
+      'office_retail',
+    );
+  });
+
+  it('hangs the AC chargers of the first row of an office or retail site on the facade, nothing else', () => {
+    const office = lotOf({ ...DEFAULT_LAYOUT_GRID, siteType: 'office_retail' });
+    expect(wallMounted({ col: 3, row: 0 }, office, 'ac')).toBe(true);
+    // A DC charger, another row, a station beside the lot and every parking lot charger stand at the curb.
+    expect(wallMounted({ col: 3, row: 0 }, office, 'dc')).toBe(false);
+    expect(wallMounted({ col: 3, row: 1 }, office, 'ac')).toBe(false);
+    expect(wallMounted({ col: 12, row: 0 }, office, 'ac')).toBe(false);
+    expect(wallMounted({ col: 3, row: 0 }, lot, 'ac')).toBe(false);
+    // The wall box is on the facade behind its spot, and its link ends there.
+    expect(BAY_STATION_Z + wallBoxOffset()).toBeCloseTo(FACADE_Z);
+    expect(stationBackPoint({ col: 3, row: 0 }, office, 'ac').z).toBeCloseTo(FACADE_Z + 0.15);
+    expect(stationBackPoint({ col: 3, row: 0 }, office, 'dc').z).toBeCloseTo(
+      BAY_STATION_Z - STATION_BACK_OFFSET,
+    );
+  });
+
+  it('puts the building along the front of the lot past the sidewalk, with room for the wall panels', () => {
+    const office = lotOf({ ...DEFAULT_LAYOUT_GRID, siteType: 'office_retail' });
+    const b = buildingBox(office);
+    expect(b.maxZ).toBeCloseTo(FACADE_Z);
+    expect(FACADE_Z).toBeCloseTo(-(CURB_M + SIDEWALK_M));
+    expect(b.minX).toBeLessThan(0);
+    expect(b.maxX).toBeGreaterThan(office.width);
+    // Many panels widen the part left of the lot.
+    expect(buildingBox(office, 12).minX).toBeLessThan(b.minX);
+    // The framing takes in the facade, not the whole building behind it.
+    for (const p of buildingFramePoints(office)) expect(p.z).toBeGreaterThan(b.minZ + 10);
+  });
+
+  it('pulses the charging glow gently, steady with reduced motion', () => {
+    const steady = chargingGlowLevel(null);
+    expect(chargingGlowLevel(null)).toEqual(steady);
+    const levels = Array.from({ length: 60 }, (_, i) => chargingGlowLevel(i / 10));
+    const intensities = levels.map((l) => l.intensity);
+    expect(Math.max(...intensities) - Math.min(...intensities)).toBeGreaterThan(0.5);
+    for (const l of levels) {
+      expect(l.intensity).toBeGreaterThan(0.5);
+      expect(l.halo).toBeGreaterThan(0);
+      expect(l.halo).toBeLessThan(0.5);
+    }
+  });
+
   it('keeps a pick or a drag inside the lot', () => {
     expect(worldToBay(-50, -50, lot)).toEqual({ col: 0, row: 0 });
     expect(worldToBay(1e6, 1e6, lot)).toEqual({ col: 9, row: 1 });
@@ -191,7 +254,7 @@ describe('site layout 3D lot', () => {
     expect(logoFit(panel, { width: 0, height: 0 }, 0.04)).toEqual({ width: 0, height: 0 });
   });
 
-  it('puts the front camera in front of the chargers, turned with the facing, above the lowest orbit', () => {
+  it('puts the front camera in front of the chargers at eye height, turned with the facing', () => {
     const box = { minX: 0, maxX: 30, minZ: 0, maxZ: 20 };
     for (const facing of [0, Math.PI / 2, Math.PI, -Math.PI / 4]) {
       const { target, position } = frontCamera(box, facing, 16 / 9);
@@ -201,12 +264,35 @@ describe('site layout 3D lot', () => {
       const along = dx * Math.sin(facing) + dz * Math.cos(facing);
       const across = dx * Math.cos(facing) - dz * Math.sin(facing);
       expect(along).toBeGreaterThan(0);
-      expect(Math.abs(across)).toBeLessThan(along * 0.1);
+      expect(Math.abs(across)).toBeLessThan(along * 0.01);
       const polar = Math.atan2(Math.hypot(dx, dz), position.y - target.y);
-      expect(polar).toBeLessThan(MAX_POLAR_ANGLE);
-      expect(polar).toBeGreaterThan((55 * Math.PI) / 180);
+      // Low across the lot: steeper than the overview orbit allows, within the front orbit.
+      expect(polar).toBeGreaterThan(MAX_POLAR_ANGLE);
+      expect(polar).toBeLessThan(FRONT_MAX_POLAR_ANGLE);
+      // It looks at charger height.
+      expect(target.y).toBe(FRONT_TARGET_Y);
     }
-    // Unturned, it frames like Fit to View.
-    expect(frontCamera(box, 0, 1).target).toEqual(fitFrame(box, 1).target);
+    // Unturned, it frames the site like Fit to View (centered on the same point).
+    const unturned = frontCamera(box, 0, 1).target;
+    expect(unturned.x).toBe(fitFrame(box, 1).target.x);
+    expect(unturned.z).toBe(fitFrame(box, 1).target.z);
+    // The overview offset keeps the Fit to View target.
+    expect(frontCamera(box, 0, 1, OVERVIEW_CAMERA_OFFSET).target).toEqual(fitFrame(box, 1).target);
+  });
+
+  it('pulses the faulted beacon on and off, and keeps it steady and bright without motion', () => {
+    const steady = beaconLevel(null);
+    expect(steady.intensity).toBeGreaterThan(0.5);
+    const samples = Array.from({ length: 40 }, (_, i) => beaconLevel(i * 0.05).intensity);
+    expect(Math.min(...samples)).toBeLessThan(0.3);
+    expect(Math.max(...samples)).toBeGreaterThan(1.5);
+  });
+
+  it('keeps every label on a small site and hides far labels on a large one', () => {
+    expect(stationLabelInRange(500, 30, LABEL_CULL_FROM - 1)).toBe(true);
+    expect(stationLabelInRange(39, 10, 150)).toBe(true);
+    expect(stationLabelInRange(41, 10, 150)).toBe(false);
+    expect(stationLabelInRange(130, 100, 150)).toBe(true);
+    expect(stationLabelInRange(150, 100, 150)).toBe(false);
   });
 });

@@ -16,8 +16,19 @@
 // lane before it, so the outermost rows always have their chargers at the lot
 // edges. The lane between two pairs is a through lane with charger backs on
 // both sides.
+//
+// The site type changes the surroundings (`Lot.siteType`): a parking lot is
+// grass around the lot; an office or retail site has a building along the
+// front edge of the lot, past a sidewalk, with the AC chargers of the first
+// row as wall boxes on its facade (`wallMounted`).
 
-import { lotExtentM, type LayoutBay, type SiteLayoutGrid } from '@evtivity/lib/site-layout';
+import {
+  DEFAULT_SITE_TYPE,
+  lotExtentM,
+  type LayoutBay,
+  type SiteLayoutGrid,
+  type SiteType,
+} from '@evtivity/lib/site-layout';
 import type { StationDisplayState } from '@/lib/station-display-state';
 
 /** How far into its spot a station stands, from the front edge, in meters. */
@@ -44,11 +55,14 @@ export interface Lot {
   depth: number;
   /** The facing as a rotation about the vertical axis, in radians (clockwise from above). */
   facing: number;
+  /** Parking lot (grass around) or office or retail (a building along the front edge). */
+  siteType: SiteType;
 }
 
-export function lotOf(grid: SiteLayoutGrid): Lot {
+export function lotOf(grid: SiteLayoutGrid & { siteType?: SiteType | undefined }): Lot {
   const { width, depth } = lotExtentM(grid);
   return {
+    siteType: grid.siteType ?? DEFAULT_SITE_TYPE,
     cols: grid.spotsPerRow,
     rows: grid.rows,
     spotW: grid.spotWidthM,
@@ -95,11 +109,123 @@ export function bayToWorld(bay: LayoutBay, lot: Lot): Point {
 /** How far behind the charger the load management link ends, in meters. */
 export const STATION_BACK_OFFSET = 0.45;
 
-/** The back of a station in a spot (where its load management link ends), in lot coordinates. */
-export function stationBackPoint(bay: LayoutBay, lot: Lot): Point {
+/** The width of the curb strip around the lot, in meters. */
+export const CURB_M = 0.3;
+/** The sidewalk between the front curb and the building of an office or retail site, in meters. */
+export const SIDEWALK_M = 2.4;
+/** The building front (facade) of an office or retail site, in lot z: past the curb and sidewalk. */
+export const FACADE_Z = -(CURB_M + SIDEWALK_M);
+/** Depth and height of the building, in meters. */
+export const BUILDING_DEPTH_M = 16;
+export const BUILDING_HEIGHT_M = 8;
+/** Building past the right end of the lot (the entrance stands there), in meters. */
+export const BUILDING_RIGHT_M = 9;
+
+/**
+ * Whether a station is a wall box on the building facade: an AC charger in
+ * the first row of an office or retail site (the row along the building).
+ * Other rows, DC chargers and every parking lot charger stand at the curb.
+ */
+export function wallMounted(bay: LayoutBay, lot: Lot, kind: 'ac' | 'dc'): boolean {
+  return (
+    lot.siteType === 'office_retail' &&
+    kind === 'ac' &&
+    bay.row === 0 &&
+    bay.col >= 0 &&
+    bay.col < lot.cols
+  );
+}
+
+/**
+ * How far behind its spot point a wall box hangs on the facade, in the
+ * station's own z (negative: toward the building).
+ */
+export function wallBoxOffset(): number {
+  return FACADE_Z - BAY_STATION_Z;
+}
+
+/**
+ * The back of a station in a spot (where its load management link ends), in
+ * lot coordinates: behind the charger on the curb side of its row, or at the
+ * wall box on the facade.
+ */
+export function stationBackPoint(bay: LayoutBay, lot: Lot, kind: 'ac' | 'dc' = 'dc'): Point {
   const p = bayToWorld(bay, lot);
+  if (wallMounted(bay, lot, kind)) return { x: p.x, z: FACADE_Z + 0.15 };
   const back = chargersAtBack(bay.row, lot.rows) ? STATION_BACK_OFFSET : -STATION_BACK_OFFSET;
   return { x: p.x, z: p.z + back };
+}
+
+/** Wall panels hang this far apart along the facade, in meters. */
+export const WALL_PANEL_PITCH_M = 1.3;
+/** Room left of the lot for the wall panels, at least, in meters. */
+export const BUILDING_LEFT_MIN_M = 8;
+
+/**
+ * The building of an office or retail site, in lot coordinates: along the
+ * front edge of the lot past the sidewalk, wider than the lot on both sides
+ * (the wall panels hang on the left part, the entrance is on the right part).
+ * `wallPanels` widens the left part so every panel fits.
+ */
+export function buildingBox(lot: Lot, wallPanels = 0): Box {
+  const left = Math.max(BUILDING_LEFT_MIN_M, 1.6 + wallPanels * WALL_PANEL_PITCH_M + 1.5);
+  return {
+    minX: -left,
+    maxX: lot.width + BUILDING_RIGHT_M,
+    minZ: FACADE_Z - BUILDING_DEPTH_M,
+    maxZ: FACADE_Z,
+  };
+}
+
+/**
+ * The points the framing takes in for the building: the facade line and a
+ * strip behind it, not the whole building, so Fit to View stays on the lot
+ * with the building as its backdrop.
+ */
+export function buildingFramePoints(lot: Lot, wallPanels = 0): Point[] {
+  const b = buildingBox(lot, wallPanels);
+  return [
+    { x: b.minX + 2, z: FACADE_Z - 1 },
+    { x: b.maxX - 2, z: FACADE_Z - 1 },
+  ];
+}
+
+/**
+ * The glow of a charging station's front at `timeS` seconds: a gentle pulse
+ * of the emissive strip and its halo, or a steady glow when `timeS` is null
+ * (reduced motion).
+ */
+export function chargingGlowLevel(timeS: number | null): { intensity: number; halo: number } {
+  if (timeS == null) return { intensity: 1.3, halo: 0.3 };
+  const wave = 0.5 + 0.5 * Math.sin(timeS * 2.4);
+  return { intensity: 0.8 + 0.9 * wave, halo: 0.14 + 0.26 * wave };
+}
+
+/**
+ * The beacon of a faulted station: a quick on and off pulse (about one beat
+ * a second), or steady and bright without motion (`null`, prefers-reduced-motion).
+ */
+export function beaconLevel(timeS: number | null): { intensity: number; halo: number } {
+  if (timeS == null) return { intensity: 0.9, halo: 0.35 };
+  const wave = Math.max(0, Math.sin(timeS * 6.3));
+  return { intensity: 0.25 + 1.6 * wave, halo: 0.05 + 0.5 * wave };
+}
+
+/** From this many stations, far station labels hide (a large site stays readable and fast). */
+export const LABEL_CULL_FROM = 40;
+
+/**
+ * Whether a station label shows at `distance` meters from the camera: always
+ * on a site of fewer than LABEL_CULL_FROM stations, else only within 1.4
+ * times the distance to the point the camera looks at (at least 40 m).
+ */
+export function stationLabelInRange(
+  distance: number,
+  viewDistance: number,
+  stationCount: number,
+): boolean {
+  if (stationCount < LABEL_CULL_FROM) return true;
+  return distance <= Math.max(40, viewDistance * 1.4);
 }
 
 /** The spot under a lot point, inside the lot: never negative, never past its last column or row. */
@@ -190,21 +316,38 @@ export function fitFrame(
   };
 }
 
-/** Where the front camera stands, per unit of distance: low, in front of the chargers. */
-export const FRONT_CAMERA_OFFSET = { x: 0.08, y: 0.5, z: 0.92 } as const;
+/**
+ * Where the front camera stands, per unit of distance: straight in front of
+ * the chargers at about eye height for a person across the lot (about 11.5
+ * degrees above the ground, `FRONT_MAX_POLAR_ANGLE` allows it).
+ */
+export const FRONT_CAMERA_OFFSET = { x: 0, y: 0.2, z: 0.98 } as const;
+/** The front camera looks at charger height, not the ground. */
+export const FRONT_TARGET_Y = 1.1;
+/** The front camera stands closer than Fit to View: the lot fills the width of the stage. */
+export const FRONT_DISTANCE_SCALE = 0.75;
+/** Where the overview camera stands, per unit of distance: higher, from the front right. */
+export const OVERVIEW_CAMERA_OFFSET = { x: 0.22, y: 0.62, z: 0.86 } as const;
 
 /**
- * Fit to View in front of the lot (the dashboard widget): the site framed
- * before the facing turns it, then camera and target turned with it, so the
- * camera faces the chargers whatever the facing. `box` is the site box in
- * lot coordinates (sceneBox, not turned).
+ * Fit to View in front of the lot (the dashboard widget, `FRONT_CAMERA_OFFSET`)
+ * or from above it (`OVERVIEW_CAMERA_OFFSET`, the overview of an office or
+ * retail site, so the building stays behind the lot): the site framed before
+ * the facing turns it, then camera and target turned with it, so the camera
+ * faces the chargers whatever the facing. `box` is the site box in lot
+ * coordinates (sceneBox, not turned).
  */
 export function frontCamera(
   box: Box,
   facing: number,
   aspect: number,
+  offset: { x: number; y: number; z: number } = FRONT_CAMERA_OFFSET,
 ): { target: { x: number; y: number; z: number }; position: { x: number; y: number; z: number } } {
-  const { target, distance } = fitFrame(box, aspect);
+  const { target: framed, distance: framedDistance } = fitFrame(box, aspect);
+  const front = offset === FRONT_CAMERA_OFFSET;
+  const target = front ? { ...framed, y: FRONT_TARGET_Y } : framed;
+  // Seen from eye height the depth takes little height, so the lot can come closer.
+  const distance = front ? framedDistance * FRONT_DISTANCE_SCALE : framedDistance;
   const c = Math.cos(facing);
   const s = Math.sin(facing);
   // three.js rotation about y: x' = x cos + z sin, z' = -x sin + z cos.
@@ -213,13 +356,10 @@ export function frontCamera(
     z: -x * s + z * c,
   });
   const t = turn(target.x, target.z);
-  const p = turn(
-    target.x + distance * FRONT_CAMERA_OFFSET.x,
-    target.z - 0.6 + distance * FRONT_CAMERA_OFFSET.z,
-  );
+  const p = turn(target.x + distance * offset.x, target.z - 0.6 + distance * offset.z);
   return {
     target: { x: t.x, y: target.y, z: t.z },
-    position: { x: p.x, y: distance * FRONT_CAMERA_OFFSET.y, z: p.z },
+    position: { x: p.x, y: target.y + distance * offset.y, z: p.z },
   };
 }
 
@@ -242,6 +382,14 @@ export const CAMERA_FOV = 35;
  * every pixel of the stage shows the ground (no sky).
  */
 export const MAX_POLAR_ANGLE = ((90 - CAMERA_FOV / 2 - 2.5) * Math.PI) / 180;
+
+/**
+ * The lowest orbit of the front camera (the dashboard card): 9 degrees above
+ * the ground, so it can look across the lot at eye height. The top of the
+ * view then shows the haze above the horizon (the fog and the background are
+ * the same color, so the ground fades into it).
+ */
+export const FRONT_MAX_POLAR_ANGLE = (81 * Math.PI) / 180;
 
 /** Where the camera may look: the site box plus PAN_MARGIN of grass. */
 export function panBox(box: Box): Box {
