@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { createServer } from 'node:net';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { AsnConvert, OctetString } from '@peculiar/asn1-schema';
 import { AlgorithmIdentifier } from '@peculiar/asn1-x509';
@@ -12,10 +13,25 @@ import {
   type OcspTestService,
 } from '../ocsp-test-service.js';
 
-const PORT = 47190;
+// A free port the OS picks: a fixed one collided with another process on a CI runner (EADDRINUSE).
+let PORT = 0;
 let service: OcspTestService;
 
+async function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.once('error', reject);
+    srv.listen(0, '0.0.0.0', () => {
+      const port = (srv.address() as { port: number }).port;
+      srv.close(() => {
+        resolve(port);
+      });
+    });
+  });
+}
+
 beforeAll(async () => {
+  PORT = await freePort();
   service = await startOcspTestService(`http://127.0.0.1:${String(PORT)}/ocsp`);
 });
 
