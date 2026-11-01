@@ -193,6 +193,10 @@ describe('SystemInfoDialog OCPP processes', () => {
   });
 });
 
+// The search input applies its value after a 300 ms debounce, and the render after it can take
+// longer than the default 1 s wait under coverage on a loaded CI runner.
+const SEARCH_WAIT = { timeout: 3000 };
+
 describe('SystemInfoDialog search and section filter', () => {
   it('narrows the rows by label or value, case-insensitive, and says when nothing matches', async () => {
     getMock.mockResolvedValue(info({ provider: 'none', configured: false }));
@@ -203,19 +207,19 @@ describe('SystemInfoDialog search and section filter', () => {
     });
     await waitFor(() => {
       expect(screen.getAllByTestId('system-info-row')).toHaveLength(1);
-    });
+    }, SEARCH_WAIT);
     expect(screen.getByText('CORS_ORIGIN')).toBeTruthy();
     fireEvent.change(screen.getByPlaceholderText('systemInfo.search'), {
       target: { value: 'ocpp-old' },
     });
     await waitFor(() => {
       expect(screen.getByText('systemInfo.notReported')).toBeTruthy();
-    });
+    }, SEARCH_WAIT);
     expect(screen.queryByText('ocpp-a')).toBeNull();
     fireEvent.change(screen.getByPlaceholderText('systemInfo.search'), {
       target: { value: 'zzz-nothing' },
     });
-    expect(await screen.findByTestId('system-info-no-matches')).toBeTruthy();
+    expect(await screen.findByTestId('system-info-no-matches', {}, SEARCH_WAIT)).toBeTruthy();
   });
 
   it('shows one section when one is picked', async () => {
