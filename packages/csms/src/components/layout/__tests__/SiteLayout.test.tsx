@@ -5,15 +5,19 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, within, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
+import { use } from 'react';
 
-const { getMock, putMock, permissions, webgl } = vi.hoisted(() => ({
+const { getMock, putMock, permissions, webgl, chunk } = vi.hoisted(() => ({
   getMock: vi.fn(),
   putMock: vi.fn(),
   permissions: new Set<string>(),
   webgl: { available: true },
+  // While set, the 3D view suspends as if its lazy chunk were still loading.
+  chunk: { loading: null as Promise<void> | null },
 }));
 
 vi.mock('react-i18next', () => ({
+  Trans: ({ i18nKey }: { i18nKey: string }) => i18nKey,
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown> | string) =>
@@ -42,26 +46,33 @@ vi.mock('../SiteLayout3D', () => ({
     replaying?: boolean;
     stations: Array<{ status: string; isOnline: boolean }>;
     currentDrawKw: (id: string) => number | undefined;
+    hierarchy: unknown[] | null;
+    loadManaged: boolean;
     onMove: (id: string, x: number, y: number) => void;
-  }) => (
-    <div
-      data-testid="site-layout-3d"
-      data-editing={String(props.editing)}
-      data-replaying={String(props.replaying === true)}
-      data-statuses={props.stations.map((s) => `${s.status}:${String(s.isOnline)}`).join(',')}
-      data-draw={String(props.currentDrawKw('sta_ac') ?? '')}
-    >
-      {props.stations.length}
-      <button
-        type="button"
-        onClick={() => {
-          props.onMove('sta_ac', 420, 160);
-        }}
+  }) => {
+    if (chunk.loading != null) use(chunk.loading);
+    return (
+      <div
+        data-testid="site-layout-3d"
+        data-editing={String(props.editing)}
+        data-replaying={String(props.replaying === true)}
+        data-statuses={props.stations.map((s) => `${s.status}:${String(s.isOnline)}`).join(',')}
+        data-draw={String(props.currentDrawKw('sta_ac') ?? '')}
+        data-panels={props.hierarchy == null ? 'none' : String(props.hierarchy.length)}
+        data-load-managed={String(props.loadManaged)}
       >
-        stub-move
-      </button>
-    </div>
-  ),
+        {props.stations.length}
+        <button
+          type="button"
+          onClick={() => {
+            props.onMove('sta_ac', 420, 160);
+          }}
+        >
+          stub-move
+        </button>
+      </div>
+    );
+  },
 }));
 
 import { effectiveLayoutSettings } from '@evtivity/lib/site-layout';
@@ -91,6 +102,8 @@ const STATIONS = [
     placed: true,
     chargingKind: 'ac',
     cellular: true,
+    connectionType: 'cellular',
+    signal: { bars: 2, dbm: -92 },
     inMaintenance: false,
     displayMessage: null,
     // A 60 kW AC connector: the 50 kW rule called it DC, the connector rule AC.
@@ -109,6 +122,8 @@ const STATIONS = [
     placed: false,
     chargingKind: 'dc',
     cellular: false,
+    connectionType: 'wifi_or_wired',
+    signal: null,
     inMaintenance: true,
     displayMessage: null,
     evses: [{ evseId: 1, connectors: [connector({ connectorType: 'CCS2', maxPowerKw: 150 })] }],
@@ -192,6 +207,24 @@ describe('SiteLayout view toggle', () => {
     expect(await screen.findByTestId('site-layout-2d')).toBeDefined();
   });
 
+  it('shows the loading spinner, labeled and without text, while the 3D view loads', async () => {
+    let finish: () => void = () => undefined;
+    chunk.loading = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    wrap();
+    const loading = await screen.findByTestId('site-layout-3d-loading');
+    const status = within(loading).getByRole('status', { name: 'sites.layoutView.loading3d' });
+    expect(status.querySelector('img')?.getAttribute('src')).toBe('/evtivity-logo-animated.svg');
+    expect(loading.textContent).toBe('');
+    expect(screen.queryByText('sites.layoutView.loading3d')).toBeNull();
+
+    chunk.loading = null;
+    finish();
+    expect(await screen.findByTestId('site-layout-3d')).toBeDefined();
+    expect(screen.queryByTestId('site-layout-3d-loading')).toBeNull();
+  });
+
   it('shows the 2D view with a note when WebGL is unavailable', async () => {
     webgl.available = false;
     wrap();
@@ -213,26 +246,80 @@ describe('SiteLayout view toggle', () => {
     expect(screen.getByRole('button', { name: /sites\.layoutView\.doneEditing/ })).toBeDefined();
   });
 
-  it('lists every station state with its icon in the legend', async () => {
+  it('opens the power equipment read-only without sites:write, and in Edit Layout with it', async () => {
+    wrap();
+    await screen.findByTestId('site-layout-3d');
+    // A viewer: the button and summary above the view, a read-only list in the dialog.
+    fireEvent.click(screen.getByRole('button', { name: /sites\.layoutSettings\.powerEquipment/ }));
+    expect(screen.getByText('sites.layoutSettings.powerEquipmentReadOnly')).toBeDefined();
+    expect(screen.queryByRole('button', { name: /addTransformer/ })).toBeNull();
+    cleanup();
+
+    permissions.add('sites:write');
+    wrap();
+    await screen.findByTestId('site-layout-3d');
+    // A writer: no read-only field outside Edit Layout; the Site Settings carry the button.
+    expect(screen.queryByTestId('power-equipment')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /sites\.layoutView\.editLayout/ }));
+    expect(screen.getByTestId('power-equipment')).toBeDefined();
+  });
+
+  it('lists the states a station can reach and those shown, each with its icon, once', async () => {
     wrap();
     const legend = await screen.findByTestId('site-layout-state-legend');
+    // Every station can fault, be turned off, go offline, charge or be free; one is in maintenance.
     for (const state of [
       'faulted',
       'unavailable',
       'maintenance',
       'offline',
-      'reserved',
       'charging',
       'available',
-      'online',
     ]) {
-      expect(within(legend).getByRole('img', { name: `sites.layoutState.${state}` })).toBeDefined();
+      expect(
+        within(legend).getAllByRole('img', { name: `sites.layoutState.${state}` }),
+      ).toHaveLength(1);
     }
+    // Reserved and the unknown online state: listed only when a station shows them.
+    expect(within(legend).queryByRole('img', { name: 'sites.layoutState.reserved' })).toBeNull();
+    expect(within(legend).queryByRole('img', { name: 'sites.layoutState.online' })).toBeNull();
+  });
+});
+
+describe('SiteLayout legend', () => {
+  it('renders one legend per view with the shared state entries and no virtual sign entries', async () => {
+    window.localStorage.setItem('site-layout-view', '2d');
+    wrap();
+    await screen.findByTestId('site-layout-2d');
+    const legends2d = screen.getAllByTestId('site-layout-state-legend');
+    expect(legends2d).toHaveLength(1);
+    const [legend2d] = legends2d as [HTMLElement];
+    expect(within(legend2d).getByRole('img', { name: 'sites.layoutState.charging' })).toBeDefined();
+    // The 2D board draws no signs.
+    expect(within(legend2d).queryByTestId('site-layout-virtual-reserved-legend')).toBeNull();
+    // No second legend of the old 2D board.
+    expect(screen.queryByText('stations.sp0')).toBeNull();
+    cleanup();
+
+    window.localStorage.setItem('site-layout-view', '3d');
+    wrap();
+    await screen.findByTestId('site-layout-3d');
+    const legends3d = screen.getAllByTestId('site-layout-state-legend');
+    expect(legends3d).toHaveLength(1);
+    const [legend3d] = legends3d as [HTMLElement];
+    expect(within(legend3d).getByRole('img', { name: 'sites.layoutState.charging' })).toBeDefined();
+    // The virtual Reserved and Maintenance signs carry their own text: not in the legend.
+    expect(within(legend3d).queryByTestId('site-layout-virtual-reserved-legend')).toBeNull();
+    expect(within(legend3d).queryByTestId('site-layout-virtual-maintenance-legend')).toBeNull();
+    // Only the station kinds the site has: an AC and a DC station here.
+    expect(within(legend3d).getByTestId('site-layout-ac-legend')).toBeDefined();
+    expect(within(legend3d).getByTestId('site-layout-dc-legend')).toBeDefined();
+    expect(within(legend3d).queryByTestId('site-layout-bus-bay-legend')).toBeNull();
   });
 });
 
 describe('SiteLayout 2D cards', () => {
-  it('shows the state icon, the 4G badge and the connector-based AC or DC icon, and no New tag for an unsaved position', async () => {
+  it('shows the state icon, the connection badge and the connector-based AC or DC icon, and no New tag for an unsaved position', async () => {
     window.localStorage.setItem('site-layout-view', '2d');
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
@@ -240,14 +327,27 @@ describe('SiteLayout 2D cards', () => {
     const dc = within(board).getByText('CS-DC').closest('.rounded-lg') as HTMLElement;
 
     expect(within(ac).getByRole('img', { name: 'sites.layoutState.faulted' })).toBeDefined();
-    expect(within(ac).getByTestId('cellular-badge')).toBeDefined();
+    expect(within(ac).getByTestId('connection-badge').getAttribute('data-connection')).toBe(
+      'cellular',
+    );
+    expect(
+      within(ac).getByTestId('connection-badge').querySelector('[data-bars="2"]'),
+    ).not.toBeNull();
     expect(within(ac).queryByTestId('new-placement-tag')).toBeNull();
     // The AC icon is 48 px wide, the DC icon 52 px.
     expect(ac.querySelector('svg[width="48"]')).not.toBeNull();
 
     expect(within(dc).getByRole('img', { name: 'sites.layoutState.maintenance' })).toBeDefined();
     expect(within(dc).queryByTestId('new-placement-tag')).toBeNull();
-    expect(within(dc).queryByTestId('cellular-badge')).toBeNull();
+    expect(within(dc).getByTestId('connection-badge').getAttribute('data-connection')).toBe(
+      'wifi_or_wired',
+    );
+    // The legend lists the connection types of the site: Cellular, the signal bars, Wi-Fi or Wired.
+    expect(screen.getByTestId('connection-legend-cellular')).toBeDefined();
+    expect(screen.getByTestId('connection-legend-signal')).toBeDefined();
+    expect(screen.getByTestId('connection-legend-wifi_or_wired')).toBeDefined();
+    expect(screen.queryByTestId('connection-legend-wifi')).toBeNull();
+    expect(screen.queryByTestId('connection-legend-wired')).toBeNull();
     expect(dc.querySelector('svg[width="52"]')).not.toBeNull();
   });
 
@@ -321,12 +421,88 @@ describe('SiteLayout 2D cards', () => {
     expect(within(legend).queryByTestId('site-layout-battery-legend')).toBeNull();
   });
 
+  it('marks the partner spot of a 2-port pedestal and the access aisle on the 2D board', async () => {
+    const [acStation, dcStation] = STATIONS;
+    if (acStation == null || dcStation == null) throw new Error('fixture');
+    const pedestal = {
+      ...acStation,
+      id: 'sta_ped',
+      stationId: 'CS-PED',
+      status: 'available',
+      positionX: 420,
+      positionY: 20,
+      evses: [1, 2].map((evseId) => ({
+        evseId,
+        connectors: [connector({ connectorType: 'J1772', maxPowerKw: 7 })],
+      })),
+    };
+    const dcAtStart = { ...dcStation, positionX: 20, positionY: 20 };
+    getMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith('/layout')
+          ? [pedestal, dcAtStart]
+          : url === '/v1/sites/sit_1'
+            ? { id: 'sit_1', name: 'Plaza', layoutSettings: effectiveLayoutSettings(null) }
+            : { config: null, hierarchy: [], stations: [] },
+      ),
+    );
+    window.localStorage.setItem('site-layout-view', '2d');
+    wrap();
+    const board = await screen.findByTestId('site-layout-2d');
+    const shared = await within(board).findByTestId('site-layout-2d-held-pair-sta_ped');
+    expect(shared.textContent).toBe('sites.layoutView.pedestalSecondSpot');
+    // Column 3, the partner of column 2.
+    expect(shared.style.left).toBe('620px');
+    const aisle = within(board).getByTestId('site-layout-2d-held-access-aisle');
+    // The DC station in column 0 holds the accessible space; column 1 is its aisle.
+    expect(aisle.style.left).toBe('220px');
+  });
+
   it('draws no building edge on a parking lot', async () => {
     window.localStorage.setItem('site-layout-view', '2d');
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
     expect(within(board).queryByTestId('site-layout-2d-building')).toBeNull();
     expect(screen.queryByTestId('site-layout-building-legend')).toBeNull();
+  });
+
+  // Owner decision 2026-11-01: the equipment shows whether or not load
+  // management is on; the cable runs only while it is on.
+  it.each([
+    [false, 'false'],
+    [true, 'true'],
+  ])('passes the panels with load management on=%s, links=%s', async (isEnabled, linked) => {
+    getMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.endsWith('/layout')
+          ? STATIONS
+          : {
+              config: { isEnabled, strategy: 'equal_share' },
+              hierarchy: [{ id: 'p1', name: 'Main', childPanels: [], circuits: [] }],
+              stations: [],
+            },
+      ),
+    );
+    wrap();
+    const view = await screen.findByTestId('site-layout-3d');
+    await waitFor(() => {
+      expect(view.getAttribute('data-panels')).toBe('1');
+    });
+    expect(view.getAttribute('data-load-managed')).toBe(linked);
+  });
+
+  it('passes no panels and no links when load management cannot be read', async () => {
+    getMock.mockImplementation((url: string) =>
+      url.endsWith('/layout')
+        ? Promise.resolve(STATIONS)
+        : url.endsWith('/load-management')
+          ? Promise.reject(new Error('403'))
+          : Promise.resolve({}),
+    );
+    wrap();
+    const view = await screen.findByTestId('site-layout-3d');
+    expect(view.getAttribute('data-panels')).toBe('none');
+    expect(view.getAttribute('data-load-managed')).toBe('false');
   });
 
   it('keeps the power draw panel out of the board, above it at every width', async () => {
@@ -420,7 +596,7 @@ describe('SiteLayout custom site 2D', () => {
     expect(screen.getByTestId('site-layout-2d-custom-hint').textContent).toBe(
       'sites.layoutView.hintEditCustom',
     );
-    const chip = within(board).getByTestId('site-layout-2d-station-sta_ac');
+    const chip = within(board).getByTestId('site-layout-card-sta_ac');
     fireEvent.keyDown(chip, { key: 'r' });
     fireEvent.keyDown(chip, { key: 'ArrowUp' });
     fireEvent.click(screen.getByRole('button', { name: /common\.save/ }));
@@ -451,7 +627,7 @@ describe('SiteLayout custom site 2D', () => {
   it('refuses a move onto another station and says why', async () => {
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
-    const chip = await within(board).findByTestId('site-layout-2d-station-sta_dc');
+    const chip = await within(board).findByTestId('site-layout-card-sta_dc');
     // sta_dc turned 90 degrees lies toward -x, onto the spots of sta_ac after a few steps left.
     for (let i = 0; i < 8; i++) fireEvent.keyDown(chip, { key: 'ArrowLeft' });
     expect(within(board).getByTestId('site-layout-2d-notice').textContent).toBe(

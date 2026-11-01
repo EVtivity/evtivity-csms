@@ -36,6 +36,7 @@ import argon2 from 'argon2';
 import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
 import { mapConnectorTypeToCss } from '@evtivity/lib';
 import { bayToPosition, sameLayoutSettings } from '@evtivity/lib/site-layout';
+import { and, eq } from 'drizzle-orm';
 import { db } from './config.js';
 import { writeAudit } from './lib/audit.js';
 import { paymentTerminalAuditLog, siteAuditLog, stationAuditLog } from './schema/audit.js';
@@ -45,7 +46,16 @@ import {
   recordTerminalDeviceStatus,
 } from './lib/payment-terminals.js';
 import {
+  createCircuit,
+  createPanel,
+  updateCircuit,
+  updatePanel,
+} from './lib/load-management-tree.js';
+import { circuits, panels } from './schema/load-management.js';
+import {
   LayoutGridTooSmallError,
+  LayoutSpotsOverlapError,
+  readSiteLayoutPositions,
   readStoredLayoutSettings,
   saveSiteLayout,
 } from './lib/station-layout.js';
@@ -56,11 +66,17 @@ import {
   LAYOUT_DEMO,
   LAYOUT_DEMO_MESSAGE_ID,
   LAYOUT_DEMO_PREVIOUS_SETTINGS,
+  LEVEL_2_AMPS,
   type LayoutDemoSite,
   type LayoutDemoStation,
 } from './seed-demo-layout-plan.js';
 
-/** The connectors of a demo station: its type, power and current (DC about 500 V, megawatt about 750 V). */
+/**
+ * The connectors of a demo station: its type, power and current (DC about
+ * 500 V, megawatt about 750 V). The sites are in New York, so the defaults are
+ * the North American plugs: CCS1 for DC, and for AC a J1772 (Type1) Level 2
+ * charger of 32 A at 208 V (6.66 kW), the current its 40 A circuit is sized for.
+ */
 function demoConnector(station: LayoutDemoStation): {
   type: string;
   kw: number;
@@ -68,9 +84,9 @@ function demoConnector(station: LayoutDemoStation): {
   css: ReturnType<typeof mapConnectorTypeToCss>;
 } {
   const isDc = station.kind === 'dc';
-  const type = station.connectorType ?? (isDc ? 'CCS2' : 'Type2');
-  const kw = station.maxPowerKw ?? (isDc ? 150 : 22);
-  const amps = isDc ? Math.round((kw * 1000) / (kw >= 400 ? 750 : 500)) : 32;
+  const type = station.connectorType ?? (isDc ? 'CCS1' : 'Type1');
+  const kw = station.maxPowerKw ?? (isDc ? 150 : DEMO_AC_KW);
+  const amps = isDc ? Math.round((kw * 1000) / (kw >= 400 ? 750 : 500)) : LEVEL_2_AMPS;
   // The simulator knows the plug types only: a pantograph or megawatt
   // connector charges as CCS1 there (the connector row keeps its own type).
   const known = mapConnectorTypeToCss(type);
@@ -79,6 +95,19 @@ function demoConnector(station: LayoutDemoStation): {
 }
 
 const DAY_MS = 86_400_000;
+
+/** The demo Level 2 charger: 32 A at 208 V. */
+const DEMO_AC_KW = Math.round((LEVEL_2_AMPS * 208) / 10) / 100;
+
+/**
+ * The connector defaults of the plan before the North American plugs: a
+ * rerun moves a demo connector from them to this plan's only while it still
+ * holds them (an operator's own change stays).
+ */
+const EARLIER_CONNECTOR_DEFAULTS = {
+  dc: { type: 'CCS2', css: 'dc_ccs2' },
+  ac: { type: 'Type2', kw: 22, css: 'ac_type2', powerW: 22000, voltage: 230, phases: 3 },
+} as const;
 
 function auditActor(ctx: DemoFeatureContext) {
   return {
@@ -108,43 +137,90 @@ async function seedSite(
     VALUES (${site.id}, 'equal_share', true)
     ON CONFLICT (site_id) DO NOTHING
   `;
+  // Panels and circuits go through the load management tree writer (P3),
+  // which audits each row it inserts or moves.
+  const treeCtx = auditActor(ctx);
   for (const [order, panel] of site.panels.entries()) {
-    await sql`
-      INSERT INTO panels (id, site_id, parent_panel_id, name, breaker_rating_amps, voltage_v,
-        phases, max_continuous_kw, safety_margin_kw, sort_order)
-      VALUES (${panel.id}, ${site.id}, ${panel.parentPanelId}, ${panel.name},
-        ${panel.breakerRatingAmps}, ${panel.voltageV}, ${panel.phases},
-        ${String(panel.maxContinuousKw)}, '0', ${order})
-      ON CONFLICT (id) DO NOTHING
-    `;
-    // A panel of the earlier plan under its old name takes the new name and ratings.
-    if (panel.renamedFrom != null) {
-      await sql`
-        UPDATE panels SET name = ${panel.name}, breaker_rating_amps = ${panel.breakerRatingAmps},
-          voltage_v = ${panel.voltageV}, phases = ${panel.phases},
-          max_continuous_kw = ${String(panel.maxContinuousKw)}, updated_at = now()
-        WHERE id = ${panel.id} AND site_id = ${site.id} AND name = ${panel.renamedFrom}
-      `;
+    await createPanel(
+      {
+        id: panel.id,
+        siteId: site.id,
+        parentPanelId: panel.parentPanelId,
+        name: panel.name,
+        breakerRatingAmps: panel.breakerRatingAmps,
+        voltageV: panel.voltageV,
+        phases: panel.phases,
+        maxContinuousKw: String(panel.maxContinuousKw),
+        safetyMarginKw: '0',
+        sortOrder: order,
+      },
+      treeCtx,
+      { ifMissing: true },
+    );
+    // A panel of an earlier plan, still as that plan seeded it, takes this
+    // plan's name, ratings and parent.
+    for (const before of panel.renamedFrom ?? []) {
+      await updatePanel(
+        {
+          siteId: site.id,
+          panelId: panel.id,
+          set: {
+            name: panel.name,
+            breakerRatingAmps: panel.breakerRatingAmps,
+            voltageV: panel.voltageV,
+            phases: panel.phases,
+            parentPanelId: panel.parentPanelId,
+            maxContinuousKw: String(panel.maxContinuousKw),
+          },
+          onlyIf: and(
+            eq(panels.siteId, site.id),
+            eq(panels.name, before.name),
+            before.amps != null ? eq(panels.breakerRatingAmps, before.amps) : undefined,
+          ),
+        },
+        { ...treeCtx, notes: 'Site layout demo: panel moved to the current plan' },
+      );
     }
   }
   for (const panel of site.panels) {
     for (const [circuitOrder, circuit] of panel.circuits.entries()) {
-      await sql`
-        INSERT INTO circuits (id, panel_id, name, breaker_rating_amps, max_continuous_kw,
-          sort_order)
-        VALUES (${circuit.id}, ${panel.id}, ${circuit.name}, ${circuit.breakerRatingAmps},
-          ${String(circuit.maxContinuousKw)}, ${circuitOrder})
-        ON CONFLICT (id) DO NOTHING
-      `;
-      // A circuit of the earlier plan, still under its old name and panel, moves here.
-      if (circuit.renamedFrom != null) {
-        await sql`
-          UPDATE circuits SET name = ${circuit.name}, panel_id = ${panel.id},
-            breaker_rating_amps = ${circuit.breakerRatingAmps},
-            max_continuous_kw = ${String(circuit.maxContinuousKw)}, updated_at = now()
-          WHERE id = ${circuit.id} AND name = ${circuit.renamedFrom.name}
-            AND panel_id = ${circuit.renamedFrom.panelId}
-        `;
+      await createCircuit(
+        site.id,
+        {
+          id: circuit.id,
+          panelId: panel.id,
+          name: circuit.name,
+          breakerRatingAmps: circuit.breakerRatingAmps,
+          maxContinuousKw: String(circuit.maxContinuousKw),
+          phaseConnections: circuit.phaseConnections,
+          sortOrder: circuitOrder,
+        },
+        treeCtx,
+        { ifMissing: true },
+      );
+      // A circuit of an earlier plan, still as that plan seeded it, becomes
+      // this station's own circuit on this panel.
+      for (const before of circuit.renamedFrom ?? []) {
+        await updateCircuit(
+          {
+            siteId: site.id,
+            circuitId: circuit.id,
+            set: {
+              name: circuit.name,
+              panelId: panel.id,
+              breakerRatingAmps: circuit.breakerRatingAmps,
+              phaseConnections: circuit.phaseConnections,
+              maxContinuousKw: String(circuit.maxContinuousKw),
+              sortOrder: circuitOrder,
+            },
+            onlyIf: and(
+              eq(circuits.name, before.name),
+              eq(circuits.panelId, before.panelId),
+              before.amps != null ? eq(circuits.breakerRatingAmps, before.amps) : undefined,
+            ),
+          },
+          { ...treeCtx, notes: 'Site layout demo: circuit moved to the current plan' },
+        );
       }
     }
   }
@@ -206,6 +282,28 @@ async function seedSite(
       continue;
     }
     seeded.push(station.id);
+    // A station still on the shared circuit of the plan before moves to its own.
+    if (station.circuitFrom != null) {
+      const rehung = await sql`
+        UPDATE charging_stations SET circuit_id = ${station.circuitId}, updated_at = now()
+        WHERE id = ${station.id} AND site_id = ${site.id} AND circuit_id = ${station.circuitFrom}
+        RETURNING id
+      `;
+      if (rehung.length > 0) {
+        await writeAudit(
+          { table: stationAuditLog, idColumn: 'station_id' },
+          {
+            entityId: station.id,
+            entityIdSnapshot: station.stationId,
+            action: 'updated',
+            ...auditActor(ctx),
+            before: { circuitId: station.circuitFrom },
+            after: { circuitId: station.circuitId },
+            notes: 'Site layout demo: moved to its own circuit',
+          },
+        );
+      }
+    }
     const evseCount = station.evses ?? (isDc ? 2 : 1);
     const connector = demoConnector(station);
     for (let e = 1; e <= evseCount; e++) {
@@ -222,6 +320,36 @@ async function seedSite(
         ON CONFLICT DO NOTHING
       `;
     }
+    // Connectors still on the earlier European defaults take the North American plugs.
+    if (station.connectorType == null && station.maxPowerKw == null) {
+      for (let e = 1; e <= evseCount; e++) {
+        const conId = `con_demolayout${n}${String(e)}`;
+        const cevId = `cev_demolayout${n}${String(e)}`;
+        if (isDc) {
+          await sql`
+            UPDATE connectors SET connector_type = ${connector.type}
+            WHERE id = ${conId} AND connector_type = ${EARLIER_CONNECTOR_DEFAULTS.dc.type}
+          `;
+          await sql`
+            UPDATE css_evses SET connector_type = ${connector.css}
+            WHERE id = ${cevId} AND connector_type = ${EARLIER_CONNECTOR_DEFAULTS.dc.css}
+          `;
+        } else {
+          const ac = EARLIER_CONNECTOR_DEFAULTS.ac;
+          await sql`
+            UPDATE connectors SET connector_type = ${connector.type},
+              max_power_kw = ${String(connector.kw)}, max_current_amps = ${connector.amps}
+            WHERE id = ${conId} AND connector_type = ${ac.type} AND max_power_kw = ${ac.kw}
+          `;
+          await sql`
+            UPDATE css_evses SET connector_type = ${connector.css},
+              max_power_w = ${Math.round(connector.kw * 1000)}, phases = 1, voltage = 208
+            WHERE id = ${cevId} AND connector_type = ${ac.css} AND max_power_w = ${ac.powerW}
+              AND phases = ${ac.phases} AND voltage = ${ac.voltage}
+          `;
+        }
+      }
+    }
     // The fleet simulator runs every station but the offline one.
     const cssId = `css_demolayout${n}`;
     await sql`
@@ -235,7 +363,8 @@ async function seedSite(
         INSERT INTO css_evses (id, css_station_id, evse_id, connector_id, connector_type,
           max_power_w, phases, voltage)
         VALUES (${`cev_demolayout${n}${String(e)}`}, ${cssId}, ${e}, 1,
-          ${connector.css}, ${connector.kw * 1000}, 3, ${isDc ? 400 : 230})
+          ${connector.css}, ${Math.round(connector.kw * 1000)}, ${isDc ? 3 : 1},
+          ${isDc ? 400 : 208})
         ON CONFLICT DO NOTHING
       `;
     }
@@ -299,8 +428,86 @@ async function seedLayout(
 }
 
 /**
+ * A site whose stations this plan moved (`before`): when every such station
+ * still stands where the earlier plan put it (grid slot and, on a custom
+ * site, free position), they move to this plan's positions in one layout
+ * Save through the one writer, audited as a layout Save is. An operator who
+ * moved any of them keeps the layout. Returns whether it moved them.
+ */
+async function regroupLayout(
+  site: LayoutDemoSite,
+  seeded: readonly string[],
+  ctx: DemoFeatureContext,
+): Promise<boolean> {
+  const planned = site.stations.filter((s) => s.before != null && seeded.includes(s.id));
+  if (planned.length === 0) return false;
+  const stored = new Map((await readSiteLayoutPositions(site.id)).map((p) => [p.stationId, p]));
+  const same = (a: number, b: number): boolean => Math.abs(a - b) < 0.01;
+  const atBefore = planned.every((s) => {
+    const p = stored.get(s.id);
+    const before = s.before;
+    if (p == null || before == null) return false;
+    const slot = bayToPosition({ col: before.col, row: before.row });
+    if (!same(p.positionX, slot.x) || !same(p.positionY, slot.y)) return false;
+    // A grid site's station has no free position.
+    if (before.free == null) return p.free == null;
+    return (
+      p.free != null &&
+      same(p.free.x, before.free.x) &&
+      same(p.free.z, before.free.z) &&
+      same(p.free.rotationDeg, before.free.rotationDeg)
+    );
+  });
+  if (!atBefore) return false;
+  // Already where this plan stands them (a rerun after the move): nothing to do.
+  if (planned.every((s) => s.col === s.before?.col && s.row === s.before.row)) return false;
+  const positions = planned.map((s) => {
+    const slot = bayToPosition({ col: s.col, row: s.row });
+    return {
+      stationId: s.id,
+      positionX: slot.x,
+      positionY: slot.y,
+      ...(s.free != null ? { free: s.free } : {}),
+    };
+  });
+  const previous = planned.flatMap((s) => {
+    const p = stored.get(s.id);
+    return p == null ? [] : [p];
+  });
+  try {
+    await db.transaction((tx) => saveSiteLayout(tx, site.id, positions));
+  } catch (err) {
+    // An operator placed another station where one of these would go.
+    if (err instanceof LayoutSpotsOverlapError) {
+      console.log(`  Site layout demo positions of ${site.name} kept: ${err.message}`);
+      return false;
+    }
+    throw err;
+  }
+  await writeAudit(
+    { table: siteAuditLog, idColumn: 'site_id' },
+    {
+      entityId: site.id,
+      entityIdSnapshot: site.id,
+      action: 'updated',
+      ...auditActor(ctx),
+      before: { layoutPositions: previous },
+      after: { layoutPositions: positions },
+      notes:
+        site.settings.siteType === 'custom'
+          ? 'Site layout demo: AC and DC chargers grouped'
+          : planned.some((s) => (s.evses ?? 1) >= 2 && s.kind === 'ac')
+            ? 'Site layout demo: dual-port Level 2 pedestals between two spots'
+            : 'Site layout demo: chargers moved into one continuous run',
+    },
+  );
+  return true;
+}
+
+/**
  * A card reader the earlier plan paired to another station (now on the other
- * site), still paired there, pairs again to its station of this plan.
+ * site) or to one EVSE of its station, still paired there, pairs again to its
+ * station and EVSE of this plan.
  */
 async function repairTerminal(
   sql: postgres.Sql,
@@ -308,11 +515,15 @@ async function repairTerminal(
   evseId: string | null,
   ctx: DemoFeatureContext,
 ): Promise<void> {
-  if (demo.pairedBefore == null) return;
+  if (demo.pairedBefore == null && demo.evseBefore == null) return;
+  const stationBefore = demo.pairedBefore ?? demo.stationId;
+  const evseBefore = demo.evseBefore ?? null;
   const [row] = await sql<Array<{ id: string }>>`
-    SELECT id FROM payment_terminals
-    WHERE provider = 'simulated' AND provider_device_id = ${demo.providerDeviceId}
-      AND station_id = ${demo.pairedBefore}
+    SELECT t.id FROM payment_terminals t
+    LEFT JOIN evses e ON e.id = t.evse_id
+    WHERE t.provider = 'simulated' AND t.provider_device_id = ${demo.providerDeviceId}
+      AND t.station_id = ${stationBefore}
+      AND (${evseBefore}::int IS NULL OR e.evse_id = ${evseBefore})
   `;
   if (row == null) return;
   const result = await pairTerminal(row.id, { stationId: demo.stationId, evseId });
@@ -336,7 +547,10 @@ async function repairTerminal(
         siteId: result.after.siteId,
         auditSiteId: result.after.siteId,
       },
-      notes: 'Site layout demo: paired to a DC charger',
+      notes:
+        demo.evseBefore != null
+          ? 'Site layout demo: paired to the whole DC charger'
+          : 'Site layout demo: paired to a DC charger',
     },
   );
 }
@@ -505,7 +719,9 @@ export async function seedLayoutDemo(
   }
   // After every move, so each site's save sees only its own stations.
   for (const site of LAYOUT_DEMO.sites) {
-    if (await seedLayout(site, present.get(site.id) ?? [], ctx)) layouts++;
+    const seeded = present.get(site.id) ?? [];
+    if (await seedLayout(site, seeded, ctx)) layouts++;
+    else if (await regroupLayout(site, seeded, ctx)) layouts++;
   }
   // The maintenance event of Harbor Point: active, on one station.
   const harbor = LAYOUT_DEMO.sites[0];

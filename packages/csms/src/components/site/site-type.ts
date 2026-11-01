@@ -7,8 +7,10 @@
 import type { TFunction } from 'i18next';
 import {
   chargerMountingOf,
+  chargerPlacementOf,
   showsTransformers,
   siteTypeOf,
+  type ChargerPlacement,
   type SiteLayoutSettings,
   type SiteType,
 } from '@evtivity/lib/site-layout';
@@ -20,6 +22,11 @@ export const SITE_TYPE_LABEL = {
   depot: 'sites.layoutSettings.siteTypeDepot',
   custom: 'sites.layoutSettings.siteTypeCustom',
 } as const satisfies Record<SiteType, string>;
+
+export const CHARGER_PLACEMENT_LABEL = {
+  islands: 'sites.layoutSettings.chargerPlacementIslands',
+  lot_edge: 'sites.layoutSettings.chargerPlacementLotEdge',
+} as const satisfies Record<ChargerPlacement, string>;
 
 /**
  * The layout in one line, from the effective settings: "Parking Lot, 2 x 10
@@ -50,9 +57,13 @@ export function layoutSummary(t: TFunction, settings: SiteLayoutSettings): strin
     default: {
       const transformers = showsTransformers(settings) ? settings.transformers.length : 0;
       const grid = { rows: settings.rows, spots: settings.spotsPerRow };
-      return transformers > 0
-        ? t('sites.layoutSummary.parkingLotTransformers', { ...grid, count: transformers })
-        : t('sites.layoutSummary.parkingLot', grid);
+      const summary =
+        transformers > 0
+          ? t('sites.layoutSummary.parkingLotTransformers', { ...grid, count: transformers })
+          : t('sites.layoutSummary.parkingLot', grid);
+      return chargerPlacementOf(settings) === 'lot_edge'
+        ? t('sites.layoutSummary.lotEdge', { summary })
+        : summary;
     }
   }
 }

@@ -102,18 +102,34 @@ function formatDateTimeLocal(d: Date): string {
   return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function getDefaultStartsAt(): string {
-  const d = new Date(Date.now() + 5 * 60 * 1000);
-  d.setSeconds(0, 0);
-  const remainder = d.getMinutes() % 5;
-  if (remainder !== 0) d.setMinutes(d.getMinutes() + (5 - remainder));
-  return formatDateTimeLocal(d);
+// The first instant at or after `d` (whole minutes) that a datetime-local
+// value names exactly: in the hour a fall-back DST change repeats, a
+// wall-clock value always means its first occurrence. Elapsed-time
+// arithmetic only, since a local setter rebuilds the instant from the wall
+// clock and lands in the first occurrence.
+function nextRepresentableLocal(d: Date): Date {
+  const t = new Date(Math.floor(d.getTime() / 60_000) * 60_000);
+  for (let i = 0; i < 4 * 60; i++) {
+    if (new Date(formatDateTimeLocal(t)).getTime() === t.getTime()) return t;
+    t.setTime(t.getTime() + 60_000);
+  }
+  return t;
 }
 
+// Now + 5 min, rounded up to the next 5-minute boundary.
+function getDefaultStartsAt(): string {
+  const minute = Math.floor((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
+  const remainder = new Date(minute).getMinutes() % 5;
+  const d = new Date(minute + (remainder === 0 ? 0 : 5 - remainder) * 60_000);
+  return formatDateTimeLocal(nextRepresentableLocal(d));
+}
+
+// One hour of real elapsed time after the start, never a value that reads
+// back as the start across a fall-back DST change.
 function getDefaultExpiresAt(startsAtLocal: string): string {
   const start = new Date(startsAtLocal);
   if (!Number.isFinite(start.getTime())) return '';
-  return formatDateTimeLocal(new Date(start.getTime() + 60 * 60 * 1000));
+  return formatDateTimeLocal(nextRepresentableLocal(new Date(start.getTime() + 60 * 60 * 1000)));
 }
 
 interface ChargerDetailProps {

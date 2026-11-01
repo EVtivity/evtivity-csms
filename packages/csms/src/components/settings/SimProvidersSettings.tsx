@@ -145,7 +145,7 @@ function HologramCard({
     orgId: data.hologram.orgId,
     apiKey: data.hologram.apiKey ?? '',
   };
-  const [form, setForm] = useLoadedValues(loaded, () => {
+  const [form, setForm, , taken] = useLoadedValues(loaded, () => {
     setHasSubmitted(false);
     setRemoving(false);
   });
@@ -174,7 +174,7 @@ function HologramCard({
     setHasSubmitted(true);
     if (Object.keys(errors).length > 0) return;
     const hologram: Record<string, unknown> = { enabled: form.enabled, orgId };
-    const apiKey = secretChange(form.apiKey, secret, removing);
+    const apiKey = secretChange(form.apiKey, secret, removing, taken.apiKey);
     if (apiKey !== undefined) hologram.apiKey = apiKey;
     save.mutate(
       { hologram },
@@ -352,7 +352,7 @@ function OneNceCard({
     clientId: stored.clientId,
     clientSecret: stored.clientSecret ?? '',
   };
-  const [form, setForm] = useLoadedValues(loaded, () => {
+  const [form, setForm, , taken] = useLoadedValues(loaded, () => {
     setHasSubmitted(false);
     setRemoving(false);
   });
@@ -381,7 +381,7 @@ function OneNceCard({
     setHasSubmitted(true);
     if (Object.keys(errors).length > 0) return;
     const oneNce: Record<string, unknown> = { enabled: form.enabled, clientId };
-    const clientSecret = secretChange(form.clientSecret, secret, removing);
+    const clientSecret = secretChange(form.clientSecret, secret, removing, taken.clientSecret);
     if (clientSecret !== undefined) oneNce.clientSecret = clientSecret;
     save.mutate(
       { '1nce': oneNce },

@@ -18,20 +18,26 @@ describe('isHiddenSecret', () => {
 
 describe('secretChange', () => {
   it('sends a shown secret only when it changed, and an emptied one as a clear', () => {
-    expect(secretChange('stored', SHOWN, false)).toBeUndefined();
-    expect(secretChange(' new ', SHOWN, false)).toBe('new');
-    expect(secretChange('', SHOWN, false)).toBe('');
+    expect(secretChange('stored', SHOWN, false, 'stored')).toBeUndefined();
+    expect(secretChange(' new ', SHOWN, false, 'stored')).toBe('new');
+    expect(secretChange('', SHOWN, false, 'stored')).toBe('');
+  });
+
+  it('never sends a shown secret the user did not edit, after another user rotated it', () => {
+    const rotated = { value: 'rotated', configured: true };
+    expect(secretChange('stored', rotated, false, 'stored')).toBeUndefined();
+    expect(secretChange('typed', rotated, false, 'stored')).toBe('typed');
   });
 
   it('keeps a hidden secret when the field is empty, unless it is removed', () => {
-    expect(secretChange('', HIDDEN, false)).toBeUndefined();
-    expect(secretChange('  ', HIDDEN, false)).toBeUndefined();
-    expect(secretChange('', HIDDEN, true)).toBe('');
-    expect(secretChange('new', HIDDEN, false)).toBe('new');
+    expect(secretChange('', HIDDEN, false, '')).toBeUndefined();
+    expect(secretChange('  ', HIDDEN, false, '')).toBeUndefined();
+    expect(secretChange('', HIDDEN, true, '')).toBe('');
+    expect(secretChange('new', HIDDEN, false, '')).toBe('new');
   });
 
   it('sends a value typed for an unset secret', () => {
-    expect(secretChange('', UNSET, false)).toBeUndefined();
-    expect(secretChange('new', UNSET, false)).toBe('new');
+    expect(secretChange('', UNSET, false, '')).toBeUndefined();
+    expect(secretChange('new', UNSET, false, '')).toBe('new');
   });
 });

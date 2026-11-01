@@ -68,6 +68,5 @@ export const SVG_COLORS = {
   stationBody: '#1e293b',
   stationStroke: '#334155',
   stationPort: '#475569',
-  chargingPulse: '#3b82f6',
   connectorAmber: '#f59e0b',
 } as const;

@@ -66,8 +66,22 @@ export function chooseLayoutVehicle(
   return null;
 }
 
-/** The vehicle each session draws, keyed by session id. */
-async function readSessionVehicles(
+/**
+ * Ids per `IN (...)` list of one query: well under the 65535 bind parameters a
+ * PostgreSQL extended-protocol message carries (a 16-bit count, PostgreSQL
+ * Frontend/Backend Protocol, Bind message), so a long day replay never fails.
+ */
+export const IN_LIST_CHUNK = 5000;
+
+/** The items in consecutive lists of at most `size`. */
+export function inListChunks<T>(items: readonly T[], size = IN_LIST_CHUNK): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** The vehicle each session draws, keyed by session id (the live layout and the day replay). */
+export async function readSessionVehicles(
   rows: readonly { id: string; vehicleId: string | null; driverId: string | null }[],
 ): Promise<Map<string, LayoutSessionVehicle | null>> {
   const out = new Map<string, LayoutSessionVehicle | null>();
@@ -84,14 +98,15 @@ async function readSessionVehicles(
     color: vehicles.color,
     bodyType: vehicles.bodyType,
   };
-  const [own, byDriver] = await Promise.all([
-    vehicleIds.length > 0
-      ? db.select(cols).from(vehicles).where(inArray(vehicles.id, vehicleIds))
-      : Promise.resolve([]),
-    driverIds.length > 0
-      ? db.select(cols).from(vehicles).where(inArray(vehicles.driverId, driverIds))
-      : Promise.resolve([]),
-  ]);
+  // One query per IN_LIST_CHUNK ids, one after the other (the pool stays free).
+  const own: VehicleLook[] = [];
+  for (const ids of inListChunks(vehicleIds)) {
+    own.push(...(await db.select(cols).from(vehicles).where(inArray(vehicles.id, ids))));
+  }
+  const byDriver: VehicleLook[] = [];
+  for (const ids of inListChunks(driverIds)) {
+    byDriver.push(...(await db.select(cols).from(vehicles).where(inArray(vehicles.driverId, ids))));
+  }
   const vehicleById = new Map<string, VehicleLook>();
   const vehiclesByDriver = new Map<string, VehicleLook[]>();
   for (const v of own) vehicleById.set(v.id, v);
@@ -104,14 +119,14 @@ async function readSessionVehicles(
   // Only drivers with more than one vehicle need the last used one.
   const multi = [...vehiclesByDriver.entries()].filter(([, l]) => l.length > 1).map(([d]) => d);
   const lastUsedByDriver = new Map<string, string>();
-  if (multi.length > 0) {
+  for (const ids of inListChunks(multi)) {
     const used = await db
       .selectDistinctOn([chargingSessions.driverId], {
         driverId: chargingSessions.driverId,
         vehicleId: chargingSessions.vehicleId,
       })
       .from(chargingSessions)
-      .where(and(inArray(chargingSessions.driverId, multi), isNotNull(chargingSessions.vehicleId)))
+      .where(and(inArray(chargingSessions.driverId, ids), isNotNull(chargingSessions.vehicleId)))
       .orderBy(chargingSessions.driverId, desc(chargingSessions.createdAt));
     for (const u of used) {
       if (u.driverId != null && u.vehicleId != null) lastUsedByDriver.set(u.driverId, u.vehicleId);
@@ -167,35 +182,9 @@ export async function readLayoutStationSessions(
     );
 
   const vehicleBySession = await readSessionVehicles(rows);
-  const driverIds = includeDriver
-    ? [...new Set(rows.flatMap((r) => (r.driverId != null ? [r.driverId] : [])))]
-    : [];
-  const driverById = new Map<string, LayoutSessionDriver>();
-  if (driverIds.length > 0) {
-    const driverRows = await db
-      .select({
-        id: drivers.id,
-        firstName: drivers.firstName,
-        lastName: drivers.lastName,
-        erasedAt: drivers.erasedAt,
-        avatarKind: drivers.avatarKind,
-        avatarOptions: drivers.avatarOptions,
-        avatarS3Key: drivers.avatarS3Key,
-        avatarS3Bucket: drivers.avatarS3Bucket,
-        avatarUpdatedAt: drivers.avatarUpdatedAt,
-      })
-      .from(drivers)
-      .where(inArray(drivers.id, driverIds));
-    // An erased driver is a stub: no name and no avatar on the layout.
-    const withAvatar = await withAvatars(driverRows.filter((d) => d.erasedAt == null));
-    for (const d of withAvatar) {
-      driverById.set(d.id, {
-        id: d.id,
-        name: layoutDriverName(d.firstName, d.lastName),
-        avatar: d.avatar,
-      });
-    }
-  }
+  const driverById = includeDriver
+    ? await readLayoutDrivers(rows.flatMap((r) => (r.driverId != null ? [r.driverId] : [])))
+    : new Map<string, LayoutSessionDriver>();
 
   for (const r of rows) {
     const startedAt = r.startedAt instanceof Date ? r.startedAt : new Date(r.startedAt);
@@ -210,4 +199,43 @@ export async function readLayoutStationSessions(
     });
   }
   return out;
+}
+
+/**
+ * The drivers a layout session shows, keyed by driver id: the name and the
+ * avatar (`withAvatars`, the one avatar read path: a presigned GET of an
+ * uploaded image, private, no-store). An erased driver is a stub and is left
+ * out (the session shows no driver). The caller decides the permission
+ * (sessions:read and drivers:read): the live layout and the day replay.
+ */
+export async function readLayoutDrivers(
+  ids: readonly string[],
+): Promise<Map<string, LayoutSessionDriver>> {
+  const driverById = new Map<string, LayoutSessionDriver>();
+  const driverIds = [...new Set(ids)];
+  if (driverIds.length === 0) return driverById;
+  const driverRows = await db
+    .select({
+      id: drivers.id,
+      firstName: drivers.firstName,
+      lastName: drivers.lastName,
+      erasedAt: drivers.erasedAt,
+      avatarKind: drivers.avatarKind,
+      avatarOptions: drivers.avatarOptions,
+      avatarS3Key: drivers.avatarS3Key,
+      avatarS3Bucket: drivers.avatarS3Bucket,
+      avatarUpdatedAt: drivers.avatarUpdatedAt,
+    })
+    .from(drivers)
+    .where(inArray(drivers.id, driverIds));
+  // An erased driver is a stub: no name and no avatar on the layout.
+  const withAvatar = await withAvatars(driverRows.filter((d) => d.erasedAt == null));
+  for (const d of withAvatar) {
+    driverById.set(d.id, {
+      id: d.id,
+      name: layoutDriverName(d.firstName, d.lastName),
+      avatar: d.avatar,
+    });
+  }
+  return driverById;
 }

@@ -1,15 +1,19 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion, useMotionValue } from 'motion/react';
-import { Plug, Zap, Circle, Plus, Shield } from 'lucide-react';
+import { Zap, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatEnergy, formatNumber } from '@/lib/formatting';
-import { STATUS_COLORS, SVG_COLORS } from '@/lib/chart-theme';
-import { stationDisplayState, stationStateLabelKey } from '@/lib/station-display-state';
-import { CellularBadge, StationStateIcon } from './StationStateIcon';
+import { SVG_COLORS } from '@/lib/chart-theme';
+import {
+  evseDisplayState,
+  stationDisplayState,
+  stationStateLabelKey,
+} from '@/lib/station-display-state';
+import { ConnectionBadge, StateBadge } from './StationStateIcon';
 import type { AvatarData } from '@/components/AccountAvatar';
 import type { FreePlacement } from '@evtivity/lib/site-layout';
 
@@ -65,9 +69,21 @@ export interface LayoutStation {
   placed: boolean;
   chargingKind: 'ac' | 'dc';
   cellular: boolean;
+  /** How the station connects: cellular (data plan or confirmed SIM), wifi or wired (the reported active network interface), else wifi_or_wired; absent in older replies. */
+  connectionType?: 'cellular' | 'wifi' | 'wired' | 'wifi_or_wired' | null | undefined;
+  /** OCPP version (1.6, 2.0.1, 2.1); null when unknown or without stations:read. */
+  ocppVersion?: string | null | undefined;
+  /** The radio access technology the SIM provider reported, as reported; null when not known. */
+  networkType?: string | null | undefined;
+  /** The reported cellular signal (bars 0 to 4 and dBm); null when not known. */
+  signal?: { bars: number; dbm: number } | null | undefined;
   inMaintenance: boolean;
   displayMessage: string | null;
   evses: EvseData[];
+  /** The reservation holding the station now (null: none or no reservations:read; absent in older replies). */
+  reservation?: { startsAt: string | null; endsAt: string } | null | undefined;
+  /** The active maintenance window covering it (null: none; absent in older replies). */
+  maintenanceWindow?: { startsAt: string | null; endsAt: string } | null | undefined;
   /** The active session: null without one or without sessions:read (absent in older replies). */
   session?: LayoutSession | null | undefined;
   /** Custom site: where the station stands (meters and turn); null or absent on the other site types. */
@@ -83,10 +99,6 @@ interface StationCardProps {
   allocatedLimitKw?: number | null | undefined;
   /** Opens the station popup (shared with the 3D view). */
   onOpenDetails?: ((stationId: string) => void) | undefined;
-}
-
-function statusColor(status: string): string {
-  return STATUS_COLORS[status] ?? '#6b7280';
 }
 
 function isCharging(station: LayoutStation): boolean {
@@ -105,43 +117,15 @@ function totalEnergy(station: LayoutStation): number {
   return total;
 }
 
-function allConnectors(station: LayoutStation): ConnectorData[] {
-  const result: ConnectorData[] = [];
-  for (const evse of station.evses) {
-    for (const conn of evse.connectors) {
-      result.push(conn);
-    }
-  }
-  return result;
-}
-
-function StationIcon({
-  status,
-  charging,
-  dc,
-}: {
-  status: string;
-  charging: boolean;
-  dc: boolean;
-}): React.JSX.Element {
-  const color = statusColor(status);
-
+/**
+ * The charger kind of a station (a DC dispenser or an AC pedestal) as a plain
+ * drawing: its state shows only in the shared status marker, never in this
+ * icon (owner decision 2026-11-01).
+ */
+function StationIcon({ dc }: { dc: boolean }): React.JSX.Element {
   if (dc) {
     return (
-      <svg width="52" height="62" viewBox="0 0 52 62" className="shrink-0">
-        {charging && (
-          <motion.circle
-            cx="26"
-            cy="31"
-            r="26"
-            fill="none"
-            stroke={SVG_COLORS.chargingPulse}
-            strokeWidth="1.5"
-            animate={{ opacity: [0.3, 0.8, 0.3], scale: [0.9, 1.1, 0.9] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          />
-        )}
-        {/* Wider body */}
+      <svg width="52" height="62" viewBox="0 0 52 62" className="shrink-0" aria-hidden="true">
         <rect
           x="4"
           y="2"
@@ -152,24 +136,17 @@ function StationIcon({
           stroke={SVG_COLORS.stationStroke}
           strokeWidth="1.5"
         />
-        {/* Screen */}
         <rect
           x="9"
           y="6"
           width="34"
           height="20"
           rx="2"
-          fill={color}
-          opacity="0.3"
-          stroke={color}
-          strokeWidth="0.5"
+          fill={SVG_COLORS.stationPort}
+          opacity="0.35"
         />
-        {/* Lightning bolt on screen */}
-        <path d="M28 9 L22 17 L26 17 L22 25 L30 15 L26 15 Z" fill={color} opacity="0.7" />
-        {/* Two thick cable ports */}
         <rect x="10" y="32" width="12" height="7" rx="2" fill={SVG_COLORS.stationPort} />
         <rect x="30" y="32" width="12" height="7" rx="2" fill={SVG_COLORS.stationPort} />
-        {/* Cable dangles */}
         <path
           d="M16 39 Q16 46 13 50"
           fill="none"
@@ -184,26 +161,12 @@ function StationIcon({
           strokeWidth="2"
           strokeLinecap="round"
         />
-        {/* Status LED */}
-        <circle cx="44" cy="6" r="3" fill={color} />
       </svg>
     );
   }
 
   return (
-    <svg width="48" height="56" viewBox="0 0 48 56" className="shrink-0">
-      {charging && (
-        <motion.circle
-          cx="24"
-          cy="28"
-          r="23"
-          fill="none"
-          stroke={SVG_COLORS.chargingPulse}
-          strokeWidth="1.5"
-          animate={{ opacity: [0.3, 0.8, 0.3], scale: [0.9, 1.1, 0.9] }}
-          transition={{ duration: 2, repeat: Infinity }}
-        />
-      )}
+    <svg width="48" height="56" viewBox="0 0 48 56" className="shrink-0" aria-hidden="true">
       <rect
         x="8"
         y="4"
@@ -220,16 +183,11 @@ function StationIcon({
         width="24"
         height="16"
         rx="2"
-        fill={color}
-        opacity="0.3"
-        stroke={color}
-        strokeWidth="0.5"
+        fill={SVG_COLORS.stationPort}
+        opacity="0.35"
       />
-      {/* Small bolt on screen */}
-      <path d="M26 10 L22 15 L25 15 L22 20 L28 14 L25 14 Z" fill={color} opacity="0.7" />
       <rect x="14" y="30" width="8" height="5" rx="1" fill={SVG_COLORS.stationPort} />
       <rect x="26" y="30" width="8" height="5" rx="1" fill={SVG_COLORS.stationPort} />
-      <circle cx="40" cy="8" r="3" fill={color} />
     </svg>
   );
 }
@@ -251,36 +209,6 @@ function Tooltip({
   );
 }
 
-function ConnectorIcon({ conn }: { conn: ConnectorData }): React.JSX.Element {
-  const color = statusColor(conn.status);
-  const label = conn.connectorType ?? `#${String(conn.connectorId)}`;
-  const isPulsing =
-    conn.isPluggedIn ||
-    ['occupied', 'charging', 'preparing', 'suspended_ev', 'suspended_evse'].includes(conn.status);
-
-  if (conn.status === 'available') {
-    return (
-      <Tooltip label={`${label} - available`}>
-        <Plug className="h-3.5 w-3.5 text-success" />
-      </Tooltip>
-    );
-  }
-
-  return (
-    <Tooltip label={`${label} - ${conn.status}`}>
-      <span className="relative inline-flex h-3 w-3">
-        {isPulsing && (
-          <span
-            className="absolute inset-0 rounded-full animate-ping opacity-75"
-            style={{ backgroundColor: color }}
-          />
-        )}
-        <Circle className="relative h-3 w-3" style={{ color }} fill={color} />
-      </span>
-    </Tooltip>
-  );
-}
-
 function utilizationColor(drawKw: number, limitKw: number): string {
   const pct = limitKw > 0 ? drawKw / limitKw : 0;
   if (pct >= 0.95) return 'text-destructive';
@@ -288,23 +216,143 @@ function utilizationColor(drawKw: number, limitKw: number): string {
   return 'text-success';
 }
 
-function spColor(sp: number): string {
-  switch (sp) {
-    case 0:
-      return 'text-muted-foreground';
-    case 1:
-      return 'text-link';
-    case 2:
-      return 'text-success';
-    case 3:
-      return 'text-warning';
-    default:
-      return 'text-muted-foreground';
-  }
-}
-
 function snapToGrid(value: number): number {
   return Math.round(value / GRID_SIZE) * GRID_SIZE;
+}
+
+/** The frame of the 2D charger card, the same on every site type's board. */
+export const STATION_CARD_CLASS =
+  'w-[160px] rounded-lg border bg-card text-card-foreground shadow-xs select-none';
+
+/**
+ * The content of the standard 2D charger card (every site type's 2D board
+ * shows this card for every station, never a chip; owner decision
+ * 2026-11-01): the shared status marker, the station ID, the
+ * details button that opens the shared station popup, the charger icon with
+ * its status reason, each EVSE with the same status marker, the connection badge, the energy of a
+ * charging session and the live draw against the allocated limit.
+ */
+export function StationCardContent({
+  station,
+  currentDrawKw,
+  allocatedLimitKw,
+  onOpenDetails,
+}: {
+  station: LayoutStation;
+  currentDrawKw?: number | undefined;
+  allocatedLimitKw?: number | null | undefined;
+  /** Opens the station popup (shared with the 3D view). */
+  onOpenDetails?: ((stationId: string) => void) | undefined;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const charging = isCharging(station);
+  const energy = totalEnergy(station);
+  const reasonLabel =
+    station.statusReason != null &&
+    (station.status === 'unavailable' || station.status === 'faulted')
+      ? t(`stations.statusReason.${station.statusReason}`, station.statusReason)
+      : null;
+  const stationIcon = <StationIcon dc={station.chargingKind === 'dc'} />;
+  const state = stationDisplayState(station);
+  const badges =
+    station.connectionType != null ? (
+      <div className="flex flex-wrap items-center gap-1">
+        <ConnectionBadge station={station} />
+      </div>
+    ) : null;
+  const iconWithReason =
+    reasonLabel != null ? <Tooltip label={reasonLabel}>{stationIcon}</Tooltip> : stationIcon;
+  return (
+    <div className="space-y-1 p-2">
+      <div className="flex items-center gap-1.5">
+        <StateBadge state={state} />
+        <span className="font-semibold truncate text-xs">{station.stationId}</span>
+        {/* Opens the shared station popup, the same as the 3D view. */}
+        <button
+          type="button"
+          className="ml-auto rounded p-0.5 hover:bg-muted"
+          data-testid={`site-layout-card-details-${station.id}`}
+          aria-label={t('sites.layoutView.stateDetailsLabel', {
+            id: station.stationId,
+            state: t(stationStateLabelKey(state)),
+          })}
+          aria-haspopup="dialog"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+          }}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenDetails?.(station.id);
+          }}
+        >
+          <Plus className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {iconWithReason}
+        <div className="flex flex-col gap-1 min-w-0">
+          {/* Each EVSE with the same status marker as the station. */}
+          <div className="flex flex-wrap gap-1" data-testid="station-card-evses">
+            {[...station.evses]
+              .sort((a, b) => a.evseId - b.evseId)
+              .map((evse) => {
+                const evseState = evseDisplayState(evse);
+                const types = [
+                  ...new Set(
+                    evse.connectors.map((c) => c.connectorType ?? `#${String(c.connectorId)}`),
+                  ),
+                ].join(', ');
+                return (
+                  <StateBadge
+                    key={evse.evseId}
+                    state={evseState}
+                    label={t('sites.layoutView.evseState', {
+                      n: evse.evseId,
+                      connectors: types,
+                      state: t(stationStateLabelKey(evseState)),
+                    })}
+                  />
+                );
+              })}
+          </div>
+          {badges}
+          {charging && energy > 0 && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex items-center gap-0.5 text-xs font-medium text-link"
+            >
+              <Zap className="h-3 w-3" />
+              <span>{formatEnergy(energy)}</span>
+            </motion.div>
+          )}
+          {currentDrawKw != null && currentDrawKw > 0 && (
+            <div
+              className={cn(
+                'flex items-center gap-0.5 text-xs font-medium',
+                allocatedLimitKw != null && allocatedLimitKw > 0
+                  ? utilizationColor(currentDrawKw, allocatedLimitKw)
+                  : 'text-success',
+              )}
+            >
+              <Zap className="h-2.5 w-2.5" />
+              <span>{formatNumber(currentDrawKw, 1)} kW</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The next stacking order for a card brought to the front (a drag or its details). */
+export function nextCardZ(): number {
+  globalDragCounter += 1;
+  return globalDragCounter;
 }
 
 export function StationCard({
@@ -315,26 +363,6 @@ export function StationCard({
   allocatedLimitKw,
   resolveDrop,
 }: StationCardProps): React.JSX.Element {
-  const { t } = useTranslation();
-  const charging = isCharging(station);
-  const energy = totalEnergy(station);
-  const connectors = allConnectors(station);
-  const reasonLabel =
-    station.statusReason != null &&
-    (station.status === 'unavailable' || station.status === 'faulted')
-      ? t(`stations.statusReason.${station.statusReason}`, station.statusReason)
-      : null;
-  const stationIcon = (
-    <StationIcon status={station.status} charging={charging} dc={station.chargingKind === 'dc'} />
-  );
-  const state = stationDisplayState(station);
-  const badges = station.cellular ? (
-    <div className="flex flex-wrap items-center gap-1">
-      <CellularBadge />
-    </div>
-  ) : null;
-  const iconWithReason =
-    reasonLabel != null ? <Tooltip label={reasonLabel}>{stationIcon}</Tooltip> : stationIcon;
   const motionX = useMotionValue(station.positionX);
   const motionY = useMotionValue(station.positionY);
   const [zIndex, setZIndex] = useState(0);
@@ -353,8 +381,7 @@ export function StationCard({
       whileHover={{ scale: 1.02 }}
       whileDrag={{ scale: 1.05 }}
       onDragStart={() => {
-        globalDragCounter += 1;
-        setZIndex(globalDragCounter);
+        setZIndex(nextCardZ());
         setIsDragging(true);
       }}
       style={{
@@ -378,95 +405,106 @@ export function StationCard({
         onDragEnd(station.id, dropped.x, dropped.y);
       }}
       data-testid={`site-layout-card-${station.id}`}
-      className={cn(
-        'w-[160px] rounded-lg border bg-card text-card-foreground shadow-xs select-none',
-        isDragging && 'ring-2 ring-primary shadow-lg',
-      )}
+      className={cn(STATION_CARD_CLASS, isDragging && 'ring-2 ring-primary shadow-lg')}
     >
-      <div className="p-2.5 space-y-1.5">
-        <div className="flex items-center gap-1.5">
-          <span
-            className="relative inline-flex h-2 w-2 shrink-0"
-            title={station.isOnline ? t('status.online') : t('status.offline')}
-          >
-            {station.isOnline && (
-              <span className="absolute inset-0 rounded-full bg-success animate-ping opacity-75" />
-            )}
-            <span
-              className={cn(
-                'relative h-2 w-2 rounded-full',
-                station.isOnline ? 'bg-success' : 'bg-destructive',
-              )}
-            />
-          </span>
-          <span className="font-semibold truncate text-xs">{station.stationId}</span>
-          <StationStateIcon state={state} />
-          <Tooltip label={`Security Profile ${String(station.securityProfile)}`}>
-            <span
-              className={cn('flex items-center gap-0.5 shrink-0', spColor(station.securityProfile))}
-            >
-              <Shield className="h-3 w-3" />
-              <span className="text-xs font-bold">{String(station.securityProfile)}</span>
-            </span>
-          </Tooltip>
-          {/* Opens the shared station popup, the same as the 3D view. */}
-          <button
-            type="button"
-            className="ml-auto rounded p-0.5 hover:bg-muted"
-            aria-label={t('sites.layoutView.stateDetailsLabel', {
-              id: station.stationId,
-              state: t(stationStateLabelKey(state)),
-            })}
-            aria-haspopup="dialog"
-            onPointerDown={(e) => {
-              e.stopPropagation();
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              globalDragCounter += 1;
-              setZIndex(globalDragCounter);
-              onOpenDetails?.(station.id);
-            }}
-          >
-            <Plus className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {iconWithReason}
-          <div className="flex flex-col gap-1 min-w-0">
-            <div className="flex flex-wrap gap-1">
-              {connectors.map((conn, i) => (
-                <ConnectorIcon key={i} conn={conn} />
-              ))}
-            </div>
-            {badges}
-            {charging && energy > 0 && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex items-center gap-0.5 text-xs font-medium text-link"
-              >
-                <Zap className="h-3 w-3" />
-                <span>{formatEnergy(energy)}</span>
-              </motion.div>
-            )}
-            {currentDrawKw != null && currentDrawKw > 0 && (
-              <div
-                className={cn(
-                  'flex items-center gap-0.5 text-xs font-medium',
-                  allocatedLimitKw != null && allocatedLimitKw > 0
-                    ? utilizationColor(currentDrawKw, allocatedLimitKw)
-                    : 'text-success',
-                )}
-              >
-                <Zap className="h-2.5 w-2.5" />
-                <span>{formatNumber(currentDrawKw, 1)} kW</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      <StationCardContent
+        station={station}
+        currentDrawKw={currentDrawKw}
+        allocatedLimitKw={allocatedLimitKw}
+        onOpenDetails={(id) => {
+          setZIndex(nextCardZ());
+          onOpenDetails?.(id);
+        }}
+      />
     </motion.div>
+  );
+}
+
+/**
+ * The standard 2D charger card at a position a board computes (a depot's bay
+ * or lane slot, a custom site's charger point): the same card and content as
+ * the grid board, dragged with the pointer (the board decides where a drop
+ * lands) and, focused, moved with the arrow keys (`onKeyDown`).
+ */
+export function PlacedStationCard({
+  station,
+  left,
+  top,
+  centered = false,
+  draggable,
+  dragging,
+  currentDrawKw,
+  allocatedLimitKw,
+  onOpenDetails,
+  onDragMove,
+  onDragEnd,
+  onKeyDown,
+}: {
+  station: LayoutStation;
+  /** The card's top left corner (or its middle with `centered`), in board px. */
+  left: number;
+  top: number;
+  centered?: boolean;
+  draggable: boolean;
+  dragging: boolean;
+  currentDrawKw?: number | undefined;
+  allocatedLimitKw?: number | null | undefined;
+  onOpenDetails: (stationId: string) => void;
+  /** The pointer moved by (dx, dy) px since the drag started (past a 4 px threshold). */
+  onDragMove?: (dx: number, dy: number) => void;
+  /** The drag ended (`moved`: past the threshold). */
+  onDragEnd?: (moved: boolean) => void;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
+}): React.JSX.Element {
+  const [zIndex, setZIndex] = useState(0);
+  const start = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  return (
+    <div
+      data-testid={`site-layout-card-${station.id}`}
+      tabIndex={draggable ? 0 : -1}
+      className={cn(
+        'absolute touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        STATION_CARD_CLASS,
+        centered && '-translate-x-1/2 -translate-y-1/2',
+        draggable && 'cursor-grab',
+        dragging && 'ring-2 ring-primary shadow-lg',
+      )}
+      style={{ left, top, zIndex: dragging ? 1_000_000 : zIndex }}
+      onKeyDown={onKeyDown}
+      onPointerDown={(e) => {
+        if (!draggable) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        start.current = { x: e.clientX, y: e.clientY, moved: false };
+        setZIndex(nextCardZ());
+      }}
+      onPointerMove={(e) => {
+        const s = start.current;
+        if (s == null) return;
+        const dx = e.clientX - s.x;
+        const dy = e.clientY - s.y;
+        if (!s.moved && Math.hypot(dx, dy) <= 4) return;
+        s.moved = true;
+        onDragMove?.(dx, dy);
+      }}
+      onPointerUp={() => {
+        const s = start.current;
+        start.current = null;
+        if (s != null) onDragEnd?.(s.moved);
+      }}
+      onPointerCancel={() => {
+        start.current = null;
+        onDragEnd?.(false);
+      }}
+    >
+      <StationCardContent
+        station={station}
+        currentDrawKw={currentDrawKw}
+        allocatedLimitKw={allocatedLimitKw}
+        onOpenDetails={(id) => {
+          setZIndex(nextCardZ());
+          onOpenDetails(id);
+        }}
+      />
+    </div>
   );
 }

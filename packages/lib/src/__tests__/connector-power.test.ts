@@ -34,6 +34,14 @@ describe('isDcConnector', () => {
     expect(isDcConnector({ connectorType: 'GBT', maxPowerKw: null })).toBe(false);
   });
 
+  it('treats the heavy vehicle couplers as DC at any power and in any case', () => {
+    for (const type of ['MCS', 'cMCS', 'OppCharge', 'Pan', 'mcs', 'PAN']) {
+      expect(isDcConnector({ connectorType: type, maxPowerKw: 11 })).toBe(true);
+    }
+    expect(stationChargingKind([{ connectorType: 'OppCharge', maxPowerKw: 450 }])).toBe('dc');
+    expect(isDcConnector({ connectorType: 'Panel', maxPowerKw: 350 })).toBe(false);
+  });
+
   it('treats unknown and missing types as AC', () => {
     expect(isDcConnector({ connectorType: null, maxPowerKw: 350 })).toBe(false);
     expect(isDcConnector({ connectorType: 'Schuko', maxPowerKw: 350 })).toBe(false);

@@ -6,7 +6,7 @@
 // stations of a moment, so the 2D and 3D views draw a replayed moment exactly
 // like a live one. No three.js here.
 
-import type { LayoutStation } from './StationCard';
+import type { LayoutSession, LayoutSessionDriver, LayoutStation } from './StationCard';
 
 export interface ReplayConnector {
   evseId: number;
@@ -15,12 +15,26 @@ export interface ReplayConnector {
   changes: Array<{ at: string; status: string }>;
 }
 
+/** A session of the replayed day (the car and driver as the live layout returns them, by permission). */
+export interface ReplaySession {
+  startedAt: string;
+  endedAt: string | null;
+  energyWh: number;
+  /** The OCPP EVSE the session ran on (absent in older replies). */
+  evseId?: number | null | undefined;
+  /** The session id: null without sessions:read (absent in older replies). */
+  id?: string | null | undefined;
+  currency?: string | null | undefined;
+  vehicle?: LayoutSession['vehicle'];
+  driver?: LayoutSessionDriver | null | undefined;
+}
+
 export interface ReplayStation {
   id: string;
   initialOnline: boolean;
   onlineChanges: Array<{ at: string; online: boolean }>;
   connectors: ReplayConnector[];
-  sessions: Array<{ startedAt: string; endedAt: string | null; energyWh: number }>;
+  sessions: ReplaySession[];
   power: Array<{ at: string; kw: number }>;
 }
 
@@ -67,22 +81,51 @@ function lastBefore<T extends { at: string }>(changes: readonly T[], at: number)
   return found;
 }
 
-/** Whether a session runs at `at`; an open session runs until `openUntil` (now, or the end of the day). */
+/**
+ * The session running at `at`; an open session runs until `openUntil` (now,
+ * or the end of the day). Of sessions running at once (a dual-port pedestal),
+ * the newest started one, as the live layout shows the newest active session.
+ */
 export function sessionAt(
-  sessions: ReplayStation['sessions'],
+  sessions: readonly ReplaySession[],
   at: number,
   openUntil: number,
-): { energyWh: number } | null {
+): (ReplaySession & { energySoFarWh: number }) | null {
+  let found: (ReplaySession & { energySoFarWh: number }) | null = null;
   for (const s of sessions) {
     const start = Date.parse(s.startedAt);
     const end = s.endedAt != null ? Date.parse(s.endedAt) : openUntil;
     if (start <= at && at < end) {
+      if (found != null && Date.parse(found.startedAt) > start) continue;
       // Energy so far, spread evenly over the session.
       const share = end > start ? (at - start) / (end - start) : 1;
-      return { energyWh: Math.round(s.energyWh * Math.min(1, Math.max(0, share))) };
+      found = {
+        ...s,
+        energySoFarWh: Math.round(s.energyWh * Math.min(1, Math.max(0, share))),
+      };
     }
   }
-  return null;
+  return found;
+}
+
+/**
+ * The layout session of a replayed one, so the 3D view draws the same car and
+ * driver avatar as live: only when the replay named it (sessions:read); the
+ * driver only when the replay returned one (drivers:read, not erased).
+ */
+export function replayLayoutSession(
+  session: ReplaySession & { energySoFarWh: number },
+): LayoutSession | null {
+  if (session.id == null) return null;
+  return {
+    id: session.id,
+    startedAt: session.startedAt,
+    energyDeliveredWh: session.energySoFarWh,
+    currentCostCents: null,
+    currency: session.currency ?? '',
+    driver: session.driver ?? null,
+    vehicle: session.vehicle ?? null,
+  };
 }
 
 /** The power draw of the bucket holding `at`, or 0. */
@@ -101,8 +144,11 @@ export interface ReplayFrame {
  * The layout at moment `at` (ms) of a replayed day: each station's online
  * state, connector statuses, a session's energy so far and its power draw.
  * Stations the replay does not cover keep their layout but show offline.
- * Live-only data (display message, maintenance, the session and driver) is
- * left out. `now` ends sessions still open on today's replay.
+ * The session carries the car and driver the replay returned (as live, by
+ * permission) and plugs in at the EVSE it ran on, so a dual-port pedestal
+ * shows the car at the right port. Live-only data (display message,
+ * maintenance, running cost) is left out. `now` ends sessions still open on
+ * today's replay.
  */
 export function replayFrame(
   day: ReplayDay,
@@ -141,16 +187,27 @@ export function replayFrame(
           statusOf(evse.evseId, conn.connectorId) ?? (session != null ? 'occupied' : 'available'),
       })),
     }));
-    // The session's energy goes on the first plugged connector, else on the first connector.
+    // The session's energy goes on a connector of the EVSE it ran on (the
+    // plugged one first), else on the first plugged connector, else the first.
+    const own =
+      session?.evseId != null
+        ? (withStatus.find((e) => e.evseId === session.evseId)?.connectors ?? [])
+        : [];
     const flat = withStatus.flatMap((e) => e.connectors);
     const carrier =
-      session == null ? null : (flat.find((c) => c.status === 'occupied') ?? flat[0] ?? null);
+      session == null
+        ? null
+        : (own.find((c) => c.status === 'occupied') ??
+          own[0] ??
+          flat.find((c) => c.status === 'occupied') ??
+          flat[0] ??
+          null);
     const evses = withStatus.map((evse) => ({
       ...evse,
       connectors: evse.connectors.map((conn) => ({
         ...conn,
         isPluggedIn: conn === carrier,
-        energyDeliveredWh: conn === carrier && session != null ? session.energyWh : null,
+        energyDeliveredWh: conn === carrier && session != null ? session.energySoFarWh : null,
       })),
     }));
     const statuses = evses.flatMap((e) => e.connectors.map((c) => c.status));
@@ -174,7 +231,7 @@ export function replayFrame(
       isOnline: online,
       inMaintenance: false,
       displayMessage: null,
-      session: null,
+      session: session != null ? replayLayoutSession(session) : null,
       evses,
     };
   });

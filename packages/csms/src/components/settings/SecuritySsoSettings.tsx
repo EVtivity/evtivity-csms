@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useMemo, useState } from 'react';
-import { useLoadedValues } from '@/hooks/use-loaded-values';
+import { isEditedField, useLoadedValues } from '@/hooks/use-loaded-values';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tryParseJson } from '@evtivity/lib/safe-json';
@@ -187,7 +187,7 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
   // A reload replaces the form only while it has no unsaved edits.
   const stored = ssoSettings ?? settings;
   const loaded = useMemo(() => ssoFormFrom(stored), [stored]);
-  const [form, setForm, takeNextLoad] = useLoadedValues<SsoForm>(loaded);
+  const [form, setForm, takeNextLoad, taken] = useLoadedValues<SsoForm>(loaded);
   const {
     enabled,
     provider,
@@ -219,7 +219,9 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
   const setAllowedDomains = setField('allowedDomains');
   // The saved values, to tell whether the form changed what needs a fresh proof.
   const certSet = loaded.cert !== '';
-  const loadedCert = loaded.cert;
+  // The certificate goes only when edited in this form, so one another user
+  // rotated since this form loaded is not put back.
+  const certEdited = cert !== '' && isEditedField(form, taken, 'cert');
   const loadedFields = JSON.stringify(protectedFields(protectedOf(loaded)));
 
   // Load roles for default role dropdown
@@ -251,8 +253,7 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
   const current = protectedOf(form);
   const needsProof =
     proofKinds.length > 0 &&
-    (JSON.stringify(protectedFields(current)) !== loadedFields ||
-      (cert !== '' && cert !== loadedCert));
+    (JSON.stringify(protectedFields(current)) !== loadedFields || certEdited);
 
   function handleSave(): void {
     if (needsProof && proof == null) {
@@ -260,8 +261,7 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
       return;
     }
     const payload: Record<string, unknown> = { ...current, provider };
-    // Only send cert when the user changed it
-    if (cert !== '' && cert !== loadedCert) {
+    if (certEdited) {
       payload['cert'] = cert;
     }
     if (needsProof && proof != null) payload['proof'] = proof;

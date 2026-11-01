@@ -20,6 +20,11 @@ export type ConnectorType = (typeof CONNECTOR_TYPES)[number];
 
 /** DC-only plug types. */
 const DC_TYPES: ReadonlySet<string> = new Set(['CCS1', 'CCS2', 'CHAdeMO']);
+/**
+ * DC-only heavy vehicle couplers, any case: the Megawatt Charging System
+ * (`MCS`, OCPP `cMCS`) and depot pantographs (`OppCharge`, `Pan`).
+ */
+const HEAVY_DC_TYPE = /^(c?mcs|oppcharge|pan)$/i;
 /** Plug types that carry AC (up to 22 kW) and DC: DC above that power. */
 const AC_OR_DC_TYPES: ReadonlySet<string> = new Set(['GBT', 'Tesla', 'NACS']);
 /** AC tops at 22 kW on GB/T, Tesla and NACS plugs. */
@@ -52,12 +57,13 @@ export interface ConnectorPowerInput {
 
 /**
  * A connector is DC when its type is CCS1, CCS2 or CHAdeMO, or GBT, Tesla or
- * NACS with a maximum power above 22 kW. Type1, Type2, unknown and missing
+ * NACS with a maximum power above 22 kW. The heavy vehicle couplers (MCS,
+ * cMCS, OppCharge, Pan, any case) are DC. Type1, Type2, unknown and missing
  * types are AC.
  */
 export function isDcConnector(connector: ConnectorPowerInput): boolean {
   const type = connector.connectorType ?? '';
-  if (DC_TYPES.has(type)) return true;
+  if (DC_TYPES.has(type) || HEAVY_DC_TYPE.test(type)) return true;
   if (!AC_OR_DC_TYPES.has(type)) return false;
   const power =
     typeof connector.maxPowerKw === 'string'

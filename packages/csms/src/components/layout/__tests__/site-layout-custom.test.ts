@@ -9,7 +9,7 @@ import { describe, it, expect, vi } from 'vitest';
 vi.mock('@/lib/api', () => ({ api: { get: vi.fn() } }));
 vi.mock('@/lib/auth', () => ({ useHasPermission: () => false }));
 
-import { DEFAULT_LAYOUT_GRID, freeFootprintsOverlap } from '@evtivity/lib/site-layout';
+import { freeFootprintsOverlap } from '@evtivity/lib/site-layout';
 import {
   DENSE_WINDOW_M,
   NARROW_STAGE_PX,
@@ -18,19 +18,17 @@ import {
   denseFrameBox,
   freeBackPoint,
   handleRotation,
-  lotOf,
   pointsBox,
   rotationHandleZ,
   screenMessageText,
   screenTextLayout,
 } from '../site-layout-grid';
-import { PANEL_PAD_GAP_M, placePanels } from '../site-layout-links';
+import { LANE_START_M, placePanels } from '../site-layout-links';
 import {
   freeChargerModel,
   freePropOffset,
   freePropSpot,
   freeStationPlaces,
-  labelPriority,
   stationConnectorTypes,
   layoutStationCountsOf,
 } from '../site-layout-free';
@@ -80,7 +78,7 @@ describe('custom site framing and links', () => {
     );
     expect(box.minX).toBe(-12);
     expect(box.maxX).toBeCloseTo(4.6);
-    expect(box.maxZ).toBeCloseTo(6.6);
+    expect(box.maxZ).toBeCloseTo(8.1);
   });
 
   it('ends a load management link behind the charger and stands the panels left of the stations', () => {
@@ -99,10 +97,11 @@ describe('custom site framing and links', () => {
           childPanels: [],
         },
       ],
-      lotOf({ ...DEFAULT_LAYOUT_GRID, siteType: 'custom' }),
       ground,
     );
-    expect(panels[0]?.point).toEqual({ x: -20 - PANEL_PAD_GAP_M, z: 15 });
+    // Without a transformer: left of the stations' ground, beside the middle of its depth.
+    expect(panels[0]?.point.z).toBe(15);
+    expect(panels[0]?.point.x).toBeLessThanOrEqual(-20 - LANE_START_M);
   });
 });
 
@@ -138,11 +137,26 @@ describe('custom site editing', () => {
     ]);
     expect(places.get('a')).toEqual({ placement: { x: 0, z: 0, rotationDeg: 0 }, spots: 2 });
     expect(places.get('b')?.spots).toBe(1);
-    expect(places.get('c')?.spots).toBe(2);
+    // A DC station with four EVSEs: a split system, a car spot per dispenser.
+    expect(places.get('c')?.spots).toBe(4);
     const list = [...places.values()];
     for (const p of list) {
       for (const o of list) if (p !== o) expect(freeFootprintsOverlap(p, o)).toBe(false);
     }
+  });
+
+  it('shows two saved facing stations whose spots now overlap apart, moving the second back', () => {
+    // Saved while car spots began 0.9 m into the spot: 2 m apart then, 1 m overlap now.
+    const places = freeStationPlaces([
+      station('a', 2, { freePosition: { x: 0, z: 0, rotationDeg: 0 } }),
+      station('b', 2, { freePosition: { x: 0, z: 11.2, rotationDeg: 180 } }),
+      station('c', 1, { freePosition: { x: 30, z: 0, rotationDeg: 90 } }),
+    ]);
+    expect(places.get('a')?.placement).toEqual({ x: 0, z: 0, rotationDeg: 0 });
+    expect(places.get('b')?.placement).toEqual({ x: 0, z: 12.2, rotationDeg: 180 });
+    // A station clear of the others keeps its hand placement.
+    expect(places.get('c')?.placement).toEqual({ x: 30, z: 0, rotationDeg: 90 });
+    expect(freeFootprintsOverlap(places.get('a')!, places.get('b')!)).toBe(false);
   });
 
   it('puts the car of a two-spot station in the spot of its charging EVSE', () => {
@@ -183,7 +197,7 @@ describe('custom site editing', () => {
     truck.evses[0]!.connectors[0]!.connectorType = 'cMCS';
     const pantograph = station('p', 1);
     pantograph.evses[0]!.connectors[0]!.connectorType = 'OppCharge';
-    expect(layoutStationCountsOf([truck, pantograph, station('c', 2)])).toEqual({
+    expect(layoutStationCountsOf([truck, pantograph, station('c', 2)])).toMatchObject({
       total: 3,
       bus: 2,
       truck: 1,
@@ -191,7 +205,7 @@ describe('custom site editing', () => {
   });
 
   it('stands the rotation handle 1.6 m past the back of the spots of every type', () => {
-    expect(rotationHandleZ(2)).toBe(6.2);
+    expect(rotationHandleZ(2)).toBe(7.7);
     expect(rotationHandleZ(2, 'bus_bay')).toBe(14.7);
     expect(rotationHandleZ(2, 'truck_pull_through')).toBe(14.6);
   });
@@ -201,19 +215,13 @@ describe('custom site editing', () => {
     const p = boardPoint(g, { x: 0, z: 0 });
     // 4 m of grass left of the spots, which reach 1.3 m left of the charger.
     expect(p.x).toBeCloseTo((4 + 1.3) * CUSTOM_BOARD_PX_PER_M);
-    expect(p.y).toBeCloseTo((4 + 0.9) * CUSTOM_BOARD_PX_PER_M);
+    // The base behind the charger: 0.6 m (the spots begin 0.6 m in front of it).
+    expect(p.y).toBeCloseTo((4 + 0.6) * CUSTOM_BOARD_PX_PER_M);
     expect(g.width).toBe(Math.ceil((2.6 + 8) * CUSTOM_BOARD_PX_PER_M));
   });
 });
 
-describe('labels on dense sites and phones', () => {
-  it('places the selected station first, then faulted, charging and the rest', () => {
-    expect(labelPriority('available', true)).toBe(0);
-    expect(labelPriority('faulted', false)).toBe(1);
-    expect(labelPriority('charging', false)).toBe(2);
-    expect(labelPriority('offline', false)).toBe(3);
-  });
-
+describe('framing dense sites on phones', () => {
   it('frames the densest part of a wide site on a narrow stage, and the whole on a wide one', () => {
     const box = { minX: 0, maxX: 120, minZ: -5, maxZ: 15 };
     const stations = [

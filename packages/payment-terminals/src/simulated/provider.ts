@@ -36,8 +36,10 @@ export const SIMULATED_FIRMWARE_VERSIONS: Readonly<Record<'VP6825' | 'VP7200', s
  * (`sim_term_offline`), authorize later through a signed event
  * (`sim_term_async`) or report a SIM (`sim_term_lte`, the VP6825 LTE variant).
  * `sim_term_4` (VP6825) and `sim_term_5` (VP7200) are the terminals of the
- * demo seed, `sim_term_6` (VP6825) and `sim_term_7` (VP7200, offline) those of the
- * site layout demo, so no test or E2E run registers them. Each reports the vendor,
+ * demo seed, `sim_term_6` (VP6825) and `sim_term_7` (VP7200, offline) and
+ * `sim_term_8` to `sim_term_23` those of the site layout demo (one reader on
+ * every DC fast charger of its public sites: VP6825 at the hubs, VP7200 at the
+ * park and ride), so no test or E2E run registers them. Each reports the vendor,
  * a serial number and a firmware version like an ID TECH device (fictional
  * values: the model digits and a sequence number, no real serial).
  */
@@ -53,6 +55,16 @@ export const SIMULATED_DEVICES: readonly TerminalDevice[] = Object.freeze([
   device('sim_term_5', 'VP7200', 5, null),
   device('sim_term_6', 'VP6825', 6, null),
   device('sim_term_7', 'VP7200', 7, null, false),
+  // Serial sequence 20 on: 11 to 14 are the scenario devices'.
+  ...Array.from({ length: 9 }, (_, i) =>
+    device(`sim_term_${String(8 + i)}`, 'VP6825', 20 + i, null),
+  ),
+  ...Array.from({ length: 3 }, (_, i) =>
+    device(`sim_term_${String(17 + i)}`, 'VP7200', 29 + i, null),
+  ),
+  ...Array.from({ length: 4 }, (_, i) =>
+    device(`sim_term_${String(20 + i)}`, 'VP6825', 32 + i, null),
+  ),
 ]);
 
 function device(

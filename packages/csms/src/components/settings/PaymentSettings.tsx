@@ -232,7 +232,8 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
     }),
     [stripeSettings],
   );
-  const [stripeForm, setStripeForm, takeNextStripeLoad] = useLoadedValues<StripeForm>(stripeLoaded);
+  const [stripeForm, setStripeForm, takeNextStripeLoad, stripeTaken] =
+    useLoadedValues<StripeForm>(stripeLoaded);
   const [stripeBaseline, markStripeSaved] = useSavedBaseline(stripeLoaded);
   const stripeHasUnsavedChanges = JSON.stringify(stripeForm) !== JSON.stringify(stripeBaseline);
   const {
@@ -329,8 +330,8 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
   function handleStripeSubmit(e: React.SyntheticEvent): void {
     e.preventDefault();
     const vals: StripeSettingsBody = {};
-    // Send only the secrets that changed, so an unchanged secret is not
-    // re-encrypted and audited. A shown secret emptied by the user clears; a
+    // Send only the secrets the user edited, so an unchanged secret is not
+    // re-encrypted and audited, and a rotated one is not put back. A shown secret emptied by the user clears; a
     // hidden one clears only through its explicit remove (see secretChange).
     const secrets: Array<[StripeSecretField, string]> = [
       ['secretKey', stripeSecretKey],
@@ -338,7 +339,12 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
       ['connectWebhookSecret', stripeConnectWebhookSecret],
     ];
     for (const [key, value] of secrets) {
-      const change = secretChange(value, stripeSecret(stripeSettings, key), stripeRemoving[key]);
+      const change = secretChange(
+        value,
+        stripeSecret(stripeSettings, key),
+        stripeRemoving[key],
+        stripeTaken[key],
+      );
       if (change !== undefined) vals[key] = change;
     }
     // Send the publishable key when it changed; emptying a stored key clears it.

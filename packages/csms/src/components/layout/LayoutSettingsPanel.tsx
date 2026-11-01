@@ -3,11 +3,11 @@
 
 // The Site Settings of Edit Layout: the site type (read-only here, changed on
 // the Details tab) and only the settings of that type. Parking Lot: spots per
-// row, rows, facing, the transformers and the batteries and solar canopies.
-// Office or Retail: the charger positions and how they are mounted. Curbside:
-// the chargers on each side of the street. Depot: the bus bays, the truck
-// lanes and the facing, with the transformers, batteries and solar canopies
-// beside the yard. Spot sizes are standard. The other
+// row, rows and facing. Office or Retail: the charger positions and how they
+// are mounted. Curbside: the chargers on each side of the street. Depot: the
+// bus bays, the truck lanes and the facing. A parking lot, a depot and a
+// custom site also have the Power Equipment button (transformers, batteries
+// and solar canopies in a dialog, PowerEquipment.tsx). Spot sizes are standard. The other
 // types' values stay in the settings, so switching the type back restores
 // them. Every valid change shows in the layout at once and is saved with the
 // layout Save.
@@ -15,38 +15,28 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { Trash2 } from 'lucide-react';
 import {
   CHARGER_MOUNTINGS,
   LAYOUT_FACINGS,
   LAYOUT_GRID_LIMITS,
   chargerMountingOf,
-  clampFreePoint,
-  showsBatteries,
-  showsSolar,
-  showsTransformers,
-  usesFreePositions,
   energyAssetsOf,
   layoutCapacity,
-  layoutEquipmentGround,
   placeEnergyAsset,
   siteTypeOf,
+  chargerPlacementOf,
   snapTransformerToGrass,
-  TRANSFORMER_CLEARANCE_M,
   type ChargerMounting,
   type LayoutFacing,
-  type LayoutTransformer,
   type SiteLayoutSettings,
   type SiteType,
 } from '@evtivity/lib/site-layout';
-import { CreateButton } from '@/components/create-button';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-import { SITE_TYPE_LABEL } from '@/components/site/site-type';
+import { CHARGER_PLACEMENT_LABEL, SITE_TYPE_LABEL } from '@/components/site/site-type';
 import { cn } from '@/lib/utils';
-import { EnergyAssetsSettings } from './EnergyAssetsSettings';
+import { PowerEquipmentField } from './PowerEquipment';
 
 const L = LAYOUT_GRID_LIMITS;
 
@@ -108,35 +98,6 @@ function countsValid(type: SiteType, drafts: Record<CountField, string>): boolea
   return !pairEmpty(type, drafts);
 }
 
-/** A typed rated kVA: null for empty, undefined when invalid. */
-export function parseRatedKva(text: string): number | null | undefined {
-  if (text.trim() === '') return null;
-  const value = Number(text);
-  if (!Number.isInteger(value) || value < L.ratedKva.min || value > L.ratedKva.max)
-    return undefined;
-  return value;
-}
-
-/** A new transformer: on the grass at the front of the lot, right of the others. */
-export function newTransformer(settings: SiteLayoutSettings): LayoutTransformer {
-  let n = settings.transformers.length + 1;
-  const ids = new Set(settings.transformers.map((t) => t.id));
-  while (ids.has(`tx-${String(n)}`)) n++;
-  // A custom site: left of the site origin, below the others.
-  if (usesFreePositions(settings)) {
-    const spot = clampFreePoint(-8, -4 - 4 * settings.transformers.length);
-    return { id: `tx-${String(n)}`, name: null, ratedKva: null, ...spot };
-  }
-  // On the grass behind the lot (a depot: behind its yard), right of the others.
-  const ground = layoutEquipmentGround(settings);
-  const spot = snapTransformerToGrass(
-    Math.min(ground.maxX, ground.minX + 4 + 4 * settings.transformers.length),
-    ground.minZ - TRANSFORMER_CLEARANCE_M - 1.5,
-    settings,
-  );
-  return { id: `tx-${String(n)}`, name: null, ratedKva: null, ...spot };
-}
-
 const MOUNTING_LABEL = {
   wall: 'sites.layoutSettings.mountingWall',
   stall: 'sites.layoutSettings.mountingStall',
@@ -175,30 +136,12 @@ export function LayoutSettingsPanel({
     busBays: String(settings.busBays ?? 1),
     truckLanes: String(settings.truckLanes ?? 0),
   }));
-  const [kvaDrafts, setKvaDrafts] = useState<Record<string, string>>({});
-  const [assetsInvalid, setAssetsInvalid] = useState(false);
-
-  const kvaText = (tr: LayoutTransformer): string =>
-    kvaDrafts[tr.id] ?? (tr.ratedKva != null ? String(tr.ratedKva) : '');
-  const invalidKva = (text: string): boolean => parseRatedKva(text) === undefined;
   const sidesEmpty = pairEmpty(siteType, drafts);
-
-  function report(
-    nextDrafts: Record<CountField, string>,
-    nextKva: Record<string, string>,
-    nextAssetsInvalid: boolean = assetsInvalid,
-  ): void {
-    const bad =
-      !countsValid(siteType, nextDrafts) ||
-      Object.values(nextKva).some(invalidKva) ||
-      nextAssetsInvalid;
-    onInvalidChange(bad);
-  }
 
   function setCountField(field: CountField, text: string): void {
     const next = { ...drafts, [field]: text };
     setDrafts(next);
-    report(next, kvaDrafts);
+    onInvalidChange(!countsValid(siteType, next));
     const value = parseCountField(field, text);
     if (value == null || !countsValid(siteType, next)) return;
     const changed = { ...settings, [field]: value };
@@ -215,13 +158,6 @@ export function LayoutSettingsPanel({
         ...snapTransformerToGrass(tr.x, tr.z, changed),
       })),
       energyAssets: energyAssetsOf(changed).map((a) => placeEnergyAsset(a, changed)),
-    });
-  }
-
-  function updateTransformer(id: string, patch: Partial<LayoutTransformer>): void {
-    onChange({
-      ...settings,
-      transformers: settings.transformers.map((tr) => (tr.id === id ? { ...tr, ...patch } : tr)),
     });
   }
 
@@ -244,6 +180,12 @@ export function LayoutSettingsPanel({
       <div className="space-y-1 text-sm" data-testid="layout-settings-site-type">
         <p className="text-muted-foreground">{t('sites.layoutSettings.siteType')}</p>
         <p className="font-medium">{t(SITE_TYPE_LABEL[siteType])}</p>
+        {siteType === 'parking_lot' && (
+          <p className="font-medium" data-testid="layout-settings-charger-placement">
+            {t('sites.layoutSettings.chargerPlacement')}:{' '}
+            {t(CHARGER_PLACEMENT_LABEL[chargerPlacementOf(settings)])}
+          </p>
+        )}
         <Link
           to={`/sites/${siteId}`}
           className="text-xs text-link underline-offset-4 hover:underline"
@@ -357,118 +299,7 @@ export function LayoutSettingsPanel({
                 })}
         </p>
       )}
-      {showsTransformers(settings) && (
-        <div className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h4 className="text-sm font-semibold">{t('sites.layoutSettings.transformers')}</h4>
-              <p className="text-xs text-muted-foreground">
-                {siteType === 'custom'
-                  ? t('sites.layoutSettings.transformersHintCustom')
-                  : t('sites.layoutSettings.transformersHint')}
-              </p>
-            </div>
-            <CreateButton
-              variant="outline"
-              label={t('sites.layoutSettings.addTransformer')}
-              disabled={settings.transformers.length >= L.transformers.max}
-              onClick={() => {
-                onChange({
-                  ...settings,
-                  transformers: [...settings.transformers, newTransformer(settings)],
-                });
-              }}
-            />
-          </div>
-          {settings.transformers.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              {t('sites.layoutSettings.noTransformers')}
-            </p>
-          ) : (
-            <ul className="grid gap-2">
-              {settings.transformers.map((tr, i) => {
-                const kva = kvaText(tr);
-                const kvaInvalid = invalidKva(kva);
-                return (
-                  <li
-                    key={tr.id}
-                    className="grid grid-cols-[1fr_auto] items-end gap-2 sm:grid-cols-[1fr_10rem_auto]"
-                    data-testid={`layout-transformer-${tr.id}`}
-                  >
-                    <div className="space-y-1.5">
-                      <Label htmlFor={id(`name-${tr.id}`)}>
-                        {t('sites.layoutSettings.transformerName', { n: i + 1 })}
-                      </Label>
-                      <Input
-                        id={id(`name-${tr.id}`)}
-                        maxLength={L.transformerNameLength}
-                        value={tr.name ?? ''}
-                        placeholder={t('sites.layoutView.transformer')}
-                        onChange={(e) => {
-                          const text = e.target.value;
-                          updateTransformer(tr.id, { name: text.trim() === '' ? null : text });
-                        }}
-                      />
-                    </div>
-                    <div className="col-span-2 row-start-2 space-y-1.5 sm:col-span-1 sm:row-start-auto">
-                      <Label htmlFor={id(`kva-${tr.id}`)}>
-                        {t('sites.layoutSettings.ratedKva')}
-                      </Label>
-                      <Input
-                        id={id(`kva-${tr.id}`)}
-                        type="number"
-                        inputMode="numeric"
-                        min={L.ratedKva.min}
-                        max={L.ratedKva.max}
-                        step={1}
-                        value={kva}
-                        aria-invalid={kvaInvalid}
-                        onChange={(e) => {
-                          const text = e.target.value;
-                          const nextKva = { ...kvaDrafts, [tr.id]: text };
-                          setKvaDrafts(nextKva);
-                          report(drafts, nextKva);
-                          const value = parseRatedKva(text);
-                          if (value !== undefined) updateTransformer(tr.id, { ratedKva: value });
-                        }}
-                      />
-                    </div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      aria-label={t('sites.layoutSettings.removeTransformer', { n: i + 1 })}
-                      onClick={() => {
-                        const nextKva = Object.fromEntries(
-                          Object.entries(kvaDrafts).filter(([id]) => id !== tr.id),
-                        );
-                        setKvaDrafts(nextKva);
-                        report(drafts, nextKva);
-                        onChange({
-                          ...settings,
-                          transformers: settings.transformers.filter((o) => o.id !== tr.id),
-                        });
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
-      {(showsBatteries(settings) || showsSolar(settings)) && (
-        <EnergyAssetsSettings
-          settings={settings}
-          onChange={onChange}
-          onInvalidChange={(invalid) => {
-            setAssetsInvalid(invalid);
-            report(drafts, kvaDrafts, invalid);
-          }}
-        />
-      )}
+      <PowerEquipmentField siteId={siteId} settings={settings} onChange={onChange} />
     </section>
   );
 }

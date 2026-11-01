@@ -90,3 +90,35 @@ export function gradeSignal(
   if (dbm >= thresholds.fairDbm) return 'fair';
   return 'poor';
 }
+
+export type SignalBars = 0 | 1 | 2 | 3 | 4;
+
+/**
+ * RSSI bands for the 0 to 4 signal bars, in dBm (lower bound of each bar).
+ * Digi, "Signal strength for 3G and 2G cellular connections" (Digi IX/TX
+ * device OS user guide, 90002399): Excellent > -70 dBm, Good -70 to -85 dBm,
+ * Fair -86 to -100 dBm, Poor below -100 to -109 dBm, No service -110 dBm,
+ * https://docs.digi.com/resources/documentation/digidocs/90002399/os/cell-signal-strength-3g2g-r.htm
+ * The -70 and -85 dBm edges match ChargePoint's CPF32 site design guide,
+ * Connectivity (greater than -70 dBm Excellent, -70 to -85 dBm Acceptable).
+ * Like `gradeSignal`, these are RSSI bands: an LTE modem that reports RSRP
+ * reads lower than its link.
+ */
+export const SIGNAL_BAR_MIN_DBM = Object.freeze({
+  four: -69,
+  three: -85,
+  two: -100,
+  one: -109,
+});
+
+/** Bars 0 to 4 for a dBm value; null when the value is unknown or misread (positive). */
+export function signalBars(dbm: number | null | undefined): SignalBars | null {
+  if (dbm == null || !Number.isFinite(dbm) || dbm > 0) return null;
+  // Integer dBm: "> -70" is -69 and above; bands are inclusive at their lower edge.
+  const value = Math.round(dbm);
+  if (value >= SIGNAL_BAR_MIN_DBM.four) return 4;
+  if (value >= SIGNAL_BAR_MIN_DBM.three) return 3;
+  if (value >= SIGNAL_BAR_MIN_DBM.two) return 2;
+  if (value >= SIGNAL_BAR_MIN_DBM.one) return 1;
+  return 0;
+}

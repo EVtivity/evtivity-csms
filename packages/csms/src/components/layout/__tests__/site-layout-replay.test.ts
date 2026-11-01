@@ -131,6 +131,78 @@ describe('day replay', () => {
     expect(frame.stations[1]?.isOnline).toBe(false);
   });
 
+  it('draws the replayed session with the car, driver and port it had, as live', () => {
+    const pedestal = (id: string): LayoutStation => ({
+      ...station(id),
+      chargingKind: 'ac',
+      evses: [1, 2].map((evseId) => ({
+        evseId,
+        status: 'available',
+        connectors: [
+          {
+            connectorId: 1,
+            connectorType: 'Type1',
+            maxPowerKw: 7,
+            status: 'available',
+            isPluggedIn: false,
+            energyDeliveredWh: null,
+          },
+        ],
+      })),
+    });
+    const driver = {
+      id: 'drv_1',
+      name: 'Ana Ruiz',
+      avatar: { kind: 'generated' as const, style: 'avataaars' as const, seed: 's', options: {} },
+    };
+    const replay: ReplayDay = {
+      ...day,
+      stations: [
+        {
+          id: 'p',
+          initialOnline: true,
+          onlineChanges: [],
+          connectors: [],
+          sessions: [
+            {
+              startedAt: iso(9),
+              endedAt: iso(11),
+              energyWh: 8000,
+              evseId: 2,
+              id: 'ses_9',
+              currency: 'USD',
+              vehicle: { color: 'red', bodyType: 'suv' },
+              driver,
+            },
+          ],
+          power: [],
+        },
+      ],
+    };
+    const frame = replayFrame(replay, [pedestal('p')], at(10), at(23));
+    const s = frame.stations[0]!;
+    expect(s.session).toEqual({
+      id: 'ses_9',
+      startedAt: iso(9),
+      energyDeliveredWh: 4000,
+      currentCostCents: null,
+      currency: 'USD',
+      driver,
+      vehicle: { color: 'red', bodyType: 'suv' },
+    });
+    // The car plugs in at the EVSE the session ran on (a dual-port pedestal's second port).
+    expect(s.evses[0]?.connectors[0]?.isPluggedIn).toBe(false);
+    expect(s.evses[1]?.connectors[0]?.isPluggedIn).toBe(true);
+    expect(s.evses[1]?.connectors[0]?.energyDeliveredWh).toBe(4000);
+  });
+
+  it('shows no session data the replay did not return (no sessions:read)', () => {
+    // Older replies and replies without sessions:read name no session id: no session, no car, no driver.
+    const frame = replayFrame(day, [station('a')], at(9, 30), at(23));
+    expect(frame.stations[0]?.session).toBeNull();
+    expect(frame.stations[0]?.evses[0]?.connectors[0]?.isPluggedIn).toBe(true);
+  });
+
   it('runs an open session until now on today, until the end of a past day', () => {
     const open = [{ startedAt: iso(9), endedAt: null, energyWh: 10_000 }];
     expect(sessionAt(open, at(11), at(13))).not.toBeNull();

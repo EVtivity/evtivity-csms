@@ -3,6 +3,7 @@
 
 import type { FastifyRequest } from 'fastify';
 import { db, siteAuditLog, stationAuditLog, writeAudit } from '@evtivity/database';
+import type { LoadTreeWriteContext } from '@evtivity/database';
 import { getAuditActor } from './audit-actor.js';
 
 type Row = Record<string, unknown>;
@@ -52,4 +53,12 @@ export async function writeStationLoadAudit(
     db,
     request.log,
   );
+}
+
+/**
+ * The caller of a panel or circuit write (`@evtivity/database` load
+ * management tree writer, which records the site audit row).
+ */
+export function loadTreeContext(request: FastifyRequest): LoadTreeWriteContext {
+  return { ...getAuditActor(request), logger: request.log };
 }

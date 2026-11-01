@@ -251,23 +251,26 @@ function SaveStatus({
 
 function useFormValues(settings: Record<string, unknown> | undefined): {
   loaded: Values;
+  taken: Values;
   values: Values;
   set: (key: string) => (value: string) => void;
 } {
   const loaded = useMemo(() => loadValues(settings), [settings]);
   // A refetch (a toggle, another card's save, window focus) keeps edits in progress.
-  const [values, setValues] = useLoadedValues<Values>(loaded);
+  const [values, setValues, , taken] = useLoadedValues<Values>(loaded);
   const set = (key: string) => (value: string) => {
     setValues((prev) => ({ ...prev, [key]: value }));
   };
-  return { loaded, values, set };
+  return { loaded, taken, values, set };
 }
 
 /** Providers and keys: one API key per provider, the base URL behind a disclosure. */
 function AiProvidersCard({ settings, canWrite }: CardProps): React.JSX.Element {
   const { t } = useTranslation();
-  const { loaded, values, set } = useFormValues(settings);
-  const save = useSaveKeys(PROVIDER_KEYS, loaded, (_k, v) => v.trim());
+  const { taken, values, set } = useFormValues(settings);
+  // Compared with the values this form loaded, so an API key the user did not
+  // edit is not sent and a key another user rotated since stays.
+  const save = useSaveKeys(PROVIDER_KEYS, taken, (_k, v) => v.trim());
   return (
     <Card>
       <CardHeader>

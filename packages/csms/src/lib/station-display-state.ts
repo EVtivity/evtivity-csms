@@ -10,8 +10,8 @@ import { STATUS_COLORS } from '@/lib/chart-theme';
 /** Station states, most severe first. */
 export const STATION_DISPLAY_STATES = [
   'faulted',
-  'unavailable',
   'maintenance',
+  'unavailable',
   'offline',
   'reserved',
   'charging',
@@ -29,21 +29,64 @@ export interface DisplayStateInput {
 }
 
 /**
- * faulted (station status faulted or any connector faulted) > unavailable
- * (station status unavailable: disabled, firmware install, station-reported) >
- * maintenance (an active maintenance event) > offline > reserved (status
+ * faulted (station status faulted or any connector faulted) > maintenance (an
+ * active maintenance event) > unavailable (station status unavailable:
+ * disabled, firmware install, station-reported) > offline > reserved (status
  * reserved or any reserved connector) > charging > available > online (an
  * online station whose status is unknown, such as one without connectors).
+ *
+ * Maintenance comes before unavailable and offline (owner decision
+ * 2026-11-01): a maintenance window sets its stations Inoperative
+ * (ChangeAvailability, `maintenance.service.ts`), so they report Unavailable,
+ * and a technician may power one off. Both are the expected effect of the
+ * window, and the operator needs to see that the station is in maintenance,
+ * not a second state the window explains. A fault still wins: the window does
+ * not explain a fault, and a fault needs attention even during maintenance.
  */
 export function stationDisplayState(station: DisplayStateInput): StationDisplayState {
   const connectorStatuses = station.evses.flatMap((e) => e.connectors.map((c) => c.status));
   if (station.status === 'faulted' || connectorStatuses.includes('faulted')) return 'faulted';
-  if (station.status === 'unavailable') return 'unavailable';
   if (station.inMaintenance === true) return 'maintenance';
+  if (station.status === 'unavailable') return 'unavailable';
   if (!station.isOnline) return 'offline';
   if (station.status === 'reserved' || connectorStatuses.includes('reserved')) return 'reserved';
   if (station.status === 'charging') return 'charging';
   if (station.status === 'available') return 'available';
+  return 'online';
+}
+
+/** Connector statuses of an EVSE in use (a car plugged in or a session running). */
+const EVSE_IN_USE = new Set([
+  'occupied',
+  'charging',
+  'discharging',
+  'preparing',
+  'ev_connected',
+  'suspended_ev',
+  'suspended_evse',
+  'idle',
+  'finishing',
+]);
+
+/**
+ * The state one EVSE of a station shows on its 2D card, with the same marker
+ * set as the station (owner decision 2026-11-01: 2D and 3D use the same
+ * status markers): faulted > unavailable > reserved > charging (a car plugged
+ * in or a connector in use) > available > online (status unknown).
+ */
+export function evseDisplayState(evse: {
+  connectors: ReadonlyArray<{ status: string; isPluggedIn?: boolean | undefined }>;
+}): StationDisplayState {
+  const statuses = evse.connectors.map((c) => c.status.toLowerCase());
+  if (statuses.includes('faulted')) return 'faulted';
+  if (statuses.length > 0 && statuses.every((s) => s === 'unavailable')) return 'unavailable';
+  if (statuses.includes('reserved')) return 'reserved';
+  if (
+    evse.connectors.some((c) => c.isPluggedIn === true) ||
+    statuses.some((s) => EVSE_IN_USE.has(s))
+  )
+    return 'charging';
+  if (statuses.includes('available')) return 'available';
   return 'online';
 }
 

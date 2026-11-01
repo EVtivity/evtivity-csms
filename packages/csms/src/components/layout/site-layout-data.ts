@@ -17,6 +17,7 @@ import {
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import type { LayoutStation } from './StationCard';
+import { isCaliforniaSite } from './site-layout-signs';
 import { layoutStationCountsOf } from './site-layout-free';
 import type { LinkPanel } from './site-layout-links';
 import { useSiteTerminals, type LayoutTerminal } from './layout-terminals';
@@ -91,11 +92,15 @@ export interface SiteLayoutView {
   stations: LayoutStation[];
   settings: SiteLayoutSettings;
   terminals: Map<string, LayoutTerminal[]>;
-  /** The load management hierarchy while the site is load managed, else null. */
+  /** The site's panels and circuits, null without loadManagement:read (equipment shows either way). */
   hierarchy: LinkPanel[] | null;
+  /** Load management is on: the cable runs and the live power show only then. */
+  loadManaged: boolean;
   logoUrl: string | null;
   /** The site name (from the site record), once loaded. */
   siteName: string | undefined;
+  /** The site is in California (its state and country): the stalls add the tow-away sign. */
+  california: boolean;
   power: Map<string, { currentDrawKw: number; allocatedLimitKw: number | null }>;
   isLoading: boolean;
   isError: boolean;
@@ -116,7 +121,12 @@ export function useSiteLayoutView(siteId: string, live: boolean): SiteLayoutView
   const site = useQuery({
     queryKey: ['sites', siteId],
     queryFn: () =>
-      api.get<{ name: string; layoutSettings: SiteLayoutSettings | null }>(`/v1/sites/${siteId}`),
+      api.get<{
+        name: string;
+        state?: string | null;
+        country?: string | null;
+        layoutSettings: SiteLayoutSettings | null;
+      }>(`/v1/sites/${siteId}`),
     enabled,
   });
   const layout = useQuery({
@@ -155,9 +165,11 @@ export function useSiteLayoutView(siteId: string, live: boolean): SiteLayoutView
     stations,
     settings,
     terminals,
-    hierarchy: lm?.config?.isEnabled === true ? lm.hierarchy : null,
+    hierarchy: lm?.hierarchy ?? null,
+    loadManaged: lm?.config?.isEnabled === true,
     logoUrl,
     siteName: site.data?.name,
+    california: site.data != null && isCaliforniaSite(site.data),
     power,
     isLoading: layout.isLoading || site.isLoading,
     isError: layout.isError || site.isError,

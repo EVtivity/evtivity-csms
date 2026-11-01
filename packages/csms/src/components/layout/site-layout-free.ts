@@ -8,9 +8,15 @@
 // the station counts a depot's defaults read.
 
 import {
-  depotStationKind,
+  layoutStationCountsOfKinds,
+  layoutStationKind,
+  type LayoutStationKind,
   firstFreePlacement,
   freeSpotCount,
+  freeSpotRects,
+  freeSpotTypeOf,
+  SPLIT_SYSTEM,
+  resolveFreeOverlaps,
   type FreePlacement,
   type FreeSpotType,
   type LayoutStationCounts,
@@ -25,16 +31,27 @@ export interface FreeStationPlace {
 
 /**
  * The free position and spots of every station of a custom site: its own
- * position, else one right of the others (the API sends one for each).
+ * position, else one right of the others (the API sends one for each). Stored
+ * positions whose spots overlap an earlier station's (a site saved before car
+ * spots began 0.6 m in front of their charger instead of 0.9 m into it, so
+ * the spots of two stations facing each other reach 1.5 m further) slide by
+ * the shortest step that clears them, along the row or back along the spots
+ * (`resolveFreeOverlaps` with `nearest`), so a saved site always shows a
+ * valid layout; the layout Save stores what the view shows. Stations that
+ * overlap nothing keep their hand-placed positions.
  */
 export function freeStationPlaces(
   stations: readonly LayoutStation[],
 ): Map<string, FreeStationPlace> {
   const places = new Map<string, FreeStationPlace>();
-  for (const s of stations) {
-    if (s.freePosition != null) {
-      places.set(s.id, { placement: s.freePosition, spots: freeSpotCount(s.evses.length) });
-    }
+  const stored = stations.flatMap((s) =>
+    s.freePosition != null
+      ? [{ key: s.id, placement: s.freePosition, spots: freeSpotCount(s.evses.length) }]
+      : [],
+  );
+  const moved = resolveFreeOverlaps(stored, { nearest: true });
+  for (const s of stored) {
+    places.set(s.key, { placement: moved.get(s.key) ?? s.placement, spots: s.spots });
   }
   for (const s of stations) {
     if (places.has(s.id)) continue;
@@ -120,26 +137,41 @@ export function stationConnectorTypes(station: LayoutStation): Array<string | nu
   return station.evses.flatMap((e) => e.connectors.map((c) => c.connectorType));
 }
 
+/** The layout kind of a station (AC or DC, its depot spot) from its connectors, as the API reads it. */
+export function stationLayoutKindOf(station: Pick<LayoutStation, 'evses'>): LayoutStationKind {
+  return layoutStationKind(
+    station.evses.flatMap((e) => e.connectors),
+    station.evses.length,
+  );
+}
+
 /**
  * The stations of a site for the layout defaults: all of them, and how many
- * take a depot's truck lanes (an MCS connector, `depotStationKind`) and bus
- * bays (the rest), as the API counts them.
+ * take a depot's truck lanes (an MCS connector) and bus bays (any other DC
+ * station; an AC station takes neither), as the API counts them.
  */
 export function layoutStationCountsOf(
   stations: ReadonlyArray<Pick<LayoutStation, 'evses'>>,
 ): LayoutStationCounts {
-  const truck = stations.filter(
-    (s) =>
-      depotStationKind(s.evses.flatMap((e) => e.connectors.map((c) => c.connectorType))) ===
-      'truck',
-  ).length;
-  return { total: stations.length, bus: stations.length - truck, truck };
+  return layoutStationCountsOfKinds(stations.map(stationLayoutKindOf));
 }
 
-/** The order station labels place in: the selected station, then faulted, then charging, then the rest. */
-export function labelPriority(state: string, selected: boolean): number {
-  if (selected) return 0;
-  if (state === 'faulted') return 1;
-  if (state === 'charging') return 2;
-  return 3;
+/**
+ * A custom site's DC split system (a DC station with three or more EVSEs,
+ * `SPLIT_SYSTEM`): the x of a dispenser at the head of each of its car spots,
+ * in its own frame, EVSE order; null for any other station or spot type.
+ */
+export function customSplitDispenserXs(
+  station: Pick<LayoutStation, 'chargingKind' | 'evses'>,
+  place: FreeStationPlace,
+): number[] | null {
+  if (station.chargingKind !== 'dc' || station.evses.length < SPLIT_SYSTEM.minDispensers) {
+    return null;
+  }
+  if (freeSpotTypeOf(place.placement) !== 'car' || place.spots < SPLIT_SYSTEM.minDispensers) {
+    return null;
+  }
+  return freeSpotRects(place.spots, 'car').map(
+    (r) => Math.round(((r.minX + r.maxX) / 2) * 100) / 100 + 0,
+  );
 }

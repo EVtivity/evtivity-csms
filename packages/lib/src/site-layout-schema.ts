@@ -10,6 +10,7 @@
 import { z } from 'zod';
 import {
   CHARGER_MOUNTINGS,
+  CHARGER_PLACEMENTS,
   DEPOT_LAYOUT,
   FREE_LAYOUT,
   FREE_SPOT_DIMENSIONS,
@@ -22,6 +23,7 @@ const L = LAYOUT_GRID_LIMITS;
 
 // The farthest a lot or a depot yard reaches from its origin, plus the transformer reach.
 const D = DEPOT_LAYOUT;
+// The drive lane of a yard with truck lanes is the wider one (`depotDriveLaneM`).
 const depotExtent =
   Math.max(
     L.depotSpots.max * FREE_SPOT_DIMENSIONS.bus_bay.widthM +
@@ -177,7 +179,7 @@ export const siteLayoutSettingsSchema = z
       .enum(SITE_TYPES)
       .optional()
       .describe(
-        'Kind of site: parking_lot (an outdoor hub: a paved lot on grass with transformers, batteries, solar canopies and switchboards), office_retail (one row of spots in front of a building, chargers on the facade or on a post at each spot), curbside (a street with chargers on posts at the curb of one or both sides), depot (a fenced fleet yard: nose-in bus bays of 4.3 by 14 m with pantograph poles or dispensers at their heads, and truck pull-through lanes of 5 by 25 m with a dispenser island beside each, one station per bay or lane) or custom (grass with each station placed and turned freely, with its own car spots). Only a parking lot, a depot and a custom site show transformers, energy assets and load management panels; the other types keep them stored, hidden. Absent means parking_lot',
+        'Kind of site: parking_lot (an outdoor hub: a paved lot on grass with transformers, batteries, solar canopies and switchboards), office_retail (one row of spots in front of a building, chargers on the facade or on a post at each spot), curbside (a street with chargers on posts at the curb of one or both sides), depot (a paved fleet yard: nose-in bus bays of 4.3 by 14 m with pantograph poles or dispensers at their heads, and truck pull-through lanes of 5 by 25 m with a dispenser island beside each, one station per bay or lane) or custom (grass with each station placed and turned freely, with its own car spots). Only a parking lot, a depot and a custom site show transformers, energy assets and load management panels; the other types keep them stored, hidden. Absent means parking_lot',
       ),
     spotsPerRow: z
       .number()
@@ -212,6 +214,12 @@ export const siteLayoutSettingsSchema = z
       .optional()
       .describe(
         'Office or retail: wall (a wall box on the facade, its cable across the sidewalk) or stall (a post at the head of each spot). Absent means wall',
+      ),
+    chargerPlacement: z
+      .enum(CHARGER_PLACEMENTS)
+      .optional()
+      .describe(
+        'Parking lot only: islands (chargers on the islands of rows back to back and at the lot edge rows, every row charges) or lot_edge (chargers only along the lot edge: the first and the last row, the inner rows ordinary parking). Absent means islands; refused on the other site types',
       ),
     chargersLeft: z
       .number()
@@ -273,6 +281,10 @@ export const siteLayoutSettingsSchema = z
   .refine((s) => s.chargersLeft !== 0 || s.chargersRight !== 0, {
     message: 'A curbside site needs at least one charger on one side',
     path: ['chargersRight'],
+  })
+  .refine((s) => s.chargerPlacement == null || (s.siteType ?? 'parking_lot') === 'parking_lot', {
+    message: 'Charger placement is a parking lot setting',
+    path: ['chargerPlacement'],
   })
   .refine((s) => s.busBays !== 0 || s.truckLanes !== 0, {
     message: 'A depot needs at least one bus bay or truck lane',

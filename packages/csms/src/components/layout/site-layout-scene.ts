@@ -24,10 +24,10 @@
 // front of its spots; the active display message shows on every lit
 // charger screen (`SceneStation.message`).
 //
-// A depot is a fenced, paved yard (`buildDepotYard`): the bus bays with their
-// lines and the head strip, the truck pull-through lanes with their islands,
-// edge lines and arrows, the one-way roads into and out of them, the two-way
-// drive lane and the gate. Each station stands in its slot's bay or lane
+// A depot is a paved yard (`buildDepotYard`): the bus bays with their lines
+// and the head strip, the truck pull-through lanes with their islands, edge
+// lines and arrows, the one-way roads into and out of them and the two-way
+// drive lane. Each station stands in its slot's bay or lane
 // (`SceneStation.free` from `depotSlotPlacement`, never dragged freely): a
 // depot pantograph pole or dispenser in a bus bay, a megawatt dispenser on a
 // truck lane island.
@@ -37,10 +37,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import {
   freeSpotRects,
+  freeFootprint,
   freeSpotsExtent,
   freeSpotTypeOf,
   FREE_LAYOUT,
-  STANDARD_DIMENSIONS,
+  EV_SIGNS,
+  WHEEL_STOP,
+  SPLIT_SYSTEM,
   type DepotLayout,
   type FreePlacement,
   type FreeSpotRect,
@@ -48,18 +51,32 @@ import {
 } from '@evtivity/lib/site-layout';
 import type { VehicleBodyType } from '@evtivity/lib/vehicle-appearance';
 import { SCENE_COLORS } from './site-layout-colors';
-import { sceneCar, vehicleSize, type SceneCar } from './site-layout-car';
+import {
+  CAR_PROFILES,
+  isLargeBodyType,
+  sceneCar,
+  vehicleSize,
+  type SceneCar,
+} from './site-layout-car';
 import type { CarKit } from './site-layout-car-geometry';
 import { createVehicleKit } from './site-layout-vehicle-kit';
 import type { FreeChargerModel } from './site-layout-free';
 import {
   BAY_LINE_GAP,
   BUILDING_HEIGHT_M,
+  carNoseAtStop,
+  chargerAtCurb,
+  parkingRowGaps,
+  rowFrontZ,
+  wheelStopCenterZ,
+  wheelStopMount,
   CAMERA_FOV,
   CURB_M,
   CURB_POST_BACK_M,
+  FACADE_SIGN_STANDOFF_M,
   FACADE_Z,
   MAX_POLAR_ANGLE,
+  clampCameraHeight,
   SIDEWALK_M,
   MIN_DISTANCE,
   OVERVIEW_CAMERA_OFFSET,
@@ -72,6 +89,7 @@ import {
   clampTarget,
   clampToLot,
   customSceneBox,
+  pointsBox,
   denseFrameBox,
   handleRotation,
   NARROW_STAGE_PX,
@@ -82,23 +100,59 @@ import {
   fitFrame,
   fogRange,
   FRONT_CAMERA_OFFSET,
-  FRONT_MAX_POLAR_ANGLE,
   frontCamera,
   groundBox,
+  layoutGroundBox,
   isSpot,
   logoFit,
+  CHARGER_LOGO_PANELS,
+  type ChargerLogoModel,
   maxZoomDistance,
   panBox,
+  pixelsPerMeter,
   rotateBox,
   sceneBox,
   spotRect,
   wallBoxOffset,
+  dispenserHolsters,
   worldToBay as lotToBay,
   type Box,
   type Lot,
   type Point,
   type StationProp,
+  type VirtualSign,
+  VIRTUAL_SIGN_OPACITY,
+  readerMount,
 } from './site-layout-grid';
+import {
+  EQUIPMENT_BOLLARD,
+  equipmentBollards,
+  equipmentPadBox,
+  type EquipmentGround,
+} from './site-layout-links';
+import {
+  ENGLISH_SIGN_TEXTS,
+  SIGN_FONT_FAMILY,
+  SIGN_POST_INSET_M,
+  signLetterPx,
+  signSupport,
+  signLines,
+  stationSignMount,
+  type SignTexts,
+  type StationSigns,
+} from './site-layout-signs';
+import type { AccessibleSpaceBoxes, Stall } from './site-layout-stalls';
+import {
+  SOLAR_CARPORT,
+  carportFrame,
+  carportTopY,
+  clearColumnXs,
+  freeColumnXs,
+  rowCarport,
+  type CanopyObstacle,
+  type CarportFrame,
+  type RowCarport,
+} from './site-layout-solar';
 import type { LinkKind, LoadLinks } from './site-layout-links';
 
 /** Pixels per meter of the spot texture. */
@@ -130,8 +184,10 @@ export interface SceneStation {
   glow: boolean;
   /** An AC wall box on the building facade (office or retail with wall mounting), not a pedestal. */
   wall: boolean;
-  /** What stands in the spot (`stationProp`): a car on a cable, a Reserved sign or a cone. */
+  /** What stands in the spot (`stationProp`): a car on a cable or a cone. */
   prop: StationProp;
+  /** The virtual status sign over the spot (`virtualSignOf`): reserved now or in maintenance. */
+  virtualSign?: VirtualSign | null | undefined;
   /** The car of a charging station (`sceneCar`); absent draws a grey sedan. */
   car?: SceneCar | undefined;
   /** Payment terminals paired to the station. */
@@ -154,6 +210,31 @@ export interface SceneStation {
   charger?: FreeChargerModel | undefined;
   /** The active display message, shown on the lit charger screen (null: none). */
   message?: string | null | undefined;
+  /**
+   * Parking lot or office or retail row: the stalls the station serves, in
+   * its own frame (`stationStalls`): two for a dual-port AC pedestal on the
+   * line between its spots, one widened vehicle space for the accessible
+   * charging space. Absent: its own spot.
+   */
+  stalls?: readonly Stall[] | undefined;
+  /** How far the charger stands from the middle of its spot along the row (a pedestal: on the pair line), in lot meters. */
+  shiftX?: number | undefined;
+  /** How far behind its spot point the charger stands, in its own z (`stationBackShift`: an AC pedestal behind the stall head). */
+  backShift?: number | undefined;
+  /** A dual-port pedestal: the vehicle in each stall (null: empty), EVSE order. */
+  stallCars?: ReadonlyArray<SceneCar | null> | undefined;
+  /**
+   * A DC split system (`splitDispenserCount`, `SPLIT_SYSTEM`): the x of each
+   * of its dispensers (satellites) in the station's own frame, EVSE order;
+   * its power cabinet stands on the equipment pad (`withSplitCabinets`).
+   */
+  dispensers?: readonly number[] | undefined;
+  /**
+   * The connectors (holstered cables) of each dispenser, EVSE order for a
+   * split system, else one entry for the station's one dispenser
+   * (`dispenserHolsters`). Absent: two.
+   */
+  cables?: readonly number[] | undefined;
 }
 
 export interface SceneTransformer {
@@ -162,12 +243,45 @@ export interface SceneTransformer {
   z: number;
 }
 
-/** A load management switchboard on the grass (site-layout-links.ts, placePanels; parking lot only). */
+/**
+ * A load management panel on the grass (site-layout-links.ts, placePanels): a
+ * switchboard on the equipment pad, or a panelboard on a rack beside its AC
+ * group.
+ */
 export interface ScenePanel {
   id: string;
   x: number;
   z: number;
+  model: 'switchboard' | 'panelboard' | 'wall' | 'cabinet';
+  /** The turn about the vertical axis, in radians (0: the front faces +z; a row end rack faces the lot edge). */
+  turn: number;
 }
+
+/**
+ * The panelboard on its rack beside an AC group: the nominal NEMA 3R
+ * enclosure of a 225 A, 42 space panelboard interior, 20 in (0.51 m) wide,
+ * 38 in (0.97 m) high and 6.5 in (0.165 m) deep (Schneider Electric NQ442L2C
+ * product data sheet, June 2023,
+ * https://cdn.shopify.com/s/files/1/0571/5899/2039/files/NQ442L2C_document.pdf),
+ * its top 1.87 m above the pad, so the highest breaker handle stays under the
+ * 6 ft 7 in (2.0 m) of NEC 240.24(A) and 404.8(A) (read in Mike Holt forum
+ * threads, not the code text). On a building facade (`wallTopM`) it hangs
+ * over a sidewalk, a circulation path: an object deeper than 4 in with its
+ * leading edge more than 27 in above the ground breaks the protrusion limit
+ * of 2010 ADA Standards 307.2
+ * (https://www.access-board.gov/ada/chapter/ch03/), so its bottom stands at
+ * 0.68 m (under 27 in, 0.686 m) and its top at 1.65 m. The rack and its pad
+ * (1.2 by 0.6 m) have no source.
+ */
+const PANELBOARD = {
+  widthM: 0.51,
+  heightM: 0.97,
+  depthM: 0.165,
+  topM: 1.87,
+  wallTopM: 1.65,
+  padWM: 1.2,
+  padDM: 0.6,
+} as const;
 
 /** A battery storage cabinet on the grass (information only). */
 export interface SceneBattery {
@@ -196,12 +310,18 @@ export interface SceneLayout {
   /** Load management switchboards (parking lot only). */
   panels: readonly ScenePanel[];
   links: LoadLinks;
+  /** The site is in California: its stalls add the Vehicle Code 22511 tow-away sign (`site-layout-signs.ts`). */
+  california?: boolean;
+  /** The accessible charging space: its vehicle space and striped access aisle, in lot meters (null: none). */
+  accessible?: AccessibleSpaceBoxes | null;
 }
 
 export interface SceneTheme {
   dark: boolean;
-  /** The word on the Reserved sign, in the UI language. */
-  reservedLabel: string;
+  /** The sign texts in the viewer's language (`site-layout-signs.ts` `signTexts`). */
+  signs: SignTexts;
+  /** The virtual Reserved and Maintenance sign colors (the CSMS state colors, CSS colors). */
+  virtualColors: { reserved: string; maintenance: string };
   /** Edit grid and selection ring (a CSS color). */
   primary: string;
   /** A blocked drop (a CSS color). */
@@ -215,6 +335,8 @@ export interface ScreenPoint {
   depth: number;
   /** Distance from the camera in meters. */
   distance: number;
+  /** On-screen pixels per world meter at that distance (`pixelsPerMeter`). */
+  pxPerMeter: number;
   visible: boolean;
 }
 
@@ -244,6 +366,18 @@ export interface SceneCallbacks {
   onSolarDrop?: (solarId: string, p: Point) => void;
   /** Custom site in edit mode: a click on a solar canopy selects it (null: none). */
   onSolarPick?: (solarId: string | null) => void;
+  /** A mouse or pen pointer over a station (null when it leaves): the station tooltip. Never on touch. */
+  onHover?: (stationId: string | null) => void;
+  /**
+   * The power equipment whose label shows (no label is always on): a mouse or
+   * pen pointer over it, or a tap on it (touch). The key is
+   * `transformer:<id>`, `energy:<id>` (a battery or solar canopy) or a link
+   * label id (`panel:<id>` for a switchboard or panelboard and the cable into
+   * it, `circuit:<id>` for a circuit's cable run, `station:<id>` for a
+   * station's branch) or `virtual:<stationId>` for a virtual status sign;
+   * null when the pointer leaves it or a tap misses.
+   */
+  onEquipmentHover?: (key: string | null) => void;
   /** Runs after every rendered frame (labels and popup follow the models). */
   onFrame: () => void;
 }
@@ -288,6 +422,8 @@ export interface SiteScene {
   transformerLabelPoint: (transformerId: string) => ScreenPoint | null;
   /** Where a link label goes. */
   linkLabelPoint: (labelId: string) => ScreenPoint | null;
+  /** Where the time window of a station's virtual status sign goes (null: none). */
+  virtualSignPoint: (stationId: string) => ScreenPoint | null;
   dispose: () => void;
 }
 
@@ -304,30 +440,53 @@ interface StationObject {
   labelZ: number;
   /** Above the middle of the car roof (station frame), or null without a car. */
   avatarAnchor: THREE.Vector3 | null;
+  /** The virtual status sign (a sprite facing the camera), or null. */
+  virtualSign: THREE.Sprite | null;
   /** Custom site: the rotation handle in front of the spots (shown on the selected station in Edit Layout). */
   handle: THREE.Group | null;
   station: SceneStation;
 }
 
-/** The meshes of one load management link, restyled by its live flow. */
+/** The meshes of one load management cable run, restyled by its live flow. */
 interface LinkMeshes {
   core: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial>;
   halo: THREE.Mesh<THREE.TubeGeometry, THREE.MeshBasicMaterial>;
-  curve: THREE.QuadraticBezierCurve3;
+  curve: THREE.CurvePath<THREE.Vector3>;
+  /** Tube segments along the run (about one per 20 cm, so the corners stay sharp). */
+  tubular: number;
   kind: LinkKind;
+  /** The load it carries (`LinkSegment.flowId`). */
+  flowId: string;
   /** The flow step it is drawn at (0 to 10), -1 before the first style. */
   step: number;
 }
 
+/** The virtual status sign: how wide and how high its middle floats, in meters (its opacity: VIRTUAL_SIGN_OPACITY). */
+const VIRTUAL_SIGN_WIDTH_M = 2.3;
+const VIRTUAL_SIGN_Y_M = 2.4;
+
 /** How far above the car roof a driver avatar floats, in meters. */
 const AVATAR_ABOVE_ROOF_M = 0.5;
 
-/** Height of a panel link end and of a panel label, in meters. */
-const PANEL_LINK_Y = 1.7;
+/**
+ * Height of the load management cable runs above the ground, in meters: just
+ * above the paving and its markings, so they never z-fight with them.
+ */
+export const LINK_Y = 0.08;
+/** Height of a panel label, in meters. */
 const PANEL_LABEL_Y = 2.75;
 
 /** From this many stations, the fixed parts of the station models are merged (outside Edit Layout). */
 export const MERGE_STATIONS_FROM = 60;
+
+/** The distance from `p` to the segment from `a` to `b`, on the ground. */
+export function distanceToSegment(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  const len2 = dx * dx + dz * dz;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / len2));
+  return Math.hypot(p.x - (a.x + t * dx), p.z - (a.z + t * dz));
+}
 
 export function mergesStations(stationCount: number): boolean {
   return stationCount >= MERGE_STATIONS_FROM;
@@ -376,12 +535,7 @@ function concatGeometries(parts: readonly THREE.BufferGeometry[]): THREE.BufferG
   return out;
 }
 
-/** Back panel of each model: size and where its center sits on the body. */
-export const LOGO_PANELS = {
-  dc: { width: 0.62, height: 0.62, y: 1.2, z: -0.29 },
-  ac: { width: 0.28, height: 0.4, y: 1.25, z: -0.1 },
-} as const;
-const LOGO_PADDING = 0.04;
+const LOGO_PADDING = 0.03;
 
 /** Loads a logo as a canvas (SVG rasterized), or null when it cannot load. */
 function loadLogoCanvas(url: string): Promise<HTMLCanvasElement | null> {
@@ -446,7 +600,7 @@ export function createSiteScene(
   const camera = new THREE.PerspectiveCamera(CAMERA_FOV, 1, 0.5, 2000);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = !options.reducedMotion;
-  controls.maxPolarAngle = options.view === 'front' ? FRONT_MAX_POLAR_ANGLE : MAX_POLAR_ANGLE;
+  controls.maxPolarAngle = MAX_POLAR_ANGLE;
   controls.minDistance = MIN_DISTANCE;
   // Panning moves along the ground, like a map, so the view never lifts off the site.
   controls.screenSpacePanning = false;
@@ -551,7 +705,8 @@ export function createSiteScene(
 
   let theme: SceneTheme = {
     dark: false,
-    reservedLabel: 'Reserved',
+    signs: ENGLISH_SIGN_TEXTS,
+    virtualColors: { reserved: '#f59e0b', maintenance: '#f59e0b' },
     primary: '#2563eb',
     destructive: '#ef4444',
   };
@@ -602,6 +757,8 @@ export function createSiteScene(
   const guideGroup = new THREE.Group();
   // Label points of the batteries and solar canopies (lot coordinates).
   const energyLabels = new Map<string, THREE.Vector3>();
+  // The virtual status signs by station (hover shows their time window).
+  const virtualSprites = new Map<string, THREE.Sprite>();
   const linkLabels = new Map<string, THREE.Vector3>();
   const flowTextures: THREE.Texture[] = [];
   // The link meshes by segment id, so the live flow restyles them without a rebuild.
@@ -622,7 +779,13 @@ export function createSiteScene(
     if (s.free != null) {
       return { point: { x: s.free.x, z: s.free.z }, turn: (-s.free.rotationDeg * Math.PI) / 180 };
     }
-    return { point: bayToLot(s.bay, layout.lot), turn: bayTurn(s.bay, layout.lot) };
+    const point = bayToLot(s.bay, layout.lot);
+    const turn = bayTurn(s.bay, layout.lot);
+    // Back along its own -z (a turned row: +z in lot meters).
+    return {
+      point: { x: point.x + (s.shiftX ?? 0), z: point.z - (s.backShift ?? 0) * Math.cos(turn) },
+      turn,
+    };
   }
 
   // A display message drawn for a charger screen: wrapped on the screen when
@@ -892,11 +1055,14 @@ export function createSiteScene(
   // One spot of asphalt with its painted line on each side edge (half on each
   // side of the tile, so repeated tiles share one line) from the front gap to
   // the back gap, then the lane with a dashed center line.
-  function spotTexture(asphalt: string, paint: string): THREE.CanvasTexture {
-    const { spotW, spotD, lane, pitch } = layout.lot;
+  // `withLane` false: the spot alone (a parking lot row; its aisles and
+  // islands are drawn apart, aisleTexture).
+  function spotTexture(asphalt: string, paint: string, withLane = true): THREE.CanvasTexture {
+    const { spotW, spotD, pitch } = layout.lot;
+    const lane = withLane ? layout.lot.lane : 0;
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(spotW * TEXTURE_PX_PER_M);
-    canvas.height = Math.round(pitch * TEXTURE_PX_PER_M);
+    canvas.height = Math.round((withLane ? pitch : spotD) * TEXTURE_PX_PER_M);
     const ctx = canvas.getContext('2d');
     if (ctx != null) {
       ctx.fillStyle = asphalt;
@@ -921,6 +1087,153 @@ export function createSiteScene(
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
     return texture;
+  }
+
+  // A drive aisle of a parking lot: asphalt with a dashed center line, one tile per spot width.
+  function aisleTexture(asphalt: string, paint: string): THREE.CanvasTexture {
+    const { spotW, lane } = layout.lot;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(spotW * TEXTURE_PX_PER_M);
+    canvas.height = Math.round(lane * TEXTURE_PX_PER_M);
+    const ctx = canvas.getContext('2d');
+    if (ctx != null) {
+      ctx.fillStyle = asphalt;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = paint;
+      const half = Math.round(0.05 * TEXTURE_PX_PER_M);
+      const dash = Math.round(Math.min(1.5, spotW / 2) * TEXTURE_PX_PER_M);
+      ctx.globalAlpha = 0.7;
+      ctx.fillRect(
+        Math.round((canvas.width - dash) / 2),
+        Math.round(canvas.height / 2) - half,
+        dash,
+        half * 2,
+      );
+      ctx.globalAlpha = 1;
+    }
+    const texture = track(new THREE.CanvasTexture(canvas));
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return texture;
+  }
+
+  // A parking lot: each row of spots with its painted lines, the drive aisles
+  // between rows facing each other with a dashed center line, and a raised
+  // curbed concrete island between rows back to back, where both rows'
+  // chargers stand (parkingRowGaps).
+  function buildParkingRows(palette: Palette): void {
+    const lot = layout.lot;
+    const plane = (w: number, d: number, material: THREE.Material, x: number, z: number) => {
+      const geometry = track(new THREE.PlaneGeometry(w, d));
+      geometry.rotateX(-Math.PI / 2);
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, 0.012, z);
+      mesh.receiveShadow = true;
+      site.add(mesh);
+    };
+    const rows = spotTexture(palette.asphalt, palette.paint, false);
+    rows.repeat.set(lot.cols, 1);
+    const rowMaterial = M('#ffffff', { map: rows, roughness: 0.95, metalness: 0 });
+    for (let r = 0; r < lot.rows; r++) {
+      plane(lot.width, lot.spotD, rowMaterial, lot.width / 2, rowFrontZ(r, lot) + lot.spotD / 2);
+    }
+    const aisles = aisleTexture(palette.asphalt, palette.paint);
+    aisles.repeat.set(lot.cols, 1);
+    const aisleMaterial = M('#ffffff', { map: aisles, roughness: 0.95, metalness: 0 });
+    const curb = M(palette.curb, { roughness: 0.9 });
+    const top = M(palette.concrete, { roughness: 0.95 });
+    const ISLAND_H = 0.15;
+    for (const gap of parkingRowGaps(lot)) {
+      const depth = gap.maxZ - gap.minZ;
+      const z = (gap.minZ + gap.maxZ) / 2;
+      if (gap.kind === 'aisle') {
+        plane(lot.width, depth, aisleMaterial, lot.width / 2, z);
+        continue;
+      }
+      // The island: 6 in curbs on its four sides around a concrete top.
+      const body = box(lot.width, ISLAND_H, depth, top);
+      body.position.set(lot.width / 2, ISLAND_H / 2, z);
+      body.receiveShadow = true;
+      site.add(body);
+      for (const [w, d, x, cz] of [
+        [lot.width, CURB_M / 2, lot.width / 2, gap.minZ + CURB_M / 4],
+        [lot.width, CURB_M / 2, lot.width / 2, gap.maxZ - CURB_M / 4],
+        [CURB_M / 2, depth, CURB_M / 4, z],
+        [CURB_M / 2, depth, lot.width - CURB_M / 4, z],
+      ] as const) {
+        const edge = box(w, ISLAND_H + 0.01, d, curb);
+        edge.position.set(x, (ISLAND_H + 0.01) / 2, cz);
+        site.add(edge);
+      }
+    }
+  }
+
+  // The accessible charging space (`ACCESSIBLE_SPACE`, US Access Board EV
+  // charging guidance): paint over its two spots, the widened vehicle space
+  // and beside it the access aisle, its side lines and diagonal hatching
+  // "to discourage parking". No International Symbol of Accessibility: the
+  // Access Board recommends against it at EV spaces unless a state or local
+  // code requires one. Hatch spacing and line width follow the spot lines
+  // (no source gives one).
+  function addAccessibleSpace(palette: Palette): void {
+    const space = layout.accessible;
+    if (space == null) return;
+    const minX = Math.min(space.vehicle.minX, space.aisle.minX);
+    const maxX = Math.max(space.vehicle.maxX, space.aisle.maxX);
+    const { minZ, maxZ } = space.vehicle;
+    const w = maxX - minX;
+    const d = maxZ - minZ;
+    const px = (m: number): number => Math.round(m * TEXTURE_PX_PER_M);
+    const canvas = document.createElement('canvas');
+    canvas.width = px(w);
+    canvas.height = px(d);
+    const ctx = canvas.getContext('2d');
+    if (ctx != null) {
+      ctx.fillStyle = palette.asphalt;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = palette.paint;
+      ctx.strokeStyle = palette.paint;
+      const line = px(0.1);
+      const gap = px(Math.min(BAY_LINE_GAP, d / 6));
+      const lineAt = (m: number): void => {
+        const x = Math.min(canvas.width - line, Math.max(0, px(m - minX) - line / 2));
+        ctx.fillRect(x, gap, line, canvas.height - 2 * gap);
+      };
+      for (const edge of new Set([minX, maxX, space.aisle.minX, space.aisle.maxX])) lineAt(edge);
+      // Diagonal hatching across the aisle.
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(
+        px(space.aisle.minX - minX),
+        gap,
+        px(space.aisle.maxX - space.aisle.minX),
+        canvas.height - 2 * gap,
+      );
+      ctx.clip();
+      ctx.lineWidth = line;
+      const step = px(0.6);
+      for (let y = -canvas.width; y < canvas.height + canvas.width; y += step) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y + canvas.width);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    const texture = track(new THREE.CanvasTexture(canvas));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    const geometry = track(new THREE.PlaneGeometry(w, d));
+    geometry.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(
+      geometry,
+      M('#ffffff', { map: texture, roughness: 0.95, metalness: 0 }),
+    );
+    mesh.position.set((minX + maxX) / 2, 0.014, (minZ + maxZ) / 2);
+    mesh.receiveShadow = true;
+    site.add(mesh);
   }
 
   // Grass: speckles of lighter and darker blades on the base color, from a
@@ -1003,8 +1316,11 @@ export function createSiteScene(
   // The props and the transformer, built once per rebuild on first use and
   // cloned per station: the clones share their geometries and materials.
   interface Templates {
-    /** A car of its body type, nose to the charger, its body in its color. */
-    car: (look: SceneCar) => THREE.Group;
+    /**
+     * A car of its body type, nose to the charger, its body in its color; its
+     * nose `noseZ` in front of the charger (against a wheel stop where the spot has one).
+     */
+    car: (look: SceneCar, noseZ?: number) => THREE.Group;
     /** The car parallel parked along a curb, in front of a curbside post. */
     carParallel: (look: SceneCar) => THREE.Group;
     /** A vehicle of its body type in its color in its own frame (nose at the origin facing -z). */
@@ -1014,12 +1330,24 @@ export function createSiteScene(
      * moves the car across the station (the right spot of a two-spot station
      * on a custom site takes the right holster).
      */
-    cable: (kind: CableKind, bodyType: VehicleBodyType, offsetX?: number) => THREE.Mesh;
-    sign: () => THREE.Group;
+    cable: (
+      kind: CableKind,
+      bodyType: VehicleBodyType,
+      offsetX?: number,
+      noseZ?: number,
+    ) => THREE.Mesh;
+    /** A precast concrete wheel stop (WHEEL_STOP), centered on the origin, across x. */
+    wheelStop: () => THREE.Mesh;
+    /** The EV charging signs of a stall (R7-113, and the California tow-away sign), on a post or a wall. */
+    evSigns: (mount: StationSigns) => THREE.Group;
     cone: () => THREE.Group;
     transformer: () => THREE.Group;
     battery: () => THREE.Group;
     switchboard: () => THREE.Group;
+    /** A DC split system's power cabinet on a pad (`SPLIT_SYSTEM.cabinet`), its doors toward +z. */
+    powerCabinet: () => THREE.Group;
+    panelboard: () => THREE.Group;
+    wallPanelboard: () => THREE.Group;
     terminal: (hasDisplay: boolean, online: boolean | null) => THREE.Group;
   }
 
@@ -1036,9 +1364,9 @@ export function createSiteScene(
     // The car parks nose to the charger, CAR_FRONT in front of it, inside its spot.
     const CAR_FRONT = 0.7;
     // The charge port on the front left fender of each body type.
-    const portAt = (bodyType: VehicleBodyType): [number, number, number] => {
+    const portAt = (bodyType: VehicleBodyType, noseZ = CAR_FRONT): [number, number, number] => {
       const port = carKit(bodyType).port;
-      return [port.x, port.y, CAR_FRONT + port.z];
+      return [port.x, port.y, noseZ + port.z];
     };
     // A car parallel parked along a curb (station local +z is the street): it
     // faces -x with its right side 0.3 m from the curb, its nose just past the
@@ -1107,11 +1435,11 @@ export function createSiteScene(
         once(`vehicle-${look.bodyType}-${look.color}`, () =>
           carKit(look.bodyType).build({ ...carShared, paint: paintFor(look.color) }),
         ),
-      car: (look) =>
-        once(`car-${look.bodyType}-${look.color}`, () => {
+      car: (look, noseZ = CAR_FRONT) =>
+        once(`car-${look.bodyType}-${look.color}-${String(noseZ)}`, () => {
           const g = new THREE.Group();
           const car = carKit(look.bodyType).build({ ...carShared, paint: paintFor(look.color) });
-          car.position.z = CAR_FRONT;
+          car.position.z = noseZ;
           g.add(car);
           return g;
         }),
@@ -1126,9 +1454,9 @@ export function createSiteScene(
           return g;
         }),
       // From the left holster of the charger to the charge port at the front left of the car.
-      cable: (kind, bodyType, offsetX = 0) =>
-        once(`cable-${kind}-${bodyType}-${String(offsetX)}`, () => {
-          const port = portAt(bodyType);
+      cable: (kind, bodyType, offsetX = 0, noseZ = CAR_FRONT) =>
+        once(`cable-${kind}-${bodyType}-${String(offsetX)}-${String(noseZ)}`, () => {
+          const port = portAt(bodyType, noseZ);
           const PORT: [number, number, number] = [port[0] + offsetX, port[1], port[2]];
           // The holster on the side of the car: the right one for a car in the right spot.
           const side = offsetX > 0 ? -1 : 1;
@@ -1159,7 +1487,7 @@ export function createSiteScene(
                 [0.22, 0.3, w + 0.7],
                 [-0.2, 0.1, -1.8],
                 [-0.8, 0.12, 0.2],
-                [-0.9, 0.4, CAR_FRONT + 0.3],
+                [-0.9, 0.4, noseZ + 0.3],
                 PORT,
               ],
               rubber,
@@ -1171,7 +1499,7 @@ export function createSiteScene(
                   [-0.44 * side, 1.02, 0.12],
                   [-0.55 * side, 0.5, 0.3],
                   [-0.7 * side + offsetX * 0.4, 0.12, 0.62],
-                  [-0.9 + offsetX, 0.4, CAR_FRONT + 0.4],
+                  [-0.9 + offsetX, 0.4, noseZ + 0.4],
                   PORT,
                 ],
                 rubber,
@@ -1181,28 +1509,76 @@ export function createSiteScene(
                   [-0.17 * side, 0.95, 0.04],
                   [-0.32 * side, 0.45, 0.25],
                   [-0.6 * side + offsetX * 0.4, 0.12, 0.6],
-                  [-0.9 + offsetX, 0.4, CAR_FRONT + 0.4],
+                  [-0.9 + offsetX, 0.4, noseZ + 0.4],
                   PORT,
                 ],
                 rubber,
               );
         }),
-      sign: () =>
-        once('sign', () => {
+      wheelStop: () =>
+        once('wheelStop', () => {
+          // The precast stop: a low concrete bar, its top a little narrower than its base.
+          const stop = new THREE.Mesh(
+            track(new THREE.BoxGeometry(WHEEL_STOP.lengthM, WHEEL_STOP.heightM, WHEEL_STOP.depthM)),
+            M(palette.concrete, { roughness: 0.95 }),
+          );
+          stop.position.y = WHEEL_STOP.heightM / 2;
+          stop.castShadow = true;
+          stop.receiveShadow = true;
+          stop.raycast = () => undefined;
+          return stop;
+        }),
+      evSigns: (mount: StationSigns) =>
+        once(`evSigns:${String(mount.onWall)}:${String(mount.towAwayBottomM)}`, () => {
+          // A wall sign is placed at the facade by the caller (mount.z).
           const g = new THREE.Group();
-          const concrete = M(palette.concrete, { roughness: 0.95 });
-          // A concrete footing the post stands in.
-          const footing = cylinder(0.2, 0.12, 20, concrete);
-          footing.position.set(0, 0.06, 2.4);
-          const collar = cylinder(0.09, 0.06, 16, concrete);
-          collar.position.set(0, 0.15, 2.4);
-          const post = cylinder(0.035, 1.5, 12, M(SCENE_COLORS.signPost, { metalness: 0.5 }));
-          post.position.set(0, 0.75, 2.4);
-          const edge = M(SCENE_COLORS.signBorder, { roughness: 0.5 });
-          const face = M('#ffffff', { map: signTexture(palette), roughness: 0.5 });
-          const plate = box(0.8, 0.42, 0.03, [edge, edge, edge, edge, face, edge]);
-          plate.position.set(0, 1.32, 2.43);
-          g.add(footing, collar, post, plate);
+          const backing = M(SCENE_COLORS.signBack, { roughness: 0.6, metalness: 0.5 });
+          // A sign panel: a thin aluminum blank with its face in front.
+          const panel = (w: number, h: number, bottom: number, face: THREE.CanvasTexture): void => {
+            const blank = box(w, h, 0.004, backing);
+            blank.position.set(0, bottom + h / 2, mount.onWall ? 0.004 : 0.03);
+            const plate = new THREE.Mesh(
+              track(new THREE.PlaneGeometry(w, h)),
+              M('#ffffff', { map: face, roughness: 0.5, metalness: 0 }),
+            );
+            plate.position.set(0, bottom + h / 2, mount.onWall ? 0.0065 : 0.0325);
+            g.add(blank, plate);
+          };
+          panel(
+            EV_SIGNS.chargingOnly.widthM,
+            EV_SIGNS.chargingOnly.heightM,
+            mount.chargingOnlyBottomM,
+            evSignTexture('chargingOnly'),
+          );
+          if (mount.towAwayBottomM != null) {
+            panel(
+              EV_SIGNS.towAway.widthM,
+              EV_SIGNS.towAway.heightM,
+              mount.towAwayBottomM,
+              evSignTexture('towAway'),
+            );
+          }
+          const support = signSupport(mount);
+          if (support.kind === 'post') {
+            const steel = M(SCENE_COLORS.signPost, { roughness: 0.5, metalness: 0.7 });
+            // The galvanized square tube from the ground to the top sign.
+            const post = box(
+              EV_SIGNS.postWidthM,
+              support.topM - support.bottomM,
+              EV_SIGNS.postWidthM,
+              steel,
+            );
+            post.position.y = (support.topM + support.bottomM) / 2;
+            // The anchor post it slides into, driven into the ground.
+            const anchor = box(
+              EV_SIGNS.anchorWidthM,
+              support.anchorTopM,
+              EV_SIGNS.anchorWidthM,
+              steel,
+            );
+            anchor.position.y = support.anchorTopM / 2;
+            g.add(post, anchor);
+          }
           return g;
         }),
       cone: () =>
@@ -1320,6 +1696,37 @@ export function createSiteScene(
       // A free-standing switchboard on a concrete pad: three doors with
       // handles, vents at the top and bottom of each door, a nameplate and a
       // warning label. The front faces +z.
+      powerCabinet: () =>
+        once('powerCabinet', () => {
+          // Kempower C-Series double cabinet: 1250 x 2195 x 841 mm (SPLIT_SYSTEM.cabinet),
+          // two doors with air inlets and an outlet under the roof.
+          const g = new THREE.Group();
+          const c = SPLIT_SYSTEM.cabinet;
+          const concrete = M(palette.concrete, { roughness: 0.95 });
+          const body = M(palette.switchboard, { roughness: 0.45, metalness: 0.35 });
+          const door = M(palette.switchboardDoor, { roughness: 0.4, metalness: 0.35 });
+          const dark = M(SCENE_COLORS.dark1, { roughness: 0.6 });
+          const pad = box(c.widthM + 0.4, 0.15, c.depthM + 0.6, concrete);
+          pad.position.y = 0.075;
+          const plinth = box(c.widthM, 0.1, c.depthM, dark);
+          plinth.position.y = 0.2;
+          const cabinet = box(c.widthM, c.heightM - 0.15, c.depthM, body);
+          cabinet.position.y = 0.25 + (c.heightM - 0.15) / 2;
+          const roof = box(c.widthM + 0.05, 0.05, c.depthM + 0.05, dark);
+          roof.position.y = 0.25 + c.heightM - 0.15 + 0.025;
+          g.add(pad, plinth, cabinet, roof);
+          for (const x of [-c.widthM / 4, c.widthM / 4]) {
+            const leaf = box(c.widthM / 2 - 0.04, c.heightM - 0.35, 0.02, door);
+            leaf.position.set(x, 0.25 + (c.heightM - 0.15) / 2, c.depthM / 2 + 0.01);
+            g.add(leaf);
+            for (let i = 0; i < 4; i++) {
+              const inlet = box(0.32, 0.18, 0.02, dark);
+              inlet.position.set(x, 1.9 - i * 0.26, c.depthM / 2 + 0.025);
+              g.add(inlet);
+            }
+          }
+          return g;
+        }),
       switchboard: () =>
         once('switchboard', () => {
           const g = new THREE.Group();
@@ -1362,6 +1769,71 @@ export function createSiteScene(
           ]);
           warning.position.set(0.62, 1.55, 0.425);
           g.add(nameplate, warning);
+          return g;
+        }),
+      // A panelboard on a two-post strut rack on a small pad (PANELBOARD): the
+      // enclosure with its door seam and a warning label. The front faces +z.
+      panelboard: () =>
+        once('panelboard', () => {
+          const g = new THREE.Group();
+          const concrete = M(palette.concrete, { roughness: 0.95 });
+          const body = M(palette.switchboard, { roughness: 0.45, metalness: 0.35 });
+          const strut = M(SCENE_COLORS.signPost, { roughness: 0.5, metalness: 0.6 });
+          const dark = M(SCENE_COLORS.dark1, { roughness: 0.6 });
+          const pb = PANELBOARD;
+          const pad = box(pb.padWM, 0.12, pb.padDM, concrete);
+          pad.position.y = 0.06;
+          g.add(pad);
+          for (const x of [-0.35, 0.35]) {
+            const post = box(0.042, pb.topM + 0.1, 0.042, strut);
+            post.position.set(x, 0.12 + (pb.topM + 0.1) / 2, -0.12);
+            g.add(post);
+          }
+          for (const y of [pb.topM - 0.15, pb.topM - pb.heightM + 0.15]) {
+            const bar = box(0.8, 0.042, 0.042, strut);
+            bar.position.set(0, y, -0.12);
+            g.add(bar);
+          }
+          const enclosure = box(pb.widthM, pb.heightM, pb.depthM, body);
+          enclosure.position.set(0, pb.topM - pb.heightM / 2, -0.12 + 0.021 + pb.depthM / 2);
+          g.add(enclosure);
+          const front = -0.12 + 0.021 + pb.depthM;
+          const seam = box(0.006, pb.heightM - 0.08, 0.004, dark);
+          seam.position.set(pb.widthM / 2 - 0.08, pb.topM - pb.heightM / 2, front + 0.002);
+          const warning = box(0.16, 0.12, 0.004, [
+            dark,
+            dark,
+            dark,
+            dark,
+            M('#ffffff', { map: warningTexture(), roughness: 0.5 }),
+            dark,
+          ]);
+          warning.position.set(0, pb.topM - 0.2, front + 0.003);
+          g.add(seam, warning);
+          return g;
+        }),
+      // A panelboard on the building facade (PANELBOARD, an office or retail
+      // site): the enclosure on the wall, its back at z 0, the front +z.
+      wallPanelboard: () =>
+        once('wall-panelboard', () => {
+          const g = new THREE.Group();
+          const body = M(palette.switchboard, { roughness: 0.45, metalness: 0.35 });
+          const dark = M(SCENE_COLORS.dark1, { roughness: 0.6 });
+          const pb = PANELBOARD;
+          const enclosure = box(pb.widthM, pb.heightM, pb.depthM, body);
+          enclosure.position.set(0, pb.wallTopM - pb.heightM / 2, pb.depthM / 2);
+          const seam = box(0.006, pb.heightM - 0.08, 0.004, dark);
+          seam.position.set(pb.widthM / 2 - 0.08, pb.wallTopM - pb.heightM / 2, pb.depthM + 0.002);
+          const warning = box(0.16, 0.12, 0.004, [
+            dark,
+            dark,
+            dark,
+            dark,
+            M('#ffffff', { map: warningTexture(), roughness: 0.5 }),
+            dark,
+          ]);
+          warning.position.set(0, pb.wallTopM - 0.2, pb.depthM + 0.003);
+          g.add(enclosure, seam, warning);
           return g;
         }),
       // A compact card reader on a short bracket; a screen only for a model with a display.
@@ -1411,33 +1883,113 @@ export function createSiteScene(
     return result;
   }
 
-  // The Reserved sign face: the translated word on a light plate.
-  function signTexture(palette: Palette): THREE.CanvasTexture {
+  // An EV charging sign face, drawn in code at the sign's proportions: the
+  // R7-113 (No Parking Except While Charging: red legend and border on white,
+  // 12 by 18 in, MUTCD 11th Edition Section 2B.53) or the California
+  // tow-away sign of Vehicle Code 22511(d)(1) (17 by 22 in, its required
+  // statement; the reclaim place and telephone are the operator's, left blank).
+  function evSignTexture(kind: 'chargingOnly' | 'towAway'): THREE.CanvasTexture {
     const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 268;
+    const ink = kind === 'chargingOnly' ? SCENE_COLORS.signRegulatoryRed : SCENE_COLORS.signInk;
+    canvas.width = kind === 'chargingOnly' ? 240 : 340;
+    canvas.height = kind === 'chargingOnly' ? 360 : 440;
     const ctx = canvas.getContext('2d');
     if (ctx != null) {
-      ctx.fillStyle = SCENE_COLORS.signBorder;
+      ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = palette.signPlate;
-      ctx.fillRect(18, 18, canvas.width - 36, canvas.height - 36);
-      ctx.fillStyle = palette.signText;
+      ctx.strokeStyle = ink;
+      ctx.lineWidth = 10;
+      ctx.strokeRect(12, 12, canvas.width - 24, canvas.height - 24);
+      ctx.fillStyle = ink;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      const text = theme.reservedLabel.toLocaleUpperCase();
-      let size = 110;
-      ctx.font = `700 ${String(size)}px system-ui, sans-serif`;
-      while (size > 30 && ctx.measureText(text).width > canvas.width - 80) {
-        size -= 6;
-        ctx.font = `700 ${String(size)}px system-ui, sans-serif`;
-      }
-      ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 4);
+      // The legend in the viewer's language (`signTexts`), line by line,
+      // each as large as the sign's letter height allows (`signLetterPx`).
+      const lines = signLines(
+        kind === 'chargingOnly' ? theme.signs.chargingOnly : theme.signs.towAway,
+      );
+      const step = (canvas.height - 70) / lines.length;
+      lines.forEach((line, i) => {
+        let size = signLetterPx(kind, step);
+        ctx.font = `700 ${String(size)}px ${SIGN_FONT_FAMILY}`;
+        while (size > 12 && ctx.measureText(line).width > canvas.width - 50) {
+          size -= 2;
+          ctx.font = `700 ${String(size)}px ${SIGN_FONT_FAMILY}`;
+        }
+        ctx.fillText(line, canvas.width / 2, 35 + step * (i + 0.5));
+      });
     }
     const texture = track(new THREE.CanvasTexture(canvas));
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = renderer.capabilities.getMaxAnisotropy();
     return texture;
+  }
+
+  // A virtual status sign (`VirtualSign`): not a physical sign, so it looks
+  // like an overlay: a translucent rounded panel in the CSMS state color with
+  // a soft glow and a light outline, the word in the viewer's language. The
+  // sprite material draws it at VIRTUAL_SIGN_OPACITY, always facing the camera.
+  function virtualSignTexture(kind: VirtualSign): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 176;
+    const ctx = canvas.getContext('2d');
+    if (ctx != null) {
+      const color = theme.virtualColors[kind];
+      const r = 44;
+      const path = (inset: number): void => {
+        const x = 24 + inset;
+        const y = 24 + inset;
+        const w = canvas.width - 48 - inset * 2;
+        const h = canvas.height - 48 - inset * 2;
+        ctx.beginPath();
+        ctx.roundRect(x, y, w, h, r - inset);
+      };
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 22;
+      path(0);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      path(4);
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.stroke();
+      const text = (
+        kind === 'reserved' ? theme.signs.reserved : theme.signs.maintenance
+      ).toLocaleUpperCase();
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      let size = 64;
+      ctx.font = `700 ${String(size)}px ${SIGN_FONT_FAMILY}`;
+      while (size > 22 && ctx.measureText(text).width > canvas.width - 110) {
+        size -= 2;
+        ctx.font = `700 ${String(size)}px ${SIGN_FONT_FAMILY}`;
+      }
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+    }
+    const texture = track(new THREE.CanvasTexture(canvas));
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return texture;
+  }
+
+  // The virtual status sign of a station: a sprite over its spot (station frame).
+  function virtualSignSprite(kind: VirtualSign, stationId: string): THREE.Sprite {
+    const material = track(
+      new THREE.SpriteMaterial({
+        map: virtualSignTexture(kind),
+        transparent: true,
+        opacity: VIRTUAL_SIGN_OPACITY,
+        depthWrite: false,
+      }),
+    );
+    const sprite = new THREE.Sprite(material);
+    sprite.scale.set(VIRTUAL_SIGN_WIDTH_M, (VIRTUAL_SIGN_WIDTH_M * 176) / 512, 1);
+    sprite.renderOrder = 3;
+    sprite.userData['virtualSign'] = stationId;
+    virtualSprites.set(stationId, sprite);
+    return sprite;
   }
 
   // The transformer warning sign: a yellow plate with a high voltage triangle.
@@ -1474,12 +2026,20 @@ export function createSiteScene(
     return texture;
   }
 
-  // The back panel of a charger: a plain plate, with the logo fitted on it.
-  function backPanel(kind: 'ac' | 'dc', palette: Palette): THREE.Group {
-    const spec = LOGO_PANELS[kind];
+  // The logo panel of a charger model (`CHARGER_LOGO_PANELS`): a plain plate
+  // with the logo fitted on it, padded, never stretched. `at`: the cabinet
+  // center of a large model, the wall box offset of a wall box.
+  function logoPanel(
+    model: ChargerLogoModel,
+    palette: Palette,
+    at: { x: number; z: number } = { x: 0, z: 0 },
+  ): THREE.Group {
+    const spec = CHARGER_LOGO_PANELS[model];
     const g = new THREE.Group();
+    g.position.set(at.x + spec.x, 0, at.z + spec.z);
+    g.userData['logoPanel'] = model;
     const plate = box(spec.width, spec.height, 0.012, M(palette.signPlate, { roughness: 0.4 }));
-    plate.position.set(0, spec.y, spec.z);
+    plate.position.set(0, spec.y, 0);
     g.add(plate);
     if (logo != null) {
       const size = logoFit(spec, { width: logo.width, height: logo.height }, LOGO_PADDING);
@@ -1494,9 +2054,9 @@ export function createSiteScene(
             }),
           ),
         );
-        // The plane faces -z, away from the charger front.
-        face.rotation.y = Math.PI;
-        face.position.set(0, spec.y, spec.z - 0.008);
+        // The plane faces +z: turned to the back for a back panel.
+        if (spec.facing < 0) face.rotation.y = Math.PI;
+        face.position.set(0, spec.y, spec.facing * 0.008);
         face.userData['logo'] = true;
         g.add(face);
       }
@@ -1715,6 +2275,7 @@ export function createSiteScene(
           addScreenMessage(g, s, 'dc', [screen[0], screen[1], screen[2] + 0.002]);
           glow = cabinetGlow(g, s, screen);
         }
+        g.add(logoPanel('truck_mcs', palette, { x: r.chargerX, z: r.chargerZ }));
         // The cable outlet low on the lane face, the connector holster above it.
         const outlet = box(0.14, 0.14, 0.06, m.dark);
         outlet.position.set(r.chargerX + 0.22, 0.75, r.chargerZ + 0.24);
@@ -1748,6 +2309,7 @@ export function createSiteScene(
       const screen = cabinet(g, { x: 0, z: 0 }, { w: 0.9, d: 0.7, h: 2.3 }, m);
       addScreenMessage(g, s, 'dc', [screen[0], screen[1], screen[2] + 0.002]);
       glow = cabinetGlow(g, s, screen);
+      g.add(logoPanel('bus_dispenser', palette));
       const mast = box(0.18, BUS_BOOM_Y + 0.1, 0.18, steel);
       mast.position.set(0, (BUS_BOOM_Y + 0.1) / 2, -0.5);
       g.add(mast);
@@ -1794,6 +2356,7 @@ export function createSiteScene(
       const screen = cabinet(g, { x: 0, z: columnZ + 0.4 }, { w: 1.0, d: 0.48, h: 1.5 }, m);
       addScreenMessage(g, s, 'dc', [screen[0], screen[1], screen[2] + 0.002]);
       glow = cabinetGlow(g, s, screen);
+      g.add(logoPanel(model, palette, { x: 0, z: columnZ + 0.4 }));
       const pad = box(1.4, 0.1, 1.2, concrete);
       pad.position.set(0, 0.05, columnZ + 0.4);
       const column = box(0.32, MAST_HEIGHT_M, 0.32, steel);
@@ -1862,8 +2425,8 @@ export function createSiteScene(
     model: FreeChargerModel,
   ): THREE.Vector3 | null {
     const truckLane = rect.heading === '+x';
-    if (s.prop === 'reservedSign' || s.prop === 'cone') {
-      const item = s.prop === 'reservedSign' ? t.sign() : t.cone();
+    if (s.prop === 'cone') {
+      const item = t.cone();
       // The templates stand 2.2 to 2.4 m into a car spot: move them into this one.
       if (truckLane) item.position.set(rect.chargerX - 2, 0, rect.minZ + 1.2 - 2.4);
       else item.position.set((rect.minX + rect.maxX) / 2, 0, 0.4);
@@ -1954,6 +2517,11 @@ export function createSiteScene(
     return new THREE.Vector3(front.x, front.y + AVATAR_ABOVE_ROOF_M, front.z);
   }
 
+  // Sign posts placed so far in this build, in lot meters: two dual-port
+  // pedestals side by side share the post on the line between their pairs
+  // (its sign stands adjacent to both stalls).
+  const signPosts: Point[] = [];
+
   function buildModel(s: SceneStation, palette: Palette, t: Templates): StationObject {
     const g = new THREE.Group();
     if (s.free != null) addFreeSpots(g, s, palette);
@@ -2033,8 +2601,78 @@ export function createSiteScene(
         size: 0.55,
         position: [0, 1.18, w + 0.21],
       });
-      top = 1.55;
+      // The status marker floats above the R7-113 on the facade over the wall
+      // box (its top 2.59 m, 2.9 m with the California tow-away sign below).
+      top = 3.0;
       labelZ = w + 0.2;
+    } else if (dc && s.dispensers != null && s.dispensers.length > 1) {
+      // A DC split system: a slim satellite dispenser in the head of each of
+      // its stalls (Kempower S-Series: 300 x 1518 x 300 mm), one holstered
+      // cable per connector of its EVSE; the power cabinet that feeds them
+      // stands on the equipment pad. The screen message and the glow are on
+      // the first; status and power are the station's.
+      const sat = SPLIT_SYSTEM.dispenser;
+      s.dispensers.forEach((dx, i) => {
+        const unit = new THREE.Group();
+        unit.position.x = dx;
+        const body = roundedPrism(sat.widthM, sat.depthM, sat.heightM, 0.04, shell);
+        body.position.y = 0.1;
+        const foot = box(sat.widthM + 0.08, 0.1, sat.depthM + 0.08, dark);
+        foot.position.y = 0.05;
+        const roof = box(sat.widthM + 0.04, 0.05, sat.depthM + 0.04, accent);
+        roof.position.y = 0.1 + sat.heightM;
+        const screen = box(0.2, 0.15, 0.015, glass);
+        screen.position.set(0, 1.3, sat.depthM / 2 + 0.008);
+        unit.add(body, foot, roof, screen);
+        if (i === 0) addScreenMessage(unit, s, 'ac', [0, 1.3, sat.depthM / 2 + 0.017]);
+        for (const { side, dropM } of dispenserHolsters(s.cables?.[i] ?? 1)) {
+          const x = side * (sat.widthM / 2 + 0.03);
+          const holster = box(0.05, 0.2, 0.1, dark);
+          holster.position.set(x, 1.0 - dropM, 0.05);
+          const h = handle(rubber);
+          h.position.set(x + side * 0.03, 0.98 - dropM, 0.08);
+          h.rotation.z = side * -0.15;
+          unit.add(
+            holster,
+            h,
+            cable(
+              [
+                [x, 1.2 - dropM, -0.08],
+                [x + side * 0.1, 0.8 - dropM * 0.5, -0.03],
+                [x + side * 0.16, 0.3, 0.05],
+                [x + side * 0.14, 0.14, 0.15],
+                [x + side * 0.1, 0.5, 0.15],
+                [x + side * 0.04, 0.9 - dropM, 0.08],
+              ],
+              rubber,
+            ),
+          );
+        }
+        const bollardPaint = M(SCENE_COLORS.bollard, { roughness: 0.5 });
+        for (const bx of [-0.45, 0.45]) {
+          const post = cylinder(0.07, 0.9, 16, bollardPaint);
+          post.position.set(bx, 0.45, 0.5);
+          unit.add(post);
+        }
+        g.add(unit);
+      });
+      const first = s.dispensers[0] ?? 0;
+      glow = addGlow(
+        g,
+        s,
+        [
+          {
+            geometry: new THREE.BoxGeometry(0.26, 0.02, 0.012),
+            position: [first, 1.39, sat.depthM / 2 + 0.012],
+          },
+          {
+            geometry: new THREE.BoxGeometry(0.26, 0.02, 0.012),
+            position: [first, 1.21, sat.depthM / 2 + 0.012],
+          },
+        ],
+        { size: 0.7, position: [first, 1.3, sat.depthM / 2 + 0.03] },
+      );
+      top = 1.8;
     } else if (dc) {
       const body = roundedPrism(0.78, 0.55, 1.78, 0.08, shell);
       body.position.y = 0.08;
@@ -2071,24 +2709,26 @@ export function createSiteScene(
         ],
         { size: 1.0, position: [0, 1.42, 0.315] },
       );
-      for (const side of [-1, 1]) {
+      // One holstered cable per connector (`dispenserHolsters`): a CCS and
+      // CHAdeMO dispenser two, a triple-outlet one three.
+      for (const { side, dropM } of dispenserHolsters(s.cables?.[0] ?? 2)) {
         const x = side * 0.39;
         const holster = box(0.06, 0.24, 0.14, dark);
-        holster.position.set(x + side * 0.035, 1.05, 0.08);
+        holster.position.set(x + side * 0.035, 1.05 - dropM, 0.08);
         const h = handle(rubber);
-        h.position.set(x + side * 0.08, 1.03, 0.1);
+        h.position.set(x + side * 0.08, 1.03 - dropM, 0.1);
         h.rotation.z = side * -0.15;
         g.add(
           holster,
           h,
           cable(
             [
-              [x, 1.32, -0.12],
-              [x + side * 0.12, 0.9, -0.05],
+              [x, 1.32 - dropM, -0.12],
+              [x + side * 0.12, 0.9 - dropM * 0.5, -0.05],
               [x + side * 0.22, 0.3, 0.05],
               [x + side * 0.2, 0.14, 0.18],
               [x + side * 0.16, 0.5, 0.2],
-              [x + side * 0.09, 0.93, 0.12],
+              [x + side * 0.09, 0.93 - dropM, 0.12],
             ],
             rubber,
           ),
@@ -2151,17 +2791,16 @@ export function createSiteScene(
       );
       top = 1.7;
     }
-    // A wall box has its back on the wall: no back panel.
-    if (!wall && large == null) g.add(backPanel(s.kind, palette));
+    // The logo: on the back of a dispenser or pedestal, on the front of a wall
+    // box (its back is on the wall); the large models carry theirs on their cabinet.
+    if (wall) g.add(logoPanel('wall', palette, { x: 0, z: w }));
+    else if (large == null) g.add(logoPanel(dc ? 'dc' : 'ac', palette));
     // Payment terminals on the front: on the side of their connector, or centered for the station.
     s.terminals.forEach((terminal, i) => {
       const reader = t.terminal(terminal.hasDisplay, terminal.online);
-      // On the front face: a connector reader under its side of the screen, a
-      // station-wide one in the middle below them; beside a wall box.
-      const sideX = dc ? 0.22 : wall ? 0.34 : 0.13;
-      const x = terminal.side === 0 ? (wall ? -0.34 - i * 0.16 : -i * 0.16) : terminal.side * sideX;
-      const y = dc ? (terminal.side === 0 ? 0.72 : 0.92) : wall ? 1.12 : 0.78;
-      reader.position.set(x, y, dc ? 0.34 : wall ? w + 0.06 : 0.19);
+      // Where real installs mount it, its card interface within reach (`readerMount`).
+      const at = readerMount(dc ? 'dc' : 'ac', wall, terminal.side, i, w);
+      reader.position.set(at.x, at.y, at.z);
       // A little larger than life, so the reader reads at site scale.
       reader.scale.setScalar(1.5);
       reader.userData['terminalId'] = terminal.id;
@@ -2187,6 +2826,69 @@ export function createSiteScene(
     let avatarAnchor: THREE.Vector3 | null = null;
     const curbside = layout.lot.siteType === 'curbside' && isSpot(s.bay, layout.lot);
     const largeSpot = s.free != null && freeSpotTypeOf(s.free) !== 'car';
+    // A concrete wheel stop in front of each AC spot (WHEEL_STOP, wheelStopMount).
+    const stopMount = wheelStopMount({
+      siteType: layout.lot.siteType,
+      kind: s.kind,
+      wall,
+      onSpot: isSpot(s.bay, layout.lot),
+      largeSpot,
+      curb: chargerAtCurb(s.bay, layout.lot, s.kind, wall),
+    });
+    // The EV charging signs of the stall (site-layout-signs.ts).
+    const signMount = stationSignMount({
+      siteType: layout.lot.siteType,
+      onSpot: isSpot(s.bay, layout.lot),
+      wall,
+      freeSpots: s.free != null ? (s.spots ?? 1) : null,
+      largeSpot,
+      california: layout.california === true,
+      wallZ: wallBoxOffset() + FACADE_SIGN_STANDOFF_M,
+    });
+    if (signMount != null) {
+      // One R7-113 per stall: a pedestal's two stalls put their posts at the
+      // outer side lines (clear of the pedestal on the line between them),
+      // the accessible space at the side line of its vehicle space.
+      const stalls = s.free == null && !wall ? s.stalls : undefined;
+      const postXs =
+        stalls == null || layout.lot.siteType === 'curbside'
+          ? [signMount.x]
+          : stalls.map((st, i) =>
+              stalls.length > 1 && i === stalls.length - 1
+                ? st.x + st.width / 2 - SIGN_POST_INSET_M
+                : st.x - st.width / 2 + SIGN_POST_INSET_M,
+            );
+      const pose = poseOf(s);
+      for (const x of postXs) {
+        // The post in lot meters (the station turns by 0 or a half turn on a grid site).
+        const at = {
+          x: pose.point.x + x * Math.cos(pose.turn),
+          z: pose.point.z - x * Math.sin(pose.turn),
+        };
+        if (
+          s.free == null &&
+          signPosts.some((o) => Math.abs(o.x - at.x) < 0.5 && Math.abs(o.z - at.z) < 0.5)
+        ) {
+          continue;
+        }
+        signPosts.push(at);
+        const signs = t.evSigns(signMount);
+        signs.position.set(x, 0, signMount.z);
+        g.add(signs);
+      }
+    }
+    if (stopMount != null) {
+      const spotXs =
+        s.free != null
+          ? freeSpotRects(s.spots ?? 1, 'car').map((r) => (r.minX + r.maxX) / 2)
+          : (s.stalls?.map((st) => st.x) ?? [0]);
+      for (const x of spotXs) {
+        const stop = t.wheelStop();
+        stop.position.x = x;
+        stop.position.z = wheelStopCenterZ(stopMount);
+        g.add(stop);
+      }
+    }
     if (largeSpot && s.free != null) {
       const rects = freeSpotRects(s.spots ?? 1, freeSpotTypeOf(s.free));
       const rect = rects[Math.min(rects.length - 1, s.propSpot ?? 0)] ?? rects[0];
@@ -2194,14 +2896,45 @@ export function createSiteScene(
         const anchor = placeLargeSpotProp(g, s, t, rect, s.charger ?? 'standard');
         if (anchor != null) avatarAnchor = anchor;
       }
+    } else if (s.stallCars != null && s.stalls != null && !curbside && !wall) {
+      // A dual-port pedestal: a vehicle in each stall with a session, each on its own cable.
+      s.stallCars.forEach((look, i) => {
+        const stall = s.stalls?.[i];
+        if (look == null || stall == null) return;
+        const noseZ =
+          stopMount != null && !isLargeBodyType(look.bodyType)
+            ? carNoseAtStop(stopMount, CAR_PROFILES[look.bodyType])
+            : undefined;
+        const car = t.car(look, noseZ);
+        car.position.x += stall.x;
+        g.add(car, t.cable(s.kind, look.bodyType, stall.x, noseZ));
+        if (avatarAnchor == null) {
+          car.updateMatrixWorld(true);
+          const roof = new THREE.Box3().setFromObject(car);
+          if (!roof.isEmpty()) {
+            const c = roof.getCenter(new THREE.Vector3());
+            avatarAnchor = new THREE.Vector3(c.x, roof.max.y + AVATAR_ABOVE_ROOF_M, c.z);
+          }
+        }
+      });
     } else if (s.prop === 'car') {
       const look = s.car ?? sceneCar(null);
-      const car = curbside ? t.carParallel(look) : t.car(look);
+      // Against the wheel stop where the spot has one (AC spots), else nose to the charger.
+      const noseZ =
+        stopMount != null && !isLargeBodyType(look.bodyType)
+          ? carNoseAtStop(stopMount, CAR_PROFILES[look.bodyType])
+          : undefined;
+      const car = curbside ? t.carParallel(look) : t.car(look, noseZ);
       const offsetX = curbside || wall ? 0 : (s.carOffsetX ?? 0);
       car.position.x += offsetX;
       g.add(
         car,
-        t.cable(curbside ? `curb-${s.kind}` : wall ? 'wall' : s.kind, look.bodyType, offsetX),
+        t.cable(
+          curbside ? `curb-${s.kind}` : wall ? 'wall' : s.kind,
+          look.bodyType,
+          offsetX,
+          noseZ,
+        ),
       );
       car.updateMatrixWorld(true);
       const roof = new THREE.Box3().setFromObject(car);
@@ -2212,18 +2945,36 @@ export function createSiteScene(
     }
     if (largeSpot) {
       // Placed with the vehicle above.
-    } else if (s.prop === 'reservedSign') {
-      const sign = t.sign();
-      // At a curb the sign stands on the sidewalk beside the post.
-      if (curbside) sign.position.set(1.4, 0, -2.25);
-      else sign.position.x += s.carOffsetX ?? 0;
-      g.add(sign);
     } else if (s.prop === 'cone') {
       const cone = t.cone();
       // At a curb the cone stands in the parking lane in front of the post.
       if (curbside) cone.position.set(2.2, 0, CURB_POST_BACK_M + 1.2);
       else cone.position.x += s.carOffsetX ?? 0;
       g.add(cone);
+    }
+    // The virtual status sign floats over the spot (a large spot: over its
+    // middle; at a curb: over the parking lane), clear of the charger and a car.
+    let virtualSign: THREE.Sprite | null = null;
+    if (s.virtualSign != null) {
+      virtualSign = virtualSignSprite(s.virtualSign, s.id);
+      if (largeSpot && s.free != null) {
+        const rects = freeSpotRects(s.spots ?? 1, freeSpotTypeOf(s.free));
+        const rect = rects[Math.min(rects.length - 1, s.propSpot ?? 0)] ?? rects[0];
+        virtualSign.position.set(
+          rect != null ? (rect.minX + rect.maxX) / 2 : 0,
+          VIRTUAL_SIGN_Y_M + 1.5,
+          rect != null ? (rect.minZ + rect.maxZ) / 2 : 2.6,
+        );
+      } else if (curbside) {
+        virtualSign.position.set(2.2, VIRTUAL_SIGN_Y_M, CURB_POST_BACK_M + 1.2);
+      } else {
+        virtualSign.position.set(
+          s.stallCars != null ? 0 : (s.carOffsetX ?? 0),
+          VIRTUAL_SIGN_Y_M,
+          2.6,
+        );
+      }
+      g.add(virtualSign);
     }
     g.traverse((o) => {
       o.userData['stationId'] = s.id;
@@ -2251,45 +3002,140 @@ export function createSiteScene(
       top,
       labelZ,
       avatarAnchor,
+      virtualSign,
       handle: rotateHandle,
       station: s,
     };
   }
 
-  // A solar carport canopy standing freely (custom site): steel posts along
-  // one long side, beams across, a roof of panels tilted 5 degrees, in the
-  // canopy's own frame (length along x, depth along z), turned by its turn.
+  // A solar carport canopy (site-layout-solar.ts): a single cantilever over
+  // one row or a double cantilever "T" over an island's two rows, of
+  // galvanized steel. Concrete piers rise above the paving as the columns'
+  // bollards, each with a base plate and a W-shape column; a tapered girder
+  // on top of each column runs across the stalls, C-channel purlins run
+  // along the row on top of the girders, and the module plane rests on the
+  // purlins, rising from the column line at the canopy tilt. Built in the
+  // canopy frame: x along the row, z = u across it, y up.
+  function buildCarport(frame: CarportFrame, palette: Palette): THREE.Group {
+    const g = new THREE.Group();
+    const c = SOLAR_CARPORT;
+    const steel = M(SCENE_COLORS.galvanizedSteel, { roughness: 0.55, metalness: 0.6 });
+    const concrete = M(palette.concrete, { roughness: 0.9 });
+    const columnBottom = frame.pierTopY + c.basePlateThickM;
+    const columnH = frame.columnTopY - columnBottom;
+    const flangeT = 0.02;
+    const webT = 0.012;
+    for (const x of frame.columnXs) {
+      const u = frame.columnU;
+      const pier = cylinder(c.pierDiameterM / 2, frame.pierTopY, 24, concrete);
+      pier.position.set(x, frame.pierTopY / 2, u);
+      const plate = box(c.basePlateM, c.basePlateThickM, c.basePlateM, steel);
+      plate.position.set(x, frame.pierTopY + c.basePlateThickM / 2, u);
+      g.add(pier, plate);
+      // W-shape column: the web across the stalls (the strong axis carries
+      // the cantilever), the flanges at its back and front.
+      for (const side of [-1, 1]) {
+        const flange = box(c.columnFlangeM, columnH, flangeT, steel);
+        flange.position.set(
+          x,
+          columnBottom + columnH / 2,
+          u + side * (c.columnDepthM / 2 - flangeT / 2),
+        );
+        g.add(flange);
+      }
+      const web = box(webT, columnH, c.columnDepthM - 2 * flangeT, steel);
+      web.position.set(x, columnBottom + columnH / 2, u);
+      g.add(web);
+      // The girder over the full depth, its bottom on the column top, tapered
+      // to the tip of each cantilever (one for a single cantilever, two for a
+      // double cantilever on an island).
+      const shape = new THREE.Shape();
+      shape.moveTo(0, frame.girderBottomAt(0));
+      shape.lineTo(frame.columnU, frame.girderBottomAt(frame.columnU));
+      shape.lineTo(frame.depthM, frame.girderBottomAt(frame.depthM));
+      shape.lineTo(frame.depthM, frame.girderTopAt(frame.depthM));
+      shape.lineTo(0, frame.girderTopAt(0));
+      shape.closePath();
+      const geometry = track(
+        new THREE.ExtrudeGeometry(shape, { depth: c.girderWidthM, bevelEnabled: false }),
+      );
+      // Shape x becomes u (z), the extrusion runs along x, centered on the column.
+      geometry.rotateY(-Math.PI / 2);
+      geometry.translate(x + c.girderWidthM / 2, 0, 0);
+      g.add(shadowed(new THREE.Mesh(geometry, steel)));
+    }
+    const length = frame.maxX - frame.minX;
+    for (const p of frame.purlins) {
+      const purlin = box(length, p.topY - p.bottomY, c.purlinWidthM, steel);
+      purlin.position.set((frame.minX + frame.maxX) / 2, (p.topY + p.bottomY) / 2, p.u);
+      g.add(purlin);
+    }
+    const panelTexture = solarTexture(palette).clone();
+    track(panelTexture);
+    panelTexture.needsUpdate = true;
+    // Texture only: portrait modules about a meter wide along the row.
+    panelTexture.repeat.set(Math.max(1, Math.round(length)), frame.moduleRows);
+    const slant = frame.depthM / Math.cos(frame.tiltRad);
+    const roof = new THREE.Mesh(
+      track(new THREE.BoxGeometry(length, c.moduleThicknessM, slant)),
+      M('#ffffff', { map: panelTexture, roughness: 0.25, metalness: 0.55 }),
+    );
+    roof.castShadow = true;
+    roof.receiveShadow = true;
+    roof.rotation.x = -frame.tiltRad;
+    roof.position.set(
+      (frame.minX + frame.maxX) / 2,
+      frame.moduleBottomAt(frame.depthM / 2) + c.moduleThicknessM / 2 / Math.cos(frame.tiltRad),
+      frame.depthM / 2,
+    );
+    g.add(roof);
+    return g;
+  }
+
+  // The stations of a custom site or depot (their chargers and spots) in the
+  // frame of a free canopy: x along it, u across from its back edge.
+  function freeCanopyObstacles(
+    free: FreePlacement & { lengthM: number; depthM: number },
+  ): CanopyObstacle[] {
+    const turn = (free.rotationDeg * Math.PI) / 180;
+    const cos = Math.cos(turn);
+    const sin = Math.sin(turn);
+    return layout.stations.flatMap((s) => {
+      if (s.free == null) return [];
+      return [
+        freeFootprint(s.free, s.spots ?? 1).map((p) => {
+          const dx = p.x - free.x;
+          const dz = p.z - free.z;
+          return { x: dx * cos + dz * sin, u: -dx * sin + dz * cos + free.depthM / 2 };
+        }),
+      ];
+    });
+  }
+
+  // A solar carport canopy standing freely (custom site): the columns along
+  // its back long side, clear of the stations under it, the canopy over its
+  // full size, turned by its turn.
   function buildFreeSolarCanopy(
     free: FreePlacement & { lengthM: number; depthM: number },
     palette: Palette,
   ): THREE.Group {
     const g = new THREE.Group();
-    const steel = M(SCENE_COLORS.signPost, { roughness: 0.45, metalness: 0.6 });
-    const H = 3.1;
-    const L = free.lengthM;
-    const D = free.depthM;
-    const spans = Math.max(1, Math.round(L / (2 * STANDARD_DIMENSIONS.spotWidthM)));
-    for (let i = 0; i <= spans; i++) {
-      const x = -L / 2 + (i * L) / spans;
-      const post = cylinder(0.09, H, 12, steel);
-      post.position.set(x, H / 2, -D / 2 + 0.35);
-      const arm = box(0.12, 0.14, D * 0.9, steel);
-      arm.position.set(x, H, 0);
-      g.add(post, arm);
-    }
-    const panelTexture = solarTexture(palette).clone();
-    track(panelTexture);
-    panelTexture.needsUpdate = true;
-    panelTexture.repeat.set(Math.max(1, Math.round(L / 1.7)), Math.max(1, Math.round(D / 1.1)));
-    const roof = new THREE.Mesh(
-      track(new THREE.BoxGeometry(L + 0.4, 0.08, D + 0.3)),
-      M('#ffffff', { map: panelTexture, roughness: 0.25, metalness: 0.55 }),
+    const half = SOLAR_CARPORT.columnDepthM / 2;
+    const frame = carportFrame(
+      -free.lengthM / 2,
+      free.lengthM / 2,
+      free.depthM,
+      clearColumnXs(
+        freeColumnXs(free.lengthM),
+        half,
+        -free.lengthM / 2,
+        free.lengthM / 2,
+        freeCanopyObstacles(free),
+      ),
     );
-    roof.castShadow = true;
-    roof.receiveShadow = true;
-    roof.rotation.x = -0.087;
-    roof.position.set(0, H + 0.12, 0);
-    g.add(roof);
+    const carport = buildCarport(frame, palette);
+    carport.position.z = -free.depthM / 2;
+    g.add(carport);
     g.position.set(free.x, 0, free.z);
     g.rotation.y = (-free.rotationDeg * Math.PI) / 180;
     return g;
@@ -2297,42 +3143,55 @@ export function createSiteScene(
 
   // The middle of a row of spots across the rows (lot z).
   function rowCenterZ(row: number): number {
-    return row * layout.lot.pitch + layout.lot.spotD / 2;
+    return rowFrontZ(row, layout.lot) + layout.lot.spotD / 2;
   }
 
-  // A solar carport canopy over a row of spots: steel posts at the charger
-  // side between every other pair of spots, beams, and a slightly tilted roof
-  // of dark blue panels (a cell grid texture), high enough to park under.
-  function buildSolarCanopy(row: number, palette: Palette): THREE.Group {
-    const g = new THREE.Group();
+  // The stall lines of `rows` no canopy column may stand on: the line of a
+  // dual-port pedestal between its two spots, and the lines across the
+  // accessible charging space and its access aisle.
+  function blockedColumnLines(rows: readonly number[]): Set<number> {
     const lot = layout.lot;
-    const steel = M(SCENE_COLORS.signPost, { roughness: 0.45, metalness: 0.6 });
-    const z0 = row * lot.pitch;
-    const atBack = bayTurn({ col: 0, row }, lot) !== 0;
-    const postZ = atBack ? z0 + lot.spotD - 0.35 : z0 + 0.35;
-    const H = 3.1;
-    for (let c = 0; c <= lot.cols; c += 2) {
-      const post = cylinder(0.09, H, 12, steel);
-      post.position.set(Math.min(c, lot.cols) * lot.spotW, H / 2, postZ);
-      const arm = box(0.12, 0.14, lot.spotD * 0.9, steel);
-      arm.position.set(Math.min(c, lot.cols) * lot.spotW, H, z0 + lot.spotD / 2);
-      g.add(post, arm);
+    const lines = new Set<number>();
+    for (const s of layout.stations) {
+      if (s.free != null || !rows.includes(s.bay.row) || (s.stalls?.length ?? 0) < 2) continue;
+      const line = poseOf(s).point.x / lot.spotW;
+      if (Math.abs(line - Math.round(line)) < 0.01) lines.add(Math.round(line));
     }
-    const panelTexture = solarTexture(palette);
-    panelTexture.repeat.set(
-      Math.max(1, Math.round(lot.width / 1.7)),
-      Math.max(1, Math.round(lot.spotD / 1.1)),
-    );
-    const roof = new THREE.Mesh(
-      track(new THREE.BoxGeometry(lot.width + 0.4, 0.08, lot.spotD + 0.3)),
-      M('#ffffff', { map: panelTexture, roughness: 0.25, metalness: 0.55 }),
-    );
-    roof.castShadow = true;
-    roof.receiveShadow = true;
-    // Tilted toward the lane, 5 degrees.
-    roof.rotation.x = atBack ? 0.087 : -0.087;
-    roof.position.set(lot.width / 2, H + 0.12, z0 + lot.spotD / 2);
-    g.add(roof);
+    const a = layout.accessible;
+    if (a != null) {
+      const minZ = Math.min(a.vehicle.minZ, a.aisle.minZ);
+      const maxZ = Math.max(a.vehicle.maxZ, a.aisle.maxZ);
+      const inRows = rows.some((r) => {
+        const front = rowFrontZ(r, lot);
+        return maxZ > front + 0.01 && minZ < front + lot.spotD - 0.01;
+      });
+      if (inRows) {
+        const minX = Math.min(a.vehicle.minX, a.aisle.minX);
+        const maxX = Math.max(a.vehicle.maxX, a.aisle.maxX);
+        for (let l = Math.ceil(minX / lot.spotW - 0.01); l * lot.spotW <= maxX + 0.01; l++) {
+          lines.add(l);
+        }
+      }
+    }
+    return lines;
+  }
+
+  // The canopy over a row of spots (`rowCarport`), clear of the pedestals
+  // and accessible space on its stall lines: a single cantilever, or a
+  // double cantilever over both rows of an island.
+  function solarRowCarport(row: number): RowCarport {
+    const first = rowCarport(row, layout.lot);
+    return rowCarport(row, layout.lot, blockedColumnLines(first.rows));
+  }
+
+  // A solar carport canopy over a row of spots: its columns at the head of
+  // the stalls, on the island middle or past the lot edge, the canopy over
+  // the stalls up to the drive aisle.
+  function buildSolarCanopy(carport: RowCarport, palette: Palette): THREE.Group {
+    const g = buildCarport(carport.frame, palette);
+    g.position.z = carport.backZ;
+    // u grows toward the aisle: a row whose head is at its back edge mirrors.
+    g.scale.z = carport.dirZ;
     return g;
   }
 
@@ -2464,14 +3323,13 @@ export function createSiteScene(
     site.add(walk);
   }
 
-  // A depot yard (`depotLayout`): the paved yard inside its fence, the concrete
+  // A depot yard (`depotLayout`): the paved yard, the concrete
   // strip behind the bus bay heads, the bay lines, the truck lanes with their
   // edge lines and entry and exit arrows (trucks drive through in +x), the
   // raised dispenser islands with bollards, the one-way arrows of the truck
   // entry road (away from the drive lane) and exit road (back to it), the
-  // dashed center line of the two-way drive lane, the curbed median between
-  // the areas and a chain-link fence with the gate at the left end of the
-  // drive lane.
+  // dashed center line of the two-way drive lane and the curbed median
+  // between the areas.
   function buildDepotYard(palette: Palette, depot: DepotLayout): void {
     const shape = new THREE.Shape();
     depot.outline.forEach((p, i) => {
@@ -2556,10 +3414,12 @@ export function createSiteScene(
       const cx = (r.minX + r.maxX) / 2;
       for (let z = r.minZ + 4; z < r.maxZ - 2; z += 12) mark(cx, z, -Math.PI / 2);
     }
-    // The drive lane: a dashed center line (3 m dashes every 6 m), two-way.
-    const lane = depot.driveLane;
-    const centerZ = (lane.minZ + lane.maxZ) / 2;
-    for (let x = lane.minX + 3; x + 3 <= lane.maxX; x += 6) line(3, 0.12, x + 1.5, centerZ);
+    // The drive lane: a dashed center line (3 m dashes every 6 m), two-way,
+    // on each stretch (the truck stretch is wider).
+    for (const lane of depot.driveLanes) {
+      const centerZ = (lane.minZ + lane.maxZ) / 2;
+      for (let x = lane.minX + 3; x + 3 <= lane.maxX; x += 6) line(3, 0.12, x + 1.5, centerZ);
+    }
     if (depot.median != null) {
       const m = depot.median;
       const kerb = box(m.maxX - m.minX, 0.15, m.maxZ - m.minZ, curb);
@@ -2567,74 +3427,6 @@ export function createSiteScene(
       const planting = box(m.maxX - m.minX - 0.3, 0.02, m.maxZ - m.minZ - 0.3, M(palette.grass));
       planting.position.set((m.minX + m.maxX) / 2, 0.16, (m.minZ + m.maxZ) / 2);
       site.add(kerb, planting);
-    }
-    buildFence(depot);
-  }
-
-  // A chain-link fence on the yard outline, 2 m high, a post every 3 m, with
-  // the gate opening at the left end of the drive lane (two gate posts).
-  function buildFence(depot: DepotLayout): void {
-    const steel = M(SCENE_COLORS.signPost, { roughness: 0.5, metalness: 0.5 });
-    const mesh = M(SCENE_COLORS.signPost, {
-      roughness: 0.6,
-      metalness: 0.3,
-      transparent: true,
-      opacity: theme.dark ? 0.28 : 0.22,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-    });
-    const H = 2;
-    const segments: Array<[{ x: number; z: number }, { x: number; z: number }]> = [];
-    const points = depot.outline;
-    for (let i = 0; i < points.length; i++) {
-      const a = points[i];
-      const b = points[(i + 1) % points.length];
-      if (a == null || b == null) continue;
-      // The gate: the part of the left side (x = gate.x) inside the opening is left out.
-      if (a.x === depot.gate.x && b.x === depot.gate.x) {
-        const lo = Math.min(a.z, b.z);
-        const hi = Math.max(a.z, b.z);
-        if (depot.gate.minZ > lo)
-          segments.push([
-            { x: a.x, z: lo },
-            { x: a.x, z: depot.gate.minZ },
-          ]);
-        if (depot.gate.maxZ < hi)
-          segments.push([
-            { x: a.x, z: depot.gate.maxZ },
-            { x: a.x, z: hi },
-          ]);
-        continue;
-      }
-      segments.push([a, b]);
-    }
-    for (const [a, b] of segments) {
-      const length = Math.hypot(b.x - a.x, b.z - a.z);
-      if (length < 0.1) continue;
-      const turn = Math.atan2(-(b.z - a.z), b.x - a.x);
-      const g = new THREE.Group();
-      g.position.set(a.x, 0, a.z);
-      g.rotation.y = turn;
-      const panel = new THREE.Mesh(track(new THREE.PlaneGeometry(length, H - 0.1)), mesh);
-      panel.position.set(length / 2, 0.05 + (H - 0.1) / 2, 0);
-      panel.renderOrder = 1;
-      const rail = cylinder(0.025, length, 8, steel);
-      rail.rotation.z = Math.PI / 2;
-      rail.position.set(length / 2, H, 0);
-      g.add(panel, rail);
-      const posts = Math.max(1, Math.round(length / 3));
-      for (let i = 0; i <= posts; i++) {
-        const post = cylinder(0.035, H, 8, steel);
-        post.position.set((i * length) / posts, H / 2, 0);
-        g.add(post);
-      }
-      site.add(g);
-    }
-    // The gate posts, heavier, at both sides of the opening.
-    for (const z of [depot.gate.minZ, depot.gate.maxZ]) {
-      const post = cylinder(0.08, H + 0.3, 12, steel);
-      post.position.set(depot.gate.x, (H + 0.3) / 2, z);
-      site.add(post);
     }
   }
 
@@ -2711,25 +3503,33 @@ export function createSiteScene(
     return texture;
   }
 
-  // A soft glowing arc between two lot points: a thin bright core with a
-  // moving pulse and a wide faint halo. Links never take clicks or drags.
+  // A glowing cable run on the ground along an orthogonal path of lot
+  // points: a thin bright core with a moving pulse and a wide faint halo.
+  // Links never take clicks or drags.
   function buildLink(
-    from: THREE.Vector3,
-    to: THREE.Vector3,
+    points: readonly THREE.Vector3[],
     kind: LinkKind,
     id: string,
+    flowId: string,
   ): THREE.Group {
     const g = new THREE.Group();
-    const mid = from.clone().lerp(to, 0.5);
-    mid.y = Math.max(from.y, to.y) + 0.3 + from.distanceTo(to) * 0.05;
-    const curve = new THREE.QuadraticBezierCurve3(from, mid, to);
+    const curve = new THREE.CurvePath<THREE.Vector3>();
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      if (a != null && b != null && a.distanceTo(b) > 1e-6) {
+        curve.add(new THREE.LineCurve3(a, b));
+      }
+    }
+    if (curve.curves.length === 0) return g;
     const length = curve.getLength();
+    const tubular = Math.min(400, Math.max(2, Math.ceil(length / 0.2)));
     const color = kind === 'station' ? SCENE_COLORS.linkStation : SCENE_COLORS.linkFeeder;
     const flow = flowTexture();
     flow.repeat.set(Math.max(1, length / 3), 1);
     flowTextures.push(flow);
     const core = new THREE.Mesh(
-      track(new THREE.TubeGeometry(curve, 48, kind === 'station' ? 0.035 : 0.05, 8, false)),
+      track(new THREE.TubeGeometry(curve, tubular, kind === 'station' ? 0.035 : 0.05, 8, false)),
       track(
         new THREE.MeshBasicMaterial({
           color,
@@ -2742,7 +3542,7 @@ export function createSiteScene(
       ),
     );
     const halo = new THREE.Mesh(
-      track(new THREE.TubeGeometry(curve, 48, kind === 'station' ? 0.1 : 0.14, 8, false)),
+      track(new THREE.TubeGeometry(curve, tubular, kind === 'station' ? 0.1 : 0.14, 8, false)),
       track(
         new THREE.MeshBasicMaterial({
           color,
@@ -2758,9 +3558,9 @@ export function createSiteScene(
       m.renderOrder = 2;
     }
     g.add(halo, core);
-    const entry: LinkMeshes = { core, halo, curve, kind, step: -1 };
+    const entry: LinkMeshes = { core, halo, curve, tubular, kind, flowId, step: -1 };
     linkMeshes.set(id, entry);
-    styleLink(entry, linkFlow.get(id) ?? null);
+    styleLink(entry, linkFlow.get(flowId) ?? null);
     return g;
   }
 
@@ -2778,8 +3578,8 @@ export function createSiteScene(
     entry.core.material.opacity = step < 0 ? 0.85 : 0.3 + 0.65 * level;
     entry.halo.material.opacity = step < 0 ? 0.16 : 0.05 + 0.3 * level;
     if (step < 0 && entry.core.geometry.parameters.radius === base) return;
-    const core = new THREE.TubeGeometry(entry.curve, 48, base * scale, 8, false);
-    const halo = new THREE.TubeGeometry(entry.curve, 48, haloBase * scale, 8, false);
+    const core = new THREE.TubeGeometry(entry.curve, entry.tubular, base * scale, 8, false);
+    const halo = new THREE.TubeGeometry(entry.curve, entry.tubular, haloBase * scale, 8, false);
     entry.core.geometry.dispose();
     entry.halo.geometry.dispose();
     entry.core.geometry = track(core);
@@ -2801,6 +3601,7 @@ export function createSiteScene(
     solarObjects.clear();
     energyLabels.clear();
     linkLabels.clear();
+    virtualSprites.clear();
     ground.clear();
     site.clear();
     editGrid.clear();
@@ -2875,24 +3676,31 @@ export function createSiteScene(
     } else if (lot.depot != null) {
       buildDepotYard(palette, lot.depot);
     } else {
-      // The paved lot (an office or retail row with its aisle): one plane, its
-      // spot tile repeated once per spot.
-      const paving = spotTexture(palette.asphalt, palette.paint);
-      // One tile per spot and lane; the last row has no lane behind it, so the
-      // tiles start at the front edge (v = 1) and end part way into a tile.
-      const tileRows = lot.depth / lot.pitch;
-      paving.repeat.set(lot.cols, tileRows);
-      paving.offset.set(0, Math.ceil(tileRows - 1e-9) - tileRows);
-      const lotGeometry = track(new THREE.PlaneGeometry(lot.width, lot.depth));
-      lotGeometry.rotateX(-Math.PI / 2);
-      const lotMesh = new THREE.Mesh(
-        lotGeometry,
-        M('#ffffff', { map: paving, roughness: 0.95, metalness: 0 }),
-      );
-      lotMesh.position.set(lot.width / 2, 0.012, lot.depth / 2);
-      lotMesh.receiveShadow = true;
-      lotMesh.frustumCulled = false;
-      site.add(lotMesh);
+      if (lot.siteType === 'parking_lot') {
+        // Its rows, aisles and islands cover the whole lot.
+        buildParkingRows(palette);
+        addAccessibleSpace(palette);
+      } else {
+        // The paved row of an office or retail site with its aisle: one plane,
+        // its spot tile repeated once per spot.
+        const paving = spotTexture(palette.asphalt, palette.paint);
+        // One tile per spot and lane; the last row has no lane behind it, so the
+        // tiles start at the front edge (v = 1) and end part way into a tile.
+        const tileRows = lot.depth / lot.pitch;
+        paving.repeat.set(lot.cols, tileRows);
+        paving.offset.set(0, Math.ceil(tileRows - 1e-9) - tileRows);
+        const lotGeometry = track(new THREE.PlaneGeometry(lot.width, lot.depth));
+        lotGeometry.rotateX(-Math.PI / 2);
+        const lotMesh = new THREE.Mesh(
+          lotGeometry,
+          M('#ffffff', { map: paving, roughness: 0.95, metalness: 0 }),
+        );
+        lotMesh.position.set(lot.width / 2, 0.012, lot.depth / 2);
+        lotMesh.receiveShadow = true;
+        lotMesh.frustumCulled = false;
+        site.add(lotMesh);
+        addAccessibleSpace(palette);
+      }
       // The curb around the lot.
       const curb = M(palette.curb, { roughness: 0.9 });
       const c = CURB_M;
@@ -2948,6 +3756,7 @@ export function createSiteScene(
 
     const t = templates(palette);
     if (office) buildBuilding(palette);
+    signPosts.length = 0;
     for (const s of layout.stations) {
       const obj = buildModel(s, palette, t);
       site.add(obj.group);
@@ -2965,6 +3774,74 @@ export function createSiteScene(
       site.add(g);
       transformerObjects.set(tr.id, g);
     }
+    // Transformers, batteries and switchboards stand behind bollards where a
+    // vehicle could hit them (equipmentBollards, EWEB ED5-1.0800): a depot
+    // yard has no curb (bollards on every side facing it); a parking lot is
+    // curbed (bollards on a side closer than 5 ft to it); a custom site's
+    // station aprons are curbed except the open lane ends of a truck
+    // pull-through. Office or retail and curbside sites show no equipment.
+    const equipmentGrounds: EquipmentGround[] =
+      lot.depot != null
+        ? [{ box: layoutGroundBox(lot), curbed: false }]
+        : lot.siteType === 'parking_lot'
+          ? [{ box: layoutGroundBox(lot), curbed: true }]
+          : custom
+            ? layout.stations.flatMap((s) => {
+                if (s.free == null) return [];
+                const footprint = pointsBox(
+                  freeFootprint(s.free, s.spots ?? 1),
+                  FREE_LAYOUT.apronM,
+                );
+                return footprint == null
+                  ? []
+                  : [{ box: footprint, curbed: freeSpotTypeOf(s.free) !== 'truck_pull_through' }];
+              })
+            : [];
+    if (equipmentGrounds.length > 0) {
+      const pad = (x: number, z: number, w: number, d: number): Box => ({
+        minX: x - w / 2,
+        maxX: x + w / 2,
+        minZ: z - d / 2,
+        maxZ: z + d / 2,
+      });
+      const equipmentPads: Box[] = [
+        ...layout.transformers.map((tr) => equipmentPadBox(tr, 'transformer')),
+        ...layout.batteries.map((b) => equipmentPadBox(b, 'battery')),
+        ...layout.panels.flatMap((p) =>
+          p.model === 'wall'
+            ? []
+            : p.model === 'panelboard'
+              ? // A quarter turn swaps the pad's sides.
+                Math.abs(Math.sin(p.turn)) > 0.5
+                ? [pad(p.x, p.z, PANELBOARD.padDM, PANELBOARD.padWM)]
+                : [pad(p.x, p.z, PANELBOARD.padWM, PANELBOARD.padDM)]
+              : p.model === 'cabinet'
+                ? [
+                    pad(
+                      p.x,
+                      p.z,
+                      SPLIT_SYSTEM.cabinet.widthM + 0.4,
+                      SPLIT_SYSTEM.cabinet.depthM + 0.6,
+                    ),
+                  ]
+                : [pad(p.x, p.z, 2.3, 1.5)],
+        ),
+      ];
+      const postPaint = M(SCENE_COLORS.bollard, { roughness: 0.5 });
+      for (const padBox of equipmentPads) {
+        for (const p of equipmentBollards(padBox, equipmentGrounds)) {
+          const post = cylinder(
+            EQUIPMENT_BOLLARD.radiusM,
+            EQUIPMENT_BOLLARD.heightM,
+            16,
+            postPaint,
+          );
+          post.position.set(p.x, EQUIPMENT_BOLLARD.heightM / 2, p.z);
+          post.raycast = () => undefined;
+          site.add(post);
+        }
+      }
+    }
     for (const b of layout.batteries) {
       const g = t.battery();
       g.position.set(b.x, 0, b.z);
@@ -2975,6 +3852,7 @@ export function createSiteScene(
       batteryObjects.set(b.id, g);
       energyLabels.set(b.id, lotPoint({ x: b.x, z: b.z }, 3.1));
     }
+    const builtRowCanopies = new Set<string>();
     for (const pv of layout.solar) {
       if (pv.free != null) {
         const g = buildFreeSolarCanopy(pv.free, palette);
@@ -2983,35 +3861,55 @@ export function createSiteScene(
         });
         site.add(g);
         solarObjects.set(pv.id, g);
-        energyLabels.set(pv.id, lotPoint({ x: pv.free.x, z: pv.free.z }, 4.4));
+        const top = carportTopY(carportFrame(0, pv.free.lengthM, pv.free.depthM, []));
+        energyLabels.set(pv.id, lotPoint({ x: pv.free.x, z: pv.free.z }, top + 0.6));
         continue;
       }
-      const g = buildSolarCanopy(pv.row, palette);
-      site.add(g);
-      const middle = lotPoint({ x: lot.width / 2, z: rowCenterZ(pv.row) }, 4.4);
+      // Both rows of an island share one double cantilever: two canopies on
+      // them build it once, each keeps its label over its own row.
+      const carport = solarRowCarport(pv.row);
+      const key = carport.rows.join(':');
+      if (!builtRowCanopies.has(key)) {
+        builtRowCanopies.add(key);
+        const canopy = buildSolarCanopy(carport, palette);
+        // Its label: the canopy of the row nearest the pointer (`pickEquipment`).
+        const ids = layout.solar
+          .filter((o) => o.free == null && solarRowCarport(o.row).rows.join(':') === key)
+          .map((o) => o.id);
+        canopy.traverse((o) => {
+          o.userData['solarRowIds'] = ids;
+        });
+        site.add(canopy);
+      }
+      const top = carportTopY(carport.frame);
+      const middle = lotPoint({ x: lot.width / 2, z: rowCenterZ(pv.row) }, top + 0.6);
       energyLabels.set(pv.id, middle);
     }
-    // Panels: a switchboard with its doors toward the lanes (parking lot only).
-    const panelY = new Map<string, number>();
+    // Panels: switchboards in a row beside the transformer, AC panelboards on
+    // racks beside their AC group (site-layout-links.ts).
     for (const p of layout.panels) {
-      const g = t.switchboard();
+      const g =
+        p.model === 'wall'
+          ? t.wallPanelboard()
+          : p.model === 'panelboard'
+            ? t.panelboard()
+            : p.model === 'cabinet'
+              ? t.powerCabinet()
+              : t.switchboard();
       g.position.set(p.x, 0, p.z);
+      g.rotation.y = p.turn;
+      g.traverse((o) => {
+        o.userData['panelId'] = p.id;
+      });
       site.add(g);
-      panelY.set(`${String(p.x)}:${String(p.z)}`, PANEL_LINK_Y);
     }
-    // Links: from a panel to a circuit node and on to the station's back
-    // (stationBackPoint, which follows the row's turn).
+    // Links: cable runs on the ground from the transformer to the
+    // switchboards, from a switchboard along its circuit's lane and row to a
+    // short branch at the back of each charger.
     const nodeY = 1.0;
-    const yAt = (p: Point): number => panelY.get(`${String(p.x)}:${String(p.z)}`) ?? nodeY;
     for (const seg of layout.links.segments) {
-      const from = lotPoint(seg.from, yAt(seg.from));
-      let to: THREE.Vector3;
-      if (seg.kind === 'station') {
-        to = lotPoint(seg.to, 0.9);
-      } else {
-        to = lotPoint(seg.to, yAt(seg.to));
-      }
-      site.add(buildLink(from, to, seg.kind, seg.id));
+      const points = seg.points.map((p: Point) => lotPoint(p, LINK_Y));
+      site.add(buildLink(points, seg.kind, seg.id, seg.flowId));
     }
     const nodeMaterial = track(
       new THREE.MeshBasicMaterial({
@@ -3025,8 +3923,9 @@ export function createSiteScene(
     const nodeGeometry = track(new THREE.SphereGeometry(0.16, 16, 12));
     for (const label of layout.links.labels) {
       if (label.kind === 'circuit') {
+        // A junction where the circuit's trunk turns onto its row, on the ground.
         const node = new THREE.Mesh(nodeGeometry, nodeMaterial);
-        node.position.copy(lotPoint(label.point, nodeY));
+        node.position.copy(lotPoint(label.point, LINK_Y));
         node.raycast = () => undefined;
         site.add(node);
       }
@@ -3244,6 +4143,7 @@ export function createSiteScene(
       y: (-v.y * 0.5 + 0.5) * container.clientHeight,
       depth: v.z,
       distance,
+      pxPerMeter: pixelsPerMeter(distance, camera.fov, container.clientHeight),
       visible: v.z < 1,
     };
   }
@@ -3266,6 +4166,14 @@ export function createSiteScene(
         ? obj.avatarAnchor.clone()
         : new THREE.Vector3(0, obj.top + 1.1, obj.labelZ);
     obj.group.localToWorld(v);
+    return project(v);
+  }
+
+  function virtualSignPoint(stationId: string): ScreenPoint | null {
+    const sprite = virtualSprites.get(stationId);
+    if (sprite == null) return null;
+    const v = new THREE.Vector3(0, (VIRTUAL_SIGN_WIDTH_M * 176) / 512 / 2 + 0.1, 0);
+    sprite.localToWorld(v);
     return project(v);
   }
 
@@ -3360,6 +4268,82 @@ export function createSiteScene(
     if (typeof solarId === 'string') return { kind: 'solar', id: solarId };
     return null;
   }
+  /** The station whose virtual status sign is under the pointer, or null. */
+  function pickVirtualSign(e: PointerEvent): string | null {
+    if (virtualSprites.size === 0) return null;
+    setRay(e);
+    const hit = ray.intersectObjects([...virtualSprites.values()], false)[0];
+    const id: unknown = hit?.object.userData['virtualSign'];
+    return typeof id === 'string' ? id : null;
+  }
+
+  /** How near the pointer's ground point must be to a cable run to hover it, in meters. */
+  const LINK_HOVER_M = 0.45;
+  /**
+   * The power equipment under the pointer (its label key, `onEquipmentHover`):
+   * a transformer, battery, solar canopy or switchboard model, else a cable
+   * run within `LINK_HOVER_M` of the pointer's ground point.
+   */
+  function pickEquipment(e: PointerEvent): string | null {
+    setRay(e);
+    const groups: THREE.Object3D[] = [
+      ...transformerObjects.values(),
+      ...batteryObjects.values(),
+      ...solarObjects.values(),
+    ];
+    site.traverse((o) => {
+      if (
+        o !== site &&
+        (o.userData['panelId'] != null || o.userData['solarRowIds'] != null) &&
+        o.parent === site
+      ) {
+        groups.push(o);
+      }
+    });
+    const hit = ray.intersectObjects(groups, true).find((h) => h.object.type === 'Mesh');
+    if (hit != null) {
+      const d = hit.object.userData;
+      if (typeof d['transformerId'] === 'string') return `transformer:${d['transformerId']}`;
+      if (typeof d['batteryId'] === 'string') return `energy:${d['batteryId']}`;
+      if (typeof d['solarId'] === 'string') return `energy:${d['solarId']}`;
+      if (typeof d['panelId'] === 'string') return `panel:${d['panelId']}`;
+      const rowIds: unknown = d['solarRowIds'];
+      if (Array.isArray(rowIds) && rowIds.length > 0) {
+        const at = site.worldToLocal(hit.point.clone());
+        let best: string | null = null;
+        let bestD = Infinity;
+        for (const id of rowIds as string[]) {
+          const p = energyLabels.get(id);
+          const dist = p == null ? Infinity : Math.abs(p.z - at.z);
+          if (dist < bestD) {
+            bestD = dist;
+            best = id;
+          }
+        }
+        return best != null ? `energy:${best}` : null;
+      }
+    }
+    if (ray.ray.intersectPlane(floor, new THREE.Vector3()) == null) return null;
+    const ground = groundPoint(e);
+    if (ground == null) return null;
+    let best: string | null = null;
+    let bestD = LINK_HOVER_M;
+    for (const seg of layout.links.segments) {
+      for (let i = 1; i < seg.points.length; i++) {
+        const a = seg.points[i - 1];
+        const b = seg.points[i];
+        if (a == null || b == null) continue;
+        const d = distanceToSegment({ x: ground.x, z: ground.z }, a, b);
+        if (d < bestD) {
+          bestD = d;
+          best = seg.flowId;
+        }
+      }
+    }
+    // A run whose label is a link label (a station branch without an allocated limit has none).
+    return best != null && linkLabels.has(best) ? best : null;
+  }
+
   // The pointer on the ground, in lot coordinates.
   function groundPoint(e: PointerEvent): THREE.Vector3 | null {
     setRay(e);
@@ -3414,13 +4398,44 @@ export function createSiteScene(
     controls.enabled = false;
     canvas.setPointerCapture(e.pointerId);
   }
+  // The station under a mouse or pen pointer, reported once per change.
+  let hovered: string | null = null;
+  function hoverStation(id: string | null): void {
+    if (id === hovered) return;
+    hovered = id;
+    callbacks.onHover?.(id);
+  }
+  // The equipment whose label shows, reported once per change.
+  let hoveredEquipment: string | null = null;
+  function hoverEquipment(key: string | null): void {
+    if (key === hoveredEquipment) return;
+    hoveredEquipment = key;
+    callbacks.onEquipmentHover?.(key);
+  }
+  function onPointerLeave(): void {
+    hoverStation(null);
+    hoverEquipment(null);
+  }
   function onPointerMove(e: PointerEvent): void {
     if (drag == null) {
-      if (e.pointerType === 'mouse') {
-        canvas.style.cursor = pick(e) != null ? (editing ? 'grab' : 'pointer') : 'default';
+      if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
+        const hit = pick(e);
+        canvas.style.cursor = hit != null ? (editing ? 'grab' : 'pointer') : 'default';
+        // A virtual status sign shows its time window instead of the station tooltip.
+        const sign = pickVirtualSign(e);
+        hoverStation(sign == null && hit?.kind === 'station' ? hit.id : null);
+        hoverEquipment(
+          sign != null
+            ? `virtual:${sign}`
+            : hit?.kind === 'station' || hit?.kind === 'handle'
+              ? null
+              : pickEquipment(e),
+        );
       }
       return;
     }
+    hoverStation(null);
+    hoverEquipment(null);
     if (!drag.moved && Math.hypot(e.clientX - drag.start.x, e.clientY - drag.start.y) <= 5) return;
     drag.moved = true;
     const p = groundPoint(e);
@@ -3525,8 +4540,9 @@ export function createSiteScene(
         }
         const bay = lotToBay(obj.group.position.x, obj.group.position.z, layout.lot);
         // Back to its spot until the new positions arrive.
-        obj.group.position.copy(lotPoint(bayToLot(obj.station.bay, layout.lot)));
-        obj.group.rotation.y = bayTurn(obj.station.bay, layout.lot);
+        const home = poseOf(obj.station);
+        obj.group.position.copy(lotPoint(home.point));
+        obj.group.rotation.y = home.turn;
         applySelection();
         if (bay != null) callbacks.onDrop(id, bay);
       }
@@ -3536,9 +4552,17 @@ export function createSiteScene(
     const hit = pick(e);
     if (editing) callbacks.onSolarPick?.(null);
     callbacks.onPick(hit?.kind === 'station' ? hit.id : null);
+    // A tap (touch) shows the label of the equipment under it; a tap elsewhere hides it.
+    if (e.pointerType === 'touch') {
+      const sign = pickVirtualSign(e);
+      hoverEquipment(
+        sign != null ? `virtual:${sign}` : hit?.kind === 'station' ? null : pickEquipment(e),
+      );
+    }
   }
   canvas.addEventListener('pointerdown', onPointerDown);
   canvas.addEventListener('pointermove', onPointerMove);
+  canvas.addEventListener('pointerleave', onPointerLeave);
   canvas.addEventListener('pointerup', onPointerUp);
 
   const observer = new ResizeObserver(() => {
@@ -3562,10 +4586,17 @@ export function createSiteScene(
     camera.position.add(panned);
   }
 
+  // Orbit, zoom and pan keep the camera at eye height or above (MIN_CAMERA_HEIGHT),
+  // so a low orbit looks across the lot and never goes under the ground.
+  function keepCameraAboveGround(): void {
+    camera.position.y = clampCameraHeight(camera.position.y);
+  }
+
   function loop(now: number): void {
     if (disposed || !active) return;
     controls.update();
     keepTargetOnSite();
+    keepCameraAboveGround();
     updateFog();
     if (!options.reducedMotion) {
       const time = (now - t0) / 1000;
@@ -3673,7 +4704,7 @@ export function createSiteScene(
     },
     setLinkFlow(next) {
       linkFlow = next;
-      for (const [id, entry] of linkMeshes) styleLink(entry, next.get(id) ?? null);
+      for (const entry of linkMeshes.values()) styleLink(entry, next.get(entry.flowId) ?? null);
     },
     focus: focusStation,
     viewDistance: () => camera.position.distanceTo(controls.target),
@@ -3683,12 +4714,14 @@ export function createSiteScene(
     energyLabelPoint,
     transformerLabelPoint,
     linkLabelPoint,
+    virtualSignPoint,
     dispose() {
       disposed = true;
       cancelAnimationFrame(animationFrame);
       observer.disconnect();
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerleave', onPointerLeave);
       canvas.removeEventListener('pointerup', onPointerUp);
       controls.dispose();
       showGuides([]);

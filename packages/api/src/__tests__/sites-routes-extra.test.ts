@@ -76,6 +76,11 @@ const { mockReadLayoutStationSessions } = vi.hoisted(() => ({
 vi.mock('../lib/site-layout-sessions.js', () => ({
   readLayoutStationSessions: mockReadLayoutStationSessions,
 }));
+// The virtual sign windows read the database apart (integration 156-site-layout-live).
+vi.mock('../lib/site-layout-status-windows.js', () => ({
+  readLayoutReservations: () => Promise.resolve(new Map()),
+  readLayoutMaintenanceWindows: () => Promise.resolve(new Map()),
+}));
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
     () =>
@@ -116,7 +121,8 @@ vi.mock('@evtivity/database', async () => {
     readSiteLayoutSettings: vi.fn(async () =>
       (await import('@evtivity/lib/site-layout')).effectiveLayoutSettings(null),
     ),
-    readSiteStationCounts: vi.fn(() => Promise.resolve({ total: 0, bus: 0, truck: 0 })),
+    readStationLayoutKinds: vi.fn(() => Promise.resolve(new Map())),
+    ChargerPlacementSiteTypeError: class extends Error {},
     db: {
       select: vi.fn(() => makeChain()),
       selectDistinct: vi.fn(() => makeChain()),

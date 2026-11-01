@@ -92,8 +92,14 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'DELETE /sites/:id/electricity-rates/:periodId': { audited: 'site' },
   'DELETE /sites/:id/payment-config': { audited: 'site' },
   'DELETE /sites/:id/pricing-groups/:pricingGroupId': { audited: 'pricing_assignment' },
-  'DELETE /sites/:siteId/panels/:panelId': { audited: 'site' },
-  'DELETE /sites/:siteId/panels/:panelId/circuits/:circuitId': { audited: 'site' },
+  'DELETE /sites/:siteId/panels/:panelId': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
+  'DELETE /sites/:siteId/panels/:panelId/circuits/:circuitId': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
   'DELETE /sites/:siteId/unmanaged-loads/:id': { audited: 'site' },
   'DELETE /smart-charging/templates/:id': { audited: 'smart_charging_template' },
   'DELETE /station-message-templates/:state': { audited: 'station_message_template' },
@@ -192,8 +198,14 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'maintenance_event',
     service: 'services/src/maintenance.service.ts',
   },
-  'PATCH /sites/:siteId/panels/:panelId': { audited: 'site' },
-  'PATCH /sites/:siteId/panels/:panelId/circuits/:circuitId': { audited: 'site' },
+  'PATCH /sites/:siteId/panels/:panelId': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
+  'PATCH /sites/:siteId/panels/:panelId/circuits/:circuitId': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
   'PATCH /sites/:siteId/stations/:stationId/circuit': { audited: 'station' },
   'PATCH /sites/:siteId/unmanaged-loads/:id': { audited: 'site' },
   'PATCH /smart-charging/templates/:id': { audited: 'smart_charging_template' },
@@ -566,8 +578,14 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'maintenance_event',
     service: 'services/src/maintenance.service.ts',
   },
-  'POST /sites/:siteId/panels': { audited: 'site' },
-  'POST /sites/:siteId/panels/:panelId/circuits': { audited: 'site' },
+  'POST /sites/:siteId/panels': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
+  'POST /sites/:siteId/panels/:panelId/circuits': {
+    audited: 'site',
+    service: 'database/src/lib/load-management-tree.ts',
+  },
   'POST /sites/:siteId/unmanaged-loads': { audited: 'site' },
   'POST /sites/import': {
     audited: ['site', 'station'],

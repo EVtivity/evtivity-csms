@@ -22,37 +22,59 @@
 // truck lanes. A station with a Megawatt Charging System connector counts as
 // a truck station (`depotStationKind`): it fills the default truck lane count,
 // a new one takes a free truck lane first, and a site that turns into a depot
-// moves its stations into the area of their kind (`fitDepotPositions`).
+// moves its stations into the area of their kind (`fitDepotPositions`). A
+// depot charges DC only: an AC station takes no bay or lane and stands below
+// the layout.
+//
+// On a parking lot, an office or retail row and a street, AC and DC stations
+// keep apart: a new station takes the first free spot of its group (DC next
+// to the transformer, AC from the far end, `firstFreeSlotFor`), and a site
+// that turns into one of these types regroups its stations
+// (`fitGroupedPositions`). A layout Save keeps the positions an operator set.
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
   effectiveLayoutSettings,
-  firstFreeDepotSlot,
   firstFreePlacement,
-  firstFreeSlot,
-  fitDepotPositions,
+  firstFreeSlotFor,
+  sharesSpotPair,
+  splitDispenserCount,
+  fitFreePlacementsInReach,
+  fitGroupedPositions,
   fitPositionsToGrid,
   freePlacementFromSlot,
   freeSpotCount,
   freeFootprintsOverlap,
   freeSlotsFor,
+  layoutStationCountsOfKinds,
+  layoutStationKind,
   normalizeRotationDeg,
   positionToBay,
   resolveFreeOverlaps,
   sameLayoutSettings,
   siteTypeOf,
-  usesDepotSpots,
   usesFreePositions,
+  chargerPlacementOf,
+  DEFAULT_CHARGER_PLACEMENT,
 } from '@evtivity/lib/site-layout';
 import type {
+  ChargerPlacement,
   FreePlacement,
+  FreeStation,
   LayoutPoint,
   LayoutStationCounts,
+  LayoutStationKind,
   SiteLayoutSettings,
   SiteType,
 } from '@evtivity/lib/site-layout';
 import { db } from '../config.js';
-import { chargingStations, sites, stationLayoutPositions } from '../schema/assets.js';
+import {
+  chargingStations,
+  connectors,
+  evses,
+  sites,
+  stationLayoutPositions,
+} from '../schema/assets.js';
 import { isOperatorStation } from './conformance-stations.js';
 
 export type StationLayoutDb = Pick<
@@ -113,35 +135,77 @@ const evseCountOf = (outer: OuterStation) =>
   sql<number>`(SELECT count(*)::int FROM evses e WHERE e.station_id = ${OUTER_STATION_ID[outer]})`;
 
 /**
- * Whether a station has a Megawatt Charging System connector (any case of
- * `MCS`, as `cMCS`): a truck station on a depot (`depotStationKind`).
+ * The layout kind of each station (`layoutStationKind`: AC or DC, its depot
+ * spot and its ports) from the connectors of its in-service EVSEs, by station id. A
+ * station without connectors yet (a new station before its boot report) has
+ * no entry: it joins no group.
  */
-const hasMcsConnectorOf = (outer: OuterStation) =>
-  sql<boolean>`EXISTS (SELECT 1 FROM connectors c JOIN evses e ON e.id = c.evse_id WHERE e.station_id = ${OUTER_STATION_ID[outer]} AND c.connector_type ILIKE '%mcs%')`;
-
-/** The depot kind of a station row (`depotStationKind`, read in SQL). */
-function kindOf(row: { mcs?: boolean | null | undefined }): 'bus' | 'truck' {
-  return row.mcs === true ? 'truck' : 'bus';
+export async function readStationLayoutKinds(
+  stationIds: readonly string[],
+  executor: Pick<typeof db, 'select'> = db,
+): Promise<Map<string, LayoutStationKind>> {
+  const out = new Map<string, LayoutStationKind>();
+  if (stationIds.length === 0) return out;
+  const ids = [...new Set(stationIds)];
+  const rows = await executor
+    .select({
+      stationId: evses.stationId,
+      evseId: evses.id,
+      connectorType: connectors.connectorType,
+      maxPowerKw: connectors.maxPowerKw,
+    })
+    .from(connectors)
+    .innerJoin(evses, eq(evses.id, connectors.evseId))
+    .where(
+      and(inArray(evses.stationId, ids), isNull(evses.retiredAt), isNull(connectors.retiredAt)),
+    );
+  const byStation = new Map<
+    string,
+    Array<{ connectorType: string | null; maxPowerKw: string | null }>
+  >();
+  const evsesOf = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const list = byStation.get(r.stationId) ?? [];
+    list.push({ connectorType: r.connectorType, maxPowerKw: r.maxPowerKw });
+    byStation.set(r.stationId, list);
+    const set = evsesOf.get(r.stationId) ?? new Set<string>();
+    set.add(r.evseId);
+    evsesOf.set(r.stationId, set);
+  }
+  // The in-service EVSEs are the station's ports (a dual-port AC pedestal shares two spots).
+  for (const [id, list] of byStation) {
+    out.set(id, layoutStationKind(list, evsesOf.get(id)?.size ?? 1));
+  }
+  return out;
 }
 
-/** The station counts of the layout defaults: all, and by depot kind. */
-function stationCountsOf(
-  rows: ReadonlyArray<{ mcs?: boolean | null | undefined }>,
-): LayoutStationCounts {
-  const truck = rows.filter((r) => kindOf(r) === 'truck').length;
-  return { total: rows.length, bus: rows.length - truck, truck };
+/** The kinds of station ids in order (undefined for one without connectors). */
+function kindsIn(
+  kinds: ReadonlyMap<string, LayoutStationKind>,
+  ids: readonly string[],
+): Array<LayoutStationKind | undefined> {
+  return ids.map((id) => kinds.get(id));
 }
 
-/** The station counts of a site's operator stations (the layout defaults by kind). */
+/** The station counts of a site's operator stations (the layout defaults by depot kind). */
 export async function readSiteStationCounts(
   siteId: string,
   executor: Pick<typeof db, 'select'> = db,
 ): Promise<LayoutStationCounts> {
   const rows = await executor
-    .select({ mcs: hasMcsConnectorOf('station') })
+    .select({ id: chargingStations.id })
     .from(chargingStations)
     .where(and(eq(chargingStations.siteId, siteId), isOperatorStation()));
-  return stationCountsOf(rows);
+  const ids = rows.map((r) => r.id);
+  return layoutStationCountsOfKinds(kindsIn(await readStationLayoutKinds(ids, executor), ids));
+}
+
+/** A charger placement sent for a site type other than a parking lot. */
+export class ChargerPlacementSiteTypeError extends Error {
+  constructor() {
+    super('Charger placement is a parking lot setting');
+    this.name = 'ChargerPlacementSiteTypeError';
+  }
 }
 
 /**
@@ -243,7 +307,6 @@ export async function placeStationOnLayout(
       freeZM: stationLayoutPositions.freeZM,
       freeRotationDeg: stationLayoutPositions.freeRotationDeg,
       evseCount: evseCountOf('layout'),
-      mcs: hasMcsConnectorOf('layout'),
     })
     .from(stationLayoutPositions)
     .where(eq(stationLayoutPositions.siteId, siteId));
@@ -253,24 +316,27 @@ export async function placeStationOnLayout(
   await tx.delete(stationLayoutPositions).where(eq(stationLayoutPositions.stationId, stationId));
   const points = rows.map((r) => ({ x: Number(r.positionX), y: Number(r.positionY) }));
   // The stations placed at the site and this one.
-  const [station] = await tx
-    .select({ mcs: hasMcsConnectorOf('station') })
-    .from(chargingStations)
-    .where(eq(chargingStations.id, stationId));
-  const kind = kindOf({ mcs: station?.mcs });
-  const others = stationCountsOf(rows);
+  const ids = [...rows.map((r) => r.stationId), stationId];
+  const kinds = await readStationLayoutKinds(ids, tx);
+  const kind = kinds.get(stationId);
   const settings = effectiveLayoutSettings(
     stored,
     points.map((p) => positionToBay(p)),
-    {
-      total: others.total + 1,
-      bus: others.bus + (kind === 'bus' ? 1 : 0),
-      truck: others.truck + (kind === 'truck' ? 1 : 0),
-    },
+    layoutStationCountsOfKinds(kindsIn(kinds, ids)),
   );
-  const slot = usesDepotSpots(settings)
-    ? firstFreeDepotSlot(points, settings, kind)
-    : firstFreeSlot(points, settings);
+  // The first free spot of the station's group (a depot: of its area), never
+  // inside the other charging kind's range.
+  const slot = firstFreeSlotFor(
+    rows.map((r) => ({
+      x: Number(r.positionX),
+      y: Number(r.positionY),
+      charging: kinds.get(r.stationId)?.charging ?? null,
+      pair: sharesSpotPair(kinds.get(r.stationId), settings),
+      span: splitDispenserCount(kinds.get(r.stationId), settings),
+    })),
+    settings,
+    kind,
+  );
   const free = usesFreePositions(settings)
     ? firstFreePlacement(
         rows.flatMap((r) => {
@@ -359,13 +425,13 @@ interface SiteStationRow {
   freeZM?: string | null | undefined;
   freeRotationDeg?: string | null | undefined;
   evseCount?: number | null | undefined;
-  /** The station has an MCS connector (a truck station on a depot). */
-  mcs?: boolean | null | undefined;
+  /** AC or DC and the depot spot (`layoutStationKind`); undefined without connectors. */
+  kind: LayoutStationKind | undefined;
 }
 
 /** Every operator station of the site with its saved position at the site (null when none). */
 async function readSiteStations(tx: StationLayoutDb, siteId: string): Promise<SiteStationRow[]> {
-  return tx
+  const rows = await tx
     .select({
       id: chargingStations.id,
       stationId: chargingStations.stationId,
@@ -375,7 +441,6 @@ async function readSiteStations(tx: StationLayoutDb, siteId: string): Promise<Si
       freeZM: stationLayoutPositions.freeZM,
       freeRotationDeg: stationLayoutPositions.freeRotationDeg,
       evseCount: evseCountOf('station'),
-      mcs: hasMcsConnectorOf('station'),
     })
     .from(chargingStations)
     .leftJoin(
@@ -386,6 +451,11 @@ async function readSiteStations(tx: StationLayoutDb, siteId: string): Promise<Si
       ),
     )
     .where(and(eq(chargingStations.siteId, siteId), isOperatorStation()));
+  const kinds = await readStationLayoutKinds(
+    rows.map((r) => r.id),
+    tx,
+  );
+  return rows.map((r) => ({ ...r, kind: kinds.get(r.id) }));
 }
 
 export interface SavedSiteLayout {
@@ -395,6 +465,31 @@ export interface SavedSiteLayout {
   settingsChanged: boolean;
   /** Stations the lot moved inside it, or (custom site) that got a free position; their new positions are saved. */
   moved: LayoutPosition[];
+}
+
+/**
+ * The free positions of stations converted from grid slots: overlaps with the
+ * `fixed` stations and each other resolved (`resolveFreeOverlaps`), then every
+ * point brought within the stored reach (`fitFreePlacementsInReach`), so
+ * switching a large layout to Custom never stores a point out of range. The
+ * `fixed` stations keep their positions. Returns each converted station's
+ * position as stored.
+ */
+function settleConvertedPlacements(
+  fixed: ReadonlyArray<FreeStation<string>>,
+  converted: ReadonlyArray<FreeStation<string>>,
+): Map<string, FreePlacement> {
+  const all = [...fixed, ...converted];
+  const resolved = resolveFreeOverlaps(all);
+  const settled = all.map((s) => ({ ...s, placement: resolved.get(s.key) ?? s.placement }));
+  const fitted = fitFreePlacementsInReach(settled);
+  const fixedKeys = new Set(fixed.map((s) => s.key));
+  const out = new Map<string, FreePlacement>();
+  for (const s of settled) {
+    if (fixedKeys.has(s.key)) continue;
+    out.set(s.key, storedFree(fitted.get(s.key) ?? s.placement));
+  }
+  return out;
 }
 
 /**
@@ -427,9 +522,9 @@ function freeLayoutOf(
       placement: freePlacementFromSlot(positionToBay(m.point ?? { x: 20, y: 20 }), from),
       spots: m.spots,
     }));
-    const resolved = resolveFreeOverlaps([...known, ...converted]);
+    const settled = settleConvertedPlacements(known, converted);
     for (const c of converted) {
-      const placement = storedFree(resolved.get(c.key) ?? c.placement);
+      const placement = settled.get(c.key) ?? storedFree(c.placement);
       assigned.set(c.key, placement);
       known.push({ ...c, placement });
     }
@@ -477,7 +572,7 @@ export async function saveSiteLayout(
 
   // Every operator station of the site, at its sent, saved or free position.
   const stationRows = await readSiteStations(tx, siteId);
-  const stationCount = stationCountsOf(stationRows);
+  const stationCount = layoutStationCountsOfKinds(stationRows.map((r) => r.kind));
   const storedPoints = stationRows.flatMap((s) =>
     s.positionX != null && s.positionY != null
       ? [{ x: Number(s.positionX), y: Number(s.positionY) }]
@@ -500,14 +595,31 @@ export async function saveSiteLayout(
           ? { x: Number(s.positionX), y: Number(s.positionY) }
           : null),
     }));
-  const placed = located.flatMap((s) => (s.point != null ? [s.point] : []));
+  const kindById = new Map(stationRows.map((r) => [r.id, r.kind]));
+  const placedPoints = located.flatMap((s) => (s.point != null ? [s.point] : []));
   const unplaced = located.filter((s) => s.point == null);
   const placementGrid = effectiveLayoutSettings(
     target,
-    placed.map((p) => positionToBay(p)),
+    placedPoints.map((p) => positionToBay(p)),
     stationCount,
   );
-  const slots = freeSlotsFor(unplaced.length, placed, placementGrid);
+  const placed = located.flatMap((s) =>
+    s.point != null
+      ? [
+          {
+            ...s.point,
+            charging: kindById.get(s.id)?.charging ?? null,
+            pair: sharesSpotPair(kindById.get(s.id), placementGrid),
+            span: splitDispenserCount(kindById.get(s.id), placementGrid),
+          },
+        ]
+      : [],
+  );
+  const slots = freeSlotsFor(
+    unplaced.map((s) => kindById.get(s.id)),
+    placed,
+    placementGrid,
+  );
   unplaced.forEach((s, i) => {
     s.point = slots[i] ?? null;
   });
@@ -540,7 +652,9 @@ export async function saveSiteLayout(
     }
   } else if (target != null) {
     const fit = fitPositionsToGrid(
-      located.flatMap((s) => (s.point != null ? [{ key: s.id, position: s.point }] : [])),
+      located.flatMap((s) =>
+        s.point != null ? [{ key: s.id, position: s.point, kind: kindById.get(s.id) }] : [],
+      ),
       settingsAfter,
     );
     if (fit.unfit.length > 0 && settings !== undefined) {
@@ -573,8 +687,12 @@ export async function saveSiteLayout(
 }
 
 export interface SiteTypeChange {
-  /** False when the site already had this type (nothing written). */
+  /** False when the site already had this type and charger placement (nothing written). */
   changed: boolean;
+  /** The site type changed. */
+  typeChanged: boolean;
+  /** The parking lot's charger placement changed (`chargerPlacementOf`). */
+  placementChanged: boolean;
   settingsBefore: SiteLayoutSettings;
   settingsAfter: SiteLayoutSettings;
   /** Stations the new layout moved onto a free spot, or (to Custom) gave a free position; their positions are saved. */
@@ -603,14 +721,16 @@ const TYPE_FIELDS = [
  * into bus bays, truck stations into truck lanes). Switching to
  * Custom gives every placed station a free position where it stands now (its
  * slot converted to meters, `freePlacementFromSlot`; stations whose spots
- * would overlap slide along their row); switching from Custom returns the
+ * would overlap slide along their row, and stations beyond the stored reach
+ * of 400 m are packed into free places within it); switching from Custom returns the
  * stations to their stored slots by the same positions rule. No-op when the
  * site already has the type.
  */
 export async function setSiteLayoutType(
   tx: StationLayoutDb,
   siteId: string,
-  siteType: SiteType,
+  siteType: SiteType | undefined,
+  options: { chargerPlacement?: ChargerPlacement | undefined } = {},
 ): Promise<SiteTypeChange> {
   await lockSiteLayout(tx, siteId);
   const stored = await readStoredLayoutSettings(siteId, tx);
@@ -621,16 +741,41 @@ export async function setSiteLayoutType(
       : [],
   );
   const bays = located.map((s) => positionToBay(s.point));
-  const count = stationCountsOf(stationRows);
+  const count = layoutStationCountsOfKinds(stationRows.map((r) => r.kind));
   const settingsBefore = effectiveLayoutSettings(stored, bays, count);
   const typeBefore = siteTypeOf(settingsBefore);
-  if (typeBefore === siteType) {
-    return { changed: false, settingsBefore, settingsAfter: settingsBefore, moved: [] };
+  const typeAfter = siteType ?? typeBefore;
+  // A charger placement belongs to a parking lot only.
+  if (options.chargerPlacement != null && typeAfter !== 'parking_lot') {
+    throw new ChargerPlacementSiteTypeError();
   }
-  const typeFields: readonly string[] = TYPE_FIELDS;
+  const placementBefore = chargerPlacementOf(settingsBefore);
+  const placementAfter =
+    options.chargerPlacement ??
+    (typeBefore === 'parking_lot' ? placementBefore : DEFAULT_CHARGER_PLACEMENT);
+  const placementChanged = typeAfter === 'parking_lot' && placementAfter !== placementBefore;
+  if (typeBefore === typeAfter && !placementChanged) {
+    return {
+      changed: false,
+      typeChanged: false,
+      placementChanged: false,
+      settingsBefore,
+      settingsAfter: settingsBefore,
+      moved: [],
+    };
+  }
+  const typeFields: readonly string[] = [...TYPE_FIELDS, 'chargerPlacement'];
   const nextStored = Object.fromEntries(
-    Object.entries({ ...settingsBefore, siteType }).filter(([key]) => !typeFields.includes(key)),
+    Object.entries({ ...settingsBefore, siteType: typeAfter }).filter(
+      ([key]) => !typeFields.includes(key),
+    ),
   ) as unknown as SiteLayoutSettings;
+  if (
+    typeAfter === 'parking_lot' &&
+    (placementAfter !== DEFAULT_CHARGER_PLACEMENT || options.chargerPlacement != null)
+  ) {
+    nextStored.chargerPlacement = placementAfter;
+  }
   for (const key of TYPE_FIELDS) {
     const shownBefore =
       (typeBefore === 'office_retail' && (key === 'chargers' || key === 'mounting')) ||
@@ -656,28 +801,20 @@ export async function setSiteLayoutType(
             },
           ];
     });
-    const resolved = resolveFreeOverlaps(converted);
+    const settled = settleConvertedPlacements([], converted);
     moved = converted.map((c) => ({
       stationId: c.key,
       positionX: c.point.x,
       positionY: c.point.y,
-      free: storedFree(resolved.get(c.key) ?? c.placement),
+      free: settled.get(c.key) ?? storedFree(c.placement),
     }));
   } else {
-    const kinds = new Map(stationRows.map((r) => [r.id, kindOf(r)]));
-    const fit = usesDepotSpots(settingsAfter)
-      ? fitDepotPositions(
-          located.map((s) => ({
-            key: s.id,
-            position: s.point,
-            kind: kinds.get(s.id) ?? 'bus',
-          })),
-          settingsAfter,
-        )
-      : fitPositionsToGrid(
-          located.map((s) => ({ key: s.id, position: s.point })),
-          settingsAfter,
-        );
+    // A depot sorts the stations into its areas; the other types group AC and DC.
+    const kinds = new Map(stationRows.map((r) => [r.id, r.kind]));
+    const fit = fitGroupedPositions(
+      located.map((s) => ({ key: s.id, position: s.point, kind: kinds.get(s.id) })),
+      settingsAfter,
+    );
     moved = [...fit.moved].map(([stationId, point]) => ({
       stationId,
       positionX: point.x,
@@ -689,5 +826,12 @@ export async function setSiteLayoutType(
     .update(sites)
     .set({ layoutSettings: nextStored, updatedAt: new Date() })
     .where(eq(sites.id, siteId));
-  return { changed: true, settingsBefore, settingsAfter, moved };
+  return {
+    changed: true,
+    typeChanged: typeAfter !== typeBefore,
+    placementChanged,
+    settingsBefore,
+    settingsAfter,
+    moved,
+  };
 }

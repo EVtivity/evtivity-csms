@@ -75,6 +75,22 @@ export const SCENE_COLORS = {
   cone: '#f26a1b',
   coneBand: '#f4f4f2',
   signPost: '#6b7280',
+  /**
+   * Hot-dip galvanized steel of the solar carport frame (matte zinc gray; a
+   * screen approximation, no source gives a color).
+   */
+  galvanizedSteel: '#a4abb2',
+  /** The back of a sign blank (bare aluminum). */
+  signBack: '#9ca3af',
+  /**
+   * The red of a regulatory parking sign legend (R7-113). The MUTCD fixes the
+   * color by the FHWA Color Specifications for Retroreflective Sign and
+   * Pavement Marking Materials (23 CFR 655 Appendix to Subpart F); this is a
+   * screen approximation, not the specification.
+   */
+  signRegulatoryRed: '#c8102e',
+  /** The black legend of the California tow-away sign (the statute sets no color). */
+  signInk: '#111111',
   warning: '#facc15',
   /** Lit interiors behind the building windows in the dark theme. */
   windowLight: '#f3d9a4',

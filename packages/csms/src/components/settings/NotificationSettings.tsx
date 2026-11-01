@@ -20,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { emailPreviewDocument } from '@/lib/email-preview';
-import { useLoadedValues } from '@/hooks/use-loaded-values';
+import { useLoadedValues, withoutUntouchedSecrets } from '@/hooks/use-loaded-values';
 
 const DEFAULT_EMAIL_WRAPPER = `<!DOCTYPE html>
 <html>
@@ -109,8 +109,8 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
   const queryClient = useQueryClient();
 
   const loaded = useMemo(() => notificationValuesFrom(settings), [settings]);
-  const [smtp, setSmtp, takeNextSmtpLoad] = useLoadedValues(loaded.smtp);
-  const [twilio, setTwilio, takeNextTwilioLoad] = useLoadedValues(loaded.twilio);
+  const [smtp, setSmtp, takeNextSmtpLoad, smtpTaken] = useLoadedValues(loaded.smtp);
+  const [twilio, setTwilio, takeNextTwilioLoad, twilioTaken] = useLoadedValues(loaded.twilio);
   const [webhook, setWebhook, takeNextWebhookLoad] = useLoadedValues(loaded.webhook);
   const [emailLayout, setEmailLayout, takeNextEmailLayoutLoad] = useLoadedValues(
     loaded.emailLayout,
@@ -170,14 +170,16 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
       host: string;
       port: string;
       username: string;
-      password: string;
+      password?: string;
       from: string;
     }) =>
       Promise.all([
         api.put('/v1/settings/smtp.host', { value: vals.host }),
         api.put('/v1/settings/smtp.port', { value: Number(vals.port) }),
         api.put('/v1/settings/smtp.username', { value: vals.username }),
-        api.put('/v1/settings/smtp.passwordEnc', { value: vals.password }),
+        ...(vals.password !== undefined
+          ? [api.put('/v1/settings/smtp.passwordEnc', { value: vals.password })]
+          : []),
         api.put('/v1/settings/smtp.from', { value: vals.from }),
       ]),
     onSuccess: () => {
@@ -186,10 +188,12 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
   });
 
   const twilioMutation = useMutation({
-    mutationFn: (vals: { accountSid: string; authToken: string; fromNumber: string }) =>
+    mutationFn: (vals: { accountSid: string; authToken?: string; fromNumber: string }) =>
       Promise.all([
         api.put('/v1/settings/twilio.accountSid', { value: vals.accountSid }),
-        api.put('/v1/settings/twilio.authTokenEnc', { value: vals.authToken }),
+        ...(vals.authToken !== undefined
+          ? [api.put('/v1/settings/twilio.authTokenEnc', { value: vals.authToken })]
+          : []),
         api.put('/v1/settings/twilio.fromNumber', { value: vals.fromNumber }),
       ]),
     onSuccess: () => {
@@ -335,7 +339,8 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                 type="button"
                 onClick={() => {
                   const sent = smtp;
-                  smtpMutation.mutate(sent, {
+                  // An untouched password is left out (the stored one stays).
+                  smtpMutation.mutate(withoutUntouchedSecrets(sent, smtpTaken, ['password']), {
                     onSuccess: () => {
                       takeNextSmtpLoad(sent);
                     },
@@ -440,7 +445,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                 type="button"
                 onClick={() => {
                   const sent = twilio;
-                  twilioMutation.mutate(sent, {
+                  twilioMutation.mutate(withoutUntouchedSecrets(sent, twilioTaken, ['authToken']), {
                     onSuccess: () => {
                       takeNextTwilioLoad(sent);
                     },

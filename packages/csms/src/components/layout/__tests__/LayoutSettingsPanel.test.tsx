@@ -7,6 +7,7 @@ import { MemoryRouter } from 'react-router';
 import { effectiveLayoutSettings } from '@evtivity/lib/site-layout';
 
 vi.mock('react-i18next', () => ({
+  Trans: ({ i18nKey }: { i18nKey: string }) => i18nKey,
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) =>
@@ -15,12 +16,8 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-import {
-  LayoutSettingsPanel,
-  newTransformer,
-  parseCountField,
-  parseRatedKva,
-} from '../LayoutSettingsPanel';
+import { LayoutSettingsPanel, parseCountField } from '../LayoutSettingsPanel';
+import { parseRatedKva } from '../PowerEquipment';
 
 const SETTINGS = effectiveLayoutSettings(null);
 
@@ -87,7 +84,9 @@ describe('LayoutSettingsPanel', () => {
     renderPanel();
     expect(screen.getByLabelText('sites.layoutSettings.spotsPerRow')).toBeTruthy();
     expect(screen.getByLabelText('sites.layoutSettings.facingDeg')).toBeTruthy();
-    expect(screen.getByTestId('layout-energy-assets')).toBeTruthy();
+    // The power equipment sits behind its button, not inline.
+    expect(screen.getByTestId('power-equipment')).toBeTruthy();
+    expect(screen.queryByTestId('layout-energy-assets')).toBeNull();
     expect(screen.queryByLabelText('sites.layoutSettings.chargers')).toBeNull();
     expect(screen.queryByLabelText('sites.layoutSettings.mounting')).toBeNull();
     expect(screen.queryByLabelText('sites.layoutSettings.chargersLeft')).toBeNull();
@@ -98,8 +97,7 @@ describe('LayoutSettingsPanel', () => {
     const { onChange, onInvalidChange } = renderPanel(4, office);
     expect(screen.queryByLabelText('sites.layoutSettings.spotsPerRow')).toBeNull();
     expect(screen.queryByLabelText('sites.layoutSettings.facingDeg')).toBeNull();
-    expect(screen.queryByText('sites.layoutSettings.addTransformer')).toBeNull();
-    expect(screen.queryByTestId('layout-energy-assets')).toBeNull();
+    expect(screen.queryByTestId('power-equipment')).toBeNull();
     const chargers = screen.getByLabelText('sites.layoutSettings.chargers');
     expect((chargers as HTMLInputElement).value).toBe('6');
     fireEvent.change(chargers, { target: { value: '12' } });
@@ -156,52 +154,17 @@ describe('LayoutSettingsPanel', () => {
     expect(screen.getByRole('alert').textContent).toBe('sites.layoutSettings.tooSmall');
   });
 
-  it('adds, names, rates and removes transformers', () => {
-    const { onChange } = renderPanel();
-    fireEvent.click(screen.getByRole('button', { name: /addTransformer/ }));
-    const added = onChange.mock.lastCall?.[0] as typeof SETTINGS;
-    expect(added.transformers).toHaveLength(2);
-    expect(added.transformers[1]?.id).toBe('tx-2');
-    fireEvent.change(screen.getByLabelText('sites.layoutSettings.transformerName:1'), {
-      target: { value: 'Main Feed' },
-    });
-    expect((onChange.mock.lastCall?.[0] as typeof SETTINGS).transformers[0]?.name).toBe(
-      'Main Feed',
-    );
-    fireEvent.change(screen.getByLabelText('sites.layoutSettings.ratedKva'), {
-      target: { value: '2500' },
-    });
-    expect((onChange.mock.lastCall?.[0] as typeof SETTINGS).transformers[0]?.ratedKva).toBe(2500);
-    fireEvent.click(
-      screen.getByRole('button', { name: 'sites.layoutSettings.removeTransformer:1' }),
-    );
-    expect((onChange.mock.lastCall?.[0] as typeof SETTINGS).transformers).toEqual([]);
-  });
-
-  it('places a new transformer on the grass in front of the lot', () => {
-    const t = newTransformer(SETTINGS);
-    expect(t.z).toBeLessThan(0);
-    expect(t.id).toBe('tx-2');
-  });
-
-  it('shows a custom site with no counts, its transformers and its free canopies', () => {
+  it('shows a custom site with no counts and its power equipment button', () => {
     const custom = { ...SETTINGS, siteType: 'custom' as const, energyAssets: [] };
-    const { onChange } = renderPanel(4, custom);
+    renderPanel(4, custom);
     expect(screen.getByTestId('layout-settings-custom-hint').textContent).toBe(
       'sites.layoutSettings.customHint',
     );
     expect(screen.queryByLabelText('sites.layoutSettings.spotsPerRow')).toBeNull();
     expect(screen.queryByLabelText('sites.layoutSettings.facingDeg')).toBeNull();
-    expect(screen.getByText('sites.layoutSettings.transformersHintCustom')).toBeDefined();
-    expect(screen.getByText('sites.layoutSettings.energyAssetsHintCustom')).toBeDefined();
+    expect(screen.getByTestId('power-equipment')).toBeTruthy();
     // A custom site has no spot limit.
     expect(screen.queryByRole('alert')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /addSolar/ }));
-    const added = onChange.mock.lastCall?.[0] as typeof SETTINGS;
-    expect(added.energyAssets?.[0]).toMatchObject({ type: 'solar', x: 0, rotationDeg: 0 });
-    // A free transformer stands where it is put, not snapped to a lot side.
-    const t = newTransformer(custom);
-    expect(t).toMatchObject({ x: -8, z: -8 });
   });
 
   it('sets the bus bays, the truck lanes and the facing of a depot, at least one bay or lane in all', () => {
@@ -223,8 +186,8 @@ describe('LayoutSettingsPanel', () => {
     fireEvent.change(bus, { target: { value: '0' } });
     fireEvent.change(truck, { target: { value: '0' } });
     expect(onInvalidChange).toHaveBeenLastCalledWith(true);
-    // Transformers stay on the grass beside the yard.
-    expect(screen.getByText('sites.layoutSettings.transformers')).not.toBeNull();
+    // Transformers, batteries and solar beside the yard: behind the Power Equipment button.
+    expect(screen.getByTestId('power-equipment')).not.toBeNull();
   });
 
   it('warns when a depot has fewer bus bays and truck lanes than stations', () => {

@@ -25,6 +25,7 @@ import { ensureSiteElectricityRates } from './seed-electricity-rates.js';
 import { sessionSiteIdSql } from './lib/session-site.js';
 import { loadDemoStationPlace } from './seed-fleet-billing.js';
 import { seedLayoutDemo } from './seed-demo-layout.js';
+import { seedSitePower } from './seed-site-power.js';
 import { seedDemoVehicleLooks } from './seed-demo-vehicles.js';
 import { seedDemoDriverAvatars } from './seed-demo-avatars.js';
 
@@ -1319,6 +1320,8 @@ export interface DemoFeatureCounts {
   terminalPayments: number;
   /** Stations of the site layout demo (seed-demo-layout.ts). */
   layoutStations: number;
+  /** Sites outside the layout demo whose power equipment this run sized (seed-site-power.ts). */
+  powerSites: number;
   /** Demo drivers given a generated avatar (seed-demo-avatars.ts). */
   driverAvatars: number;
   /** Demo vehicles given a color and body type (seed-demo-vehicles.ts). */
@@ -1355,15 +1358,19 @@ export async function seedDemoFeatures(
   const sims = await seedSimDemo(sql, ctx);
   const terminalPayments = await seedPaymentTerminalDemo(sql, ctx);
   const layout = await seedLayoutDemo(sql, ctx, vendor?.id ?? null);
-  const driverAvatars = await seedDemoDriverAvatars(sql, ctx.actorUserId);
+  // Every other site's transformers, switchboards and panelboards, sized to its stations.
+  const power = await seedSitePower(sql, ctx);
   const vehicleLooks = await seedDemoVehicleLooks(sql, ctx.actorUserId);
   await enableDemoFeatureSettings(sql);
+  // Last, so a driver any earlier demo step created gets its avatar too.
+  const driverAvatars = await seedDemoDriverAvatars(sql, ctx.actorUserId);
   return {
     pncSessions,
     freeVendSessions,
     sims,
     terminalPayments,
     layoutStations: layout.stations,
+    powerSites: power.filter((p) => p.treeWritten || p.layoutWritten).length,
     driverAvatars,
     vehicleLooks: vehicleLooks.vehicles,
     vehicleSessions: vehicleLooks.sessions,

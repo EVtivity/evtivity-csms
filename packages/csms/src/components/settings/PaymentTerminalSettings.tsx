@@ -138,7 +138,7 @@ function IdtechCard({
   };
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [removing, setRemoving] = useState(NO_REMOVALS);
-  const [form, setForm] = useLoadedValues(loaded, () => {
+  const [form, setForm, , taken] = useLoadedValues(loaded, () => {
     setHasSubmitted(false);
     setRemoving(NO_REMOVALS);
   });
@@ -150,7 +150,7 @@ function IdtechCard({
   const secretChanges = Object.fromEntries(
     SECRET_FIELDS.map((field) => [
       field,
-      secretChange(form[field], secrets[field], removing[field]),
+      secretChange(form[field], secrets[field], removing[field], taken[field]),
     ]),
   ) as Record<SecretField, string | undefined>;
   const merchantId = form.merchantId.trim();

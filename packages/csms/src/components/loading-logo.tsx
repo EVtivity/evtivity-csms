@@ -6,16 +6,18 @@ import { useTranslation } from 'react-i18next';
 interface LoadingLogoProps {
   /** 'page' centers in the content area; 'inline' fits cards and table cells. */
   size?: 'page' | 'inline';
+  /** The accessible name; `common.loading` when not given. */
+  label?: string;
 }
 
 // Loading state: the animated brand mark, centered. Replaces translatable
 // loading text everywhere (pages, cards, table bodies).
-export function LoadingLogo({ size = 'page' }: LoadingLogoProps): React.JSX.Element {
+export function LoadingLogo({ size = 'page', label }: LoadingLogoProps): React.JSX.Element {
   const { t } = useTranslation();
   return (
     <div
       role="status"
-      aria-label={t('common.loading')}
+      aria-label={label ?? t('common.loading')}
       className={
         size === 'page'
           ? 'flex min-h-[50vh] items-center justify-center'

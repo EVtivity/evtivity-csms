@@ -118,8 +118,6 @@ describe('IntegrationsSettings storage tab', () => {
         provider: 's3',
         bucket: 'my-bucket',
         region: 'us-east-1',
-        accessKeyId: 'AKIA123',
-        secretAccessKey: 'secret123',
       });
     });
   });
@@ -152,8 +150,6 @@ describe('IntegrationsSettings storage tab', () => {
         provider: 's3-compatible',
         bucket: 'my-bucket',
         region: 'us-east-1',
-        accessKeyId: 'AKIA123',
-        secretAccessKey: 'secret123',
         endpoint: 'http://minio.internal:9000',
         forcePathStyle: true,
         allowedPrivateHosts: ['minio.internal', '10.0.0.5'],

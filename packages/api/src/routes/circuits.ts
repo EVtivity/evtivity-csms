@@ -13,18 +13,18 @@ import {
   evses,
   isOperatorStation,
   operatorStationSql,
+  createCircuit,
+  updateCircuit,
+  deleteCircuit,
 } from '@evtivity/database';
+import type { CircuitChanges } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
-import { changedFields } from '../lib/audit-diff.js';
-import {
-  writeSiteLoadManagementAudit,
-  writeStationLoadAudit,
-} from '../lib/load-management-audit.js';
+import { loadTreeContext, writeStationLoadAudit } from '../lib/load-management-audit.js';
 import {
   PANEL_VOLTAGES,
   circuitConductorPhases,
@@ -202,9 +202,9 @@ export function circuitRoutes(app: FastifyInstance): void {
         circuitConductorPhases(body.phaseConnections, panel.phases),
       );
 
-      const rows = await db
-        .insert(circuits)
-        .values({
+      const created = await createCircuit(
+        siteId,
+        {
           panelId,
           name: body.name,
           breakerRatingAmps: body.breakerRatingAmps,
@@ -212,19 +212,13 @@ export function circuitRoutes(app: FastifyInstance): void {
           phaseConnections: body.phaseConnections ?? null,
           voltageV: body.voltageV ?? null,
           sortOrder: body.sortOrder ?? 0,
-        })
-        .returning();
-      const created = rows[0];
+        },
+        loadTreeContext(request),
+      );
       if (created == null) {
         await reply.status(500).send({ error: 'Failed to create circuit', code: 'CREATE_FAILED' });
         return;
       }
-
-      await writeSiteLoadManagementAudit(request, siteId, {
-        before: null,
-        after: { circuit: created },
-        notes: `circuit created: ${created.name}`,
-      });
 
       return reply.status(201).send({
         ...created,
@@ -349,13 +343,12 @@ export function circuitRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const updateData: Record<string, unknown> = { updatedAt: new Date() };
-      if (body.name != null) updateData['name'] = body.name;
-      if (body.breakerRatingAmps != null) updateData['breakerRatingAmps'] = body.breakerRatingAmps;
-      if (body.phaseConnections !== undefined)
-        updateData['phaseConnections'] = body.phaseConnections;
-      if (body.voltageV !== undefined) updateData['voltageV'] = body.voltageV;
-      if (body.sortOrder != null) updateData['sortOrder'] = body.sortOrder;
+      const updateData: CircuitChanges = { updatedAt: new Date() };
+      if (body.name != null) updateData.name = body.name;
+      if (body.breakerRatingAmps != null) updateData.breakerRatingAmps = body.breakerRatingAmps;
+      if (body.phaseConnections !== undefined) updateData.phaseConnections = body.phaseConnections;
+      if (body.voltageV !== undefined) updateData.voltageV = body.voltageV;
+      if (body.sortOrder != null) updateData.sortOrder = body.sortOrder;
 
       // The capacity depends on the breaker, the voltage and the phases the
       // circuit uses.
@@ -376,26 +369,17 @@ export function circuitRoutes(app: FastifyInstance): void {
             panel.phases,
           ),
         );
-        updateData['maxContinuousKw'] = String(maxContinuousKw);
+        updateData.maxContinuousKw = String(maxContinuousKw);
       }
 
-      const updateRows = await db
-        .update(circuits)
-        .set(updateData)
-        .where(eq(circuits.id, circuitId))
-        .returning();
-      const updated = updateRows[0];
+      const updated = await updateCircuit(
+        { siteId, circuitId, existing, set: updateData },
+        loadTreeContext(request),
+      );
       if (updated == null) {
         await reply.status(404).send({ error: 'Circuit not found', code: 'CIRCUIT_NOT_FOUND' });
         return;
       }
-
-      const change = changedFields(existing, updated);
-      await writeSiteLoadManagementAudit(request, siteId, {
-        before: { circuitId, ...change.before },
-        after: { circuitId, ...change.after },
-        notes: `circuit updated: ${updated.name}`,
-      });
 
       const stationCount = await db
         .select({ count: sql<number>`count(*)::int` })
@@ -466,20 +450,9 @@ export function circuitRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Set circuitId = null on the site's stations assigned to it
-      await db
-        .update(chargingStations)
-        .set({ circuitId: null, updatedAt: new Date() })
-        .where(and(eq(chargingStations.circuitId, circuitId), eq(chargingStations.siteId, siteId)));
-
-      // Delete the circuit (cascades unmanaged loads)
-      await db.delete(circuits).where(eq(circuits.id, circuitId));
-
-      await writeSiteLoadManagementAudit(request, siteId, {
-        before: { circuit: existing },
-        after: null,
-        notes: `circuit deleted: ${existing.name}`,
-      });
+      // Unassigns the site's stations from the circuit, then deletes it
+      // (cascades unmanaged loads).
+      await deleteCircuit({ siteId, circuit: existing }, loadTreeContext(request));
 
       return { success: true as const };
     },

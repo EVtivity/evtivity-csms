@@ -300,3 +300,101 @@ describe('IntegrationsSettings Plug and Charge card on a settings reload', () =>
     expect(input('pnc-warning-days').value).toBe('45');
   });
 });
+
+describe('IntegrationsSettings secrets after a reload of a dirty card', () => {
+  async function saved(): Promise<void> {
+    await waitFor(() => {
+      expect(apiMock.put).toHaveBeenCalled();
+    });
+  }
+  function putKeys(): string[] {
+    return apiMock.put.mock.calls.map((call) => String(call[0]));
+  }
+
+  const FTP = {
+    'ftp.host': 'ftp.example.com',
+    'ftp.port': 21,
+    'ftp.passwordEnc': 'loaded-password',
+  };
+
+  it('leaves out an FTP password the user did not edit, so a rotated one stays', async () => {
+    const { reload } = setup('ftp', FTP);
+    type('ftp-host', 'ftp.new.example.com');
+    // Another user rotates the password while this card is dirty.
+    reload({ ...FTP, 'ftp.passwordEnc': 'rotated-password' });
+    expect(input('ftp-password').value).toBe('loaded-password');
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await saved();
+    expect(putKeys()).toContain('/v1/settings/ftp.host');
+    expect(putKeys()).not.toContain('/v1/settings/ftp.passwordEnc');
+  });
+
+  it('sends an FTP password the user edited', async () => {
+    const { reload } = setup('ftp', FTP);
+    type('ftp-password', 'typed-password');
+    reload({ ...FTP, 'ftp.passwordEnc': 'rotated-password' });
+    fireEvent.click(screen.getByRole('button', { name: /save/i }));
+    await saved();
+    expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/ftp.passwordEnc', {
+      value: 'typed-password',
+    });
+  });
+
+  it('leaves out S3 keys the user did not edit, and sends an edited one', async () => {
+    const { reload } = setup('s3', S3_BASE);
+    type('s3-bucket', 'new-bucket');
+    reload({ ...S3_BASE, 's3.secretAccessKeyEnc': 'rotated-secret' });
+    fireEvent.click(screen.getAllByRole('button', { name: /save/i })[0] as HTMLElement);
+    await saved();
+    const body = apiMock.put.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body.bucket).toBe('new-bucket');
+    expect(body).not.toHaveProperty('accessKeyId');
+    expect(body).not.toHaveProperty('secretAccessKey');
+
+    apiMock.put.mockClear();
+    type('s3-secret-key', 'typed-secret');
+    fireEvent.click(screen.getAllByRole('button', { name: /save/i })[0] as HTMLElement);
+    await saved();
+    const second = apiMock.put.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(second.secretAccessKey).toBe('typed-secret');
+    expect(second).not.toHaveProperty('accessKeyId');
+  });
+
+  it('sends both S3 keys with a new provider', async () => {
+    setup('s3', S3_BASE);
+    type('s3-provider', 's3-compatible');
+    type('s3-endpoint', 'https://storage.example.com');
+    fireEvent.click(screen.getAllByRole('button', { name: /save/i })[0] as HTMLElement);
+    await saved();
+    const body = apiMock.put.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body.accessKeyId).toBe('AKIA');
+    expect(body.secretAccessKey).toBe('secret');
+  });
+
+  it('leaves out a Hubject client secret the user did not edit', async () => {
+    pncData = {
+      'pnc.enabled': true,
+      'pnc.expirationWarningDays': 30,
+      'pnc.hubject.clientSecretEnc': 'loaded-secret',
+    };
+    const { client } = setup('pnc', {});
+    await waitFor(() => {
+      expect(input('pnc-warning-days').value).toBe('30');
+    });
+    type('pnc-warning-days', '45');
+    pncData = { ...pncData, 'pnc.hubject.clientSecretEnc': 'rotated-secret' };
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ['pnc-settings'] });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.click(screen.getAllByRole('button', { name: /save/i })[0] as HTMLElement);
+    await waitFor(() => {
+      expect(apiMock.put).toHaveBeenCalledWith(
+        '/v1/pnc/settings',
+        expect.objectContaining({ expirationWarningDays: 45 }),
+      );
+    });
+    const call = apiMock.put.mock.calls.find((c) => c[0] === '/v1/pnc/settings');
+    expect(call?.[1]).not.toHaveProperty('hubjectClientSecret');
+  });
+});

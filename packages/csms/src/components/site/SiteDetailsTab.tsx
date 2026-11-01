@@ -23,16 +23,22 @@ import { SiteAiInsightsRow } from '@/components/site/SiteAiInsightsRow';
 import { SiteDataPlanCard } from '@/components/site/SiteDataPlanCard';
 import type { DataPlan } from '@evtivity/lib/station-data-plan';
 import {
+  chargerPlacementOf,
   effectiveLayoutSettings,
   positionToBay,
   siteTypeOf,
+  type ChargerPlacement,
   type SiteLayoutSettings,
   type SiteType,
 } from '@evtivity/lib/site-layout';
 import { SiteTypeField } from '@/components/site/SiteTypeField';
 import type { LayoutStation } from '@/components/layout/StationCard';
 import { layoutStationCountsOf } from '@/components/layout/site-layout-free';
-import { SITE_TYPE_LABEL, layoutSummary } from '@/components/site/site-type';
+import {
+  CHARGER_PLACEMENT_LABEL,
+  SITE_TYPE_LABEL,
+  layoutSummary,
+} from '@/components/site/site-type';
 import type { SiteAiInsightsState } from '@/components/site/SiteAiInsightsRow';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
@@ -119,6 +125,7 @@ export function SiteDetailsTab({
   const [hoursOfOperation, setHoursOfOperation] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [siteType, setSiteType] = useState<SiteType>('parking_lot');
+  const [placement, setPlacement] = useState<ChargerPlacement>('islands');
 
   // A site that never saved a layout shows the default lot grown to hold its
   // stations, so its summary reads the station positions (the Layout tab's
@@ -195,6 +202,7 @@ export function SiteDetailsTab({
     setContactIsPublic(site.contactIsPublic);
     setHoursOfOperation(site.hoursOfOperation ?? '');
     setSiteType(siteTypeOf(layout));
+    setPlacement(chargerPlacementOf(layout));
     updateMutation.reset();
     setEditing(true);
   }
@@ -233,6 +241,10 @@ export function SiteDetailsTab({
     };
     if (editTimezone !== '') body['timezone'] = editTimezone;
     if (siteType !== siteTypeOf(layout)) body['siteType'] = siteType;
+    // A parking lot also sends a changed charger placement.
+    if (siteType === 'parking_lot' && placement !== chargerPlacementOf(layout)) {
+      body['chargerPlacement'] = placement;
+    }
     updateMutation.mutate(body);
   }
 
@@ -395,7 +407,13 @@ export function SiteDetailsTab({
               value={hoursOfOperation}
               onChange={setHoursOfOperation}
             />
-            <SiteTypeField id="edit-site-type" value={siteType} onChange={setSiteType} />
+            <SiteTypeField
+              id="edit-site-type"
+              value={siteType}
+              onChange={setSiteType}
+              placement={placement}
+              onPlacementChange={setPlacement}
+            />
             <div className="border-t pt-4 space-y-4">
               <div>
                 <p className="text-sm font-medium">{t('sites.contact')}</p>
@@ -511,6 +529,16 @@ export function SiteDetailsTab({
                 {t(SITE_TYPE_LABEL[siteTypeOf(layout)])}
               </dd>
             </div>
+            {siteTypeOf(layout) === 'parking_lot' && (
+              <div>
+                <dt className="text-muted-foreground">
+                  {t('sites.layoutSettings.chargerPlacement')}
+                </dt>
+                <dd className="font-medium" data-testid="charger-placement-value">
+                  {t(CHARGER_PLACEMENT_LABEL[chargerPlacementOf(layout)])}
+                </dd>
+              </div>
+            )}
             <div>
               <dt className="text-muted-foreground">{t('sites.layout')}</dt>
               <dd className="font-medium">

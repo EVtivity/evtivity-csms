@@ -2,7 +2,32 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { asuToDbm, gradeSignal, readSignalStrength } from '../signal-grade.js';
+import { asuToDbm, gradeSignal, readSignalStrength, signalBars } from '../signal-grade.js';
+
+describe('signalBars', () => {
+  it('maps RSSI to 0 to 4 bars on the Digi bands (> -70, -70 to -85, -86 to -100, -101 to -109, -110)', () => {
+    expect(signalBars(-51)).toBe(4);
+    expect(signalBars(-69)).toBe(4);
+    expect(signalBars(-70)).toBe(3);
+    expect(signalBars(-85)).toBe(3);
+    expect(signalBars(-86)).toBe(2);
+    expect(signalBars(-100)).toBe(2);
+    expect(signalBars(-101)).toBe(1);
+    expect(signalBars(-109)).toBe(1);
+    expect(signalBars(-110)).toBe(0);
+    expect(signalBars(-125)).toBe(0);
+  });
+
+  it('gives no bars for an unknown or misread value', () => {
+    expect(signalBars(null)).toBeNull();
+    expect(signalBars(undefined)).toBeNull();
+    expect(signalBars(Number.NaN)).toBeNull();
+    expect(signalBars(5)).toBeNull();
+    // ASU 99 (unknown) reads as a null dBm; ASU 10 is -93 dBm.
+    expect(signalBars(asuToDbm(99))).toBeNull();
+    expect(signalBars(asuToDbm(10))).toBe(2);
+  });
+});
 
 describe('gradeSignal', () => {
   it('grades a positive dBm unknown, since a received signal is always below 0 dBm', () => {

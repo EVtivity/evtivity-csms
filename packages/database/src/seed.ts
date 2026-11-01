@@ -54,8 +54,6 @@ import {
   reservations,
   sitePowerLimits,
   siteLoadManagement,
-  panels,
-  circuits,
   paymentRecords,
   supportCases,
   supportCaseSessions,
@@ -106,7 +104,7 @@ import {
   seedSessionElectricityCostCents,
 } from './seed-electricity-rates.js';
 import { mapSeedSettings, seedSettingRows } from './seed-settings.js';
-import { demoStationProtocol } from './seed-station-defs.js';
+import { demoStationProtocol, STATION_MODELS, STATION_MODELS_16 } from './seed-station-defs.js';
 import argon2 from 'argon2';
 import {
   calculateCo2AvoidedKg,
@@ -236,29 +234,6 @@ const VENDOR_NAMES = [
   'Wallbox',
   'Enel X',
   'Blink Charging',
-];
-
-const STATION_MODELS: Array<{ model: string; power: number; type: string; amps: number }> = [
-  { model: 'Terra 360', power: 360, type: 'CCS1', amps: 500 },
-  { model: 'Terra 184', power: 180, type: 'CCS1', amps: 250 },
-  { model: 'CT4000', power: 7, type: 'Type1', amps: 32 },
-  { model: 'CP6000', power: 19, type: 'Type1', amps: 32 },
-  { model: 'RTM75', power: 75, type: 'CCS1', amps: 200 },
-  { model: 'RT50', power: 50, type: 'CCS1', amps: 125 },
-  { model: 'BusinessLine', power: 22, type: 'Type1', amps: 32 },
-  { model: 'Troniq 50', power: 50, type: 'CCS1', amps: 125 },
-  { model: 'Pulsar Plus', power: 11, type: 'Type1', amps: 16 },
-  { model: 'JuiceBox', power: 40, type: 'Type1', amps: 48 },
-  { model: 'Series 6', power: 150, type: 'CCS1', amps: 350 },
-  { model: 'IQ 200', power: 200, type: 'CCS1', amps: 500 },
-];
-
-// Simpler models typical of OCPP 1.6-era chargers
-const STATION_MODELS_16: Array<{ model: string; power: number; type: string; amps: number }> = [
-  { model: 'CT4000 (1.6)', power: 7, type: 'Type1', amps: 32 },
-  { model: 'AV-30 (1.6)', power: 22, type: 'Type1', amps: 32 },
-  { model: 'QC-50 (1.6)', power: 50, type: 'CCS1', amps: 125 },
-  { model: 'DualPlug (1.6)', power: 43, type: 'Type1', amps: 63 },
 ];
 
 const FIRST_NAMES = [
@@ -1131,7 +1106,13 @@ async function seed(): Promise<void> {
     saratogaSiteCoords.set(site.id, coords);
   }
 
-  const stationModels: Array<{ model: string; power: number; type: string; amps: number }> = [];
+  const stationModels: Array<{
+    model: string;
+    power: number;
+    type: string;
+    amps: number;
+    outputs?: number;
+  }> = [];
   const stationJitter = () => (Math.random() - 0.5) * 0.004; // ~200m offset
   const stationRows = Array.from({ length: 2000 }, (_, i) => {
     const ocppProtocol = demoStationProtocol(i);
@@ -1275,86 +1256,10 @@ async function seed(): Promise<void> {
   await db.insert(siteLoadManagement).values(loadMgmtRows);
   console.log(`  ${String(loadMgmtRows.length)} site load management configs created.`);
 
-  // ------ Panels and Circuits (for hierarchical load management) ------
-  const panelRows: Array<{
-    siteId: string;
-    name: string;
-    breakerRatingAmps: number;
-    voltageV: number;
-    phases: number;
-    maxContinuousKw: string;
-    safetyMarginKw: string;
-  }> = [];
-  for (let i = 0; i < Math.min(8, createdSites.length); i++) {
-    const site = createdSites[i];
-    if (site == null) continue;
-    const amps = [100, 200, 150, 200, 100, 150, 200, 100][i] ?? 200;
-    const voltage = 240;
-    const phases = i % 3 === 0 ? 3 : 1;
-    const maxKw = (amps * voltage * phases * 0.8) / 1000;
-    panelRows.push({
-      siteId: site.id,
-      name: `Main Panel ${String.fromCharCode(65 + i)}`,
-      breakerRatingAmps: amps,
-      voltageV: voltage,
-      phases,
-      maxContinuousKw: String(maxKw),
-      safetyMarginKw: String(randomInt(2, 8)),
-    });
-  }
-  const createdPanels = await db.insert(panels).values(panelRows).returning();
-  console.log(`  ${String(createdPanels.length)} panels created.`);
-
-  // Create 2 circuits per panel and assign stations
-  const circuitRows: Array<{
-    panelId: string;
-    name: string;
-    breakerRatingAmps: number;
-    maxContinuousKw: string;
-  }> = [];
-  for (const panel of createdPanels) {
-    const parentVoltage = panelRows.find((p) => p.siteId === panel.siteId)?.voltageV ?? 240;
-    const parentPhases = panelRows.find((p) => p.siteId === panel.siteId)?.phases ?? 1;
-    for (let c = 0; c < 2; c++) {
-      const circuitAmps = [40, 50][c] ?? 40;
-      const circuitMaxKw = (circuitAmps * parentVoltage * parentPhases * 0.8) / 1000;
-      circuitRows.push({
-        panelId: panel.id,
-        name: `Circuit ${String(c + 1)}`,
-        breakerRatingAmps: circuitAmps,
-        maxContinuousKw: String(circuitMaxKw),
-      });
-    }
-  }
-  const createdCircuits = await db.insert(circuits).values(circuitRows).returning();
-  console.log(`  ${String(createdCircuits.length)} circuits created.`);
-
-  // Assign stations to circuits (round-robin among circuits for the same site)
-  const circuitsBySite = new Map<string, string[]>();
-  for (const circuit of createdCircuits) {
-    const panelRow = createdPanels.find((p) => p.id === circuit.panelId);
-    if (panelRow == null) continue;
-    const list = circuitsBySite.get(panelRow.siteId) ?? [];
-    list.push(circuit.id);
-    circuitsBySite.set(panelRow.siteId, list);
-  }
-  let assignedCount = 0;
-  // stationRows has siteId, createdStations has id. Zip them together.
-  for (let si = 0; si < stationRows.length; si++) {
-    const stationInput = stationRows[si];
-    const stationCreated = createdStations[si];
-    if (stationInput == null || stationCreated == null) continue;
-    const siteCircuits = circuitsBySite.get(stationInput.siteId);
-    if (siteCircuits == null || siteCircuits.length === 0) continue;
-    const circuitId = siteCircuits[assignedCount % siteCircuits.length];
-    if (circuitId == null) continue;
-    await db
-      .update(chargingStations)
-      .set({ circuitId })
-      .where(eq(chargingStations.id, stationCreated.id));
-    assignedCount++;
-  }
-  console.log(`  ${String(assignedCount)} stations assigned to circuits.`);
+  // ------ Panels and Circuits ------
+  // Every site's transformers, switchboards and panelboards are sized to its
+  // stations' connected load after the connectors exist (seedSitePower, run
+  // by seedDemoFeatures below, seed-site-power.ts).
 
   // ------ EVSEs (400 - 2 per station) and Connectors (400) ------
   // All connectors start unavailable. The CSS simulator sets them available via StatusNotification after connecting.
@@ -1373,9 +1278,10 @@ async function seed(): Promise<void> {
   const autoCreateGapEvses: Array<{ stationIdx: number; evseId: number }> = [];
   for (let i = 0; i < createdStations.length; i++) {
     const is16 = !isOcpp2x(at(stationRows, i).ocppProtocol);
-    // 1.6 stations get 1-2 connectors, each with its own EVSE (EVSE N / connector N)
-    // 2.x stations get 2-3 EVSEs
-    const numEvses = is16 ? randomInt(1, 2) : i % 5 === 0 ? 3 : 2;
+    // 1.6 stations get 1-2 connectors, each with its own EVSE (EVSE N / connector N).
+    // 2.x stations get 2 EVSEs, a DC split system one per satellite
+    // (`STATION_MODELS` outputs): no single dispenser gets three or more.
+    const numEvses = is16 ? randomInt(1, 2) : (at(stationModels, i).outputs ?? 2);
     // For every 10th 2.x station, skip the last EVSE so the simulator triggers auto-creation
     const maxEvse = !is16 && i % 10 === 0 ? numEvses - 1 : numEvses;
     if (!is16 && i % 10 === 0) {
@@ -2876,7 +2782,7 @@ async function seed(): Promise<void> {
       actorUserId: featureActor?.id ?? null,
     });
     console.log(
-      `  Demo features created (${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs, ${String(features.terminalPayments)} terminal payments, ${String(features.layoutStations)} site layout demo stations, ${String(features.driverAvatars)} demo driver avatars, ${String(features.vehicleLooks)} demo vehicle looks, ${String(features.vehicleSessions)} sessions linked to their vehicle).`,
+      `  Demo features created (${String(features.powerSites)} sites with sized power equipment, ${String(features.pncSessions)} Plug and Charge sessions, ${String(features.freeVendSessions)} free vend sessions, ${String(features.sims)} SIMs, ${String(features.terminalPayments)} terminal payments, ${String(features.layoutStations)} site layout demo stations, ${String(features.driverAvatars)} demo driver avatars, ${String(features.vehicleLooks)} demo vehicle looks, ${String(features.vehicleSessions)} sessions linked to their vehicle).`,
     );
   }
 

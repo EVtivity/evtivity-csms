@@ -305,6 +305,23 @@ export {
   recordLoadManagementProfileReply,
 } from './lib/load-management-state.js';
 export type { LoadManagementRateUnit } from './lib/load-management-state.js';
+export {
+  createCircuit,
+  createPanel,
+  deleteCircuit,
+  deletePanel,
+  updateCircuit,
+  updatePanel,
+} from './lib/load-management-tree.js';
+export type {
+  CircuitChanges,
+  CircuitRow,
+  CircuitValues,
+  LoadTreeWriteContext,
+  PanelChanges,
+  PanelRow,
+  PanelValues,
+} from './lib/load-management-tree.js';
 export { isFleetEnabled, clearFleetCache } from './lib/fleet-setting.js';
 export {
   guardVersion,
@@ -667,6 +684,7 @@ export {
 } from './lib/station-data-plan.js';
 export type { DataPlanChange, DataPlanDb, StationDataPlanState } from './lib/station-data-plan.js';
 export {
+  ChargerPlacementSiteTypeError,
   LayoutGridTooSmallError,
   LayoutSpotsOverlapError,
   moveStationLayout,
@@ -674,6 +692,7 @@ export {
   readSiteLayoutPositions,
   readSiteLayoutSettings,
   readSiteStationCounts,
+  readStationLayoutKinds,
   readStoredLayoutSettings,
   saveSiteLayout,
   setSiteLayoutType,

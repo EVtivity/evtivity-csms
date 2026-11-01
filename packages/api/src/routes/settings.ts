@@ -1379,8 +1379,20 @@ export function settingsRoutes(app: FastifyInstance): void {
       .describe(
         'Region of the bucket. Required for s3. Optional for s3-compatible: empty or missing signs with us-east-1',
       ),
-    accessKeyId: z.string().min(1),
-    secretAccessKey: z.string().min(1),
+    accessKeyId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Access key id. Omit to keep the stored one; required when none is stored or the provider or endpoint changes',
+      ),
+    secretAccessKey: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Secret access key. Omit to keep the stored one; required when none is stored or the provider or endpoint changes',
+      ),
     endpoint: z
       .string()
       .max(2048)
@@ -1433,21 +1445,21 @@ export function settingsRoutes(app: FastifyInstance): void {
         summary: 'Save S3 storage settings',
         operationId: 'updateS3Settings',
         description:
-          'Saves the storage provider, bucket, region and credentials. A change of the provider or the endpoint decides where the credentials are sent, so it needs a fresh proof from a signed-in session (an API key gets 403 SESSION_REQUIRED).',
+          'Saves the storage provider, bucket, region and credentials. A credential left out keeps the stored one, except with a new provider or endpoint, which takes both credentials. A change of the provider or the endpoint decides where the credentials are sent, so it needs a fresh proof from a signed-in session (an API key gets 403 SESSION_REQUIRED).',
         security: [{ bearerAuth: [] }],
         body: zodSchema(s3SettingsBody),
         response: {
           200: successResponse,
           400: errorWith(
-            'Invalid storage endpoint or private hosts, or a missing or wrong proof',
-            [ERROR_CODES.PRIVATE_URL, ...SESSION_PROOF_ERROR_CODES],
+            'Invalid storage endpoint or private hosts, a missing region or credential, or a missing or wrong proof',
+            [ERROR_CODES.PRIVATE_URL, ERROR_CODES.VALIDATION_ERROR, ...SESSION_PROOF_ERROR_CODES],
             {
               ...sessionProofErrorFields,
               field: z
-                .enum(['allowedPrivateHosts', 'region'])
+                .enum(['allowedPrivateHosts', 'region', 'accessKeyId', 'secretAccessKey'])
                 .optional()
                 .describe(
-                  'The refused field: the private hosts list, or a missing region for AWS S3',
+                  'The refused field: the private hosts list, a missing region for AWS S3, or a missing credential',
                 ),
             },
           ),
@@ -1516,12 +1528,27 @@ export function settingsRoutes(app: FastifyInstance): void {
         { key: 's3.allowedPrivateHosts', value: allowedPrivateHosts },
         { key: 's3.bucket', value: body.bucket },
         { key: 's3.region', value: region },
-        { key: 's3.accessKeyIdEnc', value: encryptString(body.accessKeyId, encryptionKey) },
-        { key: 's3.secretAccessKeyEnc', value: encryptString(body.secretAccessKey, encryptionKey) },
       ];
+      // A credential left out keeps the stored one (a form sends only the
+      // credentials its user edited, so a rotated key is not put back).
+      const credentials = [
+        { key: 's3.accessKeyIdEnc', field: 'accessKeyId', value: body.accessKeyId },
+        { key: 's3.secretAccessKeyEnc', field: 'secretAccessKey', value: body.secretAccessKey },
+      ] as const;
+      for (const credential of credentials) {
+        if (credential.value !== undefined) {
+          written.push({
+            key: credential.key,
+            value: encryptString(credential.value, encryptionKey),
+          });
+        }
+      }
 
-      const keysToWrite = written.map((w) => w.key);
-      const beforeRows = await db.select().from(settings).where(inArray(settings.key, keysToWrite));
+      const keysToRead = [...written.map((w) => w.key), ...credentials.map((c) => c.key)];
+      const beforeRows = await db
+        .select()
+        .from(settings)
+        .where(inArray(settings.key, [...new Set(keysToRead)]));
       const beforeMap = new Map<string, unknown>();
       for (const row of beforeRows) beforeMap.set(row.key, row.value);
       const storedValue = (key: string): unknown =>
@@ -1539,6 +1566,20 @@ export function settingsRoutes(app: FastifyInstance): void {
           code: 'SESSION_REQUIRED',
         });
         return;
+      }
+      // A stored credential never follows a new destination, and a missing
+      // one cannot be kept.
+      for (const credential of credentials) {
+        if (credential.value !== undefined) continue;
+        const stored = beforeMap.get(credential.key);
+        if (destinationChanged || typeof stored !== 'string' || stored === '') {
+          await reply.status(400).send({
+            error: `${credential.field} is required when none is stored or the provider or endpoint changes`,
+            code: 'VALIDATION_ERROR',
+            field: credential.field,
+          });
+          return;
+        }
       }
       if (destinationChanged && !(await requireSessionProof(request, reply, body.proof))) return;
 

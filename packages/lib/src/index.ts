@@ -694,8 +694,21 @@ export type {
   DataRetentionGroup,
   DataRetentionSettingKey,
 } from './data-retention.js';
-export { SIGNAL_ASU_UNKNOWN, asuToDbm, gradeSignal, readSignalStrength } from './signal-grade.js';
-export type { SignalGrade, SignalReading, SignalThresholds, SignalUnit } from './signal-grade.js';
+export {
+  SIGNAL_ASU_UNKNOWN,
+  SIGNAL_BAR_MIN_DBM,
+  asuToDbm,
+  gradeSignal,
+  readSignalStrength,
+  signalBars,
+} from './signal-grade.js';
+export type {
+  SignalBars,
+  SignalGrade,
+  SignalReading,
+  SignalThresholds,
+  SignalUnit,
+} from './signal-grade.js';
 
 export { reservationHoldingMinutes } from './reservation-holding.js';
 

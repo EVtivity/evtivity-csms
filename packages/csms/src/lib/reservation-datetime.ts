@@ -11,20 +11,40 @@ export function formatDateTimeLocal(d: Date): string {
   return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// Default startsAt: now + 5 min, rounded UP to the next 5-minute boundary.
-export function getDefaultStartsAt(): string {
-  const d = new Date(Date.now() + 5 * 60 * 1000);
-  d.setSeconds(0, 0);
-  const remainder = d.getMinutes() % 5;
-  if (remainder !== 0) d.setMinutes(d.getMinutes() + (5 - remainder));
-  return formatDateTimeLocal(d);
+// The first instant at or after `d` (whole minutes) that a datetime-local
+// value names exactly. In the hour a fall-back DST change repeats, a
+// wall-clock value always means its first occurrence, so an instant in the
+// second occurrence has no value of its own; formatting it and parsing it
+// back would move it an hour earlier.
+export function nextRepresentableLocal(d: Date): Date {
+  // Elapsed-time arithmetic only: a local setter (setSeconds, setMinutes)
+  // rebuilds the instant from the wall clock and lands in the first occurrence.
+  const t = new Date(Math.floor(d.getTime() / 60_000) * 60_000);
+  // A DST overlap lasts at most an hour; stop well past it.
+  for (let i = 0; i < 4 * 60; i++) {
+    if (new Date(formatDateTimeLocal(t)).getTime() === t.getTime()) return t;
+    t.setTime(t.getTime() + 60_000);
+  }
+  return t;
 }
 
-// Default reservation length: 1 hour after startsAt.
+// Default startsAt: now + 5 min, rounded UP to the next 5-minute boundary,
+// moved past a repeated DST hour it cannot name (see nextRepresentableLocal).
+export function getDefaultStartsAt(): string {
+  const minute = Math.floor((Date.now() + 5 * 60 * 1000) / 60_000) * 60_000;
+  const remainder = new Date(minute).getMinutes() % 5;
+  const d = new Date(minute + (remainder === 0 ? 0 : 5 - remainder) * 60_000);
+  return formatDateTimeLocal(nextRepresentableLocal(d));
+}
+
+// Default reservation length: 1 hour of real elapsed time after startsAt, or
+// the first instant after it a datetime-local value can name. Across a
+// fall-back DST change, start + 1 h can fall in the repeated hour, whose
+// value would read back as the start itself.
 export function getDefaultExpiresAt(startsAtLocal: string): string {
   const start = new Date(startsAtLocal);
   if (!Number.isFinite(start.getTime())) return '';
-  return formatDateTimeLocal(new Date(start.getTime() + 60 * 60 * 1000));
+  return formatDateTimeLocal(nextRepresentableLocal(new Date(start.getTime() + 60 * 60 * 1000)));
 }
 
 // Returns true when startsAt is more than 60s in the future. Used to surface

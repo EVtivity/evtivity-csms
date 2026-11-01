@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ServiceLogger } from '@evtivity/lib';
+import { computeMaxContinuousKw } from '@evtivity/lib/load-allocation';
 
 vi.mock('postgres', () => ({
   default: vi.fn(() => vi.fn()),
@@ -650,6 +651,39 @@ describe('computeHierarchicalAllocation', () => {
     // Circuit available = 80 - 0 unmanaged = 80, split equally = 40 each.
     expect(total).toBe(80);
     expect(result.every((r) => r.allocatedKw === 40)).toBe(true);
+  });
+
+  it('holds a dual-port pedestal to its one shared circuit, not the sum of its ports', () => {
+    // Two 32 A ports at 208 V (6.66 kW each) on one 2-pole 40 A circuit of a
+    // 208Y/120 V panel: 32 A continuous for the station (NEC 625.42, ChargePoint
+    // CT4000 Power Share), which the station shares between its ports.
+    const maxPowerKw = stationMaxPowerKw([
+      { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '6.66' },
+      { stationId: 'sta_1', evseDbId: 'evse_2', maxPowerKw: '6.66' },
+    ]).get('sta_1');
+    expect(maxPowerKw).toBeCloseTo(13.32, 2);
+    const circuitKw = computeMaxContinuousKw(40, 120, 2);
+    const circuit = circuitNode({
+      maxContinuousKw: circuitKw,
+      voltageV: 120,
+      phases: 2,
+      breakerRatingAmps: 40,
+      phaseConnections: 'L1L2',
+      stations: [makeStation({ id: 's1', stationId: 'CS-3054', maxPowerKw: maxPowerKw ?? 0 })],
+    });
+    const panel = panelNode({
+      maxContinuousKw: computeMaxContinuousKw(225, 120, 3),
+      voltageV: 120,
+      phases: 3,
+      breakerRatingAmps: 225,
+      children: [circuit],
+    });
+
+    const [only] = computeHierarchicalAllocation([panel], 'equal_share');
+
+    expect(only?.allocatedKw).toBeCloseTo(circuitKw, 3);
+    // 32 A at 208 V.
+    expect(((only?.allocatedKw ?? 0) * 1000) / (120 * Math.sqrt(3))).toBeCloseTo(32, 1);
   });
 
   it('subtracts circuit unmanaged load from available power', () => {

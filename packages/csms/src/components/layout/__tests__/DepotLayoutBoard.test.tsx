@@ -15,12 +15,7 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-import {
-  DepotLayoutBoard,
-  depotBoardGeometry,
-  depotBoardPoint,
-  depotChipPoint,
-} from '../DepotLayoutBoard';
+import { DepotLayoutBoard } from '../DepotLayoutBoard';
 import type { LayoutStation } from '../StationCard';
 
 const DEPOT: SiteLayoutSettings = {
@@ -71,51 +66,53 @@ afterEach(() => {
 });
 
 describe('DepotLayoutBoard', () => {
-  it('draws the yard, every bus bay and truck lane with its arrows, and the gate', () => {
+  it('outlines and names every bus bay and truck lane slot', () => {
     renderBoard();
-    expect(screen.getByTestId('site-layout-2d-depot').querySelector('polygon')).not.toBeNull();
-    expect(screen.getAllByTestId(/^site-layout-2d-bus-bay-/)).toHaveLength(3);
+    const bays = screen.getAllByTestId(/^site-layout-2d-bus-bay-/);
+    expect(bays).toHaveLength(3);
+    expect(bays[0]?.textContent).toBe('sites.layoutView.busBay 1');
     const lanes = screen.getAllByTestId(/^site-layout-2d-truck-lane-/);
     expect(lanes).toHaveLength(2);
-    // An entry and an exit arrow on each lane, the way trucks drive.
-    expect(lanes[0]?.querySelectorAll('polyline')).toHaveLength(2);
-    expect(screen.getByTestId('site-layout-2d-depot-gate')).not.toBeNull();
+    expect(lanes[1]?.textContent).toBe('sites.layoutView.truckLane 2');
+    // Lanes in the second row, below the bays.
+    expect(lanes[0]?.style.top).toBe('160px');
   });
 
-  it('puts each chip at the charger of its bay or lane', () => {
+  it('shows every station as the standard 2D charger card in its slot, never a chip', () => {
     renderBoard();
-    const g = depotBoardGeometry(DEPOT);
-    const bus = depotChipPoint(DEPOT, { col: 0, row: 0 });
-    // Bus bay 0: the middle of the bay, 3 m in (every other bay 5 m further in).
-    expect(bus).toEqual(depotBoardPoint(g, { x: 2.15, z: 3 }));
-    expect(depotChipPoint(DEPOT, { col: 1, row: 0 }).y).toBe(depotBoardPoint(g, { x: 0, z: 8 }).y);
-    const chip = screen.getByTestId('site-layout-2d-station-bus').parentElement;
-    expect(chip?.style.left).toBe(`${String(bus.x)}px`);
-    expect(chip?.style.top).toBe(`${String(bus.y)}px`);
+    const bus = screen.getByTestId('site-layout-card-bus');
+    expect(bus.style.left).toBe('20px');
+    expect(bus.style.top).toBe('20px');
+    const truck = screen.getByTestId('site-layout-card-truck');
+    expect(truck.style.top).toBe('160px');
+    // The card content of every site type: the station ID and the details button.
+    expect(bus.textContent).toContain('CS-bus');
+    expect(screen.getByTestId('site-layout-card-details-bus')).toBeDefined();
+    expect(screen.queryByTestId(/^site-layout-2d-station-/)).toBeNull();
   });
 
   it('moves a focused station to the next free bay or lane with the keys', () => {
     const { onMove, onOpenDetails } = renderBoard();
-    const chip = screen.getByTestId('site-layout-2d-station-bus');
-    fireEvent.keyDown(chip, { key: 'ArrowRight' });
+    const card = screen.getByTestId('site-layout-card-bus');
+    fireEvent.keyDown(card, { key: 'ArrowRight' });
     expect(onMove).toHaveBeenLastCalledWith('bus', 220, 20);
     // Down is the truck lanes: lane 0 is taken, lane 1 is the nearest free one.
-    fireEvent.keyDown(chip, { key: 'ArrowDown' });
+    fireEvent.keyDown(card, { key: 'ArrowDown' });
     expect(onMove).toHaveBeenLastCalledWith('bus', 220, 160);
     // Up from the bus bays stays in the bus bays: nothing to move to.
     onMove.mockClear();
-    fireEvent.keyDown(chip, { key: 'ArrowUp' });
+    fireEvent.keyDown(card, { key: 'ArrowUp' });
     expect(onMove).not.toHaveBeenCalled();
-    fireEvent.click(chip, { detail: 0 });
+    fireEvent.click(screen.getByTestId('site-layout-card-details-bus'));
     expect(onOpenDetails).toHaveBeenCalledWith('bus');
   });
 
   it('opens a station but moves nothing on a board that does not drag', () => {
     const { onMove, onOpenDetails } = renderBoard(false);
-    const chip = screen.getByTestId('site-layout-2d-station-truck');
-    fireEvent.keyDown(chip, { key: 'ArrowRight' });
+    const card = screen.getByTestId('site-layout-card-truck');
+    fireEvent.keyDown(card, { key: 'ArrowRight' });
     expect(onMove).not.toHaveBeenCalled();
-    fireEvent.click(chip, { detail: 1 });
+    fireEvent.click(screen.getByTestId('site-layout-card-details-truck'));
     expect(onOpenDetails).toHaveBeenCalledWith('truck');
   });
 });

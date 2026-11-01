@@ -61,7 +61,7 @@ export function newBattery(settings: SiteLayoutSettings): LayoutEnergyAsset {
       name: null,
       capacityKwh: null,
       x: free ? -6 - 5 * batteries : Math.min(ground.maxX, ground.minX + 6 + 5 * batteries),
-      z: free ? -6 : ground.minZ - TRANSFORMER_CLEARANCE_M - 1.5,
+      z: free ? -6 : ground.minZ - TRANSFORMER_CLEARANCE_M,
     },
     settings,
   );

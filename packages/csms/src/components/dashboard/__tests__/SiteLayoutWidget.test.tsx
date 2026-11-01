@@ -2,15 +2,18 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
+import { use } from 'react';
 
-const { getMock, permissions, webgl, sceneProps } = vi.hoisted(() => ({
+const { getMock, permissions, webgl, sceneProps, chunk } = vi.hoisted(() => ({
   getMock: vi.fn(),
   permissions: new Set<string>(),
   webgl: { available: true },
   sceneProps: [] as Array<Record<string, unknown>>,
+  // While set, the 3D view suspends as if its lazy chunk were still loading.
+  chunk: { loading: null as Promise<void> | null },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -37,6 +40,7 @@ vi.mock('@/lib/webgl', () => ({
 // three.js does not run in jsdom: the 3D view is a stub that records its props.
 vi.mock('@/components/layout/SiteLayout3D', () => ({
   default: (props: Record<string, unknown>) => {
+    if (chunk.loading != null) use(chunk.loading);
     sceneProps.push(props);
     return <div data-testid="site-layout-3d-stub" />;
   },
@@ -184,6 +188,23 @@ describe('SiteLayoutWidget', () => {
     await screen.findByTestId('site-layout-3d-stub');
   });
 
+  it('shows the loading spinner, labeled and without text, while the 3D view loads', async () => {
+    let finish: () => void = () => undefined;
+    chunk.loading = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    renderWidget();
+    const loading = await screen.findByTestId('site-layout-widget-3d-loading');
+    const status = within(loading).getByRole('status', { name: 'sites.layoutView.loading3d' });
+    expect(status.querySelector('img')?.getAttribute('src')).toBe('/evtivity-logo-animated.svg');
+    expect(loading.textContent).toBe('');
+
+    chunk.loading = null;
+    finish();
+    await screen.findByTestId('site-layout-3d-stub');
+    expect(screen.queryByTestId('site-layout-widget-3d-loading')).toBeNull();
+  });
+
   it('resets the view with Reset View', async () => {
     renderWidget();
     await screen.findByTestId('site-layout-3d-stub');
@@ -207,6 +228,38 @@ describe('SiteLayoutWidget', () => {
     await waitFor(() => {
       expect(getMock).toHaveBeenCalledWith('/v1/sites/sit_main/load-management');
     });
+  });
+
+  // Owner decision 2026-11-01: the equipment shows whether or not load
+  // management is on; the cable runs only while it is on.
+  it.each([
+    [false, false],
+    [true, true],
+  ])(
+    'passes the panels with load management on=%s and links shown=%s',
+    async (isEnabled, linked) => {
+      permissions.add('loadManagement:read');
+      const hierarchy = [{ id: 'p1', name: 'Main', childPanels: [], circuits: [] }];
+      mockApi();
+      const base = getMock.getMockImplementation();
+      getMock.mockImplementation((url: string) =>
+        url === '/v1/sites/sit_main/load-management'
+          ? Promise.resolve({ config: { isEnabled }, hierarchy, stations: [] })
+          : (base?.(url) as Promise<unknown>),
+      );
+      renderWidget();
+      await waitFor(() => {
+        expect(sceneProps.at(-1)?.['hierarchy']).toEqual(hierarchy);
+      });
+      expect(sceneProps.at(-1)?.['loadManaged']).toBe(linked);
+    },
+  );
+
+  it('passes no panels and no links without the load management permission', async () => {
+    renderWidget();
+    await screen.findByTestId('site-layout-3d-stub');
+    expect(sceneProps.at(-1)?.['hierarchy']).toBeNull();
+    expect(sceneProps.at(-1)?.['loadManaged']).toBe(false);
   });
 
   it('says so when the user has no site', async () => {

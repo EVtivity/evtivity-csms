@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
+import sceneSource from '../site-layout-scene.ts?raw';
 import {
   DEFAULT_LAYOUT_GRID,
   bayToPosition,
@@ -11,7 +12,6 @@ import {
 } from '@evtivity/lib/site-layout';
 import {
   BAY_STATION_Z,
-  CAMERA_FOV,
   CURB_M,
   CURB_POST_BACK_M,
   CURB_POST_IN_M,
@@ -22,12 +22,19 @@ import {
   beaconLevel,
   LABEL_CULL_FROM,
   stationLabelInRange,
+  OVERHEAD_BADGE,
+  overheadBadgeScale,
+  overheadBadgesCrowded,
+  CROWDED_MARKER_SHARE,
+  pixelsPerMeter,
+  CHARGER_LOGO_FACES,
   chargingGlowLevel,
   wallBoxOffset,
   wallMounted,
   MAX_DISTANCE_MIN,
   MAX_POLAR_ANGLE,
-  FRONT_MAX_POLAR_ANGLE,
+  MIN_CAMERA_HEIGHT,
+  clampCameraHeight,
   FRONT_TARGET_Y,
   OVERVIEW_CAMERA_OFFSET,
   MIN_DISTANCE,
@@ -45,6 +52,9 @@ import {
   isSpot,
   layoutGroundBox,
   logoFit,
+  virtualSignOf,
+  CHARGER_LOGO_PANELS,
+  type ChargerLogoModel,
   lotOf,
   maxZoomDistance,
   panBox,
@@ -73,10 +83,17 @@ const street = lotOf({
 
 describe('site layout 3D lot', () => {
   it('takes the default lot of 2 rows of 10 standard spots with a two-way aisle between the rows', () => {
-    expect(lot).toMatchObject({ cols: 10, rows: 2, spotW: 2.6, spotD: 5.5, lane: 7, pitch: 12.5 });
+    expect(lot).toMatchObject({
+      cols: 10,
+      rows: 2,
+      spotW: 2.6,
+      spotD: 5.5,
+      lane: 7.3,
+      pitch: 12.8,
+    });
     expect(lot.rowLengths).toEqual([10, 10]);
     expect(lot.width).toBeCloseTo(26);
-    expect(lot.depth).toBeCloseTo(18);
+    expect(lot.depth).toBeCloseTo(18.3);
     expect(lot.facing).toBe(-0);
   });
 
@@ -104,8 +121,8 @@ describe('site layout 3D lot', () => {
 
   it('spaces the rows by the standard spot depth plus the aisle', () => {
     expect(bayToWorld({ col: 2, row: 0 }, lot)).toEqual({ x: 6.5, z: BAY_STATION_Z });
-    // Row 1 is turned: its chargers stand at its back edge, 12.5 + 5.5 m.
-    expect(bayToWorld({ col: 2, row: 1 }, lot).z).toBeCloseTo(18 - BAY_STATION_Z);
+    // Row 1 is turned: its chargers stand at its back edge, 12.8 + 5.5 m.
+    expect(bayToWorld({ col: 2, row: 1 }, lot).z).toBeCloseTo(18.3 - BAY_STATION_Z);
   });
 
   it('puts the chargers of both rows of the default lot at the outer edges, bays opening onto the lane', () => {
@@ -173,9 +190,9 @@ describe('site layout 3D lot', () => {
   });
 
   it('gives an office or retail site one row of its chargers with the aisle in front of it', () => {
-    expect(office).toMatchObject({ rows: 1, cols: 6, spotW: 2.6, spotD: 5.5, lane: 7 });
+    expect(office).toMatchObject({ rows: 1, cols: 6, spotW: 2.6, spotD: 5.5, lane: 7.3 });
     expect(office.rowLengths).toEqual([6]);
-    expect(office.depth).toBeCloseTo(12.5);
+    expect(office.depth).toBeCloseTo(12.8);
     expect(office.mounting).toBe('wall');
     expect(officeStall.mounting).toBe('stall');
     expect(chargersAtBack(0, office)).toBe(false);
@@ -319,14 +336,35 @@ describe('site layout 3D lot', () => {
     expect(fogRange(200).far).toBe(near.far * 10);
   });
 
-  it('keeps the top edge of the view below the horizon at the lowest orbit, so no sky shows', () => {
-    const topRay = MAX_POLAR_ANGLE + (CAMERA_FOV / 2) * (Math.PI / 180);
-    expect(topRay).toBeLessThan(Math.PI / 2);
+  it('lets the camera tilt down to just above horizontal for an eye-level view', () => {
+    expect(MAX_POLAR_ANGLE).toBeCloseTo((88 * Math.PI) / 180);
+    expect(MAX_POLAR_ANGLE).toBeLessThan(Math.PI / 2);
+    // Lower than the overview Fit to View and the front camera start.
+    const overview = Math.atan2(Math.hypot(0.22, 0.86), 0.62);
+    expect(MAX_POLAR_ANGLE).toBeGreaterThan(overview);
+  });
+
+  it('keeps the camera at eye height or above after an orbit, zoom or pan', () => {
+    expect(MIN_CAMERA_HEIGHT).toBe(1.6);
+    expect(clampCameraHeight(40)).toBe(40);
+    expect(clampCameraHeight(1.6)).toBe(1.6);
+    expect(clampCameraHeight(0.9)).toBe(MIN_CAMERA_HEIGHT);
+    expect(clampCameraHeight(-3)).toBe(MIN_CAMERA_HEIGHT);
+    expect(clampCameraHeight(Number.NaN)).toBe(MIN_CAMERA_HEIGHT);
+    // At the lowest orbit a camera far enough out stays where the orbit put it.
+    const distance = 60;
+    const y = 0.5 + distance * Math.cos(MAX_POLAR_ANGLE);
+    expect(clampCameraHeight(y)).toBe(y);
   });
 
   it('puts a car in a charging spot, a Reserved sign in a reserved one and a cone in maintenance', () => {
     expect(stationProp('charging')).toBe('car');
-    expect(stationProp('reserved')).toBe('reservedSign');
+    // A reservation has no physical sign: a virtual one.
+    expect(stationProp('reserved')).toBeNull();
+    expect(virtualSignOf('reserved')).toBe('reserved');
+    expect(virtualSignOf('maintenance')).toBe('maintenance');
+    expect(virtualSignOf('charging')).toBeNull();
+    expect(virtualSignOf('available')).toBeNull();
     expect(stationProp('maintenance')).toBe('cone');
     for (const state of ['faulted', 'unavailable', 'offline', 'available', 'online'] as const) {
       expect(stationProp(state)).toBeNull();
@@ -344,6 +382,35 @@ describe('site layout 3D lot', () => {
     expect(logoFit(panel, { width: 0, height: 0 }, 0.04)).toEqual({ width: 0, height: 0 });
   });
 
+  it('gives every charger model a logo panel the scene builds when a logo is set', () => {
+    const models: ChargerLogoModel[] = [
+      'dc',
+      'ac',
+      'wall',
+      'truck_mcs',
+      'bus_dispenser',
+      'pantograph_down',
+      'pantograph_up',
+    ];
+    expect(Object.keys(CHARGER_LOGO_PANELS).sort()).toEqual([...models].sort());
+    const scene = sceneSource;
+    for (const model of models) {
+      const spec = CHARGER_LOGO_PANELS[model];
+      // A square logo fits inside with padding.
+      const fit = logoFit(spec, { width: 120, height: 120 }, 0.03);
+      expect(fit.width, model).toBeGreaterThan(0.1);
+      expect(fit.width).toBeLessThanOrEqual(spec.width - 0.06 + 1e-9);
+      // Only a wall box shows it on its front (its back is on the wall).
+      expect(spec.facing, model).toBe(model === 'wall' ? 1 : -1);
+      // The scene builds it for this model.
+      const built =
+        scene.includes(`logoPanel('${model}'`) ||
+        (model.startsWith('pantograph') && scene.includes('logoPanel(model,')) ||
+        ((model === 'dc' || model === 'ac') && scene.includes("logoPanel(dc ? 'dc' : 'ac'"));
+      expect(built, model).toBe(true);
+    }
+  });
+
   it('puts the front camera in front of the chargers at eye height, turned with the facing', () => {
     const box = { minX: 0, maxX: 30, minZ: 0, maxZ: 20 };
     for (const facing of [0, Math.PI / 2, Math.PI, -Math.PI / 4]) {
@@ -356,9 +423,9 @@ describe('site layout 3D lot', () => {
       expect(along).toBeGreaterThan(0);
       expect(Math.abs(across)).toBeLessThan(along * 0.01);
       const polar = Math.atan2(Math.hypot(dx, dz), position.y - target.y);
-      // Low across the lot: steeper than the overview orbit allows, within the front orbit.
-      expect(polar).toBeGreaterThan(MAX_POLAR_ANGLE);
-      expect(polar).toBeLessThan(FRONT_MAX_POLAR_ANGLE);
+      // Low across the lot (about 11.5 degrees above the ground), within the lowest orbit.
+      expect(polar).toBeGreaterThan((75 * Math.PI) / 180);
+      expect(polar).toBeLessThan(MAX_POLAR_ANGLE);
       // It looks at charger height.
       expect(target.y).toBe(FRONT_TARGET_Y);
     }
@@ -376,6 +443,82 @@ describe('site layout 3D lot', () => {
     const samples = Array.from({ length: 40 }, (_, i) => beaconLevel(i * 0.05).intensity);
     expect(Math.min(...samples)).toBeLessThan(0.3);
     expect(Math.max(...samples)).toBeGreaterThan(1.5);
+  });
+
+  it('keeps every fitted logo inside the face of its charger model', () => {
+    const logos = [
+      { width: 120, height: 120 },
+      { width: 400, height: 100 },
+      { width: 100, height: 300 },
+    ];
+    for (const model of Object.keys(CHARGER_LOGO_PANELS) as ChargerLogoModel[]) {
+      const panel = CHARGER_LOGO_PANELS[model];
+      const face = CHARGER_LOGO_FACES[model];
+      // The plate on the face: within its whole width (and the AC models'
+      // flat part), within its height, on its plane.
+      const half = model === 'ac' || model === 'wall' ? face.flatWidth / 2 : face.width / 2;
+      expect(Math.abs(panel.x) + panel.width / 2, model).toBeLessThanOrEqual(half + 1e-9);
+      expect(panel.y - panel.height / 2, model).toBeGreaterThanOrEqual(face.minY);
+      expect(panel.y + panel.height / 2, model).toBeLessThanOrEqual(face.maxY);
+      expect(Math.abs(panel.z - face.z), model).toBeLessThanOrEqual(0.02);
+      // The logo inside the plate with padding on every side, its aspect ratio kept.
+      for (const image of logos) {
+        const box = logoFit(panel, image, 0.03);
+        expect(box.width, model).toBeLessThanOrEqual(panel.width - 0.06 + 1e-9);
+        expect(box.height, model).toBeLessThanOrEqual(panel.height - 0.06 + 1e-9);
+        expect(box.width / box.height).toBeCloseTo(image.width / image.height, 9);
+      }
+    }
+    // The AC pedestal: padding on every side of its flat back, in the upper part of the head.
+    const ac = CHARGER_LOGO_PANELS.ac;
+    const head = CHARGER_LOGO_FACES.ac;
+    expect(head.flatWidth / 2 - ac.width / 2).toBeGreaterThanOrEqual(0.02 - 1e-9);
+    expect(head.maxY - (ac.y + ac.height / 2)).toBeGreaterThanOrEqual(0.03);
+    expect(ac.y).toBeGreaterThan((head.minY + head.maxY) / 2);
+  });
+
+  it('sizes the overhead badges by the world within the clamp', () => {
+    // 35 degree field of view over a 900 px stage: 1427 px per meter at 1 m.
+    expect(pixelsPerMeter(1, 35, 900)).toBeCloseTo(450 / Math.tan((17.5 * Math.PI) / 180), 6);
+    expect(pixelsPerMeter(100, 35, 900)).toBeCloseTo(pixelsPerMeter(1, 35, 900) / 100, 9);
+    expect(pixelsPerMeter(0, 35, 900)).toBe(Infinity);
+    const { worldM, markerPx, avatarPx, minMarkerPx, minAvatarPx } = OVERHEAD_BADGE;
+    // Up close never larger than today's size.
+    expect(overheadBadgeScale(1000, markerPx, minMarkerPx)).toBe(1);
+    expect(overheadBadgeScale(Infinity, avatarPx, minAvatarPx)).toBe(1);
+    // In between: the badge's world size on screen.
+    const ppm = 20;
+    expect(overheadBadgeScale(ppm, markerPx, minMarkerPx)).toBeCloseTo(
+      (worldM * ppm) / markerPx,
+      9,
+    );
+    // Far: the readable minimum, 14 px (marker) and 16 px (avatar).
+    expect(overheadBadgeScale(1, markerPx, minMarkerPx) * markerPx).toBeCloseTo(14, 9);
+    expect(overheadBadgeScale(1, avatarPx, minAvatarPx) * avatarPx).toBeCloseTo(16, 9);
+    // Monotonic: never grows as the camera moves away.
+    let last = Infinity;
+    for (let d = 5; d <= 600; d += 5) {
+      const s = overheadBadgeScale(pixelsPerMeter(d, 35, 900), markerPx, minMarkerPx);
+      expect(s).toBeLessThanOrEqual(last);
+      expect(s * markerPx).toBeGreaterThanOrEqual(minMarkerPx - 1e-9);
+      expect(s * markerPx).toBeLessThanOrEqual(markerPx);
+      last = s;
+    }
+  });
+
+  it('calls the markers crowded when a quarter or more of them overlap another', () => {
+    const r = (left: number, top: number) => ({ left, top, right: left + 14, bottom: top + 14 });
+    expect(overheadBadgesCrowded([])).toBe(false);
+    expect(overheadBadgesCrowded([r(0, 0), r(20, 0), r(0, 20)])).toBe(false);
+    expect(overheadBadgesCrowded([r(0, 0), r(14, 0)])).toBe(false);
+    expect(overheadBadgesCrowded([r(0, 0), r(40, 0), r(10, 5)])).toBe(true);
+    // One back-to-back pair among twelve markers: not crowded.
+    const apart = Array.from({ length: 10 }, (_, i) => r(100 + 30 * i, 0));
+    expect(overheadBadgesCrowded([...apart, r(0, 0), r(4, 6)])).toBe(false);
+    // Half of them overlapping: crowded.
+    const piled = Array.from({ length: 6 }, (_, i) => r(5 * i, 0));
+    expect(overheadBadgesCrowded([...apart.slice(0, 6), ...piled])).toBe(true);
+    expect(CROWDED_MARKER_SHARE).toBe(0.25);
   });
 
   it('keeps every label on a small site and hides far labels on a large one', () => {

@@ -74,6 +74,11 @@ const { mockReadLayoutStationSessions } = vi.hoisted(() => ({
 vi.mock('../lib/site-layout-sessions.js', () => ({
   readLayoutStationSessions: mockReadLayoutStationSessions,
 }));
+// The virtual sign windows read the database apart (integration 156-site-layout-live).
+vi.mock('../lib/site-layout-status-windows.js', () => ({
+  readLayoutReservations: () => Promise.resolve(new Map()),
+  readLayoutMaintenanceWindows: () => Promise.resolve(new Map()),
+}));
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
     () =>
@@ -101,7 +106,7 @@ const {
   MockLayoutGridTooSmallError,
   MockLayoutSpotsOverlapError,
   mockReadSiteLayoutSettings,
-  mockReadSiteStationCounts,
+  mockReadStationLayoutKinds,
 } = vi.hoisted(() => {
   class MockLayoutGridTooSmallError extends Error {
     constructor(readonly stations: string[]) {
@@ -124,9 +129,11 @@ const {
       async (..._args: unknown[]): Promise<unknown> =>
         (await import('@evtivity/lib/site-layout')).effectiveLayoutSettings(null),
     ),
-    mockReadSiteStationCounts: vi.fn(
-      (..._args: unknown[]): Promise<{ total: number; bus: number; truck: number }> =>
-        Promise.resolve({ total: 0, bus: 0, truck: 0 }),
+    mockReadStationLayoutKinds: vi.fn(
+      (
+        ..._args: unknown[]
+      ): Promise<Map<string, { charging: 'ac' | 'dc'; depot: 'bus' | 'truck' | null }>> =>
+        Promise.resolve(new Map()),
     ),
   };
 });
@@ -153,9 +160,10 @@ vi.mock('@evtivity/database', async () => ({
   setSiteLayoutType: mockSetSiteLayoutType,
   readSiteLayoutPositions: mockReadSiteLayoutPositions,
   readSiteLayoutSettings: mockReadSiteLayoutSettings,
-  readSiteStationCounts: mockReadSiteStationCounts,
+  readStationLayoutKinds: mockReadStationLayoutKinds,
   LayoutGridTooSmallError: MockLayoutGridTooSmallError,
   LayoutSpotsOverlapError: MockLayoutSpotsOverlapError,
+  ChargerPlacementSiteTypeError: class extends Error {},
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
@@ -608,6 +616,8 @@ describe('Site routes - handler logic', () => {
       };
       mockSetSiteLayoutType.mockResolvedValueOnce({
         changed: true,
+        typeChanged: true,
+        placementChanged: false,
         settingsBefore: {},
         settingsAfter: {},
         moved: [],
@@ -805,6 +815,8 @@ describe('Site routes - handler logic', () => {
       ]);
       mockSetSiteLayoutType.mockResolvedValueOnce({
         changed: true,
+        typeChanged: true,
+        placementChanged: false,
         settingsBefore: {},
         settingsAfter: {},
         moved: [{ stationId: VALID_STATION_ID, positionX: 220, positionY: 20 }],
@@ -846,6 +858,8 @@ describe('Site routes - handler logic', () => {
       mockSetSiteLayoutType.mockClear();
       mockSetSiteLayoutType.mockResolvedValueOnce({
         changed: true,
+        typeChanged: true,
+        placementChanged: false,
         settingsBefore: {},
         settingsAfter: {},
         moved: [],
@@ -1754,8 +1768,11 @@ describe('Site routes - handler logic', () => {
     });
 
     it('reads the station counts by depot kind for the layout defaults', async () => {
-      const counts = { total: 3, bus: 1, truck: 2 };
-      mockReadSiteStationCounts.mockResolvedValueOnce(counts);
+      // One truck station: the counts the depot defaults read (an AC station would count in neither).
+      const counts = { total: 1, bus: 0, truck: 1, spots: 1 };
+      mockReadStationLayoutKinds.mockResolvedValueOnce(
+        new Map([['sta_000000000003', { charging: 'dc', depot: 'truck' }]]),
+      );
       mockReadSiteLayoutSettings.mockClear();
       const station = {
         id: 'sta_000000000003',

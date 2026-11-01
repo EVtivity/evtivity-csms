@@ -9,13 +9,16 @@ import type { FastifyInstance } from 'fastify';
 // another site must answer 404 there and stay unchanged, so a site-restricted
 // user cannot reach another site's row through a site of their own.
 
-const { state, rec, getUserSiteIdsMock, deleteMock, updateMock } = vi.hoisted(() => ({
-  state: { results: [] as unknown[][], index: 0 },
-  rec: { where: [] as unknown[] },
-  getUserSiteIdsMock: vi.fn(),
-  deleteMock: vi.fn(),
-  updateMock: vi.fn(),
-}));
+const { state, rec, getUserSiteIdsMock, deleteMock, updateMock, deleteCircuitMock } = vi.hoisted(
+  () => ({
+    state: { results: [] as unknown[][], index: 0 },
+    rec: { where: [] as unknown[] },
+    getUserSiteIdsMock: vi.fn(),
+    deleteMock: vi.fn(),
+    updateMock: vi.fn(),
+    deleteCircuitMock: vi.fn(),
+  }),
+);
 
 function setupDbResults(...results: unknown[][]): void {
   state.results = results;
@@ -78,6 +81,9 @@ vi.mock('@evtivity/database', async () => ({
   chargingStations: { id: 'st.id', circuitId: 'st.circuit_id', siteId: 'st.site_id' },
   connectors: { evseId: 'c.evse_id', maxPowerKw: 'c.max_power_kw' },
   evses: { id: 'e.id', stationId: 'e.station_id' },
+  // The panel and circuit writer (its writes and audit rows are covered in
+  // the database package).
+  deleteCircuit: deleteCircuitMock,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -114,6 +120,7 @@ const siteAuditMock = vi.fn().mockResolvedValue(undefined);
 vi.mock('../lib/load-management-audit.js', () => ({
   writeSiteLoadManagementAudit: (...args: unknown[]) => siteAuditMock(...args) as Promise<void>,
   writeStationLoadAudit: vi.fn().mockResolvedValue(undefined),
+  loadTreeContext: () => ({ actor: 'operator' }),
 }));
 
 import { registerAuth } from '../plugins/auth.js';
@@ -167,6 +174,7 @@ describe('Load management site scope', () => {
     deleteMock.mockClear();
     updateMock.mockClear();
     siteAuditMock.mockClear();
+    deleteCircuitMock.mockReset().mockResolvedValue(undefined);
     getUserSiteIdsMock.mockReset().mockResolvedValue(['sit_a']);
   });
 
@@ -252,6 +260,7 @@ describe('Load management site scope', () => {
       expect(res.json()).toEqual(CIRCUIT_NOT_FOUND);
       expect(updateMock).not.toHaveBeenCalled();
       expect(deleteMock).not.toHaveBeenCalled();
+      expect(deleteCircuitMock).not.toHaveBeenCalled();
       expect(scopedToSite('sit_a')).toBe(true);
     });
 
@@ -263,12 +272,10 @@ describe('Load management site scope', () => {
         headers: auth,
       });
       expect(res.statusCode).toBe(200);
-      expect(deleteMock).toHaveBeenCalledTimes(1);
-      expect(siteAuditMock).toHaveBeenCalledWith(expect.anything(), 'sit_a', {
-        before: { circuit: { id: 'cir_a', panelId: 'pnl_a', name: 'Bay 1' } },
-        after: null,
-        notes: 'circuit deleted: Bay 1',
-      });
+      expect(deleteCircuitMock).toHaveBeenCalledWith(
+        { siteId: 'sit_a', circuit: { id: 'cir_a', panelId: 'pnl_a', name: 'Bay 1' } },
+        { actor: 'operator' },
+      );
     });
 
     it('404s for a site outside the user scope before any query', async () => {

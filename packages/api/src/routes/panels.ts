@@ -3,30 +3,29 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, sql, isNotNull } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import {
   db,
   panels,
   circuits,
   unmanagedLoads,
-  chargingStations,
   operatorStationSql,
+  createPanel,
+  updatePanel,
+  deletePanel,
 } from '@evtivity/database';
+import type { PanelChanges } from '@evtivity/database';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
-import { changedFields } from '../lib/audit-diff.js';
-import { writeSiteLoadManagementAudit } from '../lib/load-management-audit.js';
+import { loadTreeContext } from '../lib/load-management-audit.js';
 import {
   PANEL_VOLTAGES,
   SUB_PANEL_PHASE_CONNECTIONS,
-  circuitConductorPhases,
   computeMaxContinuousKw,
-  effectiveCircuitVoltageV,
-  isCircuitVoltageAllowed,
   isPanelVoltageAllowed,
   isSubPanelPhaseConnectionAllowed,
 } from '@evtivity/lib';
@@ -287,9 +286,8 @@ export function panelRoutes(app: FastifyInstance): void {
         body.phases,
       );
 
-      const rows = await db
-        .insert(panels)
-        .values({
+      const created = await createPanel(
+        {
           siteId,
           parentPanelId: body.parentPanelId ?? null,
           name: body.name,
@@ -301,19 +299,13 @@ export function panelRoutes(app: FastifyInstance): void {
           oversubscriptionRatio: String(body.oversubscriptionRatio),
           phaseConnections: body.phaseConnections ?? null,
           sortOrder: body.sortOrder ?? 0,
-        })
-        .returning();
-      const created = rows[0];
+        },
+        loadTreeContext(request),
+      );
       if (created == null) {
         await reply.status(500).send({ error: 'Failed to create panel', code: 'CREATE_FAILED' });
         return;
       }
-
-      await writeSiteLoadManagementAudit(request, siteId, {
-        before: null,
-        after: { panel: created },
-        notes: `panel created: ${created.name}`,
-      });
 
       return reply.status(201).send({
         ...created,
@@ -538,82 +530,40 @@ export function panelRoutes(app: FastifyInstance): void {
         body.voltageV != null || body.phases != null || body.breakerRatingAmps != null;
       const maxContinuousKw = computeMaxContinuousKw(newBreaker, newVoltage, newPhases);
 
-      const updateData: Record<string, unknown> = { updatedAt: new Date() };
-      if (body.name != null) updateData['name'] = body.name;
-      if (body.breakerRatingAmps != null) updateData['breakerRatingAmps'] = body.breakerRatingAmps;
-      if (body.voltageV != null) updateData['voltageV'] = body.voltageV;
-      if (body.phases != null) updateData['phases'] = body.phases;
-      if (body.safetyMarginKw != null) updateData['safetyMarginKw'] = String(body.safetyMarginKw);
+      const updateData: PanelChanges = { updatedAt: new Date() };
+      if (body.name != null) updateData.name = body.name;
+      if (body.breakerRatingAmps != null) updateData.breakerRatingAmps = body.breakerRatingAmps;
+      if (body.voltageV != null) updateData.voltageV = body.voltageV;
+      if (body.phases != null) updateData.phases = body.phases;
+      if (body.safetyMarginKw != null) updateData.safetyMarginKw = String(body.safetyMarginKw);
       if (body.oversubscriptionRatio != null)
-        updateData['oversubscriptionRatio'] = String(body.oversubscriptionRatio);
-      if (body.sortOrder != null) updateData['sortOrder'] = body.sortOrder;
+        updateData.oversubscriptionRatio = String(body.oversubscriptionRatio);
+      if (body.sortOrder != null) updateData.sortOrder = body.sortOrder;
       if (body.phaseConnections !== undefined) {
-        updateData['phaseConnections'] = body.phaseConnections;
+        updateData.phaseConnections = body.phaseConnections;
       } else if (newPhases === 3 && existing.phaseConnections != null) {
-        updateData['phaseConnections'] = null;
+        updateData.phaseConnections = null;
       }
-      if (voltageOrPhasesChanged) updateData['maxContinuousKw'] = String(maxContinuousKw);
+      if (voltageOrPhasesChanged) updateData.maxContinuousKw = String(maxContinuousKw);
 
-      const updateRows = await db
-        .update(panels)
-        .set(updateData)
-        .where(eq(panels.id, panelId))
-        .returning();
-      const updated = updateRows[0];
+      // If voltage or phases change, the writer recomputes the capacity of the
+      // panel's circuits; a panel that is no longer three-phase clears its
+      // sub-panels' phase connections.
+      const updated = await updatePanel(
+        {
+          siteId,
+          panelId,
+          existing,
+          set: updateData,
+          recomputeCircuits: body.voltageV != null || body.phases != null,
+          clearSubPanelPhases: body.phases != null,
+        },
+        loadTreeContext(request),
+      );
       if (updated == null) {
         await reply.status(404).send({ error: 'Panel not found', code: 'PANEL_NOT_FOUND' });
         return;
       }
-
-      // If voltage or phases changed, recompute maxContinuousKw for all circuits
-      // on this panel. A circuit voltage the panel no longer allows (above the
-      // new voltage, or on a three-phase panel) is cleared: the circuit then
-      // runs at the panel voltage.
-      if (body.voltageV != null || body.phases != null) {
-        const panelCircuits = await db.select().from(circuits).where(eq(circuits.panelId, panelId));
-
-        for (const circuit of panelCircuits) {
-          const keepVoltage =
-            circuit.voltageV != null &&
-            isCircuitVoltageAllowed(circuit.voltageV, newVoltage, newPhases);
-          const circuitMaxKw = computeMaxContinuousKw(
-            circuit.breakerRatingAmps,
-            effectiveCircuitVoltageV(keepVoltage ? circuit.voltageV : null, newVoltage, newPhases),
-            circuitConductorPhases(circuit.phaseConnections, newPhases),
-          );
-          await db
-            .update(circuits)
-            .set({
-              maxContinuousKw: String(circuitMaxKw),
-              ...(circuit.voltageV != null && !keepVoltage ? { voltageV: null } : {}),
-              updatedAt: new Date(),
-            })
-            .where(eq(circuits.id, circuit.id));
-        }
-      }
-
-      // A panel that is no longer three-phase leaves its sub-panels' phase
-      // connections without meaning: clear them (their load then counts on
-      // every phase again if the panel turns three-phase later).
-      if (body.phases != null && newPhases !== 3) {
-        await db
-          .update(panels)
-          .set({ phaseConnections: null, updatedAt: new Date() })
-          .where(
-            and(
-              eq(panels.parentPanelId, panelId),
-              eq(panels.siteId, siteId),
-              isNotNull(panels.phaseConnections),
-            ),
-          );
-      }
-
-      const change = changedFields(existing, updated);
-      await writeSiteLoadManagementAudit(request, siteId, {
-        before: { panelId, ...change.before },
-        after: { panelId, ...change.after },
-        notes: `panel updated: ${updated.name}`,
-      });
 
       const circuitCount = await db
         .select({ count: sql<number>`count(*)::int` })
@@ -667,29 +617,9 @@ export function panelRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Set circuitId = null on stations assigned to circuits on this panel
-      const panelCircuits = await db
-        .select({ id: circuits.id })
-        .from(circuits)
-        .where(eq(circuits.panelId, panelId));
-
-      for (const circuit of panelCircuits) {
-        await db
-          .update(chargingStations)
-          .set({ circuitId: null, updatedAt: new Date() })
-          .where(
-            and(eq(chargingStations.circuitId, circuit.id), eq(chargingStations.siteId, siteId)),
-          );
-      }
-
-      // Delete the panel (cascades to circuits and unmanaged loads)
-      await db.delete(panels).where(eq(panels.id, panelId));
-
-      await writeSiteLoadManagementAudit(request, siteId, {
-        before: { panel: existing, circuitIds: panelCircuits.map((c) => c.id) },
-        after: null,
-        notes: `panel deleted: ${existing.name}`,
-      });
+      // Unassigns the site's stations from the panel's circuits, then deletes
+      // the panel (cascades to circuits and unmanaged loads).
+      await deletePanel({ siteId, panel: existing }, loadTreeContext(request));
 
       return { success: true as const };
     },

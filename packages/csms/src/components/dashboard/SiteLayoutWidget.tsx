@@ -23,6 +23,8 @@ import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { webglAvailable } from '@/lib/webgl';
 import { useLayoutInsights, useSiteLayoutView } from '@/components/layout/site-layout-data';
+import { StationStateLegend } from '@/components/layout/StationStateIcon';
+import { layoutLegend } from '@/components/layout/site-layout-legend';
 
 // three.js loads only when the widget renders.
 const SiteLayout3D = lazy(() => import('@/components/layout/SiteLayout3D'));
@@ -194,12 +196,10 @@ export function SiteLayoutWidget({
       <Suspense
         fallback={
           <div
-            className={cn(
-              'flex w-full items-center justify-center rounded-lg border-2 border-dashed text-sm text-muted-foreground',
-              WIDGET_STAGE_CLASS,
-            )}
+            data-testid="site-layout-widget-3d-loading"
+            className={cn('flex w-full items-center justify-center', WIDGET_STAGE_CLASS)}
           >
-            {t('sites.layoutView.loading3d')}
+            <LoadingLogo size="inline" label={t('sites.layoutView.loading3d')} />
           </div>
         }
       >
@@ -209,7 +209,9 @@ export function SiteLayoutWidget({
           settings={view.settings}
           terminals={view.terminals}
           hierarchy={view.hierarchy}
+          loadManaged={view.loadManaged}
           logoUrl={view.logoUrl}
+          california={view.california}
           insights={insights}
           editing={false}
           viewOnly
@@ -225,6 +227,17 @@ export function SiteLayoutWidget({
             setWebgl(false);
           }}
         />
+        <div
+          className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
+          data-testid="site-layout-widget-legend"
+        >
+          <StationStateLegend
+            states={
+              layoutLegend({ stations: view.stations, settings: view.settings, show3d: true })
+                .states
+            }
+          />
+        </div>
       </Suspense>
     );
   }

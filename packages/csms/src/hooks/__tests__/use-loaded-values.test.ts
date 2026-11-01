@@ -3,7 +3,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
-import { useLoadedValues } from '../use-loaded-values';
+import { isEditedField, useLoadedValues, withoutUntouchedSecrets } from '../use-loaded-values';
 
 interface Values {
   minLength: number;
@@ -83,5 +83,68 @@ describe('useLoadedValues', () => {
     });
     rerender({ loaded: { minLength: 17 } });
     expect(result.current[0]).toEqual({ minLength: 30 });
+  });
+
+  it('keeps the loaded values as the base of a dirty form', () => {
+    const { result, rerender } = setup({ minLength: 12 });
+    act(() => {
+      result.current[1]({ minLength: 16 });
+    });
+    rerender({ loaded: { minLength: 20 } });
+    expect(result.current[3]).toEqual({ minLength: 12 });
+  });
+
+  it('moves the base with a reload that replaces the values or equals them', () => {
+    const { result, rerender } = setup({ minLength: 12 });
+    rerender({ loaded: { minLength: 20 } });
+    expect(result.current[3]).toEqual({ minLength: 20 });
+    act(() => {
+      result.current[1]({ minLength: 30 });
+    });
+    rerender({ loaded: { minLength: 30 } });
+    expect(result.current[3]).toEqual({ minLength: 30 });
+  });
+});
+
+describe('withoutUntouchedSecrets', () => {
+  interface Form {
+    host: string;
+    password: string;
+  }
+
+  function form(initial: Form) {
+    return renderHook(({ loaded }: { loaded: Form }) => useLoadedValues(loaded), {
+      initialProps: { loaded: initial },
+    });
+  }
+
+  it('leaves out a secret the user did not edit, also after another user rotated it', () => {
+    const { result, rerender } = form({ host: 'a', password: 'loaded' });
+    act(() => {
+      result.current[1]((v) => ({ ...v, host: 'b' }));
+    });
+    rerender({ loaded: { host: 'a', password: 'rotated' } });
+    const [values, , , base] = result.current;
+    expect(values.password).toBe('loaded');
+    expect(isEditedField(values, base, 'password')).toBe(false);
+    expect(withoutUntouchedSecrets(values, base, ['password'])).toEqual({ host: 'b' });
+  });
+
+  it('keeps a secret the user edited, an emptied one included', () => {
+    const { result } = form({ host: 'a', password: 'loaded' });
+    act(() => {
+      result.current[1]((v) => ({ ...v, password: 'typed' }));
+    });
+    expect(withoutUntouchedSecrets(result.current[0], result.current[3], ['password'])).toEqual({
+      host: 'a',
+      password: 'typed',
+    });
+    act(() => {
+      result.current[1]((v) => ({ ...v, password: '' }));
+    });
+    expect(withoutUntouchedSecrets(result.current[0], result.current[3], ['password'])).toEqual({
+      host: 'a',
+      password: '',
+    });
   });
 });

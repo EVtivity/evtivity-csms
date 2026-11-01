@@ -5,8 +5,10 @@
 // (view only). Both load it with React.lazy, so three.js
 // (site-layout-scene.ts) is fetched only when a 3D view shows.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+import { signTexts, type SignTexts } from './site-layout-signs';
 import { isVehicleBodyType, type VehicleBodyType } from '@evtivity/lib/vehicle-appearance';
 import { Link } from 'react-router';
 import { List, Maximize2, Minimize2, Scan, Sparkles, User, X } from 'lucide-react';
@@ -25,6 +27,7 @@ import {
   showsLoadPanels,
   showsSolar,
   showsTransformers,
+  freeToSite,
   snapFreePlacement,
   snapTransformerToGrass,
   solarCanopySize,
@@ -54,26 +57,40 @@ import {
 import type { LayoutStation } from './StationCard';
 import {
   alignmentGuides,
+  bayToWorld,
+  depotLinkGround,
   depotStationPlacement,
+  FACADE_Z,
   freeBackPoint,
-  layoutGroundBox,
+  isSpot,
   lotOf,
-  NARROW_STAGE_PX,
   screenMessageText,
+  STATION_BACK_OFFSET,
   stationBackPoint,
+  stationBackShift,
   stationLabelInRange,
+  OVERHEAD_BADGE,
+  overheadBadgeScale,
+  overheadBadgesCrowded,
   stationProp,
+  virtualSignOf,
+  type VirtualSign,
   wallMounted,
-  type Point,
 } from './site-layout-grid';
 import {
   loadFlows,
+  splitDispenserId,
+  withSplitCabinets,
   loadLevel,
   loadLinks,
+  equipmentPadBox,
+  facadeLinks,
+  placeFacadePanels,
   placePanels,
   type FlowLoad,
   type LinkLabel,
   type LinkPanel,
+  type LinkStationPoint,
 } from './site-layout-links';
 import { AccountAvatar } from '@/components/AccountAvatar';
 import type { LayoutInsight } from './site-layout-data';
@@ -95,12 +112,23 @@ import {
   freeChargerModel,
   stationConnectorTypes,
   freeStationPlaces,
-  labelPriority,
+  customSplitDispenserXs,
+  stationLayoutKindOf,
   type FreeStationPlace,
 } from './site-layout-free';
+import { accessibleSpaceBoxes, stationStalls } from './site-layout-stalls';
+import {
+  accessibleChargingSpace,
+  heldSpots,
+  sharesSpotPair,
+  splitDispenserCount,
+  spanSpots,
+  spotPairPartner,
+  type LayoutBay as StallBay,
+} from '@evtivity/lib/site-layout';
 import { useStageFullScreen } from './use-stage-full-screen';
 import { cn } from '@/lib/utils';
-import { CellularBadge } from './StationStateIcon';
+import { ConnectionBadge, StationStateIcon } from './StationStateIcon';
 
 export interface SiteLayout3DProps {
   stations: readonly LayoutStation[];
@@ -108,10 +136,22 @@ export interface SiteLayout3DProps {
   settings: SiteLayoutSettings;
   /** Payment terminals paired to each station (by internal station ID). */
   terminals: ReadonlyMap<string, readonly LayoutTerminal[]>;
-  /** The load management hierarchy when the site is load managed, else null (no panels, no links). */
+  /**
+   * The site's panels and circuits (the Load Management tab), null when the
+   * caller may not read them (no equipment, no links). The equipment shows
+   * whether or not load management is on (owner decision 2026-11-01).
+   */
   hierarchy: readonly LinkPanel[] | null;
+  /**
+   * Load management is on at the site: the cable runs, their live power glow
+   * and flow, and the live draw on the equipment labels show only then. Off,
+   * the equipment labels show the name and rating only.
+   */
+  loadManaged: boolean;
   /** The company logo for the back panels of the chargers. */
   logoUrl: string | null;
+  /** The site is in California: its stalls add the Vehicle Code 22511 tow-away sign. */
+  california?: boolean;
   /** Edit mode: drag stations to free spots and transformers on the grass (only with sites:write). */
   editing: boolean;
   /** Bumped by Fit to View. */
@@ -138,7 +178,7 @@ export interface SiteLayout3DProps {
   viewOnly?: boolean;
   /** Open AI insights by internal station id (only with aiInsights:read). */
   insights?: ReadonlyMap<string, readonly LayoutInsight[]> | undefined;
-  /** A replayed day shows (Layout tab): no live session avatars, insights or popups of today. */
+  /** A replayed day shows (Layout tab): no insight markers of today; avatars and session popups follow the replayed sessions. */
   replaying?: boolean;
   /**
    * Shown at the bottom of the stage while it is full screen (the day replay
@@ -216,6 +256,54 @@ export function stationBays(
   return bays;
 }
 
+/**
+ * The hover text of a virtual status sign: the station and the reservation
+ * time or the maintenance window (its end alone when the start is not known).
+ */
+export function virtualSignTooltip(
+  t: TFunction,
+  sign: VirtualSign,
+  stationId: string,
+  window: { startsAt: string | null; endsAt: string } | null | undefined,
+  language: string,
+): string {
+  const format = (iso: string): string =>
+    new Intl.DateTimeFormat(language, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    }).format(new Date(iso));
+  const id = stationId;
+  if (window == null) {
+    return sign === 'reserved'
+      ? t('sites.layoutSigns.reservedNow', { id })
+      : t('sites.layoutSigns.maintenanceNow', { id });
+  }
+  const end = format(window.endsAt);
+  if (window.startsAt == null) {
+    return sign === 'reserved'
+      ? t('sites.layoutSigns.reservedUntil', { id, end })
+      : t('sites.layoutSigns.maintenanceUntil', { id, end });
+  }
+  const start = format(window.startsAt);
+  return sign === 'reserved'
+    ? t('sites.layoutSigns.reservedWindow', { id, start, end })
+    : t('sites.layoutSigns.maintenanceWindow', { id, start, end });
+}
+
+/**
+ * The overhead badges (state markers, driver avatars): the icon or picture on
+ * a solid white round background in both themes, with no border or ring
+ * (owner decision 2026-11-01, replacing the translucent card color); the soft
+ * drop shadow (`OVERHEAD_ICON_SHADOW`) keeps it apart from light ground.
+ */
+export const OVERHEAD_BADGE_BACKGROUND = 'rounded-full bg-white';
+
+/** A soft drop shadow that keeps the overhead badges readable on light and dark ground. */
+export const OVERHEAD_ICON_SHADOW =
+  '[filter:drop-shadow(0_1px_1px_rgb(0_0_0/0.45))_drop-shadow(0_0_2px_rgb(255_255_255/0.6))]';
+
 /** The text of a link label: name, breaker and limit, or a station's allocated limit. */
 export function linkLabelText(label: LinkLabel): string {
   const parts: string[] = [];
@@ -225,9 +313,13 @@ export function linkLabelText(label: LinkLabel): string {
   return parts.join(' · ');
 }
 
-function readTheme(reservedLabel: string) {
+function readTheme(signs: SignTexts) {
   return {
-    reservedLabel,
+    signs,
+    virtualColors: {
+      reserved: resolveCssColor(stationStateColor('reserved')),
+      maintenance: resolveCssColor(stationStateColor('maintenance')),
+    },
     dark: document.documentElement.classList.contains('dark'),
     primary: resolveCssColor('hsl(var(--primary))'),
     destructive: resolveCssColor('hsl(var(--destructive))'),
@@ -301,12 +393,60 @@ function placeLabel(
   return shown;
 }
 
+/**
+ * Places a station's state marker above its point. Unlike the labels it never
+ * hides for another one: every station in view shows its marker, and the
+ * labels placed after it keep clear of it.
+ */
+function placeMarker(
+  el: HTMLElement,
+  p: ScreenPoint | null,
+  placed: Rect[],
+  size: Size = { width: el.offsetWidth, height: el.offsetHeight },
+): Rect | null {
+  if (p == null || !p.visible) {
+    el.style.visibility = 'hidden';
+    return null;
+  }
+  const rect = {
+    left: p.x - size.width / 2,
+    right: p.x + size.width / 2,
+    top: p.y - size.height,
+    bottom: p.y,
+  };
+  placed.push(rect);
+  el.style.left = `${String(p.x)}px`;
+  el.style.top = `${String(p.y)}px`;
+  el.style.visibility = 'visible';
+  return rect;
+}
+
+/**
+ * Scales an overhead badge to its world size within the clamp
+ * (`overheadBadgeScale`), pinned at its bottom center (its anchor point), and
+ * returns its size on screen.
+ */
+function scaleBadge(
+  el: HTMLElement,
+  p: ScreenPoint | null,
+  size: Size,
+  fullPx: number,
+  minPx: number,
+): Size {
+  const scale = p == null ? 1 : overheadBadgeScale(p.pxPerMeter, fullPx, minPx);
+  el.style.transformOrigin = '50% 100%';
+  el.style.scale = String(scale);
+  return { width: size.width * scale, height: size.height * scale };
+}
+
 export default function SiteLayout3D({
   stations,
   settings,
   terminals,
   hierarchy,
+  loadManaged,
   logoUrl,
+  california = false,
   editing,
   fitKey,
   currentDrawKw,
@@ -326,19 +466,25 @@ export default function SiteLayout3D({
   fullScreenFooter,
   onFullScreenChange,
 }: SiteLayout3DProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const stageRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SiteScene | null>(null);
   const labelRefs = useRef(new Map<string, HTMLDivElement>());
   const transformerLabelRefs = useRef(new Map<string, HTMLDivElement>());
   const energyLabelRefs = useRef(new Map<string, HTMLDivElement>());
   const linkLabelRefs = useRef(new Map<string, HTMLDivElement>());
+  // The time window of each virtual status sign (hover or tap).
+  const virtualSignRefs = useRef(new Map<string, HTMLDivElement>());
   const avatarRefs = useRef(new Map<string, HTMLDivElement>());
-  // A small dot in the state color where a station label does not fit (dense sites, phones).
-  const dotRefs = useRef(new Map<string, HTMLButtonElement>());
+  // The state marker of every station (custom site in Edit Layout: it takes the keyboard focus).
   const chipRefs = useRef(new Map<string, HTMLButtonElement>());
-  // The display state of every station, for the label order.
-  const statesRef = useRef(new Map<string, string>());
+  // The station under a mouse or pen pointer (its 3D model or its marker): the tooltip.
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const hoveredRef = useRef<string | null>(null);
+  // The power equipment whose label shows (hover, or a tap on touch): no
+  // equipment label is always on (`onEquipmentHover` keys).
+  const hoveredEquipmentRef = useRef<string | null>(null);
+  const tooltipRef = useRef<HTMLDivElement>(null);
   // Custom site in Edit Layout: the selected solar canopy (R turns it, arrows move it).
   const [selectedSolarId, setSelectedSolarId] = useState<string | null>(null);
   // A refused move (spots overlap) shows for a few seconds; a move is announced.
@@ -363,11 +509,65 @@ export default function SiteLayout3D({
   const pageVisible = usePageVisible();
   const lot = useMemo(() => lotOf(settings), [settings]);
   const bays = useMemo(() => stationBays(stations, settings), [stations, settings]);
+  // Dual-port AC pedestals (two spots each) and the accessible charging space.
+  const pairIds = useMemo(
+    () =>
+      new Set(
+        stations.filter((s) => sharesSpotPair(stationLayoutKindOf(s), settings)).map((s) => s.id),
+      ),
+    [stations, settings],
+  );
+  // DC split systems: a dispenser per EVSE, one spot each (`splitDispenserCount`).
+  const splitSpans = useMemo(
+    () =>
+      new Map(
+        stations.flatMap((s) => {
+          const n = splitDispenserCount(stationLayoutKindOf(s), settings);
+          return n > 1 ? [[s.id, n] as const] : [];
+        }),
+      ),
+    [stations, settings],
+  );
+  // AC or DC by station, for where its charger stands in its spot.
+  const kinds = useMemo(() => new Map(stations.map((s) => [s.id, s.chargingKind])), [stations]);
+  const placedSlots = useMemo(
+    () =>
+      stations.flatMap((s) => {
+        const bay = bays.get(s.id);
+        return bay == null
+          ? []
+          : [
+              {
+                id: s.id,
+                ...bayToPosition(bay),
+                charging: s.chargingKind,
+                pair: pairIds.has(s.id),
+                span: splitSpans.get(s.id) ?? 1,
+              },
+            ];
+      }),
+    [stations, bays, pairIds, splitSpans],
+  );
+  const access = useMemo(
+    () => accessibleChargingSpace(placedSlots, settings),
+    [placedSlots, settings],
+  );
+  const stallsOf = (id: string, bay: StallBay) =>
+    stationStalls(bay, lot, { pair: pairIds.has(id), access, span: splitSpans.get(id) });
   const custom = usesFreePositions(settings);
   const depot = usesDepotSpots(settings);
   const freePlaces = useMemo(
     () => (custom ? freeStationPlaces(stations) : new Map<string, FreeStationPlace>()),
     [custom, stations],
+  );
+  // A custom site's DC split systems: a dispenser at the head of each car spot.
+  const stationById = useMemo(() => new Map(stations.map((s) => [s.id, s])), [stations]);
+  const customDispenserXs = useCallback(
+    (id: string, place: FreeStationPlace): number[] | null => {
+      const st = stationById.get(id);
+      return st == null ? null : customSplitDispenserXs(st, place);
+    },
+    [stationById],
   );
   // A depot: each station in its slot's bus bay or truck lane, one spot each.
   const depotPlaces = useMemo(() => {
@@ -378,13 +578,13 @@ export default function SiteLayout3D({
     }
     return places;
   }, [depot, bays, lot]);
-  // The ground the equipment stands beside: a custom site's stations' spots, a depot's yard.
+  // The ground the equipment stands beside: a custom site's stations' spots, a depot's bays and lanes.
   const freeGround = useMemo(
     () =>
       custom
         ? (freeStationsBox([...freePlaces.values()]) ?? undefined)
-        : depot
-          ? layoutGroundBox(lot)
+        : depot && lot.depot != null
+          ? depotLinkGround(lot.depot)
           : undefined,
     [custom, depot, freePlaces, lot],
   );
@@ -401,32 +601,182 @@ export default function SiteLayout3D({
       ),
     [settings],
   );
-  // One panel model per load management panel, only while the site is load managed.
-  const drawsPanels = hierarchy != null && showsLoadPanels(settings);
-  const panels = useMemo(
-    () => (hierarchy == null || !drawsPanels ? [] : placePanels(hierarchy, lot, freeGround)),
-    [hierarchy, lot, drawsPanels, freeGround],
+  // The transformer and battery pads the feeders keep outside of.
+  const equipmentPads = useMemo(
+    () => [
+      ...transformers.map((t) => equipmentPadBox(t, 'transformer')),
+      ...energyAssets.flatMap((a) => (a.type === 'battery' ? [equipmentPadBox(a, 'battery')] : [])),
+    ],
+    [transformers, energyAssets],
   );
-  const links = useMemo(() => {
-    if (hierarchy == null || !drawsPanels) return { segments: [], labels: [] };
-    const points = new Map<string, Point>();
+  // One panel model per load management panel, whether or not load management is on.
+  const drawsPanels = hierarchy != null && showsLoadPanels(settings);
+  // The ground the cable runs keep to (the lot, the yard, a custom site's
+  // stations' spots) and the transformer the switchboards stand beside.
+  const linkGround = useMemo(
+    () => freeGround ?? { minX: 0, maxX: lot.width, minZ: 0, maxZ: lot.depth },
+    [freeGround, lot],
+  );
+  // The switchboards stand at the transformers (one equipment group per transformer).
+  const linkTransformers = transformers;
+  // Where each station's cables end: its charger and the back of it.
+  const linkPoints = useMemo(() => {
+    const points = new Map<string, LinkStationPoint>();
+    if (!drawsPanels) return points;
     if (custom || depot) {
       for (const [id, place] of custom ? freePlaces : depotPlaces) {
-        points.set(id, freeBackPoint(place.placement));
+        points.set(id, {
+          charger: freeToSite(place.placement, 0, 0),
+          back: freeBackPoint(place.placement),
+        });
+        // A custom site's DC split system: a dispenser at the head of each car spot.
+        const xs = customDispenserXs(id, place);
+        xs?.slice(1).forEach((x, i) => {
+          points.set(splitDispenserId(id, i + 2), {
+            charger: freeToSite(place.placement, x, 0),
+            back: freeToSite(place.placement, x, -STATION_BACK_OFFSET),
+          });
+        });
       }
-    } else {
-      for (const [id, bay] of bays) points.set(id, stationBackPoint(bay, lot));
+      return points;
     }
-    return loadLinks(hierarchy, panels, points);
-  }, [hierarchy, panels, bays, lot, drawsPanels, custom, depot, freePlaces, depotPlaces]);
+    for (const [id, bay] of bays) {
+      // A pedestal stands on the line between its two spots, behind the stall head.
+      const shift = stationStalls(bay, lot, { pair: pairIds.has(id), access: null })?.shiftX ?? 0;
+      const kind = kinds.get(id) ?? 'dc';
+      const wall = wallMounted(bay, lot, kind);
+      if (wall) {
+        // A wall box: its cable comes up the facade.
+        const x = bayToWorld(bay, lot).x + shift;
+        points.set(id, { charger: { x, z: FACADE_Z + 0.1 }, back: { x, z: FACADE_Z } });
+        continue;
+      }
+      const backShift = stationBackShift(bay, lot, kind, wall);
+      const charger = stationBackPoint(bay, lot, backShift - STATION_BACK_OFFSET);
+      const back = stationBackPoint(bay, lot, backShift);
+      points.set(id, {
+        charger: { x: charger.x + shift, z: charger.z },
+        back: { x: back.x + shift, z: back.z },
+      });
+      // A split system's other dispensers, each in the head of its own spot.
+      for (let i = 1; i < (splitSpans.get(id) ?? 1); i++) {
+        const sat = { col: bay.col + i, row: bay.row };
+        if (!isSpot(sat, lot)) break;
+        points.set(splitDispenserId(id, i + 1), {
+          charger: stationBackPoint(sat, lot, backShift - STATION_BACK_OFFSET),
+          back: stationBackPoint(sat, lot, backShift),
+        });
+      }
+    }
+    return points;
+  }, [
+    drawsPanels,
+    custom,
+    depot,
+    freePlaces,
+    depotPlaces,
+    bays,
+    lot,
+    pairIds,
+    kinds,
+    splitSpans,
+    customDispenserXs,
+  ]);
+  // The AC stations: their panelboards stand beside them (placePanels).
+  const acStationIds = useMemo(
+    () => new Set([...kinds].filter(([, kind]) => kind === 'ac').map(([id]) => id)),
+    [kinds],
+  );
+  // An office or retail site hangs its AC panelboards on the facade.
+  const office = lot.siteType === 'office_retail';
+  // The hierarchy as the view routes it: a split system's circuit feeds its
+  // power cabinet on the equipment pad, which feeds its dispensers.
+  const routed = useMemo(() => {
+    if (hierarchy == null) return null;
+    if (office) return hierarchy;
+    const spans = new Map(splitSpans);
+    for (const [id, place] of freePlaces) {
+      const xs = customDispenserXs(id, place);
+      if (xs != null) spans.set(id, xs.length);
+    }
+    return withSplitCabinets(hierarchy, spans);
+  }, [hierarchy, office, splitSpans, freePlaces, customDispenserXs]);
+  const panels = useMemo(
+    () =>
+      routed == null || !drawsPanels
+        ? []
+        : office
+          ? placeFacadePanels(routed, linkPoints, acStationIds, FACADE_Z, lot.spotW)
+          : placePanels(
+              routed,
+              linkGround,
+              linkTransformers,
+              linkPoints,
+              acStationIds,
+              equipmentPads,
+            ),
+    [
+      routed,
+      drawsPanels,
+      office,
+      lot,
+      linkGround,
+      linkTransformers,
+      linkPoints,
+      acStationIds,
+      equipmentPads,
+    ],
+  );
+  const routedLinks = useMemo(
+    () =>
+      routed == null || !drawsPanels
+        ? { segments: [], labels: [] }
+        : office
+          ? facadeLinks(routed, panels, linkPoints)
+          : loadLinks(
+              routed,
+              panels,
+              linkPoints,
+              linkGround,
+              linkTransformers,
+              acStationIds,
+              equipmentPads,
+            ),
+    [
+      routed,
+      drawsPanels,
+      office,
+      panels,
+      linkPoints,
+      linkGround,
+      linkTransformers,
+      acStationIds,
+      equipmentPads,
+    ],
+  );
+
+  // Without load management: no cable runs and no circuit or station labels;
+  // each panel keeps a label with its name and breaker rating, no kW limit.
+  const links = useMemo(
+    () =>
+      loadManaged
+        ? routedLinks
+        : {
+            segments: [],
+            labels: routedLinks.labels
+              .filter((l) => l.kind === 'panel')
+              .map((l) => ({ ...l, kw: null })),
+          },
+    [loadManaged, routedLinks],
+  );
 
   // The live power on the links and the panels' draw against their limits.
   const flows = useMemo(
-    () => (hierarchy == null ? null : loadFlows(hierarchy, currentDrawKw)),
-    [hierarchy, currentDrawKw],
+    () => (routed == null || !loadManaged ? null : loadFlows(routed, currentDrawKw)),
+    [routed, loadManaged, currentDrawKw],
   );
 
-  const stateRef = useRef({ bays, settings, freePlaces });
+  const stateRef = useRef({ bays, settings, freePlaces, placedSlots });
   const onMoveRef = useRef(onMove);
   const onFreeMoveRef = useRef(onFreeMove);
   const onSolarMoveRef = useRef(onSolarMove);
@@ -435,8 +785,10 @@ export default function SiteLayout3D({
   const onTransformerMoveRef = useRef(onTransformerMove);
   const onEnergyAssetMoveRef = useRef(onEnergyAssetMove);
   const onUnavailableRef = useRef(onUnavailable);
-  const reservedLabel = t('sites.layoutState.reserved');
-  const reservedLabelRef = useRef(reservedLabel);
+  // The sign texts in the viewer's language; the textures redraw when it changes.
+  const signs = signTexts(t);
+  const signsKey = JSON.stringify(signs);
+  const signsRef = useRef(signs);
 
   const sceneLayout = useMemo(() => {
     const sceneStations: SceneStation[] = stations.map((s) => {
@@ -445,7 +797,32 @@ export default function SiteLayout3D({
       const place = freePlaces.get(s.id) ?? depotPlaces.get(s.id);
       const spotType = freeSpotTypeOf(place?.placement);
       const message = s.displayMessage != null ? screenMessageText(s.displayMessage) : '';
+      const stalls = place == null ? stallsOf(s.id, bay) : null;
+      const look = sceneCar(
+        s.session?.vehicle != null ? { ...s.session.vehicle, bodyType: null } : null,
+        spotVehicleBodyType(spotType, sessionBodyType(s)),
+      );
+      // A pedestal: a vehicle in the stall of each EVSE with a plug in (the
+      // session's vehicle in the first, a default sedan in another).
+      const evses = [...s.evses].sort((a, b) => a.evseId - b.evseId);
+      const pluggedIn = evses.map((e) => e.connectors.some((c) => c.isPluggedIn));
+      // The stall of the session's vehicle: the first EVSE with a plug in, else the first.
+      const firstPlugged = Math.max(0, pluggedIn.indexOf(true));
+      const stallCars =
+        stalls != null && stalls.stalls.length > 1 && stationProp(state) === 'car'
+          ? stalls.stalls.map((_, i) =>
+              i === firstPlugged ? look : pluggedIn[i] === true ? sceneCar(null) : null,
+            )
+          : undefined;
       return {
+        ...(stalls != null
+          ? {
+              stalls: stalls.stalls,
+              shiftX: stalls.shiftX,
+              carOffsetX: stalls.stalls[firstPlugged]?.x ?? stalls.stalls[0]?.x ?? 0,
+              ...(stallCars != null ? { stallCars } : {}),
+            }
+          : {}),
         ...(place != null
           ? {
               free: place.placement,
@@ -455,22 +832,39 @@ export default function SiteLayout3D({
               charger: freeChargerModel(spotType, s.chargingKind, stationConnectorTypes(s)),
             }
           : {}),
+        // A DC split system's dispensers, and the holstered cables of each
+        // dispenser: one per connector (a split system per EVSE, else all of
+        // the station's connectors on its one dispenser).
+        ...(() => {
+          const dispensers =
+            stalls?.dispensers === true
+              ? stalls.stalls.map((st) => st.x)
+              : place != null
+                ? customDispenserXs(s.id, place)
+                : null;
+          const perEvse = evses.map((e) => Math.max(1, e.connectors.length));
+          return dispensers != null && dispensers.length > 1
+            ? { dispensers, cables: perEvse.slice(0, dispensers.length) }
+            : { cables: [perEvse.reduce((n, c) => n + c, 0)] };
+        })(),
         message: message === '' ? null : message,
         id: s.id,
         kind: s.chargingKind,
         bay,
+        backShift:
+          place == null
+            ? stationBackShift(bay, lot, s.chargingKind, wallMounted(bay, lot, s.chargingKind))
+            : 0,
         lightColor: resolveCssColor(stationStateColor(state)),
         lit: state !== 'offline',
         pulsing: state === 'charging',
         glow: state === 'charging',
         wall: wallMounted(bay, lot, s.chargingKind),
         prop: stationProp(state),
+        virtualSign: virtualSignOf(state),
         // No known vehicle: a sedan, a bus in a bus bay, a semi truck in a truck lane;
         // a vehicle that does not fit a bus bay or truck lane (a car) draws that default.
-        car: sceneCar(
-          s.session?.vehicle != null ? { ...s.session.vehicle, bodyType: null } : null,
-          spotVehicleBodyType(spotType, sessionBodyType(s)),
-        ),
+        car: look,
         beacon: state === 'faulted',
         terminals: (terminals.get(s.id) ?? []).map((term) => ({
           id: term.id,
@@ -505,10 +899,21 @@ export default function SiteLayout3D({
             ]
           : [],
       ),
-      panels: panels.map((p) => ({ id: p.id, x: p.point.x, z: p.point.z })),
+      panels: panels.map((p) => ({
+        id: p.id,
+        x: p.point.x,
+        z: p.point.z,
+        model: p.model,
+        turn: p.turn,
+      })),
       links,
+      california,
+      accessible: access != null ? accessibleSpaceBoxes(access, lot) : null,
     };
   }, [
+    access,
+    pairIds,
+    california,
     stations,
     bays,
     lot,
@@ -539,16 +944,69 @@ export default function SiteLayout3D({
           onPick: (id) => {
             setSelectedId(id);
           },
+          onEquipmentHover: (key) => {
+            hoveredEquipmentRef.current = key;
+          },
+          onHover: (id) => {
+            hoveredRef.current = id;
+            setHoveredId(id);
+          },
           isBayTaken: (bay, exceptId) => {
-            for (const [id, b] of stateRef.current.bays) {
-              if (id !== exceptId && b.col === bay.col && b.row === bay.row) return true;
-            }
-            return false;
+            // Another station's spot, a pedestal's partner spot or the access aisle.
+            const { placedSlots: placed, settings: s } = stateRef.current;
+            const held = heldSpots(
+              placed.filter((p) => p.id !== exceptId),
+              s,
+            );
+            return held.has(`${String(bay.col)}:${String(bay.row)}`);
           },
           onDrop: (id, bay) => {
-            const { bays: current, settings: s } = stateRef.current;
-            const others = [...current].filter(([other]) => other !== id).map(([, b]) => b);
-            const target = nearestFreeBay(bay, others, layoutRowLengths(s));
+            const { bays: current, settings: s, placedSlots: placed } = stateRef.current;
+            const held = heldSpots(
+              placed.filter((p) => p.id !== id),
+              s,
+            );
+            const others = [...held.keys()].map((k) => {
+              const [col, row] = k.split(':').map(Number);
+              return { col: col ?? 0, row: row ?? 0 };
+            });
+            const self = placed.find((p) => p.id === id);
+            // A pedestal needs a free pair: its partner spot counts as taken
+            // for every spot whose partner is held.
+            const pairBlocked =
+              self?.pair === true
+                ? others.flatMap((b) => {
+                    const partner = spotPairPartner(b, s);
+                    return partner != null ? [partner] : [];
+                  })
+                : [];
+            const span = self?.span ?? 1;
+            // A split system needs a free spot for every dispenser along its row.
+            const taken = new Set(others.map((b) => `${String(b.col)}:${String(b.row)}`));
+            const spanTarget = (): { col: number; row: number } | null => {
+              let best: { col: number; row: number } | null = null;
+              let bestD = Infinity;
+              layoutRowLengths(s).forEach((n, row) => {
+                for (let col = 0; col < n; col++) {
+                  const spots = spanSpots({ col, row }, span, s);
+                  if (
+                    spots?.some((b) => taken.has(`${String(b.col)}:${String(b.row)}`)) !== false
+                  ) {
+                    continue;
+                  }
+                  const d = (col - bay.col) ** 2 + (row - bay.row) ** 2;
+                  if (d < bestD) {
+                    bestD = d;
+                    best = { col, row };
+                  }
+                }
+              });
+              return best;
+            };
+            const target =
+              span > 1
+                ? spanTarget()
+                : nearestFreeBay(bay, [...others, ...pairBlocked], layoutRowLengths(s));
             if (target == null) return;
             const own = current.get(id);
             if (own != null && own.col === target.col && own.row === target.row) return;
@@ -592,11 +1050,13 @@ export default function SiteLayout3D({
           onFrame: () => {
             const current = sceneRef.current;
             if (current == null) return;
-            // Nearer station labels first, then the panels, the transformers and
-            // the links; a label that would cover a placed one hides, so a dense
-            // site stays readable.
+            // Every station shows its state marker, whatever the site's size;
+            // then the driver avatars over the charging cars (an avatar that
+            // would cover a marker sits lower or higher, else hides). Power
+            // equipment labels (panels, circuits, transformers, batteries,
+            // solar canopies) are tooltips: only the hovered or tapped one shows.
             const placed: Rect[] = [];
-            // A large site shows only the nearer labels (stationLabelInRange).
+            // A large site shows only the nearer avatars (stationLabelInRange).
             const view = current.viewDistance();
             const count = stationCountRef.current;
             // Read every label size first, then write positions: no layout
@@ -608,66 +1068,78 @@ export default function SiteLayout3D({
               linkLabelRefs.current,
               transformerLabelRefs.current,
               energyLabelRefs.current,
+              virtualSignRefs.current,
             ]) {
               for (const el of refs.values()) {
                 sizes.set(el, { width: el.offsetWidth, height: el.offsetHeight });
               }
             }
-            const place = (el: HTMLElement, p: ScreenPoint | null): boolean =>
-              placeLabel(el, p, placed, sizes.get(el));
-            // The station labels by priority (the selected one, faulted,
-            // charging, then the rest), nearer first; a label that does not
-            // fit becomes a dot in the state color, and on a phone a far
-            // label of the rest shows as a dot too. Then the driver avatars
-            // over the charging cars: an avatar that would cover a label sits
-            // lower (on the roof) or higher, else hides.
-            const narrow = stage.clientWidth > 0 && stage.clientWidth < NARROW_STAGE_PX;
-            const selectedNow = selectedRef.current;
-            const stationPoints = [...labelRefs.current]
-              .map(([id, el]) => ({
-                id,
+            // An equipment label shows only while its equipment is hovered or tapped.
+            const equipment = hoveredEquipmentRef.current;
+            const placeEquipment = (key: string, el: HTMLElement, p: () => ScreenPoint | null) => {
+              if (key !== equipment) {
+                el.style.visibility = 'hidden';
+                return;
+              }
+              placeLabel(el, p(), [], sizes.get(el));
+            };
+            // Badges are world-size within a clamp: they shrink with the site
+            // as the camera moves away (OVERHEAD_BADGE).
+            const markers: Rect[] = [];
+            for (const [id, el] of labelRefs.current) {
+              const p = current.labelPoint(id);
+              const size = scaleBadge(
                 el,
-                p: current.labelPoint(id),
-                rank: labelPriority(statesRef.current.get(id) ?? '', id === selectedNow),
-              }))
-              .sort((a, b) => a.rank - b.rank || (a.p?.depth ?? 1) - (b.p?.depth ?? 1));
-            for (const { id, el, p, rank } of stationPoints) {
-              const inRange = p != null && stationLabelInRange(p.distance, view, count);
-              const far = narrow && rank >= 3 && p != null && p.distance > view * 1.15;
-              const full = place(el, inRange && !far ? p : null);
-              const dot = dotRefs.current.get(id);
-              if (dot == null) continue;
-              if (full || !inRange) {
-                dot.style.visibility = 'hidden';
+                p,
+                sizes.get(el) ?? { width: el.offsetWidth, height: el.offsetHeight },
+                OVERHEAD_BADGE.markerPx,
+                OVERHEAD_BADGE.minMarkerPx,
+              );
+              const rect = placeMarker(el, p, placed, size);
+              if (rect != null) markers.push(rect);
+            }
+            // Markers that overlap each other: only the state icons show, no avatars.
+            const crowded = overheadBadgesCrowded(markers);
+            const tooltip = tooltipRef.current;
+            const hovered = hoveredRef.current;
+            if (tooltip != null) {
+              const p = hovered != null ? current.labelPoint(hovered) : null;
+              if (p == null || !p.visible) {
+                tooltip.style.visibility = 'hidden';
               } else {
-                // At the label point, else just below it (under a label placed there).
-                placeLabel(dot, p, placed, { width: 14, height: 14 }, [0, -16, -32]);
+                tooltip.style.left = `${String(p.x)}px`;
+                tooltip.style.top = `${String(p.y - 22)}px`;
+                tooltip.style.visibility = 'visible';
               }
             }
             for (const [id, el] of avatarRefs.current) {
               const p = current.avatarPoint(id);
-              const size = sizes.get(el) ?? { width: el.offsetWidth, height: el.offsetHeight };
+              const size = scaleBadge(
+                el,
+                p,
+                sizes.get(el) ?? { width: el.offsetWidth, height: el.offsetHeight },
+                OVERHEAD_BADGE.avatarPx,
+                OVERHEAD_BADGE.minAvatarPx,
+              );
               placeLabel(
                 el,
-                p != null && stationLabelInRange(p.distance, view, count) ? p : null,
+                !crowded && p != null && stationLabelInRange(p.distance, view, count) ? p : null,
                 placed,
                 size,
                 [0, -(size.height + 2), -(size.height * 2 + 4), size.height + 4],
               );
             }
-            // The panels (load management) before the transformers (information only).
-            const linkEntries = [...linkLabelRefs.current];
-            for (const [id, el] of linkEntries) {
-              if (id.startsWith('panel:')) place(el, current.linkLabelPoint(id));
+            for (const [id, el] of linkLabelRefs.current) {
+              placeEquipment(id, el, () => current.linkLabelPoint(id));
             }
             for (const [id, el] of transformerLabelRefs.current) {
-              place(el, current.transformerLabelPoint(id));
+              placeEquipment(`transformer:${id}`, el, () => current.transformerLabelPoint(id));
             }
             for (const [id, el] of energyLabelRefs.current) {
-              place(el, current.energyLabelPoint(id));
+              placeEquipment(`energy:${id}`, el, () => current.energyLabelPoint(id));
             }
-            for (const [id, el] of linkEntries) {
-              if (!id.startsWith('panel:')) place(el, current.linkLabelPoint(id));
+            for (const [id, el] of virtualSignRefs.current) {
+              placeEquipment(`virtual:${id}`, el, () => current.virtualSignPoint(id));
             }
             const popup = popupRef.current;
             const selected = selectedRef.current;
@@ -702,12 +1174,12 @@ export default function SiteLayout3D({
       return;
     }
     sceneRef.current = scene;
-    scene.setTheme(readTheme(reservedLabelRef.current));
+    scene.setTheme(readTheme(signsRef.current));
     scene.setLayout(sceneLayoutRef.current);
     scene.fit();
     // Rebuild the colors when the theme changes.
     const observer = new MutationObserver(() => {
-      scene.setTheme(readTheme(reservedLabelRef.current));
+      scene.setTheme(readTheme(signsRef.current));
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => {
@@ -718,7 +1190,7 @@ export default function SiteLayout3D({
   }, []);
 
   useEffect(() => {
-    stateRef.current = { bays, settings, freePlaces };
+    stateRef.current = { bays, settings, freePlaces, placedSlots };
     sceneLayoutRef.current = sceneLayout;
     sceneRef.current?.setLayout(sceneLayout);
   }, [sceneLayout, bays, settings, freePlaces]);
@@ -726,7 +1198,6 @@ export default function SiteLayout3D({
   useEffect(() => {
     tRef.current = t;
     stationIdsRef.current = new Map(stations.map((s) => [s.id, s.stationId]));
-    statesRef.current = new Map(stations.map((s) => [s.id, stationDisplayState(s)]));
   });
 
   // A refused move shows its notice for a few seconds.
@@ -765,12 +1236,12 @@ export default function SiteLayout3D({
     onSolarMoveRef.current = onSolarMove;
   }, [onMove, onTransformerMove, onEnergyAssetMove, onFreeMove, onSolarMove]);
 
-  // The Reserved sign follows the UI language.
+  // The sign texts follow the UI language.
   useEffect(() => {
-    if (reservedLabelRef.current === reservedLabel) return;
-    reservedLabelRef.current = reservedLabel;
-    sceneRef.current?.setTheme(readTheme(reservedLabel));
-  }, [reservedLabel]);
+    if (JSON.stringify(signsRef.current) === signsKey) return;
+    signsRef.current = JSON.parse(signsKey) as SignTexts;
+    sceneRef.current?.setTheme(readTheme(signsRef.current));
+  }, [signsKey]);
 
   useEffect(() => {
     sceneRef.current?.setEditing(editing);
@@ -803,9 +1274,11 @@ export default function SiteLayout3D({
   }, [active, pageVisible]);
 
   const selected = stations.find((s) => s.id === selectedId) ?? null;
-  // Live markers (today only): the driver avatar over a charging car, the insight marker.
+  // The driver avatar over a charging car shows live and on a replayed moment
+  // (the replay carries the session's car and driver as live); the insight
+  // marker is today's only.
   const live = !replaying;
-  const charging = live ? stations.filter((s) => stationDisplayState(s) === 'charging') : [];
+  const charging = stations.filter((s) => stationDisplayState(s) === 'charging');
   const sessionStation =
     sessionStationId == null
       ? null
@@ -990,6 +1463,31 @@ export default function SiteLayout3D({
             )}
           </div>
         ))}
+        {stations.map((s) => {
+          const sign = virtualSignOf(stationDisplayState(s));
+          if (sign == null) return null;
+          return (
+            <div
+              key={`virtual-${s.id}`}
+              ref={(el) => {
+                if (el == null) virtualSignRefs.current.delete(s.id);
+                else virtualSignRefs.current.set(s.id, el);
+              }}
+              role="tooltip"
+              data-testid={`site-layout-3d-virtual-sign-${s.id}`}
+              className="absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border bg-card px-2 py-0.5 text-xs font-semibold shadow-xs"
+              style={{ left: 0, top: 0, visibility: 'hidden' }}
+            >
+              {virtualSignTooltip(
+                t,
+                sign,
+                s.stationId,
+                sign === 'reserved' ? s.reservation : s.maintenanceWindow,
+                i18n.language,
+              )}
+            </div>
+          );
+        })}
         {transformers.map((tr) => (
           <div
             key={tr.id}
@@ -1012,39 +1510,6 @@ export default function SiteLayout3D({
         {stations.map((s) => {
           const state = stationDisplayState(s);
           const stateLabel = t(stationStateLabelKey(state));
-          return (
-            <button
-              key={`dot-${s.id}`}
-              type="button"
-              ref={(el) => {
-                if (el == null) dotRefs.current.delete(s.id);
-                else dotRefs.current.set(s.id, el);
-              }}
-              data-testid={`site-layout-3d-dot-${s.id}`}
-              data-state={state}
-              className={cn(
-                'absolute h-3.5 w-3.5 -translate-x-1/2 -translate-y-full rounded-full border-2 border-card shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                editing && !custom ? '' : 'pointer-events-auto',
-              )}
-              style={{
-                left: 0,
-                top: 0,
-                visibility: 'hidden',
-                backgroundColor: stationStateColor(state),
-              }}
-              aria-label={t('sites.layoutView.stateDetailsLabel', {
-                id: s.stationId,
-                state: stateLabel,
-              })}
-              onClick={() => {
-                if (!editing || custom) setSelectedId(s.id);
-              }}
-            />
-          );
-        })}
-        {stations.map((s) => {
-          const state = stationDisplayState(s);
-          const stateLabel = t(stationStateLabelKey(state));
           // Custom site in Edit Layout: the chip selects the station (arrows and R move it).
           const selectable = !editing || custom;
           return (
@@ -1054,20 +1519,28 @@ export default function SiteLayout3D({
                 if (el == null) labelRefs.current.delete(s.id);
                 else labelRefs.current.set(s.id, el);
               }}
-              data-testid={`site-layout-3d-label-${s.id}`}
+              data-testid={`site-layout-3d-station-${s.id}`}
               className="absolute flex -translate-x-1/2 -translate-y-full items-center gap-1 whitespace-nowrap text-xs font-semibold"
               style={{ left: 0, top: 0, visibility: 'hidden' }}
             >
-              {/* The ID and state open the details too: keyboard access to every station. */}
-              <Button
+              {/* The state marker opens the details: keyboard access to every station. */}
+              <button
                 type="button"
-                variant="outline"
-                size="chip"
                 ref={(el) => {
                   if (el == null) chipRefs.current.delete(s.id);
                   else chipRefs.current.set(s.id, el);
                 }}
-                className={selectable ? 'pointer-events-auto shadow-xs' : 'shadow-xs'}
+                data-testid={`site-layout-3d-marker-${s.id}`}
+                data-state={state}
+                // The icon in its state color on a solid white round background, no
+                // border or ring (OVERHEAD_BADGE_BACKGROUND); 24 px up close, scaled
+                // with the camera distance down to 14 px (OVERHEAD_BADGE).
+                className={cn(
+                  'flex h-6 w-6 items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  OVERHEAD_BADGE_BACKGROUND,
+                  OVERHEAD_ICON_SHADOW,
+                  selectable && 'pointer-events-auto',
+                )}
                 tabIndex={selectable ? 0 : -1}
                 aria-pressed={editing && custom ? s.id === selectedId : undefined}
                 aria-label={t('sites.layoutView.stateDetailsLabel', {
@@ -1077,23 +1550,22 @@ export default function SiteLayout3D({
                 onFocus={() => {
                   if (editing && custom) setSelectedId(s.id);
                 }}
+                onPointerEnter={(e) => {
+                  if (e.pointerType === 'touch') return;
+                  hoveredRef.current = s.id;
+                  setHoveredId(s.id);
+                }}
+                onPointerLeave={() => {
+                  if (hoveredRef.current !== s.id) return;
+                  hoveredRef.current = null;
+                  setHoveredId(null);
+                }}
                 onClick={() => {
                   if (selectable) setSelectedId(s.id);
                 }}
               >
-                <span>{s.stationId}</span>
-                <span aria-hidden="true" className="text-muted-foreground">
-                  ·
-                </span>
-                <span
-                  data-testid="station-state-text"
-                  data-state={state}
-                  style={{ color: stationStateTextColor(state) }}
-                >
-                  {stateLabel}
-                </span>
-              </Button>
-              {s.cellular && <CellularBadge />}
+                <StationStateIcon state={state} decorative className="h-5 w-5" />
+              </button>
               {live &&
                 (insights?.get(s.id) ?? []).slice(0, 1).map((insight) => (
                   <Link
@@ -1117,6 +1589,30 @@ export default function SiteLayout3D({
             </div>
           );
         })}
+        {(() => {
+          // The tooltip of the station under a mouse or pen pointer: its ID and state.
+          const hovered = hoveredId != null ? stations.find((s) => s.id === hoveredId) : undefined;
+          if (hovered == null || hovered.id === selectedId) return null;
+          const state = stationDisplayState(hovered);
+          return (
+            <div
+              ref={tooltipRef}
+              role="tooltip"
+              data-testid="site-layout-3d-tooltip"
+              className="absolute z-10 flex -translate-x-1/2 -translate-y-full items-center gap-1 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-xs font-semibold text-popover-foreground shadow-md"
+              style={{ left: 0, top: 0, visibility: 'hidden' }}
+            >
+              <span>{hovered.stationId}</span>
+              <span aria-hidden="true" className="text-muted-foreground">
+                ·
+              </span>
+              <span data-state={state} style={{ color: stationStateTextColor(state) }}>
+                {t(stationStateLabelKey(state))}
+              </span>
+              <ConnectionBadge station={hovered} />
+            </div>
+          );
+        })()}
         {charging.map((s) => {
           const session = s.session ?? null;
           const driver = session?.driver ?? null;
@@ -1136,15 +1632,23 @@ export default function SiteLayout3D({
                 // Without sessions:read: a plain marker, no session or driver data.
                 <span
                   aria-hidden="true"
-                  className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-card bg-muted text-muted-foreground shadow-sm"
+                  className={cn(
+                    'flex h-7 w-7 items-center justify-center text-neutral-500',
+                    OVERHEAD_BADGE_BACKGROUND,
+                    OVERHEAD_ICON_SHADOW,
+                  )}
                 >
-                  <User className="h-4 w-4" />
+                  <User className="h-5 w-5" />
                 </span>
               ) : (
                 <button
                   type="button"
+                  // The round picture on a solid white round background, no border or
+                  // ring; 28 px up close, scaled down to 16 px (OVERHEAD_BADGE).
                   className={cn(
-                    'flex rounded-full border-2 border-card shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    'flex h-7 w-7 items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    OVERHEAD_BADGE_BACKGROUND,
+                    OVERHEAD_ICON_SHADOW,
                     editing ? '' : 'pointer-events-auto',
                   )}
                   tabIndex={editing ? -1 : 0}
@@ -1168,10 +1672,11 @@ export default function SiteLayout3D({
                       firstName={names.first}
                       lastName={names.last}
                       size="sm"
+                      className="h-6 w-6"
                     />
                   ) : (
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                      <User className="h-4 w-4" aria-hidden="true" />
+                    <span className="flex h-6 w-6 items-center justify-center text-neutral-500">
+                      <User className="h-5 w-5" aria-hidden="true" />
                     </span>
                   )}
                 </button>
@@ -1294,7 +1799,7 @@ export default function SiteLayout3D({
       <p className="sr-only" aria-live="polite" data-testid="site-layout-3d-announcement">
         {announcement}
       </p>
-      {sessionStation?.session != null && !editing && live && (
+      {sessionStation?.session != null && !editing && (
         <SessionLayoutPopup
           ref={sessionPopupRef}
           session={sessionStation.session}

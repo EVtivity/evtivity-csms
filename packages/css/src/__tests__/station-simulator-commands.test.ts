@@ -78,6 +78,37 @@ describe('SetChargingProfile (K01)', () => {
     expect(limitFor(1)).toBeNull();
   });
 
+  it('2.1: shares one station limit between the two ports of a dual-port pedestal', async () => {
+    // A dual-port Level 2 pedestal on one 2-pole 40 A circuit: load management
+    // sends the circuit's 32 A (6656 W at 208 V) as one station limit.
+    const port = (evseId: number) => ({
+      evseId,
+      connectorId: 1,
+      connectorType: 'ac_type1' as const,
+      maxPowerW: 6660,
+      phases: 1,
+      voltage: 208,
+    });
+    const h = await makeHarness({ config: { evses: [port(1), port(2)] } });
+    const limitFor = (evseId: number): number | null =>
+      (h.p['powerLimitFor'] as (id: number) => number | null).call(h.sim, evseId);
+    await h.invoke('SetChargingProfile', {
+      evseId: 0,
+      chargingProfile: txDefaultProfile(1_000_000_000, 6656, {
+        chargingProfilePurpose: 'ChargingStationMaxProfile',
+        stackLevel: 1,
+      }),
+    });
+    const tx = priv(h, 'activeTransactionIds') as Map<number, string>;
+    // One car: it gets the whole circuit.
+    tx.set(1, 'TX-1');
+    expect(limitFor(1)).toBe(6656);
+    // Two cars: they share it.
+    tx.set(2, 'TX-2');
+    expect(limitFor(1)).toBe(3328);
+    expect(limitFor(2)).toBe(3328);
+  });
+
   it('1.6: throttles to a ChargePointMaxProfile on connector 0, converting A to W', async () => {
     const h = await makeHarness({ protocol: 'ocpp1.6' });
     const limitFor = (evseId: number): number | null =>

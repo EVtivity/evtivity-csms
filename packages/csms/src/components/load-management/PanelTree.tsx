@@ -121,17 +121,25 @@ export function PanelTree({
 
   return (
     <div className="space-y-4">
-      {hierarchy.map((panel) => (
-        <PanelNode
-          key={panel.id}
-          siteId={siteId}
-          panel={panel}
-          allPanels={hierarchy}
-          stations={stations}
-          depth={0}
-          onRefresh={onRefresh}
-        />
-      ))}
+      {hierarchy.length > 0 && (
+        // The tree keeps its desktop layout on phones and scrolls sideways in its own
+        // container: nested panels and circuits indent at every level.
+        <div className="overflow-x-auto" data-testid="panel-tree-scroll">
+          <div className="min-w-[36rem] space-y-4">
+            {hierarchy.map((panel) => (
+              <PanelNode
+                key={panel.id}
+                siteId={siteId}
+                panel={panel}
+                allPanels={hierarchy}
+                stations={stations}
+                depth={0}
+                onRefresh={onRefresh}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {hierarchy.length === 0 && (
         <p className="text-sm text-muted-foreground py-4 text-center">

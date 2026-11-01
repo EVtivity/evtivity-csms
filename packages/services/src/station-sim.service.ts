@@ -254,10 +254,12 @@ export async function stationSimView(
 ): Promise<StationSimView | null> {
   const confirmed = await confirmedStationSim(stationId, executor);
   if (confirmed == null) return null;
-  return {
-    ...confirmed,
-    windows: [{ from: confirmed.sim.historyFloorAt ?? new Date(0), to: OPEN_WINDOW_END }],
-  };
+  return { ...confirmed, windows: stationSimWindows(confirmed.sim) };
+}
+
+/** The one station window of a SIM's confirmed attachment: after its history floor. */
+function stationSimWindows(sim: Pick<Sim, 'historyFloorAt'>): SimInterval[] {
+  return [{ from: sim.historyFloorAt ?? new Date(0), to: OPEN_WINDOW_END }];
 }
 
 /** A row time inside one of the windows; never true without a window. */
@@ -1643,4 +1645,105 @@ export async function stationSignalSnapshot(
     activeNetworkProfile,
     thresholds,
   };
+}
+
+/** What the site layout shows of a station's link: the reported network type and signal. */
+export interface StationLinkSummary {
+  /** The radio access technology the SIM provider reported for the newest session (as reported), else null. */
+  networkType: string | null;
+  /** The reported cellular signal in dBm (ASU converted), null when not known. */
+  signalDbm: number | null;
+}
+
+/**
+ * The reported network type and signal of the given stations, for the site
+ * layout. Database only, through the same reads the station SIM status uses:
+ * the signal from the stored DataLink `SignalStrength` (OCPP 2.0.1 and 2.1;
+ * the first modem with a known value, by instance, as the station
+ * Connectivity tab), only while station signal reads are on; the network type
+ * from the newest SIM session of the station's confirmed attachment inside
+ * the station window (`stationSimView`: after the SIM's history floor), only
+ * for a SIM of an enabled provider. Callers check the read permission and the
+ * site scope.
+ */
+export async function stationLinkSummaries(
+  stationUuids: readonly string[],
+  options: { signalEnabled: boolean; enabledProviders: readonly string[] },
+): Promise<Map<string, StationLinkSummary>> {
+  const out = new Map<string, StationLinkSummary>();
+  const ids = [...new Set(stationUuids)];
+  if (ids.length === 0) return out;
+  const entry = (id: string): StationLinkSummary => {
+    const found = out.get(id);
+    if (found != null) return found;
+    const created: StationLinkSummary = { networkType: null, signalDbm: null };
+    out.set(id, created);
+    return created;
+  };
+
+  if (options.signalEnabled) {
+    const rows = await db
+      .select({
+        stationId: stationConfigurations.stationId,
+        instance: stationConfigurations.instance,
+        value: stationConfigurations.value,
+        unit: stationConfigurations.unit,
+        ocppProtocol: chargingStations.ocppProtocol,
+      })
+      .from(stationConfigurations)
+      .innerJoin(chargingStations, eq(chargingStations.id, stationConfigurations.stationId))
+      .where(
+        and(
+          inArray(stationConfigurations.stationId, ids),
+          eq(stationConfigurations.attributeType, 'Actual'),
+          eq(stationConfigurations.component, DATALINK_COMPONENT),
+          eq(stationConfigurations.variable, 'SignalStrength'),
+        ),
+      );
+    const ordered = rows
+      .filter((r) => isOcpp2x(r.ocppProtocol))
+      .sort((a, b) => (a.instance ?? '').localeCompare(b.instance ?? ''));
+    for (const row of ordered) {
+      const dbm = readSignalStrength(row.value, row.unit)?.dbm ?? null;
+      // A received signal is always below 0 dBm; a positive value is a misread unit.
+      if (dbm == null || dbm > 0) continue;
+      const link = entry(row.stationId);
+      link.signalDbm ??= dbm;
+    }
+  }
+
+  if (options.enabledProviders.length > 0) {
+    const attached = await db
+      .select({ stationId: simAttachments.stationId, sim: sims })
+      .from(simAttachments)
+      .innerJoin(sims, eq(sims.id, simAttachments.simId))
+      .where(
+        and(
+          inArray(simAttachments.stationId, ids),
+          isNull(simAttachments.detachedAt),
+          isNotNull(simAttachments.confirmedAt),
+        ),
+      );
+    await Promise.all(
+      attached.map(async ({ stationId, sim }) => {
+        if (stationId == null || sim.provider == null) return;
+        if (!options.enabledProviders.includes(sim.provider)) return;
+        const windows = stationSimWindows(sim);
+        const [newest] = await db
+          .select({ radioAccessTechnology: simSessions.radioAccessTechnology })
+          .from(simSessions)
+          .where(
+            and(
+              eq(simSessions.simId, sim.id),
+              spanInWindows(simSessions.startedAt, simSessions.endedAt, windows),
+            ),
+          )
+          .orderBy(desc(simSessions.endedAt), desc(simSessions.id))
+          .limit(1);
+        const rat = newest?.radioAccessTechnology?.trim();
+        if (rat != null && rat !== '') entry(stationId).networkType = rat;
+      }),
+    );
+  }
+  return out;
 }

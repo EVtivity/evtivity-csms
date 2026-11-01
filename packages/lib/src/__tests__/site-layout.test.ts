@@ -45,6 +45,7 @@ import {
   firstFreePlacement,
   freeFootprint,
   freeFootprintsOverlap,
+  fitFreePlacementsInReach,
   freePlacementFromSlot,
   freeSolarPlacement,
   freeSpotCount,
@@ -64,15 +65,21 @@ import {
   freeSpotTypeOf,
   isFreeSpotType,
   DEPOT_LAYOUT,
+  depotDriveLaneM,
   DEPOT_ROWS,
   depotLayout,
   depotSlotPlacement,
   depotStationKind,
   firstFreeDepotSlot,
   fitDepotPositions,
+  firstFreeSlotFor,
+  fitGroupedPositions,
+  groupedSpotOrder,
+  layoutStationCountsOfKinds,
   spotVehicleBodyType,
   usesDepotSpots,
 } from '../site-layout.js';
+import type { FreePlacement, LayoutPoint } from '../site-layout.js';
 import { freePlacementSchema, siteLayoutSettingsSchema } from '../site-layout-schema.js';
 
 describe('site layout grid', () => {
@@ -178,6 +185,174 @@ describe('site layout grid', () => {
     expect(office.transformers).toHaveLength(1);
     expect(showsTransformers(office)).toBe(false);
     expect(showsTransformers(legacy)).toBe(true);
+  });
+
+  describe('AC and DC grouping', () => {
+    const AC = { charging: 'ac', depot: null } as const;
+    const DC = { charging: 'dc', depot: 'bus' } as const;
+    const lot = (transformerX: number) =>
+      effectiveLayoutSettings({
+        siteType: 'parking_lot',
+        spotsPerRow: 10,
+        rows: 2,
+        facingDeg: 0,
+        transformers: [{ id: 'tx', name: null, ratedKva: null, x: transformerX, z: 2.5 }],
+      });
+    const rowOf = (kinds: Map<string, 'ac' | 'dc'>, row: number, slots: Map<string, LayoutPoint>) =>
+      [...slots]
+        .map(([k, p]) => ({ k, bay: positionToBay(p) }))
+        .filter((b) => b.bay.row === row)
+        .sort((a, b) => a.bay.col - b.bay.col)
+        .map((b) => kinds.get(b.k));
+    const interleaved = (seq: Array<string | undefined>): boolean => {
+      // AC and DC never alternate more than once along a row.
+      let changes = 0;
+      for (let i = 1; i < seq.length; i++) if (seq[i] !== seq[i - 1]) changes++;
+      return changes > 1;
+    };
+
+    it('puts the DC stations next to the transformer and the AC stations at the far end', () => {
+      const s = lot(30);
+      const order: Array<'ac' | 'dc'> = [
+        'ac',
+        'dc',
+        'ac',
+        'dc',
+        'dc',
+        'ac',
+        'ac',
+        'dc',
+        'ac',
+        'dc',
+      ];
+      const slots = freeSlotsFor(
+        order.map((k) => (k === 'dc' ? DC : AC)),
+        [],
+        s,
+      );
+      const kinds = new Map(order.map((k, i) => [String(i), k]));
+      const byKey = new Map(slots.map((p, i) => [String(i), p]));
+      for (const row of [0, 1]) expect(interleaved(rowOf(kinds, row, byKey))).toBe(false);
+      // The transformer stands right of the lot: DC at the right end, AC at the left.
+      const dcCols = slots.filter((_, i) => order[i] === 'dc').map((p) => positionToBay(p).col);
+      const acCols = slots.filter((_, i) => order[i] === 'ac').map((p) => positionToBay(p).col);
+      expect(Math.min(...dcCols)).toBeGreaterThan(Math.max(...acCols));
+      // A transformer left of the lot turns it around.
+      const left = freeSlotsFor([DC], [], lot(-5));
+      expect(positionToBay(left[0]!).col).toBe(0);
+    });
+
+    it('lets a new station join its own group first', () => {
+      const s = lot(30);
+      const placed = freeSlotsFor([DC, DC, AC, AC], [], s);
+      const nextDc = firstFreeSlotFor(placed, s, DC);
+      const nextAc = firstFreeSlotFor(placed, s, AC);
+      const dcBays = placed.slice(0, 2).map(positionToBay);
+      const acBays = placed.slice(2).map(positionToBay);
+      expect(positionToBay(nextDc).col).toBeGreaterThanOrEqual(
+        Math.min(...dcBays.map((b) => b.col)) - 1,
+      );
+      expect(positionToBay(nextAc).col).toBeLessThanOrEqual(
+        Math.max(...acBays.map((b) => b.col)) + 1,
+      );
+      expect(groupedSpotOrder(s, 'dc')[0]).toEqual({ col: 9, row: 0 });
+      expect(groupedSpotOrder(s, 'ac')[0]).toEqual({ col: 0, row: 1 });
+    });
+
+    it('never puts a station inside the other kind range: it goes below the layout instead', () => {
+      const s = lot(30);
+      // 20 spots: automatic placement continues a run through the access
+      // aisle, so every spot takes a station.
+      const capacity = 20;
+      // 15 AC stations fill from the far end, then 5 DC fill the spots nearest the transformer.
+      const ac = freeSlotsFor(
+        Array.from({ length: 15 }, () => AC),
+        [],
+        s,
+      );
+      const placed = [
+        ...ac.map((p) => ({ ...p, charging: 'ac' as const })),
+        ...freeSlotsFor(
+          Array.from({ length: 5 }, () => DC),
+          ac.map((p) => ({ ...p, charging: 'ac' as const })),
+          s,
+        ).map((p) => ({ ...p, charging: 'dc' as const })),
+      ];
+      expect(placed.every((p) => bayInLayout(positionToBay(p), s))).toBe(true);
+      expect(placed).toHaveLength(capacity);
+      // The lot is full: both kinds go below it.
+      expect(bayInLayout(positionToBay(firstFreeSlotFor(placed, s, DC)), s)).toBe(false);
+      expect(bayInLayout(positionToBay(firstFreeSlotFor(placed, s, AC)), s)).toBe(false);
+
+      // One AC station at the far end and free spots between: a DC station
+      // past the DC range (every spot up to the AC one) takes none beyond it.
+      const far = groupedSpotOrder(s, 'ac')[0]!;
+      const oneAc = [{ ...bayToPosition(far), charging: 'ac' as const }];
+      const dcSlots = freeSlotsFor(
+        Array.from({ length: 19 }, () => DC),
+        oneAc,
+        s,
+      );
+      expect(dcSlots.every((p) => bayInLayout(positionToBay(p), s))).toBe(true);
+      // The next DC station finds the AC spot next in its order and stops there.
+      const next = firstFreeSlotFor(
+        [...oneAc, ...dcSlots.map((p) => ({ ...p, charging: 'dc' as const }))],
+        s,
+        DC,
+      );
+      expect(bayInLayout(positionToBay(next), s)).toBe(false);
+
+      // A DC station holds the far end: a new AC station does not walk past it.
+      const dcFar = [{ ...bayToPosition(far), charging: 'dc' as const }];
+      expect(bayInLayout(positionToBay(firstFreeSlotFor(dcFar, s, AC)), s)).toBe(false);
+      // Without kinds (connectors unknown), the slot rule stays row by row.
+      expect(bayInLayout(positionToBay(firstFreeSlotFor([bayToPosition(far)], s, AC)), s)).toBe(
+        true,
+      );
+    });
+
+    it('regroups interleaved stations when the site type changes, keeping grouped ones', () => {
+      const s = withSiteType(lot(30), 'office_retail', 6);
+      const at = (col: number) => bayToPosition({ col, row: 0 });
+      const stations = [
+        { key: 'a', position: at(0), kind: DC },
+        { key: 'b', position: at(1), kind: AC },
+        { key: 'c', position: at(2), kind: DC },
+        { key: 'd', position: at(3), kind: AC },
+        { key: 'e', position: at(4), kind: DC },
+        { key: 'f', position: at(5), kind: AC },
+      ];
+      const fit = fitGroupedPositions(stations, s);
+      const final = new Map(
+        stations.map((st) => [st.key, positionToBay(fit.moved.get(st.key) ?? st.position)]),
+      );
+      const seq = [...final]
+        .sort((x, y) => x[1].col - y[1].col)
+        .map(([k]) => stations.find((st) => st.key === k)?.kind.charging);
+      expect(interleaved(seq)).toBe(false);
+      expect(fit.unfit).toEqual([]);
+      // Already grouped: nothing moves.
+      const grouped = fitGroupedPositions(
+        [
+          { key: 'a', position: at(0), kind: AC },
+          { key: 'b', position: at(5), kind: DC },
+        ],
+        s,
+      );
+      expect(grouped.moved.size).toBe(0);
+    });
+
+    it('moves nothing on a custom site', () => {
+      const s = withSiteType(lot(30), 'custom', 2);
+      const fit = fitGroupedPositions(
+        [
+          { key: 'a', position: bayToPosition({ col: 0, row: 0 }), kind: DC },
+          { key: 'b', position: bayToPosition({ col: 1, row: 0 }), kind: AC },
+        ],
+        s,
+      );
+      expect(fit.moved.size).toBe(0);
+    });
   });
 
   it('hands out distinct slots for several unplaced stations', () => {
@@ -483,7 +658,8 @@ describe('site types', () => {
       expect(showsTransformers(s)).toBe(false);
       expect(showsBatteries(s)).toBe(false);
       expect(showsSolar(s)).toBe(false);
-      expect(showsLoadPanels(s)).toBe(false);
+      // An office or retail site hangs its AC panelboards on the facade.
+      expect(showsLoadPanels(s)).toBe(siteType === 'office_retail');
       expect(layoutFacingOf(s)).toBe(0);
     }
     expect(showsBatteries(lot)).toBe(true);
@@ -516,7 +692,7 @@ describe('site types', () => {
     expect(STANDARD_DIMENSIONS).toMatchObject({
       spotWidthM: 2.6,
       spotDepthM: 5.5,
-      laneWidthM: 7,
+      laneWidthM: 7.3,
       parallelSpotLengthM: 6,
       parallelSpotWidthM: 2.4,
     });
@@ -581,18 +757,21 @@ describe('custom site free positions', () => {
     expect(normalizeRotationDeg(359.97)).toBe(0);
   });
 
-  it('gives one spot per EVSE, at most two', () => {
+  it('gives one spot per EVSE, at most four (the dispensers of a split system)', () => {
     expect(freeSpotCount(0)).toBe(1);
     expect(freeSpotCount(1)).toBe(1);
     expect(freeSpotCount(2)).toBe(2);
-    expect(freeSpotCount(4)).toBe(2);
+    expect(freeSpotCount(4)).toBe(4);
+    expect(freeSpotCount(5)).toBe(4);
   });
 
   it('lays the spots in front of the charger and turns them with the station', () => {
+    // The charger stands 0.6 m behind the head of its spots (CPF50, behind the curb).
     const corners = freeFootprint({ x: 10, z: 20, rotationDeg: 0 }, 2);
-    expect(corners[0]).toEqual({ x: 7.4, z: 19.1 });
+    expect(corners[0]).toEqual({ x: 7.4, z: 19.4 });
     expect(corners[2]!.x).toBeCloseTo(12.6);
-    expect(corners[2]!.z).toBeCloseTo(24.6);
+    expect(corners[2]!.z).toBeCloseTo(26.1);
+    expect(freeSpotRects(2, 'car')[0]).toMatchObject({ minZ: 0.6, maxZ: 6.1 });
     // A quarter turn clockwise from above: the spots lie toward -x.
     const turned = freeToSite({ x: 0, z: 0, rotationDeg: 90 }, 0, 4);
     expect(turned.x).toBeCloseTo(-4);
@@ -622,26 +801,27 @@ describe('custom site free positions', () => {
     ).toEqual(['a', 'b']);
   });
 
-  it('keeps a converted station in place: parking rows, office row and curbs', () => {
+  it('keeps the spots of a converted station in place: parking rows, office row and curbs', () => {
+    // The charger 0.6 m behind the stall head line, the spot where it was.
     const lot = { ...custom, siteType: 'parking_lot' as const, rows: 2 };
     expect(freePlacementFromSlot({ col: 0, row: 0 }, lot)).toEqual({
       x: 1.3,
-      z: 0.9,
+      z: -0.6,
       rotationDeg: 0,
     });
-    // Row 1 is turned: its chargers stand at its back edge.
+    // Row 1 (behind the 7.3 m aisle) is turned: its chargers stand past its back edge.
     expect(freePlacementFromSlot({ col: 1, row: 1 }, lot)).toEqual({
       x: 3.9,
-      z: 12.5 + 4.6,
+      z: 18.9,
       rotationDeg: 180,
     });
     expect(
       freePlacementFromSlot({ col: 2, row: 0 }, { ...lot, siteType: 'office_retail' }),
-    ).toEqual({ x: 6.5, z: 0.9, rotationDeg: 0 });
+    ).toEqual({ x: 6.5, z: -0.6, rotationDeg: 0 });
     const street = { ...lot, siteType: 'curbside' as const };
     expect(freePlacementFromSlot({ col: 0, row: 0 }, street)).toEqual({
       x: 3,
-      z: 0.9,
+      z: -0.6,
       rotationDeg: 0,
     });
     expect(freePlacementFromSlot({ col: 1, row: 1 }, street)).toMatchObject({
@@ -664,6 +844,104 @@ describe('custom site free positions', () => {
     for (const s of final) expect(s.placement.rotationDeg).toBe(0);
   });
 
+  it('clears two saved facing stations by the shortest slide, back along their spots', () => {
+    // Saved while car spots began 0.9 m into the spot (2 m apart then); spots now begin
+    // 0.6 m in front of the charger, so they reach 1.5 m further and overlap by 1 m.
+    const a = { key: 'a', placement: { x: 0, z: 0, rotationDeg: 0 }, spots: 2 };
+    const b = { key: 'b', placement: { x: 0, z: 11.2, rotationDeg: 180 }, spots: 2 };
+    expect(overlappingFreeStations([a, b])).toEqual(['a', 'b']);
+    const moved = resolveFreeOverlaps([a, b], { nearest: true });
+    expect(moved.has('a')).toBe(false);
+    // The second steps 1 m back from the first, its row, turn and spots otherwise kept.
+    expect(moved.get('b')).toEqual({ x: 0, z: 12.2, rotationDeg: 180 });
+    expect(
+      overlappingFreeStations([a, { ...b, placement: moved.get('b') ?? b.placement }]),
+    ).toEqual([]);
+    // Without `nearest` it slides along its row (the Custom type switch).
+    const along = resolveFreeOverlaps([a, b]).get('b');
+    expect(along?.z).toBe(11.2);
+    expect(Math.abs(along?.x ?? 0)).toBeGreaterThan(5);
+    // Stations that overlap nothing keep their hand-placed positions.
+    expect(
+      resolveFreeOverlaps([a, { ...b, placement: { x: 20, z: 3, rotationDeg: 90 } }], {
+        nearest: true,
+      }).size,
+    ).toBe(0);
+  });
+
+  describe('a large layout switched to Custom stays within reach', () => {
+    function settle(stations: Array<{ key: string; placement: FreePlacement; spots: number }>) {
+      const resolved = resolveFreeOverlaps(stations);
+      const settled = stations.map((s) => ({
+        ...s,
+        placement: resolved.get(s.key) ?? s.placement,
+      }));
+      const fitted = fitFreePlacementsInReach(settled);
+      return {
+        settled,
+        fitted,
+        final: settled.map((s) => ({ ...s, placement: fitted.get(s.key) ?? s.placement })),
+      };
+    }
+
+    function expectInReachAndApart(
+      final: Array<{ key: string; placement: FreePlacement; spots: number }>,
+    ): void {
+      const r = FREE_LAYOUT.reachM;
+      for (const s of final) {
+        expect(Math.abs(s.placement.x)).toBeLessThanOrEqual(r);
+        expect(Math.abs(s.placement.z)).toBeLessThanOrEqual(r);
+      }
+      expect(overlappingFreeStations(final)).toEqual([]);
+    }
+
+    it('packs the far rows of a 100-row parking lot into free places', () => {
+      const lot = { ...custom, siteType: 'parking_lot' as const, rows: 100, spotsPerRow: 4 };
+      const stations = Array.from({ length: 100 * 4 }, (_, i) => ({
+        key: `s${String(i)}`,
+        placement: freePlacementFromSlot({ col: i % 4, row: Math.floor(i / 4) }, lot),
+        spots: 1,
+      }));
+      // Without the fit, the far rows stand over a kilometer out.
+      expect(Math.max(...stations.map((s) => s.placement.z))).toBeGreaterThan(1000);
+      const { settled, fitted, final } = settle(stations);
+      expectInReachAndApart(final);
+      // Stations within reach keep their positions; only the far ones move.
+      for (const s of settled) {
+        const inReach = Math.abs(s.placement.x) <= 400 && Math.abs(s.placement.z) <= 400;
+        expect(fitted.has(s.key)).toBe(!inReach);
+      }
+      for (const p of fitted.values())
+        expect(p.rotationDeg === 0 || p.rotationDeg === 180).toBe(true);
+    });
+
+    it('packs the far posts of 100 curbside chargers per side into free places', () => {
+      const street = {
+        ...custom,
+        siteType: 'curbside' as const,
+        chargersLeft: 100,
+        chargersRight: 100,
+      };
+      const stations = Array.from({ length: 200 }, (_, i) => ({
+        key: `s${String(i)}`,
+        placement: freePlacementFromSlot({ col: i % 100, row: Math.floor(i / 100) }, street),
+        spots: 1,
+      }));
+      expect(Math.max(...stations.map((s) => s.placement.x))).toBeGreaterThan(400);
+      const { fitted, final } = settle(stations);
+      expect(fitted.size).toBeGreaterThan(0);
+      expectInReachAndApart(final);
+    });
+
+    it('moves nothing when every station is within reach', () => {
+      expect(
+        fitFreePlacementsInReach([
+          { key: 'a', placement: { x: 400, z: -400, rotationDeg: 0 }, spots: 2 },
+        ]).size,
+      ).toBe(0);
+    });
+  });
+
   it('places a new station right of the others, on no spot', () => {
     expect(firstFreePlacement([])).toEqual({ x: 0, z: 0, rotationDeg: 0 });
     const placed = [
@@ -682,7 +960,7 @@ describe('custom site free positions', () => {
     expect(solarCanopySize(1).lengthM).toBe(5.2);
     expect(solarCanopySize(100000).lengthM).toBe(60);
     const canopy = { id: 'pv', type: 'solar' as const, name: null, capacityKwp: null, row: 1 };
-    expect(freeSolarPlacement(canopy, custom)).toEqual({ x: 13, z: 15.25, rotationDeg: 0 });
+    expect(freeSolarPlacement(canopy, custom)).toEqual({ x: 13, z: 15.55, rotationDeg: 0 });
     expect(freeSolarPlacement({ ...canopy, x: 2, z: 3, rotationDeg: 30 }, custom)).toEqual({
       x: 2,
       z: 3,
@@ -738,9 +1016,9 @@ describe('spot types', () => {
     expect(isFreeSpotType('lorry')).toBe(false);
   });
 
-  it('keeps the car spot extent as before', () => {
-    expect(freeSpotsExtent(2)).toEqual({ minX: -2.6, maxX: 2.6, front: -0.9, back: 4.6 });
-    expect(freeSpotsExtent(1, 'car')).toEqual({ minX: -1.3, maxX: 1.3, front: -0.9, back: 4.6 });
+  it('puts the car spot heads 0.6 m in front of the charger, its base behind them', () => {
+    expect(freeSpotsExtent(2)).toEqual({ minX: -2.6, maxX: 2.6, front: -0.6, back: 6.1 });
+    expect(freeSpotsExtent(1, 'car')).toEqual({ minX: -1.3, maxX: 1.3, front: -0.6, back: 6.1 });
   });
 
   it('puts two bus bays side by side, nose to the charger between them', () => {
@@ -861,13 +1139,50 @@ describe('depot site', () => {
     expect(showsLoadPanels(s)).toBe(true);
   });
 
-  it('takes truck lanes for MCS connectors and bus bays for every other station', () => {
-    expect(depotStationKind(['cMCS'])).toBe('truck');
-    expect(depotStationKind(['CCS1', 'MCS'])).toBe('truck');
-    expect(depotStationKind(['OppCharge'])).toBe('bus');
-    expect(depotStationKind(['Pan'])).toBe('bus');
-    expect(depotStationKind(['CCS1', null])).toBe('bus');
-    expect(depotStationKind([])).toBe('bus');
+  it('takes truck lanes for MCS connectors, bus bays for other DC stations and nothing for AC', () => {
+    const c = (...types: Array<string | null>) =>
+      types.map((connectorType) => ({ connectorType, maxPowerKw: 150 }));
+    expect(depotStationKind(c('cMCS'))).toBe('truck');
+    expect(depotStationKind(c('CCS1', 'MCS'))).toBe('truck');
+    expect(depotStationKind(c('OppCharge'))).toBe('bus');
+    expect(depotStationKind(c('Pan'))).toBe('bus');
+    expect(depotStationKind(c('CCS1', null))).toBe('bus');
+    // A depot charges DC only: AC plug-in chargers take no bay or lane.
+    expect(depotStationKind([{ connectorType: 'Type2', maxPowerKw: 22 }])).toBeNull();
+    expect(depotStationKind([{ connectorType: 'NACS', maxPowerKw: 11 }])).toBeNull();
+    expect(depotStationKind([])).toBeNull();
+  });
+
+  it('never places an AC station in a bay or lane', () => {
+    const s = depot({ busBays: 2, truckLanes: 1 });
+    const below = bayToPosition({ col: 0, row: 2 });
+    expect(firstFreeDepotSlot([], s, null)).toEqual(below);
+    expect(firstFreeSlotFor([], s, { charging: 'ac', depot: null })).toEqual(below);
+    expect(firstFreeSlotFor([below], s, { charging: 'ac', depot: null })).toEqual(
+      bayToPosition({ col: 1, row: 2 }),
+    );
+    // Turning into a depot moves an AC station out of a bay; a layout Save does too.
+    const at = (col: number, row: number) => bayToPosition({ col, row });
+    const ac = { charging: 'ac', depot: null } as const;
+    const bus = { charging: 'dc', depot: 'bus' } as const;
+    const fit = fitDepotPositions(
+      [
+        { key: 'ac', position: at(0, 0), kind: ac },
+        { key: 'bus', position: at(1, 0), kind: bus },
+      ],
+      s,
+    );
+    expect(fit.moved.get('ac')).toEqual(below);
+    expect(fit.moved.has('bus')).toBe(false);
+    const saved = fitPositionsToGrid([{ key: 'ac', position: at(1, 1 - 1), kind: ac }], s);
+    expect(saved.moved.get('ac')).toEqual(below);
+    // The defaults count no AC station.
+    expect(layoutStationCountsOfKinds([ac, bus, ac])).toEqual({
+      total: 3,
+      bus: 1,
+      truck: 0,
+      spots: 3,
+    });
   });
 
   it('defaults the bus bays and truck lanes from the stations by kind', () => {
@@ -899,33 +1214,78 @@ describe('depot site', () => {
     expect(DEPOT_ROWS).toEqual({ bus: 0, truck: 1 });
   });
 
-  it('lays the bays, lanes, roads and fence out in standard dimensions', () => {
+  it('lays the bays, lanes, roads and yard edge out in standard dimensions', () => {
     const d = depotLayout(depot({ busBays: 2, truckLanes: 2 }));
     expect(d.bays).toEqual([
       { minX: 0, maxX: 4.3, minZ: 0, maxZ: 14 },
       { minX: 4.3, maxX: 8.6, minZ: 0, maxZ: 14 },
     ]);
     // The truck area past the median and the entry road; lanes from the drive lane back.
-    const lanesLeft = 8.6 + DEPOT_LAYOUT.medianM + DEPOT_LAYOUT.truckRoadM;
+    const lanesLeft = 24.3; // 8.6 + 2 m median + 13.7 m entry road
     expect(d.lanes[0]).toEqual({ minX: lanesLeft, maxX: lanesLeft + 25, minZ: 9, maxZ: 14 });
     expect(d.lanes[1]).toEqual({ minX: lanesLeft, maxX: lanesLeft + 25, minZ: 2, maxZ: 7 });
     expect(d.islands[0]).toEqual({ minX: lanesLeft, maxX: lanesLeft + 25, minZ: 7, maxZ: 9 });
     expect(d.entryRoad).toEqual({ minX: 10.6, maxX: lanesLeft, minZ: 0, maxZ: 14 });
     expect(d.exitRoad?.minX).toBe(lanesLeft + 25);
-    expect(d.driveLane).toMatchObject({ minZ: 14, maxZ: 14 + DEPOT_LAYOUT.driveLaneM });
+    // The drive lane: the bus turning radius in front of the bus area, the
+    // truck one only in front of the truck area, split in the median.
+    expect(d.driveLanes).toEqual([
+      { minX: -0.6, maxX: 9.6, minZ: 14, maxZ: 14 + DEPOT_LAYOUT.busDriveLaneM },
+      { minX: 9.6, maxX: d.yard.maxX, minZ: 14, maxZ: 14 + DEPOT_LAYOUT.driveLaneM },
+    ]);
     // Bus area 3 m head strip deep, truck area 14 m: the same back line here (2 lanes reach z 0).
     expect(d.busHead).toEqual({ minX: 0, maxX: 8.6, minZ: -3, maxZ: 0 });
-    expect(d.yard.maxZ).toBe(14 + DEPOT_LAYOUT.driveLaneM + DEPOT_LAYOUT.marginM);
-    expect(d.outline[0]).toEqual({ x: -2, z: d.yard.maxZ });
-    // Without truck lanes there is no truck area.
+    expect(d.yard.maxZ).toBe(14 + 13.7 + 0.6);
+    // The front edge steps out in the median where the truck stretch begins.
+    expect(d.outline[0]).toEqual({ x: -0.6, z: 14 + 12.7 + 0.6 });
+    expect(d.outline).toHaveLength(8);
+    expect(d.outline.slice(-3)).toEqual([
+      { x: d.yard.maxX, z: d.yard.maxZ },
+      { x: 9.6, z: d.yard.maxZ },
+      { x: 9.6, z: 14 + 12.7 + 0.6 },
+    ]);
+    // Without truck lanes there is no truck area, and the drive lane is the bus one.
     const busOnly = depotLayout(depot({ busBays: 3, truckLanes: 0 }));
     expect(busOnly.lanes).toEqual([]);
     expect(busOnly.entryRoad).toBeNull();
-    expect(busOnly.yard).toEqual({ minX: -2, maxX: 12.9 + 2, minZ: -5, maxZ: 31 });
-    // Three lanes reach behind the bus area: the fence steps back in the median.
+    expect(busOnly.yard).toEqual({ minX: -0.6, maxX: 13.5, minZ: -3.6, maxZ: 27.3 });
+    expect(busOnly.driveLanes).toEqual([
+      { minX: -0.6, maxX: 13.5, minZ: 14, maxZ: 14 + DEPOT_LAYOUT.busDriveLaneM },
+    ]);
+    // Three lanes reach behind the bus area: the yard edge steps back in the median.
     const deep = depotLayout(depot({ busBays: 2, truckLanes: 3 }));
-    expect(deep.outline).toHaveLength(6);
-    expect(deep.yard.minZ).toBe(14 - 21 - 2);
+    expect(deep.outline).toHaveLength(8);
+    expect(deep.yard.minZ).toBe(-7.6);
+  });
+
+  it('sizes the yard to its bays and lanes plus the cited turning space only', () => {
+    // CITY-BUS 41.6 ft and WB-62/67 44.8 ft design turning radii (TxDOT RDM 4.3.3 Table 4-1).
+    const ft = 0.3048;
+    expect(DEPOT_LAYOUT.busDriveLaneM).toBeGreaterThanOrEqual(41.6 * ft);
+    expect(DEPOT_LAYOUT.busDriveLaneM).toBeLessThan(41.6 * ft + 0.1);
+    expect(DEPOT_LAYOUT.driveLaneM).toBeGreaterThanOrEqual(44.8 * ft);
+    expect(DEPOT_LAYOUT.driveLaneM).toBeLessThan(44.8 * ft + 0.1);
+    expect(DEPOT_LAYOUT.truckRoadM).toBe(DEPOT_LAYOUT.driveLaneM);
+    expect(depotDriveLaneM(0)).toBe(DEPOT_LAYOUT.busDriveLaneM);
+    expect(depotDriveLaneM(2)).toBe(DEPOT_LAYOUT.driveLaneM);
+    // Small and large counts: the yard is the markings plus lanes, roads, median and margins.
+    for (const [busBays, truckLanes] of [
+      [1, 0],
+      [2, 1],
+      [6, 3],
+      [20, 10],
+      [0, 4],
+    ] as const) {
+      const d = depotLayout(depot({ busBays, truckLanes }));
+      const width = d.yard.maxX - d.yard.minX;
+      const marked =
+        busBays * 4.3 +
+        (truckLanes > 0 ? 25 + 2 * DEPOT_LAYOUT.truckRoadM + (busBays > 0 ? 2 : 0) : 0);
+      expect(width).toBeCloseTo(marked + 2 * DEPOT_LAYOUT.marginM, 5);
+      const depth = d.yard.maxZ - d.yard.minZ;
+      const back = Math.max(busBays > 0 ? 3 : 0, truckLanes * 7 - 14);
+      expect(depth).toBeCloseTo(14 + back + depotDriveLaneM(truckLanes) + 2 * 0.6, 5);
+    }
   });
 
   it('stands each station at its bay head or on its lane island, never over another', () => {
@@ -996,10 +1356,10 @@ describe('depot site', () => {
     const at = (col: number, row: number) => bayToPosition({ col, row });
     const fit = fitDepotPositions(
       [
-        { key: 'truckA', position: at(0, 0), kind: 'truck' },
-        { key: 'busA', position: at(1, 0), kind: 'bus' },
-        { key: 'busB', position: at(2, 0), kind: 'bus' },
-        { key: 'truckB', position: at(3, 0), kind: 'truck' },
+        { key: 'truckA', position: at(0, 0), kind: { charging: 'dc', depot: 'truck' } as const },
+        { key: 'busA', position: at(1, 0), kind: { charging: 'dc', depot: 'bus' } as const },
+        { key: 'busB', position: at(2, 0), kind: { charging: 'dc', depot: 'bus' } as const },
+        { key: 'truckB', position: at(3, 0), kind: { charging: 'dc', depot: 'truck' } as const },
       ],
       s,
     );
@@ -1011,11 +1371,11 @@ describe('depot site', () => {
     // A third truck takes the free bus bay; nothing free is unfit.
     const full = fitDepotPositions(
       [
-        { key: 'a', position: at(0, 1), kind: 'truck' },
-        { key: 'b', position: at(1, 1), kind: 'truck' },
-        { key: 'c', position: at(5, 0), kind: 'truck' },
-        { key: 'd', position: at(6, 0), kind: 'truck' },
-        { key: 'e', position: at(7, 0), kind: 'truck' },
+        { key: 'a', position: at(0, 1), kind: { charging: 'dc', depot: 'truck' } as const },
+        { key: 'b', position: at(1, 1), kind: { charging: 'dc', depot: 'truck' } as const },
+        { key: 'c', position: at(5, 0), kind: { charging: 'dc', depot: 'truck' } as const },
+        { key: 'd', position: at(6, 0), kind: { charging: 'dc', depot: 'truck' } as const },
+        { key: 'e', position: at(7, 0), kind: { charging: 'dc', depot: 'truck' } as const },
       ],
       s,
     );

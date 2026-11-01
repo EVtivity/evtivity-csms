@@ -7,8 +7,9 @@ vi.mock('../config.js', () => ({ db: {} }));
 
 import type { SiteLayoutSettings } from '@evtivity/lib/site-layout';
 import { DEFAULT_LAYOUT_GRID } from '@evtivity/lib/site-layout';
-import { chargingStations, sites } from '../schema/assets.js';
+import { chargingStations, connectors, sites } from '../schema/assets.js';
 import {
+  ChargerPlacementSiteTypeError,
   LayoutGridTooSmallError,
   moveStationLayout,
   placeStationOnLayout,
@@ -37,6 +38,8 @@ function fakeTx(
     evses?: Record<string, number>;
     /** Stations with an MCS connector (truck stations on a depot). */
     mcs?: string[];
+    /** Stations with a DC (CCS2, 150 kW) or AC (Type2, 22 kW) connector. */
+    kinds?: Record<string, 'ac' | 'dc'>;
   } = {},
 ) {
   const rows = [...initial];
@@ -54,7 +57,11 @@ function fakeTx(
       if (typeof node === 'string') out.push(node);
       if (node == null || typeof node !== 'object') return;
       const n = node as { value?: unknown; queryChunks?: unknown[]; encoder?: unknown };
-      if ('encoder' in n && 'value' in n) out.push(n.value);
+      if ('encoder' in n && 'value' in n) {
+        if (Array.isArray(n.value)) out.push(...(n.value as unknown[]));
+        else out.push(n.value);
+      }
+      if (Array.isArray(node)) node.forEach(walk);
       if (Array.isArray(n.queryChunks)) n.queryChunks.forEach(walk);
     };
     walk(cond);
@@ -67,6 +74,30 @@ function fakeTx(
     },
     select: () => ({
       from: (table: unknown) => {
+        // The connectors of in-service EVSEs (the station kinds).
+        if (table === connectors) {
+          return {
+            innerJoin: () => ({
+              where: (cond: unknown) => {
+                const ids = params(cond).map(String);
+                return Promise.resolve(
+                  ids.flatMap((id) => {
+                    if (options.mcs?.includes(id)) {
+                      return [{ stationId: id, connectorType: 'cMCS', maxPowerKw: '1000' }];
+                    }
+                    const kind = options.kinds?.[id];
+                    if (kind == null) return [];
+                    return [
+                      kind === 'dc'
+                        ? { stationId: id, connectorType: 'CCS2', maxPowerKw: '150' }
+                        : { stationId: id, connectorType: 'Type2', maxPowerKw: '22' },
+                    ];
+                  }),
+                );
+              },
+            }),
+          };
+        }
         // The site row: its stored layout settings.
         if (table === sites) {
           return {
@@ -416,12 +447,13 @@ describe('custom site free positions', () => {
       const r = rows.find((x) => x.stationId === id)!;
       return { x: Number(r.freeXM), z: Number(r.freeZM), rotationDeg: Number(r.freeRotationDeg) };
     };
-    expect(free('sta_a')).toEqual({ x: 1.3, z: 0.9, rotationDeg: 0 });
+    // Each charger 0.6 m behind its stall head line, the spots where they were.
+    expect(free('sta_a')).toEqual({ x: 1.3, z: -0.6, rotationDeg: 0 });
     // Row 1 of the lot is turned.
-    expect(free('sta_c')).toEqual({ x: 1.3, z: 17.1, rotationDeg: 180 });
+    expect(free('sta_c')).toEqual({ x: 1.3, z: 18.9, rotationDeg: 180 });
     // Two spots each: sta_b slides right along its row until its spots are free.
     expect(free('sta_b').x).toBeGreaterThanOrEqual(1.3 + 5.2);
-    expect(free('sta_b')).toMatchObject({ z: 0.9, rotationDeg: 0 });
+    expect(free('sta_b')).toMatchObject({ z: -0.6, rotationDeg: 0 });
     // The grid slots stay, so switching back returns the stations to them.
     expect(rows.find((x) => x.stationId === 'sta_b')).toMatchObject({ positionX: '220' });
     expect(change.moved.map((m) => m.stationId).sort()).toEqual(['sta_a', 'sta_b', 'sta_c']);
@@ -523,6 +555,103 @@ describe('custom site free positions', () => {
   });
 });
 
+describe('AC and DC grouping', () => {
+  // The default lot: 2 rows of 10, its transformer right of the first row.
+  const lot: SiteLayoutSettings = {
+    siteType: 'parking_lot',
+    ...DEFAULT_LAYOUT_GRID,
+    transformers: [{ id: 'tx-1', name: null, ratedKva: null, x: 30, z: 2.5 }],
+  };
+
+  it('places a new DC station next to the transformer and an AC station at the far end', async () => {
+    const { tx } = fakeTx([], { settings: { sit_1: lot }, kinds: { dc1: 'dc', ac1: 'ac' } });
+    // DC: the last spot of the first row (nearest the transformer).
+    expect(await placeStationOnLayout(tx, 'sit_1', 'dc1')).toEqual({ x: 1820, y: 20 });
+    // AC: the first spot of the far row.
+    expect(await placeStationOnLayout(tx, 'sit_1', 'ac1')).toEqual({ x: 20, y: 160 });
+    // A station whose connectors are not known yet takes the first free spot.
+    expect(await placeStationOnLayout(tx, 'sit_1', 'new1')).toEqual({ x: 20, y: 20 });
+  });
+
+  it('regroups interleaved AC and DC stations when a site turns into an office or retail row', async () => {
+    const ids = ['s0', 's1', 's2', 's3'];
+    const { tx, rows } = fakeTx(
+      ids.map((id, i) => ({
+        siteId: 'sit_1',
+        stationId: id,
+        positionX: String(20 + 200 * i),
+        positionY: '20',
+      })),
+      {
+        settings: { sit_1: lot },
+        stations: { sit_1: ids },
+        kinds: { s0: 'dc', s1: 'ac', s2: 'dc', s3: 'ac' },
+      },
+    );
+    await setSiteLayoutType(tx, 'sit_1', 'office_retail');
+    const col = (id: string) =>
+      (Number(rows.find((r) => r.stationId === id)!.positionX) - 20) / 200;
+    const dcCols = [col('s0'), col('s2')];
+    const acCols = [col('s1'), col('s3')];
+    // Never interleaved: every DC spot lies past every AC spot (DC toward the transformer).
+    expect(Math.min(...dcCols)).toBeGreaterThan(Math.max(...acCols));
+  });
+});
+
+describe('parking lot charger placement', () => {
+  const lot: SiteLayoutSettings = {
+    siteType: 'parking_lot',
+    spotsPerRow: 4,
+    rows: 4,
+    facingDeg: 0,
+    transformers: [{ id: 'tx-1', name: null, ratedKva: null, x: 15, z: 2.5 }],
+  };
+
+  it('moves stations of the inner rows to the edge rows, DC nearest the transformer', async () => {
+    const { tx, rows, settings } = fakeTx(
+      [
+        { siteId: 'sit_1', stationId: 'dc1', positionX: '220', positionY: '160' },
+        { siteId: 'sit_1', stationId: 'ac1', positionX: '420', positionY: '300' },
+      ],
+      {
+        settings: { sit_1: lot },
+        stations: { sit_1: ['dc1', 'ac1'] },
+        kinds: { dc1: 'dc', ac1: 'ac' },
+      },
+    );
+    const change = await setSiteLayoutType(tx, 'sit_1', undefined, {
+      chargerPlacement: 'lot_edge',
+    });
+    expect(change).toMatchObject({ changed: true, typeChanged: false, placementChanged: true });
+    expect(settings.get('sit_1')).toMatchObject({
+      siteType: 'parking_lot',
+      chargerPlacement: 'lot_edge',
+    });
+    const at = (id: string) => {
+      const r = rows.find((row) => row.stationId === id)!;
+      return { x: Number(r.positionX), y: Number(r.positionY) };
+    };
+    // DC: the front edge row, at the transformer end (col 3); AC: the back edge row (row 3).
+    expect(at('dc1')).toEqual({ x: 620, y: 20 });
+    expect(at('ac1').y).toBe(440);
+    // The same placement again writes nothing.
+    const again = await setSiteLayoutType(tx, 'sit_1', undefined, { chargerPlacement: 'lot_edge' });
+    expect(again.changed).toBe(false);
+  });
+
+  it('refuses a charger placement on another site type and drops it when the site leaves the parking lot', async () => {
+    const { tx, settings } = fakeTx([], {
+      settings: { sit_1: { ...lot, chargerPlacement: 'lot_edge' } },
+      stations: { sit_1: [] },
+    });
+    await expect(
+      setSiteLayoutType(tx, 'sit_1', 'curbside', { chargerPlacement: 'lot_edge' }),
+    ).rejects.toBeInstanceOf(ChargerPlacementSiteTypeError);
+    await setSiteLayoutType(tx, 'sit_1', 'office_retail');
+    expect(settings.get('sit_1')).not.toHaveProperty('chargerPlacement');
+  });
+});
+
 describe('depot site layout', () => {
   const depot: SiteLayoutSettings = {
     siteType: 'depot',
@@ -540,6 +669,37 @@ describe('depot site layout', () => {
     expect(await placeStationOnLayout(tx, 'sit_1', 'sta_bus2')).toEqual({ x: 220, y: 20 });
     // A depot stores no free position.
     expect(rows.find((r) => r.stationId === 'sta_truck')?.freeXM).toBeUndefined();
+  });
+
+  it('never places an AC station in a bus bay or truck lane', async () => {
+    const { tx } = fakeTx([], {
+      settings: { sit_1: { ...depot, busBays: 2, truckLanes: 1 } },
+      kinds: { sta_ac: 'ac', sta_dc: 'dc' },
+    });
+    // Below the layout (row 2), on the grass behind the yard.
+    expect(await placeStationOnLayout(tx, 'sit_1', 'sta_ac')).toEqual({ x: 20, y: 300 });
+    expect(await placeStationOnLayout(tx, 'sit_1', 'sta_dc')).toEqual({ x: 20, y: 20 });
+  });
+
+  it('moves an AC station out of a bay when a site turns into a depot', async () => {
+    const { tx, rows } = fakeTx(
+      [
+        { siteId: 'sit_1', stationId: 'sta_ac', positionX: '20', positionY: '20' },
+        { siteId: 'sit_1', stationId: 'sta_dc', positionX: '220', positionY: '20' },
+      ],
+      {
+        settings: { sit_1: { ...DEFAULT_LAYOUT_GRID, transformers: [] } },
+        stations: { sit_1: ['sta_ac', 'sta_dc'] },
+        kinds: { sta_ac: 'ac', sta_dc: 'dc' },
+      },
+    );
+    const change = await setSiteLayoutType(tx, 'sit_1', 'depot');
+    // One bus bay for the DC station, none for the AC station.
+    expect(change.settingsAfter).toMatchObject({ busBays: 1, truckLanes: 0 });
+    const ac = rows.find((r) => r.stationId === 'sta_ac')!;
+    expect(Number(ac.positionY)).toBeGreaterThanOrEqual(300);
+    const dc = rows.find((r) => r.stationId === 'sta_dc')!;
+    expect({ x: Number(dc.positionX), y: Number(dc.positionY) }).toEqual({ x: 20, y: 20 });
   });
 
   it('sorts the stations into bus bays and truck lanes when a site turns into a depot', async () => {

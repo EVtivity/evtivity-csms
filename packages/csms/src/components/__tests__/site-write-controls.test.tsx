@@ -14,6 +14,7 @@ const { getMock, postMock, putMock, permissions } = vi.hoisted(() => ({
 }));
 
 vi.mock('react-i18next', () => ({
+  Trans: ({ i18nKey }: { i18nKey: string }) => i18nKey,
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
 }));
@@ -197,8 +198,8 @@ describe('SiteLayout', () => {
   it('labels the layout in the user language and hides saving without sites:write', async () => {
     wrap(<SiteLayout siteId="sit_1" />);
     expect(await screen.findByText('sites.layout')).toBeDefined();
-    expect(await screen.findByText('status.online')).toBeDefined();
-    expect(screen.getByText(/stations\.sp1/)).toBeDefined();
+    // The one shared state legend (the 2D board has no legend of its own).
+    expect(await screen.findByTestId('site-layout-state-legend')).toBeDefined();
     expect(screen.queryByText('common.save')).toBeNull();
   });
 

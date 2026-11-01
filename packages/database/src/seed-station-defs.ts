@@ -94,3 +94,50 @@ export function devStationDefs(vendorIds: {
     },
   ];
 }
+
+/**
+ * The station models of the demo seed's OCPP 2.x stations (power kW, connector
+ * type and current). `outputs`: a DC split system's EVSEs, one per satellite
+ * dispenser; every other model has two EVSEs (a dual-outlet dispenser or a
+ * dual-port pedestal). The Kempower C-Series double cabinet delivers 200 kW
+ * continuous (C502P200, Kempower C-Series Power Unit datasheet 2022,
+ * https://www.nee.ca/wp-content/uploads/2023/08/Kempower-C-Series-Power-Units.pdf)
+ * to up to 8 single satellites, here 4, each with a 300 A CCS1 cable (cable
+ * code E, Kempower S-Series Charging Satellite datasheet 2022,
+ * https://www.nee.ca/wp-content/uploads/2023/08/Kempower-S-Series-ETL-Datasheet-Rev-2.2-0622.pdf).
+ * A small single dispenser never gets three or more EVSEs.
+ */
+export const STATION_MODELS: Array<{
+  model: string;
+  power: number;
+  type: string;
+  amps: number;
+  outputs?: number;
+}> = [
+  { model: 'Terra 360', power: 360, type: 'CCS1', amps: 500 },
+  { model: 'Terra 184', power: 180, type: 'CCS1', amps: 250 },
+  { model: 'CT4000', power: 7, type: 'Type1', amps: 32 },
+  { model: 'CP6000', power: 19, type: 'Type1', amps: 32 },
+  { model: 'RTM75', power: 75, type: 'CCS1', amps: 200 },
+  { model: 'RT50', power: 50, type: 'CCS1', amps: 125 },
+  { model: 'BusinessLine', power: 22, type: 'Type1', amps: 32 },
+  { model: 'Troniq 50', power: 50, type: 'CCS1', amps: 125 },
+  { model: 'Pulsar Plus', power: 11, type: 'Type1', amps: 16 },
+  { model: 'JuiceBox', power: 40, type: 'Type1', amps: 48 },
+  { model: 'Series 6', power: 150, type: 'CCS1', amps: 350 },
+  { model: 'IQ 200', power: 200, type: 'CCS1', amps: 500 },
+  { model: 'C-Series Satellites', power: 200, type: 'CCS1', amps: 300, outputs: 4 },
+];
+
+/** Simpler models typical of OCPP 1.6-era chargers. */
+export const STATION_MODELS_16: Array<{
+  model: string;
+  power: number;
+  type: string;
+  amps: number;
+}> = [
+  { model: 'CT4000 (1.6)', power: 7, type: 'Type1', amps: 32 },
+  { model: 'AV-30 (1.6)', power: 22, type: 'Type1', amps: 32 },
+  { model: 'QC-50 (1.6)', power: 50, type: 'CCS1', amps: 125 },
+  { model: 'DualPlug (1.6)', power: 43, type: 'Type1', amps: 63 },
+];

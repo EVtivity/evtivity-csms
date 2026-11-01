@@ -36,6 +36,8 @@ const ALLOWED: Record<string, string> = {
   '../../pages/Dashboard.tsx':
     'the Historical range panel, which holds the shared DateRangeControl date fields',
   '../../components/layout/StationCard.tsx': 'a hover tooltip, not a form control',
+  '../../components/layout/SiteLayout3D.tsx':
+    'the station hover tooltip of the 3D layout (name and state), not a form control',
 };
 
 // A class string (in className or cn()) with a positioned popover surface.

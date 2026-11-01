@@ -41,9 +41,10 @@ import {
   readStationDataPlans,
   saveSiteLayout,
   readSiteLayoutSettings,
-  readSiteStationCounts,
+  readStationLayoutKinds,
   readSiteLayoutPositions,
   setSiteLayoutType,
+  ChargerPlacementSiteTypeError,
   LayoutGridTooSmallError,
   LayoutSpotsOverlapError,
 } from '@evtivity/database';
@@ -63,6 +64,11 @@ import {
   revenueItem,
 } from '@evtivity/services/session-revenue';
 import { siteNameEq } from '../lib/site-lookup.js';
+import {
+  readLayoutMaintenanceWindows,
+  readLayoutReservations,
+  type LayoutTimeWindow,
+} from '../lib/site-layout-status-windows.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import {
@@ -97,9 +103,14 @@ import {
   siteDataPlanImpact,
 } from '@evtivity/services/station-data-plan.service';
 import type { ElectricityRatePeriodRestrictions } from '@evtivity/lib';
+import { ValidationError } from '@evtivity/lib';
 import {
   firstFreePlacement,
   freeSlotsFor,
+  sharesSpotPair,
+  splitDispenserCount,
+  layoutStationCountsOfKinds,
+  CHARGER_PLACEMENTS,
   freeSpotCount,
   SITE_TYPES,
   usesFreePositions,
@@ -109,6 +120,12 @@ import { VEHICLE_BODY_TYPES, VEHICLE_COLORS } from '@evtivity/lib/vehicle-appear
 import { avatarItem } from '../lib/avatar-item.js';
 import { readLayoutStationSessions } from '../lib/site-layout-sessions.js';
 import type { LayoutStationSession } from '../lib/site-layout-sessions.js';
+import {
+  layoutOcppVersion,
+  readLayoutStationLinks,
+  readLayoutWiredLinks,
+} from '../lib/site-layout-connectivity.js';
+import type { LayoutStationLink, LayoutWiredLink } from '../lib/site-layout-connectivity.js';
 import {
   REPLAY_MAX_CHANGES,
   REPLAY_MAX_DAYS_BACK,
@@ -276,6 +293,14 @@ const siteTypeField = z
     'Site type of the layout: parking_lot, office_retail, curbside, depot or custom. Stored in layoutSettings.siteType; every other layout setting is kept, so switching back restores it. A station outside the new layout moves to the nearest free spot; one with no free spot keeps its position (off the layout). Switching to depot puts the stations with an MCS connector into truck lanes and the others into bus bays. Switching to custom gives every station a free position where it stands now (stations whose spots would overlap slide along their row); switching from custom returns the stations to their grid spots. Omitted keeps the type',
   );
 
+// The parking lot's charger placement (layoutSettings.chargerPlacement), set on the site form.
+const chargerPlacementField = z
+  .enum(CHARGER_PLACEMENTS)
+  .optional()
+  .describe(
+    'Parking lot only: islands (chargers on the islands of rows back to back and at the lot edge rows) or lot_edge (chargers only along the lot edge: the first and the last row, the inner rows ordinary parking). A change moves the stations onto the new charging spots, AC and DC still grouped, DC nearest the transformer. 400 VALIDATION_ERROR for another site type. Omitted keeps it',
+  );
+
 const createSiteBody = z.object({
   name: z
     .string()
@@ -307,6 +332,7 @@ const createSiteBody = z.object({
   hoursOfOperation: hoursOfOperationField,
   metadata: z.record(z.string(), z.unknown()).optional(),
   siteType: siteTypeField,
+  chargerPlacement: chargerPlacementField,
 });
 
 // An optional site field that an update can clear: null or an empty string
@@ -411,6 +437,7 @@ const updateSiteBody = z.object({
       "The site's data plan (wifi_or_wired or cellular), null for not set. Stations without their own plan and without a confirmed SIM run it; online ones get the settings at once",
     ),
   siteType: siteTypeField,
+  chargerPlacement: chargerPlacementField,
 });
 
 /** Site fields only a user with access to every site may change (a restricted user gets 404). */
@@ -944,6 +971,19 @@ const layoutSessionDriver = z
   })
   .loose();
 
+const layoutSessionVehicle = z
+  .object({
+    color: z
+      .enum(VEHICLE_COLORS)
+      .nullable()
+      .describe('Color group of the vehicle, null when not set'),
+    bodyType: z
+      .enum(VEHICLE_BODY_TYPES)
+      .nullable()
+      .describe('Body type of the vehicle, null when not set'),
+  })
+  .loose();
+
 const layoutSession = z
   .object({
     id: z.string().describe('Charging session id'),
@@ -963,22 +1003,21 @@ const layoutSession = z
       .describe(
         'The driver of the session, null without drivers:read, for a session without a driver, or for an erased driver',
       ),
-    vehicle: z
-      .object({
-        color: z
-          .enum(VEHICLE_COLORS)
-          .nullable()
-          .describe('Color group of the vehicle, null when not set'),
-        bodyType: z
-          .enum(VEHICLE_BODY_TYPES)
-          .nullable()
-          .describe('Body type of the vehicle, null when not set'),
-      })
-      .loose()
+    vehicle: layoutSessionVehicle
       .nullable()
       .describe(
         "The car the layout draws: the session's vehicle, else the driver's only vehicle, else the driver's most recently used vehicle; null when none (the layout draws a grey sedan). Color and body type only, shown without drivers:read",
       ),
+  })
+  .loose();
+
+const layoutTimeWindow = z
+  .object({
+    startsAt: z
+      .string()
+      .nullable()
+      .describe('When it started, ISO 8601 (null: a reservation that holds from its creation)'),
+    endsAt: z.string().describe('When it ends, ISO 8601'),
   })
   .loose();
 
@@ -1031,6 +1070,43 @@ const layoutStation = z
       .describe(
         "True when the station's effective data plan is cellular or it has a confirmed SIM attachment",
       ),
+    connectionType: z
+      .enum(['cellular', 'wifi', 'wired', 'wifi_or_wired'])
+      .nullable()
+      .describe(
+        "How the station connects, from what the CSMS knows: cellular when the station's effective data plan is cellular or it has a confirmed SIM attachment, else wifi or wired from the active network interface an OCPP 2.0.1 or 2.1 station reported (NetworkConfiguration.OcppInterface of the slot in use: Wireless0 to Wireless3 as wifi, Wired0 to Wired3 as wired; read only with stations:read), else wifi_or_wired (the effective data plan, which does not tell the two apart). Null only when the plan could not be read",
+      ),
+    ocppVersion: z
+      .enum(['1.6', '2.0.1', '2.1'])
+      .nullable()
+      .describe(
+        "The station's OCPP version from its stored protocol (ocpp1.6, ocpp2.0.1, ocpp2.1), null when not known or when the request lacks stations:read",
+      ),
+    networkType: z
+      .string()
+      .nullable()
+      .describe(
+        "The radio access technology of a cellular station as its SIM provider reported it for the newest session of the station's confirmed SIM attachment (for example LTE or LTE-M), shown as reported. Null when not reported, for a station that is not cellular, while the SIM features are off, or when the request lacks stations:read",
+      ),
+    signal: z
+      .object({
+        bars: z
+          .number()
+          .int()
+          .min(0)
+          .max(4)
+          .describe(
+            'Signal bars from the RSSI: 4 above -70 dBm, 3 from -70 to -85, 2 from -86 to -100, 1 from -101 to -109, 0 at -110 dBm or below',
+          ),
+        dbm: z
+          .number()
+          .describe('The signal in dBm as the station reported it (ASU converted to dBm)'),
+      })
+      .loose()
+      .nullable()
+      .describe(
+        'The cellular signal the station last reported (OCPP 2.0.1 and 2.1 DataLink SignalStrength, stored by a station signal read or a device model report). Null when not known, for a station that is not cellular, while station signal reads are off, or when the request lacks stations:read',
+      ),
     inMaintenance: z
       .boolean()
       .describe('Whether an active maintenance event currently covers this station'),
@@ -1045,6 +1121,16 @@ const layoutStation = z
       .nullable()
       .describe(
         'The newest active charging session of the station, null when none is active or the request lacks sessions:read',
+      ),
+    reservation: layoutTimeWindow
+      .nullable()
+      .describe(
+        'The reservation holding the station now (active or in use, or scheduled with its start passed; the earliest ending one). Null when none holds it or the request lacks reservations:read',
+      ),
+    maintenanceWindow: layoutTimeWindow
+      .nullable()
+      .describe(
+        'The active maintenance event covering the station now (the earliest ending one), null when none does',
       ),
   })
   .loose();
@@ -1118,11 +1204,30 @@ const replayStation = z
             startedAt: z.string().describe('When the session started (ISO 8601)'),
             endedAt: z.string().nullable().describe('When the session ended, null while active'),
             energyWh: z.number().describe('Energy delivered by the session in watt-hours'),
+            evseId: z
+              .number()
+              .nullable()
+              .describe('OCPP EVSE ID the session ran on, null when not known'),
+            id: z.string().nullable().describe('Charging session id, null without sessions:read'),
+            currency: z
+              .string()
+              .nullable()
+              .describe('ISO 4217 currency of the session, null without sessions:read'),
+            vehicle: layoutSessionVehicle
+              .nullable()
+              .describe(
+                "The car the layout draws, as on GET /v1/sites/{id}/layout: the session's vehicle, else the driver's only vehicle, else the driver's most recently used one; null without sessions:read or when none",
+              ),
+            driver: layoutSessionDriver
+              .nullable()
+              .describe(
+                'The driver of the session (name and avatar, as on GET /v1/sites/{id}/layout), null without sessions:read and drivers:read, for a session without a driver, or for an erased driver',
+              ),
           })
           .loose(),
       )
       .describe(
-        `Charging sessions of the station at this site that overlap the day, by start (no driver data; at most ${String(REPLAY_MAX_CHANGES)})`,
+        `Charging sessions of the station at this site (the session's own site) that overlap the day, by start (at most ${String(REPLAY_MAX_CHANGES)})`,
       ),
     power: z
       .array(
@@ -1673,7 +1778,11 @@ export function siteRoutes(app: FastifyInstance): void {
       ) {
         return;
       }
-      const { siteType, ...body } = parseZodRequest(createSiteBody, request.body);
+      const { siteType, chargerPlacement, ...body } = parseZodRequest(createSiteBody, request.body);
+      // A charger placement belongs to a parking lot only (400 VALIDATION_ERROR).
+      if (chargerPlacement !== undefined && (siteType ?? 'parking_lot') !== 'parking_lot') {
+        throw new ValidationError('Charger placement is a parking lot setting');
+      }
 
       // Pre-check the unique name constraint (case-insensitive) so duplicate
       // names return a clean 409 instead of a Postgres unique-violation 500.
@@ -1693,7 +1802,7 @@ export function siteRoutes(app: FastifyInstance): void {
       try {
         // A site created while only selected sites are analyzed starts unselected.
         const aiInsightsEnabled = await initialSiteAiInsightsSelected();
-        if (siteType === undefined) {
+        if (siteType === undefined && chargerPlacement === undefined) {
           [site] = await db
             .insert(sites)
             .values({ ...body, aiInsightsEnabled })
@@ -1707,7 +1816,9 @@ export function siteRoutes(app: FastifyInstance): void {
               .values({ ...body, aiInsightsEnabled })
               .returning();
             if (created == null) return created;
-            const change = await setSiteLayoutType(tx, created.id, siteType);
+            const change = await setSiteLayoutType(tx, created.id, siteType, {
+              chargerPlacement,
+            });
             if (!change.changed) return created;
             const [withType] = await tx.select().from(sites).where(eq(sites.id, created.id));
             return withType ?? created;
@@ -1777,7 +1888,10 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
-      const { dataPlan, siteType, ...body } = parseZodRequest(updateSiteBody, request.body);
+      const { dataPlan, siteType, chargerPlacement, ...body } = parseZodRequest(
+        updateSiteBody,
+        request.body,
+      );
       // A restricted operator cannot change company-wide AI controls of its own site.
       if (ALL_SITE_FIELDS.some((field) => body[field] !== undefined) && siteIds !== null) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
@@ -1805,10 +1919,10 @@ export function siteRoutes(app: FastifyInstance): void {
       let site: typeof sites.$inferSelect | undefined;
       let typeChange: SiteTypeChange | null = null;
       // The stored positions before a site type change moves stations.
-      const positionsBefore =
-        siteType !== undefined ? await readSiteLayoutPositions(id) : ([] as const);
+      const layoutChange = siteType !== undefined || chargerPlacement !== undefined;
+      const positionsBefore = layoutChange ? await readSiteLayoutPositions(id) : ([] as const);
       try {
-        if (siteType === undefined) {
+        if (!layoutChange) {
           [site] = await db
             .update(sites)
             .set({ ...body, updatedAt: new Date() })
@@ -1824,13 +1938,14 @@ export function siteRoutes(app: FastifyInstance): void {
               .where(eq(sites.id, id))
               .returning();
             if (updated == null) return updated;
-            typeChange = await setSiteLayoutType(tx, id, siteType);
+            typeChange = await setSiteLayoutType(tx, id, siteType, { chargerPlacement });
             if (!typeChange.changed) return updated;
             const [withType] = await tx.select().from(sites).where(eq(sites.id, id));
             return withType ?? updated;
           });
         }
       } catch (err) {
+        if (err instanceof ChargerPlacementSiteTypeError) throw new ValidationError(err.message);
         // A concurrent write took the name after the check above.
         if (!isSiteNameUniqueViolation(err)) throw err;
         await reply
@@ -1870,7 +1985,11 @@ export function siteRoutes(app: FastifyInstance): void {
                   ? { ...before, layoutPositions: moved.before }
                   : before,
             after: moved != null ? { ...site, layoutPositions: moved.after } : site,
-            ...(typeChanged ? { notes: 'site type changed' } : {}),
+            ...(change?.typeChanged === true
+              ? { notes: 'site type changed' }
+              : change?.placementChanged === true
+                ? { notes: 'charger placement changed' }
+                : {}),
           },
           db,
           request.log,
@@ -2791,6 +2910,7 @@ export function siteRoutes(app: FastifyInstance): void {
           statusReason: buildStatusReasonSubquery(chargingStations.id),
           isOnline: chargingStations.isOnline,
           securityProfile: chargingStations.securityProfile,
+          ocppProtocol: chargingStations.ocppProtocol,
           positionX: stationLayoutPositions.positionX,
           positionY: stationLayoutPositions.positionY,
           freeXM: stationLayoutPositions.freeXM,
@@ -2819,13 +2939,31 @@ export function siteRoutes(app: FastifyInstance): void {
 
       // Stations without a saved position get free grid slots, in order, so
       // none shows on top of another until the layout is saved.
+      const unplaced = stationRows.filter((s) => s.positionX == null || s.positionY == null);
+      // The station kinds: the counts by depot kind (a depot's default bus bays
+      // and truck lanes), and the group a station without a position joins (AC
+      // or DC; a depot's AC station stands below the layout), never inside the
+      // other kind's range.
+      const layoutKinds = await readStationLayoutKinds(stationUuids);
+      const layoutSettings = await readSiteLayoutSettings(
+        id,
+        db,
+        layoutStationCountsOfKinds(stationUuids.map((s) => layoutKinds.get(s))),
+      );
       const placedPoints = stationRows
         .filter((s) => s.positionX != null && s.positionY != null)
-        .map((s) => ({ x: Number(s.positionX), y: Number(s.positionY) }));
-      const unplaced = stationRows.filter((s) => s.positionX == null || s.positionY == null);
-      // The station counts by depot kind (a depot's default bus bays and truck lanes).
-      const layoutSettings = await readSiteLayoutSettings(id, db, await readSiteStationCounts(id));
-      const freeSlots = freeSlotsFor(unplaced.length, placedPoints, layoutSettings);
+        .map((s) => ({
+          x: Number(s.positionX),
+          y: Number(s.positionY),
+          charging: layoutKinds.get(s.id)?.charging ?? null,
+          pair: sharesSpotPair(layoutKinds.get(s.id), layoutSettings),
+          span: splitDispenserCount(layoutKinds.get(s.id), layoutSettings),
+        }));
+      const freeSlots = freeSlotsFor(
+        unplaced.map((s) => layoutKinds.get(s.id)),
+        placedPoints,
+        layoutSettings,
+      );
       const slotByStation = new Map<string, { x: number; y: number }>();
       unplaced.forEach((s, i) => {
         const slot = freeSlots[i];
@@ -2840,6 +2978,32 @@ export function siteRoutes(app: FastifyInstance): void {
       const layoutSessions = canReadSessions
         ? await readLayoutStationSessions(stationUuids, canReadDrivers)
         : new Map<string, LayoutStationSession>();
+      const isCellular = (stationId: string): boolean => {
+        const plan = dataPlans.get(stationId);
+        return plan != null && (plan.plan === 'cellular' || plan.hasConfirmedSim);
+      };
+      // The reported signal and network type need stations:read, as the
+      // station SIM status; wired stations show none.
+      const canReadStations = await requestHasPermission(request, 'stations:read');
+      const stationLinks = canReadStations
+        ? await readLayoutStationLinks(stationUuids.filter(isCellular), request.log)
+        : new Map<string, LayoutStationLink>();
+      // Wi-Fi or wired from the reported active network interface (stations:read,
+      // as the station configuration); without a report, Wi-Fi or Wired.
+      const wiredLinks = canReadStations
+        ? await readLayoutWiredLinks(
+            stationUuids.filter((sid) => dataPlans.get(sid) != null && !isCellular(sid)),
+            request.log,
+          )
+        : new Map<string, LayoutWiredLink>();
+      // The virtual Reserved and Maintenance signs and their hover times.
+      const canReadReservations = await requestHasPermission(request, 'reservations:read');
+      const [reservationWindows, maintenanceWindows] = await Promise.all([
+        canReadReservations
+          ? readLayoutReservations(stationUuids)
+          : Promise.resolve(new Map<string, LayoutTimeWindow>()),
+        readLayoutMaintenanceWindows(id, stationUuids),
+      ]);
 
       const [evseRows, connectorRows, sessionRows, displayMessageRows] = await Promise.all([
         db
@@ -2970,10 +3134,23 @@ export function siteRoutes(app: FastifyInstance): void {
           placed: !slotByStation.has(station.id) && freeByStation.get(station.id)?.picked !== true,
           freePosition: freeByStation.get(station.id)?.placement ?? null,
           chargingKind: dataPlan?.chargingKind ?? 'ac',
-          cellular: dataPlan != null && (dataPlan.plan === 'cellular' || dataPlan.hasConfirmedSim),
+          cellular: isCellular(station.id),
+          connectionType:
+            dataPlan == null
+              ? null
+              : isCellular(station.id)
+                ? 'cellular'
+                : (wiredLinks.get(station.id) ?? 'wifi_or_wired'),
+          ocppVersion: canReadStations ? layoutOcppVersion(station.ocppProtocol) : null,
+          networkType: stationLinks.get(station.id)?.networkType ?? null,
+          signal: stationLinks.get(station.id)?.signal ?? null,
           inMaintenance: station.inMaintenance,
           displayMessage: displayMessageByStation.get(station.id) ?? null,
           session: layoutSessions.get(station.id) ?? null,
+          reservation: reservationWindows.get(station.id) ?? null,
+          maintenanceWindow: station.inMaintenance
+            ? (maintenanceWindows.get(station.id) ?? null)
+            : null,
           evses: stationEvses.map((evse) => {
             const evseConnectors = connectorsByEvse.get(evse.id) ?? [];
             return {
@@ -3004,7 +3181,7 @@ export function siteRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Sites'],
         summary: 'Replay one day of the site layout',
-        description: `What each operator station of the site did during one calendar day in the site timezone: connection changes, connector statuses, sessions and the power draw in 5-minute buckets. 400 VALIDATION_ERROR for a day in the future or more than ${String(REPLAY_MAX_DAYS_BACK)} days back.`,
+        description: `What each operator station of the site did during one calendar day in the site timezone: connection changes, connector statuses, sessions (with the EVSE they ran on; the car with sessions:read and the driver with drivers:read too, as on GET /v1/sites/{id}/layout) and the power draw in 5-minute buckets. 400 VALIDATION_ERROR for a day in the future or more than ${String(REPLAY_MAX_DAYS_BACK)} days back.`,
         operationId: 'getSiteLayoutReplay',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteParams),
@@ -3045,12 +3222,21 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(400).send({ error: message, code: 'VALIDATION_ERROR' });
         return;
       }
+      // The live layout's session rule: the car with sessions:read, the driver
+      // with drivers:read too (API key scopes count); the response cache keys by
+      // user and scope.
+      const canReadSessions = await requestHasPermission(request, 'sessions:read');
+      const canReadDrivers =
+        canReadSessions && (await requestHasPermission(request, 'drivers:read'));
       return {
         date,
         timezone,
         from: day.from.toISOString(),
         to: day.to.toISOString(),
-        stations: await readSiteLayoutReplay(id, day),
+        stations: await readSiteLayoutReplay(id, day, {
+          sessions: canReadSessions,
+          drivers: canReadDrivers,
+        }),
       };
     },
   );

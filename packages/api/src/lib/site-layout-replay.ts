@@ -13,7 +13,11 @@
 // - connector status: port_status_log (the last row before the day, then the
 //   rows within it);
 // - sessions: charging_sessions of the station at this site (sessions keep
-//   their site) overlapping the day, without driver data;
+//   their site) overlapping the day, with the OCPP EVSE they ran on; with
+//   sessions:read also the session id, currency and the car the live layout
+//   draws (color and body type, `readSessionVehicles`), with drivers:read too
+//   the driver (name and avatar, `readLayoutDrivers`: the live layout's reader,
+//   an erased driver shows none);
 // - power: meter_values Power.Active.Import without a phase, averaged per
 //   5-minute bucket, converted to kW like the load management live draw
 //   (unit W or none divided by 1000, any other unit taken as kW) and summed
@@ -28,6 +32,12 @@
 import { sql } from 'drizzle-orm';
 import { db, operatorStationSql } from '@evtivity/database';
 import { zonedMidnight } from '@evtivity/lib/timezone';
+import {
+  readLayoutDrivers,
+  readSessionVehicles,
+  type LayoutSessionDriver,
+  type LayoutSessionVehicle,
+} from './site-layout-sessions.js';
 
 /** Stations a replay covers, at most (oldest first). */
 export const REPLAY_MAX_STATIONS = 200;
@@ -201,12 +211,34 @@ export interface ReplayConnector {
   changes: Array<{ at: string; status: string }>;
 }
 
+export interface ReplaySession {
+  startedAt: string;
+  endedAt: string | null;
+  energyWh: number;
+  /** The OCPP EVSE the session ran on, null when not known. */
+  evseId: number | null;
+  /** The session id (sessions:read), else null. */
+  id: string | null;
+  /** The session currency (sessions:read), else null. */
+  currency: string | null;
+  /** The car the layout draws (sessions:read), else null. */
+  vehicle: LayoutSessionVehicle | null;
+  /** The driver (sessions:read and drivers:read; none for an erased driver), else null. */
+  driver: LayoutSessionDriver | null;
+}
+
+/** What the caller may see of a replayed session (the live layout's session rule). */
+export interface ReplayAccess {
+  sessions: boolean;
+  drivers: boolean;
+}
+
 export interface ReplayStation {
   id: string;
   initialOnline: boolean;
   onlineChanges: Array<{ at: string; online: boolean }>;
   connectors: ReplayConnector[];
-  sessions: Array<{ startedAt: string; endedAt: string | null; energyWh: number }>;
+  sessions: ReplaySession[];
   power: Array<{ at: string; kw: number }>;
 }
 
@@ -222,6 +254,7 @@ function connectorKey(evseId: number, connectorId: number | null): string {
 export async function readSiteLayoutReplay(
   siteId: string,
   day: ReplayDay,
+  access: ReplayAccess = { sessions: false, drivers: false },
 ): Promise<ReplayStation[]> {
   const fromIso = day.from.toISOString();
   const toIso = day.to.toISOString();
@@ -328,14 +361,17 @@ export async function readSiteLayoutReplay(
           ORDER BY p.timestamp DESC LIMIT 1
         ) last
       `),
+      // Sessions by their own site (a moved station's sessions at another site never show).
       db.execute(sql`
-        SELECT station_id, coalesce(started_at, created_at) AS started_at, ended_at,
-          coalesce(energy_delivered_wh, 0)::float AS energy_wh
-        FROM charging_sessions
-        WHERE site_id = ${siteId} AND station_id IN (${idList})
-          AND coalesce(started_at, created_at) < ${toIso}::timestamptz
-          AND (ended_at IS NULL OR ended_at >= ${fromIso}::timestamptz)
-        ORDER BY station_id, coalesce(started_at, created_at)
+        SELECT c.id, c.station_id, coalesce(c.started_at, c.created_at) AS started_at, c.ended_at,
+          coalesce(c.energy_delivered_wh, 0)::float AS energy_wh, e.evse_id AS evse_number,
+          c.driver_id, c.vehicle_id, c.currency
+        FROM charging_sessions c
+        LEFT JOIN evses e ON e.id = c.evse_id
+        WHERE c.site_id = ${siteId} AND c.station_id IN (${idList})
+          AND coalesce(c.started_at, c.created_at) < ${toIso}::timestamptz
+          AND (c.ended_at IS NULL OR c.ended_at >= ${fromIso}::timestamptz)
+        ORDER BY c.station_id, coalesce(c.started_at, c.created_at)
       `),
       db.execute(sql`
         SELECT mv.station_id, mv.evse_id,
@@ -370,12 +406,29 @@ export async function readSiteLayoutReplay(
   const duringOnlineBy = group<EventRow>(duringOnline);
   const portDuringBy = group<PortRow>(portDuring);
   const portBeforeBy = group<PortRow>(portBefore);
-  const sessionsBy = group<{
+  type SessionRow = {
+    id: string;
     station_id: string;
     started_at: unknown;
     ended_at: unknown;
     energy_wh: unknown;
-  }>(sessionRows);
+    evse_number: number | null;
+    driver_id: string | null;
+    vehicle_id: string | null;
+    currency: string | null;
+  };
+  const sessionsBy = group<SessionRow>(sessionRows);
+  // The sessions shown (the cut off per station applies first), then their cars and drivers.
+  const shown = [...sessionsBy.values()].flatMap((list) => list.slice(0, REPLAY_MAX_CHANGES));
+  const vehicleBySession = access.sessions
+    ? await readSessionVehicles(
+        shown.map((r) => ({ id: r.id, vehicleId: r.vehicle_id, driverId: r.driver_id })),
+      )
+    : new Map<string, LayoutSessionVehicle | null>();
+  const driverById =
+    access.sessions && access.drivers
+      ? await readLayoutDrivers(shown.flatMap((r) => (r.driver_id != null ? [r.driver_id] : [])))
+      : new Map<string, LayoutSessionDriver>();
   const powerBy = group<{
     station_id: string;
     evse_id: string | null;
@@ -426,11 +479,21 @@ export async function readSiteLayoutReplay(
       connectors: [...connectors.values()].sort(
         (a, b) => a.evseId - b.evseId || (a.connectorId ?? 0) - (b.connectorId ?? 0),
       ),
-      sessions: (sessionsBy.get(station.id) ?? []).slice(0, REPLAY_MAX_CHANGES).map((s) => ({
-        startedAt: toDate(s.started_at).toISOString(),
-        endedAt: s.ended_at == null ? null : toDate(s.ended_at).toISOString(),
-        energyWh: Number(s.energy_wh),
-      })),
+      sessions: (sessionsBy.get(station.id) ?? []).slice(0, REPLAY_MAX_CHANGES).map(
+        (s): ReplaySession => ({
+          startedAt: toDate(s.started_at).toISOString(),
+          endedAt: s.ended_at == null ? null : toDate(s.ended_at).toISOString(),
+          energyWh: Number(s.energy_wh),
+          evseId: s.evse_number,
+          id: access.sessions ? s.id : null,
+          currency: access.sessions && s.currency != null ? s.currency.toUpperCase() : null,
+          vehicle: access.sessions ? (vehicleBySession.get(s.id) ?? null) : null,
+          driver:
+            access.sessions && access.drivers && s.driver_id != null
+              ? (driverById.get(s.driver_id) ?? null)
+              : null,
+        }),
+      ),
       power: stationPowerSeries(
         (powerBy.get(station.id) ?? []).map((r) => ({
           bucket: toDate(r.bucket),

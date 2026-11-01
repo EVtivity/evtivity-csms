@@ -267,7 +267,7 @@ export function AdyenSettings(): React.JSX.Element {
     [data],
   );
   const [hasSubmitted, setHasSubmitted] = useState(false);
-  const [state, setState, takeNextLoad] = useLoadedValues<AdyenFormState>(loaded, () => {
+  const [state, setState, takeNextLoad, taken] = useLoadedValues<AdyenFormState>(loaded, () => {
     setHasSubmitted(false);
   });
   const [baseline, markSaved] = useSavedBaseline(loaded);
@@ -346,7 +346,12 @@ export function AdyenSettings(): React.JSX.Element {
     // hidden one clears only through its explicit remove (see secretChange).
     if (data != null) {
       for (const key of SECRET_FIELDS) {
-        const change = secretChange(current[key], storedSecret(data, key), removing[key]);
+        const change = secretChange(
+          current[key],
+          storedSecret(data, key),
+          removing[key],
+          taken.form?.[key] ?? '',
+        );
         if (change !== undefined) body[key] = change;
       }
     }

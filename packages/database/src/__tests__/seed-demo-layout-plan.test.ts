@@ -3,8 +3,12 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  accessibleChargingSpace,
   bayInLayout,
+  bayToPosition,
+  modelsAccessibleSpace,
   chargerMountingOf,
+  groupedSpotOrder,
   depotLayout,
   depotStationKind,
   freeSpotCount,
@@ -17,13 +21,25 @@ import {
   layoutRowLengths,
   sameLayoutSettings,
   siteTypeOf,
+  freeSlotsFor,
+  positionToBay,
+  sharesSpotPair,
+  spotPairPartner,
 } from '@evtivity/lib/site-layout';
 import type { SiteLayoutSettings } from '@evtivity/lib/site-layout';
 import { freePlacementSchema, siteLayoutSettingsSchema } from '@evtivity/lib/site-layout-schema';
-import { LAYOUT_DEMO, LAYOUT_DEMO_PREVIOUS_SETTINGS } from '../seed-demo-layout-plan.js';
+import {
+  LAYOUT_DEMO,
+  LAYOUT_DEMO_PREVIOUS_SETTINGS,
+  LEVEL_2_AMPS,
+  TERRA_184_INPUT_AMPS,
+  dcInputAmps,
+  evseBreakerAmps,
+} from '../seed-demo-layout-plan.js';
+import type { LayoutDemoPanel, LayoutDemoSite } from '../seed-demo-layout-plan.js';
 import { DEMO_MODEL_BODY_TYPES } from '../seed-demo-vehicles.js';
 
-const [harbor, lakeside, riverside, maple, willow, depot] = LAYOUT_DEMO.sites;
+const [harbor, lakeside, riverside, maple, willow, depot, patroon] = LAYOUT_DEMO.sites;
 const allStations = LAYOUT_DEMO.sites.flatMap((s) => s.stations);
 
 describe('site layout demo plan', () => {
@@ -31,9 +47,16 @@ describe('site layout demo plan', () => {
     expect(siteTypeOf(harbor!.settings)).toBe('parking_lot');
     expect(new Set(harbor!.stations.map((s) => s.kind))).toEqual(new Set(['dc']));
     expect(harbor!.settings.transformers.length).toBeGreaterThan(0);
-    // One battery on the grass and one solar canopy over a row of the lot.
+    // Lot Edge: every station stands in the front or the back edge row.
+    expect(harbor!.settings.chargerPlacement).toBe('lot_edge');
+    for (const s of harbor!.stations) {
+      expect(bayInLayout({ col: s.col, row: s.row }, harbor!.settings)).toBe(true);
+    }
+    // One battery on the grass and one solar canopy over the front edge row
+    // (row 0), so its columns stand past the lot edge, never at a drive aisle.
     const assets = energyAssetsOf(harbor!.settings);
     expect(assets.map((a) => a.type).sort()).toEqual(['battery', 'solar']);
+    expect(assets.find((a) => a.type === 'solar')).toMatchObject({ row: 0 });
     const effective = effectiveLayoutSettings(harbor!.settings);
     expect(effective.energyAssets).toEqual(assets);
   });
@@ -79,13 +102,31 @@ describe('site layout demo plan', () => {
     // A transformer, a battery and a free-standing solar canopy, and one display message.
     expect(willow!.settings.transformers).toHaveLength(1);
     const assets = energyAssetsOf(willow!.settings);
-    expect(assets.find((a) => a.type === 'solar')).toMatchObject({ x: 4.5, z: -22 });
+    // Its back edge (and column line) 2 m behind the pedestals at z -24.
+    expect(assets.find((a) => a.type === 'solar')).toMatchObject({ x: 4.5, z: -23 });
     expect(willow!.stations.filter((s) => s.message != null)).toHaveLength(1);
     expect(willow!.stations.find((s) => s.message != null)?.kind).toBe('dc');
     // The canopy stands over the row of three AC pedestals.
     expect(free.filter((f) => f.placement.z === -24 && f.placement.rotationDeg === 0)).toHaveLength(
       4,
     );
+    // AC and DC grouped along the curve (by grid slot, the order they stand in):
+    // the DC chargers first, nearest the transformer, then the AC pedestals.
+    const byCol = [...willow!.stations].sort((a, b) => a.col - b.col).map((s) => s.kind);
+    expect(byCol).toEqual(['dc', 'dc', 'dc', 'ac', 'ac', 'ac', 'ac', 'ac']);
+    const tx = willow!.settings.transformers[0]!;
+    const dist = (s: { free?: { x: number; z: number } | undefined }) =>
+      Math.hypot(s.free!.x - tx.x, s.free!.z - tx.z);
+    const dcFar = Math.max(...willow!.stations.filter((s) => s.kind === 'dc').map(dist));
+    const acNear = Math.min(...willow!.stations.filter((s) => s.kind === 'ac').map(dist));
+    expect(dcFar).toBeLessThan(acNear);
+    // A rerun swaps them only from the earlier plan's positions: every earlier
+    // position is a position of this plan, so the swap leaves no spot shared.
+    const before = willow!.stations.flatMap((s) => (s.before != null ? [s.before.free] : []));
+    expect(before).toHaveLength(4);
+    for (const b of before) {
+      expect(willow!.stations.some((s) => JSON.stringify(s.free) === JSON.stringify(b))).toBe(true);
+    }
   });
 
   it('makes Northgate Fleet Depot a depot of bus bays and truck pull-through lanes, one station each', () => {
@@ -104,9 +145,13 @@ describe('site layout demo plan', () => {
     // Each station has its own bay or lane, and its connectors give it the area it is in.
     for (const s of depot!.stations) {
       expect(bayInLayout({ col: s.col, row: s.row }, depot!.settings)).toBe(true);
-      expect(depotStationKind([s.connectorType ?? null]) === 'truck').toBe(
-        s.connectorType === 'cMCS',
-      );
+      const kind = depotStationKind([
+        { connectorType: s.connectorType ?? null, maxPowerKw: s.maxPowerKw ?? null },
+      ]);
+      expect(kind === 'truck').toBe(s.connectorType === 'cMCS');
+      // A depot charges DC only: every station takes a bay or lane.
+      expect(kind).not.toBeNull();
+      expect(s.kind).toBe('dc');
       expect(s.free).toBeUndefined();
     }
     const slots = new Set(depot!.stations.map((s) => `${String(s.col)}:${String(s.row)}`));
@@ -114,10 +159,24 @@ describe('site layout demo plan', () => {
     expect(new Set(depot!.stations.map((s) => s.kind))).toEqual(new Set(['dc']));
     // A transformer and a battery on the grass outside the yard, two switchboards
     // (one under the other) and a message on a pole.
-    const yard = depotLayout(depot!.settings).yard;
-    const outside = (p: { x: number; z: number }) =>
-      p.x < yard.minX || p.x > yard.maxX || p.z < yard.minZ || p.z > yard.maxZ;
-    expect(depot!.settings.transformers).toHaveLength(1);
+    // Outside the paved yard's edge (its outline steps back between the bus and truck areas).
+    const outline = depotLayout(depot!.settings).outline;
+    const outside = (p: { x: number; z: number }) => {
+      let inside = false;
+      for (let i = 0, j = outline.length - 1; i < outline.length; j = i++) {
+        const a = outline[i]!;
+        const b = outline[j]!;
+        if (a.z > p.z !== b.z > p.z && p.x < ((b.x - a.x) * (p.z - a.z)) / (b.z - a.z) + a.x) {
+          inside = !inside;
+        }
+      }
+      return !inside;
+    };
+    // One equipment pad per charger group: a transformer for the buses, one for the trucks.
+    expect(depot!.settings.transformers.map((t) => t.name)).toEqual([
+      'Bus Charging Transformer',
+      'Truck Charging Transformer',
+    ]);
     expect(depot!.settings.transformers.every(outside)).toBe(true);
     const assets = energyAssetsOf(depot!.settings);
     expect(assets.map((a) => a.type)).toEqual(['battery']);
@@ -128,8 +187,16 @@ describe('site layout demo plan', () => {
     expect(effective.energyAssets).toEqual(assets);
     expect(depot!.panels).toHaveLength(2);
     expect(depot!.stations.filter((s) => s.message != null)).toHaveLength(1);
-    // A rerun converts the custom site an earlier plan seeded.
-    expect(LAYOUT_DEMO_PREVIOUS_SETTINGS[depot!.id]?.map((p) => siteTypeOf(p))).toEqual(['custom']);
+    // A rerun converts the custom site an earlier plan seeded, the depot with one
+    // substation, the depot with the 3000 kVA truck transformer and the depot with
+    // its equipment out on the grass.
+    expect(LAYOUT_DEMO_PREVIOUS_SETTINGS[depot!.id]?.map((p) => siteTypeOf(p))).toEqual([
+      'custom',
+      'depot',
+      'depot',
+      'depot',
+    ]);
+    expect(depot!.settings.transformers.map((t) => t.ratedKva)).toEqual([2500, 3750]);
   });
 
   it('gives the depot fleet one bus, semi truck or box truck per driver, charging at the depot', () => {
@@ -218,13 +285,319 @@ describe('site layout demo plan', () => {
         sameLayoutSettings(p, storedBefore),
       ),
     ).toBe(true);
-    // Harbor Point's plan before the battery and the solar canopy is replaced too.
-    const beforeAssets = { ...harbor!.settings };
+    // Harbor Point's plans before the battery and the solar canopy and before
+    // Lot Edge (a 2 by 6 lot with every row charging) are replaced too.
+    // The equipment 14 m out on the grass, before the pad moved to the lot edge.
+    const farEquipment: SiteLayoutSettings = {
+      ...harbor!.settings,
+      transformers: [
+        { id: 'tx-1', name: 'Utility Transformer', ratedKva: 2500, x: -14, z: 2.5 },
+        { id: 'tx-2', name: 'Solar Carport Tie-In', ratedKva: 750, x: -14, z: 16 },
+      ],
+      energyAssets: energyAssetsOf(harbor!.settings).map((a) =>
+        a.type === 'battery' ? { ...a, x: 25, z: 4 } : a,
+      ),
+    };
+    expect(
+      (LAYOUT_DEMO_PREVIOUS_SETTINGS[harbor!.id] ?? []).some((p) =>
+        sameLayoutSettings(p, farEquipment),
+      ),
+    ).toBe(true);
+    const middleCarport: SiteLayoutSettings = {
+      ...farEquipment,
+      energyAssets: energyAssetsOf(farEquipment).map((a) =>
+        a.type === 'solar' ? { ...a, row: 1 } : a,
+      ),
+    };
+    // The Lot Edge plan with the solar carport over the middle row.
+    expect(
+      (LAYOUT_DEMO_PREVIOUS_SETTINGS[harbor!.id] ?? []).some((p) =>
+        sameLayoutSettings(p, middleCarport),
+      ),
+    ).toBe(true);
+    const beforeEdge: SiteLayoutSettings = { ...middleCarport, rows: 2 };
+    delete beforeEdge.chargerPlacement;
+    expect(
+      (LAYOUT_DEMO_PREVIOUS_SETTINGS[harbor!.id] ?? []).some((p) =>
+        sameLayoutSettings(p, beforeEdge),
+      ),
+    ).toBe(true);
+    const beforeAssets = { ...beforeEdge };
     delete beforeAssets.energyAssets;
     expect(
       (LAYOUT_DEMO_PREVIOUS_SETTINGS[harbor!.id] ?? []).some((p) =>
         sameLayoutSettings(p, beforeAssets),
       ),
     ).toBe(true);
+    // Willow Creek's canopy with its column line inside the head of the spots.
+    // (and the battery at the far end of the stations, before it moved onto the equipment pad).
+    // (and the transformer far from the DC group, before it moved next to it).
+    const willowBefore: SiteLayoutSettings = {
+      ...willow!.settings,
+      transformers: willow!.settings.transformers.map((t) => ({ ...t, x: -30, z: -26 })),
+      energyAssets: energyAssetsOf(willow!.settings).map((a) =>
+        a.type === 'solar' ? { ...a, z: -22 } : { ...a, x: 30, z: -24 },
+      ),
+    };
+    expect(
+      (LAYOUT_DEMO_PREVIOUS_SETTINGS[willow!.id] ?? []).some((p) =>
+        sameLayoutSettings(p, willowBefore),
+      ),
+    ).toBe(true);
+  });
+
+  it('makes Patroon Creek a parking lot with islands, DC next to the transformer and AC in the far rows', () => {
+    const s = patroon!.settings;
+    expect(patroon!.name).toBe('Patroon Creek Charging Plaza');
+    expect(siteLayoutSettingsSchema.safeParse(s).success).toBe(true);
+    expect(s).toMatchObject({ siteType: 'parking_lot', rows: 4, chargerPlacement: 'islands' });
+    const dc = patroon!.stations.filter((st) => st.kind === 'dc');
+    const ac = patroon!.stations.filter((st) => st.kind === 'ac');
+    expect(dc).toHaveLength(4);
+    expect(ac).toHaveLength(8);
+    // The spots the placement gives each group, from the transformer outward and the far end inward.
+    expect(dc.map((st) => ({ col: st.col, row: st.row }))).toEqual(
+      groupedSpotOrder(s, 'dc').slice(0, 4),
+    );
+    // Dual-port Level 2 pedestals: two ports each, standing on the line
+    // between their spot and the partner spot, in the slots placement gives them.
+    expect(ac.every((st) => st.evses === 2)).toBe(true);
+    expect(ac.every((st) => sharesSpotPair({ charging: 'ac', ports: st.evses }, s))).toBe(true);
+    expect(ac.map((st) => ({ col: st.col, row: st.row }))).toEqual(
+      freeSlotsFor(
+        ac.map(() => ({ charging: 'ac' as const, depot: null, ports: 2 })),
+        dc.map((st) => ({
+          ...bayToPosition({ col: st.col, row: st.row }),
+          charging: 'dc' as const,
+        })),
+        s,
+      ).map(positionToBay),
+    );
+    const held = new Set<string>();
+    for (const st of patroon!.stations) {
+      const spots = [{ col: st.col, row: st.row }];
+      if (st.kind === 'ac') {
+        const partner = spotPairPartner({ col: st.col, row: st.row }, s);
+        expect(partner, st.stationId).not.toBeNull();
+        spots.push(partner!);
+      }
+      for (const b of spots) {
+        const key = `${String(b.col)}:${String(b.row)}`;
+        expect(held.has(key), `${st.stationId} ${key}`).toBe(false);
+        held.add(key);
+      }
+    }
+    // A rerun moves each pedestal from its single-port spot of the plan before.
+    expect(ac.map((st) => st.before && { col: st.before.col, row: st.before.row })).toEqual(
+      groupedSpotOrder(s, 'ac').slice(0, 8),
+    );
+    // Never interleaved along a row: at most one change of kind per row.
+    for (let row = 0; row < s.rows; row++) {
+      const kinds = patroon!.stations
+        .filter((st) => st.row === row)
+        .sort((a, b) => a.col - b.col)
+        .map((st) => st.kind);
+      const changes = kinds.filter((k, i) => i > 0 && k !== kinds[i - 1]).length;
+      expect(changes, `row ${String(row)}`).toBeLessThanOrEqual(1);
+    }
+    for (const st of patroon!.stations) {
+      expect(bayInLayout({ col: st.col, row: st.row }, s)).toBe(true);
+    }
+  });
+
+  it('stands every charger group of a grid demo site in one continuous run, the access aisle at its end', () => {
+    for (const site of LAYOUT_DEMO.sites) {
+      const settings = site.settings;
+      if (usesFreePositions(settings) || siteTypeOf(settings) === 'depot') continue;
+      const rows = new Map<number, Map<number, 'ac' | 'dc'>>();
+      const placed = site.stations.map((st) => {
+        const pair = sharesSpotPair({ charging: st.kind, ports: st.evses ?? 1 }, settings);
+        const row = rows.get(st.row) ?? new Map<number, 'ac' | 'dc'>();
+        row.set(st.col, st.kind);
+        const partner = pair ? spotPairPartner({ col: st.col, row: st.row }, settings) : null;
+        if (partner != null) row.set(partner.col, st.kind);
+        rows.set(st.row, row);
+        return {
+          ...bayToPosition({ col: st.col, row: st.row }),
+          charging: st.kind,
+          pair,
+        };
+      });
+      for (const [row, cols] of rows) {
+        for (const kind of ['ac', 'dc'] as const) {
+          const own = [...cols].filter(([, k]) => k === kind).map(([c]) => c);
+          if (own.length === 0) continue;
+          const lo = Math.min(...own);
+          const hi = Math.max(...own);
+          expect(hi - lo + 1, `${site.name} row ${String(row)} ${kind}`).toBe(own.length);
+        }
+      }
+      const access = accessibleChargingSpace(placed, settings);
+      if (access == null) continue;
+      const row = rows.get(access.aisle.row) ?? new Map();
+      const cols = [...row.keys()];
+      // The aisle lies just past the run, never inside it.
+      expect(row.has(access.aisle.col), site.name).toBe(false);
+      expect(
+        access.aisle.col === Math.max(...cols) + 1 || access.aisle.col === Math.min(...cols) - 1,
+        site.name,
+      ).toBe(true);
+    }
+  });
+
+  describe('electrical trees as an engineer designs them', () => {
+    /** The continuous current a station draws from its panel, per phase it uses, in A. */
+    const loadAmps = (site: LayoutDemoSite, stationId: string): number => {
+      const st = site.stations.find((s) => s.id === stationId)!;
+      if (st.kind === 'ac') return LEVEL_2_AMPS;
+      // The demo DC chargers without their own power are ABB Terra 184 (datasheet input).
+      return st.maxPowerKw == null ? TERRA_184_INPUT_AMPS : dcInputAmps(st.maxPowerKw);
+    };
+    const circuitOf = (site: LayoutDemoSite, circuitId: string) =>
+      site.panels
+        .flatMap((p) => p.circuits.map((c) => ({ panel: p, circuit: c })))
+        .find((x) => x.circuit.id === circuitId)!;
+
+    it('gives every charger its own circuit, sized at 125 percent of its load', () => {
+      expect(evseBreakerAmps(32)).toBe(40);
+      expect(evseBreakerAmps(48)).toBe(60);
+      expect(evseBreakerAmps(230)).toBe(300);
+      for (const site of LAYOUT_DEMO.sites) {
+        const circuits = site.stations.map((s) => s.circuitId);
+        expect(new Set(circuits).size, site.name).toBe(circuits.length);
+        for (const st of site.stations) {
+          const { circuit } = circuitOf(site, st.circuitId);
+          expect(circuit.breakerRatingAmps).toBeGreaterThanOrEqual(1.25 * loadAmps(site, st.id));
+          // The next standard rating, not a larger one than needed.
+          expect(circuit.breakerRatingAmps).toBe(evseBreakerAmps(loadAmps(site, st.id)));
+        }
+        // No circuit is left without its charger.
+        for (const p of site.panels) {
+          for (const c of p.circuits) expect(circuits, c.id).toContain(c.id);
+        }
+      }
+    });
+
+    it('feeds DC chargers from switchboard breakers and AC chargers from panelboards', () => {
+      for (const site of LAYOUT_DEMO.sites) {
+        for (const st of site.stations) {
+          const { panel, circuit } = circuitOf(site, st.circuitId);
+          if (st.kind === 'dc') {
+            expect(panel.name, st.stationId).toMatch(/Switchboard/);
+            expect(panel.voltageV).toBe(277);
+            expect(circuit.phaseConnections).toBeNull();
+          } else {
+            expect(panel.name, st.stationId).toMatch(/^Panelboard /);
+            expect(panel.voltageV).toBe(120);
+            expect(panel.breakerRatingAmps).toBeLessThanOrEqual(400);
+            // A 2-pole 208 V circuit.
+            expect(circuit.phaseConnections).toMatch(/^L\dL\d$/);
+          }
+        }
+        // A depot charges DC only, and a site never mixes AC into a switchboard.
+        if (siteTypeOf(site.settings) === 'depot') {
+          expect(site.stations.every((st) => st.kind === 'dc')).toBe(true);
+        }
+      }
+    });
+
+    it('loads no panel past its continuous rating, per phase, or past its 42 spaces', () => {
+      const vLineToLine = (p: LayoutDemoPanel): number => Math.round(p.voltageV * Math.sqrt(3));
+      for (const site of LAYOUT_DEMO.sites) {
+        /** The current a panel's own circuits and its sub-panels draw on each phase, in A at its voltage. */
+        const phaseLoad = (panel: LayoutDemoPanel): [number, number, number] => {
+          const load: [number, number, number] = [0, 0, 0];
+          for (const c of panel.circuits) {
+            const st = site.stations.find((s) => s.circuitId === c.id)!;
+            const amps = loadAmps(site, st.id);
+            const phases = c.phaseConnections == null ? 'L1L2L3' : c.phaseConnections;
+            for (const [i, name] of ['L1', 'L2', 'L3'].entries()) {
+              if (phases.includes(name)) load[i as 0 | 1 | 2] += amps;
+            }
+          }
+          for (const child of site.panels.filter((p) => p.parentPanelId === panel.id)) {
+            const sub = phaseLoad(child);
+            // A child at another voltage (behind a transformer) draws the same power.
+            const ratio = vLineToLine(child) / vLineToLine(panel);
+            for (const i of [0, 1, 2] as const) load[i] += sub[i] * ratio;
+          }
+          return load;
+        };
+        for (const panel of site.panels) {
+          const worst = Math.max(...phaseLoad(panel));
+          expect(worst, `${site.name} ${panel.name}`).toBeLessThanOrEqual(
+            0.8 * panel.breakerRatingAmps + 1e-6,
+          );
+          if (panel.name.startsWith('Panelboard')) {
+            const spaces = panel.circuits.reduce(
+              (n, c) => n + (c.phaseConnections == null ? 3 : c.phaseConnections.length / 2),
+              0,
+            );
+            expect(spaces).toBeLessThanOrEqual(42);
+          }
+        }
+      }
+    });
+
+    it('splits many AC chargers over several panelboards in the order they stand', () => {
+      const boards = lakeside!.panels.filter((p) => p.name.startsWith('Panelboard'));
+      expect(boards.length).toBeGreaterThanOrEqual(2);
+      // Each panelboard feeds a run of neighbors, never every other station.
+      for (const board of boards) {
+        const cols = lakeside!.stations
+          .filter((st) => board.circuits.some((c) => c.id === st.circuitId))
+          .map((st) => st.col)
+          .sort((a, b) => a - b);
+        expect(cols.at(-1)! - cols[0]!).toBe(cols.length - 1);
+      }
+      // Maple: one panelboard per curb.
+      const mapleBoards = maple!.panels.filter((p) => p.name.startsWith('Panelboard'));
+      for (const board of mapleBoards) {
+        const rows = new Set(
+          maple!.stations
+            .filter((st) => board.circuits.some((c) => c.id === st.circuitId))
+            .map((st) => st.row),
+        );
+        expect(rows.size).toBe(1);
+      }
+    });
+  });
+
+  describe('card readers in whole groups', () => {
+    const readerStations = new Set(LAYOUT_DEMO.terminals.map((t) => t.stationId));
+
+    it('puts a reader on every DC fast charger of a public site and none on AC or the depot', () => {
+      for (const site of [harbor!, willow!, patroon!]) {
+        for (const st of site.stations.filter((s) => s.kind === 'dc')) {
+          expect(readerStations.has(st.id), st.stationId).toBe(true);
+        }
+      }
+      for (const st of allStations.filter((s) => s.kind === 'ac')) {
+        expect(readerStations.has(st.id), st.stationId).toBe(false);
+      }
+      for (const st of depot!.stations) expect(readerStations.has(st.id)).toBe(false);
+    });
+
+    it('gives each charger one reader on its own device', () => {
+      const ids = LAYOUT_DEMO.terminals.map((t) => t.providerDeviceId);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(readerStations.size).toBe(LAYOUT_DEMO.terminals.length);
+    });
+
+    it('gives every demo parking lot and office or retail row an accessible charging space', () => {
+      const sites = LAYOUT_DEMO.sites.filter((s) => modelsAccessibleSpace(s.settings));
+      expect(sites.length).toBeGreaterThan(0);
+      for (const site of sites) {
+        const placed = site.stations.map((st) => ({
+          ...bayToPosition({ col: st.col, row: st.row }),
+          charging: st.kind,
+        }));
+        expect(accessibleChargingSpace(placed, site.settings), site.name).not.toBeNull();
+      }
+    });
+
+    it('pairs every reader to the whole dispenser, so no EVSE of it lacks card payment', () => {
+      for (const t of LAYOUT_DEMO.terminals) expect(t.evseNumber, t.providerDeviceId).toBeNull();
+    });
   });
 });

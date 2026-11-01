@@ -1,0 +1,1147 @@
+{
+  "sites": [
+    {
+      "id": "sit_demolayout01",
+      "name": "Harbor Point Charging Hub",
+      "settings": {
+        "siteType": "parking_lot",
+        "spotsPerRow": 6,
+        "rows": 3,
+        "facingDeg": 0,
+        "chargerPlacement": "lot_edge",
+        "transformers": [
+          {
+            "id": "tx-1",
+            "name": "Utility Transformer",
+            "ratedKva": 2500,
+            "x": -2.5,
+            "z": 2.5
+          },
+          {
+            "id": "tx-2",
+            "name": "Solar Carport Tie-In",
+            "ratedKva": 750,
+            "x": -2.5,
+            "z": -3.5
+          }
+        ],
+        "energyAssets": [
+          {
+            "id": "bat-1",
+            "type": "battery",
+            "name": "Battery Storage",
+            "capacityKwh": 1000,
+            "x": -7.5,
+            "z": -3.5
+          },
+          {
+            "id": "pv-1",
+            "type": "solar",
+            "name": "Solar Carport",
+            "capacityKwp": 180,
+            "row": 0
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": "pnl_demolayout01",
+          "parentPanelId": null,
+          "name": "Main Switchboard",
+          "breakerRatingAmps": 4000,
+          "maxContinuousKw": 2659.2,
+          "circuits": [
+            {
+              "id": "cir_demolayout01",
+              "name": "Charger CS-3001",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse02",
+              "name": "Charger CS-3002",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse03",
+              "name": "Charger CS-3003",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse04",
+              "name": "Charger CS-3004",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse05",
+              "name": "Charger CS-3005",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse06",
+              "name": "Charger CS-3006",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            }
+          ]
+        },
+        {
+          "id": "pnl_demolayout02",
+          "parentPanelId": "pnl_demolayout01",
+          "name": "Distribution Switchboard B",
+          "breakerRatingAmps": 1600,
+          "maxContinuousKw": 1063.68,
+          "circuits": [
+            {
+              "id": "cir_demolayout02",
+              "name": "Charger CS-3013",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse14",
+              "name": "Charger CS-3014",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse15",
+              "name": "Charger CS-3015",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse16",
+              "name": "Charger CS-3016",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse21",
+              "name": "Charger CS-3021",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            }
+          ]
+        }
+      ],
+      "stations": [
+        {
+          "id": "sta_demolayout01",
+          "kind": "dc",
+          "col": 0,
+          "row": 0,
+          "circuitId": "cir_demolayout01",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout02",
+          "kind": "dc",
+          "col": 1,
+          "row": 0,
+          "circuitId": "cir_demoevse02",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout03",
+          "kind": "dc",
+          "col": 2,
+          "row": 0,
+          "circuitId": "cir_demoevse03",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout04",
+          "kind": "dc",
+          "col": 3,
+          "row": 0,
+          "circuitId": "cir_demoevse04",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout05",
+          "kind": "dc",
+          "col": 4,
+          "row": 0,
+          "circuitId": "cir_demoevse05",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout06",
+          "kind": "dc",
+          "col": 5,
+          "row": 0,
+          "circuitId": "cir_demoevse06",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout13",
+          "kind": "dc",
+          "col": 1,
+          "row": 2,
+          "circuitId": "cir_demolayout02",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout14",
+          "kind": "dc",
+          "col": 2,
+          "row": 2,
+          "circuitId": "cir_demoevse14",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout15",
+          "kind": "dc",
+          "col": 3,
+          "row": 2,
+          "circuitId": "cir_demoevse15",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout16",
+          "kind": "dc",
+          "col": 4,
+          "row": 2,
+          "circuitId": "cir_demoevse16",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout21",
+          "kind": "dc",
+          "col": 0,
+          "row": 2,
+          "circuitId": "cir_demoevse21",
+          "free": null,
+          "evses": 2
+        }
+      ]
+    },
+    {
+      "id": "sit_demolayout02",
+      "name": "Lakeside Retail Park",
+      "settings": {
+        "siteType": "office_retail",
+        "spotsPerRow": 12,
+        "rows": 1,
+        "facingDeg": 0,
+        "chargers": 12,
+        "mounting": "wall",
+        "transformers": []
+      },
+      "panels": [
+        {
+          "id": "pnl_demolayout03",
+          "parentPanelId": null,
+          "name": "Main Switchboard",
+          "breakerRatingAmps": 800,
+          "maxContinuousKw": 230.4,
+          "circuits": []
+        },
+        {
+          "id": "pnl_demolayout04",
+          "parentPanelId": "pnl_demolayout03",
+          "name": "Panelboard LP-1",
+          "breakerRatingAmps": 225,
+          "maxContinuousKw": 64.8,
+          "circuits": [
+            {
+              "id": "cir_demolayout03",
+              "name": "Charger CS-3007",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse08",
+              "name": "Charger CS-3008",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse09",
+              "name": "Charger CS-3009",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse10",
+              "name": "Charger CS-3010",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse11",
+              "name": "Charger CS-3011",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            }
+          ]
+        },
+        {
+          "id": "pnl_demolayout10",
+          "parentPanelId": "pnl_demolayout03",
+          "name": "Panelboard LP-2",
+          "breakerRatingAmps": 225,
+          "maxContinuousKw": 64.8,
+          "circuits": [
+            {
+              "id": "cir_demoevse12",
+              "name": "Charger CS-3012",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demolayout04",
+              "name": "Charger CS-3017",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse18",
+              "name": "Charger CS-3018",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse19",
+              "name": "Charger CS-3019",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse20",
+              "name": "Charger CS-3020",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            }
+          ]
+        }
+      ],
+      "stations": [
+        {
+          "id": "sta_demolayout07",
+          "kind": "ac",
+          "col": 0,
+          "row": 0,
+          "circuitId": "cir_demolayout03",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout08",
+          "kind": "ac",
+          "col": 1,
+          "row": 0,
+          "circuitId": "cir_demoevse08",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout09",
+          "kind": "ac",
+          "col": 2,
+          "row": 0,
+          "circuitId": "cir_demoevse09",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout10",
+          "kind": "ac",
+          "col": 3,
+          "row": 0,
+          "circuitId": "cir_demoevse10",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout11",
+          "kind": "ac",
+          "col": 4,
+          "row": 0,
+          "circuitId": "cir_demoevse11",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout12",
+          "kind": "ac",
+          "col": 5,
+          "row": 0,
+          "circuitId": "cir_demoevse12",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout17",
+          "kind": "ac",
+          "col": 6,
+          "row": 0,
+          "circuitId": "cir_demolayout04",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout18",
+          "kind": "ac",
+          "col": 7,
+          "row": 0,
+          "circuitId": "cir_demoevse18",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout19",
+          "kind": "ac",
+          "col": 8,
+          "row": 0,
+          "circuitId": "cir_demoevse19",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout20",
+          "kind": "ac",
+          "col": 9,
+          "row": 0,
+          "circuitId": "cir_demoevse20",
+          "free": null,
+          "evses": 1
+        }
+      ]
+    },
+    {
+      "id": "sit_demolayout03",
+      "name": "Riverside Medical Offices",
+      "settings": {
+        "siteType": "office_retail",
+        "spotsPerRow": 10,
+        "rows": 2,
+        "facingDeg": 0,
+        "chargers": 6,
+        "mounting": "stall",
+        "transformers": []
+      },
+      "panels": [
+        {
+          "id": "pnl_demolayout05",
+          "parentPanelId": null,
+          "name": "Main Switchboard",
+          "breakerRatingAmps": 400,
+          "maxContinuousKw": 115.2,
+          "circuits": []
+        },
+        {
+          "id": "pnl_demolayout11",
+          "parentPanelId": "pnl_demolayout05",
+          "name": "Panelboard LP-1",
+          "breakerRatingAmps": 225,
+          "maxContinuousKw": 64.8,
+          "circuits": [
+            {
+              "id": "cir_demolayout05",
+              "name": "Charger CS-3022",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse23",
+              "name": "Charger CS-3023",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse24",
+              "name": "Charger CS-3024",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse25",
+              "name": "Charger CS-3025",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            }
+          ]
+        }
+      ],
+      "stations": [
+        {
+          "id": "sta_demolayout22",
+          "kind": "ac",
+          "col": 0,
+          "row": 0,
+          "circuitId": "cir_demolayout05",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout23",
+          "kind": "ac",
+          "col": 1,
+          "row": 0,
+          "circuitId": "cir_demoevse23",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout24",
+          "kind": "ac",
+          "col": 2,
+          "row": 0,
+          "circuitId": "cir_demoevse24",
+          "free": null,
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout25",
+          "kind": "ac",
+          "col": 3,
+          "row": 0,
+          "circuitId": "cir_demoevse25",
+          "free": null,
+          "evses": 1
+        }
+      ]
+    },
+    {
+      "id": "sit_demolayout05",
+      "name": "Willow Creek Park and Ride",
+      "settings": {
+        "siteType": "custom",
+        "spotsPerRow": 10,
+        "rows": 2,
+        "facingDeg": 0,
+        "transformers": [
+          {
+            "id": "tx-1",
+            "name": "Pad Transformer",
+            "ratedKva": 1000,
+            "x": -26.5,
+            "z": -21
+          }
+        ],
+        "energyAssets": [
+          {
+            "id": "bat-1",
+            "type": "battery",
+            "name": "Battery Storage",
+            "capacityKwh": 500,
+            "x": -26.5,
+            "z": -25.5
+          },
+          {
+            "id": "pv-1",
+            "type": "solar",
+            "name": "Solar Carport",
+            "capacityKwp": 10,
+            "row": 0,
+            "x": 4.5,
+            "z": -23,
+            "rotationDeg": 0
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": "pnl_demolayout07",
+          "parentPanelId": null,
+          "name": "Main Switchboard",
+          "breakerRatingAmps": 1200,
+          "maxContinuousKw": 797.76,
+          "circuits": [
+            {
+              "id": "cir_demolayout07",
+              "name": "Charger CS-3034",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse37",
+              "name": "Charger CS-3037",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse41",
+              "name": "Charger CS-3041",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            }
+          ]
+        },
+        {
+          "id": "pnl_demolayout14",
+          "parentPanelId": "pnl_demolayout07",
+          "name": "Panelboard LP-1",
+          "breakerRatingAmps": 225,
+          "maxContinuousKw": 64.8,
+          "circuits": [
+            {
+              "id": "cir_demolayout08",
+              "name": "Charger CS-3035",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse36",
+              "name": "Charger CS-3036",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse38",
+              "name": "Charger CS-3038",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse39",
+              "name": "Charger CS-3039",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse40",
+              "name": "Charger CS-3040",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            }
+          ]
+        }
+      ],
+      "stations": [
+        {
+          "id": "sta_demolayout34",
+          "kind": "dc",
+          "col": 0,
+          "row": 0,
+          "circuitId": "cir_demolayout07",
+          "free": {
+            "x": -21.5,
+            "z": -11,
+            "rotationDeg": 297
+          },
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout35",
+          "kind": "ac",
+          "col": 3,
+          "row": 0,
+          "circuitId": "cir_demolayout08",
+          "free": {
+            "x": -4,
+            "z": -24,
+            "rotationDeg": 0
+          },
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout36",
+          "kind": "ac",
+          "col": 7,
+          "row": 0,
+          "circuitId": "cir_demoevse36",
+          "free": {
+            "x": 16,
+            "z": -19,
+            "rotationDeg": 40
+          },
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout37",
+          "kind": "dc",
+          "col": 1,
+          "row": 0,
+          "circuitId": "cir_demoevse37",
+          "free": {
+            "x": -17.5,
+            "z": -17.5,
+            "rotationDeg": 315
+          },
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout38",
+          "kind": "ac",
+          "col": 4,
+          "row": 0,
+          "circuitId": "cir_demoevse38",
+          "free": {
+            "x": 1.5,
+            "z": -24,
+            "rotationDeg": 0
+          },
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout39",
+          "kind": "ac",
+          "col": 5,
+          "row": 0,
+          "circuitId": "cir_demoevse39",
+          "free": {
+            "x": 4.5,
+            "z": -24,
+            "rotationDeg": 0
+          },
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout40",
+          "kind": "ac",
+          "col": 6,
+          "row": 0,
+          "circuitId": "cir_demoevse40",
+          "free": {
+            "x": 7.5,
+            "z": -24,
+            "rotationDeg": 0
+          },
+          "evses": 1
+        },
+        {
+          "id": "sta_demolayout41",
+          "kind": "dc",
+          "col": 2,
+          "row": 0,
+          "circuitId": "cir_demoevse41",
+          "free": {
+            "x": -11.5,
+            "z": -21,
+            "rotationDeg": 332
+          },
+          "evses": 2
+        }
+      ]
+    },
+    {
+      "id": "sit_demolayout06",
+      "name": "Northgate Fleet Depot",
+      "settings": {
+        "siteType": "depot",
+        "spotsPerRow": 8,
+        "rows": 1,
+        "facingDeg": 0,
+        "busBays": 6,
+        "truckLanes": 3,
+        "transformers": [
+          {
+            "id": "tx-1",
+            "name": "Bus Charging Transformer",
+            "ratedKva": 2500,
+            "x": 0,
+            "z": -6.1
+          },
+          {
+            "id": "tx-2",
+            "name": "Truck Charging Transformer",
+            "ratedKva": 3750,
+            "x": 68,
+            "z": -10.1
+          }
+        ],
+        "energyAssets": [
+          {
+            "id": "bat-1",
+            "type": "battery",
+            "name": "Depot Battery Storage",
+            "capacityKwh": 2000,
+            "x": 5.5,
+            "z": -6.1
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": "pnl_demolayout08",
+          "parentPanelId": null,
+          "name": "Bus Charging Switchboard",
+          "breakerRatingAmps": 4000,
+          "maxContinuousKw": 2659.2,
+          "circuits": [
+            {
+              "id": "cir_demolayout09",
+              "name": "Charger CS-3042",
+              "breakerRatingAmps": 800,
+              "maxContinuousKw": 531.84
+            },
+            {
+              "id": "cir_demoevse43",
+              "name": "Charger CS-3043",
+              "breakerRatingAmps": 800,
+              "maxContinuousKw": 531.84
+            },
+            {
+              "id": "cir_demoevse44",
+              "name": "Charger CS-3044",
+              "breakerRatingAmps": 800,
+              "maxContinuousKw": 531.84
+            },
+            {
+              "id": "cir_demolayout10",
+              "name": "Charger CS-3045",
+              "breakerRatingAmps": 250,
+              "maxContinuousKw": 166.2
+            },
+            {
+              "id": "cir_demoevse46",
+              "name": "Charger CS-3046",
+              "breakerRatingAmps": 250,
+              "maxContinuousKw": 166.2
+            }
+          ]
+        },
+        {
+          "id": "pnl_demolayout09",
+          "parentPanelId": null,
+          "name": "Truck Charging Switchboard",
+          "breakerRatingAmps": 4000,
+          "maxContinuousKw": 2659.2,
+          "circuits": [
+            {
+              "id": "cir_demolayout11",
+              "name": "Charger CS-3047",
+              "breakerRatingAmps": 2000,
+              "maxContinuousKw": 1329.6
+            },
+            {
+              "id": "cir_demoevse48",
+              "name": "Charger CS-3048",
+              "breakerRatingAmps": 2000,
+              "maxContinuousKw": 1329.6
+            },
+            {
+              "id": "cir_demolayout12",
+              "name": "Charger CS-3049",
+              "breakerRatingAmps": 400,
+              "maxContinuousKw": 265.92
+            }
+          ]
+        }
+      ],
+      "stations": [
+        {
+          "id": "sta_demolayout42",
+          "kind": "dc",
+          "col": 0,
+          "row": 0,
+          "circuitId": "cir_demolayout09",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout43",
+          "kind": "dc",
+          "col": 1,
+          "row": 0,
+          "circuitId": "cir_demoevse43",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout44",
+          "kind": "dc",
+          "col": 2,
+          "row": 0,
+          "circuitId": "cir_demoevse44",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout45",
+          "kind": "dc",
+          "col": 3,
+          "row": 0,
+          "circuitId": "cir_demolayout10",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout46",
+          "kind": "dc",
+          "col": 4,
+          "row": 0,
+          "circuitId": "cir_demoevse46",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout47",
+          "kind": "dc",
+          "col": 0,
+          "row": 1,
+          "circuitId": "cir_demolayout11",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout48",
+          "kind": "dc",
+          "col": 1,
+          "row": 1,
+          "circuitId": "cir_demoevse48",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout49",
+          "kind": "dc",
+          "col": 2,
+          "row": 1,
+          "circuitId": "cir_demolayout12",
+          "free": null,
+          "evses": 2
+        }
+      ]
+    },
+    {
+      "id": "sit_demolayout07",
+      "name": "Patroon Creek Charging Plaza",
+      "settings": {
+        "siteType": "parking_lot",
+        "spotsPerRow": 8,
+        "rows": 4,
+        "facingDeg": 0,
+        "chargerPlacement": "islands",
+        "transformers": [
+          {
+            "id": "tx-1",
+            "name": "Utility Transformer",
+            "ratedKva": 1000,
+            "x": -2.5,
+            "z": 2.5
+          }
+        ],
+        "energyAssets": []
+      },
+      "panels": [
+        {
+          "id": "pnl_demolayout15",
+          "parentPanelId": null,
+          "name": "Main Switchboard",
+          "breakerRatingAmps": 1600,
+          "maxContinuousKw": 1063.68,
+          "circuits": [
+            {
+              "id": "cir_demoevse50",
+              "name": "Charger CS-3050",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse51",
+              "name": "Charger CS-3051",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse52",
+              "name": "Charger CS-3052",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            },
+            {
+              "id": "cir_demoevse53",
+              "name": "Charger CS-3053",
+              "breakerRatingAmps": 300,
+              "maxContinuousKw": 199.44
+            }
+          ]
+        },
+        {
+          "id": "pnl_demolayout16",
+          "parentPanelId": "pnl_demolayout15",
+          "name": "Panelboard LP-1",
+          "breakerRatingAmps": 225,
+          "maxContinuousKw": 64.8,
+          "circuits": [
+            {
+              "id": "cir_demoevse58",
+              "name": "Charger CS-3058",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse59",
+              "name": "Charger CS-3059",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse60",
+              "name": "Charger CS-3060",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse61",
+              "name": "Charger CS-3061",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            }
+          ]
+        },
+        {
+          "id": "pnl_demolayout17",
+          "parentPanelId": "pnl_demolayout15",
+          "name": "Panelboard LP-2",
+          "breakerRatingAmps": 225,
+          "maxContinuousKw": 64.8,
+          "circuits": [
+            {
+              "id": "cir_demoevse54",
+              "name": "Charger CS-3054",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse55",
+              "name": "Charger CS-3055",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse56",
+              "name": "Charger CS-3056",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            },
+            {
+              "id": "cir_demoevse57",
+              "name": "Charger CS-3057",
+              "breakerRatingAmps": 40,
+              "maxContinuousKw": 6.65
+            }
+          ]
+        }
+      ],
+      "stations": [
+        {
+          "id": "sta_demolayout50",
+          "kind": "dc",
+          "col": 0,
+          "row": 0,
+          "circuitId": "cir_demoevse50",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout51",
+          "kind": "dc",
+          "col": 1,
+          "row": 0,
+          "circuitId": "cir_demoevse51",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout52",
+          "kind": "dc",
+          "col": 2,
+          "row": 0,
+          "circuitId": "cir_demoevse52",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout53",
+          "kind": "dc",
+          "col": 3,
+          "row": 0,
+          "circuitId": "cir_demoevse53",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout54",
+          "kind": "ac",
+          "col": 7,
+          "row": 3,
+          "circuitId": "cir_demoevse54",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout55",
+          "kind": "ac",
+          "col": 5,
+          "row": 3,
+          "circuitId": "cir_demoevse55",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout56",
+          "kind": "ac",
+          "col": 3,
+          "row": 3,
+          "circuitId": "cir_demoevse56",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout57",
+          "kind": "ac",
+          "col": 1,
+          "row": 3,
+          "circuitId": "cir_demoevse57",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout58",
+          "kind": "ac",
+          "col": 7,
+          "row": 2,
+          "circuitId": "cir_demoevse58",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout59",
+          "kind": "ac",
+          "col": 5,
+          "row": 2,
+          "circuitId": "cir_demoevse59",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout60",
+          "kind": "ac",
+          "col": 7,
+          "row": 1,
+          "circuitId": "cir_demoevse60",
+          "free": null,
+          "evses": 2
+        },
+        {
+          "id": "sta_demolayout61",
+          "kind": "ac",
+          "col": 3,
+          "row": 2,
+          "circuitId": "cir_demoevse61",
+          "free": null,
+          "evses": 2
+        }
+      ]
+    }
+  ]
+}

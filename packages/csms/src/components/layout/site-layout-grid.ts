@@ -22,7 +22,7 @@
 // along a building, past a sidewalk, with its AC chargers as wall boxes on the
 // facade (`wallMounted`) or on posts at the spots; a street has a parallel
 // parking lane along each curb, with the chargers on posts on the sidewalks;
-// a depot is a fenced yard of bus bays (row 0) and truck pull-through lanes
+// a depot is a paved yard of bus bays (row 0) and truck pull-through lanes
 // (row 1), each slot's station where `depotSlotPlacement` puts it.
 
 import {
@@ -44,6 +44,13 @@ import {
   type LayoutBay,
   type LayoutShape,
   type SiteType,
+  parkingChargerOnIsland,
+  parkingChargersAtBack,
+  parkingChargerZ,
+  parkingRowGap,
+  parkingRowZ,
+  CHARGER_BEHIND_STALL_HEAD_M,
+  WHEEL_STOP,
 } from '@evtivity/lib/site-layout';
 import type { StationDisplayState } from '@/lib/station-display-state';
 
@@ -178,7 +185,7 @@ export function lotOf(settings: LayoutShape & { mounting?: ChargerMounting | und
     depth:
       siteType === 'office_retail'
         ? d.spotDepthM + d.laneWidthM
-        : rows * d.spotDepthM + (rows - 1) * d.laneWidthM,
+        : parkingRowZ(rows - 1, rows) + d.spotDepthM,
     facing,
     mounting,
     depot: null,
@@ -206,8 +213,42 @@ export function isSpot(bay: LayoutBay, lot: Lot): boolean {
 export function chargersAtBack(row: number, lot: Lot): boolean {
   if (lot.siteType === 'curbside') return row === 1;
   if (lot.siteType === 'office_retail' || lot.siteType === 'depot') return false;
-  if (row <= 0 || row >= lot.rows) return false;
-  return row % 2 === 1 || row === lot.rows - 1;
+  return parkingChargersAtBack(row, lot.rows);
+}
+
+/**
+ * The front edge of a row across the rows, in lot meters: a parking lot's
+ * rows with an aisle between rows facing each other and a center island
+ * between rows back to back (`parkingRowZ`); the other types one pitch apart.
+ */
+export function rowFrontZ(row: number, lot: Lot): number {
+  return lot.siteType === 'parking_lot' ? parkingRowZ(row, lot.rows) : lot.pitch * row;
+}
+
+/** A stretch between two rows of a parking lot: a drive aisle or a curbed center island. */
+export interface RowGap {
+  kind: 'aisle' | 'island';
+  /** Its front and back edge across the rows, in lot meters. */
+  minZ: number;
+  maxZ: number;
+}
+
+/** The aisles and islands between the rows of a parking lot (none on the other site types). */
+export function parkingRowGaps(lot: Lot): RowGap[] {
+  if (lot.siteType !== 'parking_lot') return [];
+  const gaps: RowGap[] = [];
+  for (let r = 0; r + 1 < lot.rows; r++) {
+    const minZ = parkingRowZ(r, lot.rows) + lot.spotD;
+    gaps.push({ kind: parkingRowGap(r, lot.rows), minZ, maxZ: parkingRowZ(r + 1, lot.rows) });
+  }
+  return gaps;
+}
+
+/** Whether the chargers of a row stand on a parking lot's center island. */
+export function chargerOnIsland(bay: LayoutBay, lot: Lot): boolean {
+  return (
+    lot.siteType === 'parking_lot' && isSpot(bay, lot) && parkingChargerOnIsland(bay.row, lot.rows)
+  );
 }
 
 /**
@@ -245,8 +286,11 @@ export function bayToWorld(bay: LayoutBay, lot: Lot): Point {
       z: lot.depth + CURB_M + SIDEWALK_M + 3 + (bay.row - 2) * 4,
     };
   }
+  const x = lot.spotW * (bay.col + 0.5);
+  // A parking lot charger stands on the center island of rows back to back.
+  if (lot.siteType === 'parking_lot') return { x, z: parkingChargerZ(bay.row, lot.rows) };
   const intoRow = chargersAtBack(bay.row, lot) ? lot.spotD - BAY_STATION_Z : BAY_STATION_Z;
-  return { x: lot.spotW * (bay.col + 0.5), z: lot.pitch * bay.row + intoRow };
+  return { x, z: lot.pitch * bay.row + intoRow };
 }
 
 /** The ground of a spot, in lot coordinates: a perpendicular spot of a row, or a parallel spot of a parking lane. */
@@ -257,7 +301,11 @@ export function spotRect(bay: LayoutBay, lot: Lot): Box {
   }
   const minX = lot.spotW * bay.col;
   const minZ =
-    lot.siteType === 'curbside' ? (bay.row === 0 ? 0 : lot.depth - lot.spotD) : lot.pitch * bay.row;
+    lot.siteType === 'curbside'
+      ? bay.row === 0
+        ? 0
+        : lot.depth - lot.spotD
+      : rowFrontZ(bay.row, lot);
   return { minX, maxX: minX + lot.spotW, minZ, maxZ: minZ + lot.spotD };
 }
 
@@ -294,19 +342,181 @@ export function wallMounted(bay: LayoutBay, lot: Lot, kind: 'ac' | 'dc'): boolea
  * How far behind its spot point a wall box hangs on the facade, in the
  * station's own z (negative: toward the building).
  */
+/**
+ * How far in front of the facade line a wall sign's back sits, in meters: on
+ * the outer face of the facade (its ground floor cladding and the window
+ * strip stand up to 0.1 m proud of `FACADE_Z`), so the sign is on the wall,
+ * not inside it.
+ */
+export const FACADE_SIGN_STANDOFF_M = 0.11;
+
 export function wallBoxOffset(): number {
   return FACADE_Z - BAY_STATION_Z;
 }
 
+/** The front edge of an AC pedestal's concrete pad (1.0 by 0.9 m, centered on the charger), in the station's own z. */
+export const AC_PAD_FRONT_Z = 0.45;
+
+/**
+ * Whether a station that would stand in the head of its spot stands behind
+ * the stall head line instead (`CHARGER_BEHIND_STALL_HEAD_M`): an AC pedestal
+ * in a spot of a parking lot row whose charger edge is the lot edge (a Lot
+ * Edge row, the first and last row of Islands), behind the curb strip, or of
+ * an office or retail row with stall mounting, on the sidewalk (ChargePoint
+ * CPF50 site design guide: the station "against the curb between spaces").
+ * The stall keeps its full depth and its wheel stop the 2 ft setback from the
+ * stall head (`WHEEL_STOP`). A DC dispenser keeps its place in the head of
+ * its spot, behind its bollards; a wall box hangs on the facade; an island
+ * charger already stands behind its curb. A row whose charger edge faces a
+ * drive aisle (the next to last row of an odd Islands lot) has no curb to
+ * stand behind: its pedestal stays in the head of its spot
+ * (`WheelStopMount` `pedestal`).
+ */
+export function chargerBehindStallHead(
+  bay: LayoutBay,
+  lot: Lot,
+  kind: 'ac' | 'dc',
+  wall: boolean,
+): boolean {
+  if (kind !== 'ac' || wall || !isSpot(bay, lot)) return false;
+  if (lot.siteType === 'office_retail') return true;
+  if (lot.siteType !== 'parking_lot' || chargerOnIsland(bay, lot)) return false;
+  const front = rowFrontZ(bay.row, lot);
+  const head = chargersAtBack(bay.row, lot) ? front + lot.spotD : front;
+  return head <= 1e-6 || head >= lot.depth - 1e-6;
+}
+
+/** Whether a station's charger stands behind a curb at the head of its spot: on an island, or behind the lot edge or a sidewalk curb (`chargerBehindStallHead`). */
+export function chargerAtCurb(bay: LayoutBay, lot: Lot, kind: 'ac' | 'dc', wall: boolean): boolean {
+  return chargerOnIsland(bay, lot) || chargerBehindStallHead(bay, lot, kind, wall);
+}
+
+/**
+ * How far behind its spot point (`bayToWorld`) a station stands, in its own
+ * z (toward its curb): from `BAY_STATION_Z` into the spot to
+ * `CHARGER_BEHIND_STALL_HEAD_M` behind the stall head for a station behind
+ * the head (`chargerBehindStallHead`), else 0.
+ */
+export function stationBackShift(
+  bay: LayoutBay,
+  lot: Lot,
+  kind: 'ac' | 'dc',
+  wall: boolean,
+): number {
+  return chargerBehindStallHead(bay, lot, kind, wall)
+    ? BAY_STATION_Z + CHARGER_BEHIND_STALL_HEAD_M
+    : 0;
+}
+
+/**
+ * What a wheel stop is set back from: the stall head line at a curb (an AC
+ * pedestal stands behind it: on an island, behind the curb strip of a lot
+ * edge, on an office or retail sidewalk, on the apron behind a custom site's
+ * car spot), the front of the stall at a building (a wall box hangs on the
+ * facade behind the sidewalk), or the pad of a pedestal that stands in the
+ * head of its spot because its row's head faces a drive aisle.
+ */
+export type WheelStopMount = 'curb' | 'wall' | 'pedestal';
+
+/**
+ * Whether a station's spots get wheel stops, and measured from what
+ * (`WHEEL_STOP`): AC stations in a spot of a parking lot or an office or
+ * retail row and the car spots of an AC station on a custom site. DC chargers
+ * keep their bollards; parallel spots along a curb and depot bays and lanes
+ * get none; a station off the layout (on the grass) has no spot.
+ */
+export function wheelStopMount(input: {
+  siteType: SiteType;
+  kind: 'ac' | 'dc';
+  wall: boolean;
+  onSpot: boolean;
+  /** A custom site station with bus bays or truck lanes. */
+  largeSpot: boolean;
+  /** The charger stands behind a curb at the head of its spot (`chargerAtCurb`). */
+  curb: boolean;
+}): WheelStopMount | null {
+  if (input.kind !== 'ac' || input.largeSpot) return null;
+  switch (input.siteType) {
+    case 'custom':
+      return 'curb';
+    case 'parking_lot':
+    case 'office_retail':
+      if (!input.onSpot) return null;
+      return input.wall ? 'wall' : input.curb ? 'curb' : 'pedestal';
+    default:
+      return null;
+  }
+}
+
+/**
+ * The stall head line of a station's spot (where the stall begins, toward
+ * the charger), in the station's own z: `CHARGER_BEHIND_STALL_HEAD_M` in
+ * front of a pedestal behind its curb, else the front edge of the spot,
+ * BAY_STATION_Z before the spot point (a wall box, and a pedestal in the
+ * head of its spot).
+ */
+export function stallHeadZ(mount: WheelStopMount): number {
+  return mount === 'curb' ? CHARGER_BEHIND_STALL_HEAD_M : -BAY_STATION_Z;
+}
+
+/** How far in front of its pad the stop of a pedestal in the head of its spot stands (CPF50: 900 mm, 3 ft). */
+export const PEDESTAL_STOP_FROM_PAD_M = 0.9;
+
+/**
+ * The near face of the wheel stop (toward the charger), in the station's own
+ * z: `WHEEL_STOP.fromStallHeadM` from the stall head line; at a pedestal in
+ * the head of its spot no nearer than `PEDESTAL_STOP_FROM_PAD_M` in front of
+ * its pad (the ChargePoint CPF50 guide: "wheel stops 900 mm (3 ft) from the
+ * front of each stall"), so the car's overhang stops short of the pedestal.
+ */
+export function wheelStopNearZ(mount: WheelStopMount): number {
+  const fromHead = stallHeadZ(mount) + WHEEL_STOP.fromStallHeadM;
+  return mount === 'pedestal'
+    ? Math.max(fromHead, AC_PAD_FRONT_Z + PEDESTAL_STOP_FROM_PAD_M)
+    : fromHead;
+}
+
+/** The middle of the wheel stop along the spot, in the station's own z. */
+export function wheelStopCenterZ(mount: WheelStopMount): number {
+  return wheelStopNearZ(mount) + WHEEL_STOP.depthM / 2;
+}
+
+/**
+ * How far past the wheel stop's far face a front axle stands when its tire
+ * rests against the stop's top edge (a tire of radius `wheelRadius` touches a
+ * step of the stop's height that far ahead of its axle).
+ */
+export function tireTouchAhead(wheelRadius: number): number {
+  const h = Math.min(WHEEL_STOP.heightM, wheelRadius);
+  return Math.sqrt(wheelRadius ** 2 - (wheelRadius - h) ** 2);
+}
+
+/**
+ * Where the nose of a car parked against the wheel stop stands, in the
+ * station's own z: its front tires at the stop, its body `frontAxle` meters
+ * ahead of the axle.
+ */
+export function carNoseAtStop(
+  mount: WheelStopMount,
+  profile: { frontAxle: number; wheelRadius: number },
+): number {
+  return (
+    wheelStopNearZ(mount) +
+    WHEEL_STOP.depthM +
+    tireTouchAhead(profile.wheelRadius) -
+    profile.frontAxle
+  );
+}
+
 /**
  * The back of a station in a spot (where its load management link ends), in
- * lot coordinates: behind the charger on the curb side of its row (links show
- * on a parking lot only).
+ * lot coordinates: behind the charger on the curb side of its row, the
+ * charger `backShift` behind its spot point (`stationBackShift`).
  */
-export function stationBackPoint(bay: LayoutBay, lot: Lot): Point {
+export function stationBackPoint(bay: LayoutBay, lot: Lot, backShift = 0): Point {
   const p = bayToWorld(bay, lot);
-  const back = chargersAtBack(bay.row, lot) ? STATION_BACK_OFFSET : -STATION_BACK_OFFSET;
-  return { x: p.x, z: p.z + back };
+  const sign = chargersAtBack(bay.row, lot) ? 1 : -1;
+  return { x: p.x, z: p.z + sign * (STATION_BACK_OFFSET + backShift) };
 }
 
 /**
@@ -359,6 +569,29 @@ export function layoutGroundBox(lot: Lot): Box {
 }
 
 /**
+ * The ground a depot's cable runs keep to: the box around its bays, the bus
+ * head strip, its truck lanes and their islands, not the whole yard. The
+ * equipment of each charger group then stands at the end of its own rows
+ * (the bus heads, the truck lane ends) and its circuits run along those row
+ * ends, never around the drive lane and the truck roads.
+ */
+export function depotLinkGround(depot: DepotLayout): Box {
+  const rects = [
+    ...depot.bays,
+    ...depot.lanes,
+    ...depot.islands,
+    ...(depot.busHead != null ? [depot.busHead] : []),
+  ];
+  if (rects.length === 0) return { ...depot.yard };
+  return {
+    minX: Math.min(...rects.map((r) => r.minX)),
+    maxX: Math.max(...rects.map((r) => r.maxX)),
+    minZ: Math.min(...rects.map((r) => r.minZ)),
+    maxZ: Math.max(...rects.map((r) => r.maxZ)),
+  };
+}
+
+/**
  * The glow of a charging station's front at `timeS` seconds: a gentle pulse
  * of the emissive strip and its halo, or a steady glow when `timeS` is null
  * (reduced motion).
@@ -377,6 +610,78 @@ export function beaconLevel(timeS: number | null): { intensity: number; halo: nu
   if (timeS == null) return { intensity: 0.9, halo: 0.35 };
   const wave = Math.max(0, Math.sin(timeS * 6.3));
   return { intensity: 0.25 + 1.6 * wave, halo: 0.05 + 0.5 * wave };
+}
+
+/**
+ * The overhead badges (state markers and driver avatars) are world-size
+ * within a clamp (owner decision 2026-11-01): `worldM` across in the scene,
+ * so they shrink with the site as the camera moves away, never larger on
+ * screen than their full size up close (`markerPx`, `avatarPx`, the sizes
+ * they had before) and never smaller than a readable minimum (`minMarkerPx`,
+ * `minAvatarPx`). The world size and the minimums are no source: about a
+ * third of a 2.7 m stall, and the 14 to 16 px the owner named.
+ */
+export const OVERHEAD_BADGE = {
+  worldM: 0.9,
+  markerPx: 24,
+  avatarPx: 28,
+  minMarkerPx: 14,
+  minAvatarPx: 16,
+} as const;
+
+/**
+ * The on-screen pixels per world meter at `distance` meters from a
+ * perspective camera with vertical field of view `fovDeg` over a stage
+ * `stageHeightPx` high.
+ */
+export function pixelsPerMeter(distance: number, fovDeg: number, stageHeightPx: number): number {
+  if (!(distance > 0) || !(stageHeightPx > 0)) return Infinity;
+  return stageHeightPx / 2 / (Math.tan(((fovDeg / 2) * Math.PI) / 180) * distance);
+}
+
+/**
+ * The scale of an overhead badge drawn at `fullPx` (its size up close) where
+ * a world meter takes `pxPerMeter` pixels: the badge's world size in pixels
+ * over its full size, at most 1 and at least `minPx / fullPx`.
+ */
+export function overheadBadgeScale(pxPerMeter: number, fullPx: number, minPx: number): number {
+  const world = (OVERHEAD_BADGE.worldM * pxPerMeter) / fullPx;
+  const floor = Math.min(1, minPx / fullPx);
+  if (!Number.isFinite(world)) return 1;
+  return Math.min(1, Math.max(floor, world));
+}
+
+/**
+ * The share of state markers that may overlap another before the view counts
+ * as crowded (no source: two back-to-back pedestals on an island overlap at
+ * any normal zoom; when a quarter or more of the markers do, the site is
+ * zoomed out too far for avatars).
+ */
+export const CROWDED_MARKER_SHARE = 0.25;
+
+/**
+ * Whether the state markers crowd each other: at least CROWDED_MARKER_SHARE
+ * of them overlap another on screen. The view then draws only the state
+ * markers and drops the driver avatars, so a zoomed-out site stays clean.
+ */
+export function overheadBadgesCrowded(
+  rects: ReadonlyArray<{ left: number; top: number; right: number; bottom: number }>,
+): boolean {
+  if (rects.length < 2) return false;
+  const sorted = rects
+    .map((rect, index) => ({ rect, index }))
+    .sort((p, q) => p.rect.left - q.rect.left);
+  const overlapping = new Set<number>();
+  sorted.forEach((a, i) => {
+    for (const b of sorted.slice(i + 1)) {
+      if (b.rect.left >= a.rect.right) break;
+      if (a.rect.top < b.rect.bottom && b.rect.top < a.rect.bottom) {
+        overlapping.add(a.index);
+        overlapping.add(b.index);
+      }
+    }
+  });
+  return overlapping.size > 0 && overlapping.size >= CROWDED_MARKER_SHARE * rects.length;
 }
 
 /** From this many stations, far station labels hide (a large site stays readable and fast). */
@@ -530,7 +835,7 @@ export function fitFrame(
 /**
  * Where the front camera stands, per unit of distance: straight in front of
  * the chargers at about eye height for a person across the lot (about 11.5
- * degrees above the ground, `FRONT_MAX_POLAR_ANGLE` allows it).
+ * degrees above the ground, within `MAX_POLAR_ANGLE`).
  */
 export const FRONT_CAMERA_OFFSET = { x: 0, y: 0.2, z: 0.98 } as const;
 /** The front camera looks at charger height, not the ground. */
@@ -589,18 +894,24 @@ export const CAMERA_FOV = 35;
 
 /**
  * The lowest the camera may orbit, as the polar angle from straight down, in
- * radians: the top edge of the view stays 2.5 degrees below the horizon, so
- * every pixel of the stage shows the ground (no sky).
+ * radians: 88 degrees, just above horizontal, so the camera can tilt down to
+ * an eye-level view across the lot (the Layout tab, full screen and the
+ * dashboard card alike). The top of the view then shows the haze above the
+ * horizon (the fog and the background are the same color, so the ground
+ * fades into it). MIN_CAMERA_HEIGHT keeps the camera above the ground.
  */
-export const MAX_POLAR_ANGLE = ((90 - CAMERA_FOV / 2 - 2.5) * Math.PI) / 180;
+export const MAX_POLAR_ANGLE = (88 * Math.PI) / 180;
+
+/** The lowest the camera may stand above the ground, in meters: eye height. */
+export const MIN_CAMERA_HEIGHT = 1.6;
 
 /**
- * The lowest orbit of the front camera (the dashboard card): 9 degrees above
- * the ground, so it can look across the lot at eye height. The top of the
- * view then shows the haze above the horizon (the fog and the background are
- * the same color, so the ground fades into it).
+ * The camera height after an orbit, zoom or pan: never below eye height, so a
+ * low orbit or a zoom close to the ground never goes under the paving.
  */
-export const FRONT_MAX_POLAR_ANGLE = (81 * Math.PI) / 180;
+export function clampCameraHeight(y: number): number {
+  return Number.isFinite(y) ? Math.max(MIN_CAMERA_HEIGHT, y) : MIN_CAMERA_HEIGHT;
+}
 
 /** Where the camera may look: the site box plus PAN_MARGIN of grass. */
 export function panBox(box: Box): Box {
@@ -634,25 +945,39 @@ export function groundBox(frame: Box, pan: Box): Box {
   };
 }
 
-/** What stands in a station's spot besides the charger. */
-export type StationProp = 'car' | 'reservedSign' | 'cone' | null;
+/** What stands in a station's spot besides the charger: physical things only. */
+export type StationProp = 'car' | 'cone' | null;
 
 /**
  * The prop of a spot, from the one station state the label shows: a car on a
- * cable while charging, a Reserved sign while reserved, a traffic cone in
- * maintenance, nothing otherwise.
+ * cable while charging, a traffic cone in maintenance (crews put cones out),
+ * nothing otherwise. A reservation has no physical sign: it shows as a
+ * virtual sign (`virtualSignOf`).
  */
 export function stationProp(state: StationDisplayState): StationProp {
   switch (state) {
     case 'charging':
       return 'car';
-    case 'reserved':
-      return 'reservedSign';
     case 'maintenance':
       return 'cone';
     default:
       return null;
   }
+}
+
+/**
+ * A virtual status sign: a translucent overlay floating over the spot, not a
+ * physical sign (physical signs follow the MUTCD), for a station reserved now
+ * or in an active maintenance window.
+ */
+export type VirtualSign = 'reserved' | 'maintenance';
+
+/** How opaque a virtual sign is drawn (translucent, so it reads as an overlay; the legend swatch too). */
+export const VIRTUAL_SIGN_OPACITY = 0.58;
+
+/** The virtual sign of a station state, or null. */
+export function virtualSignOf(state: StationDisplayState): VirtualSign | null {
+  return state === 'reserved' || state === 'maintenance' ? state : null;
 }
 
 /**
@@ -670,6 +995,72 @@ export function logoFit(
   const scale = Math.min(w / image.width, h / image.height);
   return { width: image.width * scale, height: image.height * scale };
 }
+
+/** Every charger model the 3D view builds: the standard DC dispenser, AC pedestal and wall box, and the large models of depots and custom sites. */
+export type ChargerLogoModel =
+  | 'dc'
+  | 'ac'
+  | 'wall'
+  | 'truck_mcs'
+  | 'bus_dispenser'
+  | 'pantograph_down'
+  | 'pantograph_up';
+
+/**
+ * Where a charger model carries the company logo, as manufacturers brand
+ * their units: on the back of a dispenser, pedestal or cabinet (the face
+ * without the screen, connectors or card reader; a dual-port AC pedestal has
+ * both ports on its front), and on the front of a wall box below its face
+ * plate (its back is on the wall). A plain plate of `width` by `height` m,
+ * centered at `x`, `y` and `z`: in the station frame for `dc`, `ac` and
+ * `wall` (`wall`: from the wall box offset), from the cabinet center for the
+ * large models (the truck MCS dispenser of each lane, the bus dispenser, the
+ * pantograph control module, beside the steel pole that stands behind it).
+ * `facing` is the side the logo shows on (-1 back, +1 front).
+ */
+export const CHARGER_LOGO_PANELS: Readonly<
+  Record<
+    ChargerLogoModel,
+    { width: number; height: number; x: number; y: number; z: number; facing: -1 | 1 }
+  >
+> = {
+  dc: { width: 0.62, height: 0.62, x: 0, y: 1.2, z: -0.29, facing: -1 },
+  // The pedestal head's flat back (CHARGER_LOGO_FACES.ac): 0.2 of its 0.24 m
+  // flat width, in its upper part, so the plate never reaches the rounded
+  // corners (it was 0.28 m wide, past the 0.24 m flat face).
+  ac: { width: 0.2, height: 0.24, x: 0, y: 1.33, z: -0.111, facing: -1 },
+  wall: { width: 0.22, height: 0.18, x: 0, y: 0.83, z: 0.172, facing: 1 },
+  truck_mcs: { width: 0.6, height: 0.6, x: 0, y: 1.5, z: -0.22, facing: -1 },
+  bus_dispenser: { width: 0.34, height: 0.34, x: 0.26, y: 1.6, z: -0.36, facing: -1 },
+  pantograph_down: { width: 0.3, height: 0.3, x: 0.32, y: 0.95, z: -0.25, facing: -1 },
+  pantograph_up: { width: 0.3, height: 0.3, x: 0.32, y: 0.95, z: -0.25, facing: -1 },
+};
+
+/**
+ * The face each charger model's logo panel stands on, as the scene builds the
+ * model (`site-layout-scene.ts`): `width` across the whole face (rounded
+ * corners and the 15 mm bevel included), `flatWidth` its flat part, `minY`
+ * to `maxY` its height, `z` its plane, in the frame of CHARGER_LOGO_PANELS.
+ * The AC pedestal head is `roundedPrism(0.34, 0.18, 0.5, 0.05)` from 1.0 m;
+ * the DC dispenser body `roundedPrism(0.78, 0.55, 1.78, 0.08)` from 0.08 m;
+ * the large models' cabinets `cabinet()` (corner 0.08) from 0.12 m; a wall
+ * box's logo plate hangs on the wall under the box. A test keeps every panel
+ * inside its face.
+ */
+export const CHARGER_LOGO_FACES: Readonly<
+  Record<
+    ChargerLogoModel,
+    { width: number; flatWidth: number; minY: number; maxY: number; z: number }
+  >
+> = {
+  dc: { width: 0.81, flatWidth: 0.62, minY: 0.065, maxY: 1.875, z: -0.29 },
+  ac: { width: 0.37, flatWidth: 0.24, minY: 0.985, maxY: 1.515, z: -0.105 },
+  wall: { width: 0.4, flatWidth: 0.4, minY: 0.7, maxY: 0.925, z: 0.172 },
+  truck_mcs: { width: 0.81, flatWidth: 0.62, minY: 0.105, maxY: 2.335, z: -0.225 },
+  bus_dispenser: { width: 0.93, flatWidth: 0.74, minY: 0.105, maxY: 2.435, z: -0.365 },
+  pantograph_down: { width: 1.03, flatWidth: 0.84, minY: 0.105, maxY: 1.635, z: -0.255 },
+  pantograph_up: { width: 1.03, flatWidth: 0.84, minY: 0.105, maxY: 1.635, z: -0.255 },
+};
 
 // Custom sites: no lot, street or building. Every station stands at its free
 // position (@evtivity/lib/site-layout FreePlacement) with its own spots on a
@@ -850,3 +1241,55 @@ export const SCREEN_MESSAGE = {
   dc: { width: 0.42, height: 0.32, canvas: { width: 512, height: 390 }, lines: 4 },
   ac: { width: 0.13, height: 0.082, canvas: { width: 256, height: 162 }, lines: 2 },
 } as const;
+
+/**
+ * The reach range a card reader's interface stays within, in meters above
+ * the ground: 15 to 48 in (2010 ADA Standards for Accessible Design, 308.2
+ * forward reach and 308.3 side reach, unobstructed).
+ */
+export const READER_REACH_M = { min: 15 * 0.0254, max: 48 * 0.0254 } as const;
+
+/** How far above its mount point the reader's card interface sits (the model scaled 1.5), in meters. */
+export const READER_INTERFACE_ABOVE_MOUNT_M = 0.045;
+
+/**
+ * Where a card reader mounts on its charger, in the charger's own frame: on
+ * the front of a DC dispenser (integrated, as the ABB Terra 184 offers it), a
+ * connector's reader under its side of the screen and a station-wide one in
+ * the middle below; on the front of an AC pedestal; beside an AC wall box.
+ * Every card interface stays within `READER_REACH_M`.
+ */
+export function readerMount(
+  kind: 'dc' | 'ac',
+  wall: boolean,
+  side: -1 | 0 | 1,
+  index: number,
+  wallOffset: number,
+): { x: number; y: number; z: number } {
+  const dc = kind === 'dc';
+  const sideX = dc ? 0.22 : wall ? 0.34 : 0.13;
+  const x = side === 0 ? (wall && !dc ? -0.34 - index * 0.16 : -index * 0.16) : side * sideX;
+  const y = dc ? (side === 0 ? 0.72 : 0.92) : wall ? 1.12 : 0.78;
+  const z = dc ? 0.34 : wall ? wallOffset + 0.06 : 0.19;
+  return { x, y, z };
+}
+
+/** One holstered cable of a dispenser: the side it hangs on (-1 left, 1 right) and how far below the upper holsters, in meters. */
+export interface DispenserHolster {
+  side: -1 | 1;
+  dropM: number;
+}
+
+/**
+ * The holsters of a dispenser with `cables` connectors (one holstered cable
+ * per connector; a multi-standard dispenser such as the ABB Terra 54 CJG has
+ * CCS, CHAdeMO and an AC Type 2 cable): left, right, then a second pair 0.34
+ * m lower, at most four. At least one.
+ */
+export function dispenserHolsters(cables: number): DispenserHolster[] {
+  const n = Math.max(1, Math.min(4, Math.round(cables)));
+  return Array.from({ length: n }, (_, k) => ({
+    side: k % 2 === 0 ? -1 : 1,
+    dropM: k >= 2 ? 0.34 : 0,
+  }));
+}

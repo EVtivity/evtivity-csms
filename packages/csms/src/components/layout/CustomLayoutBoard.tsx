@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // The 2D view of a custom site: every station's parking spots from above at
-// its free position and turn (the same positions as the 3D view), with a chip
-// at the charger that opens the station popup. A station drags freely
-// (snapped to 0.5 m, refused over another station's spots); with its chip
+// its free position and turn (the same positions as the 3D view), with the
+// standard 2D charger card of every site type at its charger
+// (`PlacedStationCard`, never a chip). A station drags freely by its card
+// (snapped to 0.5 m, refused over another station's spots); with its card
 // focused, the arrow keys move it and R turns it (Shift+R by 1 degree).
 
 import { useLayoutEffect, useRef, useState } from 'react';
@@ -17,15 +18,11 @@ import {
   freeToSite,
   snapFreePlacement,
   type FreePlacement,
+  LAYOUT_CARD_HEIGHT,
+  LAYOUT_CARD_WIDTH,
 } from '@evtivity/lib/site-layout';
-import {
-  stationDisplayState,
-  stationStateColor,
-  stationStateLabelKey,
-} from '@/lib/station-display-state';
 import { cn } from '@/lib/utils';
-import { CellularBadge, StationStateIcon } from './StationStateIcon';
-import type { LayoutStation } from './StationCard';
+import { PlacedStationCard, type LayoutStation } from './StationCard';
 import type { FreeStationPlace } from './site-layout-free';
 
 /** Pixels per meter of the 2D custom board. */
@@ -72,7 +69,45 @@ interface CustomLayoutBoardProps {
   onOpenDetails: (stationId: string) => void;
   /** The board element (the popup places itself inside it). */
   boardRef: React.RefObject<HTMLDivElement | null>;
+  /** The live draw and allocated limit of a station (the card shows them). */
+  power?: ReadonlyMap<string, { currentDrawKw: number; allocatedLimitKw: number | null }>;
   children?: React.ReactNode;
+}
+
+/**
+ * Where the standard card of each station stands, its middle in board px: at
+ * the station's charger point, and, where that would cover an earlier card,
+ * moved down (else up) by whole card heights until it covers none, so no
+ * card hides another (owner decision 2026-11-01: one 2D charger card for every
+ * site type).
+ */
+export function customCardPositions(
+  stations: ReadonlyArray<Pick<LayoutStation, 'id'>>,
+  places: ReadonlyMap<string, FreeStationPlace>,
+  geometry: CustomBoardGeometry,
+): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  const placed: Array<{ x: number; y: number }> = [];
+  const gap = 8;
+  const hits = (p: { x: number; y: number }): boolean =>
+    placed.some(
+      (o) =>
+        Math.abs(o.x - p.x) < LAYOUT_CARD_WIDTH + gap &&
+        Math.abs(o.y - p.y) < LAYOUT_CARD_HEIGHT + gap,
+    );
+  for (const station of stations) {
+    const place = places.get(station.id);
+    if (place == null) continue;
+    const base = boardPoint(geometry, place.placement);
+    let at = base;
+    for (let k = 1; k <= 40 && hits(at); k++) {
+      const step = Math.ceil(k / 2) * (LAYOUT_CARD_HEIGHT + gap) * (k % 2 === 1 ? 1 : -1);
+      at = { x: base.x, y: base.y + step };
+    }
+    placed.push(at);
+    out.set(station.id, at);
+  }
+  return out;
 }
 
 export function CustomLayoutBoard({
@@ -81,13 +116,15 @@ export function CustomLayoutBoard({
   onMove,
   onOpenDetails,
   boardRef,
+  power,
   children,
 }: CustomLayoutBoardProps): React.JSX.Element {
   const { t } = useTranslation();
   // The board stays put while a station is dragged (it grows after the drop).
   const geometry = customBoardGeometry([...places.values()]);
   const [drag, setDrag] = useState<{ id: string; placement: FreePlacement } | null>(null);
-  const dragStart = useRef<{ x: number; y: number; placement: FreePlacement } | null>(null);
+  // The standard card of each station at its charger point, moved off any card before it.
+  const cardAt = customCardPositions(stations, places, geometry);
   const [notice, setNotice] = useState<string | null>(null);
   const s = CUSTOM_BOARD_PX_PER_M;
   // The board opens on the middle of the stations (a wide site is larger than a phone).
@@ -199,72 +236,51 @@ export function CustomLayoutBoard({
         </svg>
         {stations.map((station) => {
           const place = places.get(station.id);
-          if (place == null) return null;
-          const placement = drag?.id === station.id ? drag.placement : place.placement;
-          const at = boardPoint(geometry, placement);
-          const state = stationDisplayState(station);
-          const stateLabel = t(stationStateLabelKey(state));
+          const home = cardAt.get(station.id);
+          if (place == null || home == null) return null;
+          // While dragged, the card follows the station's charger point.
+          const dragged = drag?.id === station.id ? boardPoint(geometry, drag.placement) : null;
+          const own = boardPoint(geometry, place.placement);
+          const at =
+            dragged != null
+              ? { x: home.x + dragged.x - own.x, y: home.y + dragged.y - own.y }
+              : home;
+          const p = power?.get(station.id);
           return (
-            <div
+            <PlacedStationCard
               key={station.id}
-              className="absolute flex -translate-x-1/2 -translate-y-1/2 items-center gap-1"
-              style={{ left: at.x, top: at.y }}
-            >
-              <button
-                type="button"
-                data-testid={`site-layout-2d-station-${station.id}`}
-                className="flex touch-none cursor-grab items-center gap-1 whitespace-nowrap rounded-md border bg-card px-1.5 py-0.5 text-xs font-semibold shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                style={{ borderColor: stationStateColor(state) }}
-                aria-label={t('sites.layoutView.stateDetailsLabel', {
-                  id: station.stationId,
-                  state: stateLabel,
-                })}
-                onKeyDown={(e) => {
-                  onKeyDown(e, station.id);
-                }}
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  dragStart.current = { x: e.clientX, y: e.clientY, placement: place.placement };
-                }}
-                onPointerMove={(e) => {
-                  const start = dragStart.current;
-                  if (start == null) return;
-                  const dx = e.clientX - start.x;
-                  const dy = e.clientY - start.y;
-                  if (drag == null && Math.hypot(dx, dy) <= 4) return;
-                  setDrag({
-                    id: station.id,
-                    placement: snapFreePlacement(
-                      {
-                        ...start.placement,
-                        x: start.placement.x + dx / s,
-                        z: start.placement.z + dy / s,
-                      },
-                      { freeRotation: true },
-                    ),
-                  });
-                }}
-                onPointerUp={() => {
-                  const moved = drag;
-                  dragStart.current = null;
-                  setDrag(null);
-                  if (moved != null && moved.id === station.id) commit(station.id, moved.placement);
-                  else onOpenDetails(station.id);
-                }}
-                onClick={(e) => {
-                  // Enter or Space (a pointer click opens the details on pointer up).
-                  if (e.detail === 0) onOpenDetails(station.id);
-                }}
-                onPointerCancel={() => {
-                  dragStart.current = null;
-                  setDrag(null);
-                }}
-              >
-                <StationStateIcon state={state} />
-                {station.stationId}
-              </button>
-              {station.cellular && <CellularBadge />}
-            </div>
+              station={station}
+              left={at.x}
+              top={at.y}
+              centered
+              draggable
+              dragging={drag?.id === station.id}
+              currentDrawKw={p?.currentDrawKw}
+              allocatedLimitKw={p?.allocatedLimitKw}
+              onOpenDetails={onOpenDetails}
+              onKeyDown={(e) => {
+                onKeyDown(e, station.id);
+              }}
+              onDragMove={(dx, dy) => {
+                setDrag({
+                  id: station.id,
+                  placement: snapFreePlacement(
+                    {
+                      ...place.placement,
+                      x: place.placement.x + dx / s,
+                      z: place.placement.z + dy / s,
+                    },
+                    { freeRotation: true },
+                  ),
+                });
+              }}
+              onDragEnd={(moved) => {
+                const last = drag;
+                setDrag(null);
+                if (moved && last != null && last.id === station.id)
+                  commit(station.id, last.placement);
+              }}
+            />
           );
         })}
         {children}

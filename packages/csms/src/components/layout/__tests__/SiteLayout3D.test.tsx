@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, act, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import type { SceneCallbacks } from '../site-layout-scene';
 
-const { getMock, permissions, scene, createScene, setThemeMock } = vi.hoisted(() => {
+const { getMock, permissions, scene, createScene, setThemeMock, mockLanguage } = vi.hoisted(() => {
   const sceneState = {
     callbacks: null as SceneCallbacks | null,
     stations: [] as Array<{
@@ -15,6 +15,7 @@ const { getMock, permissions, scene, createScene, setThemeMock } = vi.hoisted(()
       bay: { col: number; row: number };
       lightColor: string;
       prop: string | null;
+      virtualSign?: string | null;
       glow: boolean;
       beacon: boolean;
       wall: boolean;
@@ -26,6 +27,7 @@ const { getMock, permissions, scene, createScene, setThemeMock } = vi.hoisted(()
     solar: [] as Array<{ id: string; row: number }>,
     panels: [] as Array<{ id: string; x: number; z: number; mount: string }>,
     links: { segments: [] as unknown[], labels: [] as Array<{ id: string }> },
+    california: false as boolean | undefined,
     logo: undefined as string | null | undefined,
     editing: false,
     fits: 0,
@@ -34,6 +36,10 @@ const { getMock, permissions, scene, createScene, setThemeMock } = vi.hoisted(()
     flow: new Map<string, number>() as ReadonlyMap<string, number>,
     focused: [] as string[],
     pointDistance: 20,
+    // Up close: every badge at its full size.
+    pxPerMeter: 1000,
+    // Each station's marker point, apart from the others (assigned on first use).
+    markerXs: new Map<string, number>(),
   };
   return {
     getMock: vi.fn(),
@@ -41,6 +47,7 @@ const { getMock, permissions, scene, createScene, setThemeMock } = vi.hoisted(()
     scene: sceneState,
     createScene: vi.fn(),
     setThemeMock: vi.fn(),
+    mockLanguage: { current: 'en' },
   };
 });
 
@@ -48,12 +55,14 @@ vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown> | string) =>
-      typeof opts === 'object' && 'id' in opts
-        ? [key, opts['id'], opts['state']]
-            .filter((part): part is string | number => typeof part !== 'object' && part != null)
-            .map((part) => String(part))
-            .join(':')
-        : key,
+      mockLanguage.current !== 'en'
+        ? `${mockLanguage.current}:${key}`
+        : typeof opts === 'object' && 'id' in opts
+          ? [key, opts['id'], opts['state']]
+              .filter((part): part is string | number => typeof part !== 'object' && part != null)
+              .map((part) => String(part))
+              .join(':')
+          : key,
     i18n: { language: 'en' },
   }),
 }));
@@ -77,6 +86,7 @@ import { stationStateTextColor } from '@/lib/station-display-state';
 import type { LayoutStation } from '../StationCard';
 import type { LayoutTerminal } from '../layout-terminals';
 import type { LinkPanel } from '../site-layout-links';
+import { FACADE_Z } from '../site-layout-grid';
 import type { LayoutInsight } from '../site-layout-data';
 
 const connector = (overrides: Record<string, unknown> = {}) => ({
@@ -138,19 +148,21 @@ function renderView(
     settings: SiteLayoutSettings;
     terminals: Map<string, LayoutTerminal[]>;
     hierarchy: LinkPanel[] | null;
+    loadManaged: boolean;
     logoUrl: string | null;
     insights: Map<string, LayoutInsight[]>;
     replaying: boolean;
     drawKw: (id: string) => number | undefined;
     fullScreenFooter: React.ReactNode;
     onFullScreenChange: (on: boolean) => void;
+    california: boolean;
   }> = {},
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onMove = props.onMove ?? vi.fn();
   const onTransformerMove = props.onTransformerMove ?? vi.fn();
   const onUnavailable = props.onUnavailable ?? vi.fn();
-  const utils = render(
+  const element = () => (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <SiteLayout3D
@@ -158,7 +170,9 @@ function renderView(
           settings={props.settings ?? SETTINGS}
           terminals={props.terminals ?? new Map()}
           hierarchy={props.hierarchy ?? null}
+          loadManaged={props.loadManaged ?? true}
           logoUrl={props.logoUrl ?? null}
+          {...(props.california != null ? { california: props.california } : {})}
           editing={props.editing ?? false}
           fitKey={0}
           currentDrawKw={props.drawKw ?? (() => 96.5)}
@@ -174,12 +188,14 @@ function renderView(
           onUnavailable={onUnavailable}
         />
       </MemoryRouter>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
-  return { ...utils, onMove, onTransformerMove, onUnavailable };
+  const utils = render(element());
+  return { ...utils, element, onMove, onTransformerMove, onUnavailable };
 }
 
 beforeEach(() => {
+  mockLanguage.current = 'en';
   scene.callbacks = null;
   scene.stations = [];
   scene.editing = false;
@@ -187,6 +203,8 @@ beforeEach(() => {
   scene.flow = new Map();
   scene.focused = [];
   scene.pointDistance = 20;
+  scene.pxPerMeter = 1000;
+  scene.markerXs = new Map();
   createScene.mockImplementation((_container: HTMLElement, _opts: unknown, cb: SceneCallbacks) => {
     if (scene.throwOnCreate) throw new Error('Error creating WebGL context');
     scene.callbacks = cb;
@@ -199,6 +217,7 @@ beforeEach(() => {
         solar: typeof scene.solar;
         panels: typeof scene.panels;
         links: typeof scene.links;
+        california?: boolean;
       }) => {
         scene.stations = layout.stations;
         scene.lot = layout.lot;
@@ -207,12 +226,14 @@ beforeEach(() => {
         scene.solar = layout.solar;
         scene.panels = layout.panels;
         scene.links = layout.links;
+        scene.california = layout.california;
       },
       setLogo: (url: string | null) => {
         scene.logo = url;
       },
       transformerLabelPoint: () => ({ x: 300, y: 60, depth: 0.6, distance: 20, visible: true }),
       linkLabelPoint: () => ({ x: 500, y: 200, depth: 0.7, distance: 20, visible: true }),
+      virtualSignPoint: () => ({ x: 240, y: 140, depth: 0.5, distance: 20, visible: true }),
       setLinkFlow: (flow: ReadonlyMap<string, number>) => {
         scene.flow = flow;
       },
@@ -226,6 +247,7 @@ beforeEach(() => {
         y: 160,
         depth: 0.4,
         distance: scene.pointDistance,
+        pxPerMeter: scene.pxPerMeter,
         visible: true,
       }),
       setTheme: setThemeMock,
@@ -237,13 +259,17 @@ beforeEach(() => {
       fit: () => {
         scene.fits += 1;
       },
-      labelPoint: () => ({
-        x: 100,
-        y: 100,
-        depth: 0.5,
-        distance: scene.pointDistance,
-        visible: true,
-      }),
+      labelPoint: (id: string) => {
+        if (!scene.markerXs.has(id)) scene.markerXs.set(id, 100 + 60 * scene.markerXs.size);
+        return {
+          x: scene.markerXs.get(id) ?? 100,
+          y: 100,
+          depth: 0.5,
+          distance: scene.pointDistance,
+          pxPerMeter: scene.pxPerMeter,
+          visible: true,
+        };
+      },
       setActive: (a: boolean) => {
         scene.active = a;
       },
@@ -292,11 +318,50 @@ describe('SiteLayout3D', () => {
     // The default lot has one transformer on the grass and no links without load management.
     expect(scene.transformers).toHaveLength(1);
     expect(scene.links.segments).toEqual([]);
-    // The bay prop follows the label state; the sign shows the translated word.
-    expect(scene.stations.map((s) => s.prop)).toEqual(['reservedSign', null]);
+    // A reservation stands no physical sign in the spot: a virtual sign floats over it.
+    expect(scene.stations.map((s) => s.prop)).toEqual([null, null]);
+    expect(scene.stations.map((s) => s.virtualSign)).toEqual(['reserved', null]);
+    // The sign faces get their texts in the viewer's language.
     expect(setThemeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ reservedLabel: 'sites.layoutState.reserved' }),
+      expect.objectContaining({
+        signs: {
+          chargingOnly: 'sites.layoutSigns.chargingOnly',
+          towAway: 'sites.layoutSigns.towAway',
+          reserved: 'sites.layoutSigns.reserved',
+          maintenance: 'sites.layoutSigns.maintenance',
+        },
+      }),
     );
+  });
+
+  it('redraws the sign faces when the language changes', () => {
+    const view = renderView([station()]);
+    setThemeMock.mockClear();
+    mockLanguage.current = 'ko';
+    view.rerender(view.element());
+    const themes = setThemeMock.mock.calls.map((c) => c[0] as { signs: { chargingOnly: string } });
+    expect(themes.at(-1)?.signs.chargingOnly).toBe('ko:sites.layoutSigns.chargingOnly');
+  });
+
+  it('shows the time window of a virtual status sign only while it is hovered', () => {
+    renderView([
+      station({
+        status: 'reserved',
+        reservation: { startsAt: null, endsAt: '2026-11-01T15:00:00Z' },
+      }),
+    ]);
+    const tip = screen.getByTestId('site-layout-3d-virtual-sign-sta_1');
+    expect(tip.getAttribute('role')).toBe('tooltip');
+    expect(tip.textContent).toBe('sites.layoutSigns.reservedUntil:CS-1');
+    act(() => {
+      scene.callbacks?.onFrame();
+    });
+    expect(tip.style.visibility).toBe('hidden');
+    act(() => {
+      scene.callbacks?.onEquipmentHover?.('virtual:sta_1');
+      scene.callbacks?.onFrame();
+    });
+    expect(tip.style.visibility).toBe('visible');
   });
 
   it('gives a charging station a car and a station in maintenance a cone', () => {
@@ -310,42 +375,87 @@ describe('SiteLayout3D', () => {
     expect(scene.stations.map((s) => s.prop)).toEqual(['car', 'cone', null]);
   });
 
-  it('labels every station with its ID and state text in the state color, and the 4G badge, never a New tag', () => {
-    renderView([station({ cellular: true, placed: false })]);
-    const label = screen.getByTestId('site-layout-3d-label-sta_1');
-    // The state follows the ID inside the chip: "CS-1 · Reserved".
-    expect(label.textContent).toContain('CS-1·sites.layoutState.reserved');
-    const state = screen.getByTestId('station-state-text');
-    expect(state.getAttribute('data-state')).toBe('reserved');
-    expect(state.textContent).toBe('sites.layoutState.reserved');
+  it('shows every station as a state marker without a name or state label, and the ID and state on hover', () => {
+    renderView([
+      station({
+        cellular: true,
+        connectionType: 'cellular',
+        signal: { bars: 3, dbm: -78 },
+        placed: false,
+      }),
+    ]);
+    const box = screen.getByTestId('site-layout-3d-station-sta_1');
+    // No station name or state text on the layout: the marker in the state color only.
+    expect(box.textContent).toBe('');
+    expect(screen.queryByTestId('station-state-text')).toBeNull();
+    expect(box.querySelector('[data-testid="connection-badge"]')).toBeNull();
+    expect(box.querySelector('[data-testid="new-placement-tag"]')).toBeNull();
+    const marker = screen.getByTestId('site-layout-3d-marker-sta_1');
+    expect(marker.getAttribute('data-state')).toBe('reserved');
+    // The icon on a solid white round background, no border or ring; 24 px up close.
+    expect(marker.style.borderColor).toBe('');
+    expect(marker.className).toContain('bg-white');
+    expect(marker.className).not.toContain('bg-card');
+    expect(marker.className).toContain('rounded-full');
+    expect(marker.className).not.toMatch(/\bborder\b|border-2|(?<!:)\bring-[0-9]\b|bg-transparent/);
+    expect(marker.className).toContain('h-6 w-6');
+    expect(marker.querySelector('svg')).not.toBeNull();
     expect(stationStateTextColor('reserved')).toContain('#f97316');
-    // No separate state badge: the chip and the 4G badge only.
-    expect(label.querySelector('[data-testid="station-state-badge"]')).toBeNull();
-    expect(label.querySelectorAll('[role="img"]')).toHaveLength(0);
-    expect(label.querySelector('[data-testid="cellular-badge"]')).not.toBeNull();
-    expect(label.querySelector('[data-testid="new-placement-tag"]')).toBeNull();
-    // The chip opens the details, also from the keyboard; its name holds the state.
-    // Labels stay hidden until the first frame places them; the stub scene renders none.
     act(() => {
       scene.callbacks?.onFrame();
     });
+    expect(box.style.visibility).toBe('visible');
+    // A mouse over the marker shows the ID, the state and the connection with its signal bars.
+    expect(screen.queryByTestId('site-layout-3d-tooltip')).toBeNull();
+    fireEvent.pointerEnter(marker, { pointerType: 'mouse' });
+    const tip = screen.getByTestId('site-layout-3d-tooltip');
+    expect(tip.textContent).toContain('CS-1·sites.layoutState.reserved');
+    const badge = tip.querySelector('[data-testid="connection-badge"]');
+    expect(badge?.getAttribute('data-connection')).toBe('cellular');
+    expect(badge?.querySelector('[data-bars="3"]')).not.toBeNull();
+    fireEvent.pointerLeave(marker, { pointerType: 'mouse' });
+    expect(screen.queryByTestId('site-layout-3d-tooltip')).toBeNull();
+    // A touch shows no tooltip.
+    fireEvent.pointerEnter(marker, { pointerType: 'touch' });
+    expect(screen.queryByTestId('site-layout-3d-tooltip')).toBeNull();
+    // The marker opens the details, also from the keyboard; its name holds the state.
     const chip = screen.getByRole('button', {
       name: 'sites.layoutView.stateDetailsLabel:CS-1:sites.layoutState.reserved',
     });
-    expect(chip.contains(state)).toBe(true);
+    expect(chip).toBe(marker);
     chip.focus();
     fireEvent.click(chip);
     const popup = screen.getByTestId('station-layout-popup');
-    // Focus moves into the popup, and back to the chip when Escape closes it.
+    // Focus moves into the popup, and back to the marker when Escape closes it.
     expect(popup.contains(document.activeElement)).toBe(true);
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByTestId('station-layout-popup')).toBeNull();
     expect(document.activeElement).toBe(chip);
   });
 
+  it('shows the tooltip for the station under a mouse pointer in the scene', () => {
+    renderView([station(), station({ id: 'sta_2', stationId: 'CS-2', status: 'faulted' })]);
+    act(() => {
+      scene.callbacks?.onHover?.('sta_2');
+    });
+    expect(screen.getByTestId('site-layout-3d-tooltip').textContent).toContain(
+      'CS-2·sites.layoutState.faulted',
+    );
+    act(() => {
+      scene.callbacks?.onHover?.(null);
+    });
+    expect(screen.queryByTestId('site-layout-3d-tooltip')).toBeNull();
+  });
+
   it('opens the popup with the station details on a click', () => {
     renderView([
-      station({ status: 'faulted', statusReason: 'station_faulted', inMaintenance: true }),
+      station({
+        status: 'faulted',
+        statusReason: 'station_faulted',
+        inMaintenance: true,
+        connectionType: 'wifi_or_wired',
+        ocppVersion: '2.1',
+      }),
     ]);
     act(() => {
       scene.callbacks?.onPick('sta_1');
@@ -358,7 +468,8 @@ describe('SiteLayout3D', () => {
     expect(popup.textContent).toContain('stations.statusReason.station_faulted');
     expect(popup.textContent).toContain('96.5 / 150 kW');
     expect(popup.textContent).toContain('sites.layoutView.allocatedLimit');
-    expect(popup.textContent).toContain('sites.layoutView.connectionWired');
+    expect(popup.textContent).toContain('dataPlan.plans.wifi_or_wired');
+    expect(popup.textContent).toContain('stations.ocppProtocol2.1');
     expect(popup.textContent).toContain('sites.layoutView.evse:1');
     expect(popup.querySelector('[data-status="charging"]')).not.toBeNull();
     expect(popup.querySelector('[data-status="reserved"]')).not.toBeNull();
@@ -370,26 +481,56 @@ describe('SiteLayout3D', () => {
     expect(screen.queryByTestId('station-layout-popup')).toBeNull();
   });
 
-  it('reads the signal of a cellular station only when its popup opens and stations may be read', async () => {
-    permissions.add('stations:read');
-    getMock.mockResolvedValue({
-      station: {
-        dataLinks: [
-          { signal: { value: -71, unit: 'dBm', inferred: false, dbm: -71, grade: 'good' } },
-        ],
-      },
-    });
-    renderView([station({ cellular: true })]);
-    expect(getMock).not.toHaveBeenCalled();
+  it('shows the reported network type, signal bars and OCPP version from the layout reply, no extra request', () => {
+    renderView([
+      station({
+        cellular: true,
+        connectionType: 'cellular',
+        networkType: 'LTE-M',
+        signal: { bars: 3, dbm: -78 },
+        ocppVersion: '2.0.1',
+      }),
+    ]);
     act(() => {
       scene.callbacks?.onPick('sta_1');
     });
     const popup = screen.getByTestId('station-layout-popup');
-    expect(popup.textContent).toContain('sites.layoutView.connectionCellular');
-    await waitFor(() => {
-      expect(popup.textContent).toContain('stations.sim.station.grade.good (-71 dBm)');
+    expect(within(popup).getByTestId('layout-connection').textContent).toContain('LTE-M');
+    expect(within(popup).getByTestId('layout-signal').textContent).toBe('-78 dBm');
+    expect(within(popup).getByTestId('layout-ocpp-version').textContent).toBe('2.0.1');
+    expect(getMock).not.toHaveBeenCalled();
+  });
+
+  it('shows the data plan without signal bars when no strength is known, and none for a wired station', () => {
+    renderView([
+      station({ cellular: true, connectionType: 'cellular', signal: null, ocppVersion: null }),
+      station({
+        id: 'sta_2',
+        stationId: 'CS-2',
+        positionX: 220,
+        connectionType: 'wifi_or_wired',
+        // A wired station never shows a signal, even when one is sent.
+        signal: { bars: 4, dbm: -60 },
+      }),
+    ]);
+    act(() => {
+      scene.callbacks?.onPick('sta_1');
     });
-    expect(getMock).toHaveBeenCalledWith('/v1/stations/sta_1/sim');
+    let popup = screen.getByTestId('station-layout-popup');
+    expect(within(popup).getByTestId('layout-connection').textContent).toContain(
+      'dataPlan.plans.cellular',
+    );
+    expect(within(popup).queryByTestId('layout-signal')).toBeNull();
+    expect(within(popup).queryByTestId('layout-ocpp-version')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'common.close' }));
+    act(() => {
+      scene.callbacks?.onPick('sta_2');
+    });
+    popup = screen.getByTestId('station-layout-popup');
+    expect(within(popup).getByTestId('layout-connection').textContent).toContain(
+      'dataPlan.plans.wifi_or_wired',
+    );
+    expect(within(popup).queryByTestId('layout-signal')).toBeNull();
   });
 
   it('shows the edit hint in edit mode and drops a dragged station on the nearest free bay', () => {
@@ -449,6 +590,67 @@ describe('SiteLayout3D', () => {
     );
   });
 
+  it('shows a power equipment label only while its equipment is hovered or tapped', () => {
+    const hierarchy: LinkPanel[] = [
+      {
+        id: 'p1',
+        name: 'Main Panel',
+        breakerRatingAmps: 400,
+        maxContinuousKw: 230.4,
+        childPanels: [],
+        circuits: [
+          {
+            id: 'c1',
+            name: 'Circuit 1',
+            breakerRatingAmps: 200,
+            maxContinuousKw: 115.2,
+            stations: [{ id: 'sta_1', allocatedLimitKw: 50 }],
+          },
+        ],
+      },
+    ];
+    renderView([station()], {
+      hierarchy,
+      settings: {
+        ...SETTINGS,
+        transformers: [{ id: 'tx-9', name: 'Main Feed', ratedKva: 2500, x: 40, z: 3 }],
+      },
+    });
+    const panel = screen.getByTestId('site-layout-3d-link-panel:p1');
+    const circuit = screen.getByTestId('site-layout-3d-link-circuit:c1');
+    const transformer = screen.getByTestId('site-layout-3d-transformer-tx-9');
+    act(() => {
+      scene.callbacks?.onFrame();
+    });
+    // Nothing always on.
+    for (const el of [panel, circuit, transformer]) expect(el.style.visibility).toBe('hidden');
+    act(() => {
+      scene.callbacks?.onEquipmentHover?.('circuit:c1');
+      scene.callbacks?.onFrame();
+    });
+    expect(circuit.style.visibility).toBe('visible');
+    expect(panel.style.visibility).toBe('hidden');
+    act(() => {
+      scene.callbacks?.onEquipmentHover?.('transformer:tx-9');
+      scene.callbacks?.onFrame();
+    });
+    expect(transformer.style.visibility).toBe('visible');
+    expect(circuit.style.visibility).toBe('hidden');
+    act(() => {
+      scene.callbacks?.onEquipmentHover?.(null);
+      scene.callbacks?.onFrame();
+    });
+    expect(transformer.style.visibility).toBe('hidden');
+  });
+
+  it('passes the California tow-away sign rule to the scene only for a California site', () => {
+    renderView([station()]);
+    expect(scene.california).toBe(false);
+    cleanup();
+    renderView([station()], { california: true });
+    expect(scene.california).toBe(true);
+  });
+
   it('draws load management links with labels only while the site is load managed', () => {
     const hierarchy: LinkPanel[] = [
       {
@@ -469,8 +671,11 @@ describe('SiteLayout3D', () => {
       },
     ];
     renderView([station()], { hierarchy });
-    // Panel to circuit, circuit to station: no link starts at a transformer.
-    expect(scene.links.segments).toHaveLength(2);
+    // Cable runs on the ground: the transformer's service cable into the panel,
+    // the circuit's trunk and its row run, and the branch to the station.
+    expect([
+      ...new Set((scene.links.segments as Array<{ flowId: string }>).map((s) => s.flowId)),
+    ]).toEqual(['panel:p1', 'circuit:c1', 'station:sta_1']);
     expect(scene.panels).toEqual([expect.objectContaining({ id: 'p1' })]);
     expect(screen.getByTestId('site-layout-3d-link-panel:p1').textContent).toBe(
       'Main Panel · 400 A · 230.4 kW',
@@ -488,13 +693,45 @@ describe('SiteLayout3D', () => {
     ).toBe('C · 32 A');
   });
 
-  it('shows no panel and no link without load management', () => {
+  it('shows the panels without links while load management is off', () => {
+    const hierarchy: LinkPanel[] = [
+      {
+        id: 'p1',
+        name: 'Main Panel',
+        breakerRatingAmps: 400,
+        maxContinuousKw: 230.4,
+        childPanels: [],
+        circuits: [
+          {
+            id: 'c1',
+            name: 'Circuit 1',
+            breakerRatingAmps: 200,
+            maxContinuousKw: 115.2,
+            stations: [{ id: 'sta_1', allocatedLimitKw: 50 }],
+          },
+        ],
+      },
+    ];
+    renderView([station()], { hierarchy, loadManaged: false, drawKw: () => 85 });
+    // The equipment stands; no cable run, no glow, no flow.
+    expect(scene.panels).toEqual([expect.objectContaining({ id: 'p1' })]);
+    expect(scene.links.segments).toEqual([]);
+    // Its hover label names it and its rating only, no live power.
+    expect(screen.getByTestId('site-layout-3d-link-panel:p1').textContent).toBe(
+      'Main Panel · 400 A',
+    );
+    expect(screen.queryByTestId('panel-load-bar')).toBeNull();
+    expect(screen.queryByTestId('site-layout-3d-link-circuit:c1')).toBeNull();
+    expect(screen.queryByTestId('site-layout-3d-link-station:sta_1')).toBeNull();
+  });
+
+  it('shows no panel and no link without the panels (no load management permission)', () => {
     renderView([station()], { hierarchy: null });
     expect(scene.panels).toEqual([]);
     expect(scene.links.segments).toEqual([]);
   });
 
-  it('shows an office or retail site with wall boxes, and no transformers, panels or links', () => {
+  it('shows an office or retail site with wall boxes and its AC panelboard on the facade, no transformers', () => {
     const hierarchy: LinkPanel[] = [
       {
         id: 'p1',
@@ -540,10 +777,13 @@ describe('SiteLayout3D', () => {
       ['sta_dc', false],
       ['sta_back', false],
     ]);
-    // The panels sit behind the walls: no models and no links.
-    expect(scene.panels).toEqual([]);
-    expect(scene.links).toEqual({ segments: [], labels: [] });
-    expect(screen.queryByTestId('site-layout-3d-link-panel:p1')).toBeNull();
+    // The AC panelboard hangs on the facade half a stall left of its wall box,
+    // with a run along the foot of the facade and a branch up to the box.
+    expect(scene.panels).toEqual([{ id: 'p1', x: 0, z: FACADE_Z, model: 'wall', turn: 0 }]);
+    expect(scene.links.segments).toMatchObject([
+      { id: 'circuit:c1:sta_ac' },
+      { id: 'station:sta_ac' },
+    ]);
   });
 
   it('stands every charger of a stall-mounted office or retail row on a post', () => {
@@ -789,6 +1029,10 @@ describe('SiteLayout3D', () => {
     });
     const button = screen.getByTestId('site-layout-3d-avatar-sta_1').querySelector('button');
     expect(button).not.toBeNull();
+    // The avatar picture on a solid white round background: no border or ring.
+    expect(button?.className).toContain('bg-white');
+    expect(button?.className).toContain('h-7 w-7');
+    expect(button?.className).not.toMatch(/\bborder\b|(?<!:)\bring-[0-9]\b|shadow-md|bg-card/);
     if (button != null) fireEvent.click(button);
     const popup = screen.getByTestId('session-layout-popup');
     expect(popup.textContent).toContain('Jane Doe');
@@ -819,18 +1063,90 @@ describe('SiteLayout3D', () => {
     ]);
   });
 
-  it('shows only a plain marker without session data, and none while replaying', () => {
+  it('shows only a plain marker without session data, live and while replaying', () => {
     const { unmount } = renderView([chargingStation(null)]);
     const marker = screen.getByTestId('site-layout-3d-avatar-sta_1');
     expect(marker.querySelector('button')).toBeNull();
     expect(marker.querySelector('img')).toBeNull();
     unmount();
+    // A replayed moment draws the avatar marker the same way (the replay carries the session as live).
     renderView([chargingStation(null)], { replaying: true });
-    expect(screen.queryByTestId('site-layout-3d-avatar-sta_1')).toBeNull();
+    const replayed = screen.getByTestId('site-layout-3d-avatar-sta_1');
+    expect(replayed.querySelector('button')).toBeNull();
     expect(screen.getByText('sites.layoutView.hintReplay')).toBeTruthy();
   });
 
-  it('hides far station labels on a large site', () => {
+  it('scales the badges with the camera distance within the clamp, avatars hidden when crowded', () => {
+    const session = {
+      id: 'ses_1',
+      startedAt: new Date(Date.now() - 65 * 60_000).toISOString(),
+      energyDeliveredWh: 18400,
+      currentCostCents: 1234,
+      currency: 'USD',
+      driver: { id: 'drv_1', name: 'Jane Doe', avatar: null },
+    };
+    renderView([chargingStation(session)]);
+    const marker = screen.getByTestId('site-layout-3d-station-sta_1');
+    const avatar = screen.getByTestId('site-layout-3d-avatar-sta_1');
+    // Up close: full size (24 and 28 px), pinned at the bottom center.
+    act(() => {
+      scene.callbacks?.onFrame();
+    });
+    expect(marker.style.scale).toBe('1');
+    expect(marker.style.transformOrigin).toBe('50% 100%');
+    expect(avatar.style.scale).toBe('1');
+    expect(avatar.style.visibility).toBe('visible');
+    // Farther: the world size (0.9 m at 20 px per meter is 18 px of 24).
+    scene.pxPerMeter = 20;
+    act(() => {
+      scene.callbacks?.onFrame();
+    });
+    expect(Number(marker.style.scale)).toBeCloseTo(18 / 24, 5);
+    // Far: never under the readable minimum, 14 px for a marker, 16 px for an avatar.
+    scene.pxPerMeter = 2;
+    act(() => {
+      scene.callbacks?.onFrame();
+    });
+    expect(Number(marker.style.scale)).toBeCloseTo(14 / 24, 5);
+    expect(Number(avatar.style.scale)).toBeCloseTo(16 / 28, 5);
+  });
+
+  it('drops the driver avatars and keeps the state markers when markers overlap', () => {
+    const session = {
+      id: 'ses_1',
+      startedAt: new Date(Date.now() - 65 * 60_000).toISOString(),
+      energyDeliveredWh: 18400,
+      currentCostCents: 1234,
+      currency: 'USD',
+      driver: { id: 'drv_1', name: 'Jane Doe', avatar: null },
+    };
+    renderView([
+      chargingStation(session),
+      station({ id: 'sta_2', stationId: 'CS-2', positionX: 220 }),
+    ]);
+    // jsdom lays nothing out: every badge measures 24 px here.
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(24);
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(24);
+    // Both markers at one point: they overlap.
+    scene.markerXs.set('sta_1', 100);
+    scene.markerXs.set('sta_2', 104);
+    act(() => {
+      scene.callbacks?.onFrame();
+    });
+    expect(screen.getByTestId('site-layout-3d-station-sta_1').style.visibility).toBe('visible');
+    expect(screen.getByTestId('site-layout-3d-station-sta_2').style.visibility).toBe('visible');
+    expect(screen.getByTestId('site-layout-3d-avatar-sta_1').style.visibility).toBe('hidden');
+    // Apart again: the avatar returns.
+    scene.markerXs.set('sta_2', 400);
+    act(() => {
+      scene.callbacks?.onFrame();
+    });
+    expect(screen.getByTestId('site-layout-3d-avatar-sta_1').style.visibility).toBe('visible');
+    width.mockRestore();
+    height.mockRestore();
+  });
+
+  it('shows the state marker of every station on a large site, far ones too', () => {
     const many = Array.from({ length: 45 }, (_, i) =>
       station({
         id: `s${String(i)}`,
@@ -844,7 +1160,9 @@ describe('SiteLayout3D', () => {
     act(() => {
       scene.callbacks?.onFrame();
     });
-    expect(screen.getByTestId('site-layout-3d-label-s0').style.visibility).toBe('hidden');
+    for (const s of many) {
+      expect(screen.getByTestId(`site-layout-3d-station-${s.id}`).style.visibility).toBe('visible');
+    }
   });
 
   it('shows batteries and solar canopies on a parking lot only, with labels', () => {
@@ -1094,10 +1412,10 @@ describe('SiteLayout3D', () => {
     });
   });
 
-  it('shows a label that does not fit as a dot in the state color', () => {
-    // jsdom has no layout: give every label a size, so two at one point collide.
-    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(80);
-    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(20);
+  it('never hides a state marker for another one at the same screen point', () => {
+    // jsdom has no layout: give every marker a size, so two at one point would collide.
+    const width = vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(24);
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(24);
     renderView([
       station(),
       station({ id: 'sta_2', stationId: 'CS-2', status: 'faulted' }),
@@ -1106,13 +1424,9 @@ describe('SiteLayout3D', () => {
     act(() => {
       scene.callbacks?.onFrame();
     });
-    // Three labels at one screen point: the faulted one places first, the next
-    // one row higher, and the third becomes a dot below them.
-    expect(screen.getByTestId('site-layout-3d-label-sta_2').style.visibility).toBe('visible');
-    expect(screen.getByTestId('site-layout-3d-dot-sta_2').style.visibility).toBe('hidden');
-    expect(screen.getByTestId('site-layout-3d-label-sta_1').style.visibility).toBe('visible');
-    expect(screen.getByTestId('site-layout-3d-label-sta_3').style.visibility).toBe('hidden');
-    expect(screen.getByTestId('site-layout-3d-dot-sta_3').style.visibility).toBe('visible');
+    for (const id of ['sta_1', 'sta_2', 'sta_3']) {
+      expect(screen.getByTestId(`site-layout-3d-station-${id}`).style.visibility).toBe('visible');
+    }
     width.mockRestore();
     height.mockRestore();
   });

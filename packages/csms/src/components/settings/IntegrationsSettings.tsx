@@ -46,7 +46,7 @@ import {
   type ProofRejection,
 } from '@/components/FactorProofField';
 import { useMfaStatus } from '@/components/profile/mfa-status';
-import { useLoadedValues } from '@/hooks/use-loaded-values';
+import { isEditedField, useLoadedValues } from '@/hooks/use-loaded-values';
 
 /** The endpoint as the API stores it (the origin), to tell whether it changed. */
 function storedEndpointForm(value: string): string {
@@ -99,7 +99,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
   // (another card's save, window focus) replaces a card only while it is clean.
 
   // FTP state
-  const [ftp, setFtp, takeFtpLoad] = useLoadedValues({
+  const [ftp, setFtp, takeFtpLoad, ftpTaken] = useLoadedValues({
     host: str('ftp.host'),
     port: str('ftp.port'),
     username: str('ftp.username'),
@@ -124,7 +124,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     settings?.['s3.provider'] === 's3-compatible' ? 's3-compatible' : 's3';
   const storedS3Endpoint =
     typeof settings?.['s3.endpoint'] === 'string' ? settings['s3.endpoint'] : '';
-  const [s3, setS3, takeS3Load] = useLoadedValues({
+  const [s3, setS3, takeS3Load, s3Taken] = useLoadedValues({
     provider: storedS3Provider,
     endpoint: str('s3.endpoint'),
     forcePathStyle: settings?.['s3.forcePathStyle'] === true,
@@ -230,7 +230,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
   // Google Maps
   const storedMapsKey = settings?.['googleMaps.apiKeyEnc'];
-  const [maps, setMaps, takeMapsLoad] = useLoadedValues({
+  const [maps, setMaps, takeMapsLoad, mapsTaken] = useLoadedValues({
     apiKey: typeof storedMapsKey === 'string' ? storedMapsKey : '',
     lat: textOr('googleMaps.defaultLat', '39.8283'),
     lng: textOr('googleMaps.defaultLng', '-98.5795'),
@@ -286,12 +286,11 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     const v = pncSettings?.[key];
     return typeof v === 'string' || typeof v === 'number' ? String(v) : '';
   };
-  const loadedPncClientSecret = pncStr('pnc.hubject.clientSecretEnc');
-  const [pnc, setPnc, takePncLoad] = useLoadedValues({
+  const [pnc, setPnc, takePncLoad, pncTaken] = useLoadedValues({
     provider: pncStr('pnc.provider') || 'manual',
     hubjectBaseUrl: pncStr('pnc.hubject.baseUrl'),
     hubjectClientId: pncStr('pnc.hubject.clientId'),
-    hubjectClientSecret: loadedPncClientSecret,
+    hubjectClientSecret: pncStr('pnc.hubject.clientSecretEnc'),
     hubjectTokenUrl: pncStr('pnc.hubject.tokenUrl'),
     warningDays: pncStr('pnc.expirationWarningDays') || '30',
     criticalDays: pncStr('pnc.expirationCriticalDays') || '7',
@@ -330,14 +329,16 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
       host: string;
       port: string;
       username: string;
-      password: string;
+      password?: string;
       path: string;
     }) =>
       Promise.all([
         api.put('/v1/settings/ftp.host', { value: vals.host }),
         api.put('/v1/settings/ftp.port', { value: Number(vals.port) }),
         api.put('/v1/settings/ftp.username', { value: vals.username }),
-        api.put('/v1/settings/ftp.passwordEnc', { value: vals.password }),
+        ...(vals.password !== undefined
+          ? [api.put('/v1/settings/ftp.passwordEnc', { value: vals.password })]
+          : []),
         api.put('/v1/settings/ftp.path', { value: vals.path }),
       ]),
     onSuccess: () => {
@@ -350,8 +351,8 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
       provider: 's3' | 's3-compatible';
       bucket: string;
       region: string;
-      accessKeyId: string;
-      secretAccessKey: string;
+      accessKeyId?: string;
+      secretAccessKey?: string;
       endpoint?: string;
       forcePathStyle?: boolean;
       allowedPrivateHosts?: string[];
@@ -464,13 +465,15 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
 
   const googleMapsMutation = useMutation({
     mutationFn: (vals: {
-      apiKey: string;
+      apiKey?: string;
       defaultLat: string;
       defaultLng: string;
       defaultZoom: string;
     }) =>
       Promise.all([
-        api.put('/v1/settings/googleMaps.apiKeyEnc', { value: vals.apiKey }),
+        ...(vals.apiKey !== undefined
+          ? [api.put('/v1/settings/googleMaps.apiKeyEnc', { value: vals.apiKey })]
+          : []),
         api.put('/v1/settings/googleMaps.defaultLat', { value: vals.defaultLat }),
         api.put('/v1/settings/googleMaps.defaultLng', { value: vals.defaultLng }),
         api.put('/v1/settings/googleMaps.defaultZoom', { value: vals.defaultZoom }),
@@ -849,9 +852,11 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                           provider: pncProvider,
                           hubjectBaseUrl: pncHubjectBaseUrl,
                           hubjectClientId: pncHubjectClientId,
-                          // Sent only when typed: the GET returns the stored
-                          // secret only with settings.system:read (P12).
-                          ...(pncHubjectClientSecret !== loadedPncClientSecret
+                          // Sent only when edited in this form: the GET returns
+                          // the stored secret only with settings.system:read
+                          // (P12), and a secret another user rotated since this
+                          // form loaded is not put back.
+                          ...(isEditedField(pnc, pncTaken, 'hubjectClientSecret')
                             ? { hubjectClientSecret: pncHubjectClientSecret }
                             : {}),
                           hubjectTokenUrl: pncHubjectTokenUrl,
@@ -1342,7 +1347,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               onClick={() => {
                 googleMapsMutation.mutate(
                   {
-                    apiKey: googleMapsApiKey.trim(),
+                    ...(isEditedField(maps, mapsTaken, 'apiKey')
+                      ? { apiKey: googleMapsApiKey.trim() }
+                      : {}),
                     defaultLat: googleMapsDefaultLat,
                     defaultLng: googleMapsDefaultLng,
                     defaultZoom: googleMapsDefaultZoom,
@@ -1551,8 +1558,16 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                       provider: s3Provider,
                       bucket: s3Bucket,
                       region: s3Region.trim(),
-                      accessKeyId: s3AccessKeyId,
-                      secretAccessKey: s3SecretAccessKey,
+                      // The keys go only when edited, or with a new provider or
+                      // endpoint (stored keys never follow a new destination);
+                      // otherwise the server keeps the stored keys, so keys
+                      // another user rotated since this form loaded stay.
+                      ...(s3DestinationChanged || isEditedField(s3, s3Taken, 'accessKeyId')
+                        ? { accessKeyId: s3AccessKeyId }
+                        : {}),
+                      ...(s3DestinationChanged || isEditedField(s3, s3Taken, 'secretAccessKey')
+                        ? { secretAccessKey: s3SecretAccessKey }
+                        : {}),
                       ...(s3Provider === 's3-compatible'
                         ? {
                             endpoint: s3Endpoint.trim(),
@@ -1803,7 +1818,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                     host: ftpHost,
                     port: ftpPort,
                     username: ftpUsername,
-                    password: ftpPassword,
+                    // An untouched password is left out, so a password another
+                    // user rotated since this form loaded is not put back.
+                    ...(isEditedField(ftp, ftpTaken, 'password') ? { password: ftpPassword } : {}),
                     path: ftpPath,
                   },
                   {

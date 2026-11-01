@@ -4,7 +4,7 @@
 import { lazy, Suspense, useCallback, useLayoutEffect, useState, useMemo, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Plug, Circle, Zap, Shield, Maximize2, Pencil, Check, History } from 'lucide-react';
+import { Zap, Maximize2, Pencil, Check, History } from 'lucide-react';
 import {
   LAYOUT_CARD_HEIGHT,
   LAYOUT_CARD_WIDTH,
@@ -16,8 +16,6 @@ import {
   energyAssetsOf,
   layoutCapacity,
   layoutRowLengths,
-  showsBatteries,
-  showsSolar,
   siteTypeOf,
   fitPositionsToGrid,
   gridBoardExtent,
@@ -27,25 +25,33 @@ import {
   usesFreePositions,
   type FreePlacement,
   type SiteLayoutSettings,
+  accessibleChargingSpace,
+  bayToPosition,
+  heldSpots,
+  sharesSpotPair,
+  splitDispenserCount,
+  spanSpots,
+  spotPairPartner,
 } from '@evtivity/lib/site-layout';
 import { SaveButton } from '@/components/save-button';
 import { ResetButton } from '@/components/reset-button';
 import { Button } from '@/components/ui/button';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { EmptyState } from '@/components/ui/content-state';
+import { LoadingLogo } from '@/components/loading-logo';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
-import { STATION_DISPLAY_STATES } from '@/lib/station-display-state';
 import { webglAvailable } from '@/lib/webgl';
 import { StationCard, type LayoutStation } from './StationCard';
 import { StationLayoutPopup } from './StationLayoutPopup';
 import { placeLayoutPopup } from './layout-popup-position';
 import { STAGE_HEIGHT_CLASS } from './site-layout-stage';
 import { cn } from '@/lib/utils';
-import { CellularBadge, StationStateIcon } from './StationStateIcon';
+import { ConnectionLegend, StationStateLegend } from './StationStateIcon';
 import { SCENE_COLORS } from './site-layout-colors';
 import { LayoutSettingsPanel } from './LayoutSettingsPanel';
+import { PowerEquipmentField } from './PowerEquipment';
 import { useSiteTerminals } from './layout-terminals';
 import {
   autoLayout,
@@ -53,7 +59,6 @@ import {
   useLayoutInsights,
   type LoadManagementResponse,
 } from './site-layout-data';
-import { STATUS_COLORS } from '@/lib/chart-theme';
 import { LayoutReplayBar } from './LayoutReplayBar';
 import {
   localDate,
@@ -64,9 +69,11 @@ import {
   type ReplaySpeed,
 } from './site-layout-replay';
 import { formatNumber } from '@/lib/formatting';
-import { CustomLayoutBoard, boardPoint, customBoardGeometry } from './CustomLayoutBoard';
-import { freeStationPlaces, layoutStationCountsOf } from './site-layout-free';
-import { DepotLayoutBoard, depotChipPoint, depotStationBays } from './DepotLayoutBoard';
+import { CustomLayoutBoard, customBoardGeometry, customCardPositions } from './CustomLayoutBoard';
+import { freeStationPlaces, layoutStationCountsOf, stationLayoutKindOf } from './site-layout-free';
+import { isCaliforniaSite } from './site-layout-signs';
+import { layoutLegend } from './site-layout-legend';
+import { DepotLayoutBoard, depotStationBays } from './DepotLayoutBoard';
 
 // three.js loads only when the 3D view shows.
 const SiteLayout3D = lazy(() => import('./SiteLayout3D'));
@@ -138,7 +145,13 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
 
   const { data: site } = useQuery({
     queryKey: ['sites', siteId],
-    queryFn: () => api.get<{ layoutSettings: SiteLayoutSettings | null }>(`/v1/sites/${siteId}`),
+    queryFn: () =>
+      api.get<{
+        state?: string | null;
+        country?: string | null;
+        reservationsEnabled?: boolean;
+        layoutSettings: SiteLayoutSettings | null;
+      }>(`/v1/sites/${siteId}`),
   });
   // Public branding: the company logo on the back of the 3D chargers.
   const logoUrl = useBrandingLogo();
@@ -241,7 +254,11 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   const resolvedStations = useMemo(() => {
     if (pendingSettings == null) return placedStations;
     const fit = fitPositionsToGrid(
-      placedStations.map((s) => ({ key: s.id, position: { x: s.positionX, y: s.positionY } })),
+      placedStations.map((s) => ({
+        key: s.id,
+        position: { x: s.positionX, y: s.positionY },
+        kind: stationLayoutKindOf(s),
+      })),
       pendingSettings,
     );
     if (fit.moved.size === 0) return placedStations;
@@ -271,6 +288,17 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   );
   const shownStations = replaying && frame != null ? frame.stations : resolvedStations;
   const shownPower = replaying && frame != null ? frame.power : stationPowerMap;
+  // The legend lists only what this view draws at this site.
+  const legend = useMemo(
+    () =>
+      layoutLegend({
+        stations: shownStations,
+        settings: layoutSettings,
+        show3d,
+        reservationsEnabled: site?.reservationsEnabled,
+      }),
+    [shownStations, layoutSettings, show3d, site],
+  );
 
   function startReplay(): void {
     setEditing(false);
@@ -293,21 +321,30 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     const popup = popup2dRef.current;
     const board = boardRef.current;
     if (popup == null || board == null || selected2dStation == null) return;
-    // A custom site or a depot: beside the station's chip at its charger point.
+    // Beside the station's standard card: a custom site's card at its charger
+    // point, a depot's card in its bay or lane slot, else the card's grid position.
     const place = freePlaces?.get(selected2dStation.id);
     const depotBay = depot
       ? depotStationBays(shownStations, layoutSettings).get(selected2dStation.id)
       : undefined;
-    const at =
-      place != null
-        ? boardPoint(customBoardGeometry([...(freePlaces?.values() ?? [])]), place.placement)
+    const customCard =
+      place != null && freePlaces != null
+        ? customCardPositions(
+            shownStations,
+            freePlaces,
+            customBoardGeometry([...freePlaces.values()]),
+          ).get(selected2dStation.id)
+        : undefined;
+    const corner =
+      customCard != null
+        ? { x: customCard.x - LAYOUT_CARD_WIDTH / 2, y: customCard.y - LAYOUT_CARD_HEIGHT / 2 }
         : depotBay != null
-          ? depotChipPoint(layoutSettings, depotBay)
-          : null;
-    const x = at != null ? at.x - 50 : selected2dStation.positionX;
-    const y = at != null ? at.y - 14 : selected2dStation.positionY;
-    const w = at != null ? 100 : LAYOUT_CARD_WIDTH;
-    const h = at != null ? 28 : LAYOUT_CARD_HEIGHT;
+          ? bayToPosition(depotBay)
+          : { x: selected2dStation.positionX, y: selected2dStation.positionY };
+    const x = corner.x;
+    const y = corner.y;
+    const w = LAYOUT_CARD_WIDTH;
+    const h = LAYOUT_CARD_HEIGHT;
     placeLayoutPopup(
       popup,
       { left: x, top: y, right: x + w, bottom: y + h },
@@ -321,12 +358,74 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
     );
   }, [selected2dStation, freePlaces, depot, shownStations, layoutSettings]);
 
-  // A 2D drop lands on the 20 px grid, inside the board and on no other card.
+  // Dual-port AC pedestals hold their partner spot, DC split systems a spot
+  // per dispenser, and the accessible charging space its access aisle
+  // (`heldSpots`); the 2D board marks them.
+  const placedSlots = useMemo(
+    () =>
+      resolvedStations.map((s) => ({
+        id: s.id,
+        stationId: s.stationId,
+        x: s.positionX,
+        y: s.positionY,
+        charging: s.chargingKind,
+        pair: sharesSpotPair(stationLayoutKindOf(s), layoutSettings),
+        span: splitDispenserCount(stationLayoutKindOf(s), layoutSettings),
+      })),
+    [resolvedStations, layoutSettings],
+  );
+  const heldMarkers = useMemo(() => {
+    const markers: Array<{ key: string; x: number; y: number; label: string }> = [];
+    for (const p of placedSlots) {
+      // A split system's other dispensers, one spot each.
+      if (p.span > 1) {
+        const spots = spanSpots(positionToBay(p), p.span, layoutSettings) ?? [];
+        spots.slice(1).forEach((b, i) => {
+          markers.push({
+            key: `split-${p.id}-${String(i + 2)}`,
+            ...bayToPosition(b),
+            label: t('sites.layoutView.splitDispenserSpot', { station: p.stationId, n: i + 2 }),
+          });
+        });
+        continue;
+      }
+      if (!p.pair) continue;
+      const partner = spotPairPartner(positionToBay(p), layoutSettings);
+      if (partner == null) continue;
+      markers.push({
+        key: `pair-${p.id}`,
+        ...bayToPosition(partner),
+        label: t('sites.layoutView.pedestalSecondSpot', { station: p.stationId }),
+      });
+    }
+    const access = accessibleChargingSpace(placedSlots, layoutSettings);
+    if (access != null) {
+      markers.push({
+        key: 'access-aisle',
+        ...bayToPosition(access.aisle),
+        label: t('sites.layoutView.accessAisle'),
+      });
+    }
+    return markers;
+  }, [placedSlots, layoutSettings, t]);
+
+  // A 2D drop lands on the 20 px grid, inside the board and on no other card,
+  // pedestal partner spot or access aisle.
   const resolveDrop = useCallback(
     (stationId: string, x: number, y: number) => {
-      const others = resolvedStations
-        .filter((s) => s.id !== stationId)
-        .map((s) => ({ x: s.positionX, y: s.positionY }));
+      const held = heldSpots(
+        placedSlots.filter((p) => p.id !== stationId),
+        layoutSettings,
+      );
+      const others = [
+        ...resolvedStations
+          .filter((s) => s.id !== stationId)
+          .map((s) => ({ x: s.positionX, y: s.positionY })),
+        ...[...held.keys()].map((k) => {
+          const [col, row] = k.split(':').map(Number);
+          return bayToPosition({ col: col ?? 0, row: row ?? 0 });
+        }),
+      ];
       const own = resolvedStations.find((s) => s.id === stationId);
       // Cards land inside the lot, as stations do in 3D.
       return resolveCardDrop(
@@ -336,7 +435,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
         own != null ? { x: own.positionX, y: own.positionY } : { x: 0, y: 0 },
       );
     },
-    [resolvedStations, layoutSettings],
+    [resolvedStations, layoutSettings, placedSlots],
   );
 
   function chooseView(next: LayoutView): void {
@@ -549,6 +648,12 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
           onInvalidChange={setSettingsInvalid}
         />
       )}
+      {!canWrite && resolvedStations.length > 0 && !replaying && (
+        // Without write access the power equipment opens read-only.
+        <div className="mb-3">
+          <PowerEquipmentField siteId={siteId} settings={layoutSettings} />
+        </div>
+      )}
       {view === '3d' && !webgl && resolvedStations.length > 0 && (
         <p className="mb-3 text-sm text-muted-foreground" data-testid="site-layout-webgl-note">
           {t('sites.layoutView.webglUnavailable')}
@@ -560,12 +665,10 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
         <Suspense
           fallback={
             <div
-              className={cn(
-                'flex w-full items-center justify-center rounded-lg border-2 border-dashed text-sm text-muted-foreground',
-                STAGE_HEIGHT_CLASS,
-              )}
+              data-testid="site-layout-3d-loading"
+              className={cn('flex w-full items-center justify-center', STAGE_HEIGHT_CLASS)}
             >
-              {t('sites.layoutView.loading3d')}
+              <LoadingLogo size="inline" label={t('sites.layoutView.loading3d')} />
             </div>
           }
         >
@@ -573,8 +676,10 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
             stations={shownStations}
             settings={layoutSettings}
             terminals={terminals}
-            hierarchy={loadManagement?.config?.isEnabled === true ? loadManagement.hierarchy : null}
+            hierarchy={loadManagement?.hierarchy ?? null}
+            loadManaged={loadManagement?.config?.isEnabled === true}
             logoUrl={logoUrl}
+            california={site != null && isCaliforniaSite(site)}
             insights={insights}
             onTransformerMove={handleTransformerMove}
             onEnergyAssetMove={handleEnergyAssetMove}
@@ -635,6 +740,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
             <CustomLayoutBoard
               stations={shownStations}
               places={freePlaces}
+              power={shownPower}
               boardRef={boardRef}
               onMove={handleFreeMove}
               onOpenDetails={setSelected2d}
@@ -656,6 +762,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
             <DepotLayoutBoard
               stations={shownStations}
               settings={layoutSettings}
+              power={shownPower}
               boardRef={boardRef}
               editable={canWrite && !replaying}
               onMove={handleDragEnd}
@@ -710,6 +817,22 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
                   }}
                 />
               )}
+              {heldMarkers.map((m) => (
+                <div
+                  key={m.key}
+                  aria-hidden="true"
+                  data-testid={`site-layout-2d-held-${m.key}`}
+                  className="pointer-events-none absolute flex items-center justify-center rounded-lg border border-dashed border-muted-foreground/50 p-2 text-center text-xs text-muted-foreground"
+                  style={{
+                    left: m.x,
+                    top: m.y,
+                    width: LAYOUT_CARD_WIDTH,
+                    height: LAYOUT_CARD_HEIGHT,
+                  }}
+                >
+                  {m.label}
+                </div>
+              ))}
               {shownStations.map((station) => {
                 const power = shownPower.get(station.id);
                 return (
@@ -754,149 +877,74 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
         className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground"
         data-testid="site-layout-state-legend"
       >
-        {show3d && (
-          <>
-            <span className="flex items-center gap-1">
-              <span
-                className="inline-block h-3 w-3 rounded-sm"
-                style={{ backgroundColor: SCENE_COLORS.ac }}
-              />
-              {acLegend}
-            </span>
-            <span className="flex items-center gap-1">
-              <span
-                className="inline-block h-3 w-3 rounded-sm"
-                style={{ backgroundColor: SCENE_COLORS.dc }}
-              />
-              {t('sites.layoutView.dcCharger')}
-            </span>
-          </>
+        {legend.ac && (
+          <span className="flex items-center gap-1" data-testid="site-layout-ac-legend">
+            <span
+              className="inline-block h-3 w-3 rounded-sm"
+              style={{ backgroundColor: SCENE_COLORS.ac }}
+            />
+            {acLegend}
+          </span>
         )}
-        {show3d &&
-          showsBatteries(layoutSettings) &&
-          energyAssetsOf(layoutSettings).some((a) => a.type === 'battery') && (
-            <span className="flex items-center gap-1" data-testid="site-layout-battery-legend">
-              <span
-                className="inline-block h-3 w-3 rounded-sm border"
-                style={{ backgroundColor: SCENE_COLORS.light.battery }}
-              />
-              {t('sites.layoutView.battery')}
-            </span>
-          )}
-        {show3d &&
-          showsSolar(layoutSettings) &&
-          energyAssetsOf(layoutSettings).some((a) => a.type === 'solar') && (
-            <span className="flex items-center gap-1" data-testid="site-layout-solar-legend">
-              <span
-                className="inline-block h-3 w-3 rounded-sm"
-                style={{ backgroundColor: SCENE_COLORS.light.solarCell }}
-              />
-              {t('sites.layoutView.solarCanopy')}
-            </span>
-          )}
-        {officeRetail && (
+        {legend.dc && (
+          <span className="flex items-center gap-1" data-testid="site-layout-dc-legend">
+            <span
+              className="inline-block h-3 w-3 rounded-sm"
+              style={{ backgroundColor: SCENE_COLORS.dc }}
+            />
+            {t('sites.layoutView.dcCharger')}
+          </span>
+        )}
+        {legend.battery && (
+          <span className="flex items-center gap-1" data-testid="site-layout-battery-legend">
+            <span
+              className="inline-block h-3 w-3 rounded-sm border"
+              style={{ backgroundColor: SCENE_COLORS.light.battery }}
+            />
+            {t('sites.layoutView.battery')}
+          </span>
+        )}
+        {legend.solar && (
+          <span className="flex items-center gap-1" data-testid="site-layout-solar-legend">
+            <span
+              className="inline-block h-3 w-3 rounded-sm"
+              style={{ backgroundColor: SCENE_COLORS.light.solarCell }}
+            />
+            {t('sites.layoutView.solarCanopy')}
+          </span>
+        )}
+        {legend.building && (
           <span className="flex items-center gap-1" data-testid="site-layout-building-legend">
             <span className="inline-block h-1.5 w-4 rounded-sm bg-muted-foreground/50" />
             {t('sites.layoutView.building')}
           </span>
         )}
-        {custom && (
+        {legend.carSpot && (
           <span className="flex items-center gap-1" data-testid="site-layout-spot-legend">
             <span className="inline-block h-3 w-2 rounded-sm border border-dashed border-primary/60 bg-muted/70" />
             {t('sites.layoutView.parkingSpot')}
           </span>
         )}
-        {depot && (
-          <>
-            <span className="flex items-center gap-1" data-testid="site-layout-bus-bay-legend">
-              <span className="inline-block h-3 w-2 rounded-sm border border-primary/60 bg-muted/70" />
-              {t('sites.layoutView.busBay')}
-            </span>
-            <span className="flex items-center gap-1" data-testid="site-layout-truck-lane-legend">
-              <span className="inline-block h-2 w-4 rounded-sm border border-primary/60 bg-muted/70" />
-              {t('sites.layoutView.truckLane')}
-            </span>
-          </>
+        {legend.busBay && (
+          <span className="flex items-center gap-1" data-testid="site-layout-bus-bay-legend">
+            <span className="inline-block h-3 w-2 rounded-sm border border-primary/60 bg-muted/70" />
+            {t('sites.layoutView.busBay')}
+          </span>
         )}
-        {curbside && (
+        {legend.truckLane && (
+          <span className="flex items-center gap-1" data-testid="site-layout-truck-lane-legend">
+            <span className="inline-block h-2 w-4 rounded-sm border border-primary/60 bg-muted/70" />
+            {t('sites.layoutView.truckLane')}
+          </span>
+        )}
+        {legend.street && (
           <span className="flex items-center gap-1" data-testid="site-layout-street-legend">
             <span className="inline-block h-1.5 w-4 rounded-sm bg-muted-foreground/40" />
             {t('sites.layoutView.street')}
           </span>
         )}
-        {STATION_DISPLAY_STATES.map((state) => (
-          <span key={state} className="flex items-center gap-1">
-            <StationStateIcon state={state} /> {t(`sites.layoutState.${state}`)}
-          </span>
-        ))}
-        <span className="flex items-center gap-1">
-          <CellularBadge /> {t('sites.layoutView.cellularLegend')}
-        </span>
-      </div>
-      <div
-        className={
-          show3d
-            ? 'hidden'
-            : 'mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground'
-        }
-      >
-        <span className="flex items-center gap-1">
-          <span className="relative inline-flex h-2 w-2">
-            <span className="absolute inset-0 rounded-full bg-success animate-ping opacity-75" />
-            <span className="relative h-2 w-2 rounded-full bg-success" />
-          </span>{' '}
-          {t('status.online')}
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full bg-muted-foreground inline-block" />{' '}
-          {t('status.offline')}
-        </span>
-        <span className="flex items-center gap-1">
-          <Plug className="h-3.5 w-3.5 text-success" /> {t('status.available')}
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="relative inline-flex h-3 w-3">
-            <span
-              className="absolute inset-0 rounded-full animate-ping opacity-75"
-              style={{ backgroundColor: STATUS_COLORS.occupied }}
-            />
-            <Circle
-              className="relative h-3 w-3"
-              style={{ color: STATUS_COLORS.occupied }}
-              fill={STATUS_COLORS.occupied}
-            />
-          </span>{' '}
-          {t('status.charging')}
-        </span>
-        <span className="flex items-center gap-1">
-          <Circle
-            className="h-3 w-3"
-            style={{ color: STATUS_COLORS.reserved }}
-            fill={STATUS_COLORS.reserved}
-          />{' '}
-          {t('status.reserved')}
-        </span>
-        <span className="flex items-center gap-1">
-          <Circle className="h-3 w-3 text-destructive" fill={STATUS_COLORS.faulted} />{' '}
-          {t('status.faulted')}
-        </span>
-        <span className="flex items-center gap-1">
-          <Circle className="h-3 w-3 text-muted-foreground" fill={STATUS_COLORS.unavailable} />{' '}
-          {t('status.unavailable')}
-        </span>
-        <span className="text-muted-foreground/40">|</span>
-        <span className="flex items-center gap-0.5 text-muted-foreground">
-          <Shield className="h-3 w-3" />0 {t('stations.sp0')}
-        </span>
-        <span className="flex items-center gap-0.5 text-link">
-          <Shield className="h-3 w-3" />1 {t('stations.sp1')}
-        </span>
-        <span className="flex items-center gap-0.5 text-success">
-          <Shield className="h-3 w-3" />2 {t('stations.sp2')}
-        </span>
-        <span className="flex items-center gap-0.5 text-warning">
-          <Shield className="h-3 w-3" />3 {t('stations.sp3')}
-        </span>
+        <StationStateLegend states={legend.states} />
+        <ConnectionLegend types={legend.connections} signal={legend.signal} />
       </div>
     </TabPanel>
   );

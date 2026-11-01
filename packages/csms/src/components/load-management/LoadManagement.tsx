@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { Checkbox } from '@/components/ui/checkbox';
+import { AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -241,6 +243,15 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
             />
             <Label htmlFor="lm-enabled">{t('loadManagement.enableLoadManagement')}</Label>
           </div>
+          {isEnabled && (
+            <Alert variant="warning" data-testid="load-management-safety-notice">
+              <AlertTriangle />
+              <div>
+                <AlertTitle>{t('loadManagement.electricalSafetyTitle')}</AlertTitle>
+                <AlertDescription>{t('loadManagement.electricalSafetyBody')}</AlertDescription>
+              </div>
+            </Alert>
+          )}
           <SaveButton isPending={saveMutation.isPending} />
         </form>
       </TabPanel>

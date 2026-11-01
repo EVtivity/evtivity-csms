@@ -10,38 +10,20 @@ import { useTranslation } from 'react-i18next';
 import { CreditCard, MessageSquare, X } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { useHasPermission } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { formatEnergy, formatNumber } from '@/lib/formatting';
 import { formatConnectorPowerKw } from '@/lib/connector-rating';
 import { stationDisplayState, stationStateLabelKey } from '@/lib/station-display-state';
-import { useStationSim, type SignalGrade } from '@/components/sim/sim-connectivity';
 import type { LayoutStation } from './StationCard';
 import type { LayoutTerminal } from './layout-terminals';
-import { CellularBadge, ConnectorStatusIcon, StationStateIcon } from './StationStateIcon';
-
-const GRADE_KEYS = {
-  good: 'stations.sim.station.grade.good',
-  fair: 'stations.sim.station.grade.fair',
-  poor: 'stations.sim.station.grade.poor',
-  unknown: 'stations.sim.station.grade.unknown',
-} as const satisfies Record<SignalGrade, string>;
-
-/** The signal grade of a cellular station, read from its SIM tab data when the popup opens. */
-function CellularSignal({ stationId }: { stationId: string }): React.JSX.Element {
-  const { t } = useTranslation();
-  const { data, isLoading } = useStationSim(stationId);
-  if (isLoading) return <span>{t('common.loading')}</span>;
-  const signal = data?.station?.dataLinks.find((link) => link.signal != null)?.signal ?? null;
-  if (signal == null) return <span>{t('sites.layoutView.signalUnknown')}</span>;
-  const reading =
-    signal.dbm != null ? `${String(signal.dbm)} dBm` : `${String(signal.value)} ${signal.unit}`;
-  return (
-    <span>
-      {t(GRADE_KEYS[signal.grade])} ({reading})
-    </span>
-  );
-}
+import {
+  ConnectionBadge,
+  ConnectionTypeIcon,
+  connectionTypeLabelKey,
+  ConnectorStatusIcon,
+  SignalBarsIcon,
+  StationStateIcon,
+} from './StationStateIcon';
 
 function maxPowerKw(station: Pick<LayoutStation, 'evses'>): number | null {
   let max: number | null = null;
@@ -105,7 +87,6 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
     ref,
   ) {
     const { t } = useTranslation();
-    const canReadStations = useHasPermission('stations:read');
     const closeRef = useRef<HTMLButtonElement>(null);
     const onCloseRef = useRef(onClose);
     useEffect(() => {
@@ -133,6 +114,9 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
         ? t(`stations.statusReason.${station.statusReason}`, station.statusReason)
         : null;
     const kind = t(KIND_LABEL_KEYS[stationKind(station)]);
+    const connectionType = station.connectionType ?? null;
+    // Wired stations show no signal.
+    const signal = connectionType === 'cellular' ? (station.signal ?? null) : null;
     return (
       <div
         ref={ref}
@@ -148,7 +132,7 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
           <div className="min-w-0">
             <h3 className="flex items-center gap-1.5 text-base font-semibold">
               <span className="truncate">{station.stationId}</span>
-              {station.cellular && <CellularBadge />}
+              <ConnectionBadge station={station} />
             </h3>
             <p className="text-xs text-muted-foreground">
               {station.model != null ? `${station.model} · ${kind}` : kind}
@@ -192,17 +176,36 @@ export const StationLayoutPopup = forwardRef<HTMLDivElement, StationLayoutPopupP
           <dd className="text-right tabular-nums">
             {energy != null ? formatEnergy(energy) : t('sites.layoutView.noSession')}
           </dd>
-          <dt className="text-muted-foreground">{t('sites.layoutView.connection')}</dt>
-          <dd className="text-right">
-            {station.cellular ? (
-              <span className="flex flex-col items-end">
-                <span>{t('sites.layoutView.connectionCellular')}</span>
-                {canReadStations && <CellularSignal stationId={station.id} />}
-              </span>
-            ) : (
-              t('sites.layoutView.connectionWired')
-            )}
-          </dd>
+          {connectionType != null && (
+            <>
+              <dt className="text-muted-foreground">{t('sites.layoutView.connection')}</dt>
+              <dd className="flex items-center justify-end gap-1.5" data-testid="layout-connection">
+                <ConnectionTypeIcon type={connectionType} className="text-muted-foreground" />
+                <span>{station.networkType ?? t(connectionTypeLabelKey(connectionType))}</span>
+                {signal != null && (
+                  <span
+                    className="flex items-center gap-1 tabular-nums text-muted-foreground"
+                    data-testid="layout-signal"
+                    aria-label={t('sites.layoutView.connectionWithSignal', {
+                      type: t(connectionTypeLabelKey(connectionType)),
+                      bars: signal.bars,
+                    })}
+                  >
+                    <SignalBarsIcon bars={signal.bars} className="text-foreground" />
+                    {`${String(signal.dbm)} dBm`}
+                  </span>
+                )}
+              </dd>
+            </>
+          )}
+          {station.ocppVersion != null && (
+            <>
+              <dt className="text-muted-foreground">{t('stations.ocppProtocol')}</dt>
+              <dd className="text-right" data-testid="layout-ocpp-version">
+                {station.ocppVersion}
+              </dd>
+            </>
+          )}
         </dl>
         {station.displayMessage != null && (
           <div

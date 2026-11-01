@@ -26,8 +26,8 @@ describe('stationDisplayState', () => {
   it('lists the states most severe first', () => {
     expect(STATION_DISPLAY_STATES).toEqual([
       'faulted',
-      'unavailable',
       'maintenance',
+      'unavailable',
       'offline',
       'reserved',
       'charging',
@@ -47,10 +47,21 @@ describe('stationDisplayState', () => {
     );
   });
 
-  it('shows unavailable over maintenance and offline', () => {
+  it('shows maintenance over the unavailable and offline state its window causes', () => {
+    // A maintenance window sets its stations Inoperative: they report Unavailable.
     expect(
       stationDisplayState(station({ status: 'unavailable', isOnline: false, inMaintenance: true })),
-    ).toBe('unavailable');
+    ).toBe('maintenance');
+    expect(
+      stationDisplayState(station({ status: 'unavailable', inMaintenance: true }, ['unavailable'])),
+    ).toBe('maintenance');
+    expect(stationDisplayState(station({ status: 'unavailable' }))).toBe('unavailable');
+  });
+
+  it('shows a fault over maintenance', () => {
+    expect(
+      stationDisplayState(station({ status: 'unavailable', inMaintenance: true }, ['faulted'])),
+    ).toBe('faulted');
   });
 
   it('shows maintenance over offline, offline over reserved', () => {
