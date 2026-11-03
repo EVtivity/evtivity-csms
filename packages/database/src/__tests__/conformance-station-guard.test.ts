@@ -47,6 +47,7 @@ const BY_ID_ONLY = new Set([
   'api/src/lib/site-layout-connectivity.ts',
   'api/src/lib/station-circuit.ts',
   'api/src/lib/station-command-audit.ts',
+  'api/src/lib/station-log-window.ts',
   'api/src/lib/station-message-log.ts',
   'api/src/lib/support-case-scope.ts',
   'api/src/routes/ai-insights.ts',

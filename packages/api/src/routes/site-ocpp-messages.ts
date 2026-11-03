@@ -9,7 +9,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, operatorStationSql } from '@evtivity/database';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -111,7 +111,8 @@ export function siteOcppMessageRoutes(app: FastifyInstance): void {
       if (query.stationId != null) {
         const [station] = await db.execute<{ id: string }>(sql`
           SELECT id FROM charging_stations
-          WHERE id = ${query.stationId} AND site_id = ${id} AND is_conformance = false
+          WHERE id = ${query.stationId} AND site_id = ${id}
+            AND ${sql.raw(operatorStationSql('charging_stations'))}
         `);
         if (station == null) {
           await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });

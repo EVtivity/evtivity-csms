@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql, type SQL } from 'drizzle-orm';
-import { db, toDate } from '@evtivity/database';
+import { db, operatorStationSql, toDate } from '@evtivity/database';
 import { maskStationCredentials } from '@evtivity/lib/secret-config';
 import { readStationSiteWindows } from './site-layout-replay.js';
 
@@ -58,7 +58,7 @@ export async function listSiteOcppMessages(
 ): Promise<SiteOcppMessage[]> {
   const stationConditions: SQL[] = [
     sql`s.site_id = ${query.siteId}`,
-    sql`s.is_conformance = false`,
+    sql.raw(operatorStationSql('s')),
   ];
   if (query.stationId != null) stationConditions.push(sql`s.id = ${query.stationId}`);
   const after = query.after != null ? sql`AND l.created_at >= ${query.after}` : sql``;

@@ -24,15 +24,15 @@ import {
 } from './live-ocpp-buffer';
 import { summarizeOcppMessage } from './ocpp-message-summary';
 
-/** The station OCPP log permission: the window shows the same messages. */
-export const LIVE_OCPP_PERMISSION = 'stations:read';
-
 /** Within this many px of the bottom the list follows new lines. */
 const FOLLOW_SLACK_PX = 24;
 
-/** Whether the signed-in user may open the live OCPP window. */
+/**
+ * Whether the signed-in user may open the live OCPP window: the station OCPP
+ * log permission, since the window shows the same messages.
+ */
 export function useCanViewLiveOcpp(): boolean {
-  return useHasPermission(LIVE_OCPP_PERMISSION);
+  return useHasPermission('stations:read');
 }
 
 export function LiveOcppButton({

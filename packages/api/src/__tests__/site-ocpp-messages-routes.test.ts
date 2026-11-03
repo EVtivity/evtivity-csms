@@ -31,6 +31,7 @@ vi.mock('@evtivity/database', () => ({
       return Promise.resolve(results.queue.shift() ?? []);
     }),
   },
+  operatorStationSql: (alias: string) => `${alias}.is_conformance = false`,
   toDate: (v: Date | string) => (v instanceof Date ? v : new Date(v)),
 }));
 
