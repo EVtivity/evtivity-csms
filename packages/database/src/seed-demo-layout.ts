@@ -688,7 +688,7 @@ async function seedDepotFleet(sql: postgres.Sql, stationIds: readonly string[]):
     const n = d.id.slice(-2);
     await sql`
       INSERT INTO driver_tokens (id, driver_id, id_token, token_type, is_active)
-      VALUES (${`dtk_demodepot${n}`}, ${d.id}, ${d.idToken}, 'ISO14443', true)
+      VALUES (${`dtk_demodepot${d.id.slice(-3)}`}, ${d.id}, ${d.idToken}, 'ISO14443', true)
       ON CONFLICT DO NOTHING
     `;
     const v = d.vehicle;

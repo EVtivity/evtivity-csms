@@ -208,4 +208,13 @@ describe('LiveOcppButton and its permission', () => {
     fireEvent.click(button);
     expect(onToggle).toHaveBeenCalled();
   });
+
+  it('shows the icon only on phones and keeps the label as its name and tooltip', () => {
+    render(<LiveOcppButton open={false} onToggle={vi.fn()} />);
+    const button = screen.getByRole('button', { name: 'sites.layoutView.liveOcpp.button' });
+    expect(button.getAttribute('title')).toBe('sites.layoutView.liveOcpp.button');
+    const label = screen.getByTestId('live-ocpp-toggle-label');
+    // Visually hidden below sm (640 px), shown from sm.
+    expect(label.className.split(' ')).toContain('max-sm:sr-only');
+  });
 });

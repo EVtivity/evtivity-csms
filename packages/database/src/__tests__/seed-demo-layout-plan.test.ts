@@ -220,6 +220,21 @@ describe('site layout demo plan', () => {
     expect(new Set(fleet.drivers.map((d) => d.vehicle.color)).size).toBeGreaterThanOrEqual(6);
   });
 
+  it('uses ids in the format the detail routes accept (prefix and 12 lowercase characters)', () => {
+    const fleet = LAYOUT_DEMO.fleet;
+    const routeId = (prefix: string) => new RegExp(`^${prefix}_[a-z0-9]{12}$`);
+    expect(fleet.id).toMatch(routeId('flt'));
+    for (const d of fleet.drivers) {
+      expect(d.id).toMatch(routeId('drv'));
+      expect(d.vehicle.id).toMatch(routeId('veh'));
+      expect(`dtk_demodepot${d.id.slice(-3)}`).toMatch(routeId('dtk'));
+    }
+    for (const site of LAYOUT_DEMO.sites) {
+      expect(site.id).toMatch(routeId('sit'));
+      for (const station of site.stations) expect(station.id).toMatch(routeId('sta'));
+    }
+  });
+
   it('has valid settings, every station on its own spot inside the lot, on a circuit of its site', () => {
     for (const site of LAYOUT_DEMO.sites) {
       expect(siteLayoutSettingsSchema.safeParse(site.settings).success).toBe(true);

@@ -43,6 +43,8 @@ export function LiveOcppButton({
   onToggle: () => void;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const label = t('sites.layoutView.liveOcpp.button');
+  // Phones show the icon only: the label stays for screen readers and as the tooltip.
   return (
     <Button
       type="button"
@@ -50,11 +52,14 @@ export function LiveOcppButton({
       size="sm"
       className="pointer-events-auto bg-card shadow-xs"
       aria-pressed={open}
+      title={label}
       data-testid="live-ocpp-toggle"
       onClick={onToggle}
     >
       <Terminal className="h-4 w-4" aria-hidden="true" />
-      {t('sites.layoutView.liveOcpp.button')}
+      <span className="max-sm:sr-only" data-testid="live-ocpp-toggle-label">
+        {label}
+      </span>
     </Button>
   );
 }

@@ -630,13 +630,15 @@ const depotDriver = (
   vehicle: Omit<LayoutDemoFleetDriver['vehicle'], 'id' | 'licensePlate'>,
 ): LayoutDemoFleetDriver => {
   const nn = String(n).padStart(2, '0');
+  // Ids keep 12 characters after the prefix, the format the detail routes accept.
+  const nnn = String(n).padStart(3, '0');
   return {
-    id: `drv_demodepot${nn}`,
+    id: `drv_demodepot${nnn}`,
     firstName,
     lastName,
     email: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@northgate-fleet.example`,
     idToken: `RFID-DEPOT-${nn}`,
-    vehicle: { id: `veh_demodepot${nn}`, licensePlate: `NGF-${String(100 + n)}`, ...vehicle },
+    vehicle: { id: `veh_demodepot${nnn}`, licensePlate: `NGF-${String(100 + n)}`, ...vehicle },
   };
 };
 
@@ -1166,7 +1168,7 @@ export const LAYOUT_DEMO: {
    * these drivers' cards and the layout draws their vehicles.
    */
   fleet: {
-    id: 'flt_demodepot01',
+    id: 'flt_demodepot001',
     name: 'Northgate Transit and Freight',
     description: 'Transit buses, semi trucks and box trucks charging at Northgate Fleet Depot',
     siteId: DEPOT,
