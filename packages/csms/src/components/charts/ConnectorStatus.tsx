@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { Pause, Trash2, Info } from 'lucide-react';
+import { Trash2, Info } from 'lucide-react';
+import { ConnectorStatusBadge } from '@/components/ConnectorStatusBadge';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { EmptyState } from '@/components/ui/content-state';
@@ -48,7 +49,6 @@ import { getErrorMessage } from '@/lib/error-message';
 import { PORTAL_BASE_URL } from '@/lib/config';
 import { api } from '@/lib/api';
 import { Select } from '@/components/ui/select';
-import { connectorStatusVariant } from '@/lib/status-variants';
 import { isOcpp2x } from '@evtivity/lib/ocpp-version';
 import { useCanSendOcppCommand } from '@/lib/ocpp-command-access';
 
@@ -164,34 +164,6 @@ interface ConnectorStatusProps {
   ocppProtocol: string | null;
   isOnline: boolean;
   isSimulator: boolean;
-}
-
-function statusClassName(status: string, isIdling?: boolean): string | undefined {
-  if (status === 'occupied' && isIdling === true) return undefined;
-  switch (status) {
-    case 'available':
-    case 'occupied':
-      return 'bg-blue-500 text-blue-50 hover:bg-blue-500/80';
-    case 'charging':
-    case 'discharging':
-      return 'bg-green-500 text-green-50 hover:bg-green-500/80';
-    case 'finishing':
-      return 'bg-violet-500 text-violet-50 hover:bg-violet-500/80';
-    case 'preparing':
-    case 'ev_connected':
-      return 'bg-cyan-500 text-cyan-50 hover:bg-cyan-500/80';
-    case 'reserved':
-      return 'bg-orange-500 text-orange-50 hover:bg-orange-500/80';
-    case 'suspended_ev':
-    case 'suspended_evse':
-    case 'idle':
-      return 'bg-yellow-500 text-yellow-50 hover:bg-yellow-500/80';
-    case 'faulted':
-    case 'unavailable':
-      return 'bg-red-500 text-red-50 hover:bg-red-500/80';
-    default:
-      return 'bg-red-500 text-red-50 hover:bg-red-500/80';
-  }
 }
 
 interface ConnectorFormRow {
@@ -743,15 +715,7 @@ export function ConnectorStatus({
                             })}
                           </span>
                         )}
-                        <Badge
-                          variant={connectorStatusVariant(conn.status, conn.isIdling)}
-                          className={statusClassName(conn.status, conn.isIdling)}
-                        >
-                          {conn.isIdling === true && <Pause className="h-3 w-3" />}
-                          {conn.isIdling === true
-                            ? t('status.idle')
-                            : t(`status.${conn.status}`, conn.status)}
-                        </Badge>
+                        <ConnectorStatusBadge status={conn.status} isIdling={conn.isIdling} />
                         {evse.retiredAt == null &&
                           (conn.retiredAt != null ? (
                             <RestoreIconButton

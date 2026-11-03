@@ -35,7 +35,6 @@ const ALLOWED: Record<string, string> = {
     'the shared FilterPopover (frontend/ui.md), a panel of shared controls',
   '../../pages/Dashboard.tsx':
     'the Historical range panel, which holds the shared DateRangeControl date fields',
-  '../../components/layout/StationCard.tsx': 'a hover tooltip, not a form control',
   '../../components/layout/SiteLayout3D.tsx':
     'the station hover tooltip of the 3D layout (name and state), not a form control',
 };

@@ -20,8 +20,6 @@ import {
   handleRotation,
   pointsBox,
   rotationHandleZ,
-  screenMessageText,
-  screenTextLayout,
 } from '../site-layout-grid';
 import { LANE_START_M, placePanels } from '../site-layout-links';
 import {
@@ -32,7 +30,6 @@ import {
   stationConnectorTypes,
   layoutStationCountsOf,
 } from '../site-layout-free';
-import { boardPoint, customBoardGeometry, CUSTOM_BOARD_PX_PER_M } from '../CustomLayoutBoard';
 import type { LayoutStation } from '../StationCard';
 
 function station(id: string, evses: number, overrides: Partial<LayoutStation> = {}): LayoutStation {
@@ -209,16 +206,6 @@ describe('custom site editing', () => {
     expect(rotationHandleZ(2, 'bus_bay')).toBe(14.7);
     expect(rotationHandleZ(2, 'truck_pull_through')).toBe(14.6);
   });
-
-  it('maps site meters to the 2D board around the spots', () => {
-    const g = customBoardGeometry([{ placement: { x: 0, z: 0, rotationDeg: 0 }, spots: 1 }]);
-    const p = boardPoint(g, { x: 0, z: 0 });
-    // 4 m of grass left of the spots, which reach 1.3 m left of the charger.
-    expect(p.x).toBeCloseTo((4 + 1.3) * CUSTOM_BOARD_PX_PER_M);
-    // The base behind the charger: 0.6 m (the spots begin 0.6 m in front of it).
-    expect(p.y).toBeCloseTo((4 + 0.6) * CUSTOM_BOARD_PX_PER_M);
-    expect(g.width).toBe(Math.ceil((2.6 + 8) * CUSTOM_BOARD_PX_PER_M));
-  });
 });
 
 describe('framing dense sites on phones', () => {
@@ -252,25 +239,5 @@ describe('framing dense sites on phones', () => {
       375,
     );
     expect(deep.minZ).toBeGreaterThan(50);
-  });
-});
-
-describe('display message on the charger screen', () => {
-  it('reads a message as plain text, at most 300 characters', () => {
-    expect(screenMessageText('<b>Welcome</b>&nbsp; to   the hub ')).toBe('Welcome to the hub');
-    expect(screenMessageText('x'.repeat(400))).toHaveLength(300);
-  });
-
-  it('wraps a short message on the screen and scrolls a long one', () => {
-    const measure = (s: string): number => s.length * 10;
-    expect(screenTextLayout('Idle fees apply after 15 min', measure, 120, 3)).toEqual({
-      kind: 'static',
-      lines: ['Idle fees', 'apply after', '15 min'],
-    });
-    expect(screenTextLayout('Idle fees apply after 15 minutes today', measure, 120, 2)).toEqual({
-      kind: 'scroll',
-      text: 'Idle fees apply after 15 minutes today',
-    });
-    expect(screenTextLayout('Supercalifragilistic', measure, 120, 3).kind).toBe('scroll');
   });
 });

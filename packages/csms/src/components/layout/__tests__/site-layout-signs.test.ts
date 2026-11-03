@@ -8,12 +8,15 @@ import {
   SIGN_POST_INSET_M,
   SIGN_TEXT_KEYS,
   isCaliforniaSite,
+  SIGN_PX_PER_INCH,
+  signCanvasSize,
   signLetterPx,
   signLines,
   signTexts,
   stationSignMount,
   signSupport,
 } from '../site-layout-signs';
+import { WALL_SIGN } from '../site-layout-signs';
 import en from '@/i18n/locales/en.json';
 import de from '@/i18n/locales/de.json';
 import es from '@/i18n/locales/es.json';
@@ -57,17 +60,29 @@ describe('EV charging sign placement', () => {
     }
   });
 
-  it('puts the sign of a wall box on the facade above it, without a post', () => {
-    const mount = stationSignMount({
-      ...base,
-      siteType: 'office_retail',
-      wall: true,
-      wallZ: wallBoxOffset(),
-    });
-    // Above the wall box (x 0), on the facade face, not out over the sidewalk.
-    expect(mount).toMatchObject({ x: 0, z: wallBoxOffset(), onWall: true, postTopM: null });
-    expect(mount?.chargingOnlyBottomM).toBeGreaterThanOrEqual(EV_SIGNS.mountBottomM);
-    expect(signSupport(mount!)).toEqual({ kind: 'wall', z: wallBoxOffset() });
+  it('puts the sign of a wall box flat on the facade beside it, under the window sill', () => {
+    for (const california of [false, true]) {
+      const mount = stationSignMount({
+        ...base,
+        siteType: 'office_retail',
+        wall: true,
+        california,
+        wallZ: wallBoxOffset(),
+      });
+      // Beside the wall box, on the facade face, not out over the sidewalk.
+      expect(mount).toMatchObject({
+        x: WALL_SIGN.x,
+        z: wallBoxOffset(),
+        onWall: true,
+        postTopM: null,
+      });
+      expect(mount?.chargingOnlyBottomM).toBe(WALL_SIGN.bottomM);
+      // Its top under the ground floor window sill (the strip from 2.3 m, its sill 2.25 m).
+      expect(WALL_SIGN.bottomM + EV_SIGNS.chargingOnly.heightM).toBeLessThan(2.25);
+      // The tow-away sign under it stays on the wall above the ground.
+      if (california) expect(mount?.towAwayBottomM).toBeGreaterThan(0.5);
+      expect(signSupport(mount!)).toEqual({ kind: 'wall', z: wallBoxOffset() });
+    }
   });
 
   it('stands every standing sign on a post that reaches the ground', () => {
@@ -214,10 +229,16 @@ describe('sign texts in the viewer language', () => {
   });
 
   it('sizes a legend line by the sign letter height and the line pitch', () => {
-    // The English R7-113 legend: 5 lines of 58 px pitch on a 360 px face.
-    expect(signLetterPx('chargingOnly', 58)).toBe(46);
-    expect(signLetterPx('chargingOnly', 200)).toBe(52);
-    expect(signLetterPx('towAway', 52)).toBe(34);
-    expect(signLetterPx('towAway', 10)).toBe(12);
+    // The English R7-113 legend: 5 lines of 232 px pitch on a 1440 px face (80 px per inch).
+    expect(signLetterPx('chargingOnly', 232)).toBe(185);
+    expect(signLetterPx('chargingOnly', 800)).toBe(208);
+    expect(signLetterPx('towAway', 208)).toBe(136);
+    expect(signLetterPx('towAway', 40)).toBe(48);
+  });
+
+  it('draws the sign faces at 80 px per inch so the legend stays sharp at overview zoom', () => {
+    expect(SIGN_PX_PER_INCH).toBe(80);
+    expect(signCanvasSize('chargingOnly')).toMatchObject({ width: 960, height: 1440 });
+    expect(signCanvasSize('towAway')).toMatchObject({ width: 1360, height: 1760 });
   });
 });

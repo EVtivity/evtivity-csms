@@ -81,8 +81,12 @@ export const CROSS_INVALIDATION: Record<string, string[]> = {
 };
 
 // A station's SIM status and timeline change with every Refresh of that
-// station, which the 5 s station rule would hide. Checked before CACHE_RULES.
-const UNCACHED_PATHS: readonly RegExp[] = [/^\/v1\/stations\/[^/]+\/sim(?:\/|$)/];
+// station, and the live OCPP messages of a site with every message, which
+// the 5 s station and site rules would hide. Checked before CACHE_RULES.
+const UNCACHED_PATHS: readonly RegExp[] = [
+  /^\/v1\/stations\/[^/]+\/sim(?:\/|$)/,
+  /^\/v1\/sites\/[^/]+\/ocpp-messages$/,
+];
 
 export function matchCacheRule(pathname: string): CacheRule | null {
   if (UNCACHED_PATHS.some((pattern) => pattern.test(pathname))) return null;

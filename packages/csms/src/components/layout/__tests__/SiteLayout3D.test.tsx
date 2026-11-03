@@ -5,7 +5,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, act, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import type { SceneCallbacks } from '../site-layout-scene';
+import type { SceneCallbacks } from '../site-layout-scene-types';
 
 const { getMock, permissions, scene, createScene, setThemeMock, mockLanguage } = vi.hoisted(() => {
   const sceneState = {
@@ -17,7 +17,7 @@ const { getMock, permissions, scene, createScene, setThemeMock, mockLanguage } =
       prop: string | null;
       virtualSign?: string | null;
       glow: boolean;
-      beacon: boolean;
+      blinking: boolean;
       wall: boolean;
       terminals: Array<{ id: string; side: number; hasDisplay: boolean; online: boolean | null }>;
     }>,
@@ -35,6 +35,13 @@ const { getMock, permissions, scene, createScene, setThemeMock, mockLanguage } =
     throwOnCreate: false,
     flow: new Map<string, number>() as ReadonlyMap<string, number>,
     focused: [] as string[],
+    nudges: [] as Array<{
+      forward: number;
+      right: number;
+      yaw: number;
+      pitch: number;
+      zoom: number;
+    }>,
     pointDistance: 20,
     // Up close: every badge at its full size.
     pxPerMeter: 1000,
@@ -73,6 +80,9 @@ vi.mock('@/lib/api', () => ({
 
 vi.mock('@/lib/auth', () => ({
   useHasPermission: (permission: string) => permissions.has(permission),
+  // The live OCPP window reads the user's time zone.
+  useAuth: (select: (state: { user: { timezone: string } }) => unknown) =>
+    select({ user: { timezone: 'UTC' } }),
 }));
 
 // WebGL does not exist in jsdom: the scene is a stub that records what it is given.
@@ -82,7 +92,11 @@ vi.mock('../site-layout-scene', () => ({
 
 import { effectiveLayoutSettings, type SiteLayoutSettings } from '@evtivity/lib/site-layout';
 import SiteLayout3D, { linkLabelText, stationBays } from '../SiteLayout3D';
-import { stationStateTextColor } from '@/lib/station-display-state';
+import {
+  resolveCssColor,
+  stationStateColor,
+  stationStateTextColor,
+} from '@/lib/station-display-state';
 import type { LayoutStation } from '../StationCard';
 import type { LayoutTerminal } from '../layout-terminals';
 import type { LinkPanel } from '../site-layout-links';
@@ -156,6 +170,7 @@ function renderView(
     fullScreenFooter: React.ReactNode;
     onFullScreenChange: (on: boolean) => void;
     california: boolean;
+    liveOcppSiteId: string;
   }> = {},
 ) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -181,6 +196,7 @@ function renderView(
           replaying={props.replaying ?? false}
           fullScreenFooter={props.fullScreenFooter}
           onFullScreenChange={props.onFullScreenChange}
+          liveOcppSiteId={props.liveOcppSiteId}
           onMove={onMove}
           onTransformerMove={onTransformerMove}
           onFreeMove={props.onFreeMove}
@@ -202,6 +218,7 @@ beforeEach(() => {
   scene.fits = 0;
   scene.flow = new Map();
   scene.focused = [];
+  scene.nudges = [];
   scene.pointDistance = 20;
   scene.pxPerMeter = 1000;
   scene.markerXs = new Map();
@@ -239,6 +256,15 @@ beforeEach(() => {
       },
       focus: (id: string) => {
         scene.focused.push(id);
+      },
+      nudgeCamera: (n: {
+        forward: number;
+        right: number;
+        yaw: number;
+        pitch: number;
+        zoom: number;
+      }) => {
+        scene.nudges.push(n);
       },
       viewDistance: () => 10,
       energyLabelPoint: () => ({ x: 400, y: 80, depth: 0.6, distance: 20, visible: true }),
@@ -280,6 +306,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   permissions.clear();
   scene.throwOnCreate = false;
   vi.clearAllMocks();
@@ -319,7 +346,8 @@ describe('SiteLayout3D', () => {
     expect(scene.transformers).toHaveLength(1);
     expect(scene.links.segments).toEqual([]);
     // A reservation stands no physical sign in the spot: a virtual sign floats over it.
-    expect(scene.stations.map((s) => s.prop)).toEqual([null, null]);
+    // Both stations have a connector plugged in, so a car stands in each (also faulted).
+    expect(scene.stations.map((s) => s.prop)).toEqual(['car', 'car']);
     expect(scene.stations.map((s) => s.virtualSign)).toEqual(['reserved', null]);
     // The sign faces get their texts in the viewer's language.
     expect(setThemeMock).toHaveBeenCalledWith(
@@ -332,6 +360,27 @@ describe('SiteLayout3D', () => {
         },
       }),
     );
+  });
+
+  it('paints the charger plates in the AC and DC colors of the company branding', async () => {
+    getMock.mockImplementation((url: string) =>
+      Promise.resolve(
+        url === '/v1/portal/branding'
+          ? { chargerColorAc: '#112233', chargerColorDc: '#ff8800' }
+          : {},
+      ),
+    );
+    renderView([station()]);
+    // The brand default until the branding loads, then the company's own colors.
+    expect(setThemeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ plateColors: { ac: '#2563eb', dc: '#2563eb' } }),
+    );
+    await waitFor(() => {
+      expect(setThemeMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ plateColors: { ac: '#112233', dc: '#ff8800' } }),
+      );
+    });
+    getMock.mockReset();
   });
 
   it('redraws the sign faces when the language changes', () => {
@@ -369,10 +418,46 @@ describe('SiteLayout3D', () => {
       station({
         evses: [{ evseId: 1, status: 'charging', connectors: [connector({ status: 'charging' })] }],
       }),
-      station({ id: 'sta_2', stationId: 'CS-2', inMaintenance: true, positionX: 220 }),
+      station({ id: 'sta_2', stationId: 'CS-2', inMaintenance: true, positionX: 220, evses: [] }),
       station({ id: 'sta_3', stationId: 'CS-3', status: 'available', positionX: 420, evses: [] }),
     ]);
     expect(scene.stations.map((s) => s.prop)).toEqual(['car', 'cone', null]);
+  });
+
+  it('keeps the car of a plugged connector after a fault, on every EVSE that has one', () => {
+    renderView([
+      station({
+        status: 'faulted',
+        evses: [
+          {
+            evseId: 1,
+            status: 'faulted',
+            connectors: [connector({ status: 'faulted', isPluggedIn: true })],
+          },
+        ],
+      }),
+      station({
+        id: 'sta_2',
+        stationId: 'CS-2',
+        status: 'available',
+        positionX: 220,
+        evses: [
+          {
+            evseId: 1,
+            status: 'suspended_ev',
+            connectors: [connector({ status: 'suspended_ev', isPluggedIn: true })],
+          },
+        ],
+      }),
+      station({
+        id: 'sta_3',
+        stationId: 'CS-3',
+        status: 'available',
+        positionX: 420,
+        evses: [{ evseId: 1, status: 'available', connectors: [connector({})] }],
+      }),
+    ]);
+    expect(scene.stations.map((s) => s.prop)).toEqual(['car', 'car', null]);
   });
 
   it('shows every station as a state marker without a name or state label, and the ID and state on hover', () => {
@@ -464,7 +549,7 @@ describe('SiteLayout3D', () => {
     expect(popup.textContent).toContain('CS-1');
     expect(popup.textContent).toContain('Terra 184');
     expect(popup.textContent).toContain('sites.layoutView.dcFast');
-    expect(popup.textContent).toContain('sites.layoutState.faulted');
+    expect(popup.textContent).toContain('status.faulted');
     expect(popup.textContent).toContain('stations.statusReason.station_faulted');
     expect(popup.textContent).toContain('96.5 / 150 kW');
     expect(popup.textContent).toContain('sites.layoutView.allocatedLimit');
@@ -475,7 +560,8 @@ describe('SiteLayout3D', () => {
     expect(popup.querySelector('[data-status="reserved"]')).not.toBeNull();
     const link = screen.getByRole('link', { name: 'sites.layoutView.openStation' });
     expect(link.getAttribute('href')).toBe('/stations/sta_1');
-    expect(getMock).not.toHaveBeenCalled();
+    // Only the branding (the charger plate colors, a query the layout page shares) is read.
+    expect(getMock.mock.calls.filter((c) => c[0] !== '/v1/portal/branding')).toEqual([]);
 
     fireEvent.click(screen.getByRole('button', { name: 'common.close' }));
     expect(screen.queryByTestId('station-layout-popup')).toBeNull();
@@ -498,7 +584,8 @@ describe('SiteLayout3D', () => {
     expect(within(popup).getByTestId('layout-connection').textContent).toContain('LTE-M');
     expect(within(popup).getByTestId('layout-signal').textContent).toBe('-78 dBm');
     expect(within(popup).getByTestId('layout-ocpp-version').textContent).toBe('2.0.1');
-    expect(getMock).not.toHaveBeenCalled();
+    // Only the branding (the charger plate colors, a query the layout page shares) is read.
+    expect(getMock.mock.calls.filter((c) => c[0] !== '/v1/portal/branding')).toEqual([]);
   });
 
   it('shows the data plan without signal bars when no strength is known, and none for a wired station', () => {
@@ -908,12 +995,17 @@ describe('SiteLayout3D', () => {
     expect(onUnavailable).toHaveBeenCalledTimes(1);
   });
 
-  it('puts a beacon on a faulted station only', () => {
+  it('blinks the red status light of a faulted station only, with no beacon', () => {
     renderView([
       station(),
       station({ id: 'sta_2', stationId: 'CS-2', status: 'faulted', positionX: 220 }),
     ]);
-    expect(scene.stations.map((s) => s.beacon)).toEqual([false, true]);
+    expect(scene.stations.map((s) => s.blinking)).toEqual([false, true]);
+    // The faulted light takes the faulted state color, not the available one.
+    const [available, faulted] = scene.stations;
+    expect(faulted?.lightColor).toBe(resolveCssColor(stationStateColor('faulted')));
+    expect(faulted?.lightColor).not.toBe(available?.lightColor);
+    expect(scene.stations.some((s) => 'beacon' in s)).toBe(false);
   });
 
   it('feeds the live power to the links and shows each panel draw against its limit', () => {
@@ -980,6 +1072,85 @@ describe('SiteLayout3D', () => {
     expect(screen.getByTestId('station-layout-popup')).toBeTruthy();
     fireEvent.click(screen.getByTestId('site-layout-summary-faulted'));
     expect(scene.focused).toEqual(['sta_2', 'sta_3']);
+  });
+
+  it('opens the Live OCPP Commands window under the summary, filtered to a clicked station', async () => {
+    getMock.mockResolvedValue({ data: [] });
+    permissions.add('stations:read');
+    renderView([station(), station({ id: 'sta_2', stationId: 'CS-2', status: 'faulted' })], {
+      liveOcppSiteId: 'sit_aaaaaaaaaaaa',
+    });
+    expect(screen.queryByTestId('live-ocpp-window')).toBeNull();
+    fireEvent.click(screen.getByTestId('live-ocpp-toggle'));
+    expect(screen.getByTestId('live-ocpp-window')).toBeTruthy();
+    await waitFor(() => {
+      expect(String(getMock.mock.lastCall?.[0])).toContain(
+        '/v1/sites/sit_aaaaaaaaaaaa/ocpp-messages',
+      );
+    });
+    fireEvent.click(screen.getByTestId('site-layout-3d-marker-sta_2'));
+    await waitFor(() => {
+      expect(String(getMock.mock.lastCall?.[0])).toContain('stationId=sta_2');
+    });
+    fireEvent.click(screen.getByTestId('live-ocpp-close'));
+    expect(screen.queryByTestId('live-ocpp-window')).toBeNull();
+    permissions.delete('stations:read');
+  });
+
+  it('shows no Live OCPP Commands button without stations:read, while editing or without a site', () => {
+    renderView([station()], { liveOcppSiteId: 'sit_aaaaaaaaaaaa' });
+    expect(screen.queryByTestId('live-ocpp-toggle')).toBeNull();
+    cleanup();
+    permissions.add('stations:read');
+    renderView([station()]);
+    expect(screen.queryByTestId('live-ocpp-toggle')).toBeNull();
+    cleanup();
+    renderView([station()], { liveOcppSiteId: 'sit_aaaaaaaaaaaa', editing: true });
+    expect(screen.queryByTestId('live-ocpp-toggle')).toBeNull();
+    permissions.delete('stations:read');
+  });
+
+  it('makes the stage focusable with the keys in its name and a Keyboard help', () => {
+    renderView([station()]);
+    const stage = screen.getByTestId('site-layout-3d');
+    expect(stage.tabIndex).toBe(0);
+    expect(stage.getAttribute('aria-label')).toBe('sites.layoutView.keyboard.stageLabel');
+    const help = screen.getByTestId('site-layout-keyboard-help');
+    expect(stage.getAttribute('aria-describedby')).toBe(help.id);
+    expect(help.className).toContain('sr-only');
+    const toggle = screen.getByTestId('site-layout-keyboard-toggle');
+    expect(toggle.getAttribute('aria-label')).toBe('sites.layoutView.keyboard.button');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+    expect(help.className).not.toContain('sr-only');
+    expect(help.textContent).toContain('sites.layoutView.keyboard.moveKeys');
+  });
+
+  it('names the touch gestures in the hint on a touch screen', () => {
+    renderView([station()]);
+    expect(screen.getByText('sites.layoutView.hint')).toBeDefined();
+    cleanup();
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: q === '(pointer: coarse)' }));
+    renderView([station()]);
+    expect(screen.getByText('sites.layoutView.hintTouch')).toBeDefined();
+    expect(screen.getByTestId('site-layout-keyboard-help').textContent).toContain(
+      'sites.layoutView.keyboard.pointerPanKeys',
+    );
+  });
+
+  it('navigates only while the stage has the focus: arrows, Home', () => {
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
+    renderView([station()]);
+    const stage = screen.getByTestId('site-layout-3d');
+    const fitsBefore = scene.fits;
+    fireEvent.keyDown(stage, { key: 'ArrowLeft' });
+    expect(scene.nudges).toHaveLength(1);
+    expect(scene.nudges[0]?.right).toBeLessThan(0);
+    fireEvent.keyDown(stage, { key: 'Home' });
+    expect(scene.fits).toBe(fitsBefore + 1);
+    // A key from a button on the stage (the list toggle) is not navigation.
+    fireEvent.keyDown(screen.getByTestId('site-layout-list-toggle'), { key: 'w', code: 'KeyW' });
+    expect(scene.nudges).toHaveLength(1);
   });
 
   it('lists every station for the keyboard and focuses the one chosen', () => {
@@ -1371,6 +1542,36 @@ describe('SiteLayout3D', () => {
       expect(onFreeMove).toHaveBeenLastCalledWith('a', { x: 0, z: 0, rotationDeg: 1 });
       // No popup in edit mode.
       expect(screen.queryByTestId('station-layout-popup')).toBeNull();
+      // The arrows and R stay with the station; W and F still move the camera.
+      expect(scene.nudges).toHaveLength(0);
+    });
+
+    it('keeps W, F and the zoom keys on the camera while a station is selected', () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      const onFreeMove = vi.fn();
+      renderView([twoEvses('a', { x: 0, z: 0, rotationDeg: 0 })], {
+        settings: CUSTOM,
+        editing: true,
+        onFreeMove,
+      });
+      act(() => {
+        scene.callbacks?.onFrame();
+      });
+      const chip = screen.getByRole('button', {
+        name: 'sites.layoutView.stateDetailsLabel:CS-a:sites.layoutState.charging',
+      });
+      fireEvent.focus(chip);
+      fireEvent.keyDown(chip, { key: 'ArrowUp' });
+      fireEvent.keyDown(chip, { key: 'r', code: 'KeyR' });
+      expect(scene.nudges).toHaveLength(0);
+      fireEvent.keyDown(chip, { key: 'w', code: 'KeyW' });
+      fireEvent.keyDown(chip, { key: 'f', code: 'KeyF' });
+      fireEvent.keyDown(chip, { key: 'PageUp' });
+      expect(scene.nudges.map((n) => [n.forward > 0, n.pitch > 0, n.zoom > 0])).toEqual([
+        [true, false, false],
+        [false, true, false],
+        [false, false, true],
+      ]);
     });
 
     it('moves and turns a selected solar canopy', () => {
@@ -1391,7 +1592,7 @@ describe('SiteLayout3D', () => {
       expect(onSolarMove).toHaveBeenLastCalledWith('pv-1', { x: -20, z: 0, rotationDeg: 15 });
     });
 
-    it('shows the active display message on the charger screen', () => {
+    it('shows the screen text of the layout reply on the charger screen', () => {
       renderView(
         [
           station({
@@ -1403,12 +1604,46 @@ describe('SiteLayout3D', () => {
             stationId: 'CS-2',
             freePosition: { x: 10, z: 0, rotationDeg: 0 },
           }),
+          station({
+            id: 'sta_3',
+            stationId: 'CS-3',
+            freePosition: { x: 20, z: 0, rotationDeg: 0 },
+            displayMessage: 'Old message',
+            screenMessage: { text: 'Welcome to Acme', source: 'default_welcome' },
+          }),
         ],
         { settings: CUSTOM },
       );
-      const [first, second] = scene.stations as unknown as Array<{ message: string | null }>;
-      expect(first?.message).toBe('Idle fees apply after 15 minutes');
+      const [first, second, third] = scene.stations as unknown as Array<{
+        message: string | null;
+      }>;
+      // Plain text is made when the screen is drawn (`screenTextPlan`).
+      expect(first?.message).toBe('<b>Idle fees</b> apply after 15 minutes');
       expect(second?.message).toBeNull();
+      expect(third?.message).toBe('Welcome to Acme');
+    });
+
+    it('shows the magnified screen while a charger screen is hovered', () => {
+      renderView(
+        [
+          station({
+            freePosition: { x: 0, z: 0, rotationDeg: 0 },
+            screenMessage: { text: 'Plug in to start', source: 'station_message_template' },
+          }),
+        ],
+        { settings: CUSTOM },
+      );
+      act(() => {
+        scene.callbacks?.onEquipmentHover?.('screen:ac57in:sta_1');
+      });
+      fireEvent.pointerMove(screen.getByTestId('site-layout-3d'), { clientX: 40, clientY: 50 });
+      const zoom = screen.getByTestId('screen-message-zoom');
+      expect(zoom.textContent).toContain('CS-1');
+      expect(zoom.textContent).toContain('Plug in to start');
+      act(() => {
+        scene.callbacks?.onEquipmentHover?.(null);
+      });
+      expect(screen.queryByTestId('screen-message-zoom')).toBeNull();
     });
   });
 

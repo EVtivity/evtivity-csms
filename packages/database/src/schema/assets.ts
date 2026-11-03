@@ -320,10 +320,20 @@ export const stationLayoutPositions = pgTable(
     freeXM: numeric('free_x_m', { precision: 7, scale: 2 }),
     freeZM: numeric('free_z_m', { precision: 7, scale: 2 }),
     freeRotationDeg: numeric('free_rotation_deg', { precision: 4, scale: 1 }),
+    // The station's card on the 2D board, in board px (both or none; none
+    // shows the computed default slot). Independent of its 3D spot.
+    boardX: integer('board_x'),
+    boardY: integer('board_y'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('idx_station_layout_site').on(table.siteId)],
+  (table) => [
+    index('idx_station_layout_site').on(table.siteId),
+    check(
+      'station_layout_positions_board_check',
+      sql`(${table.boardX} IS NULL) = (${table.boardY} IS NULL)`,
+    ),
+  ],
 );
 
 export const loadAllocationStrategyEnum = pgEnum(

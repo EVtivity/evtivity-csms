@@ -1660,6 +1660,20 @@
       "when": 1791000049200,
       "tag": "0482_release_0_1_49_indexes_2",
       "breakpoints": true
+    },
+    {
+      "idx": 237,
+      "version": "7",
+      "when": 1791000049300,
+      "tag": "0483_release_0_1_49_charger_colors",
+      "breakpoints": true
+    },
+    {
+      "idx": 238,
+      "version": "7",
+      "when": 1791000049400,
+      "tag": "0484_release_0_1_49_board_positions",
+      "breakpoints": true
     }
   ]
 }

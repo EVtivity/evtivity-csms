@@ -877,6 +877,8 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // seed: the DiceBear seed of a replayed session driver's avatar; the redactor drops the whole avatar.
   getSiteLayoutReplay: { ...R, redactedFields: ['seed'] },
   getSiteMeterValues: R,
+  // A live feed for the layout window; the assistant reads a station's log through getStationOcppLogs.
+  getSiteOcppMessages: N,
   getSiteMetrics: R,
   getSiteNeighbors: N,
   getSitePopularTimes: R,

@@ -2642,6 +2642,13 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   s('GET', '/sites/:id/layout', 'sites:read', (f) => `${sit(f)}/layout`, 'SITE_NOT_FOUND'),
   s(
     'GET',
+    '/sites/:id/ocpp-messages',
+    'stations:read',
+    (f) => `${sit(f)}/ocpp-messages`,
+    'SITE_NOT_FOUND',
+  ),
+  s(
+    'GET',
     '/sites/:id/layout/replay',
     'sites:read',
     // Yesterday in UTC is never a future day in the fixture site's timezone.

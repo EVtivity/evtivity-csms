@@ -75,6 +75,7 @@ import {
 import { isSimFeatureOn, readSimSettings } from '../lib/sim.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import { listStationMessageLog } from '../lib/station-message-log.js';
+import { stationLogSince } from '../lib/station-log-window.js';
 import {
   chargingStations,
   evses,
@@ -4234,7 +4235,9 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       const query = request.query as z.infer<typeof ocppLogsQuery>;
-      return listStationMessageLog(id, query);
+      const since = await stationLogSince(id, userId);
+      if (since === 'closed') return { data: [], total: 0, actions: [] };
+      return listStationMessageLog(id, { ...query, since });
     },
   );
 
@@ -4409,6 +4412,10 @@ export function stationRoutes(app: FastifyInstance): void {
       }
       const query = parseZodRequest(securityLogsQuery, request.query);
       const offset = (query.page - 1) * query.limit;
+      // A site user reads a moved station's rows from its time at the site only.
+      const since = await stationLogSince(id, userId);
+      if (since === 'closed') return { data: [], total: 0 };
+      const sinceTs = since?.toISOString() ?? null;
 
       // UNION ALL over both source tables. Both are filtered by stationId
       // (the FK is on `chargingStations.id` in both schemas), then by
@@ -4447,6 +4454,7 @@ export function stationRoutes(app: FastifyInstance): void {
             AND (${eventFilter}::text IS NULL OR event = ${eventFilter})
             AND (${fromTs}::timestamptz IS NULL OR created_at >= ${fromTs}::timestamptz)
             AND (${toTs}::timestamptz IS NULL OR created_at <= ${toTs}::timestamptz)
+            AND (${sinceTs}::timestamptz IS NULL OR created_at >= ${sinceTs}::timestamptz)
         `);
       }
       if (wantSecurity) {
@@ -4465,6 +4473,8 @@ export function stationRoutes(app: FastifyInstance): void {
             AND (${severityFilter}::text IS NULL OR severity = ${severityFilter})
             AND (${fromTs}::timestamptz IS NULL OR timestamp >= ${fromTs}::timestamptz)
             AND (${toTs}::timestamptz IS NULL OR timestamp <= ${toTs}::timestamptz)
+            -- The window reads the server receipt time: the station reports its own timestamp.
+            AND (${sinceTs}::timestamptz IS NULL OR created_at >= ${sinceTs}::timestamptz)
         `);
       }
       if (parts.length === 0) {

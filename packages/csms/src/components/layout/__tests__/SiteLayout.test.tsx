@@ -199,7 +199,12 @@ describe('SiteLayout view toggle', () => {
     fireEvent.click(screen.getByRole('button', { name: 'sites.layoutView.view2d' }));
     expect(await screen.findByTestId('site-layout-2d')).toBeDefined();
     expect(screen.queryByTestId('site-layout-3d')).toBeNull();
-    expect(screen.queryByRole('button', { name: /sites\.layoutView\.fitToView/ })).toBeNull();
+    // The 3D Fit to View leaves the header; the board has its own Fit button.
+    const fits = screen.getAllByRole('button', { name: /sites\.layoutView\.fitToView/ });
+    expect(fits).toHaveLength(1);
+    expect(within(screen.getByTestId('site-layout-2d')).getByTestId('site-layout-2d-fit')).toBe(
+      fits[0],
+    );
     expect(window.localStorage.getItem('site-layout-view')).toBe('2d');
 
     cleanup();
@@ -323,10 +328,12 @@ describe('SiteLayout 2D cards', () => {
     window.localStorage.setItem('site-layout-view', '2d');
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
-    const ac = within(board).getByText('CS-AC').closest('.rounded-lg') as HTMLElement;
-    const dc = within(board).getByText('CS-DC').closest('.rounded-lg') as HTMLElement;
+    const ac = within(board).getByTestId('site-layout-card-sta_ac');
+    const dc = within(board).getByTestId('site-layout-card-sta_dc');
 
-    expect(within(ac).getByRole('img', { name: 'sites.layoutState.faulted' })).toBeDefined();
+    // The station status: the Stations list badge, no separate state icon.
+    expect(within(ac).getByTestId('station-card-status').textContent).toBe('status.faulted');
+    expect(within(ac).queryByRole('img', { name: 'sites.layoutState.faulted' })).toBeNull();
     expect(within(ac).getByTestId('connection-badge').getAttribute('data-connection')).toBe(
       'cellular',
     );
@@ -334,10 +341,12 @@ describe('SiteLayout 2D cards', () => {
       within(ac).getByTestId('connection-badge').querySelector('[data-bars="2"]'),
     ).not.toBeNull();
     expect(within(ac).queryByTestId('new-placement-tag')).toBeNull();
-    // The AC icon is 48 px wide, the DC icon 52 px.
-    expect(ac.querySelector('svg[width="48"]')).not.toBeNull();
+    // The picture is the station's own 3D model: an AC pedestal, a DC dispenser.
+    expect(within(ac).getByTestId('station-card-thumbnail').getAttribute('data-model')).toMatch(
+      /^ac-pedestal/,
+    );
 
-    expect(within(dc).getByRole('img', { name: 'sites.layoutState.maintenance' })).toBeDefined();
+    expect(within(dc).getByTestId('station-card-status').textContent).toBe('status.available');
     expect(within(dc).queryByTestId('new-placement-tag')).toBeNull();
     expect(within(dc).getByTestId('connection-badge').getAttribute('data-connection')).toBe(
       'wifi_or_wired',
@@ -348,10 +357,12 @@ describe('SiteLayout 2D cards', () => {
     expect(screen.getByTestId('connection-legend-wifi_or_wired')).toBeDefined();
     expect(screen.queryByTestId('connection-legend-wifi')).toBeNull();
     expect(screen.queryByTestId('connection-legend-wired')).toBeNull();
-    expect(dc.querySelector('svg[width="52"]')).not.toBeNull();
+    expect(within(dc).getByTestId('station-card-thumbnail').getAttribute('data-model')).toBe(
+      'dc-dispenser',
+    );
   });
 
-  it('draws the building edge along the first row of an office or retail site, and none on a parking lot', async () => {
+  it('shows only the cards on an office or retail site: no building, lot or ground legend', async () => {
     const office = { ...effectiveLayoutSettings(null), siteType: 'office_retail' };
     getMock.mockImplementation((url: string) =>
       Promise.resolve(
@@ -365,17 +376,17 @@ describe('SiteLayout 2D cards', () => {
     window.localStorage.setItem('site-layout-view', '2d');
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
-    expect(await within(board).findByTestId('site-layout-2d-building')).toBeDefined();
-    expect(screen.getByTestId('site-layout-building-legend').textContent).toContain(
-      'sites.layoutView.building',
-    );
+    expect(await within(board).findByTestId('site-layout-card-sta_ac')).toBeDefined();
+    expect(within(board).queryByTestId('site-layout-2d-building')).toBeNull();
+    expect(within(board).queryByTestId('site-layout-2d-lot')).toBeNull();
+    expect(screen.queryByTestId('site-layout-building-legend')).toBeNull();
   });
 
-  it('draws the street of a curbside site between its sides, and no outline for a side without chargers', async () => {
+  it('shows a curbside site as its two rows of cards, with no street drawing', async () => {
     const curb = {
       ...effectiveLayoutSettings(null),
       siteType: 'curbside',
-      chargersLeft: 0,
+      chargersLeft: 2,
       chargersRight: 3,
     };
     getMock.mockImplementation((url: string) =>
@@ -390,14 +401,14 @@ describe('SiteLayout 2D cards', () => {
     window.localStorage.setItem('site-layout-view', '2d');
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
-    expect(await within(board).findByTestId('site-layout-2d-street')).toBeDefined();
-    expect(within(board).queryByTestId('site-layout-2d-side-left')).toBeNull();
-    expect(within(board).getByTestId('site-layout-2d-side-right')).toBeDefined();
-    expect(within(board).queryByTestId('site-layout-2d-lot')).toBeNull();
-    expect(within(board).queryByTestId('site-layout-2d-building')).toBeNull();
-    expect(screen.getByTestId('site-layout-street-legend').textContent).toContain(
-      'sites.layoutView.street',
-    );
+    const ac = await within(board).findByTestId('site-layout-card-sta_ac');
+    const dc = within(board).getByTestId('site-layout-card-sta_dc');
+    expect(within(board).queryByTestId('site-layout-2d-street')).toBeNull();
+    expect(screen.queryByTestId('site-layout-street-legend')).toBeNull();
+    // No two cards overlap.
+    const left = (el: HTMLElement): number => Number.parseFloat(el.style.left);
+    const top = (el: HTMLElement): number => Number.parseFloat(el.style.top);
+    expect(left(ac) !== left(dc) || top(ac) !== top(dc)).toBe(true);
   });
 
   it('names the AC chargers by site type and shows energy assets in the legend on a parking lot only', async () => {
@@ -421,7 +432,7 @@ describe('SiteLayout 2D cards', () => {
     expect(within(legend).queryByTestId('site-layout-battery-legend')).toBeNull();
   });
 
-  it('marks the partner spot of a 2-port pedestal and the access aisle on the 2D board', async () => {
+  it('shows only the charger cards on the 2D board, no partner spot or access aisle labels', async () => {
     const [acStation, dcStation] = STATIONS;
     if (acStation == null || dcStation == null) throw new Error('fixture');
     const pedestal = {
@@ -449,13 +460,11 @@ describe('SiteLayout 2D cards', () => {
     window.localStorage.setItem('site-layout-view', '2d');
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
-    const shared = await within(board).findByTestId('site-layout-2d-held-pair-sta_ped');
-    expect(shared.textContent).toBe('sites.layoutView.pedestalSecondSpot');
-    // Column 3, the partner of column 2.
-    expect(shared.style.left).toBe('620px');
-    const aisle = within(board).getByTestId('site-layout-2d-held-access-aisle');
-    // The DC station in column 0 holds the accessible space; column 1 is its aisle.
-    expect(aisle.style.left).toBe('220px');
+    // Only the cards: no "Shared with" partner spot, access aisle or split dispenser markers.
+    await within(board).findByTestId('site-layout-card-sta_ped');
+    expect(within(board).queryByTestId(/^site-layout-2d-held-/)).toBeNull();
+    expect(board.textContent).not.toContain('sites.layoutView.pedestalSecondSpot');
+    expect(board.textContent).not.toContain('sites.layoutView.accessAisle');
   });
 
   it('draws no building edge on a parking lot', async () => {
@@ -548,7 +557,9 @@ describe('SiteLayout 2D cards', () => {
     // A 60 kW AC connector: Level 2 by the connector rule, never DC Fast.
     expect(popup.textContent).toContain('sites.levelL2');
     expect(popup.textContent).not.toContain('sites.layoutView.dcFast');
-    expect(popup.textContent).toContain('sites.layoutState.faulted');
+    expect(within(popup).getByTestId('layout-popup-status').textContent).toBe('status.faulted');
+    // Each connector ends with the connector views' status badge, no leading status icon.
+    expect(within(popup).getAllByTestId('connector-status-badge').length).toBeGreaterThan(0);
     expect(popup.textContent).toContain('stations.statusReason.station_faulted');
     expect(screen.getByRole('link', { name: 'sites.layoutView.openStation' })).toBeDefined();
     expect(popup.contains(document.activeElement)).toBe(true);
@@ -584,25 +595,30 @@ describe('SiteLayout custom site 2D', () => {
     window.localStorage.setItem('site-layout-view', '2d');
   });
 
-  it('draws every station with its spots, turns one with R and saves the free positions', async () => {
+  it('shows every station as its card only, moves one on the board and saves only its board position', async () => {
     permissions.add('sites:write');
     putMock.mockResolvedValue({});
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
-    expect(await within(board).findByTestId('site-layout-2d-custom')).toBeDefined();
-    expect(within(board).getByTestId('site-layout-2d-spots-sta_ac')).toBeDefined();
+    expect(within(board).queryByTestId('site-layout-2d-spots-sta_ac')).toBeNull();
     expect(within(board).queryByTestId('site-layout-2d-lot')).toBeNull();
-    expect(screen.getByTestId('site-layout-spot-legend')).toBeDefined();
-    expect(screen.getByTestId('site-layout-2d-custom-hint').textContent).toBe(
-      'sites.layoutView.hintEditCustom',
+    expect(screen.getByTestId('site-layout-2d-hint').textContent).toBe(
+      'sites.layoutView.board2d.hint',
     );
-    const chip = within(board).getByTestId('site-layout-card-sta_ac');
-    fireEvent.keyDown(chip, { key: 'r' });
-    fireEvent.keyDown(chip, { key: 'ArrowUp' });
+    const card = within(board).getByTestId('site-layout-card-sta_ac');
+    const top = parseFloat(card.style.top);
+    const left = parseFloat(card.style.left);
+    fireEvent.keyDown(card, { key: 'ArrowUp' });
+    const moved = within(board).getByTestId('site-layout-card-sta_ac');
+    expect(parseFloat(moved.style.top)).toBeLessThan(top);
+    expect(parseFloat(moved.style.left)).toBe(left);
+    expect(parseFloat(moved.style.top)).toBe(top - 12);
+    const boardPosition = { x: parseFloat(moved.style.left), y: parseFloat(moved.style.top) };
     fireEvent.click(screen.getByRole('button', { name: /common\.save/ }));
     await waitFor(() => {
       expect(putMock).toHaveBeenCalled();
     });
+    // The 3D spot (free position) stays as it was: moving a card never moves the station.
     expect(putMock).toHaveBeenCalledWith(
       '/v1/sites/sit_1/layout',
       expect.objectContaining({
@@ -611,7 +627,8 @@ describe('SiteLayout custom site 2D', () => {
             stationId: 'sta_ac',
             positionX: 20,
             positionY: 20,
-            freePosition: { x: 0, z: -0.5, rotationDeg: 15 },
+            freePosition: { x: 0, z: 0, rotationDeg: 0 },
+            boardPosition,
           },
           {
             stationId: 'sta_dc',
@@ -624,15 +641,142 @@ describe('SiteLayout custom site 2D', () => {
     );
   });
 
-  it('refuses a move onto another station and says why', async () => {
+  it('drags a card freely: only the card follows the pointer and it lands where dropped', async () => {
+    permissions.add('sites:write');
+    // jsdom has no pointer capture.
+    HTMLElement.prototype.setPointerCapture = vi.fn();
     wrap();
     const board = await screen.findByTestId('site-layout-2d');
-    const chip = await within(board).findByTestId('site-layout-card-sta_dc');
-    // sta_dc turned 90 degrees lies toward -x, onto the spots of sta_ac after a few steps left.
-    for (let i = 0; i < 8; i++) fireEvent.keyDown(chip, { key: 'ArrowLeft' });
-    expect(within(board).getByTestId('site-layout-2d-notice').textContent).toBe(
-      'sites.layoutView.spotsOverlap:CS-DC',
+    const card = within(board).getByTestId('site-layout-card-sta_ac');
+    const left = parseFloat(card.style.left);
+    const top = parseFloat(card.style.top);
+    fireEvent.pointerDown(card, { pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(card, { pointerId: 1, buttons: 1, clientX: 117, clientY: 503 });
+    // The card follows the pointer by a transform, its stored corner unchanged.
+    await waitFor(() => {
+      expect(card.style.transform).toBe('translate(17px, 403px)');
+    });
+    expect(parseFloat(card.style.left)).toBe(left);
+    // No landing preview: only the card shows under the pointer.
+    expect(within(board).queryByTestId('site-layout-2d-drop-slot')).toBeNull();
+    fireEvent.pointerUp(card, { pointerId: 1, clientX: 117, clientY: 503 });
+    // It lands exactly where it was dropped, with nothing left to animate.
+    const dropped = within(board).getByTestId('site-layout-card-sta_ac');
+    expect(parseFloat(dropped.style.left)).toBe(left + 17);
+    expect(parseFloat(dropped.style.top)).toBe(top + 403);
+    expect(dropped.style.transform).toBe('');
+  });
+
+  it('stops a card exactly where it is released, however the drag ends', async () => {
+    permissions.add('sites:write');
+    // jsdom has no pointer capture.
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    wrap();
+    const board = await screen.findByTestId('site-layout-2d');
+    const corner = (): { x: number; y: number; transform: string } => {
+      const el = within(board).getByTestId('site-layout-card-sta_ac');
+      return {
+        x: parseFloat(el.style.left),
+        y: parseFloat(el.style.top),
+        transform: el.style.transform,
+      };
+    };
+    const start = corner();
+    const settled = async (): Promise<void> => {
+      // Let any frame loop or timer run: nothing may move after the release.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    };
+
+    // Released with pointerup.
+    let card = within(board).getByTestId('site-layout-card-sta_ac');
+    fireEvent.pointerDown(card, { pointerId: 1, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(card, { pointerId: 1, buttons: 1, clientX: 0, clientY: 300 });
+    fireEvent.pointerMove(card, { pointerId: 1, buttons: 1, clientX: 40, clientY: 600 });
+    fireEvent.pointerUp(card, { pointerId: 1, clientX: 40, clientY: 600 });
+    await settled();
+    expect(corner()).toEqual({ x: start.x + 40, y: start.y + 600, transform: '' });
+    // Later hover moves with no button held never move it.
+    card = within(board).getByTestId('site-layout-card-sta_ac');
+    fireEvent.pointerMove(card, { pointerId: 1, buttons: 0, clientX: 300, clientY: 900 });
+    await settled();
+    expect(corner()).toEqual({ x: start.x + 40, y: start.y + 600, transform: '' });
+
+    // A missed pointerup: the next move without a button ends the drag where it was.
+    fireEvent.pointerDown(card, { pointerId: 2, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(card, { pointerId: 2, buttons: 1, clientX: 0, clientY: 200 });
+    fireEvent.pointerMove(card, { pointerId: 2, buttons: 0, clientX: 500, clientY: 900 });
+    await settled();
+    expect(corner()).toEqual({ x: start.x + 40, y: start.y + 800, transform: '' });
+
+    // Lost pointer capture ends it too.
+    card = within(board).getByTestId('site-layout-card-sta_ac');
+    fireEvent.pointerDown(card, { pointerId: 3, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(card, { pointerId: 3, buttons: 1, clientX: 0, clientY: 200 });
+    fireEvent.lostPointerCapture(card, { pointerId: 3 });
+    await settled();
+    expect(corner()).toEqual({ x: start.x + 40, y: start.y + 1000, transform: '' });
+    card = within(board).getByTestId('site-layout-card-sta_ac');
+    fireEvent.pointerMove(card, { pointerId: 3, buttons: 1, clientX: 500, clientY: 500 });
+    await settled();
+    expect(corner()).toEqual({ x: start.x + 40, y: start.y + 1000, transform: '' });
+  });
+
+  it('eases a card dropped onto another to the nearest clear place', async () => {
+    permissions.add('sites:write');
+    // jsdom has no pointer capture.
+    HTMLElement.prototype.setPointerCapture = vi.fn();
+    wrap();
+    const board = await screen.findByTestId('site-layout-2d');
+    const ac = within(board).getByTestId('site-layout-card-sta_ac');
+    const dc = within(board).getByTestId('site-layout-card-sta_dc');
+    const dx = parseFloat(dc.style.left) - parseFloat(ac.style.left) + 10;
+    const dy = parseFloat(dc.style.top) - parseFloat(ac.style.top);
+    fireEvent.pointerDown(ac, { pointerId: 1, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(ac, { pointerId: 1, buttons: 1, clientX: dx, clientY: dy });
+    fireEvent.pointerUp(ac, { pointerId: 1, clientX: dx, clientY: dy });
+    const landed = within(board).getByTestId('site-layout-card-sta_ac');
+    const a = { x: parseFloat(landed.style.left), y: parseFloat(landed.style.top) };
+    const b = { x: parseFloat(dc.style.left), y: parseFloat(dc.style.top) };
+    expect(a.x + 216 <= b.x || b.x + 216 <= a.x || a.y + 128 <= b.y || b.y + 128 <= a.y).toBe(true);
+    // It starts where the pointer left it and transitions to the clear place.
+    await waitFor(() => {
+      expect(landed.style.transition).toContain('150ms');
+    });
+    expect(landed.style.transform).toBe('');
+  });
+
+  it('moves a card past another with the arrow keys and never overlaps it', async () => {
+    permissions.add('sites:write');
+    wrap();
+    const board = await screen.findByTestId('site-layout-2d');
+    const rect = (id: string): { x: number; y: number } => {
+      const el = within(board).getByTestId(`site-layout-card-${id}`);
+      return { x: parseFloat(el.style.left), y: parseFloat(el.style.top) };
+    };
+    const startX = rect('sta_ac').x;
+    for (let i = 0; i < 40; i++) {
+      fireEvent.keyDown(within(board).getByTestId('site-layout-card-sta_ac'), {
+        key: 'ArrowRight',
+      });
+      const a = rect('sta_ac');
+      const b = rect('sta_dc');
+      const apart = a.x + 216 <= b.x || b.x + 216 <= a.x || a.y + 128 <= b.y || b.y + 128 <= a.y;
+      expect(apart).toBe(true);
+    }
+    expect(rect('sta_ac').x).toBeGreaterThan(rect('sta_dc').x);
+    expect(rect('sta_ac').x).toBeGreaterThan(startX);
+  });
+
+  it('shows no move hint and moves nothing without sites:write', async () => {
+    wrap();
+    const board = await screen.findByTestId('site-layout-2d');
+    expect(screen.getByTestId('site-layout-2d-hint').textContent).toBe(
+      'sites.layoutView.board2d.hintViewOnly',
     );
+    const card = within(board).getByTestId('site-layout-card-sta_ac');
+    const top = card.style.top;
+    fireEvent.keyDown(card, { key: 'ArrowUp' });
+    expect(within(board).getByTestId('site-layout-card-sta_ac').style.top).toBe(top);
   });
 });
 

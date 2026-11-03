@@ -12,6 +12,7 @@
 // x = 0, standing on y = 0. Only the materials passed in differ per car.
 
 import * as THREE from 'three';
+import { carPortLocal, type CarPort } from './site-layout-cable';
 import {
   CAR_PROFILES,
   ROOF_THICKNESS_M,
@@ -19,6 +20,9 @@ import {
   type CarProfile,
   type ProfilePoint,
 } from './site-layout-car';
+import { createCarDoorDetailKit } from './site-layout-model-car-doors';
+import type { Vec3 } from './site-layout-model-kit';
+import { carMirrorStalk } from './site-layout-model-vehicle-mirror';
 import type { VehicleBodyType } from '@evtivity/lib/vehicle-appearance';
 
 export interface CarMaterials {
@@ -278,7 +282,38 @@ export function mergeAssembly(
 }
 
 /** The kit of one car body type (large vehicles: site-layout-large-vehicle-geometry.ts). */
-export function createCarKit(bodyType: CarBodyType): CarKit {
+/** The top of a body side outline at `z` (the highest crossing of its segments). */
+export function bodyTopAt(profile: CarProfile, z: number): number {
+  const pts = profile.body;
+  let top = -Infinity;
+  for (let i = 0; i < pts.length; i += 1) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    if (a == null || b == null) continue;
+    const [z0, y0] = a;
+    const [z1, y1] = b;
+    if ((z - z0) * (z - z1) > 0 || z0 === z1) continue;
+    top = Math.max(top, y0 + ((z - z0) / (z1 - z0)) * (y1 - y0));
+  }
+  return Number.isFinite(top) ? top : profile.height * 0.6;
+}
+
+/** Each mirror head (0.2 by 0.11 by 0.09 m) and its stalk, left then right, in the car's own frame. */
+export function carMirrorParts(
+  profile: CarProfile,
+): Array<{ head: { center: Vec3; size: Vec3 }; stalk: { center: Vec3; size: Vec3 } }> {
+  const base = profile.glass[0] ?? [1.5, 1];
+  const z = base[0] + 0.18;
+  return ([-1, 1] as const).map((side) => {
+    const head = {
+      center: [side * (profile.width / 2 + 0.02), base[1] + 0.06, z] as Vec3,
+      size: [0.2, 0.11, 0.09] as Vec3,
+    };
+    return { head, stalk: carMirrorStalk(side, profile.width, bodyTopAt(profile, z), head) };
+  });
+}
+
+export function createCarKit(bodyType: CarBodyType, chargePort: CarPort = 'front_left'): CarKit {
   const p = CAR_PROFILES[bodyType];
   const W = p.width;
   const r = p.wheelRadius;
@@ -307,11 +342,17 @@ export function createCarKit(bodyType: CarBodyType): CarKit {
   const mirror = roundedBox(0.2, 0.11, 0.09, 0.035);
   const grille = roundedBox(W * 0.5, 0.12, 0.06, 0.03);
   const pillar = new THREE.BoxGeometry(0.06, 1, 0.07);
-  const socket = new THREE.BoxGeometry(0.03, 0.14, 0.18);
-  const socketLight = new THREE.BoxGeometry(0.035, 0.03, 0.12);
+  // The charge port door: on a side panel, or across the nose for a nose port.
+  const nosePort = chargePort === 'front_center';
+  const socket = nosePort
+    ? new THREE.BoxGeometry(0.18, 0.14, 0.03)
+    : new THREE.BoxGeometry(0.03, 0.14, 0.18);
+  const socketLight = nosePort
+    ? new THREE.BoxGeometry(0.12, 0.03, 0.035)
+    : new THREE.BoxGeometry(0.035, 0.03, 0.12);
   const bedLength = p.bed != null ? p.bed[1] - p.bed[0] : 0;
   const bed = p.bed != null ? roundedBox(W - 0.22, 0.05, bedLength, 0.02) : null;
-  const parts = [
+  const parts: THREE.BufferGeometry[] = [
     body,
     glass,
     roof,
@@ -328,13 +369,34 @@ export function createCarKit(bodyType: CarBodyType): CarKit {
     socketLight,
     ...(bed != null ? [bed] : []),
   ];
+  // The mirror heads at the windshield base, each on a stalk from the door top
+  // (site-layout-model-vehicle-mirror.ts).
+  const mirrorParts = carMirrorParts(p);
+  const stalk = new THREE.BoxGeometry(...(mirrorParts[0]?.stalk.size ?? [0.05, 0.08, 0.05]));
+  parts.push(stalk);
 
   const glassPts = p.glass;
   const windshieldBase = glassPts[0] ?? [1.5, 1];
   const roofFront = glassPts[1] ?? [2.2, 1.4];
   const roofRear = glassPts[glassPts.length - 2] ?? [3.5, 1.4];
   const rearBase = glassPts[glassPts.length - 1] ?? [4.2, 1];
-  const port = new THREE.Vector3(-(W / 2) - 0.005, p.portY, 0.62);
+  const portAt = carPortLocal(p, chargePort);
+  const port = new THREE.Vector3(portAt.x, portAt.y, portAt.z);
+  // The greenhouse edge at height v (it leans in toward the roof).
+  const edgeAt = (v: number): number =>
+    glassW / 2 -
+    roofLean * Math.min(1, Math.max(0, (v - glassBase) / (roofTop - glassBase))) +
+    0.005;
+  const bU = (windshieldBase[0] + rearBase[0]) / 2 - 0.1;
+  const doors = createCarDoorDetailKit({
+    bodyType,
+    profile: p,
+    edgeAt,
+    bPillarU: bU,
+    chargePort,
+    port: portAt,
+  });
+  parts.push(...doors.geometries);
 
   function assemble(m: CarMaterials): THREE.Group {
     const g = new THREE.Group();
@@ -350,11 +412,6 @@ export function createCarKit(bodyType: CarBodyType): CarKit {
     add(roof, m.paint);
     // A pillars along the windshield edges, the last pillars along the rear
     // window, a dark B pillar between the doors.
-    // The greenhouse edge at height v (it leans in toward the roof).
-    const edgeAt = (v: number): number =>
-      glassW / 2 -
-      roofLean * Math.min(1, Math.max(0, (v - glassBase) / (roofTop - glassBase))) +
-      0.005;
     const up = new THREE.Vector3(0, 1, 0);
     const strut = (
       from: ProfilePoint,
@@ -370,19 +427,17 @@ export function createCarKit(bodyType: CarBodyType): CarKit {
       s.position.copy(a.add(b).multiplyScalar(0.5));
       s.quaternion.setFromUnitVectors(up, dir.normalize());
     };
-    const bU = (windshieldBase[0] + rearBase[0]) / 2 - 0.1;
     const bTop = (roofFront[1] + roofRear[1]) / 2;
     for (const side of [-1, 1]) {
       strut(windshieldBase, roofFront, side, m.paint);
       strut(roofRear, rearBase, side, m.paint);
       strut([bU, windshieldBase[1]], [bU, bTop], side, m.trim);
-      // Mirrors at the windshield base.
-      const mirrorMesh = add(mirror, m.paint);
-      mirrorMesh.position.set(
-        side * (W / 2 + 0.02),
-        windshieldBase[1] + 0.06,
-        windshieldBase[0] + 0.18,
-      );
+      // Mirrors at the windshield base, each on its stalk.
+      const mp = mirrorParts[side < 0 ? 0 : 1];
+      if (mp != null) {
+        add(mirror, m.paint).position.set(...mp.head.center);
+        add(stalk, m.trim).position.set(...mp.stalk.center);
+      }
       // Lights at the front and the back.
       const head = add(lamp, m.headlight);
       head.position.set(side * (W / 2 - 0.32), p.head[1], p.head[0] + 0.01);
@@ -425,11 +480,17 @@ export function createCarKit(bodyType: CarBodyType): CarKit {
       const liner = add(bed, m.trim);
       liner.position.set(0, beltTop + 0.004, (p.bed[0] + p.bed[1]) / 2);
     }
-    // The charge port on the front left fender, with its status light.
+    // Door gaps, handles, window trim and the open port door.
+    g.add(doors.build(m));
+    // The charge port (`carPortLocal`), with its status light above it.
     const s = add(socket, m.trim);
     s.position.copy(port);
     const light = add(socketLight, m.chargePort);
-    light.position.set(port.x - 0.005, port.y + 0.09, port.z);
+    light.position.set(
+      nosePort ? port.x : port.x + Math.sign(port.x) * 0.005,
+      port.y + 0.09,
+      nosePort ? port.z - 0.005 : port.z,
+    );
     return g;
   }
 

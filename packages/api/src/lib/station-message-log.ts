@@ -33,6 +33,8 @@ export interface StationMessageLogQuery {
   limit: number;
   action?: string | undefined;
   direction?: 'inbound' | 'outbound' | undefined;
+  /** Only rows logged or queued at or after this time (a site user's window of a moved station). */
+  since?: Date | null | undefined;
 }
 
 export interface StationMessageLogPage {
@@ -56,13 +58,14 @@ interface Row extends Record<string, unknown> {
 }
 
 /** The pending, unexpired queue rows of a station (`stationDbId` is `charging_stations.id`). */
-function queuedFilter(stationDbId: string, action: string | null): SQL {
+function queuedFilter(stationDbId: string, action: string | null, since: Date | null): SQL {
   const conditions = [
     sql`s.id = ${stationDbId}`,
     sql`q.status = 'pending'`,
     sql`q.expires_at > now()`,
   ];
   if (action != null) conditions.push(sql`q.action = ${action}`);
+  if (since != null) conditions.push(sql`q.created_at >= ${since}`);
   return sql.join(conditions, sql` AND `);
 }
 
@@ -74,10 +77,12 @@ export async function listStationMessageLog(
   // Queued commands are outbound CALLs: an inbound filter leaves them out.
   const withQueued = query.direction !== 'inbound';
   const offset = (query.page - 1) * query.limit;
+  const since = query.since ?? null;
 
   const logConditions = [sql`l.station_id = ${stationDbId}`];
   if (action != null) logConditions.push(sql`l.action = ${action}`);
   if (query.direction != null) logConditions.push(sql`l.direction = ${query.direction}`);
+  if (since != null) logConditions.push(sql`l.created_at >= ${since}`);
   const logFilter = sql.join(logConditions, sql` AND `);
 
   const logs = sql`
@@ -92,7 +97,7 @@ export async function listStationMessageLog(
       NULL::text AS error_description, q.created_at, 'queued'::text AS processing_status
     FROM offline_command_queue q
     JOIN charging_stations s ON s.station_id = q.station_id
-    WHERE ${queuedFilter(stationDbId, action)}`;
+    WHERE ${queuedFilter(stationDbId, action, since)}`;
   const entries = withQueued ? sql`${logs} UNION ALL ${queued}` : logs;
 
   const [rows, logCount, queuedCount, logActions, queuedActions] = await Promise.all([
@@ -109,13 +114,18 @@ export async function listStationMessageLog(
           SELECT count(*)::int AS count
           FROM offline_command_queue q
           JOIN charging_stations s ON s.station_id = q.station_id
-          WHERE ${queuedFilter(stationDbId, action)}`)
+          WHERE ${queuedFilter(stationDbId, action, since)}`)
       : Promise.resolve([{ count: 0 }]),
     // Skip-scan emulation: a plain SELECT DISTINCT walks every log row for
     // the station (~500ms at a few thousand rows, worse as the table
     // grows); this recursive CTE probes the (station_id, action) index
-    // once per distinct action (~40 probes) regardless of row count.
-    db.execute<{ action: string | null }>(sql`
+    // once per distinct action (~40 probes) regardless of row count. A
+    // bounded window reads its rows through the (station_id, created_at) index.
+    since != null
+      ? db.execute<{ action: string | null }>(sql`
+          SELECT DISTINCT action FROM ocpp_message_logs
+          WHERE station_id = ${stationDbId} AND created_at >= ${since} AND action IS NOT NULL`)
+      : db.execute<{ action: string | null }>(sql`
       WITH RECURSIVE distinct_actions AS (
         (SELECT action FROM ocpp_message_logs
          WHERE station_id = ${stationDbId} AND action IS NOT NULL
@@ -135,7 +145,7 @@ export async function listStationMessageLog(
       SELECT DISTINCT q.action
       FROM offline_command_queue q
       JOIN charging_stations s ON s.station_id = q.station_id
-      WHERE ${queuedFilter(stationDbId, null)}`),
+      WHERE ${queuedFilter(stationDbId, null, since)}`),
   ]);
 
   const actions = new Set<string>();

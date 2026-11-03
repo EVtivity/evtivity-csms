@@ -17,7 +17,13 @@ import {
 } from '@/components/ui/table';
 import { SecurityProfileBadge } from '@/components/SecurityProfileBadge';
 import { StationStatusBadge } from '@/components/StationStatusBadge';
-import { SVG_COLORS } from '@/lib/chart-theme';
+import { StationOnlineBadge } from '@/components/StationOnlineBadge';
+import { Type1ListIcon as Type1Icon } from '@/components/connector-icons/Type1ListIcon';
+import { Type2ListIcon as Type2Icon } from '@/components/connector-icons/Type2ListIcon';
+import { Ccs1ListIcon as CCS1Icon } from '@/components/connector-icons/Ccs1ListIcon';
+import { Ccs2ListIcon as CCS2Icon } from '@/components/connector-icons/Ccs2ListIcon';
+import { ChademoListIcon as CHAdeMOIcon } from '@/components/connector-icons/ChademoListIcon';
+import { NacsListIcon as NACSIcon } from '@/components/connector-icons/NacsListIcon';
 import { formatDateTime, formatRelativeTime } from '@/lib/timezone';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 import { EmptyState, ErrorState, LoadingState, TableStateRow } from '@/components/ui/content-state';
@@ -127,152 +133,6 @@ function connectorDisplayName(type: string): string {
     unknown: type,
   };
   return names[key] ?? type;
-}
-
-// Type 1 / J1772 - 5 pins in circular housing (AC)
-function Type1Icon(): React.JSX.Element {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0">
-      <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.2" />
-      <circle cx="5.5" cy="6" r="1" fill="currentColor" />
-      <circle cx="10.5" cy="6" r="1" fill="currentColor" />
-      <circle cx="4.5" cy="9.5" r="1" fill="currentColor" />
-      <circle cx="11.5" cy="9.5" r="1" fill="currentColor" />
-      <circle cx="8" cy="11" r="1" fill="currentColor" />
-    </svg>
-  );
-}
-
-// Type 2 / Mennekes - 7 pins in rounded housing (AC)
-function Type2Icon(): React.JSX.Element {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0">
-      <rect
-        x="1"
-        y="2"
-        width="14"
-        height="12"
-        rx="5"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.2"
-      />
-      <circle cx="5" cy="6" r="0.9" fill="currentColor" />
-      <circle cx="8" cy="5.5" r="0.9" fill="currentColor" />
-      <circle cx="11" cy="6" r="0.9" fill="currentColor" />
-      <circle cx="5" cy="9.5" r="0.9" fill="currentColor" />
-      <circle cx="8" cy="10" r="0.9" fill="currentColor" />
-      <circle cx="11" cy="9.5" r="0.9" fill="currentColor" />
-      <circle cx="8" cy="7.8" r="0.9" fill="currentColor" />
-    </svg>
-  );
-}
-
-// CCS1 - Type 1 top + 2 DC pins below
-function CCS1Icon(): React.JSX.Element {
-  return (
-    <svg width="16" height="20" viewBox="0 0 16 20" className="shrink-0">
-      <circle
-        cx="8"
-        cy="6"
-        r="5.5"
-        fill="none"
-        stroke={SVG_COLORS.connectorAmber}
-        strokeWidth="1.2"
-      />
-      <circle cx="6" cy="5" r="0.8" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="10" cy="5" r="0.8" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="8" cy="7.5" r="0.8" fill={SVG_COLORS.connectorAmber} />
-      <rect
-        x="3"
-        y="13"
-        width="10"
-        height="5"
-        rx="2.5"
-        fill="none"
-        stroke={SVG_COLORS.connectorAmber}
-        strokeWidth="1.2"
-      />
-      <circle cx="6" cy="15.5" r="1" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="10" cy="15.5" r="1" fill={SVG_COLORS.connectorAmber} />
-    </svg>
-  );
-}
-
-// CCS2 - Type 2 top + 2 DC pins below
-function CCS2Icon(): React.JSX.Element {
-  return (
-    <svg width="16" height="20" viewBox="0 0 16 20" className="shrink-0">
-      <rect
-        x="1.5"
-        y="1"
-        width="13"
-        height="10"
-        rx="4.5"
-        fill="none"
-        stroke={SVG_COLORS.connectorAmber}
-        strokeWidth="1.2"
-      />
-      <circle cx="5.5" cy="4.5" r="0.8" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="10.5" cy="4.5" r="0.8" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="8" cy="4" r="0.8" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="5.5" cy="7.5" r="0.8" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="10.5" cy="7.5" r="0.8" fill={SVG_COLORS.connectorAmber} />
-      <rect
-        x="3"
-        y="13"
-        width="10"
-        height="5"
-        rx="2.5"
-        fill="none"
-        stroke={SVG_COLORS.connectorAmber}
-        strokeWidth="1.2"
-      />
-      <circle cx="6" cy="15.5" r="1" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="10" cy="15.5" r="1" fill={SVG_COLORS.connectorAmber} />
-    </svg>
-  );
-}
-
-// CHAdeMO - large round connector with pins
-function CHAdeMOIcon(): React.JSX.Element {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" className="shrink-0">
-      <circle
-        cx="8"
-        cy="8"
-        r="7"
-        fill="none"
-        stroke={SVG_COLORS.connectorAmber}
-        strokeWidth="1.2"
-      />
-      <circle cx="5" cy="5.5" r="1" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="11" cy="5.5" r="1" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="5" cy="10.5" r="1" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="11" cy="10.5" r="1" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="8" cy="8" r="1.2" fill={SVG_COLORS.connectorAmber} />
-    </svg>
-  );
-}
-
-// NACS / Tesla - oval connector
-function NACSIcon(): React.JSX.Element {
-  return (
-    <svg width="12" height="16" viewBox="0 0 12 16" className="shrink-0">
-      <rect
-        x="1"
-        y="1"
-        width="10"
-        height="14"
-        rx="5"
-        fill="none"
-        stroke={SVG_COLORS.connectorAmber}
-        strokeWidth="1.2"
-      />
-      <circle cx="6" cy="5.5" r="1" fill={SVG_COLORS.connectorAmber} />
-      <circle cx="6" cy="10.5" r="1" fill={SVG_COLORS.connectorAmber} />
-    </svg>
-  );
 }
 
 function ConnectorTypeIcon({ type }: { type: string }): React.JSX.Element {
@@ -529,9 +389,7 @@ export function StationsTable({
               )}
               {isVisible('online') && (
                 <TableCell>
-                  <Badge variant={station.isOnline ? 'success' : 'destructive'}>
-                    {station.isOnline ? t('status.online') : t('status.offline')}
-                  </Badge>
+                  <StationOnlineBadge isOnline={station.isOnline} />
                 </TableCell>
               )}
               {isVisible('lastHeartbeat') && (

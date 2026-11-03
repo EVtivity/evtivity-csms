@@ -40,6 +40,7 @@ import { registerOpenApi } from './plugins/openapi.js';
 import { registerResponseCache, cacheRoutes } from './plugins/response-cache.js';
 import { healthRoutes } from './routes/health.js';
 import { siteRoutes } from './routes/sites.js';
+import { siteOcppMessageRoutes } from './routes/site-ocpp-messages.js';
 import { stationRoutes } from './routes/stations.js';
 import { stationSimRoutes } from './routes/station-sim.js';
 import { simRoutes } from './routes/sims.js';
@@ -216,6 +217,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(
     async function v1Routes(v1) {
       await v1.register(siteRoutes);
+      await v1.register(siteOcppMessageRoutes);
       await v1.register(stationRoutes);
       await v1.register(stationSimRoutes);
       await v1.register(simRoutes);

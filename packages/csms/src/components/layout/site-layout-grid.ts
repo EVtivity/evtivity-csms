@@ -59,8 +59,8 @@ export const BAY_STATION_Z = 0.9;
 /** The painted gap at the front and back of each spot line, in meters. */
 export const BAY_LINE_GAP = 0.7;
 
-/** The camera never comes nearer than this, in meters. */
-export const MIN_DISTANCE = 6;
+/** The camera never comes nearer than this, in meters (owner decision 2026-11-02: 3 m, close enough to see a connector). */
+export const MIN_DISTANCE = 3;
 /** The zoom-out limit is at least this, in meters. */
 export const MAX_DISTANCE_MIN = 160;
 /** Grass the camera may pan over around everything on the site, in meters. */
@@ -509,6 +509,23 @@ export function carNoseAtStop(
 }
 
 /**
+ * Where the tail of a car backed in against the wheel stop stands, in the
+ * station's own z: its rear tires at the stop, its body `length - rearAxle`
+ * meters behind the axle (a car whose charge port is at the rear backs in).
+ */
+export function carTailAtStop(
+  mount: WheelStopMount,
+  profile: { length: number; rearAxle: number; wheelRadius: number },
+): number {
+  return (
+    wheelStopNearZ(mount) +
+    WHEEL_STOP.depthM +
+    tireTouchAhead(profile.wheelRadius) -
+    (profile.length - profile.rearAxle)
+  );
+}
+
+/**
  * The back of a station in a spot (where its load management link ends), in
  * lot coordinates: behind the charger on the curb side of its row, the
  * charger `backShift` behind its spot point (`stationBackShift`).
@@ -603,13 +620,13 @@ export function chargingGlowLevel(timeS: number | null): { intensity: number; ha
 }
 
 /**
- * The beacon of a faulted station: a quick on and off pulse (about one beat
+ * The status light of a faulted station: a quick on and off blink (about one
  * a second), or steady and bright without motion (`null`, prefers-reduced-motion).
  */
-export function beaconLevel(timeS: number | null): { intensity: number; halo: number } {
-  if (timeS == null) return { intensity: 0.9, halo: 0.35 };
+export function faultLightLevel(timeS: number | null): number {
+  if (timeS == null) return 0.9;
   const wave = Math.max(0, Math.sin(timeS * 6.3));
-  return { intensity: 0.25 + 1.6 * wave, halo: 0.05 + 0.5 * wave };
+  return 0.1 + 1.6 * wave;
 }
 
 /**
@@ -627,7 +644,20 @@ export const OVERHEAD_BADGE = {
   avatarPx: 28,
   minMarkerPx: 14,
   minAvatarPx: 16,
+  /** The smallest hover and click area of a badge on screen (WCAG 2.2 SC 2.5.8, Target Size (Minimum): 24 by 24 CSS px). */
+  minHitPx: 24,
 } as const;
+
+/**
+ * The hit area of an overhead badge drawn at `fullPx` and shown at `scale`,
+ * in the badge's own (unscaled) px: never less than `OVERHEAD_BADGE.minHitPx`
+ * on screen, so a badge scaled down far away still takes a 24 px hover and
+ * click (owner report 2026-11-01).
+ */
+export function overheadHitPx(scale: number, fullPx: number): number {
+  if (!(scale > 0)) return fullPx;
+  return Math.max(fullPx, OVERHEAD_BADGE.minHitPx / scale);
+}
 
 /**
  * The on-screen pixels per world meter at `distance` meters from a
@@ -949,12 +979,14 @@ export function groundBox(frame: Box, pan: Box): Box {
 export type StationProp = 'car' | 'cone' | null;
 
 /**
- * The prop of a spot, from the one station state the label shows: a car on a
- * cable while charging, a traffic cone in maintenance (crews put cones out),
+ * The prop of a spot: a car on a cable while charging or while any connector
+ * is plugged in (a fault, a suspended or finished session: the car stays until
+ * it is unplugged), else a traffic cone in maintenance (crews put cones out),
  * nothing otherwise. A reservation has no physical sign: it shows as a
  * virtual sign (`virtualSignOf`).
  */
-export function stationProp(state: StationDisplayState): StationProp {
+export function stationProp(state: StationDisplayState, pluggedIn = false): StationProp {
+  if (pluggedIn) return 'car';
   switch (state) {
     case 'charging':
       return 'car';
@@ -1000,7 +1032,6 @@ export function logoFit(
 export type ChargerLogoModel =
   | 'dc'
   | 'ac'
-  | 'wall'
   | 'truck_mcs'
   | 'bus_dispenser'
   | 'pantograph_down'
@@ -1016,24 +1047,58 @@ export type ChargerLogoModel =
  * `wall` (`wall`: from the wall box offset), from the cabinet center for the
  * large models (the truck MCS dispenser of each lane, the bus dispenser, the
  * pantograph control module, beside the steel pole that stands behind it).
- * `facing` is the side the logo shows on (-1 back, +1 front).
+ * `facing` is the side the logo shows on (-1 back, +1 front): the front for a
+ * wall box and the pantograph control module (both backs are covered).
  */
 export const CHARGER_LOGO_PANELS: Readonly<
   Record<
     ChargerLogoModel,
-    { width: number; height: number; x: number; y: number; z: number; facing: -1 | 1 }
+    {
+      width: number;
+      height: number;
+      x: number;
+      y: number;
+      z: number;
+      facing: -1 | 1;
+      /** A side face: the panel turned this far about y (radians) around the model center the scene passes. */
+      turn?: number;
+    }
   >
 > = {
-  dc: { width: 0.62, height: 0.62, x: 0, y: 1.2, z: -0.29, facing: -1 },
-  // The pedestal head's flat back (CHARGER_LOGO_FACES.ac): 0.2 of its 0.24 m
-  // flat width, in its upper part, so the plate never reaches the rounded
-  // corners (it was 0.28 m wide, past the 0.24 m flat face).
-  ac: { width: 0.2, height: 0.24, x: 0, y: 1.33, z: -0.111, facing: -1 },
-  wall: { width: 0.22, height: 0.18, x: 0, y: 0.83, z: 0.172, facing: 1 },
-  truck_mcs: { width: 0.6, height: 0.6, x: 0, y: 1.5, z: -0.22, facing: -1 },
-  bus_dispenser: { width: 0.34, height: 0.34, x: 0.26, y: 1.6, z: -0.36, facing: -1 },
-  pantograph_down: { width: 0.3, height: 0.3, x: 0.32, y: 0.95, z: -0.25, facing: -1 },
-  pantograph_up: { width: 0.3, height: 0.3, x: 0.32, y: 0.95, z: -0.25, facing: -1 },
+  // Every plate stands on the flat part of its face with at least 2 cm left on
+  // each side (owner report 2026-11-01: the plates ran onto the rounded edges).
+  // The DC dispenser back (DC_DISPENSER: 732 mm wide, its flat back 692 mm
+  // between the 20 mm rounded edges): a plate in its upper part, inside the
+  // back door seam.
+  dc: { width: 0.52, height: 0.4, x: 0, y: 1.6, z: -0.382, facing: -1 },
+  // The pedestal head's flat back (CHARGER_LOGO_FACES.ac, the head 346 mm
+  // wide): 0.2 of its 0.287 m flat width, so the plate never reaches the rounded corners.
+  ac: { width: 0.2, height: 0.24, x: 0, y: 1.3, z: -0.1285, facing: -1 },
+  // The MCS dispenser back (0.62 m flat), upper part, clear of the island bollards.
+  truck_mcs: { width: 0.52, height: 0.4, x: 0, y: 1.8, z: -0.22, facing: -1 },
+  // The bus dispenser back beside its cable mast (x -0.09 to 0.09 m), inside the 0.74 m flat face.
+  bus_dispenser: { width: 0.26, height: 0.26, x: 0.22, y: 1.6, z: -0.36, facing: -1 },
+  // The pantograph control module (owner decision 2026-11-02): its front keeps only the
+  // screen, card reader and status light, so the plate goes on its side facing the bay
+  // entrance (-x, the gate end of the yard), in the module's own frame (`PANTOGRAPH_POLE_LOGO`, a test keeps the two equal).
+  pantograph_down: {
+    width: 0.37,
+    height: 0.37,
+    x: 0,
+    y: 1.45,
+    z: 0.506,
+    facing: 1,
+    turn: -Math.PI / 2,
+  },
+  pantograph_up: {
+    width: 0.37,
+    height: 0.37,
+    x: 0,
+    y: 1.45,
+    z: 0.506,
+    facing: 1,
+    turn: -Math.PI / 2,
+  },
 };
 
 /**
@@ -1041,8 +1106,8 @@ export const CHARGER_LOGO_PANELS: Readonly<
  * model (`site-layout-scene.ts`): `width` across the whole face (rounded
  * corners and the 15 mm bevel included), `flatWidth` its flat part, `minY`
  * to `maxY` its height, `z` its plane, in the frame of CHARGER_LOGO_PANELS.
- * The AC pedestal head is `roundedPrism(0.34, 0.18, 0.5, 0.05)` from 1.0 m;
- * the DC dispenser body `roundedPrism(0.78, 0.55, 1.78, 0.08)` from 0.08 m;
+ * The AC pedestal head is `AC_PEDESTAL.head` (site-layout-model-ac-pedestal.ts) from 0.9 m;
+ * the DC dispenser body `DC_DISPENSER` (site-layout-model-dc-dispenser.ts) from 0.08 m;
  * the large models' cabinets `cabinet()` (corner 0.08) from 0.12 m; a wall
  * box's logo plate hangs on the wall under the box. A test keeps every panel
  * inside its face.
@@ -1053,13 +1118,14 @@ export const CHARGER_LOGO_FACES: Readonly<
     { width: number; flatWidth: number; minY: number; maxY: number; z: number }
   >
 > = {
-  dc: { width: 0.81, flatWidth: 0.62, minY: 0.065, maxY: 1.875, z: -0.29 },
-  ac: { width: 0.37, flatWidth: 0.24, minY: 0.985, maxY: 1.515, z: -0.105 },
-  wall: { width: 0.4, flatWidth: 0.4, minY: 0.7, maxY: 0.925, z: 0.172 },
+  dc: { width: 0.732, flatWidth: 0.692, minY: 0.08, maxY: 2.03, z: -0.374 },
+  ac: { width: 0.346, flatWidth: 0.286, minY: 0.9, maxY: 1.47, z: -0.1225 },
   truck_mcs: { width: 0.81, flatWidth: 0.62, minY: 0.105, maxY: 2.335, z: -0.225 },
   bus_dispenser: { width: 0.93, flatWidth: 0.74, minY: 0.105, maxY: 2.435, z: -0.365 },
-  pantograph_down: { width: 1.03, flatWidth: 0.84, minY: 0.105, maxY: 1.635, z: -0.255 },
-  pantograph_up: { width: 1.03, flatWidth: 0.84, minY: 0.105, maxY: 1.635, z: -0.255 },
+  // The side of the control module (`PANTOGRAPH_POLE.module`: 0.477 m deep, its
+  // 0.03 m rounded edges leave 0.417 m flat; up to 2.05 m) above its louvers (to 0.84 m).
+  pantograph_down: { width: 0.477, flatWidth: 0.417, minY: 0.86, maxY: 2.02, z: 0.5 },
+  pantograph_up: { width: 0.477, flatWidth: 0.417, minY: 0.86, maxY: 2.02, z: 0.5 },
 };
 
 // Custom sites: no lot, street or building. Every station stands at its free
@@ -1192,54 +1258,19 @@ export function denseFrameBox(
   return alongX ? { ...box, minX: lo, maxX: hi } : { ...box, minZ: lo, maxZ: hi };
 }
 
-/** A display message as plain text for a charger screen: tags dropped, spaces collapsed, at most 300 characters. */
-export function screenMessageText(content: string): string {
-  const plain = content
-    .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return plain.length > 300 ? `${plain.slice(0, 299)}…` : plain;
-}
-
-export type ScreenTextLayout =
-  | { kind: 'static'; lines: string[] }
-  | { kind: 'scroll'; text: string };
-
-/**
- * How a message fits a charger screen: wrapped by words into at most
- * `maxLines` lines no wider than `maxWidth` (`measure` gives a text's width
- * at the screen font), else one line that scrolls across the screen.
- */
-export function screenTextLayout(
-  text: string,
-  measure: (s: string) => number,
-  maxWidth: number,
-  maxLines: number,
-): ScreenTextLayout {
-  const words = text.split(' ').filter((w) => w.length > 0);
-  const lines: string[] = [];
-  let line = '';
-  for (const word of words) {
-    if (measure(word) > maxWidth) return { kind: 'scroll', text };
-    const next = line === '' ? word : `${line} ${word}`;
-    if (measure(next) <= maxWidth) {
-      line = next;
-    } else {
-      lines.push(line);
-      line = word;
-      if (lines.length >= maxLines) return { kind: 'scroll', text };
-    }
-  }
-  if (line !== '') lines.push(line);
-  if (lines.length > maxLines) return { kind: 'scroll', text };
-  return { kind: 'static', lines };
-}
-
 /** The charger screens a message shows on: size in meters and the canvas it is drawn on. */
 export const SCREEN_MESSAGE = {
-  dc: { width: 0.42, height: 0.32, canvas: { width: 512, height: 390 }, lines: 4 },
-  ac: { width: 0.13, height: 0.082, canvas: { width: 256, height: 162 }, lines: 2 },
+  dc: { width: 0.42, height: 0.32, canvas: { width: 512, height: 390 } },
+  // The 7 in 16:9 screen of the all-in-one DC dispenser (ABB Terra 184), its active area.
+  dc7in: { width: 0.155, height: 0.087, canvas: { width: 512, height: 288 } },
+  ac: { width: 0.13, height: 0.082, canvas: { width: 256, height: 162 } },
+  // The 60 by 34 mm display of the AC wall box (`AC_WALL_BOX.display`).
+  wallbox: { width: 0.06, height: 0.034, canvas: { width: 256, height: 145 } },
+  // The 5.7 in 4:3 display of the AC pedestal (ChargePoint CT4021).
+  ac57in: { width: 0.116, height: 0.087, canvas: { width: 256, height: 192 } },
+  // The 95 by 54 mm display of a card reader with a screen (`SCREEN_READER.screen`)
+  // at the scene scale of the reader models (`READER_SCENE_SCALE`, 1.5).
+  reader: { width: 0.1425, height: 0.081, canvas: { width: 256, height: 146 } },
 } as const;
 
 /**
@@ -1253,11 +1284,14 @@ export const READER_REACH_M = { min: 15 * 0.0254, max: 48 * 0.0254 } as const;
 export const READER_INTERFACE_ABOVE_MOUNT_M = 0.045;
 
 /**
- * Where a card reader mounts on its charger, in the charger's own frame: on
- * the front of a DC dispenser (integrated, as the ABB Terra 184 offers it), a
- * connector's reader under its side of the screen and a station-wide one in
- * the middle below; on the front of an AC pedestal; beside an AC wall box.
- * Every card interface stays within `READER_REACH_M`.
+ * Where a card reader mounts on its charger, in the charger's own frame: the
+ * point on the host surface its bracket stands on (the reader models stand
+ * off it themselves). On the front of a DC dispenser (integrated, as
+ * dispensers of the class offer it), a connector's reader under its side of
+ * the screen and a station-wide one in the middle below; on the front of an
+ * AC pedestal's column (0.233 m wide, so its readers stack, the first EVSE's
+ * below the second's); on the facade beside an AC wall box. Every card
+ * interface stays within `READER_REACH_M`.
  */
 export function readerMount(
   kind: 'dc' | 'ac',
@@ -1266,30 +1300,35 @@ export function readerMount(
   index: number,
   wallOffset: number,
 ): { x: number; y: number; z: number } {
-  const dc = kind === 'dc';
-  const sideX = dc ? 0.22 : wall ? 0.34 : 0.13;
-  const x = side === 0 ? (wall && !dc ? -0.34 - index * 0.16 : -index * 0.16) : side * sideX;
-  const y = dc ? (side === 0 ? 0.72 : 0.92) : wall ? 1.12 : 0.78;
-  const z = dc ? 0.34 : wall ? wallOffset + 0.06 : 0.19;
-  return { x, y, z };
+  if (kind === 'dc') {
+    // The DC dispenser front fascia: 10 mm proud of the 0.34 m front (`DC_DISPENSER`).
+    return { x: side === 0 ? -index * 0.16 : side * 0.17, y: side === 0 ? 0.72 : 0.92, z: 0.35 };
+  }
+  if (wall) return { x: side === 0 ? -0.34 - index * 0.16 : side * 0.34, y: 1.12, z: wallOffset };
+  // The AC pedestal column front (`AC_PEDESTAL.post`: 0.18 m deep).
+  return {
+    x: side === 0 ? -index * 0.16 : 0,
+    y: side === -1 ? 0.62 : side === 1 ? 0.94 : 0.78,
+    z: 0.09,
+  };
 }
 
-/** One holstered cable of a dispenser: the side it hangs on (-1 left, 1 right) and how far below the upper holsters, in meters. */
+/** One holstered cable of a dispenser: the side it hangs on (-1 left, 1 right) and how far back from the front holsters, in meters. */
 export interface DispenserHolster {
   side: -1 | 1;
-  dropM: number;
+  backM: number;
 }
 
 /**
  * The holsters of a dispenser with `cables` connectors (one holstered cable
  * per connector; a multi-standard dispenser such as the ABB Terra 54 CJG has
- * CCS, CHAdeMO and an AC Type 2 cable): left, right, then a second pair 0.34
- * m lower, at most four. At least one.
+ * CCS, CHAdeMO and an AC Type 2 cable): left, right, then a second pair 0.25
+ * m behind them at the same height (`HOLSTER_PITCH_M`), at most four. At least one.
  */
 export function dispenserHolsters(cables: number): DispenserHolster[] {
   const n = Math.max(1, Math.min(4, Math.round(cables)));
   return Array.from({ length: n }, (_, k) => ({
     side: k % 2 === 0 ? -1 : 1,
-    dropM: k >= 2 ? 0.34 : 0,
+    backM: k >= 2 ? 0.25 : 0,
   }));
 }

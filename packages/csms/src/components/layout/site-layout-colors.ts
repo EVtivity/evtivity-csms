@@ -58,11 +58,16 @@ export const SCENE_COLORS = {
     solarCell: '#16304f',
     solarFrame: '#94a3b8',
   },
-  ac: '#2563eb',
-  dc: '#ea7a1a',
   bollard: '#d4a017',
   dark1: '#20252d',
   rubber: '#15181d',
+  // Connector handles: charcoal housing, black face insert, silver plated
+  // contacts, a mid grey latch, ring or button, and the holster housing.
+  connectorShell: '#3d434b',
+  connectorInsert: '#0b0c0e',
+  connectorContact: '#d3d7dc',
+  connectorTrim: '#6b737d',
+  holster: '#2a2e34',
   glass: '#0b1220',
   carGlass: '#22364a',
   screenGlow: '#1d3a6e',
@@ -80,12 +85,17 @@ export const SCENE_COLORS = {
    * screen approximation, no source gives a color).
    */
   galvanizedSteel: '#a4abb2',
+  // Grey silicone polymer post insulators of the depot pantograph linkages.
+  insulator: '#7a8088',
+  // Bare copper contact pads and shoes.
+  copper: '#b87333',
   /** The back of a sign blank (bare aluminum). */
   signBack: '#9ca3af',
   /**
    * The red of a regulatory parking sign legend (R7-113). The MUTCD fixes the
    * color by the FHWA Color Specifications for Retroreflective Sign and
-   * Pavement Marking Materials (23 CFR 655 Appendix to Subpart F); this is a
+   * Pavement Marking Materials (23 CFR 655 Appendix to Subpart F; MUTCD 11th
+   * Edition Section 2A.06 paragraph 01); this is a
    * screen approximation, not the specification.
    */
   signRegulatoryRed: '#c8102e',
@@ -97,9 +107,13 @@ export const SCENE_COLORS = {
   warningInk: '#111827',
   /** Load management links: panel and circuit feeders, and the station drops. */
   linkFeeder: '#22d3ee',
-  /** The beacon of a faulted station. */
-  beacon: '#ef4444',
   linkStation: '#38bdf8',
+  /** Charger hardware: bezels, locks, cable glands, anchor bolts (brushed steel). */
+  chargerMetal: '#8d959e',
+  /** The reflective band on a pipe bollard (white sheeting). */
+  reflectiveBand: '#f1f3f5',
+  /** The emergency stop push button head on a charger front. */
+  emergencyStop: '#c62828',
   terminalBody: '#374151',
   terminalScreen: '#3b82f6',
   terminalOnline: '#22c55e',

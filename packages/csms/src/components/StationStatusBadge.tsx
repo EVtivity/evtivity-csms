@@ -10,6 +10,8 @@ interface StationStatusBadgeProps {
   status: string;
   // Why the station is not available (from the API `statusReason`), null when it is.
   statusReason?: string | null | undefined;
+  /** `sm` in a dense card (the 2D site layout charger card). */
+  size?: 'default' | 'sm' | undefined;
 }
 
 // The station status every surface shows. When the station is unavailable or
@@ -18,11 +20,16 @@ interface StationStatusBadgeProps {
 export function StationStatusBadge({
   status,
   statusReason,
+  size,
 }: StationStatusBadgeProps): React.JSX.Element {
   const { t } = useTranslation();
   const badge = (
-    <Badge variant={stationStatusVariant(status)} className={stationStatusClassName(status)}>
-      {t(`status.${status}`, status)}
+    <Badge
+      variant={stationStatusVariant(status)}
+      size={size}
+      className={stationStatusClassName(status)}
+    >
+      {t(`status.${status}`, { defaultValue: status })}
     </Badge>
   );
   if (statusReason == null || (status !== 'unavailable' && status !== 'faulted')) {

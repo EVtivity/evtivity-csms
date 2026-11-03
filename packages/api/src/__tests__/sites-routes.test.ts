@@ -74,6 +74,22 @@ const { mockReadLayoutStationSessions } = vi.hoisted(() => ({
 vi.mock('../lib/site-layout-sessions.js', () => ({
   readLayoutStationSessions: mockReadLayoutStationSessions,
 }));
+// The charger screen text reads its settings and templates apart (site-layout-screen-message.test.ts).
+vi.mock('../lib/site-layout-screen-message.js', () => ({
+  SCREEN_MESSAGE_SOURCES: ['display_message', 'station_message_template', 'default_welcome'],
+  viewerScreenLanguage: () => Promise.resolve('en'),
+  resolveLayoutScreenMessages: (stations: Array<{ id: string; displayMessage: string | null }>) =>
+    Promise.resolve(
+      new Map(
+        stations.map((s) => [
+          s.id,
+          s.displayMessage != null
+            ? { text: s.displayMessage, source: 'display_message' }
+            : { text: 'Welcome to EVtivity', source: 'default_welcome' },
+        ]),
+      ),
+    ),
+}));
 // The virtual sign windows read the database apart (integration 156-site-layout-live).
 vi.mock('../lib/site-layout-status-windows.js', () => ({
   readLayoutReservations: () => Promise.resolve(new Map()),
@@ -156,6 +172,8 @@ vi.mock('@evtivity/database', async () => ({
   ...(await import('./helpers/conformance-station-mocks.js')).conformanceStationMocks(),
   ...(await import('@evtivity/database/src/lib/ai-insight-suppression.js')),
   readStationDataPlans: mockReadStationDataPlans,
+  boardOf: (r: { boardX?: number | null; boardY?: number | null }) =>
+    r.boardX != null && r.boardY != null ? { x: r.boardX, y: r.boardY } : null,
   saveSiteLayout: mockSaveSiteLayout,
   setSiteLayoutType: mockSetSiteLayoutType,
   readSiteLayoutPositions: mockReadSiteLayoutPositions,
@@ -1617,6 +1635,7 @@ describe('Site routes - handler logic', () => {
         positionX: '100',
         positionY: '200',
         inMaintenance: false,
+        isSimulator: false,
       };
       const evseRow = {
         id: 'evs_000000000001',
@@ -1653,7 +1672,13 @@ describe('Site routes - handler logic', () => {
       expect(body).toHaveLength(1);
       expect(body[0].stationId).toBe('STATION-001');
       expect(body[0].positionX).toBe(100);
-      expect(body[0]).toMatchObject({ placed: true, chargingKind: 'ac', cellular: false });
+      expect(body[0]).toMatchObject({
+        placed: true,
+        chargingKind: 'ac',
+        cellular: false,
+        // The layout popup offers its simulator actions only for a simulator station.
+        isSimulator: false,
+      });
     });
 
     it('adds free slots, the charging kind and the cellular flag', async () => {
@@ -1668,6 +1693,7 @@ describe('Site routes - handler logic', () => {
         positionX: '20',
         positionY: '20',
         inMaintenance: false,
+        isSimulator: false,
       };
       const unplaced = {
         ...saved,
@@ -1676,6 +1702,7 @@ describe('Site routes - handler logic', () => {
         positionX: null,
         positionY: null,
         inMaintenance: true,
+        isSimulator: false,
       };
       mockReadStationDataPlans.mockResolvedValueOnce(
         new Map([
@@ -1703,6 +1730,7 @@ describe('Site routes - handler logic', () => {
         chargingKind: 'dc',
         cellular: true,
         inMaintenance: false,
+        isSimulator: false,
       });
       expect(second).toMatchObject({
         positionX: 220,
@@ -1711,6 +1739,7 @@ describe('Site routes - handler logic', () => {
         chargingKind: 'ac',
         cellular: true,
         inMaintenance: true,
+        isSimulator: false,
       });
     });
 
@@ -1734,6 +1763,7 @@ describe('Site routes - handler logic', () => {
         freeZM: '-2.00',
         freeRotationDeg: '30.0',
         inMaintenance: false,
+        isSimulator: false,
       };
       const unsaved = {
         ...saved,
@@ -1788,6 +1818,7 @@ describe('Site routes - handler logic', () => {
         freeZM: null,
         freeRotationDeg: null,
         inMaintenance: false,
+        isSimulator: false,
       };
       setupDbResults([{ id: VALID_SITE_ID }], [station], [], [], [], []);
       const response = await app.inject({
@@ -1811,6 +1842,7 @@ describe('Site routes - handler logic', () => {
         positionX: '20',
         positionY: '20',
         inMaintenance: false,
+        isSimulator: false,
       };
       setupDbResults([{ id: VALID_SITE_ID }], [station], [], [], [], []);
       const response = await app.inject({
@@ -1834,6 +1866,7 @@ describe('Site routes - handler logic', () => {
         positionX: '20',
         positionY: '20',
         inMaintenance: false,
+        isSimulator: false,
       };
       const session = {
         id: 'ses_1',

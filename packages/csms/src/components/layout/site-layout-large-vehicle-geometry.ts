@@ -28,8 +28,37 @@ import {
   type CarKit,
   type CarMaterials,
 } from './site-layout-car-geometry';
+import { createBusDestinationSignKit } from './site-layout-model-bus-destination-sign';
+import { createBusDoorKit } from './site-layout-model-bus-door';
+import { createBusBatteryPodKit, createBusHvacKit } from './site-layout-model-bus-roof-pods';
+import { createBoxRearDoorKit } from './site-layout-model-box-rear-door';
+import { createTrailerRearDoorsKit } from './site-layout-model-trailer-rear-doors';
+import { createTruckBatteryFairingKit } from './site-layout-model-truck-battery-fairing';
+import { createTruckCabDoorKit } from './site-layout-model-truck-cab-door';
+import {
+  BUS_MIRROR,
+  TRUCK_MIRROR_TUBE_RADIUS_M,
+  busMirrorArmGeometry,
+  busMirrorHead,
+  mirrorTubeGeometry,
+  truckMirror,
+} from './site-layout-model-vehicle-mirror';
 
 const TRUCK_TIRE_WIDTH_M = 0.3;
+
+/**
+ * The bus body roof, under the battery packs, the air conditioner and the
+ * pantograph contact rails (eCitaro brochure: 3.10 m roof, 3.40 m over the
+ * roof equipment).
+ */
+export const BUS_ROOF_Y = 3.1;
+
+/**
+ * The name of the bus's roof contact rail group (rails and feet). A bus that
+ * charges through its own roof pantograph (pantograph up) carries none: the
+ * scene removes the group and mounts the pantograph on the roof there.
+ */
+export const BUS_ROOF_RAILS = 'bus-roof-rails';
 /** The gap between the two tires of a dual wheel. */
 const DUAL_GAP_M = 0.04;
 
@@ -201,7 +230,7 @@ function buildBus(): CarKit {
   const p = parts();
   // The body roof; the battery packs and the air conditioner on it reach the
   // bus's 3.4 m.
-  const roofY = 3.1;
+  const roofY = BUS_ROOF_Y;
   // The low floor body: a near-vertical front with a rounded top edge, the
   // roof, a vertical back; arches over both axles.
   const shell = p.add(
@@ -230,22 +259,31 @@ function buildBus(): CarKit {
   const windscreen = p.add(roundedBox(W - 0.16, 1.75, 0.02, 0.06));
   const sideBand = p.add(new THREE.BoxGeometry(0.02, 1.3, L - 2.2));
   const rearWindow = p.add(roundedBox(W - 0.5, 0.75, 0.02, 0.05));
-  const door = p.add(new THREE.BoxGeometry(0.02, 2.35, 1.2));
   // Black window pillars over the side band, every 1.45 m.
   const mullion = p.add(new THREE.BoxGeometry(0.03, 1.3, 0.09));
-  const doorFrame = p.add(new THREE.BoxGeometry(0.03, 2.4, 0.06));
-  // Roof equipment: battery packs and the air conditioner, a fairing at the front.
-  const pod = p.add(roundedBox(W - 0.8, 0.27, 3.2, 0.1));
-  const hvac = p.add(roundedBox(W - 0.9, 0.3, 1.6, 0.12));
-  const rail = p.add(new THREE.BoxGeometry(0.06, 0.04, 1.2));
-  const railFoot = p.add(new THREE.BoxGeometry(0.08, 0.26, 0.08));
+  // Doors, roof battery packs and air conditioner, destination signs.
+  const door = createBusDoorKit();
+  const pod = createBusBatteryPodKit();
+  const hvac = createBusHvacKit();
+  // The raked front face at the sign height (outline from (0.02, 2.2) to (0.12, roofY - 0.05)).
+  const signs = createBusDestinationSignKit({
+    length: L,
+    width: W,
+    frontFaceZ: 0.02 + ((2.9 - 2.2) / (roofY - 0.05 - 2.2)) * 0.1,
+  });
+  p.list.push(...door.geometries, ...pod.geometries, ...hvac.geometries, ...signs.geometries);
+  // The roof rails merge into a group of their own (BUS_ROOF_RAILS).
+  const railParts = parts();
+  const rail = railParts.add(new THREE.BoxGeometry(0.06, 0.04, 1.2));
+  const railFoot = railParts.add(new THREE.BoxGeometry(0.08, 0.26, 0.08));
   // Lights, the destination display, bumpers, mirrors on arms.
   const lamp = p.add(roundedBox(0.34, 0.14, 0.06, 0.04));
   const tailLamp = p.add(roundedBox(0.14, 0.6, 0.05, 0.04));
-  const display = p.add(new THREE.BoxGeometry(W - 0.6, 0.2, 0.02));
   const bumper = p.add(roundedBox(W + 0.02, 0.3, 0.16, 0.06));
-  const mirrorArm = p.add(new THREE.BoxGeometry(0.04, 0.04, 0.5));
-  const mirror = p.add(roundedBox(0.12, 0.42, 0.2, 0.04));
+  // Mirrors on curved arms from the front corners (site-layout-model-vehicle-mirror.ts).
+  const mirrorArms = ([-1, 1] as const).map((side) => p.add(busMirrorArmGeometry(side, W, roofY)));
+  const bh = BUS_MIRROR.head;
+  const mirror = p.add(roundedBox(bh.widthM, bh.heightM, bh.depthM, 0.04));
   const wheels = wheelParts(p, r);
   const port = new THREE.Vector3(-W / 2 - 0.01, spec.port.y, spec.port.z);
   const roofContact = new THREE.Vector3(
@@ -258,7 +296,7 @@ function buildBus(): CarKit {
     const g = new THREE.Group();
     put(g, shell, m.paint, 0, 0, 0);
     put(g, windscreen, m.glass, 0, 1.95, -0.005);
-    put(g, display, m.headlight, 0, 2.9, -0.01);
+    g.add(signs.build(m));
     put(g, rearWindow, m.glass, 0, 2.45, L + 0.005);
     for (const side of [-1, 1]) {
       const x = side * (W / 2 + 0.006);
@@ -266,34 +304,60 @@ function buildBus(): CarKit {
       for (let z = 1.6; z < L - 0.8; z += 1.45) put(g, mullion, m.trim, x + side * 0.005, 1.9, z);
       put(g, lamp, m.headlight, side * (W / 2 - 0.3), 0.78, -0.02);
       put(g, tailLamp, m.taillight, side * (W / 2 - 0.12), 1.05, L + 0.01);
-      // A mirror on an arm reaching forward from each top front corner: 2.95 m
-      // across the mirrors (eCitaro).
-      put(g, mirrorArm, m.trim, side * (W / 2 + 0.08), 2.45, -0.15);
-      put(g, mirror, m.trim, side * (W / 2 + 0.14), 2.15, -0.38);
+      // A mirror on its curved arm from the front corner above the windshield.
+      const arm = mirrorArms[side < 0 ? 0 : 1];
+      if (arm != null) put(g, arm, m.trim, 0, 0, 0);
+      const head = busMirrorHead(side < 0 ? -1 : 1, W);
+      put(g, mirror, m.trim, ...head.center);
     }
     // Doors on the right (+x): at the front and in the middle.
     for (const dz of [0.95, 6.3]) {
-      put(g, door, m.glass, W / 2 + 0.012, 1.55, dz);
-      for (const e of [-0.6, 0, 0.6]) put(g, doorFrame, m.trim, W / 2 + 0.018, 1.55, dz + e);
+      const d = door.build(m);
+      d.position.set(W / 2 + 0.002, 1.55, dz);
+      g.add(d);
     }
     put(g, bumper, m.trim, 0, 0.45, 0.02);
     put(g, bumper, m.trim, 0, 0.45, L - 0.02);
     // Roof: two battery packs behind the rails, the air conditioner at the back.
-    put(g, pod, m.panel, 0, roofY + 0.13, 5.1);
-    put(g, pod, m.panel, 0, roofY + 0.13, 8.4);
-    put(g, hvac, m.panel, 0, roofY + 0.15, 10.85);
-    // Pantograph contact rails above the front axle: four rails along the bus on feet.
-    for (const x of [-0.45, -0.15, 0.15, 0.45]) {
-      put(g, rail, m.rim, x, roofContact.y - 0.02, roofContact.z);
-      put(g, railFoot, m.trim, x, roofY + 0.13, roofContact.z - 0.5);
-      put(g, railFoot, m.trim, x, roofY + 0.13, roofContact.z + 0.5);
+    for (const [kit, z] of [
+      [pod, 5.1],
+      [pod, 8.4],
+      [hvac, 10.85],
+    ] as const) {
+      const unit = kit.build(m);
+      unit.position.set(0, roofY - 0.005, z);
+      g.add(unit);
     }
     addWheels(g, spec, wheels, m, W - 0.02);
     addInlet(g, p, m, port);
     return g;
   }
-  const { build, geometries } = mergeAssembly(assemble, p.list);
-  return { bodyType: 'bus', build, port, roofContact, geometries };
+  // Pantograph contact rails above the front axle: four rails along the bus
+  // on feet standing on the roof, their tops at the roof contact height.
+  function assembleRails(m: CarMaterials): THREE.Group {
+    const g = new THREE.Group();
+    for (const x of [-0.45, -0.15, 0.15, 0.45]) {
+      put(g, rail, m.rim, x, roofContact.y - 0.02, roofContact.z);
+      for (const dz of [-0.5, 0.5]) put(g, railFoot, m.trim, x, roofY + 0.13, roofContact.z + dz);
+    }
+    return g;
+  }
+  const merged = mergeAssembly(assemble, p.list);
+  const rails = mergeAssembly(assembleRails, railParts.list);
+  function build(m: CarMaterials): THREE.Group {
+    const g = merged.build(m);
+    const r = rails.build(m);
+    r.name = BUS_ROOF_RAILS;
+    g.add(r);
+    return g;
+  }
+  return {
+    bodyType: 'bus',
+    build,
+    port,
+    roofContact,
+    geometries: [...merged.geometries, ...rails.geometries],
+  };
 }
 
 // ---------------------------------------------------------------- box truck
@@ -351,18 +415,48 @@ function buildBoxTruck(): CarKit {
   const deck = 1.2;
   const box = p.add(roundedBox(W, spec.height - deck, L - boxFront, 0.06));
   const post = p.add(new THREE.BoxGeometry(0.03, spec.height - deck - 0.1, 0.06));
-  const slat = p.add(new THREE.BoxGeometry(W - 0.2, 0.025, 0.02));
   const rubRail = p.add(new THREE.BoxGeometry(0.04, 0.08, L - boxFront));
   // Chassis: the frame rails, the battery packs between the axles, the rear underride bar.
   const frame = p.add(new THREE.BoxGeometry(0.12, 0.25, L - cabBack));
-  const battery = p.add(roundedBox(0.5, 0.6, 2.6, 0.05));
+  const batteries = createTruckBatteryFairingKit({
+    outerX: 1.24,
+    packDepth: 0.5,
+    centerY: 0.8,
+    centerZ: 4.9,
+    length: 2.6,
+    height: 0.6,
+  });
+  // The cab door behind the front wheel arch, under the side window (1.725 to 2.575 m).
+  const cabDoor = createTruckCabDoorKit({
+    halfWidth: cabW / 2,
+    front: 1.7,
+    rear: cabBack - 0.07,
+    bottom: 0.62,
+    top: 2.48,
+    windowBottom: 1.81,
+    steps: [0.42],
+  });
+  const rearDoor = createBoxRearDoorKit({ width: W, deck, height: spec.height, rearZ: L });
+  p.list.push(...batteries.geometries, ...cabDoor.geometries, ...rearDoor.geometries);
   const underride = p.add(new THREE.BoxGeometry(W - 0.3, 0.12, 0.12));
   const bumper = p.add(roundedBox(cabW + 0.06, 0.28, 0.2, 0.06));
   const grille = p.add(roundedBox(1.0, 0.55, 0.04, 0.04));
   const lamp = p.add(roundedBox(0.3, 0.14, 0.06, 0.04));
   const tailLamp = p.add(roundedBox(0.2, 0.12, 0.04, 0.03));
   const mirror = p.add(roundedBox(0.08, 0.45, 0.2, 0.03));
-  const mirrorArm = p.add(new THREE.BoxGeometry(0.22, 0.03, 0.03));
+  // Mirrors on door frame brackets, 0.6 m behind the hood line: behind the
+  // windshield's rounded edge at the bracket heights (site-layout-model-vehicle-mirror.ts).
+  const mirrors = ([-1, 1] as const).map((side) =>
+    truckMirror(side, cabW / 2, {
+      y: 2.2,
+      z: hoodLength + 0.6,
+      headOutM: 0.24,
+      head: [0.08, 0.45, 0.2],
+    }),
+  );
+  const mirrorTubes = mirrors.flatMap((mm) =>
+    mm.tubes.map((t) => p.add(mirrorTubeGeometry(t.from, t.to, TRUCK_MIRROR_TUBE_RADIUS_M))),
+  );
   const wheels = wheelParts(p, r);
   const port = new THREE.Vector3(-1.21, spec.port.y, spec.port.z);
   const windshieldAt = new THREE.Vector3(0, (1.65 + roof) / 2 + 0.01, hoodLength + 0.27);
@@ -380,18 +474,16 @@ function buildBoxTruck(): CarKit {
       put(g, sideWindow, m.glass, side * (cabW / 2 + 0.005), 2.12, hoodLength + 0.85);
       put(g, lamp, m.headlight, side * (cabW / 2 - 0.3), 1.25, -0.01);
       put(g, tailLamp, m.taillight, side * (W / 2 - 0.2), 1.05, L + 0.01);
-      put(g, mirrorArm, m.trim, side * (cabW / 2 + 0.11), 2.2, hoodLength + 0.4);
-      put(g, mirror, m.trim, side * (cabW / 2 + 0.24), 2.08, hoodLength + 0.4);
+      const mm = mirrors[side < 0 ? 0 : 1];
+      if (mm != null) put(g, mirror, m.trim, ...mm.head.center);
       put(g, frame, m.trim, side * 0.45, 0.8, cabBack + (L - cabBack) / 2);
-      put(g, battery, m.trim, side * 0.95, 0.8, 4.9);
       put(g, rubRail, m.trim, side * (W / 2 + 0.015), deck + 0.06, boxFront + (L - boxFront) / 2);
       for (let z = boxFront + 0.6; z < L - 0.2; z += 1.1) {
         put(g, post, m.trim, side * (W / 2 + 0.012), deck + (spec.height - deck) / 2, z);
       }
     }
-    // The roll-up door at the back: horizontal slats.
-    for (let y = deck + 0.25; y < spec.height - 0.15; y += 0.3)
-      put(g, slat, m.trim, 0, y, L + 0.012);
+    for (const tube of mirrorTubes) put(g, tube, m.trim, 0, 0, 0);
+    g.add(batteries.build(m), cabDoor.build(m), rearDoor.build(m));
     put(g, underride, m.trim, 0, 0.5, L - 0.1);
     addWheels(g, spec, wheels, m, 2.36);
     addInlet(g, p, m, port);
@@ -402,6 +494,22 @@ function buildBoxTruck(): CarKit {
 }
 
 // ---------------------------------------------------------------- semi truck
+
+/**
+ * The semi's charge port box, in the vehicle frame: from the left frame rail
+ * (its outer face at 0.52 m) out to 1.29 m, just inside the 1.33 m battery
+ * fairing face, and between the cab (2.95 m) and the fairing (3.6 m) along
+ * the truck. Its 0.5 m height around the 1.18 m inlet center keeps the socket
+ * and its status light inside it. Derived from the semi's own dimensions.
+ */
+export const SEMI_PORT_BOX = {
+  innerX: 0.52,
+  outerX: 1.29,
+  centerY: 1.2,
+  heightM: 0.5,
+  centerZ: 3.275,
+  lengthM: 0.55,
+} as const;
 
 function buildSemiTruck(): CarKit {
   const spec = LARGE_VEHICLE_SPECS.semi_truck;
@@ -443,15 +551,52 @@ function buildSemiTruck(): CarKit {
   const sideWindow = p.add(new THREE.BoxGeometry(0.02, 0.6, 0.75));
   // Side fairings over the battery packs between the charge inlet and the
   // drive axles.
-  const fairing = p.add(roundedBox(0.12, 0.85, 1.4, 0.05));
+  const batteries = createTruckBatteryFairingKit({
+    outerX: cabW / 2 + 0.08,
+    packDepth: 0.7,
+    centerY: 0.95,
+    centerZ: 4.3,
+    length: 1.4,
+    height: 0.85,
+  });
+  // The cab door behind the steer axle arch (to 2.06 m), under the side window (1.925 to 2.675 m).
+  const cabDoor = createTruckCabDoorKit({
+    halfWidth: cabW / 2,
+    front: 2.12,
+    rear: cabBack - 0.08,
+    bottom: 0.72,
+    top: 2.88,
+    windowBottom: 2.2,
+    steps: [0.45],
+  });
   const frame = p.add(new THREE.BoxGeometry(0.14, 0.28, 4.8));
+  // The charge port box on the left frame rail between the back of the cab
+  // and the battery fairing, the inlet in a dark bezel on its outer face.
+  const portBox = SEMI_PORT_BOX;
+  const portBoxShell = p.add(
+    roundedBox(portBox.outerX - portBox.innerX, portBox.heightM, portBox.lengthM, 0.04),
+  );
+  const portBezel = p.add(roundedBox(0.02, 0.36, 0.42, 0.015));
+  const portDrip = p.add(new THREE.BoxGeometry(0.06, 0.02, portBox.lengthM - 0.04));
   const fifthWheel = p.add(new THREE.CylinderGeometry(0.45, 0.45, 0.12, 18));
   const mudflap = p.add(new THREE.BoxGeometry(0.4, 0.6, 0.02));
   const bumper = p.add(roundedBox(cabW + 0.04, 0.35, 0.25, 0.08));
   const grille = p.add(roundedBox(1.1, 0.55, 0.04, 0.05));
   const lamp = p.add(roundedBox(0.36, 0.12, 0.08, 0.04));
   const mirror = p.add(roundedBox(0.08, 0.5, 0.22, 0.03));
-  const mirrorArm = p.add(new THREE.BoxGeometry(0.25, 0.03, 0.03));
+  // Mirrors on door frame brackets, 0.5 m behind the hood line: behind the
+  // windshield's rounded edge at the bracket heights (site-layout-model-vehicle-mirror.ts).
+  const mirrors = ([-1, 1] as const).map((side) =>
+    truckMirror(side, cabW / 2, {
+      y: 2.35,
+      z: hoodLength + 0.5,
+      headOutM: 0.26,
+      head: [0.08, 0.5, 0.22],
+    }),
+  );
+  const mirrorTubes = mirrors.flatMap((mm) =>
+    mm.tubes.map((t) => p.add(mirrorTubeGeometry(t.from, t.to, TRUCK_MIRROR_TUBE_RADIUS_M))),
+  );
   // The 53 ft dry van trailer: a white box on its floor, corner posts, a
   // bottom rail, side skirts, landing gear legs, rear doors with lock bars.
   // The kingpin 36 in behind the trailer front, on the fifth wheel.
@@ -467,8 +612,13 @@ function buildSemiTruck(): CarKit {
   const skirt = p.add(new THREE.BoxGeometry(0.03, 0.6, 7.4));
   const leg = p.add(new THREE.BoxGeometry(0.12, floor - 0.1, 0.12));
   const foot = p.add(new THREE.BoxGeometry(0.3, 0.05, 0.3));
-  const lockBar = p.add(new THREE.CylinderGeometry(0.02, 0.02, spec.height - floor - 0.3, 6));
-  const doorSeam = p.add(new THREE.BoxGeometry(0.02, spec.height - floor - 0.1, 0.02));
+  const rearDoors = createTrailerRearDoorsKit({
+    width: W,
+    floor,
+    height: spec.height,
+    rearZ: L,
+  });
+  p.list.push(...batteries.geometries, ...cabDoor.geometries, ...rearDoors.geometries);
   const underride = p.add(new THREE.BoxGeometry(W - 0.3, 0.12, 0.12));
   const tailLamp = p.add(roundedBox(0.22, 0.12, 0.04, 0.03));
   const wheels = wheelParts(p, r);
@@ -483,12 +633,23 @@ function buildSemiTruck(): CarKit {
     put(g, grille, m.trim, 0, 1.05, -0.02);
     put(g, bumper, m.trim, 0, 0.62, 0.02);
     put(g, fifthWheel, m.trim, 0, 1.22, fifthWheelZ);
+    const boxX = -(portBox.innerX + portBox.outerX) / 2;
+    put(g, portBoxShell, m.paint, boxX, portBox.centerY, portBox.centerZ);
+    put(g, portBezel, m.trim, -portBox.outerX - 0.005, port.y, port.z);
+    put(
+      g,
+      portDrip,
+      m.trim,
+      -portBox.outerX + 0.02,
+      portBox.centerY + portBox.heightM / 2 + 0.01,
+      portBox.centerZ,
+    );
+    for (const tube of mirrorTubes) put(g, tube, m.trim, 0, 0, 0);
     for (const side of [-1, 1]) {
       put(g, sideWindow, m.glass, side * (cabW / 2 + 0.005), 2.5, hoodLength + 0.8);
       put(g, lamp, m.headlight, side * (cabW / 2 - 0.32), 1.2, 0.02);
-      put(g, mirrorArm, m.trim, side * (cabW / 2 + 0.12), 2.45, hoodLength + 0.2);
-      put(g, mirror, m.trim, side * (cabW / 2 + 0.26), 2.35, hoodLength + 0.2);
-      put(g, fairing, m.paint, side * (cabW / 2 + 0.02), 0.95, 4.3);
+      const mm = mirrors[side < 0 ? 0 : 1];
+      if (mm != null) put(g, mirror, m.trim, ...mm.head.center);
       put(g, frame, m.trim, side * 0.45, 0.95, 5.35);
       put(g, mudflap, m.trim, side * 1.05, 0.55, 7.55);
       // Trailer posts, rails, skirts and lights.
@@ -518,12 +679,9 @@ function buildSemiTruck(): CarKit {
       put(g, leg, m.trim, side * 0.75, (floor - 0.1) / 2 + 0.05, 8.0);
       put(g, foot, m.trim, side * 0.75, 0.025, 8.0);
       put(g, tailLamp, m.taillight, side * (W / 2 - 0.25), floor + 0.25, L + 0.02);
-      for (const bx of [0.35, 0.95]) {
-        put(g, lockBar, m.rim, side * bx, floor + (spec.height - floor) / 2, L + 0.03);
-      }
     }
     put(g, van, m.panel, 0, floor + (spec.height - floor) / 2, trailerFront + trailerLength / 2);
-    put(g, doorSeam, m.trim, 0, floor + (spec.height - floor) / 2, L + 0.015);
+    g.add(batteries.build(m), cabDoor.build(m), rearDoors.build(m));
     put(g, underride, m.trim, 0, 0.55, L - 0.3);
     addWheels(g, spec, wheels, m, 2.5);
     addInlet(g, p, m, port);

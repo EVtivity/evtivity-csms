@@ -621,6 +621,8 @@ async function seed(): Promise<void> {
     'company.ogImage': '',
     'company.portalUrl': '',
     'company.themeColor': '#2563eb',
+    'company.chargerColorAc': '',
+    'company.chargerColorDc': '',
     'sustainability.gridEmissionFactor': '0.386',
     'sustainability.evEfficiency': '3.3',
     'sustainability.gasolineEmissionFactor': '8.887',

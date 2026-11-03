@@ -51,6 +51,8 @@
     "company.ogImage": "",
     "company.portalUrl": "",
     "company.themeColor": "#2563eb",
+    "company.chargerColorAc": "",
+    "company.chargerColorDc": "",
     "pricing.splitBillingEnabled": true,
     "stationMessage.enabled": false,
     "stationMessage.pricingFormat": "compact",

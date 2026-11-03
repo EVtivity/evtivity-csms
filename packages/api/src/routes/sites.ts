@@ -40,6 +40,7 @@ import {
   getPlatformFeePercent,
   readStationDataPlans,
   saveSiteLayout,
+  boardOf,
   readSiteLayoutSettings,
   readStationLayoutKinds,
   readSiteLayoutPositions,
@@ -120,6 +121,11 @@ import { VEHICLE_BODY_TYPES, VEHICLE_COLORS } from '@evtivity/lib/vehicle-appear
 import { avatarItem } from '../lib/avatar-item.js';
 import { readLayoutStationSessions } from '../lib/site-layout-sessions.js';
 import type { LayoutStationSession } from '../lib/site-layout-sessions.js';
+import {
+  resolveLayoutScreenMessages,
+  SCREEN_MESSAGE_SOURCES,
+  viewerScreenLanguage,
+} from '../lib/site-layout-screen-message.js';
 import {
   layoutOcppVersion,
   readLayoutStationLinks,
@@ -1060,6 +1066,15 @@ const layoutStation = z
       .describe(
         'Custom site: where the station stands (meters and turn), the saved one or, with placed false, one the server picked right of the others (saved by the next layout save). Null on the other site types',
       ),
+    boardPosition: z
+      .object({
+        x: z.number().int().describe('X of the card on the 2D board in board px'),
+        y: z.number().int().describe('Y of the card on the 2D board in board px'),
+      })
+      .nullable()
+      .describe(
+        'Where the station card stands on the 2D board (board px), saved by the layout save. Null: no saved position (the 2D view shows its computed default slot). Independent of the station 3D position',
+      ),
     chargingKind: z
       .enum(['ac', 'dc'])
       .describe(
@@ -1110,11 +1125,34 @@ const layoutStation = z
     inMaintenance: z
       .boolean()
       .describe('Whether an active maintenance event currently covers this station'),
+    isSimulator: z
+      .boolean()
+      .describe(
+        'Whether the station is a simulator station (the layout popup offers simulator actions)',
+      ),
     displayMessage: z
       .string()
       .nullable()
       .describe(
         'Text of the newest display message the station accepted that is active now (started, not ended), if any',
+      ),
+    screenMessage: z
+      .object({
+        text: z
+          .string()
+          .describe(
+            "What the charger screen shows, rendered in the requesting user's language (line breaks as \\n; a display message as the station holds it)",
+          ),
+        source: z
+          .enum(SCREEN_MESSAGE_SOURCES)
+          .describe(
+            "Where the text comes from: display_message (the station's active display message), station_message_template (the station message template of its current state, while station messages are on and the station's OCPP version receives that state), default_welcome (a welcome with the company name)",
+          ),
+      })
+      .loose()
+      .nullable()
+      .describe(
+        'What the charger screen shows now. Set for every station of the reply; null only if it could not be decided',
       ),
     evses: z.array(layoutEvse).describe('EVSEs installed on this station'),
     session: layoutSession
@@ -2895,7 +2933,10 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.id, id));
+      const [site] = await db
+        .select({ id: sites.id, timezone: sites.timezone })
+        .from(sites)
+        .where(eq(sites.id, id));
       if (site == null) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
@@ -2916,10 +2957,13 @@ export function siteRoutes(app: FastifyInstance): void {
           freeXM: stationLayoutPositions.freeXM,
           freeZM: stationLayoutPositions.freeZM,
           freeRotationDeg: stationLayoutPositions.freeRotationDeg,
+          boardX: stationLayoutPositions.boardX,
+          boardY: stationLayoutPositions.boardY,
           inMaintenance: buildUnderMaintenanceSubquery(
             chargingStations.id,
             chargingStations.siteId,
           ),
+          isSimulator: chargingStations.isSimulator,
         })
         .from(chargingStations)
         // A position row counts only for the station's current site.
@@ -3118,6 +3162,47 @@ export function siteRoutes(app: FastifyInstance): void {
         }
       }
 
+      // What each charger screen shows, in the viewer's language.
+      const activeEnergyByStation = new Map<string, number>();
+      for (const session of sessionRows) {
+        activeEnergyByStation.set(
+          session.stationId,
+          (activeEnergyByStation.get(session.stationId) ?? 0) +
+            Number(session.energyDeliveredWh ?? '0'),
+        );
+      }
+      const screenMessages = await resolveLayoutScreenMessages(
+        stationRows.map((station) => {
+          const session = layoutSessions.get(station.id);
+          return {
+            id: station.id,
+            stationOcppId: station.stationId,
+            ocppProtocol: station.ocppProtocol,
+            status: station.status,
+            connectorStatuses: (evsesByStation.get(station.id) ?? []).flatMap((evse) =>
+              (connectorsByEvse.get(evse.id) ?? []).map((conn) => conn.status),
+            ),
+            hasActiveSession: activeEnergyByStation.has(station.id),
+            displayMessage: displayMessageByStation.get(station.id) ?? null,
+            energyDeliveredWh: activeEnergyByStation.get(station.id) ?? null,
+            session:
+              session == null
+                ? null
+                : {
+                    startedAt: session.startedAt,
+                    currentCostCents: session.currentCostCents,
+                    currency: session.currency,
+                  },
+            reservationEndsAt: reservationWindows.get(station.id)?.endsAt ?? null,
+          };
+        }),
+        {
+          language: await viewerScreenLanguage(userId),
+          timezone: site.timezone,
+          log: request.log,
+        },
+      );
+
       return stationRows.map((station) => {
         const stationEvses = evsesByStation.get(station.id) ?? [];
         const dataPlan = dataPlans.get(station.id);
@@ -3133,6 +3218,7 @@ export function siteRoutes(app: FastifyInstance): void {
           positionY: slotByStation.get(station.id)?.y ?? Number(station.positionY ?? '0'),
           placed: !slotByStation.has(station.id) && freeByStation.get(station.id)?.picked !== true,
           freePosition: freeByStation.get(station.id)?.placement ?? null,
+          boardPosition: boardOf(station),
           chargingKind: dataPlan?.chargingKind ?? 'ac',
           cellular: isCellular(station.id),
           connectionType:
@@ -3145,7 +3231,9 @@ export function siteRoutes(app: FastifyInstance): void {
           networkType: stationLinks.get(station.id)?.networkType ?? null,
           signal: stationLinks.get(station.id)?.signal ?? null,
           inMaintenance: station.inMaintenance,
+          isSimulator: station.isSimulator,
           displayMessage: displayMessageByStation.get(station.id) ?? null,
+          screenMessage: screenMessages.get(station.id) ?? null,
           session: layoutSessions.get(station.id) ?? null,
           reservation: reservationWindows.get(station.id) ?? null,
           maintenanceWindow: station.inMaintenance
@@ -3254,6 +3342,26 @@ export function siteRoutes(app: FastifyInstance): void {
             .describe(
               'Custom site: where the station stands (meters and turn). Omitted keeps the saved one; null clears it (the station then gets one right of the others). Spots that overlap another station answer 400 VALIDATION_ERROR naming the stations (details.stations)',
             ),
+          boardPosition: z
+            .object({
+              x: z
+                .number()
+                .int()
+                .min(-1_000_000)
+                .max(1_000_000)
+                .describe('X of the card on the 2D board in board px'),
+              y: z
+                .number()
+                .int()
+                .min(-1_000_000)
+                .max(1_000_000)
+                .describe('Y of the card on the 2D board in board px'),
+            })
+            .nullable()
+            .optional()
+            .describe(
+              'Where the station card stands on the 2D board (board px). Omitted keeps the saved one; null clears it (the 2D view shows the computed default slot). Never moves the station 3D position',
+            ),
         }),
       )
       .describe('Station positions to save'),
@@ -3324,6 +3432,7 @@ export function siteRoutes(app: FastifyInstance): void {
         positionX: p.positionX,
         positionY: p.positionY,
         ...(p.freePosition !== undefined ? { free: p.freePosition } : {}),
+        ...(p.boardPosition !== undefined ? { board: p.boardPosition } : {}),
       }));
       // Ajv checks the ranges; the Zod schema also checks the 10 cm steps and
       // the unique transformer ids.
@@ -3361,6 +3470,8 @@ export function siteRoutes(app: FastifyInstance): void {
           freeXM: stationLayoutPositions.freeXM,
           freeZM: stationLayoutPositions.freeZM,
           freeRotationDeg: stationLayoutPositions.freeRotationDeg,
+          boardX: stationLayoutPositions.boardX,
+          boardY: stationLayoutPositions.boardY,
         })
         .from(stationLayoutPositions)
         .where(
@@ -3419,6 +3530,7 @@ export function siteRoutes(app: FastifyInstance): void {
                   },
                 }
               : {}),
+            ...(boardOf(row) != null ? { board: boardOf(row) } : {}),
           }));
         await writeAudit(
           { table: siteAuditLog, idColumn: 'site_id' },

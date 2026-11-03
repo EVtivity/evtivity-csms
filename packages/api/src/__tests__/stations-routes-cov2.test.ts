@@ -243,6 +243,11 @@ vi.mock('../lib/station-message-log.js', () => ({
   listStationMessageLog: mockListStationMessageLog,
 }));
 
+const { mockStationLogSince } = vi.hoisted(() => ({
+  mockStationLogSince: vi.fn((): Promise<Date | null | 'closed'> => Promise.resolve(null)),
+}));
+vi.mock('../lib/station-log-window.js', () => ({ stationLogSince: mockStationLogSince }));
+
 vi.mock('../lib/pricing-group-lookup.js', () => ({
   pricingGroupExists: mocks.pricingGroupExists,
 }));
@@ -1028,7 +1033,36 @@ describe('Station routes - cov2', () => {
         limit: 50,
         action: 'Heartbeat',
         direction: 'inbound',
+        since: null,
       });
+    });
+
+    it('limits the ocpp log of a moved station to its time at the site', async () => {
+      const movedAt = new Date('2026-11-03T12:00:00Z');
+      mockStationLogSince.mockResolvedValueOnce(movedAt);
+      const res = await inject('GET', `/stations/${STATION}/ocpp-logs`);
+      expect(res.statusCode).toBe(200);
+      expect(mockStationLogSince).toHaveBeenCalledWith(STATION, expect.any(String));
+      expect(mockListStationMessageLog).toHaveBeenCalledWith(STATION, {
+        page: 1,
+        limit: 50,
+        since: movedAt,
+      });
+    });
+
+    it('answers an empty ocpp log and security log for a closed window without reading them', async () => {
+      mockStationLogSince.mockResolvedValueOnce('closed');
+      const logs = await inject('GET', `/stations/${STATION}/ocpp-logs`);
+      expect(logs.statusCode).toBe(200);
+      expect(logs.json()).toEqual({ data: [], total: 0, actions: [] });
+      expect(mockListStationMessageLog).not.toHaveBeenCalled();
+
+      mockStationLogSince.mockResolvedValueOnce('closed');
+      const before = mocks.execute.mock.calls.length;
+      const security = await inject('GET', `/stations/${STATION}/security-logs`);
+      expect(security.statusCode).toBe(200);
+      expect(security.json()).toEqual({ data: [], total: 0 });
+      expect(mocks.execute.mock.calls.length).toBe(before);
     });
 
     it('security events filter by type search', async () => {

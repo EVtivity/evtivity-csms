@@ -169,17 +169,18 @@ const INCH_M = 0.0254;
  * - A standing sign stands on a galvanized steel square tube post, one of
  *   the breakaway post types of PennDOT LTAP Technical Information Sheet #212,
  *   Breakaway Sign Posts (Spring 2021; steel square tube, channel bar or wood;
- *   the MUTCD asks for crashworthy supports in a clear zone, Section 2A.19 as
- *   that sheet cites it),
+ *   the MUTCD asks for crashworthy supports in a clear zone, MUTCD 11th
+ *   Edition Section 2A.16 paragraph 02; posts and mountings are Section 2A.18),
  *   https://gis.penndot.pa.gov/BPR_PDF_FILES/Documents/LTAP/TechSheets/TS_212_Breakway_Sign_Posts.pdf.
  *   The sign post slides into an anchor post driven at least 3 ft into the
  *   ground, which stands at most 1 in above the ground for a square tube post
  *   (the same sheet, Installation): the post reaches the ground, never a
  *   floating plate. The 2 in tube size is common practice (no MUTCD
  *   dimension); the anchor is drawn one size larger (2.5 in, no source).
- * - A sign of a wall box hangs on the facade above it, its bottom at the same
- *   7 ft (Section 2A.15 sets the height above the ground wherever parking or
- *   pedestrian movements occur, whatever the support).
+ * - A sign of a wall box hangs on the facade above it, its bottom at 1.4 m
+ *   (`WALL_SIGN.bottomM` in the CSMS sign module; Section
+ *   2A.15 sets 7 ft where parking or pedestrian movements occur under a sign
+ *   on a support).
  */
 export const EV_SIGNS = {
   chargingOnly: { widthM: 12 * INCH_M, heightM: 18 * INCH_M },
@@ -1150,6 +1151,58 @@ export const SPLIT_SYSTEM = {
   /** Recommended cable run from the power unit to a satellite, at most (80 m). */
   maxCableM: 80,
 } as const;
+
+/**
+ * The most EVSEs and connectors one charger unit is drawn with (owner
+ * decision 2026-11-02, items checked against manufacturer datasheets):
+ * - AC Level 2 pedestal or wall box: at most 2 EVSEs (ports), one connector
+ *   each (owner's number; ChargePoint CPF50 is sold single or dual port, one
+ *   J1772 or J3400 cable per port, https://www.chargepoint.com/products/stations/cpf50/specs).
+ * - DC dispenser: at most 2 EVSEs charging at once (ABB Terra 124/184 NA Data
+ *   Sheet J: "2 x 90 kW for two" EVs; Tritium PKM150 CSv6 datasheet: 2 x 75 kW),
+ *   each with up to 2 connectors of which one charges at a time (Kempower
+ *   Satellite v2 NA datasheet Rev 1.70, code "Y": CCS1 or J3400-NACS, two
+ *   cables, one vehicle at a time); a dispenser of one EVSE up to 3 (ABB Terra
+ *   54 CJG: CCS, CHAdeMO and an AC Type 2 cable, one vehicle at a time); at
+ *   most 4 cables in all (Alpitronic HYC400UL Product Data Sheet V1-2: up to 4
+ *   outputs). Alpitronic sells up to 4 simultaneous outputs per cabinet,
+ *   so 2 EVSEs is a modelling choice for one dispenser, not an industry limit;
+ *   a DC station with more EVSEs is a split system (`SPLIT_SYSTEM`).
+ * The API never refuses a station with more (stations report their own over
+ * OCPP); the 3D view draws the first EVSEs and connectors up to these limits.
+ */
+export const CHARGER_PORT_LIMITS = {
+  ac: { evses: 2, connectorsPerEvse: 1, cables: 2 },
+  dc: { evses: 2, connectorsPerEvse: 2, cables: 4, singleEvseConnectors: 3 },
+} as const;
+
+/**
+ * The connectors drawn on each EVSE of one charger unit, EVSE order: the
+ * first `CHARGER_PORT_LIMITS[kind].evses` EVSEs, each with at most
+ * `connectorsPerEvse` (a one-EVSE DC unit `singleEvseConnectors`) and at least
+ * one, and no more than `cables` in all.
+ */
+export function drawnConnectorCounts(
+  kind: 'ac' | 'dc',
+  connectorsPerEvse: readonly number[],
+): number[] {
+  const limit = CHARGER_PORT_LIMITS[kind];
+  const out: number[] = [];
+  let left: number = limit.cables;
+  const evses = connectorsPerEvse.slice(0, limit.evses);
+  // A one-EVSE DC unit may carry a third cable (a multi-standard dispenser).
+  const perEvse =
+    kind === 'dc' && evses.length === 1
+      ? CHARGER_PORT_LIMITS.dc.singleEvseConnectors
+      : limit.connectorsPerEvse;
+  for (const n of evses) {
+    if (left <= 0) break;
+    const drawn = Math.min(Math.max(1, Math.round(n)), perEvse, left);
+    out.push(drawn);
+    left -= drawn;
+  }
+  return out.length > 0 ? out : [1];
+}
 
 /**
  * How many dispensers a station stands at separate spots (`SPLIT_SYSTEM`):

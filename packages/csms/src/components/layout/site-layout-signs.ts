@@ -46,6 +46,42 @@ export interface StationSigns {
 
 /** How far in from a stall's side line the sign post stands, in meters. */
 export const SIGN_POST_INSET_M = 0.2;
+/**
+ * The sign posts of a station with several stalls (`Stall`, its own frame):
+ * one per stall at the stall's side line farther from its charger,
+ * `SIGN_POST_INSET_M` in, so a post never stands at the charger. A dual-port
+ * pedestal stands on the line between its stalls (charger at x 0), so its
+ * posts go to the two outer lines; a split system has a dispenser in each
+ * stall, so each post goes to its stall's left line (the last stall's to its
+ * right line).
+ */
+export function stallSignPostXs(
+  stalls: ReadonlyArray<{ x: number; width: number }>,
+  dispenserPerStall: boolean,
+): number[] {
+  return stalls.map((st, i) => {
+    const chargerX = dispenserPerStall ? st.x : 0;
+    const away = st.x - chargerX;
+    const dir =
+      away > 0.01 ? 1 : away < -0.01 ? -1 : stalls.length > 1 && i === stalls.length - 1 ? 1 : -1;
+    return st.x + dir * (st.width / 2 - SIGN_POST_INSET_M);
+  });
+}
+
+/**
+ * The R7-113 of a wall box hangs flat on the facade beside the box, not on a
+ * post: MUTCD 11th Edition Section 2A.15 sets the 7 ft bottom for signs on
+ * supports where parking or pedestrian movements occur, so that people pass
+ * under them; a sign flat on a wall projects less than 4 in, which the 2010
+ * ADA Standards 307.2 allow at any height, so nobody walks under it.
+ * Derived: its bottom at 1.4 m puts its 18 in face (0.46 m) between 1.4 and
+ * 1.86 m, at eye level and under the ground floor window sill (2.25 m), and
+ * a California tow-away sign (22 in) fits under it at 0.79 m on solid wall;
+ * it stands 0.75 m left of the box center, past the card reader beside the
+ * box (its left edge at 0.44 m) with the 17 in tow-away sign's half width.
+ */
+export const WALL_SIGN = { x: -0.75, bottomM: 1.4 } as const;
+
 /** The gap between the two signs on one post, in meters. */
 const SIGN_GAP_M = 0.05;
 
@@ -82,17 +118,25 @@ export function stationSignMount(input: {
       input.siteType === 'curbside'
         ? -1
         : input.wall
-          ? 0
+          ? input.siteType === 'office_retail'
+            ? WALL_SIGN.x
+            : 0
           : -STANDARD_DIMENSIONS.spotWidthM / 2 + SIGN_POST_INSET_M;
   }
+  const onWall = input.wall && input.siteType === 'office_retail';
   // 22511(d)(1): offstreet facilities only; (d)(2): street stalls follow the CA MUTCD.
-  const towAwayBottomM =
-    input.california && input.siteType !== 'curbside' ? EV_SIGNS.secondaryBottomM : null;
-  const chargingOnlyBottomM =
-    towAwayBottomM == null
+  const california = input.california && input.siteType !== 'curbside';
+  // A flat sign on the facade: the R7-113 at `WALL_SIGN.bottomM`, the tow-away sign below it.
+  const towAwayBottomM = !california
+    ? null
+    : onWall
+      ? WALL_SIGN.bottomM - SIGN_GAP_M - EV_SIGNS.towAway.heightM
+      : EV_SIGNS.secondaryBottomM;
+  const chargingOnlyBottomM = onWall
+    ? WALL_SIGN.bottomM
+    : towAwayBottomM == null
       ? EV_SIGNS.mountBottomM
       : Math.max(EV_SIGNS.mountBottomM, towAwayBottomM + EV_SIGNS.towAway.heightM + SIGN_GAP_M);
-  const onWall = input.wall && input.siteType === 'office_retail';
   return {
     x,
     // A wall sign hangs on the facade above its wall box, not out over the sidewalk.
@@ -150,8 +194,8 @@ export function isCaliforniaSite(site: {
 
 /**
  * The texts of the signs the 3D view draws, in the viewer's CSMS language.
- * Real US signs are in English (the MUTCD legends and the California Vehicle
- * Code 22511 statement); the view shows their meaning in the viewer's
+ * Real US signs are in English in practice (the MUTCD legends and the
+ * California Vehicle Code 22511 statement are English); the view shows their meaning in the viewer's
  * language, line breaks marked with a newline in the locale files.
  * `reserved` and `maintenance` are the virtual status signs (overlays, not
  * physical signs).
@@ -208,14 +252,43 @@ export const SIGN_FONT_FAMILY =
   'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "PingFang TC", "Hiragino Sans", "Apple SD Gothic Neo", "Malgun Gothic", "Microsoft YaHei", "Microsoft JhengHei", "Noto Sans CJK SC", "Noto Sans CJK KR", sans-serif';
 
 /**
- * The letter size of a sign legend line, in px of its canvas (20 px per inch:
- * the R7-113 canvas is 240 by 360 px for 12 by 18 in, the tow-away sign 340
- * by 440 px for 17 by 22 in): at most the English legend's size (52 px,
- * about 2.6 in, on the R7-113; 34 px on the tow-away sign) and at most 80
- * percent of the line pitch, so a language with more lines keeps them apart.
- * The caller shrinks a line further until it fits the width inside the border.
+ * Canvas px per sign inch. At 20 px per inch the legend blurred to an
+ * unreadable smear once the texture was minified at a normal overview zoom;
+ * 80 px per inch keeps sharp mip levels down to the size a sign shows at
+ * (owner report 2026-11-01, sign text readability).
+ */
+export const SIGN_PX_PER_INCH = 80;
+const SIGN_CANVAS_SCALE = SIGN_PX_PER_INCH / 20;
+
+/** The canvas of a sign face: 12 by 18 in (R7-113) or 17 by 22 in (tow-away) at `SIGN_PX_PER_INCH`. */
+export function signCanvasSize(kind: 'chargingOnly' | 'towAway'): {
+  width: number;
+  height: number;
+  /** Border inset, border line width and the legend's top and side margins, in canvas px. */
+  inset: number;
+  border: number;
+  marginY: number;
+  marginX: number;
+} {
+  const [w, h] = kind === 'chargingOnly' ? [12, 18] : [17, 22];
+  return {
+    width: w * SIGN_PX_PER_INCH,
+    height: h * SIGN_PX_PER_INCH,
+    inset: 12 * SIGN_CANVAS_SCALE,
+    border: 10 * SIGN_CANVAS_SCALE,
+    marginY: 35 * SIGN_CANVAS_SCALE,
+    marginX: 25 * SIGN_CANVAS_SCALE,
+  };
+}
+
+/**
+ * The letter size of a sign legend line, in px of its canvas
+ * (`SIGN_PX_PER_INCH`): at most the English legend's size (about 2.6 in on
+ * the R7-113, 1.7 in on the tow-away sign) and at most 80 percent of the line
+ * pitch, so a language with more lines keeps them apart. The caller shrinks a
+ * line further until it fits the width inside the border.
  */
 export function signLetterPx(kind: 'chargingOnly' | 'towAway', pitchPx: number): number {
-  const english = kind === 'chargingOnly' ? 52 : 34;
-  return Math.max(12, Math.floor(Math.min(english, pitchPx * 0.8)));
+  const english = (kind === 'chargingOnly' ? 52 : 34) * SIGN_CANVAS_SCALE;
+  return Math.max(12 * SIGN_CANVAS_SCALE, Math.floor(Math.min(english, pitchPx * 0.8)));
 }

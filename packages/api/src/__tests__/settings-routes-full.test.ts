@@ -154,6 +154,9 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
   return {
     OCTT_PENDING_RESTORE_SETTING_KEY: actual.OCTT_PENDING_RESTORE_SETTING_KEY,
     WEBHOOK_SIGNING_SECRET_KEY: actual.WEBHOOK_SIGNING_SECRET_KEY,
+    isChargerPlateColorKey: actual.isChargerPlateColorKey,
+    normalizeChargerPlateColor: actual.normalizeChargerPlateColor,
+    resolveChargerPlateColor: actual.resolveChargerPlateColor,
     assertTemplateAllowed: actual.assertTemplateAllowed,
     EMAIL_LAYOUT_TEMPLATE: actual.EMAIL_LAYOUT_TEMPLATE,
     isDataRetentionSettingKey: actual.isDataRetentionSettingKey,
@@ -408,6 +411,9 @@ describe('Settings routes - full coverage', () => {
         priceDisplay: 'net',
         taxBasis: 'net',
         portalUrl: config.PORTAL_URL,
+        // No brand color stored: the charger plates take the default brand blue.
+        chargerColorAc: '#2563eb',
+        chargerColorDc: '#2563eb',
       });
     });
 

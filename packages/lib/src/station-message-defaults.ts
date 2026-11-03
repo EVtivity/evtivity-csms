@@ -330,3 +330,21 @@ export const STATION_PER_MINUTE_LABELS: Record<StationMessageLanguage, string> =
   zh: '{price}/分钟',
   'zh-TW': '{price}/分鐘',
 };
+
+/**
+ * What a charger screen shows when it has no display message and station
+ * messages are off: a welcome with the company name (`{{company}}`).
+ */
+export const STATION_SCREEN_WELCOME: Record<StationMessageLanguage, string> = {
+  en: 'Welcome to {{company}}',
+  de: 'Willkommen bei {{company}}',
+  es: 'Bienvenido a {{company}}',
+  ko: '{{company}}에 오신 것을 환영합니다',
+  zh: '欢迎使用{{company}}',
+  'zh-TW': '歡迎使用{{company}}',
+};
+
+/** The welcome text of a charger screen in a language, with the company name. */
+export function stationScreenWelcome(language: StationMessageLanguage, company: string): string {
+  return STATION_SCREEN_WELCOME[language].replace('{{company}}', () => company);
+}

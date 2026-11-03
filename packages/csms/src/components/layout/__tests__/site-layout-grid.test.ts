@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import sceneSource from '../site-layout-scene.ts?raw';
+import { sceneSource } from './helpers/scene-source';
 import {
   DEFAULT_LAYOUT_GRID,
   bayToPosition,
@@ -19,11 +19,12 @@ import {
   SIDEWALK_M,
   buildingBox,
   buildingFramePoints,
-  beaconLevel,
+  faultLightLevel,
   LABEL_CULL_FROM,
   stationLabelInRange,
   OVERHEAD_BADGE,
   overheadBadgeScale,
+  overheadHitPx,
   overheadBadgesCrowded,
   CROWDED_MARKER_SHARE,
   pixelsPerMeter,
@@ -371,6 +372,20 @@ describe('site layout 3D lot', () => {
     }
   });
 
+  it('keeps the car of a plugged connector in every state until it is unplugged', () => {
+    const states = [
+      'charging',
+      'faulted',
+      'unavailable',
+      'offline',
+      'available',
+      'online',
+      'reserved',
+      'maintenance',
+    ] as const;
+    for (const state of states) expect(stationProp(state, true), state).toBe('car');
+  });
+
   it('fits a logo inside the back panel with padding, never stretched', () => {
     const panel = { width: 0.62, height: 0.62 };
     const wide = logoFit(panel, { width: 400, height: 100 }, 0.04);
@@ -386,7 +401,6 @@ describe('site layout 3D lot', () => {
     const models: ChargerLogoModel[] = [
       'dc',
       'ac',
-      'wall',
       'truck_mcs',
       'bus_dispenser',
       'pantograph_down',
@@ -400,8 +414,8 @@ describe('site layout 3D lot', () => {
       const fit = logoFit(spec, { width: 120, height: 120 }, 0.03);
       expect(fit.width, model).toBeGreaterThan(0.1);
       expect(fit.width).toBeLessThanOrEqual(spec.width - 0.06 + 1e-9);
-      // Only a wall box shows it on its front (its back is on the wall).
-      expect(spec.facing, model).toBe(model === 'wall' ? 1 : -1);
+      // Only the pantograph control module (its back against the pole) shows it on its front.
+      expect(spec.facing, model).toBe(model.startsWith('pantograph') ? 1 : -1);
       // The scene builds it for this model.
       const built =
         scene.includes(`logoPanel('${model}'`) ||
@@ -437,10 +451,9 @@ describe('site layout 3D lot', () => {
     expect(frontCamera(box, 0, 1, OVERVIEW_CAMERA_OFFSET).target).toEqual(fitFrame(box, 1).target);
   });
 
-  it('pulses the faulted beacon on and off, and keeps it steady and bright without motion', () => {
-    const steady = beaconLevel(null);
-    expect(steady.intensity).toBeGreaterThan(0.5);
-    const samples = Array.from({ length: 40 }, (_, i) => beaconLevel(i * 0.05).intensity);
+  it('blinks a faulted status light on and off, and keeps it steady and bright without motion', () => {
+    expect(faultLightLevel(null)).toBeGreaterThan(0.5);
+    const samples = Array.from({ length: 40 }, (_, i) => faultLightLevel(i * 0.05));
     expect(Math.min(...samples)).toBeLessThan(0.3);
     expect(Math.max(...samples)).toBeGreaterThan(1.5);
   });
@@ -454,10 +467,11 @@ describe('site layout 3D lot', () => {
     for (const model of Object.keys(CHARGER_LOGO_PANELS) as ChargerLogoModel[]) {
       const panel = CHARGER_LOGO_PANELS[model];
       const face = CHARGER_LOGO_FACES[model];
-      // The plate on the face: within its whole width (and the AC models'
-      // flat part), within its height, on its plane.
-      const half = model === 'ac' || model === 'wall' ? face.flatWidth / 2 : face.width / 2;
-      expect(Math.abs(panel.x) + panel.width / 2, model).toBeLessThanOrEqual(half + 1e-9);
+      // The plate on the flat part of its face with 2 cm to spare on each side
+      // (never onto the rounded corners or the bevel), within its height, on its plane.
+      expect(Math.abs(panel.x) + panel.width / 2, model).toBeLessThanOrEqual(
+        face.flatWidth / 2 - 0.02 + 1e-9,
+      );
       expect(panel.y - panel.height / 2, model).toBeGreaterThanOrEqual(face.minY);
       expect(panel.y + panel.height / 2, model).toBeLessThanOrEqual(face.maxY);
       expect(Math.abs(panel.z - face.z), model).toBeLessThanOrEqual(0.02);
@@ -504,6 +518,18 @@ describe('site layout 3D lot', () => {
       expect(s * markerPx).toBeLessThanOrEqual(markerPx);
       last = s;
     }
+  });
+
+  it('keeps a 24 px hover and click area for a badge drawn smaller (WCAG 2.5.8)', () => {
+    const { markerPx, avatarPx, minMarkerPx, minHitPx } = OVERHEAD_BADGE;
+    expect(minHitPx).toBe(24);
+    // Up close: the badge itself.
+    expect(overheadHitPx(1, markerPx)).toBe(24);
+    expect(overheadHitPx(1, avatarPx)).toBe(28);
+    // Far away the 24 px marker shows at 14 px, its hit area still covers 24 screen px.
+    const far = overheadBadgeScale(1, markerPx, minMarkerPx);
+    expect(overheadHitPx(far, markerPx) * far).toBeCloseTo(24, 9);
+    expect(overheadHitPx(0, markerPx)).toBe(markerPx);
   });
 
   it('calls the markers crowded when a quarter or more of them overlap another', () => {

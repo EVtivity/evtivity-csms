@@ -87,6 +87,9 @@ import {
   STATION_MESSAGE_LANGUAGES,
   isTaxBasis,
   TAX_BASES,
+  isChargerPlateColorKey,
+  normalizeChargerPlateColor,
+  resolveChargerPlateColor,
   UI_LANGUAGES,
   isMobileAppSettingKey,
   parseMobileAppList,
@@ -210,6 +213,7 @@ function isCachedSystemSetting(key: string): boolean {
   return (
     key === COMPANY_CURRENCY_KEY ||
     key === 'company.name' ||
+    key === 'company.supportPhone' ||
     key === COMPANY_PRICE_DISPLAY_KEY ||
     key === COMPANY_TAX_BASIS_KEY ||
     key === INVOICE_EPC_QR_ENABLED_KEY ||
@@ -264,6 +268,10 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
     return isStationMessageLanguage(value) ? { value } : null;
   }
   if (key === COMPANY_TAX_BASIS_KEY) return isTaxBasis(value) ? { value } : null;
+  if (isChargerPlateColorKey(key)) {
+    const color = normalizeChargerPlateColor(value);
+    return color != null ? { value: color } : null;
+  }
   if (isMobileAppSettingKey(key)) {
     const list = parseMobileAppList(key, value);
     return list != null ? { value: list } : null;
@@ -607,6 +615,9 @@ function invalidSettingError(key: string, value?: unknown): { error: string; cod
   if (key === COMPANY_PRICE_DISPLAY_KEY) return invalidPriceDisplayError;
   if (key === EMAIL_WRAPPER_TEMPLATE_KEY) return invalidEmailWrapperError;
   if (key === COMPANY_TAX_BASIS_KEY) return invalidTaxBasisError;
+  if (isChargerPlateColorKey(key)) {
+    return { error: `${key} must be empty or a #rrggbb hex color`, code: 'VALIDATION_ERROR' };
+  }
   if (key === STATION_MESSAGE_LANGUAGE_KEY) return invalidStationMessageLanguageError;
   return invalidCurrencyError;
 }
@@ -828,7 +839,7 @@ export function settingsRoutes(app: FastifyInstance): void {
             z
               .record(z.string(), z.string())
               .describe(
-                'Public branding values. Every company.* and marketing.* setting under its key without the prefix (for example name, logo, favicon), currency, priceDisplay, taxBasis, portalUrl (company.portalUrl, else the PORTAL_URL the API runs with), and qrCodeIcon (the SVG drawn in the center of station QR codes, absent when none is set). Values that are not strings are returned as an empty string',
+                'Public branding values. Every company.* and marketing.* setting under its key without the prefix (for example name, logo, favicon), currency, priceDisplay, taxBasis, portalUrl (company.portalUrl, else the PORTAL_URL the API runs with), chargerColorAc and chargerColorDc (the #rrggbb front plate colors of AC and DC chargers in the 3D site layout, company.themeColor or #2563eb when unset), and qrCodeIcon (the SVG drawn in the center of station QR codes, absent when none is set). Values that are not strings are returned as an empty string',
               ),
           ),
         },
@@ -861,6 +872,15 @@ export function settingsRoutes(app: FastifyInstance): void {
       // Whether tariff prices are entered excluding ('net') or including
       // ('gross') tax, so clients show a price in the display the driver chose.
       result['taxBasis'] = await getCompanyTaxBasis();
+      // Front plate colors of the 3D site layout chargers: empty follows the brand color.
+      result['chargerColorAc'] = resolveChargerPlateColor(
+        result['chargerColorAc'],
+        result['themeColor'],
+      );
+      result['chargerColorDc'] = resolveChargerPlateColor(
+        result['chargerColorDc'],
+        result['themeColor'],
+      );
       // The driver portal address the mobile app links to: the operator's
       // company.portalUrl, else the PORTAL_URL this API runs with.
       if ((result['portalUrl'] ?? '').trim() === '') result['portalUrl'] = apiConfig.PORTAL_URL;

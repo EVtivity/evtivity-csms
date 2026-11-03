@@ -1,23 +1,26 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useRef, useState } from 'react';
+// The standard 2D charger card of every site type's board (owner design
+// 2026-11-03): one fixed size (`STATION_CARD_SIZE`), the whole card one
+// button that opens the station popup, a 3 px accent bar in the station state
+// color on its left. With edit rights it drags (a grip shows on hover) and,
+// focused, the board moves it with the arrow keys.
+
+import { useLayoutEffect, useRef, useState } from 'react';
+import { GripVertical } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { motion, useMotionValue } from 'motion/react';
-import { Zap, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { formatEnergy, formatNumber } from '@/lib/formatting';
-import { SVG_COLORS } from '@/lib/chart-theme';
 import {
-  evseDisplayState,
   stationDisplayState,
+  stationStateColor,
   stationStateLabelKey,
 } from '@/lib/station-display-state';
-import { ConnectionBadge, StateBadge } from './StationStateIcon';
 import type { AvatarData } from '@/components/AccountAvatar';
 import type { FreePlacement } from '@evtivity/lib/site-layout';
-
-const GRID_SIZE = 20;
+import type { ScreenMessage } from './site-layout-screen-text';
+import { STATION_CARD_SIZE } from './site-layout-2d-placement';
+import { StationCardContent } from './StationCardContent';
 
 let globalDragCounter = 0;
 
@@ -78,7 +81,11 @@ export interface LayoutStation {
   /** The reported cellular signal (bars 0 to 4 and dBm); null when not known. */
   signal?: { bars: number; dbm: number } | null | undefined;
   inMaintenance: boolean;
+  /** A simulator station (the popup offers its simulator actions); absent in older replies. */
+  isSimulator?: boolean | undefined;
   displayMessage: string | null;
+  /** What the charger screen shows, in the viewer's language, and its source (absent in older replies and the day replay). */
+  screenMessage?: ScreenMessage | null | undefined;
   evses: EvseData[];
   /** The reservation holding the station now (null: none or no reservations:read; absent in older replies). */
   reservation?: { startsAt: string | null; endsAt: string } | null | undefined;
@@ -88,423 +95,255 @@ export interface LayoutStation {
   session?: LayoutSession | null | undefined;
   /** Custom site: where the station stands (meters and turn); null or absent on the other site types. */
   freePosition?: FreePlacement | null | undefined;
+  /** Where its card stands on the 2D board (board px); null or absent shows the computed default slot. */
+  boardPosition?: { x: number; y: number } | null | undefined;
 }
 
-interface StationCardProps {
-  station: LayoutStation;
-  onDragEnd: (stationId: string, x: number, y: number) => void;
-  /** Where a drop at (x, y) lands: on the grid, inside the board, on no other card. */
-  resolveDrop?: ((stationId: string, x: number, y: number) => { x: number; y: number }) | undefined;
-  currentDrawKw?: number | undefined;
-  allocatedLimitKw?: number | null | undefined;
-  /** Opens the station popup (shared with the 3D view). */
-  onOpenDetails?: ((stationId: string) => void) | undefined;
-}
-
-function isCharging(station: LayoutStation): boolean {
-  return station.evses.some((evse) => evse.connectors.some((conn) => conn.isPluggedIn));
-}
-
-function totalEnergy(station: LayoutStation): number {
-  let total = 0;
-  for (const evse of station.evses) {
-    for (const conn of evse.connectors) {
-      if (conn.energyDeliveredWh != null) {
-        total += conn.energyDeliveredWh;
-      }
-    }
-  }
-  return total;
-}
-
-/**
- * The charger kind of a station (a DC dispenser or an AC pedestal) as a plain
- * drawing: its state shows only in the shared status marker, never in this
- * icon (owner decision 2026-11-01).
- */
-function StationIcon({ dc }: { dc: boolean }): React.JSX.Element {
-  if (dc) {
-    return (
-      <svg width="52" height="62" viewBox="0 0 52 62" className="shrink-0" aria-hidden="true">
-        <rect
-          x="4"
-          y="2"
-          width="44"
-          height="52"
-          rx="5"
-          fill={SVG_COLORS.stationBody}
-          stroke={SVG_COLORS.stationStroke}
-          strokeWidth="1.5"
-        />
-        <rect
-          x="9"
-          y="6"
-          width="34"
-          height="20"
-          rx="2"
-          fill={SVG_COLORS.stationPort}
-          opacity="0.35"
-        />
-        <rect x="10" y="32" width="12" height="7" rx="2" fill={SVG_COLORS.stationPort} />
-        <rect x="30" y="32" width="12" height="7" rx="2" fill={SVG_COLORS.stationPort} />
-        <path
-          d="M16 39 Q16 46 13 50"
-          fill="none"
-          stroke={SVG_COLORS.stationPort}
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        <path
-          d="M36 39 Q36 46 39 50"
-          fill="none"
-          stroke={SVG_COLORS.stationPort}
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-      </svg>
-    );
-  }
-
+/** The connector an EVSE shows the status of: the one plugged in, else the first. */
+export function evseShownConnector(evse: Pick<EvseData, 'connectors' | 'status'>): {
+  status: string;
+} {
   return (
-    <svg width="48" height="56" viewBox="0 0 48 56" className="shrink-0" aria-hidden="true">
-      <rect
-        x="8"
-        y="4"
-        width="32"
-        height="44"
-        rx="4"
-        fill={SVG_COLORS.stationBody}
-        stroke={SVG_COLORS.stationStroke}
-        strokeWidth="1.5"
-      />
-      <rect
-        x="12"
-        y="8"
-        width="24"
-        height="16"
-        rx="2"
-        fill={SVG_COLORS.stationPort}
-        opacity="0.35"
-      />
-      <rect x="14" y="30" width="8" height="5" rx="1" fill={SVG_COLORS.stationPort} />
-      <rect x="26" y="30" width="8" height="5" rx="1" fill={SVG_COLORS.stationPort} />
-    </svg>
+    evse.connectors.find((c) => c.isPluggedIn) ?? evse.connectors[0] ?? { status: evse.status }
   );
 }
 
-function Tooltip({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}): React.JSX.Element {
-  return (
-    <span className="group/tip relative inline-flex">
-      {children}
-      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/tip:block whitespace-nowrap rounded bg-popover px-1.5 py-0.5 text-xs text-popover-foreground shadow-sm border z-100">
-        {label}
-      </span>
-    </span>
-  );
-}
-
-function utilizationColor(drawKw: number, limitKw: number): string {
-  const pct = limitKw > 0 ? drawKw / limitKw : 0;
-  if (pct >= 0.95) return 'text-destructive';
-  if (pct >= 0.8) return 'text-warning';
-  return 'text-success';
-}
-
-function snapToGrid(value: number): number {
-  return Math.round(value / GRID_SIZE) * GRID_SIZE;
-}
-
-/** The frame of the 2D charger card, the same on every site type's board. */
-export const STATION_CARD_CLASS =
-  'w-[160px] rounded-lg border bg-card text-card-foreground shadow-xs select-none';
-
-/**
- * The content of the standard 2D charger card (every site type's 2D board
- * shows this card for every station, never a chip; owner decision
- * 2026-11-01): the shared status marker, the station ID, the
- * details button that opens the shared station popup, the charger icon with
- * its status reason, each EVSE with the same status marker, the connection badge, the energy of a
- * charging session and the live draw against the allocated limit.
- */
-export function StationCardContent({
-  station,
-  currentDrawKw,
-  allocatedLimitKw,
-  onOpenDetails,
-}: {
-  station: LayoutStation;
-  currentDrawKw?: number | undefined;
-  allocatedLimitKw?: number | null | undefined;
-  /** Opens the station popup (shared with the 3D view). */
-  onOpenDetails?: ((stationId: string) => void) | undefined;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const charging = isCharging(station);
-  const energy = totalEnergy(station);
-  const reasonLabel =
-    station.statusReason != null &&
-    (station.status === 'unavailable' || station.status === 'faulted')
-      ? t(`stations.statusReason.${station.statusReason}`, station.statusReason)
-      : null;
-  const stationIcon = <StationIcon dc={station.chargingKind === 'dc'} />;
-  const state = stationDisplayState(station);
-  const badges =
-    station.connectionType != null ? (
-      <div className="flex flex-wrap items-center gap-1">
-        <ConnectionBadge station={station} />
-      </div>
-    ) : null;
-  const iconWithReason =
-    reasonLabel != null ? <Tooltip label={reasonLabel}>{stationIcon}</Tooltip> : stationIcon;
-  return (
-    <div className="space-y-1 p-2">
-      <div className="flex items-center gap-1.5">
-        <StateBadge state={state} />
-        <span className="font-semibold truncate text-xs">{station.stationId}</span>
-        {/* Opens the shared station popup, the same as the 3D view. */}
-        <button
-          type="button"
-          className="ml-auto rounded p-0.5 hover:bg-muted"
-          data-testid={`site-layout-card-details-${station.id}`}
-          aria-label={t('sites.layoutView.stateDetailsLabel', {
-            id: station.stationId,
-            state: t(stationStateLabelKey(state)),
-          })}
-          aria-haspopup="dialog"
-          onPointerDown={(e) => {
-            e.stopPropagation();
-          }}
-          onKeyDown={(e) => {
-            e.stopPropagation();
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenDetails?.(station.id);
-          }}
-        >
-          <Plus className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-        </button>
-      </div>
-
-      <div className="flex items-center gap-2">
-        {iconWithReason}
-        <div className="flex flex-col gap-1 min-w-0">
-          {/* Each EVSE with the same status marker as the station. */}
-          <div className="flex flex-wrap gap-1" data-testid="station-card-evses">
-            {[...station.evses]
-              .sort((a, b) => a.evseId - b.evseId)
-              .map((evse) => {
-                const evseState = evseDisplayState(evse);
-                const types = [
-                  ...new Set(
-                    evse.connectors.map((c) => c.connectorType ?? `#${String(c.connectorId)}`),
-                  ),
-                ].join(', ');
-                return (
-                  <StateBadge
-                    key={evse.evseId}
-                    state={evseState}
-                    label={t('sites.layoutView.evseState', {
-                      n: evse.evseId,
-                      connectors: types,
-                      state: t(stationStateLabelKey(evseState)),
-                    })}
-                  />
-                );
-              })}
-          </div>
-          {badges}
-          {charging && energy > 0 && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex items-center gap-0.5 text-xs font-medium text-link"
-            >
-              <Zap className="h-3 w-3" />
-              <span>{formatEnergy(energy)}</span>
-            </motion.div>
-          )}
-          {currentDrawKw != null && currentDrawKw > 0 && (
-            <div
-              className={cn(
-                'flex items-center gap-0.5 text-xs font-medium',
-                allocatedLimitKw != null && allocatedLimitKw > 0
-                  ? utilizationColor(currentDrawKw, allocatedLimitKw)
-                  : 'text-success',
-              )}
-            >
-              <Zap className="h-2.5 w-2.5" />
-              <span>{formatNumber(currentDrawKw, 1)} kW</span>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** The next stacking order for a card brought to the front (a drag or its details). */
+/** The next stacking order for a card brought to the front (a drag or its popup). */
 export function nextCardZ(): number {
   globalDragCounter += 1;
   return globalDragCounter;
 }
 
-export function StationCard({
-  station,
-  onDragEnd,
-  onOpenDetails,
-  currentDrawKw,
-  allocatedLimitKw,
-  resolveDrop,
-}: StationCardProps): React.JSX.Element {
-  const motionX = useMotionValue(station.positionX);
-  const motionY = useMotionValue(station.positionY);
-  const [zIndex, setZIndex] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
+/** The card frame (its size comes from `STATION_CARD_SIZE`). */
+export const STATION_CARD_CLASS =
+  'group absolute overflow-hidden rounded-xl border bg-card p-3 text-card-foreground select-none transition-shadow hover:shadow-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2';
 
-  useEffect(() => {
-    motionX.set(station.positionX);
-    motionY.set(station.positionY);
-  }, [station.positionX, station.positionY, motionX, motionY]);
+/** How long a dropped card eases into a clear place when the drop overlapped another card. */
+export const CARD_SETTLE_MS = 150;
 
+function prefersReducedMotion(): boolean {
   return (
-    <motion.div
-      drag
-      dragMomentum={false}
-      dragElastic={0}
-      whileHover={{ scale: 1.02 }}
-      whileDrag={{ scale: 1.05 }}
-      onDragStart={() => {
-        setZIndex(nextCardZ());
-        setIsDragging(true);
-      }}
-      style={{
-        position: 'absolute',
-        x: motionX,
-        y: motionY,
-        zIndex,
-        cursor: 'grab',
-      }}
-      onDragEnd={() => {
-        setIsDragging(false);
-        const dropped =
-          resolveDrop != null
-            ? resolveDrop(station.id, motionX.get(), motionY.get())
-            : {
-                x: snapToGrid(Math.max(0, motionX.get())),
-                y: snapToGrid(Math.max(0, motionY.get())),
-              };
-        motionX.set(dropped.x);
-        motionY.set(dropped.y);
-        onDragEnd(station.id, dropped.x, dropped.y);
-      }}
-      data-testid={`site-layout-card-${station.id}`}
-      className={cn(STATION_CARD_CLASS, isDragging && 'ring-2 ring-primary shadow-lg')}
-    >
-      <StationCardContent
-        station={station}
-        currentDrawKw={currentDrawKw}
-        allocatedLimitKw={allocatedLimitKw}
-        onOpenDetails={(id) => {
-          setZIndex(nextCardZ());
-          onOpenDetails?.(id);
-        }}
-      />
-    </motion.div>
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
   );
 }
 
+function onNextFrame(run: () => void): number | null {
+  if (typeof requestAnimationFrame === 'undefined') {
+    run();
+    return null;
+  }
+  return requestAnimationFrame(run);
+}
+
+/** A drop this close to where the pointer left it lands without easing (rounding only). */
+const SETTLE_MIN_PX = 1;
+
 /**
- * The standard 2D charger card at a position a board computes (a depot's bay
- * or lane slot, a custom site's charger point): the same card and content as
- * the grid board, dragged with the pointer (the board decides where a drop
- * lands) and, focused, moved with the arrow keys (`onKeyDown`).
+ * The 2D charger card at a corner a board computes. A click, Enter or Space
+ * opens the station popup; with `draggable` a pointer drag moves it 1:1 under
+ * the pointer (a CSS transform painted once a frame, no re-render per move),
+ * the board decides where the drop lands, and other keys go to `onKeyDown`.
+ * A drop that lands elsewhere than the pointer left it eases there.
  */
 export function PlacedStationCard({
   station,
   left,
   top,
-  centered = false,
   draggable,
-  dragging,
+  zoom,
   currentDrawKw,
-  allocatedLimitKw,
   onOpenDetails,
-  onDragMove,
   onDragEnd,
+  onDragActive,
   onKeyDown,
 }: {
   station: LayoutStation;
-  /** The card's top left corner (or its middle with `centered`), in board px. */
+  /** The card's top left corner, in board px. */
   left: number;
   top: number;
-  centered?: boolean;
   draggable: boolean;
-  dragging: boolean;
+  /** The board zoom, read when a drag starts (pointer px to board px). */
+  zoom?: (() => number) | undefined;
   currentDrawKw?: number | undefined;
-  allocatedLimitKw?: number | null | undefined;
   onOpenDetails: (stationId: string) => void;
-  /** The pointer moved by (dx, dy) px since the drag started (past a 4 px threshold). */
-  onDragMove?: (dx: number, dy: number) => void;
-  /** The drag ended (`moved`: past the threshold). */
-  onDragEnd?: (moved: boolean) => void;
+  /**
+   * A drag moved the card by (dx, dy) board px and ended: the board answers
+   * where it lands (null: back where it was).
+   */
+  onDragEnd?: (dx: number, dy: number) => { x: number; y: number } | null;
+  /** A card drag started (true) or ended (false); the board pans nothing meanwhile. */
+  onDragActive?: ((active: boolean) => void) | undefined;
   onKeyDown?: (e: React.KeyboardEvent) => void;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   const [zIndex, setZIndex] = useState(0);
-  const start = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const start = useRef<{ x: number; y: number; moved: boolean; zoom: number } | null>(null);
+  const delta = useRef({ x: 0, y: 0 });
+  const frame = useRef<number | null>(null);
+  const settleFrom = useRef<{ x: number; y: number } | null>(null);
+  const justDragged = useRef(false);
+
+  function paintDelta(): void {
+    frame.current = null;
+    const el = ref.current;
+    if (el == null || start.current == null) return;
+    el.style.transform = `translate(${String(delta.current.x)}px, ${String(delta.current.y)}px)`;
+  }
+  // Shows the card at `from` (board px from where it now stands) and eases it home.
+  function settle(from: { x: number; y: number }): void {
+    const el = ref.current;
+    if (el == null) return;
+    el.style.transition = 'none';
+    if (Math.hypot(from.x, from.y) < SETTLE_MIN_PX || prefersReducedMotion()) {
+      el.style.transform = '';
+      return;
+    }
+    el.style.transform = `translate(${String(from.x)}px, ${String(from.y)}px)`;
+    onNextFrame(() => {
+      el.style.transition = `transform ${String(CARD_SETTLE_MS)}ms ease-out`;
+      el.style.transform = '';
+    });
+  }
+  // Ends a drag: pointerup, pointercancel, lost capture, or a move with no button
+  // held (a missed pointerup). Stops the frame loop first, so nothing moves after.
+  function endDrag(drop: boolean): void {
+    const s = start.current;
+    start.current = null;
+    if (frame.current != null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(frame.current);
+    }
+    frame.current = null;
+    if (s == null) return;
+    justDragged.current = s.moved;
+    if (!s.moved) return;
+    setDragging(false);
+    onDragActive?.(false);
+    const moved = delta.current;
+    const el = ref.current;
+    if (el != null) el.style.transform = `translate(${String(moved.x)}px, ${String(moved.y)}px)`;
+    if (!drop) {
+      settle(moved);
+      return;
+    }
+    const landed = onDragEnd?.(moved.x, moved.y) ?? null;
+    const from =
+      landed == null ? moved : { x: left + moved.x - landed.x, y: top + moved.y - landed.y };
+    if (landed == null || (landed.x === left && landed.y === top)) settle(from);
+    else settleFrom.current = from;
+  }
+  // The board moved the card: keep it where the pointer left it, then ease to the landing place.
+  useLayoutEffect(() => {
+    const from = settleFrom.current;
+    if (from == null) return;
+    settleFrom.current = null;
+    settle(from);
+  }, [left, top]);
+  const state = stationDisplayState(station);
+  function open(): void {
+    setZIndex(nextCardZ());
+    onOpenDetails(station.id);
+  }
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-haspopup="dialog"
+      aria-label={t('sites.layoutView.stateDetailsLabel', {
+        id: station.stationId,
+        state: t(stationStateLabelKey(state)),
+      })}
       data-testid={`site-layout-card-${station.id}`}
-      tabIndex={draggable ? 0 : -1}
+      data-state={state}
+      ref={ref}
+      onTransitionEnd={(e) => {
+        e.currentTarget.style.transition = '';
+      }}
       className={cn(
-        'absolute touch-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         STATION_CARD_CLASS,
-        centered && '-translate-x-1/2 -translate-y-1/2',
-        draggable && 'cursor-grab',
-        dragging && 'ring-2 ring-primary shadow-lg',
+        'touch-none',
+        state === 'faulted' && 'border-destructive/40',
+        draggable ? 'cursor-grab' : 'cursor-pointer',
+        dragging && 'cursor-grabbing shadow-lg ring-2 ring-primary',
       )}
-      style={{ left, top, zIndex: dragging ? 1_000_000 : zIndex }}
-      onKeyDown={onKeyDown}
+      style={{
+        left,
+        top,
+        width: STATION_CARD_SIZE.width,
+        height: STATION_CARD_SIZE.height,
+        zIndex: dragging ? 1_000_000 : zIndex,
+      }}
+      onClick={() => {
+        if (justDragged.current) {
+          justDragged.current = false;
+          return;
+        }
+        open();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open();
+          return;
+        }
+        onKeyDown?.(e);
+      }}
       onPointerDown={(e) => {
-        if (!draggable) return;
+        if (!draggable || e.button !== 0) return;
+        e.stopPropagation();
         e.currentTarget.setPointerCapture(e.pointerId);
-        start.current = { x: e.clientX, y: e.clientY, moved: false };
+        start.current = { x: e.clientX, y: e.clientY, moved: false, zoom: zoom?.() ?? 1 };
+        delta.current = { x: 0, y: 0 };
+        justDragged.current = false;
+        e.currentTarget.style.transition = 'none';
         setZIndex(nextCardZ());
       }}
       onPointerMove={(e) => {
         const s = start.current;
         if (s == null) return;
+        if (e.buttons === 0) {
+          endDrag(true);
+          return;
+        }
         const dx = e.clientX - s.x;
         const dy = e.clientY - s.y;
         if (!s.moved && Math.hypot(dx, dy) <= 4) return;
+        if (!s.moved) {
+          setDragging(true);
+          onDragActive?.(true);
+        }
         s.moved = true;
-        onDragMove?.(dx, dy);
+        delta.current = { x: dx / s.zoom, y: dy / s.zoom };
+        if (frame.current == null) frame.current = onNextFrame(paintDelta);
       }}
       onPointerUp={() => {
-        const s = start.current;
-        start.current = null;
-        if (s != null) onDragEnd?.(s.moved);
+        endDrag(true);
       }}
       onPointerCancel={() => {
-        start.current = null;
-        onDragEnd?.(false);
+        endDrag(false);
+      }}
+      onLostPointerCapture={() => {
+        endDrag(true);
       }}
     >
-      <StationCardContent
-        station={station}
-        currentDrawKw={currentDrawKw}
-        allocatedLimitKw={allocatedLimitKw}
-        onOpenDetails={(id) => {
-          setZIndex(nextCardZ());
-          onOpenDetails(id);
-        }}
+      {/* The accent bar in the station state color. */}
+      <span
+        aria-hidden="true"
+        data-testid="station-card-accent"
+        className="absolute inset-y-0 left-0 w-0.75"
+        style={{ backgroundColor: stationStateColor(state) }}
       />
+      {draggable && (
+        <GripVertical
+          aria-hidden="true"
+          data-testid="station-card-grip"
+          className="absolute right-1 top-1 h-3.5 w-3.5 rounded-sm bg-card text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100"
+        />
+      )}
+      <StationCardContent station={station} currentDrawKw={currentDrawKw} />
     </div>
   );
 }

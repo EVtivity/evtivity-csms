@@ -135,6 +135,16 @@ export {
   parseMajorInputToCents,
 } from './currency.js';
 export type { SupportedCurrency, TariffSummaryLabels, TariffSummaryPrices } from './currency.js';
+export {
+  CHARGER_PLATE_COLOR_KEYS,
+  DEFAULT_THEME_COLOR,
+  isChargerPlateColorKey,
+  isHexColor,
+  normalizeChargerPlateColor,
+  resolveBrandColor,
+  resolveChargerPlateColor,
+} from './charger-plate-colors.js';
+export type { ChargerPlateColorKey } from './charger-plate-colors.js';
 export { ISO3166_ALPHA2_TO_ALPHA3, toIso3166Alpha3, isKnownCountry } from './country.js';
 export {
   PRICE_DISPLAYS,
@@ -527,6 +537,8 @@ export {
   isStationMessageLanguage,
   STATION_PRICE_SUMMARY_LABELS,
   STATION_PER_MINUTE_LABELS,
+  STATION_SCREEN_WELCOME,
+  stationScreenWelcome,
 } from './station-message-defaults.js';
 export type { StationMessageLanguage } from './station-message-defaults.js';
 export { dispatchOneShotStationMessage, clearStationMessage } from './station-message-dispatch.js';

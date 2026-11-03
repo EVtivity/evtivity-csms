@@ -9,6 +9,7 @@ import type { SiteLayoutSettings } from '@evtivity/lib/site-layout';
 import { DEFAULT_LAYOUT_GRID } from '@evtivity/lib/site-layout';
 import { chargingStations, connectors, sites } from '../schema/assets.js';
 import {
+  boardOf,
   ChargerPlacementSiteTypeError,
   LayoutGridTooSmallError,
   moveStationLayout,
@@ -737,5 +738,14 @@ describe('depot site layout', () => {
     expect(settings.get('sit_1')).toMatchObject({ busBays: 6, truckLanes: 3 });
     const back = await setSiteLayoutType(tx, 'sit_1', 'depot');
     expect(back.settingsAfter).toMatchObject({ busBays: 6, truckLanes: 3 });
+  });
+});
+
+describe('boardOf', () => {
+  it('reads a 2D board position only when both columns are stored', () => {
+    expect(boardOf({ boardX: 480, boardY: -36 })).toEqual({ x: 480, y: -36 });
+    expect(boardOf({ boardX: 0, boardY: 0 })).toEqual({ x: 0, y: 0 });
+    expect(boardOf({ boardX: null, boardY: 12 })).toBeNull();
+    expect(boardOf({})).toBeNull();
   });
 });

@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  CHARGER_PORT_LIMITS,
   accessibleChargingSpace,
   bayInLayout,
   bayToPosition,
@@ -363,6 +364,19 @@ describe('site layout demo plan', () => {
     // between their spot and the partner spot, in the slots placement gives them.
     expect(ac.every((st) => st.evses === 2)).toBe(true);
     expect(ac.every((st) => sharesSpotPair({ charging: 'ac', ports: st.evses }, s))).toBe(true);
+    // Every unit within CHARGER_PORT_LIMITS; two DC dispensers at the most cables
+    // (two EVSEs of a CCS1 and a CHAdeMO), the AC pedestals at the most ports.
+    for (const st of patroon!.stations) {
+      const limit = CHARGER_PORT_LIMITS[st.kind];
+      const evses = st.evses ?? (st.kind === 'dc' ? 2 : 1);
+      const perEvse = 1 + (st.extraConnectorTypes?.length ?? 0);
+      expect(evses).toBeLessThanOrEqual(limit.evses);
+      expect(perEvse).toBeLessThanOrEqual(limit.connectorsPerEvse);
+      expect(evses * perEvse).toBeLessThanOrEqual(limit.cables);
+    }
+    const fourCables = dc.filter((st) => st.extraConnectorTypes?.includes('CHAdeMO') === true);
+    expect(fourCables.map((st) => st.stationId)).toEqual(['CS-3050', 'CS-3051']);
+    expect(ac.every((st) => (st.evses ?? 1) === CHARGER_PORT_LIMITS.ac.evses)).toBe(true);
     expect(ac.map((st) => ({ col: st.col, row: st.row }))).toEqual(
       freeSlotsFor(
         ac.map(() => ({ charging: 'ac' as const, depot: null, ports: 2 })),

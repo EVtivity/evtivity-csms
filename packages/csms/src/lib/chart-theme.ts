@@ -54,6 +54,34 @@ export const STATUS_COLORS: Record<string, string> = {
   removed: '#9ca3af',
 };
 
+/**
+ * Status colors for small line icons on a card (the 2D charger card's port
+ * pictograms and payment terminal mark): at least 3:1 against the card in
+ * each theme (WCAG 2.2 SC 1.4.11). The light theme takes the 600 shade where
+ * the 500 shade of `STATUS_COLORS` falls below 3:1 on white.
+ */
+export const STATUS_ICON_COLORS: Record<'light' | 'dark', Record<string, string>> = {
+  light: {
+    ...STATUS_COLORS,
+    charging: '#16a34a',
+    discharging: '#16a34a',
+    preparing: '#0891b2',
+    ev_connected: '#0891b2',
+    reserved: '#ea580c',
+    suspended_ev: '#d97706',
+    suspended_evse: '#d97706',
+    idle: '#d97706',
+    removed: '#6b7280',
+  },
+  dark: { ...STATUS_COLORS },
+};
+
+/** The icon color of a connector status in a theme (an unknown status shows as unavailable). */
+export function statusIconColor(status: string, dark: boolean): string {
+  const map = STATUS_ICON_COLORS[dark ? 'dark' : 'light'];
+  return map[status] ?? map['unavailable'] ?? '#ef4444';
+}
+
 export const PAYMENT_STATUS_COLORS: Record<string, string> = {
   pending: '#f59e0b',
   pre_authorized: '#3b82f6',

@@ -32,6 +32,7 @@ import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useLoadedValues } from '@/hooks/use-loaded-values';
+import { ChargerPlateColorFields, chargerPlateColorErrors } from './ChargerPlateColorFields';
 
 const CURRENCY_NAMES: Record<SupportedCurrency, string> = {
   USD: 'US Dollar',
@@ -82,6 +83,8 @@ interface CompanyValues {
   country: string;
   portalUrl: string;
   themeColor: string;
+  chargerColorAc: string;
+  chargerColorDc: string;
   metaDescription: string;
   metaKeywords: string;
 }
@@ -108,6 +111,8 @@ function companyValuesFrom(settings: Record<string, unknown> | undefined): Compa
     country: s('company.country'),
     portalUrl: s('company.portalUrl'),
     themeColor: s('company.themeColor') || '#2563eb',
+    chargerColorAc: s('company.chargerColorAc'),
+    chargerColorDc: s('company.chargerColorDc'),
     metaDescription: s('company.metaDescription'),
     metaKeywords: s('company.metaKeywords'),
   };
@@ -168,6 +173,8 @@ export function CompanySettings({
     country: companyCountry,
     portalUrl: companyPortalUrl,
     themeColor: companyThemeColor,
+    chargerColorAc,
+    chargerColorDc,
     metaDescription,
     metaKeywords,
   } = companyValues;
@@ -188,6 +195,7 @@ export function CompanySettings({
   const setMetaDescription = companyField('metaDescription');
   const setMetaKeywords = companyField('metaKeywords');
   const [taxBasisConfirmOpen, setTaxBasisConfirmOpen] = useState(false);
+  const [plateColorsSubmitted, setPlateColorsSubmitted] = useState(false);
   const savedTaxBasis = resolveTaxBasis(settings?.['company.taxBasis']);
 
   const companyMutation = useMutation({
@@ -207,6 +215,8 @@ export function CompanySettings({
         api.put('/v1/settings/company.country', { value: vals.country }),
         api.put('/v1/settings/company.portalUrl', { value: vals.portalUrl }),
         api.put('/v1/settings/company.themeColor', { value: vals.themeColor }),
+        api.put('/v1/settings/company.chargerColorAc', { value: vals.chargerColorAc.trim() }),
+        api.put('/v1/settings/company.chargerColorDc', { value: vals.chargerColorDc.trim() }),
         api.put('/v1/settings/company.metaDescription', { value: vals.metaDescription }),
         api.put('/v1/settings/company.metaKeywords', { value: vals.metaKeywords }),
       ]),
@@ -556,6 +566,16 @@ export function CompanySettings({
           <p className="text-xs text-muted-foreground">{t('settings.themeColorDescription')}</p>
         </div>
 
+        <ChargerPlateColorFields
+          chargerColorAc={chargerColorAc}
+          chargerColorDc={chargerColorDc}
+          themeColor={companyThemeColor}
+          showErrors={plateColorsSubmitted}
+          onChange={(key, value) => {
+            companyField(key)(value);
+          }}
+        />
+
         <ConfirmDialog
           open={taxBasisConfirmOpen}
           onOpenChange={setTaxBasisConfirmOpen}
@@ -578,6 +598,8 @@ export function CompanySettings({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            setPlateColorsSubmitted(true);
+            if (Object.keys(chargerPlateColorErrors(companyValues)).length > 0) return;
             // A different tax basis reinterprets every stored tariff price:
             // confirm before saving it.
             if (companyTaxBasis !== savedTaxBasis) {

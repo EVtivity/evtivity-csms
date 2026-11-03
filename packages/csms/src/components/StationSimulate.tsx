@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertCircle } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
@@ -13,14 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { TabPanel } from '@/components/ui/tab-panel';
 import { Tooltip } from '@/components/ui/tooltip';
-import { api } from '@/lib/api';
-import { useToast } from '@/components/ui/toast';
-import {
-  getValidActions,
-  simulateRequest,
-  type FaultMode,
-  type SimulateAction,
-} from '@/lib/simulate-actions';
+import { getValidActions, type FaultMode, type SimulateAction } from '@/lib/simulate-actions';
+import { useSimulateAction } from '@/hooks/use-simulate-action';
 
 interface SimEvse {
   evseId: number;
@@ -48,12 +41,11 @@ export function StationSimulate({
   isOnline,
 }: StationSimulateProps): React.JSX.Element {
   const { t } = useTranslation();
-  const { toast } = useToast();
   const [selectedEvse, setSelectedEvse] = useState<number>(evseIds[0] ?? 1);
   const [idToken, setIdToken] = useState('');
-  const [tokenError, setTokenError] = useState<string | null>(null);
-  const [activeAction, setActiveAction] = useState<string | null>(null);
   const [faultMode, setFaultMode] = useState<FaultMode>('end');
+  const simulate = useSimulateAction(stationId);
+  const { activeAction, tokenError } = simulate;
 
   const evseAction = (action: SimulateAction, needsToken = false): ActionConfig => ({
     action,
@@ -101,73 +93,12 @@ export function StationSimulate({
     validActions = new Set(actions.map((a) => a.action));
   }
 
-  const actionMutation = useMutation({
-    mutationFn: async ({
-      action,
-      body,
-    }: {
-      action: string;
-      body: Record<string, unknown>;
-      button: SimulateAction;
-    }) => {
-      return api.post<{ commandId: string }>(`/v1/css/actions/${action}`, body);
-    },
-    onSuccess: (_data, variables) => {
-      toast({
-        title: t('simulate.actionSent', { action: t(`simulate.${variables.button}`) }),
-        variant: 'success',
-      });
-      setActiveAction(null);
-    },
-    onError: (err: unknown, variables) => {
-      const message =
-        err != null && typeof err === 'object' && 'body' in err
-          ? ((err as { body: { error?: string } }).body.error ?? t('simulate.actionFailed'))
-          : t('simulate.actionFailed');
-      toast({ title: `${t(`simulate.${variables.button}`)}: ${message}`, variant: 'destructive' });
-      setActiveAction(null);
-    },
-  });
-
-  async function tokenIsKnown(token: string): Promise<boolean> {
-    try {
-      const res = await api.get<{ data: Array<{ idToken: string }>; total: number }>(
-        `/v1/tokens?search=${encodeURIComponent(token)}&limit=10`,
-      );
-      return res.data.some((t) => t.idToken === token);
-    } catch (err) {
-      console.warn('Token lookup failed, treating the token as unknown', err);
-      return false;
-    }
-  }
-
   async function handleAction(config: ActionConfig): Promise<void> {
-    setTokenError(null);
-
-    if (config.needsToken) {
-      const trimmed = idToken.trim();
-      if (trimmed === '') {
-        setTokenError(t('simulate.tokenRequired'));
-        return;
-      }
-      const known = await tokenIsKnown(trimmed);
-      if (!known) {
-        setTokenError(t('simulate.tokenNotFound'));
-        return;
-      }
-    }
-
-    const { apiAction, params } = simulateRequest(config.action, faultMode);
-    const body: Record<string, unknown> = { stationId, ...params };
-    if (config.needsEvse) {
-      body.evseId = selectedEvse;
-    }
-    if (config.needsToken) {
-      body.idToken = idToken.trim();
-      body.tokenType = 'ISO14443';
-    }
-    setActiveAction(config.action);
-    actionMutation.mutate({ action: apiAction, body, button: config.action });
+    await simulate.run(config.action, {
+      evseId: selectedEvse,
+      ...(config.needsToken ? { idToken } : {}),
+      faultMode,
+    });
   }
 
   return (
@@ -197,10 +128,10 @@ export function StationSimulate({
             value={idToken}
             onChange={(v) => {
               setIdToken(v);
-              setTokenError(null);
+              simulate.clearTokenError();
             }}
             onClear={() => {
-              setTokenError(null);
+              simulate.clearTokenError();
             }}
             invalid={tokenError != null}
             clearLabel={t('common.clear')}
@@ -229,9 +160,9 @@ export function StationSimulate({
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
         {actions.map((config) => {
-          const isLoading = activeAction === config.action && actionMutation.isPending;
+          const isLoading = activeAction === config.action && simulate.isPending;
           const isInvalidForState = !validActions.has(config.action);
-          const disabled = actionMutation.isPending || isInvalidForState;
+          const disabled = simulate.isPending || isInvalidForState;
           // The spinner is absolutely positioned over invisible text so the
           // label stays in the DOM and the button width doesn't shift on click.
           const button = (

@@ -10,6 +10,8 @@ import {
   STATION_PRICE_SUMMARY_LABELS,
   DEFAULT_STATION_MESSAGE_LANGUAGE,
   isStationMessageLanguage,
+  STATION_SCREEN_WELCOME,
+  stationScreenWelcome,
 } from '../station-message-defaults.js';
 import type { StationMessageState } from '../station-message.js';
 
@@ -159,5 +161,21 @@ describe('STATION_MESSAGE_DEFAULTS', () => {
     expect(render({ ...base, taxRatePercent: '19', pricesIncludeTax: false })).toContain(
       'zzgl. 19 % MwSt.',
     );
+  });
+});
+
+describe('stationScreenWelcome', () => {
+  it('has a welcome with the company name in every display language', () => {
+    for (const language of STATION_MESSAGE_LANGUAGES) {
+      expect(STATION_SCREEN_WELCOME[language]).toContain('{{company}}');
+      expect(stationScreenWelcome(language, 'Acme')).toContain('Acme');
+      expect(stationScreenWelcome(language, 'Acme')).not.toContain('{{');
+    }
+    expect(stationScreenWelcome('en', 'Acme')).toBe('Welcome to Acme');
+    expect(stationScreenWelcome('de', 'Acme')).toBe('Willkommen bei Acme');
+  });
+
+  it('inserts a company name with replacement patterns as written', () => {
+    expect(stationScreenWelcome('en', 'A$&B $1')).toBe('Welcome to A$&B $1');
   });
 });

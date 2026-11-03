@@ -7,10 +7,11 @@
 // through this one entry.
 
 import type { VehicleBodyType } from '@evtivity/lib/vehicle-appearance';
+import type { CarPort } from './site-layout-cable';
 import { isLargeBodyType } from './site-layout-car';
 import { createCarKit, type CarKit } from './site-layout-car-geometry';
 import { createLargeVehicleKit } from './site-layout-large-vehicle-geometry';
 
-export function createVehicleKit(bodyType: VehicleBodyType): CarKit {
-  return isLargeBodyType(bodyType) ? createLargeVehicleKit(bodyType) : createCarKit(bodyType);
+export function createVehicleKit(bodyType: VehicleBodyType, port?: CarPort): CarKit {
+  return isLargeBodyType(bodyType) ? createLargeVehicleKit(bodyType) : createCarKit(bodyType, port);
 }

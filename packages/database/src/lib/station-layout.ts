@@ -88,6 +88,12 @@ export interface LayoutPosition {
   positionY: number;
   /** The free position on a custom site; null clears it, undefined keeps the stored one. */
   free?: FreePlacement | null | undefined;
+  /**
+   * The station's card on the 2D board, in board px (whole px): null clears
+   * it (the card shows its computed default slot), undefined keeps the stored
+   * one. Never moves the 3D spot.
+   */
+  board?: { x: number; y: number } | null | undefined;
 }
 
 /**
@@ -235,6 +241,14 @@ export async function readStoredLayoutSettings(
   return row?.layoutSettings ?? null;
 }
 
+/** A stored 2D board position (both columns, else none). */
+export function boardOf(row: {
+  boardX?: number | null | undefined;
+  boardY?: number | null | undefined;
+}): { x: number; y: number } | null {
+  return row.boardX != null && row.boardY != null ? { x: row.boardX, y: row.boardY } : null;
+}
+
 /** The stored positions of a site's stations. */
 export async function readSiteLayoutPositions(
   siteId: string,
@@ -248,6 +262,8 @@ export async function readSiteLayoutPositions(
       freeXM: stationLayoutPositions.freeXM,
       freeZM: stationLayoutPositions.freeZM,
       freeRotationDeg: stationLayoutPositions.freeRotationDeg,
+      boardX: stationLayoutPositions.boardX,
+      boardY: stationLayoutPositions.boardY,
     })
     .from(stationLayoutPositions)
     .where(eq(stationLayoutPositions.siteId, siteId));
@@ -256,6 +272,7 @@ export async function readSiteLayoutPositions(
     positionX: Number(r.positionX),
     positionY: Number(r.positionY),
     free: freeOf(r),
+    board: boardOf(r),
   }));
 }
 
@@ -391,6 +408,12 @@ async function writePositions(
   for (const pos of positions) {
     // undefined keeps the stored free position (none on a new row).
     const free = pos.free === undefined ? {} : freeColumns(pos.free);
+    const board =
+      pos.board === undefined
+        ? undefined
+        : pos.board === null
+          ? { boardX: null, boardY: null }
+          : { boardX: Math.round(pos.board.x), boardY: Math.round(pos.board.y) };
     await tx
       .insert(stationLayoutPositions)
       .values({
@@ -399,6 +422,7 @@ async function writePositions(
         positionX: String(pos.positionX),
         positionY: String(pos.positionY),
         ...free,
+        ...(board ?? {}),
       })
       .onConflictDoUpdate({
         target: stationLayoutPositions.stationId,
@@ -410,6 +434,12 @@ async function writePositions(
           positionX: String(pos.positionX),
           positionY: String(pos.positionY),
           ...free,
+          // A 2D board position counts only at its site: a row that moves to
+          // this site without a sent one starts at the computed default slot.
+          ...(board ?? {
+            boardX: sql`CASE WHEN ${stationLayoutPositions.siteId} = ${siteId} THEN ${stationLayoutPositions.boardX} ELSE NULL END`,
+            boardY: sql`CASE WHEN ${stationLayoutPositions.siteId} = ${siteId} THEN ${stationLayoutPositions.boardY} ELSE NULL END`,
+          }),
           updatedAt: new Date(),
         },
       });

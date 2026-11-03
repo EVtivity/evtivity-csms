@@ -66,6 +66,14 @@ describe('layout legend', () => {
     expect(legend.busBay).toBe(true);
     expect(legend.truckLane).toBe(false);
     expect(layoutLegend({ stations: dcOnly, settings: depot, show3d: false }).dc).toBe(false);
+    // The 2D view draws no ground marks, so it lists none (owner rule 2026-11-02).
+    expect(layoutLegend({ stations: dcOnly, settings: depot, show3d: false })).toMatchObject({
+      busBay: false,
+      truckLane: false,
+      carSpot: false,
+      building: false,
+      street: false,
+    });
     const mixed = [station('a', 'Type1', 7), station('b', 'CCS1', 150)];
     expect(layoutLegend({ stations: mixed, settings: lot, show3d: true })).toMatchObject({
       ac: true,

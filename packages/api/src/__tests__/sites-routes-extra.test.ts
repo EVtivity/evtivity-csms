@@ -76,6 +76,22 @@ const { mockReadLayoutStationSessions } = vi.hoisted(() => ({
 vi.mock('../lib/site-layout-sessions.js', () => ({
   readLayoutStationSessions: mockReadLayoutStationSessions,
 }));
+// The charger screen text reads its settings and templates apart (site-layout-screen-message.test.ts).
+vi.mock('../lib/site-layout-screen-message.js', () => ({
+  SCREEN_MESSAGE_SOURCES: ['display_message', 'station_message_template', 'default_welcome'],
+  viewerScreenLanguage: () => Promise.resolve('en'),
+  resolveLayoutScreenMessages: (stations: Array<{ id: string; displayMessage: string | null }>) =>
+    Promise.resolve(
+      new Map(
+        stations.map((s) => [
+          s.id,
+          s.displayMessage != null
+            ? { text: s.displayMessage, source: 'display_message' }
+            : { text: 'Welcome to EVtivity', source: 'default_welcome' },
+        ]),
+      ),
+    ),
+}));
 // The virtual sign windows read the database apart (integration 156-site-layout-live).
 vi.mock('../lib/site-layout-status-windows.js', () => ({
   readLayoutReservations: () => Promise.resolve(new Map()),
@@ -117,6 +133,8 @@ vi.mock('@evtivity/database', async () => {
     ...rawTimestamp,
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
     readStationDataPlans: vi.fn(() => Promise.resolve(new Map())),
+    boardOf: (r: { boardX?: number | null; boardY?: number | null }) =>
+      r.boardX != null && r.boardY != null ? { x: r.boardX, y: r.boardY } : null,
     saveSiteLayout: vi.fn(() => Promise.resolve()),
     readSiteLayoutSettings: vi.fn(async () =>
       (await import('@evtivity/lib/site-layout')).effectiveLayoutSettings(null),
@@ -779,6 +797,7 @@ describe('Site routes - extra coverage', () => {
             positionX: null,
             positionY: null,
             inMaintenance: false,
+            isSimulator: false,
           },
         ],
         [{ id: 'evse-1', stationId: 'st-uuid-1', evseId: 1 }],
@@ -819,6 +838,7 @@ describe('Site routes - extra coverage', () => {
       // No saved position: the first free slot, marked not placed.
       expect(station).toMatchObject({ positionX: 20, positionY: 20, placed: false });
       expect(station.displayMessage).toBe('Newest message');
+      expect(station.screenMessage).toEqual({ text: 'Newest message', source: 'display_message' });
       expect(station.evses[0].connectors).toEqual([
         {
           connectorId: 1,

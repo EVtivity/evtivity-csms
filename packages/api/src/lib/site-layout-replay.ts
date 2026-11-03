@@ -199,6 +199,60 @@ export function stationReplaySince(
   return bounds.length === 0 ? null : new Date(Math.max(...bounds));
 }
 
+/**
+ * From when each station's rows belong to the site (`stationReplaySince`),
+ * read from its layout placement, its newest audited site change and its
+ * sessions at other sites. A station missing from the map counts as closed.
+ */
+export async function readStationSiteWindows(
+  siteId: string,
+  ids: readonly string[],
+): Promise<Map<string, Date | null | 'closed'>> {
+  const sinceByStation = new Map<string, Date | null | 'closed'>();
+  if (ids.length === 0) return sinceByStation;
+  const idList = sql.join(
+    ids.map((id) => sql`${id}`),
+    sql`, `,
+  );
+  const historyRows = (await db.execute(sql`
+    SELECT s.id,
+      (SELECT p.created_at FROM station_layout_positions p
+        WHERE p.station_id = s.id AND p.site_id = ${siteId}) AS placed_at,
+      mv.created_at AS move_at, mv.site_id AS move_site_id,
+      (SELECT max(coalesce(c.ended_at, now())) FROM charging_sessions c
+        WHERE c.station_id = s.id AND c.site_id IS NOT NULL AND c.site_id <> ${siteId})
+        AS foreign_until
+    FROM charging_stations s
+    LEFT JOIN LATERAL (
+      SELECT a.created_at, a.after->>'siteId' AS site_id FROM station_audit_log a
+      WHERE a.station_id = s.id AND a.before ? 'siteId' AND a.after ? 'siteId'
+        AND (a.before->>'siteId') IS DISTINCT FROM (a.after->>'siteId')
+      ORDER BY a.created_at DESC, a.id DESC LIMIT 1
+    ) mv ON true
+    WHERE s.id IN (${idList})
+  `)) as unknown as Array<{
+    id: string;
+    placed_at: unknown;
+    move_at: unknown;
+    move_site_id: string | null;
+    foreign_until: unknown;
+  }>;
+  for (const h of historyRows) {
+    sinceByStation.set(
+      h.id,
+      stationReplaySince(
+        {
+          placedAt: h.placed_at == null ? null : toDate(h.placed_at),
+          lastMove: h.move_at == null ? null : { at: toDate(h.move_at), siteId: h.move_site_id },
+          foreignSessionUntil: h.foreign_until == null ? null : toDate(h.foreign_until),
+        },
+        siteId,
+      ),
+    );
+  }
+  return sinceByStation;
+}
+
 /** Whether the station stood at the site from the day start on, so its current state may stand in for a missing event. */
 function currentStateApplies(since: Date | null | 'closed' | undefined, from: Date): boolean {
   return since === null || (since instanceof Date && since.getTime() <= from.getTime());
@@ -272,44 +326,8 @@ export async function readSiteLayoutReplay(
     sql`, `,
   );
 
-  // From when each station's rows belong to this site (fail closed: 'infinity').
-  const historyRows = (await db.execute(sql`
-    SELECT s.id,
-      (SELECT p.created_at FROM station_layout_positions p
-        WHERE p.station_id = s.id AND p.site_id = ${siteId}) AS placed_at,
-      mv.created_at AS move_at, mv.site_id AS move_site_id,
-      (SELECT max(coalesce(c.ended_at, now())) FROM charging_sessions c
-        WHERE c.station_id = s.id AND c.site_id IS NOT NULL AND c.site_id <> ${siteId})
-        AS foreign_until
-    FROM charging_stations s
-    LEFT JOIN LATERAL (
-      SELECT a.created_at, a.after->>'siteId' AS site_id FROM station_audit_log a
-      WHERE a.station_id = s.id AND a.before ? 'siteId' AND a.after ? 'siteId'
-        AND (a.before->>'siteId') IS DISTINCT FROM (a.after->>'siteId')
-      ORDER BY a.created_at DESC, a.id DESC LIMIT 1
-    ) mv ON true
-    WHERE s.id IN (${idList})
-  `)) as unknown as Array<{
-    id: string;
-    placed_at: unknown;
-    move_at: unknown;
-    move_site_id: string | null;
-    foreign_until: unknown;
-  }>;
-  const sinceByStation = new Map<string, Date | null | 'closed'>();
-  for (const h of historyRows) {
-    sinceByStation.set(
-      h.id,
-      stationReplaySince(
-        {
-          placedAt: h.placed_at == null ? null : toDate(h.placed_at),
-          lastMove: h.move_at == null ? null : { at: toDate(h.move_at), siteId: h.move_site_id },
-          foreignSessionUntil: h.foreign_until == null ? null : toDate(h.foreign_until),
-        },
-        siteId,
-      ),
-    );
-  }
+  // Fail closed: a station without a window gets 'infinity'.
+  const sinceByStation = await readStationSiteWindows(siteId, ids);
   const windowRows = sql.join(
     ids.map((id) => {
       const since = sinceByStation.has(id) ? (sinceByStation.get(id) ?? null) : 'closed';

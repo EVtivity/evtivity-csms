@@ -78,6 +78,12 @@ export interface LayoutDemoStation {
   maxPowerKw?: number;
   /** The EVSEs of the station (default 2 for DC, 1 for AC). */
   evses?: number;
+  /**
+   * More connectors on every EVSE after the first (`connectorType`), as
+   * connectors 2 and up: a dispenser with two cables per EVSE (one charges at
+   * a time). At most `CHARGER_PORT_LIMITS` connectors per EVSE.
+   */
+  extraConnectorTypes?: readonly string[];
 }
 
 export interface LayoutDemoPanel {
@@ -137,6 +143,7 @@ type StationExtra = Pick<
   | 'connectorType'
   | 'maxPowerKw'
   | 'evses'
+  | 'extraConnectorTypes'
 >;
 
 /**
@@ -543,6 +550,14 @@ const PATROON_SETTINGS_FAR_TRANSFORMER: SiteLayoutSettings = {
   transformers: [{ id: 'tx-1', name: 'Utility Transformer', ratedKva: 1000, x: -5, z: 2.5 }],
 };
 const PATROON_DC: readonly number[] = [50, 51, 52, 53];
+/**
+ * The Patroon Creek DC dispensers drawn at the most cables one dispenser holds
+ * (`CHARGER_PORT_LIMITS.dc`): two EVSEs with a CCS1 and a CHAdeMO cable each,
+ * four in all, the four-cable arrangement of the Alpitronic HYC400UL (Product
+ * Data Sheet V1-2: up to 4 outputs, CCS1, J3400 or CHAdeMO). The other two
+ * keep one CCS1 cable per EVSE (ABB Terra 184 dual outlet).
+ */
+export const PATROON_DC_FOUR_CABLES: readonly number[] = [50, 51];
 const PATROON_AC: readonly number[] = [54, 55, 56, 57, 58, 59, 60, 61];
 /** The ports (EVSEs) of each Patroon Creek Level 2 pedestal. */
 export const PATROON_AC_PORTS = 2;
@@ -1125,7 +1140,13 @@ export const LAYOUT_DEMO: {
       stations: [
         ...PATROON_DC.map((n, i) => {
           const spot = PATROON_DC_SPOTS[i] ?? { col: 0, row: 0 };
-          return dc(n, spot.col, spot.row, evseCircuitId(n));
+          return dc(
+            n,
+            spot.col,
+            spot.row,
+            evseCircuitId(n),
+            PATROON_DC_FOUR_CABLES.includes(n) ? { extraConnectorTypes: ['CHAdeMO'] } : {},
+          );
         }),
         ...PATROON_AC.map((n, i) => {
           const spot = PATROON_AC_SPOTS[i] ?? { col: 0, row: 0 };

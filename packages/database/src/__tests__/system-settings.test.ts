@@ -281,6 +281,38 @@ describe('getCompanyName', () => {
   });
 });
 
+describe('getCompanySupportPhone', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mockSelect.mockReset();
+  });
+
+  it('returns the stored phone trimmed, else empty', async () => {
+    const { getCompanySupportPhone, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    mockSelect.mockReturnValue(makeChain([{ value: ' +1 555 0100 ' }]));
+    expect(await getCompanySupportPhone()).toBe('+1 555 0100');
+    for (const rows of [[], [{ value: 42 }]]) {
+      clearSystemSettingsCache();
+      mockSelect.mockReturnValue(makeChain(rows));
+      expect(await getCompanySupportPhone()).toBe('');
+    }
+  });
+
+  it('serves the cached phone until the cache is cleared, and on a failed read', async () => {
+    mockSelect.mockReturnValue(makeChain([{ value: 'First' }]));
+    const { getCompanySupportPhone, clearSystemSettingsCache } =
+      await import('../lib/system-settings.js');
+    expect(await getCompanySupportPhone()).toBe('First');
+    mockSelect.mockReturnValue(makeChain([{ value: 'Second' }]));
+    expect(await getCompanySupportPhone()).toBe('First');
+    clearSystemSettingsCache();
+    mockSelect.mockReturnValue(makeFailingChain());
+    expect(await getCompanySupportPhone()).toBe('');
+  });
+});
+
 describe('getInvoicePaymentSettings', () => {
   beforeEach(() => {
     vi.resetModules();

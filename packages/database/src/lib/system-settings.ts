@@ -45,6 +45,9 @@ let cachedCountryAt = 0;
 let cachedCompanyName: string | undefined;
 let cachedCompanyNameAt = 0;
 
+let cachedSupportPhone: string | undefined;
+let cachedSupportPhoneAt = 0;
+
 let cachedInvoicePayment: InvoicePaymentSettings | undefined;
 let cachedInvoicePaymentAt = 0;
 
@@ -230,6 +233,34 @@ export async function getCompanyName(): Promise<string> {
   }
 }
 
+/**
+ * Cached reader for the `company.supportPhone` setting (the `{{supportPhone}}`
+ * of station screens). Empty when unset, and on error without a cached value.
+ */
+export async function getCompanySupportPhone(): Promise<string> {
+  const now = Date.now();
+  if (cachedSupportPhone !== undefined && now - cachedSupportPhoneAt < TTL_MS) {
+    return cachedSupportPhone;
+  }
+
+  try {
+    const [row] = await db
+      .select({ value: settings.value })
+      .from(settings)
+      .where(eq(settings.key, 'company.supportPhone'));
+
+    cachedSupportPhone = typeof row?.value === 'string' ? row.value.trim() : '';
+    cachedSupportPhoneAt = now;
+    return cachedSupportPhone;
+  } catch (err) {
+    logger.warn(
+      { err, key: 'company.supportPhone' },
+      'getCompanySupportPhone failed, using the cached value or default',
+    );
+    return cachedSupportPhone ?? '';
+  }
+}
+
 /** The bank details printed in the invoice PDF payment block. Unset values are null. */
 export interface InvoicePaymentSettings {
   accountHolder: string | null;
@@ -324,4 +355,6 @@ export function clearSystemSettingsCache(): void {
   cachedCountryAt = 0;
   cachedCompanyName = undefined;
   cachedCompanyNameAt = 0;
+  cachedSupportPhone = undefined;
+  cachedSupportPhoneAt = 0;
 }

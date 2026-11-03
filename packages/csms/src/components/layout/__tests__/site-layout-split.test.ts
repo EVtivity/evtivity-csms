@@ -42,14 +42,14 @@ describe('DC split systems on the 3D layout', () => {
   });
 
   it('hangs one holstered cable per connector, at most four, at least one', () => {
-    expect(dispenserHolsters(1)).toEqual([{ side: -1, dropM: 0 }]);
+    expect(dispenserHolsters(1)).toEqual([{ side: -1, backM: 0 }]);
     // A CCS and CHAdeMO dispenser: one cable on each side.
     expect(dispenserHolsters(2).map((h) => h.side)).toEqual([-1, 1]);
     // A triple-outlet dispenser (ABB Terra 54 CJG: CCS, CHAdeMO, AC Type 2).
     expect(dispenserHolsters(3)).toEqual([
-      { side: -1, dropM: 0 },
-      { side: 1, dropM: 0 },
-      { side: -1, dropM: 0.34 },
+      { side: -1, backM: 0 },
+      { side: 1, backM: 0 },
+      { side: -1, backM: 0.25 },
     ]);
     expect(dispenserHolsters(6)).toHaveLength(4);
     expect(dispenserHolsters(0)).toHaveLength(1);

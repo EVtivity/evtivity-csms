@@ -306,6 +306,11 @@ async function seedSite(
     }
     const evseCount = station.evses ?? (isDc ? 2 : 1);
     const connector = demoConnector(station);
+    const extra = (station.extraConnectorTypes ?? []).map((type, k) => ({
+      connectorId: k + 2,
+      type,
+      css: mapConnectorTypeToCss(type),
+    }));
     for (let e = 1; e <= evseCount; e++) {
       await sql`
         INSERT INTO evses (id, station_id, evse_id)
@@ -319,6 +324,17 @@ async function seedSite(
           'unavailable', ${connector.type}, ${String(connector.kw)}, ${connector.amps})
         ON CONFLICT DO NOTHING
       `;
+      // A second cable on the EVSE (a rerun adds it to a station seeded before).
+      for (const c of extra) {
+        await sql`
+          INSERT INTO connectors (id, evse_id, connector_id, status, connector_type,
+            max_power_kw, max_current_amps)
+          VALUES (${`con_demolayout${n}${String(e)}_${String(c.connectorId)}`},
+            ${`evs_demolayout${n}${String(e)}`}, ${c.connectorId}, 'unavailable', ${c.type},
+            ${String(connector.kw)}, ${connector.amps})
+          ON CONFLICT DO NOTHING
+        `;
+      }
     }
     // Connectors still on the earlier European defaults take the North American plugs.
     if (station.connectorType == null && station.maxPowerKw == null) {
@@ -367,6 +383,16 @@ async function seedSite(
           ${isDc ? 400 : 208})
         ON CONFLICT DO NOTHING
       `;
+      for (const c of extra) {
+        await sql`
+          INSERT INTO css_evses (id, css_station_id, evse_id, connector_id, connector_type,
+            max_power_w, phases, voltage)
+          VALUES (${`cev_demolayout${n}${String(e)}_${String(c.connectorId)}`}, ${cssId}, ${e},
+            ${c.connectorId}, ${c.css}, ${Math.round(connector.kw * 1000)}, ${isDc ? 3 : 1},
+            ${isDc ? 400 : 208})
+          ON CONFLICT DO NOTHING
+        `;
+      }
     }
   }
   return { present: seeded, inserted, moved };

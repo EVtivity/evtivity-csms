@@ -5,6 +5,7 @@
 // each body type. No three.js here: SiteLayout3D maps the session to a car and
 // the scene builds it (site-layout-car-geometry.ts) from these profiles.
 
+import type { CarPort } from './site-layout-cable';
 import {
   DEFAULT_VEHICLE_BODY_TYPE,
   VEHICLE_BODY_TYPES,
@@ -31,6 +32,8 @@ export const CAR_BODY_TYPES: readonly CarBodyType[] = VEHICLE_BODY_TYPES.filter(
 export interface SceneCar {
   bodyType: VehicleBodyType;
   color: string;
+  /** Where its charge port is (`carPortOf`, cars only); absent: front left. A rear port backs the car in. */
+  port?: CarPort | undefined;
 }
 
 /**
@@ -291,7 +294,13 @@ export interface LargeAxle {
  *   2.6 m wide, 13 ft 6 in (4.11 m) high, its kingpin 36 in from its front on
  *   the fifth wheel ahead of the tandem, its tandem slid to 40 ft from the
  *   kingpin to the rear axle (the California limit). CharIN MCS: the inlet on
- *   the left behind the first axle.
+ *   the left behind the first axle (CharIN Whitepaper Megawatt Charging
+ *   System, 1.0, 2022-11-24, 2.3.II: inlets 2 to 4.8 m from the front; no
+ *   height is given, only that ergonomics be considered). Its center at
+ *   1.18 m is derived: the highest that keeps the 0.26 m socket and its
+ *   status light inside the 0.5 m charge port box between the cab and the
+ *   battery fairing (top at 1.45 m), and below the 48 in (1.22 m) high reach
+ *   of operable parts (2010 ADA Standards 308.2.1), above the frame rails (1.09 m).
  */
 export interface LargeVehicleSpec {
   length: number;
@@ -339,7 +348,7 @@ export const LARGE_VEHICLE_SPECS: Record<LargeBodyType, LargeVehicleSpec> = {
       { z: 16.95, dual: true },
       { z: 18.19, dual: true },
     ],
-    port: { z: 3.3, y: 1.0 },
+    port: { z: 3.3, y: 1.18 },
   },
 };
 

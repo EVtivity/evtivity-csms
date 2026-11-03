@@ -3,8 +3,10 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  CHARGER_PORT_LIMITS,
   FREE_LAYOUT,
   SPLIT_SYSTEM,
+  drawnConnectorCounts,
   accessibleChargingSpace,
   effectiveLayoutSettings,
   firstFreeSlotFor,
@@ -116,5 +118,38 @@ describe('DC split systems hold one spot per dispenser', () => {
     expect(spots).not.toBeNull();
     expect(spots!.some((b) => b.col === 1 && b.row === 0)).toBe(false);
     expect(fit.unfit).toEqual([]);
+  });
+});
+
+describe('charger port limits', () => {
+  it('draws at most 2 ports of one connector on an AC unit', () => {
+    expect(CHARGER_PORT_LIMITS.ac).toEqual({ evses: 2, connectorsPerEvse: 1, cables: 2 });
+    expect(drawnConnectorCounts('ac', [1])).toEqual([1]);
+    expect(drawnConnectorCounts('ac', [1, 1])).toEqual([1, 1]);
+    // A station that reports more: the first two ports, one connector each.
+    expect(drawnConnectorCounts('ac', [2, 1, 1])).toEqual([1, 1]);
+  });
+
+  it('draws at most 2 EVSEs, 2 connectors each and 4 cables on a DC dispenser', () => {
+    expect(CHARGER_PORT_LIMITS.dc).toEqual({
+      evses: 2,
+      connectorsPerEvse: 2,
+      cables: 4,
+      singleEvseConnectors: 3,
+    });
+    expect(drawnConnectorCounts('dc', [1, 1])).toEqual([1, 1]);
+    expect(drawnConnectorCounts('dc', [2, 2])).toEqual([2, 2]);
+    expect(drawnConnectorCounts('dc', [3, 3])).toEqual([2, 2]);
+    expect(drawnConnectorCounts('dc', [2])).toEqual([2]);
+    // A one-EVSE multi-standard dispenser (CCS, CHAdeMO, AC): three cables.
+    expect(drawnConnectorCounts('dc', [3])).toEqual([3]);
+    expect(drawnConnectorCounts('dc', [5])).toEqual([3]);
+    // No EVSE reported yet: one connector.
+    expect(drawnConnectorCounts('dc', [])).toEqual([1]);
+    expect(drawnConnectorCounts('dc', [0])).toEqual([1]);
+  });
+
+  it('keeps a DC station with more EVSEs than one dispenser holds a split system', () => {
+    expect(SPLIT_SYSTEM.minDispensers).toBe(CHARGER_PORT_LIMITS.dc.evses + 1);
   });
 });

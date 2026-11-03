@@ -5,16 +5,17 @@
 // (view only). Both load it with React.lazy, so three.js
 // (site-layout-scene.ts) is fetched only when a 3D view shows.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { signTexts, type SignTexts } from './site-layout-signs';
 import { isVehicleBodyType, type VehicleBodyType } from '@evtivity/lib/vehicle-appearance';
 import { Link } from 'react-router';
-import { List, Maximize2, Minimize2, Scan, Sparkles, User, X } from 'lucide-react';
+import { Keyboard, List, Maximize2, Minimize2, Scan, Sparkles, User, X } from 'lucide-react';
 import {
   assignBays,
   bayToPosition,
+  drawnConnectorCounts,
   energyAssetsOf,
   freeFootprintsOverlap,
   freeSolarPlacement,
@@ -46,14 +47,15 @@ import {
   stationStateTextColor,
 } from '@/lib/station-display-state';
 import { formatNumber } from '@/lib/formatting';
+import { LiveOcppButton, LiveOcppWindow, useCanViewLiveOcpp } from './LiveOcppCommands';
 import { Button } from '@/components/ui/button';
-import {
-  createSiteScene,
-  type SceneCameraView,
-  type SceneStation,
-  type ScreenPoint,
-  type SiteScene,
-} from './site-layout-scene';
+import { createSiteScene } from './site-layout-scene';
+import type {
+  SceneCameraView,
+  SceneStation,
+  ScreenPoint,
+  SiteScene,
+} from './site-layout-scene-types';
 import type { LayoutStation } from './StationCard';
 import {
   alignmentGuides,
@@ -64,19 +66,21 @@ import {
   freeBackPoint,
   isSpot,
   lotOf,
-  screenMessageText,
   STATION_BACK_OFFSET,
   stationBackPoint,
   stationBackShift,
   stationLabelInRange,
   OVERHEAD_BADGE,
   overheadBadgeScale,
+  overheadHitPx,
   overheadBadgesCrowded,
   stationProp,
   virtualSignOf,
   type VirtualSign,
   wallMounted,
 } from './site-layout-grid';
+import { carPortOf, evseFlows } from './site-layout-cable';
+import { connectorKindOf } from './site-layout-connectors';
 import {
   loadFlows,
   splitDispenserId,
@@ -104,6 +108,9 @@ import {
 import { sceneCar } from './site-layout-car';
 import { terminalSide, type LayoutTerminal } from './layout-terminals';
 import { StationLayoutPopup } from './StationLayoutPopup';
+import { ChargerScreenHover } from './ChargerScreenHover';
+import { useChargerPlateColors } from './use-station-thumbnail';
+import { parseScreenHoverKey } from './site-layout-screen-text';
 import { placeLayoutPopup } from './layout-popup-position';
 import { STAGE_HEIGHT_CLASS } from './site-layout-stage';
 import {
@@ -127,6 +134,9 @@ import {
   type LayoutBay as StallBay,
 } from '@evtivity/lib/site-layout';
 import { useStageFullScreen } from './use-stage-full-screen';
+import { useLayoutKeyboardNav } from './use-layout-keyboard-nav';
+import { useLayoutWheelNav } from './use-layout-wheel-nav';
+import { LayoutKeyboardHelp } from './LayoutKeyboardHelp';
 import { cn } from '@/lib/utils';
 import { ConnectionBadge, StationStateIcon } from './StationStateIcon';
 
@@ -187,6 +197,8 @@ export interface SiteLayout3DProps {
   fullScreenFooter?: React.ReactNode | undefined;
   /** The stage went full screen (true) or back (false). */
   onFullScreenChange?: ((fullScreen: boolean) => void) | undefined;
+  /** The site whose live OCPP messages the stage can show (the Layout tab, live only). */
+  liveOcppSiteId?: string | undefined;
 }
 
 /** The bar color of a panel's live draw against its limit. */
@@ -300,6 +312,14 @@ export function virtualSignTooltip(
  */
 export const OVERHEAD_BADGE_BACKGROUND = 'rounded-full bg-white';
 
+/**
+ * An invisible round hit area centered on an overhead badge, `--badge-hit`
+ * wide (set by `scaleBadge`, at least 24 screen px), so hover and click keep
+ * a 24 px target when the badge is drawn smaller.
+ */
+export const OVERHEAD_HIT_AREA =
+  "relative before:absolute before:left-1/2 before:top-1/2 before:size-(--badge-hit,24px) before:-translate-x-1/2 before:-translate-y-1/2 before:rounded-full before:content-['']";
+
 /** A soft drop shadow that keeps the overhead badges readable on light and dark ground. */
 export const OVERHEAD_ICON_SHADOW =
   '[filter:drop-shadow(0_1px_1px_rgb(0_0_0/0.45))_drop-shadow(0_0_2px_rgb(255_255_255/0.6))]';
@@ -313,9 +333,10 @@ export function linkLabelText(label: LinkLabel): string {
   return parts.join(' · ');
 }
 
-function readTheme(signs: SignTexts) {
+function readTheme(signs: SignTexts, plateColors: { ac: string; dc: string }) {
   return {
     signs,
+    plateColors,
     virtualColors: {
       reserved: resolveCssColor(stationStateColor('reserved')),
       maintenance: resolveCssColor(stationStateColor('maintenance')),
@@ -339,6 +360,10 @@ function usePageVisible(): boolean {
     };
   }, []);
   return visible;
+}
+
+function primaryPointerIsCoarse(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
 }
 
 function prefersReducedMotion(): boolean {
@@ -436,6 +461,8 @@ function scaleBadge(
   const scale = p == null ? 1 : overheadBadgeScale(p.pxPerMeter, fullPx, minPx);
   el.style.transformOrigin = '50% 100%';
   el.style.scale = String(scale);
+  // The hit area grows back to 24 screen px as the badge shrinks (OVERHEAD_HIT_AREA).
+  el.style.setProperty('--badge-hit', `${String(overheadHitPx(scale, fullPx))}px`);
   return { width: size.width * scale, height: size.height * scale };
 }
 
@@ -465,6 +492,7 @@ export default function SiteLayout3D({
   replaying = false,
   fullScreenFooter,
   onFullScreenChange,
+  liveOcppSiteId,
 }: SiteLayout3DProps): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const stageRef = useRef<HTMLDivElement>(null);
@@ -484,6 +512,8 @@ export default function SiteLayout3D({
   // The power equipment whose label shows (hover, or a tap on touch): no
   // equipment label is always on (`onEquipmentHover` keys).
   const hoveredEquipmentRef = useRef<string | null>(null);
+  // The charger screen under the pointer: its magnified copy (`ChargerScreenHover`).
+  const [screenHover, setScreenHover] = useState<ReturnType<typeof parseScreenHoverKey>>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   // Custom site in Edit Layout: the selected solar canopy (R turns it, arrows move it).
   const [selectedSolarId, setSelectedSolarId] = useState<string | null>(null);
@@ -498,6 +528,8 @@ export default function SiteLayout3D({
   const [sessionStationId, setSessionStationId] = useState<string | null>(null);
   const sessionStationRef = useRef<string | null>(null);
   const [listOpen, setListOpen] = useState(false);
+  const [keysOpen, setKeysOpen] = useState(false);
+  const keyboardHelpId = useId();
   const listOpenRef = useRef(false);
   // The popups stay left of the open station list panel (16 rem wide, 12 px from the edge).
   const popupAreaWidth = (stage: HTMLElement): number =>
@@ -789,6 +821,9 @@ export default function SiteLayout3D({
   const signs = signTexts(t);
   const signsKey = JSON.stringify(signs);
   const signsRef = useRef(signs);
+  // The charger plate colors of the company branding.
+  const plateColors = useChargerPlateColors();
+  const plateRef = useRef(plateColors);
 
   const sceneLayout = useMemo(() => {
     const sceneStations: SceneStation[] = stations.map((s) => {
@@ -796,12 +831,17 @@ export default function SiteLayout3D({
       const bay = bays.get(s.id) ?? { col: 0, row: 0 };
       const place = freePlaces.get(s.id) ?? depotPlaces.get(s.id);
       const spotType = freeSpotTypeOf(place?.placement);
-      const message = s.displayMessage != null ? screenMessageText(s.displayMessage) : '';
+      // What the charger screen shows: the layout reply's screen text, else the display message.
+      const message = s.screenMessage?.text ?? s.displayMessage ?? '';
       const stalls = place == null ? stallsOf(s.id, bay) : null;
-      const look = sceneCar(
-        s.session?.vehicle != null ? { ...s.session.vehicle, bodyType: null } : null,
-        spotVehicleBodyType(spotType, sessionBodyType(s)),
-      );
+      // The charge port of the session's car (stable per session, else per station).
+      const look = {
+        ...sceneCar(
+          s.session?.vehicle != null ? { ...s.session.vehicle, bodyType: null } : null,
+          spotVehicleBodyType(spotType, sessionBodyType(s)),
+        ),
+        port: carPortOf(s.session?.id ?? s.id),
+      };
       // A pedestal: a vehicle in the stall of each EVSE with a plug in (the
       // session's vehicle in the first, a default sedan in another).
       const evses = [...s.evses].sort((a, b) => a.evseId - b.evseId);
@@ -809,18 +849,42 @@ export default function SiteLayout3D({
       // The stall of the session's vehicle: the first EVSE with a plug in, else the first.
       const firstPlugged = Math.max(0, pluggedIn.indexOf(true));
       const stallCars =
-        stalls != null && stalls.stalls.length > 1 && stationProp(state) === 'car'
+        stalls != null &&
+        stalls.stalls.length > 1 &&
+        stationProp(state, pluggedIn.includes(true)) === 'car'
           ? stalls.stalls.map((_, i) =>
-              i === firstPlugged ? look : pluggedIn[i] === true ? sceneCar(null) : null,
+              i === firstPlugged
+                ? look
+                : pluggedIn[i] === true
+                  ? { ...sceneCar(null), port: carPortOf(`${s.id}:${String(i)}`) }
+                  : null,
             )
           : undefined;
+      // The charge flow: on the cable of each EVSE that delivers energy now.
+      const flows = evses.map(evseFlows);
+      // The connector type of each drawn connector (holsters and the plug in
+      // the car) and, per EVSE, the connector that is plugged in.
+      const dc = s.chargingKind === 'dc';
+      const connectorKinds = evses.map((e) =>
+        e.connectors.map((c) => connectorKindOf(c.connectorType, dc)),
+      );
+      const plugged = evses.map((e) =>
+        Math.max(
+          0,
+          e.connectors.findIndex((c) => c.isPluggedIn),
+        ),
+      );
       return {
+        cableFlow: flows.some(Boolean),
+        connectorKinds,
+        pluggedSlot: { evse: firstPlugged, connector: plugged[firstPlugged] ?? 0 },
+        stallPlugged: plugged,
         ...(stalls != null
           ? {
               stalls: stalls.stalls,
               shiftX: stalls.shiftX,
               carOffsetX: stalls.stalls[firstPlugged]?.x ?? stalls.stalls[0]?.x ?? 0,
-              ...(stallCars != null ? { stallCars } : {}),
+              ...(stallCars != null ? { stallCars, stallFlows: flows } : {}),
             }
           : {}),
         ...(place != null
@@ -843,9 +907,17 @@ export default function SiteLayout3D({
                 ? customDispenserXs(s.id, place)
                 : null;
           const perEvse = evses.map((e) => Math.max(1, e.connectors.length));
-          return dispensers != null && dispensers.length > 1
-            ? { dispensers, cables: perEvse.slice(0, dispensers.length) }
-            : { cables: [perEvse.reduce((n, c) => n + c, 0)] };
+          if (dispensers != null && dispensers.length > 1) {
+            return {
+              dispensers,
+              cables: perEvse
+                .slice(0, dispensers.length)
+                .map((n) => drawnConnectorCounts('dc', [n])[0] ?? 1),
+            };
+          }
+          // One unit: its EVSEs and connectors up to CHARGER_PORT_LIMITS.
+          const drawn = drawnConnectorCounts(s.chargingKind, perEvse);
+          return { cables: [drawn.reduce((n, c) => n + c, 0)], evseConnectors: drawn };
         })(),
         message: message === '' ? null : message,
         id: s.id,
@@ -860,12 +932,13 @@ export default function SiteLayout3D({
         pulsing: state === 'charging',
         glow: state === 'charging',
         wall: wallMounted(bay, lot, s.chargingKind),
-        prop: stationProp(state),
+        // A car stands wherever a connector is plugged in, after a fault too.
+        prop: stationProp(state, pluggedIn.includes(true)),
         virtualSign: virtualSignOf(state),
         // No known vehicle: a sedan, a bus in a bus bay, a semi truck in a truck lane;
         // a vehicle that does not fit a bus bay or truck lane (a car) draws that default.
         car: look,
-        beacon: state === 'faulted',
+        blinking: state === 'faulted',
         terminals: (terminals.get(s.id) ?? []).map((term) => ({
           id: term.id,
           side: terminalSide(term.evseNumber),
@@ -946,6 +1019,7 @@ export default function SiteLayout3D({
           },
           onEquipmentHover: (key) => {
             hoveredEquipmentRef.current = key;
+            setScreenHover(parseScreenHoverKey(key));
           },
           onHover: (id) => {
             hoveredRef.current = id;
@@ -1174,12 +1248,12 @@ export default function SiteLayout3D({
       return;
     }
     sceneRef.current = scene;
-    scene.setTheme(readTheme(signsRef.current));
+    scene.setTheme(readTheme(signsRef.current, plateRef.current));
     scene.setLayout(sceneLayoutRef.current);
     scene.fit();
     // Rebuild the colors when the theme changes.
     const observer = new MutationObserver(() => {
-      scene.setTheme(readTheme(signsRef.current));
+      scene.setTheme(readTheme(signsRef.current, plateRef.current));
     });
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => {
@@ -1236,11 +1310,18 @@ export default function SiteLayout3D({
     onSolarMoveRef.current = onSolarMove;
   }, [onMove, onTransformerMove, onEnergyAssetMove, onFreeMove, onSolarMove]);
 
+  // The charger plates follow the branding.
+  useEffect(() => {
+    if (plateRef.current === plateColors) return;
+    plateRef.current = plateColors;
+    sceneRef.current?.setTheme(readTheme(signsRef.current, plateRef.current));
+  }, [plateColors]);
+
   // The sign texts follow the UI language.
   useEffect(() => {
     if (JSON.stringify(signsRef.current) === signsKey) return;
     signsRef.current = JSON.parse(signsKey) as SignTexts;
-    sceneRef.current?.setTheme(readTheme(signsRef.current));
+    sceneRef.current?.setTheme(readTheme(signsRef.current, plateRef.current));
   }, [signsKey]);
 
   useEffect(() => {
@@ -1274,6 +1355,18 @@ export default function SiteLayout3D({
   }, [active, pageVisible]);
 
   const selected = stations.find((s) => s.id === selectedId) ?? null;
+  const canViewLiveOcpp = useCanViewLiveOcpp();
+  const [liveOcppOpen, setLiveOcppOpen] = useState(false);
+  const liveOcppShown = liveOcppSiteId != null && canViewLiveOcpp && !editing;
+  // A station clicked in the view filters the live OCPP window to it.
+  const selectedOcppId = selected?.stationId ?? null;
+  const liveOcppFocus = useMemo(
+    () =>
+      selectedId == null || selectedOcppId == null
+        ? null
+        : { id: selectedId, stationId: selectedOcppId },
+    [selectedId, selectedOcppId],
+  );
   // The driver avatar over a charging car shows live and on a replayed moment
   // (the replay carries the session's car and driver as live); the insight
   // marker is today's only.
@@ -1393,6 +1486,27 @@ export default function SiteLayout3D({
     if (chip != null && document.activeElement !== chip) chip.focus({ preventScroll: true });
   }, [editing, custom, selectedId]);
 
+  // W, A, S, D, the arrows, Q, E, R, F, the zoom keys and Home move the camera
+  // while the stage or a station marker has the focus. In Edit Layout on a
+  // custom site with a station or canopy selected, the arrows and R stay with
+  // onStageKeyDown (move and turn it).
+  useLayoutKeyboardNav(stageRef, sceneRef, {
+    reducedMotion: prefersReducedMotion(),
+    acceptsTarget: (target) =>
+      target === stageRef.current || [...chipRefs.current.values()].some((chip) => chip === target),
+    isReserved: (e) =>
+      editing &&
+      custom &&
+      (selectedId != null || selectedSolarId != null) &&
+      (e.key.startsWith('Arrow') || e.key === 'r' || e.key === 'R' || e.code === 'KeyR'),
+  });
+
+  // Two-finger swipe pans, pinch and a mouse wheel zoom (capture phase, so
+  // the orbit controls' own wheel zoom never runs as well).
+  useLayoutWheelNav(stageRef, sceneRef);
+  // A touch screen as the main pointer: the hint names touch gestures.
+  const touchHints = primaryPointerIsCoarse();
+
   function focusState(state: SummaryState): void {
     const next = nextStationInState(stations, state, selectedId);
     if (next != null) focusStation(next);
@@ -1404,8 +1518,12 @@ export default function SiteLayout3D({
       data-testid="site-layout-3d"
       data-full-screen={fullScreen.mode}
       onKeyDown={onStageKeyDown}
+      tabIndex={0}
+      role="application"
+      aria-label={t('sites.layoutView.keyboard.stageLabel')}
+      aria-describedby={keyboardHelpId}
       className={cn(
-        'relative w-full overflow-clip bg-background',
+        'relative w-full overflow-clip bg-background outline-hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
         fullScreen.mode === 'off' && ['rounded-lg border-2 border-dashed', stageClassName],
         fullScreen.mode === 'native' && 'h-full',
         fullScreen.mode === 'overlay' && 'fixed inset-0 z-[1000] h-dvh w-screen',
@@ -1539,6 +1657,7 @@ export default function SiteLayout3D({
                   'flex h-6 w-6 items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                   OVERHEAD_BADGE_BACKGROUND,
                   OVERHEAD_ICON_SHADOW,
+                  OVERHEAD_HIT_AREA,
                   selectable && 'pointer-events-auto',
                 )}
                 tabIndex={selectable ? 0 : -1}
@@ -1649,6 +1768,7 @@ export default function SiteLayout3D({
                     'flex h-7 w-7 items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     OVERHEAD_BADGE_BACKGROUND,
                     OVERHEAD_ICON_SHADOW,
+                    OVERHEAD_HIT_AREA,
                     editing ? '' : 'pointer-events-auto',
                   )}
                   tabIndex={editing ? -1 : 0}
@@ -1689,10 +1809,20 @@ export default function SiteLayout3D({
         <div
           className={cn(
             'pointer-events-none absolute left-3 top-3',
-            isFullScreen ? 'right-32' : 'right-24',
+            isFullScreen ? 'right-40' : 'right-32',
           )}
         >
-          <LayoutSummaryChip stations={stations} onFocusState={focusState} />
+          <div className="flex flex-col items-start gap-1.5">
+            <LayoutSummaryChip stations={stations} onFocusState={focusState} />
+            {liveOcppShown && (
+              <LiveOcppButton
+                open={liveOcppOpen}
+                onToggle={() => {
+                  setLiveOcppOpen((o) => !o);
+                }}
+              />
+            )}
+          </div>
         </div>
       )}
       <div className="absolute right-3 top-3 flex gap-1">
@@ -1741,12 +1871,32 @@ export default function SiteLayout3D({
           title={listOpen ? t('sites.layoutView.hideList') : t('sites.layoutView.showList')}
           data-testid="site-layout-list-toggle"
           onClick={() => {
+            setKeysOpen(false);
             setListOpen((o) => !o);
           }}
         >
           {listOpen ? <X className="h-4 w-4" /> : <List className="h-4 w-4" />}
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon-sm"
+          className="bg-card shadow-xs"
+          aria-pressed={keysOpen}
+          aria-expanded={keysOpen}
+          aria-controls={keyboardHelpId}
+          aria-label={t('sites.layoutView.keyboard.button')}
+          title={t('sites.layoutView.keyboard.button')}
+          data-testid="site-layout-keyboard-toggle"
+          onClick={() => {
+            setListOpen(false);
+            setKeysOpen((o) => !o);
+          }}
+        >
+          <Keyboard className="h-4 w-4" />
+        </Button>
       </div>
+      <LayoutKeyboardHelp id={keyboardHelpId} visible={keysOpen && !listOpen} editing={editing} />
       {listOpen && (
         <div
           className="absolute bottom-14 right-3 top-12 z-[900] w-64 max-w-[calc(100%-24px)] overflow-y-auto overflow-x-hidden overscroll-contain rounded-lg border bg-card/95 p-2 shadow-lg backdrop-blur-xs"
@@ -1762,6 +1912,15 @@ export default function SiteLayout3D({
             }}
           />
         </div>
+      )}
+      {liveOcppSiteId != null && liveOcppShown && liveOcppOpen && (
+        <LiveOcppWindow
+          siteId={liveOcppSiteId}
+          focusStation={liveOcppFocus}
+          onClose={() => {
+            setLiveOcppOpen(false);
+          }}
+        />
       )}
       {isFullScreen && fullScreenFooter != null && (
         <div
@@ -1782,10 +1941,14 @@ export default function SiteLayout3D({
             ? t('sites.layoutView.hintEditCustom')
             : t('sites.layoutView.hintEdit')
           : replaying
-            ? t('sites.layoutView.hintReplay')
+            ? t(touchHints ? 'sites.layoutView.hintReplayTouch' : 'sites.layoutView.hintReplay')
             : viewOnly
-              ? t('sites.layoutView.hintViewOnly')
-              : t('sites.layoutView.hint')}
+              ? t(
+                  touchHints
+                    ? 'sites.layoutView.hintViewOnlyTouch'
+                    : 'sites.layoutView.hintViewOnly',
+                )
+              : t(touchHints ? 'sites.layoutView.hintTouch' : 'sites.layoutView.hint')}
       </p>
       {notice != null && (
         <p
@@ -1810,6 +1973,12 @@ export default function SiteLayout3D({
           }}
         />
       )}
+      <ChargerScreenHover
+        stageRef={stageRef}
+        target={screenHover?.stationId === selectedId ? null : screenHover}
+        stations={stations}
+        areaWidth={popupAreaWidth}
+      />
       {selected != null && !editing && (
         <StationLayoutPopup
           ref={popupRef}

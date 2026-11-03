@@ -431,6 +431,7 @@ export {
   getCompanyTaxBasis,
   getCompanyCountry,
   getCompanyName,
+  getCompanySupportPhone,
   DEFAULT_COMPANY_NAME,
   getInvoicePaymentSettings,
   readInvoicePaymentSettings,
@@ -696,6 +697,7 @@ export {
   readStoredLayoutSettings,
   saveSiteLayout,
   setSiteLayoutType,
+  boardOf,
 } from './lib/station-layout.js';
 export type {
   LayoutPosition,
