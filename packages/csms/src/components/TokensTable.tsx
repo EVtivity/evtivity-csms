@@ -55,6 +55,7 @@ export interface Token {
   driverId?: string | null;
   idToken: string;
   tokenType: string;
+  label?: string | null;
   isActive: boolean;
   expiresAt?: string | null;
   revokedAt?: string | null;
@@ -136,6 +137,9 @@ export function TokensTable({
                 {isVisible('token') && (
                   <TableCell>
                     <CopyableId id={token.idToken} variant="table" className="text-link" />
+                    {token.label != null && token.label !== '' && (
+                      <p className="text-xs text-muted-foreground">{token.label}</p>
+                    )}
                   </TableCell>
                 )}
                 {showDriver && isVisible('driver') && (

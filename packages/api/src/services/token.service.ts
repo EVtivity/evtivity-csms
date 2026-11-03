@@ -64,6 +64,7 @@ const tokenSelect = {
   driverId: driverTokens.driverId,
   idToken: driverTokens.idToken,
   tokenType: driverTokens.tokenType,
+  label: driverTokens.label,
   isActive: driverTokens.isActive,
   expiresAt: driverTokens.expiresAt,
   revokedAt: driverTokens.revokedAt,
@@ -92,6 +93,7 @@ function tokenWhere(filters: TokenFilters) {
     conditions.push(
       or(
         ilike(driverTokens.idToken, pattern),
+        ilike(driverTokens.label, pattern),
         ilike(drivers.firstName, pattern),
         ilike(drivers.lastName, pattern),
         ilike(drivers.email, pattern),
@@ -343,7 +345,15 @@ interface TokenSnapshot {
   idToken: string;
   tokenType: string;
   driverId: string | null;
+  label?: string | null;
   prepaidBalanceCents?: number | null;
+}
+
+/** Trims a label; an empty one is no label. `undefined` (not sent) stays `undefined`. */
+export function normalizeTokenLabel(label: string | null | undefined): string | null | undefined {
+  if (label === undefined) return undefined;
+  const trimmed = label?.trim() ?? '';
+  return trimmed === '' ? null : trimmed;
 }
 
 async function writeTokenAudit(args: {
@@ -543,11 +553,13 @@ export async function createToken(
     driverId?: string | null | undefined;
     idToken: string;
     tokenType: string;
+    label?: string | null | undefined;
     expiresAt?: Date | null | undefined;
     prepaidBalanceCents?: number | null | undefined;
   },
   actor: TokenActor = { type: 'system' },
 ) {
+  const label = normalizeTokenLabel(data.label);
   // Before any lookup, so the answer says nothing about existing cards.
   if (actor.type === 'driver' && isVehicleShapedTokenValue(data.idToken)) {
     throw new VehicleShapedCardError();
@@ -575,6 +587,8 @@ export async function createToken(
         {
           isActive: true,
           expiresAt: data.expiresAt ?? null,
+          // A re-added card keeps its label unless the request names one.
+          ...(label != null ? { label } : {}),
           // A reactivated card gets a balance only while it holds none: the
           // create request read no balance to compare (PP2 Info 3).
           ...(data.prepaidBalanceCents !== undefined
@@ -598,6 +612,7 @@ export async function createToken(
       .values({
         idToken: data.idToken,
         tokenType: data.tokenType,
+        label: label ?? null,
         driverId: data.driverId ?? null,
         expiresAt: data.expiresAt ?? null,
         prepaidBalanceCents: data.prepaidBalanceCents ?? null,
@@ -620,6 +635,7 @@ export async function createToken(
       idToken: token.idToken,
       tokenType: token.tokenType,
       driverId: token.driverId,
+      label: token.label,
       prepaidBalanceCents: token.prepaidBalanceCents,
     },
   });
@@ -639,6 +655,7 @@ export async function updateToken(
     idToken?: string | undefined;
     tokenType?: string | undefined;
     driverId?: string | null | undefined;
+    label?: string | null | undefined;
     isActive?: boolean | undefined;
     expiresAt?: Date | null | undefined;
     revokedReason?: string | null | undefined;
@@ -664,6 +681,7 @@ export async function updateToken(
       idToken: string;
       tokenType: string;
       driverId: string | null;
+      label: string | null;
       isActive: boolean;
       expiresAt: Date | null;
       prepaidBalanceCents: number | null;
@@ -677,6 +695,7 @@ export async function updateToken(
           idToken: driverTokens.idToken,
           tokenType: driverTokens.tokenType,
           driverId: driverTokens.driverId,
+          label: driverTokens.label,
           isActive: driverTokens.isActive,
           expiresAt: driverTokens.expiresAt,
           deactivatedBy: driverTokens.deactivatedBy,
@@ -746,6 +765,7 @@ export async function updateToken(
       const setValues: Record<string, unknown> = { ...data, updatedAt: new Date() };
       // The expected balance is a condition, not a column.
       delete setValues['expectedPrepaidBalanceCents'];
+      if (data.label !== undefined) setValues['label'] = normalizeTokenLabel(data.label);
       // Stamp revokedAt and who deactivated when the token turns inactive;
       // clear all three on reactivate.
       if (data.isActive === false && current.isActive) {
@@ -788,12 +808,14 @@ export async function updateToken(
     idToken: current.idToken,
     tokenType: current.tokenType,
     driverId: current.driverId,
+    label: current.label,
     prepaidBalanceCents: current.prepaidBalanceCents,
   };
   const afterSnapshot: TokenSnapshot = {
     idToken: token.idToken,
     tokenType: token.tokenType,
     driverId: token.driverId,
+    label: token.label,
     prepaidBalanceCents: token.prepaidBalanceCents,
   };
 
@@ -1023,7 +1045,8 @@ export async function bulkSetActive(
   return { updated: updated.length };
 }
 
-export const TOKEN_CSV_HEADER = 'idToken,tokenType,driverEmail,isActive,expiresAt';
+// label is the last column, so a file without it still imports.
+export const TOKEN_CSV_HEADER = 'idToken,tokenType,driverEmail,isActive,expiresAt,label';
 
 export async function exportTokensCsv(filters: TokenFilters = {}): Promise<string> {
   const data = await db
@@ -1037,7 +1060,7 @@ export async function exportTokensCsv(filters: TokenFilters = {}): Promise<strin
     const email = row.driverEmail ?? '';
     const active = row.isActive ? 'true' : 'false';
     const expires = row.expiresAt instanceof Date ? row.expiresAt.toISOString() : '';
-    return `${csvEscape(row.idToken)},${csvEscape(row.tokenType)},${csvEscape(email)},${active},${csvEscape(expires)}`;
+    return `${csvEscape(row.idToken)},${csvEscape(row.tokenType)},${csvEscape(email)},${active},${csvEscape(expires)},${csvEscape(row.label ?? '')}`;
   });
 
   return [TOKEN_CSV_HEADER, ...rows].join('\n');
@@ -1050,9 +1073,11 @@ export interface TokenImportRow {
   driverEmail?: string | undefined;
   isActive?: boolean | undefined;
   expiresAt?: string | undefined;
+  label?: string | undefined;
 }
 
 const MAX_ID_TOKEN_LENGTH = 255;
+const MAX_TOKEN_LABEL_LENGTH = 100;
 const WHITESPACE = /\s/;
 
 /**
@@ -1087,6 +1112,7 @@ export async function importTokensCsv(
     driverEmail: string | null;
     isActive: boolean;
     expiresAt: Date | null;
+    label: string | null;
   };
   const parsed: Parsed[] = [];
 
@@ -1133,6 +1159,11 @@ export async function importTokensCsv(
       }
       expiresAt = d;
     }
+    const label = normalizeTokenLabel(row.label) ?? null;
+    if (label != null && label.length > MAX_TOKEN_LABEL_LENGTH) {
+      errors.push(`${rowLabel}: label is longer than ${String(MAX_TOKEN_LABEL_LENGTH)} characters`);
+      continue;
+    }
     seenInBatch.add(key);
     parsed.push({
       idToken,
@@ -1140,6 +1171,7 @@ export async function importTokensCsv(
       driverEmail: driverEmail === '' ? null : driverEmail,
       isActive: row.isActive !== false,
       expiresAt,
+      label,
     });
   }
 
@@ -1161,11 +1193,13 @@ export async function importTokensCsv(
     idToken: string;
     tokenType: string;
     driverId: string | null;
+    label: string | null;
   }> = await db.transaction(async (tx) => {
     type Prepared = {
       idToken: string;
       tokenType: string;
       driverId: string | null;
+      label: string | null;
       isActive: boolean;
       expiresAt: Date | null;
       revokedAt: Date | null;
@@ -1214,6 +1248,7 @@ export async function importTokensCsv(
         idToken: p.idToken,
         tokenType: p.tokenType,
         driverId,
+        label: p.label,
         isActive: p.isActive,
         expiresAt: p.expiresAt,
         // An inactive imported card is a block by whoever imported it.
@@ -1278,6 +1313,7 @@ export async function importTokensCsv(
         idToken: driverTokens.idToken,
         tokenType: driverTokens.tokenType,
         driverId: driverTokens.driverId,
+        label: driverTokens.label,
       });
     const insertedKeys = new Set(insertedRows.map((t) => `${t.idToken}\x00${t.tokenType}`));
     for (const p of toInsert) {
@@ -1305,6 +1341,7 @@ export async function importTokensCsv(
             idToken: t.idToken,
             tokenType: t.tokenType,
             driverId: t.driverId,
+            label: t.label,
           },
           notes: null,
         })),

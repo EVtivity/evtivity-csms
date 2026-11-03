@@ -47,6 +47,8 @@ const { DuplicateTokenError, TokenReactivationBlockedError, PncContractTokenErro
 vi.mock('../services/token.service.js', () => ({
   createToken: createTokenMock,
   updateToken: updateTokenMock,
+  normalizeTokenLabel: (label: string | null | undefined) =>
+    label === undefined ? undefined : label?.trim() || null,
   DuplicateTokenError,
   TokenReactivationBlockedError,
   PncContractTokenError,
@@ -108,6 +110,7 @@ describe('Portal token routes, uncovered paths', () => {
       tokenType: 'ISO14443',
       isActive: true,
       expiresAt: null,
+      label: null,
       deactivatedBy: null,
       createdAt: new Date('2026-01-01T00:00:00Z'),
       ...over,
@@ -138,6 +141,22 @@ describe('Portal token routes, uncovered paths', () => {
     });
     expect(res.statusCode).toBe(403);
     expect(res.json().code).toBe('TOKEN_BLOCKED_BY_OPERATOR');
+  });
+
+  it('POST passes the label of a new card to the token service', async () => {
+    createTokenMock.mockResolvedValueOnce(ownToken({ label: 'Company card' }));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/portal/tokens',
+      headers: auth,
+      payload: { idToken: 'CARD-0001', label: 'Company card' },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ label: 'Company card' });
+    expect(createTokenMock).toHaveBeenCalledWith(
+      expect.objectContaining({ idToken: 'CARD-0001', label: 'Company card' }),
+      { type: 'driver', driverId: DRIVER_ID },
+    );
   });
 
   describe('PATCH /portal/tokens/:id', () => {
@@ -187,6 +206,87 @@ describe('Portal token routes, uncovered paths', () => {
         { isActive: true },
         { type: 'driver', driverId: DRIVER_ID },
       );
+    });
+
+    it('renames a card without touching its status', async () => {
+      setupDbResults([ownToken()], [ownToken({ label: 'Company card' })]);
+      updateTokenMock.mockResolvedValueOnce({});
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { label: '  Company card ' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ id: TOKEN_ID, label: 'Company card' });
+      expect(updateTokenMock).toHaveBeenCalledWith(
+        TOKEN_ID,
+        { label: 'Company card' },
+        { type: 'driver', driverId: DRIVER_ID },
+      );
+    });
+
+    it('renames a card the operator deactivated', async () => {
+      setupDbResults(
+        [ownToken({ isActive: false, deactivatedBy: 'operator' })],
+        [ownToken({ isActive: false, deactivatedBy: 'operator', label: 'Old card' })],
+      );
+      updateTokenMock.mockResolvedValueOnce({});
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { label: 'Old card' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ label: 'Old card', blockedByOperator: true });
+      expect(updateTokenMock).toHaveBeenCalledWith(
+        TOKEN_ID,
+        { label: 'Old card' },
+        { type: 'driver', driverId: DRIVER_ID },
+      );
+    });
+
+    it('clears a label sent empty and skips an unchanged one', async () => {
+      setupDbResults([ownToken({ label: 'Company card' })], [ownToken()]);
+      updateTokenMock.mockResolvedValueOnce({});
+      const cleared = await app.inject({
+        method: 'PATCH',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { label: ' ' },
+      });
+      expect(cleared.statusCode).toBe(200);
+      expect(updateTokenMock).toHaveBeenCalledWith(
+        TOKEN_ID,
+        { label: null },
+        { type: 'driver', driverId: DRIVER_ID },
+      );
+
+      updateTokenMock.mockClear();
+      setupDbResults([ownToken({ label: 'Company card' })]);
+      const unchanged = await app.inject({
+        method: 'PATCH',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { label: 'Company card' },
+      });
+      expect(unchanged.statusCode).toBe(200);
+      expect(updateTokenMock).not.toHaveBeenCalled();
+    });
+
+    it('answers 400 for a body without isActive and label, or a label over 100 characters', async () => {
+      for (const payload of [{}, { label: 'x'.repeat(101) }]) {
+        setupDbResults([ownToken()]);
+        const res = await app.inject({
+          method: 'PATCH',
+          url: `/portal/tokens/${TOKEN_ID}`,
+          headers: auth,
+          payload,
+        });
+        expect(res.statusCode).toBe(400);
+      }
+      expect(updateTokenMock).not.toHaveBeenCalled();
     });
 
     it('answers 403 TOKEN_BLOCKED_BY_OPERATOR when the operator deactivated the card', async () => {

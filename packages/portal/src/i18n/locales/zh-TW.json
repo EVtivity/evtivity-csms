@@ -1127,7 +1127,12 @@
     "tokenType": "權杖類型",
     "blockedByOperator": "已被營運商停用",
     "expired": "已過期",
-    "toggleFailed": "無法變更此卡。請再試一次。"
+    "toggleFailed": "無法變更此卡。請再試一次。",
+    "label": "標籤",
+    "labelPlaceholder": "標籤（選填），例如：公司卡",
+    "labelHint": "用於區分您的卡片的名稱。留空則顯示卡號。",
+    "renameCard": "重新命名 RFID 卡",
+    "renameFailed": "無法重新命名此卡。請再試一次。"
   },
   "vehicles": {
     "addVehicle": "新增車輛",

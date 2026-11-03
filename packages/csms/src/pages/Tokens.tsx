@@ -33,6 +33,7 @@ interface TokenImportRow {
   driverEmail?: string;
   isActive?: boolean;
   expiresAt?: string;
+  label?: string;
 }
 
 export function Tokens(): React.JSX.Element {
@@ -105,7 +106,8 @@ export function Tokens(): React.JSX.Element {
       const header = lines[0];
       if (!header) return;
 
-      // The export columns: idToken, tokenType, driverEmail, isActive, expiresAt.
+      // The export columns: idToken, tokenType, driverEmail, isActive, expiresAt,
+      // label. A file without the label column still imports.
       const rows = lines.slice(1).map((line) => {
         const parts = parseCsvLine(line);
         const row: TokenImportRow = {
@@ -118,6 +120,9 @@ export function Tokens(): React.JSX.Element {
         }
         if (parts[4]) {
           row.expiresAt = parts[4];
+        }
+        if (parts[5]) {
+          row.label = parts[5];
         }
         return row;
       });

@@ -1128,7 +1128,12 @@
     "tokenType": "Tipo de token",
     "blockedByOperator": "Desactivada por el operador",
     "expired": "Vencida",
-    "toggleFailed": "No se pudo cambiar la tarjeta. Inténtelo de nuevo."
+    "toggleFailed": "No se pudo cambiar la tarjeta. Inténtelo de nuevo.",
+    "label": "Etiqueta",
+    "labelPlaceholder": "Etiqueta (opcional), p. ej., Tarjeta de empresa",
+    "labelHint": "Un nombre que le ayuda a distinguir sus tarjetas. Déjelo vacío para mostrar el número de tarjeta.",
+    "renameCard": "Renombrar tarjeta RFID",
+    "renameFailed": "No se pudo renombrar la tarjeta. Inténtelo de nuevo."
   },
   "vehicles": {
     "addVehicle": "Agregar vehículo",

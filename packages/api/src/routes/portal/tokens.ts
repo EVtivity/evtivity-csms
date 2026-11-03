@@ -31,6 +31,7 @@ const tokenItem = z
     driverId: z.string().nullable().describe('Owning driver ID'),
     idToken: z.string().max(255).describe('RFID card UID or token identifier'),
     tokenType: z.string().max(20).describe('OCPP IdToken type'),
+    label: z.string().nullable().describe('Free-text label of the card, null if none'),
     isActive: z.boolean().describe('Whether the token is currently active'),
     expiresAt: z.coerce
       .date()
@@ -44,6 +45,11 @@ const tokenItem = z
     createdAt: z.coerce.date().describe('Timestamp the token was registered'),
   })
   .loose();
+
+const labelSchema = z
+  .string()
+  .max(100)
+  .describe('Free-text label of the card, e.g. "Company card". Trimmed; empty means no label');
 
 const createTokenBody = z.object({
   idToken: z
@@ -62,10 +68,14 @@ const createTokenBody = z.object({
   tokenType: portalTokenTypeSchema
     .default('ISO14443')
     .describe('OCPP IdToken type (defaults to ISO14443)'),
+  label: labelSchema.nullable().optional(),
 });
 
+// At least one of the two: the handler answers 400 for neither (a refine
+// would not reach the JSON schema Fastify validates with).
 const updateTokenBody = z.object({
-  isActive: z.boolean().describe('Whether the token is active'),
+  isActive: z.boolean().optional().describe('Whether the token is active'),
+  label: labelSchema.nullable().optional(),
 });
 
 const tokenParams = z.object({
@@ -77,6 +87,7 @@ const portalTokenColumns = {
   driverId: driverTokens.driverId,
   idToken: driverTokens.idToken,
   tokenType: driverTokens.tokenType,
+  label: driverTokens.label,
   isActive: driverTokens.isActive,
   expiresAt: driverTokens.expiresAt,
   deactivatedBy: driverTokens.deactivatedBy,
@@ -88,6 +99,7 @@ interface PortalTokenRow {
   driverId: string | null;
   idToken: string;
   tokenType: string;
+  label: string | null;
   isActive: boolean;
   expiresAt: Date | null;
   deactivatedBy: string | null;
@@ -101,6 +113,7 @@ function toPortalToken(row: PortalTokenRow) {
     driverId: row.driverId,
     idToken: row.idToken,
     tokenType: row.tokenType,
+    label: row.label,
     isActive: row.isActive,
     expiresAt: row.expiresAt,
     blockedByOperator: !row.isActive && row.deactivatedBy !== 'driver',
@@ -178,6 +191,7 @@ export function portalTokenRoutes(app: FastifyInstance): void {
             driverId,
             idToken: body.idToken,
             tokenType: body.tokenType,
+            label: body.label,
           },
           { type: 'driver', driverId },
         );
@@ -234,15 +248,16 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       onRequest: [app.authenticateDriver],
       schema: {
         tags: ['Portal Tokens'],
-        summary: 'Toggle RFID token active status',
+        summary: 'Update RFID card status or label',
         description:
-          'Deactivates or reactivates one of the driver cards. The driver can reactivate only a card the driver deactivated: a card the operator deactivated answers 403 TOKEN_BLOCKED_BY_OPERATOR.',
+          'Deactivates, reactivates or renames one of the driver cards. The driver can reactivate only a card the driver deactivated: a card the operator deactivated answers 403 TOKEN_BLOCKED_BY_OPERATOR. Renaming changes no status and works on any own card. A body without isActive and label answers 400.',
         operationId: 'portalUpdateToken',
         security: [{ bearerAuth: [] }],
         params: zodSchema(tokenParams),
         body: zodSchema(updateTokenBody),
         response: {
           200: itemResponse(tokenItem),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           403: errorWith('The operator deactivated this card', [
             ERROR_CODES.TOKEN_BLOCKED_BY_OPERATOR,
           ]),
@@ -254,6 +269,12 @@ export function portalTokenRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
       const { id } = request.params as z.infer<typeof tokenParams>;
       const body = request.body as z.infer<typeof updateTokenBody>;
+      if (body.isActive === undefined && body.label === undefined) {
+        await reply
+          .status(400)
+          .send({ error: 'Send isActive, label or both', code: 'VALIDATION_ERROR' });
+        return;
+      }
 
       // Another driver's token answers 404 like a missing one, so token ids
       // cannot be probed.
@@ -262,15 +283,18 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
         return;
       }
-      // No change: no audit row, no notification.
-      if (own.isActive === body.isActive) return toPortalToken(own);
+      // Only what changes is sent: no change means no audit row and no
+      // notification.
+      const changes: { isActive?: boolean; label?: string | null } = {};
+      if (body.isActive !== undefined && body.isActive !== own.isActive) {
+        changes.isActive = body.isActive;
+      }
+      const label = tokenService.normalizeTokenLabel(body.label);
+      if (label !== undefined && label !== own.label) changes.label = label;
+      if (Object.keys(changes).length === 0) return toPortalToken(own);
 
       try {
-        await tokenService.updateToken(
-          id,
-          { isActive: body.isActive },
-          { type: 'driver', driverId },
-        );
+        await tokenService.updateToken(id, changes, { type: 'driver', driverId });
       } catch (err) {
         if (err instanceof tokenService.PncContractTokenError) {
           await reply.status(403).send({

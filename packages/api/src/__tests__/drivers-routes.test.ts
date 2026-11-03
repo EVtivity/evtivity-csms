@@ -257,6 +257,7 @@ function makeToken(overrides: Record<string, unknown> = {}) {
     driverId: VALID_DRIVER_ID,
     idToken: 'RFID-ABC-123',
     tokenType: 'ISO14443',
+    label: null,
     isActive: true,
     createdAt: now,
     updatedAt: now,
@@ -972,6 +973,32 @@ describe('Driver routes (operator)', () => {
       const body = res.json();
       expect(body.idToken).toBe('RFID-XYZ');
       expect(body.tokenType).toBe('ISO14443');
+    });
+
+    it('returns the label of the new token', async () => {
+      const driverToken = makeToken({ idToken: 'RFID-XYZ', label: 'Spare card' });
+      setupDbResults([], [{ isActive: true }], [], [driverToken]);
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/tokens`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { idToken: 'RFID-XYZ', tokenType: 'ISO14443', label: 'Spare card' },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json().label).toBe('Spare card');
+    });
+
+    it('returns 400 for a label longer than 100 characters', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/tokens`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { idToken: 'RFID-XYZ', tokenType: 'ISO14443', label: 'x'.repeat(101) },
+      });
+
+      expect(res.statusCode).toBe(400);
     });
   });
 

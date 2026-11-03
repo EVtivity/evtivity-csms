@@ -35,6 +35,7 @@ interface TokenData {
   driverId: string | null;
   idToken: string;
   tokenType: string;
+  label?: string | null;
   isActive: boolean;
   expiresAt?: string | null;
   revokedAt?: string | null;
@@ -63,6 +64,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
   const [editing, setEditing] = useState(false);
   const [idToken, setIdToken] = useState('');
   const [tokenType, setTokenType] = useState('');
+  const [label, setLabel] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [expiresAt, setExpiresAt] = useState('');
   const [isPrepaid, setIsPrepaid] = useState(false);
@@ -79,6 +81,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
     mutationFn: (body: {
       idToken?: string;
       tokenType?: string;
+      label?: string | null;
       driverId?: string | null;
       isActive?: boolean;
       expiresAt?: string | null;
@@ -108,6 +111,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
   function startEdit(): void {
     setIdToken(token.idToken);
     setTokenType(token.tokenType);
+    setLabel(token.label ?? '');
     setIsActive(token.isActive);
     setExpiresAt(token.expiresAt != null ? formatDateTimeLocal(new Date(token.expiresAt)) : '');
     setIsPrepaid(token.prepaidBalanceCents != null);
@@ -154,6 +158,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
     updateMutation.mutate({
       idToken,
       tokenType,
+      label: label.trim() !== '' ? label.trim() : null,
       driverId: selectedDriver?.id ?? null,
       isActive,
       expiresAt: expiresAt.trim() !== '' ? new Date(expiresAt).toISOString() : null,
@@ -198,6 +203,20 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
               {hasSubmitted && validationErrors.idToken && (
                 <p className="text-sm text-destructive">{validationErrors.idToken}</p>
               )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-label" className="leading-6">
+                {t('tokens.label')}
+              </Label>
+              <Input
+                id="edit-label"
+                value={label}
+                maxLength={100}
+                onChange={(e) => {
+                  setLabel(e.target.value);
+                }}
+              />
+              <p className="text-sm text-muted-foreground">{t('tokens.labelHint')}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="edit-tokenType" className="leading-6">
@@ -300,6 +319,16 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
             <div>
               <dt className="text-muted-foreground">{t('tokens.tokenValue')}</dt>
               <dd className="font-medium">{token.idToken}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">{t('tokens.label')}</dt>
+              <dd className="font-medium">
+                {token.label != null && token.label !== '' ? (
+                  token.label
+                ) : (
+                  <span className="text-muted-foreground">{t('tokens.noLabel')}</span>
+                )}
+              </dd>
             </div>
             <div>
               <dt className="text-muted-foreground">{t('tokens.tokenType')}</dt>

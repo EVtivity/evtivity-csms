@@ -189,6 +189,9 @@ export const driverTokens = pgTable(
     driverId: text('driver_id').references(() => drivers.id, { onDelete: 'cascade' }),
     idToken: varchar('id_token', { length: 255 }).notNull(),
     tokenType: varchar('token_type', { length: 20 }).notNull(),
+    // Free-text label the operator or the driver gives the token, e.g.
+    // "Pool card fleet 3". Not sent to stations or OCPI partners.
+    label: varchar('label', { length: 100 }),
     isActive: boolean('is_active').notNull().default(true),
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),

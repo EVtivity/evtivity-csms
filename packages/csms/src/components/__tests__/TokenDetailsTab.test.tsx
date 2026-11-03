@@ -243,3 +243,48 @@ describe('TokenDetailsTab expiry and deactivation', () => {
     expect(await screen.findByText('Token already registered')).toBeTruthy();
   });
 });
+
+describe('TokenDetailsTab label', () => {
+  it('shows the label, or that there is none', () => {
+    renderTab(null, { label: 'Pool card fleet 3' });
+    expect(screen.getByText('Pool card fleet 3')).toBeTruthy();
+    cleanup();
+    renderTab(null);
+    expect(screen.getByText('tokens.noLabel')).toBeTruthy();
+  });
+
+  it('saves a trimmed label', async () => {
+    patchMock.mockResolvedValue({});
+    renderTab(null);
+
+    fireEvent.click(screen.getByText('common.edit'));
+    fireEvent.change(screen.getByLabelText('tokens.label'), {
+      target: { value: '  Spare card  ' },
+    });
+    submitForm('tokens.label');
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith(
+        '/v1/tokens/dtk_1',
+        expect.objectContaining({ label: 'Spare card' }),
+      );
+    });
+  });
+
+  it('clears an emptied label', async () => {
+    patchMock.mockResolvedValue({});
+    renderTab(null, { label: 'Spare card' });
+
+    fireEvent.click(screen.getByText('common.edit'));
+    expect(screen.getByLabelText('tokens.label')).toHaveProperty('value', 'Spare card');
+    fireEvent.change(screen.getByLabelText('tokens.label'), { target: { value: ' ' } });
+    submitForm('tokens.label');
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith(
+        '/v1/tokens/dtk_1',
+        expect.objectContaining({ label: null }),
+      );
+    });
+  });
+});

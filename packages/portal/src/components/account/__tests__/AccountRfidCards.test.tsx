@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
+const { getMock, patchMock } = vi.hoisted(() => ({ getMock: vi.fn(), patchMock: vi.fn() }));
 
 vi.mock('@/lib/api', () => {
   class ApiError extends Error {
@@ -16,7 +16,7 @@ vi.mock('@/lib/api', () => {
       super(`API error ${String(status)}`);
     }
   }
-  return { api: { get: getMock, post: vi.fn(), patch: vi.fn() }, ApiError };
+  return { api: { get: getMock, post: vi.fn(), patch: patchMock }, ApiError };
 });
 
 vi.mock('react-i18next', () => ({
@@ -50,6 +50,7 @@ function renderCards(): void {
 afterEach(() => {
   cleanup();
   getMock.mockReset();
+  patchMock.mockReset();
 });
 
 describe('AccountRfidCards', () => {
@@ -76,5 +77,45 @@ describe('AccountRfidCards', () => {
     renderCards();
 
     expect(await screen.findByText('rfid.expired')).toBeTruthy();
+  });
+
+  it('shows the label above the masked card number', async () => {
+    getMock.mockResolvedValue([card({ label: 'Company card' })]);
+    renderCards();
+
+    expect(await screen.findByText('Company card')).toBeTruthy();
+    expect(screen.getByText('••••0001 · ISO14443')).toBeTruthy();
+  });
+
+  it('renames a card', async () => {
+    getMock.mockResolvedValue([card({ label: 'Company card' })]);
+    patchMock.mockResolvedValue(card({ label: 'Private' }));
+    renderCards();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'rfid.renameCard' }));
+    const input = screen.getByRole('textbox', { name: 'rfid.label' });
+    expect((input as HTMLInputElement).value).toBe('Company card');
+    fireEvent.change(input, { target: { value: ' Private ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith('/v1/portal/tokens/dtk_1', { label: 'Private' });
+    });
+  });
+
+  it('clears a label renamed to empty', async () => {
+    getMock.mockResolvedValue([card({ label: 'Company card' })]);
+    patchMock.mockResolvedValue(card({ label: null }));
+    renderCards();
+
+    fireEvent.click(await screen.findByRole('button', { name: 'rfid.renameCard' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'rfid.label' }), {
+      target: { value: '' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'common.save' }));
+
+    await waitFor(() => {
+      expect(patchMock).toHaveBeenCalledWith('/v1/portal/tokens/dtk_1', { label: null });
+    });
   });
 });

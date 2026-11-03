@@ -27,6 +27,7 @@ interface TokenData {
   driverId: string | null;
   idToken: string;
   tokenType: string;
+  label: string | null;
   isActive: boolean;
   expiresAt: string | null;
   revokedAt: string | null;
@@ -78,6 +79,9 @@ export function TokenDetail(): React.JSX.Element {
         <BackButton to="/tokens" />
         <div className="min-w-0">
           <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{token.idToken}</h1>
+          {token.label != null && token.label !== '' && (
+            <p className="text-sm text-muted-foreground wrap-anywhere">{token.label}</p>
+          )}
           <CopyableId id={token.id} />
         </div>
         <TokenStatusBadge token={token} />

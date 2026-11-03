@@ -73,6 +73,7 @@ vi.mock('@evtivity/database', async () => ({
     driverId: 'driverId',
     idToken: 'idToken',
     tokenType: 'tokenType',
+    label: 'label',
     isActive: 'isActive',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt',
@@ -165,6 +166,7 @@ import {
   exportTokensCsv,
   importTokensCsv,
   hasEmailShape,
+  normalizeTokenLabel,
   DuplicateTokenError,
   VehicleIdTokenInUseError,
   VehicleShapedCardError,
@@ -869,6 +871,7 @@ describe('exportTokensCsv', () => {
         driverEmail: 'a@b.com',
         isActive: true,
         expiresAt: null,
+        label: 'Pool card, fleet 3',
       },
       {
         idToken: 'TOK2',
@@ -883,9 +886,9 @@ describe('exportTokensCsv', () => {
     const csv = await exportTokensCsv();
 
     const lines = csv.split('\n');
-    expect(lines[0]).toBe('idToken,tokenType,driverEmail,isActive,expiresAt');
-    expect(lines[1]).toBe('TOK1,ISO14443,a@b.com,true,');
-    expect(lines[2]).toBe('TOK2,ISO15693,,false,');
+    expect(lines[0]).toBe('idToken,tokenType,driverEmail,isActive,expiresAt,label');
+    expect(lines[1]).toBe('TOK1,ISO14443,a@b.com,true,,"Pool card, fleet 3"');
+    expect(lines[2]).toBe('TOK2,ISO15693,,false,,');
   });
 
   it('serializes an expiresAt Date and applies the search filter', async () => {
@@ -903,7 +906,89 @@ describe('exportTokensCsv', () => {
     const csv = await exportTokensCsv({ search: 'TOK3', tokenType: 'ISO14443', status: 'active' });
 
     const lines = csv.split('\n');
-    expect(lines[1]).toBe('TOK3,ISO14443,c@d.com,true,2027-01-01T00:00:00.000Z');
+    expect(lines[1]).toBe('TOK3,ISO14443,c@d.com,true,2027-01-01T00:00:00.000Z,');
+  });
+});
+
+describe('token label', () => {
+  it('trims a label and treats an empty one as no label', () => {
+    expect(normalizeTokenLabel('  Pool card 3  ')).toBe('Pool card 3');
+    expect(normalizeTokenLabel('   ')).toBeNull();
+    expect(normalizeTokenLabel('')).toBeNull();
+    expect(normalizeTokenLabel(null)).toBeNull();
+    expect(normalizeTokenLabel(undefined)).toBeUndefined();
+  });
+
+  it('stores the trimmed label of a new token', async () => {
+    const token = { id: 't1', idToken: 'NEW', tokenType: 'ISO14443', driverId: null, label: 'X' };
+    setupDbResults([], [], [token]);
+
+    await createToken({ idToken: 'NEW', tokenType: 'ISO14443', label: '  Spare card  ' });
+
+    const insertChain = vi.mocked(databaseModule.db.insert).mock.results[0]?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ label: 'Spare card' }),
+    );
+  });
+
+  it('stores no label when none is sent', async () => {
+    const token = { id: 't1', idToken: 'NEW', tokenType: 'ISO14443', driverId: null };
+    setupDbResults([], [], [token]);
+
+    await createToken({ idToken: 'NEW', tokenType: 'ISO14443' });
+
+    const insertChain = vi.mocked(databaseModule.db.insert).mock.results[0]?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({ label: null }));
+  });
+
+  it('audits a label change as an update without re-pushing station lists', async () => {
+    const { writeAudit } = databaseModule;
+    const current = {
+      idToken: 'RFID-1',
+      tokenType: 'ISO14443',
+      driverId: null,
+      label: 'Old',
+      isActive: true,
+      expiresAt: null,
+      prepaidBalanceCents: null,
+    };
+    // current-row SELECT, update returning; no dup or vehicle check
+    setupDbResults([current], [{ ...current, id: 't1', label: 'New' }]);
+
+    await updateToken('t1', { label: ' New ' }, { type: 'operator', userId: 'usr_1' });
+
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: 'updated',
+        before: expect.objectContaining({ label: 'Old' }),
+        after: expect.objectContaining({ label: 'New' }),
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+    // Only the current-row SELECT and the update ran: no station list query.
+    expect(dbCallIndex).toBe(2);
+  });
+
+  it('imports a label and refuses one longer than 100 characters per row', async () => {
+    const insertedRows = [
+      { id: 't1', idToken: 'T1', tokenType: 'ISO14443', driverId: null, label: 'Pool 1' },
+    ];
+    // existing check (empty), vehicle ids (none), insert returning, audit insert
+    setupDbResults([], [], insertedRows, []);
+
+    const result = await importTokensCsv([
+      { idToken: 'T1', tokenType: 'ISO14443', label: ' Pool 1 ' },
+      { idToken: 'T2', tokenType: 'ISO14443', label: 'x'.repeat(101) },
+    ]);
+
+    expect(result.imported).toBe(1);
+    expect(result.errors).toEqual(['Row 2: label is longer than 100 characters']);
   });
 });
 

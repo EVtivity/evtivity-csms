@@ -33,10 +33,11 @@ export function DriverTokenCreate(): React.JSX.Element {
 
   const [idToken, setIdToken] = useState('');
   const [tokenType, setTokenType] = useState('ISO14443');
+  const [label, setLabel] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const createMutation = useMutation({
-    mutationFn: (body: { idToken: string; tokenType: string }) =>
+    mutationFn: (body: { idToken: string; tokenType: string; label?: string }) =>
       api.post<DriverToken>(`/v1/drivers/${id ?? ''}/tokens`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['drivers', id, 'tokens'] });
@@ -57,7 +58,11 @@ export function DriverTokenCreate(): React.JSX.Element {
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(errors).length > 0) return;
-    createMutation.mutate({ idToken, tokenType });
+    createMutation.mutate({
+      idToken,
+      tokenType,
+      ...(label.trim() !== '' ? { label: label.trim() } : {}),
+    });
   }
 
   return (
@@ -85,6 +90,20 @@ export function DriverTokenCreate(): React.JSX.Element {
               {hasSubmitted && errors.idToken && (
                 <p className="text-sm text-destructive">{errors.idToken}</p>
               )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="label" className="leading-6">
+                {t('tokens.label')}
+              </Label>
+              <Input
+                id="label"
+                value={label}
+                maxLength={100}
+                onChange={(e) => {
+                  setLabel(e.target.value);
+                }}
+              />
+              <p className="text-sm text-muted-foreground">{t('tokens.labelHint')}</p>
             </div>
             <div className="space-y-2">
               <Label htmlFor="tokenType" className="leading-6">
