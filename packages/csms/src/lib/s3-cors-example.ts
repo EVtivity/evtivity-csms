@@ -35,8 +35,8 @@ export function storageBrowserOrigins(
 
 /**
  * The permissions the storage access key needs, as plain actions and the S3
- * actions behind them. `S3ObjectStorage` uploads with a presigned POST and
- * PutObject (s3:PutObject), reads with GetObject, HeadObject and presigned GET
+ * actions behind them. `S3ObjectStorage` uploads with a presigned POST (a
+ * presigned PUT on Cloudflare R2) and PutObject (s3:PutObject), reads with GetObject, HeadObject and presigned GET
  * links (s3:GetObject), deletes with DeleteObject and DeleteObjects
  * (s3:DeleteObject), and lists with ListObjectsV2 (s3:ListBucket, also the
  * Test Connection check).
@@ -53,20 +53,25 @@ export const S3_COMPATIBLE_SETUP_DOCS_URL =
   'https://evtivity.com/docs/csms/settings#minio-and-wasabi-setup';
 
 /**
- * The S3 bucket CORS rule for browser uploads. Uploads are presigned POST
- * forms (station images and support attachments from the CSMS, driver photos
- * from the portal), and downloads are presigned GET links, so both origins need
- * POST and GET.
+ * The bucket CORS rule for browser uploads (station images and support
+ * attachments from the CSMS, driver photos from the portal) and downloads
+ * (presigned GET links), so both origins need the upload method and GET.
+ * Uploads are presigned POST forms, or on Cloudflare R2 (`uploadMethod` PUT)
+ * a PUT that sends a Content-Type header.
  */
-export function buildS3CorsExample(csmsUrl: string | null, portalUrl: string | null): string {
+export function buildS3CorsExample(
+  csmsUrl: string | null,
+  portalUrl: string | null,
+  uploadMethod: 'POST' | 'PUT' = 'POST',
+): string {
   const origins = [
     originOrPlaceholder(csmsUrl, CSMS_ORIGIN_PLACEHOLDER),
     originOrPlaceholder(portalUrl, PORTAL_ORIGIN_PLACEHOLDER),
   ];
   const rule = [
     {
-      AllowedHeaders: ['*'],
-      AllowedMethods: ['POST', 'GET'],
+      AllowedHeaders: uploadMethod === 'PUT' ? ['content-type'] : ['*'],
+      AllowedMethods: [uploadMethod, 'GET'],
       AllowedOrigins: [...new Set(origins)],
       ExposeHeaders: [],
       MaxAgeSeconds: 300,
